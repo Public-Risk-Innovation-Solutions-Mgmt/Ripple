@@ -545,7 +545,11 @@ export interface WcGenerationInputs {
   // An EXPLICIT, region-less injection ({count, amount}) takes the original
   // sequential 'wc_inject' path. A RANGED or REGIONAL one carries its shockId and
   // is drawn on streams keyed on it — see the shock injections block.
-  injections?: ({ count: number; amount: number; shockId?: undefined; region?: undefined }
+  //
+  // `recordAs` is the explicit path's shock id, stamped on its claims (Claim.
+  // shockId) WITHOUT keying any draw on it — so the explicit path's draws are
+  // exactly what they were and its claims still name the event that made them.
+  injections?: ({ count: number; amount: number; shockId?: undefined; region?: undefined; recordAs?: string }
     | { count: number | { min: number; max: number }; amount: number | { min: number; max: number }; shockId: string; region?: Region })[];
   // Current-horizon shock multipliers on a COMPONENT'S ARRIVAL RATE. Keys are
   // component names ('large', ...) or '*' for every component. DRAW ONLY.
@@ -600,6 +604,7 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
     amount: number,
     accidentYear: number,
     reportedYear: number,
+    shockId?: string,
   ) => {
     const occurrenceId = `wc-occ-${id}`;
     occurrences.push({
@@ -632,6 +637,8 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
       grossUltimate: amount,
       paidToDate: 0,
       caseReserve: amount,
+      // Only an injected claim carries it — every drawn claim serialises as before.
+      ...(shockId !== undefined ? { shockId } : {}),
     });
   };
 
@@ -827,7 +834,7 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
             : injection.amount.min * Math.exp(rng.next() * Math.log(injection.amount.max / injection.amount.min));
           if (!(raw > 0)) throw new Error(`WC claim injection requires a positive amount; got ${raw}`);
           const amount = Math.min(raw, wcSeverityCap(yearNumber));
-          emit(`wc-inject-${yearNumber}-${sid.replace(/[^A-Za-z0-9]/g, '')}-${n}-${i}`, pick.member.id, pick.member.region, pick.group, 'injected', amount, yearNumber, yearNumber);
+          emit(`wc-inject-${yearNumber}-${sid.replace(/[^A-Za-z0-9]/g, '')}-${n}-${i}`, pick.member.id, pick.member.region, pick.group, 'injected', amount, yearNumber, yearNumber, sid);
           claimCountsByGroup[pick.group] += 1;
           injectedByMember.set(pick.member.id, (injectedByMember.get(pick.member.id) ?? 0) + amount);
           count += 1;
@@ -864,7 +871,7 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
         // against is. A $200M event injected in year 10 therefore lands at that
         // year's higher ceiling, not year 1's.
         const injectedAmount = Math.min(injection.amount, wcSeverityCap(yearNumber));
-        emit(id, pick.member.id, pick.member.region, pick.group, 'injected', injectedAmount, yearNumber, yearNumber);
+        emit(id, pick.member.id, pick.member.region, pick.group, 'injected', injectedAmount, yearNumber, yearNumber, injection.recordAs);
         claimCountsByGroup[pick.group] += 1;
         injectedByMember.set(pick.member.id, (injectedByMember.get(pick.member.id) ?? 0) + injectedAmount);
         count += 1;

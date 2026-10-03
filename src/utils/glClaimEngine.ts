@@ -737,6 +737,7 @@ export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult
           id: claimId, occurrenceId, memberId: pick.member.id, line: LINE,
           accidentYear: yearNumber, calendarYear, tier: 'injected', status: 'open',
           reportedYear: yearNumber, grossUltimate: amount, paidToDate: 0, caseReserve: amount,
+          shockId: injection.shockId,
         });
         occurrences.push({
           id: occurrenceId, line: LINE, memberId: pick.member.id, memberIds: [pick.member.id],

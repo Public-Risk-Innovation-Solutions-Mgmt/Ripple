@@ -5,6 +5,7 @@
 // the app actually exports.
 import type { SpreadsheetMetric } from './resultsExport';
 import { formatCurrency, formatPct } from './formatters';
+import { eventLabel, yearEvents } from './yearEvents';
 import { placementCode, placementSummary } from './reinsuranceDisplay';
 import type { CoverageLine, LineDecisionSet, ResultSet } from '../types/simulation';
 
@@ -351,13 +352,6 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       csvValue: r => r.commonLossFactor ?? 1,
     },
     {
-      key: 'catastropheFactor',
-      category: 'Losses',
-      label: 'Catastrophe Factor',
-      value: r => (r.catastropheFactor ?? 1).toFixed(4),
-      csvValue: r => r.catastropheFactor ?? 1,
-    },
-    {
       key: 'grossUltimateLoss',
       category: 'Losses',
       label: 'Gross Ultimate Loss + LAE',
@@ -380,10 +374,24 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       csvValue: r => roundDollars(r.bookedGrossUltimate ?? r.grossUltimateLoss),
     },
     {
-      key: 'shockLossIncurred',
+      // ⚠ REPLACES TWO ROWS THAT SAID THE OPPOSITE OF WHAT HAPPENED. "Shock Loss
+      // Incurred" read Yes on WC and GL whenever a claim passed $1M — almost
+      // every year — and No on Property every year, hardcoded, a catastrophe year
+      // included. "Catastrophe Factor" read 1.0000 everywhere, the multiplier of
+      // a retired shared-factor model. This row names the year's events on this
+      // scope, scheduled and drawn alike, from what they actually produced.
+      key: 'yearEvents',
       category: 'Losses',
-      label: 'Shock Loss Incurred',
-      value: r => (r.shockLossIncurred ? 'Yes' : 'No'),
+      label: 'Events This Year',
+      value: r => {
+        const evs = yearEvents(r);
+        if (evs.length === 0) return 'None';
+        return evs.map(ev => {
+          const label = eventLabel(ev.name, ev.region);
+          if (ev.claims > 0) return `${label}: ${ev.claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
+          return `${label}: +${formatCurrency(ev.expectedGrossLossAdded)} expected`;
+        }).join('; ');
+      },
     },
     {
       // ⚠ "(current year)" IS NOT DECORATION. There are two reinsurance recovery

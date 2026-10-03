@@ -237,11 +237,22 @@ export const IMPLEMENTED_EFFECTS: ReadonlySet<ShockEffectKind> = new Set<ShockEf
 
 export interface ShockDefinition {
   id: string;               // the design-matrix number ('#22'), so table and matrix stay mapped
-  name: string;
+  name: string;             // what the HOST picks from: 'Major Earthquake'
+  // WHAT THE PLAYER READS: the event's name in the same words a drawn event of
+  // the same kind uses — 'Earthquake', never 'Major Earthquake' or '#2' — so a
+  // scheduled event and a drawn one read identically on every player screen.
+  // A NAME, NOT A SENTENCE: the sentence is written from what actually happened
+  // (where, which lines, how many claims, how much) by utils/yearEvents.ts,
+  // which is the only way a drawn catastrophe, which has no catalog row, can
+  // read the same, and the only way the sentence stays true when the realised
+  // event differs from the plan — a WC half that lands no claim because nobody
+  // in the region is enrolled.
+  eventName: string;
   horizon: ShockHorizon;
   band: ShockBand;
-  // Prose from the matrix. Shown on the audit page, so a player or instructor
-  // sees WHY the numbers moved, not just that they did.
+  // Prose from the matrix, for the HOST and the audit page: it names the
+  // mechanism (the retention, the tower) and is written before the event
+  // happens. Player screens do not show it — see eventName.
   description: string;
   effects: ShockEffect[];
 }
@@ -261,6 +272,11 @@ export interface ScheduledShock {
 export interface ShockFiring {
   shockId: string;
   name: string;
+  // The player's name for it (ShockDefinition.eventName) and the region it
+  // struck, if it struck one. OPTIONAL because a save written before they
+  // existed carries neither; readers fall back to the catalog.
+  eventName?: string;
+  region?: Region;
   band: ShockBand;
   horizon: ShockHorizon;
   description: string;
@@ -278,10 +294,18 @@ export interface ShockFiring {
 // would need a counterfactual second draw. So attributable cost is reported
 // where it exists and the analytic expectation where it does not, and the two
 // are never added together into a single misleading figure.
-export interface ShockRecord extends ShockFiring {
-  attributableGrossLoss: number;  // exact; injections only
-  attributableClaims: number;     // exact; injections only
-  expectedGrossLossAdded: number; // analytic; multipliers and overrides
+export interface ShockLineCost {
+  attributableGrossLoss: number;
+  attributableClaims: number;
+  expectedGrossLossAdded: number;
+}
+
+export interface ShockRecord extends ShockFiring, ShockLineCost {
+  // THE PER-LINE SPLIT, on the POOL record only. mergeShockRecords sums each
+  // line's record into one row per event, and this keeps what each line
+  // contributed — the Property and WC halves of one earthquake — rather than
+  // folding it into the total. Absent on a line's own record, which is one line.
+  byLine?: Partial<Record<CoverageLine, ShockLineCost>>;
 }
 
 // ---------------------------------------------------------------------------

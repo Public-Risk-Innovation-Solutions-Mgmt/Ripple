@@ -108,7 +108,7 @@ export function wcGenerationInputs(b: LineYearGenerationBase): WcGenerationInput
     // region-less injection is passed exactly as before and takes WC's original
     // path, so every shipped fixed-amount event is bit-identical.
     injections: b.shock?.injections?.map(i => (typeof i.count === 'number' && typeof i.amount === 'number' && !i.region
-      ? { count: i.count, amount: i.amount }
+      ? { count: i.count, amount: i.amount, recordAs: i.shockId }
       : { count: i.count, amount: i.amount, shockId: i.shockId, ...(i.region ? { region: i.region } : {}) })),
   };
 }

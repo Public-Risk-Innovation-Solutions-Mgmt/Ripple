@@ -22,7 +22,7 @@
 // year from the instance alone gives the same answer. Determinism stays
 // testable.
 
-import type { CoverageLine, GameInstance } from '../types/simulation';
+import type { CoverageLine, GameInstance, Region } from '../types/simulation';
 import type {
   LineShockEffects,
   ShockDefinition,
@@ -199,9 +199,14 @@ export function resolveShocks(instance: GameInstance, yearNumber: number): Shock
       }
     }
 
+    // The region it struck: the first effect that names one. A GL injection
+    // names none, and neither does a multiplier.
+    const struck = def.effects.find(e => 'region' in e && e.region) as { region?: Region } | undefined;
     firings.push({
       shockId: def.id,
       name: def.name,
+      eventName: def.eventName,
+      ...(struck?.region ? { region: struck.region } : {}),
       band: def.band,
       horizon: def.horizon,
       description: def.description,

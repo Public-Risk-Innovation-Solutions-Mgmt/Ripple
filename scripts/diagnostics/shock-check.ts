@@ -44,6 +44,8 @@ import type { Member } from '../../src/types/simulation';
 import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
 import { cedeAbove } from '../../src/utils/reinsuranceTower';
 import { SHOCK_CATALOG, validateShockDefinition } from '../../src/data/shockCatalog';
+import { claimEventLabel, drawnEventName, eventLabel, eventSentence, yearEvents } from '../../src/utils/yearEvents';
+import { PROPERTY_CAT_EARTHQUAKE } from '../../src/data/defaultAssumptions';
 import { buildResultsWorkbook } from '../../src/utils/resultsExport';
 import { RESULT_METRICS } from '../../src/utils/resultMetrics';
 import type { CoverageLine, DecisionSet, GameInstance, GameState, LineResultSet, ResultSet } from '../../src/types/simulation';
@@ -165,7 +167,7 @@ console.log('\n--- 2. resolver contract ---');
   // (investmentShock), removed again at once. Dropping the assertion because
   // the catalog stopped exercising it would leave the guarantee untested.
   SHOCK_CATALOG['#TEST-UNIMPLEMENTED'] = {
-    id: '#TEST-UNIMPLEMENTED', name: 'test', horizon: 'current', band: 'moderate', description: 'test',
+    id: '#TEST-UNIMPLEMENTED', name: 'test', eventName: 'test', horizon: 'current', band: 'moderate', description: 'test',
     effects: [{ kind: 'investmentShock', assetClass: 'equities', returnDelta: -0.2 }],
   };
   let threw = false;
@@ -792,17 +794,17 @@ console.log('\n--- 10. #2 / WILDFIRE / WATER-CONTAMINATION / WINTER-STORM ---');
 
   // THE VALIDATOR — each rule must be seen to fire.
   const bad: [string, ShockDefinition][] = [
-    ['forceEvent on WC', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'WC' as 'Property', peril: 'wildfire', region: 'North', loss: { min: 1, max: 2 } }] }],
-    ['forceEvent on GL', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'GL' as 'Property', peril: 'wildfire', region: 'North', loss: { min: 1, max: 2 } }] }],
-    ['forceEvent in no region', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'Property', peril: 'wildfire', region: 'East' as 'North', loss: { min: 1, max: 2 } }] }],
-    ['injectClaim on Property', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'Property', count: 1, amount: 1 }] }],
-    ['a region on a GL injection', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'GL', count: 1, amount: 1, region: 'North' }] }],
-    ['a WC injection in no region', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'WC', count: 1, amount: 1, region: 'East' as 'North' }] }],
-    ['freqMultiplier on WC (the old #2 defect)', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'freqMultiplier', line: 'WC', factor: 1.4 }] }],
-    ['sevMultiplier on Property', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'sevMultiplier', line: 'Property', factor: 1.1 }] }],
-    ['weatherEvent on WC', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'WC' as 'Property', peril: 'storm', region: 'North', count: { min: 1, max: 2 }, claim: { min: 1, max: 2 } }] }],
-    ['weather claims reaching the retention', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'Property', peril: 'storm', region: 'North', count: { min: 1, max: 2 }, claim: { min: 1_000_000, max: 5_000_000 } }] }],
-    ['a fractional weather claim count', { id: 'x', name: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'Property', peril: 'storm', region: 'North', count: { min: 1.5, max: 2 }, claim: { min: 1, max: 2 } }] }],
+    ['forceEvent on WC', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'WC' as 'Property', peril: 'wildfire', region: 'North', loss: { min: 1, max: 2 } }] }],
+    ['forceEvent on GL', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'GL' as 'Property', peril: 'wildfire', region: 'North', loss: { min: 1, max: 2 } }] }],
+    ['forceEvent in no region', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'Property', peril: 'wildfire', region: 'East' as 'North', loss: { min: 1, max: 2 } }] }],
+    ['injectClaim on Property', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'Property', count: 1, amount: 1 }] }],
+    ['a region on a GL injection', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'GL', count: 1, amount: 1, region: 'North' }] }],
+    ['a WC injection in no region', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'WC', count: 1, amount: 1, region: 'East' as 'North' }] }],
+    ['freqMultiplier on WC (the old #2 defect)', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'freqMultiplier', line: 'WC', factor: 1.4 }] }],
+    ['sevMultiplier on Property', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'sevMultiplier', line: 'Property', factor: 1.1 }] }],
+    ['weatherEvent on WC', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'WC' as 'Property', peril: 'storm', region: 'North', count: { min: 1, max: 2 }, claim: { min: 1, max: 2 } }] }],
+    ['weather claims reaching the retention', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'Property', peril: 'storm', region: 'North', count: { min: 1, max: 2 }, claim: { min: 1_000_000, max: 5_000_000 } }] }],
+    ['a fractional weather claim count', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'Property', peril: 'storm', region: 'North', count: { min: 1.5, max: 2 }, claim: { min: 1, max: 2 } }] }],
   ];
   for (const [label, def] of bad) {
     console.log(`  validator rejects ${label}: ${note(throws(() => validateShockDefinition(def)), `the validator accepts ${label}`)}`);
@@ -925,6 +927,103 @@ console.log('\n--- 11. the schedule reaches the game: constructor, save, session
   console.log(`  host draw is reproducible from the room's seed and year count: ${note(JSON.stringify(d1) === JSON.stringify(d2), 'the same seed drew two different schedules')}`
     + `   ${JSON.stringify(d1)}`);
   console.log(`  400 draws: right count, one event per year, no event twice, year 1 kept calm, drawable ids only, all build: ${note(shapeOk, 'a host draw broke one of its rules')}`);
+}
+
+// ============================================================================
+// 12. AN EVENT IS IDENTIFIABLE — AND A SCHEDULED ONE READS AS A DRAWN ONE.
+//
+// A player must be able to tell that an event happened, in which year, and
+// which claims it made — and must not be able to tell whether it was scheduled.
+// So: every claim an injection path makes carries the shock's id and no natural
+// claim does; the pool record keeps each line's share; the narrative names the
+// event by the name a drawn event of its kind carries, never by the shock's id,
+// host name or catalog prose; and a drawn catastrophe is recorded and narrated
+// the same way.
+// ============================================================================
+console.log('\n--- 12. an event is identifiable, and scheduled reads as drawn ---');
+{
+  const FIRE = 3;
+  let stampOk = true, splitOk = true, leakOk = true, narrOk = true, labelOk = true;
+  const seen: string[] = [];
+  for (const id of SEEDS) {
+    for (const sid of ['#2', 'WILDFIRE', 'WATER-CONTAMINATION', 'WINTER-STORM']) {
+      const r = play(id, FIRE, [{ shockId: sid, yearNumber: FIRE }])[FIRE - 1];
+      const def = SHOCK_CATALOG[sid];
+      for (const l of LINES) {
+        const lr = r.byLine[l]!;
+        const occ = new Map((lr.occurrences ?? []).map(o => [o.id, o]));
+        for (const c of lr.claims ?? []) {
+          const fromEvent = c.tier === 'injected' || c.occurrenceId.includes('-SHOCK-');
+          if (fromEvent !== (c.shockId === sid)) stampOk = false;
+          if (c.shockId !== undefined && !claimEventLabel(c, occ.get(c.occurrenceId))?.startsWith(def.eventName)) labelOk = false;
+        }
+      }
+      const pool = r.shockEvents?.find(e => e.shockId === sid);
+      if (!pool?.byLine) splitOk = false;
+      else {
+        let g = 0, n = 0;
+        for (const l of LINES) {
+          const own = r.byLine[l]!.shockEvents?.find(e => e.shockId === sid);
+          const b = pool.byLine[l];
+          if (!!own !== !!b) splitOk = false;
+          if (own && b && (own.attributableGrossLoss !== b.attributableGrossLoss || own.attributableClaims !== b.attributableClaims)) splitOk = false;
+          g += b?.attributableGrossLoss ?? 0; n += b?.attributableClaims ?? 0;
+        }
+        if (n !== pool.attributableClaims || Math.abs(g - pool.attributableGrossLoss) > 1e-6) splitOk = false;
+      }
+      const text = r.narrativeExplanation;
+      if (text.includes(sid) || text.includes(def.name) || text.includes(def.description.slice(0, 40)) || /shock/i.test(text)) leakOk = false;
+      if (!text.includes(def.eventName)) narrOk = false;
+      if (id === SEEDS[0]) seen.push(`${sid}: "${yearEvents(r).map(eventSentence).join(' ')}"`);
+    }
+  }
+  seen.forEach(x => console.log(`  ${x}`));
+  console.log(`  every injected / forced / weather claim carries its shock id, and no natural claim does: ${note(stampOk, 'a claim from an event is unstamped, or a natural claim carries a shock id')}`);
+  console.log(`  the pool record keeps each line's share, and the shares sum to it: ${note(splitOk, 'the per-line split is missing or does not reconcile to the merged record')}`);
+  console.log(`  each event claim's Event label is the player's name: ${note(labelOk, 'a stamped claim reads as something other than its eventName')}`);
+  console.log(`  the narrative names the event by its player name: ${note(narrOk, 'the narrative does not mention the event')}`
+    + `   and never by id, host name, catalog prose or the word "shock": ${note(leakOk, 'the narrative shows how the event was scheduled')}`);
+
+  // THE SAME NAME, THE SAME LABEL, scheduled and drawn.
+  const r2 = play(SEEDS[0], FIRE, [{ shockId: '#2', yearNumber: FIRE }])[FIRE - 1].byLine.Property!;
+  const qc = (r2.claims ?? []).find(c => c.shockId === '#2')!;
+  const qo = (r2.occurrences ?? []).find(o => o.id === qc.occurrenceId)!;
+  const drawnClaim = { ...qc, shockId: undefined };
+  const drawnOcc = { ...qo, peril: PROPERTY_CAT_EARTHQUAKE.peril };
+  const sameName = SHOCK_CATALOG['#2'].eventName === drawnEventName(PROPERTY_CAT_EARTHQUAKE.peril);
+  const sameLabel = claimEventLabel(qc, qo) === claimEventLabel(drawnClaim, drawnOcc);
+  console.log(`  #2 and a drawn earthquake carry the same name and the same claim label ("${claimEventLabel(qc, qo)}"): ${note(sameName && sameLabel, 'a scheduled earthquake reads differently from a drawn one')}`);
+
+  // A DRAWN catastrophe, found on the natural book: recorded, labelled, narrated.
+  let found = '';
+  let drawnOk = true;
+  for (let k = 0; k < 40 && !found; k++) {
+    const id = `EVT${String(k).padStart(4, '0')}`;
+    const res = play(id, 5, []);
+    for (const r of res) {
+      const pr = r.byLine.Property!;
+      const catOccs = (pr.occurrences ?? []).filter(o => o.isCatastrophe);
+      if (catOccs.length === 0) continue;
+      const recorded = pr.drawnCatastrophes ?? [];
+      const byId = new Map((pr.claims ?? []).map(c => [c.id, c]));
+      for (const o of catOccs) {
+        const d = recorded.find(x => x.occurrenceId === o.id);
+        const cs = o.claimIds.map(cid => byId.get(cid)!);
+        if (!d || d.claims !== cs.length || Math.abs(d.grossLoss - cs.reduce((t, c) => t + c.grossUltimate, 0)) > 1e-6) drawnOk = false;
+        if (cs.some(c => claimEventLabel(c, o) !== eventLabel(drawnEventName(o.peril), o.region))) drawnOk = false;
+      }
+      if (recorded.length !== catOccs.length) drawnOk = false;
+      const sentences = yearEvents(r).map(eventSentence);
+      if (!sentences.every(x => r.narrativeExplanation.includes(x))) drawnOk = false;
+      found = `${id} Y${r.yearNumber}: "${sentences.join(' ')}"`;
+      break;
+    }
+  }
+  console.log(`  a drawn catastrophe: ${found || 'none in 40 games'}`);
+  console.log(`    recorded on drawnCatastrophes, labelled and narrated like a scheduled one: ${note(!!found && drawnOk, 'a drawn catastrophe is missing from the record, the label or the narrative')}`);
+
+  // The catalog requires the player's name.
+  console.log(`  validator rejects a row with no eventName: ${note(throws(() => validateShockDefinition({ ...SHOCK_CATALOG['#2'], eventName: ' ' })), 'a row without a player name is accepted')}`);
 }
 
 console.log(problems.length === 0

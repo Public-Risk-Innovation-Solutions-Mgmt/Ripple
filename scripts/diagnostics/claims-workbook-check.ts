@@ -127,6 +127,7 @@ interface Stat {
   interiorBlank: number; stateBytes: number; seriesBytes: number;
   openRows: number; openFullyPaid: number; openWithHeadroom: number; openHeadroom: number[];
   catRows: number;
+  eventRows: number;
 }
 const stats: Record<string, Stat> = {};
 
@@ -135,7 +136,7 @@ for (const arm of ARMS) {
     rows: 0, developed: 0, blankBlock: 0, blankYrCell: 0, printedYrCell: 0, zeroPrinted: 0,
     drawnEqGross: 0, drawnGtBooked: 0, drawnEqBooked: 0, maxSeriesLen: 0, yrCols: 0, totalCols: 0,
     interiorBlank: 0, stateBytes: 0, seriesBytes: 0,
-    openRows: 0, openFullyPaid: 0, openWithHeadroom: 0, openHeadroom: [], catRows: 0,
+    openRows: 0, openFullyPaid: 0, openWithHeadroom: 0, openHeadroom: [], catRows: 0, eventRows: 0,
   };
   stats[arm.name] = s;
 
@@ -212,6 +213,13 @@ for (const arm of ARMS) {
       const iPaid = header.indexOf('Gross Paid');
       const iStatus = header.indexOf('Status');
       const iOcc = header.indexOf('Occurrence ID');
+      // THE EVENT COLUMN. These games schedule nothing, so the only events are
+      // DRAWN catastrophes: a Property row of the cat band names one ("Earthquake
+      // — Central region" or "Catastrophe — ..."), and every other row is blank.
+      // shock-check covers the scheduled side and the label's equality across it.
+      const iEvent = header.indexOf('Event');
+      const iBand = header.indexOf(line === 'Property' ? 'Band' : 'Component');
+      if (iEvent < 0 || iBand < 0) fail(`${arm.name} g${g} ${line}: Event or Band/Component column missing from header [${header}]`);
       if (iPaid < 0 || iStatus < 0) {
         fail(`${arm.name} g${g} ${line}: Gross Paid / Status missing from header [${header}]`);
       }
@@ -247,6 +255,20 @@ for (const arm of ARMS) {
         const r = sheet[i];
         if (!r || r[0] === '' || r[0] === undefined) continue;
         s.rows++;
+
+        // --- EVENT ---------------------------------------------------------------
+        {
+          const ev = String(r[iEvent] ?? '');
+          const isCat = line === 'Property' && r[iBand] === 'cat';
+          if (isCat) {
+            s.eventRows++;
+            if (!/^(Earthquake|Catastrophe) — (North|Central|South) region$/.test(ev)) {
+              fail(`${arm.name} g${g} ${line} row ${i}: a catastrophe claim's Event reads "${ev}"`);
+            }
+          } else if (ev !== '') {
+            fail(`${arm.name} g${g} ${line} row ${i}: an ordinary claim carries Event "${ev}"`);
+          }
+        }
 
         // --- OPEN AND PAID ---------------------------------------------------
         // ⚠ THIS IS THE ONLY GATE ON THE GROSS PAID COLUMN, AND IT SITS HERE
@@ -549,6 +571,7 @@ for (const arm of ARMS) {
   const s = stats[arm.name];
   console.log(`--- ${arm.name.toUpperCase()} ---`);
   console.log(`  claim rows                  ${s.rows}`);
+  console.log(`  naming an event             ${s.eventRows} (every drawn catastrophe claim; every other row blank)`);
   console.log(`  with a development block    ${s.developed} (${((s.developed / s.rows) * 100).toFixed(2)}%)`);
   console.log(`  blank block (never tracked) ${s.blankBlock}`);
   console.log(`  Yr cells printed / blank    ${s.printedYrCell} / ${s.blankYrCell}`);

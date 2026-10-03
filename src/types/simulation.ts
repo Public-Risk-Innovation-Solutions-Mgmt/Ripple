@@ -385,6 +385,14 @@ export interface Claim {
   // flat mixture replaced all four. Anything that pattern-matches the old GL
   // sub-coverage strings needs revisiting, not just recompiling.
   tier: string;
+  // THE SHOCK THAT MADE THIS CLAIM, set by every injection path — a WC or GL
+  // injection, a forced catastrophe, a scheduled weather event — and absent on
+  // every drawn claim, so the natural book serialises as it always did. It is
+  // what ties an event's claims together across lines: the Property and WC
+  // halves of one earthquake carry the same id. Player screens never show it;
+  // they show the event's name (see utils/yearEvents.ts), which reads the same
+  // for a scheduled event and a drawn one.
+  shockId?: string;
   // The rating GROUP the claim arose from (WC: county / schools / highSafety /
   // lowSafety). Was a rating CLASS before the severity rebuild.
   ratingClass?: string;
@@ -1040,6 +1048,16 @@ export interface PricingTriangleState {
 }
 
 // Full result for one completed simulation year
+// A drawn catastrophe as the year's result records it — enough to say what
+// happened, where, and to whom, after the claims themselves are gone.
+export interface DrawnCatastrophe {
+  occurrenceId: string;
+  peril: string;          // 'earthquake' or 'cat' — see PROPERTY_CAT_EARTHQUAKE
+  region: Region;
+  claims: number;
+  grossLoss: number;
+}
+
 export interface ResultSet {
   yearNumber: number;
   calendarYear: number;
@@ -1285,7 +1303,6 @@ export interface ResultSet {
   marketMemberLossResults?: MemberLossResult[];
   aggregateMemberLoss: number;
   commonLossFactor: number;
-  catastropheFactor: number;
   // Claim-level detail, WC and GL (Property still draws an aggregate).
   //
   // IN-MEMORY FOR THE CURRENT SESSION ONLY. Dropped on the way to localStorage
@@ -1345,13 +1362,18 @@ export interface ResultSet {
   // whole shipped path with FORWARD_BOOKING off, so recording it adds a field
   // without moving one. Optional for saves written before it existed.
   bookedGrossUltimate?: number;
-  // ⚠ NOT THE SHOCK EVENT SYSTEM. This flag predates it and already carries
-  // THREE different line-specific meanings — a WC catastrophic-tier claim, a GL
-  // occurrence over $1M, or Property's aggregate factor exceeding its
-  // threshold. Configured shock events record on `shockEvents` below, on a
-  // separate channel, precisely so that overloading this one does not corrupt
-  // three live signals.
-  shockLossIncurred: boolean;
+  // ⚠ `shockLossIncurred` STOOD HERE AND IS GONE. It meant a WC claim of $1M+,
+  // a GL occurrence over $1M, and on Property a hardcoded false — so it read Yes
+  // in almost every WC and GL year and No in a Property catastrophe year, and the
+  // narrative said "a shock loss event occurred" off it. A year's events are
+  // `shockEvents` (scheduled) and `drawnCatastrophes` (drawn), read together by
+  // utils/yearEvents.ts so the two look the same to a player.
+  //
+  // PROPERTY ONLY: each DRAWN catastrophe this year that hit an enrolled member,
+  // one entry per occurrence. Scheduled ones are on shockEvents. Stored rather
+  // than derived because claims and occurrences are stripped from saves, and a
+  // reloaded game must still say an event happened. Absent in a year without one.
+  drawnCatastrophes?: DrawnCatastrophe[];
   // Configured shock events in force this year that touched THIS line. Absent
   // when none are — an array field, so value-identity-check (which captures
   // only numeric fields) is blind to it by construction.

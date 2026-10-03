@@ -672,6 +672,7 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
         paidToDate: 0,
         caseReserve: loss,
         paymentPattern: [...M.payoutPattern],
+        shockId: forcedEvents[event].shockId,
       });
       forcedClaimIds[event].push(claimId);
       forcedMemberIds[event].push(member.id);
@@ -698,6 +699,7 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
         grossUltimate: loss,
         paidToDate: 0,
         caseReserve: loss,
+        shockId: weatherEvents[event].shockId,
         paymentPattern: [...M.payoutPattern],
       });
       occurrences.push({

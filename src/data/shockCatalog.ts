@@ -82,6 +82,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   '#2': {
     id: '#2',
     name: 'Major Earthquake',
+    eventName: 'Earthquake',
     horizon: 'current',
     band: 'severe',
     description:
@@ -109,6 +110,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   'WILDFIRE': {
     id: 'WILDFIRE',
     name: 'Major Wildfire',
+    eventName: 'Wildfire',
     horizon: 'current',
     band: 'high',
     description:
@@ -143,6 +145,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   'WINTER-STORM': {
     id: 'WINTER-STORM',
     name: 'Severe Winter Storm',
+    eventName: 'Winter storm',
     horizon: 'current',
     band: 'high',
     description:
@@ -174,6 +177,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   'WATER-CONTAMINATION': {
     id: 'WATER-CONTAMINATION',
     name: 'Water System Contamination',
+    eventName: 'Water system contamination',
     horizon: 'current',
     band: 'moderate',
     description:
@@ -240,6 +244,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   '#10': {
     id: '#10',
     name: 'WC Presumption Expansion',
+    eventName: 'Workers\' comp presumption expansion',
     horizon: 'future',
     band: 'high',
     description:
@@ -286,6 +291,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   '#15': {
     id: '#15',
     name: 'Catastrophic WC Mega-Claim',
+    eventName: 'Catastrophic workplace injury',
     horizon: 'current',
     band: 'high',
     description:
@@ -346,6 +352,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   '#19': {
     id: '#19',
     name: 'Social Inflation Hard Market',
+    eventName: 'Liability hard market',
     horizon: 'future',
     band: 'high',
     description:
@@ -380,6 +387,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   '#22': {
     id: '#22',
     name: 'Employment Practices Surge',
+    eventName: 'Employment practices claims surge',
     horizon: 'current',
     band: 'moderate',
     description:
@@ -432,6 +440,7 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   '#28': {
     id: '#28',
     name: 'Pandemic / Infectious Disease Surge',
+    eventName: 'Pandemic',
     horizon: 'current',
     band: 'high',
     description:
@@ -480,6 +489,9 @@ const isRange = (v: unknown): v is ShockRange => typeof v === 'object' && v !== 
 // catalog must never contain and assert each one throws — a validator nothing
 // ever sees fail is a validator nobody has tested.
 export function validateShockDefinition(def: ShockDefinition): void {
+  // The player's name for it. Required: without it a player screen would have
+  // to fall back to the host's name or the id, which is the scheduling showing.
+  if (!def.eventName?.trim()) throw new Error(`shockCatalog ${def.id}: eventName is required — the name a player reads.`);
   for (const effect of def.effects) {
     // ⚠ AN EFFECT ON A LINE THAT DOES NOT READ IT IS REJECTED. This is the class
     // of defect that has now bitten three times — #28's WC half, #22's EPL sub,

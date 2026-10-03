@@ -1,6 +1,9 @@
 // Rule-based narrative explanation engine for Risk Pool Simulation v1
 
-import type { ResultSet } from '../types/simulation';
+import type { CoverageLine, ResultSet } from '../types/simulation';
+import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
+import { LINE_FULL_NAME } from './lineDisplay';
+import { eventSentence, yearEvents } from './yearEvents';
 
 export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): string {
   const parts: string[] = [];
@@ -8,7 +11,7 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
   const { assetAllocation, actualCombinedRatio, netIncome,
     actualLossRatioPricingBasis, expectedLossRatio,
     reinsuranceRecovery, investmentIncome,
-    newMembers, withdrawnMembers, shockLossIncurred,
+    newMembers, withdrawnMembers,
     priorYearDevelopment, endingSurplus } = result;
 
   // --- Rate Change --- REMOVED. The Rate Change decision it narrated is gone
@@ -22,10 +25,17 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
   // for the experience modifier is a pending replacement, not invented here —
   // the same treatment the Rate Change narrative got above.
 
-  // --- Shock Loss ---
-  if (shockLossIncurred) {
-    parts.push(`A shock loss event occurred this year, significantly increasing gross losses.`);
-  }
+  // --- Events ---
+  // FIRST, because it is what a player most needs from the year and the first
+  // thing they read. One sentence per event, written from what happened —
+  // where, which lines, how many claims, how much — by the same template for a
+  // scheduled event and a drawn catastrophe (yearEvents.ts), so the two read
+  // alike and the cause never shows.
+  //
+  // ⚠ THIS REPLACES "A shock loss event occurred this year, significantly
+  // increasing gross losses", which fired on `shockLossIncurred`: a WC or GL
+  // claim over $1M, so nearly every year, and never on a Property catastrophe.
+  for (const ev of yearEvents(result)) parts.push(eventSentence(ev));
 
   // --- Loss Performance ---
   // ⚠ THIS WAS A FOURTH BASIS AND IT CONTRADICTED THE SCREEN IT SAT ON.
@@ -76,7 +86,9 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
     if (reinsuranceRecovery > 0) {
       parts.push(`The reinsurance tower recovered $${fmt(reinsuranceRecovery)}, reducing net losses.`);
     } else if (anyPlaced) {
-      parts.push(`Occurrence layers were placed but no single loss reached the $1M retention.`);
+      // Each line's OWN retention, read from its tower. This said "the $1M
+      // retention" on every line, including Property, which retains $5M.
+      parts.push(`Occurrence layers were placed but no single occurrence reached its line's retention (${retentionList(result)}).`);
     } else {
       parts.push(`No occurrence layers were placed — the pool retained every loss in full.`);
     }
@@ -133,6 +145,15 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
   }
 
   return parts.join(' ');
+}
+
+// "Workers' Compensation $1M, Property $5M" — the lines in this result.
+function retentionList(result: ResultSet): string {
+  const lines: CoverageLine[] = result.line ? [result.line] : (Object.keys(result.byLine ?? {}) as CoverageLine[]);
+  return lines
+    .filter(l => REINSURANCE_TOWER[l as TowerLine]?.length)
+    .map(l => `${LINE_FULL_NAME[l]} $${Math.min(...REINSURANCE_TOWER[l as TowerLine].map(x => x.attachment)) / 1e6}M`)
+    .join(', ');
 }
 
 function pct(n: number): string {

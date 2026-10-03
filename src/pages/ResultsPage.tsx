@@ -20,6 +20,7 @@ import {
 } from '../utils/formatters';
 import { placementSummary, hasTractableCeded, towerTopLabel, RETAINED_ABOVE_TOWER_CAVEAT } from '../utils/reinsuranceDisplay';
 import { lineDisplayName } from '../utils/lineDisplay';
+import { eventLabel, yearEvents } from '../utils/yearEvents';
 
 interface ResultsPageProps {
   lockedResults: LineResultSet[];
@@ -138,34 +139,42 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
 
       {result && (
         <div className="space-y-5">
-          {/* CONFIGURED SHOCK EVENTS — a separate banner from the shockLossIncurred
-              one below, and deliberately so. That flag already means three
-              different line-specific things (a WC catastrophic claim, a GL
-              occurrence over $1M, or Property's aggregate factor exceeding its
-              threshold), and a scheduled event is a fourth, unrelated concept.
-              Rendered only when something fired, so a shock-free game shows
-              exactly what it always did. */}
-          {(result.shockEvents?.length ?? 0) > 0 && (
+          {/* THE YEAR'S EVENTS — scheduled and drawn alike, one row each.
+              Built by yearEvents(), which reads shockEvents and Property's
+              drawnCatastrophes the same way: a name a drawn event would also
+              carry, the region, and what each line took. No shock id, band or
+              catalog description — those are the host's, and showing them would
+              tell a player which events were scheduled. An event that struck no
+              enrolled member does not appear, whichever kind it was.
+
+              ⚠ THE PER-LINE SPLIT IS KEPT. The pool record sums an event across
+              the lines it hit (mergeShockRecords) and now carries what each line
+              contributed, so an earthquake shows its Property and WC halves as
+              one event rather than a total with nothing behind it. */}
+          {yearEvents(result).length > 0 && (
             <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
               <div className="flex items-start gap-3">
                 <Zap className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
                 <p className="font-bold text-amber-900">
-                  {result.shockEvents!.length === 1 ? 'Shock Event' : `${result.shockEvents!.length} Shock Events`} in force this year
+                  {yearEvents(result).length === 1 ? 'An event this year' : `${yearEvents(result).length} events this year`}
                 </p>
               </div>
-              {result.shockEvents!.map(s => (
-                <div key={s.shockId} className="pl-8 text-sm">
+              {yearEvents(result).map(ev => (
+                <div key={ev.key} className="pl-8 text-sm">
                   <p className="font-semibold text-amber-900">
-                    {s.shockId} {s.name}
-                    <span className="ml-2 font-normal text-amber-700">
-                      {s.band} · {s.horizon === 'future' ? `persisting from year ${s.yearFired}` : 'this year only'} · {s.linesAffected.join(' + ')}
-                    </span>
+                    {eventLabel(ev.name, ev.region)}
+                    {ev.sinceYear !== undefined && (
+                      <span className="ml-2 font-normal text-amber-700">in force since year {ev.sinceYear}</span>
+                    )}
                   </p>
-                  <p className="text-amber-800">{s.description}</p>
-                  <p className="text-amber-700 font-mono text-xs mt-1">
-                    {s.attributableClaims > 0 && `${s.attributableClaims} claim${s.attributableClaims === 1 ? '' : 's'} injected, ${formatCurrency(s.attributableGrossLoss)} attributable. `}
-                    {s.expectedGrossLossAdded > 0 && `${formatCurrency(s.expectedGrossLossAdded)} expected additional gross loss.`}
-                  </p>
+                  {ev.lines.map(l => (
+                    <p key={l.line} className="text-amber-700 font-mono text-xs mt-1">
+                      {lineDisplayName(l.line)}:{' '}
+                      {l.claims > 0 && `${l.claims} claim${l.claims === 1 ? '' : 's'}, ${formatCurrency(l.grossLoss)}`}
+                      {l.claims > 0 && l.expectedGrossLossAdded > 0 && '; '}
+                      {l.expectedGrossLossAdded > 0 && `${formatCurrency(l.expectedGrossLossAdded)} expected additional loss`}
+                    </p>
+                  ))}
                 </div>
               ))}
             </div>

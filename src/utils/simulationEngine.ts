@@ -1,7 +1,7 @@
 // Core simulation engine for Risk Pool Simulation v1
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
-import type { Claim, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
+import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
 import type { LineShockEffects, ShockFiring, ShockRecord } from '../types/shocks';
 import { resolveShocks, ownFreqMultipliers, ownComponentFreqMultipliers, ownSevMultipliers } from './shockResolver';
 import { WHOLE_LINE } from './shockEffects';
@@ -13,12 +13,24 @@ import { WHOLE_LINE } from './shockEffects';
 function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefined {
   const merged = new Map<string, ShockRecord>();
   for (const r of lineResults) {
+    const line = r.line as CoverageLine;
     for (const rec of r.shockEvents ?? []) {
+      // What THIS line contributed, kept as it is summed in — the per-line split
+      // the Results card and the narrative show.
+      const own = {
+        attributableGrossLoss: rec.attributableGrossLoss,
+        attributableClaims: rec.attributableClaims,
+        expectedGrossLossAdded: rec.expectedGrossLossAdded,
+      };
       const existing = merged.get(rec.shockId);
-      if (!existing) { merged.set(rec.shockId, { ...rec, linesAffected: [...rec.linesAffected] }); continue; }
+      if (!existing) {
+        merged.set(rec.shockId, { ...rec, linesAffected: [...rec.linesAffected], byLine: { [line]: own } });
+        continue;
+      }
       existing.attributableGrossLoss += rec.attributableGrossLoss;
       existing.attributableClaims += rec.attributableClaims;
       existing.expectedGrossLossAdded += rec.expectedGrossLossAdded;
+      existing.byLine = { ...existing.byLine, [line]: own };
     }
   }
   return merged.size > 0 ? [...merged.values()] : undefined;
@@ -1188,8 +1200,11 @@ export function processLineYear(
         AGGREGATE_LOSS_DISTRIBUTION.logMean,
         AGGREGATE_LOSS_DISTRIBUTION.logSigma
       ) * AGGREGATE_LOSS_DISTRIBUTION.actualLossLevelMultiplier;
-  const catastropheThreshold =
-    FUNDING_CLF_TABLE[AGGREGATE_LOSS_DISTRIBUTION.catastropheThresholdConfidence];
+  // The dead aggregate path's multiplier, held at 1. It is no longer reported:
+  // `catastropheFactor` read 1.0000 on every line every year, and
+  // `shockLossIncurred` (a claim over $1M on WC and GL, hardcoded false on
+  // Property, so "No" in a catastrophe year) is gone with it. A year's events
+  // are now read from shockEvents and drawnCatastrophes — see utils/yearEvents.
   const catastropheFactor = 1;
 
   let generatedClaims: Claim[] | undefined;
@@ -1202,7 +1217,6 @@ export function processLineYear(
   let marketMemberLossResults: MemberLossResult[] | undefined;
   // The mix correction actually applied to the draw — see LineResultSet.kLineApplied.
   let kLineApplied: number | undefined;
-  let shockOccurred: boolean;
 
   // --- MARKETPLACE-WIDE GENERATION -------------------------------------------
   //
@@ -1294,12 +1308,6 @@ export function processLineYear(
     ];
     kLineApplied = kLine;
 
-    // WC's shock flag: a claim from the heavy mixture component large enough to
-    // matter. Replaces the retired "a catastrophic-tier claim occurred" test,
-    // which named a tier that no longer exists. $1M is the per-occurrence
-    // retention, so this reads as "the pool had a claim that pierced retention".
-    shockOccurred = generated.claims.some(c => c.grossUltimate >= 1_000_000);
-
     // EXACT attribution: the engine returns one outcome per requested
     // injection, in order, and ctx.shock.injections carries the shockId that
     // asked for each. No estimation involved — these are specific claims.
@@ -1364,9 +1372,6 @@ export function processLineYear(
       ...(prospectGenerated?.memberLossResults ?? []),
     ];
     kLineApplied = kGl;
-    // GL's shock event (ruled J11): any single occurrence exceeds $1M.
-    // Occurrence == claim for GL now, so this is the largest single claim.
-    shockOccurred = generated.maxOccurrenceGross > 1_000_000;
 
     // EXACT attribution of any injected claims, as on WC: one outcome per
     // requested injection, in order, each carrying the shock that asked for it.
@@ -1455,9 +1460,7 @@ export function processLineYear(
     // other occurrence. The KIND still matters to booking and development: a
     // catastrophe is booked at its drawn total and held there, which is why
     // occurrenceKinds reaches bookedOccurrenceTotals and the tracked set.
-    shockOccurred = false;
   } else {
-    shockOccurred = commonLossFactor > catastropheThreshold;
     memberLossResults = enrolledMembers.map(member => {
       const memberExposureAmount = getMemberExposure(member, line, yearNumber);
       const memberExpectedLoss = memberExposureAmount * pricedPurePremiumPer100 * 10_000;
@@ -2122,6 +2125,28 @@ export function processLineYear(
     const occs = generatedOccurrences ?? [];
     occurrenceDeductibles(line as TowerLine, occs).forEach((d, i) => { if (d > 0) valueDeductibles.set(occs[i].id, d); });
   }
+  // THE YEAR'S DRAWN CATASTROPHES, as a summary that survives the save — the
+  // claims and occurrences do not. A scheduled one is on shockEvents; its claims
+  // carry the shock's id, which is how it is told apart here. Only occurrences
+  // that hit an enrolled member exist, so an event that struck nobody in the
+  // pool is not recorded — and a scheduled one that struck nobody records no
+  // claim either, so the two read the same. See utils/yearEvents.ts.
+  const drawnCatastrophes: DrawnCatastrophe[] = [];
+  if (isPropertyClaimLine) {
+    const claimById = new Map((generatedClaims ?? []).map(c => [c.id, c]));
+    for (const o of generatedOccurrences ?? []) {
+      if (!o.isCatastrophe) continue;
+      const cs = o.claimIds.map(id => claimById.get(id)).filter((c): c is Claim => !!c);
+      if (cs.length === 0 || cs.some(c => c.shockId !== undefined)) continue;
+      drawnCatastrophes.push({
+        occurrenceId: o.id,
+        peril: o.peril ?? 'cat',
+        region: o.region,
+        claims: cs.length,
+        grossLoss: cs.reduce((t, c) => t + c.grossUltimate, 0),
+      });
+    }
+  }
   const valuePots = poolValueRow({
     line,
     claims: generatedClaims ?? [],
@@ -2213,7 +2238,6 @@ export function processLineYear(
     claimCountsByTier: wcCountsByTier,
     claimCount: glClaimCount,
     commonLossFactor,
-    catastropheFactor,
     grossUltimateLoss,
     // ⚠ THE STEP BETWEEN GROSS AND NET, AND IT WAS COMPUTED AND THROWN AWAY.
     // netUltimateLoss has always been `bookedGrossUltimate - reinsuranceRecovery`
@@ -2224,7 +2248,7 @@ export function processLineYear(
     // and Net 3.54x apart at pool scope and no row saying why. See its own row in
     // resultMetrics.
     bookedGrossUltimate,
-    shockLossIncurred: shockOccurred,
+    ...(drawnCatastrophes.length > 0 ? { drawnCatastrophes } : {}),
     shockEvents: ctx.shockFirings?.length
       ? ctx.shockFirings.map((f): ShockRecord => ({
           ...f,
@@ -3266,7 +3290,6 @@ export function aggregateLineResults(
       results.reduce((s, r) => s + r.commonLossFactor, 0) / results.length,
       'legacy aggregate-path factor; only GL carries a live value — read the GL row',
     ),
-    catastropheFactor: first.catastropheFactor,
     grossUltimateLoss: addDollars('grossUltimateLoss'),
     // ⚠ SUMMED LIKE ITS GROSS AND NET NEIGHBOURS, because the pool figure is the
     // sum of the lines and nothing else. Omitting it here left the pool scope
@@ -3274,7 +3297,6 @@ export function aggregateLineResults(
     // figure — the audit page then reconciled on every line and not at pool,
     // which is a worse state than failing everywhere.
     bookedGrossUltimate: results.reduce((sum, r) => sum + (r.bookedGrossUltimate ?? r.grossUltimateLoss), 0),
-    shockLossIncurred: results.some(r => r.shockLossIncurred),
     // ONE ROW PER EVENT, costs summed across the lines it hit — not one row per
     // line. A cross-line event like #28 is a single cause, and showing it twice
     // would read as two events.
