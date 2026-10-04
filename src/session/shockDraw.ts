@@ -67,8 +67,12 @@ export function drawShockSchedule(roomSeed: string, yearCount: number): Schedule
 
   // EVENTS: weighted by band, WITHOUT replacement — no event twice in one
   // schedule. A repeat of the same named event inside a short game reads as a
-  // bug to a room, and with eight drawable events and at most seven draws (a
-  // 20-year game) there is always a fresh one to take.
+  // bug to a room, and with seventeen drawable events and at most seven draws
+  // (a 20-year game) there is always a fresh one to take.
+  //
+  // THE MIX, at seventeen: 4 moderate, 10 high, 3 severe, weights 12 : 20 : 3 of
+  // 35 — a first draw is moderate 34%, high 57%, severe 9% (it was 32 / 63 / 5
+  // at nine). Each moderate event 8.6%, each high 5.7%, each severe 2.9%.
   const pool = events.map(def => ({ def, w: SHOCK_DRAW_WEIGHT[def.band] }));
   const chosen: ShockDefinition[] = [];
   for (let i = 0; i < count; i++) {

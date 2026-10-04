@@ -5,10 +5,11 @@
 // and the effect vocabulary in src/types/shocks.ts.
 //
 // IDs are the design-matrix numbers so the table and the matrix stay mapped to
-// each other — except WILDFIRE and WATER-CONTAMINATION, whose matrix numbers
-// are not in the repository and which carry provisional names (see their
-// rows). Eight of the ~40 events are present, and all eight are executable:
-// #2 was data only until the Property cat band gave it something to force.
+// each other — except WILDFIRE, WINTER-STORM and WATER-CONTAMINATION, whose
+// matrix numbers are not in the repository and which carry provisional names
+// (see their rows). Seventeen of the ~40 events are present, and all are
+// executable: #2 was data only until the Property cat band gave it something
+// to force.
 //
 // EVERY MAGNITUDE HERE IS PROVISIONAL AND CALIBRATION IS DEFERRED. These are
 // sized to their stated MECHANISM, never tuned to make the game feel risky. The
@@ -188,6 +189,272 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
     ],
   },
 
+  // =========================================================================
+  // THE SECOND BATCH — NINE EVENTS ON PATHS THAT ALREADY EXIST.
+  //
+  // SIZED AGAINST THE NATURAL BOOK, NOT THE MATRIX'S ADJECTIVES. Measured on 60
+  // default game-years (12 seeds x 5, all three lines, enrolled book):
+  //
+  //            claims/yr  median   p90    p99     p99.9   max      gross/yr
+  //   WC          502     $1k     $30k   $520k   $3.11M  $10.4M   $13.9M
+  //   GL          297     $2k     $65k   $1.20M  $8.53M  $124.8M  $26.0M
+  //   Property     88     $66k    $721k  $6.07M  $30.5M  $75M     $42.8M  (attritional)
+  //
+  //   per year, by band:   $100k-$500k  $500k-$1M  $1M-$5M  $5M-$25M  >$25M
+  //   WC                       17.8        2.9       2.2      0.13      0
+  //   GL                       16.2        3.2       2.9      0.50      0.08
+  //   Property                 22.0        4.8       5.7      1.07      0.12
+  //
+  // An event has to stand clear of what the book already does in that band, or
+  // a room cannot tell the event from an ordinary year; and it has to land where
+  // its MECHANISM says — retained below the retention, ceded through a layer, or
+  // above the top — because that is what it teaches. Each row says which.
+  //
+  // ⚠ THE MATRIX'S BANDS AND NOTES ARE NOT IN THE REPOSITORY. The brief gave
+  // #21 and #25 as severe; every other band below is a judgment call, stated.
+  //
+  // ⚠ ONE PATH DOES NOT FULLY FIT, AND IT IS THE GL HALF OF THE THREE
+  // MULTI-LINE EVENTS. A GL injection cannot be region-bound (validated below:
+  // GL's injection path never read a region), so their GL claims land on any GL
+  // member, payroll-weighted, rather than in the region the Property and WC
+  // halves struck. The fix is a region on GL injections, WC's mechanism carried
+  // across — a small change, but a change to a generator, so not made here.
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // #4 WINDSTORM / TORNADO — Property only, the catastrophe band.
+  //
+  // A forced catastrophe like #2 and WILDFIRE, smaller: a tornado's or a
+  // windstorm's damage track is narrow next to an earthquake's. $10M-$50M — at
+  // the bottom it is twice the $5M retention, at the top a mid-sized drawn
+  // event on an enrolled book (a drawn event there runs $1M to $180M). SOUTH, a
+  // judgment call: the windstorm region, and not one #2 or WILDFIRE already
+  // owns. Band HIGH, a judgment call: one occurrence, the pool keeps $5M.
+  // -------------------------------------------------------------------------
+  '#4': {
+    id: '#4',
+    name: 'Windstorm / Tornado',
+    eventName: 'Windstorm',
+    horizon: 'current',
+    band: 'high',
+    description:
+      'A tornado outbreak tracks across the South region. The damage to the members in its path is one '
+      + 'catastrophe — one occurrence, retained to $5M and covered by the reinsurance tower above it.',
+    effects: [
+      { kind: 'forceEvent', line: 'Property', peril: 'windstorm', region: 'South', loss: { min: 10_000_000, max: 50_000_000 } },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // #6 PROLONGED FREEZE — Property, many small claims, each its own occurrence.
+  //
+  // WINTER-STORM's mechanism, a different shape. The storm is ~100 claims of
+  // $100k-$500k (ice, snow load, structural); a week-long freeze is burst pipes
+  // and water damage in buildings not built for it — MORE claims, SMALLER ones.
+  // 100-200 claims of $20k-$150k: the band the book already fills at ~45 claims
+  // a year below $100k, so this is two to four years of it at once, ~$13M, none
+  // near the $5M retention — every dollar retained. CENTRAL, a judgment call:
+  // freeze damage concentrates where buildings are not winterised, which is not
+  // the North that WINTER-STORM already strikes. Band MODERATE, a judgment call.
+  // -------------------------------------------------------------------------
+  '#6': {
+    id: '#6',
+    name: 'Prolonged Freeze',
+    eventName: 'Prolonged freeze',
+    horizon: 'current',
+    band: 'moderate',
+    description:
+      'A week of hard freeze grips the Central region. Pipes burst across members\' buildings that were '
+      + 'never winterised: well over a hundred separate water-damage claims, each its own occurrence and none '
+      + 'near the reinsurance retention — so the pool pays all of it.',
+    effects: [
+      { kind: 'weatherEvent', line: 'Property', peril: 'freeze', region: 'Central', count: { min: 100, max: 200 }, claim: { min: 20_000, max: 150_000 } },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // #21 ADVERSE JURY VERDICT — GL, severe. RENAMED from Law Enforcement Event:
+  // the generic name keeps the exposure and drops a framing that sends a room's
+  // discussion somewhere other than pooling.
+  //
+  // ONE CLAIM, $25M-$60M — ABOVE THE TOP OF GL's TOWER. GL is covered to $25M
+  // and nothing above; the book produces a claim over $25M about once in twelve
+  // years. A verdict sized inside the tower would cost the pool its $1M
+  // retention and teach nothing a $10M claim does not; above it, the pool keeps
+  // $1M plus everything past $25M — $1M to $36M retained. That is what makes it
+  // severe, and it is the event that shows the tower has a top.
+  // -------------------------------------------------------------------------
+  '#21': {
+    id: '#21',
+    name: 'Adverse Jury Verdict',
+    eventName: 'Adverse jury verdict',
+    horizon: 'current',
+    band: 'severe',
+    description:
+      'A jury returns a nuclear verdict against a member — a single liability claim larger than the '
+      + 'reinsurance tower reaches. The pool keeps its retention and every dollar above the $25M top.',
+    effects: [
+      { kind: 'injectClaim', line: 'GL', count: 1, amount: { min: 25_000_000, max: 60_000_000 } },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // #25 INVERSE CONDEMNATION — GL, severe. Liability attaches WITHOUT FAULT: a
+  // public work damages private property (a storm drain floods a neighbourhood,
+  // a slope fails) and the member owes for the taking whatever its care.
+  //
+  // MANY MEDIUM CLAIMS, NOT ONE LARGE ONE. Each owner is a claimant, so 20-50
+  // claims of $100k-$1M — every one below GL's $1M retention, all retained.
+  // Against a book that fills $100k-$1M at ~19 claims a year, this is one to
+  // three years of that band in one. ~$19M retained on a line grossing ~$26M,
+  // and the tower answers none of it: WINTER-STORM's lesson on the liability
+  // line. Severe per the brief, and by the book.
+  // -------------------------------------------------------------------------
+  '#25': {
+    id: '#25',
+    name: 'Inverse Condemnation',
+    eventName: 'Inverse condemnation claims',
+    horizon: 'current',
+    band: 'severe',
+    description:
+      'A failed public work damages dozens of private properties, and the courts hold the member liable '
+      + 'without fault. Each owner\'s claim is its own — none reaches the reinsurance retention, so the pool '
+      + 'pays every one.',
+    effects: [
+      { kind: 'injectClaim', line: 'GL', count: { min: 20, max: 50 }, amount: { min: 100_000, max: 1_000_000 } },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // #26 DANGEROUS CONDITION — GL, a mega-claim from a road or bridge defect.
+  //
+  // ONE CLAIM, $15M-$25M — INSIDE THE TOWER, deliberately, and this is WHERE THE
+  // BOOK AND THE NOTE DISAGREE. "Mega" by the book means above ~$8.5M (GL's
+  // p99.9), and claims of $5M-$25M arrive naturally about every two years, so a
+  // $15M-$25M claim is rare but not outside the book's experience. Sizing it
+  // past $25M would make it #21 under another name. Inside the tower, the pool
+  // keeps $1M and three layers pay the rest — the per-occurrence tower doing
+  // exactly its job on GL, as #15 shows it on WC. Band HIGH, a judgment call:
+  // large gross, small retained.
+  // -------------------------------------------------------------------------
+  '#26': {
+    id: '#26',
+    name: 'Dangerous Condition',
+    eventName: 'Dangerous condition claim',
+    horizon: 'current',
+    band: 'high',
+    description:
+      'A road or bridge defect on a member\'s network causes a serious crash, and a single liability claim '
+      + 'follows. The pool keeps its $1M retention; the reinsurance tower pays the rest.',
+    effects: [
+      { kind: 'injectClaim', line: 'GL', count: 1, amount: { min: 15_000_000, max: 25_000_000 } },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // THE THREE MULTI-LINE EVENTS — one cause, three lines, and a DIFFERENT SHAPE
+  // ON EACH, because a property loss, a liability claim and an injured worker
+  // are three different distributions, not one number split three ways.
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // #5 HAZARDOUS MATERIALS RELEASE — all three lines. NORTH, a judgment call.
+  //
+  //   PROPERTY  one catastrophe occurrence, $5M-$20M: decontamination and
+  //             damage to the facilities around the release. Smaller than a
+  //             natural catastrophe; at the bottom of the range the pool keeps
+  //             all of it, at the top it cedes $15M.
+  //   WC        10-25 claims, $20k-$400k, in the region: responders and staff
+  //             exposed — respiratory and chemical injuries, the book's
+  //             89th-99.5th percentile band, all below the $1M retention.
+  //   GL        3-8 claims, $250k-$3M: bodily injury and evacuation claims
+  //             against the member as the responsible party. A few severe
+  //             third-party claims, some crossing the $1M retention.
+  //
+  // ~$24M gross, ~$12M retained. Band HIGH, a judgment call.
+  // -------------------------------------------------------------------------
+  '#5': {
+    id: '#5',
+    name: 'Hazardous Materials Release',
+    eventName: 'Hazardous materials release',
+    horizon: 'current',
+    band: 'high',
+    description:
+      'A hazardous materials release in the North region contaminates the facilities around it, injures the '
+      + 'responders and staff who work it, and brings bodily-injury and evacuation claims against the member '
+      + 'responsible.',
+    effects: [
+      { kind: 'forceEvent', line: 'Property', peril: 'hazardous materials', region: 'North', loss: { min: 5_000_000, max: 20_000_000 } },
+      { kind: 'injectClaim', line: 'WC', count: { min: 10, max: 25 }, amount: { min: 20_000, max: 400_000 }, region: 'North' },
+      { kind: 'injectClaim', line: 'GL', count: { min: 3, max: 8 }, amount: { min: 250_000, max: 3_000_000 } },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // #7 AGING INFRASTRUCTURE FAILURE — all three lines. CENTRAL, a judgment call.
+  //
+  //   PROPERTY  one catastrophe occurrence, $5M-$15M: the failed asset itself —
+  //             a water main, a treatment plant, a culvert — usually one
+  //             member's facility. Near the retention: often all retained.
+  //   WC        2-5 claims, $50k-$750k, in the region: repair crews hurt in the
+  //             emergency work — few, but serious (trench and confined-space
+  //             injuries), the book's 95th-99.7th percentile band.
+  //   GL        25-60 claims, $25k-$300k: the flood from the failure reaches
+  //             homes and businesses downstream, each owner a claimant. MANY
+  //             SMALL third-party claims — the opposite of #5's few severe ones
+  //             — and every one retained.
+  //
+  // ~$20M gross, ~$13M retained. Band HIGH, a judgment call.
+  // -------------------------------------------------------------------------
+  '#7': {
+    id: '#7',
+    name: 'Aging Infrastructure Failure',
+    eventName: 'Infrastructure failure',
+    horizon: 'current',
+    band: 'high',
+    description:
+      'An aging water main fails in the Central region. The member\'s own facility is wrecked, repair crews '
+      + 'are hurt in the emergency work, and the flood reaches dozens of homes and businesses downstream, '
+      + 'each of them a claim.',
+    effects: [
+      { kind: 'forceEvent', line: 'Property', peril: 'infrastructure failure', region: 'Central', loss: { min: 5_000_000, max: 15_000_000 } },
+      { kind: 'injectClaim', line: 'WC', count: { min: 2, max: 5 }, amount: { min: 50_000, max: 750_000 }, region: 'Central' },
+      { kind: 'injectClaim', line: 'GL', count: { min: 25, max: 60 }, amount: { min: 25_000, max: 300_000 } },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // #8 EXTREME HEAT EMERGENCY — all three lines. SOUTH, a judgment call.
+  //
+  //   PROPERTY  30-60 claims, $20k-$200k, each its own occurrence (the weather
+  //             path, not a catastrophe): failed cooling plant, electrical and
+  //             equipment damage. Ordinary claims arriving together.
+  //   WC        40-80 claims, $5k-$80k, in the region: heat illness among
+  //             outdoor workers — the book's 75th-95th percentile band, many
+  //             and minor, all retained.
+  //   GL        1-3 claims, $1M-$5M: heat deaths or serious injury in a
+  //             member's custody or care — a jail, a shelter, a cooling centre.
+  //             Few and large, every one into the first layer.
+  //
+  // ~$11M gross, ~$8M retained. Band MODERATE, a judgment call.
+  // -------------------------------------------------------------------------
+  '#8': {
+    id: '#8',
+    name: 'Extreme Heat Emergency',
+    eventName: 'Extreme heat',
+    horizon: 'current',
+    band: 'moderate',
+    description:
+      'A prolonged heat emergency in the South region fails cooling plant and equipment across members\' '
+      + 'buildings, puts dozens of outdoor workers out with heat illness, and brings a few serious liability '
+      + 'claims from people in members\' care.',
+    effects: [
+      { kind: 'weatherEvent', line: 'Property', peril: 'extreme heat', region: 'South', count: { min: 30, max: 60 }, claim: { min: 20_000, max: 200_000 } },
+      { kind: 'injectClaim', line: 'WC', count: { min: 40, max: 80 }, amount: { min: 5_000, max: 80_000 }, region: 'South' },
+      { kind: 'injectClaim', line: 'GL', count: { min: 1, max: 3 }, amount: { min: 1_000_000, max: 5_000_000 } },
+    ],
+  },
+
   // -------------------------------------------------------------------------
   // #10 — FUTURE horizon. Tests componentFreqMultiplier, forward persistence,
   // and the backdated one-off injection.
@@ -288,6 +555,15 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   // $9.0M each preserves the retired event's magnitude. It is the heavy
   // component's 99.95th percentile — a claim this model genuinely produces, just
   // not one to leave to a draw when an instructor triggers the event.
+  //
+  // ⚠ RESHAPED: ONE CLAIM, $12M-$20M, AND THE BOOK IS WHY. Two at $9.0M sat
+  // inside what the book already does — it draws a $5M-$25M WC claim about one
+  // year in eight (0.13/yr) and its largest in 60 game-years was $10.4M — so the
+  // event read as an unlucky ordinary year, twice. One claim above the book's
+  // largest is unmistakable, and it is the event that tests the per-occurrence
+  // tower: retained $1M, then $4M xs $1M, $5M xs $5M and $2M-$10M of the $15M xs
+  // $10M layer. The pool keeps $1M of a claim twenty times that, which is the
+  // lesson. Log-uniform in the range, on the shock's own stream.
   '#15': {
     id: '#15',
     name: 'Catastrophic WC Mega-Claim',
@@ -295,10 +571,11 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
     horizon: 'current',
     band: 'high',
     description:
-      'Two catastrophic workers-compensation injuries in one year — lifetime medical care plus wage '
-      + 'indemnity to retirement.',
+      'One catastrophic workers-compensation injury — lifetime medical care plus wage indemnity to '
+      + 'retirement, larger than any claim the pool has seen. The pool keeps its $1M retention; three layers '
+      + 'of the reinsurance tower pay the rest.',
     effects: [
-      { kind: 'injectClaim', line: 'WC', count: 2, amount: 9_000_000 },
+      { kind: 'injectClaim', line: 'WC', count: 1, amount: { min: 12_000_000, max: 20_000_000 } },
     ],
   },
 
