@@ -37,13 +37,35 @@
 // is not recorded. None of this is a defect in the client below; it is the list
 // of things the client cannot fix from its side.
 //
-// 1. CORS, AND IT MUST COVER THE ERROR RESPONSES. The stub answers `*`; a
+// 1. CORS — AND THE PART THIS NOTE USED TO GET WRONG. The stub answers `*`; a
 //    deployment names its origins, and `*` stops being legal at all the moment
-//    a credentialed request is involved. ⚠ THE PART THAT BITES: the headers are
-//    needed on 4xx and 5xx too, including the ones API Gateway generates
-//    itself. Without them the browser reports a CORS failure where the server
-//    sent a perfectly good 403, and every error path in this file — the code
-//    mapping, `retryable`, every screen's catch block — reads the wrong thing.
+//    a credentialed request is involved. That much stands.
+//
+//    ⚠ WHAT WAS WRONG: this said the HANDLER must put CORS headers on its 4xx
+//    and 5xx responses "including the ones API Gateway generates itself". The
+//    AWS owner verified the actual behaviour, and it is the other way round at
+//    the level that matters: the GATEWAY supplies CORS on responses that come
+//    FROM the handler, and NOT on the errors the gateway generates on its own —
+//    a 429 from throttling, an unknown route, a request that never reached the
+//    handler at all. So a handler cannot fix those from its side: by the time
+//    the gateway answers, no handler ran. Both readings are true at different
+//    levels, which is how the note survived.
+//
+//    ⚠ SO THOSE REACH THE BROWSER AS A CORS FAILURE, AND THE FIX IS CLIENT-SIDE:
+//    treat a failure you cannot read as RETRYABLE. ✅ THIS CLIENT ALREADY DOES,
+//    and not by having anticipated it — a CORS failure makes `fetch` REJECT with
+//    a TypeError rather than resolve, so there is no Response to inspect and it
+//    is indistinguishable from a dropped connection. It lands in the catch below
+//    and is thrown as TRANSPORT_FAILURE with retryable hardcoded `true`. Nothing
+//    to change here; it is recorded so nobody "fixes" it into reading a status.
+//
+//    ⚠ WHAT THAT COSTS, SO IT IS NOT MISTAKEN FOR FREE. A throttled 429 retries,
+//    which is right. An unknown route ALSO retries, forever, because it looks
+//    identical — the client degrades to repeated attempts rather than a clear
+//    error. That is the acceptable side of the trade only while routes are
+//    correct; it means a routing mistake in a deployment presents as a hang, not
+//    as a 404. Configure the gateway's own error responses with CORS headers if
+//    you want that distinction back — it is a gateway setting, not a handler one.
 //
 // 2. HTTPS, NOT OPTIONALLY. A bearer token in a header over plaintext is
 //    readable by anything on the path, and a page served over https cannot call
@@ -55,20 +77,44 @@
 //    deployment needs a TTL, rotation and revocation, and ideally an authorizer
 //    in front so a dead token never reaches the handler.
 //
-// 4. `advance` IS NOT IDEMPOTENT, AND THIS ONE IS A CONTRACT-LEVEL GAP RATHER
-//    THAN AN OPERATIONAL ONE. It increments the year; a retried POST — which is
-//    exactly what a client does when a response is lost — SKIPS A YEAR, and
-//    every team then reports against a year nobody played. The fix is a request
-//    field carrying the expected current year and a compare-and-swap on it, so
-//    a retry is a no-op instead of a second advance. That changes
-//    AdvanceRequest, which is why it is recorded here rather than done.
+// 4. ✅ DONE — `advance` IS IDEMPOTENT. AdvanceRequest carries `expectedYear`
+//    and the transport compare-and-swaps on it. ⚠ WHAT THE LAMBDA MUST
+//    REPRODUCE, because the local implementation gets atomicity from a lock and
+//    a hosted one will not: ONE conditional update on the HEADER item and only
+//    there — condition `currentYear = expectedYear`, still inside the year
+//    count, host token matches. On a FAILED condition, read the header back and
+//    distinguish exactly four cases, in this order:
 //
-// 5. `createRoom` IS NOT IDEMPOTENT EITHER, more cheaply: a retry makes a
-//    SECOND room and the caller keeps the code of whichever response arrived.
-//    It needs an idempotency key. Its room-code collision check is also a
-//    read-then-write (`store.getItem` then retry), which on DynamoDB is the
-//    racy pattern by definition — it wants a conditional put with
-//    `attribute_not_exists(code)`.
+//      1. token mismatch            NOT_HOST  (BAD_TOKEN if it is nobody's)
+//      2. already at expected + 1   A RETRY — return SUCCESS and the room
+//      3. past the year count       GAME_COMPLETE
+//      4. anything else             WRONG_YEAR
+//
+//    ⚠ CASE 2 BEFORE CASE 3, OR THE LAST ADVANCE OF EVERY GAME BREAKS. With
+//    yearCount 3 and the room on 4, a retry carrying expectedYear 3 is a retry
+//    of the advance that completed the game and must succeed, while a fresh
+//    call carrying expectedYear 4 must be GAME_COMPLETE. Both see
+//    `currentYear > yearCount`; only the expectation separates them.
+//
+//    ⚠ AND THE RETRY RETURNS SUCCESS, NOT A POLITE ERROR. An error would report
+//    a failure for an operation that worked, to a host who can do nothing about
+//    it. `AdvanceResponse.advanced` says which path ran.
+//
+// 5. ✅ DONE — `createRoom` AND `join` ARE IDEMPOTENT, by a client-generated
+//    token. The client mints the bearer token and sends it, so a retry presents
+//    the same one: createRoom keys an index on it and returns the room it
+//    already made (`reused: true`), and join matches it on the rejoin path
+//    instead of answering TEAM_TAKEN to the player who just created the team.
+//    ⚠ THE HOSTED INDEX MUST BE KEYED ON A HASH of the token, not the token, so
+//    no plaintext bearer token is written to the table — the local transport
+//    keys on the token itself because the room record beside it already holds
+//    it in the clear in the same localStorage, which a server does not.
+//    ⚠ AND THE COLLISION GUARD IS NOT OPTIONAL: a supplied token already owned
+//    by another team, a viewer or the host must be REFUSED, or moving the mint
+//    to the client becomes a way to claim a seat by presenting its token.
+//    The room-code collision check is still a read-then-write (`store.getItem`
+//    then retry), which on DynamoDB is the racy pattern by definition — it
+//    wants a conditional put with `attribute_not_exists(code)`.
 //    `submit` is already idempotent per (team, year) and needs nothing.
 //
 // 6. THE ROOM IS ONE ITEM AND DYNAMODB CAPS AN ITEM AT 400 KB. Measured: 31 KB

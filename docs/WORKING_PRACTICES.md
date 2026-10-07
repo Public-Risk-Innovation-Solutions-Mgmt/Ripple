@@ -1,6 +1,23 @@
 # Working Practices — hard-won operational lessons
 Things that were discovered expensively and live only in conversation memory. Read before doing engine work.
 
+## `aws` is the deployment branch, and a push to it is a release
+
+**Amplify auto-builds every push to `aws` and serves https://ripple.prismrisksolutions.org.** There is no
+staging step and no approval between the push and the live site.
+
+- **Nothing is developed on `aws`. Everything arrives by merge.** A fix committed directly to `aws` is a
+  fix that exists only on the deployed branch and is silently lost the next time a feature branch is
+  merged forward — or worse, survives as a divergence nobody is looking for.
+- **The full FAST sweep, both value baselines, the render baseline, the contract harness over both
+  transports, all eight drivers and the manifest all run BEFORE the push, not after.** After is too late:
+  the site is already live.
+- **If it does not reconcile, do not push.** Holding a merge costs a day. Pushing one nobody can explain
+  costs the session it was deployed for.
+
+This rule was being followed and was written down nowhere — it was recorded here when the property and
+risk-control work was merged forward, after a search of the repository found no trace of it.
+
 ## Verification
 - **`npm run gates` is the sweep, and the sweep is the complete set.** There used to be no sweep — just a
   dozen script names carried by hand from one commit message to the next. Two gates went red inside that

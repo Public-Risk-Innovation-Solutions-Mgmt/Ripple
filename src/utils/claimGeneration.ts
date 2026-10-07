@@ -98,11 +98,14 @@ export interface LineYearGenerationOutput {
  * regenerateLineYearClaims passes it for the redraw.
  *
  * ⚠ THE SHOCK CHANNELS DIFFER BY LINE AND THAT IS NOT AN OVERSIGHT. WC takes
- * component arrival-rate multipliers and explicit injections; GL takes
- * whole-line frequency and severity multipliers plus gPool; Property takes no
- * shock channel and no gPool (its fitted mixture already contains what gPool
- * would add — see the note at its engine call site). A shock effect the line
- * does not read is dropped here, exactly as the engine always dropped it.
+ * component arrival-rate multipliers and injections (explicit, or ranged and
+ * region-bound, keyed on the shock id); GL takes
+ * whole-line frequency and severity multipliers, injections (explicit or
+ * ranged) and gPool; Property takes forced catastrophes, weather events and no gPool (its
+ * fitted mixture already contains what gPool would add — see the note at its
+ * engine call site). A shock effect the line does not read is dropped here —
+ * and shockCatalog now REJECTS such an effect at load, so a catalog event can
+ * no longer be dropped silently.
  *
  * ⚠ THESE RETURN INPUTS, NOT RESULTS, and that is deliberate. The engine reads
  * generator outputs the regenerator has no use for — WC's per-component counts
@@ -116,7 +119,12 @@ export function wcGenerationInputs(b: LineYearGenerationBase): WcGenerationInput
     members: b.members, yearNumber: b.yearNumber, calendarYear: b.calendarYear,
     instanceSeed: b.instanceSeed, kLine: b.k, riskControlEffectiveness: b.riskControlEffectiveness,
     componentFreqMultipliers: b.shock?.componentFreqMultipliers,
-    injections: b.shock?.injections,
+    // Ranges and a region reach WC now, keyed on the shock id; an explicit,
+    // region-less injection is passed exactly as before and takes WC's original
+    // path, so every shipped fixed-amount event is bit-identical.
+    injections: b.shock?.injections?.map(i => (typeof i.count === 'number' && typeof i.amount === 'number' && !i.region
+      ? { count: i.count, amount: i.amount, recordAs: i.shockId }
+      : { count: i.count, amount: i.amount, shockId: i.shockId, ...(i.region ? { region: i.region } : {}) })),
     programFreqMultiplier: b.programFreqMultiplier,
     programRtwConversion: b.programRtwConversion,
   };
@@ -130,6 +138,7 @@ export function glGenerationInputs(b: LineYearGenerationBase): GlGenerationInput
     freqMultipliers: b.shock?.freqMultipliers,
     sevMultipliers: b.shock?.sevMultipliers,
     programFreqMultiplier: b.programFreqMultiplier,
+    injections: b.shock?.injections,
   };
 }
 
@@ -137,6 +146,8 @@ export function propertyGenerationInputs(b: LineYearGenerationBase): PropertyGen
   return {
     members: b.members, yearNumber: b.yearNumber, calendarYear: b.calendarYear,
     instanceSeed: b.instanceSeed, kPr: b.k, riskControlEffectiveness: b.riskControlEffectiveness,
+    forcedEvents: b.shock?.forcedEvents,
+    weatherEvents: b.shock?.weatherEvents,
   };
 }
 

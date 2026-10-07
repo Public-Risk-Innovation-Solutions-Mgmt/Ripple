@@ -52,11 +52,16 @@ Neither receives work. Quote a number from either as "the demo build", never as 
 **Standing red set:** `ibner-null-check` and `cession-uplift-basis`, both with their reasons in
 `EXPECTED_RED` in `scripts/gates.ts`. An unexpected *pass* on either is as loud as a failure.
 
-> ⚠ **THE SET IS NOW FOUR, NOT TWO.** True as written at `59e5c4b`; two more were entered at `98ae506`,
-> the `PER_CLAIM_REVISION` flip. The full set is `ibner-null-check` (1), `cession-uplift-basis` (2),
-> `actuarial-memo-check` (1) and `clf-label-backtest-check` (1), each with its exit code, its measured
-> figure and its paired control in `EXPECTED_RED`. Measured on a full 72-gate sweep at `8305f4d`:
-> 68 green, those four expected-red at exactly those codes, no unexpected red and no XPASS.
+> ⚠ **THE SET IS NOW THREE.** It read two when this file was written at `59e5c4b`, went to four at
+> `98ae506` (the `PER_CLAIM_REVISION` flip), and is back to three: `ibner-null-check` (exit 1),
+> `cession-uplift-basis` (exit 2) and `clf-label-backtest-check` (exit 1), each with its exit code,
+> its measured figure and its paired control in `EXPECTED_RED`.
+>
+> `actuarial-memo-check` was **retired by being fixed**, not by its condition lapsing — the memo was
+> blanking a development column on the claim that a year past its IBNER horizon cannot move, and the
+> check was asserting that the Prior row holds only carried-in cohorts. Both were wrong, in different
+> places, and both were corrected together. Its entry in `scripts/gates.ts` records the full history,
+> including that its stated evidence had gone stale three ways before anyone read it.
 
 The drivers need a built app and a preview server; there is no npm script for that reason.
 `scripts/tools/session-drivers/_shared.cjs` carries the invocation and says which of their assertions
@@ -105,9 +110,12 @@ it cannot see was broken".
 3. **The solo oracle's 32 moved fingerprints.** Recapture needs an attribution — which change moved which
    screen — that nobody has done, and there is no file to recapture into. Either give it a baseline and
    attribute, or retire it in favour of the render baseline.
-4. **`advance` is not idempotent.** A retried POST skips a year; the fix carries the expected current year
-   and compare-and-swaps, which changes `AdvanceRequest`. Contract-level, recorded at
-   `src/session/httpTransport.ts` item 4, deliberately not done.
+4. ~~**`advance` is not idempotent.**~~ **CLOSED.** `AdvanceRequest` carries `expectedYear` and the
+   transport compare-and-swaps on it; a retry returns SUCCESS and does not move the year.
+   `createRoom` and `join` were closed in the same commit by a client-generated token. The four-case
+   readback a Lambda must reproduce — and why the retry case must precede the game-complete case — is
+   at `src/session/httpTransport.ts` items 4 and 5. ⚠ This ruling is the one that said "deliberately
+   not done"; it is listed as closed rather than deleted because the AWS owner's guide points here.
 5. **Whether the measurement probes ship.** The storage and gap-decomposition probes are still outside the
    repo, which is the same failure the drivers just had.
 

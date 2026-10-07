@@ -16,6 +16,52 @@ export interface SpreadsheetMetric {
   label: string;
   value: (result: LineResultSet) => string | number;
   csvValue?: (result: LineResultSet) => string | number;
+  /**
+   * ⚠ READS A FIELD THAT DOES NOT EXIST ON THE POOL ROW — dropped from the Pool
+   * tab by buildPoolMetrics.
+   *
+   * The pool row no longer carries per-line rates, funding selections or the
+   * decision echo (see PoolAbsentKey). A metric that reaches for one of those is
+   * a LINE metric and nothing else; before this change the Pool tab printed it
+   * with the first active line's value under a pool heading.
+   *
+   * It is a flag rather than a type split because the metric table is an
+   * indirection the compiler cannot see through: `value` is a closure, so no
+   * signature on this interface can tell which fields it touches.
+   * pool-row-metric-check is what holds the flag honest — it runs every metric
+   * against a real pool row and fails on one that reads an absent field without
+   * being marked.
+   */
+  lineOnly?: true;
+  /**
+   * THE POOL FORM, for a metric whose LINE form reads a per-line field but whose
+   * QUANTITY is pool-wide after all.
+   *
+   * ⚠ ONE METRIC NEEDS THIS AND IT IS THE REASON lineOnly ALONE WAS NOT ENOUGH.
+   * `riskControlPct` reads `r.decisions.riskControlPct` — a per-line field — but
+   * the spend is a single pool-wide choice projected into every line, so the Pool
+   * tab has a true figure to print and dropping the row would have thrown it
+   * away. It reads `pool` instead. A metric with `lineOnly` and no `poolCell`
+   * is dropped; one with both is rewritten.
+   */
+  /**
+   * ⚠ NAMED `poolCell` BECAUSE ITS OBVIOUS NAME IS RESERVED. member-value-check
+   * greps src/ for the member-value model's vocabulary — the pot row that hangs
+   * off the result, the row types, the model's exports — to prove those terms
+   * feed no decision, a member-level ratio having a test-retest correlation of
+   * zero. The obvious name for this accessor is one of those reserved words.
+   * This is a RENDERER: it says what to print in a pool-scope cell and has
+   * nothing to do with the model. A text grep cannot tell two identical words
+   * apart, so using it turned that check red for two commits.
+   *
+   * ⚠ AND THE GREP READS COMMENTS, which is why this one describes the reserved
+   * word instead of quoting it. Spelling it out here — even to explain the
+   * collision — puts the word back in the file and turns the check red again.
+   * That is bluntness working as intended, not a bug to route around: the check
+   * buys its auditability by being a plain text match over src/.
+   */
+  poolCell?: (result: ResultSet) => string | number;
+  poolCsvCell?: (result: ResultSet) => string | number;
 }
 
 // Fixed tab/filename order (Stage 2.8) — active lines only, Property abbreviated PR.
@@ -32,10 +78,18 @@ function exposureUnitLabel(line: CoverageLine): string {
   return line === 'Property' ? 'TIV $M' : 'Payroll $M';
 }
 
+/**
+ * The pool rows, typed for the shared metric signature. See the call site in
+ * buildResultsWorkbook for why this is sound and what proves it.
+ */
+export function poolRowsAsMetricInput(rows: ResultSet[]): LineResultSet[] {
+  return rows as unknown as LineResultSet[];
+}
+
 // The Pool tab's data source is always the real ResultSet[] (it has byLine),
 // even though these metric functions are typed against the narrower
-// LineResultSet so they can be shared with the per-line tabs. This cast is
-// only ever exercised on Pool-tab rows, where the true shape is guaranteed.
+// LineResultSet so they can be shared with the per-line tabs. This reach into
+// byLine is only ever exercised on Pool-tab rows, where the shape is guaranteed.
 function poolLineSplitMetrics(key: string, category: string, activeLines: CoverageLine[]): SpreadsheetMetric[] {
   const lines = FIXED_LINE_ORDER.filter(l => activeLines.includes(l));
   const byLine = (r: LineResultSet, line: CoverageLine) => (r as unknown as ResultSet).byLine[line];
@@ -86,6 +140,20 @@ export function buildPoolMetrics(baseMetrics: SpreadsheetMetric[], activeLines: 
   const result: SpreadsheetMetric[] = [];
   for (const m of baseMetrics) {
     if (m.key === 'assetAllocation') continue;
+    // ⚠ THE PER-LINE ROWS LEAVE THE POOL TAB ENTIRELY RATHER THAN PRINTING
+    // BLANK. A blank cell in a spreadsheet reads as "this was zero" or "this
+    // failed to compute"; an absent row reads as what is true, which is that the
+    // quantity does not exist at pool scale. The per-$100 rates have no pool
+    // denominator at all — pool exposure adds payroll to TIV.
+    if (m.lineOnly) {
+      if (!m.poolCell) continue;
+      result.push({
+        key: m.key, category: m.category, label: m.label,
+        value: r => m.poolCell!(r as unknown as ResultSet),
+        csvValue: r => (m.poolCsvCell ?? m.poolCell)!(r as unknown as ResultSet),
+      });
+      continue;
+    }
     if (POOL_SPLIT_EXPOSURE_KEYS.has(m.key)) {
       result.push(...poolLineSplitMetrics(m.key, m.category, activeLines));
       continue;
@@ -240,8 +308,16 @@ export function buildResultsWorkbook(
   const wb = XLSX.utils.book_new();
   const orderedLines = FIXED_LINE_ORDER.filter(l => activeLines.includes(l));
 
+  // ⚠ THE ONE CAST, AND WHAT MAKES IT SOUND. ResultSet is no longer a structural
+  // superset of LineResultSet — it is the same shape MINUS PoolAbsentKey — so a
+  // pool row cannot satisfy a metric typed to read a line row. Every metric that
+  // reaches for an absent field is marked `lineOnly` and buildPoolMetrics has
+  // just dropped it, so no survivor touches one. That is an invariant about
+  // CLOSURES, which no signature can state; pool-row-metric-check is what proves
+  // it, by running every pool metric against a real pool row behind a proxy that
+  // throws on an absent key. If a metric is added unmarked, that gate reds.
   XLSX.utils.book_append_sheet(
-    wb, sheetFor(lockedResults, buildPoolMetrics(baseMetrics, activeLines)), 'Pool');
+    wb, sheetFor(poolRowsAsMetricInput(lockedResults), buildPoolMetrics(baseMetrics, activeLines)), 'Pool');
 
   for (const line of orderedLines) {
     const lineResults = lockedResults.map(r => r.byLine[line]);

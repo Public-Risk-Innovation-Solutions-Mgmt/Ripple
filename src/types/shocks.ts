@@ -6,9 +6,9 @@
 // events themselves live in a TABLE (src/data/shockCatalog.ts). Adding event
 // #23 is adding a row, not writing a generator.
 //
-// SCOPE. Nine effect kinds are DEFINED so the shape is right. Only three are
-// IMPLEMENTED, because only three are needed by the representative events
-// built so far. An effect kind with no consumer is NOT silently ignored — the
+// SCOPE. Nine effect kinds are DEFINED so the shape is right. Five are
+// IMPLEMENTED (see IMPLEMENTED_EFFECTS), because only five are needed by the
+// events built so far. An effect kind with no consumer is NOT silently ignored — the
 // resolver throws on it (see shockResolver.ts). A shock that quietly does
 // nothing is worse than one that fails loudly.
 //
@@ -36,6 +36,11 @@ import type { CoverageLine, Region } from './simulation';
 export type ShockHorizon = 'current' | 'future';
 export type ShockBand = 'moderate' | 'high' | 'severe';
 
+// A range the matrix states rather than a point — drawn uniformly inside
+// [min, max] by the generator that consumes it, from a sub-stream keyed on the
+// shock id. A count range is inclusive at both ends and integer.
+export interface ShockRange { min: number; max: number }
+
 // ---------------------------------------------------------------------------
 // The eight effects.
 //
@@ -46,12 +51,44 @@ export type ShockBand = 'moderate' | 'high' | 'severe';
 export type ShockEffect =
   // --- CURRENT ---
   //
-  // NOT IMPLEMENTED — and cannot be until the Property cat band exists. There
-  // is no cat generator: propertyClaimEngine carries an attritional band and a
-  // weather band, both unwired, and PROPERTY_CAT_MODEL is inert constants.
-  // There is no quake peril to force. Kept in the vocabulary because event #2
-  // is in the catalog as data (see shockCatalog.ts).
-  | { kind: 'forceEvent'; line: 'Property'; peril: string; region: Region; intensity: number; span?: boolean }
+  // IMPLEMENTED for Property — A FORCED CATASTROPHE. The cat band
+  // (propertyCatastrophe.ts, PROPERTY_CAT_MODEL) already is an event, a region,
+  // correlated member losses and one occurrence per region; this forces one
+  // more of those events this year, IN A NAMED REGION, AT A STATED SIZE.
+  //
+  // ⚠ WHY A STATED SIZE AND NOT "DRAW ONE MORE EVENT FROM THE BAND". The band's
+  // own event is the wrong magnitude for a scheduled shock: measured on eight
+  // enrolled books it hits no enrolled member at all in 14%-30% of events, and
+  // lands inside the matrix's $25M-$100M in only 24%-37% of them. A host who
+  // schedules a major wildfire has scheduled a major wildfire. So the size is
+  // drawn inside `loss`, and the region's members are hit — each at the cat
+  // band's own loss-if-hit, 0.35 x primaryAssetShare x TIV — in a shock-keyed
+  // order until the event reaches it. The member at the edge takes a partial
+  // loss so the event lands on the drawn size exactly.
+  //
+  // ⚠ THE REGION IS DATA AND THE DRAWS ARE THE SHOCK'S OWN. The size and the hit
+  // order come from sub-streams keyed on the SHOCK ID (`pr_force:<id>` and
+  // `pr_force:<id>:<member>`), never from the cat band's streams or any
+  // sequential draw, so scheduling a shock moves no other draw in the game and
+  // the resolver still consumes no randomness at all.
+  //
+  // ONE REGION PER EFFECT, by the cat band's ruling: an earthquake spanning two
+  // regions is two forceEvent effects, two occurrences, two retentions. The old
+  // `span` and `intensity` fields are gone with the design that needed them.
+  //
+  // PROPERTY ONLY — the only line with a cat band. shockCatalog rejects it on
+  // any other line at load.
+  | { kind: 'forceEvent'; line: 'Property'; peril: string; region: Region; loss: ShockRange }
+  // IMPLEMENTED for Property. A NON-CATASTROPHE WEATHER EVENT: a region's
+  // members take MANY separate claims, each its OWN OCCURRENCE — `count` claims
+  // drawn from the range, each of a size drawn from `claim`. The opposite of
+  // forceEvent in exactly one respect, and it is the point: forceEvent sums its
+  // claims into ONE occurrence the tower attaches to; this leaves every claim
+  // standing alone, so none reaches the $5M retention and the pool keeps all of
+  // it. NOT a catastrophe: its occurrences carry isCatastrophe false and its
+  // claims the tier 'weather', so they book contracted, develop and settle like
+  // any other Property claim. PROPERTY ONLY — shockCatalog rejects it elsewhere.
+  | { kind: 'weatherEvent'; line: 'Property'; peril: string; region: Region; count: ShockRange; claim: ShockRange }
   // IMPLEMENTED for WC. Injects `count` claims through that line's own
   // generator, so the claims are real: they carry ids, join the occurrence
   // list, and flow into reserving and reinsurance like any other.
@@ -75,12 +112,29 @@ export type ShockEffect =
   // future-horizon so its frequency multiplier persists forward — but enactment
   // is a one-off, and without this flag the resolver would re-inject the same
   // three claims every single year.
+  //
+  // ⚠ AND FOR GL, which read no injections at all until the water-system
+  // contamination event needed one — the resolver bucketed them and
+  // glGenerationInputs dropped them, so a GL injection would have been
+  // silently inert. Property still reads none, and shockCatalog rejects one.
+  //
+  // RANGES, GL AND WC. `count` and `amount` may each be a ShockRange where the
+  // event states a range ("two to five claims above $5M", "thirty to sixty
+  // injuries"). Both lines draw them from sub-streams keyed on the shock id, so
+  // nothing else in the year moves. WC draws a ranged AMOUNT LOG-UNIFORMLY — its
+  // severity is heavily right-skewed (median ~$1k), so "mostly small, some
+  // serious" means the geometric middle of the range, not the arithmetic one.
+  //
+  // `region` (WC only) confines the injured to members in the region the event
+  // struck — an earthquake's injuries come from where the earthquake was. Absent,
+  // the claim lands anywhere on the book, as every explicit injection always has.
   | {
       kind: 'injectClaim';
       line: CoverageLine;
-      count: number;
-      amount: number;
+      count: number | ShockRange;
+      amount: number | ShockRange;
       firstYearOnly?: boolean;
+      region?: Region;
     }
   // IMPLEMENTED for GL sub-coverages. Multiplies a realized frequency for one
   // year. `sub` omitted means the whole line.
@@ -164,6 +218,8 @@ export type ShockEffectKind = ShockEffect['kind'];
 // The effect kinds a generator can actually execute today. The resolver checks
 // against this rather than against a comment, so the two cannot drift.
 export const IMPLEMENTED_EFFECTS: ReadonlySet<ShockEffectKind> = new Set<ShockEffectKind>([
+  'forceEvent',
+  'weatherEvent',
   'injectClaim',
   'freqMultiplier',
   'componentFreqMultiplier',
@@ -181,11 +237,22 @@ export const IMPLEMENTED_EFFECTS: ReadonlySet<ShockEffectKind> = new Set<ShockEf
 
 export interface ShockDefinition {
   id: string;               // the design-matrix number ('#22'), so table and matrix stay mapped
-  name: string;
+  name: string;             // what the HOST picks from: 'Major Earthquake'
+  // WHAT THE PLAYER READS: the event's name in the same words a drawn event of
+  // the same kind uses — 'Earthquake', never 'Major Earthquake' or '#2' — so a
+  // scheduled event and a drawn one read identically on every player screen.
+  // A NAME, NOT A SENTENCE: the sentence is written from what actually happened
+  // (where, which lines, how many claims, how much) by utils/yearEvents.ts,
+  // which is the only way a drawn catastrophe, which has no catalog row, can
+  // read the same, and the only way the sentence stays true when the realised
+  // event differs from the plan — a WC half that lands no claim because nobody
+  // in the region is enrolled.
+  eventName: string;
   horizon: ShockHorizon;
   band: ShockBand;
-  // Prose from the matrix. Shown on the audit page, so a player or instructor
-  // sees WHY the numbers moved, not just that they did.
+  // Prose from the matrix, for the HOST and the audit page: it names the
+  // mechanism (the retention, the tower) and is written before the event
+  // happens. Player screens do not show it — see eventName.
   description: string;
   effects: ShockEffect[];
 }
@@ -205,6 +272,11 @@ export interface ScheduledShock {
 export interface ShockFiring {
   shockId: string;
   name: string;
+  // The player's name for it (ShockDefinition.eventName) and the region it
+  // struck, if it struck one. OPTIONAL because a save written before they
+  // existed carries neither; readers fall back to the catalog.
+  eventName?: string;
+  region?: Region;
   band: ShockBand;
   horizon: ShockHorizon;
   description: string;
@@ -222,10 +294,18 @@ export interface ShockFiring {
 // would need a counterfactual second draw. So attributable cost is reported
 // where it exists and the analytic expectation where it does not, and the two
 // are never added together into a single misleading figure.
-export interface ShockRecord extends ShockFiring {
-  attributableGrossLoss: number;  // exact; injections only
-  attributableClaims: number;     // exact; injections only
-  expectedGrossLossAdded: number; // analytic; multipliers and overrides
+export interface ShockLineCost {
+  attributableGrossLoss: number;
+  attributableClaims: number;
+  expectedGrossLossAdded: number;
+}
+
+export interface ShockRecord extends ShockFiring, ShockLineCost {
+  // THE PER-LINE SPLIT, on the POOL record only. mergeShockRecords sums each
+  // line's record into one row per event, and this keeps what each line
+  // contributed — the Property and WC halves of one earthquake — rather than
+  // folding it into the total. Absent on a line's own record, which is one line.
+  byLine?: Partial<Record<CoverageLine, ShockLineCost>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +326,13 @@ export interface LineShockEffects {
   // shockId is carried so an injected claim's cost maps back to the event that
   // caused it. Frequency multipliers carry no such tag because their cost is
   // not exactly attributable in the first place — see ShockRecord.
-  injections?: { count: number; amount: number; shockId: string }[];
+  injections?: { count: number | ShockRange; amount: number | ShockRange; shockId: string; region?: Region }[];
+  // Property only: forced catastrophe events, in resolution order. Carries the
+  // shock id because the size and hit order are drawn from streams keyed on it.
+  forcedEvents?: { shockId: string; peril: string; region: Region; loss: ShockRange }[];
+  // Property only: non-catastrophe weather events, in resolution order. Carries
+  // the shock id for the same reason — every draw is keyed on it.
+  weatherEvents?: { shockId: string; peril: string; region: Region; count: ShockRange; claim: ShockRange }[];
 }
 
 export interface ShockResolution {

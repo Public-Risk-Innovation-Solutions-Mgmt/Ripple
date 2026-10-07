@@ -1,7 +1,7 @@
 // Core simulation engine for Risk Pool Simulation v1
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
-import type { Claim, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
+import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
 import type { LineShockEffects, ShockFiring, ShockRecord } from '../types/shocks';
 import { resolveShocks, ownFreqMultipliers, ownComponentFreqMultipliers, ownSevMultipliers } from './shockResolver';
 import { WHOLE_LINE } from './shockEffects';
@@ -13,18 +13,30 @@ import { WHOLE_LINE } from './shockEffects';
 function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefined {
   const merged = new Map<string, ShockRecord>();
   for (const r of lineResults) {
+    const line = r.line as CoverageLine;
     for (const rec of r.shockEvents ?? []) {
+      // What THIS line contributed, kept as it is summed in — the per-line split
+      // the Results card and the narrative show.
+      const own = {
+        attributableGrossLoss: rec.attributableGrossLoss,
+        attributableClaims: rec.attributableClaims,
+        expectedGrossLossAdded: rec.expectedGrossLossAdded,
+      };
       const existing = merged.get(rec.shockId);
-      if (!existing) { merged.set(rec.shockId, { ...rec, linesAffected: [...rec.linesAffected] }); continue; }
+      if (!existing) {
+        merged.set(rec.shockId, { ...rec, linesAffected: [...rec.linesAffected], byLine: { [line]: own } });
+        continue;
+      }
       existing.attributableGrossLoss += rec.attributableGrossLoss;
       existing.attributableClaims += rec.attributableClaims;
       existing.expectedGrossLossAdded += rec.expectedGrossLossAdded;
+      existing.byLine = { ...existing.byLine, [line]: own };
     }
   }
   return merged.size > 0 ? [...merged.values()] : undefined;
 }
 import { SeededRandom, deriveSubRng } from './random';
-import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, AGGREGATE_LOSS_DISTRIBUTION, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, resolveClosureCurve, openShareAtStep } from '../data/defaultAssumptions';
+import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
 import {
   DEVELOPMENT_ALLOCATION, DEVELOPMENT_CESSION_ENABLED, STOCHASTIC_ALLOCATION_MODE,
@@ -40,12 +52,16 @@ import { memberExperienceMods } from './memberExperienceMod';
 import { claimRevisionUnit, normalQuantile, reviseDevelopingSet, settleClosingSet } from './claimRevision';
 import { experienceRatePer100, type ExperienceBasis } from './experienceRating';
 import { projectPricingTriangle, windowRows } from './pricingTriangle';
-import { developmentDrift, initialEstimate } from './claimTriangle';
+import { closureCurveForReported, developmentDrift, initialEstimate } from './claimTriangle';
 import { poolYearFactor, wcGenerationInputs, glGenerationInputs, propertyGenerationInputs } from './claimGeneration';
 import { programFreqMultiplier, programAnnualCost, programRtwConversion } from './riskControlPrograms';
+import { occurrenceProgramCost } from './reinsuranceTower';
+import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import {
   aggregateRecovery,
   cedeOccurrences,
+  occurrenceDeductibles,
+  occurrenceKinds,
   normalizeAggregateStopLevel,
   normalizeLayersPlaced,
   occurrenceTotals,
@@ -57,7 +73,7 @@ import { simulateMemberMovement } from './membershipEngine';
 import { cloneMembershipHistory, openInterval, closeInterval } from './membershipHistory';
 import { cloneMemberLossHistory, recordMemberLossYear } from './memberLossHistory';
 import { computeKLine, deriveNeutralClassRatesPer100, deriveNeutralPurePremiumPer100, expectedWcGrossLossForPricing, generateWcClaims, ratingGroupOf, wcFrequencyTrend, wcSeverityTrend } from './wcClaimEngine';
-import { hasStaticClf, staticClf } from '../data/clfTables';
+import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import { computeKGl, deriveNeutralGlPurePremiumPer100, expectedGlGrossLossForPricing, generateGlClaims, glCappedSeverityTrend } from './glClaimEngine';
 import { computeKPr, generatePropertyClaims } from './propertyClaimEngine';
 import { generateNarrative } from './narrativeEngine';
@@ -1132,7 +1148,31 @@ export function processLineYear(
   }
   const reinsuranceCost = towerQuote.premium + (aggregateQuote?.premium ?? 0);
 
-  const totalMemberCharge = poolPremiumAndAdminExpense + reinsuranceCost;
+  // ============================================================================
+  // ⚠ THE PRICE OF THE COVER THE POOL DID NOT BUY, STILL CHARGED, AND KEPT.
+  //
+  // Quoted on the SAME book and year as `towerQuote`, with every purchasable
+  // layer placed, so the difference is exactly the price of the declined ones:
+  // zero when the tower is fully placed, the whole price when it is fully
+  // declined, and the declined layers' share in between. No new judgement — it
+  // is the tower's own runtime price, read through the quote that already
+  // exists.
+  //
+  // ⚠ IT IS REVENUE AND IT IS NOT AN EXPENSE. The member pays the same either
+  // way; what changes is where the money goes. Placed, it leaves as
+  // reinsuranceCost. Declined, it stays here and lands in surplus through net
+  // income, which is what funds the volatility the pool just took on.
+  //
+  // See DECLINED_COVER_MARGIN_ENABLED for the defect this closes, the measured
+  // drift in a long game, and the ledger field that would remove the drift.
+  const fullTowerQuote = occurrenceProgramCost(
+    line as TowerLine, FULL_OCCURRENCE_PLACEMENT[line as TowerLine], currentActiveMembers, yearNumber,
+  );
+  const retainedCoverMargin = DECLINED_COVER_MARGIN_ENABLED
+    ? Math.max(0, fullTowerQuote.premium - towerQuote.premium)
+    : 0;
+
+  const totalMemberCharge = poolPremiumAndAdminExpense + reinsuranceCost + retainedCoverMargin;
   const totalMemberRatePer100 = totalMemberCharge / Math.max(activeExposure * 10_000, 1);
 
   // ============================================================================
@@ -1241,8 +1281,11 @@ export function processLineYear(
         AGGREGATE_LOSS_DISTRIBUTION.logMean,
         AGGREGATE_LOSS_DISTRIBUTION.logSigma
       ) * AGGREGATE_LOSS_DISTRIBUTION.actualLossLevelMultiplier;
-  const catastropheThreshold =
-    FUNDING_CLF_TABLE[AGGREGATE_LOSS_DISTRIBUTION.catastropheThresholdConfidence];
+  // The dead aggregate path's multiplier, held at 1. It is no longer reported:
+  // `catastropheFactor` read 1.0000 on every line every year, and
+  // `shockLossIncurred` (a claim over $1M on WC and GL, hardcoded false on
+  // Property, so "No" in a catastrophe year) is gone with it. A year's events
+  // are now read from shockEvents and drawnCatastrophes — see utils/yearEvents.
   const catastropheFactor = 1;
 
   let generatedClaims: Claim[] | undefined;
@@ -1255,7 +1298,6 @@ export function processLineYear(
   let marketMemberLossResults: MemberLossResult[] | undefined;
   // The mix correction actually applied to the draw — see LineResultSet.kLineApplied.
   let kLineApplied: number | undefined;
-  let shockOccurred: boolean;
 
   // --- MARKETPLACE-WIDE GENERATION -------------------------------------------
   //
@@ -1349,12 +1391,6 @@ export function processLineYear(
     ];
     kLineApplied = kLine;
 
-    // WC's shock flag: a claim from the heavy mixture component large enough to
-    // matter. Replaces the retired "a catastrophic-tier claim occurred" test,
-    // which named a tier that no longer exists. $1M is the per-occurrence
-    // retention, so this reads as "the pool had a claim that pierced retention".
-    shockOccurred = generated.claims.some(c => c.grossUltimate >= 1_000_000);
-
     // EXACT attribution: the engine returns one outcome per requested
     // injection, in order, and ctx.shock.injections carries the shockId that
     // asked for each. No estimation involved — these are specific claims.
@@ -1421,9 +1457,15 @@ export function processLineYear(
       ...(prospectGenerated?.memberLossResults ?? []),
     ];
     kLineApplied = kGl;
-    // GL's shock event (ruled J11): any single occurrence exceeds $1M.
-    // Occurrence == claim for GL now, so this is the largest single claim.
-    shockOccurred = generated.maxOccurrenceGross > 1_000_000;
+
+    // EXACT attribution of any injected claims, as on WC: one outcome per
+    // requested injection, in order, each carrying the shock that asked for it.
+    (ctx.shock?.injections ?? []).forEach((injection, i) => {
+      const outcome = generated.injectionResults[i];
+      if (!outcome) return;
+      shockAttributableLoss[injection.shockId] = (shockAttributableLoss[injection.shockId] ?? 0) + outcome.gross;
+      shockAttributableClaims[injection.shockId] = (shockAttributableClaims[injection.shockId] ?? 0) + outcome.count;
+    });
 
     // The EXPECTED cost of any frequency shock on this line, attributed per
     // event. Computed as the difference between GL's own analytic expectation
@@ -1475,33 +1517,37 @@ export function processLineYear(
     aggregateMemberLoss = generated.grossUltimateLoss;
     kLineApplied = kPr;
     glClaimCount = generated.claimCount;
-    // ⚠ NO SHOCK CHANNEL, AND NO CAT LOAD EITHER — the two facts belong
-    // together. Property's shock used to arrive as an aggregate add-on keyed
-    // off commonLossFactor, which went with the Gamma path; its replacement is
-    // the cat shock events, still gated off. The held pure premium therefore no
-    // longer carries the ASSERTED 0.0247 cat load: a line that cannot incur a
-    // peril must not be priced for it, and the load is now recorded as retired
-    // at PROPERTY_HELD_PURE_PREMIUM_PER_100 rather than collected.
+    // EXACT attribution of a forced catastrophe: the generator reports what
+    // each scheduled event landed, in input order, keyed to its shock.
+    for (const r of generated.forcedEventResults) {
+      shockAttributableLoss[r.shockId] = (shockAttributableLoss[r.shockId] ?? 0) + r.gross;
+      shockAttributableClaims[r.shockId] = (shockAttributableClaims[r.shockId] ?? 0) + r.claims;
+    }
+    // And of a scheduled weather event, the same way. ⚠ THIS WAS MISSING when
+    // WINTER-STORM landed (e1639c7): its claims were drawn and booked but the
+    // shock record read $0 and 0 claims, so the Results card named the storm
+    // and attributed nothing to it.
+    for (const r of generated.weatherEventResults) {
+      shockAttributableLoss[r.shockId] = (shockAttributableLoss[r.shockId] ?? 0) + r.gross;
+      shockAttributableClaims[r.shockId] = (shockAttributableClaims[r.shockId] ?? 0) + r.claims;
+    }
+    // ⚠ NO SHOCK CHANNEL — BUT A CAT BAND, AND ITS LOAD, TOGETHER. Property's
+    // shock used to arrive as an aggregate add-on keyed off commonLossFactor,
+    // which went with the Gamma path; the cat shock events are still gated
+    // off. The catastrophe band is not a shock: it is drawn every year by
+    // generatePropertyClaims (PROPERTY_CAT_MODEL), and its derived load is in
+    // PROPERTY_HELD_PURE_PREMIUM_PER_100 — the load and the losses went back in
+    // the SAME commit, which is the only way either was allowed back. The load
+    // alone is a certain over-collection, the losses alone a certain
+    // under-collection.
     //
-    // WHEN THE CAT BAND LANDS, THE LOAD AND THE LOSSES GO BACK IN THE SAME
-    // COMMIT. Restoring either alone recreates the defect: the load alone is a
-    // certain over-collection, the losses alone a certain under-collection.
-    //
-    // ⚠ AND WHEN IT DOES, EACH CAT EVENT MUST BE ONE OCCURRENCE, NOT ONE
-    // OCCURRENCE PER MEMBER HIT. The occurrence tower above already groups
-    // claims by occurrenceId before layering (see reinsuranceTower.ts's
-    // occurrenceTotals and the header note in data/reinsuranceTower.ts) — it
-    // requires no change to price a multi-claim cat event correctly. The
-    // requirement is entirely on the generator: `generatePropertyClaims`'s cat
-    // band must emit one Occurrence per event with every hit member's claim in
-    // that occurrence's claimIds, the same shape a GL abuse batch or WC's
-    // (retired) weather band used. Get this wrong — one occurrence per claim,
-    // as today's attritional band correctly does for a single loss — and a
-    // catastrophe that should pierce the $5M retention as one $74M occurrence
-    // instead looks like twenty $3.7M claims, none of which reaches it.
-    shockOccurred = false;
+    // ⚠ EACH CAT EVENT IS ONE OCCURRENCE, NOT ONE OCCURRENCE PER MEMBER HIT —
+    // the generator emits it that way and occurrenceTotals sums its claims
+    // before the tower sees it, and Property's one layer answers it like any
+    // other occurrence. The KIND still matters to booking and development: a
+    // catastrophe is booked at its drawn total and held there, which is why
+    // occurrenceKinds reaches bookedOccurrenceTotals and the tracked set.
   } else {
-    shockOccurred = commonLossFactor > catastropheThreshold;
     memberLossResults = enrolledMembers.map(member => {
       const memberExposureAmount = getMemberExposure(member, line, yearNumber);
       const memberExpectedLoss = memberExposureAmount * pricedPurePremiumPer100 * 10_000;
@@ -1607,15 +1653,19 @@ export function processLineYear(
     // $300k. Contracting first means far less pierces at inception and the
     // recovery arrives later, through cedeDevelopment, as the claim develops
     // past the retention — which is what makes recovery LAG the loss.
-    // Occurrences are 1:1 with claims on all three lines (see occurrenceTotals),
-    // so contracting the occurrence total IS contracting the claim.
-    const totals = FORWARD_BOOKING.enabled
-      ? drawnTotals.map(t => initialEstimate(line, t))
-      : drawnTotals;
+    // Occurrences are 1:1 with claims on WC, GL and Property's attritional band
+    // (see occurrenceTotals), so there contracting the occurrence total IS
+    // contracting the claim. ⚠ A PROPERTY CAT EVENT IS NOT CONTRACTED AT ALL —
+    // see bookedOccurrenceTotals.
+    const totals = bookedOccurrenceTotals(line, drawnTotals, occurrenceKinds(generatedOccurrences ?? []));
     const drawnSum = drawnTotals.reduce((a, b) => a + b, 0);
     const bookedSum = totals.reduce((a, b) => a + b, 0);
     if (FORWARD_BOOKING.enabled && drawnSum > 0) bookedGrossContraction = bookedSum / drawnSum;
-    const cession = cedeOccurrences(towerLine, totals, placed);
+    // Each occurrence's peril deductible — an earthquake retains $10M, every
+    // other occurrence meets the layer's attachment (PROPERTY_PERIL_DEDUCTIBLE).
+    const cession = cedeOccurrences(
+      towerLine, totals, placed, occurrenceDeductibles(towerLine, generatedOccurrences ?? []),
+    );
     cededByLayer = cession.cededByLayer;
     retainedAboveTower = cession.retainedAboveTower;
 
@@ -1656,6 +1706,56 @@ export function processLineYear(
   // basis — the split-basis failure this branch has produced six times.
   const bookedGrossUltimate = bookedGrossContraction * grossUltimateLoss;
   const netUltimateLoss = bookedGrossUltimate - reinsuranceRecovery;
+
+  // ============================================================================
+  // THE TWO-PART LOSS RATIO — and the pair is the exhibit, not either half.
+  //
+  //   POOL LAYER   what fell below the retention, against the premium for that
+  //                layer. The pool's own underwriting result.
+  //   TOTAL        every loss, ceded or not, against the whole charge. Think of
+  //                the pool as the reinsurer: it wrote every layer, so measure
+  //                every loss.
+  //
+  // ⚠ BOTH ARE IDENTICAL WHETHER THE COVER IS BOUGHT OR NOT, AND THAT IS THE
+  // POINT RATHER THAN A COINCIDENCE. A loss ratio is an underwriting measure;
+  // reinsurance is financing. The gross loss does not depend on the placement,
+  // the full-tower cession is computed at full placement so it does not either,
+  // and the charge is flat by DECLINED_COVER_MARGIN_ENABLED. Declining shows up
+  // in the SURPLUS PATH, not on the scoreboard.
+  //
+  // ⚠ AND THAT IS WHY THE SPLIT HAD TO LAND WITH THE FLAT CHARGE. A retained
+  // margin sitting in poolPremium with a NET total ratio would have read the
+  // declined arm at 58% against the placed arm's 88% — the pool that kept all
+  // the risk looking better at it. On a GROSS total there is nothing left to
+  // look better at.
+  //
+  // ⚠ THE POOL LAYER'S DENOMINATOR IS poolPremiumAndAdminExpense, WHICH ALREADY
+  // MEANS THIS. The question "what premium belongs to the pool layer when the
+  // charge is one number" has a simpler answer than reconstructing it: the pool
+  // premium IS the premium for the layer the pool keeps — exactly so when the
+  // tower is placed, because it funds net of cession, and to the same
+  // approximation already accepted at the moment of declining, because the
+  // declined arm's retained rate is still the net rate there. Reconstructing it
+  // would apply the same approximation a second time.
+  //
+  // ⚠ ACCIDENT-YEAR ULTIMATE, NOT THE INCURRED MOVEMENT, and the bases must not
+  // be confused. actualLossRatioPricingBasis divides netIncurredLoss — this
+  // year's movement in the whole net ledger, prior accident years included.
+  // These two divide THIS accident year's booked ultimate, because the question
+  // they answer is "what did this year's losses do", which is the question a
+  // board asks of the pair.
+  const fullTowerCession = hasTractableCeded
+    ? cedeOccurrences(
+        line as TowerLine,
+        FORWARD_BOOKING.enabled
+          ? occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []).map(t => initialEstimate(line, t))
+          : occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []),
+        FULL_OCCURRENCE_PLACEMENT[line as TowerLine],
+      )
+    : null;
+  const poolLayerLoss = Math.max(0, bookedGrossUltimate - (fullTowerCession?.totalCeded ?? 0));
+  const poolLayerLossRatio = poolLayerLoss / Math.max(poolPremiumAndAdminExpense, 1);
+  const totalLossRatioGross = bookedGrossUltimate / Math.max(totalMemberCharge, 1);
 
   // --- Investment Income ---
   // This line's own segregated portfolio (Stage 2.9): drawn in processYear from
@@ -1723,13 +1823,19 @@ export function processLineYear(
         (generatedOccurrences ?? []).map(o => o.claimIds[0] ?? o.id),
         // Same contraction the tower saw — the tracked set IS the register the
         // development law moves, so it must open where the books opened.
-        (() => {
-          const t = occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []);
-          return FORWARD_BOOKING.enabled ? t.map(v => initialEstimate(line, v)) : t;
-        })(),
+        bookedOccurrenceTotals(
+          line,
+          occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []),
+          occurrenceKinds(generatedOccurrences ?? []),
+        ),
         DEVELOPMENT_ALLOCATION,
         ibnerRng,
         reselectRng(instance.seed, line, yearNumber, yearNumber, 'bench'),
+        undefined,
+        // Cat events carry the kind: always tracked, held at their booked value.
+        occurrenceKinds(generatedOccurrences ?? []),
+        // And the deductible, so development cedes on the inception terms.
+        occurrenceDeductibles(line as TowerLine, generatedOccurrences ?? []),
       )
     : { tracked: [], untrackedTotal: 0, bench: [] };
 
@@ -2011,17 +2117,18 @@ export function processLineYear(
   //
   // ⚠ THE ONE THING THAT MAY LEGITIMATELY READ THIS RATIO IS A ONE-OFF
   // CALIBRATION. Because reserveMarginCLF is a static per-line table, the line
-  // below makes margin/reserve an EXACT constant — WC 0.3294, GL 0.5020,
-  // Property 0.5923, zero dispersion across seeds and across both payout-pattern
-  // arms. So any "hold J x reserve" capital rule is "hold T x this margin"
+  // below makes margin/reserve an EXACT constant — staticClf(line,
+  // RESERVE_MARGIN_CONFIDENCE) - 1 on each line, zero dispersion across seeds and
+  // across both payout-pattern arms. (The three figures that stood here were read
+  // off tables that have since moved; the expression is what stays true.) So any "hold J x reserve" capital rule is "hold T x this margin"
   // wearing a different denominator, and adopting one puts the 90% CLF back on
   // the opening path. The consequences are worked through beside
   // OPENING_SURPLUS_BAND in defaultAssumptions.ts, together with the
   // reserve pin that was measured and rejected. Read that before wiring anything
   // here to the opening.
   const reserveMarginCLF = hasStaticClf(line)
-    ? staticClf(line, 0.90)
-    : lookupCLF(0.90);
+    ? staticClf(line, RESERVE_MARGIN_CONFIDENCE)
+    : lookupCLF(RESERVE_MARGIN_CONFIDENCE);
   const reserveRiskMarginNeeded = Math.max(
     0,
     expectedNetUnpaidLoss * (reserveMarginCLF - 1)
@@ -2044,11 +2151,11 @@ export function processLineYear(
   const capitalAdequacyStatus =
     excessCapitalRatio === null
       ? 'N/A'
-      : excessCapitalRatio >= 0.25
+      : excessCapitalRatio >= CAPITAL_ADEQUACY_THRESHOLDS.strong
       ? 'Strong'
-      : excessCapitalRatio >= 0
+      : excessCapitalRatio >= CAPITAL_ADEQUACY_THRESHOLDS.adequate
         ? 'Adequate'
-        : excessCapitalRatio >= -0.10
+        : excessCapitalRatio >= CAPITAL_ADEQUACY_THRESHOLDS.thin
           ? 'Thin'
           : 'Deficient';
 
@@ -2125,6 +2232,14 @@ export function processLineYear(
   // on the Results detail and in the export, nowhere a player reads at a glance.
   const actualLossRatioRetainedPremium =
     netIncurredLoss / Math.max(poolPremium, 1);
+  // ⚠ THE RETAINED MARGIN IS NOT IN THE NUMERATOR AND IS IN THE DENOMINATOR,
+  // WHICH IS DELIBERATE RATHER THAN AN OVERSIGHT. An expense ratio measures what
+  // the pool PAYS AWAY per dollar charged. A declined layer's price is not paid
+  // away — it stays in the pool — so it is not an expense, while it is
+  // unarguably part of what the member was charged. The consequence is that
+  // declining LOWERS the expense ratio, which is the true statement: the pool
+  // has stopped paying a reinsurer. What it has taken on instead shows in the
+  // surplus path and in the two-part loss ratio, not here.
   const actualExpenseRatio =
     (adminExpense + reinsuranceCost) / Math.max(totalMemberCharge, 1);
   const actualCombinedRatio = actualLossRatio + actualExpenseRatio;
@@ -2149,6 +2264,35 @@ export function processLineYear(
   // on the result is the same quantity divided by exposure, and re-deriving it
   // from that would round-trip through a per-$100 figure for no reason.
   // ============================================================================
+  // The peril deductibles by occurrence id, only where one applies — so the
+  // value split retains what the cession retained.
+  const valueDeductibles = new Map<string, number>();
+  if (hasTractableCeded) {
+    const occs = generatedOccurrences ?? [];
+    occurrenceDeductibles(line as TowerLine, occs).forEach((d, i) => { if (d > 0) valueDeductibles.set(occs[i].id, d); });
+  }
+  // THE YEAR'S DRAWN CATASTROPHES, as a summary that survives the save — the
+  // claims and occurrences do not. A scheduled one is on shockEvents; its claims
+  // carry the shock's id, which is how it is told apart here. Only occurrences
+  // that hit an enrolled member exist, so an event that struck nobody in the
+  // pool is not recorded — and a scheduled one that struck nobody records no
+  // claim either, so the two read the same. See utils/yearEvents.ts.
+  const drawnCatastrophes: DrawnCatastrophe[] = [];
+  if (isPropertyClaimLine) {
+    const claimById = new Map((generatedClaims ?? []).map(c => [c.id, c]));
+    for (const o of generatedOccurrences ?? []) {
+      if (!o.isCatastrophe) continue;
+      const cs = o.claimIds.map(id => claimById.get(id)).filter((c): c is Claim => !!c);
+      if (cs.length === 0 || cs.some(c => c.shockId !== undefined)) continue;
+      drawnCatastrophes.push({
+        occurrenceId: o.id,
+        peril: o.peril ?? 'cat',
+        region: o.region,
+        claims: cs.length,
+        grossLoss: cs.reduce((t, c) => t + c.grossUltimate, 0),
+      });
+    }
+  }
   const valuePots = poolValueRow({
     line,
     claims: generatedClaims ?? [],
@@ -2159,9 +2303,10 @@ export function processLineYear(
     // ⚠ THE PLACEMENT, so a declined layer's loss lands in the pot that actually
     // funds it. Invisible at defaults, where everything is placed.
     layersPlaced: lineDecisions.layersPlaced,
+    deductibles: valueDeductibles,
   });
   const valueRows = memberValueRows(
-    memberPremiumShares, generatedClaims ?? [], line, lineDecisions.layersPlaced,
+    memberPremiumShares, generatedClaims ?? [], line, lineDecisions.layersPlaced, valueDeductibles,
   );
 
   const result: LineResultSet = {
@@ -2241,7 +2386,6 @@ export function processLineYear(
     claimCountsByTier: wcCountsByTier,
     claimCount: glClaimCount,
     commonLossFactor,
-    catastropheFactor,
     grossUltimateLoss,
     // ⚠ THE STEP BETWEEN GROSS AND NET, AND IT WAS COMPUTED AND THROWN AWAY.
     // netUltimateLoss has always been `bookedGrossUltimate - reinsuranceRecovery`
@@ -2252,7 +2396,7 @@ export function processLineYear(
     // and Net 3.54x apart at pool scope and no row saying why. See its own row in
     // resultMetrics.
     bookedGrossUltimate,
-    shockLossIncurred: shockOccurred,
+    ...(drawnCatastrophes.length > 0 ? { drawnCatastrophes } : {}),
     shockEvents: ctx.shockFirings?.length
       ? ctx.shockFirings.map((f): ShockRecord => ({
           ...f,
@@ -2262,6 +2406,7 @@ export function processLineYear(
         }))
       : undefined,
     reinsuranceCost,
+    retainedCoverMargin,
     reinsuranceRecovery,
     priorYearDevelopmentCeded: developmentCeded,
     bookingGiveBack: markdown.giveBack,
@@ -2271,6 +2416,8 @@ export function processLineYear(
     aggregatePremium,
     aggregateAttachment,
     netUltimateLoss,
+    // The booked figure, recorded rather than left as a local — see its field.
+    bookedNetUltimate: bookedUltimate,
     netIncurredLoss,
 
     operatingExpense,
@@ -2347,6 +2494,11 @@ export function processLineYear(
     actualLossRatio,
     actualLossRatioPricingBasis,
     actualLossRatioRetainedPremium,
+    // THE PAIR. See the block at poolLayerLossRatio for why both are identical
+    // whether the cover was bought or not.
+    poolLayerLoss,
+    poolLayerLossRatio,
+    totalLossRatioGross,
     actualExpenseRatio,
     actualCombinedRatio,
     combinedRatio,
@@ -2513,7 +2665,13 @@ export function processYear(
   // relying on the defaults to stay empty — if a future default ever committed a
   // program, the pre-game must still not accrue tenure for it, because the
   // player did not buy it.
-  const priorProgramIds = gameState.lockedResults.map(r => r.decisions?.riskControlProgramIds);
+  // ⚠ READS `pool`, NOT `decisions`. The quantity is unchanged — program ids are
+  // pool-wide and were projected identically into every line, so the old read
+  // off the first line's echo returned the right list. What changed is that the
+  // pool row no longer carries a line's decision set at all, so the right list
+  // now has a field of its own to come from. `?.` survives a save written before
+  // that field existed, the same reason riskControlProgramIds is itself optional.
+  const priorProgramIds = gameState.lockedResults.map(r => r.pool?.riskControlProgramIds);
 
   const activeLines = setup.activeLines;
   const shares = computeContributionShares(poolState, activeLines);
@@ -2933,9 +3091,9 @@ function resyncSurplusDerived(r: LineResultSet): void {
   r.capitalAdequacyRatio = excess;
   r.capitalAdequacyStatus =
     excess === null ? 'N/A'
-      : excess >= 0.25 ? 'Strong'
-      : excess >= 0 ? 'Adequate'
-      : excess >= -0.10 ? 'Thin'
+      : excess >= CAPITAL_ADEQUACY_THRESHOLDS.strong ? 'Strong'
+      : excess >= CAPITAL_ADEQUACY_THRESHOLDS.adequate ? 'Adequate'
+      : excess >= CAPITAL_ADEQUACY_THRESHOLDS.thin ? 'Thin'
       : 'Deficient';
   r.surplusTieOutDifference = r.endingSurplus - r.surplusFromIncome;
 }
@@ -3054,8 +3212,13 @@ export function aggregateLineResults(
   //                           them is a category error; the result is retained
   //                           only because display code still reads it, and it
   //                           must never be labelled with a unit at pool scope.
-  //   noPoolMeaning           the quantity has no pool-level referent at all.
-  //                           Returns the stated placeholder and records why.
+  //   (noPoolMeaning          RETIRED. It returned a placeholder and recorded why
+  //                           in a string the compiler discarded, so the field
+  //                           still had a readable number and pages still read
+  //                           it. Its three users now have no pool-row field at
+  //                           all — see PoolAbsentKey in types/simulation.ts.
+  //                           A quantity with no pool referent is now ABSENT
+  //                           rather than annotated.)
   //
   // Ratios are NOT in this list on purpose: never add a ratio across lines.
   // Recompute it from its own summed components, as every ratio below does.
@@ -3069,13 +3232,6 @@ export function aggregateLineResults(
   const addEnrolments = reduceKey;
   /** WC/GL payroll + Property TIV. A category error, retained for display only. */
   const addMixedUnitExposure = reduceKey;
-  /**
-   * No pool-level referent exists. `why` is REQUIRED and is the point of the
-   * helper: it forces the author to write down what the reader should do
-   * instead, at the call site, rather than leaving a bare value that looks
-   * aggregated. Discarded at runtime — the record is the source line.
-   */
-  const noPoolMeaning = <T>(placeholder: T, why: string): T => { void why; return placeholder; };
 
   // ⚠ ENROLMENTS, NOT MEMBERS, AND THE TWO DIVERGE BY ~47% ON A THREE-LINE POOL.
   // This is a plain sum of each line's active count, so a member carrying WC and
@@ -3240,11 +3396,11 @@ export function aggregateLineResults(
   const capitalAdequacyStatus =
     excessCapitalRatio === null
       ? 'N/A'
-      : excessCapitalRatio >= 0.25
+      : excessCapitalRatio >= CAPITAL_ADEQUACY_THRESHOLDS.strong
       ? 'Strong'
-      : excessCapitalRatio >= 0
+      : excessCapitalRatio >= CAPITAL_ADEQUACY_THRESHOLDS.adequate
         ? 'Adequate'
-        : excessCapitalRatio >= -0.10
+        : excessCapitalRatio >= CAPITAL_ADEQUACY_THRESHOLDS.thin
           ? 'Thin'
           : 'Deficient';
 
@@ -3256,7 +3412,21 @@ export function aggregateLineResults(
   const pooled: ResultSet = {
     yearNumber: first.yearNumber,
     calendarYear: first.calendarYear,
-    decisions: first.decisions,
+    // ⚠ `decisions` IS GONE FROM THIS ROW. It was `first.decisions`, a
+    // LineDecisionSet — so at pool scope the renewal bar, the funding level and
+    // the reinsurance structure were one line's, labelled as the pool's. The
+    // three decisions that really are pool-wide are below, and the type no
+    // longer offers the rest.
+    //
+    // IDENTICAL ON EVERY LINE BY CONSTRUCTION: the player sets these once and
+    // the engine projects them into each LineDecisionSet, so taking them from
+    // the first line is reading the pool's own choice, not a stand-in for it.
+    // That is the distinction a blanket sweep would have destroyed.
+    pool: {
+      assetAllocation: first.decisions.assetAllocation,
+      riskControlPct: first.decisions.riskControlPct,
+      riskControlProgramIds: first.decisions.riskControlProgramIds,
+    },
     assetAllocation: first.assetAllocation,
 
     activeMembers: distinctMembers,
@@ -3273,17 +3443,18 @@ export function aggregateLineResults(
     averageRiskQuality,
     memberList,
 
-    rateLevel: first.rateLevel,
-    ratePer100: first.ratePer100,
-    purePremiumPer100: first.purePremiumPer100,
-    purePremium: first.purePremium,
-    // Same one-line placeholder as the per-100 fields above, for the same
-    // reason: a per-100 RATE cannot be summed across lines, and blending it
-    // needs an exposure weighting sum() does not do. Do not read these at pool
-    // scope; each line's own value is exact and is what the identity in
-    // fundedNetExpectedLoss's header is asserted against.
-    expectedCededPer100: first.expectedCededPer100,
-    netPurePremiumPer100: first.netPurePremiumPer100,
+    // ⚠ THE SIX PER-$100 / RATE-LEVEL FIELDS ARE GONE FROM THIS ROW, NOT SET TO
+    // ZERO. They were `first.<field>` under a comment reading "Do not read these
+    // at pool scope" — which is the right instruction and could not be enforced,
+    // because the type offered a number and five display sites printed it.
+    //
+    // THERE IS NO POOL RATE TO BUILD. The denominator would be pool exposure,
+    // and pool exposure is `addMixedUnitExposure` — WC/GL payroll in $M plus
+    // Property TIV in $M, a category error retained only because display code
+    // reads it. A rate per $100 of (payroll + building value) is not a hard
+    // number to compute, it is not a number. Each line's own value is exact and
+    // is what fundedNetExpectedLoss's identity is asserted against; byLine
+    // carries it.
     writtenExposure: addMixedUnitExposure('writtenExposure'),
 
     poolPremium: addDollars('poolPremium'),
@@ -3305,11 +3476,12 @@ export function aggregateLineResults(
     // economic. Left as the mean rather than repaired because the field is
     // legacy and has no engine consumer; the pool value is documented here as
     // not meaning what it appears to, and GL's own row is the one to read.
-    commonLossFactor: noPoolMeaning(
-      results.reduce((s, r) => s + r.commonLossFactor, 0) / results.length,
-      'legacy aggregate-path factor; only GL carries a live value — read the GL row',
-    ),
-    catastropheFactor: first.catastropheFactor,
+    // ⚠ BOTH SIDES OF THIS MERGE DELETED A LEGACY PLACEHOLDER HERE, AND THEY
+    // DELETED DIFFERENT ONES. `commonLossFactor` left the POOL row only — it is
+    // in PoolAbsentKey and each line still carries its own. `catastropheFactor`
+    // left the row ENTIRELY, on every scope, because it read 1.0000 on every
+    // line in every year. Taking one resolution and not the other would have
+    // resurrected a field its own branch had just removed.
     grossUltimateLoss: addDollars('grossUltimateLoss'),
     // ⚠ SUMMED LIKE ITS GROSS AND NET NEIGHBOURS, because the pool figure is the
     // sum of the lines and nothing else. Omitting it here left the pool scope
@@ -3317,12 +3489,16 @@ export function aggregateLineResults(
     // figure — the audit page then reconciled on every line and not at pool,
     // which is a worse state than failing everywhere.
     bookedGrossUltimate: results.reduce((sum, r) => sum + (r.bookedGrossUltimate ?? r.grossUltimateLoss), 0),
-    shockLossIncurred: results.some(r => r.shockLossIncurred),
+    // ⚠ A PLAIN SUM, WHICH IS THE POINT OF STORING IT. Booked net ultimate is
+    // extensive money and adds across lines; derived, it would need each line's
+    // own CLF, which the pool row does not carry.
+    bookedNetUltimate: results.reduce((sum, r) => sum + (r.bookedNetUltimate ?? r.netUltimateLoss), 0),
     // ONE ROW PER EVENT, costs summed across the lines it hit — not one row per
     // line. A cross-line event like #28 is a single cause, and showing it twice
     // would read as two events.
     shockEvents: mergeShockRecords(results),
     reinsuranceCost: reinsuranceCostSum,
+    retainedCoverMargin: addDollars('retainedCoverMargin'),
     // ⚠ WC AND GL ONLY. PROPERTY IS EXCLUDED AND ITS ABSENCE IS THE FIX.
     //
     // This sums ELEMENTWISE, so index 0 means "the first layer of every line
@@ -3366,7 +3542,8 @@ export function aggregateLineResults(
     // Nothing reads this at pool scope today (checked across pages and
     // RESULT_METRICS), so 0 costs nothing and is the honest reading: there is no
     // pool attachment. Read byLine.WC / byLine.Property for the real ones.
-    aggregateAttachment: noPoolMeaning(0, 'two separate treaties; a threshold is not additive — read byLine'),
+    // ⚠ GONE. Two separate treaties; an attachment threshold is not additive,
+    // which its own noPoolMeaning note said. Read byLine.
     reinsuranceRecovery: addDollars('reinsuranceRecovery'),
     priorYearDevelopmentCeded: addDollars('priorYearDevelopmentCeded'),
     bookingGiveBack: addDollars('bookingGiveBack'),
@@ -3416,8 +3593,11 @@ export function aggregateLineResults(
     interLineCashTransfer: addDollars('interLineCashTransfer'),
     dividendBlocked: results.some(r => r.dividendBlocked),
 
-    selectedFundingConfidenceLevel: first.selectedFundingConfidenceLevel,
-    selectedFundingCLF: first.selectedFundingCLF,
+    // ⚠ GONE. Each line carries its own confidence level and its own CLF, so
+    // once two lines price differently there is no pool CLF — which is exactly
+    // what fundedNetExpectedLossSum above already works around by summing per
+    // line rather than dividing once. The placeholder and the workaround sat
+    // twenty lines apart in the same function.
 
     expectedLoss: expectedLossSum,
     clfAdjustedExpectedLoss: addDollars('clfAdjustedExpectedLoss'),
@@ -3437,7 +3617,7 @@ export function aggregateLineResults(
     capitalAdequacyRatio: excessCapitalRatio,
     capitalAdequacyStatus,
 
-    fundingCLF: first.fundingCLF,
+    // ⚠ GONE with selectedFundingCLF, of which it was an alias.
 
     underwritingIncome: addDollars('underwritingIncome'),
     netIncome: addDollars('netIncome'),
@@ -3461,6 +3641,13 @@ export function aggregateLineResults(
     actualLossRatio,
     actualLossRatioPricingBasis,
     actualLossRatioRetainedPremium,
+    // ⚠ SUMS OVER SUMS, NOT A MEAN OF THE LINE RATIOS — the same discipline as
+    // every other pooled ratio here. The pool layer's denominator and the
+    // total's are different quantities, so they are summed separately rather
+    // than sharing one.
+    poolLayerLoss: addDollars('poolLayerLoss'),
+    poolLayerLossRatio: addDollars('poolLayerLoss') / Math.max(poolPremiumAndAdminExpenseSum, 1),
+    totalLossRatioGross: addDollars('bookedGrossUltimate') / Math.max(totalMemberChargeSum, 1),
     actualExpenseRatio,
     actualCombinedRatio,
     combinedRatio: actualCombinedRatio,
@@ -3568,6 +3755,32 @@ function recordReserveDevelopment(
   }
 
   return [...byYear.values()].sort((a, b) => a.yearNumber - b.yearNumber);
+}
+
+// ============================================================================
+// WHAT AN OCCURRENCE IS BOOKED AT ON THE DAY IT HAPPENS — ONE DEFINITION, read
+// by the tower at inception and by the tracked set, which must open where the
+// books opened.
+//
+// Forward booking contracts an occurrence to initialEstimate(line, drawn) =
+// A x drawn^k: a large claim books at a fraction of its cost and develops up
+// towards it. That is a LIABILITY idea — the reserve is low because nobody
+// yet knows whether the pool will be found liable, or for how much.
+//
+// ⚠ A PROPERTY CATASTROPHE IS BOOKED AT ITS DRAWN TOTAL, UNCONTRACTED. A burned
+// building's value is known; pools put senior adjusters on a cat event and its
+// reserve is right when it is set. Contracting it booked a $66.8M wildfire at
+// $41.6M, ceded $7.7M in its own year against $30.0M on the event, and — once
+// the contracted figure met fast closure, a settlement factor and drift on
+// closed files — left the event at ~80% of its cost for good. It is exempted
+// from development as well as from the contraction (claimRevision.ts,
+// buildTrackedSet): the two must move together, because a cat booked at full
+// that still took the forward-booking drift would be developed PAST its cost,
+// and one still contracted but closed fast never reaches it.
+// ============================================================================
+function bookedOccurrenceTotals(line: CoverageLine, drawn: number[], catastrophe: readonly boolean[]): number[] {
+  if (!FORWARD_BOOKING.enabled) return drawn;
+  return drawn.map((t, i) => (catastrophe[i] === true ? t : initialEstimate(line, t)));
 }
 
 // ============================================================================
@@ -3696,7 +3909,13 @@ function processIbner(
           c.developingClaims,
           c.developmentBench ?? [],
           c.untrackedTotal ?? 0,
-          (claimId, drawn) => isClaimClosed(resolveClosureCurve(line, drawn), gameId, claimId, curveAge),
+          // ⚠ closureCurveForReported, NOT resolveClosureCurve. The value this
+          // callback receives is the occurrence's REPORTED figure, which under
+          // forward booking is contracted below the draw — and the size band is
+          // defined on the draw. Passing it straight to resolveClosureCurve is
+          // what put the engine's `closed` flag at odds with the claims
+          // memorandum and the workbook on 1.08% of claims.
+          (claimId, reported) => isClaimClosed(closureCurveForReported(line, reported), gameId, claimId, curveAge),
           developing ? DEVELOPMENT_ALLOCATION.claimCount : 0,
           // ⚠ THE SET MUST HOLD THE MOVEMENT, NOT MERELY NUMBER TEN. A matured
           // cohort takes no step, so it needs to hold nothing.
@@ -4127,7 +4346,7 @@ function processIbner(
           // inequality and makes "closes at zero" land on the paid to date.
           const alloc = settleClosingSet(
             gameId,
-            developingClaimsOut.map(d => ({ claimId: d.claimId, current: d.current })),
+            developingClaimsOut.map(d => ({ claimId: d.claimId, current: d.current, ...(d.catastrophe ? { catastrophe: true as const } : {}) })),
             settling, untrackedOut ?? 0, newUnpaid,
           );
           const deltas = alloc.deltas;

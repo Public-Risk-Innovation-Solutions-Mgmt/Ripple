@@ -7,6 +7,8 @@ and this note is stale: fix this note.
 
 It is for whoever creates and sizes the table, not whoever writes the handlers.
 
+**The acceptance test for a handler is `scripts/tools/session-contract-check.ts`, which is 144/144 over both transports** — the same assertions against `localStorage` and against a real socket. A Lambda that satisfies it satisfies the contract; neither this note nor `keys.ts` is a substitute for running it. (It was 126/126 when this note was written, before `advance` took an expected year and `join`/`createRoom` took client-minted tokens.)
+
 ## What the console asks for
 
 None of these can be changed after the table exists.
@@ -34,8 +36,31 @@ the console.**
 | `sk` | String | `D#<teamId>#<yyy>` | one team's decisions for one year |
 | `sk` | String | `R#<teamId>#<yyy>` | one team's result for one year (`000` is the opening position) |
 | `sk` | String | `VIEW#<tokenHash>` | one viewer |
+| `pk` | String | `CREATE#<hash(hostToken)>` | **not a room partition** — see below |
+| `sk` | String | `CREATE` | the createRoom idempotency index, holding `{ code }` |
 
 `<yyy>` is always three digits, so the sort order holds past year 99.
+
+### The one item that is not in a room's partition
+
+`createRoom` is idempotent: the host's client mints its own token and the server indexes it, so a
+retried create returns the room it already made rather than a second room. That lookup happens
+**before a code exists**, so the index cannot be keyed on the code — it is its own partition.
+
+- **Key on the HASH of the host token, never the token itself.** It is a bearer token; the table
+  should never hold one in plaintext. (The local implementation keys on the raw token and says so —
+  the room record beside it already holds it in the clear in the same `localStorage`, so it is no
+  worse *there*. A hosted table is a different setting.)
+- **It is a second item per room.** Anything counting rooms must exclude it. The local store's
+  `/health` reported its own length as the room count and went wrong the moment this landed.
+- **Write it AFTER the room, never before.** A failure between the two then leaves no index pointing
+  at a room that was never written. The reverse order strands a token resolving to nothing. They are
+  deliberately not transacted — different partitions — and the ordering is what makes the non-atomic
+  case harmless in one direction.
+- **Give it the room's own `expiresAtSec`.** Longer outlives the room it names; shorter silently
+  un-idempotents a create that is still live.
+
+This does not change the "no secondary index" rule below: it is a main-table item, not a GSI.
 
 - **No secondary index.** The handlers do not need one, and must not read through one: every read is
   strongly consistent (below), and a GSI cannot be.
@@ -48,7 +73,8 @@ the console.**
   nothing is ever deleted. A duration stored in place of a timestamp reads as 1970 and expires at once.
 - **One write sets it and every other write copies it.** `createRoom` sets the header's value once
   (creation time in seconds, plus the retention period). Every later write copies the header's value
-  verbatim onto the item it writes. A result posted in year 10 carries the same expiry as the header
+  verbatim onto the item it writes — **including the `CREATE#` index item**, which is written in the
+  same call and is the one item a reader will not think to check. A result posted in year 10 carries the same expiry as the header
   written two hours earlier, so the room expires as one rather than in pieces.
 - **The retention period is not decided yet.** Unlike the attribute name, it can change later, for
   new rooms.

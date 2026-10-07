@@ -155,8 +155,159 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // against another (an A/B across two commits) rather than only against the
 // committed baseline. The committed path is the default and is what a bare run
 // uses.
+//
+// ⚠ v8 -> v9: THE FIVE-BAND LOSS-RATIO SCALE. Five rows moved, all of them
+// Results|Pool|y2, one per configuration, and every one a prose-only change to
+// the loss sentence — attributed by diffing the text behind the hashes
+// (RENDER_TEXT_DIR, which exists for exactly this) rather than asserted:
+//   GL, WC+GL, WC+GL+PR   "...the year's underwriting WITH MARGIN," -> "...the
+//                         year's underwriting," — these fell in the new 0.70-1.00
+//                         band, which drops the clause.
+//   PR                    "with margin," -> "with margin TO SPARE," — 0.50-0.70.
+//   WC                    a whole sentence APPEARED where there had been none:
+//                         90.8% against 82.1% priced. The old scale's 0.90-1.00
+//                         band printed nothing at all, so that year's loss result
+//                         was silent. That silence is the defect the fifth band
+//                         fixes, and this row is the evidence it existed.
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 6b90859 built into its own
+// worktree and served on 4174 reproduced all 298 fingerprints. That is what
+// rules out "the baseline had already drifted" — and it is the check that a
+// previous recapture on this project got wrong by pointing the harness at the
+// wrong server and reading a false all-clear.
+// ⚠ COLOUR IS NOT IN THE FINGERPRINT. innerText carries no CSS classes, so the
+// emerald/sky boundary moving from 0.90 to 0.70, and HistoryPage's and
+// ResultsPage's combined ratios moving to their own scale, are INVISIBLE here.
+// Those changes are real and this instrument did not and cannot see them.
+// ⚠ v9 -> v10: THE CLAIMS MEMO PUT ON ONE VALUATION YEAR. Ten rows moved, every
+// one `Departments|doc:Claims` at y0 and y2 across all five configurations, and
+// every one the SAME cause — attributed by diffing the text behind the hashes
+// (RENDER_TEXT_DIR) rather than asserted:
+//   the evaluation date moves BACK one year   12/31/2026 -> 12/31/2025 at y0,
+//   12/31/2028 -> 12/31/2027 at y2. The listing used to be dated at the year the
+//   page had SELECTED — which defaults to the unplayed `currentYearNumber` —
+//   while its Paid and Incurred came from live cohort state a year earlier. It
+//   is now dated where the money is, which is also where the claims workbook
+//   strikes. At y0 that is the last PRE-GAME year, which is why y0 moves at all.
+//   the row sets and amounts follow, because claim status now resolves at the
+//   same valuation as the figures beside it.
+//   plus one added sentence saying which valuation the listing is struck at and
+//   that the year selector does not move it.
+// ⚠ doc:Actuarial DID NOT MOVE, and that is expected rather than lucky. Its
+// developed-occurrence count was also wrong — always the latest year, whatever
+// year was selected — but both year-points this harness captures select the
+// current year, where the memo clamps to the latest valuation anyway. The fix
+// is only visible on a HISTORICAL selection, which this instrument never makes.
+// actuarial-memo-check covers it across all ten years; see the control there.
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: f27c066 built into its own
+// worktree and served on 4174 reproduced all 298 fingerprints.
+// ⚠ v10 -> v11: netIncurredLoss ADDED TO RESULT_METRICS, AND THE LABELS SHARED.
+// Eighteen rows moved — 13 on Results (every configuration x every line scope,
+// at y2) and 5 on Result Spreadsheet — attributed by diffing the text behind
+// the hashes. Two causes and no third:
+//   1. the added row, `Net Incurred Loss (the loss-ratio numerator)`, with its
+//      figure and, on Results, its year-over-year change.
+//   2. labels taken from RESULT_METRICS instead of retyped: `Pool Premium` ->
+//      `Pool Premium at Selected CLF`, `Ultimate Losses (Gross)` -> `Gross
+//      Ultimate Loss + LAE`, `Net Ultimate Loss` -> `... + LAE`, and the loss
+//      ratio's `(prem + admin)` / `(pricing basis)` -> `(pricing basis —
+//      premium + admin expense)` on both surfaces.
+// ⚠ NO FIGURE CHANGED. The spreadsheet rows carry the same dollars either side;
+// only a row appeared and four names were corrected.
+// ⚠ Dashboard DID NOT MOVE, which is the expected result and worth recording.
+// Its pricing-basis fallback was also wrong — a different numerator under a
+// comment claiming it was the engine's — but the fallback fires only when
+// `actualLossRatioPricingBasis` is ABSENT, and every save this harness plays
+// carries it. The change is invisible here by construction, not by luck.
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 0655f2e built into its own
+// worktree and served on 4174 reproduced all 298 fingerprints.
+// ⚠ v11 -> v12: THE CLOSURE BAND PUT ON THE DRAW. 224 of 298 fingerprints
+// moved, and that breadth is the point rather than a surprise: changing which
+// claims are closed changes the developing set, which changes development
+// allocation, which changes reserves, premium and every figure downstream.
+// Classified mechanically rather than sampled — of the 224:
+//   177  every changed token is a number
+//    41  the same, with a suffix my first pass missed ('1.44x' -> '1.43x',
+//        '$0.71M.' -> '$0.72M.')
+//     6  a token COUNT change, each attributed individually:
+//          3x Calculation Audit|GL|y0  the status badge going from '28 of 29
+//             checks OK — 1 difference found' to 'All 29 checks OK'
+//          3x Departments|doc:Claims|y2  one row of the top-ten open listing
+//             REPLACED, e.g. '2024 Summit Recreation District 119' giving way
+//             to '2026 Ashford County 047' — a claim's status flipped, which is
+//             this change reaching the player-visible document.
+// ⚠ PROPERTY-SOLO MOVED NOT AT ALL: GL 44, WC 44, WC+GL 60, WC+GL+PR 76, PR 0.
+// Property has no CLOSURE_BY_SIZE split, so it has no band to resolve and the
+// contraction cannot reach it. That is the confinement claim, and the export
+// guard says the same thing independently — all six PR-solo workbooks are
+// byte-identical across every metric, year and full-precision rendering.
+// ⚠ AND TWO AUDIT CHECKS FLIP BOTH WAYS. 'Review' -> 'OK' on one row and 'OK'
+// -> 'Review' on another, because their differences moved across a tolerance
+// that is too tight to be stable — the bound is half a rounding unit for a
+// check that sums two rounded rates. That is a SEPARATE defect, fixed in the
+// commit after this one; it is recorded here because it is why some of these
+// rows carry a word change rather than only numbers.
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: ccebb95 built into its own
+// worktree and served on 4174 reproduced all 298 against the committed v11.
+// ⚠ v12 -> v13: THE AUDIT PAGE'S OWN CHECKS. 26 rows, every one Calculation
+// Audit and nothing else, attributed by diffing the text behind the hashes:
+//   line scope   the rate tolerance rises ($166 -> $609 on GL, $169 -> $410 on
+//                WC, $10,170 -> $10,178 on Property) because it now carries the
+//                exposure rounding as well as the rate rounding, and the note
+//                names both. The badge goes '28 of 29 — 1 difference found' to
+//                'All 29 checks OK'.
+//   pool scope   '$NaN' -> 'n/a' and 'Review' -> the n/a reason, on the two
+//                rows whose recalculation needs a per-line CLF the pool has
+//                not got; the badge goes '2 differences found, 3 not
+//                applicable' to '5 not applicable'.
+//   everywhere   'differences under $0' -> 'differences under one cent'.
+// After it: 16 captures read 'All 29 checks OK' and the ten pooled ones read
+// 53-54 of 58 with the remainder n/a and ZERO differences found.
+// ⚠ NO VALUE MOVED. Both value baselines are untouched by this commit; the only
+// figures that changed are the printed tolerances themselves.
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 1330777 built into its own
+// worktree and served on 4174 reproduced all 298 against the committed v12.
+// ⚠ v13 -> v14: THE FLAT CHARGE AND THE TWO-PART LOSS RATIO. 44 rows, three
+// causes, EVERY ONE A PURE INSERTION — classified mechanically, not sampled:
+//   Results (13)            the 'Retained Cover Margin (declined layers)' row,
+//                           reading $0, plus the pool-layer and total ratios.
+//   Result Spreadsheet (5)  the same three rows in the workbook table.
+//   Calculation Audit (26)  '+ $0' and '+ 0 (retained cover margin rate)' —
+//                           the fourth term of the gross-rate row and the fifth
+//                           of total operating revenues.
+// ⚠ NO FIGURE CHANGED, and the margin reads $0 on every captured screen because
+// the default game PLACES the whole tower. That is the same fact value-identity
+// reports as "shape changed, values held": the charge only moves for a player
+// who declines something, and nothing in this harness does.
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 3c00873 built into its own
+// worktree and served on 4174 reproduced all 298 against the committed v13.
+// ⚠ v14 -> v15: THE PROPERTY MERGE. 140 of 298 moved. EVERY ONE CLASSIFIED
+// MECHANICALLY by diffing the text behind each hash against the text behind the
+// hash it replaced — not sampled, not eyeballed:
+//   102  VALUES ONLY, and every one of them in a configuration that CONTAINS
+//        Property. Property's frequency and severity recalibration.
+//    31  'Events This Year' added to the metric table.
+//     5  'Shock Loss Incurred' removed from it.
+//     5  'Catastrophe Factor' removed from it.
+//     4  the narrative sentence "A shock loss event occurred this year" gone.
+//     4  the new events banner, naming a drawn catastrophe and its region.
+//
+// ⚠ ZERO ROWS MOVED ON VALUES IN A CONFIGURATION WITHOUT PROPERTY. The WC-only
+// and GL-only screens that moved moved ONLY because a row was added or removed;
+// not one number on either changed. That is the same confinement value-identity
+// v50 reports from the other side (WC-solo and GL-solo bit-identical, 0 of
+// ~6000 values each), measured through a completely different instrument — the
+// rendered text a player actually sees, rather than the engine's own fields.
+// Two independent instruments agreeing is the reason this recapture is trusted.
+//
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT, as it must before any diff
+// this large is believed: b856340 built into its own worktree and served on
+// 4174 reproduced ALL 298 against the committed v14. The harness is
+// deterministic, so the 140 are real.
+//
+// ⚠ THE FLAT CHARGE AND THE RATIO PAIR DO NOT APPEAR ABOVE and their absence is
+// correct: v14 was captured at b856340, which already carried them.
 const BASELINE = process.env.RENDER_BASELINE
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v3.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v15.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -229,8 +380,17 @@ const NORMALISE = (raw: string): string => raw
   .replace(/\s+/g, ' ')
   .trim();
 
+// RENDER_TEXT_DIR=<dir> keeps the TEXT behind every fingerprint, as <dir>/<hash>.txt.
+// A fingerprint says THAT a screen moved and not WHAT moved; with the text kept on
+// both sides of an A/B, a moved row is a plain text diff — which is how a prose-
+// only change is shown to be prose-only rather than asserted to be. Off by default.
+const TEXT_DIR = process.env.RENDER_TEXT_DIR;
+if (TEXT_DIR) fs.mkdirSync(TEXT_DIR, { recursive: true });
+
 function hash(s: string): string {
-  return crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 16);
+  const h = crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 16);
+  if (TEXT_DIR) fs.writeFileSync(path.join(TEXT_DIR, `${h}.txt`), s);
+  return h;
 }
 
 async function visibleText(page: Page): Promise<string> {

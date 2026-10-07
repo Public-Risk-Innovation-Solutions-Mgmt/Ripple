@@ -8,12 +8,12 @@ import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumpti
 import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
-import { AGG_ATTACHMENT_LEVELS, AGG_LIMIT_MULTIPLE, REINSURANCE_TOWER, RISK_LOAD_LAMBDA, TOWER_TOP } from '../data/reinsuranceTower';
+import { AGG_ATTACHMENT_LEVELS, AGG_LIMIT_MULTIPLE, PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, RISK_LOAD_LAMBDA, TOWER_TOP } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, quoteAggregate } from '../utils/reinsuranceTower';
 import { allLayerRiskMoments } from '../utils/towerMoments';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
-import { hasStaticClf, staticClf } from '../data/clfTables';
+import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import type { FundingConsequence } from '../utils/fundingConsequence';
 import { RENEWAL_THRESHOLDS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
@@ -21,7 +21,7 @@ import {
   NEW_BUSINESS_APPETITE_TIERS, NO_NEW_BUSINESS, appetiteEligible,
 } from '../utils/newBusinessAppetite';
 import { APPLICATION_RATE, MAX_NEW_MEMBER_SHARE } from '../data/defaultAssumptions';
-import { canReenroll } from '../utils/membershipHistory';
+import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 
 export interface LineLoanInfo {
   balance: number;
@@ -488,7 +488,7 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
   // line, against WC's actual 1.3709 and GL's 1.5020, i.e. the same
   // wrong-curve-on-the-display defect clfFor above this file was written to fix,
   // surviving in the one readout that did not go through it.
-  const reserveMarginCLF = hasStaticClf(line) ? staticClf(line, 0.90) : lookupCLF(0.90);
+  const reserveMarginCLF = hasStaticClf(line) ? staticClf(line, RESERVE_MARGIN_CONFIDENCE) : lookupCLF(RESERVE_MARGIN_CONFIDENCE);
 
   return (
     <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
@@ -658,7 +658,7 @@ function PropertyNoSignalNote() {
   return (
     <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-relaxed mt-1">
       Not available on Property, and no loss ratio is shown. A typical member has about one property claim
-      every other year — fewer than two in a three-year record — so a quiet stretch cannot be told apart
+      every other year — about {EXPERIENCE_MOD.windowYears / 2} in a {EXPERIENCE_MOD.windowYears}-year record — so a quiet stretch cannot be told apart
       from a safe one. Every Property member is charged the same relativity for their size and location,
       whatever their recent claims. Workers&rsquo; Compensation and General Liability have enough claims to
       rate on.
@@ -779,7 +779,7 @@ function RenewalUnderwriting({
             <span>
               Declines members whose losses have run more than the bar times their own expected cost over
               the last {EXPERIENCE_MOD.windowYears} years — the Loss Ratio column on Membership. A declined
-              member cannot rejoin for two years, so holding a level costs more than its yearly count.
+              member cannot rejoin for {REENROLLMENT_COOLDOWN_YEARS} years, so holding a level costs more than its yearly count.
             </span>
           </p>
         </>
@@ -1059,8 +1059,19 @@ function TowerControls({
   return (
     <div className="space-y-3">
       <div>
+        {/* One retention per occurrence on every line. On Property a regional
+            catastrophe is one occurrence and meets the same retention as any
+            other claim, so the label says "per occurrence" rather than "per
+            risk": a two-region event retains it twice. A peril with its own
+            deductible is listed from PROPERTY_PERIL_DEDUCTIBLE, so the label
+            names every exception the cession applies. */}
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-          Occurrence Layers — Retention ${layers[0].attachment / 1e6}M
+          {line === 'Property'
+            ? <>Occurrence Layers — Retention ${layers[0].attachment / 1e6}M per occurrence, catastrophes included{
+                Object.entries(PROPERTY_PERIL_DEDUCTIBLE).map(([peril, d]) =>
+                  `; ${peril.charAt(0).toUpperCase()}${peril.slice(1)} $${d / 1e6}M`).join('')
+              }</>
+            : <>Occurrence Layers — Retention ${layers[0].attachment / 1e6}M</>}
         </p>
         <div className="space-y-1.5">
           {layers.map((l, i) => {
@@ -1182,11 +1193,11 @@ function TowerControls({
               cap at all, so it gets its own copy rather than sharing Property's. */}
           {!aggAvailable && line === 'Property' && (
             <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-2 leading-relaxed">
-              <strong>Unavailable while every occurrence layer is declined.</strong> The aggregate
-              protects <em>retained</em> loss and it has a limit. With no per-occurrence layer capping
+              <strong>Unavailable while the occurrence layer is declined.</strong> The aggregate
+              protects <em>retained</em> loss and it has a limit. With no occurrence layer capping
               each claim at the retention, one large claim can exceed the aggregate's
               attachment plus limit on its own, with nothing above it — so the cover would not
-              answer the exposure it is being bought against. Place a layer to enable it.
+              answer the exposure it is being bought against. Place the occurrence layer to enable it.
               Declining everything remains available: that is self-insurance, and it is a real choice.
             </p>
           )}
@@ -1232,10 +1243,11 @@ function TowerControls({
             />
           )}
           <DataRow label="Total Reinsurance Cost" value={`${formatCurrency(totalCost)}/yr`} />
-          {/* Property's "above tower" band is structurally ~0, not a market
-              retention like WC/GL's — TOWER_TOP.Property equals the severity
-              cap itself, so nothing the generator draws ever lands there. Still
-              shown for consistency; the number just reads near-zero. */}
+          {/* Property's "above tower" band is above the $1B occurrence limit —
+              reached only by a single catastrophe occurrence larger than that.
+              It used to be structurally zero, when TOWER_TOP.Property was the
+              $75M severity cap; summing a region's losses into one occurrence
+              made it a real, if rare, band. */}
           <DataRow label="Retained Above Tower" value={`Above ${TOWER_TOP[line] / 1e6}M — unlimited`} />
         </div>
       </div>

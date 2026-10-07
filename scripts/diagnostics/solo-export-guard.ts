@@ -508,7 +508,51 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //
 // So this capture carries its own negative control: a table change that reaches
 // two lines and provably does not reach the third.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v48.json');
+// v48 was retired (to v49) by a SHAPE CHANGE AND A RENAME, AND BY NO VALUE AT
+// ALL — which is the whole of what the diff shows and is why it was safe to
+// recapture. All 24 exports moved; dumped at full stored precision on both
+// sides and compared line for line, the difference on every sheet is exactly:
+//
+//   1. ONE ADDED ROW, `Net Incurred Loss (the loss-ratio numerator)`, under
+//      Losses. RESULT_METRICS carried netUltimateLoss and no netIncurredLoss,
+//      while all three actual loss ratios divide the latter — so the workbook
+//      could not reproduce its own ratios. Measured before the fix: the loss
+//      shown over the denominator shown missed the ratio shown by 32.7 to 40.1
+//      percentage points across five years, and by a mean of 35.3pp over 60
+//      pool-years. After it, the division reproduces to six decimal places.
+//   2. ONE RENAMED LABEL, `Actual Loss Ratio (pricing basis)` ->
+//      `... (pricing basis — premium + admin expense)`, so the row names its
+//      own denominator. ⚠ ITS VALUES ARE BYTE-IDENTICAL ON BOTH SIDES —
+//      1.1154327323013637 before and after — which is the evidence that this
+//      recapture carries no engine movement hiding behind a shape change.
+//
+// Nothing else differs: 356 lines became 360, and the four new lines are the
+// added row on the Pool sheet and on each of the three line sheets.
+
+// v50 was retired (to v51) by THREE ADDED ROWS AND NO VALUE AT ALL.
+// RESULT_METRICS gained `retainedCoverMargin`, `poolLayerLossRatio` and
+// `totalLossRatioGross`; all 24 exports moved because every sheet gained three
+// lines. ⚠ THAT NO VALUE MOVED IS NOT ASSERTED HERE BUT PROVED NEXT DOOR:
+// value-identity-check HOLDS across its 150 instances on the same commit, and
+// it covers every computed value, so an export built from those values cannot
+// have moved one. The default game places the whole tower, so
+// retainedCoverMargin reads $0 in every captured export — the row is there for
+// the games where it is the explanation.
+
+// ⚠ v51 -> v52: THE PROPERTY MERGE. All 24 exports moved, and THEY DID NOT ALL
+// MOVE FOR THE SAME REASON — which is the distinction this guard cannot draw on
+// its own and must be read with value-identity v50 to draw at all.
+//   WC-solo, GL-solo (6 of 24)   SHAPE ONLY. Every value in these two
+//       configurations is BIT-IDENTICAL across the merge — value-identity
+//       reports 0 of 5970 and 0 of 6000 moved. The hash moves because the
+//       workbook gained three rows (Retained Cover Margin and the two loss
+//       ratios) and an Event column, and lost two (Shock Loss Incurred,
+//       Catastrophe Factor). Not one number on either line changed.
+//   PR-solo, tri (18 of 24)      SHAPE AND VALUE. Property's frequency and
+//       severity recalibration moves 69.8% of PR-solo's values.
+// A recapture that could not say which of those two things happened would be
+// the blank cheque this file's header warns about. It can, so it is not.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v52.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

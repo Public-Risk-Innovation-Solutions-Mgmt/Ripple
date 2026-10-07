@@ -52,22 +52,21 @@ export type JsonValue =
 
 // ---------------------------------------------------------------- shocks
 
-// The shock schedule the room carries.
+// The shock schedule the room carries — and every team's game is built from it.
 //
-// ⚠ CARRIED, NOT CONSUMED — AND THE CONSUMING HALF IS ALREADY BUILT. The engine
-// reads its schedule as a deterministic list already: resolveShocks (see
-// src/utils/shockResolver.ts) filters `instance.scheduledShocks` by fire year,
-// sorts by (year, catalog id), and CONSUMES NO RANDOMNESS doing it — that is the
-// byte-identity guarantee stated in its own header. `ScheduledShock` in
-// src/types/shocks.ts is structurally identical to this type.
+// ⚠ CONSUMED NOW, THROUGH THE ENGINE'S OWN CONSTRUCTOR. buildTeamGame
+// (client/buildGame.ts) passes this list to generateGameInstance, which takes a
+// schedule as an argument from both callers — solo passes an empty one — and
+// resolveShocks then reads it as a deterministic, year-filtered list that
+// consumes no randomness. `ScheduledShock` in src/types/shocks.ts is
+// structurally identical to this type.
 //
-// WHAT IS STILL MISSING is only the population step: generateGameInstance
-// (src/utils/instanceGenerator.ts) takes (instanceId, seed) and never writes
-// the `scheduledShocks` field, so nothing today can get a list from setup into
-// the instance the engine reads. That single seam is the entire remaining gap,
-// it lives in engine code this work does not touch, and it is being done
-// elsewhere. The room record below carries the list so that when the seam lands
-// the schedule is already flowing to every client.
+// ⚠ THE ROOM RECORD IS WHAT MAKES EVERY TEAM FACE THE SAME SCHEDULE. A host's
+// randomised schedule is drawn once, on the host's client at creation
+// (session/shockDraw.ts), and arrives here as concrete entries like a
+// hand-picked one; no client ever re-draws it. It is readable by every caller —
+// it has to be, since every player's browser builds from it — so what players
+// do not see is a screen decision, not a secret.
 export interface ScheduledShockSpec {
   shockId: string;
   yearNumber: number;
@@ -111,6 +110,38 @@ export class SessionError extends Error {
     this.retryable = retryable;
   }
 }
+
+// ---------------------------------------------------------------- tokens
+
+/**
+ * Mint a bearer token. CLIENTS call this now, not only the server.
+ *
+ * ⚠ THE CLIENT GENERATES ITS OWN TOKEN SO THAT A RETRY CAN PRESENT THE SAME
+ * ONE, which is the whole of the idempotency fix for `join` and `createRoom`.
+ * While the server minted it, a lost RESPONSE was unrecoverable: the team
+ * existed, the token that owned it had gone back down a socket nobody was
+ * listening on, and the retry read as a second person claiming a taken name —
+ * TEAM_TAKEN, in front of a room, locking a player out of a team they had just
+ * created. Nothing on the client could fix that, because the only copy of the
+ * secret was in the response that never arrived.
+ *
+ * ⚠ IT IS NOT A WEAKER SECRET. Same alphabet, same length, same
+ * crypto.getRandomValues as the server's. What changes is WHO holds it first.
+ * The server still refuses a token that is already in use by somebody else —
+ * see the collision guard in the local transport — so a client cannot claim a
+ * seat by guessing, any more than it could before.
+ */
+export function newSessionToken(): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < 32; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+/** What a token must look like for the transport to accept it from a caller. */
+export const SESSION_TOKEN_PATTERN = /^[a-z0-9]{32}$/;
 
 export function isSessionError(e: unknown): e is SessionError {
   return e instanceof SessionError;
@@ -156,7 +187,14 @@ export interface TeamYearFigures {
   actualLossRatioPricingBasis: number;
   poolPremium: number;
   activeMembers: number;
-  selectedFundingConfidenceLevel: number;
+  /**
+   * ⚠ OPTIONAL, AND ITS ABSENCE IS INFORMATION. On a LINE's figures it is that
+   * line's own choice and is always present. On the POOL's it is present only
+   * when every line the team writes chose the SAME stop — then the pool really
+   * does have a funding level. When they differ there is no pool level and this
+   * is absent; the host renders a dash. Absent means "these differ", not zero.
+   */
+  selectedFundingConfidenceLevel?: number;
   netUltimateLoss: number;
 }
 
@@ -367,11 +405,13 @@ export interface CallerView {
 
 // ---------------------------------------------------------------- requests
 
-// ⚠ GAP, NOT YET CLOSED: createRoom IS NOT IDEMPOTENT — a retry makes a second
-// room (httpTransport.ts item 5). It wants the same fix as JoinRequest: a
-// client-generated host token, whose hash identifies a retried create as the
-// same one and means no plaintext token is ever stored server-side. Shape
-// unchanged here. See src/session/server/keys.ts.
+// ⚠ GAP CLOSED. This said createRoom WAS NOT IDEMPOTENT and that a retry made a
+// second room. It does not any more: `hostToken` below is minted by the CLIENT
+// and doubles as the idempotency key, and the server keeps an index on it so a
+// retried create returns the room it already made with `reused: true`. The note
+// survived into this branch because the gap was recorded here and closed on
+// another; a server author reading it would have built the wrong thing.
+// The table shape for the index is in src/session/server/keys.ts.
 export interface CreateRoomRequest {
   seed: string;
   yearCount: number;
@@ -380,25 +420,45 @@ export interface CreateRoomRequest {
   /** Non-binding — see RoomView.expectedTeams. */
   expectedTeams: number;
   shocks: ScheduledShockSpec[];
+  /**
+   * ⚠ THE HOST'S TOKEN, MINTED BY THE CLIENT, AND IT DOUBLES AS THE
+   * IDEMPOTENCY KEY. A retried createRoom used to make a SECOND room and the
+   * caller kept whichever response arrived — two rooms, two codes, one of them
+   * orphaned with teams potentially joining it. Presenting the same token means
+   * the server can recognise the retry and hand back the room it already made.
+   *
+   * ⚠ THE SERVER STORES AN INDEX ON IT. In the local transport that index is
+   * keyed on the token itself, which is no worse than the room record beside it
+   * — that already holds the token in the clear, in the same localStorage. ⚠ A
+   * HOSTED IMPLEMENTATION MUST KEY ON A HASH INSTEAD, so no plaintext bearer
+   * token is written to the table; the contract does not constrain that because
+   * it is entirely the server's side of the wire.
+   */
+  hostToken: string;
 }
 
 export interface CreateRoomResponse {
   code: string;
-  // ⚠ RETURNED ONCE AND NEVER READABLE AGAIN. This is what makes the host the
-  // host; `read` never discloses it. It is shown at creation as the resume code
-  // precisely because a closed laptop otherwise ends the session.
+  // ⚠ ECHOED, NOT MINTED — it is the token the CALLER supplied, returned so the
+  // response stays self-contained and a caller that lost its own copy between
+  // request and response still has one. `read` never discloses it. It is shown
+  // at creation as the resume code precisely because a closed laptop otherwise
+  // ends the session.
   hostToken: string;
+  /** False when this call CREATED the room, true when it recognised a retry and
+   *  returned the room it had already made. See AdvanceResponse.advanced. */
+  reused: boolean;
   room: RoomView;
 }
 
-// ⚠ GAP, NOT YET CLOSED: A CREATING JOIN IS NOT IDEMPOTENT, AND A LOST RESPONSE
-// LOCKS A PLAYER OUT OF THEIR OWN TEAM NAME. The first join creates the team and
-// mints its token; if that response never arrives, the team exists, the token is
-// gone, and the retry is refused TEAM_TAKEN. It is not among httpTransport.ts's
-// eight constraints. The fix is a CLIENT-GENERATED token on the first join:
-// a retry then presents the same token and lands on the rejoin branch that
-// already exists below. Shape unchanged here — its own commit, with the harness.
-// See src/session/server/keys.ts.
+// ⚠ GAP CLOSED. This said a CREATING join was not idempotent and that a lost
+// response locked a player out of their own team name. It does not any more:
+// `token` below is minted by the CLIENT and sent on the FIRST join as well as
+// on a return, so a retry presents the same token and lands on the rejoin branch
+// instead of TEAM_TAKEN. It remains OPTIONAL — omitting it is a one-shot join
+// that cannot survive a lost response, which is what every join used to be — so
+// a server must handle both. The note survived into this branch because the gap
+// was recorded here and closed on another.
 export interface JoinRequest {
   code: string;
   /**
@@ -422,10 +482,20 @@ export interface JoinRequest {
    * whole claim history are a function of the lines it opened with.
    */
   lines?: CoverageLine[];
-  // ⚠ REJOIN, NOT A SECOND CLAIM. The same browser returning to the same code
-  // presents the token it already holds and gets its own seat back. Without
-  // this, a refresh reads as a different person trying to take a team that is
-  // already taken, and the real driver is locked out of their own game.
+  /**
+   * ⚠ REJOIN, NOT A SECOND CLAIM. The same browser returning to the same code
+   * presents the token it already holds and gets its own seat back. Without
+   * this, a refresh reads as a different person trying to take a team that is
+   * already taken, and the real driver is locked out of their own game.
+   *
+   * ⚠ AND IT IS SUPPLIED ON THE FIRST JOIN TOO, WHICH IS WHAT MAKES JOIN
+   * IDEMPOTENT. The client mints it (newSessionToken) and sends it when
+   * CREATING the team as well as when returning to it, so a retry after a lost
+   * response presents the same token and lands on the rejoin path above rather
+   * than on TEAM_TAKEN. Omitting it is still legal and still works — it is then
+   * a one-shot join that cannot survive a lost response, which is what every
+   * join used to be.
+   */
   token?: string;
 }
 
@@ -461,23 +531,49 @@ export interface SubmitResponse {
   you: CallerView;
 }
 
-// ⚠ GAP, NOT YET CLOSED: THIS REQUEST NEEDS THE EXPECTED CURRENT YEAR. advance
-// increments the year, so a retried POST — what a client does when a response
-// is lost — SKIPS A YEAR. The fix is a field carrying the year the host believes
-// is current, compare-and-swapped on the room header (currentYear = :expected),
-// so a retry is a no-op. The key design and the failure-branch rules are in
-// src/session/server/keys.ts; the constraint is httpTransport.ts item 4. The
-// shape is deliberately unchanged here: changing it is its own commit, with the
-// contract harness to prove both implementations honour it.
+// ⚠ GAP CLOSED, AND IT IS THE ONE THAT CHANGES THE WIRE. This said the request
+// NEEDED an expected current year and did not carry one. It carries one now:
+// `expectedYear` below is REQUIRED, and the server compare-and-swaps on it
+// (currentYear = :expected) so a retried POST is a no-op that still SUCCEEDS,
+// reporting `advanced: false`. A server that ignores the field, or that returns
+// an error on the no-op branch, breaks the guarantee — the host would be told an
+// operation failed that in fact worked. The note survived into this branch
+// because the gap was recorded here and closed on another.
 export interface AdvanceRequest {
   code: string;
   // Host token only. Enforced by the implementation, not by hiding the button.
   token: string;
+  /**
+   * ⚠ THE YEAR THE CALLER BELIEVES THE ROOM IS ON, AND THE SERVER
+   * COMPARE-AND-SWAPS ON IT. REQUIRED, not optional: an advance that may omit
+   * its expectation is an advance somebody will omit it from, and the whole
+   * guarantee is gone for that call. The compiler asks every caller.
+   *
+   * ⚠ WHAT IT PREVENTS. `advance` increments. A retried POST — which is exactly
+   * what a client does when a response is lost — used to SKIP A YEAR: the room
+   * went to 4 when the host had asked it to go to 3, and every team then
+   * reported against a year nobody played. There is no way to tell the two
+   * requests apart from the server's side without this field, because they are
+   * byte-identical.
+   */
+  expectedYear: number;
 }
 
 export interface AdvanceResponse {
   room: RoomView;
   currentYear: number;
+  /**
+   * ⚠ FALSE WHEN THIS CALL WAS A RETRY THAT CHANGED NOTHING, and the call still
+   * SUCCEEDS. That is the point of the whole mechanism rather than a detail: a
+   * host whose request was retried must see the year advance ONCE and get a
+   * success, not an error telling them it already happened. An error would be a
+   * failure the host can do nothing about, reported for an operation that
+   * worked.
+   *
+   * It is reported rather than hidden so a UI can stay quiet on a retry instead
+   * of animating a second transition, and so a harness can tell the two apart.
+   */
+  advanced: boolean;
 }
 
 export interface ReadRequest {

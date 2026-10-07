@@ -61,8 +61,18 @@ const DOLLARS = new Set([
   'grossUltimateLoss', 'reinsuranceCost', 'retainedAboveTower', 'aggregateRecovery',
   // Additive for the same reason its gross and net neighbours are: it is the
   // same register at a different point in the booking, so the pool figure is
-  // the sum of the lines and nothing else.
-  'bookedGrossUltimate',
+  // the sum of the lines and nothing else. ⚠ BOTH OF THEM: the net twin was
+  // added to ResultSet in the same commit as the gross one and classified in
+  // neither set, which turned this red for two commits — precisely the "a field
+  // added without a class turns this red" case the section exists to catch,
+  // found late only because two briefs in a row skipped the sweep.
+  'bookedGrossUltimate', 'bookedNetUltimate',
+  // The price of the layers the pool declined — a dollar charge like its
+  // reinsuranceCost neighbour, and additive for the same reason.
+  'retainedCoverMargin',
+  // The two-part loss ratio's numerator. Additive: each line's own below-the-
+  // retention loss, and the pool's is their sum.
+  'poolLayerLoss',
   'aggregatePremium', 'reinsuranceRecovery', 'netUltimateLoss', 'netIncurredLoss',
   'operatingExpense', 'riskControlInvestment', 'priorYearDevelopment',
   'beginningNetReserve', 'currentYearNetReserve', 'netPaidLosses', 'endingNetReserve',
@@ -98,6 +108,9 @@ const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'w
 // nonsense; the pool's next-year paydown rate is the pool's own next-year
 // payment over the pool's own reserve.
 const RECOMPUTED_RATIOS = new Set([
+  // Both halves of the two-part ratio: sums over sums at pool scope, never a
+  // mean of the line ratios — their denominators are different quantities.
+  'poolLayerLossRatio', 'totalLossRatioGross',
   'nextYearPaydownRate',
   'marketShare', 'memberRetentionRate', 'memberSatisfaction', 'averageRiskQuality',
   'investmentReturnRate', 'expectedLossRatio', 'expectedLossRatioMemberBasis',
@@ -113,7 +126,7 @@ const RECOMPUTED_RATIOS = new Set([
 ]);
 
 // No pool-level referent. Carried as a placeholder; read byLine instead.
-const NO_POOL_MEANING = new Set(['aggregateAttachment', 'commonLossFactor', 'catastropheFactor']);
+const NO_POOL_MEANING = new Set(['aggregateAttachment', 'commonLossFactor']);
 
 // Line-ambiguous descriptive/rate fields showing the first active line's value.
 // Documented at the definition; not aggregations at all.

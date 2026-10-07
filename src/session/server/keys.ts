@@ -72,7 +72,7 @@
 //     partition has ANY item (Query, Limit 1), not just a header.
 //
 // ============================================================================
-// ONE TABLE. ONE PARTITION PER ROOM.
+// ONE TABLE. ONE PARTITION PER ROOM — PLUS ONE INDEX ITEM THAT CANNOT BE IN ONE.
 //
 //   pk = ROOM#<code>            every item of a room shares it
 //
@@ -90,6 +90,33 @@
 //   R#<teamId>#<yyy>            one team's RESULT for one year (TeamYearSummary).
 //                               Year 000 is the opening position.
 //   VIEW#<tokenHash>            { teamId } for one viewer.
+//
+// ⚠ AND ONE ITEM THAT IS NOT IN A ROOM'S PARTITION, WHICH IS WHY THE HEADING
+// ABOVE IS QUALIFIED. createRoom became idempotent after this design was first
+// written: the host mints its own token and the server indexes it, so a retry
+// returns the room already made. That lookup happens BEFORE a code is known, so
+// the item cannot be keyed on the code.
+//
+//   pk = CREATE#<hash(hostToken)>   sk = CREATE      { code }
+//
+//   * HASHED, NOT RAW. The local implementation keys on the token itself and
+//     says so — the room record beside it already holds the token in the clear
+//     in the same localStorage, so it is no worse THERE. A hosted table is a
+//     different setting: key on the hash and no plaintext bearer token is ever
+//     written. The contract does not constrain this because it is entirely the
+//     server's side of the wire.
+//   * IT IS A SECOND ITEM PER ROOM, and anything counting rooms must exclude it.
+//     The local store's /health reported `store.length` as the room count and
+//     went wrong the moment this landed — the two-contexts driver caught it as
+//     "the SERVER holds the room (2)" after a single create.
+//   * WRITE IT AFTER THE ROOM, NEVER BEFORE. A failure between the two then
+//     leaves no index pointing at a room that was never written; the reverse
+//     order strands a token that resolves to nothing. They are deliberately NOT
+//     transacted: they are in different partitions, and the ordering makes the
+//     non-atomic case harmless in one direction only.
+//   * GIVE IT THE ROOM'S OWN expiresAtSec. A longer life outlives the room it
+//     names and a shorter one silently un-idempotents a create that is still
+//     live. Same stamp, same reasoning as every other item here.
 //
 // WHY THIS SHAPE, point by point:
 //
@@ -151,9 +178,11 @@
 //
 //   endpoint            write                                   condition
 //   ------------------  --------------------------------------  -------------------------
-//   createRoom          Put ROOM                                attribute_not_exists(PK)
-//                                                               — a code collision fails
-//                                                               and the server redraws
+//   createRoom          GetItem CREATE#<hash> FIRST — if it     attribute_not_exists(PK)
+//                       resolves, return that room with          — a code collision fails
+//                       reused: true and write nothing.          and the server redraws
+//                       Otherwise Put ROOM, then Put
+//                       CREATE#<hash> (that order).
 //   join, new team      Transact: Put NAME#, Update ROOM        NAME# not exists
 //                       (roster entry, ADD rev)                 (else TEAM_TAKEN); ROOM
 //                                                               exists
@@ -185,7 +214,11 @@
 //   past yearCount      -> GAME_COMPLETE
 //   host hash mismatch  -> NOT_HOST
 //   anything else       -> WRONG_YEAR
-// It needs AdvanceRequest to carry :e, which it does not yet — see contract.ts.
+// AdvanceRequest CARRIES :e NOW — `expectedYear`, required, not optional. This
+// said it did not yet; that was true when this was written and stopped being
+// true on another branch. The retry branch above is therefore reachable and a
+// server must implement it: a retry SUCCEEDS with advanced: false, it does not
+// error.
 //
 // ============================================================================
 // ⚠ rev IS NOT THE WRITE GUARD. httpTransport.ts item 8 and the stub server's
@@ -269,9 +302,25 @@
 //      for the host. It is a handler rule and needs the harness to hold it.
 //
 // ============================================================================
-// CONTRACT GAPS THIS DESIGN ASSUMES CLOSED — recorded at contract.ts, not
-// fixed there: advance needs the expected year; join and createRoom need a
-// client-generated token so a retried create is recognisable as the same one.
+// CONTRACT GAPS THIS DESIGN ASSUMED CLOSED — ALL THREE ARE NOW ACTUALLY CLOSED.
+//
+// This file was written against three gaps it could only assume would be shut.
+// They were shut on another branch and arrive with this merge, so the design no
+// longer assumes anything; it DESCRIBES the wire:
+//   advance      AdvanceRequest.expectedYear, REQUIRED. Compare-and-swap on
+//                currentYear = :expected. A retry is a no-op that SUCCEEDS.
+//   join         JoinRequest.token, minted by the client and sent on the FIRST
+//                join as well as a return. Still OPTIONAL on the wire, so a
+//                handler must serve both the idempotent and the one-shot form.
+//   createRoom   CreateRoomRequest.hostToken, minted by the client, doubling as
+//                the idempotency key, with the CREATE# index item above.
+//
+// ⚠ THE CONTRACT HARNESS IS 144/144 OVER BOTH TRANSPORTS. It was 126/126 when
+// this design was written — the figure STATE_member-satisfaction.md still
+// records, correctly, as the count AT THAT MERGE. The extra eighteen are these
+// three mechanisms. They run identically against localStorage and over a real
+// socket, so a handler that satisfies the harness satisfies the contract, and
+// the harness is the thing to run against a Lambda, not this header.
 // ============================================================================
 
 /** DynamoDB's hard limit on a sort key, in UTF-8 bytes. */

@@ -22,7 +22,7 @@
 // year from the instance alone gives the same answer. Determinism stays
 // testable.
 
-import type { CoverageLine, GameInstance } from '../types/simulation';
+import type { CoverageLine, GameInstance, Region } from '../types/simulation';
 import type {
   LineShockEffects,
   ShockDefinition,
@@ -34,12 +34,21 @@ import { IMPLEMENTED_EFFECTS } from '../types/shocks';
 import { SHOCK_CATALOG } from '../data/shockCatalog';
 import { WHOLE_LINE } from './shockEffects';
 
+const money = (x: number) => `$${(x / 1e6).toFixed(2)}M`;
+
 function describe(effect: ShockEffect): string {
   switch (effect.kind) {
     case 'forceEvent':
-      return `force ${effect.peril} in ${effect.region} at intensity ${effect.intensity}${effect.span ? ' (spanning)' : ''}`;
-    case 'injectClaim':
-      return `inject ${effect.count} ${effect.line} claim${effect.count === 1 ? '' : 's'} at $${(effect.amount / 1e6).toFixed(2)}M`;
+      return `force a ${effect.peril} catastrophe in ${effect.region}, ${money(effect.loss.min)}-${money(effect.loss.max)} gross`;
+    case 'weatherEvent':
+      return `${effect.count.min}-${effect.count.max} ${effect.peril} claims in ${effect.region}, `
+        + `${money(effect.claim.min)}-${money(effect.claim.max)} each, every one its own occurrence`;
+    case 'injectClaim': {
+      const n = typeof effect.count === 'number' ? `${effect.count}` : `${effect.count.min}-${effect.count.max}`;
+      const plural = typeof effect.count === 'number' && effect.count === 1 ? '' : 's';
+      const amt = typeof effect.amount === 'number' ? money(effect.amount) : `${money(effect.amount.min)}-${money(effect.amount.max)}`;
+      return `inject ${n} ${effect.line} claim${plural} at ${amt}${typeof effect.amount === 'number' ? '' : ' each'}`;
+    }
     case 'freqMultiplier':
       return `${effect.line}${effect.sub ? ` ${effect.sub}` : ''} frequency x${effect.factor}`;
     case 'componentFreqMultiplier':
@@ -153,6 +162,24 @@ export function resolveShocks(instance: GameInstance, yearNumber: number): Shock
             (bucket.componentFreqMultipliers[effect.component] ?? 1) * effect.factor;
           break;
         }
+        case 'forceEvent': {
+          // DATA ONLY. The size and which members are hit are drawn later, by
+          // Property's generator, from streams keyed on this shock id — this
+          // function stays free of randomness.
+          const bucket = lineBucket(byLine, effect.line);
+          bucket.forcedEvents = bucket.forcedEvents ?? [];
+          bucket.forcedEvents.push({ shockId: def.id, peril: effect.peril, region: effect.region, loss: effect.loss });
+          break;
+        }
+        case 'weatherEvent': {
+          // DATA ONLY, like forceEvent: the count, the sizes and which members
+          // take the claims are drawn by Property's generator from streams keyed
+          // on this shock id.
+          const bucket = lineBucket(byLine, effect.line);
+          bucket.weatherEvents = bucket.weatherEvents ?? [];
+          bucket.weatherEvents.push({ shockId: def.id, peril: effect.peril, region: effect.region, count: effect.count, claim: effect.claim });
+          break;
+        }
         case 'injectClaim': {
           // A one-off effect on a FUTURE-horizon event fires only in the year the
           // event fired. Without this, #10's backdated reach-back would be
@@ -165,15 +192,21 @@ export function resolveShocks(instance: GameInstance, yearNumber: number): Shock
             count: effect.count,
             amount: effect.amount,
             shockId: def.id,
+            ...(effect.region ? { region: effect.region } : {}),
           });
           break;
         }
       }
     }
 
+    // The region it struck: the first effect that names one. A GL injection
+    // names none, and neither does a multiplier.
+    const struck = def.effects.find(e => 'region' in e && e.region) as { region?: Region } | undefined;
     firings.push({
       shockId: def.id,
       name: def.name,
+      eventName: def.eventName,
+      ...(struck?.region ? { region: struck.region } : {}),
       band: def.band,
       horizon: def.horizon,
       description: def.description,

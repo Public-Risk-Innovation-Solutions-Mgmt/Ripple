@@ -6,6 +6,33 @@
 // reinsuranceEngine.ts are gone — Property was the model's last consumer.
 //
 // ============================================================================
+// ⚠ PROPERTY'S TOWER IS ONE TREATY: $995M xs $5M PER OCCURRENCE. A CATASTROPHE
+// CLAIM IS A CLAIM.
+//
+// Every Property occurrence — an attritional claim, or a regional catastrophe
+// summed into one occurrence — retains the same $5M and is covered above it to
+// a $1B top. One occurrence per region stays, because that is the geography:
+// an event across two regions is two occurrences and retains $10M, which is
+// what a real programme does.
+//
+// WHAT CAME OUT, AND WHY (the ruling, not a re-tune): a separate cat layer
+// attaching at $37.5M, a $500M cat ceiling, and the rule that each layer
+// answered only one KIND of occurrence (TowerLayer.responds). The $37.5M was a
+// game lever invented to create volatility; the $500M was sized by sweeping
+// exceedance; and the do-not-stack rule existed only because two layers
+// overlapped on $37.5M-$75M. With one layer there is nothing to stack.
+//
+// THE TOP IS $1B, THE REAL PROGRAMME'S PER-OCCURRENCE LIMIT, and it is NOT the
+// severity cap. The two coincided ($75M) only while occurrence == claim; a
+// regional event summed into one occurrence broke that. An attritional claim
+// still cannot exceed the $75M cap, so on attritional loss this layer cedes
+// exactly what $70M xs $5M did — the extra limit is reached only by events.
+//
+// The paragraphs below are the one-layer record, kept for the reasoning; read
+// them with the above in mind.
+// ============================================================================
+//
+// ============================================================================
 // PROPERTY'S TOWER IS ONE LAYER, NOT THREE, AND THAT IS THE WHOLE STRUCTURE.
 //
 // $70M xs $5M, to the fitted severity mixture's own cap ($75M) — see
@@ -102,6 +129,33 @@ export interface TowerLayer {
   purchasable: boolean;
 }
 
+// THE TOP OF PROPERTY'S TOWER, $1B PER OCCURRENCE — the real programme's limit,
+// and the one number in this structure with a source. It replaces the $500M
+// cat ceiling, which was sized by sweeping exceedance on one enrolled book.
+// What a single occurrence draws above it lands in retainedAboveTower,
+// visibly.
+export const PROPERTY_TOWER_TOP = 1_000_000_000;
+
+// PER-PERIL DEDUCTIBLES — a Property occurrence of a named peril retains this
+// much before the tower responds, instead of the layer's own $5M attachment.
+// A peril not listed inherits the attachment, so the next peril with its own
+// deductible is a row here rather than a branch in the cession.
+//
+// EARTHQUAKE $10M, PER OCCURRENCE — and a cat occurrence is one region, so per
+// region. The real programme's structure: earthquake carries a higher
+// deductible than every other peril because it is the correlated tail the
+// reinsurer prices hardest. NOT the retired $37.5M catastrophe retention,
+// which applied to every catastrophe and was a volatility lever; this applies
+// to one peril and comes from the programme. Flat, not a percentage: a
+// percentage of affected value would need which members were hit, which the
+// exact event distribution does not keep.
+//
+// The top does not move: a $10M deductible makes the earthquake's layer
+// $990M xs $10M under the same $1B occurrence limit.
+export const PROPERTY_PERIL_DEDUCTIBLE: Readonly<Record<string, number>> = {
+  earthquake: 10_000_000,
+};
+
 // ============================================================================
 // ⚠ THERE ARE NO PRICING CONSTANTS IN THIS FILE ANY MORE. A LAYER IS ITS BOUNDS.
 //
@@ -141,6 +195,14 @@ export interface TowerLayer {
 // reaches only the retained band above the tower, which it bounds at $75M.
 // ============================================================================
 
+// A purchasable layer, NAMED FROM ITS OWN TERMS. The names were literals beside
+// the numbers they describe ("$4M xs $1M" next to attachment 1e6, limit 4e6) —
+// the same restatement Property's entry already avoided by building its name.
+// A re-pinned attachment now renames the layer on every screen that shows it.
+function layer(attachment: number, limit: number): TowerLayer {
+  return { name: `$${limit / 1e6}M xs $${attachment / 1e6}M`, attachment, limit, purchasable: true };
+}
+
 export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   // ⚠ RE-DERIVED FOR THE WC SEVERITY REBUILD, THEN RESTRUCTURED TO THREE LAYERS
   // (the retired scripts/diagnostics/wc-tower-rederive.ts; its Monte Carlo
@@ -169,8 +231,8 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   // market in year 1 they are 1.33x / 1.87x / 3.02x on WC and 1.27x / 1.51x /
   // 1.82x on GL; on a $82M GL book the working layer's rises to ~1.98x.
   WC: [
-    { name: '$4M xs $1M', attachment: 1e6, limit: 4e6, purchasable: true },
-    { name: '$5M xs $5M', attachment: 5e6, limit: 5e6, purchasable: true },
+    layer(1e6, 4e6),
+    layer(5e6, 5e6),
     // THE MERGED BAND, $10M-$50M. Absorbs the retired `$15M xs $10M` and
     // `$25M xs $25M`. Pierced 0.22/yr — once every 4.6 years, against the
     // 1-per-26-years of the `$25M xs $25M` layer it swallowed, which is what
@@ -189,7 +251,7 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
     // against an inflating distribution. The fixed ceiling was concealing half
     // of it by shrinking the modelled tail at the same rate the tower lost
     // ground. Do not restate this as a single number.
-    { name: '$40M xs $10M', attachment: 10e6, limit: 40e6, purchasable: true },
+    layer(10e6, 40e6),
   ],
   // GL KEEPS THREE LAYERS — re-confirmed at the runtime-pricing change against
   // the rebuilt severity model. The merge test WC failed is pierce frequency, and
@@ -197,9 +259,9 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   // years) against the 1-per-27-years that got WC's top layer merged away. All
   // three GL bands are working layers.
   GL: [
-    { name: '$4M xs $1M', attachment: 1e6, limit: 4e6, purchasable: true },
-    { name: '$5M xs $5M', attachment: 5e6, limit: 5e6, purchasable: true },
-    { name: '$15M xs $10M', attachment: 10e6, limit: 15e6, purchasable: true },
+    layer(1e6, 4e6),
+    layer(5e6, 5e6),
+    layer(10e6, 15e6),
     // No fourth layer. Market capacity — see the header. The pool retains above
     // $25M and it is DISPLAYED as retainedAboveTower.
     //
@@ -219,11 +281,14 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   // it. BOTH BOUNDS READ FROM PROPERTY_LOSS_MODEL rather than restating the
   // numbers — perRiskRetention and severityCap are the single source for
   // both this tower and propertyAggregate.ts's Panjer pricing.
+  //
+  // ⚠ ONE LAYER AGAIN, NOW RUNNING TO $1B RATHER THAN TO THE SEVERITY CAP — see
+  // the header. It answers every occurrence, attritional or catastrophe.
   Property: [
     {
-      name: `$${(PROPERTY_LOSS_MODEL.severityCap - PROPERTY_LOSS_MODEL.perRiskRetention) / 1e6}M xs $${PROPERTY_LOSS_MODEL.perRiskRetention / 1e6}M`,
+      name: `$${(PROPERTY_TOWER_TOP - PROPERTY_LOSS_MODEL.perRiskRetention) / 1e6}M xs $${PROPERTY_LOSS_MODEL.perRiskRetention / 1e6}M`,
       attachment: PROPERTY_LOSS_MODEL.perRiskRetention,
-      limit: PROPERTY_LOSS_MODEL.severityCap - PROPERTY_LOSS_MODEL.perRiskRetention,
+      limit: PROPERTY_TOWER_TOP - PROPERTY_LOSS_MODEL.perRiskRetention,
       purchasable: true,
     },
   ],
@@ -231,11 +296,11 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
 
 // Top of each tower. Above this the pool retains, unlimited.
 //
-// PROPERTY IS NOT "UNLIMITED" IN THE SAME SENSE AS WC/GL. Their tops are market
-// capacity limits with real unbounded severity above them. Property's $75M
-// equals PROPERTY_LOSS_MODEL.severityCap exactly — nothing the generator draws
-// exceeds it, so `retainedAboveTower` is a structural ~0, not a market retention.
-export const TOWER_TOP: Record<TowerLine, number> = { WC: 50e6, GL: 25e6, Property: PROPERTY_LOSS_MODEL.severityCap };
+// PROPERTY'S TOP IS $1B — see PROPERTY_TOWER_TOP. It USED to be
+// PROPERTY_LOSS_MODEL.severityCap ($75M), when occurrence == claim made the two
+// the same number. An attritional claim still cannot exceed $75M, so
+// above-tower dollars come only from a single occurrence larger than $1B.
+export const TOWER_TOP: Record<TowerLine, number> = { WC: 50e6, GL: 25e6, Property: PROPERTY_TOWER_TOP };
 
 // ============================================================================
 // THE RISK LOAD — one market parameter, not four chosen multiples.
@@ -407,6 +472,23 @@ export const AGG_LIMIT_MULTIPLE = 1.00;
 // -> revert to all-purchasable). Property's one-layer tower is exactly that
 // case: reusing WC's 3-element array would have made every Property placement
 // a no-op.
+/**
+ * Every PURCHASABLE occurrence layer placed — the tower as offered, independent
+ * of what the player chose.
+ *
+ * ⚠ IT IS NOT DEFAULT_LAYERS_PLACED, THOUGH THEY HAPPEN TO AGREE TODAY. That
+ * one is a DECISION's opening position and may be changed as a game-design
+ * choice; this one is the REFERENCE the declined-cover margin and the pool-layer
+ * loss split are measured against, and it must stay "all of it" whatever the
+ * opening position becomes. Deriving it from `purchasable` is what keeps the two
+ * from drifting into each other.
+ */
+export const FULL_OCCURRENCE_PLACEMENT: Record<TowerLine, boolean[]> = {
+  WC: REINSURANCE_TOWER.WC.map(l => l.purchasable),
+  GL: REINSURANCE_TOWER.GL.map(l => l.purchasable),
+  Property: REINSURANCE_TOWER.Property.map(l => l.purchasable),
+};
+
 export const DEFAULT_LAYERS_PLACED: Record<TowerLine, boolean[]> = {
   WC: REINSURANCE_TOWER.WC.map(l => l.purchasable),
   GL: REINSURANCE_TOWER.GL.map(l => l.purchasable),

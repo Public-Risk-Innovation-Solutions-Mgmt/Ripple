@@ -87,6 +87,12 @@ const FAST: string[] = [
                                      //         arm 3 of experience-pricing-check measures LOOP GAIN and
                                      //         twin-differencing cancels an ambient ramp by construction, so
                                      //         nothing else pins this. Positive control in its header.
+  'pool-row-metric-check',           //   3s   no exported metric may read a field the pool row does
+                                     //         not have. The compiler cannot see inside a metric
+                                     //         closure, so the lineOnly flag is hand-written — and
+                                     //         six were missed by hand on the commit that added it.
+                                     //         Checks BOTH directions: an unmarked metric that reads
+                                     //         an absent field, and a marked one that does not.
   'export-number-format-check',      //  12s
   'funding-basis-check',             //  10s
   'funding-expected-check',          //   2s
@@ -118,7 +124,13 @@ const FAST: string[] = [
   'paid-ledger-check',               //   4s
   'panel-engine-parity-check',       //   4s
   'pool-aggregation-check',          //   2s
+  'property-cat-check',              //  19s   the EXACT cat distribution against an INDEPENDENT event simulation
+                                     //         (own generator, fresh events), both placements, and the generator
+                                     //         drawing what the price describes
   'property-claim-check',            //   3s
+  'prose-identifier-check',          //   3s   every code-shaped name in PLAYER-FACING prose exists in src; positive
+                                     //         control inside. --comments lists the same over developer comments
+                                     //         as a report, never a failure (246 names, mostly deliberate history)
   'ratemaking-loop-check',           //  80s   THE ACCEPTANCE TEST — 4/4; condition 3 is paired with two null controls
   'ratio-basis-check',               //   7s
   'reserve-centring-check',          //  55s   IBNER_CALENDAR_RHO adds dispersion and NOT drift; carries its own positive control
@@ -331,6 +343,7 @@ const PROBES: Record<string, string> = {
   'property-clf-basis-report': 'Property CLF basis report [21s]',
   'revision-total-sd-report': "the per-claim law's TOTAL development against IBNER_TOTAL_SD's own basis, flag ON against OFF. No threshold, deliberately: nothing ships on the ON arm, so a bar would be invented rather than measured — pregame-acceptance-check's reasoning [32s]",
   'property-fit-report': 'Property fit reading; asserts nothing. Renamed from -check — and three engine comments claimed it ASSERTED the fit, now corrected [4s]',
+  'property-loss-shape-report': 'Property frequency/severity/concentration reading, and the retention split; no threshold [~5s]',
   'reinsurance-layer-report': 'layer reading; asserts nothing. Renamed from -check [41s]',
   'tower-downside-report': 'tower downside reading; asserts nothing. Renamed from -check [8s]',
   'wc-above-tower-report': 'WC above-tower report [109s]',
@@ -830,16 +843,43 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
   //     Re-pointed at the three current-year items; prior-year development on
   //     cohorts written UNDER cover is reported, not asserted zero. PROVEN:
   //     ignoring the decline on layer 0 fails all three decline assertions.
-  'actuarial-memo-check': {
-    code: 1,
-    why: 'THE MEMO\'S DEFINITION OF "MATURED" IS THE COHORT HORIZON. It asserts that an accident year '
-      + 'past IBNER_HORIZON shows a blank 1-year development and does not move. Under the per-claim law a '
-      + 'cohort keeps developing while its claims are OPEN, which outlives that horizon, so 48 findings '
-      + 'report matured years moving by 0.1-1.5% (e.g. prior 6.42 vs current 6.44). Verified: GREEN with '
-      + 'the flag off at this same commit. The magnitudes are small but the exhibit is internally '
-      + 'inconsistent — it prints a blank next to a value that moved. FIX: S3, which has to settle what '
-      + 'maturity means once pricing reads a triangle whose claims develop to closure.',
-  },
+  // ⚠ actuarial-memo-check's ENTRY WAS HERE AND IS RETIRED — BOTH SIDES WERE
+  // CORRECTED, NOT THE CONDITION LAPSED. The distinction matters to anyone
+  // reading this history: the gate did not go green because the world changed
+  // around it. The memo and the check were each wrong, in different places, and
+  // both were fixed in the commit that removed this entry.
+  //
+  // The entry read: 'THE MEMO'S DEFINITION OF "MATURED" IS THE COHORT HORIZON...
+  // 48 findings report matured years moving by 0.1-1.5%... Verified: GREEN with
+  // the flag off at this same commit. FIX: S3, which has to settle what maturity
+  // means once pricing reads a triangle whose claims develop to closure.'
+  //
+  // Its retirement condition — S3 — HAS shipped (PRICING_TRIANGLE.enabled), and
+  // the work it actually named, settling what maturity means, is what the fix
+  // did: the memo no longer blanks a row because it is past its horizon, because
+  // a row past its horizon can still move. The horizon stops IBNER, not the
+  // estimate.
+  //
+  // ⚠ ITS RECORDED EVIDENCE WAS STALE THREE WAYS BY THE TIME IT WAS READ, and
+  // every one of them is a reason to distrust a long-lived excuse:
+  //   48 findings       the gate reported 1,179.
+  //   one cause         420 of those were a SECOND, unrelated failure the entry
+  //                     never mentioned — checkPriorBoundary asserting that the
+  //                     Prior row contains only carried-in cohorts. That was TRUE
+  //                     when written (PRE_GAME_YEARS = 3, boundary at -2) and was
+  //                     falsified by 556cef5 adding MATURATION_YEARS = 7, which
+  //                     moved the register line to -9 and left the boundary at -2.
+  //   'GREEN with the   it is not. With PER_CLAIM_REVISION off the gate still
+  //    flag off'        reports 765 findings and 3 coverage failures. The matured
+  //                     half was never purely the flag's doing: 345 off, 759 on.
+  //
+  // ⚠ AND THE SECOND FAILURE ARRIVED FIVE DAYS AFTER THIS ENTRY WAS WRITTEN AND
+  // WAS INVISIBLE BECAUSE OF IT. An excused gate is one nobody reads the output
+  // of, which is the exact hazard the header above warns about — and it happened
+  // inside the mechanism built to prevent it. The XPASS guard catches an
+  // expectation that outlives its defect; nothing caught an expectation that
+  // acquired a second one.
+
   // ⚠ ratemaking-loop-check IS GONE FROM THIS MAP AND THAT IS THE HEADLINE OF
   // ITS COMMIT. It was entered red on the day it was written, as the loop's own
   // definition, and it now passes 4/4 on the flagged arm. Its three lives here

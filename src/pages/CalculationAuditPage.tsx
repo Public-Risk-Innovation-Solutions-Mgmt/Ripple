@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { hasStaticClf, staticClf } from '../data/clfTables';
+import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import { lookupCLF, ibnerBookingBias } from '../utils/simulationEngine';
 import {
   Calculator,
@@ -13,6 +13,8 @@ import {
   Zap,
 } from 'lucide-react';
 import type { CoverageLine, LineResultSet, LineView, ResultSet } from '../types/simulation';
+import { asLineRow } from '../utils/lineHelpers';
+import { statementLines } from '../utils/financialStatementEngine';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { formatCurrency, formatPct } from '../utils/formatters';
 import { unpaidShare } from '../utils/payoutPattern';
@@ -21,7 +23,9 @@ import { simulateMarketReturns, blendInvestmentReturn } from '../utils/investmen
 import {
   ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM,
   AGGREGATE_LOSS_DISTRIBUTION,
-  LOSS_TREND,
+  CAPITAL_ADEQUACY_THRESHOLDS,
+  VOLUNTARY_DEPARTURES_ENABLED,
+  WC_LOSS_MODEL,
   MEMBER_LOSS_VOLATILITY,
   BASE_RETENTION,
   FUNDING_CLF_TABLE,
@@ -39,8 +43,14 @@ import {
   SLIDER_RANGES,
   LINE_PAYOUT_PATTERN,
   OPERATING_CASH_PCT_OF_PREMIUM,
+  PROPERTY_CAT_MODEL,
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
+import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
+import { WC_SEVERITY_TREND_PER_YEAR } from '../utils/wcClaimEngine';
+import { GL_SEVERITY_TREND_PER_YEAR } from '../utils/glClaimEngine';
+import { PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR } from '../utils/propertyClaimEngine';
+import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 
 interface CalculationAuditPageProps {
   // Pool-level results, UNFILTERED by line view: the page selects its own
@@ -99,6 +109,24 @@ export type FormulaSpec =
   // Prose only — used for the handful of rows with no numeric expression
   // (atomic counts, categorical thresholds, or a genuinely missing operand).
   | { kind: 'text'; text: string };
+
+/**
+ * THE BUILD-UP FOR A ROW WHOSE CHAIN IS PER LINE.
+ *
+ * ⚠ A FORMULA IS A CLOSURE, SO NARROWING CANNOT REACH INSIDE IT. Several rows
+ * below build their formula lazily — `scoped(() => ({ ... }))` — and the body
+ * runs when the card renders, long after any `lineRow === null` check. The
+ * compiler is right to refuse it: the row itself exists at pool scope, only its
+ * chain does not. A row that showed the number and then a build-up made of one
+ * line's rate and CLF was the display defect this whole commit is about.
+ *
+ * The value still shows. Only the derivation is replaced, and it says why.
+ */
+const PER_LINE_ONLY: FormulaSpec = {
+  kind: 'text',
+  text: 'This builds up per line — each line has its own rate, CLF and decisions. '
+    + 'Select a line tab to see the chain.',
+};
 
 // Enough significant digits that multiplying the DISPLAYED operands by hand
 // reproduces the displayed result — a rate shown as "-0.8%" would hand-multiply
@@ -369,8 +397,15 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
 
   // Every card below reads `result`, so selecting a line re-scopes the whole
   // page. The Pool = Sum card is the one exception — it needs poolResult.byLine.
-  const isPoolView = lineView === 'pool';
-  const result: LineResultSet = isPoolView ? poolResult : poolResult.byLine[lineView];
+  // ⚠ THIS LINE WAS THE PAGE'S LAUNDERER. Typing the pool row as a LineResultSet
+  // made every card below able to read a per-line placeholder off it and compile.
+  // The union forces each card that wants a line field to ask for one, and
+  // deriving isPoolView FROM the narrowing is what lets TypeScript carry the
+  // answer into every `isPoolView ? ... : ...` branch already on this page.
+  const result: ResultSet | LineResultSet =
+    lineView === 'pool' ? poolResult : poolResult.byLine[lineView];
+  const lineRow = asLineRow(result);
+  const isPoolView = lineRow === null;
   const checks = computeAuditChecks(poolResult, lineView, instanceSeed);
 
   // Six supporting cards, built from one exported pure function (mirroring the
@@ -445,7 +480,11 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
 
       <div className={`border rounded-xl px-4 py-3 text-sm font-semibold ${status.tone}`}>
         {status.text}
-        <span className="font-normal opacity-75"> — differences under {formatCurrency(CHECK_TOLERANCE)} pass as floating-point epsilon; detail is in the Check / Notes column of each card.</span>
+        {/* ⚠ NOT formatCurrency(CHECK_TOLERANCE). It rounds to whole dollars, so a
+            one-cent tolerance rendered as "$0" and every audit screen read
+            "differences under $0 pass as floating-point epsilon" — a sentence
+            that is false for every difference there is. */}
+        <span className="font-normal opacity-75"> — differences under one cent pass as floating-point epsilon; detail is in the Check / Notes column of each card.</span>
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
@@ -496,7 +535,8 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
 // a multiplied Poisson draw cannot be split into base and extra claims without a
 // counterfactual re-draw of the whole line. Summing an exact figure and an
 // analytic expectation into one number would read as precision that is not there.
-function buildShockAuditRows(result: LineResultSet): AuditRow[] {
+// Reads only `shockEvents`, which both rows carry, so the union is honest here.
+function buildShockAuditRows(result: ResultSet | LineResultSet): AuditRow[] {
   const rows: AuditRow[] = [];
   for (const s of result.shockEvents ?? []) {
     rows.push({ kind: 'section', metric: `${s.shockId} — ${s.name}`, value: '', formula: '' } as AuditRow);
@@ -729,7 +769,14 @@ function mkCheck(
 // note on what replaces them (Reinsurance Recovery, Retained Above Tower).
 
 // Every metric where the pool figure must equal the sum of its active lines.
-const POOL_SUM_METRICS: { key: keyof LineResultSet; label: string }[] = [
+// ⚠ THE KEY MUST EXIST ON BOTH ROWS, AND THE TYPE NOW SAYS SO. This card
+// reconciles the pool figure against the sum of its lines, so it indexes a line
+// row AND the pool row with the same key. `keyof LineResultSet` admitted keys
+// the pool row does not have — a per-line key here would have summed the lines
+// and compared the total against a placeholder. The intersection is the honest
+// domain, and a future per-line key fails to compile rather than reconciling
+// against one line's value.
+const POOL_SUM_METRICS: { key: Extract<keyof LineResultSet, keyof ResultSet>; label: string }[] = [
   { key: 'poolPremium', label: 'Pool Premium' },
   { key: 'adminExpense', label: 'Admin Expense' },
   { key: 'poolPremiumAndAdminExpense', label: 'Pool Premium & Admin Expense' },
@@ -806,19 +853,54 @@ export function computeAuditChecks(
   lineView: LineView,
   instanceSeed: number
 ): AuditCheckSet {
-  const isPoolView = lineView === 'pool';
-  const r: LineResultSet = isPoolView ? poolResult : poolResult.byLine[lineView];
+  const r: ResultSet | LineResultSet =
+    lineView === 'pool' ? poolResult : poolResult.byLine[lineView];
+  const rLine = asLineRow(r);
+  const isPoolView = rLine === null;
   const lineKeys = Object.keys(poolResult.byLine) as CoverageLine[];
   const isLiveYear = r.yearNumber > 0;
 
   // --- Income statement ---
-  // Pass-throughs are shown GROSS: reinsurance and admin appear as both
-  // revenue (collected from members) and expense (paid out).
-  const totalOperatingRevenuesValue =
-    r.reinsuranceCost + r.poolPremium + r.adminExpense + r.assessments;
-  const totalOperatingExpensesValue =
-    r.reinsuranceCost + r.netIncurredLoss + r.operatingExpense + r.riskControlInvestment + r.dividends;
+  // ⚠ FROM THE SHARED DERIVATION. These were computed here and identically on
+  // FinancialsPage, which is the duplication this page exists to catch and was
+  // itself committing. statementLines is the one definition; see its header.
+  const lines = statementLines(r);
+  const totalOperatingRevenuesValue = lines.totalOperatingRevenues;
+  const totalOperatingExpensesValue = lines.totalOperatingExpenses;
 
+  // ============================================================================
+  // ⚠ THESE TWO CHECKS COMPARE A VALUE AGAINST ITSELF AND CANNOT FAIL. LEFT IN
+  // PLACE AND RECORDED RATHER THAN QUIETLY REMOVED, BECAUSE THE RULE THIS
+  // PROJECT APPLIES TO ITS GATES — A CHECK THAT CANNOT FAIL IS WORSE THAN NONE —
+  // APPLIES HERE, AND DELETING THEM IS A JUDGEMENT SOMEBODY SHOULD MAKE ON
+  // PURPOSE RATHER THAN A TIDY-UP.
+  //
+  // ⚠ IT PREDATES THE SHARED DERIVATION ABOVE, which is the first thing anyone
+  // will assume. At a84b9f7^ the two values were built here from result fields
+  // (`r.reinsuranceCost + r.poolPremium + r.adminExpense + r.assessments` and
+  // its expense twin) and were ALREADY passed to mkCheck twice, so the check was
+  // already tautological; that commit changed only where the value came from.
+  //
+  // WHAT EACH WAS MEANT TO ASSERT, which is the question worth answering:
+  //
+  //   Nothing that it can. mkCheck's contract is `statement - derived` — a
+  //   STATEMENT figure against an INDEPENDENT reconstruction. There is no
+  //   independent second construction of either total anywhere in the tree: the
+  //   income statement's revenue line IS the sum of those four fields, and now
+  //   has exactly one definition in statementLines. So the pair is not a check
+  //   that lost its second input; it is a check that never had one, and it has
+  //   been counting toward the page's "N of M checks OK" badge as two passes
+  //   that cannot do otherwise.
+  //
+  //   The honest forms are: present them as plain rows with a build-up and no
+  //   Check column (what every other derived total on this page does), or give
+  //   them a genuinely separate reconstruction — summing the member-charge
+  //   components per line and comparing against the pooled statement would be
+  //   one, and is real work rather than a rename.
+  //
+  // Not changed here because this commit is about checks that fail WRONGLY, and
+  // these fail never. Flagged for a ruling.
+  // ============================================================================
   const totalOperatingRevenues = mkCheck(totalOperatingRevenuesValue, totalOperatingRevenuesValue);
   const totalOperatingExpenses = mkCheck(totalOperatingExpensesValue, totalOperatingExpensesValue);
   const operatingIncome = mkCheck(
@@ -827,31 +909,50 @@ export function computeAuditChecks(
   );
   const changeInNetPosition = mkCheck(r.underwritingIncome + r.investmentIncome, r.netIncome);
 
-  // Prior accident years' NET incurred, as the statement presents it: net paid
-  // plus the change in net unpaid on prior cohorts. The two INDEPENDENT paths
-  // meet on this line — the statement's presentation figure (net incurred less
-  // this year's net ultimate) against the reserve rollforward's own separately
-  // simulated cohort development (signed so positive = favourable, hence
-  // negated). A failure here points at the reserve development, not a subtotal.
-  const priorYearClaimsValue = r.netIncurredLoss - r.netUltimateLoss;
+  // Prior accident years' NET incurred: net paid plus the change in net unpaid on
+  // prior cohorts, signed so positive = favourable and negated for presentation.
+  //
+  // ⚠ THE CHECK WAS WRONG, NOT THE FIGURE, AND IT FAILED ONLY BELOW BREAK-EVEN.
+  // It reconstructed this as `netIncurredLoss - netUltimateLoss` and compared
+  // that against `-priorYearDevelopment`, calling the two "INDEPENDENT paths".
+  // They are the same path whenever the booked and pre-bias ultimates agree —
+  // and they stop agreeing the moment a line funds below CLF 1.000, because
+  // netIncurredLoss is built from the BOOKED figure while netUltimateLoss is the
+  // one before the booking bias and the give-back. The reconstruction therefore
+  // absorbed a CURRENT-year item into a PRIOR-year line. Measured at confidence
+  // 0.30: -0.528 / -0.832 / -1.179 $M on WC / GL / Property in year 1, and the
+  // gap equals `bookedNetUltimate - netUltimateLoss` to the cent on every
+  // line-year.
+  //
+  // The independent cross-check survives and is BETTER placed: the rollforward
+  // identity below ties the same development figure to the reserve movement,
+  // which is a genuinely separate construction. This line now simply presents
+  // what the engine emits.
+  const priorYearClaimsValue = lines.priorYearClaims;
   const priorYearClaims = mkCheck(-r.priorYearDevelopment, priorYearClaimsValue, {
     varianceCap: CLAIMS_VARIANCE_CAP,
     varianceReason: CLAIMS_VARIANCE_REASON,
   });
 
   // The subtotal's own identity: current year claims less ceded recoveries plus
-  // prior year claims must equal the net provision. Exact by construction.
+  // prior year claims must equal the net provision.
+  //
+  // ⚠ IT USED grossUltimateLoss — THE DRAWN REGISTER — AGAINST A BOOKED TOTAL,
+  // AND FAILED EVERY YEAR AT EVERY SCOPE FOR IT. netIncurredLoss is built from
+  // the register AFTER forward booking contracts it, so the only gross figure
+  // that can appear in this identity is `bookedGrossUltimate`, whose own type
+  // comment states the relation: netUltimateLoss = bookedGrossUltimate -
+  // reinsuranceRecovery. Measured at defaults, pool: +28.481 $M in year 1 with
+  // the drawn figure, 0.000 with the booked one, every year, both arms.
+  // THE CHECK WAS WRONG. The engine's figures reconcile exactly.
   const provisionForClaims = mkCheck(
-    r.grossUltimateLoss - r.reinsuranceRecovery + priorYearClaimsValue,
+    lines.currentYearClaims - r.reinsuranceRecovery + priorYearClaimsValue,
     r.netIncurredLoss
   );
 
   // --- Statement of net position ---
-  // The cash-equivalents slice is DERIVED from the allocation percentage
-  // rather than read directly, exercising the same split the statement shows.
-  const cashSlice = r.endingInvestments * (r.assetAllocation.cashPct / 100);
-  const cashAndEquivalents = r.endingCash + cashSlice;
-  const noncurrentInvestments = r.endingInvestments - cashSlice;
+  // Same shared derivation: the split the statement shows, computed once.
+  const { cashAndEquivalents, noncurrentInvestments } = lines;
   const totalAssetsSplit = mkCheck(cashAndEquivalents + noncurrentInvestments, r.totalAssets);
 
   // Current portion = the share of each line's own net unpaid reserve expected
@@ -890,7 +991,7 @@ export function computeAuditChecks(
   // The sweep runs PER LINE inside the engine, so at pool scope the correct
   // reconstruction is the sum of each line's own reconstruction — applying the
   // formula to pool aggregates only coincides when no line hits either floor.
-  const sweepParts = (isPoolView ? lineKeys.map(l => poolResult.byLine[l]) : [r]).map(reconstructSweep);
+  const sweepParts = (isPoolView ? lineKeys.map(l => poolResult.byLine[l]) : [rLine]).map(reconstructSweep);
   const sweep = sweepParts.reduce(
     (a, b) => ({
       cash: a.cash + b.cash,
@@ -1017,7 +1118,8 @@ export function computeAuditChecks(
     currentUnpaidPortion,
     noncurrentUnpaidPortion,
     cashAndEquivalents,
-    cashSliceOfInvestments: cashSlice,
+    // The slice itself, recovered from the two figures the helper returns.
+    cashSliceOfInvestments: cashAndEquivalents - r.endingCash,
     noncurrentInvestments,
     operatingCashTarget: sweep.operatingCashTarget,
     investmentsBeforeSweep: sweep.investmentsBeforeSweep,
@@ -1059,7 +1161,7 @@ function buildAssumptionRows(): AuditRow[] {
     {
       metric: 'Admin Expense as % of Pure Premium',
       value: formatPct(ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM),
-      formula: 'Pure Premium × 15%. Added after selected CLF and not multiplied by CLF.',
+      formula: `Pure Premium × ${formatPct(ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, 0)}. Added after selected CLF and not multiplied by CLF.`,
       note:
         'Higher values make it harder to generate underwriting income. This is separate from LAE, so avoid double counting claim adjustment expenses.',
     },
@@ -1088,16 +1190,31 @@ function buildAssumptionRows(): AuditRow[] {
       note: 'Raises the center of the actual-loss distribution so default decisions do not automatically produce large annual gains. Member risk-quality volatility is preserved.',
     },
     {
-      metric: 'Catastrophe Classification Threshold',
-      value: `${formatPct(AGGREGATE_LOSS_DISTRIBUTION.catastropheThresholdConfidence)} CLF`,
-      formula: 'An annual shared factor above the selected CLF-table threshold is classified as a catastrophe for reporting.',
+      // ⚠ REPLACES "Catastrophe Classification Threshold", which said an annual
+      // shared factor above a CLF-table threshold was classified as a
+      // catastrophe. That factor belongs to the retired aggregate path; no line
+      // reads it, and nothing has been classified that way since every line
+      // began drawing claims.
+      metric: 'Catastrophes',
+      value: `${PROPERTY_CAT_MODEL.eventsPerYear} events a year`,
+      formula: 'Property only. Regional events arrive at this rate; each strikes one region, and every member '
+        + 'it hits loses a fixed share of its primary asset. All of an event\'s claims are one occurrence.',
+      note: 'A year\'s events — catastrophes and any other event that produced claims — are listed under '
+        + 'Events This Year and named in the claims workbook\'s Event column.',
     },
     {
+      // ⚠ THIS ROW SHOWED LOSS_TREND (4%) AS "the default annual claim inflation
+      // assumption" the engine applies, and named a 0% rate-change selection that
+      // no longer exists. No loss generator reads LOSS_TREND, nor the per-instance
+      // lossEnvironment.lossTrend: each line trends its own claims, at the draw,
+      // by the constants below — so the row states those, from those.
       metric: 'Loss Trend',
-      value: formatPct(LOSS_TREND),
-      formula: 'Default annual claim inflation assumption.',
+      value: `WC severity ${signedPct(WC_SEVERITY_TREND_PER_YEAR)}, frequency ${signedPct(WC_LOSS_MODEL.frequencyTrendPerYear)}; `
+        + `GL severity ${signedPct(GL_SEVERITY_TREND_PER_YEAR)}; Property severity ${signedPct(PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR)}`,
+      formula: 'Per line, per year, applied to each claim as it is drawn and frozen onto it at its accident year.',
       note:
-        'Current engine applies trend to simulated actual losses, not to the displayed expected rate when the player selects 0% rate change.',
+        'There is no single pool-wide loss trend: each line trends its own claims, and a line with no trend listed here has none. '
+        + 'The rate is not trended separately — it is priced from the pool\'s own experience of the trended claims.',
     },
     {
       metric: 'Base Retention',
@@ -1119,10 +1236,17 @@ function buildAssumptionRows(): AuditRow[] {
     },
     {
       metric: 'Member Withdrawals',
-      value: 'proportional, uncapped',
-      formula: 'Expected withdrawals = book x (1 - retention probability), times a noise factor in [0.4, 1.6].',
+      // ⚠ READS THE FLAG. This row described proportional voluntary departures
+      // while VOLUNTARY_DEPARTURES_ENABLED was false — the count is computed and
+      // discarded, and members leave only when declined at renewal.
+      value: VOLUNTARY_DEPARTURES_ENABLED ? 'proportional, uncapped' : 'off — members leave only when declined at renewal',
+      formula: `${VOLUNTARY_DEPARTURES_ENABLED ? '' : 'When enabled: '}Expected withdrawals = book x (1 - retention probability), `
+        + `times a noise factor in [${WITHDRAWAL_NOISE_RANGE.min}, ${WITHDRAWAL_NOISE_RANGE.max}].`,
       note:
-        'No count cap. Retention is already clamped to a 0.80-0.99 band, so departures cannot exceed a fifth of '
+        (VOLUNTARY_DEPARTURES_ENABLED ? '' : 'Voluntary departures are switched off in this build: the count is computed and discarded, so '
+          + 'the only members who leave are the ones the renewal bar declines. ')
+        + `No count cap. Retention is already clamped to a ${RETENTION_PROBABILITY_BOUNDS.min.toFixed(2)}-${RETENTION_PROBABILITY_BOUNDS.max.toFixed(2)} band, `
+        + `so departures cannot exceed ${formatPct(1 - RETENTION_PROBABILITY_BOUNDS.min, 0)} of `
         + 'the book in any year. A flat cap here suppressed proportionally more departures the larger the book '
         + 'grew, which made growth compound against a brake that weakened as it was needed.',
     },
@@ -1284,6 +1408,24 @@ function sizeLabel(index: number): string {
   return `Index ${index}`;
 }
 
+// ⚠ STATED FROM THE CODE, NOT RESTATED. The margin factors below stood as
+// literals in three sentences — "WC 1.3709, GL 1.5020, Property 1.5923" — and two
+// of the three had moved (WC is 1.4730, Property 1.4414) while GL happened not
+// to, so the page read plausibly and was wrong. Likewise "the default on WC and
+// GL", written before Property's own default moved to funding at expected.
+const STATIC_LINES = ['WC', 'GL', 'Property'] as const;
+const MARGIN_PCT = formatPct(RESERVE_MARGIN_CONFIDENCE, 0);
+const MARGIN_FACTORS = STATIC_LINES.map(l => `${l} ${staticClf(l, RESERVE_MARGIN_CONFIDENCE).toFixed(4)}`).join(', ');
+const AT_EXPECTED_BY_DEFAULT = STATIC_LINES.filter(l => defaultLineDecisionSet(l).fundingAtExpected);
+const AT_EXPECTED_DEFAULT_TEXT = AT_EXPECTED_BY_DEFAULT.length === STATIC_LINES.length
+  ? 'the default on every line'
+  : AT_EXPECTED_BY_DEFAULT.length === 0 ? 'not the default on any line' : `the default on ${AT_EXPECTED_BY_DEFAULT.join(' and ')}`;
+
+/** An annual trend as the audit page states it: signed, per year, or "none". */
+function signedPct(v: number): string {
+  return v === 0 ? 'none' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%/yr`;
+}
+
 function labelize(value: string): string {
   return value
     .replace(/([A-Z])/g, ' $1')
@@ -1330,9 +1472,12 @@ export function buildSupportingRows(
   poolResult: ResultSet,
   lineView: LineView,
 ): { exposureRows: AuditRow[]; rateRows: AuditRow[]; lossRows: AuditRow[]; reserveRows: AuditRow[]; ratioRows: AuditRow[]; capitalRows: AuditRow[] } {
-  const isPoolView = lineView === 'pool';
   const lineKeysHere = Object.keys(poolResult.byLine) as CoverageLine[];
-  const result: LineResultSet = isPoolView ? poolResult : poolResult.byLine[lineView];
+  const result: ResultSet | LineResultSet =
+    lineView === 'pool' ? poolResult : poolResult.byLine[lineView];
+  const lineRow = asLineRow(result);
+  // Derived from the narrowing so TypeScript carries it into the branches below.
+  const isPoolView = lineRow === null;
   // The per-line pieces of the pool's reserve risk margin, in a stable order.
   // Mirrors simulationEngine's reserveMarginCLF dispatch: the line's own static
   // table where it has one, FUNDING_CLF_TABLE otherwise.
@@ -1348,7 +1493,7 @@ export function buildSupportingRows(
     ? MARGIN_ORDER.filter(l => poolResult.byLine[l]).map(l => ({
         line: l,
         expectedNetUnpaidLoss: poolResult.byLine[l].expectedNetUnpaidLoss,
-        marginFactor: (hasStaticClf(l) ? staticClf(l, 0.90) : lookupCLF(0.90)) - 1,
+        marginFactor: (hasStaticClf(l) ? staticClf(l, RESERVE_MARGIN_CONFIDENCE) : lookupCLF(RESERVE_MARGIN_CONFIDENCE)) - 1,
         expectedLoss: poolResult.byLine[l].expectedLoss,
         clf: poolResult.byLine[l].selectedFundingCLF,
         poolPremium: poolResult.byLine[l].poolPremium,
@@ -1360,16 +1505,24 @@ export function buildSupportingRows(
     : undefined;
   const payrollUnits = Math.max(result.activeExposure * 10_000, 1);
   const rateAtConfidenceLevel = result.poolPremium / payrollUnits;
-  // result.ratePer100 is a real per-line stored rate, but at pool scope it is
+  // lineRow.ratePer100 is a real per-line stored rate, but at pool scope it is
   // aggregated as one line's rate kept as a placeholder — not a genuine pool
   // figure. Recomputing from the three real pool-summed dollar figures gives
   // the true blended rate at every scope (and is numerically identical to
-  // result.ratePer100 at line scope, since that's how it's defined there).
-  const grossRatePer100 = (result.poolPremium + result.adminExpense + result.reinsuranceCost) / payrollUnits;
-  const grossPremiumCheck = result.activeExposure * result.ratePer100 * 10_000;
+  // lineRow.ratePer100 at line scope, since that's how it's defined there).
+  // ⚠ IT IS THE WHOLE CHARGE, SO THE RETAINED MARGIN IS IN IT. This used to
+  // restate the charge as its three old components; a declined layer's price is
+  // a fourth, so restating three of four would have printed a rate below the
+  // one the member actually pays. `totalMemberCharge` is the identity itself.
+  const grossRatePer100 = result.totalMemberCharge / payrollUnits;
+  // Per-line check. NaN at pool scope rather than 0 — it is consumed only by
+  // rows that are themselves absent there, and a 0 would read as a real figure.
+  const grossPremiumCheck = lineRow === null ? NaN : result.activeExposure * lineRow.ratePer100 * 10_000;
   const grossPremiumDifference = result.grossPremium - grossPremiumCheck;
 
-  const expectedLossCheck = result.activeExposure * result.purePremiumPer100 * 10_000;
+  // Per-line check. NaN at pool scope rather than 0 — it is consumed only by
+  // rows that are themselves absent there, and a 0 would read as a real figure.
+  const expectedLossCheck = lineRow === null ? NaN : result.activeExposure * lineRow.purePremiumPer100 * 10_000;
   const expectedLossDifference = result.expectedLoss - expectedLossCheck;
 
   // Both rate-times-exposure checks above are only meaningful PER LINE, and even
@@ -1380,19 +1533,52 @@ export function buildSupportingRows(
   // line's rate kept as a placeholder — while activeExposure is the sum across
   // lines, so the product multiplies summed exposure by a single line's rate.
   //
-  // At line scope the rates are stored rounded to four decimals, so the error
-  // is bounded by half a rounding unit times the payroll units, which is the
-  // tolerance used here rather than a flat dollar.
-  const rateRoundingTolerance = Math.max(1, result.activeExposure * 10_000 * 0.00005);
-  const rateCheck = (diff: number) =>
+  // ⚠ BOTH OPERANDS OF THE PRODUCT ARE ROUNDED, AND THE OLD BOUND COUNTED ONE.
+  // It read `activeExposure * 10_000 * 0.00005` — half a rounding unit on the
+  // RATE alone — and these checks multiply a stored rate by a stored EXPOSURE,
+  // which simulationEngine rounds to two decimals of $M on the result row
+  // (`parseFloat(activeExposure.toFixed(2))`) exactly as it rounds the rate to
+  // four decimals per $100. A bound that ignores one of its two error sources
+  // is not a loose bound, it is the wrong bound, and this one was failing on
+  // every WC and GL configuration at defaults.
+  //
+  // With P = E·r·10_000, E stored to 2dp of $M and r to 4dp per $100, the
+  // first-order error is
+  //
+  //     |ΔP| <= 10_000 · (E·δr + r·δE),    δr = 5e-5,  δE = 5e-3
+  //
+  // so the second term is 50·r dollars — which is the piece that was missing,
+  // and it is NOT small: at a rate of 3.63 it is $182 against a first term of
+  // $175. The δr·δE cross term is ~1e-7 dollars and is dropped.
+  //
+  // ⚠ IT IS A FUNCTION OF THE RATE NOW, because the two callers multiply by
+  // DIFFERENT rates — ratePer100 for the premium check, purePremiumPer100 for
+  // the expected-loss one — and a single constant silently used the wrong one
+  // for whichever it was not derived from.
+  //
+  // ⚠ DERIVED, NOT FITTED. The observed failures were -$328 at r = 3.63 and
+  // -$238 at r = 6.19; the bound this gives is $357 and $485. It was written
+  // from the two roundings the product actually carries and then checked
+  // against those cases, not sized to clear them.
+  const rateRoundingTolerance = (ratePer100: number) =>
+    Math.max(1, result.activeExposure * 10_000 * 0.00005 + 10_000 * ratePer100 * 0.005);
+  const rateCheck = (diff: number, ratePer100: number) =>
     isPoolView
       ? naNote(
           'pool-level rates are one line\'s rate kept as a placeholder, while exposure is summed across ' +
           'lines — the product is not a meaningful quantity. Select a line tab to check it.'
         )
-      : legacyCheck(diff, rateRoundingTolerance);
+      : legacyCheck(diff, rateRoundingTolerance(ratePer100));
 
-  const clfAdjustedExpectedLossCheck = result.expectedLoss * result.selectedFundingCLF;
+  /** The wording shared by both rate checks, naming BOTH roundings. */
+  const rateToleranceNote = (ratePer100: number) =>
+    `Tolerance ${formatCurrency(rateRoundingTolerance(ratePer100))}: the rate is stored to four decimals `
+    + 'and the exposure to two, so this is half a rounding unit on each — exposure × ½ rate-unit, plus '
+    + 'rate × ½ exposure-unit. Both terms matter; the second is the larger one at these rates.';
+
+  // Per-line check. NaN at pool scope rather than 0 — it is consumed only by
+  // rows that are themselves absent there, and a 0 would read as a real figure.
+  const clfAdjustedExpectedLossCheck = lineRow === null ? NaN : result.expectedLoss * lineRow.selectedFundingCLF;
   const clfAdjustedExpectedLossDifference =
     result.clfAdjustedExpectedLoss - clfAdjustedExpectedLossCheck;
 
@@ -1405,8 +1591,11 @@ export function buildSupportingRows(
   const netUltimateLossCheck = bookedGross - result.reinsuranceRecovery;
   const netUltimateLossDifference = result.netUltimateLoss - netUltimateLossCheck;
 
-  const indicatedNetReserveCheck =
-    result.expectedNetUnpaidLoss * result.selectedFundingCLF;
+  // Per-line check: there is no pool CLF to multiply by. NaN rather than 0 so a
+  // leak into a display reads as broken instead of as a real figure.
+  const indicatedNetReserveCheck = lineRow === null
+    ? NaN
+    : result.expectedNetUnpaidLoss * lineRow.selectedFundingCLF;
 
   const indicatedNetReserveDifference =
     result.indicatedNetReserveAtConfidenceLevel - indicatedNetReserveCheck;
@@ -1420,17 +1609,20 @@ export function buildSupportingRows(
   // The page was telling the user the engine was wrong, every year, using a
   // curve the engine stopped reading when the static tables landed.
   const reserveMarginCLFForLine = result.line && hasStaticClf(result.line)
-    ? staticClf(result.line, 0.90)
-    : lookupCLF(0.90);
+    ? staticClf(result.line, RESERVE_MARGIN_CONFIDENCE)
+    : lookupCLF(RESERVE_MARGIN_CONFIDENCE);
 
   // WHERE THE SELECTED CLF ACTUALLY CAME FROM. Under fundingAtExpected — the
   // DEFAULT on WC and GL — no table is consulted at all and the multiplier is
   // the literal 1.0, so naming any table here would send a reader to a curve
   // that was not read.
-  const clfProvenanceText = result.line && hasStaticClf(result.line)
-    ? (result.decisions.fundingAtExpected
+  // ⚠ GUARDED ON lineRow, NOT ON result.line. The two are the same condition —
+  // `line` is undefined on a pooled row — but only the first tells the compiler
+  // that the per-line reads inside this branch are reachable.
+  const clfProvenanceText = lineRow !== null && lineRow.line && hasStaticClf(lineRow.line)
+    ? (lineRow.decisions.fundingAtExpected
         ? 'Expected funding — the table is bypassed entirely and the multiplier is exactly 1.000'
-        : `STATIC_CLF_TABLE.${result.line}[${formatPct(result.selectedFundingConfidenceLevel, 0)}] — see clfTables.ts`)
+        : `STATIC_CLF_TABLE.${lineRow.line}[${formatPct(lineRow.selectedFundingConfidenceLevel, 0)}] — see clfTables.ts`)
     // ⚠ POOL SCOPE NAMED A TABLE NO LINE READS. result.line is undefined on the
     // pooled row, so this fell through to FUNDING_CLF_TABLE — and every line now
     // has its own static table, leaving the generic one with no pricing consumer
@@ -1439,7 +1631,7 @@ export function buildSupportingRows(
     // to be the source of. Say that instead of citing a curve.
     : isPoolView
       ? 'No pool CLF exists: each line prices off its OWN static table, and this figure is one line\'s value kept as a placeholder. Select a line tab for the real one.'
-      : `FUNDING_CLF_TABLE[${formatPct(result.selectedFundingConfidenceLevel, 0)}] — see Default Assumptions`;
+      : `FUNDING_CLF_TABLE[${formatPct(lineRow!.selectedFundingConfidenceLevel, 0)}] — see Default Assumptions`;
 
   const reserveRiskMarginCheck =
     result.expectedNetUnpaidLoss * (reserveMarginCLFForLine - 1);
@@ -1453,8 +1645,8 @@ export function buildSupportingRows(
   const marginCheck = (diff: number) =>
     isPoolView
       ? naNote(
-          'the reserve risk margin is summed across lines, each with its own 90% CLF ' +
-          '(WC 1.3709, GL 1.5020, Property 1.5923) — no single factor reproduces the sum. ' +
+          `the reserve risk margin is summed across lines, each with its own ${MARGIN_PCT} CLF ` +
+          `(${MARGIN_FACTORS}) — no single factor reproduces the sum. ` +
           'Select a line tab to check it.'
         )
       : legacyCheck(diff);
@@ -1473,8 +1665,18 @@ export function buildSupportingRows(
   // than absorbed into the development figure (see CLAIMS_VARIANCE_CAP) — so
   // this reuses the same documented, bounded variance rather than asserting
   // an unconditional identity.
+  // ⚠ bookedNetUltimate, NOT netUltimateLoss — THE CHECK WAS WRONG, AND IT IS THE
+  // SAME DEFECT AS THE PRIOR-YEAR LINE ABOVE, ALGEBRAICALLY IDENTICAL. Both
+  // reduce to `netIncurredLoss - netUltimateLoss + priorYearDevelopment`, so they
+  // failed together, by the same amount, on exactly the lines that funded below
+  // break-even. What enters the reserve is the BOOKED figure: simulationEngine
+  // derives `currentYearNetReserve` and `netPaidCurrentYear` from
+  // `bookedUltimate` and from nothing else, so this identity is the engine's own
+  // and was being asserted with the wrong operand. Substituting it closes the gap
+  // to 0.000 on every line-year in both arms.
   const endingNetReserveCheck =
-    result.beginningNetReserve + result.netUltimateLoss - result.priorYearDevelopment - result.netPaidLosses;
+    result.beginningNetReserve + (result.bookedNetUltimate ?? result.netUltimateLoss)
+    - result.priorYearDevelopment - result.netPaidLosses;
   const endingNetReserveDifference = result.endingNetReserve - endingNetReserveCheck;
 
   const netIncurredLossFromIncome =
@@ -1572,12 +1774,21 @@ export function buildSupportingRows(
   // formula did not produce, by $5.9M at pool scope, INVISIBLE AT DEFAULTS
   // because the bias is zero there — the sixth time that default has hidden a
   // missing term on this page.
+  // ⚠ READ, NOT REBUILT. This expression is simulationEngine's `const
+  // bookedUltimate` copied out — same terms, same order — and a copy of an engine
+  // local is the defect this page is meant to catch. The engine records the value
+  // now (bookedNetUltimate), so there is one definition and this reads it. The
+  // fallback keeps a save written before the field existed rendering, and
+  // reproduces the old arithmetic exactly for those.
   const bookedUltimateOf = (r: LineResultSet) =>
-    r.netUltimateLoss * (1 - ibnerBookingBias(r.selectedFundingCLF)) - (r.bookingGiveBack ?? 0);
+    r.bookedNetUltimate
+    ?? (r.netUltimateLoss * (1 - ibnerBookingBias(r.selectedFundingCLF)) - (r.bookingGiveBack ?? 0));
   const bookedUltimate = isPoolView
     ? MARGIN_ORDER.filter(l => poolResult.byLine[l]).reduce((sum, l) => sum + bookedUltimateOf(poolResult.byLine[l]), 0)
-    : bookedUltimateOf(result);
-  const bookingBiasHere = isPoolView ? undefined : ibnerBookingBias(result.selectedFundingCLF);
+    : lineRow === null ? NaN : bookedUltimateOf(lineRow);
+  // Per-line check. NaN at pool scope rather than 0 — it is consumed only by
+  // rows that are themselves absent there, and a 0 would read as a real figure.
+  const bookingBiasHere = lineRow === null ? NaN : isPoolView ? undefined : ibnerBookingBias(lineRow.selectedFundingCLF);
 
   // ⚠ SUMMED PER LINE, NOT ONE RATE ON THE POOL TOTAL. Each line reserves its
   // own first-year unpaid share — 59.0% WC, 90.4% GL, 49.6% Property — so the
@@ -1587,7 +1798,7 @@ export function buildSupportingRows(
   const paidShareOf = (l: CoverageLine) => 1 - unpaidShare(LINE_PAYOUT_PATTERN[l], 1);
   const netPaidCurrentYear = isPoolView
     ? lineKeysHere.reduce((sum, l) => sum + bookedUltimateOf(poolResult.byLine[l]) * paidShareOf(l), 0)
-    : bookedUltimateOf(result) * paidShareOf(lineView as CoverageLine);
+    : lineRow === null ? NaN : bookedUltimateOf(lineRow) * paidShareOf(lineView as CoverageLine);
   // The blend the pool actually booked, for display. At line scope it is simply
   // that line's own share.
   const currentYearPaidPct = bookedUltimate > 0 ? netPaidCurrentYear / bookedUltimate : 0;
@@ -1671,34 +1882,39 @@ export function buildSupportingRows(
     },
   ];
 
-  const rateRows: AuditRow[] = [
+  // ⚠ EMPTY AT POOL SCOPE. Every row below reads a per-line quantity — a
+  // per-$100 rate, a funding selection or the decision echo — and the pool row
+  // carries none of them. They used to print the first active line's.
+  const rateRows: AuditRow[] = lineRow === null ? [] : [
     {
       metric: 'Pure Premium Rate per $100 Payroll',
-      value: dollars(result.purePremiumPer100),
+      value: dollars(lineRow.purePremiumPer100),
       formula: {
         kind: 'text',
         text:
-          'Cannot be expressed on this page: it depends on (1) last year\'s own rate — a different row, not simultaneously visible here — ' +
-          '(2) the actual loss trend applied this game (instance.lossEnvironment.lossTrend), which is drawn per instance and is NOT the ' +
-          'Loss Trend value shown on Default Assumptions — verified to differ by up to 1.9 percentage points on real seeds, so that card is ' +
-          'currently showing the wrong number for this game, not just an unrelated default — and (3) the rolling risk-control effectiveness ' +
-          'score, which the engine computes every year but does not store on this result at all.',
+          // ⚠ REWRITTEN: this named last year's rate, the per-instance loss
+          // trend and the risk-control score as the inputs. The pure premium no
+          // longer compounds off a prior rate and reads no instance loss trend
+          // (see computeFundingConsequence's header); it is currentPurePremiumPer100.
+          'Cannot be expressed on this page: it is priced from the line and the year, the class mix of the enrolled book (Workers\' ' +
+          'Compensation only), and the pool\'s own played paid triangle put back on the gross basis through the tower — ' +
+          'none of which is a single row here.',
       },
-      note: 'Not evaluated — see formula for the confirmed Loss Trend display defect.',
+      note: 'Not evaluated — see formula.',
     },
     {
       metric: 'Selected Funding Confidence',
-      value: formatPct(result.selectedFundingConfidenceLevel, 0),
+      value: formatPct(lineRow.selectedFundingConfidenceLevel, 0),
       formula: { kind: 'text', text: 'A player selection, not a calculation.' },
     },
     {
       metric: 'Selected CLF',
-      value: result.selectedFundingCLF.toFixed(3),
-      numericValue: result.selectedFundingCLF,
-      formula: { kind: 'echo', value: result.selectedFundingCLF, text: clfProvenanceText },
+      value: lineRow.selectedFundingCLF.toFixed(3),
+      numericValue: lineRow.selectedFundingCLF,
+      formula: { kind: 'echo', value: lineRow.selectedFundingCLF, text: clfProvenanceText },
     },
     {
-      metric: `Pool Premium Rate at ${(result.selectedFundingConfidenceLevel * 100).toFixed(0)}% CLF`,
+      metric: `Pool Premium Rate at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}% CLF`,
       value: dollars(rateAtConfidenceLevel),
       numericValue: rateAtConfidenceLevel,
       formula: isPoolView
@@ -1706,9 +1922,9 @@ export function buildSupportingRows(
         : {
             kind: 'product',
             factors: [
-              { value: result.netPurePremiumPer100, format: 'plain', label: 'net pure premium rate' },
-              factorTerm(result.selectedFundingCLF, `CLF at ${(result.selectedFundingConfidenceLevel * 100).toFixed(0)}%`),
-              factorTerm(result.rateLevel / 100, `rate level ${result.rateLevel}`),
+              { value: lineRow.netPurePremiumPer100, format: 'plain', label: 'net pure premium rate' },
+              factorTerm(lineRow.selectedFundingCLF, `CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%`),
+              factorTerm(lineRow.rateLevel / 100, `rate level ${lineRow.rateLevel}`),
             ],
           },
       // ⚠ THE NETTING STEP IS SHOWN, NOT FOLDED IN. This row used to multiply
@@ -1724,12 +1940,12 @@ export function buildSupportingRows(
       // to ~5e-5 and the stored field reconciles exactly.
       subFormula: isPoolView ? undefined : {
         label: 'net pure premium rate',
-        value: result.netPurePremiumPer100,
+        value: lineRow.netPurePremiumPer100,
         spec: {
           kind: 'sum',
           terms: [
-            { value: result.purePremiumPer100, format: 'plain', label: 'gross pure premium rate' },
-            { value: -result.expectedCededPer100, format: 'plain', label: 'less expected ceded to reinsurers' },
+            { value: lineRow.purePremiumPer100, format: 'plain', label: 'gross pure premium rate' },
+            { value: -lineRow.expectedCededPer100, format: 'plain', label: 'less expected ceded to reinsurers' },
           ],
         },
       },
@@ -1747,10 +1963,14 @@ export function buildSupportingRows(
           { value: result.poolPremium / payrollUnits, format: 'plain', label: 'pool premium rate' },
           { value: result.adminExpense / payrollUnits, format: 'plain', label: 'admin rate' },
           { value: result.reinsuranceCost / payrollUnits, format: 'plain', label: 'reinsurance rate' },
+          // ⚠ THE FOURTH TERM, AND THE CHARGE HAS FOUR COMPONENTS NOW. Zero on
+          // every default game; non-zero exactly when a layer was declined,
+          // which is when this row is the one a reader is looking for.
+          { value: result.retainedCoverMargin / payrollUnits, format: 'plain', label: 'retained cover margin rate' },
         ],
       },
       explain: isPoolView
-        ? 'Recomputed from the three real pool-summed dollar figures divided by Payroll Units below — result.ratePer100 itself is aggregated at pool scope as one line\'s rate kept as a placeholder, not a real pool figure, so it is not used here.'
+        ? 'Recomputed from the four real pool-summed dollar figures divided by Payroll Units below — lineRow.ratePer100 itself is aggregated at pool scope as one line\'s rate kept as a placeholder, not a real pool figure, so it is not used here.'
         : 'Each component rate is its dollar figure (Income Statement / Losses and Reinsurance) divided by Payroll Units below.',
     },
     {
@@ -1767,7 +1987,7 @@ export function buildSupportingRows(
         ? { kind: 'text', text: 'Not a meaningful product at pool scope — see the note on the Check Difference row below.' }
         : {
             kind: 'product',
-            factors: [expTerm(result.activeExposure, 'payroll, $M'), { value: result.ratePer100, format: 'plain', label: 'rate per $100' }, { value: 10_000, format: 'plain', label: 'units of $100 per $M' }],
+            factors: [expTerm(result.activeExposure, 'payroll, $M'), { value: lineRow.ratePer100, format: 'plain', label: 'rate per $100' }, { value: 10_000, format: 'plain', label: 'units of $100 per $M' }],
           },
     },
     {
@@ -1777,12 +1997,12 @@ export function buildSupportingRows(
       formula: isPoolView
         ? { kind: 'text', text: 'Not computed at pool scope — see the note.' }
         : { kind: 'sum', terms: [curTerm(result.grossPremium, 'stored'), curTerm(-grossPremiumCheck, 'exposure × stored rate × 10,000')] },
-      explain: `Tolerance ${formatCurrency(rateRoundingTolerance)}: the rate is stored rounded to four decimals, so this is half a rounding unit × payroll units.`,
-      ...rateCheck(grossPremiumDifference),
+      explain: isPoolView ? undefined : rateToleranceNote(lineRow.ratePer100),
+      ...rateCheck(grossPremiumDifference, lineRow === null ? 0 : lineRow.ratePer100),
     },
   ];
 
-  const lossRows: AuditRow[] = [
+    const lossRows: AuditRow[] = [
     {
       metric: 'Pure Premium',
       value: formatCurrency(result.expectedLoss),
@@ -1791,7 +2011,7 @@ export function buildSupportingRows(
         ? { kind: 'text', text: 'Not a meaningful product at pool scope — see the note on the Check Difference row below.' }
         : {
             kind: 'product',
-            factors: [expTerm(result.activeExposure, 'payroll, $M'), { value: result.purePremiumPer100, format: 'plain', label: 'pure premium rate' }, { value: 10_000, format: 'plain', label: 'units of $100 per $M' }],
+            factors: [expTerm(result.activeExposure, 'payroll, $M'), { value: lineRow.purePremiumPer100, format: 'plain', label: 'pure premium rate' }, { value: 10_000, format: 'plain', label: 'units of $100 per $M' }],
           },
     },
     {
@@ -1801,8 +2021,8 @@ export function buildSupportingRows(
       formula: isPoolView
         ? { kind: 'text', text: 'Not computed at pool scope — see the note.' }
         : { kind: 'sum', terms: [curTerm(result.expectedLoss, 'stored'), curTerm(-expectedLossCheck, 'exposure × stored rate × 10,000')] },
-      explain: `Tolerance ${formatCurrency(rateRoundingTolerance)}: the rate is stored rounded to four decimals, so this is half a rounding unit × payroll units.`,
-      ...rateCheck(expectedLossDifference),
+      explain: isPoolView ? undefined : rateToleranceNote(lineRow.purePremiumPer100),
+      ...rateCheck(expectedLossDifference, lineRow === null ? 0 : lineRow.purePremiumPer100),
     },
     {
       // NOT the pool premium — see the matching note in resultMetrics.ts. This
@@ -1819,17 +2039,28 @@ export function buildSupportingRows(
             product: [curTerm(pl.expectedLoss, 'gross expected loss'), factorTerm(pl.clf, 'its own CLF')],
             label: pl.line,
           })) }
-        : { kind: 'product', factors: [curTerm(result.expectedLoss, 'GROSS expected loss'), factorTerm(result.selectedFundingCLF)] },
+        : lineRow === null ? PER_LINE_ONLY
+        : { kind: 'product', factors: [curTerm(result.expectedLoss, 'GROSS expected loss'), factorTerm(lineRow.selectedFundingCLF)] },
       explain: isPoolView
         ? 'Gross expected loss at the selected CLF, summed per line — each line applies its own CLF, so there is no single pool factor. This is NOT the pool premium: the premium funds NET expected loss.'
         : 'Gross expected loss at the selected CLF. This is NOT the pool premium: the premium funds NET expected loss (see Pool Premium Rate above), so on WC and GL this figure sits well above it.',
     },
     {
       metric: 'CLF-Adjusted Gross Expected Loss Check Difference',
-      value: formatCurrency(clfAdjustedExpectedLossDifference),
+      value: isPoolView ? 'n/a' : formatCurrency(clfAdjustedExpectedLossDifference),
       numericValue: clfAdjustedExpectedLossDifference,
       formula: { kind: 'sum', terms: [curTerm(result.clfAdjustedExpectedLoss, 'stored'), curTerm(-clfAdjustedExpectedLossCheck, 'recalculated')] },
-      ...legacyCheck(clfAdjustedExpectedLossDifference),
+      // ⚠ n/a AT POOL SCOPE, NOT A FAILURE. The recalculation multiplies by a
+      // line's selectedFundingCLF and the pool has none, so it is deliberately
+      // NaN — and legacyCheck(NaN) is false against any threshold, so the row
+      // printed "$NaN" and flagged Review on every pooled view while the prose
+      // beside it already explained that there is no pool factor. The page
+      // already had naNote for exactly this; this row was never routed through
+      // it.
+      ...(isPoolView
+        ? naNote('each line applies its own CLF, so there is no single pool factor to multiply by. '
+          + 'Select a line tab to check it.')
+        : legacyCheck(clfAdjustedExpectedLossDifference)),
     },
     {
       metric: 'Gross Ultimate Loss + LAE',
@@ -1898,7 +2129,7 @@ export function buildSupportingRows(
       metric: 'Reinsurance Cost',
       value: formatCurrency(result.reinsuranceCost),
       numericValue: result.reinsuranceCost,
-      formula: towerReinsCostFormula(result, perLine?.map(pl => ({ line: pl.line, placed: pl.placed }))),
+      formula: lineRow === null ? PER_LINE_ONLY : towerReinsCostFormula(lineRow, perLine?.map(pl => ({ line: pl.line, placed: pl.placed }))),
       explain: 'Same figure as "Premiums for transferred risk" on the Statement of Revenues, Expenses & Changes in Net Position.',
     },
   ];
@@ -2055,7 +2286,10 @@ export function buildSupportingRows(
   // now mirrors that, which is what the comment above already claimed it did.
   const fundedNetLoss = isPoolView && perLine && perLine.length > 0
     ? perLine.reduce((sum, pl) => sum + pl.poolPremium / Math.max(pl.clf, 1e-9), 0)
-    : result.poolPremium / Math.max(result.selectedFundingCLF, 1e-9);
+    // ⚠ NOT THE ELSE OF A POOL TEST. The condition above is `isPoolView && perLine
+    // && length`, so this branch is also reached at POOL scope when the per-line
+    // breakdown is missing — there is no pool CLF to divide by there.
+    : lineRow === null ? NaN : result.poolPremium / Math.max(lineRow.selectedFundingCLF, 1e-9);
   // Shown beneath the ratio so the summed numerator is not an unexplained figure.
   const fundedNetLossSub = isPoolView && perLine && perLine.length > 0
     ? {
@@ -2067,7 +2301,9 @@ export function buildSupportingRows(
         })) },
       }
     : undefined;
-  const numeratorGuardApplies = result.selectedFundingCLF === 1.0;
+  // Per-line check. NaN at pool scope rather than 0 — it is consumed only by
+  // rows that are themselves absent there, and a 0 would read as a real figure.
+  const numeratorGuardApplies = lineRow === null ? NaN : lineRow.selectedFundingCLF === 1.0;
   const numeratorGuardDiff = Math.abs(result.expectedCombinedRatio - 1);
   const numeratorGuardFails = numeratorGuardApplies && numeratorGuardDiff >= 1e-12;
 
@@ -2085,7 +2321,7 @@ export function buildSupportingRows(
         : 'Basis check: loss + expense = combined exactly, all three over total member charge. The ' +
           'numerator identity is only closed at CLF 1.000; here the gap from 100% is the funding margin.';
 
-  const ratioRows: AuditRow[] = [
+    const ratioRows: AuditRow[] = [
     {
       metric: 'Expected Loss Ratio (pricing basis)',
       value: formatPct(result.expectedLossRatio),
@@ -2106,7 +2342,8 @@ export function buildSupportingRows(
       subFormula: {
         label: 'net expected loss the premium funds',
         value: fundedNetLoss,
-        spec: { kind: 'ratio', numerator: curTerm(result.poolPremium, 'pool premium'), denominator: { value: result.selectedFundingCLF, format: 'plain', label: 'selected CLF' } },
+        spec: lineRow === null ? PER_LINE_ONLY
+          : { kind: 'ratio', numerator: curTerm(result.poolPremium, 'pool premium'), denominator: { value: lineRow.selectedFundingCLF, format: 'plain', label: 'selected CLF' } },
       },
       explain: 'MEMBER-CHARGE basis — the denominator INCLUDES reinsurance cost. This is the loss-ratio component of the combined ratio below. Gross expected loss is NOT the numerator: it would double-count the ceded portion, once here and once as reinsurance cost in the expense ratio.',
     },
@@ -2127,7 +2364,7 @@ export function buildSupportingRows(
       value: formatPct(result.expectedCombinedRatio),
       numericValue: result.expectedCombinedRatio,
       formula: { kind: 'sum', terms: [pctTerm(result.expectedLossRatioMemberBasis, 'expected loss ratio (member charge)'), pctTerm(result.expectedExpenseRatio, 'expected expense ratio (member charge)')] },
-      explain: 'Both terms share the total-member-charge denominator AND the net numerator basis, so the sum is meaningful. At CLF 1.000 — the default on WC and GL — it is EXACTLY 100%, because pool premium + admin + reinsurance is identically the total member charge. Above CLF 1.000 the shortfall below 100% is the deliberate funding margin, which is what a confidence level above expected buys.',
+      explain: `Both terms share the total-member-charge denominator AND the net numerator basis, so the sum is meaningful. At CLF 1.000 — ${AT_EXPECTED_DEFAULT_TEXT} — it is EXACTLY 100%, because pool premium + admin + reinsurance is identically the total member charge. Above CLF 1.000 the shortfall below 100% is the deliberate funding margin, which is what a confidence level above expected buys.`,
       note: basisGuardNote,
       status: basisGuardStatus,
     },
@@ -2202,10 +2439,10 @@ export function buildSupportingRows(
 
   const fundingMarginCLF = reserveMarginCLFForLine;
   const fundingMarginCLFLabel = result.line && hasStaticClf(result.line)
-    ? `STATIC_CLF_TABLE.${result.line}[90%]`
-    : 'FUNDING_CLF_TABLE[90%]';
+    ? `STATIC_CLF_TABLE.${result.line}[${MARGIN_PCT}]`
+    : `FUNDING_CLF_TABLE[${MARGIN_PCT}]`;
 
-  const capitalRows: AuditRow[] = [
+    const capitalRows: AuditRow[] = [
     {
       metric: 'Expected Net Unpaid Loss',
       value: formatCurrency(result.expectedNetUnpaidLoss),
@@ -2221,17 +2458,24 @@ export function buildSupportingRows(
             product: [curTerm(pl.expectedNetUnpaidLoss, 'expected net unpaid loss'), factorTerm(pl.clf, 'its own CLF')],
             label: pl.line,
           })) }
-        : { kind: 'product', factors: [curTerm(result.expectedNetUnpaidLoss, 'expected net unpaid loss'), factorTerm(result.selectedFundingCLF, `selected CLF at ${(result.selectedFundingConfidenceLevel * 100).toFixed(0)}%`)] },
+        : lineRow === null ? PER_LINE_ONLY
+        : { kind: 'product', factors: [curTerm(result.expectedNetUnpaidLoss, 'expected net unpaid loss'), factorTerm(lineRow.selectedFundingCLF, `selected CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%`)] },
       explain: isPoolView
         ? 'Summed per line, each at its own CLF — the pool has no single confidence level to multiply by.'
         : undefined,
     },
     {
       metric: 'Indicated Net Reserve Check Difference',
-      value: formatCurrency(indicatedNetReserveDifference),
+      value: isPoolView ? 'n/a' : formatCurrency(indicatedNetReserveDifference),
       numericValue: indicatedNetReserveDifference,
       formula: { kind: 'sum', terms: [curTerm(result.indicatedNetReserveAtConfidenceLevel, 'stored'), curTerm(-indicatedNetReserveCheck, 'recalculated')] },
-      ...legacyCheck(indicatedNetReserveDifference),
+      // n/a at pool scope for the same reason as the CLF-adjusted row above:
+      // the recalculation needs a single pool confidence level and there is not
+      // one. See that row's note.
+      ...(isPoolView
+        ? naNote('the pool has no single confidence level to multiply by — each line carries its own. '
+          + 'Select a line tab to check it.')
+        : legacyCheck(indicatedNetReserveDifference)),
     },
     {
       metric: 'Reserve Risk Margin Needed',
@@ -2240,7 +2484,7 @@ export function buildSupportingRows(
       // ⚠ AT POOL SCOPE THIS IS A SUM, NOT A PRODUCT, and showing the product
       // was a regression this page's own diagnostic caught in its first run.
       // The pool figure is summed across lines, each applying its OWN 90% CLF
-      // (WC 1.3709, GL 1.5020, Property 1.5923), so a single factor cannot
+      // (MARGIN_FACTORS, above), so a single factor cannot
       // reproduce it. The CHECK was correctly made n/a when that was found; the
       // FORMULA was left showing expectedNetUnpaidLoss x 0.951 and read $20.47M
       // against a stated $7.99M. A wrong derivation beside a neutralised check
@@ -2269,8 +2513,8 @@ export function buildSupportingRows(
         spec: { kind: 'sum', terms: [factorTerm(fundingMarginCLF, fundingMarginCLFLabel), factorTerm(-1, '1.0')] },
       },
       explain: isPoolView
-        ? 'Summed across the active lines, each applying its own 90%-confidence margin factor from its own static table (WC 1.3709, GL 1.5020, Property 1.5923). No single blended factor reproduces the total, which is why the check above is n/a at pool scope; select a line tab to check one line against its own curve.'
-        : `${fundingMarginCLFLabel} is a fixed 90%-confidence reserve-margin factor, independent of the player's own selected funding confidence level above. It is the LINE'S OWN curve, read from that line's static table: WC 1.3709, GL 1.5020, Property 1.5923.`,
+        ? `Summed across the active lines, each applying its own ${MARGIN_PCT}-confidence margin factor from its own static table (${MARGIN_FACTORS}). No single blended factor reproduces the total, which is why the check above is n/a at pool scope; select a line tab to check one line against its own curve.`
+        : `${fundingMarginCLFLabel} is a fixed ${MARGIN_PCT}-confidence reserve-margin factor, independent of the player's own selected funding confidence level above. It is the LINE'S OWN curve, read from that line's static table: ${MARGIN_FACTORS}.`,
     },
     {
       metric: 'Reserve Risk Margin Check Difference',
@@ -2328,7 +2572,9 @@ export function buildSupportingRows(
         kind: 'text',
         text: result.excessCapitalRatio === null
           ? 'No required reserve margin, so status defaults on the same thresholds applied to $0.'
-          : `Excess Capital Ratio ${formatPct(result.excessCapitalRatio)} against fixed thresholds: ≥25% Strong, ≥0% Adequate, ≥−10% Thin, else Deficient.`,
+          : `Excess Capital Ratio ${formatPct(result.excessCapitalRatio)} against fixed thresholds: `
+            + `≥${formatPct(CAPITAL_ADEQUACY_THRESHOLDS.strong, 0)} Strong, ≥${formatPct(CAPITAL_ADEQUACY_THRESHOLDS.adequate, 0)} Adequate, `
+            + `≥${formatPct(CAPITAL_ADEQUACY_THRESHOLDS.thin, 0).replace('-', '−')} Thin, else Deficient.`,
       },
       explain: 'A categorical read of the ratio above, not a further calculation.',
     },
@@ -2352,13 +2598,23 @@ export function buildRevExpRows(
   lineView: LineView,
   checks: AuditCheckSet,
 ): AuditRow[] {
-  const isPoolView = lineView === 'pool';
-  const result: LineResultSet = isPoolView ? poolResult : poolResult.byLine[lineView];
+  // ⚠ isPoolView IS DERIVED FROM THE NARROWING, not from lineView, and the two
+  // are the same condition by construction. Written this way TypeScript's
+  // aliased-condition narrowing carries it: inside a `isPoolView ? ... : ...`
+  // false branch, `lineRow` is known non-null, so the per-line build-ups below
+  // keep compiling unchanged while the pool branch cannot reach a line field.
+  const result: ResultSet | LineResultSet =
+    lineView === 'pool' ? poolResult : poolResult.byLine[lineView];
+  const lineRow = asLineRow(result);
+  const isPoolView = lineRow === null;
   const lineKeys = Object.keys(poolResult.byLine) as CoverageLine[];
   // The register after the optimistic booking markdown — what the engine nets
   // reinsurance from. Equal to gross when there is no markdown; see the Losses
   // block for why printing gross here was the defect.
   const bookedGrossIS = result.bookedGrossUltimate ?? result.grossUltimateLoss;
+  // The same shared derivation the checks use, so the rendered build-up and the
+  // asserted identity cannot drift apart.
+  const lines = statementLines(result);
   // Mirrors the statement: neither is modelled yet, so both are zero and the
   // rows they gate stay hidden.
   const additionalPaidInCapital = 0;
@@ -2383,7 +2639,7 @@ export function buildRevExpRows(
       metric: 'Premiums for transferred risk',
       value: formatCurrency(result.reinsuranceCost),
       numericValue: result.reinsuranceCost,
-      formula: scoped(() => towerReinsCostFormula(result), x => x.reinsuranceCost),
+      formula: lineRow === null ? PER_LINE_ONLY : scoped(() => towerReinsCostFormula(lineRow), x => x.reinsuranceCost),
       explain: 'Collected from members, then paid to the reinsurer — appears again below as an operating expense.',
       indent: 1,
     },
@@ -2402,7 +2658,7 @@ export function buildRevExpRows(
       // rate IS the engine's own construction. activeExposure is stored at 2dp,
       // so it is a nested product — that keeps its rounding visible to the
       // formula checker's tolerance instead of hiding it inside a lump sum.
-      formula: scoped(
+      formula: lineRow === null ? PER_LINE_ONLY : scoped(
         () => ({
           kind: 'product',
           factors: [
@@ -2410,24 +2666,24 @@ export function buildRevExpRows(
               product: [
                 { value: result.activeExposure, format: 'exposure', label: 'exposure, $M' },
                 { value: 10_000, format: 'plain', label: 'units of $100 per $M' },
-                { value: result.netPurePremiumPer100, format: 'plain', label: 'net pure premium rate' },
+                { value: lineRow.netPurePremiumPer100, format: 'plain', label: 'net pure premium rate' },
               ],
               label: 'net expected loss',
             },
-            { value: result.selectedFundingCLF, format: 'factor', label: `CLF at ${(result.selectedFundingConfidenceLevel * 100).toFixed(0)}%` },
-            { value: result.rateLevel / 100, format: 'factor', label: `rate level ${result.rateLevel}` },
+            { value: lineRow.selectedFundingCLF, format: 'factor', label: `CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%` },
+            { value: lineRow.rateLevel / 100, format: 'factor', label: `rate level ${lineRow.rateLevel}` },
           ],
         }),
         x => x.poolPremium
       ),
       subFormula: isPoolView ? undefined : {
         label: 'net pure premium rate',
-        value: result.netPurePremiumPer100,
+        value: lineRow.netPurePremiumPer100,
         spec: {
           kind: 'sum',
           terms: [
-            { value: result.purePremiumPer100, format: 'plain', label: 'gross pure premium rate' },
-            { value: -result.expectedCededPer100, format: 'plain', label: 'less expected ceded to reinsurers' },
+            { value: lineRow.purePremiumPer100, format: 'plain', label: 'gross pure premium rate' },
+            { value: -lineRow.expectedCededPer100, format: 'plain', label: 'less expected ceded to reinsurers' },
           ],
         },
       },
@@ -2438,7 +2694,7 @@ export function buildRevExpRows(
       metric: 'Administration fees',
       value: formatCurrency(result.adminExpense),
       numericValue: result.adminExpense,
-      formula: scoped(
+      formula: lineRow === null ? PER_LINE_ONLY : scoped(
         () => ({
           kind: 'product',
           factors: [cur(result.expectedLoss, 'expected loss'), { value: ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, format: 'pct' }],
@@ -2452,10 +2708,10 @@ export function buildRevExpRows(
       metric: 'Member assessments',
       value: formatCurrency(result.assessments),
       numericValue: result.assessments,
-      formula: scoped(
+      formula: lineRow === null ? PER_LINE_ONLY : scoped(
         () => ({
           kind: 'product',
-          factors: [cur(result.poolPremium), { value: result.decisions.assessmentPct, format: 'pct', label: 'assessment rate' }],
+          factors: [cur(result.poolPremium), { value: lineRow.decisions.assessmentPct, format: 'pct', label: 'assessment rate' }],
         }),
         x => x.assessments
       ),
@@ -2467,7 +2723,11 @@ export function buildRevExpRows(
       numericValue: checks.totalOperatingRevenuesValue,
       formula: {
         kind: 'sum',
-        terms: [cur(result.reinsuranceCost), cur(result.poolPremium), cur(result.adminExpense), cur(result.assessments)],
+        // ⚠ FIVE TERMS. The retained cover margin is revenue — charged to
+        // members, never paid out — so it belongs here and has no matching
+        // entry under operating expenses below. That asymmetry IS the
+        // mechanism: it falls through to net income and lands in surplus.
+        terms: [cur(result.reinsuranceCost), cur(result.poolPremium), cur(result.adminExpense), cur(result.assessments), cur(result.retainedCoverMargin)],
       },
       emphasis: 'subtotal',
       note: checks.totalOperatingRevenues.note,
@@ -2507,7 +2767,7 @@ export function buildRevExpRows(
           metric: 'Less: reinsurance recoveries',
           value: `(${formatCurrency(result.reinsuranceRecovery)})`,
           numericValue: result.reinsuranceRecovery,
-          formula: scoped(
+          formula: lineRow === null ? PER_LINE_ONLY : scoped(
             () => ({ kind: 'echo' as const, value: result.reinsuranceRecovery, text: 'Per-occurrence tower — sum of layer cessions' }),
             x => x.reinsuranceRecovery
           ),
@@ -2518,16 +2778,26 @@ export function buildRevExpRows(
       metric: 'Prior year claims',
       value: formatCurrency(checks.priorYearClaimsValue),
       numericValue: checks.priorYearClaimsValue,
+      // ⚠ THE STATED FORMULA WAS THE RECONSTRUCTION AND IT IS GONE WITH IT.
+      // `net incurred - net ultimate this year` is only this quantity when the
+      // booked and pre-bias ultimates agree, so below break-even the row printed
+      // a derivation that did not produce its own value. The engine emits the
+      // development; the row presents it, sign reversed.
       formula: {
         kind: 'sum',
-        terms: [cur(result.netIncurredLoss, 'net incurred'), cur(-result.netUltimateLoss, 'net ultimate this year')],
+        terms: [cur(-result.priorYearDevelopment, 'simulated cohort development, sign reversed')],
       },
-      subFormula: {
-        label: 'independently',
-        value: -result.priorYearDevelopment,
-        spec: { kind: 'sum', terms: [cur(-result.priorYearDevelopment, 'simulated cohort development, sign reversed')] },
-      },
-      explain: 'Paid plus the change in unpaid on prior cohorts, including closed-cohort runoff. The two paths must meet.',
+      // ⚠ THE SECOND PATH MOVED RATHER THAN DISAPPEARING, which matters because
+      // a presented figure with no independent check is weaker than one with.
+      // The old "independently" sub-row showed the SAME field this row now reads,
+      // so keeping it would have been a value against itself — the tautology
+      // signature. The real independent construction is the reserve rollforward:
+      // `ending = beginning + booked net ultimate - development - paid`, built
+      // from the balance sheet rather than from the income statement, and
+      // asserted in the Reserve section on this same page.
+      explain: 'Paid plus the change in unpaid on prior cohorts, including closed-cohort runoff. '
+        + 'Checked independently against the reserve rollforward below, which reaches the same '
+        + 'development figure from the balance sheet.',
       indent: 2,
       note: checks.priorYearClaims.note,
       status: checks.priorYearClaims.status,
@@ -2542,9 +2812,20 @@ export function buildRevExpRows(
         // development, so it inherited the first term's error exactly: both rows
         // were out by 86,806,261.5843 to the cent, which is what showed they were
         // one cause and not two.
-        terms: result.reinsuranceRecovery !== 0
-          ? [cur(bookedGrossIS), cur(-result.reinsuranceRecovery), cur(checks.priorYearClaimsValue)]
-          : [cur(bookedGrossIS), cur(checks.priorYearClaimsValue)],
+        // ⚠ THE BOOKING MARKDOWN AND THE GIVE-BACK ARE BOTH HERE NOW, AND THEIR
+        // ABSENCE IS WHY THIS ROW STAYED RED AFTER THE PRIOR-YEAR LINE WAS FIXED.
+        // bookedGross - recovery reaches netUltimateLoss exactly (measured 0.0000
+        // on every line-year), but what enters the provision is the BOOKED NET
+        // figure, which is that less the IBNER bias and less the give-back. The
+        // chain was short by both; the prior-year reconstruction had been
+        // absorbing them.
+        terms: [
+          cur(bookedGrossIS, 'booked gross register'),
+          ...(result.reinsuranceRecovery !== 0 ? [cur(-result.reinsuranceRecovery, 'ceded recoveries')] : []),
+          ...(lines.bookingBiasMarkdown !== 0 ? [cur(lines.bookingBiasMarkdown, 'IBNER booking markdown')] : []),
+          ...((result.bookingGiveBack ?? 0) !== 0 ? [cur(-(result.bookingGiveBack ?? 0), 'recovery deferred by booking low')] : []),
+          cur(checks.priorYearClaimsValue, 'prior year claims'),
+        ],
       },
       indent: 2,
       emphasis: 'subtotal',
@@ -2562,10 +2843,10 @@ export function buildRevExpRows(
       metric: 'Loss prevention expenses',
       value: formatCurrency(result.riskControlInvestment),
       numericValue: result.riskControlInvestment,
-      formula: scoped(
+      formula: lineRow === null ? PER_LINE_ONLY : scoped(
         () => ({
           kind: 'product',
-          factors: [cur(result.poolPremium), { value: result.decisions.riskControlPct, format: 'pct', label: 'risk control' }],
+          factors: [cur(result.poolPremium), { value: lineRow.decisions.riskControlPct, format: 'pct', label: 'risk control' }],
         }),
         x => x.riskControlInvestment
       ),
@@ -2578,12 +2859,13 @@ export function buildRevExpRows(
       // The engine zeroes the dividend when the line carried a negative
       // surplus in. Detected rather than assumed, so the shown arithmetic is
       // never the un-blocked product when the actual figure is zero.
-      formula: Math.abs(result.dividends - result.poolPremium * result.decisions.dividendPct) > CHECK_TOLERANCE
+      formula: lineRow === null ? PER_LINE_ONLY
+        : Math.abs(result.dividends - result.poolPremium * lineRow.decisions.dividendPct) > CHECK_TOLERANCE
         ? { kind: 'text', text: `${formatCurrency(0)} — dividend blocked: this line carried a negative surplus into the year` }
         : scoped(
             () => ({
               kind: 'product',
-              factors: [cur(result.poolPremium), { value: result.decisions.dividendPct, format: 'pct', label: 'dividend rate' }],
+              factors: [cur(result.poolPremium), { value: lineRow.decisions.dividendPct, format: 'pct', label: 'dividend rate' }],
             }),
             x => x.dividends
           ),
@@ -2720,8 +3002,15 @@ export function buildNetPositionRows(
   lineView: LineView,
   checks: AuditCheckSet
 ): AuditRow[] {
-  const isPoolView = lineView === 'pool';
-  const result: LineResultSet = isPoolView ? poolResult : poolResult.byLine[lineView];
+  // ⚠ isPoolView IS DERIVED FROM THE NARROWING, not from lineView, and the two
+  // are the same condition by construction. Written this way TypeScript's
+  // aliased-condition narrowing carries it: inside a `isPoolView ? ... : ...`
+  // false branch, `lineRow` is known non-null, so the per-line build-ups below
+  // keep compiling unchanged while the pool branch cannot reach a line field.
+  const result: ResultSet | LineResultSet =
+    lineView === 'pool' ? poolResult : poolResult.byLine[lineView];
+  const lineRow = asLineRow(result);
+  const isPoolView = lineRow === null;
   const lineKeys = Object.keys(poolResult.byLine) as CoverageLine[];
   const cur = (value: number, label?: string): FormulaTerm => ({ value, format: 'currency', label });
 
@@ -2879,8 +3168,15 @@ export function buildCashInvestmentRows(
   lineView: LineView,
   checks: AuditCheckSet
 ): AuditRow[] {
-  const isPoolView = lineView === 'pool';
-  const result: LineResultSet = isPoolView ? poolResult : poolResult.byLine[lineView];
+  // ⚠ isPoolView IS DERIVED FROM THE NARROWING, not from lineView, and the two
+  // are the same condition by construction. Written this way TypeScript's
+  // aliased-condition narrowing carries it: inside a `isPoolView ? ... : ...`
+  // false branch, `lineRow` is known non-null, so the per-line build-ups below
+  // keep compiling unchanged while the pool branch cannot reach a line field.
+  const result: ResultSet | LineResultSet =
+    lineView === 'pool' ? poolResult : poolResult.byLine[lineView];
+  const lineRow = asLineRow(result);
+  const isPoolView = lineRow === null;
   const surplusFromIncomeDifference =
     result.surplusFromIncome - (result.beginingSurplus + result.netIncome);
   const tieOutDifferenceDifference =

@@ -350,7 +350,9 @@ export interface Occurrence {
   isCatastrophe: boolean; // part of a regional/pool-wide catastrophe event
   claimIds: string[];     // every claim this event produced (WC and GL: exactly one)
   // The hazard band this event belongs to, for lines that have more than one:
-  // Property emits 'attritional' | 'weather' | 'cat'. Absent on WC and GL,
+  // Property emits 'property' (attritional) | 'weather' | 'cat' | 'earthquake'
+  // — a drawn catastrophe is 'earthquake' or 'cat', and a scheduled one names
+  // its own peril. PROPERTY_PERIL_DEDUCTIBLE is keyed on it. Absent on WC and GL,
   // which have a single hazard band each — their sub-coverage vocabulary lives
   // on Claim.tier and is a rating class, not a peril. Deliberately a string,
   // for the same reason Claim.tier is.
@@ -383,6 +385,14 @@ export interface Claim {
   // flat mixture replaced all four. Anything that pattern-matches the old GL
   // sub-coverage strings needs revisiting, not just recompiling.
   tier: string;
+  // THE SHOCK THAT MADE THIS CLAIM, set by every injection path — a WC or GL
+  // injection, a forced catastrophe, a scheduled weather event — and absent on
+  // every drawn claim, so the natural book serialises as it always did. It is
+  // what ties an event's claims together across lines: the Property and WC
+  // halves of one earthquake carry the same id. Player screens never show it;
+  // they show the event's name (see utils/yearEvents.ts), which reads the same
+  // for a scheduled event and a drawn one.
+  shockId?: string;
   // The rating GROUP the claim arose from (WC: county / schools / highSafety /
   // lowSafety). Was a rating CLASS before the severity rebuild.
   ratingClass?: string;
@@ -423,13 +433,19 @@ export interface HistoricalYear {
   activeExposure: number;
   totalMarketExposure: number;
   marketShare: number;
-  purePremiumPer100: number;
-  poolPremiumRatePer100: number;
+  /** Absent on a POOL row — no pool denominator exists. See poolToHistoricalYear. */
+  purePremiumPer100?: number;
+  /** Absent on a POOL row — divides by payroll+TIV. See poolToHistoricalYear. */
+  poolPremiumRatePer100?: number;
   expectedLoss: number;
   poolPremium: number;
   adminExpense: number;
   poolPremiumAndAdminExpense: number;
   reinsuranceCost: number;
+  /** See the ResultRowFields declaration. OPTIONAL here because saves written
+   *  before the flat charge existed carry no such field, and defaulting it to 0
+   *  on load is the honest read: those games were charged the old way. */
+  retainedCoverMargin?: number;
   totalMemberCharge: number;
   grossUltimateLoss: number;
   reinsuranceRecovery: number; // reinsurer's paid share of ceded loss
@@ -496,11 +512,15 @@ export interface GameInstance {
   // src/data/shockCatalog.ts.
   //
   // OPTIONAL AND ABSENT BY DEFAULT, AND THAT IS LOAD-BEARING. generateGameInstance
-  // does NOT draw to populate this and does not write the field at all unless a
-  // scenario supplies one, so a game with no shocks is byte-identical to one
-  // from before shocks existed. Probability-based firing, when it is added,
-  // populates this same list from its own purpose-keyed RNG label; everything
-  // downstream is unchanged by that.
+  // takes the list as an argument — solo passes an empty one, a session passes
+  // its room's — draws nothing to populate it, and writes the field only when
+  // the list is non-empty, so a game with no shocks is byte-identical to one
+  // from before shocks existed. A host's randomised schedule is drawn once, at
+  // room creation, and arrives here as concrete entries like any other.
+  //
+  // ⚠ IT RIDES THE SAVE WITH THE INSTANCE. The solo save serialises the whole
+  // instance and SAVE_STRIPPED_KEYS does not list this, so a reload keeps the
+  // schedule; a session player keeps no save and rebuilds from the room.
   scheduledShocks?: ScheduledShock[];
 }
 
@@ -689,8 +709,22 @@ export interface DecisionSet {
 export interface DevelopingClaim {
   claimId: string;
   occurrenceId: string;
-  /** As the generator drew it, GROSS of reinsurance. Never moves. */
-  drawn: number;
+  /**
+   * As first REPORTED, GROSS of reinsurance: with FORWARD_BOOKING on, the
+   * contracted initialEstimate of the drawn occurrence (simulationEngine's
+   * buildTrackedSet call), BELOW what the generator drew. The drawn value is the
+   * register's Claim.grossUltimate, which this develops toward. Never moves.
+   *
+   * ⚠ IT WAS CALLED `drawn` AND IT IS NOT THE DRAW. The old name cost a real
+   * defect: the closure curve is size-banded, and the engine resolved the band
+   * by passing this field to resolveClosureCurve — which expects the DRAW — so
+   * 1.08% of claims carried a different status in the engine's register from
+   * the one the claims memorandum and the workbook computed for them. Every
+   * line of the doc comment above already said the field was contracted, and
+   * the name outvoted the comment. Renamed so the next reader cannot make the
+   * same substitution.
+   */
+  reported: number;
   /** As first BOOKED — `drawn` less this cohort's optimistic markdown. Equal to
    *  `drawn` when the line was funded at or above break-even. Never moves. */
   original: number;
@@ -742,6 +776,24 @@ export interface DevelopingClaim {
    *  (scripts/diagnostics/claims-workbook-check.ts): 12.7-13.5 KB of a 389 KB
    *  serialised poolState, 3.3-3.5% of it and ~0.27% of a 5MB quota. */
   movementByStep?: number[];
+  /** Present, and true, only on a Property CATASTROPHE occurrence. The tower
+   *  does not read it — Property's one layer answers every occurrence — but it
+   *  decides how the occurrence is RESERVED: booked at its drawn total
+   *  rather than contracted, always tracked, never in the developing set, and
+   *  exempt from revision and from the settlement factor — known at inception,
+   *  paid out on the Property pattern, closed at the value it was booked at.
+   *  See bookedOccurrenceTotals in simulationEngine.
+   *  Absent everywhere else, so every WC and GL record serialises exactly as it
+   *  did before the cat band existed. */
+  catastrophe?: true;
+  /** The peril deductible this occurrence retains before the tower responds,
+   *  where it is above the layers' own attachments — a Property earthquake's
+   *  $10M (PROPERTY_PERIL_DEDUCTIBLE). cedeDevelopment reads it so every later
+   *  movement cedes on the terms the occurrence was ceded on at inception.
+   *  Absent means the layers' attachments, which is every WC and GL record and
+   *  every Property occurrence of an unlisted peril, so they serialise exactly
+   *  as before. */
+  deductible?: number;
 }
 
 // ============================================================================
@@ -769,14 +821,18 @@ export interface DevelopingClaim {
 export interface BenchClaim {
   claimId: string;
   occurrenceId: string;
-  /** As the generator drew it, GROSS. Never moves. Also the size the closure
-   *  curve is resolved on, exactly as for a tracked occurrence. */
-  drawn: number;
+  /** As first REPORTED, GROSS — the contracted initialEstimate when
+   *  FORWARD_BOOKING is on, exactly as DevelopingClaim.reported. Never moves.
+   *  ⚠ THE CLOSURE CURVE IS NOT RESOLVED ON THIS DIRECTLY — this is a contracted
+   *  value and the band is defined on the draw; see closureCurveForReported. */
+  reported: number;
   /** As first BOOKED — `drawn` less this cohort's optimistic markdown. */
   original: number;
   /** Its share of the untracked mass now. Becomes the occurrence's `current` on
    *  promotion, so no dollars are created or lost by promoting. */
   current: number;
+  /** As DevelopingClaim.catastrophe — carried so a promotion keeps the kind. */
+  catastrophe?: true;
 }
 
 // Annual reserve cohort for simplified development. NET basis: losses enter
@@ -1038,7 +1094,21 @@ export interface PricingTriangleState {
 }
 
 // Full result for one completed simulation year
-export interface ResultSet {
+// A drawn catastrophe as the year's result records it — enough to say what
+// happened, where, and to whom, after the claims themselves are gone.
+export interface DrawnCatastrophe {
+  occurrenceId: string;
+  peril: string;          // 'earthquake' or 'cat' — see PROPERTY_CAT_EARTHQUAKE
+  region: Region;
+  claims: number;
+  grossLoss: number;
+}
+
+// ⚠ NOT EXPORTED AND NOT USED DIRECTLY. This is the full set of fields a result
+// row can carry. `LineResultSet` is exactly this; `ResultSet` (the POOL row) is
+// this MINUS PoolAbsentKey, so the compiler refuses a pool-scope read of a
+// quantity that has no pool meaning. See PoolAbsentKey for why each one went.
+interface ResultRowFields {
   yearNumber: number;
   calendarYear: number;
   // WHICH LINE THIS ROW IS. Absent on the POOL row, which is an aggregate of all
@@ -1299,7 +1369,6 @@ export interface ResultSet {
   marketMemberLossResults?: MemberLossResult[];
   aggregateMemberLoss: number;
   commonLossFactor: number;
-  catastropheFactor: number;
   // Claim-level detail, WC and GL (Property still draws an aggregate).
   //
   // IN-MEMORY FOR THE CURRENT SESSION ONLY. Dropped on the way to localStorage
@@ -1359,18 +1428,60 @@ export interface ResultSet {
   // whole shipped path with FORWARD_BOOKING off, so recording it adds a field
   // without moving one. Optional for saves written before it existed.
   bookedGrossUltimate?: number;
-  // ⚠ NOT THE SHOCK EVENT SYSTEM. This flag predates it and already carries
-  // THREE different line-specific meanings — a WC catastrophic-tier claim, a GL
-  // occurrence over $1M, or Property's aggregate factor exceeding its
-  // threshold. Configured shock events record on `shockEvents` below, on a
-  // separate channel, precisely so that overloading this one does not corrupt
-  // three live signals.
-  shockLossIncurred: boolean;
+  /**
+   * THE NET ULTIMATE AS BOOKED — `netUltimateLoss x (1 - bookingBias) - bookingGiveBack`.
+   *
+   * ⚠ IT IS THE FIGURE THAT ACTUALLY ENTERS THE RESERVE, AND NOT STORING IT IS
+   * WHY THREE AUDIT CHECKS WERE RED. simulationEngine computes it as a local
+   * (`const bookedUltimate`) and uses it for both `currentYearNetReserve` and
+   * `netPaidCurrentYear` — so the balance-sheet identity
+   * `ending = beginning + bookedNetUltimate - priorYearDevelopment - netPaidLosses`
+   * is the engine's own construction. The audit page was asserting that identity
+   * with `netUltimateLoss` in its place, which is the PRE-bias figure, and the
+   * three checks failed by exactly the difference on every line that funded below
+   * break-even.
+   *
+   * ⚠ STORED RATHER THAN DERIVED, DELIBERATELY, AND THE REASON IS NOT
+   * CONVENIENCE. The derivation needs `ibnerBookingBias(selectedFundingCLF)`, and
+   * the POOL row has no CLF — each line picks its own stop, which is why
+   * selectedFundingCLF is in PoolAbsentKey. A shared derivation would therefore
+   * still have to walk byLine and re-apply a per-line bias, which is the
+   * reimplementation this field exists to delete. Stored per line, the pool value
+   * is a plain sum.
+   *
+   * ⚠ IT RECORDS AN EXISTING ENGINE VALUE. It is not a second definition that can
+   * drift from a first: it IS the local the engine already computed and threw
+   * away. Optional for saves written before it existed, like its gross twin.
+   */
+  bookedNetUltimate?: number;
+  // ⚠ `shockLossIncurred` STOOD HERE AND IS GONE. It meant a WC claim of $1M+,
+  // a GL occurrence over $1M, and on Property a hardcoded false — so it read Yes
+  // in almost every WC and GL year and No in a Property catastrophe year, and the
+  // narrative said "a shock loss event occurred" off it. A year's events are
+  // `shockEvents` (scheduled) and `drawnCatastrophes` (drawn), read together by
+  // utils/yearEvents.ts so the two look the same to a player.
+  //
+  // PROPERTY ONLY: each DRAWN catastrophe this year that hit an enrolled member,
+  // one entry per occurrence. Scheduled ones are on shockEvents. Stored rather
+  // than derived because claims and occurrences are stripped from saves, and a
+  // reloaded game must still say an event happened. Absent in a year without one.
+  drawnCatastrophes?: DrawnCatastrophe[];
   // Configured shock events in force this year that touched THIS line. Absent
   // when none are — an array field, so value-identity-check (which captures
   // only numeric fields) is blind to it by construction.
   shockEvents?: ShockRecord[];
   reinsuranceCost: number;
+  /** The price of the occurrence layers the pool DECLINED, charged to members
+   *  and kept in the pool as surplus rather than paid to a reinsurer. Zero when
+   *  the tower is fully placed, the whole tower price when it is fully
+   *  declined, the declined layers' share in between.
+   *
+   *  ⚠ REVENUE, NEVER AN EXPENSE. The member pays the same either way; what
+   *  changes is where the money goes. It reaches surplus through net income,
+   *  which is what funds the volatility the pool just took on. See
+   *  DECLINED_COVER_MARGIN_ENABLED for the 41% discount this closes, the
+   *  measured drift in a long game, and the ledger field that removes it. */
+  retainedCoverMargin: number;
   reinsuranceRecovery: number; // reinsurer's paid share of ceded loss
   // --- per-occurrence tower outputs, every line ---
   // Ceded by layer, index-aligned to REINSURANCE_TOWER[line].
@@ -1608,6 +1719,36 @@ export interface ResultSet {
   // only expected/actual pair in this type that may be compared directly — and
   // that comparability is why the headline uses this one.
   actualLossRatioPricingBasis: number;
+  /**
+   * ⚠ THE TWO-PART LOSS RATIO. Neither half reads right alone; the GAP is the
+   * exhibit.
+   *
+   *   both near 85%            an ordinary year
+   *   pool 70%, total 140%     one large claim doing the whole year
+   *   pool 110%, total 115%    attritional deterioration, nothing ceded
+   *
+   * POOL LAYER: what fell below the retention, against the premium for that
+   * layer (poolPremiumAndAdminExpense). The pool's own underwriting result.
+   */
+  /** The dollar numerator of poolLayerLossRatio: this accident year's booked
+   *  gross less what the FULL occurrence tower would have ceded. Carried as a
+   *  field so the pool row can sum numerators rather than average ratios. */
+  poolLayerLoss: number;
+  poolLayerLossRatio: number;
+  /**
+   * TOTAL: EVERY loss, ceded or not, against the whole charge. GROSS — think of
+   * the pool as the reinsurer, since it wrote every layer, so measure every
+   * loss.
+   *
+   * ⚠ BOTH ARE IDENTICAL WHETHER THE COVER WAS BOUGHT OR NOT. A loss ratio is
+   * an underwriting measure and reinsurance is financing; declining shows up in
+   * the SURPLUS PATH, not here. That only holds because the charge is flat —
+   * see DECLINED_COVER_MARGIN_ENABLED — and the two had to land together.
+   *
+   * ⚠ ACCIDENT-YEAR ULTIMATE, unlike actualLossRatioPricingBasis above, which
+   * divides the whole net ledger's movement including prior years.
+   */
+  totalLossRatioGross: number;
   // RETAINED PREMIUM alone. No expected counterpart and no expense ratio on its
   // basis, so it may not be added to anything: a reported figure only.
   actualLossRatioRetainedPremium: number;
@@ -1628,14 +1769,102 @@ export interface ResultSet {
   // attempt, so there is no single pool-level value).
   pregameAttempt?: number;
 
+}
+
+// A single line's own result for the year, before pool-level aggregation.
+//
+// ⚠ THIS IS THE COMPLETE SHAPE AND THE POOL ROW IS THE NARROWER ONE. The
+// relationship used to run the other way — `LineResultSet = Omit<ResultSet,
+// 'byLine'>` — which made the POOL row the complete one and left every per-line
+// quantity sitting on it as a placeholder holding the FIRST ACTIVE LINE'S value.
+export type LineResultSet = ResultRowFields;
+
+/**
+ * THE QUANTITIES THAT DO NOT EXIST AT POOL SCALE, ABSENT FROM THE POOL ROW BY
+ * TYPE RATHER THAN HELD AS A PLACEHOLDER.
+ *
+ * ⚠ EVERY ONE OF THESE WAS `first.<field>` — THE FIRST ACTIVE LINE'S VALUE,
+ * SHOWN AS IF IT WERE THE POOL'S. The aggregator's own header admitted it
+ * ("show the first active line's value as a placeholder until Stage 2.1 adds a
+ * real per-line view") and the comment beside the per-100 block said "Do not
+ * read these at pool scope". A comment cannot enforce that. The pooling-helper
+ * header in simulationEngine records what happens when one tries: SEVEN
+ * pool-scope defects reached players, THREE of them landed directly beside a
+ * comment warning about that exact class. The compiler is the only reader that
+ * cannot skip the warning.
+ *
+ * ⚠ WHY THESE AND NOT EVERY `first.` FIELD. Three of them are genuinely
+ * pool-wide and copied identically into every line, so reading the first IS
+ * correct and they stay: `assetAllocation`, and the pool-wide risk-control spend
+ * and program ids — which now arrive on `pool` below, from the pool's own
+ * decision set rather than from a line's echo of it. `yearNumber`,
+ * `calendarYear` and `catastropheFactor` are identical on every line too (the
+ * last is pinned at 1 everywhere) and stay for the same reason. Blanking all
+ * sixteen would have broken three fields that were never wrong.
+ *
+ * THE PER-$100 RATES ARE THE CLEAREST CASE AND THE REASON THIS IS A TYPE CHANGE
+ * RATHER THAN A DOCUMENTATION ONE. Pool exposure adds WC/GL payroll to Property
+ * TIV — `addMixedUnitExposure`, a category error retained only for display — so
+ * there is no denominator at pool scale and therefore no pool rate to compute.
+ * Not a hard one; a non-existent one.
+ */
+export type PoolAbsentKey =
+  // Per-$100 rates. No pool denominator exists — see above.
+  | 'rateLevel'
+  | 'ratePer100'
+  | 'purePremiumPer100'
+  | 'purePremium'
+  | 'expectedCededPer100'
+  | 'netPurePremiumPer100'
+  // Funding selections. Each line carries its own confidence level and its own
+  // CLF; once two lines price at different confidence there is no pool CLF, and
+  // fundedNetExpectedLoss already sums per line rather than dividing once for
+  // exactly this reason.
+  | 'selectedFundingConfidenceLevel'
+  | 'selectedFundingCLF'
+  | 'fundingCLF'
+  // The decision echo. A LineDecisionSet, so at pool scope it was one line's
+  // funding level, renewal bar and reinsurance structure wearing the pool's
+  // name. The pool-wide subset moves to `pool` below.
+  | 'decisions'
+  // Already carrying a `noPoolMeaning` placeholder before this change, which is
+  // the same defect one step further along: the value was documented as
+  // meaningless and still had a type that let a page print it.
+  | 'commonLossFactor'
+  | 'aggregateAttachment';
+
+/**
+ * THE POOL ROW. Every field a line row has, except the ones that do not exist at
+ * pool scale, plus the per-line breakdown and the pool-wide decisions.
+ *
+ * A page that reads `result.ratePer100` at pool scope no longer compiles. That
+ * is the whole point of the change: the guard is the type checker rather than a
+ * comment, a probe or a gate, none of which can see a display read.
+ */
+export interface ResultSet extends Omit<ResultRowFields, PoolAbsentKey> {
   // Per-line breakdown. Pool-level fields above are aggregates across active
   // lines (dollar/count fields summed, ratios recomputed from the summed
   // components); this map retains each line's own unaggregated result.
   byLine: Record<CoverageLine, LineResultSet>;
+  /** The decisions that really are pool-wide. See PoolWideDecisions. */
+  pool: PoolWideDecisions;
 }
 
-// A single line's own result for the year, before pool-level aggregation.
-export type LineResultSet = Omit<ResultSet, 'byLine'>;
+/**
+ * THE POOL-WIDE DECISIONS, EXPLICITLY — the three that really are one choice for
+ * the whole pool rather than three choices that happen to match.
+ *
+ * DecisionSet carries exactly these three beside `byLine`, which is what makes
+ * them pool-wide: the player sets them once and the engine projects them into
+ * every LineDecisionSet. Reading them off the first line was correct and this
+ * field does not change a value — it changes where a reader is told to look, so
+ * that `decisions` can leave the pool row without taking them with it.
+ */
+export interface PoolWideDecisions {
+  assetAllocation: AssetAllocation;
+  riskControlPct: number;
+  riskControlProgramIds?: string[];
+}
 
 // UI display filter (Stage 2.1): 'pool' shows the combined/summed totals;
 // a specific line filters every figure on the page to that line's slice.
@@ -1803,10 +2032,13 @@ export interface StartingFinancials {
   activeExposure: number;      // payroll in $M
   totalMarketExposure: number; // payroll in $M
   marketShare: number;
-  rateLevel: number;
-  ratePer100: number;          // rate per $100 payroll
-  purePremiumPer100: number;   // expected loss per $100 payroll
-  purePremium: number;         // kept for compat
+  // ⚠ FOUR PER-LINE RATE FIELDS WERE HERE AND ARE GONE. StartingFinancials is a
+  // POOL-SCOPE opening summary, and these were filled from the pool result row —
+  // which meant the first active line's rate level and per-$100 rates under a
+  // pool heading. NOTHING EVER READ THEM: searched across src/ and scripts/,
+  // there is no reader of .rateLevel, .ratePer100 or .purePremium on this type.
+  // They were written every game and displayed nowhere, so the honest repair is
+  // removal rather than a blank — a blank implies someone wanted the row.
 }
 
 // V2: ChartDataPoint for future chart support

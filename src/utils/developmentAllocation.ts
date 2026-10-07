@@ -151,7 +151,7 @@
 // ============================================================================
 
 import type { SeededRandom } from './random';
-import { cedeToLayer } from './reinsuranceTower';
+import { cedeAbove } from './reinsuranceTower';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import type { BenchClaim, DevelopingClaim } from '../types/simulation';
 
@@ -336,8 +336,26 @@ export interface TrackedSet {
   bench: BenchClaim[];
 }
 
+// The retention every occurrence meets: the lowest layer's attachment. One
+// figure on every line — a Property catastrophe meets the same $5M as any
+// other Property occurrence.
+export function retentionFor(line: TowerLine): number {
+  return Math.min(...REINSURANCE_TOWER[line].map(l => l.attachment));
+}
+
 // Build the tracked set: every occurrence at or above the retention, plus the
 // developing claims, whichever way those overlap. Then the bench, from what is left.
+//
+// `catastrophe[i]` marks occurrence i as a Property cat event — it is always
+// tracked, never developing, and carries the flag so development holds it at
+// its booked value. Absent means no occurrence is, which is every WC and GL
+// call.
+//
+// `deductibles[i]` is occurrence i's peril deductible (occurrenceDeductibles).
+// It is stamped on the tracked record only where it is positive, so development
+// cedes on the same terms the inception cession used and nothing without one
+// changes shape. It does not decide what is tracked: an occurrence carrying a
+// deductible is a catastrophe today, and those are always tracked.
 export function buildTrackedSet(
   line: TowerLine,
   occurrenceIds: string[],
@@ -347,27 +365,48 @@ export function buildTrackedSet(
   rng?: SeededRandom,
   benchRng?: SeededRandom,
   benchDepth: number = DEVELOPMENT_BENCH_DEPTH,
+  catastrophe?: readonly boolean[],
+  deductibles?: readonly number[],
 ): TrackedSet {
   const n = totals.length;
   if (n === 0) return { tracked: [], untrackedTotal: 0, bench: [] };
-  const retention = REINSURANCE_TOWER[line][0].attachment;
+  const retention = retentionFor(line);
+  const isCat = (i: number) => catastrophe?.[i] === true;
+  const kind = (i: number) => ({
+    ...(isCat(i) ? { catastrophe: true as const } : {}),
+    ...((deductibles?.[i] ?? 0) > 0 ? { deductible: deductibles![i] } : {}),
+  });
 
   // The developing set.
   //
-  // ⚠ THIS BLOCK IS UNCHANGED AND MUST STAY UNCHANGED. It takes exactly
-  // `rule.claimCount` draws from `rng` in exactly the order it always did. The
-  // bench below takes none of them.
+  // ⚠ THIS BLOCK TAKES EXACTLY `rule.claimCount` DRAWS FROM `rng` in exactly
+  // the order it always did. The bench below takes none of them.
+  //
+  // ⚠ A CAT EVENT IS NEVER IN IT. A catastrophe is booked at its drawn total
+  // and takes no development (see bookedOccurrenceTotals in simulationEngine),
+  // so a slot in the set that carries movement would be a slot that cannot
+  // move. It is given weight zero rather than removed, so the pool and the
+  // draw count are those of every other cohort: an event changes WHICH
+  // attritional claims are drawn, never how many draws are taken — unless a
+  // cohort holds fewer than claimCount non-cat claims, when the zero-sum
+  // branch below ends the draws early exactly as it always did.
   const k = Math.min(Math.max(0, rule.claimCount), n);
   let developingIdx: number[];
   if (rule.selection === 'largest') {
-    developingIdx = totals.map((t, i) => [t, i] as const).sort((a, b) => b[0] - a[0]).slice(0, k).map(([, i]) => i);
+    developingIdx = totals.map((t, i) => [t, i] as const).filter(([, i]) => !isCat(i))
+      .sort((a, b) => b[0] - a[0]).slice(0, k).map(([, i]) => i);
   } else {
     if (!rng) throw new Error('buildTrackedSet: sizeWeighted selection needs an rng');
-    const pool = totals.map((t, i) => ({ t: Math.max(0, t), i }));
+    const pool = totals.map((t, i) => ({ t: isCat(i) ? 0 : Math.max(0, t), i }));
     developingIdx = [];
     for (let pick = 0; pick < k && pool.length > 0; pick++) {
       const sum = pool.reduce((s, p) => s + p.t, 0);
-      if (sum <= 0) { developingIdx.push(pool[0].i); pool.splice(0, 1); continue; }
+      if (sum <= 0) {
+        // The first NON-CAT, which is pool[0] in any cohort without an event.
+        const z = pool.findIndex(p => !isCat(p.i));
+        if (z < 0) break;
+        developingIdx.push(pool[z].i); pool.splice(z, 1); continue;
+      }
       let u = rng.next() * sum;
       let j = 0;
       for (; j < pool.length - 1; j++) { u -= pool[j].t; if (u <= 0) break; }
@@ -381,15 +420,19 @@ export function buildTrackedSet(
   let untrackedTotal = 0;
   const benchPool: { t: number; i: number }[] = [];
   for (let i = 0; i < n; i++) {
-    if (isDeveloping.has(i) || totals[i] >= retention) {
+    // A cat event is ALWAYS tracked, whatever its size against the retention:
+    // it must sit where its development can be held at zero, and the untracked
+    // mass drifts as a whole.
+    if (isCat(i) || isDeveloping.has(i) || totals[i] >= retention) {
       tracked.push({
         claimId: claimIds[i] ?? occurrenceIds[i],
         occurrenceId: occurrenceIds[i],
-        drawn: totals[i],
+        reported: totals[i],
         original: totals[i],
         current: totals[i],
         developing: isDeveloping.has(i),
         closed: false,
+        ...kind(i),
       });
     } else {
       untrackedTotal += totals[i];
@@ -400,7 +443,7 @@ export function buildTrackedSet(
   }
   // Developing claims first, largest first — the register reads better and the
   // proportional maths does not care about order.
-  tracked.sort((a, b) => (Number(b.developing) - Number(a.developing)) || (b.drawn - a.drawn));
+  tracked.sort((a, b) => (Number(b.developing) - Number(a.developing)) || (b.reported - a.reported));
 
   // The bench — the same successive size-weighted sampling, on the remainder,
   // from its own stream. `largest` selection gets a `largest` bench for the
@@ -429,9 +472,12 @@ export function buildTrackedSet(
       bench.push({
         claimId: claimIds[i] ?? occurrenceIds[i],
         occurrenceId: occurrenceIds[i],
-        drawn: totals[i],
+        reported: totals[i],
         original: totals[i],
         current: totals[i],
+        // The kind only: a benched occurrence is below the retention and not a
+        // catastrophe, so it never carries a deductible.
+        ...(isCat(i) ? { catastrophe: true as const } : {}),
       });
     }
   }
@@ -579,7 +625,9 @@ export function reselectDevelopingSet(
   tracked: DevelopingClaim[],
   bench: BenchClaim[],
   untrackedTotal: number,
-  isClosed: (claimId: string, drawn: number) => boolean,
+  /** Resolves closure for one occurrence from its REPORTED value — the
+   *  caller owns converting that to a size band; see closureCurveForReported. */
+  isClosed: (claimId: string, reported: number) => boolean,
   floor: number,
   minHold: number,
   rng: SeededRandom,
@@ -589,7 +637,7 @@ export function reselectDevelopingSet(
   //    without re-deriving; the predicate is pure and agrees anyway.
   let retired = 0;
   const next: DevelopingClaim[] = tracked.map(c => {
-    const closed = c.closed === true || isClosed(c.claimId, c.drawn);
+    const closed = c.closed === true || isClosed(c.claimId, c.reported);
     if (closed && c.developing) retired++;
     const wasFlagged = c.closed === true;
     // A closed occurrence stands down. It keeps its place in the register.
@@ -599,7 +647,7 @@ export function reselectDevelopingSet(
 
   // 2. The bench sheds its closed members. No dollars move — a benched
   //    occurrence's value lives inside `untrackedTotal` and stays there.
-  const openBench = bench.filter(b => !isClosed(b.claimId, b.drawn));
+  const openBench = bench.filter(b => !isClosed(b.claimId, b.reported));
 
   // ============================================================================
   // 3. DRAW THE WHOLE SET FRESH, size-weighted over every OPEN occurrence the
@@ -636,12 +684,20 @@ export function reselectDevelopingSet(
   // ============================================================================
   let untracked = untrackedTotal;
   let promoted = 0;
-  // Everything open, whether or not it was developing last time.
+  // Everything open, whether or not it was developing last time — except a cat
+  // event, which takes no development and so can hold none (see buildTrackedSet).
   const cands: { kind: 'tracked' | 'bench'; idx: number; w: number }[] = [];
   next.forEach((c, i) => {
-    if (c.closed !== true) { next[i] = { ...c, developing: false }; cands.push({ kind: 'tracked', idx: i, w: Math.max(0, c.drawn) }); }
+    if (c.closed !== true) {
+      next[i] = { ...c, developing: false };
+      // ⚠ TWO RULES MET HERE IN THE MERGE AND BOTH SURVIVE. The weight is
+      // `reported` (renamed from `drawn`, which is what let a contracted
+      // estimate be read as a draw), and a CATASTROPHE is excluded because it
+      // books at full cost and has no development to allocate.
+      if (c.catastrophe !== true) cands.push({ kind: 'tracked', idx: i, w: Math.max(0, c.reported) });
+    }
   });
-  openBench.forEach((b, i) => cands.push({ kind: 'bench', idx: i, w: Math.max(0, b.drawn) }));
+  openBench.forEach((b, i) => cands.push({ kind: 'bench', idx: i, w: Math.max(0, b.reported) }));
 
   const takenBench = new Set<number>();
   const promotedIds = new Set<string>();
@@ -678,11 +734,12 @@ export function reselectDevelopingSet(
       next.push({
         claimId: b.claimId,
         occurrenceId: b.occurrenceId,
-        drawn: b.drawn,
+        reported: b.reported,
         original: b.original,
         current: b.current,
         developing: true,
         closed: false,
+        ...(b.catastrophe ? { catastrophe: true as const } : {}),
       });
       held += Math.max(0, b.current);
       promoted++;
@@ -935,7 +992,9 @@ export function cedeDevelopment(
     const next = Math.max(0, c.current + deltas[i]);
     layers.forEach((l, li) => {
       if (!placed[li] || !l.purchasable) return;
-      ceded += cedeToLayer(next, l.attachment, l.limit) - cedeToLayer(c.current, l.attachment, l.limit);
+      // The occurrence's own deductible, the one its inception cession used.
+      const d = c.deductible ?? 0;
+      ceded += cedeAbove(next, l, d) - cedeAbove(c.current, l, d);
     });
     return { ...c, current: next };
   });
@@ -1015,7 +1074,7 @@ export function markDownForBooking(
     // shows a pool that booked optimistically holding optimistic CLAIM values,
     // which is the coherence the old shape lacked.
     tracked: moved.map(c => ({ ...c, original: c.current })),
-    bench: set.bench.map(b => ({ ...b, original: b.drawn * benchFactor, current: b.drawn * benchFactor })),
+    bench: set.bench.map(b => ({ ...b, original: b.reported * benchFactor, current: b.reported * benchFactor })),
     untrackedTotal: Math.max(0, set.untrackedTotal + untrackedDelta),
     giveBack: ceded,          // negative
     markedDown: -applied,

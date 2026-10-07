@@ -75,6 +75,7 @@
 import {
   GL_LOSS_MODEL,
   GL_SEVERITY_COMPONENTS,
+  PROPERTY_CAT_MODEL,
   PROPERTY_LOSS_MODEL,
   WC_LOSS_MODEL,
   WC_RATING_GROUPS,
@@ -85,6 +86,7 @@ import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../data/reinsuranc
 import { normalCdf } from './claimMath';
 import { glSeverityCap, glSeverityTrend, thetaGl, untiltedGlWeights } from './glClaimEngine';
 import { propertyInternals } from './propertyClaimEngine';
+import { catLayerAnnualMoments } from './propertyCatastrophe';
 import { ratingGroupOf, thetaWc, trendedMu, wcFrequencyTrend, wcSeverityCap } from './wcClaimEngine';
 import type { Member } from '../types/simulation';
 
@@ -313,10 +315,17 @@ function propertyBandMomentsAll(): BandMoments[] {
   const comps = PM.severityMixture.map((c, j) => ({
     mu: c.mu, sigma: c.sigma, weight: c.weight, cacheKey: `pr|${j}`,
   }));
-  // Single layer, $70M xs $5M, running to the severity cap exactly — see
-  // reinsuranceTower.ts's header on why that is not a coincidence.
-  const bounds = REINSURANCE_TOWER.Property.map(l => ({ lo: l.attachment, hi: l.attachment + l.limit }));
-  const out = bandMomentsForEdges(comps, bounds);
+  // THE ATTRITIONAL HALF of each layer's cession: the fitted mixture integrated
+  // over the layer, STOPPED AT THE SEVERITY CAP. Property's one layer runs to
+  // $1B, but an attritional claim is clamped at $75M by the generator, so its
+  // cession through [$5M, $1B) is exactly its cession through [$5M, $75M) —
+  // integrating the uncapped lognormal past the cap would price claims the
+  // generator never draws. The CATASTROPHE half of the same layer is added in
+  // layerRiskMomentsFor, from the exact event distribution.
+  const out = bandMomentsForEdges(comps, REINSURANCE_TOWER.Property.map(l => ({
+    lo: Math.min(l.attachment, PM.severityCap),
+    hi: Math.min(l.attachment + l.limit, PM.severityCap),
+  })));
   propertyBandCache = out;
   return out;
 }
@@ -403,6 +412,23 @@ export function allLayerRiskMoments(
   members: Member[],
   yearNumber: number,
 ): LayerRiskMoments[] {
+  return layerRiskMomentsFor(line, members, yearNumber, null);
+}
+
+// `only` = null prices every layer; a layer index prices that one and leaves the
+// others' slots unread. `catastrophe` false prices a Property layer on its
+// ATTRITIONAL cession alone. Both exist for ONE reason: the catastrophe half is
+// an exact convolution whose cost grows with the SQUARE of the book, so a
+// caller probing the attritional moments on a synthetic 40,000-member book (the
+// SD/E floor witness in tower-runtime-check) must not also build the event
+// distribution it never reads.
+function layerRiskMomentsFor(
+  line: TowerLine,
+  members: Member[],
+  yearNumber: number,
+  only: number | null,
+  catastrophe = true,
+): LayerRiskMoments[] {
   const layers = REINSURANCE_TOWER[line];
   const n = layers.length;
   const vg = line === 'GL' ? VG : line === 'WC' ? VG_WC : 0;
@@ -482,6 +508,23 @@ export function allLayerRiskMoments(
   const out: LayerRiskMoments[] = [];
   for (let i = 0; i < n; i++) {
     const variance = A2[i] + B2[i] * (1 + vg) + A1[i] * A1[i] * vg;
+    // ⚠ PROPERTY: ONE LAYER, TWO INDEPENDENT LOSS PROCESSES THROUGH IT. The
+    // layer answers attritional claims and catastrophe occurrences alike, so its
+    // annual cession is the attritional cession (above) PLUS a compound Poisson
+    // sum of per-event cessions read off the EXACT event distribution
+    // (propertyCatastrophe.ts): E = lambda E[c], Var = lambda E[c^2]. The two
+    // processes share no draw, so the moments add — expected and VARIANCE, not
+    // SD — and the layer is priced once on the sum. Same two distributions the
+    // two-layer tower priced; one layer between them instead of two.
+    if (line === 'Property' && catastrophe && (only === null || only === i)) {
+      const cat = catLayerAnnualMoments(members, {
+        attachment: layers[i].attachment, ceiling: layers[i].attachment + layers[i].limit,
+      });
+      const expected = A1[i] + cat.expected;
+      const sd = Math.sqrt(Math.max(0, variance) + cat.sd * cat.sd);
+      out.push({ expected, sd, sdOverExpected: expected > 0 ? sd / expected : 0, lambda: lambda + PROPERTY_CAT_MODEL.eventsPerYear });
+      continue;
+    }
     const sd = Math.sqrt(Math.max(0, variance));
     out.push({ expected: A1[i], sd, sdOverExpected: A1[i] > 0 ? sd / A1[i] : 0, lambda });
   }
@@ -494,7 +537,21 @@ export function layerRiskMoments(
   members: Member[],
   yearNumber: number,
 ): LayerRiskMoments {
-  return allLayerRiskMoments(line, members, yearNumber)[layerIndex];
+  return layerRiskMomentsFor(line, members, yearNumber, layerIndex)[layerIndex];
+}
+
+// A layer's moments on its ATTRITIONAL cession alone — identical to
+// layerRiskMoments on WC and GL, and on Property the half that is not the
+// catastrophe convolution. For the SD/E witnesses that probe a synthetic book
+// far larger than the market, where the event convolution is both unaffordable
+// and beside the point (the cat process has no frequency frailty to decay).
+export function attritionalLayerRiskMoments(
+  line: TowerLine,
+  layerIndex: number,
+  members: Member[],
+  yearNumber: number,
+): LayerRiskMoments {
+  return layerRiskMomentsFor(line, members, yearNumber, layerIndex, false)[layerIndex];
 }
 
 // --- retained-loss moments, for the aggregate stop-loss -------------------------
@@ -519,23 +576,34 @@ export function retainedOccurrenceMoments(
   yearNumber: number,
   group?: WcRatingGroup,
 ): BandMoments {
-  const layers = REINSURANCE_TOWER[line];
+  // ⚠ ATTRITIONAL OCCURRENCES ONLY on Property — the mixture below is their
+  // distribution, and a catastrophe's retained share is the exact event
+  // lattice's job (propertyAggregate.ts). Every layer is kept, in order, with
+  // its original index, so `placed[i]` below lines up.
+  const layers = REINSURANCE_TOWER[line].map((l, i) => ({ l, i }));
   const yk = severityYearKey(yearNumber);
+  const ceiling = line === 'GL' ? glSeverityCap(yk)
+    : line === 'Property' ? PM.severityCap
+    : wcSeverityCap(yk);
 
   // Breakpoints: 0, each attachment, each layer top, then the tower top, then the
   // ceiling (the cap for GL, infinity for WC).
+  // ⚠ NOT ABOVE THE CEILING — edges, layer tops and the tower top alike.
+  // Property's layer runs to $1B, far above the $75M an attritional claim can
+  // reach, and a band past the ceiling would integrate the uncapped lognormal
+  // over sizes the generator never draws. WC's and GL's edges sit below their
+  // ceilings in every year, so this never binds for them.
   const edges: number[] = [0];
-  for (const l of layers) {
-    if (!edges.includes(l.attachment)) edges.push(l.attachment);
-    if (!edges.includes(l.attachment + l.limit)) edges.push(l.attachment + l.limit);
+  for (const { l } of layers) {
+    for (const e of [l.attachment, l.attachment + l.limit]) {
+      if (e <= ceiling && !edges.includes(e)) edges.push(e);
+    }
   }
-  if (!edges.includes(TOWER_TOP[line])) edges.push(TOWER_TOP[line]);
+  if (TOWER_TOP[line] <= ceiling && !edges.includes(TOWER_TOP[line])) edges.push(TOWER_TOP[line]);
   edges.sort((a, b) => a - b);
-  // Property's ceiling EQUALS TOWER_TOP.Property (both are the severity cap,
-  // $75M — see reinsuranceTower.ts's header on why that is structural, not a
-  // coincidence), so the two are already the same edge; guard against pushing
-  // it twice. The WC/GL cases never needed that guard, and now cannot collide
-  // by construction: their ceilings trend away from their fixed tower tops.
+  // Property's ceiling is the $75M severity cap and its layer runs on to $1B,
+  // so the cap is the last edge: [$5M, $75M) is ceded and nothing above it is
+  // integrated. The WC/GL ceilings trend away from their fixed tops.
   //
   // ⚠ THE WC AND GL CEILINGS ARE YEAR-DEPENDENT AND THE TOWER TOPS ARE NOT.
   // That asymmetry is the honest one and it widens the band above the tower
@@ -545,14 +613,11 @@ export function retainedOccurrenceMoments(
   // ceiling does not. The fixed cap used to hide half of that erosion by
   // shrinking the ceiling alongside it; it is now visible, which is the point.
   // Property's ceiling does not move because Property has no severity trend.
-  const ceiling = line === 'GL' ? glSeverityCap(yk)
-    : line === 'Property' ? PM.severityCap
-    : wcSeverityCap(yk);
   if (!edges.includes(ceiling)) edges.push(ceiling);
 
   // Which layer, if any, covers the band starting at `from`?
   const cededBand = (from: number) =>
-    layers.findIndex((l, i) => placed[i] && l.purchasable && from >= l.attachment && from < l.attachment + l.limit);
+    layers.findIndex(({ l, i }) => placed[i] && l.purchasable && from >= l.attachment && from < l.attachment + l.limit);
 
   // Component list differs by line; all are (mu, sigma, weight) triples once
   // the trend, region and group are resolved. Property has neither a trend nor

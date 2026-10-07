@@ -5,6 +5,7 @@
 // the app actually exports.
 import type { SpreadsheetMetric } from './resultsExport';
 import { formatCurrency, formatPct } from './formatters';
+import { eventLabel, yearEvents } from './yearEvents';
 import { placementCode, placementSummary } from './reinsuranceDisplay';
 import type { CoverageLine, LineDecisionSet, ResultSet } from '../types/simulation';
 
@@ -67,6 +68,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     // hash guard will move); it is not a value change on any remaining field.
     {
       key: 'fundingConfidenceLevel',
+      lineOnly: true,
       category: 'Decisions',
       label: 'Funding Confidence Level',
       value: r => formatPct(r.selectedFundingConfidenceLevel, 0),
@@ -74,6 +76,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     },
     {
       key: 'selectedFundingCLF',
+      lineOnly: true,
       category: 'Decisions',
       label: 'Selected CLF',
       value: r => r.selectedFundingCLF.toFixed(3),
@@ -81,6 +84,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     },
     {
       key: 'dividendPct',
+      lineOnly: true,
       category: 'Decisions',
       label: 'Dividend %',
       value: r => formatPct(r.decisions.dividendPct, 1),
@@ -88,6 +92,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     },
     {
       key: 'assessmentPct',
+      lineOnly: true,
       category: 'Decisions',
       label: 'Assessment %',
       value: r => formatPct(r.decisions.assessmentPct, 1),
@@ -95,6 +100,12 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     },
     {
       key: 'riskControlPct',
+      // Pool-wide: one choice projected into every line. The LINE form reads the
+      // projected copy; the POOL form reads the pool's own field. Same number,
+      // named where it lives — so the Pool tab keeps the row.
+      lineOnly: true,
+      poolCell: r => formatPct(r.pool.riskControlPct, 1),
+      poolCsvCell: r => r.pool.riskControlPct,
       category: 'Decisions',
       label: 'Risk Control %',
       value: r => formatPct(r.decisions.riskControlPct, 1),
@@ -109,6 +120,11 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // here. That is correct: a placement is not a magnitude, and pretending
       // it is one is what the old column did.
       key: 'reinsuranceLevel',
+      // ⚠ NOT lineOnly, AND IT WAS MARKED SO BY MISTAKE. It reads r.decisions
+      // only when towerLineOf(r) yields a line, which a pool row never does —
+      // the pool path (poolReinsuranceLevelDetail) was already written for this.
+      // Marking it would have dropped a row the Pool tab can honestly show.
+      // pool-row-metric-check caught it on its first run.
       category: 'Decisions',
       label: 'Reinsurance Program',
       value: r => {
@@ -212,6 +228,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     // Rate and premium
     {
       key: 'rateLevel',
+      lineOnly: true,
       category: 'Rate and Premium',
       label: 'Rate Level Index',
       value: r => r.rateLevel.toFixed(3),
@@ -219,6 +236,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     },
     {
       key: 'purePremiumRatePer100',
+      lineOnly: true,
       category: 'Rate and Premium',
       label: 'Pure Premium Rate per $100 Payroll',
       value: r => dollars(r.purePremiumPer100),
@@ -232,6 +250,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // export or audit-page row could reach — an export figure the reader
       // could not reproduce from anything else on the sheet.
       key: 'expectedCededPer100',
+      lineOnly: true,
       category: 'Rate and Premium',
       label: 'Expected Ceded per $100 Payroll',
       value: r => dollars(r.expectedCededPer100),
@@ -239,6 +258,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     },
     {
       key: 'netPurePremiumRatePer100',
+      lineOnly: true,
       category: 'Rate and Premium',
       label: 'Net Pure Premium Rate per $100 Payroll',
       value: r => dollars(r.netPurePremiumPer100),
@@ -253,6 +273,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     },
     {
       key: 'totalMemberRatePer100',
+      lineOnly: true,
       category: 'Rate and Premium',
       label: 'Gross Premium & Admin Expense Rate per $100',
       value: r => dollars(r.ratePer100),
@@ -345,17 +366,11 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     },
     {
       key: 'commonLossFactor',
+      lineOnly: true,
       category: 'Losses',
       label: 'Shared Annual Loss Factor',
       value: r => (r.commonLossFactor ?? 1).toFixed(4),
       csvValue: r => r.commonLossFactor ?? 1,
-    },
-    {
-      key: 'catastropheFactor',
-      category: 'Losses',
-      label: 'Catastrophe Factor',
-      value: r => (r.catastropheFactor ?? 1).toFixed(4),
-      csvValue: r => r.catastropheFactor ?? 1,
     },
     {
       key: 'grossUltimateLoss',
@@ -380,10 +395,24 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       csvValue: r => roundDollars(r.bookedGrossUltimate ?? r.grossUltimateLoss),
     },
     {
-      key: 'shockLossIncurred',
+      // ⚠ REPLACES TWO ROWS THAT SAID THE OPPOSITE OF WHAT HAPPENED. "Shock Loss
+      // Incurred" read Yes on WC and GL whenever a claim passed $1M — almost
+      // every year — and No on Property every year, hardcoded, a catastrophe year
+      // included. "Catastrophe Factor" read 1.0000 everywhere, the multiplier of
+      // a retired shared-factor model. This row names the year's events on this
+      // scope, scheduled and drawn alike, from what they actually produced.
+      key: 'yearEvents',
       category: 'Losses',
-      label: 'Shock Loss Incurred',
-      value: r => (r.shockLossIncurred ? 'Yes' : 'No'),
+      label: 'Events This Year',
+      value: r => {
+        const evs = yearEvents(r);
+        if (evs.length === 0) return 'None';
+        return evs.map(ev => {
+          const label = eventLabel(ev.name, ev.region);
+          if (ev.claims > 0) return `${label}: ${ev.claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
+          return `${label}: +${formatCurrency(ev.expectedGrossLossAdded)} expected`;
+        }).join('; ');
+      },
     },
     {
       // ⚠ "(current year)" IS NOT DECORATION. There are two reinsurance recovery
@@ -415,6 +444,40 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.netUltimateLoss),
       csvValue: r => roundDollars(r.netUltimateLoss),
     },
+    {
+      /**
+       * ⚠ THE LOSS-RATIO NUMERATOR, AND ITS ABSENCE MEANT THE PAGE NEVER ADDED
+       * UP. Every actual loss ratio in the model divides netIncurredLoss —
+       * `actualLossRatio`, `actualLossRatioPricingBasis` and
+       * `actualLossRatioRetainedPremium` alike — and this list's only loss row
+       * was netUltimateLoss. So the loss a reader could see, over the
+       * denominator a reader could see, never reproduced the ratio printed
+       * beside it. Not approximately: measured over 6 games x 10 years, the two
+       * disagree on 60 of 60 pool-years and 180 of 180 line-years, by a mean of
+       * 35.3 percentage points at pool scope and a maximum of 115.3 at line
+       * scope. The worst pool-year shows a $34.38M loss where a reader computes
+       * 58.7% and the page prints 116.1% — the difference between a year that
+       * looks profitable and one that lost heavily.
+       *
+       * ⚠ IT IS NOT netUltimateLoss PLUS SOMETHING VISIBLE, WHICH IS WHY THE
+       * ROW IS NEEDED RATHER THAN A NOTE. netIncurredLoss is
+       * `netPaidLosses + endingNetReserve - beginningNetReserve`: this year's
+       * movement in the whole net ledger, prior accident years included.
+       * netUltimateLoss is THIS accident year's loss alone. A reader cannot get
+       * from one to the other with the rows in front of them, and the gap is
+       * prior-year development, which is a different row again.
+       *
+       * ⚠ AND IT SITS NEXT TO netUltimateLoss DELIBERATELY. Two loss rows
+       * adjacent, on two bases, is exactly the shape that lets a reader see
+       * WHICH one the ratio uses — the alternative, filing it under the ratios,
+       * would have hidden the comparison that makes it legible.
+       */
+      key: 'netIncurredLoss',
+      category: 'Losses',
+      label: 'Net Incurred Loss (the loss-ratio numerator)',
+      value: r => formatCurrency(r.netIncurredLoss),
+      csvValue: r => roundDollars(r.netIncurredLoss),
+    },
 
     // Expenses and income
     {
@@ -430,6 +493,19 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       label: 'Risk Control Investment',
       value: r => formatCurrency(r.riskControlInvestment),
       csvValue: r => roundDollars(r.riskControlInvestment),
+    },
+    {
+      /**
+       * ⚠ ZERO ON EVERY DEFAULT GAME, AND IT IS STILL A ROW. The default places
+       * the whole tower, so this reads $0 unless a player declines something —
+       * which is exactly when a reader needs to find it, because it is the line
+       * that explains why their charge did not fall.
+       */
+      key: 'retainedCoverMargin',
+      category: 'Expenses and Income',
+      label: 'Retained Cover Margin (declined layers, kept as surplus)',
+      value: r => formatCurrency(r.retainedCoverMargin),
+      csvValue: r => roundDollars(r.retainedCoverMargin),
     },
     {
       key: 'reinsuranceCost',
@@ -727,9 +803,32 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // others may be crossed with them.
       key: 'actualLossRatioPricingBasis',
       category: 'Ratios and Capital',
-      label: 'Actual Loss Ratio (pricing basis)',
+      label: 'Actual Loss Ratio (pricing basis — premium + admin expense)',
       value: r => formatPct(r.actualLossRatioPricingBasis),
       csvValue: r => r.actualLossRatioPricingBasis,
+    },
+    {
+      /**
+       * ⚠ READ AS A PAIR WITH THE ROW BELOW; NEITHER HALF MEANS MUCH ALONE.
+       * Both near 85% is an ordinary year. Pool 70% against total 140% is one
+       * large claim doing the whole year. Pool 110% against total 115% is
+       * attritional deterioration with nothing reaching the tower. That
+       * distinction is what a board argues about and no single ratio shows it.
+       */
+      key: 'poolLayerLossRatio',
+      category: 'Ratios and Capital',
+      label: 'Loss Ratio — pool layer (below the retention)',
+      value: r => formatPct(r.poolLayerLossRatio, 1),
+      csvValue: r => r.poolLayerLossRatio,
+    },
+    {
+      /** GROSS, and identical whether the cover was bought or not — see the
+       *  type. The pool wrote every layer, so this measures every loss. */
+      key: 'totalLossRatioGross',
+      category: 'Ratios and Capital',
+      label: 'Loss Ratio — total (every loss, gross)',
+      value: r => formatPct(r.totalLossRatioGross, 1),
+      csvValue: r => r.totalLossRatioGross,
     },
     {
       key: 'actualLossRatioRetainedPremium',
@@ -787,3 +886,28 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => r.capitalAdequacyStatus,
     },
 ];
+
+/**
+ * The shared label for one metric key.
+ *
+ * ⚠ THIS EXISTS BECAUSE FIVE LABELS HAD ALREADY DRIFTED. ResultsPage's
+ * comparison table named the same ResultSet fields itself, and by the time
+ * anyone compared the two lists they disagreed on five of the thirteen rows
+ * they share — "Ultimate Losses (Gross)" against "Gross Ultimate Loss + LAE",
+ * "Pool Premium" against "Pool Premium at Selected CLF", and so on. Dropping
+ * "+ LAE" or "at Selected CLF" is not a shortening; both phrases state a BASIS,
+ * and a reader comparing the screen against the downloaded workbook had to work
+ * out whether two differently-named rows were the same quantity.
+ *
+ * ⚠ IT SHARES THE LABEL AND NOTHING ELSE, WHICH IS THE WHOLE DESIGN. A
+ * comparison table needs a polarity (is up good?) and a per-row decision about
+ * showing a percentage change; a spreadsheet row needs a CSV form. Neither list
+ * has any business holding the other's concerns, and an attempt to merge them
+ * would end with one list carrying fields the other ignores. One name per
+ * quantity is the part that was actually broken.
+ */
+export function metricLabel(key: string): string {
+  const m = RESULT_METRICS.find(x => x.key === key);
+  if (!m) throw new Error(`metricLabel: no RESULT_METRICS entry keyed ${key}`);
+  return m.label;
+}

@@ -126,6 +126,8 @@ interface Stat {
   maxSeriesLen: number; yrCols: number; totalCols: number;
   interiorBlank: number; stateBytes: number; seriesBytes: number;
   openRows: number; openFullyPaid: number; openWithHeadroom: number; openHeadroom: number[];
+  catRows: number;
+  eventRows: number;
 }
 const stats: Record<string, Stat> = {};
 
@@ -134,7 +136,7 @@ for (const arm of ARMS) {
     rows: 0, developed: 0, blankBlock: 0, blankYrCell: 0, printedYrCell: 0, zeroPrinted: 0,
     drawnEqGross: 0, drawnGtBooked: 0, drawnEqBooked: 0, maxSeriesLen: 0, yrCols: 0, totalCols: 0,
     interiorBlank: 0, stateBytes: 0, seriesBytes: 0,
-    openRows: 0, openFullyPaid: 0, openWithHeadroom: 0, openHeadroom: [],
+    openRows: 0, openFullyPaid: 0, openWithHeadroom: 0, openHeadroom: [], catRows: 0, eventRows: 0,
   };
   stats[arm.name] = s;
 
@@ -151,6 +153,11 @@ for (const arm of ARMS) {
 
     const sheets = roundTrip(gs);
     const names = Object.keys(sheets);
+
+    // The catastrophe occurrences, by the ENGINE's own flag rather than a label
+    // on the sheet: these are booked at their drawn total, uncontracted.
+    const catOcc = new Set([...gs.priorHistory, ...gs.lockedResults].flatMap(r =>
+      Object.values(r.byLine).flatMap(lr => (lr?.occurrences ?? []).filter(o => o.isCatastrophe).map(o => o.id))));
 
     // --- SHAPE ------------------------------------------------------------
     if (names.includes('Occurrences')) fail(`${arm.name} g${g}: the Occurrences sheet is still present`);
@@ -206,6 +213,13 @@ for (const arm of ARMS) {
       const iPaid = header.indexOf('Gross Paid');
       const iStatus = header.indexOf('Status');
       const iOcc = header.indexOf('Occurrence ID');
+      // THE EVENT COLUMN. These games schedule nothing, so the only events are
+      // DRAWN catastrophes: a Property row of the cat band names one ("Earthquake
+      // — Central region" or "Catastrophe — ..."), and every other row is blank.
+      // shock-check covers the scheduled side and the label's equality across it.
+      const iEvent = header.indexOf('Event');
+      const iBand = header.indexOf(line === 'Property' ? 'Band' : 'Component');
+      if (iEvent < 0 || iBand < 0) fail(`${arm.name} g${g} ${line}: Event or Band/Component column missing from header [${header}]`);
       if (iPaid < 0 || iStatus < 0) {
         fail(`${arm.name} g${g} ${line}: Gross Paid / Status missing from header [${header}]`);
       }
@@ -221,10 +235,40 @@ for (const arm of ARMS) {
       s.yrCols = Math.max(s.yrCols, yrIdx.length);
       s.totalCols = Math.max(s.totalCols, header.length);
 
+      // Every claim's gross, summed per occurrence — what the occurrence ledger
+      // booked is initialEstimate of THIS, not of any one row's claim. On a
+      // one-claim occurrence the sum is that claim's own gross exactly (0 + x),
+      // so every WC, GL and Property attritional row is asserted as before; it
+      // differs only on a Property catastrophe, where one event owns several
+      // members' claims.
+      const occGross = new Map<string, number>();
+      for (let i = hdrIdx + 1; i < sheet.length; i++) {
+        const r = sheet[i];
+        if (!r || r[0] === '' || r[0] === undefined) continue;
+        const gv = num(r[iGross]);
+        if (gv === null) continue;
+        const k = String(r[iOcc]);
+        occGross.set(k, (occGross.get(k) ?? 0) + gv);
+      }
+
       for (let i = hdrIdx + 1; i < sheet.length; i++) {
         const r = sheet[i];
         if (!r || r[0] === '' || r[0] === undefined) continue;
         s.rows++;
+
+        // --- EVENT ---------------------------------------------------------------
+        {
+          const ev = String(r[iEvent] ?? '');
+          const isCat = line === 'Property' && r[iBand] === 'cat';
+          if (isCat) {
+            s.eventRows++;
+            if (!/^(Earthquake|Catastrophe) — (North|Central|South) region$/.test(ev)) {
+              fail(`${arm.name} g${g} ${line} row ${i}: a catastrophe claim's Event reads "${ev}"`);
+            }
+          } else if (ev !== '') {
+            fail(`${arm.name} g${g} ${line} row ${i}: an ordinary claim carries Event "${ev}"`);
+          }
+        }
 
         // --- OPEN AND PAID ---------------------------------------------------
         // ⚠ THIS IS THE ONLY GATE ON THE GROSS PAID COLUMN, AND IT SITS HERE
@@ -348,14 +392,27 @@ for (const arm of ARMS) {
         //   MOVING EITHER REPRESENTATION DOES. Scaling the occurrence ledger's
         //   drawn figure by 1.001 fails it on every developed WC row. A tenth of a
         //   per cent between the claim register and the ledger is caught.
-        const expectDrawn = gross === null ? null
-          : (FORWARD_BOOKING.enabled ? initialEstimate(line, gross) : gross);
+        //
+        // ⚠ "ONE CLAIM" BECAME "ITS CLAIMS" WITH THE CAT BAND. A Property cat
+        // event is one occurrence holding every hit member's claim, so the
+        // expectation is taken on the sum of the occurrence's claims — which on
+        // every one-claim occurrence is exactly the claim's gross.
+        //
+        // ⚠ AND A CAT EVENT IS BOOKED AT THAT SUM, UNCONTRACTED: its reserve is
+        // known at inception (bookedOccurrenceTotals). Everything else books at
+        // initialEstimate of it. A cat row checked against the contraction, or
+        // an attritional row checked against its gross, fails here.
+        const occTotal = gross === null ? null : (occGross.get(String(r[iOcc])) ?? gross);
+        const isCatRow = catOcc.has(String(r[iOcc]));
+        if (isCatRow) s.catRows++;
+        const expectDrawn = occTotal === null ? null
+          : (FORWARD_BOOKING.enabled && !isCatRow ? initialEstimate(line, occTotal) : occTotal);
         if (expectDrawn !== null && Math.abs(drawn - expectDrawn) <= 1e-6 * Math.max(1, Math.abs(expectDrawn))) {
           s.drawnEqGross++;
         } else {
           fail(`${arm.name} g${g} ${line} row ${i}: Drawn Occurrence ${drawn} !== `
-            + `${FORWARD_BOOKING.enabled ? `initialEstimate(${gross})` : 'Gross Incurred'} ${expectDrawn} `
-            + '— the occurrence ledger and its one claim disagree about what was booked');
+            + `${FORWARD_BOOKING.enabled && !isCatRow ? `initialEstimate(${occTotal})` : 'Gross Incurred'} ${expectDrawn} `
+            + '— the occurrence ledger and its claims disagree about what was booked');
         }
         if (drawn - booked > 1e-6) s.drawnGtBooked++;
         else if (Math.abs(drawn - booked) <= 1e-6) s.drawnEqBooked++;
@@ -514,12 +571,13 @@ for (const arm of ARMS) {
   const s = stats[arm.name];
   console.log(`--- ${arm.name.toUpperCase()} ---`);
   console.log(`  claim rows                  ${s.rows}`);
+  console.log(`  naming an event             ${s.eventRows} (every drawn catastrophe claim; every other row blank)`);
   console.log(`  with a development block    ${s.developed} (${((s.developed / s.rows) * 100).toFixed(2)}%)`);
   console.log(`  blank block (never tracked) ${s.blankBlock}`);
   console.log(`  Yr cells printed / blank    ${s.printedYrCell} / ${s.blankYrCell}`);
   console.log(`    of which a printed 0      ${s.zeroPrinted}   <- sub-dollar movement, NOT "unmoved"`);
   console.log(`    blanks INSIDE the span    ${s.interiorBlank}   <- valued and unmoved (Development sheet, incl. pre-game)`);
-  console.log(`  Drawn === contracted claim  ${s.drawnEqGross} of ${s.developed}`);
+  console.log(`  Drawn === booked claim     ${s.drawnEqGross} of ${s.developed}  (cat rows, booked at their drawn total: ${s.catRows})`);
   console.log(`  Drawn > Booked (markdown)   ${s.drawnGtBooked}`);
   console.log(`  Drawn === Booked (no bias)  ${s.drawnEqBooked}`);
   console.log(`  Yr columns on the sheet     ${s.yrCols}   (total columns ${s.totalCols})`);
