@@ -415,6 +415,23 @@ export const AGG_LIMIT_MULTIPLE = 1.00;
 // -> revert to all-purchasable). Property's one-layer tower is exactly that
 // case: reusing WC's 3-element array would have made every Property placement
 // a no-op.
+/**
+ * Every PURCHASABLE occurrence layer placed — the tower as offered, independent
+ * of what the player chose.
+ *
+ * ⚠ IT IS NOT DEFAULT_LAYERS_PLACED, THOUGH THEY HAPPEN TO AGREE TODAY. That
+ * one is a DECISION's opening position and may be changed as a game-design
+ * choice; this one is the REFERENCE the declined-cover margin and the pool-layer
+ * loss split are measured against, and it must stay "all of it" whatever the
+ * opening position becomes. Deriving it from `purchasable` is what keeps the two
+ * from drifting into each other.
+ */
+export const FULL_OCCURRENCE_PLACEMENT: Record<TowerLine, boolean[]> = {
+  WC: REINSURANCE_TOWER.WC.map(l => l.purchasable),
+  GL: REINSURANCE_TOWER.GL.map(l => l.purchasable),
+  Property: REINSURANCE_TOWER.Property.map(l => l.purchasable),
+};
+
 export const DEFAULT_LAYERS_PLACED: Record<TowerLine, boolean[]> = {
   WC: REINSURANCE_TOWER.WC.map(l => l.purchasable),
   GL: REINSURANCE_TOWER.GL.map(l => l.purchasable),

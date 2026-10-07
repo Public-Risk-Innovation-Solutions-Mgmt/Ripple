@@ -67,6 +67,12 @@ const DOLLARS = new Set([
   // added without a class turns this red" case the section exists to catch,
   // found late only because two briefs in a row skipped the sweep.
   'bookedGrossUltimate', 'bookedNetUltimate',
+  // The price of the layers the pool declined — a dollar charge like its
+  // reinsuranceCost neighbour, and additive for the same reason.
+  'retainedCoverMargin',
+  // The two-part loss ratio's numerator. Additive: each line's own below-the-
+  // retention loss, and the pool's is their sum.
+  'poolLayerLoss',
   'aggregatePremium', 'reinsuranceRecovery', 'netUltimateLoss', 'netIncurredLoss',
   'operatingExpense', 'riskControlInvestment', 'priorYearDevelopment',
   'beginningNetReserve', 'currentYearNetReserve', 'netPaidLosses', 'endingNetReserve',
@@ -102,6 +108,9 @@ const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'w
 // nonsense; the pool's next-year paydown rate is the pool's own next-year
 // payment over the pool's own reserve.
 const RECOMPUTED_RATIOS = new Set([
+  // Both halves of the two-part ratio: sums over sums at pool scope, never a
+  // mean of the line ratios — their denominators are different quantities.
+  'poolLayerLossRatio', 'totalLossRatioGross',
   'nextYearPaydownRate',
   'marketShare', 'memberRetentionRate', 'memberSatisfaction', 'averageRiskQuality',
   'investmentReturnRate', 'expectedLossRatio', 'expectedLossRatioMemberBasis',

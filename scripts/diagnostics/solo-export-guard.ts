@@ -529,7 +529,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Nothing else differs: 356 lines became 360, and the four new lines are the
 // added row on the Pool sheet and on each of the three line sheets.
 
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v50.json');
+// v50 was retired (to v51) by THREE ADDED ROWS AND NO VALUE AT ALL.
+// RESULT_METRICS gained `retainedCoverMargin`, `poolLayerLossRatio` and
+// `totalLossRatioGross`; all 24 exports moved because every sheet gained three
+// lines. ⚠ THAT NO VALUE MOVED IS NOT ASSERTED HERE BUT PROVED NEXT DOOR:
+// value-identity-check HOLDS across its 150 instances on the same commit, and
+// it covers every computed value, so an export built from those values cannot
+// have moved one. The default game places the whole tower, so
+// retainedCoverMargin reads $0 in every captured export — the row is there for
+// the games where it is the explanation.
+
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v51.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

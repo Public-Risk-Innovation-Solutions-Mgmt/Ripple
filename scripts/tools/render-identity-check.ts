@@ -266,8 +266,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // figures that changed are the printed tolerances themselves.
 // ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 1330777 built into its own
 // worktree and served on 4174 reproduced all 298 against the committed v12.
+// ⚠ v13 -> v14: THE FLAT CHARGE AND THE TWO-PART LOSS RATIO. 44 rows, three
+// causes, EVERY ONE A PURE INSERTION — classified mechanically, not sampled:
+//   Results (13)            the 'Retained Cover Margin (declined layers)' row,
+//                           reading $0, plus the pool-layer and total ratios.
+//   Result Spreadsheet (5)  the same three rows in the workbook table.
+//   Calculation Audit (26)  '+ $0' and '+ 0 (retained cover margin rate)' —
+//                           the fourth term of the gross-rate row and the fifth
+//                           of total operating revenues.
+// ⚠ NO FIGURE CHANGED, and the margin reads $0 on every captured screen because
+// the default game PLACES the whole tower. That is the same fact value-identity
+// reports as "shape changed, values held": the charge only moves for a player
+// who declines something, and nothing in this harness does.
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 3c00873 built into its own
+// worktree and served on 4174 reproduced all 298 against the committed v13.
 const BASELINE = process.env.RENDER_BASELINE
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v13.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v14.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -24,7 +24,7 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
   return merged.size > 0 ? [...merged.values()] : undefined;
 }
 import { SeededRandom, deriveSubRng } from './random';
-import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
+import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
 import {
   DEVELOPMENT_ALLOCATION, DEVELOPMENT_CESSION_ENABLED, STOCHASTIC_ALLOCATION_MODE,
@@ -43,6 +43,8 @@ import { projectPricingTriangle, windowRows } from './pricingTriangle';
 import { closureCurveForReported, developmentDrift, initialEstimate } from './claimTriangle';
 import { poolYearFactor, wcGenerationInputs, glGenerationInputs, propertyGenerationInputs } from './claimGeneration';
 import { programFreqMultiplier, programAnnualCost, programRtwConversion } from './riskControlPrograms';
+import { occurrenceProgramCost } from './reinsuranceTower';
+import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import {
   aggregateRecovery,
   cedeOccurrences,
@@ -1132,7 +1134,31 @@ export function processLineYear(
   }
   const reinsuranceCost = towerQuote.premium + (aggregateQuote?.premium ?? 0);
 
-  const totalMemberCharge = poolPremiumAndAdminExpense + reinsuranceCost;
+  // ============================================================================
+  // ⚠ THE PRICE OF THE COVER THE POOL DID NOT BUY, STILL CHARGED, AND KEPT.
+  //
+  // Quoted on the SAME book and year as `towerQuote`, with every purchasable
+  // layer placed, so the difference is exactly the price of the declined ones:
+  // zero when the tower is fully placed, the whole price when it is fully
+  // declined, and the declined layers' share in between. No new judgement — it
+  // is the tower's own runtime price, read through the quote that already
+  // exists.
+  //
+  // ⚠ IT IS REVENUE AND IT IS NOT AN EXPENSE. The member pays the same either
+  // way; what changes is where the money goes. Placed, it leaves as
+  // reinsuranceCost. Declined, it stays here and lands in surplus through net
+  // income, which is what funds the volatility the pool just took on.
+  //
+  // See DECLINED_COVER_MARGIN_ENABLED for the defect this closes, the measured
+  // drift in a long game, and the ledger field that would remove the drift.
+  const fullTowerQuote = occurrenceProgramCost(
+    line as TowerLine, FULL_OCCURRENCE_PLACEMENT[line as TowerLine], currentActiveMembers, yearNumber,
+  );
+  const retainedCoverMargin = DECLINED_COVER_MARGIN_ENABLED
+    ? Math.max(0, fullTowerQuote.premium - towerQuote.premium)
+    : 0;
+
+  const totalMemberCharge = poolPremiumAndAdminExpense + reinsuranceCost + retainedCoverMargin;
   const totalMemberRatePer100 = totalMemberCharge / Math.max(activeExposure * 10_000, 1);
 
   // ============================================================================
@@ -1657,6 +1683,56 @@ export function processLineYear(
   const bookedGrossUltimate = bookedGrossContraction * grossUltimateLoss;
   const netUltimateLoss = bookedGrossUltimate - reinsuranceRecovery;
 
+  // ============================================================================
+  // THE TWO-PART LOSS RATIO — and the pair is the exhibit, not either half.
+  //
+  //   POOL LAYER   what fell below the retention, against the premium for that
+  //                layer. The pool's own underwriting result.
+  //   TOTAL        every loss, ceded or not, against the whole charge. Think of
+  //                the pool as the reinsurer: it wrote every layer, so measure
+  //                every loss.
+  //
+  // ⚠ BOTH ARE IDENTICAL WHETHER THE COVER IS BOUGHT OR NOT, AND THAT IS THE
+  // POINT RATHER THAN A COINCIDENCE. A loss ratio is an underwriting measure;
+  // reinsurance is financing. The gross loss does not depend on the placement,
+  // the full-tower cession is computed at full placement so it does not either,
+  // and the charge is flat by DECLINED_COVER_MARGIN_ENABLED. Declining shows up
+  // in the SURPLUS PATH, not on the scoreboard.
+  //
+  // ⚠ AND THAT IS WHY THE SPLIT HAD TO LAND WITH THE FLAT CHARGE. A retained
+  // margin sitting in poolPremium with a NET total ratio would have read the
+  // declined arm at 58% against the placed arm's 88% — the pool that kept all
+  // the risk looking better at it. On a GROSS total there is nothing left to
+  // look better at.
+  //
+  // ⚠ THE POOL LAYER'S DENOMINATOR IS poolPremiumAndAdminExpense, WHICH ALREADY
+  // MEANS THIS. The question "what premium belongs to the pool layer when the
+  // charge is one number" has a simpler answer than reconstructing it: the pool
+  // premium IS the premium for the layer the pool keeps — exactly so when the
+  // tower is placed, because it funds net of cession, and to the same
+  // approximation already accepted at the moment of declining, because the
+  // declined arm's retained rate is still the net rate there. Reconstructing it
+  // would apply the same approximation a second time.
+  //
+  // ⚠ ACCIDENT-YEAR ULTIMATE, NOT THE INCURRED MOVEMENT, and the bases must not
+  // be confused. actualLossRatioPricingBasis divides netIncurredLoss — this
+  // year's movement in the whole net ledger, prior accident years included.
+  // These two divide THIS accident year's booked ultimate, because the question
+  // they answer is "what did this year's losses do", which is the question a
+  // board asks of the pair.
+  const fullTowerCession = hasTractableCeded
+    ? cedeOccurrences(
+        line as TowerLine,
+        FORWARD_BOOKING.enabled
+          ? occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []).map(t => initialEstimate(line, t))
+          : occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []),
+        FULL_OCCURRENCE_PLACEMENT[line as TowerLine],
+      )
+    : null;
+  const poolLayerLoss = Math.max(0, bookedGrossUltimate - (fullTowerCession?.totalCeded ?? 0));
+  const poolLayerLossRatio = poolLayerLoss / Math.max(poolPremiumAndAdminExpense, 1);
+  const totalLossRatioGross = bookedGrossUltimate / Math.max(totalMemberCharge, 1);
+
   // --- Investment Income ---
   // This line's own segregated portfolio (Stage 2.9): drawn in processYear from
   // this line's own invested assets and its own asset allocation.
@@ -2126,6 +2202,14 @@ export function processLineYear(
   // on the Results detail and in the export, nowhere a player reads at a glance.
   const actualLossRatioRetainedPremium =
     netIncurredLoss / Math.max(poolPremium, 1);
+  // ⚠ THE RETAINED MARGIN IS NOT IN THE NUMERATOR AND IS IN THE DENOMINATOR,
+  // WHICH IS DELIBERATE RATHER THAN AN OVERSIGHT. An expense ratio measures what
+  // the pool PAYS AWAY per dollar charged. A declined layer's price is not paid
+  // away — it stays in the pool — so it is not an expense, while it is
+  // unarguably part of what the member was charged. The consequence is that
+  // declining LOWERS the expense ratio, which is the true statement: the pool
+  // has stopped paying a reinsurer. What it has taken on instead shows in the
+  // surplus path and in the two-part loss ratio, not here.
   const actualExpenseRatio =
     (adminExpense + reinsuranceCost) / Math.max(totalMemberCharge, 1);
   const actualCombinedRatio = actualLossRatio + actualExpenseRatio;
@@ -2263,6 +2347,7 @@ export function processLineYear(
         }))
       : undefined,
     reinsuranceCost,
+    retainedCoverMargin,
     reinsuranceRecovery,
     priorYearDevelopmentCeded: developmentCeded,
     bookingGiveBack: markdown.giveBack,
@@ -2350,6 +2435,11 @@ export function processLineYear(
     actualLossRatio,
     actualLossRatioPricingBasis,
     actualLossRatioRetainedPremium,
+    // THE PAIR. See the block at poolLayerLossRatio for why both are identical
+    // whether the cover was bought or not.
+    poolLayerLoss,
+    poolLayerLossRatio,
+    totalLossRatioGross,
     actualExpenseRatio,
     actualCombinedRatio,
     combinedRatio,
@@ -3350,6 +3440,7 @@ export function aggregateLineResults(
     // would read as two events.
     shockEvents: mergeShockRecords(results),
     reinsuranceCost: reinsuranceCostSum,
+    retainedCoverMargin: addDollars('retainedCoverMargin'),
     // ⚠ WC AND GL ONLY. PROPERTY IS EXCLUDED AND ITS ABSENCE IS THE FIX.
     //
     // This sums ELEMENTWISE, so index 0 means "the first layer of every line
@@ -3492,6 +3583,13 @@ export function aggregateLineResults(
     actualLossRatio,
     actualLossRatioPricingBasis,
     actualLossRatioRetainedPremium,
+    // ⚠ SUMS OVER SUMS, NOT A MEAN OF THE LINE RATIOS — the same discipline as
+    // every other pooled ratio here. The pool layer's denominator and the
+    // total's are different quantities, so they are summed separately rather
+    // than sharing one.
+    poolLayerLoss: addDollars('poolLayerLoss'),
+    poolLayerLossRatio: addDollars('poolLayerLoss') / Math.max(poolPremiumAndAdminExpenseSum, 1),
+    totalLossRatioGross: addDollars('bookedGrossUltimate') / Math.max(totalMemberChargeSum, 1),
     actualExpenseRatio,
     actualCombinedRatio,
     combinedRatio: actualCombinedRatio,

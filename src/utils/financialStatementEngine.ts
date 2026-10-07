@@ -166,8 +166,16 @@ export interface StatementLines {
 }
 
 export function statementLines(result: ResultSet | LineResultSet): StatementLines {
+  // ⚠ THE RETAINED MARGIN IS REVENUE AND SITS HERE. It is charged to members
+  // exactly as the other four are; what distinguishes it is that it is not paid
+  // out again, so it has no matching entry in operating EXPENSES below and
+  // falls straight through to net income and surplus. That is the whole
+  // mechanism — see DECLINED_COVER_MARGIN_ENABLED. Omitting it here would break
+  // the identity `totalMemberCharge = poolPremium + admin + reinsuranceCost +
+  // retainedCoverMargin`, which the audit page checks.
   const totalOperatingRevenues =
-    result.reinsuranceCost + result.poolPremium + result.adminExpense + result.assessments;
+    result.reinsuranceCost + result.poolPremium + result.adminExpense + result.assessments
+    + (result.retainedCoverMargin ?? 0);
   const totalOperatingExpenses =
     result.reinsuranceCost + result.netIncurredLoss + result.operatingExpense
     + result.riskControlInvestment + result.dividends;

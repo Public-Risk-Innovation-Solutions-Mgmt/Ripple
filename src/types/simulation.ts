@@ -432,6 +432,10 @@ export interface HistoricalYear {
   adminExpense: number;
   poolPremiumAndAdminExpense: number;
   reinsuranceCost: number;
+  /** See the ResultRowFields declaration. OPTIONAL here because saves written
+   *  before the flat charge existed carry no such field, and defaulting it to 0
+   *  on load is the honest read: those games were charged the old way. */
+  retainedCoverMargin?: number;
   totalMemberCharge: number;
   grossUltimateLoss: number;
   reinsuranceRecovery: number; // reinsurer's paid share of ceded loss
@@ -1419,6 +1423,17 @@ interface ResultRowFields {
   // only numeric fields) is blind to it by construction.
   shockEvents?: ShockRecord[];
   reinsuranceCost: number;
+  /** The price of the occurrence layers the pool DECLINED, charged to members
+   *  and kept in the pool as surplus rather than paid to a reinsurer. Zero when
+   *  the tower is fully placed, the whole tower price when it is fully
+   *  declined, the declined layers' share in between.
+   *
+   *  ⚠ REVENUE, NEVER AN EXPENSE. The member pays the same either way; what
+   *  changes is where the money goes. It reaches surplus through net income,
+   *  which is what funds the volatility the pool just took on. See
+   *  DECLINED_COVER_MARGIN_ENABLED for the 41% discount this closes, the
+   *  measured drift in a long game, and the ledger field that removes it. */
+  retainedCoverMargin: number;
   reinsuranceRecovery: number; // reinsurer's paid share of ceded loss
   // --- per-occurrence tower outputs, every line ---
   // Ceded by layer, index-aligned to REINSURANCE_TOWER[line].
@@ -1656,6 +1671,36 @@ interface ResultRowFields {
   // only expected/actual pair in this type that may be compared directly — and
   // that comparability is why the headline uses this one.
   actualLossRatioPricingBasis: number;
+  /**
+   * ⚠ THE TWO-PART LOSS RATIO. Neither half reads right alone; the GAP is the
+   * exhibit.
+   *
+   *   both near 85%            an ordinary year
+   *   pool 70%, total 140%     one large claim doing the whole year
+   *   pool 110%, total 115%    attritional deterioration, nothing ceded
+   *
+   * POOL LAYER: what fell below the retention, against the premium for that
+   * layer (poolPremiumAndAdminExpense). The pool's own underwriting result.
+   */
+  /** The dollar numerator of poolLayerLossRatio: this accident year's booked
+   *  gross less what the FULL occurrence tower would have ceded. Carried as a
+   *  field so the pool row can sum numerators rather than average ratios. */
+  poolLayerLoss: number;
+  poolLayerLossRatio: number;
+  /**
+   * TOTAL: EVERY loss, ceded or not, against the whole charge. GROSS — think of
+   * the pool as the reinsurer, since it wrote every layer, so measure every
+   * loss.
+   *
+   * ⚠ BOTH ARE IDENTICAL WHETHER THE COVER WAS BOUGHT OR NOT. A loss ratio is
+   * an underwriting measure and reinsurance is financing; declining shows up in
+   * the SURPLUS PATH, not here. That only holds because the charge is flat —
+   * see DECLINED_COVER_MARGIN_ENABLED — and the two had to land together.
+   *
+   * ⚠ ACCIDENT-YEAR ULTIMATE, unlike actualLossRatioPricingBasis above, which
+   * divides the whole net ledger's movement including prior years.
+   */
+  totalLossRatioGross: number;
   // RETAINED PREMIUM alone. No expected counterpart and no expense ratio on its
   // basis, so it may not be added to anything: a reported figure only.
   actualLossRatioRetainedPremium: number;

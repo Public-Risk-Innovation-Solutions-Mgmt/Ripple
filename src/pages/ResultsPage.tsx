@@ -16,6 +16,7 @@ import {
   formatMillions,
   formatPct,
   colorForCombinedRatio,
+  colorForRatio,
   colorForNetIncome,
   colorForSurplus,
 } from '../utils/formatters';
@@ -349,6 +350,11 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
               <Row label="Admin Expense" value={formatCurrency(result.adminExpense)} />
               <Row label="Pool Premium & Admin Expense" value={formatCurrency(result.poolPremiumAndAdminExpense)} />
               <Row label="Reinsurance Cost" value={formatCurrency(result.reinsuranceCost)} />
+              {/* ⚠ WHY THE CHARGE DID NOT FALL. The price of any layer the pool
+                  declined, still charged and kept here instead of paid out.
+                  $0 whenever the tower is fully placed, which is the default —
+                  so a reader only ever sees it when it is the explanation. */}
+              <Row label="Retained Cover Margin (declined layers)" value={formatCurrency(result.retainedCoverMargin)} />
               <Row label="Gross Premium & Admin Expense" value={formatCurrency(result.totalMemberCharge)} bold />
               <Row label="Assessments" value={formatCurrency(result.assessments)} />
               <Row label="Dividends / Returned Pool Premium" value={formatCurrency(result.dividends)} valueColor="text-red-600" />
@@ -430,6 +436,16 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
               <Row label="Expected Expense Ratio (member charge)" value={formatPct(result.expectedExpenseRatio)} />
               <Row label="Expected Combined Ratio (member charge)" value={formatPct(result.expectedCombinedRatio)} />
               <div className="border-t border-gray-100 my-1" />
+              {/* ⚠ THE PAIR, AND THE GAP BETWEEN THEM IS THE EXHIBIT. Both near
+                  85% is an ordinary year; pool 70% against total 140% is one
+                  large claim doing the whole year; pool 110% against total 115%
+                  is attritional deterioration with nothing reaching the tower.
+                  They sit ABOVE the three member-charge ratios because they are
+                  on a different basis — this accident year's booked ultimate,
+                  not the whole ledger's movement — and a reader comparing them
+                  to the rows below needs to see the break. */}
+              <Row label={metricLabel('poolLayerLossRatio')} value={formatPct(result.poolLayerLossRatio)} valueColor={colorForRatio(result.poolLayerLossRatio)} />
+              <Row label={metricLabel('totalLossRatioGross')} value={formatPct(result.totalLossRatioGross)} valueColor={colorForRatio(result.totalLossRatioGross)} />
               <Row label="Actual Loss Ratio (pricing basis)" value={formatPct(result.actualLossRatioPricingBasis)} />
               <Row label="Actual Loss Ratio (retained premium)" value={formatPct(result.actualLossRatioRetainedPremium)} />
               <Row label="Actual Loss Ratio (Net, member charge)" value={formatPct(result.actualLossRatio)} />

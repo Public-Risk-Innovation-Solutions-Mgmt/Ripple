@@ -802,6 +802,77 @@ export const BASE_RETENTION = 0.95;
  * through WHICH MEMBERS ARE ENROLLED, which changes the book from the pre-game
  * onward. Flipping this is a recapture commit either way.
  */
+/**
+ * ⚠ THE CHARGE DOES NOT FALL WHEN COVER IS DECLINED. The price of every layer
+ * the pool did NOT buy is still charged to members and kept in the pool as
+ * surplus, instead of being paid to a reinsurer.
+ *
+ * WHY. Declining used to be a 41% discount on the way in. The experience rate
+ * is built from the pool's own paid triangle, which is NET of reinsurance, and
+ * grossUpRetainedPurePremium puts it back on a gross basis by solving
+ * `g - ceded(g, placement) = retained`. Decline the cover and `ceded` is zero,
+ * so the solve returns the retained rate unchanged — a rate describing a book
+ * that WAS reinsured. Measured over 12 games x 10 years, declining every layer
+ * and the aggregate against the default placement:
+ *
+ *   line        gross pure premium      total charge     realised loss ratio
+ *   WC          3.3755 -> 2.5621  -24.1%      -41.1%     88.3% -> 99.5%
+ *   GL          6.4902 -> 4.6166  -28.9%      -42.2%     77.1% -> 98.1%
+ *   Property    0.0984 -> 0.0798  -18.9%      -37.6%     87.7% -> 102.8%
+ *
+ * ⚠ NO LINE IS IMMUNE. All three price off the same experience path; Property
+ * is only where it was first measured.
+ *
+ * The insolvency that follows is NOT the defect — a player who retains and
+ * loses has taken a risk and lost, which is the lesson. The defect was the
+ * model PAYING them to take it. With the charge flat, declining is a pure
+ * volatility bet: the reinsurer's margin stays in the pool and funds the
+ * volatility just taken on, and a pool that retains more needs more surplus.
+ *
+ * ⚠ THIS IS AN APPROXIMATION AND IT DRIFTS HIGH IN A LONG GAME. Measured, as
+ * the gap between the declined arm's total charge and the placed arm's, per
+ * $100 of exposure, over 10 games:
+ *
+ *   declining from year 1       yr 1     yr 5     yr 10
+ *     WC                       -2.7%    -0.2%    +5.5%
+ *     GL                       -4.0%    +2.3%   +17.9%
+ *     Property                 -2.3%    -0.5%    +7.8%
+ *
+ *   declining at year 4        yr 4     yr 7     yr 10
+ *     WC                       -2.9%    -2.5%    +0.6%
+ *     GL                       -4.2%    +1.6%    +9.8%
+ *     Property                 -2.4%    +0.9%    +6.1%
+ *
+ * WHY IT DRIFTS: once the cover is declined the pool keeps every loss, so its
+ * own triangle learns the GROSS loss cost. The retained rate climbs toward
+ * gross — correctly — and the margin added on top then charges the ceded
+ * portion a SECOND time. The drift is therefore zero at the moment the decision
+ * is made and grows with the number of declined years inside the ten-year
+ * pricing window. It is worst on GL, whose cession share is the largest.
+ *
+ * ⚠ THE EXACT FIX IS A LEDGER FIELD, AND IT IS NAMED HERE SO NOBODY HAS TO
+ * REDISCOVER IT. ReserveDevelopmentRow would carry the cession rate that
+ * applied to ITS OWN accident year — one scalar per row, stamped when the row
+ * is written, where `expectedCededPer100` is already in hand. The margin would
+ * then be added only for the part of the window still priced on net experience,
+ * and the drift would be zero at every age. A gross SERIES was considered for
+ * that row and rejected because it cost a second array; one scalar does not.
+ *
+ * ⚠ AND THE TWO ALTERNATIVES WERE MEASURED AND ARE WORSE. Grossing up at a
+ * FIXED reference placement reads +26.5% (WC), +48.7% (GL), +15.6% (Property)
+ * against the true gross at year 10 — it grosses up a triangle that already
+ * contains the gross losses. Adding only the reinsurer's LOAD rather than the
+ * whole price reads -20.9% / -30.6% / -18.0% at year 1, wrong exactly where the
+ * decision is taken. This rule is the only one of the three that is right where
+ * it matters.
+ *
+ * ⚠ THE OCCURRENCE TOWER ONLY. The aggregate stop's price is a function of the
+ * layer selection, so "what the aggregate would have cost" is not defined when
+ * the layers underneath it are declined. The margin is the price of the
+ * declined OCCURRENCE layers and nothing else.
+ */
+export const DECLINED_COVER_MARGIN_ENABLED = true;
+
 export const VOLUNTARY_DEPARTURES_ENABLED = false;
 
 // ============================================================================

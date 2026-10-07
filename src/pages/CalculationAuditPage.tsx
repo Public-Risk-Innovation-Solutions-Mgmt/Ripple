@@ -1501,7 +1501,11 @@ export function buildSupportingRows(
   // figure. Recomputing from the three real pool-summed dollar figures gives
   // the true blended rate at every scope (and is numerically identical to
   // lineRow.ratePer100 at line scope, since that's how it's defined there).
-  const grossRatePer100 = (result.poolPremium + result.adminExpense + result.reinsuranceCost) / payrollUnits;
+  // ⚠ IT IS THE WHOLE CHARGE, SO THE RETAINED MARGIN IS IN IT. This used to
+  // restate the charge as its three old components; a declined layer's price is
+  // a fourth, so restating three of four would have printed a rate below the
+  // one the member actually pays. `totalMemberCharge` is the identity itself.
+  const grossRatePer100 = result.totalMemberCharge / payrollUnits;
   // Per-line check. NaN at pool scope rather than 0 — it is consumed only by
   // rows that are themselves absent there, and a 0 would read as a real figure.
   const grossPremiumCheck = lineRow === null ? NaN : result.activeExposure * lineRow.ratePer100 * 10_000;
@@ -1950,10 +1954,14 @@ export function buildSupportingRows(
           { value: result.poolPremium / payrollUnits, format: 'plain', label: 'pool premium rate' },
           { value: result.adminExpense / payrollUnits, format: 'plain', label: 'admin rate' },
           { value: result.reinsuranceCost / payrollUnits, format: 'plain', label: 'reinsurance rate' },
+          // ⚠ THE FOURTH TERM, AND THE CHARGE HAS FOUR COMPONENTS NOW. Zero on
+          // every default game; non-zero exactly when a layer was declined,
+          // which is when this row is the one a reader is looking for.
+          { value: result.retainedCoverMargin / payrollUnits, format: 'plain', label: 'retained cover margin rate' },
         ],
       },
       explain: isPoolView
-        ? 'Recomputed from the three real pool-summed dollar figures divided by Payroll Units below — lineRow.ratePer100 itself is aggregated at pool scope as one line\'s rate kept as a placeholder, not a real pool figure, so it is not used here.'
+        ? 'Recomputed from the four real pool-summed dollar figures divided by Payroll Units below — lineRow.ratePer100 itself is aggregated at pool scope as one line\'s rate kept as a placeholder, not a real pool figure, so it is not used here.'
         : 'Each component rate is its dollar figure (Income Statement / Losses and Reinsurance) divided by Payroll Units below.',
     },
     {
@@ -2706,7 +2714,11 @@ export function buildRevExpRows(
       numericValue: checks.totalOperatingRevenuesValue,
       formula: {
         kind: 'sum',
-        terms: [cur(result.reinsuranceCost), cur(result.poolPremium), cur(result.adminExpense), cur(result.assessments)],
+        // ⚠ FIVE TERMS. The retained cover margin is revenue — charged to
+        // members, never paid out — so it belongs here and has no matching
+        // entry under operating expenses below. That asymmetry IS the
+        // mechanism: it falls through to net income and lands in surplus.
+        terms: [cur(result.reinsuranceCost), cur(result.poolPremium), cur(result.adminExpense), cur(result.assessments), cur(result.retainedCoverMargin)],
       },
       emphasis: 'subtotal',
       note: checks.totalOperatingRevenues.note,

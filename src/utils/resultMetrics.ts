@@ -487,6 +487,19 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       csvValue: r => roundDollars(r.riskControlInvestment),
     },
     {
+      /**
+       * ⚠ ZERO ON EVERY DEFAULT GAME, AND IT IS STILL A ROW. The default places
+       * the whole tower, so this reads $0 unless a player declines something —
+       * which is exactly when a reader needs to find it, because it is the line
+       * that explains why their charge did not fall.
+       */
+      key: 'retainedCoverMargin',
+      category: 'Expenses and Income',
+      label: 'Retained Cover Margin (declined layers, kept as surplus)',
+      value: r => formatCurrency(r.retainedCoverMargin),
+      csvValue: r => roundDollars(r.retainedCoverMargin),
+    },
+    {
       key: 'reinsuranceCost',
       category: 'Expenses and Income',
       label: 'Reinsurance Cost',
@@ -785,6 +798,29 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       label: 'Actual Loss Ratio (pricing basis — premium + admin expense)',
       value: r => formatPct(r.actualLossRatioPricingBasis),
       csvValue: r => r.actualLossRatioPricingBasis,
+    },
+    {
+      /**
+       * ⚠ READ AS A PAIR WITH THE ROW BELOW; NEITHER HALF MEANS MUCH ALONE.
+       * Both near 85% is an ordinary year. Pool 70% against total 140% is one
+       * large claim doing the whole year. Pool 110% against total 115% is
+       * attritional deterioration with nothing reaching the tower. That
+       * distinction is what a board argues about and no single ratio shows it.
+       */
+      key: 'poolLayerLossRatio',
+      category: 'Ratios and Capital',
+      label: 'Loss Ratio — pool layer (below the retention)',
+      value: r => formatPct(r.poolLayerLossRatio, 1),
+      csvValue: r => r.poolLayerLossRatio,
+    },
+    {
+      /** GROSS, and identical whether the cover was bought or not — see the
+       *  type. The pool wrote every layer, so this measures every loss. */
+      key: 'totalLossRatioGross',
+      category: 'Ratios and Capital',
+      label: 'Loss Ratio — total (every loss, gross)',
+      value: r => formatPct(r.totalLossRatioGross, 1),
+      csvValue: r => r.totalLossRatioGross,
     },
     {
       key: 'actualLossRatioRetainedPremium',
