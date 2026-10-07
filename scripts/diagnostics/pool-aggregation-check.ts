@@ -126,7 +126,7 @@ const RECOMPUTED_RATIOS = new Set([
 ]);
 
 // No pool-level referent. Carried as a placeholder; read byLine instead.
-const NO_POOL_MEANING = new Set(['aggregateAttachment', 'commonLossFactor', 'catastropheFactor']);
+const NO_POOL_MEANING = new Set(['aggregateAttachment', 'commonLossFactor']);
 
 // Line-ambiguous descriptive/rate fields showing the first active line's value.
 // Documented at the definition; not aggregations at all.

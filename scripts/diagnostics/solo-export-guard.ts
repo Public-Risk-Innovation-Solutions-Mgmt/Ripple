@@ -539,7 +539,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // retainedCoverMargin reads $0 in every captured export — the row is there for
 // the games where it is the explanation.
 
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v51.json');
+// ⚠ v51 -> v52: THE PROPERTY MERGE. All 24 exports moved, and THEY DID NOT ALL
+// MOVE FOR THE SAME REASON — which is the distinction this guard cannot draw on
+// its own and must be read with value-identity v50 to draw at all.
+//   WC-solo, GL-solo (6 of 24)   SHAPE ONLY. Every value in these two
+//       configurations is BIT-IDENTICAL across the merge — value-identity
+//       reports 0 of 5970 and 0 of 6000 moved. The hash moves because the
+//       workbook gained three rows (Retained Cover Margin and the two loss
+//       ratios) and an Event column, and lost two (Shock Loss Incurred,
+//       Catastrophe Factor). Not one number on either line changed.
+//   PR-solo, tri (18 of 24)      SHAPE AND VALUE. Property's frequency and
+//       severity recalibration moves 69.8% of PR-solo's values.
+// A recapture that could not say which of those two things happened would be
+// the blank cheque this file's header warns about. It can, so it is not.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v52.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

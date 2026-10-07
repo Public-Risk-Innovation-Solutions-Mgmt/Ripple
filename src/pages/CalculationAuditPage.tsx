@@ -43,6 +43,7 @@ import {
   SLIDER_RANGES,
   LINE_PAYOUT_PATTERN,
   OPERATING_CASH_PCT_OF_PREMIUM,
+  PROPERTY_CAT_MODEL,
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
@@ -1189,9 +1190,17 @@ function buildAssumptionRows(): AuditRow[] {
       note: 'Raises the center of the actual-loss distribution so default decisions do not automatically produce large annual gains. Member risk-quality volatility is preserved.',
     },
     {
-      metric: 'Catastrophe Classification Threshold',
-      value: `${formatPct(AGGREGATE_LOSS_DISTRIBUTION.catastropheThresholdConfidence)} CLF`,
-      formula: 'An annual shared factor above the selected CLF-table threshold is classified as a catastrophe for reporting.',
+      // ⚠ REPLACES "Catastrophe Classification Threshold", which said an annual
+      // shared factor above a CLF-table threshold was classified as a
+      // catastrophe. That factor belongs to the retired aggregate path; no line
+      // reads it, and nothing has been classified that way since every line
+      // began drawing claims.
+      metric: 'Catastrophes',
+      value: `${PROPERTY_CAT_MODEL.eventsPerYear} events a year`,
+      formula: 'Property only. Regional events arrive at this rate; each strikes one region, and every member '
+        + 'it hits loses a fixed share of its primary asset. All of an event\'s claims are one occurrence.',
+      note: 'A year\'s events — catastrophes and any other event that produced claims — are listed under '
+        + 'Events This Year and named in the claims workbook\'s Event column.',
     },
     {
       // ⚠ THIS ROW SHOWED LOSS_TREND (4%) AS "the default annual claim inflation

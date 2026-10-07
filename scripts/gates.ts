@@ -124,6 +124,9 @@ const FAST: string[] = [
   'paid-ledger-check',               //   4s
   'panel-engine-parity-check',       //   4s
   'pool-aggregation-check',          //   2s
+  'property-cat-check',              //  19s   the EXACT cat distribution against an INDEPENDENT event simulation
+                                     //         (own generator, fresh events), both placements, and the generator
+                                     //         drawing what the price describes
   'property-claim-check',            //   3s
   'prose-identifier-check',          //   3s   every code-shaped name in PLAYER-FACING prose exists in src; positive
                                      //         control inside. --comments lists the same over developer comments
@@ -340,6 +343,7 @@ const PROBES: Record<string, string> = {
   'property-clf-basis-report': 'Property CLF basis report [21s]',
   'revision-total-sd-report': "the per-claim law's TOTAL development against IBNER_TOTAL_SD's own basis, flag ON against OFF. No threshold, deliberately: nothing ships on the ON arm, so a bar would be invented rather than measured — pregame-acceptance-check's reasoning [32s]",
   'property-fit-report': 'Property fit reading; asserts nothing. Renamed from -check — and three engine comments claimed it ASSERTED the fit, now corrected [4s]',
+  'property-loss-shape-report': 'Property frequency/severity/concentration reading, and the retention split; no threshold [~5s]',
   'reinsurance-layer-report': 'layer reading; asserts nothing. Renamed from -check [41s]',
   'tower-downside-report': 'tower downside reading; asserts nothing. Renamed from -check [8s]',
   'wc-above-tower-report': 'WC above-tower report [109s]',

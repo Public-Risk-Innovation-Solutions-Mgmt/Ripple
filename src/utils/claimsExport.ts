@@ -61,6 +61,7 @@ import { PRIOR_BOUNDARY } from './actuarialMemo';
 import { MATURATION_YEARS } from './priorHistoryEngine';
 import { glSeverityCap } from './glClaimEngine';
 import { regenerateLineYearClaims, ClaimRegenerationError } from './claimRegeneration';
+import { claimEventLabel } from './yearEvents';
 import type { GameInstance } from '../types/simulation';
 
 type Row = (string | number)[];
@@ -72,6 +73,15 @@ const ENROLLED_NOTE =
   'claim-level detail for prospects is generated but discarded after year-end aggregation, so no ' +
   'prospect rows exist to filter. The Enrolled column is a real per-row membership check, kept for ' +
   'documentation and so this stays correct if that ever changes.';
+
+// THE EVENT COLUMN. What a player needs to connect a Property loss and a WC loss
+// in the same year: the event they came from. Read through claimEventLabel, so a
+// scheduled earthquake and a drawn one carry the same name — the column says an
+// event happened and which claims it made, never whether it was planned.
+const EVENT_NOTE =
+  'Event names the event a claim came from — a catastrophe, or another event that produced claims ' +
+  'across the pool — and is blank for an ordinary claim. Claims on different sheets with the same ' +
+  'Event and Accident Year came from the same event.';
 
 const PAID_NOTE =
   'Gross Paid is this claim\'s share of its accident year\'s cumulative GROSS paid — a split of the ' +
@@ -99,13 +109,14 @@ const PAID_NOTE =
   'developed one. The two documents are on different bases ON PURPOSE and each says so.';
 
 const PROPERTY_NOTE =
-  'Property claim sizes are drawn from a mixture fitted to the pool\'s own nine years of claims, and ' +
-  'claim frequency from the most recent five of them. Band is a tier label kept so Claim.tier stays ' +
-  'populated — there is ONE band, not a set. The separate weather band went with the fit (weather is ' +
-  'inside the mixture), and there is NO catastrophe band, so no catastrophe occurs in this game. The ' +
-  'shock catalog\'s one catastrophe event cannot supply one either: nothing yet puts a shock schedule ' +
-  'into a game, and that event\'s effect is not one the engine can run. Reported Year always equals ' +
-  'Accident Year: Property carries no report lag.';
+  'Property claims come from two bands. "property" claims are drawn from a mixture fitted to the ' +
+  'pool\'s own nine years of claims, one claim per occurrence (weather is inside the mixture). "cat" ' +
+  'claims come from regional catastrophe events: each event strikes one region, and every member it ' +
+  'hits loses a fixed share of its primary asset — all of one event\'s claims share one occurrence, ' +
+  'and the tower attaches to their sum. A "weather" claim comes from a scheduled non-catastrophe ' +
+  'weather event: many claims, each its OWN occurrence, none large enough to reach the retention, so ' +
+  'the pool keeps all of it. Reported Year always equals Accident Year: ' +
+  'Property carries no report lag.';
 
 function safeStr(v: unknown): string {
   return v === null || v === undefined ? '' : String(v);
@@ -298,7 +309,7 @@ function devFormats(years: number[]): (NumFmt | undefined)[] {
 // Claim ID, Occurrence ID, Member ID, Member Name, Member Type are identifiers
 // and names — text, and they must stay text. Accident Year and Calendar Year are
 // years.
-const SHARED_FORMATS: (NumFmt | undefined)[] = [TEXT, TEXT, TEXT, TEXT, TEXT, YEAR, YEAR];
+const SHARED_FORMATS: (NumFmt | undefined)[] = [TEXT, TEXT, TEXT, TEXT, TEXT, YEAR, YEAR, TEXT];
 
 const DEV_NOTE =
   'The development block at the right of this sheet is the claim\'s OCCURRENCE, joined on Occurrence ' +
@@ -329,6 +340,8 @@ interface LineClaimRow {
   claim: Claim;
   member: Member | undefined;
   enrolled: boolean;
+  /** claimEventLabel — blank for an ordinary claim. */
+  event: string;
 }
 
 // ============================================================================
@@ -410,8 +423,12 @@ function collectLineClaims(
     // or invented. Nothing here is a placeholder.
     const enrolledIds = new Set(lr.memberLossResults.map(m => m.memberId));
     const memberById = new Map(lr.memberList.map(m => [m.id, m]));
+    const occById = new Map(reg.occurrences.map(o => [o.id, o]));
     for (const claim of reg.claims) {
-      out.push({ claim, member: memberById.get(claim.memberId), enrolled: enrolledIds.has(claim.memberId) });
+      out.push({
+        claim, member: memberById.get(claim.memberId), enrolled: enrolledIds.has(claim.memberId),
+        event: claimEventLabel(claim, occById.get(claim.occurrenceId)) ?? '',
+      });
     }
   }
   return out;
@@ -707,13 +724,13 @@ function sortClaimRows(rows: LineClaimRow[]): LineClaimRow[] {
 
 const SHARED_HEADER = [
   'Claim ID', 'Occurrence ID', 'Member ID', 'Member Name', 'Member Type',
-  'Accident Year', 'Calendar Year',
+  'Accident Year', 'Calendar Year', 'Event',
 ];
 function sharedCells(row: LineClaimRow): Row {
   const { claim, member } = row;
   return [
     claim.id, claim.occurrenceId, claim.memberId, safeStr(member?.name), safeStr(member?.type),
-    claim.accidentYear, claim.calendarYear,
+    claim.accidentYear, claim.calendarYear, row.event,
   ];
 }
 
@@ -771,7 +788,7 @@ function buildWcSheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>
       ...devCells(dev.get(row.claim.occurrenceId), years),
     ];
   });
-  return [[`WC claims. ${WC_COMPONENT_NOTE} ${DEV_NOTE} ${ENROLLED_NOTE} ${PAID_NOTE} ${coverage}`], header, ...body];
+  return [[`WC claims. ${WC_COMPONENT_NOTE} ${EVENT_NOTE} ${DEV_NOTE} ${ENROLLED_NOTE} ${PAID_NOTE} ${coverage}`], header, ...body];
 }
 
 // ⚠ THE SUB-COVERAGE / LEGAL BASIS / LITIGATION STAGE / INDEMNITY / ALAE /
@@ -830,7 +847,7 @@ function buildGlSheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>
       ...devCells(dev.get(row.claim.occurrenceId), years),
     ];
   });
-  return [[`GL claims. ${GL_COMPONENT_NOTE} ${DEV_NOTE} ${ENROLLED_NOTE} ${PAID_NOTE} ${coverage}`], header, ...body];
+  return [[`GL claims. ${GL_COMPONENT_NOTE} ${EVENT_NOTE} ${DEV_NOTE} ${ENROLLED_NOTE} ${PAID_NOTE} ${coverage}`], header, ...body];
 }
 
 const PROPERTY_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
@@ -855,18 +872,18 @@ function buildPropertySheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelo
     'Status', 'Gross Incurred', 'Gross Paid',
     'Reported Year', 'Enrolled', 'Claim Description', ...devHeader(years),
   ];
-  const body = sortClaimRows(rows).map(({ claim, member, enrolled }) => {
+  const body = sortClaimRows(rows).map(row => {
+    const { claim, enrolled } = row;
     const ps = paidAndStatus(claim, view, 'Property');
     return [
-      claim.id, claim.occurrenceId, claim.memberId, safeStr(member?.name), safeStr(member?.type),
-      claim.accidentYear, claim.calendarYear,
+      ...sharedCells(row),
       claim.tier,
       ps.status, numOrBlank(claim.grossUltimate), ps.paid,
       claim.reportedYear, enrolled ? 'Yes' : 'No', safeStr(claim.description),
       ...devCells(dev.get(claim.occurrenceId), years),
     ];
   });
-  return [[PROPERTY_NOTE], [`${DEV_NOTE} ${ENROLLED_NOTE} ${PAID_NOTE} ${coverage}`], header, ...body];
+  return [[PROPERTY_NOTE], [`${EVENT_NOTE} ${DEV_NOTE} ${ENROLLED_NOTE} ${PAID_NOTE} ${coverage}`], header, ...body];
 }
 
 // ============================================================================

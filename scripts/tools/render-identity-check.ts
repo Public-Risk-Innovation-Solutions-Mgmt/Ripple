@@ -280,8 +280,34 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // who declines something, and nothing in this harness does.
 // ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 3c00873 built into its own
 // worktree and served on 4174 reproduced all 298 against the committed v13.
+// ⚠ v14 -> v15: THE PROPERTY MERGE. 140 of 298 moved. EVERY ONE CLASSIFIED
+// MECHANICALLY by diffing the text behind each hash against the text behind the
+// hash it replaced — not sampled, not eyeballed:
+//   102  VALUES ONLY, and every one of them in a configuration that CONTAINS
+//        Property. Property's frequency and severity recalibration.
+//    31  'Events This Year' added to the metric table.
+//     5  'Shock Loss Incurred' removed from it.
+//     5  'Catastrophe Factor' removed from it.
+//     4  the narrative sentence "A shock loss event occurred this year" gone.
+//     4  the new events banner, naming a drawn catastrophe and its region.
+//
+// ⚠ ZERO ROWS MOVED ON VALUES IN A CONFIGURATION WITHOUT PROPERTY. The WC-only
+// and GL-only screens that moved moved ONLY because a row was added or removed;
+// not one number on either changed. That is the same confinement value-identity
+// v50 reports from the other side (WC-solo and GL-solo bit-identical, 0 of
+// ~6000 values each), measured through a completely different instrument — the
+// rendered text a player actually sees, rather than the engine's own fields.
+// Two independent instruments agreeing is the reason this recapture is trusted.
+//
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT, as it must before any diff
+// this large is believed: b856340 built into its own worktree and served on
+// 4174 reproduced ALL 298 against the committed v14. The harness is
+// deterministic, so the 140 are real.
+//
+// ⚠ THE FLAT CHARGE AND THE RATIO PAIR DO NOT APPEAR ABOVE and their absence is
+// correct: v14 was captured at b856340, which already carried them.
 const BASELINE = process.env.RENDER_BASELINE
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v14.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v15.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

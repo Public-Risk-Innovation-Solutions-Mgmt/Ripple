@@ -478,7 +478,8 @@ export function computeKLine(members: Member[]): number {
 // ⚠ GL AND PROPERTY STAY FLAT, AND THE NEXT READER SHOULD NOT "FINISH THE JOB".
 // There is no job. Measured on the same basis, expected loss per $100 at
 // neutral RQ by member type: every one of GL's nine types reads 5.6319 and
-// every one of Property's reads 0.0962 — SPREAD 1.00x on both, CV 0.0% within
+// every one of Property's reads 0.2100 (was 0.1915 buildings-only, 0.0962
+// originally) — SPREAD 1.00x on both, CV 0.0% within
 // every category. GL is flat by an explicit decision (GL_LOSS_MODEL's note,
 // and GL_RELATIVITIES retired by name) and Property is TIV-proportional. A
 // class rate on either would have to be INVENTED rather than derived, which is
@@ -546,7 +547,15 @@ export interface WcGenerationInputs {
   // report-lag inventory. With claims reported in the year they occur there is
   // no channel for that, and a claim labelled to a prior year would still hit
   // this year's P&L — the label would be decoration. See shock #10, retargeted.
-  injections?: { count: number; amount: number }[];
+  // An EXPLICIT, region-less injection ({count, amount}) takes the original
+  // sequential 'wc_inject' path. A RANGED or REGIONAL one carries its shockId and
+  // is drawn on streams keyed on it — see the shock injections block.
+  //
+  // `recordAs` is the explicit path's shock id, stamped on its claims (Claim.
+  // shockId) WITHOUT keying any draw on it — so the explicit path's draws are
+  // exactly what they were and its claims still name the event that made them.
+  injections?: ({ count: number; amount: number; shockId?: undefined; region?: undefined; recordAs?: string }
+    | { count: number | { min: number; max: number }; amount: number | { min: number; max: number }; shockId: string; region?: Region })[];
   // Current-horizon shock multipliers on a COMPONENT'S ARRIVAL RATE. Keys are
   // component names ('large', ...) or '*' for every component. DRAW ONLY.
   componentFreqMultipliers?: Record<string, number>;
@@ -614,6 +623,7 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
     amount: number,
     accidentYear: number,
     reportedYear: number,
+    shockId?: string,
   ) => {
     const occurrenceId = `wc-occ-${id}`;
     occurrences.push({
@@ -646,6 +656,8 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
       grossUltimate: amount,
       paidToDate: 0,
       caseReserve: amount,
+      // Only an injected claim carries it — every drawn claim serialises as before.
+      ...(shockId !== undefined ? { shockId } : {}),
     });
   };
 
@@ -848,7 +860,56 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
 
     const injectedByMember = new Map<string, number>();
     let injSeq = 0;
+    const perShock = new Map<string, number>();
     for (const injection of inputs.injections) {
+      // ⚠ A RANGED OR REGIONAL INJECTION — the shape of a disaster's injuries,
+      // many claims or a handful of severe ones, each its own occurrence like
+      // every WC claim. Every draw is KEYED, none sequential: the count on
+      // `wc_inject:<id>:<n>`, claim i's member and size on `wc_inject:<id>:<n>:<i>`.
+      // It never touches the shared 'wc_inject' stream, so the original path
+      // below is bit-identical whether or not one of these is in the year.
+      //
+      // WHO: members in the event's region (all of them when none is named),
+      // in proportion to ORDINARY claim incidence — payroll x group rate —
+      // because these are ordinary injuries in number, not the heavy tail.
+      // In id order, so a roster reordering moves nothing.
+      // HOW MUCH: a ranged amount is LOG-UNIFORM — WC severity is heavily
+      // right-skewed, so the typical injury sits at the range's geometric
+      // middle. Capped at the year's ceiling like every WC claim.
+      if (injection.shockId !== undefined) {
+        const sid = injection.shockId;
+        const n = perShock.get(sid) ?? 0;
+        perShock.set(sid, n + 1);
+        const countRng = deriveSubRng(instanceSeed, yearNumber, `wc_inject:${sid}:${n}`);
+        const want = typeof injection.count === 'number'
+          ? injection.count
+          : injection.count.min + Math.floor(countRng.next() * (injection.count.max - injection.count.min + 1));
+        const pool = members
+          .filter(m => (m.exposureByLine.WC ?? 0) > 0 && (!injection.region || m.region === injection.region))
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+          .map(m => { const group = ratingGroupOf(m); return { member: m, group, weight: (m.exposureByLine.WC ?? 0) * params.ratingGroups[group].ratePer1M }; })
+          .filter(t => t.weight > 0);
+        const poolWeight = pool.reduce((t, p) => t + p.weight, 0);
+        let count = 0, gross = 0;
+        for (let i = 0; i < want && poolWeight > 0; i++) {
+          const rng = deriveSubRng(instanceSeed, yearNumber, `wc_inject:${sid}:${n}:${i}`);
+          let u = rng.next() * poolWeight;
+          let pick = pool[pool.length - 1];
+          for (const t of pool) { u -= t.weight; if (u < 0) { pick = t; break; } }
+          const raw = typeof injection.amount === 'number'
+            ? injection.amount
+            : injection.amount.min * Math.exp(rng.next() * Math.log(injection.amount.max / injection.amount.min));
+          if (!(raw > 0)) throw new Error(`WC claim injection requires a positive amount; got ${raw}`);
+          const amount = Math.min(raw, wcSeverityCap(yearNumber));
+          emit(`wc-inject-${yearNumber}-${sid.replace(/[^A-Za-z0-9]/g, '')}-${n}-${i}`, pick.member.id, pick.member.region, pick.group, 'injected', amount, yearNumber, yearNumber, sid);
+          claimCountsByGroup[pick.group] += 1;
+          injectedByMember.set(pick.member.id, (injectedByMember.get(pick.member.id) ?? 0) + amount);
+          count += 1;
+          gross += amount;
+        }
+        injectionResults.push({ count, gross });
+        continue;
+      }
       if (!(injection.amount > 0)) {
         throw new Error(`WC claim injection requires a positive explicit amount; got ${injection.amount}`);
       }
@@ -877,7 +938,7 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
         // against is. A $200M event injected in year 10 therefore lands at that
         // year's higher ceiling, not year 1's.
         const injectedAmount = Math.min(injection.amount, wcSeverityCap(yearNumber));
-        emit(id, pick.member.id, pick.member.region, pick.group, 'injected', injectedAmount, yearNumber, yearNumber);
+        emit(id, pick.member.id, pick.member.region, pick.group, 'injected', injectedAmount, yearNumber, yearNumber, injection.recordAs);
         claimCountsByGroup[pick.group] += 1;
         injectedByMember.set(pick.member.id, (injectedByMember.get(pick.member.id) ?? 0) + injectedAmount);
         count += 1;

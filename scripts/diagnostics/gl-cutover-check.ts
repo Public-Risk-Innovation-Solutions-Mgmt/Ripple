@@ -116,7 +116,8 @@ for (const id of SEEDS) {
       memberSumErr = Math.max(memberSumErr, Math.abs(mSum - gl.aggregateMemberLoss));
     } else problems.push(`${id} Y${y}: GL result carries no claims array`);
     if (wc.claims) wcClaimSumErr = Math.max(wcClaimSumErr, Math.abs(wc.claims.reduce((s, c) => s + c.grossUltimate, 0) - wc.grossUltimateLoss));
-    glShockYears.push(gl.shockLossIncurred ? 1 : 0);
+    // Read off the claims: the retired shockLossIncurred flag meant exactly this on GL.
+    glShockYears.push((gl.claims ?? []).some(c => c.grossUltimate > 1_000_000) ? 1 : 0);
     const glLR = gl.grossUltimateLoss / Math.max(gl.poolPremiumAndAdminExpense, 1);
     glGrossLR.push(glLR); seedGl.push(glLR);
     // ANALYTIC basis: this enrolled book's OWN expected GL loss, no draw noise.

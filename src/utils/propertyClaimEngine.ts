@@ -22,7 +22,10 @@
 //   - the separate WEATHER band. Weather is 21% of the non-cat book and IS IN
 //     the mixture: baking it in moves the annual CV by 0.02 (0.26 -> 0.24),
 //     which does not buy a 345-line event/zone/footprint simulator.
-//   - the CAT band. Catastrophes are shock events now.
+//   - the retired CAT band. ⚠ A NEW ONE IS BACK — see "THE CATASTROPHE BAND"
+//     in the generator below and PROPERTY_CAT_MODEL. It is not the retired
+//     design: one regional event process with a fixed loss per member hit,
+//     priced exactly, rather than per-peril hazard tables and drawn intensities.
 //
 // ⚠ SEVERITY IS NO LONGER BOUNDED BY INSURED VALUE. The old structure capped
 // each claim at its location's TIV by construction. A free-standing mixture has
@@ -32,18 +35,27 @@
 // insured-value limits applied.
 // ===========================================================================
 
-import type { Claim, CoverageLine, Member, MemberLossResult, Occurrence } from '../types/simulation';
+import type { Claim, CoverageLine, Member, MemberLossResult, Occurrence, Region } from '../types/simulation';
 import { deriveSubRng } from './random';
-import { PROPERTY_LOSS_MODEL } from '../data/defaultAssumptions';
+import { PROPERTY_CAT_EARTHQUAKE, PROPERTY_CAT_MODEL, PROPERTY_LOSS_MODEL } from '../data/defaultAssumptions';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
+import { CAT_REGIONS, catLossIfHit, expectedPropertyCatLoss, memberExpectedCatLoss } from './propertyCatastrophe';
 
 const M = PROPERTY_LOSS_MODEL;
 const LINE: CoverageLine = 'Property';
 // Exported for the same reason as WC's — see the note there.
 export const NEUTRAL_RQ = 5;
-// One band now. Kept as a tier label so Claim.tier stays populated and the
-// claims export keeps a stable column, not because a second band is pending.
+// The attritional band's tier label, kept so Claim.tier stays populated and
+// the claims export keeps a stable column.
 const BAND = 'property';
+// The catastrophe band's. A second label now that a second band exists — the
+// claims export and the tower both need to tell a cat claim from an
+// attritional one, and Occurrence.isCatastrophe is the flag the tower reads.
+export const CAT_BAND = 'cat';
+// A NON-CATASTROPHE WEATHER claim's tier. Deliberately NOT CAT_BAND: memberValue
+// pools every 'cat' claim of an occurrence before splitting it across the tower,
+// and these are ordinary claims that happen to arrive together.
+export const WEATHER_BAND = 'weather';
 
 // Risk quality scales the Poisson mean. Neutral RQ 5 is the reference, so a
 // neutral book reproduces the fitted frequency exactly.
@@ -151,12 +163,15 @@ export function propertySeverityTrend(yearNumber: number): number {
 //
 // ⚠ IT CANNOT SIMPLY BE SWITCHED ON, AND THIS IS THE PART TO READ BEFORE GIVING
 // PROPERTY A SEVERITY TREND. Property's ceiling is not only a severity
-// statement — it is STRUCTURALLY WELDED TO THE REINSURANCE TOWER in three
-// places that WC's and GL's are not:
+// statement — it is STRUCTURALLY WELDED TO THE REINSURANCE TOWER in two places
+// that WC's and GL's are not:
 //
-//   reinsuranceTower.ts   TOWER_TOP.Property IS severityCap
-//   reinsuranceTower.ts   the top layer's limit is severityCap - perRiskRetention
+//   towerMoments.ts       the layer's attritional cession is integrated to severityCap
 //   propertyAggregate.ts  the aggregate threshold falls back to severityCap
+//
+// (There were three. TOWER_TOP.Property WAS severityCap until a regional event
+// became one occurrence; it is PROPERTY_TOWER_TOP, the $1B occurrence limit,
+// now, and the layer's limit runs to it rather than to this cap.)
 //
 // So a trending Property ceiling would silently grow the purchased tower and
 // move an aggregate threshold, which is a reinsurance change wearing a severity
@@ -211,7 +226,8 @@ export interface ExpectedPropertyLossOptions {
   kPr?: number;
 }
 
-// Expected gross loss for a book, in booked (settlement-trended) dollars.
+// Expected ATTRITIONAL loss for a book, in booked (settlement-trended) dollars —
+// the fitted mixture's band alone, without the catastrophe band.
 //
 // THE IDENTITY. Frequency is per $1M of TIV and severity is independent of the
 // member, so expected loss is exactly proportional to TIV:
@@ -221,7 +237,12 @@ export interface ExpectedPropertyLossOptions {
 // Simpler than the retired form, which needed the location count to cancel out
 // of a per-location frequency times a per-location severity. Nothing cancels
 // here because nothing was introduced that had to.
-export function expectedPropertyGrossLoss(
+//
+// ⚠ THE IDENTITY IS THE ATTRITIONAL BAND'S ONLY. The cat band's expected loss
+// runs through primaryAssetShare and region, so it is NOT proportional to TIV,
+// and neither is the total. property-claim-check asserts proportionality on
+// this function, which is why it is kept separate rather than folded in.
+export function expectedPropertyAttritionalLoss(
   members: Member[],
   options: ExpectedPropertyLossOptions = {},
 ): number {
@@ -237,32 +258,54 @@ export function expectedPropertyGrossLoss(
   return total;
 }
 
+// Expected GROSS loss for a book: the attritional band plus the catastrophe
+// band. The cat term takes neither option — it has no risk-quality channel and
+// kPr does not apply to it (see PROPERTY_CAT_MODEL's "what is not applied").
+export function expectedPropertyGrossLoss(
+  members: Member[],
+  options: ExpectedPropertyLossOptions = {},
+): number {
+  return expectedPropertyAttritionalLoss(members, options) + expectedPropertyCatLoss(members);
+}
+
 // The roster/risk-quality mix correction, exactly as WC's k_line and GL's k_GL:
 // the held pure premium is derived at NEUTRAL risk quality over the full
 // roster, so a book whose actual RQ mix differs must be corrected back.
+//
+// ⚠ ATTRITIONAL ONLY. kPr multiplies the attritional frequency in the draw and
+// nothing else, so the correction it carries must be solved on the band it is
+// applied to. Solving it on the total would shrink it towards 1 by the cat
+// share and leave the attritional draw off its own price.
 export function computeKPr(members: Member[]): number {
-  const neutral = expectedPropertyGrossLoss(members, { riskQualityOverride: NEUTRAL_RQ });
-  const adjusted = expectedPropertyGrossLoss(members);
+  const neutral = expectedPropertyAttritionalLoss(members, { riskQualityOverride: NEUTRAL_RQ });
+  const adjusted = expectedPropertyAttritionalLoss(members);
   if (!(adjusted > 0)) return 1;
   return neutral / adjusted;
 }
 
-// Pure premium per $100 of TIV, NON-CAT ONLY.
-//
-// ⚠ THIS IS NOW THE WHOLE PRICE, and it did not use to be. The held pure
-// premium carried an ASSERTED cat load of 0.0247 on top of this figure; that
-// load was removed because no generator produces it and Property's cat shock
-// is gated off, so it was collected with certainty and incurred never. This
-// function and PROPERTY_HELD_PURE_PREMIUM_PER_100 now agree exactly, which is
-// asserted rather than assumed — see property-claim-check.ts.
-//
-// If a cat band arrives, the load and the losses return TOGETHER. See the
-// constant's own comment for the derivation to reinstate.
-export function deriveNeutralPropertyPurePremiumPer100(fullRoster: Member[]): number {
-  const expected = expectedPropertyGrossLoss(fullRoster, { riskQualityOverride: NEUTRAL_RQ, kPr: 1 });
+// Pure premium per $100 of TIV, BY BAND, on a full roster at neutral risk
+// quality. property-claim-check holds PROPERTY_PURE_PREMIUM_SPLIT against both
+// halves and PROPERTY_HELD_PURE_PREMIUM_PER_100 against their sum.
+export function deriveNeutralPropertyPurePremiumSplit(fullRoster: Member[]): { nonCat: number; cat: number } {
   const tivUnits = fullRoster.reduce((s, m) => s + (m.exposureByLine.Property ?? 0), 0) * 10_000;
-  if (!(tivUnits > 0)) return 0;
-  return expected / tivUnits;
+  if (!(tivUnits > 0)) return { nonCat: 0, cat: 0 };
+  return {
+    nonCat: expectedPropertyAttritionalLoss(fullRoster, { riskQualityOverride: NEUTRAL_RQ, kPr: 1 }) / tivUnits,
+    cat: expectedPropertyCatLoss(fullRoster) / tivUnits,
+  };
+}
+
+// Pure premium per $100 of TIV — THE WHOLE PRICE, both bands.
+//
+// ⚠ THE CAT LOAD IS BACK IN, TOGETHER WITH THE LOSSES, which is the only way
+// it was ever allowed back. For a while this function returned the non-cat
+// figure alone, because the asserted 0.0247 load had been removed from a line
+// that could not incur a catastrophe. The cat band now draws real events, so
+// its derived load (0.0286) returns in the same commit — see
+// PROPERTY_HELD_PURE_PREMIUM_PER_100.
+export function deriveNeutralPropertyPurePremiumPer100(fullRoster: Member[]): number {
+  const { nonCat, cat } = deriveNeutralPropertyPurePremiumSplit(fullRoster);
+  return nonCat + cat;
 }
 
 // --- the generator ----------------------------------------------------------
@@ -274,6 +317,13 @@ export interface PropertyGenerationInputs {
   instanceSeed: number;
   kPr: number;
   riskControlEffectiveness: number; // DRAW ONLY
+  // Scheduled catastrophes this year (shock effect `forceEvent`). DRAW ONLY,
+  // like every shock: the price does not see them. Absent on every unshocked
+  // year, and then nothing below reads a stream it did not read before.
+  forcedEvents?: { shockId: string; peril: string; region: Region; loss: { min: number; max: number } }[];
+  // Scheduled NON-CATASTROPHE weather events — many claims, each its own
+  // occurrence. Absent on every unscheduled year.
+  weatherEvents?: { shockId: string; peril: string; region: Region; count: { min: number; max: number }; claim: { min: number; max: number } }[];
 }
 
 export interface PropertyGenerationResult {
@@ -282,14 +332,41 @@ export interface PropertyGenerationResult {
   grossUltimateLoss: number;
   memberLossResults: MemberLossResult[];
   claimCount: number;
-  maxClaimGross: number;   // per-risk signal: largest single claim
-  perRiskBreaches: number; // claims exceeding the per-risk retention
+  maxClaimGross: number;   // per-risk signal: largest single ATTRITIONAL claim
+  perRiskBreaches: number; // attritional claims exceeding the per-risk retention
   capBindings: number;     // claims that hit severityCap — should be very rare
+  // THE CAT BAND, separately, so a harness can read it without re-deriving
+  // which claims were cat. catEvents counts events DRAWN, including any that
+  // struck a region and hit no enrolled member (those emit no occurrence).
+  catEvents: number;
+  catGrossLoss: number;
+  // One entry per forced event, in input order, for exact shock attribution.
+  // `target` is the drawn size; `gross` is what landed, which is `target`
+  // unless the region's enrolled members could not absorb it all (then every
+  // one of them was hit in full and `shortfall` is the rest).
+  forcedEventResults: { shockId: string; target: number; gross: number; claims: number; shortfall: number }[];
+  // Per scheduled weather event: claims landed and their gross. Every claim its own occurrence.
+  weatherEventResults: { shockId: string; claims: number; gross: number }[];
 }
 
 export function generatePropertyClaims(inputs: PropertyGenerationInputs): PropertyGenerationResult {
   const { members, yearNumber, calendarYear, instanceSeed, kPr, riskControlEffectiveness } = inputs;
   const rcFactor = Math.max(0, 1 - riskControlEffectiveness);
+
+  // ⚠ ACCEPTED SIMPLIFICATION, RECORDED SINCE VEHICLES WERE FOLDED IN: rcFactor
+  // discounts ONE frequency lambda that now generates both building and
+  // vehicle claims indiscriminately. Property Mitigation (roofs, water
+  // detection, wind bracing) cannot reduce a fleet's collision or theft
+  // frequency — physically, it targets none of the auto share of this line —
+  // but there is no separate auto/building split in this generator for the
+  // discount to respect, so it applies uniformly today regardless. IF the
+  // buildings-only frequency (2.81/$1B TIV) is still the building component
+  // inside the vehicle-inclusive 5.01, vehicles are ~44% of frequency
+  // ((5.01-2.81)/5.01) — a bigger share than "roughly a third", though both
+  // are the same qualitative point: a substantial share of what this line now
+  // generates is immune to the only program built to reduce it. Not fixed
+  // here — fixing it needs a real auto/building split this generator does not
+  // have.
 
   const claims: Claim[] = [];
   const occurrences: Occurrence[] = [];
@@ -306,6 +383,148 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
   const cumulative: number[] = [];
   let acc = 0;
   for (const c of M.severityMixture) { acc += c.weight; cumulative.push(acc); }
+
+  // ==========================================================================
+  // THE CATASTROPHE BAND — see PROPERTY_CAT_MODEL for the mechanism and the
+  // ruling behind each parameter.
+  //
+  // ⚠ THE EVENTS ARE DRAWN BEFORE ANY MEMBER IS LOOKED AT, FROM A STREAM THAT
+  // KNOWS NOTHING ABOUT THE BOOK. How many events, and which region each one
+  // strikes, is a fact about the year, not about who enrolled: `pr_cat_event`
+  // is keyed on the seed and year alone and the region weights are the
+  // market's. Each member then decides its own hits from its own stream,
+  // `pr_cat:<id>`, one uniform per event in event order whether or not the
+  // event is in its region — so its draw count, and therefore its hits, depend
+  // on the year's events and on nothing else. That is what keeps a member's cat
+  // claims independent of every other enrolment decision, which the retired
+  // weather band's shared within-event draws did not.
+  //
+  // Neither stream existed before, so no attritional draw moves: with no event
+  // in a year the book's claims are bit-identical to the attritional-only
+  // generator's.
+  // ==========================================================================
+  const eventRng = deriveSubRng(instanceSeed, yearNumber, 'pr_cat_event');
+  const eventCount = eventRng.poisson(PROPERTY_CAT_MODEL.eventsPerYear);
+  const eventRegions: Region[] = [];
+  for (let e = 0; e < eventCount; e++) {
+    const u = eventRng.next();
+    let cum = 0;
+    let region: Region = CAT_REGIONS[CAT_REGIONS.length - 1];
+    for (const r of CAT_REGIONS) {
+      cum += PROPERTY_CAT_MODEL.regionWeights[r as keyof typeof PROPERTY_CAT_MODEL.regionWeights];
+      if (u < cum) { region = r; break; }
+    }
+    eventRegions.push(region);
+  }
+  // EACH EVENT IS AN EARTHQUAKE OR IT IS NOT — PROPERTY_CAT_EARTHQUAKE.share,
+  // a placeholder. Its own stream, one uniform per event whether or not the
+  // event hits anyone, so no region, hit or attritional draw moves; only the
+  // occurrence's peril, and so the deductible it meets, changes. Independent
+  // of region and size, which is what the exact pricing relies on.
+  const perilRng = deriveSubRng(instanceSeed, yearNumber, 'pr_cat_peril');
+  const eventPerils: string[] = eventRegions.map(() =>
+    (perilRng.next() < PROPERTY_CAT_EARTHQUAKE.share ? PROPERTY_CAT_EARTHQUAKE.peril : CAT_BAND));
+  // Per event, the claims it produced and whom it hit — assembled into ONE
+  // occurrence per event after every member has drawn.
+  const eventClaimIds: string[][] = eventRegions.map(() => []);
+  const eventMemberIds: string[][] = eventRegions.map(() => []);
+  let catGrossLoss = 0;
+
+  // ==========================================================================
+  // FORCED CATASTROPHES — a scheduled shock's event (see ShockEffect
+  // 'forceEvent'). The same kind of event as the band's, at a stated size.
+  //
+  // THE SIZE is drawn uniformly inside the shock's range from `pr_force:<id>`.
+  // THE HIT ORDER is one uniform per member from `pr_force:<id>:<member>` — a
+  // member's place in the order is its own draw, so it does not move when an
+  // unrelated member joins or leaves. Members of the named region are hit in
+  // that order, each at the cat band's own loss-if-hit, until the event reaches
+  // its size; the member at the edge takes the partial remainder. Whether a
+  // given member is hit still depends on who else is enrolled — an event of
+  // FIXED size over a variable book cannot avoid that — but no draw of anyone
+  // else's moves, and no cat-band or attritional stream is touched.
+  //
+  // Planned here, emitted in the member loop below so each member's claims
+  // stay contiguous with the rest of its year.
+  // ==========================================================================
+  const forcedEvents = inputs.forcedEvents ?? [];
+  const forcedPlan = new Map<string, { event: number; loss: number }[]>();
+  const forcedEventResults: PropertyGenerationResult['forcedEventResults'] = [];
+  const forcedClaimIds: string[][] = forcedEvents.map(() => []);
+  const forcedMemberIds: string[][] = forcedEvents.map(() => []);
+  forcedEvents.forEach((fe, ev) => {
+    const sizeRng = deriveSubRng(instanceSeed, yearNumber, `pr_force:${fe.shockId}`);
+    const target = fe.loss.min + sizeRng.next() * (fe.loss.max - fe.loss.min);
+    const candidates = members
+      .filter(m => m.region === fe.region && catLossIfHit(m) > 0)
+      .map(m => ({ m, key: deriveSubRng(instanceSeed, yearNumber, `pr_force:${fe.shockId}:${m.id}`).next() }))
+      .sort((a, b) => (a.key - b.key) || (a.m.id < b.m.id ? -1 : a.m.id > b.m.id ? 1 : 0));
+    let landed = 0;
+    let claimsForEvent = 0;
+    for (const { m } of candidates) {
+      if (landed >= target) break;
+      const loss = Math.min(catLossIfHit(m), target - landed);
+      landed += loss;
+      claimsForEvent++;
+      const list = forcedPlan.get(m.id) ?? [];
+      list.push({ event: ev, loss });
+      forcedPlan.set(m.id, list);
+    }
+    forcedEventResults.push({
+      shockId: fe.shockId, target, gross: landed, claims: claimsForEvent, shortfall: Math.max(0, target - landed),
+    });
+  });
+  const forcedOccurrenceId = (ev: number) =>
+    `PR-${yearNumber}-SHOCK-${forcedEvents[ev].shockId.replace(/[^A-Za-z0-9]/g, '')}-${ev}`;
+
+  // ==========================================================================
+  // SCHEDULED NON-CATASTROPHE WEATHER — many claims, EACH ITS OWN OCCURRENCE.
+  //
+  // ⚠ THE SAME DOLLARS COST MORE WHEN THEY ARRIVE APART. A forced catastrophe
+  // sums its claims into one occurrence, the pool keeps $5M and the tower pays
+  // the rest. A hundred $300k claims are a hundred occurrences, none reaches the
+  // retention, and the pool keeps every dollar. Nothing here aggregates.
+  //
+  // ⚠ NOT A CATASTROPHE, AND NOT FLAGGED AS ONE. isCatastrophe stays false and
+  // the tier is WEATHER_BAND, so these book contracted like any claim, develop,
+  // and settle — they are ordinary claims that happen to have company.
+  //
+  // EVERY DRAW IS KEYED, NONE SEQUENTIAL: the count on `pr_weather:<id>`, and
+  // claim n's member and size on `pr_weather:<id>:<n>` — so claim n is the same
+  // whatever the count, and no cat-band, attritional or forced-event stream is
+  // touched. The member is drawn in proportion to insured value from the
+  // region's enrolled book IN id ORDER, so a roster reordering moves nothing;
+  // who is enrolled still decides who CAN be hit, as for a forced event.
+  // ==========================================================================
+  const weatherEvents = inputs.weatherEvents ?? [];
+  const weatherPlan = new Map<string, { event: number; n: number; loss: number }[]>();
+  const weatherEventResults: { shockId: string; claims: number; gross: number }[] = [];
+  weatherEvents.forEach((we, ev) => {
+    const countRng = deriveSubRng(instanceSeed, yearNumber, `pr_weather:${we.shockId}`);
+    const count = we.count.min + Math.floor(countRng.next() * (we.count.max - we.count.min + 1));
+    const book = members
+      .filter(m => m.region === we.region && (m.exposureByLine.Property ?? 0) > 0)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const totalTiv = book.reduce((t, m) => t + (m.exposureByLine.Property ?? 0), 0);
+    let gross = 0, landed = 0;
+    if (totalTiv > 0) {
+      for (let n = 0; n < count; n++) {
+        const rng = deriveSubRng(instanceSeed, yearNumber, `pr_weather:${we.shockId}:${n}`);
+        let u = rng.next() * totalTiv;
+        let pick = book[book.length - 1];
+        for (const m of book) { u -= m.exposureByLine.Property ?? 0; if (u < 0) { pick = m; break; } }
+        const loss = we.claim.min + rng.next() * (we.claim.max - we.claim.min);
+        const list = weatherPlan.get(pick.id) ?? [];
+        list.push({ event: ev, n, loss });
+        weatherPlan.set(pick.id, list);
+        gross += loss;
+        landed++;
+      }
+    }
+    weatherEventResults.push({ shockId: we.shockId, claims: landed, gross });
+  });
+  const weatherOccurrenceId = (ev: number, n: number) =>
+    `PR-${yearNumber}-SHOCK-${weatherEvents[ev].shockId.replace(/[^A-Za-z0-9]/g, '')}-${ev}-${n}`;
 
   for (const member of members) {
     // PER-MEMBER STREAMS, KEYED ON member.id — unchanged from the retired
@@ -376,9 +595,8 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
           caseReserve: gross,
           paymentPattern: [...M.payoutPattern],
         });
-        // One claim per occurrence. With the weather band gone there is no
-        // structure that makes one event own several claims; if a cat band
-        // arrives it is what will.
+        // One claim per occurrence — for the ATTRITIONAL band. The cat band
+        // below is what makes one event own several claims.
         occurrences.push({
           id: occurrenceId,
           line: LINE,
@@ -399,6 +617,108 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
       }
     }
 
+    // THIS MEMBER'S CAT HITS. A fixed loss when hit — no severity draw, no
+    // cap, no kPr, no risk control; see PROPERTY_CAT_MODEL for why each is
+    // absent. The claim joins the EVENT's occurrence, not one of its own.
+    if (eventCount > 0) {
+      const lossIfHit = catLossIfHit(member);
+      const catRng = deriveSubRng(instanceSeed, yearNumber, `pr_cat:${member.id}`);
+      for (let e = 0; e < eventCount; e++) {
+        const u = catRng.next();
+        if (!(lossIfHit > 0) || member.region !== eventRegions[e]) continue;
+        if (u >= PROPERTY_CAT_MODEL.footprint) continue;
+        const occurrenceId = `PR-${yearNumber}-CAT-${e}`;
+        const claimId = `${occurrenceId}-${member.id}`;
+        claims.push({
+          id: claimId,
+          occurrenceId,
+          memberId: member.id,
+          line: LINE,
+          accidentYear: yearNumber,
+          calendarYear,
+          tier: CAT_BAND,
+          status: 'open',
+          reportedYear: yearNumber,
+          grossUltimate: lossIfHit,
+          paidToDate: 0,
+          caseReserve: lossIfHit,
+          paymentPattern: [...M.payoutPattern],
+        });
+        eventClaimIds[e].push(claimId);
+        eventMemberIds[e].push(member.id);
+        memberLoss += lossIfHit;
+        grossUltimateLoss += lossIfHit;
+        catGrossLoss += lossIfHit;
+        claimCount++;
+      }
+    }
+
+    // THIS MEMBER'S SHARE OF ANY FORCED CATASTROPHE — planned above. A cat
+    // claim like the band's own: tier 'cat', joining the event's occurrence.
+    for (const { event, loss } of forcedPlan.get(member.id) ?? []) {
+      const occurrenceId = forcedOccurrenceId(event);
+      const claimId = `${occurrenceId}-${member.id}`;
+      claims.push({
+        id: claimId,
+        occurrenceId,
+        memberId: member.id,
+        line: LINE,
+        accidentYear: yearNumber,
+        calendarYear,
+        tier: CAT_BAND,
+        status: 'open',
+        reportedYear: yearNumber,
+        grossUltimate: loss,
+        paidToDate: 0,
+        caseReserve: loss,
+        paymentPattern: [...M.payoutPattern],
+        shockId: forcedEvents[event].shockId,
+      });
+      forcedClaimIds[event].push(claimId);
+      forcedMemberIds[event].push(member.id);
+      memberLoss += loss;
+      grossUltimateLoss += loss;
+      claimCount++;
+    }
+
+    // THIS MEMBER'S CLAIMS FROM ANY SCHEDULED WEATHER EVENT — planned above.
+    // Each is its own occurrence, emitted with it; not a catastrophe.
+    for (const { event, n, loss } of weatherPlan.get(member.id) ?? []) {
+      const occurrenceId = weatherOccurrenceId(event, n);
+      const claimId = `${occurrenceId}-${member.id}`;
+      claims.push({
+        id: claimId,
+        occurrenceId,
+        memberId: member.id,
+        line: LINE,
+        accidentYear: yearNumber,
+        calendarYear,
+        tier: WEATHER_BAND,
+        status: 'open',
+        reportedYear: yearNumber,
+        grossUltimate: loss,
+        paidToDate: 0,
+        caseReserve: loss,
+        shockId: weatherEvents[event].shockId,
+        paymentPattern: [...M.payoutPattern],
+      });
+      occurrences.push({
+        id: occurrenceId,
+        line: LINE,
+        memberId: member.id,
+        memberIds: [member.id],
+        accidentYear: yearNumber,
+        calendarYear,
+        region: weatherEvents[event].region,
+        isCatastrophe: false,
+        claimIds: [claimId],
+        peril: weatherEvents[event].peril,
+      });
+      memberLoss += loss;
+      grossUltimateLoss += loss;
+      claimCount++;
+    }
+
     // PER CLAIM, over the claims this member just generated. Property is not
     // RATED on experience (its measured primary-layer credibility is 0.000 —
     // see memberExperienceMod.ts), but the figure is recorded anyway so the
@@ -410,17 +730,62 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
       memberName: member.name,
       exposure: tiv,
       riskQuality: member.riskQuality,
-      expectedLoss: expectedPropertyGrossLoss([member], { kPr }),
-      // THE MANUAL: same call, same k — risk quality alone overridden.
-      expectedLossAtManual: expectedPropertyGrossLoss(
+      // BOTH BANDS. The member's cat expectation is its own share of the
+      // event process (events x P(its region) x footprint x loss-if-hit), which
+      // is additive over members — nobody else's enrolment moves it.
+      expectedLoss: expectedPropertyAttritionalLoss([member], { kPr }) + memberExpectedCatLoss(member),
+      // THE MANUAL: same call, same k — risk quality alone overridden. The cat
+      // term has no RQ channel, so it is the same on both.
+      expectedLossAtManual: expectedPropertyAttritionalLoss(
         [member], { kPr, riskQualityOverride: NEUTRAL_RQ },
-      ),
+      ) + memberExpectedCatLoss(member),
       primaryLoss,
       coefficientOfVariation: 0,
       standardDeviation: 0,
       simulatedLoss: memberLoss,
     });
   }
+
+  // ONE OCCURRENCE PER EVENT, with every hit member's claim in it — the unit the
+  // tower attaches to. An event that hit nobody enrolled produced no claim
+  // and emits no occurrence. memberId is set only when exactly one member was
+  // hit: the Occurrence type makes it optional precisely so a multi-member
+  // event cannot be silently attributed to one of them.
+  eventRegions.forEach((region, e) => {
+    if (eventClaimIds[e].length === 0) return;
+    occurrences.push({
+      id: `PR-${yearNumber}-CAT-${e}`,
+      line: LINE,
+      ...(eventMemberIds[e].length === 1 ? { memberId: eventMemberIds[e][0] } : {}),
+      memberIds: eventMemberIds[e],
+      accidentYear: yearNumber,
+      calendarYear,
+      region,
+      isCatastrophe: true,
+      claimIds: eventClaimIds[e],
+      peril: eventPerils[e],
+    });
+  });
+
+  // One occurrence per forced event, exactly as for the band's own events —
+  // flagged as a catastrophe so it is booked at full and held there. `peril`
+  // names the scheduled peril — #2's earthquake meets the same $10M deductible
+  // a drawn earthquake does.
+  forcedEvents.forEach((fe, ev) => {
+    if (forcedClaimIds[ev].length === 0) return;
+    occurrences.push({
+      id: forcedOccurrenceId(ev),
+      line: LINE,
+      ...(forcedMemberIds[ev].length === 1 ? { memberId: forcedMemberIds[ev][0] } : {}),
+      memberIds: forcedMemberIds[ev],
+      accidentYear: yearNumber,
+      calendarYear,
+      region: fe.region,
+      isCatastrophe: true,
+      claimIds: forcedClaimIds[ev],
+      peril: fe.peril,
+    });
+  });
 
   return {
     claims,
@@ -431,6 +796,10 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
     maxClaimGross,
     perRiskBreaches,
     capBindings,
+    catEvents: eventCount,
+    catGrossLoss,
+    forcedEventResults,
+    weatherEventResults,
   };
 }
 

@@ -18,6 +18,7 @@
 import {
   AGG_ATTACHMENT_LEVELS,
   AGG_LIMIT_MULTIPLE,
+  PROPERTY_PERIL_DEDUCTIBLE,
   REINSURANCE_TOWER,
   RISK_LOAD_LAMBDA,
   TOWER_TOP,
@@ -62,6 +63,33 @@ export function occurrenceTotals(claims: Claim[], occurrences: Occurrence[]): nu
 export const cedeToLayer = (total: number, attachment: number, limit: number) =>
   Math.max(0, Math.min(total - attachment, limit));
 
+// What a layer cedes on an occurrence that retains `deductible` before the
+// tower responds. The layer covers [max(attachment, deductible), its top), so a
+// deductible at or below the attachment changes nothing — the arithmetic is then
+// EXACTLY cedeToLayer(total, attachment, limit) — and one at or above the top
+// cedes nothing through it.
+export function cedeAbove(total: number, layer: { attachment: number; limit: number }, deductible: number): number {
+  const top = layer.attachment + layer.limit;
+  if (!(deductible > layer.attachment)) return cedeToLayer(total, layer.attachment, layer.limit);
+  return deductible >= top ? 0 : cedeToLayer(total, deductible, top - deductible);
+}
+
+// The deductible each occurrence retains, index-aligned to the occurrences.
+// Property reads PROPERTY_PERIL_DEDUCTIBLE by the occurrence's peril; anything
+// unlisted, and every WC and GL occurrence, gets 0 — "no deductible beyond the
+// layers' own attachments", which cedeAbove treats as exactly the old cession.
+export function occurrenceDeductibles(line: TowerLine, occurrences: readonly Occurrence[]): number[] {
+  if (line !== 'Property') return occurrences.map(() => 0);
+  return occurrences.map(o => (o.peril !== undefined ? PROPERTY_PERIL_DEDUCTIBLE[o.peril] ?? 0 : 0));
+}
+
+// The kind of each occurrence, index-aligned to occurrenceTotals' output. The
+// TOWER does not read it — every layer answers every occurrence — but booking
+// and development do: a catastrophe is booked at its drawn total and held there
+// (see bookedOccurrenceTotals in simulationEngine).
+export const occurrenceKinds = (occurrences: Occurrence[]): boolean[] =>
+  occurrences.map(o => o.isCatastrophe === true);
+
 export interface OccurrenceCession {
   cededByLayer: number[];   // index-aligned to REINSURANCE_TOWER[line]
   totalCeded: number;
@@ -70,27 +98,31 @@ export interface OccurrenceCession {
 }
 
 // Apply the tower to one year's occurrences. `placed[i]` false = that band is
-// retained.
+// retained. Every layer answers every occurrence, a Property catastrophe
+// included. `deductibles[j]`, when given, is occurrence j's peril deductible
+// (occurrenceDeductibles); absent or 0 is the layers' own attachments.
 export function cedeOccurrences(
   line: TowerLine,
   totals: number[],
   placed: boolean[],
+  deductibles?: readonly number[],
 ): OccurrenceCession {
   const layers = REINSURANCE_TOWER[line];
   const cededByLayer = layers.map(() => 0);
   let totalCeded = 0, gross = 0, retainedAboveTower = 0;
-  for (const t of totals) {
+  totals.forEach((t, j) => {
     gross += t;
+    const d = deductibles?.[j] ?? 0;
     layers.forEach((l, i) => {
       // A layer that is not purchasable cannot be placed even if the flag says
       // so — belt and braces against a stale save or a hand-edited decision.
       if (!placed[i] || !l.purchasable) return;
-      const c = cedeToLayer(t, l.attachment, l.limit);
+      const c = cedeAbove(t, l, d);
       cededByLayer[i] += c;
       totalCeded += c;
     });
     retainedAboveTower += Math.max(0, t - TOWER_TOP[line]);
-  }
+  });
   return { cededByLayer, totalCeded, retained: gross - totalCeded, retainedAboveTower };
 }
 
@@ -282,13 +314,14 @@ export function quoteAggregate(
   termsRetained?: number,
 ): AggregateQuote {
   if (line === 'Property') {
-    // ONE moment pass for the (single) layer, at neutral basis — same role as
-    // WC's layerMoms below, feeding expectedRetained = expectedGrossLoss minus
-    // what the occurrence layer cedes.
+    // ONE moment pass — same role as WC's layerMoms below, feeding
+    // expectedRetained = expectedGrossLoss minus what the PLACED layer cedes.
+    // The layer's cession is the fitted mixture's plus the exact event
+    // distribution's (towerMoments, layerRiskMomentsFor).
     const layerMoms = allLayerRiskMoments('Property', members, yearNumber);
     return quotePropertyAggregate(
       placed, members, expectedGrossLoss, level,
-      AGG_ATTACHMENT_LEVELS.Property, layerMoms[0].expected, termsRetained,
+      AGG_ATTACHMENT_LEVELS.Property, layerMoms.map(m => m.expected), termsRetained,
     );
   }
 
@@ -406,5 +439,6 @@ export function normalizeAggregateStopLevel(
 ): number {
   if (!(requested >= 0)) return -1;
   if (line !== 'WC' && line !== 'Property') return requested;
-  return placedNormalized.some(Boolean) ? requested : -1;
+  const layers = REINSURANCE_TOWER[line];
+  return placedNormalized.some((on, i) => on && layers[i] !== undefined) ? requested : -1;
 }

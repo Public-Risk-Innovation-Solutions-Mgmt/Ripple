@@ -30,17 +30,26 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { regenerateLineYearClaims } from '../../src/utils/claimRegeneration';
+import { packSave, unpackSave } from '../../src/utils/gameSave';
+import { buildTeamGame, replayTeamYears } from '../../src/session/client/buildGame';
+import { decisionsToJson } from '../../src/session/client/decisions';
+import { drawShockSchedule, drawableShocks, shockDrawCount } from '../../src/session/shockDraw';
 import { resolveShocks, ownFreqMultipliers, ownComponentFreqMultipliers, ownSevMultipliers } from '../../src/utils/shockResolver';
 import { WHOLE_LINE } from '../../src/utils/shockEffects';
 import { computeKGl, expectedGlGrossLossForPricing, generateGlClaims } from '../../src/utils/glClaimEngine';
 import { computeKLine, componentMean, expectedWcGrossLossForPricing, generateWcClaims } from '../../src/utils/wcClaimEngine';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import type { Member } from '../../src/types/simulation';
-import { SHOCK_CATALOG } from '../../src/data/shockCatalog';
+import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
+import { cedeAbove } from '../../src/utils/reinsuranceTower';
+import { SHOCK_CATALOG, validateShockDefinition } from '../../src/data/shockCatalog';
+import { claimEventLabel, drawnEventName, eventLabel, eventSentence, yearEvents } from '../../src/utils/yearEvents';
+import { PROPERTY_CAT_EARTHQUAKE } from '../../src/data/defaultAssumptions';
 import { buildResultsWorkbook } from '../../src/utils/resultsExport';
 import { RESULT_METRICS } from '../../src/utils/resultMetrics';
-import type { CoverageLine, GameInstance, GameState, LineResultSet, ResultSet } from '../../src/types/simulation';
-import type { ScheduledShock } from '../../src/types/shocks';
+import type { CoverageLine, DecisionSet, GameInstance, GameState, LineResultSet, Region, ResultSet } from '../../src/types/simulation';
+import type { ScheduledShock, ShockDefinition } from '../../src/types/shocks';
 
 const problems: string[] = [];
 const note = (ok: boolean, msg: string) => { if (!ok) problems.push(msg); return ok ? 'OK' : 'FAIL'; };
@@ -56,6 +65,34 @@ function seedOf(id: string) {
 
 // Plays a real game through the real engine. `shocks` undefined leaves the
 // instance field ABSENT; an array sets it, empty or not.
+// THE SAME GAME FROM A CACHED PRE-GAME. A schedule can only name year 1 or
+// later (the constructor rejects year 0), so the pre-game history is the same
+// whatever is scheduled — and building it is most of a short game's cost.
+// Section 10 plays thirteen events on three seeds from one cached pre-game per
+// seed, cloned for each game; section 10 asserts the pre-game really is
+// schedule-independent, and its replay check still builds every game fresh.
+const PREGAME = new Map<string, ReturnType<typeof runPriorHistory>>();
+function pregame(id: string, years: number, instance: GameInstance) {
+  const setup = { poolName: 'G', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES };
+  const key = `${id}|${years}`;
+  if (!PREGAME.has(key)) PREGAME.set(key, runPriorHistory(instance, setup as never));
+  return { setup, ...structuredClone(PREGAME.get(key)!) };
+}
+function playCached(id: string, years: number, shocks: ScheduledShock[]): ResultSet[] {
+  const base = generateGameInstance(id, seedOf(id));
+  const instance: GameInstance = { ...base, scheduledShocks: shocks };
+  const { setup, poolState, priorHistory } = pregame(id, years, base);
+  let gs: GameState = {
+    setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
+    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
+  };
+  for (let y = 1; y <= years; y++) {
+    const p = processYear(gs, defaultDecisionSet(y));
+    gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
+  }
+  return gs.lockedResults;
+}
+
 function play(id: string, years: number, shocks?: ScheduledShock[]): ResultSet[] {
   const base = generateGameInstance(id, seedOf(id));
   const instance: GameInstance = shocks === undefined ? base : { ...base, scheduledShocks: shocks };
@@ -151,10 +188,23 @@ console.log('\n--- 2. resolver contract ---');
   console.log(`  #10 in Y3, asked for Y2 -> ${resolveShocks(future, 2) === undefined ? 'undefined' : 'RESOLUTION'}  ${note(resolveShocks(future, 2) === undefined, 'a future-horizon shock applies before its own year')}`);
 
   // An unimplemented effect must THROW, not be silently skipped.
-  const blocked = { ...base, scheduledShocks: [{ shockId: '#2', yearNumber: 1 }] };
+  //
+  // ⚠ THIS USED #2, AND #2 IS EXECUTABLE NOW — the Property cat band gave its
+  // forceEvent something to force. No catalog row carries an unimplemented kind
+  // any more, so the guarantee is exercised with a TEMPORARY row carrying one
+  // (investmentShock), removed again at once. Dropping the assertion because
+  // the catalog stopped exercising it would leave the guarantee untested.
+  SHOCK_CATALOG['#TEST-UNIMPLEMENTED'] = {
+    id: '#TEST-UNIMPLEMENTED', name: 'test', eventName: 'test', horizon: 'current', band: 'moderate', description: 'test',
+    effects: [{ kind: 'investmentShock', assetClass: 'equities', returnDelta: -0.2 }],
+  };
   let threw = false;
-  try { resolveShocks(blocked, 1); } catch { threw = true; }
-  console.log(`  #2 (forceEvent, unimplemented) throws: ${note(threw, '#2 does not throw — an unimplemented effect is being silently skipped')}`);
+  try { resolveShocks({ ...base, scheduledShocks: [{ shockId: '#TEST-UNIMPLEMENTED', yearNumber: 1 }] }, 1); } catch { threw = true; }
+  delete SHOCK_CATALOG['#TEST-UNIMPLEMENTED'];
+  console.log(`  an unimplemented effect (investmentShock) throws: ${note(threw, 'an unimplemented effect is being silently skipped')}`);
+  let twoThrew = false;
+  try { resolveShocks({ ...base, scheduledShocks: [{ shockId: '#2', yearNumber: 1 }] }, 1); } catch { twoThrew = true; }
+  console.log(`  #2 resolves now that forceEvent is implemented: ${note(!twoThrew, '#2 still throws — forceEvent is not in IMPLEMENTED_EFFECTS')}`);
   let unknownThrew = false;
   try { resolveShocks({ ...base, scheduledShocks: [{ shockId: '#999', yearNumber: 1 }] }, 1); } catch { unknownThrew = true; }
   console.log(`  unknown shock id throws: ${note(unknownThrew, 'an unknown shock id is silently ignored')}`);
@@ -169,7 +219,7 @@ console.log('\n--- 3. catalog ---');
     console.log(`    ${def.id.padEnd(5)} ${def.band.padEnd(8)} ${def.horizon.padEnd(7)} ${def.name}`);
     for (const e of def.effects) console.log(`          - ${e.kind}${'line' in e ? ` (${e.line})` : ''}`);
   }
-  console.log(`  paramOverride paths validated against the real models at module load (shockCatalog.ts)`);
+  console.log(`  every row validated at module load by validateShockDefinition (shockCatalog.ts)`);
 }
 
 console.log('\n--- 4. recording surface ---');
@@ -638,6 +688,421 @@ console.log('\n--- 9. #19 Social Inflation Hard Market — the first sevMultipli
   console.log(`    Y2-Y5 ALL moved — the ratchet does not unwind: ${note(moved[1] && moved[2] && moved[3] && moved[4], '#19 does not persist after its firing year — a future-horizon ratchet must apply every subsequent year')}`);
   console.log(`    (a hard market leaves the severity LEVEL higher; Swiss Re's index has been above zero`);
   console.log(`     every year since 2014. A one-year spike would be the wrong physics — see types/shocks.ts.)`);
+}
+
+// ============================================================================
+// 10. EVERY EVENT THAT LANDS CLAIMS — fires once, lands where it says, in the
+// shape it says, line by line.
+//
+// ONE TABLE, WRITTEN HERE BY HAND from each catalog row's stated ranges, so the
+// gate is an independent statement of them rather than a read-back of the
+// catalog: a row edited without this table fails. Four kinds of shape, one per
+// path an event can take:
+//   cat      a forced catastrophe — ONE occurrence, flagged, every claim in the
+//            region, gross in range, and the tower's extra recovery exactly
+//            what the layer cedes above the peril's retention.
+//   weather  many Property claims — each its own non-catastrophe occurrence,
+//            in the region, count and size in range, the tower silent.
+//   inject   WC or GL claims — tier 'injected', each its own occurrence, count
+//            and size in range, in the region where the row names one.
+// And for every event: it fires in its own year and no other, only the lines
+// it names move, every claim that is NOT the event's is bit-identical to the
+// unshocked game, it replays identically, and a reloaded year redraws it.
+// The firing-year results are kept for section 12, which reads them rather
+// than replaying.
+// ============================================================================
+type Shape =
+  | { kind: 'cat'; region: Region; loss: [number, number]; retains: number }
+  | { kind: 'weather'; region: Region; n: [number, number]; amt: [number, number] }
+  | { kind: 'inject'; line: 'WC' | 'GL'; n: [number, number]; amt: [number, number]; region?: Region };
+const shapeLine = (sh: Shape): CoverageLine => (sh.kind === 'inject' ? sh.line : 'Property');
+const EVENT_SHAPES: Record<string, Shape[]> = {
+  '#2': [
+    { kind: 'cat', region: 'Central', loss: [25e6, 100e6], retains: 10e6 },
+    { kind: 'inject', line: 'WC', n: [30, 60], amt: [20e3, 300e3], region: 'Central' },
+  ],
+  'WILDFIRE': [
+    { kind: 'cat', region: 'North', loss: [25e6, 100e6], retains: 5e6 },
+    { kind: 'inject', line: 'WC', n: [3, 6], amt: [300e3, 2.5e6], region: 'North' },
+  ],
+  'WINTER-STORM': [{ kind: 'weather', region: 'North', n: [80, 120], amt: [100e3, 500e3] }],
+  'WATER-CONTAMINATION': [{ kind: 'inject', line: 'GL', n: [2, 5], amt: [5e6, 10e6] }],
+  '#4': [{ kind: 'cat', region: 'South', loss: [10e6, 50e6], retains: 5e6 }],
+  '#6': [{ kind: 'weather', region: 'Central', n: [100, 200], amt: [20e3, 150e3] }],
+  '#15': [{ kind: 'inject', line: 'WC', n: [1, 1], amt: [12e6, 20e6] }],
+  '#21': [{ kind: 'inject', line: 'GL', n: [1, 1], amt: [25e6, 60e6] }],
+  '#25': [{ kind: 'inject', line: 'GL', n: [20, 50], amt: [100e3, 1e6] }],
+  '#26': [{ kind: 'inject', line: 'GL', n: [1, 1], amt: [15e6, 25e6] }],
+  '#5': [
+    { kind: 'cat', region: 'North', loss: [5e6, 20e6], retains: 5e6 },
+    { kind: 'inject', line: 'WC', n: [10, 25], amt: [20e3, 400e3], region: 'North' },
+    { kind: 'inject', line: 'GL', n: [3, 8], amt: [250e3, 3e6] },
+  ],
+  '#7': [
+    { kind: 'cat', region: 'Central', loss: [5e6, 15e6], retains: 5e6 },
+    { kind: 'inject', line: 'WC', n: [2, 5], amt: [50e3, 750e3], region: 'Central' },
+    { kind: 'inject', line: 'GL', n: [25, 60], amt: [25e3, 300e3] },
+  ],
+  '#8': [
+    { kind: 'weather', region: 'South', n: [30, 60], amt: [20e3, 200e3] },
+    { kind: 'inject', line: 'WC', n: [40, 80], amt: [5e3, 80e3], region: 'South' },
+    { kind: 'inject', line: 'GL', n: [1, 3], amt: [1e6, 5e6] },
+  ],
+};
+// `${seed}|${shockId}` -> the firing year's result, for section 12.
+const FIRED = new Map<string, ResultSet>();
+// YEAR 2, AND THE GAME STOPS THERE. Year 1 is the "nothing moves before it"
+// check; that a current-horizon event does not fire AFTER its year is the
+// resolver's rule, asserted in section 3 (#22 in Y3, asked for Y4). Playing a
+// year past it here cost a quarter of this gate's runtime for a fact proved
+// elsewhere, and thirteen events put the gate over the fast tier's bound.
+const FIRE_YEAR = 2;
+console.log('\n--- 10. every event that lands claims: once, where it says, in the shape it says ---');
+{
+  const FIRE = FIRE_YEAR;
+  const YEARS = FIRE;
+  const within = (x: number, [lo, hi]: [number, number]) => x >= lo - 1e-6 && x <= hi + 1e-6;
+  const span = (xs: number[]) => xs.length ? `${fmt$(Math.min(...xs))}-${fmt$(Math.max(...xs))}` : '-';
+  const cleanBySeed = new Map(SEEDS.map(id => [id, playCached(id, YEARS, [])]));
+  // The cache's premise, checked rather than assumed: the pre-game a schedule
+  // builds is the pre-game an empty one does.
+  {
+    const withShock = { ...generateGameInstance(SEEDS[0], seedOf(SEEDS[0])), scheduledShocks: [{ shockId: '#5', yearNumber: FIRE }] };
+    const setup = { poolName: 'G', gameLength: YEARS, startingYear: 2026, instanceId: SEEDS[0], activeLines: LINES };
+    const fresh = runPriorHistory(withShock, setup as never);
+    const cached = pregame(SEEDS[0], YEARS, generateGameInstance(SEEDS[0], seedOf(SEEDS[0])));
+    console.log(`  a scheduled event leaves the pre-game untouched (the cache's premise): ${note(
+      JSON.stringify(fresh.priorHistory) === JSON.stringify(cached.priorHistory)
+        && JSON.stringify(fresh.poolState) === JSON.stringify(cached.poolState),
+      'the pre-game depends on the schedule — the cached games are not the real ones')}`);
+  }
+  // Every CURRENT-horizon row that lands claims is in the table, and nothing
+  // else. #10, the one future-horizon row that lands claims, persists past its
+  // year by design and is covered by its own section above.
+  const landsClaims = Object.values(SHOCK_CATALOG)
+    .filter(d => d.horizon === 'current'
+      && d.effects.some(e => e.kind === 'forceEvent' || e.kind === 'weatherEvent' || e.kind === 'injectClaim'))
+    .map(d => d.id).sort();
+  console.log(`  the table covers every current-horizon catalog row that lands claims (${landsClaims.length}): ${note(
+    JSON.stringify(landsClaims) === JSON.stringify(Object.keys(EVENT_SHAPES).sort()),
+    `table ${Object.keys(EVENT_SHAPES).sort().join(',')} vs catalog ${landsClaims.join(',')}`)}`);
+  for (const [evId, shapes] of Object.entries(EVENT_SHAPES)) {
+    const lines = [...new Set(shapes.map(shapeLine))];
+    let fireOk = true, linesOk = true, sizeOk = true, naturalOk = true, reproOk = true, regenOk = true;
+    const sizes: string[] = [];
+    const fails: string[] = [];
+    for (const id of SEEDS) {
+      const clean = cleanBySeed.get(id)!;
+      const shocked = playCached(id, YEARS, [{ shockId: evId, yearNumber: FIRE }]);
+      shocked.forEach((r, i) => {
+        const fired = (r.shockEvents ?? []).some(e => e.shockId === evId);
+        if (fired !== (i === FIRE - 1)) fireOk = false;
+      });
+      const r3 = shocked[FIRE - 1], c3 = clean[FIRE - 1];
+      FIRED.set(`${id}|${evId}`, r3);
+      for (const l of LINES) {
+        const moved = r3.byLine[l]!.grossUltimateLoss !== c3.byLine[l]!.grossUltimateLoss;
+        if (moved !== lines.includes(l)) linesOk = false;
+        for (let i = 0; i < FIRE - 1; i++) if (shocked[i].byLine[l]!.grossUltimateLoss !== clean[i].byLine[l]!.grossUltimateLoss) linesOk = false;
+        // THE NATURAL BOOK UNTOUCHED — every claim that is not the event's.
+        const a = (c3.byLine[l]!.claims ?? []).map(c => `${c.id}:${c.grossUltimate}`).join('|');
+        const b = (r3.byLine[l]!.claims ?? []).filter(c => c.shockId !== evId).map(c => `${c.id}:${c.grossUltimate}`).join('|');
+        if (a !== b) naturalOk = false;
+      }
+      const seedSizes: string[] = [];
+      for (const sh of shapes) {
+        const l = shapeLine(sh);
+        const lr = r3.byLine[l]!, lc = c3.byLine[l]!;
+        const mine = (lr.claims ?? []).filter(c => c.shockId === evId);
+        const occ = new Map((lr.occurrences ?? []).map(o => [o.id, o]));
+        const region = new Map((lr.memberList ?? []).map(m => [m.id, m.region]));
+        const bad = (why: string) => { sizeOk = false; fails.push(`${id} ${l}: ${why}`); };
+        if (sh.kind === 'cat') {
+          const occs = new Set(mine.map(c => c.occurrenceId));
+          const g = mine.reduce((t, c) => t + c.grossUltimate, 0);
+          const o = occ.get([...occs][0] ?? '');
+          if (occs.size !== 1 || !o?.isCatastrophe) bad('not one catastrophe occurrence');
+          if (!within(g, sh.loss)) bad(`gross ${fmt$(g)} outside ${span(sh.loss)}`);
+          if (mine.some(c => region.get(c.memberId) !== sh.region)) bad(`a claim outside ${sh.region}`);
+          const layer = REINSURANCE_TOWER.Property[0];
+          const ded = PROPERTY_PERIL_DEDUCTIBLE[o?.peril ?? ''] ?? 0;
+          if (Math.max(ded, layer.attachment) !== sh.retains) bad(`retains ${fmt$(Math.max(ded, layer.attachment))}, not ${fmt$(sh.retains)}`);
+          const extra = lr.reinsuranceRecovery - lc.reinsuranceRecovery;
+          const want = cedeAbove(g, layer, ded);
+          if (Math.abs(extra - want) > 1e-6 * Math.max(1, g)) bad(`recovery +${fmt$(extra)}, expected ${fmt$(want)}`);
+          seedSizes.push(`PR ${fmt$(g)} on ${mine.length} (ceded ${fmt$(extra)})`);
+        } else {
+          const nOk = mine.length >= sh.n[0] && mine.length <= sh.n[1];
+          if (!nOk) bad(`${mine.length} claims, outside ${sh.n[0]}-${sh.n[1]}`);
+          if (!mine.every(c => within(c.grossUltimate, sh.amt))) bad(`a claim outside ${span(sh.amt)}`);
+          if (sh.region && mine.some(c => region.get(c.memberId) !== sh.region)) bad(`a claim outside ${sh.region}`);
+          if (!mine.every(c => { const o = occ.get(c.occurrenceId); return !!o && o.claimIds.length === 1 && o.isCatastrophe === false; })) bad('a claim not its own non-catastrophe occurrence');
+          if (new Set(mine.map(c => c.occurrenceId)).size !== mine.length) bad('two claims share an occurrence');
+          if (sh.kind === 'weather' && !mine.every(c => c.tier === 'weather')) bad('a weather claim of another tier');
+          if (sh.kind === 'inject' && !mine.every(c => c.tier === 'injected')) bad('an injected claim of another tier');
+          const extra = lr.reinsuranceRecovery - lc.reinsuranceRecovery;
+          // The weather path never reaches the retention, so its tower is silent.
+          if (sh.kind === 'weather' && extra !== 0) bad(`the tower recovered ${fmt$(extra)} on weather claims`);
+          seedSizes.push(`${l === 'Property' ? 'PR' : l} ${mine.length} x ${span(mine.map(c => c.grossUltimate))}${extra !== 0 ? ` (ceded ${fmt$(extra)})` : ''}`);
+        }
+      }
+      sizes.push(seedSizes.join(', '));
+      if (id === SEEDS[0]) {
+        const again = play(id, YEARS, [{ shockId: evId, yearNumber: FIRE }]);
+        if (JSON.stringify(fieldsOf(again, 'x')) !== JSON.stringify(fieldsOf(shocked, 'x'))) reproOk = false;
+        // AND A RELOADED GAME REDRAWS THE SAME EVENT, claim for claim.
+        const inst = { ...generateGameInstance(id, seedOf(id)), scheduledShocks: [{ shockId: evId, yearNumber: FIRE }] };
+        for (const l of lines) {
+          const redrawn = regenerateLineYearClaims(inst, r3, l).claims.map(c => `${c.id}:${c.grossUltimate}:${c.shockId ?? ''}`).join('|');
+          const drawn = (r3.byLine[l]!.claims ?? []).map(c => `${c.id}:${c.grossUltimate}:${c.shockId ?? ''}`).join('|');
+          if (redrawn !== drawn) regenOk = false;
+        }
+      }
+    }
+    console.log(`  ${evId} [${lines.join(' + ')}]: ${sizes.join(' | ')}`);
+    for (const f of fails.slice(0, 4)) console.log(`      ${f}`);
+    console.log(`    fires in Y${FIRE}, not before: ${note(fireOk, `${evId} fired outside its scheduled year`)}`
+      + `   only its lines move: ${note(linesOk, `${evId} moved a line it does not name, or moved one before it fired`)}`
+      + `   shape on every line: ${note(sizeOk, `${evId} landed outside its shape`)}`);
+    console.log(`    natural claims identical: ${note(naturalOk, `${evId} moved a natural draw — its randomness is not confined to its own streams`)}`
+      + `   replays identically: ${note(reproOk, `${evId} is not deterministic on the same seed`)}`
+      + `   a reloaded year redraws it: ${note(regenOk, `${evId}'s claims do not survive claimRegeneration`)}`);
+  }
+
+  // THE VALIDATOR — each rule must be seen to fire.
+  const bad: [string, ShockDefinition][] = [
+    ['forceEvent on WC', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'WC' as 'Property', peril: 'wildfire', region: 'North', loss: { min: 1, max: 2 } }] }],
+    ['forceEvent on GL', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'GL' as 'Property', peril: 'wildfire', region: 'North', loss: { min: 1, max: 2 } }] }],
+    ['forceEvent in no region', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'forceEvent', line: 'Property', peril: 'wildfire', region: 'East' as 'North', loss: { min: 1, max: 2 } }] }],
+    ['injectClaim on Property', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'Property', count: 1, amount: 1 }] }],
+    ['a region on a GL injection', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'GL', count: 1, amount: 1, region: 'North' }] }],
+    ['a WC injection in no region', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'injectClaim', line: 'WC', count: 1, amount: 1, region: 'East' as 'North' }] }],
+    ['freqMultiplier on WC (the old #2 defect)', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'freqMultiplier', line: 'WC', factor: 1.4 }] }],
+    ['sevMultiplier on Property', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'sevMultiplier', line: 'Property', factor: 1.1 }] }],
+    ['weatherEvent on WC', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'WC' as 'Property', peril: 'storm', region: 'North', count: { min: 1, max: 2 }, claim: { min: 1, max: 2 } }] }],
+    ['weather claims reaching the retention', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'Property', peril: 'storm', region: 'North', count: { min: 1, max: 2 }, claim: { min: 1_000_000, max: 5_000_000 } }] }],
+    ['a fractional weather claim count', { id: 'x', name: 'x', eventName: 'x', horizon: 'current', band: 'high', description: 'x', effects: [{ kind: 'weatherEvent', line: 'Property', peril: 'storm', region: 'North', count: { min: 1.5, max: 2 }, claim: { min: 1, max: 2 } }] }],
+  ];
+  for (const [label, def] of bad) {
+    console.log(`  validator rejects ${label}: ${note(throws(() => validateShockDefinition(def)), `the validator accepts ${label}`)}`);
+  }
+  console.log(`  and accepts every shipped row: ${note(Object.values(SHOCK_CATALOG).every(d => !throws(() => validateShockDefinition(d))), 'a shipped catalog row fails its own validator')}`);
+}
+
+// ============================================================================
+// 11. THE SCHEDULE REACHES THE GAME — through the constructor, the save, and a
+// session player's rebuild.
+//
+// generateGameInstance takes the schedule as an argument from both callers.
+// Four things are asserted, and the last is the one that fails QUIETLY if it
+// breaks: a session player keeps no save, so a reload REBUILDS the game from the
+// room's seed and schedule and replays every year — and a rebuild that dropped
+// the schedule would replay the year without the wildfire, post numbers the team
+// never played, and show nothing wrong. It is proven here against buildTeamGame
+// and replayTeamYears, the two functions useSessionGame runs, fed a room that
+// has been through JSON the way a room record crosses the wire.
+// ============================================================================
+console.log('\n--- 11. the schedule reaches the game: constructor, save, session rebuild ---');
+{
+  const ID = 'MAMC6EA4';
+  const SCHEDULE = [{ shockId: 'WILDFIRE', yearNumber: 3 }];
+
+  // (a) AN EMPTY SCHEDULE IS THE OLD INSTANCE, BYTE FOR BYTE.
+  const bare = generateGameInstance(ID, seedOf(ID));
+  const empty = generateGameInstance(ID, seedOf(ID), []);
+  console.log(`  empty schedule -> identical instance, no field written: ${note(
+    JSON.stringify(bare) === JSON.stringify(empty) && !('scheduledShocks' in empty),
+    'an empty schedule changed the instance — every unshocked game would move')}`);
+  const carried = generateGameInstance(ID, seedOf(ID), SCHEDULE);
+  const { scheduledShocks: _s, ...rest } = carried;
+  console.log(`  a schedule is carried, and changes nothing else: ${note(
+    JSON.stringify(carried.scheduledShocks) === JSON.stringify(SCHEDULE) && JSON.stringify(rest) === JSON.stringify(bare),
+    'the constructor dropped the schedule or moved another field')}`);
+  console.log(`  constructor rejects an unknown id: ${note(throws(() => generateGameInstance(ID, 1, [{ shockId: '#NOPE', yearNumber: 2 }])), 'an unknown shock id is accepted at build — it would throw in the year it fires instead')}`
+    + `   and year 0: ${note(throws(() => generateGameInstance(ID, 1, [{ shockId: '#22', yearNumber: 0 }])), 'a pre-game fire year is accepted')}`);
+
+  const decided = (y: number): DecisionSet => {
+    const d = defaultDecisionSet(y);
+    // Vary the funding level by year, so a replay on the wrong year's decisions
+    // would be visible — the decisions-history defect's own test condition.
+    const lines = Object.fromEntries(Object.entries(d.byLine).map(([l, ld]) =>
+      [l, { ...ld, fundingConfidenceLevel: [0.6, 0.65, 0.7, 0.55, 0.6][y - 1] ?? 0.6 }]));
+    return { ...d, byLine: lines } as DecisionSet;
+  };
+
+  // The uninterrupted game, solo-style.
+  const settings = { poolName: 'G', gameLength: 5, startingYear: 2026, instanceId: ID, activeLines: LINES };
+  const run = (instance: GameInstance, from?: GameState) => {
+    let gs: GameState = from ?? (() => {
+      const { poolState, priorHistory } = runPriorHistory(instance, settings as never);
+      return { setup: settings as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
+        poolState, lockedResults: [], currentDecisions: decided(1), priorHistory };
+    })();
+    while (gs.currentYearNumber <= 5) {
+      const y = gs.currentYearNumber;
+      const p = processYear(gs, decided(y));
+      gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
+      if (from === undefined && y === 2) break;
+    }
+    return gs;
+  };
+  const straight = (() => { let g = run(carried); return run(carried, g); })();
+  const firedStraight = straight.lockedResults.map(r => (r.shockEvents ?? []).some(e => e.shockId === 'WILDFIRE'));
+  console.log(`  the scheduled wildfire fires in year 3 of a constructed game: ${note(
+    firedStraight.join() === [false, false, true, false, false].join(), `fired in years ${firedStraight.map((f, i) => f ? i + 1 : '').filter(Boolean).join(',') || 'none'}`)}`);
+
+  // (b) THE SAVE CARRIES IT. Out through packSave at the end of year 2, back
+  // through unpackSave, continue — the reloaded game must still hold the
+  // schedule and must play years 3-5 exactly as the uninterrupted one did.
+  const atTwo = run(carried);
+  const reloaded = unpackSave(packSave({ gameState: atTwo, startingFinancials: {}, initialMembers: [], currentDecisions: decided(3) })) as { gameState: GameState };
+  const afterReload = run(reloaded.gameState.instance, reloaded.gameState);
+  const same = JSON.stringify(fieldsOf(afterReload.lockedResults.slice(2), 's')) === JSON.stringify(fieldsOf(straight.lockedResults.slice(2), 's'));
+  console.log(`  the save keeps the schedule (${JSON.stringify(reloaded.gameState.instance.scheduledShocks)}): ${note(
+    JSON.stringify(reloaded.gameState.instance.scheduledShocks) === JSON.stringify(SCHEDULE), 'a reload dropped the shock schedule')}`
+    + `   and years 3-5 replay identically after it: ${note(same, 'a reloaded solo game played its shock years differently')}`);
+
+  // (c) THE SESSION REBUILD — the path that fails quietly.
+  const roomRecord = JSON.parse(JSON.stringify({ seed: ID, yearCount: 5, startingYear: 2026, eventName: 'G', shocks: SCHEDULE }));
+  const history = Object.fromEntries([1, 2, 3, 4, 5].map(y => [String(y), decisionsToJson(decided(y))]));
+  const playFromRoom = (room: typeof roomRecord) => {
+    const built = buildTeamGame(room, LINES);
+    return replayTeamYears(built.gameState, 6, history).state;
+  };
+  const first = playFromRoom(roomRecord);
+  const reload = playFromRoom(JSON.parse(JSON.stringify(roomRecord)));
+  const firedSession = reload.lockedResults.map(r => (r.shockEvents ?? []).some(e => e.shockId === 'WILDFIRE'));
+  console.log(`  a session build carries the room's schedule into the instance: ${note(
+    JSON.stringify(first.instance.scheduledShocks) === JSON.stringify(SCHEDULE), "the session build dropped the room's schedule")}`);
+  console.log(`  A RELOADED PLAYER'S REBUILD FIRES THE WILDFIRE IN YEAR 3: ${note(
+    firedSession.join() === [false, false, true, false, false].join(), 'the rebuild from the room replayed the year WITHOUT the scheduled shock')}`);
+  console.log(`  and rebuilds every year identically to the first build: ${note(
+    JSON.stringify(fieldsOf(reload.lockedResults, 'r')) === JSON.stringify(fieldsOf(first.lockedResults, 'r')), 'a rebuild from the room is not the game the team played')}`);
+  console.log(`  and is the same game solo builds from the same instance and decisions: ${note(
+    JSON.stringify(fieldsOf(first.lockedResults, 'x')) === JSON.stringify(fieldsOf(straight.lockedResults, 'x')), 'the session and solo paths build different games from one schedule')}`);
+  // The negative control: without the schedule, the room's game is different —
+  // so the identities above are about the schedule, not about nothing moving.
+  const noShock = playFromRoom({ ...roomRecord, shocks: [] });
+  console.log(`  control — the same room WITHOUT the schedule plays a different year 3: ${note(
+    noShock.lockedResults[2].grossUltimateLoss !== reload.lockedResults[2].grossUltimateLoss, 'removing the schedule changed nothing — the checks above prove nothing about it')}`);
+
+  // (d) THE HOST'S DRAW — a pure function of the room's seed and year count.
+  const d1 = drawShockSchedule('MAMC6EA4', 5), d2 = drawShockSchedule('MAMC6EA4', 5);
+  const drawable = new Set(drawableShocks().map(d => d.id));
+  let shapeOk = true;
+  for (let i = 0; i < 400; i++) {
+    const n = 1 + (i % 20);
+    const sch = drawShockSchedule(`DRAW${i}`, n);
+    const years = sch.map(x => x.yearNumber), ids = sch.map(x => x.shockId);
+    if (sch.length !== Math.min(shockDrawCount(n), Math.max(1, n - 1))) shapeOk = false;
+    if (new Set(years).size !== years.length || new Set(ids).size !== ids.length) shapeOk = false;
+    if (years.some(y => y < (n >= 2 ? 2 : 1) || y > n) || ids.some(id => !drawable.has(id))) shapeOk = false;
+    if (years.some((y, k) => k > 0 && y < years[k - 1])) shapeOk = false;
+    // Every draw builds — the constructor accepts what the host can draw.
+    if (throws(() => generateGameInstance(`DRAW${i}`, seedOf(`DRAW${i}`), sch))) shapeOk = false;
+  }
+  console.log(`  host draw is reproducible from the room's seed and year count: ${note(JSON.stringify(d1) === JSON.stringify(d2), 'the same seed drew two different schedules')}`
+    + `   ${JSON.stringify(d1)}`);
+  console.log(`  400 draws: right count, one event per year, no event twice, year 1 kept calm, drawable ids only, all build: ${note(shapeOk, 'a host draw broke one of its rules')}`);
+}
+
+// ============================================================================
+// 12. AN EVENT IS IDENTIFIABLE — AND A SCHEDULED ONE READS AS A DRAWN ONE.
+//
+// A player must be able to tell that an event happened, in which year, and
+// which claims it made — and must not be able to tell whether it was scheduled.
+// So: every claim an injection path makes carries the shock's id and no natural
+// claim does; the pool record keeps each line's share; the narrative names the
+// event by the name a drawn event of its kind carries, never by the shock's id,
+// host name or catalog prose; and a drawn catastrophe is recorded and narrated
+// the same way.
+// ============================================================================
+console.log('\n--- 12. an event is identifiable, and scheduled reads as drawn ---');
+{
+  let stampOk = true, splitOk = true, leakOk = true, narrOk = true, labelOk = true;
+  const seen: string[] = [];
+  // EVERY event section 10 fired, on every seed — read from its results, not
+  // replayed. The multi-line three are the test that one cause on three lines
+  // reads as one event with a three-line split.
+  for (const id of SEEDS) {
+    for (const sid of Object.keys(EVENT_SHAPES)) {
+      const r = FIRED.get(`${id}|${sid}`)!;
+      const def = SHOCK_CATALOG[sid];
+      for (const l of LINES) {
+        const lr = r.byLine[l]!;
+        const occ = new Map((lr.occurrences ?? []).map(o => [o.id, o]));
+        for (const c of lr.claims ?? []) {
+          const fromEvent = c.tier === 'injected' || c.occurrenceId.includes('-SHOCK-');
+          if (fromEvent !== (c.shockId === sid)) stampOk = false;
+          if (c.shockId !== undefined && !claimEventLabel(c, occ.get(c.occurrenceId))?.startsWith(def.eventName)) labelOk = false;
+        }
+      }
+      const pool = r.shockEvents?.find(e => e.shockId === sid);
+      if (!pool?.byLine) splitOk = false;
+      else {
+        let g = 0, n = 0;
+        for (const l of LINES) {
+          const own = r.byLine[l]!.shockEvents?.find(e => e.shockId === sid);
+          const b = pool.byLine[l];
+          if (!!own !== !!b) splitOk = false;
+          if (own && b && (own.attributableGrossLoss !== b.attributableGrossLoss || own.attributableClaims !== b.attributableClaims)) splitOk = false;
+          g += b?.attributableGrossLoss ?? 0; n += b?.attributableClaims ?? 0;
+        }
+        if (n !== pool.attributableClaims || Math.abs(g - pool.attributableGrossLoss) > 1e-6) splitOk = false;
+      }
+      const text = r.narrativeExplanation;
+      if (text.includes(sid) || text.includes(def.name) || text.includes(def.description.slice(0, 40)) || /shock/i.test(text)) leakOk = false;
+      if (!text.includes(def.eventName)) narrOk = false;
+      if (id === SEEDS[0]) seen.push(`${sid}: "${yearEvents(r).map(eventSentence).join(' ')}"`);
+    }
+  }
+  seen.forEach(x => console.log(`  ${x}`));
+  console.log(`  every injected / forced / weather claim carries its shock id, and no natural claim does: ${note(stampOk, 'a claim from an event is unstamped, or a natural claim carries a shock id')}`);
+  console.log(`  the pool record keeps each line's share, and the shares sum to it: ${note(splitOk, 'the per-line split is missing or does not reconcile to the merged record')}`);
+  console.log(`  each event claim's Event label is the player's name: ${note(labelOk, 'a stamped claim reads as something other than its eventName')}`);
+  console.log(`  the narrative names the event by its player name: ${note(narrOk, 'the narrative does not mention the event')}`
+    + `   and never by id, host name, catalog prose or the word "shock": ${note(leakOk, 'the narrative shows how the event was scheduled')}`);
+
+  // THE SAME NAME, THE SAME LABEL, scheduled and drawn.
+  const r2 = FIRED.get(`${SEEDS[0]}|#2`)!.byLine.Property!;
+  const qc = (r2.claims ?? []).find(c => c.shockId === '#2')!;
+  const qo = (r2.occurrences ?? []).find(o => o.id === qc.occurrenceId)!;
+  const drawnClaim = { ...qc, shockId: undefined };
+  const drawnOcc = { ...qo, peril: PROPERTY_CAT_EARTHQUAKE.peril };
+  const sameName = SHOCK_CATALOG['#2'].eventName === drawnEventName(PROPERTY_CAT_EARTHQUAKE.peril);
+  const sameLabel = claimEventLabel(qc, qo) === claimEventLabel(drawnClaim, drawnOcc);
+  console.log(`  #2 and a drawn earthquake carry the same name and the same claim label ("${claimEventLabel(qc, qo)}"): ${note(sameName && sameLabel, 'a scheduled earthquake reads differently from a drawn one')}`);
+
+  // A DRAWN catastrophe, found on the natural book: recorded, labelled, narrated.
+  let found = '';
+  let drawnOk = true;
+  for (let k = 0; k < 40 && !found; k++) {
+    const id = `EVT${String(k).padStart(4, '0')}`;
+    const res = play(id, 5, []);
+    for (const r of res) {
+      const pr = r.byLine.Property!;
+      const catOccs = (pr.occurrences ?? []).filter(o => o.isCatastrophe);
+      if (catOccs.length === 0) continue;
+      const recorded = pr.drawnCatastrophes ?? [];
+      const byId = new Map((pr.claims ?? []).map(c => [c.id, c]));
+      for (const o of catOccs) {
+        const d = recorded.find(x => x.occurrenceId === o.id);
+        const cs = o.claimIds.map(cid => byId.get(cid)!);
+        if (!d || d.claims !== cs.length || Math.abs(d.grossLoss - cs.reduce((t, c) => t + c.grossUltimate, 0)) > 1e-6) drawnOk = false;
+        if (cs.some(c => claimEventLabel(c, o) !== eventLabel(drawnEventName(o.peril), o.region))) drawnOk = false;
+      }
+      if (recorded.length !== catOccs.length) drawnOk = false;
+      const sentences = yearEvents(r).map(eventSentence);
+      if (!sentences.every(x => r.narrativeExplanation.includes(x))) drawnOk = false;
+      found = `${id} Y${r.yearNumber}: "${sentences.join(' ')}"`;
+      break;
+    }
+  }
+  console.log(`  a drawn catastrophe: ${found || 'none in 40 games'}`);
+  console.log(`    recorded on drawnCatastrophes, labelled and narrated like a scheduled one: ${note(!!found && drawnOk, 'a drawn catastrophe is missing from the record, the label or the narrative')}`);
+
+  // The catalog requires the player's name.
+  console.log(`  validator rejects a row with no eventName: ${note(throws(() => validateShockDefinition({ ...SHOCK_CATALOG['#2'], eventName: ' ' })), 'a row without a player name is accepted')}`);
 }
 
 console.log(problems.length === 0

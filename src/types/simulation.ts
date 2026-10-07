@@ -350,7 +350,9 @@ export interface Occurrence {
   isCatastrophe: boolean; // part of a regional/pool-wide catastrophe event
   claimIds: string[];     // every claim this event produced (WC and GL: exactly one)
   // The hazard band this event belongs to, for lines that have more than one:
-  // Property emits 'attritional' | 'weather' | 'cat'. Absent on WC and GL,
+  // Property emits 'property' (attritional) | 'weather' | 'cat' | 'earthquake'
+  // — a drawn catastrophe is 'earthquake' or 'cat', and a scheduled one names
+  // its own peril. PROPERTY_PERIL_DEDUCTIBLE is keyed on it. Absent on WC and GL,
   // which have a single hazard band each — their sub-coverage vocabulary lives
   // on Claim.tier and is a rating class, not a peril. Deliberately a string,
   // for the same reason Claim.tier is.
@@ -383,6 +385,14 @@ export interface Claim {
   // flat mixture replaced all four. Anything that pattern-matches the old GL
   // sub-coverage strings needs revisiting, not just recompiling.
   tier: string;
+  // THE SHOCK THAT MADE THIS CLAIM, set by every injection path — a WC or GL
+  // injection, a forced catastrophe, a scheduled weather event — and absent on
+  // every drawn claim, so the natural book serialises as it always did. It is
+  // what ties an event's claims together across lines: the Property and WC
+  // halves of one earthquake carry the same id. Player screens never show it;
+  // they show the event's name (see utils/yearEvents.ts), which reads the same
+  // for a scheduled event and a drawn one.
+  shockId?: string;
   // The rating GROUP the claim arose from (WC: county / schools / highSafety /
   // lowSafety). Was a rating CLASS before the severity rebuild.
   ratingClass?: string;
@@ -502,11 +512,15 @@ export interface GameInstance {
   // src/data/shockCatalog.ts.
   //
   // OPTIONAL AND ABSENT BY DEFAULT, AND THAT IS LOAD-BEARING. generateGameInstance
-  // does NOT draw to populate this and does not write the field at all unless a
-  // scenario supplies one, so a game with no shocks is byte-identical to one
-  // from before shocks existed. Probability-based firing, when it is added,
-  // populates this same list from its own purpose-keyed RNG label; everything
-  // downstream is unchanged by that.
+  // takes the list as an argument — solo passes an empty one, a session passes
+  // its room's — draws nothing to populate it, and writes the field only when
+  // the list is non-empty, so a game with no shocks is byte-identical to one
+  // from before shocks existed. A host's randomised schedule is drawn once, at
+  // room creation, and arrives here as concrete entries like any other.
+  //
+  // ⚠ IT RIDES THE SAVE WITH THE INSTANCE. The solo save serialises the whole
+  // instance and SAVE_STRIPPED_KEYS does not list this, so a reload keeps the
+  // schedule; a session player keeps no save and rebuilds from the room.
   scheduledShocks?: ScheduledShock[];
 }
 
@@ -762,6 +776,24 @@ export interface DevelopingClaim {
    *  (scripts/diagnostics/claims-workbook-check.ts): 12.7-13.5 KB of a 389 KB
    *  serialised poolState, 3.3-3.5% of it and ~0.27% of a 5MB quota. */
   movementByStep?: number[];
+  /** Present, and true, only on a Property CATASTROPHE occurrence. The tower
+   *  does not read it — Property's one layer answers every occurrence — but it
+   *  decides how the occurrence is RESERVED: booked at its drawn total
+   *  rather than contracted, always tracked, never in the developing set, and
+   *  exempt from revision and from the settlement factor — known at inception,
+   *  paid out on the Property pattern, closed at the value it was booked at.
+   *  See bookedOccurrenceTotals in simulationEngine.
+   *  Absent everywhere else, so every WC and GL record serialises exactly as it
+   *  did before the cat band existed. */
+  catastrophe?: true;
+  /** The peril deductible this occurrence retains before the tower responds,
+   *  where it is above the layers' own attachments — a Property earthquake's
+   *  $10M (PROPERTY_PERIL_DEDUCTIBLE). cedeDevelopment reads it so every later
+   *  movement cedes on the terms the occurrence was ceded on at inception.
+   *  Absent means the layers' attachments, which is every WC and GL record and
+   *  every Property occurrence of an unlisted peril, so they serialise exactly
+   *  as before. */
+  deductible?: number;
 }
 
 // ============================================================================
@@ -799,6 +831,8 @@ export interface BenchClaim {
   /** Its share of the untracked mass now. Becomes the occurrence's `current` on
    *  promotion, so no dollars are created or lost by promoting. */
   current: number;
+  /** As DevelopingClaim.catastrophe — carried so a promotion keeps the kind. */
+  catastrophe?: true;
 }
 
 // Annual reserve cohort for simplified development. NET basis: losses enter
@@ -1060,6 +1094,16 @@ export interface PricingTriangleState {
 }
 
 // Full result for one completed simulation year
+// A drawn catastrophe as the year's result records it — enough to say what
+// happened, where, and to whom, after the claims themselves are gone.
+export interface DrawnCatastrophe {
+  occurrenceId: string;
+  peril: string;          // 'earthquake' or 'cat' — see PROPERTY_CAT_EARTHQUAKE
+  region: Region;
+  claims: number;
+  grossLoss: number;
+}
+
 // ⚠ NOT EXPORTED AND NOT USED DIRECTLY. This is the full set of fields a result
 // row can carry. `LineResultSet` is exactly this; `ResultSet` (the POOL row) is
 // this MINUS PoolAbsentKey, so the compiler refuses a pool-scope read of a
@@ -1325,7 +1369,6 @@ interface ResultRowFields {
   marketMemberLossResults?: MemberLossResult[];
   aggregateMemberLoss: number;
   commonLossFactor: number;
-  catastropheFactor: number;
   // Claim-level detail, WC and GL (Property still draws an aggregate).
   //
   // IN-MEMORY FOR THE CURRENT SESSION ONLY. Dropped on the way to localStorage
@@ -1411,13 +1454,18 @@ interface ResultRowFields {
    * away. Optional for saves written before it existed, like its gross twin.
    */
   bookedNetUltimate?: number;
-  // ⚠ NOT THE SHOCK EVENT SYSTEM. This flag predates it and already carries
-  // THREE different line-specific meanings — a WC catastrophic-tier claim, a GL
-  // occurrence over $1M, or Property's aggregate factor exceeding its
-  // threshold. Configured shock events record on `shockEvents` below, on a
-  // separate channel, precisely so that overloading this one does not corrupt
-  // three live signals.
-  shockLossIncurred: boolean;
+  // ⚠ `shockLossIncurred` STOOD HERE AND IS GONE. It meant a WC claim of $1M+,
+  // a GL occurrence over $1M, and on Property a hardcoded false — so it read Yes
+  // in almost every WC and GL year and No in a Property catastrophe year, and the
+  // narrative said "a shock loss event occurred" off it. A year's events are
+  // `shockEvents` (scheduled) and `drawnCatastrophes` (drawn), read together by
+  // utils/yearEvents.ts so the two look the same to a player.
+  //
+  // PROPERTY ONLY: each DRAWN catastrophe this year that hit an enrolled member,
+  // one entry per occurrence. Scheduled ones are on shockEvents. Stored rather
+  // than derived because claims and occurrences are stripped from saves, and a
+  // reloaded game must still say an event happened. Absent in a year without one.
+  drawnCatastrophes?: DrawnCatastrophe[];
   // Configured shock events in force this year that touched THIS line. Absent
   // when none are — an array field, so value-identity-check (which captures
   // only numeric fields) is blind to it by construction.

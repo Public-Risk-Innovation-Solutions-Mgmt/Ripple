@@ -843,6 +843,39 @@ export const BASE_RETENTION = 0.95;
  *     GL                       -4.2%    +1.6%    +9.8%
  *     Property                 -2.4%    +0.9%    +6.1%
  *
+ * ⚠ EVERY FIGURE ABOVE WAS MEASURED BEFORE THE PROPERTY MERGE, ON A PROPERTY
+ * TOWER OF THREE LAYERS WITH NO CATASTROPHES. That merge collapsed Property's
+ * tower to ONE layer ($995M xs $5M) and made catastrophes book at full cost on
+ * a single shared occurrence, so the full-tower price, the cession and both
+ * ratios are all different quantities now. RE-MEASURED on the merged engine,
+ * same 12 x 10 design, whole occurrence tower placed against none placed:
+ *
+ *   line        charge at the decision     10-year mean      margin when declined
+ *     WC                  -2.7%                 +1.1%              $9.81M
+ *     GL                  -4.1%                 +6.5%             $20.57M
+ *     Property            -3.0%                 +3.3%             $31.33M
+ *
+ * The mechanism survived the merge UNCHANGED, and that is not luck: the
+ * reference placement is built by reading each layer's own `purchasable` flag
+ * (FULL_OCCURRENCE_PLACEMENT), so collapsing three layers into one re-prices it
+ * without touching this code. The drift is the same drift, slightly larger
+ * because Property now cedes more. Both ratios still agree across the two arms
+ * (WC 43.1 / 42.7 pool and 27.6 / 27.4 total; GL 31.5 / 29.4 and 19.9 / 19.1;
+ * Property 71.4 / 68.0 and 45.6 / 44.4), which is the property that says the
+ * charge and the cession are being read on the same basis.
+ *
+ * ⚠ AND THE TRADE CHANGED SHAPE, WHICH IS THE MERGE'S REAL NEWS. Before the
+ * merge, declining everything dominated on BOTH return and safety — more
+ * surplus AND fewer insolvencies — which inverted the intended lesson. With
+ * Property's catastrophes in, the safety half flips: over 12 ten-year games,
+ * the declined arm takes ONE insolvency and the placed arm takes NONE. The
+ * volatility a player buys out of is finally real. The RETURN half has not
+ * flipped — mean ending surplus is $821.26M declined against $134.89M placed —
+ * so declining is now a genuine risk-for-return trade rather than a free lunch,
+ * but it is still a trade priced far in the player's favour. That is the
+ * tower's load (RISK_LOAD_LAMBDA = 0.60), not this margin, and it is a
+ * calibration question this constant deliberately does not answer.
+ *
  * WHY IT DRIFTS: once the cover is declined the pool keeps every loss, so its
  * own triangle learns the GROSS loss cost. The retained rate climbs toward
  * gross — correctly — and the margin added on top then charges the ceded
@@ -5245,13 +5278,25 @@ export const PROPERTY_LOSS_MODEL = {
   // Per $1M of TIV, not per location and not per member. The location basis
   // went with the damage-ratio severity it existed to serve.
   //
-  // FROM THE RECENT FIVE YEARS, NOT ALL NINE. The early years run ~30% lower,
-  // which is the signature of TIV restated to current membership rather than a
-  // real frequency trend. Both readings argue for the recent figure: if TIV was
-  // restated, the early years understate frequency against a too-large
-  // denominator; if it is genuine escalation, the recent level is where the
-  // book now sits.
-  frequencyPer1mTiv: 0.00221,
+  // ⚠ RE-CALIBRATED AGAIN — VEHICLES ARE FOLDED IN. Property is not a
+  // buildings-only line: it covers the fleet too, and there is no separate
+  // line for it. The prior recalibration (buildings only, vehicles removed)
+  // was a real, correct reading of a different scope, not a wrong number —
+  // this is a SCOPE change, not a correction of that one.
+  //
+  // Three developed and trended years, VEHICLES INCLUDED this time: 120
+  // members on $85B of building TIV — 416/437/426 claims (mean 426, a 5%
+  // spread). 426/$85,000M = 0.0050157, rounded to 0.00502. Ratio to the
+  // buildings-only 0.00281: 1.78x.
+  //
+  // ⚠ ACCEPTED SIMPLIFICATION, RECORDED HERE RATHER THAN GLOSSED: vehicles are
+  // not driven by TIV. A pool with more buildings does not have proportionally
+  // more cars — this field now drives auto frequency off building value
+  // because that is the only exposure base Property has, not because it is
+  // physically the right one. If a vehicle count or fleet-value field is ever
+  // added to Member, this is the field that should stop reading TIV for the
+  // auto share of the loss.
+  frequencyPer1mTiv: 0.00502,
 
   // FLAT. There is no frequency trend in the fit, and inventing one from nine
   // years of a book whose TIV basis moved would be reading noise.
@@ -5261,27 +5306,68 @@ export const PROPERTY_LOSS_MODEL = {
   // 6775 BOTH select k=4 — no conflict between them, unlike GL, where the two
   // criteria disagreed and the choice had to be argued.
   //
-  // Component means: $11,414 / $29,664 / $85,725 / $913,762. The top component
-  // carries 45% of the weight at sigma 1.7417 and is what makes this line's
-  // annual result a question of whether a large claim happened.
+  // Original component means (mu's below before either re-calibration):
+  // $11,414 / $29,664 / $85,725 / $913,762. The top component carries 45% of
+  // the weight at sigma 1.7417 and is what makes this line's annual result a
+  // question of whether a large claim happened.
+  //
+  // ⚠ RE-CALIBRATED A SECOND TIME, mu's ONLY, SAME MECHANISM AS BEFORE: every
+  // mu shifted by the SAME amount (mu + log(factor), weights and sigmas
+  // untouched). This shift is NEGATIVE — vehicles are folded in, and at $418k
+  // average they pull the blended severity DOWN even though total claim count
+  // rises 1.78x. The prior +0.4642 (buildings-only) is fully superseded, not
+  // composed with — this shift is solved fresh against the vehicle-inclusive
+  // target, landing at -0.5050 net vs the ORIGINAL (pre-any-recalibration)
+  // fit.
+  //
+  // WHY STILL A UNIFORM SCALE: the same reasoning as the buildings-only
+  // recalibration applies with the same force — three annual aggregates
+  // (count and total dollars, not individual claim sizes, and now for a
+  // building+vehicle MIX rather than a single population) cannot identify a
+  // 4-component mixture's 12 parameters, let alone separate an auto severity
+  // distribution from a building one within it. Vehicles are collapsed into
+  // the same mixture as buildings — there is no separate auto severity
+  // component — which is itself an accepted simplification: the real
+  // population is two different loss processes (collision/theft vs fire/
+  // wind/water), blended here into one scale change on a shape fit to
+  // buildings alone.
+  //
+  // The shift is solved (not guessed) against the $75M cap, via
+  // propertySeverityMoment(1): lands the CAPPED mean at $418,296, the real
+  // book's vehicle-inclusive claim-weighted 3-year average ($535M / 1,279
+  // claims). At this lower scale the cap binds far less than it did post-
+  // buildings-only-recalibration — capped severity CV RISES to 4.81 (was
+  // 4.385), closer to the original fit's uncapped 6.22, because less of the
+  // top component's mass now reaches $75M.
+  //
+  // ⚠ NOTABLE, NOT ACTED ON: this lands within 4% of the ORIGINAL fit's own
+  // mu's (each -0.0408 from original, i.e. 96% of the original scale) — the
+  // vehicle-inclusive target is close to what was fitted before EITHER
+  // recalibration, which was apparently already closer to a mixed building+
+  // vehicle population than to buildings alone.
   severityMixture: [
-    { weight: 0.1562, mu: 9.2566, sigma: 0.4147 },
-    { weight: 0.0714, mu: 10.2933, sigma: 0.0937 },
-    { weight: 0.3210, mu: 11.1586, sigma: 0.6330 },
-    { weight: 0.4514, mu: 12.2086, sigma: 1.7417 },
+    { weight: 0.1562, mu: 9.2158, sigma: 0.4147 },
+    { weight: 0.0714, mu: 10.2525, sigma: 0.0937 },
+    { weight: 0.3210, mu: 11.1178, sigma: 0.6330 },
+    { weight: 0.4514, mu: 12.1678, sigma: 1.7417 },
   ],
 
   // ⚠ THE CAP IS NOT OPTIONAL, and the evidence is better than GL's was.
-  // Uncapped, the top component puts half of E[X^2] above $86.5M against a
-  // SAMPLE MAXIMUM of $51.9M, and the severity CV reads 6.22 against the
-  // sample's 4.46. Capped here it is 4.78 — still above the sample, correctly,
-  // since a nine-year sample does not contain its own worst case.
+  // property-fit-report.ts's own numbers below are against the ORIGINAL fit's
+  // mu's (it carries its own copy of the mixture, not this constant, and is
+  // NOT re-pointed at the re-calibration — it audits the underlying claim-
+  // level fit, which the re-calibration does not touch): uncapped CV 6.22
+  // against a SAMPLE CV of 4.46, capped down to 4.78.
   //
-  // Measured by property-fit-report.ts from these parameters rather than taken
-  // on trust — MEASURED, not gated: that script prints and exits 0, so this is
-  // a recorded reading. The cap removes 1.9% of the mean and binds once in 6,610 claims,
-  // which at the enrolled book is about once per 700 years. It disciplines the
-  // second moment, which is its job; it is not a loss limit.
+  // AT THE VEHICLES-FOLDED-IN SCALE (measured directly by property-claim-
+  // check.ts, which DOES read this constant): uncapped mean $426,159, capped
+  // mean $418,289 — the cap now removes only 1.85% of the mean (was 3.48% at
+  // the buildings-only recalibration, 1.9% at the original fit) and binds
+  // once in 7,204 claims (was 1 in 2,630), because shrinking the whole mixture
+  // pulls the top component's mass back below a cap that did not move. Capped
+  // severity CV is now 4.81 (was 4.385) for the same reason, closer to the
+  // original fit's uncapped 6.22 — still disciplining the second moment, not
+  // acting as a loss limit.
   severityCap: 75_000_000,
 
   // RQ channels, unchanged in structure from the retired design and
@@ -5318,10 +5404,37 @@ export const PROPERTY_LOSS_MODEL = {
 
 // The held pure premium, per $100 of TIV. DERIVED, and now derived ONLY.
 //
-// = frequencyPer1mTiv x the capped mixture mean ($435,256), i.e. the
-// generator's own analytic expectation over the 1,822 fitted claims. Asserted
-// against the generator by property-claim-check.ts ALONE, so the price and the
-// draw cannot drift apart.
+// = frequencyPer1mTiv x the capped mixture mean, i.e. the generator's own
+// analytic expectation. Asserted against the generator by
+// property-claim-check.ts ALONE, so the price and the draw cannot drift apart.
+//
+// ⚠ RE-CALIBRATED TWICE. First alongside the buildings-only frequencyPer1mTiv
+// and severityMixture (see those comments): 0.00281 x $681,582 = 0.1915 per
+// $100, up from 0.0962, because the total itself was what the earlier,
+// unsourced 5-20-per-member target got wrong (option A, not a redistribution).
+//
+// ⚠ SECOND: VEHICLES FOLDED IN. 0.00502 x $418,289 = $2,099.81 of loss per $1M
+// TIV = 0.2100 per $100, up from 0.1915 — a much smaller move (1.10x) than
+// either input alone (frequency 1.78x, severity down to 0.61x), because the
+// two roughly offset. 0.2100 matches the real book's own vehicle-inclusive
+// loss-per-$100-TIV (0.210) by construction, same as before.
+//
+// ⚠ OPEN, UNRESOLVED — FLAGGED RATHER THAN CHASED: the real book's CHARGED
+// rate is $110.367 per $100,000 of TIV excess of a $25,000 deductible, i.e.
+// 0.1104 per $100 — the model's 0.2100 (ground-up) is 1.84x that. THE $5M
+// QUESTION IS STILL OPEN, AND MEASURED HERE DIFFERENTLY THAN GUESSED: if the
+// real rate is itself capped at $5M (unconfirmed — being chased separately),
+// this model's own expected loss BELOW $5M, computed directly
+// (frequencyPer1mTiv x E[min(severity,5M)] / 10,000, E[min] from
+// propertyAggregateInternals.limitedExpectedValue), is 0.1595 — not the ~0.113
+// that made the comparison look near-exact. The gap is real: roughly a
+// quarter of this mixture's mean comes from claims over $5M (the building
+// component's tail, not vehicles, which the retention comment below notes
+// never reach it), so "below $5M" removes far less of the ground-up rate than
+// a rough estimate suggests. So the severity target above may be right and
+// this comparison still wrong, or both may need revisiting — this constant is
+// built against the figures given in this commit either way, and the $5M
+// question stays open.
 //
 // ⚠ THIS ALSO NAMED property-fit-check, WHICH ASSERTS NOTHING (now
 // property-fit-report — it prints the scale analysis and exits 0 either way).
@@ -5353,13 +5466,147 @@ export const PROPERTY_LOSS_MODEL = {
 //   ⚠ IT RETURNS WITH THE CAT BAND, IN THE SAME COMMIT AS THE CAT BAND, so the
 //   price and the losses can never disagree again. Adding the load back on its
 //   own would recreate exactly the defect that removed it.
-export const PROPERTY_HELD_PURE_PREMIUM_PER_100 = 0.0962;
+//
+// ⚠ AND IT HAS RETURNED — BUT NOT AS 0.0247. The cat band is built (see
+// PROPERTY_CAT_MODEL below), so the load comes back in the same commit as the
+// losses, and it comes back DERIVED from the generator rather than re-asserted
+// from the one observation above: 0.0286 per $100, the full market's analytic
+// cat AAL (eventsPerYear x E[event gross]) over its TIV. That is 12% of the
+// total by construction — the budget eventsPerYear was solved against — so
+// 0.2100 / 0.88 = 0.2386. A 13.6% rise in Property's pure premium, and every
+// cent of it is a loss the generator now draws.
+export const PROPERTY_HELD_PURE_PREMIUM_PER_100 = 0.2386;
 
-// The retired load, kept as data rather than prose so the restoring commit has
-// a value to reinstate and property-claim-check has something to assert the
-// held constant is NOT carrying. `catAssertedRetired` is deliberately NOT summed
-// into the held constant anywhere.
-export const PROPERTY_PURE_PREMIUM_SPLIT = { nonCatDerived: 0.0962, catAssertedRetired: 0.0247 };
+// The held constant, by source. BOTH HALVES ARE DERIVED NOW and both are
+// asserted against the generator by property-claim-check: `nonCatDerived` is
+// frequency x capped severity at neutral risk quality, `catDerived` is
+// PROPERTY_CAT_MODEL's analytic AAL on the full market. They sum to the held
+// constant.
+//
+// `catAssertedRetired` stays as the record of what the load USED to be — one
+// observed event priced at a chosen 1-in-20 — and is still summed into nothing.
+// It sits 0.0039 below the derived figure. That is a coincidence of scale, not
+// a confirmation: the two were built on different books by different methods.
+export const PROPERTY_PURE_PREMIUM_SPLIT = { nonCatDerived: 0.2100, catDerived: 0.0286, catAssertedRetired: 0.0247 };
+
+// ===========================================================================
+// THE PROPERTY CATASTROPHE BAND — one regional event process, priced exactly.
+//
+// THE MECHANISM. Events arrive Poisson(eventsPerYear) per year. Each event
+// strikes ONE region, drawn with regionWeights. Every enrolled member in that
+// region is hit independently with probability `footprint`, and a hit member
+// loses damageRatio x primaryAssetShare x TIV — a FIXED amount per member, the
+// same every time that member is hit. All of an event's claims are ONE
+// OCCURRENCE: the tower sees their sum.
+//
+// ⚠ ONE OCCURRENCE PER REGION. An event is one region by construction; a
+// wildfire that crosses two regions is two events, two occurrences, and two
+// retentions — $10M at Property's $5M. That is the ruling, not an
+// approximation of a spanning event.
+//
+// WHY THE LOSS IS FIXED PER MEMBER, AND NOT DRAWN. With a fixed loss the only
+// randomness inside an event is which region is struck and which members are
+// hit, so each member is a TWO-POINT variable {0 w.p. 1-f, L_i w.p. f} and the
+// event loss distribution is EXACT: convolve a region's members, mix over the
+// three regions. propertyCatastrophe.ts builds it that way and nothing on the
+// pricing path samples. A drawn damage ratio would still be exact (more points
+// per member); a shared event intensity scaling every member would not.
+//
+// ALL PARAMETERS FIXED BY RULING, NONE TUNED HERE:
+//   footprint    0.075   share of a struck region's members that are hit
+//   budget       12%     cat share of TOTAL expected loss on the calibration
+//                        book — the target eventsPerYear is solved against
+//
+// ⚠ NO RETENTION AND NO CEILING OF ITS OWN ANY MORE. A cat occurrence meets
+// Property's one tower like any other occurrence — $5M retained, covered to a
+// $1B top (REINSURANCE_TOWER.Property, PROPERTY_TOWER_TOP). The $37.5M cat
+// retention and $500M cat ceiling that stood here were invented levers and
+// came out with the separate cat layer. The retention stays FLAT per
+// occurrence, which keeps the retained distribution exact: a
+// percentage-of-affected-TIV form would need a two-dimensional lattice.
+//
+// ⚠ eventsPerYear AND regionWeights ARE PROPERTIES OF THE MARKET, NOT OF THE
+// ENROLLED BOOK. Both were derived once on the 200-member canonical roster and
+// are held, like every other calibrated constant here — and they have to be:
+// a region's chance of being struck that depended on who had enrolled would
+// make one member's cat losses move with another member's enrolment decision,
+// which is the coupling enrolment-independence-check exists to forbid.
+//   regionWeights   the roster's TIV share by region, to 4 dp (asserted)
+//   eventsPerYear   catAAL / E[event gross] on the full roster at neutral RQ,
+//                   catAAL = 0.12/0.88 x E[attritional]: $16.96M / $201.63M
+//                   = 0.084117, held at 0.08412 (asserted)
+// So the 12% budget holds EXACTLY on the full market and only there. An
+// enrolled book's realised share moves with its region mix and its members'
+// primaryAssetShare. That is a real property of the book, so it is measured
+// rather than forced.
+//
+// WHAT IS NOT APPLIED TO A CAT CLAIM, deliberately:
+//   - severityCap. The $75M cap disciplines the FITTED mixture's second
+//     moment; a cat claim is bounded by the member's own TIV, not by it.
+//   - kPr and risk quality. The cat loss has no RQ term, so there is nothing
+//     for the RQ-mix correction to correct.
+//   - risk control. Property Mitigation discounts the attritional frequency
+//     only. Whether it should touch cat damage is a design question this
+//     commit does not answer.
+export const PROPERTY_CAT_MODEL = {
+  eventsPerYear: 0.08412,
+  regionWeights: { North: 0.3523, Central: 0.3384, South: 0.3093 },
+  footprint: 0.075,
+  damageRatio: 0.35,
+  // The budget eventsPerYear was solved against. The engine never reads it; it
+  // is held so property-claim-check can re-derive eventsPerYear from it.
+  budgetShareOfExpectedLoss: 0.12,
+} as const;
+
+// ===========================================================================
+// ⚠ A PLACEHOLDER. NOBODY SOURCED THIS FIGURE: 10% OF DRAWN CATASTROPHES ARE
+// EARTHQUAKES.
+//
+// A drawn catastrophe is an earthquake or it is not — two categories, not the
+// retired design doc's three perils. Earthquake is the only peril anything
+// downstream treats differently: it retains PROPERTY_PERIL_DEDUCTIBLE's $10M
+// rather than the layer's $5M. Flood and wildfire would be labels nothing reads.
+//
+// THE SHARE WAS CHOSEN, NOT DERIVED. The real book says only that earthquakes
+// are "really rare" and has no figure to hand. 10% was picked to be rare without
+// being nil. It is not an event-frequency study, a hazard-model output or a
+// loss-history share, and it should not be quoted as one.
+//
+// HOW IT ENTERS. Each drawn event is an earthquake with this probability,
+// independent of its region and of its size (stream `pr_cat_peril`, one uniform
+// per event, so no other draw moves). Being independent of size is what keeps
+// the pricing exact: the earthquakes are a thinning of the same Poisson event
+// process, so the per-event cession is a MIXTURE of the one event distribution
+// read at two attachments — see catEventRetained. It is a deductible, not a
+// rate: earthquake sits inside the catastrophe charge, as in the real
+// programme, and gets no rate element of its own.
+//
+// ⚠ IT SAYS SO HERE BECAUSE FOUR UNSOURCED CONSTANTS WENT WRONG IN ONE WEEK.
+// This one is labelled before it ships rather than after.
+//
+// WHAT WOULD REPLACE IT: the programme's earthquake share of catastrophe
+// frequency or AAL, from the real book's cat model output or its loss history,
+// by region if the book has it. A regional figure would also need the
+// earthquake's own region weights, which the pricing can take as a third
+// mixture weight without losing exactness.
+//
+// MEASURED BESIDE IT — share 0 against 10%, year 1, layer placed:
+//
+//                                  tower price              per $100k TIV
+//   full 200-member market         $91.035M -> $90.927M      153.69 -> 153.51
+//   game books (8 seeds, enrolled) -$0.074M a year mean      -0.42
+//   Property total member charge   -0.11% (game books, year 1)
+//
+// SMALL, AND IT HAS TO BE. The most an earthquake can take off the layer is
+// $5M (the band between the attachment and the deductible), arriving at
+// 0.08412 x 10% = 0.0084 a year: at most $42k of expected cession, plus its
+// share of the risk load. The price falls every year, earthquake or not, but
+// by about a tenth of a percent of the member charge.
+//
+// AND THE EVENT ITSELF IS RARE: one drawn earthquake in ~119 years.
+// P(at least one) is 4.1% in a 5-year game and 8.1% in a 10-year one. A
+// scheduled #2 is the way a game reliably meets one.
+export const PROPERTY_CAT_EARTHQUAKE = { peril: 'earthquake', share: 0.10 } as const;
 
 // ===========================================================================
 // THE OPEN-SHARE CURVE — the share of a cohort's VALUE still able to develop,

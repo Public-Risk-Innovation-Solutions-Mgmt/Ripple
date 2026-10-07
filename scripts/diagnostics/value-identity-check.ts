@@ -794,7 +794,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // capture is sufficient alone here: the hash guard cannot tell "different
 // members enrolled" from "the arithmetic broke", and this one says the
 // changed set is exactly the set a roster change explains.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v49.json');
+// ⚠ v49 -> v50: THE PROPERTY MERGE. Both branches moved this capture, so it
+// could not be merged and was recaptured. WHAT IT COST AND WHAT IT BOUGHT:
+//   added   1200  poolLayerLoss, poolLayerLossRatio, retainedCoverMargin,
+//                 totalLossRatioGross — the flat charge and the ratio pair.
+//   removed  300  catastropheFactor, deleted outright by the other branch
+//                 because it read 1.0000 on every line in every year.
+//   changed 8754  across 79 fields — Property's frequency and severity
+//                 recalibration and everything downstream of it.
+//
+// ⚠ AND CONFINEMENT SURVIVED, WHICH IS WHY THIS RECAPTURE IS NOT A BLANK
+// CHEQUE. A merge that moved every line somewhere cannot be checked the usual
+// way, so the old capture was diffed against the new one PER CONFIGURATION
+// before it was replaced:
+//     WC-solo     0 of 5970 values moved — bit-identical
+//     GL-solo     0 of 6000 values moved — bit-identical
+//     PR-solo  4188 of 6000 moved (69.8%)
+//     tri      4566 of 12570 moved (36.3%)
+// Property's recalibration is therefore EXACTLY confined to Property. Inside
+// the three-line configuration WC moves in 17 fields and GL in 18, and every
+// one of them is a CAPITAL quantity — beginningCash, availableSurplus,
+// investedAssets, investmentIncome, endingSurplus, totalAssets. Not one loss,
+// premium, rate, claim count, cession or reserve field moves on either line.
+// The lines share one balance sheet, so a bigger Property book moves the cash
+// every line is funded out of; that coupling is the design, and its absence
+// from the underwriting fields is the evidence nothing leaked.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v50.json');
 
 function seedOf(id: string) {
   let h = 5381;

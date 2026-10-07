@@ -4,6 +4,8 @@ import type { ResultSet } from '../types/simulation';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import { normalizeLayersPlaced } from './reinsuranceTower';
 import { ratioBand } from './formatters';
+import { LINE_FULL_NAME } from './lineDisplay';
+import { eventSentence, yearEvents } from './yearEvents';
 
 const TOWER_LINES: readonly TowerLine[] = ['WC', 'GL', 'Property'];
 
@@ -13,7 +15,7 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
   const { assetAllocation, actualCombinedRatio, netIncome,
     actualLossRatioPricingBasis, expectedLossRatio,
     reinsuranceRecovery, investmentIncome,
-    newMembers, withdrawnMembers, shockLossIncurred,
+    newMembers, withdrawnMembers,
     priorYearDevelopment, endingSurplus } = result;
 
   // --- Rate Change --- REMOVED. The Rate Change decision it narrated is gone
@@ -27,10 +29,17 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
   // for the experience modifier is a pending replacement, not invented here —
   // the same treatment the Rate Change narrative got above.
 
-  // --- Shock Loss ---
-  if (shockLossIncurred) {
-    parts.push(`A shock loss event occurred this year, significantly increasing gross losses.`);
-  }
+  // --- Events ---
+  // FIRST, because it is what a player most needs from the year and the first
+  // thing they read. One sentence per event, written from what happened —
+  // where, which lines, how many claims, how much — by the same template for a
+  // scheduled event and a drawn catastrophe (yearEvents.ts), so the two read
+  // alike and the cause never shows.
+  //
+  // ⚠ THIS REPLACES "A shock loss event occurred this year, significantly
+  // increasing gross losses", which fired on `shockLossIncurred`: a WC or GL
+  // claim over $1M, so nearly every year, and never on a Property catastrophe.
+  for (const ev of yearEvents(result)) parts.push(eventSentence(ev));
 
   // --- Loss Performance ---
   // ⚠ THIS WAS A FOURTH BASIS AND IT CONTRADICTED THE SCREEN IT SAT ON.
@@ -181,8 +190,18 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
         parts.push(`The aggregate stop recovered ${further}$${fmt(aggRecovery)} once the year's retained losses passed its attachment.`);
       }
     } else if (lowestPlaced.length > 0) {
-      const where = lowestPlaced.map(x => `${x.line} at $${fmtM(x.attachment)}`).join(', ');
-      parts.push(`Occurrence layers were placed but no single loss reached the lowest one placed (${where}).`);
+      // ⚠ THE MERGE KEPT BOTH BRANCHES' FIXES HERE, AND THEY WERE DIFFERENT
+      // FIXES. The split above is this branch's: `reinsuranceRecovery` is the
+      // occurrence tower PLUS the aggregate stop, and naming the tower for
+      // both misreports two separately-bought products. The LOWEST PLACED
+      // attachment, the full line name and the noun `occurrence` are the
+      // other branch's: it read `the $1M retention` on every line including
+      // Property, which retains more, and the tower attaches PER OCCURRENCE —
+      // which is load-bearing now that one catastrophe is many claims on one
+      // occurrence. Lowest PLACED rather than the line's retention, because a
+      // pool that placed only an upper layer is not exposed at the retention.
+      const where = lowestPlaced.map(x => `${LINE_FULL_NAME[x.line]} at $${fmtM(x.attachment)}`).join(', ');
+      parts.push(`Occurrence layers were placed but no single occurrence reached the lowest one placed (${where}).`);
     } else {
       parts.push(`No occurrence layers were placed — the pool retained every loss in full.`);
     }
