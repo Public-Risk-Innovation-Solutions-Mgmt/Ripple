@@ -9,10 +9,13 @@
 // says nothing in it survives) because anyone writing the Lambda has to import
 // this module to build any key — so this header is where they will be standing.
 //
-// ⚠ NOTHING IMPORTS IT YET. It records a design; no handler exists. Every value
-// below that is a size or a count says whether it was MEASURED, DERIVED or
-// ESTIMATED, because on this project those have been confused before and it
-// cost a re-solve each time.
+// ⚠ THE HANDLER EXISTS NOW AND BUILDS EVERY KEY HERE: rooms.ts (the transport),
+// views.ts, dynamo.ts and handler.ts in this directory. This said "nothing
+// imports it yet"; that stopped being true with them. Building them against this
+// file found five places it was incomplete or wrong — each corrected below, in
+// place, marked ⚠ CORRECTED. Every value below that is a size or a count says
+// whether it was MEASURED, DERIVED or ESTIMATED, because on this project those
+// have been confused before and it cost a re-solve each time.
 //
 // ============================================================================
 // THE THREE THINGS THE TABLE CANNOT BE CREATED WITHOUT — none can be changed
@@ -90,6 +93,8 @@
 //   R#<teamId>#<yyy>            one team's RESULT for one year (TeamYearSummary).
 //                               Year 000 is the opening position.
 //   VIEW#<tokenHash>            { teamId } for one viewer.
+//   TOKEN#<tokenHash>           { teamId } for one PLAYER token. Exists only so a
+//                               token is claimed once — see THE TOKEN CLAIM.
 //
 // ⚠ AND ONE ITEM THAT IS NOT IN A ROOM'S PARTITION, WHICH IS WHY THE HEADING
 // ABOVE IS QUALIFIED. createRoom became idempotent after this design was first
@@ -117,6 +122,21 @@
 //   * GIVE IT THE ROOM'S OWN expiresAtSec. A longer life outlives the room it
 //     names and a shorter one silently un-idempotents a create that is still
 //     live. Same stamp, same reasoning as every other item here.
+//
+// ⚠ CORRECTED — THE TOKEN CLAIM, WHICH THE FIRST VERSION OF THIS DESIGN LACKED.
+// localTransport refuses a client-supplied token already owned by the host, a
+// team or a viewer (assertTokenFree), and httpTransport item 5 says that guard
+// is not optional. Under the lock it is a read then a write. On DynamoDB the read
+// half cannot be made a condition: the roster's tokenHash lives inside a map, and
+// no ConditionExpression can say "no entry of this map has this value". So two
+// joins presenting ONE token for TWO names both pass the read and both commit —
+// one token, two seats. TOKEN#<hash> makes the claim a key: a new team's
+// transaction puts it with attribute_not_exists and ConditionChecks that
+// VIEW#<hash> is absent; a viewer's puts VIEW#<hash> with attribute_not_exists
+// and ConditionChecks that TOKEN#<hash> is absent. The host token needs no item:
+// it is fixed at creation, so checking it against the header is not a race.
+// Same expiresAtSec as every other item. scripts/tools/session-race-probe.ts
+// probe A fails without it.
 //
 // WHY THIS SHAPE, point by point:
 //
@@ -183,15 +203,19 @@
 //                       reused: true and write nothing.          and the server redraws
 //                       Otherwise Put ROOM, then Put
 //                       CREATE#<hash> (that order).
-//   join, new team      Transact: Put NAME#, Update ROOM        NAME# not exists
-//                       (roster entry, ADD rev)                 (else TEAM_TAKEN); ROOM
-//                                                               exists
+//   createRoom, index   Put CREATE#<hash>                       attribute_not_exists(pk)
+//                                                               — ⚠ CORRECTED, see below
+//   join, new team      Transact: Put NAME#, Put TOKEN#,        NAME# not exists; TOKEN#
+//                       ConditionCheck VIEW#, Update ROOM       not exists; VIEW# not
+//                       (roster entry, ADD rev)                 exists; ROOM exists.
+//                                                               On failure RE-READ and
+//                                                               decide again — ⚠ CORRECTED
 //   join, rejoin        none                                    token hash matches the
 //                                                               roster; lines match
 //                                                               (else LINES_LOCKED)
-//   join, viewer        Put VIEW# only                          none — viewers are not in
-//                                                               RoomView, so rev does not
-//                                                               move
+//   join, viewer        Transact: Put VIEW#, ConditionCheck     VIEW# not exists; TOKEN#
+//                       TOKEN#. No rev bump — viewers are not   not exists (the token
+//                       in RoomView                             claim, above)
 //   submit, decisions   Transact: Update ROOM (lockedYear,      currentYear = :y
 //                       ADD rev), Put D#
 //   submit, result      Transact: Update ROOM (posted.<y>,      currentYear >= :y AND
@@ -199,6 +223,23 @@
 //   advance             Update ROOM only: currentYear = :e+1,   currentYear = :e AND
 //                       ADD rev                                 currentYear <= yearCount
 //                                                               AND hostTokenHash = :h
+//
+// ⚠ CORRECTED — A FAILED CONDITION IS NOT AUTOMATICALLY THE ERROR IT GUARDS.
+// This table said a failed NAME# condition is TEAM_TAKEN. Under concurrency it
+// is not always: a join retried after a lost response (same token, same name)
+// can read the header BEFORE its first attempt commits, decide "new team", and
+// lose the NAME# condition to ITSELF. Answering TEAM_TAKEN there is the exact
+// failure client-minted tokens exist to prevent. So a failed join condition
+// re-reads the header and decides again; the second read sees the team, the
+// token matches, and it is a rejoin. Probe B.
+//
+// ⚠ CORRECTED — THE INDEX PUT IS CONDITIONED. GetItem CREATE# then Put was safe
+// under the lock. Two concurrent creates with one host token (a retry sent while
+// the first is in flight) both miss the index and both make a room; an
+// unconditioned second Put CREATE# silently replaces the first, and the two
+// responses carry two codes for one request. Conditioned, the loser returns the
+// winner's room with reused: true and deletes its own header, which nobody was
+// ever given the code of. Probe C: 15 of 15 concurrent pairs split without it.
 //
 // ⚠ THE DECISIONS CONDITION MATTERS AS MUCH AS ADVANCE'S. Today the lock makes
 // "check the year, then write" atomic. Split across items without that
@@ -209,11 +250,22 @@
 // ⚠ ADVANCE'S COMPARE-AND-SWAP IS ON THE HEADER AND NOWHERE ELSE. It touches
 // no team item: "locked" is derived as lockedYear === currentYear, so a new
 // year needs no reset. On ConditionalCheckFailed, read the old header
-// (ReturnValuesOnConditionCheckFailure = ALL_OLD) and decide:
+// (ReturnValuesOnConditionCheckFailure = ALL_OLD) and decide, IN THIS ORDER:
+//   host hash mismatch  -> NOT_HOST
 //   already at :e + 1   -> the request was a retry; return success and the room
 //   past yearCount      -> GAME_COMPLETE
-//   host hash mismatch  -> NOT_HOST
 //   anything else       -> WRONG_YEAR
+// ⚠ CORRECTED: this list put the host-hash case THIRD, after the retry. As
+// written that hands a SUCCESS to any non-host whose expectation happens to be
+// one behind the room — it would match the retry case first. localTransport and
+// httpTransport item 4 both put authority first, and the harness asserts it
+// ("a forged token is refused before the year is even considered"). The handler
+// also resolves the role from the header BEFORE the update, so a non-host never
+// reaches the readback; the hash in the condition is the write enforcing it too.
+// ⚠ AND THE RETRY BEFORE GAME_COMPLETE IS LOAD-BEARING: the retry of the advance
+// that COMPLETED a game sees currentYear > yearCount exactly as a fresh advance
+// past the end does; only :e tells them apart. The 144 do not exercise that
+// case — the completion block never retries — so the probe does (probe D).
 // AdvanceRequest CARRIES :e NOW — `expectedYear`, required, not optional. This
 // said it did not yet; that was true when this was written and stopped being
 // true on another branch. The retry branch above is therefore reachable and a
@@ -247,6 +299,12 @@
 //        host       Query begins_with R#              ~87 KB at 10x10
 //        player     Query begins_with D#<teamId>#     ~11 KB; postedYears come
 //                                                     from the roster
+//                   AND Query begins_with R#<teamId>#   ⚠ CORRECTED: omitted
+//                                                     before, but lastResult is
+//                                                     the payload of the highest
+//                                                     played year and the harness
+//                                                     reads a player's OWN
+//                                                     resultsByYear back. ~9 KB.
 //        viewer     as the player it watches
 //        anonymous  the header alone, token hashes stripped
 //
@@ -254,6 +312,15 @@
 // callers stop receiving other teams' resultsByYear, which no screen of theirs
 // reads — see the note at localTransport's teamView, where that over-send lives
 // on the current build.
+//
+// ⚠ HEADER FIRST, ITEMS SECOND — NEVER IN PARALLEL. A header read at rev r
+// followed by a Query can only see items written at r or later: the caller
+// stores r and its next poll refetches. Run the other way round, a Query at r
+// can pair with a header at r+1, and the caller stores r+1 having missed the
+// item that made it r+1 — the poller below, by another door. The lock gave
+// localTransport an atomic snapshot; here the order is what replaces it. Every
+// mutation's response is built the same way, from a fresh header read after the
+// write, because a transaction cannot return values.
 //
 // ⚠ EVERY READ IS STRONGLY CONSISTENT (ConsistentRead = true), AND THIS IS WHY.
 // A poller that sees a new rev on the header and then gets a STALE query would
@@ -315,12 +382,15 @@
 //   createRoom   CreateRoomRequest.hostToken, minted by the client, doubling as
 //                the idempotency key, with the CREATE# index item above.
 //
-// ⚠ THE CONTRACT HARNESS IS 144/144 OVER BOTH TRANSPORTS. It was 126/126 when
+// ⚠ THE CONTRACT HARNESS IS 144/144 OVER ALL FOUR PASSES. It was 126/126 when
 // this design was written — the figure STATE_member-satisfaction.md still
 // records, correctly, as the count AT THAT MERGE. The extra eighteen are these
-// three mechanisms. They run identically against localStorage and over a real
-// socket, so a handler that satisfies the harness satisfies the contract, and
-// the harness is the thing to run against a Lambda, not this header.
+// three mechanisms. They run identically against localStorage, over a real
+// socket to the stub, and — with --dynamo, against DynamoDB Local in Docker —
+// in-process against DynamoSessionTransport and over a socket through the Lambda
+// handler. ⚠ BUT THE 144 ARE SEQUENTIAL, so they cannot see a race: every
+// correction above marked with a probe letter was deleted from rooms.ts in turn
+// and the 144 stayed green. scripts/tools/session-race-probe.ts is what failed.
 // ============================================================================
 
 /** DynamoDB's hard limit on a sort key, in UTF-8 bytes. */
@@ -391,6 +461,11 @@ export function decisionPrefix(teamId: string): string {
   return `D#${checkTeamId(teamId)}#`;
 }
 
+/** Every result of one team — a player's (and its viewers') own results range. */
+export function resultPrefix(teamId: string): string {
+  return `${RESULT_PREFIX}${checkTeamId(teamId)}#`;
+}
+
 /** One team's result for one year; year 0 is the opening position. */
 export function resultSk(teamId: string, year: number): string {
   return `${RESULT_PREFIX}${checkTeamId(teamId)}#${padYear(year)}`;
@@ -400,4 +475,26 @@ export function resultSk(teamId: string, year: number): string {
 export function viewerSk(tokenHash: string): string {
   if (tokenHash.length === 0) throw new RangeError('A token hash must be non-empty.');
   return checkSortKey(`VIEW#${tokenHash}`);
+}
+
+/**
+ * The createRoom idempotency index's partition-key VALUE. NOT a room partition:
+ * the lookup happens before a code exists. See ONE TABLE above.
+ */
+export function createPk(hostTokenHash: string): string {
+  if (hostTokenHash.length === 0) throw new RangeError('A token hash must be non-empty.');
+  return `CREATE#${hostTokenHash}`;
+}
+
+/** The idempotency index item's sort-key VALUE. */
+export const CREATE_SK = 'CREATE';
+
+/**
+ * One PLAYER token's claim, keyed by the hash of the token. Exists only so a
+ * token is claimed once — see THE TOKEN CLAIM above for why the roster's own
+ * tokenHash cannot do this.
+ */
+export function tokenSk(tokenHash: string): string {
+  if (tokenHash.length === 0) throw new RangeError('A token hash must be non-empty.');
+  return checkSortKey(`TOKEN#${tokenHash}`);
 }

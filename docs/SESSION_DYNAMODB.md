@@ -7,7 +7,11 @@ and this note is stale: fix this note.
 
 It is for whoever creates and sizes the table, not whoever writes the handlers.
 
-**The acceptance test for a handler is `scripts/tools/session-contract-check.ts`, which is 144/144 over both transports** — the same assertions against `localStorage` and against a real socket. A Lambda that satisfies it satisfies the contract; neither this note nor `keys.ts` is a substitute for running it. (It was 126/126 when this note was written, before `advance` took an expected year and `join`/`createRoom` took client-minted tokens.)
+**The acceptance test for a handler is `scripts/tools/session-contract-check.ts`, which is 144/144 over every pass** — the same assertions against `localStorage`, over a real socket to the stub, and with `--dynamo` (`npm run contract:dynamo`) in-process against the handler's `DynamoSessionTransport` and over a socket through `handler.ts`, against DynamoDB Local in Docker. A Lambda that satisfies it satisfies the contract; neither this note nor `keys.ts` is a substitute for running it. (It was 126/126 when this note was written, before `advance` took an expected year and `join`/`createRoom` took client-minted tokens.)
+
+**The 144 are sequential and cannot see a race.** The conditions below exist for concurrent invocations; `scripts/tools/session-race-probe.ts` (`npm run contract:races`) forces each interleaving and is what fails if one is removed.
+
+The handler is built: `src/session/server/` (`handler.ts`, `rooms.ts`, `views.ts`, `dynamo.ts`), bundled by `npm run build:handler` to `dist-lambda/handler.zip` with `index.js` at the root exporting `handler`.
 
 ## What the console asks for
 
@@ -36,6 +40,7 @@ the console.**
 | `sk` | String | `D#<teamId>#<yyy>` | one team's decisions for one year |
 | `sk` | String | `R#<teamId>#<yyy>` | one team's result for one year (`000` is the opening position) |
 | `sk` | String | `VIEW#<tokenHash>` | one viewer |
+| `sk` | String | `TOKEN#<tokenHash>` | one player token's claim — so a token is held by one seat (see `keys.ts`, THE TOKEN CLAIM) |
 | `pk` | String | `CREATE#<hash(hostToken)>` | **not a room partition** — see below |
 | `sk` | String | `CREATE` | the createRoom idempotency index, holding `{ code }` |
 
@@ -53,6 +58,7 @@ retried create returns the room it already made rather than a second room. That 
   worse *there*. A hosted table is a different setting.)
 - **It is a second item per room.** Anything counting rooms must exclude it. The local store's
   `/health` reported its own length as the room count and went wrong the moment this landed.
+- **Its put is conditioned on `attribute_not_exists(pk)`.** Two concurrent creates with one host token otherwise both make a room and the second index write replaces the first.
 - **Write it AFTER the room, never before.** A failure between the two then leaves no index pointing
   at a room that was never written. The reverse order strands a token resolving to nothing. They are
   deliberately not transacted — different partitions — and the ordering is what makes the non-atomic

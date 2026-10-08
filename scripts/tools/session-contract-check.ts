@@ -27,9 +27,49 @@
 //
 // So it tests the contract, not the browser, and now demonstrably not the
 // storage either.
+//
+// ⚠ AND TWICE MORE WITH --dynamo, AGAINST THE LAMBDA'S OWN CODE:
+//
+//   npx tsx scripts/tools/session-contract-check.ts --dynamo
+//   npm run contract:dynamo
+//
+// The same assertions in-process against DynamoSessionTransport, then over a
+// real socket through handler.ts — a few lines below turn an HTTP request into
+// the API Gateway v2 event the Lambda receives, so the routing, the header, the
+// status codes and the error body are what is being tested, not just the
+// DynamoDB logic beneath them. Both run against one amazon/dynamodb-local
+// container started here with `docker run` and removed afterwards. It needs
+// Docker and NO AWS credentials: the SDK is handed dummy ones and pointed at
+// 127.0.0.1, so nothing can reach a real account. Without the flag the run is
+// exactly what it was — fast and Docker-free.
+//
+// ⚠ THE OVER-HTTP PASS RUNS THE MODULE'S OWN `handler`, configured only by
+// environment variables, as the function is. Add --built (npm run
+// contract:built) and the same pass runs again against dist-lambda/handler.zip's
+// index.js — the artifact itself, not the source it came from. And every
+// DynamoDB pass prints how many items it wrote to the container's table, and
+// fails if that is zero: a pass that silently ran against something else would
+// otherwise read as green.
+//
+// ⚠ WHAT THE 144 DO NOT REACH, so a green run is not over-read. Every block is
+// sequential, so none of the races the Lambda's conditions exist for is
+// exercised here (rooms.ts lists them). And the completion block advances past
+// the end once; nothing retries the advance that COMPLETED the game, which is
+// the case advance's ordering trap breaks.
 // ============================================================================
 
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
+import { execFileSync } from 'node:child_process';
+import type { APIGatewayProxyEventV2 } from 'aws-lambda';
+// Types only at the top: the SDK and the server modules are imported inside
+// dynamoPasses, so a run without --dynamo loads none of them.
+import type { makeHandler } from '../../src/session/server/handler';
+import type { AttributeValue } from '@aws-sdk/client-dynamodb';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LocalSessionTransport } from '../../src/session/localTransport';
 import { HttpSessionTransport } from '../../src/session/httpTransport';
 import type { SessionTransport } from '../../src/session/contract';
@@ -783,13 +823,195 @@ async function all(): Promise<void> {
   bad += await runPass('HTTP + stub server', () => new HttpSessionTransport({ baseUrl: `http://127.0.0.1:${port}` }));
   await new Promise<void>(r => { server.close(() => r()); });
 
+  if (process.argv.includes('--dynamo')) bad += await dynamoPasses();
+
   console.log('');
   if (bad > 0) {
     console.log(`FAIL — ${bad} assertion(s) failed.`);
     process.exit(1);
   }
   console.log('PASS — five endpoints, token authority, redaction, carry-forward and the failure path,');
-  console.log('       identically over localStorage and over the wire.');
+  console.log(process.argv.includes('--dynamo')
+    ? '       identically over localStorage, the stub, DynamoDB and the Lambda handler.'
+    : '       identically over localStorage and over the wire.');
+}
+
+// ---------------------------------------------------------------- --dynamo
+
+const DYNAMO_IMAGE = 'amazon/dynamodb-local:3.3.1';
+
+function docker(args: string[]): string {
+  return execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+
+/**
+ * The real server's dispatch behind a real socket. Turns each request into the
+ * API Gateway HTTP API (v2) event the Lambda receives and writes back the result
+ * it returns, adding nothing — the handler owns every status and header.
+ */
+function lambdaShim(handler: ReturnType<typeof makeHandler>): Server {
+  return createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', c => chunks.push(c as Buffer));
+    req.on('end', () => {
+      void (async () => {
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers[k] = v;
+        const rawPath = (req.url ?? '/').split('?')[0];
+        const event = {
+          version: '2.0',
+          routeKey: '$default',
+          rawPath,
+          rawQueryString: '',
+          headers,
+          requestContext: { http: { method: req.method ?? 'GET', path: rawPath } },
+          body: Buffer.concat(chunks).toString('utf8'),
+          isBase64Encoded: false,
+        } as unknown as APIGatewayProxyEventV2;
+        const out = await handler(event);
+        res.writeHead(out.statusCode ?? 200, (out.headers ?? {}) as Record<string, string>);
+        res.end(out.body ?? '');
+      })();
+    });
+  });
+}
+
+async function dynamoPasses(): Promise<number> {
+  const { CreateTableCommand, DynamoDBClient, ListTablesCommand, ScanCommand, UpdateTimeToLiveCommand } = await import('@aws-sdk/client-dynamodb');
+  const { DynamoSessionTransport } = await import('../../src/session/server/rooms');
+  const { dynamoFromEnv } = await import('../../src/session/server/dynamo');
+  const { handler } = await import('../../src/session/server/handler');
+  const { unzipSync } = await import('fflate');
+  const name = `ripple-contract-${process.pid}`;
+  const table = 'ripple-sessions-contract';
+  let bad = 0;
+  docker(['run', '-d', '--rm', '--name', name, '-p', '127.0.0.1::8000', DYNAMO_IMAGE]);
+  try {
+    const port = docker(['port', name, '8000/tcp']).split('\n')[0].split(':').pop();
+    const client = {
+      endpoint: `http://127.0.0.1:${port}`,
+      region: 'us-west-2',
+      // ⚠ DUMMY CREDENTIALS, ON PURPOSE. With these and a local endpoint the SDK
+      // cannot reach a real account even on a machine that has real ones.
+      credentials: { accessKeyId: 'local', secretAccessKey: 'local' },
+    };
+    const raw = new DynamoDBClient(client);
+    for (let i = 0; ; i++) {
+      try { await raw.send(new ListTablesCommand({})); break; } catch (e) {
+        if (i > 60) throw e;
+        await new Promise(r => setTimeout(r, 250));
+      }
+    }
+    // The schema docs/SESSION_DYNAMODB.md gives the console: pk/sk strings,
+    // on-demand, TTL on expiresAtSec. No secondary index.
+    await raw.send(new CreateTableCommand({
+      TableName: table,
+      AttributeDefinitions: [
+        { AttributeName: 'pk', AttributeType: 'S' },
+        { AttributeName: 'sk', AttributeType: 'S' },
+      ],
+      KeySchema: [
+        { AttributeName: 'pk', KeyType: 'HASH' },
+        { AttributeName: 'sk', KeyType: 'RANGE' },
+      ],
+      BillingMode: 'PAY_PER_REQUEST',
+    }));
+    await raw.send(new UpdateTimeToLiveCommand({
+      TableName: table,
+      TimeToLiveSpecification: { Enabled: true, AttributeName: 'expiresAtSec' },
+    }));
+
+    // ⚠ REACH: EACH PASS MUST BE SEEN TO WRITE TO THIS CONTAINER'S TABLE. A pass
+    // that silently fell through to an implementation already known to work —
+    // a wrong import, the wrong container, a handler with an injected transport
+    // nobody meant — would read 144/144 exactly like a real one. The count of
+    // items in THIS table before and after each pass is what cannot be faked
+    // from anywhere else. It is not one of the 144; it is whether they ran here.
+    const countItems = async (): Promise<number> => {
+      let n = 0;
+      let start: Record<string, AttributeValue> | undefined;
+      do {
+        const page = await raw.send(new ScanCommand({ TableName: table, Select: 'COUNT', ExclusiveStartKey: start }));
+        n += page.Count ?? 0;
+        start = page.LastEvaluatedKey;
+      } while (start);
+      return n;
+    };
+    const reached = async (label: string, run: () => Promise<number>): Promise<number> => {
+      const before = await countItems();
+      const failed = await run();
+      const wrote = (await countItems()) - before;
+      console.log(`  ${''.padEnd(22)} reach: ${wrote} items written to DynamoDB Local by this pass`);
+      if (wrote <= 0) {
+        console.log(`    FAIL  ${label} wrote nothing to the table — it did not run against DynamoDB`);
+        return failed + 1;
+      }
+      return failed;
+    };
+
+    const dynamo = dynamoFromEnv({ tableName: table, client });
+    bad += await reached('DynamoDB, in-process', () =>
+      runPass('DynamoDB, in-process', () => new DynamoSessionTransport({ dynamo })));
+
+    // ⚠ THE HANDLER EXACTLY AS LAMBDA LOADS IT: the module's own exported
+    // `handler`, building its transport from the environment on first call — no
+    // injected transport, no config object. TABLE_NAME and the SDK's standard
+    // AWS_ENDPOINT_URL_DYNAMODB / AWS_REGION / credential variables are the
+    // whole configuration, as they are on the function.
+    const saved = { ...process.env };
+    Object.assign(process.env, {
+      TABLE_NAME: table,
+      AWS_REGION: client.region,
+      AWS_ENDPOINT_URL_DYNAMODB: client.endpoint,
+      AWS_ACCESS_KEY_ID: client.credentials.accessKeyId,
+      AWS_SECRET_ACCESS_KEY: client.credentials.secretAccessKey,
+    });
+    delete process.env.AWS_PROFILE;
+    delete process.env.AWS_SESSION_TOKEN;
+    try {
+      const overHttp = async (label: string, handler: ReturnType<typeof makeHandler>) => {
+        const server = lambdaShim(handler);
+        await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+        const addr = server.address();
+        const shimPort = typeof addr === 'object' && addr ? addr.port : 0;
+        const failed = await reached(label, () =>
+          runPass(label, () => new HttpSessionTransport({ baseUrl: `http://127.0.0.1:${shimPort}` })));
+        await new Promise<void>(r => { server.close(() => r()); });
+        return failed;
+      };
+      bad += await overHttp('HTTP + Lambda handler', handler);
+
+      // ⚠ --built: THE ARTIFACT, NOT THE SOURCE. The same pass against
+      // dist-lambda/handler.zip's own index.js, unzipped and require()d as the
+      // runtime does. A missing zip FAILS rather than skipping — a pass that
+      // quietly does not run is the thing this whole section guards against.
+      if (process.argv.includes('--built')) {
+        const zipFile = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../dist-lambda/handler.zip');
+        if (!existsSync(zipFile)) {
+          console.log('    FAIL  --built: dist-lambda/handler.zip is missing — run npm run build:handler');
+          bad += 1;
+        } else {
+          const dir = mkdtempSync(path.join(tmpdir(), 'ripple-built-'));
+          try {
+            const entry = path.join(dir, 'index.js');
+            writeFileSync(entry, unzipSync(readFileSync(zipFile))['index.js']);
+            const built = createRequire(entry)(entry) as { handler: ReturnType<typeof makeHandler> };
+            bad += await overHttp('HTTP + built zip', built.handler);
+          } finally {
+            rmSync(dir, { recursive: true, force: true });
+          }
+        }
+      }
+    } finally {
+      for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
+    raw.destroy();
+    dynamo.doc.destroy();
+  } finally {
+    try { docker(['rm', '-f', name]); } catch { /* already gone */ }
+  }
+  return bad;
 }
 
 all().catch(e => {

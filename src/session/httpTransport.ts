@@ -115,6 +115,10 @@
 //    The room-code collision check is still a read-then-write (`store.getItem`
 //    then retry), which on DynamoDB is the racy pattern by definition — it
 //    wants a conditional put with `attribute_not_exists(code)`.
+//    ✅ DONE IN THE HANDLER (src/session/server/rooms.ts): the header put is
+//    conditioned on attribute_not_exists(pk), the CREATE# index put is too, and
+//    the collision guard is a TOKEN# claim item, because the roster's token
+//    hashes cannot be conditioned on. See keys.ts, THE TOKEN CLAIM.
 //    `submit` is already idempotent per (team, year) and needs nothing.
 //
 // 6. THE ROOM IS ONE ITEM AND DYNAMODB CAPS AN ITEM AT 400 KB. Measured: 31 KB
