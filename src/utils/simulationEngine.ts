@@ -1215,6 +1215,12 @@ export function processLineYear(
   const chargedRateChangePct = priorTotalMemberRatePer100 !== null
     ? (totalMemberRatePer100 / priorTotalMemberRatePer100 - 1) * 100
     : null;
+  // ⚠ RESOLVED ONCE, HERE, AND READ TWICE. The dividend block is a rule, and it
+  // used to live only beside the cash movement two thousand lines below. Term 5
+  // needs the same answer, and a second copy of a rule is how the two go out of
+  // step — so the rule moved up to its first reader rather than being restated.
+  const effectiveDividendPct = ctx.dividendBlocked ? 0 : lineDecisions.dividendPct;
+
   const satisfaction = satisfactionMoves(
     currentActiveMembers, line, ctx.memberLossHistory, chargedRateChangePct,
     marketRateChangePct(line, yearNumber, { seed: instance.seed, gameId: instance.instanceId }),
@@ -1228,6 +1234,11 @@ export function processLineYear(
     // can actually see when this year's bill arrives, and the only one that
     // exists at this point in the function anyway. See memberSatisfaction.ts.
     ctx.priorResult?.excessCapitalRatio ?? null,
+    // TERM 5's inputs. The EFFECTIVE dividend, not the requested one — a line
+    // carrying negative surplus into the year pays nothing, and a member cannot
+    // be grateful for a cheque that was never sent.
+    effectiveDividendPct,
+    lineDecisions.assessmentPct,
   );
   // ⚠ SCORED LATE AND SUBSTITUTED ONLY WHERE THE ROSTER IS PERSISTED. Everything
   // between the renewal screen and here reads `enrolledMembers` for exposure,
@@ -1988,8 +1999,8 @@ export function processLineYear(
   // This keeps the financial statement logic consistent with the reserve accounting.
   const assessments = poolPremium * lineDecisions.assessmentPct;
   // A line carrying a negative surplus into the year (declined a loan) cannot pay
-  // a dividend — the decision is blocked regardless of what was requested.
-  const effectiveDividendPct = ctx.dividendBlocked ? 0 : lineDecisions.dividendPct;
+  // a dividend — the decision is blocked regardless of what was requested. The
+  // rule itself is resolved once, above, where satisfaction's term 5 first needs it.
   const dividends = poolPremium * effectiveDividendPct;
 
   // Keep this as a displayed reserve development metric (net basis).

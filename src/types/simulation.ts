@@ -306,6 +306,12 @@ export interface SatisfactionMove {
   surplusBand: 'Deficient' | 'Thin' | 'Adequate' | 'Strong' | 'Unknown';
   /** Last year's excessCapitalRatio, or null when there is no prior year. */
   surplusRatio: number | null;
+  /** TERM 5: cash moving as a share of the member's own bill. Positive is a
+   *  dividend received, negative an assessment paid. Struck pro-rata to
+   *  premium, so it is the same number for every member on the line. */
+  cashShare: number;
+  /** What term 5 contributed to `delta` this year, in satisfaction points. */
+  cashDelta: number;
   /** The satisfaction level this year's price implies. See satisfactionAnchor. */
   anchor: number;
   /** The one-year CHANGE reaction, in satisfaction points. Negative is unhappier. */

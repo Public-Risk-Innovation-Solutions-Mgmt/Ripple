@@ -1054,10 +1054,97 @@ export const SATISFACTION = {
    * would drag the boundary up by its own irrelevance.
    */
   surplusComfortable: 0.1385,
+  /**
+   * TERM 5 — CASH MOVING BETWEEN THE POOL AND THE MEMBER, as a share of the
+   * member's own bill. A dividend received is positive; an assessment paid is
+   * negative. Per point of share, on the DELTA.
+   *
+   * ⚠ IT EXISTS BECAUSE THE MODEL HAD A DIVIDEND'S COST AND NOT ITS BENEFIT,
+   * AND THE SIGN CAME OUT BACKWARDS. Measured before this limb, over 10 games x
+   * 10 years: paying a 15% dividend every year left the stock 0.14 points LOWER
+   * than baseline, and levying a 25% assessment left it 0.12 points HIGHER. The
+   * mechanism was confirmed through the surplus band — Strong 79% at baseline,
+   * 49% under dividends, 93% under assessments. That half is RIGHT: a member
+   * does notice the pool is thinner, and term 4 is doing its job. What was
+   * missing is that the money went to them. Nothing in four limbs recorded a
+   * member receiving a cheque or being billed one, so the only trace a
+   * distribution left was the hole it made in the surplus.
+   *
+   * ⚠ A LIMB, NOT A REWEIGHT, AND THAT WAS THE RULING. Rebalancing surplus
+   * against price would have bought the sign back by breaking two terms that
+   * were each measured and each correct. The defect is an ABSENCE, and an
+   * absence is fixed by adding the thing.
+   *
+   * ⚠ ON THE DELTA RATHER THAN THE ANCHOR, because a dividend is an EVENT and
+   * not a standing condition. It lands in the year it is paid and then decays
+   * toward the anchor like a price shock, which is the opposite call from a
+   * programme's service limb — a programme is a standing condition and belongs
+   * on the anchor. Same reasoning, opposite answer, for the same reason.
+   *
+   * ⚠ ASYMMETRIC THROUGH gratitudeLambda RATHER THAN A NEW CONSTANT. A bill is
+   * felt more than a refund, which is exactly what that constant already says
+   * about a rate rise against a rate cut, and reusing it keeps this from
+   * becoming a fourth unexamined number in a family the header above already
+   * warns is "all the same number's cousins". An assessment reacts at full
+   * strength; a dividend at 1/2.25 of it.
+   *
+   * ⚠ LINEAR, NOT CONVEX, for the LEVEL term's reason rather than the change
+   * term's: there is no noise to suppress. A dividend is a decision a player
+   * made, not a noisy year, so there is nothing for convexity to separate it
+   * from.
+   *
+   * ⚠ THE FIRST SATISFACTION CONSTANT WITH A CALIBRATION TARGET RATHER THAN A
+   * JUDGEMENT, AND THE TARGET IS THE THING TO KEEP. The coarse scalar's own
+   * cash terms (dividend x 10, assessment x 8) are unsourced and were not
+   * copied. THE TARGET: the limb must be large enough to FLIP THE SIGN — a 15%
+   * dividend every year must leave the stock ABOVE baseline and a 25%
+   * assessment BELOW it — while leaving the levers that already worked where
+   * they were. Solved against that target rather than chosen; see
+   * member-satisfaction-check, which asserts the sign rather than the number,
+   * so re-solving it is free and the target is what must not move.
+   *
+   * ⚠ SOLVED AGAINST THAT TARGET. Swept over 14 games x 10 years, three lines,
+   * paired on seeds, reading the pool's mean stock in the final year:
+   *
+   *     cashWeight    15% dividend    25% assessment
+   *        0.00         -0.149           +0.060        <- the defect
+   *        1.00         +0.041           -0.807        <- flips, no margin
+   *        1.20         +0.091           -0.982
+   *        1.40         +0.129           -1.155
+   *        1.60         +0.169           -1.328        <- ADOPTED
+   *        1.80         +0.207           -1.502
+   *
+   * 1.60 is the lowest round value at which the dividend's effect is at least
+   * as large as the defect it corrects — +0.169 against -0.149 — so a pool that
+   * pays one is now as clearly better off as it was wrongly worse off. 1.00
+   * flips the sign but only to +0.041, which is a sign change nobody could see.
+   *
+   * ⚠ THE ASSESSMENT MOVES ~8x FURTHER THAN THE DIVIDEND AND THAT IS THE POINT,
+   * not a miscalibration. Three things compound: gratitudeLambda discounts the
+   * refund (2.25x), the assessment slider's range is wider (0.25 against 0.15,
+   * 1.67x), and term 4 now pushes the SAME WAY as term 5 on an assessment
+   * (surplus rises, Strong 93%) while pushing AGAINST it on a dividend (surplus
+   * drains, Deficient 39%). A pool that bills its members is docked by both
+   * limbs; a pool that pays them is credited by one and docked by the other,
+   * which is what a member actually experiences.
+   */
+  cashWeight: 1.60,
   /** The stock's bounds. Same [1, 10] the field has always carried. */
   floor: 1.0,
   ceiling: 10.0,
 };
+
+/**
+ * The reaction to cash moving, as a share of the member's own bill.
+ *
+ *     C(x) =  x / LAMBDA   for x >= 0   a dividend received, worth less
+ *     C(x) =  x            for x <  0   an assessment paid, felt in full
+ *
+ * Same shape as the LEVEL reaction and the same constant doing the asymmetry.
+ */
+export function cashReaction(cashShare: number): number {
+  return cashShare >= 0 ? cashShare / SATISFACTION.gratitudeLambda : cashShare;
+}
 
 /**
  * The CHANGE reaction: how many satisfaction points a one-year gap of
@@ -1387,6 +1474,19 @@ export function satisfactionMoves(
   levelGapPct: number,
   /** LAST year's excessCapitalRatio — see the term 4 header on why last year's. */
   priorExcessCapitalRatio?: number | null,
+  /**
+   * TERM 5's inputs: this year's cash flows as a share of premium. The dividend
+   * is the EFFECTIVE one — a line carrying negative surplus pays nothing
+   * whatever was requested — so the caller resolves the block, not this.
+   *
+   * ⚠ BOTH ARE ALREADY A SHARE OF THE MEMBER'S OWN BILL, and that is worth
+   * stating because it looks like an omission. Dividends and assessments are
+   * struck as `poolPremium x pct`, so every member's cash is pro-rata to their
+   * own premium and the share is the SAME NUMBER for all of them. Dividing a
+   * member's cash by a member's bill would be arithmetic that cancels.
+   */
+  dividendShare = 0,
+  assessmentShare = 0,
 ): SatisfactionMove[] {
   const { frames } = ownExperienceFrames(members, line, history);
   const standing = memberLossStanding(members, line, history);
@@ -1419,6 +1519,12 @@ export function satisfactionMoves(
   const excessPct = known ? billAtPriorModPct - marketChangePct : 0;
   // The line-level part of the reaction, before the per-member amplifier.
   const baseDelta = -SATISFACTION.priceWeight * satisfactionReaction(excessPct);
+  // TERM 5. Signed: a dividend received is positive, an assessment paid is
+  // negative, and a year with both nets them — a pool doing both at once is
+  // handing money out with one hand and taking it with the other, and a member
+  // feels the difference.
+  const cashShare = dividendShare - assessmentShare;
+  const cashDelta = SATISFACTION.cashWeight * cashReaction(cashShare);
 
   return members.map((m, i) => {
     const f = frames[i];
@@ -1446,8 +1552,16 @@ export function satisfactionMoves(
       // FOUR LIMBS. The anchor carries three levels — the market's, the
       // member's own losses, and the pool's surplus — and the change limb
       // carries the fourth, amplified per member.
+      // TERM 5, reported so a reader can see the cash that moved and what it
+      // was worth, the same way the loss ratio is reported beside its reaction.
+      cashShare,
+      cashDelta,
       anchor: satisfactionAnchor(levelGapPct, st.level, surplusBand),
-      delta: baseDelta * st.amplifier,
+      // ⚠ THE AMPLIFIER MULTIPLIES THE PRICE REACTION ONLY. A member's own loss
+      // standing amplifies how a price change lands on them; it has no business
+      // scaling a cheque, which is the same size for everyone pro-rata to their
+      // bill. So term 5 is added OUTSIDE the amplifier rather than inside it.
+      delta: baseDelta * st.amplifier + cashDelta,
     };
   });
 }

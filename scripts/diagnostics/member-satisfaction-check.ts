@@ -38,16 +38,22 @@
 // surface-privacy-check, which holds risk quality off every render path.
 //
 // ============================================================================
-// EIGHT SECTIONS, AND FOUR LIMBS.
+// EIGHT SECTIONS, AND FIVE LIMBS.
 //
-// ⚠ THE MODEL HAS FOUR LIMBS NOW AND THREE OF THEM FEED THE ANCHOR. The change
+// ⚠ THE MODEL HAS FIVE LIMBS NOW AND THREE OF THEM FEED THE ANCHOR. The change
 // limb reacts to the pool's price against the market, amplified per member; the
 // anchor carries the market LEVEL, the member's own loss standing, and the
-// pool's surplus band. Sections 5, 6 and 8 each had to change for that, and
+// pool's surplus band. THE FIFTH IS CASH — a dividend received or an assessment
+// paid, as a share of the member's own bill — and it joins the change limb on
+// the DELTA rather than the anchor, because a distribution is an event and not
+// a standing condition. It exists because without it the model carried a
+// dividend's COST (the surplus it drains) and not its BENEFIT, so the sign came
+// out backwards: see SATISFACTION.cashWeight, which is the first constant here
+// with a calibration target rather than a judgement. Sections 5, 6 and 8 each had to change for that, and
 // section 5's old assertion is now FALSE BY DESIGN — see its header.
 //
 //   1. IT MOVES. Share of member-years that change, per line, against a null
-//      arm with ALL FOUR weights at 0 which must move only by the re-join draw.
+//      arm with ALL FIVE weights at 0 which must move only by the re-join draw.
 //
 //      ⚠ THAT NULL ONLY ZEROED TWO OF THEM UNTIL THE DAY THE THIRD AND FOURTH
 //      LIMBS SHIPPED, AND IT WENT RED SAYING 88% OF MEMBER-YEARS MOVED "WITH THE
@@ -729,17 +735,21 @@ for (const line of LINES) {
   const keepLoss = SATISFACTION.lossLevelWeight;
   const keepSurplus = SATISFACTION.surplusWeight;
   const keepAmp = SATISFACTION.lossAmplifierSlope;
+  // THE FIFTH LIMB, added here first exactly as the note above requires.
+  const keepCash = SATISFACTION.cashWeight;
   SATISFACTION.priceWeight = 0;
   SATISFACTION.levelWeight = 0;
   SATISFACTION.lossLevelWeight = 0;
   SATISFACTION.surplusWeight = 0;
   SATISFACTION.lossAmplifierSlope = 0;
+  SATISFACTION.cashWeight = 0;
   const nullRuns = Array.from({ length: Math.min(3, GAMES) }, (_, g) => play(g, false));
   SATISFACTION.priceWeight = keepPrice;
   SATISFACTION.levelWeight = keepLevel;
   SATISFACTION.lossLevelWeight = keepLoss;
   SATISFACTION.surplusWeight = keepSurplus;
   SATISFACTION.lossAmplifierSlope = keepAmp;
+  SATISFACTION.cashWeight = keepCash;
   let moved = 0, total = 0;
   for (const line of LINES) { const s = movedShare(nullRuns, line); moved += s.moved; total += s.total; }
   const share = moved / Math.max(total, 1);
