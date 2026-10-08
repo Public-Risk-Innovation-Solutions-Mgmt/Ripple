@@ -98,7 +98,7 @@
 import type { CoverageLine } from '../types/simulation';
 
 /** The programs wired to the engine. The other three are description only. */
-export const WIRED_PROGRAM_IDS = ['gl-law-enforcement-analytics', 'wc-safety-rtw'] as const;
+export const WIRED_PROGRAM_IDS = ['gl-law-enforcement-analytics', 'wc-safety-rtw', 'claims-management-system'] as const;
 
 /**
  * The programs a player can COMMIT from the tiles. A SUBSET of the wired ones.
@@ -117,7 +117,9 @@ export const WIRED_PROGRAM_IDS = ['gl-law-enforcement-analytics', 'wc-safety-rtw
  * GL's standing for every tile. A program may be added here only once it has
  * both.
  */
-export const BUYABLE_PROGRAM_IDS: readonly string[] = ['gl-law-enforcement-analytics', 'wc-safety-rtw'];
+export const BUYABLE_PROGRAM_IDS: readonly string[] = [
+  'gl-law-enforcement-analytics', 'wc-safety-rtw', 'claims-management-system',
+];
 
 // ============================================================================
 // ⚠ THE MAGNITUDE. SIZED AGAINST THE $1,000,000 PLACEHOLDER COST, DELIBERATELY
@@ -317,15 +319,33 @@ export const glAnalyticsStanding = (
   priorIds: readonly (readonly string[] | undefined)[],
 ): ProgramStanding => programStanding('gl-law-enforcement-analytics', currentIds, priorIds);
 
-/** What this line is charged for committed programs this year. */
+/**
+ * What this line is charged for committed programs this year.
+ *
+ * ⚠ activeLineCount IS REQUIRED AND IS NOT A CONVENIENCE. The claims system is
+ * the first POOL-SCOPED program: its charge is tiered by how many lines the pool
+ * writes, and the engine bills per line, so the pool charge has to be divided
+ * somewhere. It is divided EVENLY here. Value-weighting it would make Property
+ * carry most of it — Property is 56.5% of the below-retention dollars — and a
+ * pool would then be billed by how much it was about to benefit, which is a
+ * different product. An even split leaves the unevenness between pools visible,
+ * which is the point.
+ *
+ * Defaulting the count would silently bill a three-line pool at the one-line
+ * tier, so there is no default.
+ */
 export function programAnnualCost(
   line: CoverageLine,
   currentIds: readonly string[] | undefined,
   priorIds: readonly (readonly string[] | undefined)[],
+  activeLineCount: number,
 ): number {
-  if (line === 'WC') return wcSafetyRtwStanding(currentIds, priorIds).annualCost;
-  if (line !== 'GL') return 0;
-  return glAnalyticsStanding(currentIds, priorIds).annualCost;
+  const n = Math.max(1, Math.round(activeLineCount));
+  const claims = claimsSystemStanding(currentIds, priorIds, n).poolAnnualCost / n;
+  const own = line === 'WC' ? wcSafetyRtwStanding(currentIds, priorIds).annualCost
+    : line === 'GL' ? glAnalyticsStanding(currentIds, priorIds).annualCost
+    : 0;
+  return own + claims;
 }
 
 /**
@@ -339,6 +359,17 @@ export function standingFor(
   priorIds: readonly (readonly string[] | undefined)[],
 ): ProgramStanding | undefined {
   if (programId === 'gl-law-enforcement-analytics') return glAnalyticsStanding(currentIds, priorIds);
+  if (programId === CLAIMS_SYSTEM_ID) {
+    // ⚠ THE TILE ASKS WITHOUT KNOWING THE LINE COUNT, so the cost it shows is
+    // the ONE-LINE tier. A pool-scoped tile cannot be line-aware here without
+    // threading setup through every caller; the Decisions page passes the real
+    // count where it has one. See claimsSystemPoolCost.
+    const st = claimsSystemStanding(currentIds, priorIds, 1);
+    return {
+      committed: st.committed, tenure: st.tenure, annualCost: st.poolAnnualCost,
+      maintaining: false, termYears: CLAIMS_SYSTEM_TERM_YEARS, benefitFraction: st.level,
+    };
+  }
   if (programId === 'wc-safety-rtw') {
     const st = wcSafetyRtwStanding(currentIds, priorIds);
     return {
@@ -707,4 +738,230 @@ export function wcSafetyRtwStanding(
     committed, tenure, safetyLevel: safety, rtwLevel: rtw,
     annualCost: committed ? WC_SAFETY_RTW_ANNUAL_COST : 0,
   };
+}
+
+// ============================================================================
+// THE CLAIMS MANAGEMENT SYSTEM — ONE RATE, THREE LINES, BELOW EACH RETENTION.
+//
+// A flat severity reduction on claims BELOW each line's own retention. Not
+// leakage: this model does not overpay claims, and building an overpayment so a
+// program could remove it would invent a defect to sell a cure — the baseline
+// would be a pool paying more than it owes for no reason, and DECLINING would
+// mean accepting that. This is better handling on a correct baseline: the files
+// that would have cost more cost less.
+//
+// ⚠ BELOW A THRESHOLD, AND THE THRESHOLD IS STRUCTURAL RATHER THAN A PREFERENCE.
+// A small claim is retained in full, so the pool keeps every dollar saved; a
+// large one is mostly ceded, so most of the saving would go to the reinsurer.
+// The threshold is therefore each line's OWN retention, and the reason it works
+// is the same one WC_RTW_CONVERSION_CEILING rests on: a claim drawn AT the
+// retention books at `A x drawn^k` on first estimate, which is
+//
+//     WC        38.9% of $1M        GL        31.4% of $1M
+//     Property  75.9% of $5M
+//
+// so an eligible claim CANNOT pierce at inception on any of the three.
+//
+// ⚠ AND THE TOWER ATTACHES PER OCCURRENCE, NOT PER CLAIM, SO THAT ARGUMENT WAS
+// NOT ENOUGH ON ITS OWN. A Property catastrophe is ONE occurrence carrying many
+// claims, so a below-threshold CLAIM can sit inside an occurrence that pierces
+// and leak to the tower anyway. Measured over 80 line-years: 0.0% of
+// below-threshold dollars sit in a piercing occurrence at defaults (2
+// multi-claim occurrences in 7,068), and 0.6% with an earthquake SCHEDULED into
+// every game. Real, tested, negligible — but it is the number to re-read if the
+// catastrophe model ever emits larger multi-claim events.
+//
+// ⚠ 10% IS CHOSEN, NOT SOURCED, AND THIS RECORDS IT THE WAY
+// WC_RTW_TARGET_REDUCTION IS RECORDED. There is no defensible published figure
+// for claims-handling savings — the widely quoted ones are poorly sourced and
+// none is reproduced here. What IS establishable is internal: RTW already
+// removes about 22.5% of WC's below-retention dollars and is shipped and
+// accepted, so 10% is CONSERVATIVE within this model, at a bit under half the
+// effect of a mechanism already in the game.
+//
+// ⚠ IT WAS EXPECTED TO READ NEGATIVE ON A QUIET BOOK AND IT DOES NOT. IT PAYS,
+// CLEARLY, AND THE PREDICTION THAT IT WOULD NOT WAS AN ARITHMETIC MISTAKE WORTH
+// RECORDING. The earlier sizing measured break-even for this mechanism at 14.2%
+// pooled over five years AGAINST A FLAT $1M PER LINE — $15M for a three-line
+// pool over five years. This program charges a TIERED $2M for THREE years, $6M
+// in total: two and a half times cheaper. A cheaper program has a LOWER hurdle,
+// so being cheaper than the thing that needed 14.2% is what makes 10% enough.
+// The expectation that "cheaper and a lower rate" would read negative treated
+// the cost reduction as if it raised the bar.
+//
+// MEASURED, paired on seeds, committed every year against never, defaults, no
+// shocks scheduled, 24 games x 5 years:
+//
+//   three-line pool   $2M/yr x 3 = $6M    year-5 surplus +$2.329M   t = 10.5
+//   Property-only     $1M/yr x 3 = $3M    year-5 surplus +$2.899M   t = 16.3
+//
+//   gross avoided, three-line pool, by year: 0 / $2.32M / $3.90M / $4.08M /
+//   $4.08M — year one is the ramp, and the charge stops after year three while
+//   the benefit does not, which is where the surplus is made.
+//
+// ⚠ SO IT IS NOT A JUDGEMENT CALL, AND THAT IS A REAL DEPARTURE FROM THE OTHER
+// TWO. WC_RTW_TARGET_REDUCTION was deliberately sized so that committing is "a
+// judgement about horizon rather than an obvious yes or no". At t = 10.5 this is
+// an obvious yes on a quiet book: a player who declines it is simply wrong. If
+// that matters it is fixed by RAISING THE COST or SHORTENING THE FREE TAIL, not
+// by cutting the 10% — the rate is the conservative part of this design.
+//
+// ⚠ AND THE SHOCK CASE IS STILL THE UNTESTED HALF, which is what this mechanism
+// was chosen FOR. A winter storm is ~100 Property claims, each its own
+// occurrence, none near the retention. A water-contamination event is 2-5 GL
+// claims, all below it. Those are exactly the dollars this program cuts and the
+// pool retains in full, and NO measurement here covers them: every figure above
+// is from a book with no events in it. Expect a shocked book to read better
+// still, and say by how much when someone measures it.
+//
+// WHAT WOULD REPLACE THE 10%: a measurement on a shocked book, or a sourced
+// figure if one is ever found. Raising it is a one-line change here; the gate
+// asserts the mechanism, not the magnitude.
+// ============================================================================
+
+import { REINSURANCE_TOWER } from '../data/reinsuranceTower';
+
+export const CLAIMS_SYSTEM_ID = 'claims-management-system';
+
+/**
+ * The flat severity cut on eligible claims at full effect. CHOSEN — see above.
+ */
+export const CLAIMS_SYSTEM_SEVERITY_REDUCTION = 0.10;
+
+/**
+ * ⚠ READ FROM THE TOWER, NOT RESTATED. Each line's threshold IS its first
+ * layer's attachment, so re-cutting the tower moves this with it rather than
+ * leaving a literal behind to go stale. Property's retention is $5M and WC's
+ * and GL's are $1M; writing those here as numbers is how the two go out of step.
+ */
+export const CLAIMS_SYSTEM_THRESHOLD: Record<CoverageLine, number> = {
+  WC: REINSURANCE_TOWER.WC[0].attachment,
+  GL: REINSURANCE_TOWER.GL[0].attachment,
+  Property: REINSURANCE_TOWER.Property[0].attachment,
+};
+
+/**
+ * ⚠ YEAR ONE BUYS NOTHING, WHICH IS HARSHER THAN GL'S AND MUCH HARSHER THAN
+ * WC'S. Implementing a claims system is a year of migration before a single
+ * file is handled better. GL's PROGRAM_RAMP is also 0 in year one, so this is
+ * not new; WC's two levers start at 0.25 and 0.75, so this is the harshest
+ * first year of the three. Year two buys 0.60 rather than GL's 0.50.
+ */
+export const CLAIMS_SYSTEM_RAMP: readonly number[] = [0, 0.60, 1.00];
+
+/** The build term. Paid for three years, then nothing — the system is owned. */
+export const CLAIMS_SYSTEM_TERM_YEARS = 3;
+
+/**
+ * ⚠ TIERED BY LINES WRITTEN, NOT A PER-LINE MULTIPLE, BECAUSE THAT IS HOW
+ * SOFTWARE IS SOLD. A three-line pool gets more out of one claims system than a
+ * one-line pool does, but it does not cost three times as much to licence and
+ * implement. A flat charge would make a Property-only pool pay full price for
+ * part of the benefit; a strict per-line charge would price a three-line pool
+ * out of a product whose marginal cost per line is small. The tier is the
+ * middle, and the unevenness that remains is a real difference between pools.
+ */
+export const CLAIMS_SYSTEM_TIER_COST: Record<number, number> = {
+  1: 1_000_000,
+  2: 1_500_000,
+  3: 2_000_000,
+};
+
+/** The pool's whole annual charge for this program at `lineCount` lines. */
+export function claimsSystemPoolCost(lineCount: number): number {
+  const n = Math.max(1, Math.min(3, Math.round(lineCount)));
+  return CLAIMS_SYSTEM_TIER_COST[n];
+}
+
+export interface ClaimsSystemStanding {
+  committed: boolean;
+  /** Consecutive committed years including this one; 0 when not committed. */
+  tenure: number;
+  /** 0..1 — the share of CLAIMS_SYSTEM_SEVERITY_REDUCTION in force this year. */
+  level: number;
+  /** The POOL's dollars this year — 0 once the build term is paid. */
+  poolAnnualCost: number;
+}
+
+/**
+ * Walk the committed/not sequence and return the standing in the FINAL year.
+ * Same derivation as the other two: nothing is stored but the decision lists.
+ *
+ * ⚠ THE CHARGE STOPS AT THE TERM AND THE BENEFIT DOES NOT. Three years buys the
+ * system outright, so year four onward is free while it stays committed. That
+ * makes the decision "spend this for three years to own it", which is the
+ * decision a claims platform actually is — unlike GL's analytics, which carries
+ * a maintenance charge because declining it has to cost something.
+ *
+ * Lapsing halves the level, as GL's does: a system switched off is not instantly
+ * worthless, and an interruption should be recoverable rather than total.
+ */
+export function claimsSystemStanding(
+  currentIds: readonly string[] | undefined,
+  priorIds: readonly (readonly string[] | undefined)[],
+  lineCount: number,
+): ClaimsSystemStanding {
+  const seq = [...priorIds, currentIds];
+  let tenure = 0, level = 0;
+  for (const ids of seq) {
+    if (ids?.includes(CLAIMS_SYSTEM_ID)) {
+      tenure += 1;
+      level = Math.max(level, rampAt(CLAIMS_SYSTEM_RAMP, tenure));
+    } else {
+      tenure = 0;
+      level *= BENEFIT_DECAY_PER_LAPSED_YEAR;
+      if (level < BENEFIT_FLOOR) level = 0;
+    }
+  }
+  const committed = tenure > 0;
+  return {
+    committed,
+    tenure,
+    level,
+    poolAnnualCost: committed && tenure <= CLAIMS_SYSTEM_TERM_YEARS ? claimsSystemPoolCost(lineCount) : 0,
+  };
+}
+
+/**
+ * The severity reduction in force for one line — 0 when nothing applies.
+ *
+ * ONE RATE ACROSS THE THREE LINES. The THRESHOLD differs by line because the
+ * retentions differ; the rate does not, because one claims department handles
+ * all three and there is no reason it would be better at one of them.
+ *
+ * ⚠ THE LEVEL, NOT THE TENURE — a lapsed program carries a decaying residual,
+ * and reading the tenure would throw it away. The same trap the other two carry.
+ */
+export function claimsSystemSeverityReduction(
+  currentIds: readonly string[] | undefined,
+  priorIds: readonly (readonly string[] | undefined)[],
+): number {
+  const level = claimsSystemStanding(currentIds, priorIds, 1).level;
+  return level <= 0 ? 0 : CLAIMS_SYSTEM_SEVERITY_REDUCTION * level;
+}
+
+/**
+ * One claim's amount after the claims system, given the reduction in force.
+ *
+ * ⚠ THE ONLY PLACE THE RULE IS WRITTEN. The three generators call this at the
+ * point a claim's amount is finalised; nothing else may re-implement it. It is
+ * applied to the DRAW, before occurrence totals, member loss results and the
+ * line's gross are derived from the claims, so every downstream figure follows
+ * automatically rather than needing its own adjustment.
+ *
+ * ⚠ STRICTLY BELOW, NEVER AT. A claim drawn exactly at the retention is
+ * untouched, so the eligible set can never include one the tower would take a
+ * share of. And the transform is monotone and shrinking, so a reduced claim
+ * stays below the threshold it qualified under — it cannot move across a
+ * boundary in either direction.
+ *
+ * ⚠ IT CONSUMES NO RANDOMNESS. The draw happens first and is unchanged; this
+ * scales the number afterwards. A pool that has not bought the program draws
+ * bit-identical claims, which is what makes the null arm provable rather than
+ * merely likely.
+ */
+export function claimsSystemAdjusted(line: CoverageLine, drawn: number, reduction: number): number {
+  if (!(reduction > 0)) return drawn;
+  if (!(drawn < CLAIMS_SYSTEM_THRESHOLD[line])) return drawn;
+  return drawn * (1 - reduction);
 }

@@ -1299,6 +1299,15 @@ interface ResultRowFields {
   // reason: a result written before the WC program existed was drawn without
   // it, and 0 is the only value it could have had.
   programRtwApplied?: number;
+  // The CLAIMS SYSTEM severity reduction applied to this line-year's draw, or 0
+  // when none was. Same purpose as the two above: the regenerator must redraw
+  // the register the engine actually produced, and the program's level is a
+  // function of a decision history the claims workbook does not carry.
+  //
+  // ⚠ ABSENT DEFAULTS TO 0, WHICH IS SAFE FOR programFreqApplied'S REASON. A
+  // result written before this field existed was played with no claims system,
+  // because there was none to buy — so 0 is the value it HAD, not a guess.
+  programSeverityApplied?: number;
   // ENROLLED MEMBERS ONLY. This is the pool-accounting list: aggregateMemberLoss,
   // grossUltimateLoss, reserves and reinsurance all derive from it.
   memberLossResults: MemberLossResult[];

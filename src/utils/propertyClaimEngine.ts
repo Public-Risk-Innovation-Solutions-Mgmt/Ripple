@@ -40,6 +40,7 @@ import { deriveSubRng } from './random';
 import { PROPERTY_CAT_EARTHQUAKE, PROPERTY_CAT_MODEL, PROPERTY_LOSS_MODEL } from '../data/defaultAssumptions';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
 import { CAT_REGIONS, catLossIfHit, expectedPropertyCatLoss, memberExpectedCatLoss } from './propertyCatastrophe';
+import { claimsSystemAdjusted } from './riskControlPrograms';
 
 const M = PROPERTY_LOSS_MODEL;
 const LINE: CoverageLine = 'Property';
@@ -324,6 +325,13 @@ export interface PropertyGenerationInputs {
   // Scheduled NON-CATASTROPHE weather events — many claims, each its own
   // occurrence. Absent on every unscheduled year.
   weatherEvents?: { shockId: string; peril: string; region: Region; count: { min: number; max: number }; claim: { min: number; max: number } }[];
+  /**
+   * CLAIMS SYSTEM severity reduction, 0 or absent when none applies. Applied by
+   * claimsSystemAdjusted to claims below this line's retention ONLY — that
+   * function is the single place the rule is written and this engine must not
+   * re-implement it.
+   */
+  programSeverityReduction?: number;
 }
 
 export interface PropertyGenerationResult {
@@ -352,6 +360,7 @@ export interface PropertyGenerationResult {
 export function generatePropertyClaims(inputs: PropertyGenerationInputs): PropertyGenerationResult {
   const { members, yearNumber, calendarYear, instanceSeed, kPr, riskControlEffectiveness } = inputs;
   const rcFactor = Math.max(0, 1 - riskControlEffectiveness);
+  const sevCut = inputs.programSeverityReduction ?? 0;
 
   // ⚠ ACCEPTED SIMPLIFICATION, RECORDED SINCE VEHICLES WERE FOLDED IN: rcFactor
   // discounts ONE frequency lambda that now generates both building and
@@ -579,6 +588,10 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
 
         const occurrenceId = `PR-${yearNumber}-${member.id}-${i}`;
         const claimId = `${occurrenceId}-c1`;
+        // The claims system, applied to the DRAW — see claimsSystemAdjusted. Below the
+        // retention only, and the claim, its case reserve and the line gross all read
+        // the same adjusted figure so nothing downstream needs its own correction.
+        const csAmount = claimsSystemAdjusted(LINE, gross, sevCut);
         claims.push({
           id: claimId,
           occurrenceId,
@@ -590,9 +603,9 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
           status: 'open',
           // Property damage is known the day it happens.
           reportedYear: yearNumber,
-          grossUltimate: gross,
+          grossUltimate: csAmount,
           paidToDate: 0,
-          caseReserve: gross,
+          caseReserve: csAmount,
           paymentPattern: [...M.payoutPattern],
         });
         // One claim per occurrence — for the ATTRITIONAL band. The cat band
@@ -610,7 +623,7 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
           peril: BAND,
         });
         memberLoss += gross;
-        grossUltimateLoss += gross;
+        grossUltimateLoss += csAmount;
         claimCount++;
         if (gross > maxClaimGross) maxClaimGross = gross;
         if (gross > M.perRiskRetention) perRiskBreaches++;
@@ -629,6 +642,10 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
         if (u >= PROPERTY_CAT_MODEL.footprint) continue;
         const occurrenceId = `PR-${yearNumber}-CAT-${e}`;
         const claimId = `${occurrenceId}-${member.id}`;
+        // The claims system, applied to the DRAW — see claimsSystemAdjusted. Below the
+        // retention only, and the claim, its case reserve and the line gross all read
+        // the same adjusted figure so nothing downstream needs its own correction.
+        const csAmount = claimsSystemAdjusted(LINE, lossIfHit, sevCut);
         claims.push({
           id: claimId,
           occurrenceId,
@@ -639,15 +656,15 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
           tier: CAT_BAND,
           status: 'open',
           reportedYear: yearNumber,
-          grossUltimate: lossIfHit,
+          grossUltimate: csAmount,
           paidToDate: 0,
-          caseReserve: lossIfHit,
+          caseReserve: csAmount,
           paymentPattern: [...M.payoutPattern],
         });
         eventClaimIds[e].push(claimId);
         eventMemberIds[e].push(member.id);
         memberLoss += lossIfHit;
-        grossUltimateLoss += lossIfHit;
+        grossUltimateLoss += csAmount;
         catGrossLoss += lossIfHit;
         claimCount++;
       }
@@ -658,6 +675,10 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
     for (const { event, loss } of forcedPlan.get(member.id) ?? []) {
       const occurrenceId = forcedOccurrenceId(event);
       const claimId = `${occurrenceId}-${member.id}`;
+      // The claims system, applied to the DRAW — see claimsSystemAdjusted. Below the
+      // retention only, and the claim, its case reserve and the line gross all read
+      // the same adjusted figure so nothing downstream needs its own correction.
+      const csAmount = claimsSystemAdjusted(LINE, loss, sevCut);
       claims.push({
         id: claimId,
         occurrenceId,
@@ -668,16 +689,16 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
         tier: CAT_BAND,
         status: 'open',
         reportedYear: yearNumber,
-        grossUltimate: loss,
+        grossUltimate: csAmount,
         paidToDate: 0,
-        caseReserve: loss,
+        caseReserve: csAmount,
         paymentPattern: [...M.payoutPattern],
         shockId: forcedEvents[event].shockId,
       });
       forcedClaimIds[event].push(claimId);
       forcedMemberIds[event].push(member.id);
       memberLoss += loss;
-      grossUltimateLoss += loss;
+      grossUltimateLoss += csAmount;
       claimCount++;
     }
 
@@ -686,6 +707,10 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
     for (const { event, n, loss } of weatherPlan.get(member.id) ?? []) {
       const occurrenceId = weatherOccurrenceId(event, n);
       const claimId = `${occurrenceId}-${member.id}`;
+      // The claims system, applied to the DRAW — see claimsSystemAdjusted. Below the
+      // retention only, and the claim, its case reserve and the line gross all read
+      // the same adjusted figure so nothing downstream needs its own correction.
+      const csAmount = claimsSystemAdjusted(LINE, loss, sevCut);
       claims.push({
         id: claimId,
         occurrenceId,
@@ -696,9 +721,9 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
         tier: WEATHER_BAND,
         status: 'open',
         reportedYear: yearNumber,
-        grossUltimate: loss,
+        grossUltimate: csAmount,
         paidToDate: 0,
-        caseReserve: loss,
+        caseReserve: csAmount,
         shockId: weatherEvents[event].shockId,
         paymentPattern: [...M.payoutPattern],
       });
@@ -715,7 +740,7 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
         peril: weatherEvents[event].peril,
       });
       memberLoss += loss;
-      grossUltimateLoss += loss;
+      grossUltimateLoss += csAmount;
       claimCount++;
     }
 

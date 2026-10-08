@@ -239,7 +239,12 @@ export const RISK_CONTROL_CATEGORIES: readonly RiskControlCategory[] = [
     scope: 'Pool',
     commitmentYears: 3,
     renewal: 'opt-out',
-    benefit: 'onCompletion',
+    // ⚠ WAS 'onCompletion', AND THE WIRING IS WHY IT MOVED. The benefit arrives
+    // on CLAIMS_SYSTEM_RAMP — nothing in year one, 0.60 in year two, all of it
+    // from year three — so it ramps rather than landing whole at the end of the
+    // term. 'onCompletion' would have told a player to expect nothing until
+    // year three and then everything, which is not what the engine does.
+    benefit: 'ramped',
     status: 'scoped',
   },
   {

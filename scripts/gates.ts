@@ -74,6 +74,9 @@ const FAST: string[] = [
   'audit-formula-check',             //  18s
   'cession-uplift-basis',            //  22s
   'claims-memo-check',                //   8s   every displayed row names its member; 3 controls
+  'claims-system-check',             //   9s   the claims program: null arm against the ENGINE,
+                                     //         confinement, strictly-below, tower share 0.00%,
+                                     //         3 controls incl. an unbounded cut leaking 36%
   'claims-workbook-check',           //  17s
   'closure-draw-check',              //   3s
   'cohort-stock-check',              //   4s   (sixty years, four games)

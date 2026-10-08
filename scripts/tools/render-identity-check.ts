@@ -306,8 +306,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //
 // ⚠ THE FLAT CHARGE AND THE RATIO PAIR DO NOT APPEAR ABOVE and their absence is
 // correct: v14 was captured at b856340, which already carried them.
+// ⚠ v15 -> v16: THE CLAIMS MANAGEMENT SYSTEM BECAME BUYABLE. 10 of 298 moved,
+// every one of them Decisions|Pool, and ALL TEN HAVE THE SAME CAUSE — the
+// sentence naming which tiles are live. Classified mechanically against the
+// prior commit's own text, three variants:
+//   4 rows  GL-only and WC-only: "is" -> "and Claims Management are", because
+//           those pools went from one buyable program to two.
+//   4 rows  WC+GL and WC+GL+PR: "+ and Claims Management", same cause.
+//   2 rows  PROPERTY-ONLY: the whole sentence "Claims Management is live; the
+//           others are not yet buyable." INSERTED, because a Property-only pool
+//           previously had NO buyable program at all and so had no sentence to
+//           name one. That is this program giving Property its first.
+//
+// ⚠ THE TILE ITSELF DOES NOT APPEAR ABOVE AND ITS ABSENCE IS CORRECT. The
+// fingerprint is a hash of innerText, so a tile turning from a div into a button
+// is invisible to it: the name, the scope chip and the cost were already
+// rendered and are unchanged. Nothing was skipped — there is nothing to see.
+//
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: cb3b5d5 built into its own
+// worktree and served on 4174 reproduced ALL 298 against the committed v15.
 const BASELINE = process.env.RENDER_BASELINE
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v15.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v16.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

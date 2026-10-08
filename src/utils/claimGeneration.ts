@@ -83,6 +83,17 @@ export interface LineYearGenerationBase {
    * frequency multiplier above.
    */
   programRtwConversion: number;
+  /**
+   * This line's CLAIMS SYSTEM severity reduction, 0 when none applies. Applied
+   * only to claims below the line's own retention — see claimsSystemAdjusted,
+   * which is the single place the rule is written.
+   *
+   * ⚠ A THIRD SEPARATE CHANNEL, for the same reason as the two above. It is
+   * also the first one that is POOL-scoped: the same rate reaches all three
+   * generators, where the frequency multiplier and the RTW conversion are each
+   * one line's. The threshold differs by line; the rate does not.
+   */
+  programSeverityReduction: number;
 }
 
 export interface LineYearGenerationOutput {
@@ -127,6 +138,7 @@ export function wcGenerationInputs(b: LineYearGenerationBase): WcGenerationInput
       : { count: i.count, amount: i.amount, shockId: i.shockId, ...(i.region ? { region: i.region } : {}) })),
     programFreqMultiplier: b.programFreqMultiplier,
     programRtwConversion: b.programRtwConversion,
+    programSeverityReduction: b.programSeverityReduction,
   };
 }
 
@@ -139,6 +151,7 @@ export function glGenerationInputs(b: LineYearGenerationBase): GlGenerationInput
     sevMultipliers: b.shock?.sevMultipliers,
     programFreqMultiplier: b.programFreqMultiplier,
     injections: b.shock?.injections,
+    programSeverityReduction: b.programSeverityReduction,
   };
 }
 
@@ -148,6 +161,7 @@ export function propertyGenerationInputs(b: LineYearGenerationBase): PropertyGen
     instanceSeed: b.instanceSeed, kPr: b.k, riskControlEffectiveness: b.riskControlEffectiveness,
     forcedEvents: b.shock?.forcedEvents,
     weatherEvents: b.shock?.weatherEvents,
+    programSeverityReduction: b.programSeverityReduction,
   };
 }
 

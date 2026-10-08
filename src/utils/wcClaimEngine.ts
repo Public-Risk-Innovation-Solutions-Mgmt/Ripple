@@ -91,6 +91,7 @@ import {
 } from '../data/defaultAssumptions';
 import { shockFactorFor } from './shockEffects';
 import { WC_RTW_CONVERSION_CEILING, WC_RTW_LOST_TIME_COMPONENTS } from './riskControlPrograms';
+import { claimsSystemAdjusted } from './riskControlPrograms';
 
 // WC'S OWN SHARED YEAR FACTOR. One Gamma(shape, 1/shape) draw per year, mean
 // exactly 1, multiplying every WC member's arrival rate — see
@@ -570,6 +571,13 @@ export interface WcGenerationInputs {
   // The RETURN-TO-WORK lever: the probability an eligible lost-time claim
   // converts to medical-only. Applied AFTER the draw — see below.
   programRtwConversion?: number;
+  /**
+   * CLAIMS SYSTEM severity reduction, 0 or absent when none applies. Applied by
+   * claimsSystemAdjusted to claims below this line's retention ONLY — that
+   * function is the single place the rule is written and this engine must not
+   * re-implement it.
+   */
+  programSeverityReduction?: number;
 }
 
 export interface WcGenerationResult {
@@ -625,6 +633,13 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
     reportedYear: number,
     shockId?: string,
   ) => {
+    // ⚠ THE CLAIMS SYSTEM IS APPLIED HERE, AT THE ONE CHOKEPOINT EVERY WC CLAIM
+    // PASSES THROUGH — drawn and injected alike. An injected claim is a shock's
+    // claim and is handled by the same department, so it is eligible on the same
+    // terms. Shadowing the parameter means the claim, its case reserve, the line
+    // gross (summed from claims) and memberLossResults (read off the emitted
+    // claims) all carry the adjusted figure without a second correction.
+    amount = claimsSystemAdjusted(LINE, amount, inputs.programSeverityReduction ?? 0);
     const occurrenceId = `wc-occ-${id}`;
     occurrences.push({
       id: occurrenceId,

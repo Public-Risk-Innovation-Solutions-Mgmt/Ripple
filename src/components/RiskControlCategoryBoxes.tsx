@@ -108,13 +108,14 @@ const SCOPE_STYLE: Record<string, string> = {
   Pool: 'bg-gray-200 text-gray-600',
 };
 
-// ⚠ TWO TILES ARE BUTTONS AND THREE ARE STILL DIVS, AND THE SPLIT IS THE POINT.
+// ⚠ THREE TILES ARE BUTTONS AND TWO ARE STILL DIVS, AND THE SPLIT IS THE POINT.
 // The header above says an inert button is a lie about interactivity. That
 // argument has not changed — it has simply stopped applying to the two programs
 // that are BUYABLE (GL's analytics and WC's safety & return-to-work; each shows
-// only in a pool writing its line). The other three stay divs because they still
-// do nothing; the moment one has a standing and a charge it becomes a button by
-// the same rule.
+// only in a pool writing its line) — and now to a third, the claims management
+// system, which is POOL-SCOPED and therefore shows in every pool including a
+// one-line one. The other two stay divs because they still do nothing; the
+// moment one has a standing and a charge it becomes a button by the same rule.
 //
 // ⚠ "Safety & Return-to-Work" was checked against the drivers' button queries
 // the way "Law Enforcement Analytics" was: none is unanchored on a string it

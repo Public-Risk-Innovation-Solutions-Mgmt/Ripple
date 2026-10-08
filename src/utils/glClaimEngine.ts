@@ -39,6 +39,7 @@ import { WHOLE_LINE } from './shockEffects';
 import { GL_HEAVY_COMPONENT_INDEX, GL_LOSS_MODEL, GL_SEVERITY_CAP, GL_SEVERITY_COMPONENTS, type GlSeverityComponent } from '../data/defaultAssumptions';
 import { limitedExpectedValue, memoizeByYear } from './claimMath';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
+import { claimsSystemAdjusted } from './riskControlPrograms';
 
 const M = GL_LOSS_MODEL;
 const LINE: CoverageLine = 'GL';
@@ -569,6 +570,13 @@ export interface GlGenerationInputs {
   // is drawn from a sub-stream keyed on the SHOCK ID (`gl_inject:<id>:<n>`), so
   // no natural GL draw moves and two events never share a stream.
   injections?: { count: number | { min: number; max: number }; amount: number | { min: number; max: number }; shockId: string }[];
+  /**
+   * CLAIMS SYSTEM severity reduction, 0 or absent when none applies. Applied by
+   * claimsSystemAdjusted to claims below this line's retention ONLY — that
+   * function is the single place the rule is written and this engine must not
+   * re-implement it.
+   */
+  programSeverityReduction?: number;
 }
 
 export interface GlGenerationResult {
@@ -586,6 +594,7 @@ export interface GlGenerationResult {
 export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult {
   const { members, yearNumber, calendarYear, instanceSeed, kGl, gPool, riskControlEffectiveness } = inputs;
   const wholeLineMult = inputs.freqMultipliers?.[WHOLE_LINE] ?? 1;
+  const sevCut = inputs.programSeverityReduction ?? 0;
   const severityShock = inputs.sevMultipliers?.[WHOLE_LINE] ?? 1;
   const rcFactor = Math.max(0, 1 - riskControlEffectiveness);
   // A committed risk-control program's frequency effect. Composes with the
@@ -652,6 +661,10 @@ export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult
             const grossUltimate = Math.min(
               sevRng.lognormal(trendedMuGl(component.mu, yearNumber, severityShock), component.sigma),
               glSeverityCap(yearNumber));
+            // The claims system, applied to the DRAW — see claimsSystemAdjusted.
+            // Below the retention only; the claim, its case reserve and the line
+            // gross (summed from claims) all read the one adjusted figure.
+            const csAmount = claimsSystemAdjusted(LINE, grossUltimate, sevCut);
 
             // ⚠ THE INDEX IS THIS MEMBER'S OWN, NOT A COUNTER ACROSS THE LOOP.
             // It used to be `sequence`, incremented once per claim over the
@@ -686,9 +699,9 @@ export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult
               tier: component.key,
               status: 'open',
               reportedYear: yearNumber,
-              grossUltimate,
+              grossUltimate: csAmount,
               paidToDate: 0,
-              caseReserve: grossUltimate,
+              caseReserve: csAmount,
             });
             occurrences.push({
               id: occurrenceId,
@@ -774,7 +787,10 @@ export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult
         let pick = targets[targets.length - 1];
         let u = rng.next() * totalWeight;
         for (const t of targets) { u -= t.weight; if (u <= 0) { pick = t; break; } }
-        const amount = Math.min(raw, glSeverityCap(yearNumber));
+        // Injected claims are eligible too: a shock's claims are handled by the
+        // same department, and a contamination event is exactly the 2-5 GL files
+        // below the retention this program is for.
+        const amount = claimsSystemAdjusted(LINE, Math.min(raw, glSeverityCap(yearNumber)), sevCut);
         const occurrenceId = `gl-inject-${yearNumber}-${injection.shockId.replace(/[^A-Za-z0-9]/g, '')}-${n}-${i}`;
         const claimId = `${occurrenceId}-c1`;
         claims.push({

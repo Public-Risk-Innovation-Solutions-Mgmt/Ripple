@@ -134,5 +134,6 @@ export function regenerateLineYearClaims(
     // act as defaulting one whose absence is not.
     programFreqMultiplier: lr.programFreqApplied ?? 1,
     programRtwConversion: lr.programRtwApplied ?? 0,
+    programSeverityReduction: lr.programSeverityApplied ?? 0,
   });
 }

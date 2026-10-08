@@ -54,7 +54,7 @@ import { experienceRatePer100, type ExperienceBasis } from './experienceRating';
 import { projectPricingTriangle, windowRows } from './pricingTriangle';
 import { closureCurveForReported, developmentDrift, initialEstimate } from './claimTriangle';
 import { poolYearFactor, wcGenerationInputs, glGenerationInputs, propertyGenerationInputs } from './claimGeneration';
-import { programFreqMultiplier, programAnnualCost, programRtwConversion } from './riskControlPrograms';
+import { programFreqMultiplier, programAnnualCost, programRtwConversion, claimsSystemSeverityReduction } from './riskControlPrograms';
 import { occurrenceProgramCost } from './reinsuranceTower';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import {
@@ -559,6 +559,9 @@ interface LineYearContext {
   // above, so the benefit and the charge cannot disagree about whether a
   // program is running or which year of its commitment it is in.
   programAnnualCost: number;
+  /** The claims system's severity reduction in force, 0 when not committed.
+   *  Pool-scoped: the same number on every line. */
+  programSeverityReduction: number;
   // The RETURN-TO-WORK conversion rate, 0 when none applies. WC only. Computed
   // beside the multiplier above and for the same reason; the same separate-
   // channel rule applies.
@@ -1361,6 +1364,7 @@ export function processLineYear(
       k: kLine, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool, shock: ctx.shock,
       programFreqMultiplier: ctx.programFreqMultiplier,
       programRtwConversion: ctx.programRtwConversion,
+      programSeverityReduction: ctx.programSeverityReduction,
     }));
     // PROSPECTS: the rest of the 200-member marketplace, generated at kLine = 1
     // and rc = 0. See the marketplaceProspects note above for why those two are
@@ -1432,6 +1436,7 @@ export function processLineYear(
       k: kGl, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool, shock: ctx.shock,
       programFreqMultiplier: ctx.programFreqMultiplier,
       programRtwConversion: ctx.programRtwConversion,
+      programSeverityReduction: ctx.programSeverityReduction,
     }));
     // PROSPECTS at kGl = 1, rc = 0 — see the marketplaceProspects note above.
     const prospectGenerated = marketplaceProspects.length > 0
@@ -1510,6 +1515,7 @@ export function processLineYear(
       k: kPr, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool, shock: ctx.shock,
       programFreqMultiplier: ctx.programFreqMultiplier,
       programRtwConversion: ctx.programRtwConversion,
+      programSeverityReduction: ctx.programSeverityReduction,
     }));
     generatedClaims = generated.claims;
     generatedOccurrences = generated.occurrences;
@@ -2376,6 +2382,7 @@ export function processLineYear(
     rcEffectivenessApplied: newRCEffectiveness,
     programFreqApplied: ctx.programFreqMultiplier,
     programRtwApplied: ctx.programRtwConversion,
+    programSeverityApplied: ctx.programSeverityReduction,
     memberLossResults,
     memberPremiumShares,
     aggregateMemberLoss,
@@ -2811,7 +2818,8 @@ export function processYear(
       shock: shocks?.byLine[line],
       shockFirings: shocks?.firings.filter(f => f.linesAffected.includes(line)),
       programFreqMultiplier: programFreqMultiplier(line, decisions.riskControlProgramIds, priorProgramIds),
-      programAnnualCost: programAnnualCost(line, decisions.riskControlProgramIds, priorProgramIds),
+      programAnnualCost: programAnnualCost(line, decisions.riskControlProgramIds, priorProgramIds, activeLines.length),
+      programSeverityReduction: claimsSystemSeverityReduction(decisions.riskControlProgramIds, priorProgramIds),
       programRtwConversion: programRtwConversion(line, decisions.riskControlProgramIds, priorProgramIds),
       cash: poolState.cash * share,
       investments: lineState.investedAssets,

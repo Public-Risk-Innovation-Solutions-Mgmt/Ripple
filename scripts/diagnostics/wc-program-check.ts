@@ -211,12 +211,12 @@ console.log('   restart: safety resumes from its residual, RTW restarts at 75%: 
 console.log('\n--- 2b. the charge: $1M every committed year, nothing otherwise ---');
 for (let t = 1; t <= 6; t++) {
   const prior = Array.from({ length: t - 1 }, () => [PROGRAM]);
-  ok(programAnnualCost('WC', [PROGRAM], prior) === WC_SAFETY_RTW_ANNUAL_COST, `tenure ${t}: WC charged ${programAnnualCost('WC', [PROGRAM], prior)}`);
+  ok(programAnnualCost('WC', [PROGRAM], prior, 1) === WC_SAFETY_RTW_ANNUAL_COST, `tenure ${t}: WC charged ${programAnnualCost('WC', [PROGRAM], prior, 1)}`);
 }
-ok(programAnnualCost('WC', [], [[PROGRAM], [PROGRAM]]) === 0, 'an unfunded year was charged');
-ok(programAnnualCost('GL', [PROGRAM], [[PROGRAM]]) === 0, 'GL was charged for the WC program');
-ok(programAnnualCost('Property', [PROGRAM], [[PROGRAM]]) === 0, 'Property was charged for the WC program');
-ok(programAnnualCost('WC', [GL_PROGRAM], [[GL_PROGRAM]]) === 0, 'WC was charged for the GL program');
+ok(programAnnualCost('WC', [], [[PROGRAM], [PROGRAM]], 1) === 0, 'an unfunded year was charged');
+ok(programAnnualCost('GL', [PROGRAM], [[PROGRAM]], 1) === 0, 'GL was charged for the WC program');
+ok(programAnnualCost('Property', [PROGRAM], [[PROGRAM]], 1) === 0, 'Property was charged for the WC program');
+ok(programAnnualCost('WC', [GL_PROGRAM], [[GL_PROGRAM]], 1) === 0, 'WC was charged for the GL program');
 console.log(`   $${WC_SAFETY_RTW_ANNUAL_COST / 1e6}M at tenure 1-6 (no maintenance tier), 0 unfunded, 0 on GL/Property: OK`);
 
 // --- 3. THE GENERATOR: null input, no re-phase, no tower -------------------
