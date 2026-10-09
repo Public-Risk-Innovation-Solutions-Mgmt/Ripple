@@ -53,6 +53,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { claimClosureUnit, closedShare, isClaimClosed } from '../../src/utils/claimClosure';
 import { resolveClosureCurve, CLOSURE_SIZE_THRESHOLD, CLOSURE_BY_SIZE } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
+import { INTAKE_OPEN } from '../../src/utils/intakeInspection';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const GAMES = Number(process.env.GAMES ?? 10);
@@ -109,7 +110,7 @@ function decisionsFor(y: number) {
   const d = defaultDecisionSet(y);
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
-      d.byLine[l].newBusinessAppetite = null;
+      d.byLine[l].intakeLevel = INTAKE_OPEN;
     }
   }
   return d;

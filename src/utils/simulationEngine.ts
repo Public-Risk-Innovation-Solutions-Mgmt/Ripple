@@ -914,6 +914,7 @@ export function processLineYear(
 
   const memberResult = simulateMemberMovement({
     applicationRateOverride: ctx.applicationRateOverride,
+    instanceSeed: instance.seed,
     freezeMembership: ctx.freezeMembership,
     currentMembers: currentActiveMembers,
     allMarketMembers: ctx.allMarketMembers,

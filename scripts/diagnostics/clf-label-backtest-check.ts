@@ -217,7 +217,7 @@
 // goes quiet the gate is blind and the run fails on that alone.
 // ============================================================================
 
-import { NO_NEW_BUSINESS } from '../../src/utils/newBusinessAppetite';
+import { INTAKE_NONE, INTAKE_OPEN } from '../../src/utils/intakeInspection';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -285,7 +285,15 @@ const MIN_BAND_N = 250;
 // THAT COUPLING IS LOAD-BEARING. The backtest judges each table against the
 // population it was fitted on; adding an arm to one file alone would score a
 // table on a book it never saw. Change one, change both.
-const ARMS: (number | null)[] = [null, 1.50, 1.00, 0.75, NO_NEW_BUSINESS];
+// ⚠ THE ARMS ARE INTAKE-SLIDER LEVELS NOW, CHOSEN AS ANALOGUES OF THE RETIRED
+// APPETITE TIERS, NOT EQUIVALENTS. The tiers screened on the applicant's loss
+// run and accepted about 81 / 56 / 39% of applicants; the slider screens on a
+// noisy inspection, and at its shipped sigma (2) on skewed applicants (mean RQ
+// ~4.35) bars 3 / 4 / 5 pass roughly 69 / 55 / 40%. So Open, levels 5 / 4 / 3
+// and No New Business span the same range of books. The shipped CLF tables were
+// derived on the TIER arms and are not re-derived here; a re-derivation on these
+// arms is its own commit.
+const ARMS: number[] = [INTAKE_OPEN, 5, 4, 3, INTAKE_NONE];
 
 // ⚠ EACH LINE IS GATED ON THE BASIS ITS OWN TABLE WAS DERIVED ON. Read the
 // ruling note above before changing one of these: they are not a preference.
@@ -330,7 +338,7 @@ function shippedRun(): Collected {
 
   for (const arm of ARMS) {
     for (let g = 0; g < GAMES; g++) {
-      const id = `CLFB${arm ?? 'A'}${g}`;
+      const id = `CLFBL${arm}${g}`;
       const instance = generateGameInstance(id, 6_200_000 + g * 7919);
       const setup = { poolName: 'C', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
       const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
@@ -345,7 +353,7 @@ function shippedRun(): Collected {
       };
       for (let y = 1; y <= YEARS; y++) {
         const d = defaultDecisionSet(y);
-        for (const line of LINES) d.byLine[line].newBusinessAppetite = arm;
+        for (const line of LINES) d.byLine[line].intakeLevel = arm;
         const p = processYear(gs, d);
         for (const line of LINES) {
           const lr = (p.result as never as { byLine: Record<string, Record<string, number>> }).byLine[line];

@@ -1,5 +1,5 @@
 import { DEFAULT_LAYERS_PLACED } from '../data/reinsuranceTower';
-import { NO_NEW_BUSINESS } from './newBusinessAppetite';
+import { INTAKE_NONE } from './intakeInspection';
 // Single source of truth for default decisions. Used by the App (new game /
 // next year), the Decisions page (per-line reset), and the Stage 2.10 pre-game
 // history simulation — so the "steadily managed before the player took over"
@@ -35,7 +35,7 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
      * the game opened with — would arrive unattributed.
      *
      * The asymmetry is that renewal's default keeps the book AS IT IS and
-     * appetite's default now does too. Both defaults are "change nothing". They
+     * intake's default — the slider at 0 — does too. Both defaults are "change nothing". They
      * only look opposite because one control acts by omission and the other by
      * commission.
      *
@@ -53,7 +53,7 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
      * assumed: the year-1 book is unchanged member for member across this
      * change.
      */
-    newBusinessAppetite: NO_NEW_BUSINESS,
+    intakeLevel: INTAKE_NONE,
     dividendPct: SLIDER_RANGES.dividendPct.default,
     assessmentPct: SLIDER_RANGES.assessmentPct.default,
     riskControlPct: SLIDER_RANGES.riskControlPct.default,

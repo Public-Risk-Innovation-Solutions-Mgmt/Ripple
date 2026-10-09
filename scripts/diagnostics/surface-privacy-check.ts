@@ -235,16 +235,20 @@ if (dead.length > 0) {
 // module, EVERY mention of risk quality must be a neutral override.
 // ===========================================================================
 {
-  // ⚠ TWO MODULES, BECAUSE THE RATIO NOW FEEDS TWO DECISIONS. memberExperienceMod
-  // computes it; newBusinessAppetite thresholds APPLICANTS on it. A prospect's
-  // ratio has to be computed at neutral risk quality on both legs for exactly
-  // the reason a member's does — more so, in fact, since an applicant is chosen
-  // ON that number rather than merely billed by it. newBusinessAppetite gets
-  // its ratio by delegating to memberExperienceMods, so today it inherits the
-  // property; it is listed here so that the day someone computes a prospect
-  // ratio locally instead, the gate is already watching the file they will
-  // write it in.
-  const RATIO_MODULES = ['utils/memberExperienceMod.ts', 'utils/newBusinessAppetite.ts'];
+  // ⚠ TWO MODULES, BECAUSE THE RATIO FEEDS TWO THINGS. memberExperienceMod
+  // computes it and bills on it; renewalUnderwriting RANKS members on it for the
+  // renewal slider. A member is chosen ON that number rather than merely billed
+  // by it, so it must be computed at neutral risk quality on both legs.
+  // renewalUnderwriting gets its ratio by delegating to memberExperienceMods, so
+  // today it inherits the property; it is listed so that the day someone
+  // computes a ratio locally instead, the gate is already watching the file.
+  //
+  // ⚠ newBusinessAppetite.ts WAS THE SECOND MODULE AND IS DELETED. Intake no
+  // longer reads the loss ratio at all: intakeInspection.ts reads TRUE risk
+  // quality through a deliberately noisy inspection, engine-side, as the claim
+  // engines do. That is not a surface, and the page sums its probabilities
+  // without rendering any per-member figure — the scan above is what holds that.
+  const RATIO_MODULES = ['utils/memberExperienceMod.ts', 'utils/renewalUnderwriting.ts'];
   for (const RATIO_MODULE of RATIO_MODULES) {
   const p = path.join(SRC, RATIO_MODULE);
   console.log('');
@@ -282,7 +286,7 @@ if (dead.length > 0) {
     // SHOULD EXIST. memberExperienceMod is where the expectation is computed, so
     // zero mentions there means the neutral basis is gone and the assertion
     // above is passing on nothing — the inert-probe failure wearing a green
-    // tick. newBusinessAppetite DELEGATES and is expected to have none, so the
+    // tick. renewalUnderwriting DELEGATES and is expected to have none, so the
     // same control there would fail a correct file.
     const RATIO_CONTROL_MIN = RATIO_MODULE.includes('memberExperienceMod') ? 4 : 0;
     const ratioSane = clean >= RATIO_CONTROL_MIN;

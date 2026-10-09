@@ -4,7 +4,7 @@
 import type { Member, LineDecisionSet, CoverageLine, MembershipHistory, MemberLossHistory } from '../types/simulation';
 import { SeededRandom } from './random';
 import { canReenroll } from './membershipHistory';
-import { appetiteEligible } from './newBusinessAppetite';
+import { intakeEligible } from './intakeInspection';
 import { getMemberExposure } from './lineHelpers';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { departureRisks } from './memberDeparture';
@@ -23,6 +23,9 @@ import {
 } from '../data/defaultAssumptions';
 
 export interface MemberMovementInputs {
+  /** The instance seed. The intake inspection draws each applicant's error from
+   *  its own labelled sub-stream of it — see intakeInspection.ts. */
+  instanceSeed: number;
   currentMembers: Member[];
   allMarketMembers: Member[];
   // Authoritative per-line enrollment ledger — the ONLY legitimate source for
@@ -337,6 +340,36 @@ export function applicantWeight(m: Member): number {
 }
 
 /**
+ * Each available member's PROBABILITY of being among `count` applicants under
+ * selectApplicants' weighted draw — for the Decisions page's intake forecast,
+ * which must not draw.
+ *
+ * ⚠ NOT PROPORTIONAL TO THE WEIGHT. Sampling without replacement saturates: the
+ * heaviest-weighted members are already nearly certain to apply and cannot be
+ * more so, so a forecast that takes inclusion as w / sum(w) x count over-reads
+ * them and under-reads everyone else — measured, it under-forecast the intake
+ * by up to a third of a member a year at the middle levels. Rosen's
+ * approximation for successive sampling: pi_i = 1 - exp(-c . w_i), with c
+ * solved so the pi sum to `count`. Exact when nobody saturates, and close when
+ * they do.
+ */
+export function applicantInclusion(available: readonly Member[], count: number): Map<string, number> {
+  const out = new Map<string, number>();
+  if (count <= 0 || available.length === 0) { for (const m of available) out.set(m.id, 0); return out; }
+  if (count >= available.length) { for (const m of available) out.set(m.id, 1); return out; }
+  const w = available.map(applicantWeight);
+  const total = (c: number) => w.reduce((s, wi) => s + (1 - Math.exp(-c * wi)), 0);
+  let lo = 0, hi = 1;
+  while (total(hi) < count) hi *= 2;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (total(mid) < count) lo = mid; else hi = mid;
+  }
+  available.forEach((m, i) => out.set(m.id, 1 - Math.exp(-hi * w[i])));
+  return out;
+}
+
+/**
  * The year's applicants: `count` of the shuffled available pool, drawn with
  * probability weighted by applicantWeight, WITHOUT ADDING A DRAW.
  *
@@ -535,18 +568,15 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
   // deletion. A game saved at strictness > 6 would draw differently, and
   // there is no such game: the field is gone from the decision set.
   // ============================================================================
-  // NEW BUSINESS APPETITE — the tier filter, and it runs BEFORE the shuffle.
+  // THE INTAKE SLIDER — the bar, and it runs on the applicants AFTER the shuffle.
   //
-  // RANDOM AMONG ELIGIBLE, NOT BEST-FIRST. Filter to who clears the standard,
-  // then shuffle, then take the cap off the top. Best-first would collapse every
-  // tier into the cap — at "accept everyone" the pool would still take the best
-  // four and a tighter tier would barely differ. See newBusinessAppetite.ts.
+  // RANDOM AMONG ELIGIBLE, NOT BEST-FIRST. Filter to who clears the inspection,
+  // keep their arrival order, take the room off the top. Best-first would
+  // collapse every level into the cap. See intakeInspection.ts.
   //
-  // ⚠ AT THE DEFAULT (null) appetiteEligible RETURNS A COPY AND FILTERS NOTHING,
-  // so the pool handed to the shuffle is the same length it has always been and
-  // consumes the same draws. That is what keeps both baselines holding across
-  // this commit. Any other tier shortens the pool and diverges the stream, which
-  // is correct: it is a different decision.
+  // ⚠ THE INSPECTION DRAWS ON ITS OWN LABELLED SUB-STREAMS, so no level moves
+  // the membership stream: every level shuffles the same pool to the same order
+  // and draws the same applicants, and only who clears differs.
   // ============================================================================
   // ============================================================================
   // WHO APPLIES, THEN WHO CLEARS THE BAR, THEN WHO GETS WRITTEN. Three steps,
@@ -585,9 +615,9 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
 
   // The bar. Order is preserved, so the survivors are still in shuffled order
   // and taking a prefix of them is random-among-eligible.
-  const candidatePool = appetiteEligible(
-    applicants, line, inputs.memberLossHistory, yearNumber,
-    inputs.decisions.newBusinessAppetite ?? null,
+  const candidatePool = intakeEligible(
+    applicants, line, yearNumber, inputs.instanceSeed,
+    inputs.decisions.intakeLevel ?? 0,
   );
 
   // ⚠ BUILT IN FULL AND THEN DISCARDED WHEN THE ROSTER IS FROZEN, BECAUSE THE

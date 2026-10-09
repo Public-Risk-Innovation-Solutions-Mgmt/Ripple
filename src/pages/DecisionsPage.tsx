@@ -18,11 +18,11 @@ import type { FundingConsequence } from '../utils/fundingConsequence';
 import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import {
-  NEW_BUSINESS_APPETITE_TIERS, NO_NEW_BUSINESS, appetiteEligible,
-} from '../utils/newBusinessAppetite';
+  INTAKE_NONE, INTAKE_OPEN, intakeLabel, intakePassProbability,
+} from '../utils/intakeInspection';
 import { APPLICATION_RATE, MAX_NEW_MEMBER_SHARE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
-import { applicantWeight } from '../utils/membershipEngine';
+import { applicantInclusion } from '../utils/membershipEngine';
 
 export interface LineLoanInfo {
   balance: number;
@@ -229,15 +229,14 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
             onChange={v => set('renewalCut', v)}
             disabled={disabled}
           />
-          <NewBusinessAppetite
+          <IntakeSlider
             line={selectedLine}
             members={lastLineResult?.memberList ?? []}
             allMarketMembers={allMarketMembers}
             membershipHistory={membershipHistory}
-            history={memberLossHistory}
             yearNumber={yearNumber}
-            value={d.newBusinessAppetite ?? null}
-            onChange={v => set('newBusinessAppetite', v)}
+            value={d.intakeLevel ?? INTAKE_NONE}
+            onChange={v => set('intakeLevel', v)}
             disabled={disabled}
           />
         </SectionCard>
@@ -581,47 +580,9 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
 // a ready-made way to ship dark. InactiveBadge went with it — it was the
 // wrapper's own badge and had no other caller.
 
-// Shared box-selection styling for Renewal Underwriting and New Business
-// Appetite — the SAME classes as the Reinsurance Level boxes (bold title,
-// description beneath allowed to wrap, selected box filled blue with
-// reversed-out text).
-//
-// ⚠ THE NAME IS NOW WRONG AND IS KEPT ANYWAY, DELIBERATELY. It was built for
-// two INACTIVE previews and both controls are live, so "Preview" describes
-// nothing. Renaming it touches every call site for no behavioural gain and
-// would bury the one thing worth reading here in a diff of identifier churn.
-// Rename it in a commit that is only that.
-function PreviewBox({ title, description, selected, active = false }: { title: string; description: string; selected: boolean; active?: boolean }) {
-  return (
-    <button
-      type="button"
-      disabled={!active}
-      tabIndex={active ? 0 : -1}
-      className={`w-full h-full flex flex-col items-center p-2 rounded-lg border text-center transition-all text-xs ${active ? 'cursor-pointer hover:border-blue-400' : 'cursor-not-allowed'} ${selected ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200'}`}
-    >
-      <span className="font-bold">{title}</span>
-      <span className="text-xs opacity-75 mt-0.5 leading-tight">{description}</span>
-    </button>
-  );
-}
-
-/**
- * The New Business subtitle: how many members would JOIN, after the cap.
- *
- * ⚠ JUST THE NUMBER, AND NO TILDE. It read "~3 of ~7" — a ratio hedged twice.
- * The tile's title is a NAME, so the subtitle carries the whole of what the
- * choice costs, and the cost is a count.
- *
- * ⚠ "N join" AND NOT "N joins", AT EVERY COUNT INCLUDING 1. It reads as a verb —
- * seven join, one join — so the singular is the correct form and the plural
- * agreement the first version carried was solving a problem the phrasing does
- * not have. The tilde came off because one term
- * of the three is a draw and the other two are exact; hedging the whole figure
- * read as doubt about the control rather than sampling noise on who applies.
- */
-function joinLabel(n: number): string {
-  return `${n} join`;
-}
+// ⚠ PreviewBox AND joinLabel ARE DELETED. They rendered the Renewal and New
+// Business tiles, which are sliders now (RenewalUnderwriting, IntakeSlider), and
+// had no other caller.
 
 // ⚠ PROPERTY HAS NOTHING TO RATE ON, AND THE CONTROLS SAY SO RATHER THAN
 // DISAPPEARING. Hiding the line would leave a player wondering whether
@@ -692,8 +653,8 @@ function PropertyNoSignalNote() {
 // before any member reacts.
 //
 // ⚠ PER-MEMBER OVERRIDE (flag who it would decline, spare individuals) is still
-// deferred for the reasons recorded above NewBusinessAppetite — table time and
-// the loss of the forecast.
+// deferred for the reasons recorded above IntakeSlider — table time and the
+// loss of the forecast.
 // ============================================================================
 function RenewalUnderwriting({
   line, members, history, yearNumber, value, onChange, disabled,
@@ -755,188 +716,93 @@ function RenewalUnderwriting({
 }
 
 // ============================================================================
-// NEW BUSINESS APPETITE — live. The mirror of Renewal Underwriting above it,
-// in the same card because both are one decision about pool membership:
-// existing members versus applicants.
+// INTAKE — THE SLIDER. 0 writes nobody (No New Business, the default); rising,
+// the pool writes applicants whose NOISY INSPECTION of risk quality clears a
+// bar that loosens with the slider; the top writes every applicant. See
+// intakeInspection.ts for the inspection and INSPECTION_SIGMA for why it is an
+// inspection and not the truth. Replaces New Business Appetite's five tiers,
+// which screened on the applicant's loss run and selected on noise.
 //
-// FIVE NAMED TIERS, READ MOST OPEN TO MOST CLOSED — Open, Broad, Selective,
-// Strict, No New Business. That is the same direction Renewal Underwriting above
-// it reads (Renew All, then Decline above), so the two controls in one card do
-// not run opposite ways.
+// ⚠ THE FORECAST IS AN EXPECTATION AND IS LABELLED AS ONE. The available pool,
+// the application count and the intake room are exact; WHICH members apply is
+// drawn (and skewed toward worse risks, APPLICANT_ADVERSE_SELECTION), and each
+// applicant's inspection is drawn. So the page sums, over the available pool,
+// each member's chance of applying (applicantInclusion) times their chance of
+// clearing the bar (intakePassProbability) — no draw, and no per-member figure
+// reaches the screen, only the sum.
 //
-// ⚠ NAMES RATHER THAN THRESHOLDS, AND THE TILE CARRIES NO RATIO AT ALL. "Below
-// 1.00x" asks a player to hold a loss-ratio distribution in their head to know
-// whether that is strict; "Selective" says it. The threshold is still exact and
-// still what the engine filters on — it is just not what the player is asked to
-// reason about while choosing, and it is not on the tile.
+// ⚠ WHAT IT MOVES. Intake shapes the book's QUALITY, and with pricing
+// cost-plus that shows in members' rates rather than in surplus — a better
+// intake lowers the triangle's loss cost a few years later. What the slider
+// can show before members react is how many join and the book they join; the
+// rate consequence is on the funding panel, a few years on.
 //
-// ⚠ THE ORDER AND THE NAME-TO-VALUE MAPPING BOTH LIVE AT
-// NEW_BUSINESS_APPETITE_TIERS, not here. This row is one map over that list.
-// The version before it held the order in the page and the values in the module
-// and rendered an ascending array in reverse — correct, and one transposition
-// away from pairing every count with the wrong name.
-//
-// ⚠ THE TIERS ONCE RENDERED 0.75 / 1.00 / 1.50 AFTER Accept All, which was open,
-// then MOST closed, then loosening again. Nobody chose that; it was
-// NEW_BUSINESS_TIERS in its own ascending order, which is the right order for a
-// threshold list and the wrong one for a row of tiles.
-//
-// ⚠ THE SUBTITLE IS HOW MANY MEMBERS WOULD JOIN, AFTER THE CAP, AND IT USED TO
-// BE NEITHER. It read "~3 of ~7" — a ratio, tilded, and computed before the
-// intake cap. The threshold is already in the tile's title; the subtitle is what
-// the choice costs.
-//
-// ⚠ AND IT IS POST-CAP NOW, WHICH IT WAS NOT. intakeRoom = floor(book x
-// MAX_NEW_MEMBER_SHARE) is the only intake limit left, and it BINDS — the share
-// cap fires whenever applications exceed a tenth of the book, which the
-// arithmetic in MAX_NEW_MEMBER_SHARE puts at any book below about 75 members.
-// A tile reading 7 while the pool had room for 5 was telling the player about a
-// pool of applicants, not about a decision.
-//
-// ⚠ THE BRIEF NAMED MAX_NEW_MEMBERS_PER_YEAR = 4 AS THE CAP AND THAT CONSTANT IS
-// DELETED. defaultAssumptions.ts records why: it "capped a demand term that no
-// longer exists". The live limit is the SHARE cap, which is why the number on
-// the tile moves with the book instead of sitting at 4.
-//
+// ⚠ PER-APPLICANT ACCEPT/DECLINE IS DEFERRED, NOT PENDING. A dozen decisions a
+// year, across ten years and five teams, is the whole session in a facilitated
+// room, and per-applicant has nothing to forecast — the join count depends on
+// choices not yet made. The slider is a POLICY, which is what makes the count
+// above computable. Reopening it means arguing those two costs down. (The same
+// reasoning covers per-member renewal overrides.)
 // ============================================================================
-// ⚠ PER-APPLICANT ACCEPT/DECLINE IS DEFERRED, NOT PENDING, AND THE DIFFERENCE IS
-// THE POINT OF THIS BLOCK. The tiered control is the shipped answer. What
-// follows is recorded so the alternative is not redesigned from scratch by
-// someone who assumes it was simply never got to.
-//
-// THE INTENDED SHAPE, IF IT IS EVER BUILT. The tier sets a DEFAULT and the
-// player overrides individuals — it does not replace the tier. Set Selective,
-// see this year's applicants with the ones it would take already selected, and
-// change your mind on any of them. Renewals work the same way: the threshold
-// FLAGS who it would decline and the player confirms or spares each one. The
-// policy stays the thing you set; the overrides are the exceptions to it.
-//
-// WHAT IT COSTS, WHICH IS WHY IT IS DEFERRED AND NOT SCHEDULED:
-//
-//   THE TABLE TIME. A dozen per-applicant decisions a year, across ten years and
-//   five teams, is the whole session. This game is played in a facilitated room
-//   against a clock, and a control that consumes the room is not a better
-//   control however much more expressive it is. That is a fact about the
-//   SETTING rather than about the UI, which is why no amount of interface work
-//   retires it.
-//
-//   THE FORECAST GOES. The join-count tiles work because a tier is a POLICY —
-//   the share of applicants clearing a bar is computable before the draw, so
-//   the tile can say what the choice costs. Per-applicant has nothing to
-//   forecast: the answer depends on choices the player has not made yet. So the
-//   display would have to change too, from "N join" to a list with no summary,
-//   and the thing that makes this control readable would be the thing removed.
-//
-// ⚠ SO THE TRADE IS EXPRESSIVENESS AGAINST LEGIBILITY AND TIME, and it was
-// decided rather than postponed. Reopening it means arguing those two costs
-// down, not building the list.
-// ============================================================================
-// ============================================================================
-function NewBusinessAppetite({
-  line, members, allMarketMembers, membershipHistory, history, yearNumber, value, onChange, disabled,
+function IntakeSlider({
+  line, members, allMarketMembers, membershipHistory, yearNumber, value, onChange, disabled,
 }: {
   line: CoverageLine;
   members: Member[];
   allMarketMembers: Member[];
   membershipHistory: MembershipHistory;
-  history: MemberLossHistory;
   yearNumber: number;
-  value: number | null;
-  onChange: (v: number | null) => void;
+  value: number;
+  onChange: (v: number) => void;
   disabled?: boolean;
 }) {
-  // The applicant pool as the engine will build it: marketplace minus enrolled,
-  // minus anyone inside their two-year cooldown. Same source as
+  // The applicant pool as the engine builds it: marketplace minus enrolled,
+  // minus anyone inside their two-year cooldown — same source as
   // simulateMemberMovement so the counts cannot drift from the draw.
-  // ⚠ ONE COMPONENT OF THIS IS AN EXPECTATION AND THE REST IS EXACT, AND THE
-  // DISTINCTION IS WORTH HAVING STRAIGHT BECAUSE THE TILDES CAME OFF.
-  //
-  //   EXACT: the available pool, the application COUNT (deterministic —
-  //     round(pool x APPLICATION_RATE), see membershipEngine's own note that the
-  //     count carries no draw), the share of the pool clearing each bar, and
-  //     intakeRoom.
-  //   DRAWN: WHICH members apply. The engine shuffles the available pool at
-  //     movement time and takes a prefix, so the number of APPLICANTS clearing a
-  //     bar is a hypergeometric draw about a known mean rather than a fact.
-  //
-  // So `share x applications` is the expected eligible count, not this year's
-  // actual, and membershipEngine puts its standard deviation near 1.4. The tile
-  // shows it without a tilde because a tilde on every tier reads as doubt about
-  // the whole control rather than as sampling noise on one term.
-  const joins = React.useMemo(() => {
+  const forecast = React.useMemo(() => {
     const enrolled = new Set(members.map(m => m.id));
     const available = allMarketMembers.filter(
       m => !enrolled.has(m.id) && canReenroll(membershipHistory, m.id, line, yearNumber),
     );
-    const applications = Math.min(
-      available.length, Math.round(available.length * APPLICATION_RATE),
-    );
+    const applications = Math.min(available.length, Math.round(available.length * APPLICATION_RATE));
     // THE CAP, and it is the engine's own line: intakeRoom = floor(book x share).
     const intakeRoom = Math.floor(members.length * MAX_NEW_MEMBER_SHARE);
-    const capped = (n: number) => Math.min(intakeRoom, n);
-    return {
-      pool: available.length,
-      applications,
-      intakeRoom,
-      // ONE COUNT PER NAMED TIER, in the ladder's own display order, so the tile
-      // row is a single map and a count can never be paired with the wrong name.
-      // The previous shape carried `acceptAll` separately and indexed the rest
-      // into an ascending array while rendering it reversed — correct, and one
-      // transposition away from silently mislabelling every bar.
-      byTier: NEW_BUSINESS_APPETITE_TIERS.map(({ appetite }) => {
-        if (appetite === NO_NEW_BUSINESS) return 0;
-        if (appetite === null) return capped(applications);
-        if (available.length === 0) return 0;
-        // ⚠ WEIGHTED THE WAY THE DRAW IS. Applicants are skewed toward worse
-        // risks (APPLICANT_ADVERSE_SELECTION), so the share of APPLICANTS
-        // clearing a bar is not the share of the available pool clearing it.
-        // Each available member counts by its applicantWeight — its relative
-        // chance of applying — which is the draw's own inclusion law to first
-        // order at a 6% application rate. At zero skew every weight is 1 and
-        // this is the plain share it always was.
-        const eligible = new Set(
-          appetiteEligible(available, line, history, yearNumber, appetite).map(m => m.id),
-        );
-        let wAll = 0, wEligible = 0;
-        for (const m of available) {
-          const w = applicantWeight(m);
-          wAll += w;
-          if (eligible.has(m.id)) wEligible += w;
-        }
-        const share = wAll > 0 ? wEligible / wAll : 0;
-        return capped(Math.round(applications * share));
-      }),
-    };
-  }, [members, allMarketMembers, membershipHistory, history, line, yearNumber]);
-
-  const rated = line !== 'Property';
-
+    // Expected applicants clearing the bar: each member's chance of applying
+    // (applicantInclusion, the draw's own law) times their chance of passing.
+    const inclusion = applicantInclusion(available, applications);
+    let passing = 0;
+    for (const m of available) passing += (inclusion.get(m.id) ?? 0) * intakePassProbability(m, value);
+    return { applications, intakeRoom, passing, joins: Math.min(intakeRoom, Math.round(passing)) };
+  }, [members, allMarketMembers, membershipHistory, line, yearNumber, value]);
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-      <span className="text-sm font-semibold text-gray-700">New Business Appetite</span>
-      {rated ? (
-        <>
-          {/* NAMES, NOT THRESHOLDS, AND THE ORDER AND THE MAPPING BOTH LIVE AT
-              NEW_BUSINESS_APPETITE_TIERS. Rendering straight off that list is
-              what keeps the screen and the constant from disagreeing — the
-              previous version held the order in the page and the values in the
-              module, which is two places to get one thing right. */}
-          <div className="grid grid-cols-5 gap-1">
-            {NEW_BUSINESS_APPETITE_TIERS.map(({ name, appetite }, i) => (
-              <div key={name} onClick={() => !disabled && onChange(appetite)}>
-                <PreviewBox
-                  title={name}
-                  description={joinLabel(joins.byTier[i])}
-                  selected={value === appetite}
-                  active={!disabled}
-                />
-              </div>
-            ))}
-          </div>
-        </>
-      ) : (
-        <PropertyNoSignalNote />
-      )}
+      <SliderInput
+        label="Intake"
+        value={value}
+        min={INTAKE_NONE}
+        max={INTAKE_OPEN}
+        step={1}
+        onChange={onChange}
+        formatValue={intakeLabel}
+        leftLabel="No new business"
+        rightLabel="Open"
+        disabled={disabled}
+      />
+      <p className="text-xs text-gray-600">
+        {value <= INTAKE_NONE
+          ? `Nobody is written. About ${forecast.applications} entities will apply this year.`
+          : `About ${forecast.joins} join this year — of about ${forecast.applications} applicants, `
+            + `${value >= INTAKE_OPEN ? 'every one is accepted' : `about ${Math.round(forecast.passing)} expected to pass inspection`}`
+            + `, room for ${forecast.intakeRoom}.`}
+      </p>
+      <p className="flex items-start gap-1 text-[11px] text-gray-500 leading-relaxed">
+        <Info size={12} className="mt-0.5 flex-shrink-0" />
+        <span>
+          Applicants are inspected before they are written, and the inspection is imperfect — some good
+          risks fail it and some poor ones pass. Tightening the bar writes fewer members and better ones on
+          average. The entities keenest to join are often the ones the market has priced up.
+        </span>
+      </p>
     </div>
   );
 }

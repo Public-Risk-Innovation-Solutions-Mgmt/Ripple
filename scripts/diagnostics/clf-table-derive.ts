@@ -74,7 +74,7 @@
 // crossing sits where the density is highest and small shifts in the ratio
 // distribution move it further.
 
-import { NO_NEW_BUSINESS } from '../../src/utils/newBusinessAppetite';
+import { INTAKE_NONE, INTAKE_OPEN } from '../../src/utils/intakeInspection';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -305,12 +305,20 @@ function collectAcrossArms(line: CoverageLine): BandRow[] {
 // THAT COUPLING IS LOAD-BEARING. The backtest judges each table against the
 // population it was fitted on; adding an arm to one file alone would score a
 // table on a book it never saw. Change one, change both.
-  const arms: (number | null)[] = [null, 1.50, 1.00, 0.75, NO_NEW_BUSINESS];
+  // ⚠ THE ARMS ARE INTAKE-SLIDER LEVELS NOW, CHOSEN AS ANALOGUES OF THE RETIRED
+  // APPETITE TIERS, NOT EQUIVALENTS. The tiers screened on the applicant's loss
+  // run and accepted about 81 / 56 / 39% of applicants; the slider screens on a
+  // noisy inspection, and at its shipped sigma (2) on skewed applicants (mean RQ
+  // ~4.35) bars 3 / 4 / 5 pass roughly 69 / 55 / 40%. So Open, levels 5 / 4 / 3
+  // and No New Business span the same range of books. The shipped CLF tables were
+  // derived on the TIER arms and are not re-derived here; a re-derivation on these
+  // arms is its own commit.
+  const arms: number[] = [INTAKE_OPEN, 5, 4, 3, INTAKE_NONE];
   const active: CoverageLine[] = POOLED ? ['WC', 'GL', 'Property'] : [line];
   const out: BandRow[] = [];
   for (const appetite of arms) {
     for (let g = 0; g < GAMES; g++) {
-      const id = `CLFB${POOLED ? 'P' : line}${appetite ?? 'A'}${g}`;
+      const id = `CLFB${POOLED ? 'P' : line}L${appetite}${g}`;
       const inst = generateGameInstance(id, 2_900_000 + g * 7013);
       const setup = { poolName: 'B', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: active };
       const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
@@ -324,14 +332,14 @@ function collectAcrossArms(line: CoverageLine): BandRow[] {
         // appetite is a per-line control but a player setting a strict bar sets
         // it across the pool, and in POOLED mode leaving the other two on Accept
         // All would put this line's small book next to two growing ones.
-        for (const l of active) d.byLine[l].newBusinessAppetite = appetite;
+        for (const l of active) d.byLine[l].intakeLevel = appetite;
         const pr = processYear(gs, d);
         const r = (pr.result as never as { byLine: Record<string, Record<string, number>> }).byLine[line];
         if (r && r.poolPremium > 0) {
           out.push({
             ratio: r.netIncurredLoss / r.poolPremium,
             members: r.activeMembers, year: y,
-            arm: appetite === null ? 'all' : appetite.toFixed(2),
+            arm: appetite === INTAKE_OPEN ? 'all' : `L${appetite}`,
             game: id,
           });
         }

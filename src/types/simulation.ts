@@ -578,17 +578,16 @@ export interface LineDecisionSet {
   dividendPct: number;            // 0.00 to 0.15 of premium
   assessmentPct: number;          // 0.00 to 0.25 of premium
   /**
-   * New Business Appetite: decline to WRITE an applicant whose own raw
-   * experience ratio is at or above this. null accepts every applicant, which
-   * is the default and is the only value that leaves the recruitment draw
-   * untouched — see newBusinessAppetite.ts on why ACCEPT_ALL is "do not filter"
-   * rather than an admitting threshold.
+   * The INTAKE SLIDER, 0..INTAKE_OPEN. 0 (and absent) writes nobody — No New
+   * Business, the default. 1..5 write applicants whose NOISY INSPECTION of risk
+   * quality clears a bar that loosens as the level rises; INTAKE_OPEN writes
+   * every applicant. See intakeInspection.ts.
    *
-   * ⚠ ON THE APPLICANT'S OWN RATIO, WHICH IS NOT ON A MEMBER'S BASIS.
-   * Prospects generate at k = 1 with no risk control, so the two numbers are
-   * comparable but not identical. Stated at the control rather than hidden.
+   * ⚠ REPLACES newBusinessAppetite, which screened applicants on their own loss
+   * run. A save carrying newBusinessAppetite loads at intake 0; there is no save
+   * migration in this repo by design (gameSave.ts).
    */
-  newBusinessAppetite?: number | null;
+  intakeLevel?: number;
   /**
    * The RENEWAL SLIDER: the share of this line's book NOT renewed this year,
    * worst first on the member's own multi-year raw loss ratio. 0 (and absent)

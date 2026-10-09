@@ -39,7 +39,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
 import { memberExperienceMods, EXPERIENCE_MOD } from '../../src/utils/memberExperienceMod';
-import { NEW_BUSINESS_TIERS } from '../../src/utils/newBusinessAppetite';
+import { INTAKE_OPEN, intakeLabel } from '../../src/utils/intakeInspection';
 import { canReenroll } from '../../src/utils/membershipHistory';
 import { APPLICATION_RATE, MAX_NEW_MEMBER_SHARE } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, DecisionSet, GameState, Member } from '../../src/types/simulation';
@@ -50,7 +50,14 @@ const RATED: CoverageLine[] = ['WC', 'GL'];
 const GAMES = Number(process.env.GAMES ?? 8);
 const YEARS = Number(process.env.YEARS ?? 14);
 const WARM = EXPERIENCE_MOD.minYears + 2;
-const ARMS: (number | null)[] = [null, ...NEW_BUSINESS_TIERS];
+// ⚠ INTAKE-SLIDER LEVELS NOW: Open and the bars 3 / 4 / 5, the analogues of the
+// retired Accept All / 1.50 / 1.00 / 0.75 appetite tiers (see clf-table-derive).
+// The rate derivation this probe records was done on the tiers; this keeps the
+// sweep runnable against the shipped control.
+const ARMS: number[] = [INTAKE_OPEN, 5, 4, 3];
+/** The retired loss-run tiers, printed against the applicant ratio distribution
+ *  in section 1 FOR THE RECORD — nothing ships on them. */
+const RETIRED_TIERS = [0.75, 1.00, 1.50];
 const SWEEP = [0.03, 0.04, 0.06, 0.08, 0.12, 0.16, 0.20];
 
 interface YearRow {
@@ -71,8 +78,8 @@ interface YearRow {
 // Memoized: sections 2-5 ask different questions of the SAME played games, and
 // replaying them per section quadrupled the runtime for identical results.
 const playCache = new Map<string, { rows: YearRow[]; ratios: { line: string; r: number }[] }>();
-function play(appetite: number | null, rate: number): { rows: YearRow[]; ratios: { line: string; r: number }[] } {
-  const key = `${appetite ?? 'all'}|${rate}`;
+function play(appetite: number, rate: number): { rows: YearRow[]; ratios: { line: string; r: number }[] } {
+  const key = `${appetite}|${rate}`;
   const hit = playCache.get(key);
   if (hit) return hit;
   const out = playUncached(appetite, rate);
@@ -80,7 +87,7 @@ function play(appetite: number | null, rate: number): { rows: YearRow[]; ratios:
   return out;
 }
 
-function playUncached(appetite: number | null, rate: number): { rows: YearRow[]; ratios: { line: string; r: number }[] } {
+function playUncached(appetite: number, rate: number): { rows: YearRow[]; ratios: { line: string; r: number }[] } {
   const rows: YearRow[] = [];
   const ratios: { line: string; r: number }[] = [];
   for (let g = 0; g < GAMES; g++) {
@@ -94,7 +101,7 @@ function playUncached(appetite: number | null, rate: number): { rows: YearRow[];
     };
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y) as DecisionSet;
-      for (const l of LINES) d.byLine[l].newBusinessAppetite = appetite;
+      for (const l of LINES) d.byLine[l].intakeLevel = appetite;
       const before: Record<string, number> = {};
       for (const l of LINES) before[l] = gs.poolState.lines[l].members.length;
       const p = processYear(gs, d, { applicationRate: rate });
@@ -120,7 +127,7 @@ function playUncached(appetite: number | null, rate: number): { rows: YearRow[];
           grossUltimate: x.grossUltimateLoss ?? 0,
           surplus: x.endingSurplus ?? 0,
         });
-        if (y >= WARM && appetite === null && rate === APPLICATION_RATE) {
+        if (y >= WARM && appetite === INTAKE_OPEN && rate === APPLICATION_RATE) {
           const mods = memberExperienceMods(avail, l as CoverageLine, hist, y + 1);
           for (const m of mods) if (m.rated && m.rawRatio !== null) ratios.push({ line: l, r: m.rawRatio });
         }
@@ -142,7 +149,7 @@ const q = (v: readonly number[], pr: number) => {
   return lo === hi ? s[lo] : s[lo] + (s[hi] - s[lo]) * (i - lo);
 };
 const pct = (n: number, d: number) => (d > 0 ? `${((100 * n) / d).toFixed(0)}%` : '—');
-const label = (a: number | null) => (a === null ? 'Accept All' : `below ${a.toFixed(2)}`);
+const label = (a: number) => intakeLabel(a);
 
 console.log(RULE);
 console.log(`APPLICATION RATE, RE-DERIVED — ${GAMES} games x ${YEARS} years, no target, no intake count cap`);
@@ -150,7 +157,7 @@ console.log(RULE);
 console.log(`shipped rate ${(100 * APPLICATION_RATE).toFixed(0)}%, capacity guard `
   + `${(100 * MAX_NEW_MEMBER_SHARE).toFixed(0)}% of book (JUDGEMENT, not measured)\n`);
 
-const base = play(null, APPLICATION_RATE);
+const base = play(INTAKE_OPEN, APPLICATION_RATE);
 
 // --------------------------------------------- 1. the applicant distribution
 console.log('--- 1. THE APPLICANT DISTRIBUTION THE TIERS SIT ON ---\n');
@@ -161,8 +168,8 @@ for (const l of RATED) {
   console.log('    p10     p25     p50     p75     p90     p95     max    mean');
   console.log([0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 1].map(p => q(r, p).toFixed(3).padStart(7)).join(' ')
     + mean(r).toFixed(3).padStart(8));
-  for (const t of NEW_BUSINESS_TIERS) {
-    console.log(`      below ${t.toFixed(2)} accepts ${(100 * r.filter(x => x < t).length / r.length).toFixed(1)}%`);
+  for (const t of RETIRED_TIERS) {
+    console.log(`      (retired tier) below ${t.toFixed(2)} would accept ${(100 * r.filter(x => x < t).length / r.length).toFixed(1)}%`);
   }
   console.log('');
 }
