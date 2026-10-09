@@ -24,6 +24,9 @@
 // `handler` — built by scripts/tools/build-handler.ts (`npm run build:handler`).
 // The table comes from TABLE_NAME; retention from ROOM_RETENTION_SEC (undecided,
 // see dynamo.ts). Nothing else is configured.
+//
+// Deploys to review automatically on a merge to `aws`, and to prod on a v*
+// tag, via .github/workflows/handler.yml — see that file for how.
 // ============================================================================
 
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
