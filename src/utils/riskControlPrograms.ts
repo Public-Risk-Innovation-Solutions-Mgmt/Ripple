@@ -741,26 +741,58 @@ export function wcSafetyRtwStanding(
 }
 
 // ============================================================================
-// THE CLAIMS MANAGEMENT SYSTEM — ONE RATE, THREE LINES, BELOW EACH RETENTION.
+// THE CLAIMS MANAGEMENT SYSTEM — ONE RATE, THREE LINES, BELOW A FIXED THRESHOLD.
 //
-// A flat severity reduction on claims BELOW each line's own retention. Not
+// A flat severity reduction on claims BELOW a fixed threshold per line. Not
 // leakage: this model does not overpay claims, and building an overpayment so a
 // program could remove it would invent a defect to sell a cure — the baseline
 // would be a pool paying more than it owes for no reason, and DECLINING would
 // mean accepting that. This is better handling on a correct baseline: the files
 // that would have cost more cost less.
 //
-// ⚠ BELOW A THRESHOLD, AND THE THRESHOLD IS STRUCTURAL RATHER THAN A PREFERENCE.
-// A small claim is retained in full, so the pool keeps every dollar saved; a
-// large one is mostly ceded, so most of the saving would go to the reinsurer.
-// The threshold is therefore each line's OWN retention, and the reason it works
-// is the same one WC_RTW_CONVERSION_CEILING rests on: a claim drawn AT the
-// retention books at `A x drawn^k` on first estimate, which is
+// ⚠ BELOW A FIXED THRESHOLD, SET DIRECTLY AND READ FROM NO TOWER. It used to be
+// each line's first layer attachment, read at module load, so the claims system
+// acted below whatever the retention happened to be — and a reinsurance redesign
+// offering packages with different retentions ($1M on some, $2M on others) would
+// have moved the claims system silently with every choice a player made. The
+// thresholds are now their own constants:
 //
-//     WC        38.9% of $1M        GL        31.4% of $1M
-//     Property  75.9% of $5M
+//     WC  $2M        GL  $2M        Property  $5M
 //
-// so an eligible claim CANNOT pierce at inception on any of the three.
+// Property stays at $5M: it is where the claims system pays most. Its
+// below-$5M claims are over half of the whole saving (51.5% of $532M gross
+// saved over 24 games x 5 years), and every one is retained in full.
+//
+// ⚠ THE LEAK, ACCEPTED, AND WHERE THE MONEY GOES. While WC and GL retain $1M, a
+// $2M threshold also cuts claims drawn between $1M and $2M, and the reinsurer
+// covers everything above the retention. Those savings go to the reinsurer, not
+// the pool: a programme does not reach the tower's price, and the pool's own
+// experience is net. MEASURED, 24 games x 5 years, default decisions, the rate
+// at full effect, the tower's own cession read against the same claims:
+//
+//     line        saving to the reinsurer     share of the line's saving
+//     WC               $0.17M a year                  15.31%
+//     GL               $0.22M a year                  21.11%
+//     Property         $0.00M a year                   0.21%
+//     three lines      $0.40M a year                   8.93% of $4.44M
+//
+// THE POOL LOSES NOTHING TO IT. The pool keeps $4.04M a year against $4.01M
+// under the old rule, a shade MORE: a claim drawn just above $1M that is cut
+// below it stops paying the retention in full. The leak is dollars saved that
+// nobody in the game receives, not dollars taken from the pool. Property's 0.21%
+// is the unchanged multi-claim catastrophe case below.
+//
+// IT CLOSES ON ANY PACKAGE THAT RETAINS $2M, where the threshold sits at the
+// retention again. claims-system-check asserts the leak by BAND (the tower takes
+// exactly min(claim - retention, rate x claim) of each claim drawn between the
+// retention and the threshold, and nothing else) and asserts that against a $2M
+// retention the share falls back inside its 2% bound.
+//
+// ⚠ ON PROPERTY, WHERE THE THRESHOLD IS STILL THE RETENTION, THE OLD ARGUMENT
+// STANDS: a claim drawn AT the retention books at `A x drawn^k` on first
+// estimate, which is 75.9% of $5M, so an eligible Property claim cannot pierce
+// at inception. It no longer holds on WC (38.9% of $1M) or GL (31.4% of $1M)
+// above $1M, which is the band above.
 //
 // ⚠ AND THE TOWER ATTACHES PER OCCURRENCE, NOT PER CLAIM, SO THAT ARGUMENT WAS
 // NOT ENOUGH ON ITS OWN. A Property catastrophe is ONE occurrence carrying many
@@ -790,7 +822,9 @@ export function wcSafetyRtwStanding(
 // the cost reduction as if it raised the bar.
 //
 // MEASURED, paired on seeds, committed every year against never, defaults, no
-// shocks scheduled, 24 games x 5 years:
+// shocks scheduled, 24 games x 5 years — AT THE OLD, RETENTION-COUPLED
+// THRESHOLDS. The fixed ones leave the pool's own saving 0.8% higher ($4.04M a
+// year against $4.01M), so these figures are very slightly conservative:
 //
 //   three-line pool   $2M/yr x 3 = $6M    year-5 surplus +$2.329M   t = 10.5
 //   Property-only     $1M/yr x 3 = $3M    year-5 surplus +$2.899M   t = 16.3
@@ -819,8 +853,6 @@ export function wcSafetyRtwStanding(
 // asserts the mechanism, not the magnitude.
 // ============================================================================
 
-import { REINSURANCE_TOWER } from '../data/reinsuranceTower';
-
 export const CLAIMS_SYSTEM_ID = 'claims-management-system';
 
 /**
@@ -829,15 +861,19 @@ export const CLAIMS_SYSTEM_ID = 'claims-management-system';
 export const CLAIMS_SYSTEM_SEVERITY_REDUCTION = 0.10;
 
 /**
- * ⚠ READ FROM THE TOWER, NOT RESTATED. Each line's threshold IS its first
- * layer's attachment, so re-cutting the tower moves this with it rather than
- * leaving a literal behind to go stale. Property's retention is $5M and WC's
- * and GL's are $1M; writing those here as numbers is how the two go out of step.
+ * ⚠ FIXED, SET DIRECTLY, AND READ FROM NO TOWER — see the header above. WC and GL
+ * cut at $2M and Property at $5M. While WC and GL retain $1M the $1M-$2M band
+ * leaks to the reinsurer: 8.93% of the saving across a three-line pool, $0.40M a
+ * year at full effect, measured at the header and accepted, with the pool's own
+ * saving unreduced. It closes on any package that retains $2M.
+ *
+ * Do not re-derive these from REINSURANCE_TOWER. Writing them here is the point:
+ * choosing a package must not move the claims system.
  */
 export const CLAIMS_SYSTEM_THRESHOLD: Record<CoverageLine, number> = {
-  WC: REINSURANCE_TOWER.WC[0].attachment,
-  GL: REINSURANCE_TOWER.GL[0].attachment,
-  Property: REINSURANCE_TOWER.Property[0].attachment,
+  WC: 2_000_000,
+  GL: 2_000_000,
+  Property: 5_000_000,
 };
 
 /**
@@ -949,11 +985,13 @@ export function claimsSystemSeverityReduction(
  * line's gross are derived from the claims, so every downstream figure follows
  * automatically rather than needing its own adjustment.
  *
- * ⚠ STRICTLY BELOW, NEVER AT. A claim drawn exactly at the retention is
- * untouched, so the eligible set can never include one the tower would take a
- * share of. And the transform is monotone and shrinking, so a reduced claim
- * stays below the threshold it qualified under — it cannot move across a
- * boundary in either direction.
+ * ⚠ STRICTLY BELOW, NEVER AT. A claim drawn exactly at the threshold is
+ * untouched. On Property the threshold is also the retention, so the eligible
+ * set can never include a claim the tower takes a share of; on WC and GL the
+ * band between the retention and the threshold is the accepted leak (see the
+ * constant). The transform is monotone and shrinking, so a reduced claim stays
+ * below the threshold it qualified under — it cannot move across a boundary in
+ * either direction.
  *
  * ⚠ IT CONSUMES NO RANDOMNESS. The draw happens first and is unchanged; this
  * scales the number afterwards. A pool that has not bought the program draws

@@ -573,7 +573,7 @@ export interface WcGenerationInputs {
   programRtwConversion?: number;
   /**
    * CLAIMS SYSTEM severity reduction, 0 or absent when none applies. Applied by
-   * claimsSystemAdjusted to claims below this line's retention ONLY — that
+   * claimsSystemAdjusted to claims below the claims system's fixed threshold ONLY — that
    * function is the single place the rule is written and this engine must not
    * re-implement it.
    */

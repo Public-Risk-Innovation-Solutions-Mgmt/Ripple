@@ -85,7 +85,7 @@ export interface LineYearGenerationBase {
   programRtwConversion: number;
   /**
    * This line's CLAIMS SYSTEM severity reduction, 0 when none applies. Applied
-   * only to claims below the line's own retention — see claimsSystemAdjusted,
+   * only to claims below the claims system's fixed threshold — see claimsSystemAdjusted,
    * which is the single place the rule is written.
    *
    * ⚠ A THIRD SEPARATE CHANNEL, for the same reason as the two above. It is
