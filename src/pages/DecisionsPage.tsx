@@ -685,7 +685,7 @@ function RenewalUnderwriting({
             max={top}
             step={step}
             onChange={onChange}
-            formatValue={v => (v > 0 ? `Non-renew worst ${(v * 100).toFixed(1)}%` : 'Renew all')}
+            formatValue={v => (v > 0 ? `Non-renew worst ${(v * 100).toFixed(0)}%` : 'Renew all')}
             leftLabel="Renew all"
             rightLabel={`Worst ${(top * 100).toFixed(0)}%`}
             disabled={disabled}

@@ -326,7 +326,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: cb3b5d5 built into its own
 // worktree and served on 4174 reproduced ALL 298 against the committed v15.
 const BASELINE = process.env.RENDER_BASELINE
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v21.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v22.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

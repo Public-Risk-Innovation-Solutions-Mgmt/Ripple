@@ -196,15 +196,40 @@ import type {
  * book and with luck, which is why the old table carried a "the screen count is
  * higher than a held level produces" warning that a share does not need.
  *
- * STEPS 0 / 2.5 / 5 / 7.5 / 10%, AGAINST THE LEVELS THEY REPLACE. Measured on
- * the old thresholds (renewal-threshold-derive, 8 games x 14 years, mean book
- * ~90): 2.50 declined 2.95 a year against the current book (3.2%) and settled
- * near 1.10 (1.2%) once held; 2.00 declined 7.05 (7.7%) and settled near 2.38
- * (2.6%). A threshold SETTLES because the worst members go and fewer clear the
- * bar; a share DOES NOT — the worst 5% of any book is always 5% of it. So 2.5%
- * held is already about the old strict level held, and 10% held is four times
- * it: with No New Business a 10% cut leaves 0.9^10 = 35% of the book after ten
- * years. The top step is the strongest thing a player should be able to mean.
+ * STEPS 0 / 1 / 2 / 3 / 4 / 5%, NARROWED FROM 0 / 2.5 / 5 / 7.5 / 10%. One-percent
+ * steps are the risk-control dials' step, so a player learns one step size across
+ * the Decisions page; and the old top step read more like a mistake than a
+ * decision — at 10% with no intake the WC book fell from 66 to 22 in ten years.
+ *
+ * A threshold SETTLES because the worst members go and fewer clear the bar; a
+ * share DOES NOT — the worst 5% of any book is always 5% of it. Against the
+ * levels the slider replaced (renewal-threshold-derive, mean book ~90): 2.50
+ * settled near 1.2% of the book once held and 2.00 near 2.6%, so 1-3% spans the
+ * old controls and 5% is about twice the old strict level held.
+ *
+ * MEASURED, 16 games x 10 years, year 10, normaliser out of the draw, WC (GL
+ * alike); cost = the book's expected loss against an all-neutral book:
+ *
+ *              no intake                              intake at bar 5 (level 3)
+ *   cut    book   cost   rate/$100  surplus      book   cost   rate/$100  surplus
+ *    0%    65.8   1.017    4.956    $146.6M      90.9   1.013    4.708    $178.9M
+ *    1%    56.9   1.006    4.997    $144.6M      82.0   1.008    4.740    $178.6M
+ *    3%    48.0   0.982    5.071    $140.1M      71.0   0.987    4.805    $169.2M
+ *    5%    39.5   0.947    5.183    $133.1M      59.6   0.960    4.832    $163.1M
+ *   (10%   22.4   0.874    5.628    $116.2M      38.6   0.904    5.159    $142.7M — the old top)
+ *
+ * THE RATE RISES FROM THE FIRST STEP on a closed book: each step trades book for
+ * a smaller fall in expected cost, and a smaller book loses the tower's size
+ * discount faster than its composition gains. At 5% the book is down 40% for a
+ * 7% fall in cost and a 4.6% RISE in the rate — still plainly "it shrinks the
+ * book, it does not clean it", without gutting the pool.
+ *
+ * ⚠ 1% IS ONE MEMBER A YEAR, AND ZERO ON A BOOK UNDER 50. The count is
+ * round(cut x book), so on the books this game makes the 1% step names one
+ * member a year (0.89 on WC with no intake) and rounds to nobody once the book
+ * falls below 50 — which is why 1% and 2% read alike on a book of ~55. Stated
+ * so a player who sees "0 not renewed" at 1% is reading the arithmetic, not a
+ * fault.
  *
  * ⚠ WHAT IT TEACHES, WHICH IS WHY IT SHIPS. A member's loss ratio barely
  * persists: the modifier's measured credibility is Z = 0.155 (WC) and 0.076
@@ -218,7 +243,7 @@ import type {
  * member is ever rated, and ranking members on a ratio the Membership page shows
  * blank would be selecting on a number the player cannot see.
  */
-export const RENEWAL_CUT_STEPS = [0, 0.025, 0.05, 0.075, 0.10] as const;
+export const RENEWAL_CUT_STEPS = [0, 0.01, 0.02, 0.03, 0.04, 0.05] as const;
 
 /** Share of the book non-renewed this year, worst first. 0 renews everyone. */
 export type RenewalCut = number;

@@ -89,9 +89,12 @@ const WARMUP = EXPERIENCE_MOD.minYears + 2;
 /** The strongest shipped step, read from the constant so this gate cannot drift
  *  from the slider. */
 const STRONGEST = Math.max(...RENEWAL_CUT_STEPS);
-/** The positive control: a third of the book every year, three times the top
- *  step. Nothing about a share this size is a renewal decision, which is the
- *  point — the instrument must visibly move under it. */
+/** The positive control: 30% of the book every year — six times the top step
+ *  since the slider was narrowed to 0-5% (it was three times the old 10% top).
+ *  A GATE control, not a slider value, and nothing else in this file reads the
+ *  old steps: STRONGEST and the printed list come from RENEWAL_CUT_STEPS. A
+ *  share this size is not a renewal decision, which is the point — the
+ *  instrument must visibly move under it. */
 const ABSURD = 0.30;
 /** A cut too small to round to a single member on any book this engine makes
  *  (round(0.001 x 200) = 0). Must be indistinguishable from renewal off. */

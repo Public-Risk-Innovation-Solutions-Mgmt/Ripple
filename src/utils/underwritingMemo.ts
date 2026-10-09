@@ -240,7 +240,7 @@ export function buildUnderwritingMemo(gameState: GameState, liveDecisions?: Deci
       'Who would go',
       !(cut > 0)
         ? 'The renewal slider is set to renew every member, so nobody would be declined this year.'
-        : `The worst **${(cut * 100).toFixed(1)}%** of the book on their ${EXPERIENCE_MOD.windowYears}-year `
+        : `The worst **${(cut * 100).toFixed(0)}%** of the book on their ${EXPERIENCE_MOD.windowYears}-year `
           + `loss ratio. Listed alphabetically, like the candidates above, so the two sections can be `
           + `read against each other.`,
       overBar
