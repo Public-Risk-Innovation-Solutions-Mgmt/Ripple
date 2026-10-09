@@ -567,7 +567,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // isolating test: replayed from an IDENTICAL past, charges, pool premium and
 // membership are bit-identical in 24 of 24 games while investment income differs
 // in 24 of 24. Read the two captures together, as v52 said to.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v53.json');
+// ⚠ v53 -> v54: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
+// All 24 move, for VALUE reasons only — no row is added, removed or renamed.
+// Every workbook carries surplus, funding and capital-adequacy figures, and the
+// opening book itself re-rolled because the acceptance band changed. Read with
+// value-identity v52, whose note carries the isolating test and the correction
+// to b9d797e's -7.7%.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v54.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

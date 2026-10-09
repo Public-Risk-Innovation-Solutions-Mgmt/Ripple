@@ -1494,6 +1494,7 @@ export function buildSupportingRows(
         line: l,
         expectedNetUnpaidLoss: poolResult.byLine[l].expectedNetUnpaidLoss,
         marginFactor: (hasStaticClf(l) ? staticClf(l, RESERVE_MARGIN_CONFIDENCE) : lookupCLF(RESERVE_MARGIN_CONFIDENCE)) - 1,
+        catCapitalNeeded: poolResult.byLine[l].catCapitalNeeded,
         expectedLoss: poolResult.byLine[l].expectedLoss,
         clf: poolResult.byLine[l].selectedFundingCLF,
         poolPremium: poolResult.byLine[l].poolPremium,
@@ -2489,22 +2490,42 @@ export function buildSupportingRows(
       // FORMULA was left showing expectedNetUnpaidLoss x 0.951 and read $20.47M
       // against a stated $7.99M. A wrong derivation beside a neutralised check
       // is worse than no derivation — nothing was left to contradict it.
+      // ⚠ TWO TERMS NOW, AND audit-formula-check IS WHY THIS ROW IS A SUM. The
+      // margin gained a retained-catastrophe term (catCapitalRetained), and the
+      // formula here still said expectedNetUnpaidLoss x (CLF - 1). The NUMBER
+      // was right and the stated derivation was not — 384 row-instances, caught
+      // by the gate on the commit that introduced it. A derivation that cannot
+      // reproduce its own value is exactly this page's named failure mode.
       formula: isPoolView && perLine && perLine.length > 0
         ? {
             kind: 'sum',
-            terms: perLine.map(p => ({
-              product: [
-                curTerm(p.expectedNetUnpaidLoss, 'expected net unpaid loss'),
-                factorTerm(p.marginFactor, 'margin factor'),
-              ],
-              label: p.line,
-            })),
+            terms: [
+              ...perLine.map(p => ({
+                product: [
+                  curTerm(p.expectedNetUnpaidLoss, 'expected net unpaid loss'),
+                  factorTerm(p.marginFactor, 'margin factor'),
+                ],
+                label: p.line,
+              })),
+              ...perLine.filter(p => p.catCapitalNeeded > 0).map(p => ({
+                product: [curTerm(p.catCapitalNeeded, 'retained catastrophe')],
+                label: `${p.line} retained catastrophe`,
+              })),
+            ],
           }
         : {
-            kind: 'product',
-            factors: [
-              curTerm(result.expectedNetUnpaidLoss, 'expected net unpaid loss'),
-              factorTerm(fundingMarginCLF - 1, 'required margin factor'),
+            kind: 'sum',
+            terms: [
+              {
+                product: [
+                  curTerm(result.expectedNetUnpaidLoss, 'expected net unpaid loss'),
+                  factorTerm(fundingMarginCLF - 1, 'required margin factor'),
+                ],
+                label: 'reserve margin',
+              },
+              ...(result.catCapitalNeeded > 0
+                ? [{ product: [curTerm(result.catCapitalNeeded, 'retained catastrophe')], label: 'retained catastrophe' }]
+                : []),
             ],
           },
       subFormula: isPoolView ? undefined : {

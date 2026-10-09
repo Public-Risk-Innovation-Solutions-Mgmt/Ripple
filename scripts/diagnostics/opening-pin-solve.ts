@@ -105,7 +105,7 @@ function unfilteredMedian(line: CoverageLine, k: number): number {
       } as GameSetupSettings;
       const c = simulateLineCandidate(inst, setup, line, 0);
       const last = c.lineResults[c.lineResults.length - 1];
-      ms.push(openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve));
+      ms.push(openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve, last.reserveRiskMarginNeeded));
     }
     return q(ms, 0.5);
   } finally {

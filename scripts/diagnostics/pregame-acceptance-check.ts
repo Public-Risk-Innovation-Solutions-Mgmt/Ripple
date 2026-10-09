@@ -125,12 +125,12 @@ function measure(line: CoverageLine, seeds: number = SEEDS): Arm {
       const setup = { poolName: 'A', gameLength: 10, startingYear: 2026, instanceId: id, activeLines: [line] };
       const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
       const r = (priorHistory as never as {
-        byLine: Record<string, { poolPremium: number; endingNetReserve: number; pregameAttempt?: number }>
+        byLine: Record<string, { poolPremium: number; endingNetReserve: number; reserveRiskMarginNeeded: number; pregameAttempt?: number }>
       }[]).slice(-1)[0]?.byLine?.[line];
       if (!r) continue;
       attempts.push((r.pregameAttempt ?? 0) + 1);
       const surplus = (poolState as never as { lines: Record<string, { surplus: number }> }).lines[line].surplus;
-      openings.push(openingBandRatio(line, surplus, r.poolPremium, r.endingNetReserve));
+      openings.push(openingBandRatio(line, surplus, r.poolPremium, r.endingNetReserve, r.reserveRiskMarginNeeded));
     }
   } finally {
     console.warn = realWarn;
@@ -160,7 +160,7 @@ function measureUnfiltered(line: CoverageLine, seeds: number): number[] {
     const setup = { poolName: 'A', gameLength: 10, startingYear: 2026, instanceId: id, activeLines: [line] };
     const c = simulateLineCandidate(inst, setup as never, line, 0);
     const last = c.lineResults[c.lineResults.length - 1];
-    out.push(openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve));
+    out.push(openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve, last.reserveRiskMarginNeeded));
   }
   return out;
 }

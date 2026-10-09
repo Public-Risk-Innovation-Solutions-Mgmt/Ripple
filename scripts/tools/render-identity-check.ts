@@ -370,7 +370,37 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //
 //   18 HELD, and they are the screens with no number and no document on them.
 const BASELINE = process.env.RENDER_BASELINE
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v17.json');
+//
+// ⚠ v17 -> v18: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
+// 248 of 298 moved, and the split is cleaner than v17's because this change
+// touches NO player-facing prose at all.
+//
+//   THE CONTROL FIRED FIRST. b9d797e built in its own worktree and served on
+//   4174 reproduced ALL 298 against its own committed v17, so the 248 are this
+//   change and not the instrument.
+//
+//   50 HELD, AND THEY ARE EVERY DEPARTMENTS DOCUMENT — Actuarial, Claims,
+//   Investment, Risk Control and Underwriting, on all five configurations, both
+//   years. No memo, no document and no displayed constant moved. Spot-checked
+//   on the Calculation Audit: its asset row still reads 2.8% / 3.5% / 5.5%
+//   gross, so the investment returns are untouched; 114 words of 4,477 differ
+//   on that page and every one is a game number.
+//
+//   248 MOVED, for two reasons. Property's required capital gained
+//   catCapitalRetained, so every capital, funding and adequacy figure on that
+//   line moves. And every line's opening book re-rolled, because the pre-game
+//   accepts against OPENING_SURPLUS_BAND and the band changed both basis
+//   ('reserve'/'premium' -> 'required') and level (to a common 2.28x).
+//
+//   ⚠ ONE EXCEPTION, ADDED AFTER audit-formula-check WENT RED: the Calculation
+//   Audit's "Reserve Risk Margin Needed" row now states a SUM (reserve margin
+//   plus retained catastrophe) where it stated a product, because the margin
+//   gained a term and the printed derivation no longer reproduced its own
+//   value. So that row's TEXT moved too, on top of its numbers.
+//
+//   Otherwise nothing with words moved and everything with a number did. That
+//   is the shape to expect from a change that moves values and no layout.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v18.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

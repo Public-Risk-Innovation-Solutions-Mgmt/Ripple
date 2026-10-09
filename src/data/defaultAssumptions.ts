@@ -1862,9 +1862,31 @@ export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
   // was at 0.704x and had to roughly double. That unevenness is the premium
   // basis showing through and is the same fact recorded at OPENING_SURPLUS_BAND.
   // ========================================================================
-  WC: 0.7549,
-  GL: 0.5473,
-  Property: 0.5725,
+  // ⚠ RE-SOLVED AGAINST THE REQUIRED-CAPITAL BANDS — the fifth re-solve, and the
+  // second in a row that followed a deliberate change of BASIS rather than a
+  // drift. opening-pin-solve, 600 seeds per pass, bisected to within 6% of band
+  // width on its own seed prefix; opening-centring-check verifies on seeds the
+  // solver never saw.
+  //
+  //   line        pin              unfiltered median   target (midpoint 2.2800)
+  //   WC       0.7549 -> 1.1701
+  //   GL       0.5473 -> 0.5747          2.2762
+  //   Property 0.5725 -> 0.4652
+  //
+  // ⚠ WC'S PIN NOW EXCEEDS 1.0 AND THAT IS NOT AN ERROR. K seeds surplus at
+  // K x premium at the START of a ten-year pre-game; the band grades where that
+  // past ENDS, against REQUIRED CAPITAL. WC is the line that was thinnest
+  // relative to what it needs (1.44x against the pool's 2.28x), so it is the one
+  // that has to start with more than a year's premium to finish on the common
+  // multiple. The pin is not the opening and never was.
+  //
+  // ⚠ AND THE THREE PINS NO LONGER LOOK ALIKE, WHICH IS THE POINT. 1.17 / 0.57 /
+  // 0.47 is what "the same safety on every line" costs in starting capital once
+  // the denominator is each line's own requirement rather than its premium. An
+  // even-looking set of pins would mean an uneven set of openings.
+  WC: 1.1701,
+  GL: 0.5747,
+  Property: 0.4652,
 };
 
 // Pre-game acceptance band: the line's Year-1 opening surplus must land within
@@ -2093,7 +2115,7 @@ export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
 // other two, and it costs nothing because it is already being run.
 // ============================================================================
 export const OPENING_SURPLUS_BAND: Record<string,
-  { basis: 'premium' | 'reserve'; min: number; max: number }> = {
+  { basis: 'premium' | 'reserve' | 'required'; min: number; max: number }> = {
   // Each band keeps the RELATIVE half-width the premium band had — WC +/-19.02%,
   // GL +/-19.21% — so only the denominator and the centre change, and the
   // acceptance cost above is attributable to those two things alone.
@@ -2104,50 +2126,59 @@ export const OPENING_SURPLUS_BAND: Record<string,
   // translation rather than a re-tune. See FROZEN_CAPITAL_J for the defect that
   // triggered it and for why the pin moved with it.
   // ========================================================================
-  // ⚠ RE-LEVELLED TO OPEN AT 1.5x ANNUAL PREMIUM ON EVERY LINE. THE BASIS IS
-  // UNCHANGED — WC and GL still ask the reserve question — ONLY THE LEVEL MOVES.
+  // ⚠ EVERY LINE OPENS AT THE SAME MULTIPLE OF ITS OWN REQUIRED CAPITAL — 2.28x.
+  // THE BASIS IS NEW AND IT IS THE POINT: 'required' divides surplus by
+  // reserveRiskMarginNeeded, which is now the reserve margin PLUS the
+  // catastrophe the pool retains (catCapitalRetained). It is the only
+  // denominator on which "the same multiple" is a statement about SAFETY rather
+  // than about a quantity that happens to differ by line.
   //
-  // ⚠ AND THE MIDPOINT NO LONGER EQUALS FROZEN_CAPITAL_J, WHICH IS THE REAL
-  // COST OF THIS CHANGE AND IS STATED RATHER THAN BURIED. The block above
-  // re-centred WC and GL ONTO J so the pool opens at exactly 1.0x its own
-  // required capital margin — J IS margin/reserve, so band/J is surplus in units
-  // of required margin, and the whole point was that the previous band put every
-  // WC opening inside Deficient by construction. A premium multiple does not
-  // know about the margin, so after this change the lines open at DIFFERENT
-  // multiples of what they each need:
+  // ⚠ THIS REPLACES b9d797e's 1.5x PREMIUM, WHICH WAS EVEN IN THE WRONG UNIT.
+  // Premium is a flow and the liability is a stock, and premium/reserve differs
+  // by line, so an even premium multiple left the lines at 1.44x / 2.15x / 2.85x
+  // of what they each need. Measured, b9d797e's opening:
   //
-  //     line      band midpoint    J       midpoint/J = x required margin
-  //     WC           0.6923      0.4730            1.46x
-  //     GL           1.0788      0.5020            2.15x
+  //     line        required   surplus   multiple   x premium
+  //     WC           $10.1M    $14.6M     1.44x       1.48
+  //     GL           $10.1M    $21.7M     2.15x       1.51
+  //     Property     $17.2M    $49.0M     2.85x       1.52
+  //     POOL         $37.4M    $85.2M     2.28x
   //
-  // That 1.47x spread between WC and GL is the same KIND of defect the reserve
-  // re-anchor removed (it was 2.38x on the old premium band), reintroduced at a
-  // smaller size, and it arises for the same reason: premium is a flow and the
-  // liability is a stock, and the two lines have different premium/reserve.
-  // THE DECISION WAS MADE DELIBERATELY — the brief asked for a premium multiple
-  // — and the alternative that would NOT reintroduce it is a multiple of J,
-  // which is what the next change should use if even capital adequacy across
-  // lines matters more than a round premium number.
+  // 2.28x IS THE POOL'S OWN CURRENT MULTIPLE, chosen so this REDISTRIBUTES
+  // capital rather than cutting it: the pool total is unchanged at $85.2M, WC
+  // rises 58%, GL 6%, and Property falls 20%. A level was not invented; the
+  // pool's existing total was held and the unevenness taken out of it.
   //
-  // ⚠ THE TRANSLATION, SO IT CAN BE REDONE. Each reserve band's midpoint is
-  // 1.5 x the line's measured premium/reserve at the accepted opening (40 games,
-  // this engine): WC 0.4615, GL 0.7192. Property is already on premium and takes
-  // 1.5 directly. Every band keeps its EXISTING relative half-width — WC
-  // +/-19.03%, GL +/-19.20%, Property +/-20.14% — so the shape is untouched and
-  // only the centre moves, which is what makes this a translation rather than a
-  // re-tune, exactly as the WC re-centring above was.
+  // ⚠ AND THE UNEVENNESS WAS NOT WHERE IT LOOKED. Before the catastrophe term
+  // Property read 3.72x and looked like the over-padded line. Most of that was
+  // the MEASURE: its retained catastrophe was missing from the denominator. With
+  // it in, Property is 2.85x and WC at 1.44x is the thin one. The fix moves
+  // capital TO WC, not away from GL.
   //
-  // ⚠ THE PIN MOVED WITH IT, AND IT HAD TO. STARTING_CAPITAL_TO_PREMIUM is
-  // solved so the UNFILTERED candidate median lands on the midpoint. Moving a
-  // band and leaving the pin is not a smaller change than moving both; it is a
-  // different and worse one — the block above records WC landing -84% of band
-  // width when that was tried. Re-solved with opening-pin-solve on an
-  // independent seed base; opening-centring-check verifies on seeds the solver
-  // never saw.
+  // ⚠ HALF-WIDTHS UNCHANGED — WC +/-19.03%, GL +/-19.20%, Property +/-20.14%,
+  // each the relative half-width it already had, so only the centre moves and
+  // this stays a translation. The pin moved with it; see
+  // STARTING_CAPITAL_TO_PREMIUM, and the -84%-of-band-width failure recorded
+  // there for what moving one alone does.
+  //
+  // ⚠ CALIBRATED ON FULL REINSURANCE, WHICH NEEDED NO CHANGE. The pre-game runs
+  // defaultDecisionSet, which places every purchasable occurrence layer and sets
+  // aggregateStopLevel -1, so the opening already assumes the most cover on every
+  // line with WC's aggregate excluded. With the tower placed the catastrophe term
+  // is just the retention, which is what makes these multiples comparable.
+  //
+  // ⚠ A CORRECTION TO b9d797e's COMMIT MESSAGE, WHICH CANNOT BE REWRITTEN. It
+  // says "THE POOL WAS OPENING BELOW ITS OWN REQUIRED CAPITAL ... -7.7%". That
+  // was WC ALONE, from a probe that captured the first line of a loop and
+  // labelled it the pool. At ee953aa the pool opened at +97.6% — nearly DOUBLE
+  // its required capital — with WC at 1.00x and GL at 1.03x, which is the J90
+  // anchor working exactly as intended. The pool was never deficient. The same
+  // bug produced the "-12.9%" and "+41.3%" figures in that message; the pool
+  // figures are +97.6%, +159%, and +159% respectively.
   // ========================================================================
-  WC: { basis: 'reserve', min: 0.5606, max: 0.8241 },
-  GL: { basis: 'reserve', min: 0.8717, max: 1.2860 },
-  Property: { basis: 'premium', min: 1.1979, max: 1.8021 },
+  WC: { basis: 'required', min: 1.8461, max: 2.7139 },
+  GL: { basis: 'required', min: 1.8422, max: 2.7178 },
+  Property: { basis: 'required', min: 1.8208, max: 2.7392 },
 };
 
 // ============================================================================

@@ -161,14 +161,14 @@ function measure(line: CoverageLine, seeds: number): Arm {
       const setup = { poolName: 'P', gameLength: 10, startingYear: 2026, instanceId: id, activeLines: [line] };
       const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
       const r = (priorHistory as never as {
-        byLine: Record<string, { poolPremium: number; endingNetReserve: number; pregameAttempt?: number }>
+        byLine: Record<string, { poolPremium: number; endingNetReserve: number; reserveRiskMarginNeeded: number; pregameAttempt?: number }>
       }[]).slice(-1)[0]?.byLine?.[line];
       if (!r) continue;
       const surplus = (poolState as never as { lines: Record<string, { surplus: number }> }).lines[line].surplus;
       // ⚠ THE SHARED RATIO, NOT A LOCAL DIVIDE. WC and GL are graded against the
       // opening RESERVE now; a hardcoded / poolPremium here would compare the right
       // surplus to the wrong denominator and still look green.
-      openings.push(openingBandRatio(line, surplus, r.poolPremium, r.endingNetReserve));
+      openings.push(openingBandRatio(line, surplus, r.poolPremium, r.endingNetReserve, r.reserveRiskMarginNeeded));
       attempts.push(r.pregameAttempt ?? 0);
     }
   } finally {

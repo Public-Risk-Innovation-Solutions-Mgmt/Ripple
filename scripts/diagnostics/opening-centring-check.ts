@@ -146,7 +146,7 @@ function unfilteredMultiple(instance: GameInstance, setup: GameSetupSettings, li
   const last = c.lineResults[c.lineResults.length - 1];
   // ⚠ THE SHARED RATIO — see openingBandRatio's own header for why this is not
   // a local divide any more.
-  return openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve);
+  return openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve, last.reserveRiskMarginNeeded);
 }
 
 const q = (a: number[], p: number) => {

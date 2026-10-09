@@ -853,7 +853,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // given book is. The 2 of 24 free-running games that happened to accept the same
 // attempt also came out bit-identical on charges, which is the same result
 // reached the weaker way.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v51.json');
+// ⚠ v51 -> v52: REQUIRED CAPITAL GAINS A CATASTROPHE TERM, AND THE OPENING MOVES
+// TO A COMMON MULTIPLE OF IT. Two changes, one capture, because the second is
+// calibrated against the first and splitting them would mean two captures with
+// the middle one attributable to nothing.
+//   reserveRiskMarginNeeded += catCapitalRetained — Property only; WC and GL
+//     have no catastrophe band, so their margin is unchanged to the dollar.
+//   OPENING_SURPLUS_BAND moves to a 'required' basis at 2.28x on all three, and
+//     STARTING_CAPITAL_TO_PREMIUM is re-solved with it.
+//   catCapitalNeeded is ADDED as a line result field, so the audit page can
+//     state this row's derivation from the engine's own figure rather than
+//     recompute it. audit-formula-check caught the row's formula still saying
+//     expectedNetUnpaidLoss x (CLF - 1) — 384 row-instances where the NUMBER
+//     was right and the stated derivation was not.
+// So every Property figure moves, and every line's opening book re-rolls
+// (the pre-game accepts against the band, and the band changed).
+//
+// ⚠ THE CORRECTION THIS CAPTURE CARRIES. b9d797e's message says the pool opened
+// below its required capital at -7.7%. That was WC ALONE, from a probe that read
+// the first line of a loop and labelled it the pool. The pool opened at +97.6%,
+// nearly DOUBLE its requirement. The same bug produced that message's -12.9% and
+// +41.3%; the pool figures are +97.6%, +159% and +159%.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v52.json');
 
 function seedOf(id: string) {
   let h = 5381;

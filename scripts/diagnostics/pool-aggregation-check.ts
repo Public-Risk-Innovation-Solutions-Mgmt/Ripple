@@ -87,6 +87,11 @@ const DOLLARS = new Set([
   'expectedLoss', 'clfAdjustedExpectedLoss',
   'expectedNetUnpaidLoss', 'priorYearDevelopmentCeded', 'bookingGiveBack',
   'netFundingTarget', 'indicatedNetReserveAtConfidenceLevel', 'reserveRiskMarginNeeded',
+  // The retained-catastrophe term INSIDE reserveRiskMarginNeeded. Dollars, and
+  // additive for the same reason the margin it sits in is: each line computes
+  // its own against its own book and placement. Zero on WC and GL, which have no
+  // catastrophe band, so the pool figure is Property's.
+  'catCapitalNeeded',
   'fundingMarginNeeded', 'availableFunding', 'availableSurplus', 'fundingGap',
   'capitalFundingGap', 'excessAvailableSurplus', 'underwritingIncome', 'netIncome',
   'beginningCash', 'endingCash', 'beginningInvestments', 'endingInvestments',

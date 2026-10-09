@@ -55,6 +55,7 @@ import { projectPricingTriangle, windowRows } from './pricingTriangle';
 import { closureCurveForReported, developmentDrift, initialEstimate } from './claimTriangle';
 import { poolYearFactor, wcGenerationInputs, glGenerationInputs, propertyGenerationInputs } from './claimGeneration';
 import { programFreqMultiplier, programAnnualCost, programRtwConversion, claimsSystemSeverityReduction } from './riskControlPrograms';
+import { catCapitalRetained } from './propertyCatastrophe';
 import { occurrenceProgramCost } from './reinsuranceTower';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import {
@@ -2146,9 +2147,20 @@ export function processLineYear(
   const reserveMarginCLF = hasStaticClf(line)
     ? staticClf(line, RESERVE_MARGIN_CONFIDENCE)
     : lookupCLF(RESERVE_MARGIN_CONFIDENCE);
+  // ⚠ TWO TERMS NOW: THE RESERVE MARGIN, AND THE CATASTROPHE THE POOL RETAINS.
+  // The reserve margin is a margin on an EXPECTATION, and a catastrophe at 0.084
+  // events a year barely enters one — so before this term, declining Property's
+  // tower raised required capital 10.1% while raising retained exposure about
+  // fifteen-fold, and the declined pool read as BETTER capitalised because it
+  // kept the reinsurance premium. catCapitalRetained carries the second term off
+  // the engine's own exact event distribution, read through this line's ACTUAL
+  // placement, so declining cover now raises the requirement instead of the
+  // ratio. Its header has the measurement and the one conservative gap (it is
+  // the mean retained event, not a return period).
+  const catCapitalNeeded = catCapitalRetained(line, currentActiveMembers, placedForCost);
   const reserveRiskMarginNeeded = Math.max(
     0,
-    expectedNetUnpaidLoss * (reserveMarginCLF - 1)
+    expectedNetUnpaidLoss * (reserveMarginCLF - 1) + catCapitalNeeded
   );
 
   const fundingMarginNeeded = reserveRiskMarginNeeded;
@@ -2472,6 +2484,7 @@ export function processLineYear(
     netFundingTarget,
     indicatedNetReserveAtConfidenceLevel,
     reserveRiskMarginNeeded,
+    catCapitalNeeded,
     fundingMarginNeeded,
 
     availableFunding,
@@ -3379,6 +3392,9 @@ export function aggregateLineResults(
   const adminExpenseSum = addDollars('adminExpense');
   const reinsuranceCostSum = addDollars('reinsuranceCost');
   const reserveRiskMarginNeededSum = addDollars('reserveRiskMarginNeeded');
+  // Summed like the margin it sits inside. Zero on WC and GL, so at pool scope
+  // this IS Property's retained catastrophe.
+  const catCapitalNeededSum = addDollars('catCapitalNeeded');
   const excessAvailableSurplusSum = addDollars('excessAvailableSurplus');
 
   // Same two-denominator AND same net-numerator discipline as the line level
@@ -3625,6 +3641,7 @@ export function aggregateLineResults(
     netFundingTarget: addDollars('netFundingTarget'),
     indicatedNetReserveAtConfidenceLevel: addDollars('indicatedNetReserveAtConfidenceLevel'),
     reserveRiskMarginNeeded: reserveRiskMarginNeededSum,
+    catCapitalNeeded: catCapitalNeededSum,
     fundingMarginNeeded: addDollars('fundingMarginNeeded'),
 
     availableFunding: addDollars('availableFunding'),

@@ -1676,7 +1676,13 @@ interface ResultRowFields {
   indicatedNetReserveAtConfidenceLevel: number; // Confidence-level indication, not booked reserve
 
   fundingMarginNeeded: number;              // Legacy name for reserveRiskMarginNeeded
-  reserveRiskMarginNeeded: number;          // netFundingTarget - expectedNetUnpaidLoss
+  reserveRiskMarginNeeded: number;          // reserve margin + retained catastrophe
+  // The catastrophe the pool RETAINS under its own placement, in
+  // reserveRiskMarginNeeded above. Zero on WC and GL, which have no catastrophe
+  // band. Surfaced because the audit page states this row's derivation and a
+  // stated derivation that cannot reproduce its own value is the defect
+  // audit-formula-check exists to catch — see catCapitalRetained.
+  catCapitalNeeded: number;
 
   // C. Capital / Surplus Cushion
   availableFunding: number;                 // Legacy name; equals endingSurplus

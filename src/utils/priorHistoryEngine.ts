@@ -337,8 +337,19 @@ export function openingBandRatio(
   endingSurplus: number,
   poolPremium: number,
   endingNetReserve: number,
+  // ⚠ REQUIRED, NOT OPTIONAL, AND DELIBERATELY SO. The 'required' basis divides
+  // by this; an optional parameter would let a caller omit it and silently grade
+  // against a default. Making it mandatory is what turned "update six call
+  // sites" into a compiler error list rather than a search.
+  reserveRiskMarginNeeded: number,
 ): number {
   const basis = OPENING_SURPLUS_BAND[line]?.basis ?? 'premium';
+  // THE REQUIRED-CAPITAL BASIS. Surplus against what the line must hold —
+  // reserve margin PLUS the catastrophe it retains (see catCapitalRetained). It
+  // is the only basis on which "every line opens at the same multiple" is a
+  // statement about safety rather than about the size of a denominator that
+  // happens to differ by line.
+  if (basis === 'required') return endingSurplus / Math.max(reserveRiskMarginNeeded, 1);
   return basis === 'reserve'
     ? endingSurplus / Math.max(endingNetReserve, 1)
     : endingSurplus / Math.max(poolPremium, 1);
@@ -355,7 +366,7 @@ function runLinePreGame(
   for (let attempt = 0; attempt < MAX_HISTORY_ATTEMPTS; attempt++) {
     const c = simulateLineCandidate(instance, setup, line, attempt);
     const last = c.lineResults[c.lineResults.length - 1];
-    const multiple = openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve);
+    const multiple = openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve, last.reserveRiskMarginNeeded);
     if (multiple >= band.min && multiple <= band.max) return finalizeLine(c, line, attempt);
     // Distance to the band (0 inside): the fallback keeps the closest miss.
     const distance = multiple < band.min ? band.min - multiple : multiple - band.max;
