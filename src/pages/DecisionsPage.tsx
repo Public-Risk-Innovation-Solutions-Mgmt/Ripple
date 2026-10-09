@@ -15,7 +15,7 @@ import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import type { FundingConsequence } from '../utils/fundingConsequence';
-import { RENEWAL_THRESHOLDS, renewalDeclines } from '../utils/renewalUnderwriting';
+import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import {
   NEW_BUSINESS_APPETITE_TIERS, NO_NEW_BUSINESS, appetiteEligible,
@@ -225,8 +225,8 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
             members={lastLineResult?.memberList ?? []}
             history={memberLossHistory}
             yearNumber={yearNumber}
-            value={d.renewalThreshold ?? null}
-            onChange={v => set('renewalThreshold', v)}
+            value={d.renewalCut ?? 0}
+            onChange={v => set('renewalCut', v)}
             disabled={disabled}
           />
           <NewBusinessAppetite
@@ -673,58 +673,27 @@ function PropertyNoSignalNote() {
 }
 
 // ============================================================================
-// RENEWAL UNDERWRITING — ACTIVE. The pool declines to renew members whose
-// displayed experience modifier is above the level chosen here.
+// RENEWAL — THE SLIDER. Zero keeps every member; rising, the pool non-renews
+// the worst X% of the book on each member's own multi-year loss ratio — the
+// Loss Ratio column on Membership. See RENEWAL_CUT_STEPS for the steps and for
+// what the slider teaches.
 //
-// ⚠ THE COUNTS ARE LIVE AND THE LABELS CARRY NO PERCENTAGE, DELIBERATELY.
-// The share of a book above a given modifier moves as the roster changes, so
-// a static "declines about 5%" would be wrong the first time membership
-// shifted and would keep being wrong silently. The count is recomputed from
-// the current book every render, by the SAME function the engine applies —
-// so the number shown is the number that happens, not an estimate of it.
+// ⚠ THE NUMBER SHOWN IS THE NUMBER THAT HAPPENS. The count and the list come
+// from renewalDeclines, the SAME function the engine applies, on the current
+// book, ledger and year — no forecast. A share of the book has no settling
+// effect the screen would have to warn about (a threshold's count fell as the
+// worst members went; a share's does not), so the label can carry the share.
 //
-// ⚠ AND THE COUNT IS ONE YEAR'S, WHILE THE EFFECT COMPOUNDS. A declined
-// member enters the two-year cooldown and cannot be recruited back, so a
-// level held for several years shrinks the book by much more than its annual
-// count suggests. Measured over 14 years with the level APPLIED, mean enrolled
-// against renewal off: 2.50 takes WC from 90.6 to 81.4 and 2.00 takes it to
-// 67.5. The note below says so, because the control cannot show it.
+// ⚠ AND IT SHOWS WHAT THE CHOICE DOES TO THE BOOK, because that is the part a
+// player misjudges. The loss ratio barely persists (Z = 0.155 on WC), so the
+// members this removes are mostly ones who had a bad three years, not bad
+// risks: the slider shrinks the book faster than it cleans it. The line under
+// the slider puts the book size beside the count so the shrinking is visible
+// before any member reacts.
 //
-// ⚠ IT IS THIS YEAR'S ACTUAL COUNT AND IT SWINGS, WHICH READS AS A BUG AND IS
-// NOT ONE. renewalDeclines is handed the CURRENT book, the CURRENT ledger and
-// the CURRENT yearNumber and returns the actual list — no average, no forecast,
-// the same call the engine makes when the year is processed. So the tile reading
-// 7 one year and 0 the next is two true statements about two different years,
-// not an unstable estimate of one quantity. A decline needs a member running
-// more than the bar times their own expected cost, and few members do, so how
-// many sit above it in a given year is a property of the loss draw.
-//
-// MEASURED, 8 games x 14 years on a Renew All history — this is the tile's own
-// distribution, taken from the same call it renders, per line-year:
-//
-//   bar     line       mean   max   reads 0
-//   2.50    WC         2.95     7     8.8%
-//   2.50    GL         3.46     8     3.8%
-//   2.00    WC         7.05    12     0.0%
-//   2.00    GL         7.21    17     1.3%
-//   any     Property   0.00     0    100.0%
-//
-// So BOTH SCREENSHOTS ARE ORDINARY at the mild bar: a 0 turns up in about one
-// line-year in fifteen and a 7 is the top of the range. THE STRICT BAR BARELY
-// READS 0 AT ALL, which is the clearest thing the second tile adds — it is not
-// a finer setting of the same control, it is a different decision.
-//
-// ⚠ AND PROPERTY IS ALWAYS EXACTLY 0, which is not a swing at all — it has no
-// rated members, so nothing can clear a threshold. It never shows this tile
-// (PropertyNoSignalNote renders instead), so a 0 seen on screen came from WC or
-// GL and is a real year rather than the degenerate line.
-//
-// ⚠ PER-APPLICANT OVERRIDE APPLIES HERE TOO, AND IS DEFERRED FOR THE SAME TWO
-// REASONS. The threshold would FLAG who it means to decline and the player would
-// confirm or spare each. See the block above NewBusinessAppetite for the shape
-// and for the costs — table time, and the loss of the forecast the counts rest
-// on. Recorded in one place rather than two so the two controls cannot acquire
-// different answers to the same question.
+// ⚠ PER-MEMBER OVERRIDE (flag who it would decline, spare individuals) is still
+// deferred for the reasons recorded above NewBusinessAppetite — table time and
+// the loss of the forecast.
 // ============================================================================
 function RenewalUnderwriting({
   line, members, history, yearNumber, value, onChange, disabled,
@@ -733,64 +702,53 @@ function RenewalUnderwriting({
   members: Member[];
   history: MemberLossHistory;
   yearNumber: number;
-  value: number | null;
-  onChange: (v: number | null) => void;
+  value: number;
+  onChange: (v: number) => void;
   disabled?: boolean;
 }) {
-  // The count comes from the SAME function the engine calls, so the number
-  // shown is the number the player gets rather than a second estimate of it.
-  // ⚠ DISPLAY ORDER, MOST LENIENT TO MOST STRICT, REVERSED AT THE RENDER SITE.
-  // RENEWAL_THRESHOLDS is ascending because that is right for a threshold list
-  // and because renewal-stability-check reads Math.min off it; a row of tiles
-  // wants the opposite. Reversed HERE rather than in the constant, and paired
-  // with its count in one object so a count can never be shown against the
-  // wrong bar — the transposition NEW_BUSINESS_APPETITE_TIERS was restructured
-  // to make impossible.
-  const tiles = React.useMemo(
-    () => [...RENEWAL_THRESHOLDS].reverse().map(t => ({
-      threshold: t,
-      declines: renewalDeclines(members, line, history, yearNumber, t).length,
-    })),
-    [members, line, history, yearNumber],
+  const declines = React.useMemo(
+    () => renewalDeclines(members, line, history, yearNumber, value).length,
+    [members, line, history, yearNumber, value],
   );
   const rated = line !== 'Property';
-
+  const top = RENEWAL_CUT_STEPS[RENEWAL_CUT_STEPS.length - 1];
+  const step = RENEWAL_CUT_STEPS[1] - RENEWAL_CUT_STEPS[0];
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-      <span className="text-sm font-semibold text-gray-700">Renewal Underwriting</span>
       {rated ? (
         <>
-          {/* THREE BOXES, OPEN TO CLOSED — the same direction New Business
-              Appetite below reads. See RENEWAL_THRESHOLDS for why two levels
-              and not one: 2.50 and 2.00 are a renewal decision and a roster
-              decision, and the book effect tells them apart by two and a half
-              times. */}
-          <div className="grid grid-cols-3 gap-1.5">
-            <div onClick={() => !disabled && onChange(null)}>
-              <PreviewBox title="Renew All" description="Renew every member" selected={value === null} active={!disabled} />
-            </div>
-            {tiles.map(({ threshold, declines }) => (
-              <div key={threshold} onClick={() => !disabled && onChange(threshold)}>
-                <PreviewBox
-                  title={`Decline above ${threshold.toFixed(2)}x`}
-                  description={`${declines} member${declines === 1 ? '' : 's'} this year`}
-                  selected={value === threshold}
-                  active={!disabled}
-                />
-              </div>
-            ))}
-          </div>
+          <SliderInput
+            label="Renewal"
+            value={value}
+            min={0}
+            max={top}
+            step={step}
+            onChange={onChange}
+            formatValue={v => (v > 0 ? `Non-renew worst ${(v * 100).toFixed(1)}%` : 'Renew all')}
+            leftLabel="Renew all"
+            rightLabel={`Worst ${(top * 100).toFixed(0)}%`}
+            disabled={disabled}
+          />
+          <p className="text-xs text-gray-600">
+            {value > 0
+              ? `${declines} of ${members.length} member${members.length === 1 ? '' : 's'} not renewed this year — `
+                + `the book opens next year at ${members.length - declines} before anyone joins.`
+              : `Every member is renewed — the book opens next year at ${members.length} before anyone joins.`}
+          </p>
           <p className="flex items-start gap-1 text-[11px] text-gray-500 leading-relaxed">
             <Info size={12} className="mt-0.5 flex-shrink-0" />
             <span>
-              Declines members whose losses have run more than the bar times their own expected cost over
-              the last {EXPERIENCE_MOD.windowYears} years — the Loss Ratio column on Membership. A declined
-              member cannot rejoin for {REENROLLMENT_COOLDOWN_YEARS} years, so holding a level costs more than its yearly count.
+              Ranks members by how much their losses have run against their own expected cost over the
+              last {EXPERIENCE_MOD.windowYears} years — the Loss Ratio column on Membership — and does not renew
+              the worst. A member not renewed cannot rejoin for {REENROLLMENT_COOLDOWN_YEARS} years.
             </span>
           </p>
         </>
       ) : (
-        <PropertyNoSignalNote />
+        <>
+          <span className="text-sm font-semibold text-gray-700">Renewal</span>
+          <PropertyNoSignalNote />
+        </>
       )}
     </div>
   );

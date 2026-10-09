@@ -21,9 +21,9 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
     fundingAtExpected: true,
     // Renew everyone. A pool that declines by default would be making an
     // underwriting decision nobody took.
-    renewalThreshold: null,
+    renewalCut: 0,
     /**
-     * ⚠ WRITE NOBODY. AND THIS IS THE OPPOSITE RULING FROM renewalThreshold
+     * ⚠ WRITE NOBODY. AND THIS IS THE OPPOSITE RULING FROM renewalCut
      * DIRECTLY ABOVE, WHICH IS WHY IT IS ARGUED RATHER THAN JUST SET.
      *
      * Declining an EXISTING member by default would be an underwriting decision

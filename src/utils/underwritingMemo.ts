@@ -77,7 +77,8 @@ import type {
 } from '../types/simulation';
 import { getMemberExposure } from './lineHelpers';
 import { canReenroll } from './membershipHistory';
-import { memberExperienceMods, EXPERIENCE_MOD, CREDIBILITY_Z } from './memberExperienceMod';
+import { EXPERIENCE_MOD, CREDIBILITY_Z } from './memberExperienceMod';
+import { renewalDeclines, type RenewalDecision } from './renewalUnderwriting';
 import { LOSS_HISTORY_CAP_YEARS } from './memberLossHistory';
 import { APPLICATION_RATE } from '../data/defaultAssumptions';
 import { lineDisplayName } from './lineDisplay';
@@ -211,14 +212,12 @@ export function buildUnderwritingMemo(gameState: GameState, liveDecisions?: Deci
       line, history,
     ));
 
-    const threshold = currentDecisions.byLine[line]?.renewalThreshold ?? null;
-    const mods = memberExperienceMods(members, line, history, currentYearNumber);
-    const overBar = threshold === null || !(threshold > 0)
-      ? []
-      : mods
-        .filter(m => m.rated && m.rawRatio !== null && m.rawRatio > threshold)
-        .map(m => ({ mod: m, member: members.find(x => x.id === m.memberId) }))
-        .filter((x): x is { mod: typeof mods[number]; member: Member } => x.member !== undefined);
+    // THE SAME FUNCTION THE ENGINE CALLS, so the list is the list the year will
+    // apply rather than a second reading of the rule.
+    const cut = currentDecisions.byLine[line]?.renewalCut ?? 0;
+    const overBar = renewalDeclines(members, line, history, currentYearNumber, cut)
+      .map(dec => ({ dec, member: members.find(x => x.id === dec.memberId) }))
+      .filter((x): x is { dec: RenewalDecision; member: Member } => x.member !== undefined);
 
     // ⚠ EVERY FOUNDING MEMBER SHARES ONE SYNTHETIC START YEAR, so this figure
     // is IDENTICAL for all of them and only distinguishes members who joined
@@ -239,16 +238,16 @@ export function buildUnderwritingMemo(gameState: GameState, liveDecisions?: Deci
 
     out.push(section(
       'Who would go',
-      threshold === null || !(threshold > 0)
-        ? 'The renewal bar is set to renew every member, so nobody would be declined this year.'
-        : `Members whose ${EXPERIENCE_MOD.windowYears}-year loss ratio is above the current bar of `
-          + `**${threshold.toFixed(2)}x**. Listed alphabetically, like the candidates above, so the two `
-          + `sections can be read against each other.`,
+      !(cut > 0)
+        ? 'The renewal slider is set to renew every member, so nobody would be declined this year.'
+        : `The worst **${(cut * 100).toFixed(1)}%** of the book on their ${EXPERIENCE_MOD.windowYears}-year `
+          + `loss ratio. Listed alphabetically, like the candidates above, so the two sections can be `
+          + `read against each other.`,
       overBar
         .sort((a, b) => byName(a.member, b.member))
-        .map(({ mod, member }) => ({
+        .map(({ dec, member }) => ({
           member,
-          note: `${tenure(member)} — ratio **${(mod.rawRatio ?? 0).toFixed(2)}x**`,
+          note: `${tenure(member)} — ratio **${dec.rawRatio.toFixed(2)}x**`,
         })),
       line, history,
     ));

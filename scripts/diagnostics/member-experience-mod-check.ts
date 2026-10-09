@@ -103,7 +103,6 @@ import { SeededRandom } from '../../src/utils/random';
 // Section 8 asserts the two controls' shipped levels sit where the raw and
 // clamped readings cannot disagree. Read from the shipped constants so the
 // assertion cannot drift from what either control offers.
-import { RENEWAL_THRESHOLDS } from '../../src/utils/renewalUnderwriting';
 import { NEW_BUSINESS_TIERS } from '../../src/utils/newBusinessAppetite';
 import { ratingGroupOf } from '../../src/utils/wcClaimEngine';
 import { EXPERIENCE_SPLIT_POINT } from '../../src/utils/memberLossHistory';
@@ -722,7 +721,12 @@ console.log('\n--- 8. RAW AND CLAMPED DECIDE IDENTICALLY AT EVERY SHIPPED THRESH
 // consequence rather than the rule.
 // ============================================================================
 {
-  const shipped = [...new Set<number>([...RENEWAL_THRESHOLDS, ...NEW_BUSINESS_TIERS])].sort((a, b) => a - b);
+  // ⚠ RENEWAL IS NOT IN THIS LIST ANY MORE. The renewal slider non-renews the
+  // worst X% RANKED on the raw ratio, so it compares no member against a level
+  // and the clamp cannot change its decision except by tying everyone above the
+  // ceiling — which is why it ranks raw (renewalUnderwriting.ts). Only New
+  // Business Appetite's tiers are thresholds now.
+  const shipped = [...new Set<number>([...NEW_BUSINESS_TIERS])].sort((a, b) => a - b);
   const { ratioFloor, ratioCeiling } = EXPERIENCE_MOD;
   const outside = shipped.filter(t => !(t > ratioFloor && t < ratioCeiling));
 

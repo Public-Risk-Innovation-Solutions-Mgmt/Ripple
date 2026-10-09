@@ -590,13 +590,17 @@ export interface LineDecisionSet {
    */
   newBusinessAppetite?: number | null;
   /**
-   * Renewal Underwriting: decline members whose DISPLAYED experience modifier
-   * exceeds this. null renews everyone, which is the default.
+   * The RENEWAL SLIDER: the share of this line's book NOT renewed this year,
+   * worst first on the member's own multi-year raw loss ratio. 0 (and absent)
+   * renews everyone, which is the default. One of RENEWAL_CUT_STEPS. See
+   * renewalUnderwriting.ts.
    *
-   * ⚠ ON THE DISPLAYED (median-centred) SCALE, so 1.15 means "more than 15%
-   * above the typical member" in any book. See renewalUnderwriting.ts.
+   * ⚠ REPLACES renewalThreshold, which compared a ratio against a fixed bar. A
+   * save written before this carries renewalThreshold, which nothing reads any
+   * more, and no renewalCut — so it loads renewing everyone. There is no save
+   * migration in this repo by design (gameSave.ts).
    */
-  renewalThreshold?: number | null;
+  renewalCut?: number;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
   // candidates by riskQuality descending and kept the top 60% — exact
   // selection on an attribute the player can no longer see. See

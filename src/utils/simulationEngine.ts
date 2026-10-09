@@ -957,16 +957,16 @@ export function processLineYear(
   // ============================================================================
   //
   // ⚠ AND IT IS OFF IN THE PRE-GAME, STRUCTURALLY RATHER THAN BY DEFAULT. The
-  // pre-game runs at defaultDecisionSet, whose renewalThreshold is null, so
-  // nothing is declined there today — but that is a property of the defaults
-  // and not of the pre-game. The threshold is forced to null here so a future
-  // default cannot reopen it. renewalDeclines is PURE and takes no draw, so
-  // skipping the call cannot re-phase anything; the guard is on the threshold
-  // rather than on the call for that reason — it reads as the decision the
-  // pre-game makes, which is "renew everyone".
+  // pre-game runs at defaultDecisionSet, whose renewalCut is 0, so nothing is
+  // declined there today — but that is a property of the defaults and not of
+  // the pre-game. The cut is forced to 0 here so a future default cannot reopen
+  // it. renewalDeclines is PURE and takes no draw, so skipping the call cannot
+  // re-phase anything; the guard is on the cut rather than on the call for that
+  // reason — it reads as the decision the pre-game makes, which is "renew
+  // everyone".
   const renewalDecisions = renewalDeclines(
     memberResult.activeMembers, line, ctx.memberLossHistory, yearNumber,
-    ctx.freezeMembership ? null : (lineDecisions.renewalThreshold ?? null),
+    ctx.freezeMembership ? 0 : (lineDecisions.renewalCut ?? 0),
   );
   const renewal = applyRenewalDeclines(
     memberResult.activeMembers, line, yearNumber, renewalDecisions, ctx.membershipHistory,
