@@ -1141,29 +1141,52 @@ export const FUNDING_CLF_TABLE: Record<number, number> = {
 // it. The intent broke because the thing it was set against moved underneath
 // it — nobody loosened it.
 //
-// ⚠ REVIEWED AND DELIBERATELY LEFT. 5.28% net, with bonds at 5.20% gross, is a
-// defensible short-duration investment-grade posture on its own terms, and the
-// dominance arrived through a CORRECT change to the reserve. Cutting returns to
-// restore an intent whose premise had moved would be correcting a right thing
-// with a wrong one. The dominance is also not implausible: a long-tail pool
-// with a large float genuinely can absorb underwriting losses for years, which
-// is cash-flow underwriting, and it is the mechanism that makes reserving
-// matter now that the ending-position panel shows what is still owed.
+// ⚠ "REVIEWED AND DELIBERATELY LEFT" STOOD HERE AND IS NO LONGER THE POSITION.
+// The paragraph is kept because its argument is still correct and is the reason
+// the cut below is NOT described as a correction: 5.28% net, with bonds at 5.20%
+// gross, was a defensible short-duration investment-grade posture on its own
+// terms, and the dominance arrived through a CORRECT change to the reserve.
+// Cutting returns to restore an intent whose premise had moved would have been
+// correcting a right thing with a wrong one. The dominance is also not
+// implausible: a long-tail pool with a large float genuinely can absorb
+// underwriting losses for years, which is cash-flow underwriting, and it is the
+// mechanism that makes reserving matter now that the ending-position panel shows
+// what is still owed. None of that has been shown to be wrong.
+//
+// WHAT CHANGED IS THE QUESTION. The returns are now scaled by
+// INVESTMENT_RETURN_SCALE to model a LOWER-RATE MARKET — see its own note. That
+// is a choice about what market the game is set in, not a finding that the old
+// figures were mis-measured, and the baseline they are scaled from is still the
+// unsourced one described next.
 //
 // ⚠ AND THE PARAMETERS CITE NO SOURCE. "Whole-period historical values that
 // already include crash years" names no index, no period and no study, here or
-// in the commit that introduced them (406fba9) or in the player-facing
-// investmentMemo, which restates this table downstream rather than sourcing it.
-// They are considered numbers, not sourced ones. A reader should not assume
-// there is a reference behind them, and anyone who wants to move them is
-// choosing against judgement rather than against data.
+// in the commit that introduced them (406fba9). They are considered numbers, not
+// sourced ones. A reader should not assume there is a reference behind them, and
+// anyone who wants to move them is choosing against judgement rather than
+// against data. Scaling them does not make them sourced: the figures below are a
+// deliberate third under an unsourced baseline, which is a stated choice resting
+// on an unstated one.
+//
+// ⚠ THE "restates this table downstream rather than sourcing it" CLAUSE IS GONE
+// BECAUSE THE DEFECT IS. investmentMemo.md no longer carries the numbers: it
+// carries {{ASSET_CLASS_TABLE}} and {{DEFAULT_ALLOCATION}}, filled from these
+// constants by src/utils/investmentMemo.ts. The audit page always read them.
 //
 // ============================================================================
 // THE OPEN ITEM IS THE ALLOCATION, NOT THE RATE.
 //
 // AllocationBar is a free 0-100% control across the three classes, so the
-// reachable mean spans 4.15% (all cash) to 8.14% (all equities) — and NOTHING
-// PRICES THE VOLATILITY except insolvency. On a $40M float over five years:
+// reachable mean spans 2.75% (all cash) to 5.38% (all equities) — it was 4.15%
+// to 8.14% before INVESTMENT_RETURN_SCALE, and the figures below are the
+// PRE-SCALE ones, left as measured rather than rescaled on paper. The SPREAD
+// narrows with the means (3.99 points to 2.63) while the volatility does not
+// move at all, so the open item below gets SMALLER at the lower rate: the same
+// ±$16.3M of noise now buys about two-thirds as much expected gain. The
+// conclusion is unchanged and slightly less sharp.
+//
+// NOTHING PRICES THE VOLATILITY except insolvency. On a $40M float over five
+// years, AT THE PRE-SCALE RATES:
 //
 //     default 10/80/10   E +$10.6M    SD  $3.3M
 //     all equities       E +$16.3M    SD $16.3M
@@ -1188,23 +1211,65 @@ export interface AssetClassAssumption {
   maxReturn: number;           // net clamp ceiling (sanity rail)
 }
 
+/**
+ * A LOWER-RATE MARKET. Every asset class's MEAN return is scaled by this; the
+ * standard deviations, the fees and the clamps are not.
+ *
+ * ⚠ IT IS A SCALAR AND NOT THREE REWRITTEN LITERALS, SO THAT THE BASELINE STAYS
+ * VISIBLE AND THE NEXT CHANGE IS ONE NUMBER. The unsourced figures above are
+ * still in the file, still unsourced, and the relationship to them — exactly a
+ * third lower — is stated rather than buried in three decimals. A reader can see
+ * both what was chosen and what it was chosen against.
+ *
+ * ⚠ A THIRD, NOT A HALF, AND THE REASON IS WHERE THE EFFECT SITS. The first cut
+ * does about two-thirds of the total available effect: today to a third lower
+ * drops the net blend 1.76 points, a third lower to half drops it only 0.88.
+ * Surplus, underfunding and the reinsurance gap all move most in the first step.
+ * It also keeps the market legible — a losing portfolio year goes from about one
+ * in thirteen to about one in six, where halving would make it one in four and
+ * start to make results look random.
+ *
+ * ⚠ WHAT IT LANDS AT, AND WHY IT IS NOT 3.53%. Scaling the GROSS means while
+ * holding the fees puts the default 10/80/10 blend at 3.4877% net, against
+ * 5.2894% before — down 1.80 points. 3.53% is what the blend would be if the
+ * FEES scaled too (5.2894 x 2/3 = 3.5263), and they do not: a fee is a charge on
+ * assets under management, not a share of the return, so it does not fall
+ * because the market does. The 0.04-point difference IS the unscaled fee drag.
+ *
+ * ⚠ AND THE CLAMPS DID NOT MOVE EITHER. minReturn and maxReturn are sanity rails
+ * rather than parameters, and at the lower means they bind less often, not more
+ * — cash's 0% floor sits 6.9 SD below a 2.79% mean where it sat 10.5 SD below
+ * 4.19%. Left alone deliberately; moving a rail to match a mean would make it a
+ * parameter.
+ *
+ * MEASURED AT THIS SCALE (and these are the figures this change was commissioned
+ * on, from the arm run on feature/low-rates):
+ *   underfunded pools going negative within ten years   67% -> 83%
+ *   pool surplus at defaults                            $148M -> $117M
+ *   the reinsurance gap                                 $655M -> $605M
+ */
+export const INVESTMENT_RETURN_SCALE = 2 / 3;
+
 export const ASSET_CLASS_ASSUMPTIONS: Record<'cash' | 'bonds' | 'equities', AssetClassAssumption> = {
   cash: {
-    expectedReturn: 0.0419,
+    // 0.0419 at the unsourced baseline -> 2.79% here. Net of fee, 2.7533%.
+    expectedReturn: 0.0419 * INVESTMENT_RETURN_SCALE,
     standardDeviation: 0.0040,
     feeRate: 0.00040,
     minReturn: 0.0,
     maxReturn: 0.08,
   },
   bonds: {
-    expectedReturn: 0.0520,
+    // 0.0520 at the unsourced baseline -> 3.47% here. Net of fee, 3.3427%.
+    expectedReturn: 0.0520 * INVESTMENT_RETURN_SCALE,
     standardDeviation: 0.0404,
     feeRate: 0.00124,
     minReturn: -0.20,
     maxReturn: 0.25,
   },
   equities: {
-    expectedReturn: 0.0826,
+    // 0.0826 at the unsourced baseline -> 5.51% here. Net of fee, 5.3827%.
+    expectedReturn: 0.0826 * INVESTMENT_RETURN_SCALE,
     standardDeviation: 0.1825,
     feeRate: 0.00124,
     minReturn: -0.60,
@@ -1771,9 +1836,35 @@ export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
   // base and the gate's base disagreed by about 0.018 in K. Here the gate reads
   // the shipped value inside its own tolerance on its own seeds, so there is
   // nothing to pool away — see the run recorded in the commit.
-  WC: 0.4718,
-  GL: 0.2027,
-  Property: 0.5452,
+  // ========================================================================
+  // ⚠ RE-SOLVED FOR THE 1.5x PREMIUM BANDS — the fourth re-solve of this pin,
+  // and the first that followed a deliberate LEVEL change rather than a drift.
+  // opening-pin-solve, 600 seeds per pass, bisected to within 6% of band width,
+  // on its own seed prefix; opening-centring-check then verifies on seeds the
+  // solver never saw.
+  //
+  //   line        pin              unfiltered median   target (midpoint)
+  //   WC       0.4718 -> 0.7549        0.6792              0.6924
+  //   GL       0.2027 -> 0.5473        1.0910              1.0788
+  //   Property 0.5452 -> 0.5725        1.5336              1.5000
+  //
+  // ⚠ THE PIN IS A PREMIUM MULTIPLE AND THE BAND IS NOT, ON TWO OF THREE LINES,
+  // AND THAT IS WHY THESE NUMBERS LOOK UNRELATED TO THE TARGET. K seeds surplus
+  // at K x premium at the START of a ten-year pre-game (instanceGenerator); the
+  // band gates where that past ENDS, on reserve for WC and GL. So K is not the
+  // opening the player receives and never was — ten years of underwriting,
+  // investment and runoff sit between them. GL needing 0.5473 to end at 1.0788
+  // of reserve while WC needs 0.7549 to end at 0.6924 is that difference, not
+  // an inconsistency.
+  //
+  // ⚠ PROPERTY MOVED 5.0% AND THE OTHER TWO MOVED 60% AND 170%. Property was
+  // already opening at 1.367x premium, so 1.5x barely asked anything of it; GL
+  // was at 0.704x and had to roughly double. That unevenness is the premium
+  // basis showing through and is the same fact recorded at OPENING_SURPLUS_BAND.
+  // ========================================================================
+  WC: 0.7549,
+  GL: 0.5473,
+  Property: 0.5725,
 };
 
 // Pre-game acceptance band: the line's Year-1 opening surplus must land within
@@ -2012,9 +2103,51 @@ export const OPENING_SURPLUS_BAND: Record<string,
   // centre moves; the shape of the band is untouched, which is what makes this a
   // translation rather than a re-tune. See FROZEN_CAPITAL_J for the defect that
   // triggered it and for why the pin moved with it.
-  WC: { basis: 'reserve', min: 0.3830, max: 0.5630 },
-  GL: { basis: 'reserve', min: 0.4056, max: 0.5984 },
-  Property: { basis: 'premium', min: 1.13, max: 1.70 },
+  // ========================================================================
+  // ⚠ RE-LEVELLED TO OPEN AT 1.5x ANNUAL PREMIUM ON EVERY LINE. THE BASIS IS
+  // UNCHANGED — WC and GL still ask the reserve question — ONLY THE LEVEL MOVES.
+  //
+  // ⚠ AND THE MIDPOINT NO LONGER EQUALS FROZEN_CAPITAL_J, WHICH IS THE REAL
+  // COST OF THIS CHANGE AND IS STATED RATHER THAN BURIED. The block above
+  // re-centred WC and GL ONTO J so the pool opens at exactly 1.0x its own
+  // required capital margin — J IS margin/reserve, so band/J is surplus in units
+  // of required margin, and the whole point was that the previous band put every
+  // WC opening inside Deficient by construction. A premium multiple does not
+  // know about the margin, so after this change the lines open at DIFFERENT
+  // multiples of what they each need:
+  //
+  //     line      band midpoint    J       midpoint/J = x required margin
+  //     WC           0.6923      0.4730            1.46x
+  //     GL           1.0788      0.5020            2.15x
+  //
+  // That 1.47x spread between WC and GL is the same KIND of defect the reserve
+  // re-anchor removed (it was 2.38x on the old premium band), reintroduced at a
+  // smaller size, and it arises for the same reason: premium is a flow and the
+  // liability is a stock, and the two lines have different premium/reserve.
+  // THE DECISION WAS MADE DELIBERATELY — the brief asked for a premium multiple
+  // — and the alternative that would NOT reintroduce it is a multiple of J,
+  // which is what the next change should use if even capital adequacy across
+  // lines matters more than a round premium number.
+  //
+  // ⚠ THE TRANSLATION, SO IT CAN BE REDONE. Each reserve band's midpoint is
+  // 1.5 x the line's measured premium/reserve at the accepted opening (40 games,
+  // this engine): WC 0.4615, GL 0.7192. Property is already on premium and takes
+  // 1.5 directly. Every band keeps its EXISTING relative half-width — WC
+  // +/-19.03%, GL +/-19.20%, Property +/-20.14% — so the shape is untouched and
+  // only the centre moves, which is what makes this a translation rather than a
+  // re-tune, exactly as the WC re-centring above was.
+  //
+  // ⚠ THE PIN MOVED WITH IT, AND IT HAD TO. STARTING_CAPITAL_TO_PREMIUM is
+  // solved so the UNFILTERED candidate median lands on the midpoint. Moving a
+  // band and leaving the pin is not a smaller change than moving both; it is a
+  // different and worse one — the block above records WC landing -84% of band
+  // width when that was tried. Re-solved with opening-pin-solve on an
+  // independent seed base; opening-centring-check verifies on seeds the solver
+  // never saw.
+  // ========================================================================
+  WC: { basis: 'reserve', min: 0.5606, max: 0.8241 },
+  GL: { basis: 'reserve', min: 0.8717, max: 1.2860 },
+  Property: { basis: 'premium', min: 1.1979, max: 1.8021 },
 };
 
 // ============================================================================

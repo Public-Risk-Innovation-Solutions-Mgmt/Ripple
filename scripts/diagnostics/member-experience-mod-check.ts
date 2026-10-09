@@ -137,6 +137,27 @@ const GAMES = Number(process.env.GAMES ?? 6);
  * drawn primary share must equal the analytic one because both limit at
  * EXPERIENCE_SPLIT_POINT. Widening it to admit 1.13pp would trade a statement
  * about the engine for a statement about the sample.
+ *
+ * ⚠ AND 16 YEARS IS STILL THIN ENOUGH TO CROSS THE BOUND ON A RE-ROLL. THIS IS
+ * MEASURED, NOT FEARED, AND IT COST A FULL DIAGNOSIS TO ESTABLISH. The pooled
+ * gap is a property of WHICH BOOKS GOT DRAWN, and anything that re-rolls the
+ * opening book re-rolls it. Across three engine states that differ only in
+ * things this invariant has nothing to do with:
+ *
+ *     ee953aa                              0.11pp   pass
+ *     + the investment rate cut            1.03pp   FAIL
+ *     + the 1.5x opening cushion           0.11pp   pass
+ *
+ * The middle reading is the whole of a red that looked like a broken invariant
+ * and was not: at the same commit it reads 0.56pp at GAMES=12 YEARS=16 and
+ * 0.32pp at GAMES=6 YEARS=32 — it shrinks as the sample grows, which a real
+ * mismatch would not.
+ *
+ * SO IF THIS GATE GOES RED NEAR 1pp AFTER A CHANGE THAT MOVED THE OPENING BOOK,
+ * RAISE YEARS BEFORE SUSPECTING THE ENGINE. YEARS=32 costs 30s against 20s here
+ * and is well inside the 88s FAST threshold. It is left at 16 because the
+ * shipped sample is green on this commit and raising it is a separate decision
+ * with its own recorded-timing consequence — not because 16 is comfortable.
  */
 const YEARS = Number(process.env.YEARS ?? 16);
 

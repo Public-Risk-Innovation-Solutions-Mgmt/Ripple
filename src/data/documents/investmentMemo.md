@@ -3,9 +3,13 @@
 <!--
 Departments tab. Currently static; intended to become per-year.
 
-EVERY FIGURE BELOW MATCHES THE ENGINE EXACTLY — expected returns, standard deviations, fees, and
-the 10/80/10 default all reconcile against ASSET_CLASS_ASSUMPTIONS and ASSET_ALLOCATION_DEFAULT
-in defaultAssumptions.ts.
+⚠ THE FIGURES ARE NO LONGER WRITTEN HERE, AND THAT IS WHY THIS NOTE CHANGED. It used to read
+"EVERY FIGURE BELOW MATCHES THE ENGINE EXACTLY", which was true when written, checked by nothing,
+and one parameter change away from being a promise this file broke. The expected returns, standard
+deviations, fees and the default allocation now arrive as {{ASSET_CLASS_TABLE}} and
+{{DEFAULT_ALLOCATION}}, filled from ASSET_CLASS_ASSUMPTIONS and ASSET_ALLOCATION_DEFAULT by
+src/utils/investmentMemo.ts. They cannot disagree with the engine, so nobody has to remember this
+document when the rate moves. An unknown {{TOKEN}} throws rather than rendering.
 
 ONE EXCEPTION: the Liquidity Requirements and Cost of Liquidity sections describe behaviour that
 is NOT BUILT. No code holds cash against projected claim payments, no early-sale penalty exists,
@@ -48,7 +52,7 @@ The Pool's investment portfolio is divided among three asset classes:
 Management determines the percentage of the investment portfolio allocated to each asset class. The Pool
 currently begins with the following allocation:
 
-**10% Cash | 80% Bonds | 10% Equities**
+**{{DEFAULT_ALLOCATION}}**
 
 This allocation is not intended to represent a required or optimal strategy. It is simply the Pool's
 current position. Management may adjust the portfolio based on its assessment of expected claim payments,
@@ -60,9 +64,7 @@ Current market assumptions incorporated into the Pool's investment projections a
 
 | Asset Class | Expected Return | Standard Deviation | Investment Fee |
 |---|---|---|---|
-| Cash | 4.19% | 0.40% | 0.040% |
-| Bonds | 5.20% | 4.04% | 0.124% |
-| Equities | 8.26% | 18.25% | 0.124% |
+{{ASSET_CLASS_TABLE}}
 
 Expected returns should not be interpreted as guaranteed annual results. Actual investment performance
 will vary from year to year.

@@ -325,8 +325,52 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //
 // ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: cb3b5d5 built into its own
 // worktree and served on 4174 reproduced ALL 298 against the committed v15.
+//
+// ⚠ v16 -> v17: THE INVESTMENT RETURN CUT. 280 of 298 moved, which is the
+// largest capture this file has taken, and a number that size is exactly when
+// the header's "do NOT re-capture to make this green" has to be answered rather
+// than quoted. It is answered in three parts.
+//
+//   THE CONTROL FIRED. ee953aa built into its own worktree and served on 4174
+//   reproduced ALL 298 against the committed v16 on the same run of this
+//   harness. So the 280 are this change and nothing else.
+//
+//   2 of 298 ARE THE DOCUMENT, AND THE DIFF IS THREE NUMBERS.
+//   Departments|doc:Investment moved from a3d218cd64dd1fae to 6a5d6efc84f23082
+//   — ONE fingerprint across every configuration and both years, because the
+//   memo is static and says the same thing to every pool. Diffed as text, the
+//   whole change is "4.19% -> 2.79%", "5.20% -> 3.47%", "8.26% -> 5.51%" in the
+//   assumptions table. Every other word, including the allocation line, is
+//   byte-identical. Both now come from the constants via buildInvestmentMemo.
+//
+//   8 of 298 ARE THE AUDIT PAGE'S ASSET ROW plus its game numbers. Calculation
+//   Audit's "Asset Class Assumptions" row reads ASSET_CLASS_ASSUMPTIONS directly
+//   and always did: Return 4.2%/5.2%/8.3% gross -> 2.8%/3.5%/5.5%.
+//
+//   THE REMAINING 270 ARE GAME NUMBERS, FOR THREE REASONS. Investment income is
+//   lower on every screen that shows a financial figure — expected. The opening
+//   book itself is different, because runLinePreGame accepts a past on ENDING
+//   SURPLUS / premium, which contains investment income, so a lower rate can
+//   reject a past the old rate accepted and redraw the history behind it (22 of
+//   24 measured games accepted a different attempt on at least one line). AND
+//   the opening LEVEL moved deliberately: OPENING_SURPLUS_BAND and
+//   STARTING_CAPITAL_TO_PREMIUM were re-levelled together so every line opens at
+//   1.5x annual premium. That is why screens with no investment figure on them
+//   at all — Membership, Pool History — moved too.
+//
+//   ⚠ THE 18 THAT HELD ARE EXACTLY THE DEPARTMENTS DOCUMENTS WITH NO ENGINE
+//   FIGURE IN THEM: doc:Risk Control on all five configurations, doc:Underwriting
+//   on WC and PR, doc:Actuarial and doc:Claims on WC. Nothing with a number on it
+//   held, and nothing without one moved — which is the shape to expect from a
+//   change that moves values and no layout.
+//
+//   ⚠ AND THE MEMO'S FINGERPRINT IS THE SAME ONE IT TOOK BEFORE THE OPENING
+//   MOVED (6a5d6efc84f23082), which is itself the evidence the document is
+//   static: the pre-game re-rolled twice under it and it did not notice.
+//
+//   18 HELD, and they are the screens with no number and no document on them.
 const BASELINE = process.env.RENDER_BASELINE
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v16.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v17.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

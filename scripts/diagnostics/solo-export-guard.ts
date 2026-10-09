@@ -552,7 +552,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //       severity recalibration moves 69.8% of PR-solo's values.
 // A recapture that could not say which of those two things happened would be
 // the blank cheque this file's header warns about. It can, so it is not.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v52.json');
+// ⚠ v52 -> v53: THE INVESTMENT RETURN CUT. All 24 exports move, and unlike v52
+// they ALL move for the SAME reason and it is a VALUE reason, not a shape one:
+// no row is added, removed or renamed by this change. Every workbook carries
+// investment income, invested assets, surplus and the funding figures derived
+// from them, and INVESTMENT_RETURN_SCALE moves all of those on every line of
+// every configuration.
+//
+// ⚠ AND THE CHARGES IN THESE WORKBOOKS MOVE TOO, WHICH IS NOT PRICING. These
+// are free-running games, so they go through runLinePreGame's acceptance search,
+// which selects a past on ENDING SURPLUS / premium — a quantity that contains
+// investment income. A different rate can accept a different past, and the
+// opening roster changes with it. value-identity v51's note carries the
+// isolating test: replayed from an IDENTICAL past, charges, pool premium and
+// membership are bit-identical in 24 of 24 games while investment income differs
+// in 24 of 24. Read the two captures together, as v52 said to.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v53.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

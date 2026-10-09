@@ -819,7 +819,41 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // The lines share one balance sheet, so a bigger Property book moves the cash
 // every line is funded out of; that coupling is the design, and its absence
 // from the underwriting fields is the evidence nothing leaked.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v50.json');
+// ⚠ v50 -> v51: THE INVESTMENT RETURN CUT, AND THE CAPTURE IS LARGER THAN THE
+// CHANGE. INVESTMENT_RETURN_SCALE takes every asset class's mean to two-thirds,
+// so investment income and everything downstream of it moves by construction —
+// that part is the point. What needs explaining is why CHARGES AND RATES MOVED
+// TOO, because the rate does not reach pricing and the capture looks as though
+// it does.
+//
+//   added   180  programSeverityApplied — INHERITED from aada492, not this
+//                change; it was already pending against v50.
+//   changed      82 field names, including totalMemberCharge (180 instances),
+//                poolPremium (180) and ratePer100 (100).
+//
+// ⚠ THE RATE REACHES THE PRE-GAME ACCEPTANCE SEARCH, NOT PRICING, AND THE
+// DIFFERENCE IS MEASURABLE RATHER THAN RHETORICAL. runLinePreGame accepts the
+// first candidate past whose ENDING SURPLUS / premium lands in
+// OPENING_SURPLUS_BAND; ending surplus contains investment income; a rejected
+// attempt re-seeds at (seed + attempt * 997). So a lower return can reject a
+// past the old rate accepted, and the whole history — including the opening
+// roster — is redrawn. Measured over 24 free-running games, 22 of 24 accepted a
+// DIFFERENT attempt on at least one line.
+//
+// THE ISOLATING TEST, because free-running games cannot answer this: the old
+// tree's {instance, setup, poolState, priorHistory} were serialised and replayed
+// through the NEW tree's engine. Given the SAME past,
+//
+//     charges, pool premium and membership   IDENTICAL in 24 of 24 games,
+//                                            all 5 years, to 6 decimal places
+//     investment income                      DIFFERENT in 24 of 24
+//
+// So pricing and membership are rate-independent, and every charge that moved in
+// this capture moved because the BOOK is different, not because the price of a
+// given book is. The 2 of 24 free-running games that happened to accept the same
+// attempt also came out bit-identical on charges, which is the same result
+// reached the weaker way.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v51.json');
 
 function seedOf(id: string) {
   let h = 5381;

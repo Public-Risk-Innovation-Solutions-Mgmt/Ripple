@@ -4,6 +4,7 @@ import DocumentReader, { type DocumentEntry } from '../components/DocumentReader
 import investmentMemoRaw from '../data/documents/investmentMemo.md?raw';
 import { buildActuarialMemo } from '../utils/actuarialMemo';
 import { buildClaimsMemo } from '../utils/claimsMemo';
+import { buildInvestmentMemo } from '../utils/investmentMemo';
 import { buildRiskControlMemo } from '../utils/riskControlMemo';
 import { buildUnderwritingMemo } from '../utils/underwritingMemo';
 
@@ -91,7 +92,10 @@ export default function DepartmentsPage({ gameState, currentDecisions }: Departm
       id: 'investment',
       title: 'Investment',
       summary: 'Strategy, asset allocation, and liquidity',
-      content: investmentMemoRaw,
+      // ⚠ BUILT, NOT RAW. The asset table and the default allocation are filled
+      // from the engine's constants — see buildInvestmentMemo. The raw file
+      // carries tokens, so rendering it unfilled would show them to a player.
+      content: buildInvestmentMemo(investmentMemoRaw),
     },
   ];
 
