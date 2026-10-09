@@ -65,7 +65,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, GameState, PricingTriangleState, ReserveDevelopmentRow } from '../../src/types/simulation';
-import { INTAKE_OPEN } from '../../src/utils/intakeInspection';
+import { INTAKE_LOW } from '../../src/utils/intakeInspection';
 
 const RULE = '='.repeat(72);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -163,7 +163,7 @@ function decisionsFor(y: number) {
   const d = defaultDecisionSet(y);
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
-      d.byLine[l].intakeLevel = INTAKE_OPEN;
+      d.byLine[l].intakeLevel = INTAKE_LOW;
     }
   }
   return d;

@@ -36,7 +36,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
-import { INTAKE_OPEN, intakeLabel } from '../../src/utils/intakeInspection';
+import { INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT, intakeLabel } from '../../src/utils/intakeInspection';
 import {
   APPLICATION_RATE, MAX_NEW_MEMBER_SHARE, BASE_RETENTION,
 } from '../../src/data/defaultAssumptions';
@@ -50,7 +50,7 @@ const GAMES = Number(process.env.GAMES ?? 8);
 const YEARS = Number(process.env.YEARS ?? 20);
 // Intake-slider levels: Open and the bars 3 / 4 / 5 — the analogues of the
 // retired Accept All / 1.50 / 1.00 / 0.75 appetite tiers (see clf-table-derive).
-const ARMS: number[] = [INTAKE_OPEN, 5, 4, 3];
+const ARMS: number[] = [INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT];
 
 interface Row {
   line: string; game: number; year: number;

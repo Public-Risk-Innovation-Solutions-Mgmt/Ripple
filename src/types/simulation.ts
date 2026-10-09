@@ -578,14 +578,16 @@ export interface LineDecisionSet {
   dividendPct: number;            // 0.00 to 0.15 of premium
   assessmentPct: number;          // 0.00 to 0.25 of premium
   /**
-   * The INTAKE SLIDER, 0..INTAKE_OPEN. 0 (and absent) writes nobody — No New
-   * Business, the default. 1..5 write applicants whose NOISY INSPECTION of risk
-   * quality clears a bar that loosens as the level rises; INTAKE_OPEN writes
-   * every applicant. See intakeInspection.ts.
+   * The INTAKE SLIDER, a position 0..INTAKE_LOW: No New Business (0, and absent —
+   * the default), Strict, Moderate, Low. Each position sets a bar on a NOISY
+   * INSPECTION of risk quality and a cap on how many join that year; Low's cap
+   * is MAX_NEW_MEMBER_SHARE, the overall maximum. See intakeInspection.ts.
    *
    * ⚠ REPLACES newBusinessAppetite, which screened applicants on their own loss
-   * run. A save carrying newBusinessAppetite loads at intake 0; there is no save
-   * migration in this repo by design (gameSave.ts).
+   * run. A save carrying newBusinessAppetite loads at No New Business; there is
+   * no save migration in this repo by design (gameSave.ts). A save written
+   * under the seven-level version of this slider carries a level up to 6, which
+   * reads as Low.
    */
   intakeLevel?: number;
   /**

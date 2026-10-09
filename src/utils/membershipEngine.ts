@@ -4,7 +4,7 @@
 import type { Member, LineDecisionSet, CoverageLine, MembershipHistory, MemberLossHistory } from '../types/simulation';
 import { SeededRandom } from './random';
 import { canReenroll } from './membershipHistory';
-import { intakeEligible } from './intakeInspection';
+import { intakeAdmit } from './intakeInspection';
 import { getMemberExposure } from './lineHelpers';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { departureRisks } from './memberDeparture';
@@ -85,7 +85,11 @@ export interface MemberMovementResult {
   // strict bar looks exactly like a year nobody wanted to join. These separate
   // them: `intakeRoom` is what the pool had space for after demand and both
   // caps, `applicantCount` is how many applied, `eligibleCount` how many
-  // cleared the bar. Short ⟺ eligibleCount < intakeRoom.
+  // cleared the bar. Short ⟺ eligibleCount < intakeRoom. ⚠ With the intake
+  // positions' own caps (intakeInspection.ts), the binding limit is
+  // min(position cap, intakeRoom), and the position cap is never above
+  // intakeRoom — so the CAP bound a year iff eligibleCount > that position's cap,
+  // and the BAR bound it iff eligibleCount < it.
   intakeRoom: number;
   applicantCount: number;
   eligibleCount: number;
@@ -613,12 +617,16 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
   // At 0 this is exactly the shuffled prefix it always was.
   const applicants = selectApplicants(shuffledPool, applicationCount);
 
-  // The bar. Order is preserved, so the survivors are still in shuffled order
-  // and taking a prefix of them is random-among-eligible.
-  const candidatePool = intakeEligible(
+  // The position's bar, then its cap: everyone who passes joins if they fit,
+  // otherwise the best by inspected quality. The cap is a share of the same book
+  // intakeRoom is, and never above it (Low's cap IS MAX_NEW_MEMBER_SHARE), so the
+  // intakeRoom slice below is a guard that cannot bind. `passed` is kept so the
+  // result can say whether the bar or the cap limited the year.
+  const intake = intakeAdmit(
     applicants, line, yearNumber, inputs.instanceSeed,
-    inputs.decisions.intakeLevel ?? 0,
+    inputs.decisions.intakeLevel ?? 0, currentMembers.length,
   );
+  const candidatePool = intake.admitted;
 
   // ⚠ BUILT IN FULL AND THEN DISCARDED WHEN THE ROSTER IS FROZEN, BECAUSE THE
   // SATISFACTION DRAW IS INSIDE THIS MAP — one per member WRITTEN. Returning []
@@ -672,7 +680,7 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
     withdrawnMembers,
     intakeRoom,
     applicantCount: applicants.length,
-    eligibleCount: candidatePool.length,
+    eligibleCount: intake.passed.length,
     retentionRate,
     memberSatisfaction: newSatisfaction,
     averageRiskQuality: newRiskQuality,

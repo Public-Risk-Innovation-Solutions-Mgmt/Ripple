@@ -205,8 +205,9 @@ export function buildUnderwritingMemo(gameState: GameState, liveDecisions?: Deci
       `**${available.length}** entities could apply this year; about **${expectedApplicants}** are `
       + `expected to. This is the candidate list, not a queue — which of them apply is drawn when the `
       + `year is processed, each applicant is inspected, and the pool writes whoever passes the `
-      + `inspection in the order they arrive rather than ranking them. Listed alphabetically for that `
-      + `reason. Loss runs show the ${LOSS_HISTORY_CAP_YEARS} stored years; the renewal slider ranks on `
+      + `intake setting's standard, up to that setting's room for the year. When more pass than there `
+      + `is room for, the best-inspected are taken. The inspection is not shown here, so the list is `
+      + `alphabetical. Loss runs show the ${LOSS_HISTORY_CAP_YEARS} stored years; the renewal slider ranks on `
       + `the most recent ${EXPERIENCE_MOD.windowYears}.`,
       available.slice().sort(byName).map(m => ({ member: m, note: '' })),
       line, history,

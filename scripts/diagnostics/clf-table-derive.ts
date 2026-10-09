@@ -74,7 +74,7 @@
 // crossing sits where the density is highest and small shifts in the ratio
 // distribution move it further.
 
-import { INTAKE_NONE, INTAKE_OPEN } from '../../src/utils/intakeInspection';
+import { INTAKE_LOW, INTAKE_MODERATE, INTAKE_NONE, INTAKE_STRICT } from '../../src/utils/intakeInspection';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -305,15 +305,14 @@ function collectAcrossArms(line: CoverageLine): BandRow[] {
 // THAT COUPLING IS LOAD-BEARING. The backtest judges each table against the
 // population it was fitted on; adding an arm to one file alone would score a
 // table on a book it never saw. Change one, change both.
-  // ⚠ THE ARMS ARE INTAKE-SLIDER LEVELS NOW, CHOSEN AS ANALOGUES OF THE RETIRED
-  // APPETITE TIERS, NOT EQUIVALENTS. The tiers screened on the applicant's loss
-  // run and accepted about 81 / 56 / 39% of applicants; the slider screens on a
-  // noisy inspection, and at its shipped sigma (2) on skewed applicants (mean RQ
-  // ~4.35) bars 3 / 4 / 5 pass roughly 69 / 55 / 40%. So Open, levels 5 / 4 / 3
-  // and No New Business span the same range of books. The shipped CLF tables were
-  // derived on the TIER arms and are not re-derived here; a re-derivation on these
-  // arms is its own commit.
-  const arms: number[] = [INTAKE_OPEN, 5, 4, 3, INTAKE_NONE];
+  // ⚠ THE ARMS ARE THE INTAKE SLIDER'S POSITIONS NOW — Low, Moderate, Strict and
+  // No New Business — and they are ANALOGUES OF THE RETIRED APPETITE TIERS, NOT
+  // EQUIVALENTS. The tiers screened on the applicant's loss run; the positions
+  // screen on a noisy inspection AND cap the count (intakeInspection.ts), writing
+  // about 4.3 / 2.8 / 1.2 / 0 members a line a year. That spans the same range of
+  // books, one arm fewer. The shipped CLF tables were derived on the TIER arms
+  // and are not re-derived here; a re-derivation on these arms is its own commit.
+  const arms: number[] = [INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT, INTAKE_NONE];
   const active: CoverageLine[] = POOLED ? ['WC', 'GL', 'Property'] : [line];
   const out: BandRow[] = [];
   for (const appetite of arms) {
@@ -339,7 +338,7 @@ function collectAcrossArms(line: CoverageLine): BandRow[] {
           out.push({
             ratio: r.netIncurredLoss / r.poolPremium,
             members: r.activeMembers, year: y,
-            arm: appetite === INTAKE_OPEN ? 'all' : `L${appetite}`,
+            arm: appetite === INTAKE_LOW ? 'low' : `L${appetite}`,
             game: id,
           });
         }

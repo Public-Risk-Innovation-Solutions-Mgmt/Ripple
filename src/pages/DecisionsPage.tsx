@@ -18,9 +18,9 @@ import type { FundingConsequence } from '../utils/fundingConsequence';
 import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import {
-  INTAKE_NONE, INTAKE_OPEN, intakeLabel, intakePassProbability,
+  INTAKE_LOW, INTAKE_NONE, INTAKE_POSITIONS, intakeCap, intakeForecast, intakeLabel, intakePassProbability,
 } from '../utils/intakeInspection';
-import { APPLICATION_RATE, MAX_NEW_MEMBER_SHARE } from '../data/defaultAssumptions';
+import { APPLICATION_RATE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import { applicantInclusion } from '../utils/membershipEngine';
 
@@ -716,20 +716,22 @@ function RenewalUnderwriting({
 }
 
 // ============================================================================
-// INTAKE — THE SLIDER. 0 writes nobody (No New Business, the default); rising,
-// the pool writes applicants whose NOISY INSPECTION of risk quality clears a
-// bar that loosens with the slider; the top writes every applicant. See
-// intakeInspection.ts for the inspection and INSPECTION_SIGMA for why it is an
-// inspection and not the truth. Replaces New Business Appetite's five tiers,
-// which screened on the applicant's loss run and selected on noise.
+// INTAKE — ONE SLIDER, FOUR NAMED POSITIONS: No New Business, Strict, Moderate,
+// Low. Each sets a bar on a NOISY INSPECTION of risk quality and a cap on how
+// many join; the names sit on the slider, so a player reads "Strict" rather
+// than a bar value. See intakeInspection.ts for the positions and the
+// measurement they were set against, and INSPECTION_SIGMA for why it is an
+// inspection and not the truth.
 //
 // ⚠ THE FORECAST IS AN EXPECTATION AND IS LABELLED AS ONE. The available pool,
 // the application count and the intake room are exact; WHICH members apply is
 // drawn (and skewed toward worse risks, APPLICANT_ADVERSE_SELECTION), and each
 // applicant's inspection is drawn. So the page sums, over the available pool,
 // each member's chance of applying (applicantInclusion) times their chance of
-// clearing the bar (intakePassProbability) — no draw, and no per-member figure
-// reaches the screen, only the sum.
+// clearing the bar (intakePassProbability), then takes E[min(cap, passing)]
+// (intakeForecast) — no draw, and no per-member figure reaches the screen, only
+// the sum. When more are expected to pass than the cap allows, it says the CAP
+// is what limits intake this year, not the standard.
 //
 // ⚠ WHAT IT MOVES. Intake shapes the book's QUALITY, and with pricing
 // cost-plus that shows in members' rates rather than in surplus — a better
@@ -765,14 +767,19 @@ function IntakeSlider({
       m => !enrolled.has(m.id) && canReenroll(membershipHistory, m.id, line, yearNumber),
     );
     const applications = Math.min(available.length, Math.round(available.length * APPLICATION_RATE));
-    // THE CAP, and it is the engine's own line: intakeRoom = floor(book x share).
-    const intakeRoom = Math.floor(members.length * MAX_NEW_MEMBER_SHARE);
+    // The position's cap, on the same book the engine reads.
+    const cap = intakeCap(value, members.length);
     // Expected applicants clearing the bar: each member's chance of applying
     // (applicantInclusion, the draw's own law) times their chance of passing.
     const inclusion = applicantInclusion(available, applications);
     let passing = 0;
     for (const m of available) passing += (inclusion.get(m.id) ?? 0) * intakePassProbability(m, value);
-    return { applications, intakeRoom, passing, joins: Math.min(intakeRoom, Math.round(passing)) };
+    const f = intakeForecast(applications, passing, cap);
+    return {
+      applications, cap, passing,
+      joins: Math.round(f.expectedJoins),
+      capLimits: passing > cap,
+    };
   }, [members, allMarketMembers, membershipHistory, line, yearNumber, value]);
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
@@ -780,27 +787,39 @@ function IntakeSlider({
         label="Intake"
         value={value}
         min={INTAKE_NONE}
-        max={INTAKE_OPEN}
+        max={INTAKE_LOW}
         step={1}
         onChange={onChange}
         formatValue={intakeLabel}
-        leftLabel="No new business"
-        rightLabel="Open"
         disabled={disabled}
       />
+      {/* THE NAMES ON THE SLIDER, one under each stop, the current one in bold. */}
+      <div className="grid grid-cols-4 text-[11px] text-gray-400 -mt-1">
+        {INTAKE_POSITIONS.map((p, i) => (
+          <span
+            key={p.name}
+            className={`${i === 0 ? 'text-left' : i === INTAKE_POSITIONS.length - 1 ? 'text-right' : 'text-center'} ${i === value ? 'font-semibold text-gray-700' : ''}`}
+          >
+            {p.name}
+          </span>
+        ))}
+      </div>
       <p className="text-xs text-gray-600">
         {value <= INTAKE_NONE
           ? `Nobody is written. About ${forecast.applications} entities will apply this year.`
-          : `About ${forecast.joins} join this year — of about ${forecast.applications} applicants, `
-            + `${value >= INTAKE_OPEN ? 'every one is accepted' : `about ${Math.round(forecast.passing)} expected to pass inspection`}`
-            + `, room for ${forecast.intakeRoom}.`}
+          : `About ${forecast.joins} join this year — of about ${forecast.applications} applicants, about `
+            + `${Math.round(forecast.passing)} expected to pass inspection, with room for ${forecast.cap} at this setting.`
+            + (forecast.capLimits
+              ? ' More are expected to pass than there is room for, so the room — not the standard — limits intake, and the best-inspected are taken.'
+              : ' The standard, not the room, is what limits intake.')}
       </p>
       <p className="flex items-start gap-1 text-[11px] text-gray-500 leading-relaxed">
         <Info size={12} className="mt-0.5 flex-shrink-0" />
         <span>
           Applicants are inspected before they are written, and the inspection is imperfect — some good
-          risks fail it and some poor ones pass. Tightening the bar writes fewer members and better ones on
-          average. The entities keenest to join are often the ones the market has priced up.
+          risks fail it and some poor ones pass. A stricter setting writes fewer members and better ones on
+          average; a lower one writes more, including riskier ones. The entities keenest to join are often
+          the ones the market has priced up.
         </span>
       </p>
     </div>

@@ -82,7 +82,7 @@ import {
   IBNER_CALENDAR_RHO, RATE_NEUTRAL_CHANGE_PCT, TRIANGLE_HISTORY_YEARS, openShareAtStep,
 } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simulation';
-import { INTAKE_OPEN } from '../../src/utils/intakeInspection';
+import { INTAKE_LOW } from '../../src/utils/intakeInspection';
 
 const RULE = '='.repeat(78);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -401,7 +401,7 @@ function playRates(g: number, decide?: (d: DecisionSet) => void): Record<string,
 
 /** The arm the assertion runs on: a player who is actually underwriting. */
 const DECIDING = (d: DecisionSet) => {
-  for (const l of LINES) d.byLine[l].intakeLevel = INTAKE_OPEN;
+  for (const l of LINES) d.byLine[l].intakeLevel = INTAKE_LOW;
 };
 
 const poolChange: Record<string, number[]> = { WC: [], GL: [], Property: [] };
