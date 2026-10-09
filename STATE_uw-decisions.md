@@ -55,6 +55,7 @@ succeeds and looks correct. Check `git remote -v` before any git operation.
 | 6 | `778326d` | The intake slider: a noisy inspection of risk quality (`INSPECTION_SIGMA = 2`) | 4 and 5 in the tree |
 | 5b | `12c5340` — narrow the renewal slider to 0-5% in 1% steps | `RENEWAL_CUT_STEPS` 0 / 1 / 2 / 3 / 4 / 5% | **5 — always with it, never without** |
 | 6b | `fd3fe07` — intake as one four-position slider, a bar and a cap per position | No New Business / Strict / Moderate / Low; Low's cap is `MAX_NEW_MEMBER_SHARE` | **6 — always with it, never without** |
+| 7 | `4965bce` — bill the tower on the book it covers: joiners in, leavers out | Re-quotes the tower, cession credit and aggregate on the post-movement book | — (a fix; stands alone) |
 
 **5 and 5b are one change in two commits.** `772c4b7` was pushed with the range 0 / 2.5 / 5 / 7.5 / 10%.
 It was narrowed afterwards, in its own commit, rather than rewriting pushed history. **Picking `772c4b7`
@@ -69,6 +70,16 @@ count, and most of the slider changed nothing. 6b replaced the levels with four 
 and a cap, and it rewrites the memo's "Who wants in" sentence. **Picking `778326d` alone ships the
 slider that does nothing across most of its range.** Pick 6b in the same review as 6, every time. 6b
 renames the render baseline v22 → v23, and v22 is 5b's file, so the clean order is **5, 6, 5b, 6b**.
+
+**7 is a fix and stands alone.** The tower used to be billed on the book from before movement, so
+joiners were covered all year and priced for none of it, while leavers and renewal declines were priced
+and not covered. It touches no baseline file and changes nothing at defaults. It edits `simulationEngine.ts`,
+`linePricing.ts` and `market-conditions-check.ts`, and depends on no other commit here, so it should pick at any point. That has not been
+tried on the target, so check the pick applies cleanly there. Pick it **before** anything that measures intake or renewal on top of the tower (the
+exposure-rated tower, an experience factor), since it raises members' rate at every open intake
+position (0.5-0.8% at Strict, 1.0-1.6% at Low). The defect undercharged members, not the pool. Surplus moves by under $0.4M,
+because the triangle funds the pool on a net rate and the cession credit cancels inside the
+gross-up.
 
 **1 and 2 are fixes.** Satisfaction misjudged Property's price against the market, and the quote missed
 a term, so a pool that declined its tower read a phantom rate cut. Neither changes a default game.
@@ -114,6 +125,12 @@ does not change by choice. 6 reads `applicantWeight` / `applicantInclusion` (fro
 - **6b:** values identical (intake still defaults to No New Business). Render: 24 rows, the 16 Decisions
   pages (every line, y0 and y2) and the 8 underwriting memos. Control: the same tree at 5b reproduces the
   previous baseline. Measured joins per line-year at the four positions: 0 / ~1.2 / ~2.8 / ~4.3.
+- **7:** values, solo exports and render all identical (nobody joins or leaves at defaults).
+  `market-conditions-check` carries GL and Property as ACCEPTED_BREACH in section 5, inverted: the fix
+  took the joiner-count jitter out of an intake-open pool's rate (GL 3.25% -> 2.45%, Property
+  3.05% -> 1.92%, under a ~2.9% benchmark). Revisit when satisfaction drives departures. Control:
+  the parent built separately reproduces the same 298. Check on the target with intake open: pool
+  premium unchanged to float noise, reinsurance cost up by roughly the joiners' share.
 
 ## Deliberately NOT on this branch
 
@@ -125,6 +142,11 @@ does not change by choice. 6 reads `applicantWeight` / `applicantInclusion` (fro
   size discount, and the tower ignores what is in the book.
 
 ## Open for a ruling
+
+- `market-conditions-check`'s GL and Property accepted breaches (commit 7). They are RULED: accepted,
+  not open. Listed here because the gate records a concern for later. Once satisfaction drives
+  departures, members judging the pool against a market louder than its rate would carry swings the
+  player cannot control. The likely remedy is comparing against a smoothed market.
 
 - `member-satisfaction-check`'s Property [5, 10] accepted breach (commit 1). Property's defaults drift
   is a transient to the anchor's happy offset, which its wrong market target used to hide. It is
