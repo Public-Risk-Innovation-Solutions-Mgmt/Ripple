@@ -8,11 +8,13 @@ import { appetiteEligible } from './newBusinessAppetite';
 import { getMemberExposure } from './lineHelpers';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { departureRisks } from './memberDeparture';
+import { NEUTRAL_RQ } from './wcClaimEngine';
 import {
   MEMBER_MOVEMENT_WEIGHTS,
   BASE_RETENTION,
   VOLUNTARY_DEPARTURES_ENABLED,
   APPLICATION_RATE,
+  APPLICANT_ADVERSE_SELECTION,
   MAX_NEW_MEMBER_SHARE,
   RATE_NEUTRAL_CHANGE_PCT,
   RATE_NEUTRAL_LOAD,
@@ -324,6 +326,47 @@ function updateRiskQuality(
   return Math.max(1.0, Math.min(10.0, parseFloat(blendedQuality.toFixed(1))));
 }
 
+/**
+ * How much more likely this non-member is to apply than a neutral one —
+ * exp(s . (NEUTRAL_RQ - riskQuality)). Exported so the Decisions page's intake
+ * forecast weights the applicant pool the way the draw does. ENGINE-SIDE ONLY:
+ * it reads the hidden attribute and returns a weight, never a quality.
+ */
+export function applicantWeight(m: Member): number {
+  return Math.exp(APPLICANT_ADVERSE_SELECTION * (NEUTRAL_RQ - m.riskQuality));
+}
+
+/**
+ * The year's applicants: `count` of the shuffled available pool, drawn with
+ * probability weighted by applicantWeight, WITHOUT ADDING A DRAW.
+ *
+ * Efraimidis-Spirakis: key = u^(1/w), take the largest. The uniform u is each
+ * member's position in the shuffle the engine has already made — rank i of n
+ * maps to 1 - (i + 0.5)/n, which is uniform because the shuffle is — so the
+ * membership stream is untouched and at s = 0 every key orders exactly as the
+ * shuffle does and the result IS the prefix. Computed in logs for stability.
+ *
+ * ⚠ THE CHOSEN APPLICANTS KEEP THEIR SHUFFLED ORDER. The skew decides WHO
+ * applies; it must not also decide who ARRIVES FIRST, because downstream the
+ * intake room takes a prefix of the eligible list and that prefix has to stay
+ * random among the eligible. Re-sorting by key would let the worst risks fill
+ * the room first — a second, unintended selection.
+ */
+export function selectApplicants(shuffledPool: readonly Member[], count: number): Member[] {
+  if (!(APPLICANT_ADVERSE_SELECTION > 0) || count >= shuffledPool.length) {
+    return shuffledPool.slice(0, count);
+  }
+  const n = shuffledPool.length;
+  const chosen = new Set(
+    shuffledPool
+      .map((m, i) => ({ m, key: Math.log(1 - (i + 0.5) / n) / applicantWeight(m) }))
+      .sort((a, b) => b.key - a.key)
+      .slice(0, count)
+      .map(x => x.m.id),
+  );
+  return shuffledPool.filter(m => chosen.has(m.id));
+}
+
 export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMovementResult {
   const { currentMembers, allMarketMembers, line, yearNumber, calendarYear, rng } = inputs;
 
@@ -536,7 +579,9 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
     shuffledPool.length,
     Math.round(shuffledPool.length * (inputs.applicationRateOverride ?? APPLICATION_RATE)),
   );
-  const applicants = shuffledPool.slice(0, applicationCount);
+  // ⚠ WHO APPLIES IS SKEWED TOWARD WORSE RISKS — see APPLICANT_ADVERSE_SELECTION.
+  // At 0 this is exactly the shuffled prefix it always was.
+  const applicants = selectApplicants(shuffledPool, applicationCount);
 
   // The bar. Order is preserved, so the survivors are still in shuffled order
   // and taking a prefix of them is random-among-eligible.

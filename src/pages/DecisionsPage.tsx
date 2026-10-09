@@ -22,6 +22,7 @@ import {
 } from '../utils/newBusinessAppetite';
 import { APPLICATION_RATE, MAX_NEW_MEMBER_SHARE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
+import { applicantWeight } from '../utils/membershipEngine';
 
 export interface LineLoanInfo {
   balance: number;
@@ -928,8 +929,23 @@ function NewBusinessAppetite({
         if (appetite === NO_NEW_BUSINESS) return 0;
         if (appetite === null) return capped(applications);
         if (available.length === 0) return 0;
-        const share = appetiteEligible(available, line, history, yearNumber, appetite).length
-          / available.length;
+        // ⚠ WEIGHTED THE WAY THE DRAW IS. Applicants are skewed toward worse
+        // risks (APPLICANT_ADVERSE_SELECTION), so the share of APPLICANTS
+        // clearing a bar is not the share of the available pool clearing it.
+        // Each available member counts by its applicantWeight — its relative
+        // chance of applying — which is the draw's own inclusion law to first
+        // order at a 6% application rate. At zero skew every weight is 1 and
+        // this is the plain share it always was.
+        const eligible = new Set(
+          appetiteEligible(available, line, history, yearNumber, appetite).map(m => m.id),
+        );
+        let wAll = 0, wEligible = 0;
+        for (const m of available) {
+          const w = applicantWeight(m);
+          wAll += w;
+          if (eligible.has(m.id)) wEligible += w;
+        }
+        const share = wAll > 0 ? wEligible / wAll : 0;
         return capped(Math.round(applications * share));
       }),
     };

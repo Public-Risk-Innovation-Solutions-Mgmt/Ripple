@@ -1065,6 +1065,47 @@ export const MAX_NEW_MEMBER_SHARE = 0.10;
  */
 export const APPLICATION_RATE = 0.06;
 
+/**
+ * ADVERSE SELECTION ON WHO APPLIES. Each available non-member's chance of being
+ * among this year's applicants is weighted by exp(s . (5 - riskQuality)), so a
+ * worse risk is more likely to want in than a better one. 0 reproduces the
+ * unweighted draw exactly.
+ *
+ * ⚠ WHY ANY SKEW AT ALL — THE DIRECTION IS SOURCED, AND THE ENGINE SUPPLIES THE
+ * INCENTIVE. The members most eager to join a pool are often the ones the
+ * market just declined or priced up; adverse selection under pooled pricing is
+ * standard theory (Akerlof 1970; Rothschild and Stiglitz 1976). And this pool
+ * prices almost flat in true quality: the experience modifier passes through
+ * only Z = 15% (WC), 7.5% (GL) and 0% (Property) of a member's own cost
+ * deviation. A quality-2 member costs WC about 45% more than average and pays
+ * at most about 7% more, so the pool is a bargain for a bad risk and dear for a
+ * good one. Without a skew, applicants arrive at the marketplace's own average
+ * quality — the book's — and screening them can gain almost nothing.
+ *
+ * ⚠ THE SIZE IS CHOSEN, NOT SOURCED. Nothing in this repo or in a source to
+ * hand gives the strength for public-entity pools. Measured in a scratch copy
+ * with the normaliser out of the draw, 40 games x 15 years, Open intake:
+ *
+ *     s       applicant RQ (pool 5.02)   applicants' expected cost vs average
+ *     0            5.02                       -1% / -1% / -1%   (WC/GL/Pr)
+ *     0.25         4.57                       +6% / +4% / +4%
+ *     0.50         4.25                      +10% / +8% / +8%
+ *     1.0          3.94                      +14% / +11% / +11%
+ *     5.0          3.75                      +16% / +13% / +14%
+ *
+ * 0.25-0.5 was called defensible: applicants 4-10% dearer than the marketplace
+ * average. 0.35 is the middle of that band and is recorded as a judgement in
+ * the same terms as RATE_RETENTION_SENSITIVITY. The skew SATURATES — the
+ * marketplace is a fixed 200, and once its bad tail has joined nobody worse is
+ * left to apply — so the choice inside the band matters less than it looks.
+ *
+ * ⚠ IT ADDS NO DRAW. The weighting reads each member's position in the shuffle
+ * the engine already makes (Efraimidis-Spirakis keys with the uniform taken from
+ * the shuffled rank), so no stream moves and at s = 0 the applicants are exactly
+ * the shuffled prefix they always were. See selectApplicants in membershipEngine.
+ */
+export const APPLICANT_ADVERSE_SELECTION = 0.35;
+
 // Funding confidence level factor (CLF) table
 // Represents the multiplier applied to expected losses to set funding targets
 // 0.60 ALIGNED TO 1.000, matching the reference chart — the chart is the
