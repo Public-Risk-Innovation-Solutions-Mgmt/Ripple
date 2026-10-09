@@ -4497,161 +4497,25 @@ export const PER_CLAIM_REVISION = { enabled: true, settlement: true };
 export const FORWARD_BOOKING = { enabled: true };
 
 // ============================================================================
-// THE DRIFT RATE SOLVED AGAINST THE HORIZON, not against closure age.
+// ⚠ TRIANGLE_DEVELOPMENT_DRIFT_HORIZON WAS HERE AND IS DELETED AS DEAD
+// (feature/fast-development, commit 1). It had no reader. Do not rebuild it.
 //
-// ⚠ THIS IS A RE-SOLVE, NOT A TUNING. The cumulative is held FIXED and only the
-// per-step rate moves, because the engine's drift window is the cohort horizon
-// while TRIANGLE_DEVELOPMENT_DRIFT was solved over each claim's closure age.
-// Same target, shorter window, therefore a higher rate:
+// It was a re-solve of the per-claim drift against the cohort HORIZON instead of
+// each claim's closure age (WC 0.33974, GL 0.64423, Property 0.30327, against
+// TRIANGLE_DEVELOPMENT_DRIFT's 0.26342 / 0.58721 / 0.26093). It was wired once,
+// at the maturity-anchor commit, measured on maturity-anchor-check, and reverted
+// the same session: the gross climb against 1/c went from +3.3 / +26.4 / +35.1%
+// (shipped g) to +31.4 / +42.8 / +45.1% — worse on every line. Its premise
+// ("same target, shorter window, so a higher rate") was wrong: the engine's
+// effective window is LONGER, because it compounds over the whole cohort value,
+// including claims that closed in year one.
 //
-//   line      g (closure)   value-wtd cum   g' (horizon)   cum at g'   horizon
-//   WC          0.26342        2.4521         0.33974       2.4521      5-12
-//   GL          0.58721        3.3961         0.64423       3.3961      3-8
-//   Property    0.26093        1.2636         0.30327       1.2636      2-4
-//
-// Solved by bisection on the VALUE-WEIGHTED mean cumulative over real registers,
-// each claim at its own closure age and each cohort at a horizon drawn from its
-// line's own range. The cumulative is preserved to four decimals on every line,
-// so TRIANGLE_INITIAL_CONTRACTION does not move: c is set by the severity
-// anchor and the anchor does not care about timing.
-//
-// ⚠ WHY THE HORIZON IS THE RIGHT WINDOW, AND IT IS ANCHORED ON ONE LINE. GL's
-// own factor series runs 1.872 / 1.439 / 1.265 / 1.031 / 1.024 — model ages 1-3
-// carry 3.405 of a 4.000 cumulative, 87% of it, against a horizon of 3-8. So
-// stopping at the horizon truncates nothing that matters, and spreading the
-// development out to a closure age of 10 would make the model FLATTER than the
-// source rather than more faithful. It also avoids lengthening cohort life,
-// which cohort-stock-check is already red on.
-//
-// ⚠ WC AND PROPERTY INHERIT THE SHAPE AND HAVE NO SERIES OF THEIR OWN. Their
-// horizons are 5-12 and 2-4 and neither has a factor series to check against, so
-// they carry GL's argument at the same standing the drift constants already do —
-// a judgement wearing an anchor's clothes. Recorded rather than implied.
-//
-// ⚠ AND THE GENERATOR HAS NOT BEEN RE-SOLVED TO MATCH. claimTriangle.ts still
-// drifts to CLOSURE age, so its cumulative agrees with the engine's by
-// construction but its AGE-TO-AGE shape does not — the engine compresses the
-// same climb into a shorter window. Nothing consumes the generator's factors for
-// pricing today (triangle-check is its only reader), so this is bounded; it MUST
-// be closed before the ten-year seed lands, or the seed teaches factors the
-// played game does not reproduce, which is the defect this whole sequence
-// exists to remove.
+// What replaced it is the per-claim drift diluted by the untracked open share
+// (TRIANGLE_OPEN_SHARE, scripts/diagnostics/open-share-derive.ts), applied at
+// the cohort revision call in simulationEngine. The per-claim drift's own
+// deriver is scripts/diagnostics/claim-drift-derive.ts. The full record of the
+// reverted solve is in git history before this deletion.
 // ============================================================================
-// ⚠⚠ WIRED, MEASURED, AND REVERTED. THE SOLVE BELOW IS WRONG IN DIRECTION ON
-// ALL THREE LINES. DO NOT WIRE IT. The claim two paragraphs down that "the solve
-// below is correct and stands" is RETRACTED — it was never tested against the
-// engine, only against its own derivation.
-//
-// It was wired at the maturity-anchor commit (engineDevelopmentDrift, reading
-// this constant, replacing developmentDrift at the cohort revision call) and
-// measured on maturity-anchor-check. The gross climb against 1/c, value-weighted,
-// cohorts with room for the longest horizon:
-//
-//   line        with g (shipped)   with g' (this constant)
-//   WC              +3.3%                  +31.4%
-//   GL             +26.4%                  +42.8%
-//   Property       +35.1%                  +45.1%
-//
-// Worse on every line. Reverted the same session; src/ is code-identical to
-// 9f0756a and only this record was kept.
-//
-// ⚠ WHY IT FAILS, AND THE REASONING ERROR IS ONE SENTENCE IN THIS BLOCK. The
-// solve's stated premise is "same target, SHORTER window, therefore a HIGHER
-// rate". The engine's effective window is LONGER, not shorter, on every line —
-// and on WC that is true even though its mean horizon (8.5) is below its
-// value-weighted closure age (10.8). The reason is that the two objects are not
-// both "a window":
-//
-//     generator   value-weighted MEAN OVER CLAIMS of prod to that claim's own
-//                 closure — so the many claims that close at age 1-2 contribute
-//                 a cumulative of 1.0 and drag the mean down
-//     engine      prod over the FULL cohort horizon, applied to the whole cohort
-//                 value including the value of claims that closed in year one
-//
-// The drift is front-loaded (2/(age+1)), so most of the cumulative is earned in
-// the first few steps — exactly the steps the early-closing claims should not
-// receive and the engine gives them anyway. Measured, same g:
-//
-//   line      1/c      value-wtd cum to closure   E[cum to horizon]
-//   WC       2.3813            2.4656                  2.5013
-//   GL       3.4972            3.2810                  4.5944
-//   Property 1.2258            1.2498                  1.6672
-//
-// The middle column is what g was solved for and it lands (+3.5% / -6.2% /
-// +2.0%). The right column is what the engine realises. The gap is the clock,
-// and no re-solve of a single per-step rate in the UPWARD direction can close it.
-//
-// ⚠ WHAT WOULD LAND, DIAGNOSTIC ONLY AND DELIBERATELY NOT ADOPTED. Bisecting for
-// the rate that makes E[cum to horizon] equal 1/c gives WC 0.24848, GL 0.47068,
-// Property 0.09875 — BELOW g on every line, against this constant's values which
-// are above it. Property's would fall 62%. These are not written into the
-// codebase and should not be: a rate solved to make a cohort-level compounding
-// hit a claim-level target is fitting the symptom, which is the objection this
-// block already raises about tuning the drift constants. The defect is that the
-// engine has no per-claim clock; the fix belongs at the clock, not at the rate.
-//
-// ============================================================================
-// ⚠ THE ORIGINAL 1a NOTE FOLLOWS, WITH ITS "the solve below is correct and
-// stands" NOW KNOWN FALSE. Kept because two commits were reasoned from it.
-//
-// SOLVED AND NOT YET WIRED. Commit 1a built both halves, measured each on its
-// own, and reverted. The solve below is correct and stands; what blocked it was
-// the OTHER half, and the defect is located precisely.
-//
-// ⚠ THE TABLE THAT STOOD HERE IS RETRACTED — it was read on finished cohorts
-// only, of which WC had three. The corrected variant table with intervals is in
-// the FORWARD_BOOKING block above; the parenthesised ratios below are what it
-// replaces, kept only so the two can be compared.
-//
-//   variant                WC              GL          Property
-//   target 1/c            2.3308          3.4661        1.3048
-//   neither (commit 1)    2.085 (0.894)   3.904 (1.126) 1.521 (1.165)
-//   openBase only         1.455 (0.624)   1.617 (0.467) 1.100 (0.843)
-//   horizonStop only      2.746 (1.178)   4.525 (1.305) 1.665 (1.276)
-//   BOTH                  1.573 (0.675)   1.663 (0.480) 1.120 (0.859)
-//
-// ⚠ NEITHER HALF SHIPS ALONE AND THAT IS STRUCTURAL. The rate below is solved
-// on the assumption that a claim STOPS drifting when it closes — the solve
-// compounds over min(closure, horizon). Without the open base the drift reaches
-// every occurrence for the whole horizon, so raising the rate simply
-// over-develops: horizonStop alone reads 1.18 / 1.31 / 1.28. They are
-// complementary by construction.
-//
-// ⚠ WHY openBase MISSED, MEASURED. The tracked mask is right. The UNTRACKED
-// share was approximated as `1 - closedShare(resolveClosureCurve(line, 0), age+2)`
-// and that proxy is 3x to 1000x too small, because the smallest SIZE BAND closes
-// far faster than the untracked mix (which runs up to the retention) and the +2
-// convention compounds it:
-//
-//   proxy / true open share    age 1    age 3    age 8
-//   WC                         0.285    0.178    0.063
-//   GL                         0.189    0.034    0.001
-//   Property                   0.257    0.264    0.343
-//
-// So openBase suppressed almost all untracked drift rather than the closed part
-// of it. THE FIX IS NOT A BETTER GUESS AT THE BAND: the untracked open share is
-// a value-weighted property of each line's untracked SIZE MIX and has to be
-// derived per line as a curve, the same way the payout and closure curves are.
-// Until it is, this constant has no correct consumer.
-//
-// ⚠ AND THE ACCEPTANCE SAMPLE WAS TOO SMALL TO STEER BY EITHER — n=3 finished
-// WC cohorts in 12 games x 20 years, because the completion test is strict and
-// WC's horizon is 5-12.
-//
-// RESOLVED, and not by loosening the completion test. A cohort's ratio TO DATE is
-// measured against the development it SHOULD have received by that age, so every
-// accident year contributes at every age instead of only the finished ones —
-// 22,800 WC observations at 120 games where the old test found 196 rows. The two
-// statistics agree to within 0.7-4.0% ON THE SAME COHORTS and disagree across
-// their populations, because "finished" selects on closure speed. See
-// scripts/diagnostics/forward-booking-climb-report.ts. Sizing is printed every
-// run and is stable across a 5x sample change (games for +/-0.02: WC 7 -> 13,
-// GL 112 -> 98, Property 22 -> 17), unlike the M2 case in WORKING_PRACTICES.
-export const TRIANGLE_DEVELOPMENT_DRIFT_HORIZON: Record<string, number> = {
-  WC: 0.33974,
-  GL: 0.64423,
-  Property: 0.30327,
-};
 
 export const PRICING_TRIANGLE = { enabled: true };
 // ===========================================================================

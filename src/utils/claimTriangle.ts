@@ -34,9 +34,10 @@
 // included, because runPriorHistory calls processYear. Consistent end to end.
 //
 // ⚠ WHAT WOULD BRING IT BACK, precisely: re-solve this file's drift against the
-// HORIZON so its age-to-age shape matches the engine's — the same re-solve
-// TRIANGLE_DEVELOPMENT_DRIFT_HORIZON already performed on the engine side, and
-// which defaultAssumptions records as MUST-CLOSE before any ten-year seed lands.
+// HORIZON so its age-to-age shape matches the engine's. (The engine-side re-solve
+// once stored as TRIANGLE_DEVELOPMENT_DRIFT_HORIZON was measured wrong, reverted,
+// and later deleted as dead; see defaultAssumptions. The engine now dilutes the
+// per-claim drift by TRIANGLE_OPEN_SHARE.) MUST-CLOSE before any ten-year seed lands.
 // Until that is done, nothing here may be seeded into a priced triangle.
 //
 // ⚠ WHY IT IS STILL KEPT. Its generator is the blueprint for making the ENGINE
