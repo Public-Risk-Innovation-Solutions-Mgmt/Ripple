@@ -294,9 +294,28 @@ const GAME_LENGTH_HORIZONS = [3, 5, 10];
  * it made a number look better. This is the same guard EXPECTED_RED's XPASS
  * check applies to a whole gate, applied to one cell.
  *
+ * ⚠ PROPERTY AT H=5 AND H=10 JOINED IT WHEN ITS MARKET TARGET WAS FIXED, AND
+ * THE CAUSE IS DIFFERENT FROM GL'S. Property used to pass this section because
+ * MARKET_TARGET_LOSS_RATIO was one number for all three lines: it read Property
+ * 2.63% DEARER than the market at defaults, which held its anchor BELOW the
+ * opening disposition and cancelled the small happy offset anchorCentre's own
+ * note calls the mechanic ("the stock settles a little happier than it
+ * started"). With Property's target at its derived 0.60 the pool reads 5.26%
+ * CHEAPER, like WC and GL, and the anchor sits about +0.21 points above the
+ * opening. Property's change term carries almost none of the triangle lag
+ * (-0.056pp/yr, against GL's -0.181), so nothing cancels the offset and it shows
+ * whole:
+ *
+ *     Property   3yr +0.097 (32%)   5yr +0.144 (53%)   10yr +0.236 (98%)
+ *
+ * A TRANSIENT TO A FIXED OFFSET, NOT A SLIDE — it is converging, at the level
+ * half-life, on the anchor. The pass it replaces was the wrong constant hiding
+ * the mechanic. It is recorded by name and inverted exactly like GL's, so a
+ * Property cushion that stops reading cheaper than the market fails here.
+ *
  * Every other line and horizon is asserted normally. Nothing else is exempt.
  */
-const ACCEPTED_BREACH: Record<string, number[]> = { GL: [10] };
+const ACCEPTED_BREACH: Record<string, number[]> = { GL: [10], Property: [5, 10] };
 /**
  * THE DENOMINATOR'S ARMS. One stop is taken as the 0.70-to-0.85 span divided by
  * the three stops between them, rather than by measuring a single adjacent pair.
@@ -933,6 +952,9 @@ console.log('  that is fine, and would fail the game as shipped at 1x.');
   console.log('    cancels it (-0.358 own, +0.428 tower); GL\'s does not (-0.591 own, +0.373 tower).');
   console.log('    The route that would close it is indexing the rate to trend instead of the triangle,');
   console.log('    which is a pricing change nobody has asked for. See MAX_GAME_DRIFT_SHARE.');
+  console.log('  ⚠ Property\'s drift is ACCEPTED for a different reason: a transient to the anchor\'s fixed');
+  console.log('    offset, which its old market target (2.63% dearer than the market) used to hide. See');
+  console.log('    ACCEPTED_BREACH.');
 }
 console.log('  the gap the drift is built from, exact:');
 for (const line of LINES) {

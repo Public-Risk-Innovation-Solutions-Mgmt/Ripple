@@ -467,8 +467,11 @@ console.log(`\n--- 6. positive control: every non-deterministic component raised
 
 // --- 7. the market LEVEL, and the cushion at every stop --------------------
 console.log('\n--- 7. the market level: the cushion, and where it crosses zero ---');
-console.log(`  target loss ratio ${MARKET_TARGET_LOSS_RATIO} (JUDGEMENT — see the constant), so a carrier`);
-console.log(`  charges ${marketLoadOverExpectedLoss().toFixed(4)}x gross expected loss.`);
+for (const line of LINES) {
+  console.log(`  ${line.padEnd(9)} target loss ratio ${MARKET_TARGET_LOSS_RATIO[line].toFixed(2)}, so a carrier charges `
+    + `${marketLoadOverExpectedLoss(line).toFixed(4)}x gross expected loss`);
+}
+console.log('  (0.65 is a JUDGEMENT; Property\'s 0.60 is derived from it — see the constant.)');
 {
   // The kink's arithmetic, which is where the unmeasured target earns its keep.
   const up = satisfactionLevelReaction(10), down = satisfactionLevelReaction(-10);
@@ -516,7 +519,7 @@ console.log(`  charges ${marketLoadOverExpectedLoss().toFixed(4)}x gross expecte
         gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
         for (const lr of p.lineResults) {
           const x = lr.result as never as Record<string, number>;
-          acc[lr.line as string].push(marketLevelGapPct(x.ratePer100, x.purePremiumPer100));
+          acc[lr.line as string].push(marketLevelGapPct(lr.line, x.ratePer100, x.purePremiumPer100));
         }
       }
     }

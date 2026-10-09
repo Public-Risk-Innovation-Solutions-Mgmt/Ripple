@@ -238,7 +238,7 @@ export interface PoolValueRow {
   totalMemberCharge: number;
   /** grossLoss / totalMemberCharge — what came back per dollar billed. */
   returnedPerDollar: number;
-  /** MARKET_TARGET_LOSS_RATIO. */
+  /** MARKET_TARGET_LOSS_RATIO for this row's line. */
   marketBenchmark: number;
   /** returnedPerDollar / marketBenchmark. Above 1: better than a carrier. */
   valueAgainstMarket: number;
