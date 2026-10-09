@@ -62,6 +62,34 @@ export interface SpreadsheetMetric {
    */
   poolCell?: (result: ResultSet) => string | number;
   poolCsvCell?: (result: ResultSet) => string | number;
+  /**
+   * THE LINE ACCESSORS buildPoolMetrics REPLACED, CARRIED ALONG SO THE REWRITE
+   * CAN BE UNDONE. Present only on a metric that has already been pooled.
+   *
+   * ⚠ THIS EXISTS BECAUSE THE REWRITE USED TO BE ONE-WAY, AND THAT COST THE
+   * RESULTS DOWNLOAD FOR A WEEK. buildPoolMetrics swapped `value` for the pool
+   * accessor and dropped the flags, so a pooled list was indistinguishable from
+   * an unpooled one and silently wrong for a LINE tab: `value` read `r.pool`,
+   * which a line row does not have, and the whole workbook threw before a file
+   * was written. The page builds a pooled list for its on-screen pool table —
+   * legitimately — and handed that same list to buildResultsWorkbook, which
+   * needs the UNPOOLED one because it builds both scopes from it.
+   *
+   * ⚠ AND IT WAS NOT AN IDEMPOTENCE BUG, WHICH IS WHY THE OBVIOUS FIX WOULD NOT
+   * HAVE WORKED. Pooling twice already equalled pooling once — measured, 0 of 88
+   * metrics render differently and the keys match — because the second pass sees
+   * no flags and passes everything through. The broken invariant was that
+   * buildResultsWorkbook's `baseMetrics` had an unstated precondition no
+   * signature could express. Carrying the line form removes the precondition
+   * instead of documenting it: a pooled list now serves both scopes.
+   */
+  lineForm?: {
+    value: (result: LineResultSet) => string | number;
+    csvValue?: (result: LineResultSet) => string | number;
+  };
+  /** Set on a per-line SPLIT row: the single metric it was split out of. The
+   *  line tab wants that one row back, not N copies of it. */
+  splitOf?: { key: string; label: string };
 }
 
 // Fixed tab/filename order (Stage 2.8) — active lines only, Property abbreviated PR.
@@ -90,13 +118,23 @@ export function poolRowsAsMetricInput(rows: ResultSet[]): LineResultSet[] {
 // even though these metric functions are typed against the narrower
 // LineResultSet so they can be shared with the per-line tabs. This reach into
 // byLine is only ever exercised on Pool-tab rows, where the shape is guaranteed.
-function poolLineSplitMetrics(key: string, category: string, activeLines: CoverageLine[]): SpreadsheetMetric[] {
+function poolLineSplitMetrics(src: SpreadsheetMetric, activeLines: CoverageLine[]): SpreadsheetMetric[] {
+  const key = src.key;
+  const category = src.category;
+  // ⚠ EVERY SPLIT ROW CARRIES ITS SOURCE, so buildLineMetrics can put the one
+  // unsplit row back. A split row reads `r.byLine[line]`, which a LINE row does
+  // not have — the same shape as the lineOnly rewrite and the same consequence:
+  // a pooled list handed to a line tab throws. Found by this file's own mirror
+  // arm, not by a person.
+  const from = { splitOf: { key: src.key, label: src.label },
+                 lineForm: { value: src.value, csvValue: src.csvValue } };
   const lines = FIXED_LINE_ORDER.filter(l => activeLines.includes(l));
   const byLine = (r: LineResultSet, line: CoverageLine) => (r as unknown as ResultSet).byLine[line];
 
   switch (key) {
     case 'activeExposure':
       return lines.map(line => ({
+        ...from,
         key: `activeExposure_${line}`,
         category,
         label: `Active Exposure — ${line} (${exposureUnitLabel(line)})`,
@@ -105,6 +143,7 @@ function poolLineSplitMetrics(key: string, category: string, activeLines: Covera
       }));
     case 'totalMarketExposure':
       return lines.map(line => ({
+        ...from,
         key: `totalMarketExposure_${line}`,
         category,
         label: `Total Market Exposure — ${line} (${exposureUnitLabel(line)})`,
@@ -113,6 +152,7 @@ function poolLineSplitMetrics(key: string, category: string, activeLines: Covera
       }));
     case 'writtenExposure':
       return lines.map(line => ({
+        ...from,
         key: `writtenExposure_${line}`,
         category,
         label: `Written Exposure — ${line} (${exposureUnitLabel(line)})`,
@@ -121,6 +161,7 @@ function poolLineSplitMetrics(key: string, category: string, activeLines: Covera
       }));
     case 'marketShare':
       return lines.map(line => ({
+        ...from,
         key: `marketShare_${line}`,
         category,
         label: `Market Share — ${line}`,
@@ -147,15 +188,22 @@ export function buildPoolMetrics(baseMetrics: SpreadsheetMetric[], activeLines: 
     // denominator at all — pool exposure adds payroll to TIV.
     if (m.lineOnly) {
       if (!m.poolCell) continue;
+      // ⚠ A FIXED POINT. An already-pooled metric is returned untouched, so
+      // pooling twice is pooling once by construction rather than by luck —
+      // and the flags and the line form survive, which is what lets a pooled
+      // list still build a LINE tab. See SpreadsheetMetric.lineForm.
+      if (m.lineForm) { result.push(m); continue; }
       result.push({
         key: m.key, category: m.category, label: m.label,
+        lineOnly: m.lineOnly, poolCell: m.poolCell, poolCsvCell: m.poolCsvCell,
+        lineForm: { value: m.value, csvValue: m.csvValue },
         value: r => m.poolCell!(r as unknown as ResultSet),
         csvValue: r => (m.poolCsvCell ?? m.poolCell)!(r as unknown as ResultSet),
       });
       continue;
     }
     if (POOL_SPLIT_EXPOSURE_KEYS.has(m.key)) {
-      result.push(...poolLineSplitMetrics(m.key, m.category, activeLines));
+      result.push(...poolLineSplitMetrics(m, activeLines));
       continue;
     }
     result.push(m);
@@ -175,7 +223,27 @@ export function buildLineMetrics(baseMetrics: SpreadsheetMetric[], line: Coverag
     writtenExposure: 'Written TIV ($M)',
   } : {};
 
-  const relabeled = baseMetrics.map(m => relabel[m.key] ? { ...m, label: relabel[m.key] } : m);
+  // ⚠ RESTORE THE LINE FORM FIRST, BEFORE ANYTHING ELSE TOUCHES THE LIST. A
+  // metric that has been through buildPoolMetrics carries pool accessors in
+  // `value`/`csvValue`; on a LINE tab those read `r.pool`, which a line row does
+  // not have, and the whole workbook throws before a file is written. Undoing
+  // the rewrite here means buildResultsWorkbook is correct whether it is handed
+  // a pooled list or an unpooled one — which is the precondition that used to be
+  // unstated and unenforceable. See SpreadsheetMetric.lineForm.
+  const seenSplit = new Set<string>();
+  const unpooled: SpreadsheetMetric[] = [];
+  for (const m of baseMetrics) {
+    if (m.splitOf) {
+      // N split rows collapse back to the ONE row they came from. Keeping all N
+      // would print the same line's figure three times under three headings.
+      if (seenSplit.has(m.splitOf.key)) continue;
+      seenSplit.add(m.splitOf.key);
+      unpooled.push({ key: m.splitOf.key, category: m.category, label: m.splitOf.label, ...m.lineForm! });
+      continue;
+    }
+    unpooled.push(m.lineForm ? { ...m, ...m.lineForm } : m);
+  }
+  const relabeled = unpooled.map(m => relabel[m.key] ? { ...m, label: relabel[m.key] } : m);
 
   const exposureBasisRow: SpreadsheetMetric = {
     key: 'exposureBasis',

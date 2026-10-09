@@ -16,7 +16,7 @@
 // anyone reading the repo. That is SESSION_PRACTICES.md §1 — recorded, then
 // left open on eight instruments rather than one. This directory closes it.
 //
-// THE EIGHT, AND WHAT EACH IS FOR:
+// THE NINE, AND WHAT EACH IS FOR:
 //
 //   solo-oracle       46  the SOLO game's UI, 11 tabs x 2 line views x 2 year
 //                         points, fingerprinted. ⚠ WC-ONLY — see the caveat below.
@@ -31,6 +31,13 @@
 //   host-teams        13  the Teams tab's three states on three line views.
 //   replay-fidelity    8  vary decisions across three years, reload, and require
 //                         the rebuilt results to match what was posted AT THE TIME.
+//   downloads          7  clicks all three export buttons and requires a file to
+//                         arrive with no page error. ⚠ THE ONLY ONE THAT CLICKS A
+//                         DOWNLOAD. Added after the Results workbook was broken
+//                         for a week behind a green solo-export-guard: the guard
+//                         calls the builder itself and the builder was correct,
+//                         so the defect lived entirely in the PAGE'S CALL and
+//                         nothing in the repo exercised it.
 //
 // ⚠ THE SOLO ORACLE'S 46/46 PROVES CONFINEMENT, NOT CORRECTNESS, and shipping it
 // does not change that. It plays WC-only. Every Membership defect found this

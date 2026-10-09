@@ -111,7 +111,15 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
           <button
             type="button"
             onClick={() => {
-              const wb = buildResultsWorkbook(lockedResults, activeLines, resultMetrics);
+              // ⚠ RESULT_METRICS, NOT `resultMetrics`. This passed the POOLED list
+              // and that is what broke the Results download: buildResultsWorkbook
+              // builds BOTH scopes from this argument, and a pooled list is a
+              // LOSSY transform of the raw one — eleven rows are dropped outright
+              // (assetAllocation, and ten lineOnly metrics with no pool form), so
+              // the line tabs came out with 81 rows instead of 92 even once the
+              // accessors were made reversible. The pooled list above is for the
+              // on-screen pool table, which is the only thing it is correct for.
+              const wb = buildResultsWorkbook(lockedResults, activeLines, RESULT_METRICS);
               XLSX.writeFile(wb, exportFilename);
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
