@@ -178,6 +178,7 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
             'pool premium rate /$100': rel(panel.poolPremiumRatePer100, eng.poolPremiumRatePer100),
             'admin rate /$100': rel(panel.adminRatePer100, eng.adminRatePer100),
             'reinsurance rate /$100': rel(panel.reinsRatePer100, eng.reinsRatePer100),
+            'retained cover margin /$100': rel(panel.retainedCoverMarginRatePer100, eng.retainedCoverMarginRatePer100),
             'total member charge /$100': rel(panel.totalMemberChargeRatePer100, eng.totalMemberChargeRatePer100),
           };
           for (const [k, v] of Object.entries(cmp)) {

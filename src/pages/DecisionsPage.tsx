@@ -509,9 +509,11 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
 
             ⚠ THESE ARE THE INCOME STATEMENT'S OWN FIGURES, NOT A RATIO APPLIED
             TO THE DISPLAY. quoteLineRates defines
-            totalMemberChargeRatePer100 = pool + admin + reins, and the engine
-            defines totalMemberCharge = (poolPremium + adminExpense) +
-            reinsuranceCost from the same three quantities — reinsurance off the
+            totalMemberChargeRatePer100 = pool + admin + reins + retained
+            cover margin, and the engine defines totalMemberCharge =
+            (poolPremium + adminExpense) + reinsuranceCost + retainedCoverMargin
+            from the same four quantities. The fourth row renders only when a
+            layer is declined — it is an exact 0 otherwise — reinsurance off the
             runtime tower quote, admin off ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM.
             So the four rows below add up exactly rather than approximately, and
             panel-engine-parity-check asserts both components against the engine
@@ -527,6 +529,9 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
         <DataRow label="Pool Premium Rate / $100" value={`$${c.poolPremiumRatePer100.toFixed(2)}`} />
         <DataRow label="… Admin / $100" value={`$${c.adminRatePer100.toFixed(2)}`} />
         <DataRow label="… Reinsurance / $100" value={`$${c.reinsRatePer100.toFixed(2)}`} />
+        {c.retainedCoverMarginRatePer100 > 0 && (
+          <DataRow label="… Declined Cover, Kept / $100" value={`$${c.retainedCoverMarginRatePer100.toFixed(2)}`} />
+        )}
         <DataRow label="Total Member Charge Rate / $100" value={`$${c.totalMemberChargeRatePer100.toFixed(2)}`} />
         <DataRow label="The Load (charge ÷ expected loss)" value={`${c.load.toFixed(2)}×`} />
         <DataRow label="Expected Combined Ratio" value={pct1(c.expectedCombinedRatio * 100)} />

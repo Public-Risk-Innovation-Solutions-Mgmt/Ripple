@@ -109,6 +109,9 @@ export interface FundingConsequence {
   poolPremiumRatePer100: number;
   adminRatePer100: number;
   reinsRatePer100: number;
+  /** The declined layers' price, still charged and kept. 0 when the tower is
+   *  fully placed; see quoteLineRates. */
+  retainedCoverMarginRatePer100: number;
   totalMemberChargeRatePer100: number;
   // charge / expected loss — "the load"
   load: number;
@@ -220,6 +223,7 @@ function ratesAt(
     poolPremiumRatePer100: q.poolPremiumRatePer100,
     adminRatePer100: q.adminRatePer100,
     reinsRatePer100: q.reinsRatePer100,
+    retainedCoverMarginRatePer100: q.retainedCoverMarginRatePer100,
     totalMemberChargeRatePer100: q.totalMemberChargeRatePer100,
   };
 }
@@ -233,7 +237,8 @@ export function computeFundingConsequence(
 ): FundingConsequence {
   const {
     clf, purePremiumPer100, netPurePremiumPer100, expectedCededPer100,
-    poolPremiumRatePer100, adminRatePer100, reinsRatePer100, totalMemberChargeRatePer100,
+    poolPremiumRatePer100, adminRatePer100, reinsRatePer100, retainedCoverMarginRatePer100,
+    totalMemberChargeRatePer100,
   } = ratesAt(confidenceLevel, line, atExpected, book);
 
   // Computed UNCONDITIONALLY (not only while atExpected) — cheap, and useful
@@ -284,6 +289,7 @@ export function computeFundingConsequence(
     poolPremiumRatePer100,
     adminRatePer100,
     reinsRatePer100,
+    retainedCoverMarginRatePer100,
     totalMemberChargeRatePer100,
     load,
     expectedLossRatio,
