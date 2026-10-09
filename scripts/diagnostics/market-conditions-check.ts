@@ -86,14 +86,23 @@ import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simul
 const RULE = '='.repeat(78);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 /**
- * ⚠ 16, AND THE REASON IS SECTION 5'S MARGIN ON WC. The pool side of that
+ * ⚠ 48, RAISED FROM 16 WHEN THE NORMALISER CAME OUT OF THE DRAW, AND IT IS THE
+ * SAMPLE AND NOT THE MODEL THAT MOVED. At 16 games Property's ratio read 0.95
+ * before that change and 1.00 after — red by a hundredth. At 48 games, both
+ * commits measured side by side, it reads 0.93 before and 0.94 after: the
+ * engine did not move the ratio; the 16-game sample was spending its whole
+ * margin on noise on the line now closest to the bar (Property, where GL used
+ * to be). Raising the sample rather than the bar, as below and as
+ * WORKING_PRACTICES' heavy-tailed-gate rule says.
+ *
+ * ⚠ 16, AND THE REASON WAS SECTION 5'S MARGIN ON WC. The pool side of that
  * comparison is the noisy one — GAMES x (YEARS - 1) observations of a
  * rate change against DRAWS x 4 of the benchmark — and WC is the line where the
  * two are closest: ratio 0.88 at 4 games, 0.88 at 8, 0.84 at 16. At 4 games the
  * pool's own SD read 3.17% against 3.34% at 16, which is a fifth of the margin
  * spent on sampling. A gate whose margin is its own noise is a gate that flakes.
  */
-const GAMES = Number(process.env.GAMES ?? 16);
+const GAMES = Number(process.env.GAMES ?? 48);
 const YEARS = Number(process.env.YEARS ?? 10);
 /** Draws for the mean-1 and dispersion measurements. Cheap — no engine. */
 const DRAWS = Number(process.env.DRAWS ?? 3000);
@@ -396,11 +405,18 @@ const DECIDING = (d: DecisionSet) => {
 
 const poolChange: Record<string, number[]> = { WC: [], GL: [], Property: [] };
 const idleChange: Record<string, number[]> = { WC: [], GL: [], Property: [] };
+// ⚠ THE DO-NOTHING ARM STAYS AT 16 GAMES. It is reported and never asserted, so
+// the sample raise that keeps the ASSERTED arm off its own noise (see GAMES)
+// buys nothing there and would only add to the runtime of an every-commit gate.
+const IDLE_GAMES = Math.min(GAMES, 16);
 for (let g = 0; g < GAMES; g++) {
   const r = playRates(g, DECIDING);
-  const idle = playRates(g);
   for (const line of LINES) {
     for (let i = 1; i < r[line].length; i++) poolChange[line].push((r[line][i] / r[line][i - 1] - 1) * 100);
+  }
+  if (g >= IDLE_GAMES) continue;
+  const idle = playRates(g);
+  for (const line of LINES) {
     for (let i = 1; i < idle[line].length; i++) idleChange[line].push((idle[line][i] / idle[line][i - 1] - 1) * 100);
   }
 }

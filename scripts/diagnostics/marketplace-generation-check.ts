@@ -42,6 +42,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { BOOK_MIX_NORMALISER } from '../../src/data/defaultAssumptions';
 import { computeKLine, expectedWcGrossLossForKLine, expectedWcGrossLossForPricing } from '../../src/utils/wcClaimEngine';
 import { computeKGl, expectedGlGrossLossForKLine, expectedGlGrossLossForPricing } from '../../src/utils/glClaimEngine';
 import type { CoverageLine, GameState, Member } from '../../src/types/simulation';
@@ -94,6 +95,7 @@ let genT = 0;
 let bootstrapMarketYears = 0;
 let bootstrapWithHistory = 0;
 let trap1Checked = 0;
+let trap1NonNeutral = 0;
 let trap2Checked = 0;
 let containmentChecked = 0;
 let coverageChecked = 0;
@@ -147,10 +149,20 @@ for (const id of SEEDS) {
         trap1Checked++;
         const kEnrolled = line === 'WC' ? computeKLine(enrolled) : computeKGl(enrolled, y);
         const kRoster = line === 'WC' ? computeKLine(roster) : computeKGl(roster, y);
-        // Bit-equal against the enrolled book. Exact, not a tolerance: the
-        // engine calls the same function on the same list.
-        if (lr.kLineApplied !== kEnrolled) {
-          note(false, `${line} Y${y} seed ${id}: kLineApplied ${lr.kLineApplied.toFixed(6)} != computeK(enrolled) ${kEnrolled.toFixed(6)}`
+        // ⚠ THE NORMALISER IS OUT OF THE DRAW (BOOK_MIX_NORMALISER.inDraw =
+        // false), SO THE ASSERTION INVERTS. The draw must now apply EXACTLY 1 —
+        // not the enrolled book's k and not the roster's — because composition
+        // has to reach the losses. And the enrolled book's own k must actually
+        // differ from 1 somewhere, or "applied 1" would be indistinguishable from
+        // "the book happened to be neutral" and this would test nothing; that
+        // count is printed and asserted below. With the flag back on, the
+        // original trap is asserted unchanged.
+        if (Math.abs(kEnrolled - 1) > 1e-6) trap1NonNeutral++;
+        const expectedK = BOOK_MIX_NORMALISER.inDraw ? kEnrolled : 1;
+        // Bit-equal. Exact, not a tolerance: the engine either calls the same
+        // function on the same list or passes the literal 1.
+        if (lr.kLineApplied !== expectedK) {
+          note(false, `${line} Y${y} seed ${id}: kLineApplied ${lr.kLineApplied.toFixed(6)} != expected ${expectedK.toFixed(6)} (normaliser ${BOOK_MIX_NORMALISER.inDraw ? 'IN' : 'OUT OF'} the draw; computeK(enrolled) ${kEnrolled.toFixed(6)})`
             + (Math.abs(lr.kLineApplied - kRoster) < 1e-12 ? ' — IT MATCHES THE FULL ROSTER, which is trap 1 exactly' : ''));
         }
       }
@@ -221,8 +233,15 @@ console.log(`  line-years checked ${coverageChecked}; all 200 members present ex
 console.log(`  bootstrap line-years ${bootstrapMarketYears}, of which full-roster ${bootstrapWithHistory}`
   + `  ${note(bootstrapMarketYears > 0 && bootstrapWithHistory === bootstrapMarketYears, 'the pre-game years did not generate marketplace-wide — prospects would start year 1 blind')}`);
 
-console.log('\n--- 2. TRAP 1: mix correction computed on the ENROLLED book ---');
-console.log(`  kLineApplied === computeK(enrolled) on ${trap1Checked} line-years  ${note(true, '')}`);
+if (BOOK_MIX_NORMALISER.inDraw) {
+  console.log('\n--- 2. TRAP 1: mix correction computed on the ENROLLED book ---');
+  console.log(`  kLineApplied === computeK(enrolled) on ${trap1Checked} line-years  ${note(true, '')}`);
+} else {
+  console.log('\n--- 2. TRAP 1, INVERTED: the normaliser is OUT of the draw — the draw applies exactly 1 ---');
+  console.log(`  kLineApplied === 1 on ${trap1Checked} line-years  ${note(true, '')}`);
+  console.log(`  ...on books whose own computeK(enrolled) differs from 1 in ${trap1NonNeutral} of them  `
+    + `${note(trap1NonNeutral > 0, 'no enrolled book ever had k != 1, so "the draw applied 1" cannot be told apart from "the book was neutral" — this section tested nothing')}`);
+}
 
 console.log('\n--- 3. TRAP 2: prospects drew at k = 1 with no risk control ---');
 console.log(`  prospect expectedLoss reproduces the k=1 expectation on ${trap2Checked} samples  ${note(true, '')}`);

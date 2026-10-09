@@ -36,7 +36,7 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
   return merged.size > 0 ? [...merged.values()] : undefined;
 }
 import { SeededRandom, deriveSubRng } from './random';
-import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
+import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
 import {
   DEVELOPMENT_ALLOCATION, DEVELOPMENT_CESSION_ENABLED, STOCHASTIC_ALLOCATION_MODE,
@@ -1359,7 +1359,8 @@ export function processLineYear(
     // ⚠ ENROLLED BOOK, NOT THE FULL ROSTER. Marketplace-wide generation makes it
     // tempting to hand the 200-member roster to everything below; doing it here
     // would drive k_line to ~1 permanently and silently disable the correction.
-    const kLine = computeKLine(enrolledMembers);
+    // See BOOK_MIX_NORMALISER: out of the draw, so a book's mix reaches its losses.
+    const kLine = BOOK_MIX_NORMALISER.inDraw ? computeKLine(enrolledMembers) : 1;
 
     // ⚠ THE ARGUMENTS COME FROM claimGeneration.ts's SHARED MAPPING, the same
     // one claimRegeneration uses to redraw this year later. Two inline literals
@@ -1438,7 +1439,7 @@ export function processLineYear(
     // correction against the currently enrolled book; the pure premium itself
     // is held (step 6b) rather than chasing enrollment.
     // ⚠ ENROLLED BOOK, NOT THE FULL ROSTER — same trap as WC's k_line above.
-    const kGl = computeKGl(enrolledMembers, yearNumber);
+    const kGl = BOOK_MIX_NORMALISER.inDraw ? computeKGl(enrolledMembers, yearNumber) : 1;
     // Shared mapping — see the WC call above and claimGeneration.ts. Risk
     // control and the shock multipliers are DRAW ONLY (finding 17): a shock is
     // a realized event, not a repricing.
@@ -1517,7 +1518,7 @@ export function processLineYear(
     // HELD and k_Pr is the per-year roster/risk-quality-mix correction against
     // the ENROLLED book — not the full roster, which is the trap both other
     // lines carry a warning about.
-    const kPr = computeKPr(enrolledMembers);
+    const kPr = BOOK_MIX_NORMALISER.inDraw ? computeKPr(enrolledMembers) : 1;
     // Shared mapping — see claimGeneration.ts. Property reads no shock channel
     // and no gPool; the mapper drops both, exactly as this literal always did.
     // Risk control acts on the DRAW ONLY (finding 17), as in WC and GL.

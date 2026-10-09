@@ -52,6 +52,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { BOOK_MIX_NORMALISER } from '../../src/data/defaultAssumptions';
 import { expectedWcGrossLossForPricing, NEUTRAL_RQ as WC_NEUTRAL_RQ } from '../../src/utils/wcClaimEngine';
 import { expectedGlGrossLossForPricing, NEUTRAL_RQ as GL_NEUTRAL_RQ } from '../../src/utils/glClaimEngine';
 import {
@@ -196,7 +197,25 @@ console.log('\n--- 2. the actual leg ties to the claims actually generated, to t
 
 console.log('\n--- 3. THE ASYMMETRY: expected includes k_line, excludes risk control ---');
 {
-  const y1 = gs.lockedResults[0];
+  // ⚠ PLAYED WITH THE NORMALISER PUT BACK IN THE DRAW, AND THAT IS THE ONLY WAY
+  // THIS SECTION KEEPS ITS TEETH. BOOK_MIX_NORMALISER.inDraw is false, so the
+  // shipped draw applies k = 1 and "the stored legs carry the applied k" becomes
+  // indistinguishable from "they carry no k at all" — the distinguishability
+  // assertions below went red on exactly that. What this section guards is the
+  // PLUMBING: whatever k the draw applies, both stored legs carry it and
+  // prospects never do. So it is exercised on a draw that applies a real k, via
+  // the flag's own ablation seam, and the shipped game's k = 1 is asserted
+  // separately just below.
+  for (const line of CLAIM_LINES) {
+    const kShipped = gs.lockedResults[0].byLine[line]!.kLineApplied!;
+    console.log(`  shipped draw: ${line} kLineApplied = ${kShipped}  ${note(kShipped === 1, `${line}: the shipped draw applied k = ${kShipped}, not 1 — the normaliser is back in the draw`)}`);
+  }
+  const wasInDraw = BOOK_MIX_NORMALISER.inDraw;
+  BOOK_MIX_NORMALISER.inDraw = true;
+  let gsK: typeof gs;
+  try { ({ gs: gsK } = playGame(SEED, 1)); } finally { BOOK_MIX_NORMALISER.inDraw = wasInDraw; }
+  const history = gsK.poolState.memberLossHistory!;
+  const y1 = gsK.lockedResults[0];
   const byId = new Map(market.map(m => [m.id, m]));
 
   for (const line of CLAIM_LINES) {

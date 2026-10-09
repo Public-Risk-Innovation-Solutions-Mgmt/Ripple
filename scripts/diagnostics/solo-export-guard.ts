@@ -552,7 +552,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //       severity recalibration moves 69.8% of PR-solo's values.
 // A recapture that could not say which of those two things happened would be
 // the blank cheque this file's header warns about. It can, so it is not.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v52.json');
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v53.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

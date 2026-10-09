@@ -4653,6 +4653,49 @@ export const TRIANGLE_DEVELOPMENT_DRIFT_HORIZON: Record<string, number> = {
   Property: 0.30327,
 };
 
+// ============================================================================
+// THE BOOK-MIX NORMALISER IS OUT OF THE DRAW.
+//
+// computeKLine / computeKGl / computeKPr compute neutral / actual expected loss
+// over the ENROLLED book and used to multiply every member's claim frequency by
+// it every year, "so that changing WHO is enrolled doesn't drift the pool's
+// aggregate expected loss away from the held pick". It did exactly that, and
+// that was the defect: it rescaled the DRAW, not only the price, so a better
+// book was scaled back up to neutral and a worse one down. Three findings that
+// were treated separately are this one mechanism — declining members could not
+// improve a book, a risk-quality bar could not improve a book, and growth cost
+// nothing. A pool that admits riskier members has to carry more risk, and with
+// the normaliser in the draw it could not.
+//
+// ⚠ WHAT IT PROTECTED, AND WHY THAT SURVIVES. It was built for PRICING: the held
+// pure premium is derived once at neutral quality and the normaliser kept that
+// held rate correct as the roster changed. With PRICING_TRIANGLE on, the rate is
+// the pool's own paid-triangle window and not the held rate, so a book whose
+// mix differs is priced off its own experience — a few years late, which is the
+// lag a growing pool on bad risks should feel. The held rate is now only the
+// fallback for a triangle too thin to price.
+//
+// MEASURED BEFORE BUILDING (scratch copy, 40 games x 15 years, paired):
+//   - No spiral. With voluntary departures switched on in the scratch copy, the
+//     twin-game loop gain (experience-pricing-check arm 3's method) reads
+//     0.02-0.07 at shipped sensitivity and 0.06-0.15 at 10x retention
+//     sensitivity; with the normaliser in it read 0.03-0.06 / 0.06-0.12.
+//   - Saves load: claimRegeneration redraws with the RECORDED kLineApplied, so a
+//     result written with the normaliser in still redraws exactly, and one
+//     written now records 1.
+//   - Pricing follows: about 55% of a composition cost gap on WC is in the rate
+//     by year 10, ~30% on GL — the 10-year equal-weight window's lag.
+//   - The default book costs 2-4% more than an all-neutral one (Jensen: theta is
+//     convex in risk quality), so every line's loss level steps up by that much.
+//
+// ⚠ ONE FLAG, READ AT THE THREE DRAW SITES IN simulationEngine AND NOWHERE ELSE.
+// The k functions themselves are unchanged and still exported: diagnostics use
+// them to build expectations, and with the flag off an expectation of the
+// ENGINE's draw must pass k = 1. A mutable object, like PRICING_TRIANGLE, so a
+// gate can put the normaliser back for one arm and restore it.
+// ============================================================================
+export const BOOK_MIX_NORMALISER = { inDraw: false };
+
 export const PRICING_TRIANGLE = { enabled: true };
 // ===========================================================================
 // ⚠ THIS FLAG HAD A RETIREMENT CONDITION, WRITTEN ON DAY ONE, AND IT IS NOW MET.
