@@ -54,6 +54,7 @@ succeeds and looks correct. Check `git remote -v` before any git operation.
 | 5 | `772c4b7` | The renewal slider: non-renew the worst X% on the multi-year loss ratio | — |
 | 6 | `778326d` | The intake slider: a noisy inspection of risk quality (`INSPECTION_SIGMA = 2`) | 4 and 5 in the tree |
 | 5b | `12c5340` — narrow the renewal slider to 0-5% in 1% steps | `RENEWAL_CUT_STEPS` 0 / 1 / 2 / 3 / 4 / 5% | **5 — always with it, never without** |
+| 6b | `fd3fe07` — intake as one four-position slider, a bar and a cap per position | No New Business / Strict / Moderate / Low; Low's cap is `MAX_NEW_MEMBER_SHARE` | **6 — always with it, never without** |
 
 **5 and 5b are one change in two commits.** `772c4b7` was pushed with the range 0 / 2.5 / 5 / 7.5 / 10%.
 It was narrowed afterwards, in its own commit, rather than rewriting pushed history. **Picking `772c4b7`
@@ -61,6 +62,13 @@ alone ships the old range.** Pick 5b in the same review as 5, every time. On thi
 6 and renames the render baseline v21 → v22, and v21 is 6's file. So the clean order is 5, 6, 5b, with
 the render baseline recaptured on the target as usual. If 6 is not being picked, pick 5 and 5b together
 and recapture.
+
+**6 and 6b are one change in two commits.** `778326d` was pushed with seven bar-only levels under one
+10% guard. Applicants are about 7-8 per line a year, so the guard capped every loose level at the same
+count, and most of the slider changed nothing. 6b replaced the levels with four positions, each a bar
+and a cap, and it rewrites the memo's "Who wants in" sentence. **Picking `778326d` alone ships the
+slider that does nothing across most of its range.** Pick 6b in the same review as 6, every time. 6b
+renames the render baseline v22 → v23, and v22 is 5b's file, so the clean order is **5, 6, 5b, 6b**.
 
 **1 and 2 are fixes.** Satisfaction misjudged Property's price against the market, and the quote missed
 a term, so a pool that declined its tower read a phantom rate cut. Neither changes a default game.
@@ -80,7 +88,7 @@ does not change by choice. 6 reads `applicantWeight` / `applicantInclusion` (fro
 
 ## What each pick must show on the target
 
-- **The baselines are versioned by rename** (`RENDER_IDENTITY_v17` → `v22`, `VALUE_IDENTITY_v51`,
+- **The baselines are versioned by rename** (`RENDER_IDENTITY_v17` → `v23`, `VALUE_IDENTITY_v51`,
   `SOLO_EXPORT_GUARD_v53`). If the target's baseline versions differ, the rename will conflict.
   Recapture on the target and attribute every moved row again, rather than carrying the file across.
 - **1:** `market-conditions-check` green. Property's cushion is about −5% at Expected and crosses zero
@@ -103,6 +111,9 @@ does not change by choice. 6 reads `applicantWeight` / `applicantInclusion` (fro
 - **6:** values identical (intake defaults to 0). Render: Decisions plus the underwriting memo.
   `newBusinessAppetite.ts` is deleted, and `surface-privacy-check` watches `renewalUnderwriting.ts` in its
   place.
+- **6b:** values identical (intake still defaults to No New Business). Render: 24 rows, the 16 Decisions
+  pages (every line, y0 and y2) and the 8 underwriting memos. Control: the same tree at 5b reproduces the
+  previous baseline. Measured joins per line-year at the four positions: 0 / ~1.2 / ~2.8 / ~4.3.
 
 ## Deliberately NOT on this branch
 
