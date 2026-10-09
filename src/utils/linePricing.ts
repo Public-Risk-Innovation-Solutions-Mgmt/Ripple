@@ -78,12 +78,12 @@ export interface LineRateInputs {
  * The book-and-decision inputs the CESSION depends on — everything
  * `expectedCededPer100For` needs that is not the rate itself.
  *
- * ⚠ `members` AND `exposure` ARE SEPARATE ON PURPOSE, AND THE ENGINE'S FINAL
- * PASS GENUINELY PASSES A MISMATCHED PAIR. The occurrence tower is quoted on
- * the PRE-movement book and reused rather than re-quoted (see the note at
- * `towerQuote` in simulationEngine), while the per-$100 divisor is the
- * POST-movement exposure the premium is actually charged on. Collapsing these
- * into one book would silently re-quote the tower and move engine values.
+ * ⚠ `members` AND `exposure` ARE SEPARATE ON PURPOSE. The engine's final pass
+ * hands the COVERED book (post-movement, joiners in, leavers out — see
+ * `towerQuote` in simulationEngine) and the post-movement exposure, so the two
+ * describe the same members there. A caller quoting ahead of movement (the
+ * Decisions panel, the engine's price signal) passes the book as it stands,
+ * which is the only book that exists when it asks.
  */
 export interface CessionBasis {
   /** The book the TOWER prices off. */

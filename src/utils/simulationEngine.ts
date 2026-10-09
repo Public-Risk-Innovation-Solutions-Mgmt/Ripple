@@ -887,13 +887,14 @@ export function processLineYear(
     aggregateStopLevel: lineDecisions.aggregateStopLevel,
   });
 
-  // The occurrence quote is REUSED by the post-movement pass below rather than
-  // re-priced: it reads only the pre-movement book and the year, so re-quoting
-  // would be a second version of a figure that cannot legitimately differ.
+  // ⚠ THIS QUOTE IS THE PRICE SIGNAL, NOT THE BILL. It is struck on the book as
+  // it stands before anyone joins or leaves, because that is the only book that
+  // exists when members decide, and it feeds rateChangePct / rateLoad below.
+  // What the pool actually buys is quoted again on the COVERED book after
+  // movement — see `towerQuote` there.
   const placedForCost = hasTractableCeded
     ? normalizeLayersPlaced(line as TowerLine, lineDecisions.layersPlaced)
     : null;
-  const towerQuote = estimatedQuote.towerQuote;
 
   const estimatedPremium = estimatedQuote.poolPremium;
   const estimatedTotalMemberRatePer100 = estimatedQuote.totalMemberChargeRatePer100;
@@ -978,6 +979,36 @@ export function processLineYear(
     ? memberResult.activeExposure
     : enrolledMembers.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
 
+  // ============================================================================
+  // ⚠ THE TOWER IS BOUGHT FOR THE BOOK IT COVERS — `enrolledMembers`, joiners in,
+  // leavers and declines out.
+  //
+  // It used to reuse the pre-movement quote. But the draw, the cession and the
+  // recovery all run on `enrolledMembers`, so a joiner was covered all year and
+  // priced for none of it. And the pool premium was netted only by the cession
+  // expected from the earlier book, so the pool collected a joiner's full GROSS
+  // premium while the reinsurer paid their claims for nothing. A leaver or a
+  // renewal decline was the mirror image: priced, and not covered.
+  //
+  // Nothing forces the bill to precede movement. Only the PRICE SIGNAL members
+  // respond to does, and that stays on the pre-movement quote (`estimatedQuote`
+  // above). Everything that prices or settles the cover reads `towerMembers`
+  // from here on: the occurrence premium and its cession credit, the gross-up's
+  // cession basis, the aggregate, the full-placement quote behind
+  // retainedCoverMargin, and the aggregate the recovery settles against.
+  //
+  // ⚠ AN UNCHANGED BOOK REUSES THE QUOTE IT ALREADY HAS, so a year in which
+  // nobody joins or leaves — every default year, intake closed and the renewal
+  // cut at 0 — is bit-identical to what shipped and pays for no second quote.
+  // "Unchanged" is the same members in the same order; anything else re-quotes.
+  // ============================================================================
+  const bookUnchanged = enrolledMembers.length === currentActiveMembers.length
+    && enrolledMembers.every((m, i) => m.id === currentActiveMembers[i].id);
+  const towerMembers = bookUnchanged ? currentActiveMembers : enrolledMembers;
+  const towerQuote = bookUnchanged || placedForCost === null
+    ? estimatedQuote.towerQuote
+    : occurrenceProgramCost(line as TowerLine, placedForCost, towerMembers, yearNumber);
+
   // ⚠ THE RATE IS RECOMPUTED ON THE POST-MOVEMENT BOOK, and with class rates it
   // genuinely differs from the quoted one. `newPurePremiumPer100` above is the
   // rate members were QUOTED — computed on the book as it stood before anyone
@@ -994,14 +1025,12 @@ export function processLineYear(
   // asserting the composition residual is exactly zero, which is the check that
   // only becomes possible once four rates are exact.
   //
-  // ⚠ THE CESSION BASIS IS THE MISMATCHED PAIR THE SUBTRACTION BELOW USES, AND
-  // THAT IS DELIBERATE. `towerQuote` is REUSED from the pre-movement quote and
-  // the aggregate is quoted on `currentActiveMembers`, while
-  // `expectedCededPer100` divides by the POST-movement `activeExposure`. The
-  // gross-up has to invert that exact combination, so it is handed the same
-  // one: pre-movement members, post-movement exposure. See CessionBasis.
+  // ⚠ THE CESSION BASIS IS THE PAIR THE SUBTRACTION BELOW USES: the covered
+  // book (`towerMembers`) and the post-movement `activeExposure`, which now
+  // describe the same members. The gross-up has to invert exactly that
+  // combination, so it is handed the same one. See CessionBasis.
   const pricedCession: CessionBasis = {
-    members: currentActiveMembers,
+    members: towerMembers,
     exposure: activeExposure,
     layersPlaced: lineDecisions.layersPlaced,
     aggregateStopLevel: lineDecisions.aggregateStopLevel,
@@ -1061,7 +1090,7 @@ export function processLineYear(
     : -1;
   const aggregateQuote = isAggregateLine && placedForCost && aggLevel >= 0
     ? quoteAggregate(
-        line as 'WC' | 'Property', placedForCost, currentActiveMembers,
+        line as 'WC' | 'Property', placedForCost, towerMembers,
         expectedLoss, aggLevel, yearNumber, aggregateTermsRetained,
       )
     : null;
@@ -1138,11 +1167,11 @@ export function processLineYear(
   // rate while the cover's value grew with the severity trend, and it applied
   // one book's SD/E to every book size. See towerMoments.ts.
   //
-  // The occurrence component is REUSED from above rather than recomputed: it
-  // reads only the pre-movement book and the year, so hoisting it to build the
-  // price signal did not change it. The aggregate is quoted once, just above,
-  // off the real post-movement expectedLoss, and both its premium and its
-  // expected ceded come from that single quote.
+  // The occurrence component is `towerQuote`, quoted on the COVERED book (see
+  // its header — the pre-movement quote is only the price signal). The
+  // aggregate is quoted once, just above, on the same book and off the real
+  // post-movement expectedLoss, and both its premium and its expected ceded
+  // come from that single quote.
   //
   // `hasTractableCeded` is exhaustive over CoverageLine today, so towerQuote
   // is never actually null — thrown rather than silently defaulted, so a
@@ -1170,7 +1199,7 @@ export function processLineYear(
   // See DECLINED_COVER_MARGIN_ENABLED for the defect this closes, the measured
   // drift in a long game, and the ledger field that would remove the drift.
   const fullTowerQuote = occurrenceProgramCost(
-    line as TowerLine, FULL_OCCURRENCE_PLACEMENT[line as TowerLine], currentActiveMembers, yearNumber,
+    line as TowerLine, FULL_OCCURRENCE_PLACEMENT[line as TowerLine], towerMembers, yearNumber,
   );
   const retainedCoverMargin = DECLINED_COVER_MARGIN_ENABLED
     ? Math.max(0, fullTowerQuote.premium - towerQuote.premium)
@@ -1701,7 +1730,7 @@ export function processLineYear(
       const quote = quoteAggregate(
         towerLine,
         placed,
-        currentActiveMembers,
+        towerMembers,
         expectedLoss,
         cededAggLevel,
         yearNumber,
