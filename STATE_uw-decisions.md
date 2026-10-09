@@ -53,6 +53,14 @@ succeeds and looks correct. Check `git remote -v` before any git operation.
 | 4 | `124f439` | Adverse selection on who applies (`APPLICANT_ADVERSE_SELECTION = 0.35`) | 3, for it to matter |
 | 5 | `772c4b7` | The renewal slider: non-renew the worst X% on the multi-year loss ratio | — |
 | 6 | `778326d` | The intake slider: a noisy inspection of risk quality (`INSPECTION_SIGMA = 2`) | 4 and 5 in the tree |
+| 5b | `12c5340` — narrow the renewal slider to 0-5% in 1% steps | `RENEWAL_CUT_STEPS` 0 / 1 / 2 / 3 / 4 / 5% | **5 — always with it, never without** |
+
+**5 and 5b are one change in two commits.** `772c4b7` was pushed with the range 0 / 2.5 / 5 / 7.5 / 10%.
+It was narrowed afterwards, in its own commit, rather than rewriting pushed history. **Picking `772c4b7`
+alone ships the old range.** Pick 5b in the same review as 5, every time. On this branch 5b comes after
+6 and renames the render baseline v21 → v22, and v21 is 6's file. So the clean order is 5, 6, 5b, with
+the render baseline recaptured on the target as usual. If 6 is not being picked, pick 5 and 5b together
+and recapture.
 
 **1 and 2 are fixes.** Satisfaction misjudged Property's price against the market, and the quote missed
 a term, so a pool that declined its tower read a phantom rate cut. Neither changes a default game.
@@ -72,7 +80,7 @@ does not change by choice. 6 reads `applicantWeight` / `applicantInclusion` (fro
 
 ## What each pick must show on the target
 
-- **The baselines are versioned by rename** (`RENDER_IDENTITY_v17` → `v21`, `VALUE_IDENTITY_v51`,
+- **The baselines are versioned by rename** (`RENDER_IDENTITY_v17` → `v22`, `VALUE_IDENTITY_v51`,
   `SOLO_EXPORT_GUARD_v53`). If the target's baseline versions differ, the rename will conflict.
   Recapture on the target and attribute every moved row again, rather than carrying the file across.
 - **1:** `market-conditions-check` green. Property's cushion is about −5% at Expected and crosses zero
@@ -88,6 +96,10 @@ does not change by choice. 6 reads `applicantWeight` / `applicantInclusion` (fro
   skew 0 reproduces the previous baseline.
 - **5:** values identical (the cut defaults to 0). Render: Decisions plus the underwriting memo.
   `renewal-stability-check` is restated for a share.
+- **5b:** values identical (the cut still defaults to 0). Render: 12 rows, the WC and GL Decisions pages
+  at y0 and y2, where the slider's range and right label changed. Control: the same tree with the old
+  steps reproduces the previous baseline. `renewal-stability-check` reads its strongest step from the
+  constant; only its comment about the 30% control's multiple changed.
 - **6:** values identical (intake defaults to 0). Render: Decisions plus the underwriting memo.
   `newBusinessAppetite.ts` is deleted, and `surface-privacy-check` watches `renewalUnderwriting.ts` in its
   place.
