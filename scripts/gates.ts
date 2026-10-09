@@ -131,6 +131,10 @@ const FAST: string[] = [
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
+  'property-mitigation-check',       //  33s   the mitigation DIAL: null arm against the ENGINE, the building
+                                     //         DOLLAR share on the attritional band, the full rate on a scheduled
+                                     //         winter storm (the first program to reach a shock), cat band and
+                                     //         the other two lines bit-identical at the dial's ceiling, 4 controls
   'prose-identifier-check',          //   3s   every code-shaped name in PLAYER-FACING prose exists in src; positive
                                      //         control inside. --comments lists the same over developer comments
                                      //         as a report, never a failure (246 names, mostly deliberate history)
@@ -330,6 +334,7 @@ const PROBES: Record<string, string> = {
   'basis-cross-check': "every quantity two or more places in the tree compute, on ONE sample, printed side by side with the basis named. ASSERTS NOTHING and must not: a tolerance would make it another gate with its own basis, which is the failure it exists to catch. Built after three green-but-mismatched results in one day — a ceded share reading 5.6% to 77.2% depending on which pairing you write, and triangle-check's 2.140 against terminal-severity-check's 2.29 [4s]",
   'wc-program-value': "what the WC safety & return-to-work program is worth — each lever alone at full effect on the enrolled book (where WC_RTW_CONVERSION_RATE is solved and the RTW tower share is read), then both levers on their ramps paired over five years, on the ultimate basis. A READING with no pass condition; the cost is not charged [65s at GAMES=96]",
   'gl-program-value': "what the GL analytics program is worth against its $1,000,000 placeholder cost — paired on seeds, program on against program off. A READING with no pass condition: whether a program is worth buying is a judgement, and the confinement claims are asserted by gl-program-check instead [150s]",
+  'property-mitigation-value': "what Property mitigation is worth at each setting of the risk-control dial — paired WHOLE GAMES through the engine at 1% to 5% of Property premium against 0%, so the reading carries the charge, the premium feedback and the forgone investment income rather than arithmetic on a redraw. Property SOLO, because the dial is pool-wide. STORM_YEAR=0 for a quiet book, AGG=0|1 to read the aggregate overlap. A READING with no pass condition; property-mitigation-check asserts the confinement [~600s at GAMES=48]",
   'open-share-derive': "derives TRIANGLE_OPEN_SHARE and asserts the identity that justifies it — cohort compounding against the per-claim mean-of-products, 0.9966 / 1.0000 / 1.0000. A GENERATOR, but one that exits non-zero if the curve stops reproducing the per-claim clock [25s]",
   'forward-booking-climb-report': "the climb against the development a cohort SHOULD have received by its age — the acceptance instrument for every forward-booking attempt, replacing a 3-observation statistic with an all-observation one. A READING with no threshold: the mechanism it measures is not built. Prints its own per-game sd and required sample every run. GAMES=112 resolves GL to +/-0.02 and costs ~4.5 min; the 24-game default costs 57s [57s]",
   'investment-dominance-report': 'underwriting against investment income, per line, with the implied return. A design reading with no threshold — see its header [12s]',

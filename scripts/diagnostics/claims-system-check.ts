@@ -213,8 +213,31 @@ console.log('\n--- 6. the tower: its share of the saving ---');
   // catastrophe is ONE occurrence carrying many claims, so a below-threshold
   // claim CAN sit inside an occurrence that pierces. Measured at 0.0% on a
   // default book and 0.6% with an earthquake scheduled into every game. The
-  // bound is 2%: comfortably above both, far below the 78.1% a frequency cut
-  // leaks, and tight enough that a genuine leak fails it.
+  // bound is 2%: comfortably above both, far below what a frequency cut leaks,
+  // and tight enough that a genuine leak fails it.
+  //
+  // ⚠ THE COMPARISON FIGURE HERE WAS 78.1% AND IT WAS WRONG. It arrived with
+  // this file, cited no script and no basis, and does not reproduce on any
+  // reading of "a frequency cut's leak" that could be reconstructed from the
+  // repository. It is replaced by a MEASURED figure on a STATED basis:
+  //
+  //   A uniform frequency cut removes whole occurrences at random, so the
+  //   tower's share of its gross saving is  1 - sum min(O, retention) / sum O
+  //   over the occurrences drawn, on the ULTIMATE basis (the tower against the
+  //   DRAWN occurrences, not the booked ones — wc-program-value's header has
+  //   why that distinction roughly doubles the apparent share if you get it
+  //   wrong). Measured over 20 games x 5 years per line, solo:
+  //
+  //     WC        $1M retention   48,371 occurrences   tower takes 26.35%
+  //     GL        $1M retention   31,813 occurrences   tower takes 46.07%
+  //     Property  $5M retention    8,806 occurrences   tower takes 28.01%
+  //
+  // GL is the line this comment was about and it leaks 46.07%. The point the
+  // sentence was making survives intact and is if anything clearer: a
+  // below-retention SEVERITY cut leaks ~0%, where a frequency cut on the same
+  // line gives nearly half its saving away. A number quoted with no instrument
+  // behind it is the failure scripts/tools/session-drivers/_shared.cjs was
+  // written to close, and this one was an instance of it.
   ok(Math.abs(towerShare) < 0.02,
     `the tower took ${(100 * towerShare).toFixed(2)}% of the saving, bound 2%`);
   console.log(`   ceded $${(cededOff / 1e6).toFixed(2)}M -> $${(cededOn / 1e6).toFixed(2)}M on a `

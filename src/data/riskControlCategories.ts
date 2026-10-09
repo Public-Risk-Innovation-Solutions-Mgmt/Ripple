@@ -24,21 +24,44 @@
 // changes the department page's text, which this engine change must not do;
 // see riskControlPrograms.ts for the real schedule.
 //
-// THE OTHER THREE ARE STILL DESCRIPTION ONLY. property-mitigation,
-// claims-management-system and member-services reach nothing;
-// WIRED_PROGRAM_IDS in riskControlPrograms.ts is the list that decides, and it
-// has two entries. Which of those a player can COMMIT from a tile is a separate
-// list, BUYABLE_PROGRAM_IDS; it has both, each with its own standing and charge.
+// ⚠ THE COUNT ABOVE IS STALE AND THE CORRECTION IS WORTH READING, BECAUSE THE
+// FOURTH PROGRAM IS NOT SHAPED LIKE THE FIRST THREE. FOUR of the five now reach
+// the engine: the claims system joined as a THIRD TILE, and property-mitigation
+// has joined as something else entirely.
 //
-// The older pool-wide control, SLIDER_RANGES.riskControlPct, still exists and is
-// still pinned at 0 with no UI behind it. It reaches the draw by a DIFFERENT
-// path — riskControlEffectiveness, which scales every line at once — so the two
-// mechanisms are independent and both are live in the arithmetic. A future
-// commit that retires riskControlPct should say which programs replace it.
+// ONLY member-services reaches nothing. WIRED_PROGRAM_IDS in
+// riskControlPrograms.ts is the list that decides for the TILE programs, and it
+// has three entries; which of those a player can COMMIT is a separate list,
+// BUYABLE_PROGRAM_IDS, which has the same three, each with its own standing and
+// charge.
 //
-// WHY IT SHIPS INERT. Risk control reaches the DRAW. Deleting the slider and
+// ⚠ property-mitigation IS IN NEITHER LIST, AND THAT IS THE POINT RATHER THAN AN
+// OVERSIGHT. It is not a tile. It is what the pool-wide dial,
+// SLIDER_RANGES.riskControlPct, now BUYS on Property: 0 to 8% of that line's own
+// pool premium, in 1% steps, taken from the loss fund rather than added to the
+// member's bill, buying a cut in BUILDING claim frequency that reaches scheduled
+// winter storms and does not reach catastrophes. The mechanism, the building
+// scaling and the measurements are in riskControlPrograms.ts under PROPERTY LOSS
+// PREVENTION & MITIGATION.
+//
+// So the sentence this replaces — "the two mechanisms are independent" — is no
+// longer true of Property. It is still true of WC and GL, where the dial does
+// what it always did. A future commit that retires riskControlPct must say what
+// replaces it ON PROPERTY, which is now a harder question than it was.
+//
+// ⚠ AND THE DIAL STILL HAS NO UI, SO NO PLAYER CAN BUY MITIGATION YET. It is
+// pinned at 0, nothing in the shipped game sets it, and both value baselines are
+// unmoved by this commit for exactly that reason. Exposing it is a separate
+// decision because the dial is POOL-WIDE: a slider on the Decisions page would
+// switch on WC's and GL's generic frequency discount at the same time, and those
+// two have tile programs of their own that overlap it. This commit builds what
+// the dial does on Property and leaves when a player may touch it to the commit
+// that answers that.
+//
+// WHY THE TILES SHIPPED INERT, kept because it is still the rule for the
+// remaining one: risk control reaches the DRAW. Deleting the slider and
 // replacing it with boxes that do nothing would remove a working lever and move
-// both value baselines for what is, this commit, a display change. Instead the
+// both value baselines for what is, that commit, a display change. Instead the
 // slider keeps working and keeps spending while these boxes are rearranged; ONE
 // later commit swaps the spend across and removes the slider, and no commit in
 // between has to put a lever back.
@@ -223,6 +246,26 @@ export const RISK_CONTROL_CATEGORIES: readonly RiskControlCategory[] = [
     status: 'scoped',
   },
   {
+    // ⚠ WIRED, BUT NOT AS A TILE — see the header. This row describes a program
+    // whose intensity is a DIAL (riskControlPct), so `commitmentYears` and
+    // `renewal` describe nothing the engine does: there is no term to commit to
+    // and nothing to renew, only a percentage set each year. They are left as
+    // they were because this file is the department page's TEXT and changing
+    // them changes what a player reads; the engine has never looked at either.
+    //
+    // `benefit: 'immediate'` is the one field here that is now exactly right.
+    // Mitigation has no ramp: the dial's own lag (RISK_CONTROL_PARAMS, three
+    // years to full effect with a 20% annual decay) is what makes spending it a
+    // question about horizon, and that lag is a property of the dial rather
+    // than of this program.
+    //
+    // ⚠ `status` MOVED FROM 'placeholder' TO 'scoped' AND THAT IS NOT A CLAIM
+    // ABOUT WIRING. `member-services` is already 'scoped' and reaches nothing,
+    // so the field has never meant "wired" — WIRED_PROGRAM_IDS is the list that
+    // says that, and this program is in neither list because it is not a tile.
+    // Nothing reads `status` at all: it appears in this file's type and its five
+    // literals and nowhere else, which is also why changing it cannot move the
+    // render baseline.
     id: 'property-mitigation',
     name: 'Property Loss Prevention & Mitigation',
     tileName: 'Property Mitigation',
@@ -230,7 +273,7 @@ export const RISK_CONTROL_CATEGORIES: readonly RiskControlCategory[] = [
     commitmentYears: 2,
     renewal: 'opt-out',
     benefit: 'immediate',
-    status: 'placeholder',
+    status: 'scoped',
   },
   {
     id: 'claims-management-system',

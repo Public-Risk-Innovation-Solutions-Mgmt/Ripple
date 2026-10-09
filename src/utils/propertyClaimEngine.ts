@@ -40,7 +40,7 @@ import { deriveSubRng } from './random';
 import { PROPERTY_CAT_EARTHQUAKE, PROPERTY_CAT_MODEL, PROPERTY_LOSS_MODEL } from '../data/defaultAssumptions';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
 import { CAT_REGIONS, catLossIfHit, expectedPropertyCatLoss, memberExpectedCatLoss } from './propertyCatastrophe';
-import { claimsSystemAdjusted } from './riskControlPrograms';
+import { claimsSystemAdjusted, propertyMitigation } from './riskControlPrograms';
 
 const M = PROPERTY_LOSS_MODEL;
 const LINE: CoverageLine = 'Property';
@@ -359,23 +359,28 @@ export interface PropertyGenerationResult {
 
 export function generatePropertyClaims(inputs: PropertyGenerationInputs): PropertyGenerationResult {
   const { members, yearNumber, calendarYear, instanceSeed, kPr, riskControlEffectiveness } = inputs;
-  const rcFactor = Math.max(0, 1 - riskControlEffectiveness);
   const sevCut = inputs.programSeverityReduction ?? 0;
 
-  // ⚠ ACCEPTED SIMPLIFICATION, RECORDED SINCE VEHICLES WERE FOLDED IN: rcFactor
-  // discounts ONE frequency lambda that now generates both building and
-  // vehicle claims indiscriminately. Property Mitigation (roofs, water
-  // detection, wind bracing) cannot reduce a fleet's collision or theft
-  // frequency — physically, it targets none of the auto share of this line —
-  // but there is no separate auto/building split in this generator for the
-  // discount to respect, so it applies uniformly today regardless. IF the
-  // buildings-only frequency (2.81/$1B TIV) is still the building component
-  // inside the vehicle-inclusive 5.01, vehicles are ~44% of frequency
-  // ((5.01-2.81)/5.01) — a bigger share than "roughly a third", though both
-  // are the same qualitative point: a substantial share of what this line now
-  // generates is immune to the only program built to reduce it. Not fixed
-  // here — fixing it needs a real auto/building split this generator does not
-  // have.
+  // ============================================================================
+  // PROPERTY MITIGATION. The rate is riskControlEffectiveness — the pool-wide
+  // risk-control dial, which on THIS line means a cut in BUILDING claim
+  // frequency. The two multipliers and the whole argument for them are in
+  // propertyMitigation(); this is the only place either is read.
+  //
+  // ⚠ THE OLD `rcFactor = 1 - riskControlEffectiveness` IS GONE, AND THE
+  // DIFFERENCE IS THE POINT. It discounted one lambda that generates both
+  // building and vehicle claims indiscriminately, so a "5% mitigation program"
+  // removed 5% of the fleet's collisions too. The attritional multiplier now
+  // carries the building DOLLAR share, so the rate means what it says.
+  //
+  // ⚠ AT e = 0 BOTH MULTIPLIERS ARE EXACTLY 1 AND NOTHING MOVES. riskControlPct
+  // defaults to 0 and nothing in the shipped game sets it, so every baseline
+  // draws bit-identically — including the weather path below, where `count`
+  // reduces to the raw draw. That is what makes the null arm provable rather
+  // than merely likely, and property-mitigation-check proves it.
+  // ============================================================================
+  const mitigation = propertyMitigation(riskControlEffectiveness);
+  const rcFactor = mitigation.attritionalMultiplier;
 
   const claims: Claim[] = [];
   const occurrences: Occurrence[] = [];
@@ -504,13 +509,38 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
   // touched. The member is drawn in proportion to insured value from the
   // region's enrolled book IN id ORDER, so a roster reordering moves nothing;
   // who is enrolled still decides who CAN be hit, as for a forced event.
+  //
+  // ==========================================================================
+  // ⚠ MITIGATION REACHES THIS EVENT, AND IT IS THE FIRST PROGRAM TO REACH ANY
+  // SCHEDULED SHOCK. A hardened roof does not leak. A winter storm is ice, snow
+  // load and burst pipes on BUILDINGS — no vehicle share at all — so it takes
+  // the FULL mitigation rate rather than the attritional band's building-dollar
+  // scaling. See propertyMitigation() for why the two differ.
+  //
+  // ⚠ EVERY TEAM FACES THE SAME STORM; A TEAM THAT MITIGATED FILES FEWER
+  // CLAIMS. That is intended, and it is a change in kind for the shock system:
+  // a scheduled event used to be a fact about the year, identical for everyone.
+  // It still arrives identically — the COUNT DRAW is untouched — and what the
+  // pool did about it decides how much of it lands.
+  //
+  // ⚠ SCALED AFTER THE DRAW, NOT BEFORE, AND THAT IS WHAT KEEPS IT HONEST. The
+  // count uniform is consumed first and is unchanged, so the mitigated book
+  // keeps a strict PREFIX of the claims the unmitigated book would have had:
+  // claim n's member and size are keyed on n, so claims 0..count-1 are the SAME
+  // claims. Mitigation removes losses that would have happened; it does not
+  // reshuffle the storm into a different one. It also consumes no randomness,
+  // so at e = 0 the round() is the identity and the year is bit-identical.
   // ==========================================================================
   const weatherEvents = inputs.weatherEvents ?? [];
   const weatherPlan = new Map<string, { event: number; n: number; loss: number }[]>();
   const weatherEventResults: { shockId: string; claims: number; gross: number }[] = [];
   weatherEvents.forEach((we, ev) => {
     const countRng = deriveSubRng(instanceSeed, yearNumber, `pr_weather:${we.shockId}`);
-    const count = we.count.min + Math.floor(countRng.next() * (we.count.max - we.count.min + 1));
+    const drawnCount = we.count.min + Math.floor(countRng.next() * (we.count.max - we.count.min + 1));
+    // round(), not floor(): floor would bias the program upward by half a claim
+    // on every event, which on an 80-120 claim storm is a ~0.5% free saving the
+    // rate never paid for. The identity at e = 0 holds either way.
+    const count = Math.round(drawnCount * mitigation.weatherMultiplier);
     const book = members
       .filter(m => m.region === we.region && (m.exposureByLine.Property ?? 0) > 0)
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

@@ -5546,8 +5546,17 @@ export const PROPERTY_PURE_PREMIUM_SPLIT = { nonCatDerived: 0.2100, catDerived: 
 //   - kPr and risk quality. The cat loss has no RQ term, so there is nothing
 //     for the RQ-mix correction to correct.
 //   - risk control. Property Mitigation discounts the attritional frequency
-//     only. Whether it should touch cat damage is a design question this
-//     commit does not answer.
+//     only. ⚠ "Whether it should touch cat damage is a design question this
+//     commit does not answer" — IT IS ANSWERED NOW, AND THE ANSWER IS NO, on a
+//     measurement rather than a preference. A catastrophe is ONE occurrence
+//     carrying many claims and it is enormous: measured over 300 Property
+//     line-years, 20 cat occurrences averaging $78.5M, of which the pool keeps
+//     6.37% and the tower takes 93.63%. So a seismic retrofit buys the pool
+//     about six cents in the dollar and the reinsurer the rest. The attritional
+//     band keeps 75.25% and a scheduled winter storm keeps 100.00%, which is
+//     where the program was pointed instead. See PROPERTY LOSS PREVENTION &
+//     MITIGATION in riskControlPrograms.ts; property-mitigation-check asserts
+//     this band stays bit-identical at the dial's ceiling.
 export const PROPERTY_CAT_MODEL = {
   eventsPerYear: 0.08412,
   regionWeights: { North: 0.3523, Central: 0.3384, South: 0.3093 },

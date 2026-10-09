@@ -965,3 +965,193 @@ export function claimsSystemAdjusted(line: CoverageLine, drawn: number, reductio
   if (!(drawn < CLAIMS_SYSTEM_THRESHOLD[line])) return drawn;
   return drawn * (1 - reduction);
 }
+
+// ============================================================================
+// PROPERTY LOSS PREVENTION & MITIGATION — THE FOURTH PROGRAM, AND THE FIRST ONE
+// THAT IS A DIAL RATHER THAN A TILE.
+//
+// ⚠ IT IS NOT A NEW MECHANISM. IT IS WHAT riskControlPct ALREADY BOUGHT, GIVEN
+// PROPERTY'S MEANING. The pool-wide risk-control dial — 0 to 8% of each line's
+// own pool premium, in 1% steps, charged through riskControlInvestment, taken
+// FROM the loss fund rather than added to the member's bill — has always
+// multiplied Property's ATTRITIONAL lambda through
+// `rcFactor = 1 - riskControlEffectiveness`. It has been pinned at 0 with no UI
+// since before the tiles existed.
+//
+// So nothing here invents a spend channel, a cost basis or a frequency channel.
+// What it adds is the three things that make that multiplier MEAN "mitigation"
+// rather than "a generic discount on Property":
+//
+//   1. IT IS A BUILDING PROGRAM, SO IT IS SCALED TO BUILDINGS (below).
+//   2. IT REACHES SCHEDULED WINTER STORMS, which no program has ever reached.
+//   3. IT DOES NOT REACH CATASTROPHES, which is structural rather than enforced.
+//
+// ⚠ AND THE DIAL STAYS POOL-WIDE. riskControlPct is projected into every line at
+// processYear entry, so a pool that sets it to 3% spends 3% of EACH line's
+// premium and gets each line's own interpretation. This commit changes what
+// Property does with it and leaves WC and GL exactly as they were. The catalog's
+// `property-mitigation` row is therefore NOT added to BUYABLE_PROGRAM_IDS: a
+// tile commits a program at one intensity, and this program's whole decision IS
+// its intensity. It is the first of the five to take the slider form the other
+// four are headed for.
+//
+// ============================================================================
+// ⚠ 1. ON BUILDINGS, NOT ON THE LINE — AND THE GENERATOR HAS NO SPLIT TO HANG
+// THAT ON, SO THE SCALING IS WHERE THE DISTINCTION LIVES. READ THIS BEFORE
+// CHANGING THE CONSTANT.
+//
+// Property covers buildings AND the fleet; there is no separate auto line.
+// Sprinklers, roof inspections, water detection and wind bracing cannot reduce a
+// collision or a theft. propertyClaimEngine has recorded that as an accepted
+// simplification since vehicles were folded in: ONE lambda generates both, and
+// `rcFactor` discounted all of it indiscriminately.
+//
+// THE TWO FACTS, AND THEY COME FROM DIFFERENT WINDOWS — stated because a reader
+// will otherwise assume one source:
+//
+//   BY COUNT, from the frequency RE-CALIBRATION (three developed and trended
+//     years): buildings-only frequency 0.00281 per $1M TIV against the
+//     vehicle-inclusive 0.00502, so vehicles are (5.02-2.81)/5.02 = 44.0% of
+//     claims and buildings are 56.0%.
+//   BY DOLLARS, from the nine-year FIT provenance (1,822 claims, 2015-16 to
+//     2023-24): "VCL is auto physical damage: 51% of claims but 5.5% of
+//     dollars". So buildings are 94.5% of dollars.
+//
+// The count shares disagree between the windows (44% and 51%) and that is a real
+// difference between two samples, not an error in either. ONLY THE DOLLAR SHARE
+// IS USED BELOW, so the disagreement does not propagate — but a later reader
+// deriving the dollar share FROM the count share would be mixing the windows,
+// and the number they got would be wrong.
+//
+// ⚠ WHY A DOLLAR SCALING AND NOT A COUNT ONE. The model cannot remove a BUILDING
+// claim, because it cannot tell one from a vehicle claim: the recalibration
+// collapsed both into a single mixture by shifting every mu by the same amount.
+// What it CAN do is remove the right number of DOLLARS. A program that cuts
+// building frequency by e removes e x 94.5% of Property's dollars in the real
+// book, so the multiplier on the blended lambda is
+//
+//     1 - e x PROPERTY_MITIGATION_BUILDING_DOLLAR_SHARE
+//
+// and e means WHAT IT SAYS: the reduction in BUILDING claim frequency.
+//
+// ⚠ THE TWO WAYS OF GETTING THIS WRONG, BOTH MEASURED, BECAUSE BOTH LOOK
+// REASONABLE. Applying e to the whole lambda unscaled over-credits the program
+// by 1/0.945 = 5.8% — small, and it is the error this scaling removes. Applying
+// e x 0.560 (the COUNT share, "only 56% of claims are reachable") under-credits
+// it by 0.945/0.560 = 1.69x, which at the sizing measured for this program is
+// the difference between clearing its cost and losing by a third. The count
+// share is the intuitive answer and it is the badly wrong one, because the
+// vehicle claims it protects are 44% of the model's COUNT but 5.5% of the real
+// book's DOLLARS.
+//
+// ⚠ WHAT IS STILL WRONG, IN A KNOWN DIRECTION AND SMALL. The dollars removed are
+// right; the claims removed are drawn from the BLENDED severity mixture, so the
+// program removes a claim of every size with equal probability where a real
+// building program would remove building claims, whose mean is about 13x a
+// vehicle claim's ($0.712M against $0.053M, implied by the two shares above).
+// The TOTAL is right and the MIX is not. It cannot be fixed here: fixing it
+// needs a real auto/building split in the generator, which is the same thing
+// propertyClaimEngine's note has been asking for.
+// ============================================================================
+
+// ============================================================================
+// ⚠ WHAT IT IS WORTH, MEASURED, AND THE STORM IS THE WHOLE ANSWER.
+//
+// property-mitigation-value.ts, 40 games x 5 years, Property SOLO (the dial is
+// pool-wide, so a three-line game would read two other programs at once),
+// paired on seeds, the dial set against the dial at zero. The engine CHARGES,
+// so these are NET: benefit, charge, premium feedback and the investment income
+// the spent money no longer earns, together.
+//
+//   NET ENDING SURPLUS vs a pool that spent nothing, $M
+//
+//   spend    QUIET BOOK          BOOK WITH ONE STORM      ... AND AN AGGREGATE
+//            yr 3     yr 5       yr 3     yr 5            yr 3     yr 5
+//     1%    -0.44   -0.20       +0.01   +0.17            -0.67   -0.40
+//     3%    -1.03   +0.06       +0.27   +1.23  t=2.2     -1.33   -0.07
+//     5%    -1.74   -0.15       +0.45   +1.86  t=2.5     -2.19   -0.32
+//
+// THREE YEARS IT DOES NOT PAY. FIVE YEARS IT PAYS, AND ONLY IF A STORM COMES.
+// That shape is the one WC_RTW_TARGET_REDUCTION was deliberately sized for and
+// the claims system failed to reach: committing is a judgement about horizon and
+// about exposure, not an obvious yes. Nobody tuned it to land there — the rate
+// comes from RISK_CONTROL_PARAMS, which is older than this program, and the
+// building share comes from the fit. It is where the existing curve happens to
+// sit, which is worth saying because a sized-to-taste program would be less
+// defensible than one that was measured and left alone.
+//
+// WHERE THE MONEY GOES, 5 years at 5%, storm book, per game:
+//   gross avoided $13.97M -> pool keeps $12.14M (the tower took 13.1%, diluted
+//   from the attritional band's 24.75% by the storm's 0%) -> members are charged
+//   $1.94M less through the experience triangle -> $8.21M spent -> +$1.86M net.
+//   The premium giveback is NOT a leak; it is the experience channel doing its
+//   job, exactly as WC's program records.
+//
+// ⚠ AND THE AGGREGATE STOP CANCELS IT ALMOST EXACTLY. This is intended and it is
+// the sharpest thing about the design, so it is measured rather than described.
+// The aggregate attaches to a multiple of the PRICED expected retained loss and
+// this program is draw-only, so mitigation lowers the DRAW and leaves the
+// ATTACHMENT where it was: in any year the aggregate is in the money and below
+// its limit, a retained dollar removed is a recovery dollar not received.
+// Measured in the storm year, 1.49x level:
+//
+//   spend     storm gross   attritional   AGGREGATE RECOVERY
+//     0%      $30.441M      $38.449M      $8.353M
+//     3%      $29.050M      $37.503M      $6.756M
+//     5%      $28.087M      $36.652M      $5.709M
+//
+// At 5% the year loses $4.15M of gross and $2.64M of aggregate recovery with it
+// — 64% of the gross saving, and essentially 100% of the RETAINED saving, since
+// that is the quantity the aggregate sits on. $2.64M against a program worth
+// $1.86M over the whole game: a pool holding the upper aggregate gives the
+// entire mitigation benefit to the reinsurer and a little more.
+//
+// THAT IS THE RIGHT ANSWER, NOT A DEFECT. A pool that hardens its buildings
+// needs less aggregate cover, and the two are substitutes a real risk manager
+// would recognise. What the engine does NOT do is tell the player, because the
+// attachment is priced off an expectation the program never enters — so the
+// pool pays the unmitigated price for a layer it has made less useful. If that
+// ever needs fixing, the fix is to let pricing see the program, and that moves
+// all four: riskControlEffectiveness has been draw-only since before any of them
+// existed (see the GL header's "DRAW ONLY, LIKE RISK CONTROL AND SHOCKS").
+// ============================================================================
+
+/**
+ * Buildings' share of Property's loss DOLLARS. The scaling that makes the
+ * mitigation rate mean "a cut in BUILDING claim frequency" on a generator that
+ * cannot tell a building claim from a vehicle one. See the header — in
+ * particular, do NOT replace this with the 56% count share.
+ */
+export const PROPERTY_MITIGATION_BUILDING_DOLLAR_SHARE = 0.945;
+
+/**
+ * The multipliers Property's generator applies for a mitigation rate `e`
+ * (riskControlEffectiveness on this line).
+ *
+ * ⚠ TWO MULTIPLIERS FROM ONE RATE, AND THE DIFFERENCE IS NOT A FUDGE. The
+ * attritional band is 44% vehicles by count; a scheduled winter storm is ice,
+ * snow load and burst pipes, which is 0% vehicles. The same program therefore
+ * removes a DIFFERENT share of each band's dollars, and a single multiplier
+ * across both would have to be wrong on one of them. A hardened roof does not
+ * leak, so the storm takes the full rate.
+ *
+ * ⚠ THE CATASTROPHE BAND TAKES NEITHER, AND NOT BY OMISSION. The cat band, the
+ * forced-catastrophe path and their per-member hit draws never read any
+ * mitigation factor, so there is nothing to exclude them from. That is the
+ * measurement behind the decision: the pool keeps 6.37% of a catastrophe saving
+ * and the tower takes 93.63%, so a seismic retrofit is a gift to the reinsurer.
+ * (Attritional: pool keeps 75.25%. Scheduled weather: pool keeps 100.00% —
+ * every claim is its own occurrence and none reaches the $5M retention.)
+ * property-mitigation-check asserts the cat band is untouched rather than
+ * trusting that no future edit will wire it in.
+ */
+export function propertyMitigation(effectiveness: number): {
+  attritionalMultiplier: number;
+  weatherMultiplier: number;
+} {
+  const e = Math.max(0, Math.min(1, effectiveness));
+  return {
+    attritionalMultiplier: Math.max(0, 1 - e * PROPERTY_MITIGATION_BUILDING_DOLLAR_SHARE),
+    weatherMultiplier: Math.max(0, 1 - e),
+  };
+}
