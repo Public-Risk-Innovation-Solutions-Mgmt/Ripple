@@ -1884,9 +1884,29 @@ export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
   // 0.47 is what "the same safety on every line" costs in starting capital once
   // the denominator is each line's own requirement rather than its premium. An
   // even-looking set of pins would mean an uneven set of openings.
-  WC: 1.1701,
-  GL: 0.5747,
-  Property: 0.4652,
+  // ⚠ RE-SOLVED AT ZERO RISK LOAD — the sixth re-solve, and the first caused by
+  // a REINSURANCE PRICE rather than by the opening's own definition. Cheaper
+  // cover is a smaller member charge, so the pre-game accumulates less surplus
+  // over its ten years and the candidate distribution slid off the band:
+  // opening-centring-check read the unfiltered median at 1.70-1.77 against a
+  // 2.28 midpoint, -59% to -63% of band width and about 20 SE, with 53-55% of
+  // candidates below the band. THE BAND DID NOT MOVE — 2.28x is still the
+  // design intent — only the pin.
+  //
+  //   line        pin
+  //   WC       1.1701 -> 1.5211
+  //   GL       0.5747 -> 0.7184
+  //   Property 0.4652 -> 0.6280
+  //
+  // ⚠ AND THE ACCEPTED SAMPLE DID NOT SHOW THIS, WHICH IS WHY THE GATE READS THE
+  // UNFILTERED ONE. Measured on accepted openings the multiple barely moved —
+  // 2.25x to 2.24x — because the band filters the survivors into itself however
+  // far the underlying distribution has drifted. The cost appears in ATTEMPTS
+  // (2.86 -> 3.31) and then, nonlinearly, in acceptance failing altogether. A
+  // reading taken after the filter cannot see a pin going wrong.
+  WC: 1.5211,
+  GL: 0.7184,
+  Property: 0.6280,
 };
 
 // Pre-game acceptance band: the line's Year-1 opening surplus must land within

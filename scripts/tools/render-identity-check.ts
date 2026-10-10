@@ -400,7 +400,30 @@ const BASELINE = process.env.RENDER_BASELINE
 //
 //   Otherwise nothing with words moved and everything with a number did. That
 //   is the shape to expect from a change that moves values and no layout.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v18.json');
+// ⚠ v18 -> v19: ZERO RISK LOAD, AND THE OPENING PIN THAT FOLLOWED IT.
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT, as it must before any diff is
+// read: b35dbe2 built into its own worktree, served on :4174, checked against
+// the COMMITTED v18 and reproducing ALL 298 FINGERPRINTS IDENTICAL. Only then
+// was the working tree built on :4173 and diffed against that same v18.
+//
+// 248 of 298 moved. NOTHING WAS ADDED, REMOVED OR RENAMED — 0 added, 0 removed,
+// and every changed token across all 248 rows is a number, a price string or a
+// re-sort. Attributed by dumping the text of both sides (RENDER_TEXT_DIR) and
+// diffing them word by word:
+//   - layer prices fall by the load and nothing else: GL $1M xs $1M
+//     $8,701,773/yr -> $6,076,014/yr, $5M xs $5M $4,034,744 -> $2,180,750,
+//     WC tower $7,720,692 -> $3,364,339, Property quake $36,025,249 ->
+//     $15,854,274. Higher layers fall further, which is the load being
+//     proportional to the cession's spread.
+//   - TOTAL MEMBER CHARGE falls with them (GL y0 $42.48M -> $34.89M).
+//   - surplus moves in BOTH directions (WC y2 $21.50M -> $19.69M, GL y2
+//     $35.83M -> $36.38M) because the opening book re-rolled when the pin moved.
+//   - Membership is a PURE REORDER. All 26 of those rows have a word-for-word
+//     identical multiset; the roster sorts on a value that moved.
+//   - the 50 rows that did NOT move are exactly the five department memo panes
+//     across all 5 configurations and both years — static prose, no numbers.
+//     That they held is the evidence the capture is value-only.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v19.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

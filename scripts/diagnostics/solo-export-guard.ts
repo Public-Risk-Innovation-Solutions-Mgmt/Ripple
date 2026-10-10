@@ -573,7 +573,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // opening book itself re-rolled because the acceptance band changed. Read with
 // value-identity v52, whose note carries the isolating test and the correction
 // to b9d797e's -7.7%.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v54.json');
+// ⚠ v54 -> v55: ZERO RISK LOAD AND THE PIN THAT FOLLOWED IT. All 24 move, for
+// VALUE reasons only — no row added, removed or renamed. Every workbook carries
+// reinsurance cost and the member charge, and the opening book re-rolled because
+// the pin moved. Read with value-identity v53, whose note carries the measured
+// reason declining still wins.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v55.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
