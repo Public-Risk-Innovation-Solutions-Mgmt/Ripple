@@ -31,7 +31,7 @@ import {
   memberValueRows, potBounds, potSplit, potTotals, potsAreExhaustive,
 } from '../../src/utils/memberValue';
 import { MARKET_TARGET_LOSS_RATIO } from '../../src/utils/marketConditions';
-import { TOWER_TOP } from '../../src/data/reinsuranceTower';
+import { TOWER_TOP, RISK_LOAD_LAMBDA } from '../../src/data/reinsuranceTower';
 import type {
   Claim, CoverageLine, DecisionSet, GameState, LineResultSet, MemberPremiumShare,
 } from '../../src/types/simulation';
@@ -239,12 +239,28 @@ const defaultsValue = new Map<CoverageLine, number>();
         + `the satisfaction level term must not hold two different opinions of what a carrier charges.`);
     }
     // The reinsurer's benchmark is E[ceded]/premium and the tower is priced at
-    // E + lambda.SD with lambda 0.60, so it MUST sit below 1 — a reinsurer that
-    // expected to pay out its whole premium would be running a charity.
-    if (!(m(x => x.reinsurerBenchmark) > 0 && m(x => x.reinsurerBenchmark) < 1)) {
+    // E + lambda.SD, so WHERE IT MUST SIT DEPENDS ON LAMBDA and the check reads
+    // the constant rather than assuming a value. At a positive load it must sit
+    // strictly below 1 — a reinsurer that expected to pay out its whole premium
+    // would be running a charity. At lambda 0 that charity is exactly what is
+    // being bought on purpose, so the ratio must be exactly 1.000.
+    //
+    // ⚠ NOT WIDENED TO (0, 1]. That would be worse than either branch: it would
+    // pass at zero load AND pass if the load mechanism silently died at a
+    // non-zero lambda, which is the one failure this assertion exists to catch.
+    // Same treatment as reinsurance-tower-check S3 and funding-basis-check S6.
+    const benchmark = m(x => x.reinsurerBenchmark);
+    if (RISK_LOAD_LAMBDA > 0) {
+      if (!(benchmark > 0 && benchmark < 1)) {
+        failures.push(`${line}: the reinsurer's implied loss ratio reads `
+          + `${benchmark.toFixed(3)}, outside (0, 1). It is expectedCeded over the `
+          + `quoted premium and the quote carries a positive risk load (lambda `
+          + `${RISK_LOAD_LAMBDA}), so it cannot reach 1.`);
+      }
+    } else if (!(Math.abs(benchmark - 1) < 1e-9)) {
       failures.push(`${line}: the reinsurer's implied loss ratio reads `
-        + `${m(x => x.reinsurerBenchmark).toFixed(3)}, outside (0, 1). It is expectedCeded over the `
-        + `quoted premium and the quote carries a positive risk load, so it cannot reach 1.`);
+        + `${benchmark.toFixed(6)} at lambda 0, where every layer is priced at 1x its `
+        + `expected cession, so it must be exactly 1.000.`);
     }
   }
 }
