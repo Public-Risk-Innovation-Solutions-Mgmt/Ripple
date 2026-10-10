@@ -56,6 +56,7 @@ succeeds and looks correct. Check `git remote -v` before any git operation.
 | 5b | `12c5340` — narrow the renewal slider to 0-5% in 1% steps | `RENEWAL_CUT_STEPS` 0 / 1 / 2 / 3 / 4 / 5% | **5 — always with it, never without** |
 | 6b | `fd3fe07` — intake as one four-position slider, a bar and a cap per position | No New Business / Strict / Moderate / Low; Low's cap is `MAX_NEW_MEMBER_SHARE` | **6 — always with it, never without** |
 | 7 | `4965bce` — bill the tower on the book it covers: joiners in, leavers out | Re-quotes the tower, cession credit and aggregate on the post-movement book | — (a fix; stands alone) |
+| 8 | `66f1b12` — steepen how risk quality drives losses, re-centred | WC 2x freq + sev; GL 3.5x freq, 1x sev; Property 1x | after 6b (baseline renames) |
 
 **5 and 5b are one change in two commits.** `772c4b7` was pushed with the range 0 / 2.5 / 5 / 7.5 / 10%.
 It was narrowed afterwards, in its own commit, rather than rewriting pushed history. **Picking `772c4b7`
@@ -81,6 +82,15 @@ position (0.5-0.8% at Strict, 1.0-1.6% at Low). The defect undercharged members,
 because the triangle funds the pool on a net rate and the cession credit cancels inside the
 gross-up.
 
+**8 steepens risk quality so a member's loss ratio persists.** Split-half reliability goes from 0.07 / 0.03
+to 0.28 on both WC and GL, and the 5% renewal cut now cleans the book (cost −21% on both lines) instead of
+removing unlucky members. GL steepens frequency only, because a steeper GL severity tilt broke the real
+pool's 2.29 settled-claim anchor (`terminal-severity-check`). Each line is re-centred on the fixed
+marketplace's mean, so an average member stays average and the RQ-5 rate card (the pure premium) does not
+move. It renames all three baselines: value v51 → v52 and solo export v53 → v54 (both 3's files), render
+v23 → v24 (6b's file). So pick it **after 6b**, and recapture on the target. It also raises
+`member-experience-mod-check` to 24 games; that gate's runtime goes from 31s to about 2 minutes.
+
 **1 and 2 are fixes.** Satisfaction misjudged Property's price against the market, and the quote missed
 a term, so a pool that declined its tower read a phantom rate cut. Neither changes a default game.
 
@@ -99,8 +109,8 @@ does not change by choice. 6 reads `applicantWeight` / `applicantInclusion` (fro
 
 ## What each pick must show on the target
 
-- **The baselines are versioned by rename** (`RENDER_IDENTITY_v17` → `v23`, `VALUE_IDENTITY_v51`,
-  `SOLO_EXPORT_GUARD_v53`). If the target's baseline versions differ, the rename will conflict.
+- **The baselines are versioned by rename** (`RENDER_IDENTITY_v17` → `v24`, `VALUE_IDENTITY_v52`,
+  `SOLO_EXPORT_GUARD_v54`). If the target's baseline versions differ, the rename will conflict.
   Recapture on the target and attribute every moved row again, rather than carrying the file across.
 - **1:** `market-conditions-check` green. Property's cushion is about −5% at Expected and crosses zero
   inside the slider. `member-satisfaction-check` carries Property [5, 10] as an accepted breach (see its
@@ -128,7 +138,13 @@ does not change by choice. 6 reads `applicantWeight` / `applicantInclusion` (fro
 - **7:** values, solo exports and render all identical (nobody joins or leaves at defaults).
   `market-conditions-check` carries GL and Property as ACCEPTED_BREACH in section 5, inverted: the fix
   took the joiner-count jitter out of an intake-open pool's rate (GL 3.25% -> 2.45%, Property
-  3.05% -> 1.92%, under a ~2.9% benchmark). Revisit when satisfaction drives departures. Control:
+  3.05% -> 1.92%, under a ~2.9% benchmark). Revisit when satisfaction drives departures.
+- **8:** every value downstream of WC and GL losses moves; Property's never does. Value: 15,705 values across
+  81 fields. Solo export: 18 of 24, all six Property-solo identical. Render: 232 of 298, every screen of every
+  configuration holding WC or GL, except the Investment and Risk Control documents. Control: the parent
+  reproduces the previous render baseline. The opening roster differs in about half the games on WC and GL,
+  because the pre-game's opening band accepts a different attempt (mean 6.2 → 7.7). Check the marketplace's
+  average cost against the RQ-5 card: WC 1.036483 and GL 1.029397, unchanged. Control:
   the parent built separately reproduces the same 298. Check on the target with intake open: pool
   premium unchanged to float noise, reinsurance cost up by roughly the joiners' share.
 
