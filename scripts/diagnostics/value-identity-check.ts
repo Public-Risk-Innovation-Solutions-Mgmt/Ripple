@@ -874,7 +874,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the first line of a loop and labelled it the pool. The pool opened at +97.6%,
 // nearly DOUBLE its requirement. The same bug produced that message's -12.9% and
 // +41.3%; the pool figures are +97.6%, +159% and +159%.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v52.json');
+// ⚠ v52 -> v53: THE REINSURANCE RISK LOAD GOES TO ZERO, AND THE OPENING PIN
+// FOLLOWS IT. Every layer on every line is priced at 1x its expected cession, so
+// reinsuranceCost, totalMemberCharge, retainedCoverMargin and everything
+// downstream of them moves in every game. The pin moved too — cheaper cover is a
+// smaller member charge, so the pre-game accumulates less surplus and the
+// candidate distribution slid 60% of a band width off centre. The BAND did not
+// move; 2.28x of required capital is still the design.
+//
+// ⚠ WHAT THIS CAPTURE DOES NOT CONTAIN, STATED SO IT IS NOT INFERRED: declining
+// cover still WINS. Zero load halves its advantage and does not reverse it —
+// WC full $29.3M against none $71.8M, GL $38.3M against $144.5M, Property $45.0M
+// against $121.7M. The residue is not the load: at lambda 0 a fully covered pool
+// pays $44.62M and recovers $6.31M on WC (0.14), $128.64M and $16.04M on GL
+// (0.12). Layers are priced on the DRAWN severity and recover on the BOOKED
+// occurrence, which forward booking contracts below the attachment. That is the
+// converging-climb work on feature/fast-development, and it is additive to this.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v53.json');
 
 function seedOf(id: string) {
   let h = 5381;

@@ -327,7 +327,63 @@ export const TOWER_TOP: Record<TowerLine, number> = { WC: 50e6, GL: 25e6, Proper
 // $100 against WC's 0.2874, despite a LOWER multiple (2.29x vs 3.32x), because
 // it is genuinely more exposed. A uniform loading would have been wrong in both
 // directions at once — too dear on WC's top layer and far too cheap on GL's.
-export const RISK_LOAD_LAMBDA = 0.60;
+// ============================================================================
+// ⚠ ZERO. EVERY LAYER IS PRICED AT 1x ITS EXPECTED CESSION, AND THE REASON IS A
+// MEASURED DEFECT RATHER THAN A VIEW ABOUT REINSURANCE PRICING.
+//
+// AT 0.60, DECLINING COVER WON ON BOTH MONEY AND SAFETY, WHICH MAKES THE WHOLE
+// DECISION A TRAP. Measured on WC solo over ten years: full cover ended at $23M
+// with a 12% chance a line went negative; NO cover ended at $118M with 1%. No
+// player should ever have bought a layer.
+//
+// THE MECHANISM IS THE DECLINED-COVER MARGIN, NOT THE LOAD ITSELF. A pool that
+// declines still CHARGES its members the tower price — see
+// retainedCoverMargin and DECLINED_COVER_MARGIN_ENABLED — and keeps it as
+// surplus. Most of that price was load, so declining pocketed the load for free
+// while the expected cession it gave up was, by construction, only the expected
+// cession. Buying cover meant paying the load; declining meant being paid it.
+//
+// AT ZERO, a declined pool keeps exactly the EXPECTED cession as its margin and
+// no more. It therefore keeps the same money in expectation and takes on all of
+// the volatility, which is the trade a reinsurance decision is supposed to be.
+// Members pay the tower either way, so cheaper cover also lowers their bill.
+//
+// ⚠ A STARTING POINT, NOT THE ANSWER, AND IT IS DELIBERATELY TOO GENEROUS. At
+// lambda 0 reinsurance is actuarially free: no reinsurer prices at its own
+// expected loss, and more cover is now weakly better at every attachment. If
+// cover proves too cheap in play, load comes back — and the thing to watch is
+// whether every placement beats declining, which is the signal that the price
+// carries no cost at all.
+//
+// ⚠ AND IT APPLIES TO EVERY LAYER ON EVERY LINE, not only the catastrophe
+// layer. The three readers are reinsuranceTower.ts (occurrence layers),
+// propertyAggregate.ts (the aggregate stop) and nothing else; all three read
+// this constant rather than restating it, so one edit moves all of them.
+//
+// ⚠ WHAT THIS DOES NOT FIX, AND IT MATTERS FOR READING THE RESULT. Large claims
+// are booked well below their eventual cost and develop slowly, so the
+// catastrophic years that should punish a declined pool arrive understated
+// inside a ten-year game. Zero load removes the free money; it does not make a
+// declined pool feel the tail it has taken on. That is the converging-climb work
+// on feature/fast-development, and the two are additive rather than
+// alternatives. NEITHER ALONE MAKES DECLINING LOSE — stated flatly so the next
+// reader does not assume this constant settled it.
+//
+// MEASURED, 10-year horizon, full cover against none, at lambda 0:
+//   WC        $29.3M vs $71.8M   (was -$99.3M of advantage, now -$42.5M)
+//   GL        $38.3M vs $144.5M  (was -$207.0M, now -$106.2M)
+//   Property  $45.0M vs $121.7M  (was -$321.6M, now -$76.7M)
+// Zero load HALVES declining's advantage and does not reverse it. The residue is
+// not the load. A fully covered pool pays and recovers, at lambda 0:
+//   WC  $44.62M paid / $6.31M recovered (0.14)
+//   GL  $128.64M / $16.04M (0.12)
+//   Property  $137.20M / $102.10M (0.74)
+// Layers are priced on the DRAWN severity and recover on the BOOKED occurrence,
+// and forward booking contracts the booked figure below the attachment. Property
+// fares far better only because catastrophes book at full severity. Ever-negative
+// surplus, full against none: WC 0%/0%, GL 0%/0%, Property 17%/25%.
+// ============================================================================
+export const RISK_LOAD_LAMBDA = 0;
 
 // ============================================================================
 // WC AGGREGATE STOP-LOSS — priced at runtime, deliberately.

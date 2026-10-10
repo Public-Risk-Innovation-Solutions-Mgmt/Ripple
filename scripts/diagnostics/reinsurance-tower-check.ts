@@ -95,7 +95,20 @@ console.log('\n=== 2. EROSION AND CORRIDOR RETENTION FALL OUT OF THE ARITHMETIC 
     `${note(Math.abs(big.retainedAboveTower - (60e6 - TOWER_TOP.GL)) < 1, 'GL above-tower band wrong')}`);
 }
 
-console.log('\n=== 3. THE RISK LOAD RISES WITH ATTACHMENT (one lambda, not four multiples) ===');
+// ⚠ THE SHAPE OF THIS SECTION DEPENDS ON LAMBDA, AND AT ZERO THE OLD ASSERTION
+// WAS VACUOUS RATHER THAN FALSE. It required the loading multiples to RISE
+// STRICTLY with attachment. At RISK_LOAD_LAMBDA = 0 every multiple is exactly
+// 1.00, so a strict `>` reports "not monotonic" about a quantity that no longer
+// exists. Widening it to `>=` would have been worse: it would pass at zero load
+// AND pass if the load mechanism silently died at a non-zero lambda, which is
+// the thing this section is here to catch.
+//
+// So the assertion branches on the regime and says the TRUE thing in each. At a
+// positive lambda the multiples must still rise strictly, which is the original
+// claim unchanged. At zero they must be exactly 1.00 on every layer, which is a
+// real statement with real content — it fails if any price picks up a load the
+// constant did not ask for.
+console.log(`\n=== 3. THE RISK LOAD ${RISK_LOAD_LAMBDA > 0 ? 'RISES WITH ATTACHMENT (one lambda, not four multiples)' : 'IS ZERO — EVERY LAYER AT 1.00x ITS EXPECTED CESSION'} ===`);
 {
   for (const line of ['WC', 'GL'] as const) {
     const book = bookFor(line, 290);
@@ -103,9 +116,14 @@ console.log('\n=== 3. THE RISK LOAD RISES WITH ATTACHMENT (one lambda, not four 
       const m = layerRiskMoments(line, i, book, REF_YEAR);
       return 1 + RISK_LOAD_LAMBDA * m.sdOverExpected;
     });
-    const rising = mults.every((m, i) => i === 0 || m > mults[i - 1]);
     console.log(`  ${line}: ${REINSURANCE_TOWER[line].map((l, i) => `${l.name} ${mults[i].toFixed(2)}x`).join('  ')}`);
-    console.log(`     monotonically rising with attachment: ${note(rising, `${line} loading multiples not monotonic`)}`);
+    if (RISK_LOAD_LAMBDA > 0) {
+      const rising = mults.every((m, i) => i === 0 || m > mults[i - 1]);
+      console.log(`     monotonically rising with attachment: ${note(rising, `${line} loading multiples not monotonic`)}`);
+    } else {
+      const flat = mults.every(m => Math.abs(m - 1) < 1e-12);
+      console.log(`     every layer at exactly 1.00x: ${note(flat, `${line} carries a load at lambda 0`)}`);
+    }
   }
   // The behaviour that validates the whole approach: GL's top layer costs MORE
   // per $100 than WC's despite a LOWER multiple, because it is more exposed.

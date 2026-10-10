@@ -181,9 +181,25 @@ console.log(`  Checked analytically on the full canonical roster at lambda ${RIS
     const netCost = (qAll.premium - qAll.expectedCeded) - (qNone.premium - qNone.expectedCeded);
     console.log(`  ${l}: full tower premium $${(qAll.premium / M).toFixed(3)}M, expected ceded ` +
       `$${(qAll.expectedCeded / M).toFixed(3)}M, NET cost to members $${(netCost / M).toFixed(3)}M/yr`);
-    check(netCost > 0 && netCost < qAll.premium,
-      `${l}: net cost is positive but below the gross premium`,
-      `${((netCost / qAll.premium) * 100).toFixed(1)}% of premium`);
+    // ⚠ BRANCHED ON THE REGIME, BECAUSE AT ZERO LOAD THIS SECTION'S OWN RESULT
+    // IS THE POINT RATHER THAN A FAILURE. The claim above is that the net member
+    // cost of a layer is lambda x SD[ceded]: placing it costs its premium and
+    // saves its expected ceded, so everything but the load cancels. At
+    // RISK_LOAD_LAMBDA = 0 that identity says the net cost is EXACTLY ZERO, and
+    // the old `netCost > 0` reported the identity holding as a defect.
+    //
+    // Zero is not a weaker assertion than "positive and below gross" — it is a
+    // tighter one. It fails if any layer picks up a load the constant did not
+    // ask for, which a `>= 0` would have waved through.
+    if (RISK_LOAD_LAMBDA > 0) {
+      check(netCost > 0 && netCost < qAll.premium,
+        `${l}: net cost is positive but below the gross premium`,
+        `${((netCost / qAll.premium) * 100).toFixed(1)}% of premium`);
+    } else {
+      check(Math.abs(netCost) < 1,
+        `${l}: net cost is exactly zero at lambda 0`,
+        `$${netCost.toFixed(2)} against a $1 tolerance`);
+    }
   }
 }
 
