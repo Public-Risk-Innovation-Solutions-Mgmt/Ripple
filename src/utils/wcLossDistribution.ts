@@ -63,7 +63,7 @@ import { WC_CLF_GRID, WC_CLF_PERCENTILE_STOPS } from '../data/wcClfGrid';
 import { normalCdf } from './claimMath';
 import {
   ratingGroupOf,
-  thetaWc,
+  memberThetaWc,
   tiltedWeights,
   trendedMu,
   wcFrequencyTrend,
@@ -127,7 +127,7 @@ function memberRawCumulantSeeds(member: Member, kLine: number, yearNumber: numbe
   const rq = member.riskQuality;
   const group = ratingGroupOf(member);
   const spec = M.ratingGroups[group];
-  const theta = thetaWc(rq);
+  const theta = memberThetaWc(rq);
   const trend = wcFrequencyTrend(yearNumber);
   const weights = tiltedWeights(group, rq);
 

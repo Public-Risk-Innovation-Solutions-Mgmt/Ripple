@@ -32,7 +32,7 @@
 // variance mixture over a common factor, not a per-member sum.
 //
 // Per member i (payroll > 0), define the deterministic rate
-//   lambda_i = payroll_i x ratePer1M x thetaGl(rq_i) x kGl
+//   lambda_i = payroll_i x ratePer1M x memberThetaGl(rq_i) x kGl
 // (excludes risk control, per invariant 2, and excludes gPool/frequency-noise —
 // those are the two random multipliers being mixed out below) and, at the
 // member's own TILTED (draw-matching) weights and this year's dollars, the
@@ -74,7 +74,7 @@
 import type { Member } from '../types/simulation';
 import { GL_LOSS_MODEL, GL_SEVERITY_COMPONENTS, WC_LOSS_MODEL } from '../data/defaultAssumptions';
 import { limitedExpectedValue, normalCdf } from './claimMath';
-import { glSeverityCap, thetaGl, tiltedGlWeights, trendedMuGl } from './glClaimEngine';
+import { glSeverityCap, memberThetaGl, tiltedGlWeights, trendedMuGl } from './glClaimEngine';
 import { GL_CLF_GRID, GL_CLF_PERCENTILE_STOPS } from '../data/glClfGrid';
 
 const M = GL_LOSS_MODEL;
@@ -125,7 +125,7 @@ export function glAggregateCumulants(members: Member[], kGl: number, yearNumber:
     const payroll = member.exposureByLine.GL ?? 0;
     if (payroll <= 0) continue;
     const rq = member.riskQuality;
-    const lambda_i = payroll * M.ratePer1M * thetaGl(rq) * kGl;
+    const lambda_i = payroll * M.ratePer1M * memberThetaGl(rq) * kGl;
     if (lambda_i <= 0) continue;
     const [m1, m2] = cappedRawMoments(tiltedGlWeights(rq), yearNumber);
     lambdaTotal += lambda_i;

@@ -746,6 +746,106 @@ export const GL_LOSS_MODEL = {
   rqSeverityBeta: 0.060,
 } as const;
 
+// ============================================================================
+// HOW STEEPLY RISK QUALITY DRIVES LOSSES, PER LINE AND CHANNEL — CHOSEN, NOT SOURCED.
+//
+// A multiple on a line's risk-quality coefficients, per channel: the frequency
+// beta (theta = exp(-beta x frequency x (RQ - 5))) and the severity-tilt beta
+// (heavy weight x exp(-beta_s x severity x (RQ - 5))), in the exponential form
+// WC and GL already use. Property is 1x on both, so its linear form is
+// untouched and never meets the zero its slope would reach at RQ 10 past 2.5x.
+//
+// ⚠ NO PUBLISHED SPREAD EXISTS. No source was found for how far a public
+// entity's true loss cost runs between its best and worst members. Experience
+// mods centre on 1.0 and rating plans widen or compress their range by design,
+// and that is all. So these multiples are a judgement, made for what they make
+// legible:
+//
+//   PERSISTENCE, MATCHED ACROSS THE TWO LINES. At 1x a member's three-year
+//   loss ratio barely repeats (split-half 0.07 on WC, 0.03 on GL), so the 5%
+//   renewal cut removes unlucky members and the rate RISES. The target is the
+//   same persistence on both lines, not a chosen slope. Measured in the engine
+//   at these multiples, 10 games x 18 years, and the cut at year 10 over 40:
+//
+//     line                    split-half   5% renewal cut: book cost / rate
+//     WC  2x freq, 2x sev        0.278       -21.2% / -1.5% +/- 0.5
+//     GL  3.5x freq, 1x sev      0.276       -21.0% / -0.2% +/- 0.4
+//
+//   The cut now CLEANS both books by the same fifth. On WC that lowers the
+//   rate; on GL it holds the rate flat rather than raising it.
+//
+// ⚠ GL IS FREQUENCY-ONLY BECAUSE SEVERITY BROKE THE REAL-POOL ANCHOR. GL's
+// settled-claim log-SD has one external anchor, the real pool's 2.29
+// (CLAIM_SETTLED_LOG_SD_ANCHOR, terminal-severity-check). Steepening GL's
+// severity tilt to 2.5x widened drawn GL claims from 2.17 to 2.22 log-SD on its
+// own, and the settled figure read 2.344, outside the 0.05 tolerance; the gate's
+// remedy was to cut the revision law's phi by three-quarters. Frequency carries
+// the persistence signal without widening claim sizes, and it is the more
+// realistic model: a worse-run member has more incidents, not uniformly bigger
+// ones. At 3.5x frequency, 1x severity the settled figure reads 2.307. (Both
+// channels at 2.5x had matched persistence too, 0.32, before the anchor ruled it
+// out.)
+//
+//   WHAT THE SPREAD BECOMES. Expected cost of the marketplace's book were
+//   every member at RQ 1 against RQ 10, and between the 5th and 95th
+//   percentile of the marketplace's quality (RQ 2 against 8.3), both channels:
+//
+//     line       worst/best, 1x -> new    middle 90%, 1x -> new
+//     WC             3.4x -> 11.6x            2.36x -> 5.59x
+//     GL             2.8x -> 9.6x             2.05x -> 4.87x
+//     Property       unchanged (3.2x)         unchanged (2.16x)
+//
+// ⚠ AND EACH GAME'S OPENING BOOK NOW MATTERS MORE. The re-centring is exact
+// over the marketplace, but a game's opening book is a sample of it. Over 40
+// games the opening book's cost against today's scatters with an SD of 8.4% on
+// WC (mean -3.3% +/- 1.3%: WC's opening books average RQ 5.07 against the
+// marketplace's 5.02, and the steeper slope amplifies that mild selection) and
+// 6.0% on GL (mean -0.05%). The pre-game's opening band also redraws more
+// often, so a game's opening roster can differ from the one it had at 1x. The
+// pool's own triangle prices what its book actually costs; the RQ-5 rate card
+// does not move.
+//
+// THE CONFIDENCE TABLES HOLD WITHOUT RE-DERIVATION. Drawn quantiles of six real
+// opening books per line against the shipped tables, 10,000 draws each: the
+// tables' error moves by at most 0.014 (WC, keyed on CV) and 0.017 (GL, keyed on
+// expected claim count, which falls 339 -> 318 on those books, where the error
+// shrinks). That is small next to WC's own pre-existing tail gap (-0.18 at p90,
+// -0.22 at p95 today).
+//
+// Property stays at 1x. Its renewal is off and the modifier leaves it unrated,
+// so a steeper slope would raise its spread without making any decision more
+// meaningful.
+// ============================================================================
+export const RISK_QUALITY_SLOPE = {
+  WC: { frequency: 2, severity: 2 },
+  GL: { frequency: 3.5, severity: 1 },
+  Property: { frequency: 1, severity: 1 },
+} as const;
+
+// ============================================================================
+// THE RE-CENTRING THAT KEEPS AN AVERAGE MEMBER AVERAGE.
+//
+// The factors multiply, so a steeper curve is not mean-neutral: the
+// marketplace's average member would cost 1.141x the RQ-5 rate card on WC
+// (1.036x today) and 1.128x on GL (1.029x today). Every evaluation at a
+// member's ACTUAL quality (the draw, the actual-quality expectations, the
+// loss-distribution cumulants) is scaled by this constant, which puts the
+// marketplace's average back exactly where it was.
+//
+//   centre = (marketplace cost at 1x) / (marketplace cost at the new slope)
+//
+// over getPredefinedMarketMembers() (the fixed 200-member marketplace), dollar
+// weighted on the both-channel basis at year 1.
+//
+// ⚠ THE RQ-5 RATE CARD IS NOT SCALED, AND THAT IS WHAT HOLDS THE PURE PREMIUM.
+// The pricing basis (riskQualityOverride 5), the held pure premium and the
+// tower's neutral moments all read theta at RQ 5, which stays exactly 1. So an
+// average book keeps costing what it costs today against an unchanged rate
+// card, and a member who really is RQ 5 now draws `centre` of the card: the
+// average member is no longer the RQ-5 member once the curve is this convex.
+// ============================================================================
+export const RISK_QUALITY_CENTRE = { WC: 0.908436, GL: 0.912829, Property: 1 } as const;
+
 // Base retention probability per member per year — high by default for realistic public entity pools
 export const BASE_RETENTION = 0.95;
 

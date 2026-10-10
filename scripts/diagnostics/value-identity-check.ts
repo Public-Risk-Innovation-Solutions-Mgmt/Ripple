@@ -819,7 +819,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // The lines share one balance sheet, so a bigger Property book moves the cash
 // every line is funded out of; that coupling is the design, and its absence
 // from the underwriting fields is the evidence nothing leaked.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v51.json');
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v52.json');
 
 function seedOf(id: string) {
   let h = 5381;

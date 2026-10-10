@@ -116,6 +116,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
+import { RISK_QUALITY_CENTRE } from '../../src/data/defaultAssumptions';
 import {
   generateWcClaims,
   NEUTRAL_RQ as WC_NEUTRAL_RQ,
@@ -288,11 +289,20 @@ console.log('\n--- 1. DEFINITIONAL: perturb riskQuality, the manual leg must not
 }
 
 // -------------------------------------------------------- 2. point of equality
-console.log('\n--- 2. POINT OF EQUALITY: the legs agree at NEUTRAL_RQ and nowhere else ---');
+// ⚠ ON THE RE-CENTRED BASIS: OWN = CENTRE x CARD AT NEUTRAL_RQ. The manual leg
+// is the RQ-5 RATE CARD (riskQualityOverride), which RISK_QUALITY_CENTRE leaves
+// unscaled so the pure premium does not move. The own leg reads the member's
+// ACTUAL quality, which is re-centred so the marketplace's average member stays
+// average under the steeper slope (RISK_QUALITY_SLOPE). So a member who really
+// is RQ 5 draws exactly the centre's share of the card. The clause still asks
+// what it always asked: is the manual leg the same computation at a different
+// rq, or a different computation? It now asks it against centre x card.
+console.log('\n--- 2. POINT OF EQUALITY: own = centre x card at NEUTRAL_RQ, and nowhere else ---');
 {
   for (const line of LINES) {
     const probe = probeMembersFor(line);
     const N = neutralFor(line);
+    const C = RISK_QUALITY_CENTRE[line];
     const rows: string[] = [];
     let atNeutralWorst = 0, offNeutralClosest = Infinity, offChecked = 0;
 
@@ -306,7 +316,7 @@ console.log('\n--- 2. POINT OF EQUALITY: the legs agree at NEUTRAL_RQ and nowher
         // filters on exposure, so this should never bite; it is here so that if
         // it ever does, the gate reports a real result rather than a spurious red.
         if (!(r.expectedLoss > 0) && !(r.expectedLossAtManual > 0)) continue;
-        const d = relDiff(r.expectedLoss, r.expectedLossAtManual);
+        const d = relDiff(r.expectedLoss, C * r.expectedLossAtManual);
         worst = Math.max(worst, d);
         closest = Math.min(closest, d);
       }
@@ -321,14 +331,14 @@ console.log('\n--- 2. POINT OF EQUALITY: the legs agree at NEUTRAL_RQ and nowher
 
     const ok = atNeutralWorst <= EQUALITY_REL && offNeutralClosest >= SEPARATION_REL;
     console.log(`  ${line.padEnd(9)} ${rows.join('   ')}`);
-    console.log(`            at rq ${N} worst separation ${atNeutralWorst.toExponential(1)} (<= ${EQUALITY_REL.toExponential(0)}); `
+    console.log(`            centre ${C}; at rq ${N} worst separation ${atNeutralWorst.toExponential(1)} (<= ${EQUALITY_REL.toExponential(0)}); `
       + `off it, closest over ${offChecked} rq values ${offNeutralClosest.toExponential(1)} (>= ${SEPARATION_REL.toExponential(0)})   ${ok ? 'PASS' : 'FAIL'}`);
 
     if (atNeutralWorst > EQUALITY_REL) {
-      failures.push(`${line}: at riskQuality exactly ${N} the two legs differ by ${atNeutralWorst.toExponential(2)} `
-        + 'relative. They are the same expectation at that point — the override sets risk quality to the value '
-        + 'the member already has — so a difference means the manual leg is not the same computation with a '
-        + 'different rq, it is a different computation.');
+      failures.push(`${line}: at riskQuality exactly ${N} the own leg differs from centre (${C}) x the manual leg by `
+        + `${atNeutralWorst.toExponential(2)} relative. At that point the own leg is the card re-centred and nothing `
+        + 'else — the override sets risk quality to the value the member already has — so a difference means the '
+        + 'manual leg is not the same computation with a different rq, it is a different computation.');
     }
     if (offNeutralClosest < SEPARATION_REL) {
       failures.push(`${line}: at some riskQuality away from ${N} the two legs come within `

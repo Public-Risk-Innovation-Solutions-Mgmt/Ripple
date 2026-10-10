@@ -112,7 +112,15 @@ import type {
 
 const RULE = '='.repeat(76);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
-const GAMES = Number(process.env.GAMES ?? 6);
+// ⚠ 24 GAMES, RAISED FROM 6 WHEN RISK_QUALITY_SLOPE STEEPENED WC — THE SAMPLE,
+// NOT THE BOUND. The pooled primary-share clause divides by realized whole loss,
+// which is heavy-tailed, and a steeper slope widens it. At 6 games that clause
+// read 0.48pp on the old slope and 1.09pp on the new, a red on a 1pp bound. At
+// 24 games it reads 0.22pp and 0.57pp. Halving the near-neutral band (0.25)
+// did not move it (0.71pp), so it is noise rather than a basis shift, and a
+// real split-point mismatch would move it by tens of points. Same remedy as
+// market-conditions-check section 5: more games, never a looser bound.
+const GAMES = Number(process.env.GAMES ?? 24);
 /**
  * ⚠ 16 AND NOT 10, AND THE REASON IS THE SAMPLE RATHER THAN THE SCOPE.
  *

@@ -82,6 +82,8 @@ import { deriveSubRng } from './random';
 import { limitedExpectedValue, memoizeByYear } from './claimMath';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
 import {
+  RISK_QUALITY_CENTRE,
+  RISK_QUALITY_SLOPE,
   WC_LOSS_MODEL,
   WC_RATING_GROUPS,
   WC_SEVERITY_CAP,
@@ -159,8 +161,20 @@ export function regionMultiplier(region: Region): number {
 // Risk-quality frequency factor. RQ 10 (best) draws fewer claims, RQ 1 more.
 // EXPORTED so wcLossDistribution's cumulant derivation reads the exact same
 // formula the draw uses, rather than a second copy that could drift from it.
+//
+// STEEPENED BY RISK_QUALITY_SLOPE.WC.frequency, and identically 1 at RQ 5 at any slope, so
+// the RQ-5 rate card (pricing basis, held pure premium, tower) never moves.
 export function thetaWc(riskQuality: number): number {
-  return Math.exp(-M.rqFrequencyBeta * (riskQuality - NEUTRAL_RQ));
+  return Math.exp(-M.rqFrequencyBeta * RISK_QUALITY_SLOPE.WC.frequency * (riskQuality - NEUTRAL_RQ));
+}
+
+// THE FREQUENCY FACTOR AT A MEMBER'S ACTUAL QUALITY: thetaWc re-centred by
+// RISK_QUALITY_CENTRE.WC, so the marketplace's average member costs what it did
+// before the slope was steepened. Every evaluation of a REAL member's quality
+// reads this one (the draw, the actual-quality expectations, the cumulants);
+// only an evaluation of the RQ-5 rate card reads thetaWc. See the constant.
+export function memberThetaWc(riskQuality: number): number {
+  return RISK_QUALITY_CENTRE.WC * thetaWc(riskQuality);
 }
 
 // Safety improves ~1.5%/yr. Live Year 1 is the reference (factor 1.0); the
@@ -290,7 +304,7 @@ export function componentMean(key: WcComponentKey, yearNumber = 1, limit?: numbe
 // ⚠ DRAW AND k_line ONLY — never the pricing expectation. See invariant 2.
 export function tiltedWeights(group: WcRatingGroup, riskQuality: number, params = M): number[] {
   const g = params.ratingGroups[group];
-  const factor = Math.exp(-params.rqSeverityBeta * (riskQuality - NEUTRAL_RQ));
+  const factor = Math.exp(-params.rqSeverityBeta * RISK_QUALITY_SLOPE.WC.severity * (riskQuality - NEUTRAL_RQ));
   const heavyIndex = g.mix.findIndex(m => m.component === g.heavyComponent);
   if (heavyIndex < 0) {
     throw new Error(`rating group '${group}' declares heavyComponent '${g.heavyComponent}', which is not in its mix`);
@@ -390,7 +404,9 @@ function expectedWcGrossLossCore(
     const rq = rqOverride ?? member.riskQuality;
     const group = ratingGroupOf(member);
     const g = params.ratingGroups[group];
-    const lambda = payroll * g.ratePer1M * thetaWc(rq) * kLine * trend;
+    // A real member's quality is re-centred; the RQ-5 rate card (an override) is not.
+    const theta = rqOverride === undefined ? memberThetaWc(rq) : thetaWc(rq);
+    const lambda = payroll * g.ratePer1M * theta * kLine * trend;
     const weights = basis === 'kLine' ? tiltedWeights(group, rq, params) : groupWeights(group, params);
 
     for (let i = 0; i < g.mix.length; i++) {
@@ -712,7 +728,7 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
       // does not read it and the ruling at WC_LOSS_MODEL.poolYearFactor that
       // decoupled the lines stands. gYear is WC's own stream.
       const epsilon = freqRng.gamma(params.memberFrequencyNoise.shape, params.memberFrequencyNoise.scale);
-      const lambda = payroll * g.ratePer1M * thetaWc(rq) * kLine * trend * epsilon * gYear * rcFactor * programMult;
+      const lambda = payroll * g.ratePer1M * memberThetaWc(rq) * kLine * trend * epsilon * gYear * rcFactor * programMult;
       const weights = tiltedWeights(group, rq, params);
 
       // ⚠ POISSON THINNING: one Poisson draw PER COMPONENT at rate
