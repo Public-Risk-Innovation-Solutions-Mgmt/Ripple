@@ -1,29 +1,22 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >
-  Ripple's session backend: the DynamoDB table, the ripple-session Lambda and
-  its role, the HTTP API with its five routes, and the log group. Reusable
-  across environments via the Env parameter.
-
-  Generated from the live review backend (CloudFormation IaC generator,
-  arn:aws:cloudformation:us-west-2:168288133197:generatedTemplate/665dd7b8-5694-48d5-99ea-4f07d9156c11)
-  and then parameterized by hand — see docs/handoff/AWS_HANDLER_HANDOFF.md for
-  the handler this deploys into the Lambda's Code placeholder below.
-
-  Review's resources already exist under their bare (unsuffixed) names and are
-  not managed by this template — it is for standing up `prod` and throwaway
-  `test` stacks. See the Env parameter and the IsReview condition: a review
-  deploy of this template would reuse review's exact resource names, which is
-  only safe if nothing live is already using them.
-
-  ⚠ EVERY RESOURCE HERE IS DeletionPolicy/UpdateReplacePolicy: Retain, on
-  purpose — a stack holding live game data must never lose it to an accidental
-  `delete-stack`. The cost: deleting a THROWAWAY test stack leaves every
-  resource behind, orphaned, rather than removing it. Proving this template
-  with `Env=test` and then "deleting it" means deleting the CloudFormation
-  stack AND manually deleting the table (after turning off its deletion
-  protection), the function, the role, the API and the log group it leaves
-  behind — the stack delete alone will not remove them.
-
+# Ripple's session backend, generated from the live review backend with the
+# CloudFormation IaC generator and parameterized by hand. See
+# docs/handoff/AWS_HANDLER_HANDOFF.md for the handler the pipeline deploys
+# into the Lambda's Code placeholder.
+#
+# Review's resources already exist under their bare (unsuffixed) names and are
+# not managed by this template; it is for standing up `prod` and throwaway
+# `test` stacks. A review deploy would reuse review's exact names, which is only
+# safe if nothing live is already using them.
+#
+# EVERY RESOURCE IS DeletionPolicy/UpdateReplacePolicy: Retain, on purpose: a
+# stack holding live game data must never lose it to an accidental delete-stack.
+# The cost: deleting a THROWAWAY test stack leaves every resource behind. After
+# deleting a test stack, also delete its table (turn off deletion protection
+# first), function, role, API and log group by hand.
+Description: >-
+  Ripple session backend: DynamoDB table, ripple-session Lambda and role, HTTP
+  API with five routes, and log group. Reusable across environments via Env.
 Parameters:
   Env:
     Type: String
