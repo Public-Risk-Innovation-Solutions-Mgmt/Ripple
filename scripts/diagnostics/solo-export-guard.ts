@@ -578,6 +578,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // reinsurance cost and the member charge, and the opening book re-rolled because
 // the pin moved. Read with value-identity v53, whose note carries the measured
 // reason declining still wins.
+// ⚠ v55 -> v56: THE feature/uw-decisions MERGE, numbered above both parents
+// (the branches' numbering had collided). All 24 move, for VALUE reasons only —
+// no row added, removed or renamed. Read with value-identity v54, whose note
+// carries the full list of what each side contributes and the record that the
+// opening pin was re-solved and held.
 const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v56.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }

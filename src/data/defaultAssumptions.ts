@@ -1807,6 +1807,29 @@ export const SIZE_WEIGHTS = [0.55, 0.30, 0.12, 0.03];
 // capital to reach their midpoints, not less. Reading a higher K here as "the
 // pool got richer" is backwards: it is the pin compensating for a book that now
 // carries ten accident years of runoff.
+//
+// ⚠ THE uw-decisions MERGE RE-SOLVED THESE AND DELIBERATELY DID NOT MOVE THEM.
+// Both branches changed how pre-game pasts end — required capital and zero risk
+// load on one side, the book-mix normaliser out of the draw and the steepened
+// risk-quality slope on the other — so the pin was re-solved on the merged
+// engine as a matter of course. IT CAME BACK ALREADY CENTRED. The solver's own
+// pass 0, before it moved anything:
+//
+//     WC  offset +0.0010     GL  -0.0316     Property  +0.0401
+//     against its stopping tolerance of 0.06 x band width, about 0.053
+//
+// All three were inside that tolerance on arrival, so the two branches' effects
+// on pre-game endings very largely cancel. The values the solver then proposed
+// (1.4973 / 0.7364 / 0.6084) are NOT better: on opening-centring-check's own
+// 1600 seeds — seeds the solver never sees — the shipped pins read +5%, -15%
+// and -3% of band width and the gate PASSES, and applying the solver's numbers
+// would move Property from -3% to about -9%. The two estimators disagree on GL's
+// magnitude (-0.03 at 600 seeds against -0.13 at 1600) by more than the change
+// they would justify, which is the definition of fitting noise.
+//
+// So the pin is HELD, and the band is unchanged. Re-pinning on the weaker
+// estimate would re-roll every opening book and move all three baselines to
+// chase a difference the stronger estimator cannot see.
 // ============================================================================
 export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
   // ⚠ RE-SOLVED AGAINST THE RESERVE-ANCHORED BAND. WC and GL are bisected so the

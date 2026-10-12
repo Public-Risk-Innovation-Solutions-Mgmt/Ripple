@@ -890,6 +890,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (0.12). Layers are priced on the DRAWN severity and recover on the BOOKED
 // occurrence, which forward booking contracts below the attachment. That is the
 // converging-climb work on feature/fast-development, and it is additive to this.
+// ⚠ v53 -> v54: THE feature/uw-decisions MERGE. Numbered above BOTH parents —
+// the branches' numbering had collided, each having minted its own v52 on
+// different content, so this takes a number neither side used.
+//
+// Both sides move this capture, and they move it for unrelated reasons.
+// From risk-control: zero risk load, required capital with a catastrophe term,
+// the investment return cut, Property mitigation, the claims system's fixed
+// thresholds. From uw-decisions: the book-mix normaliser OUT OF THE DRAW (so
+// composition now reaches losses at all), the steepened risk-quality slope,
+// adverse selection on intake, the renewal and intake sliders, the quote fix.
+// Plus one quantity re-derived BY the merge: Property's market target back to
+// 0.65, because its 0.60 was derived from a catastrophe load that zero risk
+// load has set to zero. See marketConditions.ts.
+//
+// ⚠ THE OPENING PIN WAS RE-SOLVED AND DELIBERATELY HELD. Both branches changed
+// how pre-game pasts end, so a re-solve was run as a matter of course and came
+// back already centred — solver pass 0 at +0.0010 / -0.0316 / +0.0401 against
+// its own 0.053 tolerance. The pins are unchanged, so opening books re-roll
+// here only because the ENGINE moved, not because the pin did.
 const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v54.json');
 
 function seedOf(id: string) {
