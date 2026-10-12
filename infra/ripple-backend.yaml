@@ -1,0 +1,337 @@
+AWSTemplateFormatVersion: '2010-09-09'
+# Ripple's session backend, generated from the live review backend with the
+# CloudFormation IaC generator and parameterized by hand. See
+# docs/handoff/AWS_HANDLER_HANDOFF.md for the handler the pipeline deploys
+# into the Lambda's Code placeholder.
+#
+# Review's resources already exist under their bare (unsuffixed) names and are
+# not managed by this template; it is for standing up `prod` and throwaway
+# `test` stacks. A review deploy would reuse review's exact names, which is only
+# safe if nothing live is already using them.
+#
+# EVERY RESOURCE IS DeletionPolicy/UpdateReplacePolicy: Retain, on purpose: a
+# stack holding live game data must never lose it to an accidental delete-stack.
+# The cost: deleting a THROWAWAY test stack leaves every resource behind. After
+# deleting a test stack, also delete its table (turn off deletion protection
+# first), function, role, API and log group by hand.
+Description: >-
+  Ripple session backend: DynamoDB table, ripple-session Lambda and role, HTTP
+  API with five routes, and log group. Reusable across environments via Env.
+Parameters:
+  Env:
+    Type: String
+    Description: >
+      Which environment this stack is. review's resources already exist under
+      bare names and are not expected to be deployed from this template;
+      anything else gets its name suffixed with -<Env>.
+    AllowedValues: [review, prod, test]
+    Default: test
+
+  CorsAllowOrigins:
+    Type: CommaDelimitedList
+    Description: Origins the API's CORS configuration allows. Review's two defaults are listed; override for prod.
+    Default: "https://aws.d1bh6upv8d51to.amplifyapp.com,https://ripple-review.prismrisksolutions.org"
+
+  ThrottlingRateLimit:
+    Type: Number
+    Description: Default stage throttling, steady-state requests/second.
+    Default: 200
+
+  ThrottlingBurstLimit:
+    Type: Number
+    Description: Default stage throttling, burst capacity.
+    Default: 400
+
+  OwnerTag:
+    Type: String
+    Default: Mike
+
+  ProjectTag:
+    Type: String
+    Default: ripple
+
+Conditions:
+  # Review's resources already exist under bare names ("Review keeps the names
+  # already built" — the AWS owner's developer guide). Every other Env value
+  # is a new stack and gets its name suffixed, so it can never collide with
+  # review's live resources in the same account.
+  IsReview: !Equals [!Ref Env, review]
+  IsProd: !Equals [!Ref Env, prod]
+
+Resources:
+  # ---------------------------------------------------------------- storage
+  SessionTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !If [IsReview, ripple-sessions, !Sub "ripple-sessions-${Env}"]
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      WarmThroughput:
+        ReadUnitsPerSecond: 12000
+        WriteUnitsPerSecond: 4000
+      TimeToLiveSpecification:
+        Enabled: true
+        AttributeName: expiresAtSec
+      # Worth considering (Mike's own framing) rather than a firm requirement:
+      # the real game data is prod's, so that is the one table it protects.
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
+      DeletionProtectionEnabled: true
+      SSESpecification:
+        SSEEnabled: false
+      Tags:
+        - Key: Owner
+          Value: !Ref OwnerTag
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Environment
+          Value: !Ref Env
+
+  # ---------------------------------------------------------------- compute
+  SessionLambdaRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RoleName: !If [IsReview, ripple-session-lambda-role, !Sub "ripple-session-lambda-role-${Env}"]
+      Path: /
+      MaxSessionDuration: 3600
+      Description: Allows Lambda functions to call AWS services on your behalf.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ripple-sessions-table-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: RippleSessionsTableAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:ConditionCheckItem
+                Resource: !GetAtt SessionTable.Arn
+      Tags:
+        - Key: Owner
+          Value: !Ref OwnerTag
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Environment
+          Value: !Ref Env
+
+  SessionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !If [IsReview, /aws/lambda/ripple-session, !Sub "/aws/lambda/ripple-session-${Env}"]
+      RetentionInDays: 30
+      LogGroupClass: STANDARD
+      Tags:
+        - Key: Owner
+          Value: !Ref OwnerTag
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Environment
+          Value: !Ref Env
+
+  SessionFunction:
+    Type: AWS::Lambda::Function
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FunctionName: !If [IsReview, ripple-session, !Sub "ripple-session-${Env}"]
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Role: !GetAtt SessionLambdaRole.Arn
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      PackageType: Zip
+      # A placeholder only — the generator's Code section asked for an S3
+      # bucket/key, a ZipFile, an ImageUri and a KMS key all at once, which
+      # does not deploy. The real handler.js is never written here; the
+      # handler pipeline (.github/workflows/handler.yml) deploys it via
+      # aws lambda update-function-code, same as it already does for review.
+      Code:
+        ZipFile: |
+          exports.handler = async () => ({
+            statusCode: 503,
+            body: JSON.stringify({
+              error: {
+                code: 'TRANSPORT_FAILURE',
+                message: 'Placeholder code from ripple-backend.yaml — the handler pipeline has not deployed the real build yet.',
+                retryable: true,
+              },
+            }),
+          });
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref SessionTable
+      LoggingConfig:
+        LogFormat: Text
+        LogGroup: !Ref SessionLogGroup
+      TracingConfig:
+        Mode: PassThrough
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+      RecursiveLoop: Terminate
+      Tags:
+        - Key: Owner
+          Value: !Ref OwnerTag
+        - Key: Project
+          Value: !Ref ProjectTag
+        - Key: Environment
+          Value: !Ref Env
+
+  # ---------------------------------------------------------------- api
+  SessionApi:
+    Type: AWS::ApiGatewayV2::Api
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !If [IsReview, ripple-session-api, !Sub "ripple-session-api-${Env}"]
+      ProtocolType: HTTP
+      RouteSelectionExpression: "$request.method $request.path"
+      DisableExecuteApiEndpoint: false
+      IpAddressType: ipv4
+      CorsConfiguration:
+        AllowOrigins: !Ref CorsAllowOrigins
+        AllowMethods: [POST, OPTIONS]
+        AllowHeaders: [content-type, authorization]
+        AllowCredentials: false
+        MaxAge: 300
+      Tags:
+        Owner: !Ref OwnerTag
+        Project: !Ref ProjectTag
+        Environment: !Ref Env
+
+  # One integration, one permission, covering all five routes — the generator
+  # produced five of each (one per route) with identical properties, since the
+  # IaC generator does not collapse them on its own.
+  SessionIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      IntegrationType: AWS_PROXY
+      IntegrationMethod: POST
+      IntegrationUri: !GetAtt SessionFunction.Arn
+      PayloadFormatVersion: '2.0'
+      ConnectionType: INTERNET
+      TimeoutInMillis: 30000
+
+  CreateRoomRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /createRoom"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
+  JoinRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /join"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
+  SubmitRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /submit"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
+  AdvanceRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /advance"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
+  ReadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      RouteKey: "POST /read"
+      Target: !Sub "integrations/${SessionIntegration}"
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+
+  SessionInvokePermission:
+    Type: AWS::Lambda::Permission
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      FunctionName: !Ref SessionFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      # Any stage, any method, any one of this API's (single-segment) routes —
+      # the five generated permissions were identical but for the route path.
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SessionApi}/*/*/*"
+
+  SessionStage:
+    Type: AWS::ApiGatewayV2::Stage
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ApiId: !Ref SessionApi
+      StageName: "$default"
+      AutoDeploy: true
+      DefaultRouteSettings:
+        DetailedMetricsEnabled: false
+        ThrottlingRateLimit: !Ref ThrottlingRateLimit
+        ThrottlingBurstLimit: !Ref ThrottlingBurstLimit
+
+Outputs:
+  ApiInvokeUrl:
+    Description: The $default stage's invoke URL — what VITE_SESSION_API should point at.
+    Value: !Sub "https://${SessionApi}.execute-api.${AWS::Region}.amazonaws.com"
+  FunctionName:
+    Value: !Ref SessionFunction
+  TableName:
+    Value: !Ref SessionTable
