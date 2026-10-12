@@ -36,7 +36,7 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
   return merged.size > 0 ? [...merged.values()] : undefined;
 }
 import { SeededRandom, deriveSubRng } from './random';
-import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
+import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
 import {
   DEVELOPMENT_ALLOCATION, DEVELOPMENT_CESSION_ENABLED, STOCHASTIC_ALLOCATION_MODE,
@@ -888,13 +888,14 @@ export function processLineYear(
     aggregateStopLevel: lineDecisions.aggregateStopLevel,
   });
 
-  // The occurrence quote is REUSED by the post-movement pass below rather than
-  // re-priced: it reads only the pre-movement book and the year, so re-quoting
-  // would be a second version of a figure that cannot legitimately differ.
+  // ⚠ THIS QUOTE IS THE PRICE SIGNAL, NOT THE BILL. It is struck on the book as
+  // it stands before anyone joins or leaves, because that is the only book that
+  // exists when members decide, and it feeds rateChangePct / rateLoad below.
+  // What the pool actually buys is quoted again on the COVERED book after
+  // movement — see `towerQuote` there.
   const placedForCost = hasTractableCeded
     ? normalizeLayersPlaced(line as TowerLine, lineDecisions.layersPlaced)
     : null;
-  const towerQuote = estimatedQuote.towerQuote;
 
   const estimatedPremium = estimatedQuote.poolPremium;
   const estimatedTotalMemberRatePer100 = estimatedQuote.totalMemberChargeRatePer100;
@@ -915,6 +916,7 @@ export function processLineYear(
 
   const memberResult = simulateMemberMovement({
     applicationRateOverride: ctx.applicationRateOverride,
+    instanceSeed: instance.seed,
     freezeMembership: ctx.freezeMembership,
     currentMembers: currentActiveMembers,
     allMarketMembers: ctx.allMarketMembers,
@@ -958,16 +960,16 @@ export function processLineYear(
   // ============================================================================
   //
   // ⚠ AND IT IS OFF IN THE PRE-GAME, STRUCTURALLY RATHER THAN BY DEFAULT. The
-  // pre-game runs at defaultDecisionSet, whose renewalThreshold is null, so
-  // nothing is declined there today — but that is a property of the defaults
-  // and not of the pre-game. The threshold is forced to null here so a future
-  // default cannot reopen it. renewalDeclines is PURE and takes no draw, so
-  // skipping the call cannot re-phase anything; the guard is on the threshold
-  // rather than on the call for that reason — it reads as the decision the
-  // pre-game makes, which is "renew everyone".
+  // pre-game runs at defaultDecisionSet, whose renewalCut is 0, so nothing is
+  // declined there today — but that is a property of the defaults and not of
+  // the pre-game. The cut is forced to 0 here so a future default cannot reopen
+  // it. renewalDeclines is PURE and takes no draw, so skipping the call cannot
+  // re-phase anything; the guard is on the cut rather than on the call for that
+  // reason — it reads as the decision the pre-game makes, which is "renew
+  // everyone".
   const renewalDecisions = renewalDeclines(
     memberResult.activeMembers, line, ctx.memberLossHistory, yearNumber,
-    ctx.freezeMembership ? null : (lineDecisions.renewalThreshold ?? null),
+    ctx.freezeMembership ? 0 : (lineDecisions.renewalCut ?? 0),
   );
   const renewal = applyRenewalDeclines(
     memberResult.activeMembers, line, yearNumber, renewalDecisions, ctx.membershipHistory,
@@ -977,6 +979,36 @@ export function processLineYear(
   const activeExposure = declinedMembers.length === 0
     ? memberResult.activeExposure
     : enrolledMembers.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
+
+  // ============================================================================
+  // ⚠ THE TOWER IS BOUGHT FOR THE BOOK IT COVERS — `enrolledMembers`, joiners in,
+  // leavers and declines out.
+  //
+  // It used to reuse the pre-movement quote. But the draw, the cession and the
+  // recovery all run on `enrolledMembers`, so a joiner was covered all year and
+  // priced for none of it. And the pool premium was netted only by the cession
+  // expected from the earlier book, so the pool collected a joiner's full GROSS
+  // premium while the reinsurer paid their claims for nothing. A leaver or a
+  // renewal decline was the mirror image: priced, and not covered.
+  //
+  // Nothing forces the bill to precede movement. Only the PRICE SIGNAL members
+  // respond to does, and that stays on the pre-movement quote (`estimatedQuote`
+  // above). Everything that prices or settles the cover reads `towerMembers`
+  // from here on: the occurrence premium and its cession credit, the gross-up's
+  // cession basis, the aggregate, the full-placement quote behind
+  // retainedCoverMargin, and the aggregate the recovery settles against.
+  //
+  // ⚠ AN UNCHANGED BOOK REUSES THE QUOTE IT ALREADY HAS, so a year in which
+  // nobody joins or leaves — every default year, intake closed and the renewal
+  // cut at 0 — is bit-identical to what shipped and pays for no second quote.
+  // "Unchanged" is the same members in the same order; anything else re-quotes.
+  // ============================================================================
+  const bookUnchanged = enrolledMembers.length === currentActiveMembers.length
+    && enrolledMembers.every((m, i) => m.id === currentActiveMembers[i].id);
+  const towerMembers = bookUnchanged ? currentActiveMembers : enrolledMembers;
+  const towerQuote = bookUnchanged || placedForCost === null
+    ? estimatedQuote.towerQuote
+    : occurrenceProgramCost(line as TowerLine, placedForCost, towerMembers, yearNumber);
 
   // ⚠ THE RATE IS RECOMPUTED ON THE POST-MOVEMENT BOOK, and with class rates it
   // genuinely differs from the quoted one. `newPurePremiumPer100` above is the
@@ -994,14 +1026,12 @@ export function processLineYear(
   // asserting the composition residual is exactly zero, which is the check that
   // only becomes possible once four rates are exact.
   //
-  // ⚠ THE CESSION BASIS IS THE MISMATCHED PAIR THE SUBTRACTION BELOW USES, AND
-  // THAT IS DELIBERATE. `towerQuote` is REUSED from the pre-movement quote and
-  // the aggregate is quoted on `currentActiveMembers`, while
-  // `expectedCededPer100` divides by the POST-movement `activeExposure`. The
-  // gross-up has to invert that exact combination, so it is handed the same
-  // one: pre-movement members, post-movement exposure. See CessionBasis.
+  // ⚠ THE CESSION BASIS IS THE PAIR THE SUBTRACTION BELOW USES: the covered
+  // book (`towerMembers`) and the post-movement `activeExposure`, which now
+  // describe the same members. The gross-up has to invert exactly that
+  // combination, so it is handed the same one. See CessionBasis.
   const pricedCession: CessionBasis = {
-    members: currentActiveMembers,
+    members: towerMembers,
     exposure: activeExposure,
     layersPlaced: lineDecisions.layersPlaced,
     aggregateStopLevel: lineDecisions.aggregateStopLevel,
@@ -1061,7 +1091,7 @@ export function processLineYear(
     : -1;
   const aggregateQuote = isAggregateLine && placedForCost && aggLevel >= 0
     ? quoteAggregate(
-        line as 'WC' | 'Property', placedForCost, currentActiveMembers,
+        line as 'WC' | 'Property', placedForCost, towerMembers,
         expectedLoss, aggLevel, yearNumber, aggregateTermsRetained,
       )
     : null;
@@ -1138,11 +1168,11 @@ export function processLineYear(
   // rate while the cover's value grew with the severity trend, and it applied
   // one book's SD/E to every book size. See towerMoments.ts.
   //
-  // The occurrence component is REUSED from above rather than recomputed: it
-  // reads only the pre-movement book and the year, so hoisting it to build the
-  // price signal did not change it. The aggregate is quoted once, just above,
-  // off the real post-movement expectedLoss, and both its premium and its
-  // expected ceded come from that single quote.
+  // The occurrence component is `towerQuote`, quoted on the COVERED book (see
+  // its header — the pre-movement quote is only the price signal). The
+  // aggregate is quoted once, just above, on the same book and off the real
+  // post-movement expectedLoss, and both its premium and its expected ceded
+  // come from that single quote.
   //
   // `hasTractableCeded` is exhaustive over CoverageLine today, so towerQuote
   // is never actually null — thrown rather than silently defaulted, so a
@@ -1170,7 +1200,7 @@ export function processLineYear(
   // See DECLINED_COVER_MARGIN_ENABLED for the defect this closes, the measured
   // drift in a long game, and the ledger field that would remove the drift.
   const fullTowerQuote = occurrenceProgramCost(
-    line as TowerLine, FULL_OCCURRENCE_PLACEMENT[line as TowerLine], currentActiveMembers, yearNumber,
+    line as TowerLine, FULL_OCCURRENCE_PLACEMENT[line as TowerLine], towerMembers, yearNumber,
   );
   const retainedCoverMargin = DECLINED_COVER_MARGIN_ENABLED
     ? Math.max(0, fullTowerQuote.premium - towerQuote.premium)
@@ -1229,8 +1259,8 @@ export function processLineYear(
     // would want for the same expected loss. Both per $100 of the same exposure
     // and both over the GROSS pure premium, which is the basis that makes the
     // pool's explicit admin and tower comparable with a carrier's implicit load.
-    marketLevelGapPct(totalMemberRatePer100, pricedPurePremiumPer100,
-      { line, yearNumber, ctx: { seed: instance.seed, gameId: instance.instanceId } }),
+    marketLevelGapPct(line, totalMemberRatePer100, pricedPurePremiumPer100,
+      { yearNumber, ctx: { seed: instance.seed, gameId: instance.instanceId } }),
     // TERM 4's input. LAST year's capital position — the balance sheet a member
     // can actually see when this year's bill arrives, and the only one that
     // exists at this point in the function anyway. See memberSatisfaction.ts.
@@ -1360,7 +1390,8 @@ export function processLineYear(
     // ⚠ ENROLLED BOOK, NOT THE FULL ROSTER. Marketplace-wide generation makes it
     // tempting to hand the 200-member roster to everything below; doing it here
     // would drive k_line to ~1 permanently and silently disable the correction.
-    const kLine = computeKLine(enrolledMembers);
+    // See BOOK_MIX_NORMALISER: out of the draw, so a book's mix reaches its losses.
+    const kLine = BOOK_MIX_NORMALISER.inDraw ? computeKLine(enrolledMembers) : 1;
 
     // ⚠ THE ARGUMENTS COME FROM claimGeneration.ts's SHARED MAPPING, the same
     // one claimRegeneration uses to redraw this year later. Two inline literals
@@ -1439,7 +1470,7 @@ export function processLineYear(
     // correction against the currently enrolled book; the pure premium itself
     // is held (step 6b) rather than chasing enrollment.
     // ⚠ ENROLLED BOOK, NOT THE FULL ROSTER — same trap as WC's k_line above.
-    const kGl = computeKGl(enrolledMembers, yearNumber);
+    const kGl = BOOK_MIX_NORMALISER.inDraw ? computeKGl(enrolledMembers, yearNumber) : 1;
     // Shared mapping — see the WC call above and claimGeneration.ts. Risk
     // control and the shock multipliers are DRAW ONLY (finding 17): a shock is
     // a realized event, not a repricing.
@@ -1518,7 +1549,7 @@ export function processLineYear(
     // HELD and k_Pr is the per-year roster/risk-quality-mix correction against
     // the ENROLLED book — not the full roster, which is the trap both other
     // lines carry a warning about.
-    const kPr = computeKPr(enrolledMembers);
+    const kPr = BOOK_MIX_NORMALISER.inDraw ? computeKPr(enrolledMembers) : 1;
     // Shared mapping — see claimGeneration.ts. Property reads no shock channel
     // and no gPool; the mapper drops both, exactly as this literal always did.
     // Risk control acts on the DRAW ONLY (finding 17), as in WC and GL.
@@ -1700,7 +1731,7 @@ export function processLineYear(
       const quote = quoteAggregate(
         towerLine,
         placed,
-        currentActiveMembers,
+        towerMembers,
         expectedLoss,
         cededAggLevel,
         yearNumber,

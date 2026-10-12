@@ -389,19 +389,49 @@ export const MARKET_COMPONENTS_UNBUILT: ReadonlyArray<{
 // read it: `marketLevelGapPct` takes the live rate and the live pure premium.
 //
 // ============================================================================
-// SHOULD THE TARGET VARY BY LINE? YES — AND IT IS A SCALAR HERE ON PURPOSE.
+// THE TARGET VARIES BY LINE, AND ONLY PROPERTY'S DIFFERS — FOR A MEASURED REASON.
 //
-// A carrier's expense ratio on Property is not its expense ratio on WC. The
-// direction is even fairly clear: long-tail casualty carries more claims
-// handling and more capital per premium dollar than short-tail property, so a
-// property target loss ratio usually sits BELOW a workers' compensation one.
-// So the right structure is per line.
+// It shipped as one scalar, 0.65, set before Property carried catastrophe risk,
+// and the scalar argued that three equal numbers would read like three
+// measurements nobody had. That held while the three lines' own loads were
+// alike. Property's cat model made them unalike, and the scalar stopped being
+// neutral: Property read 2.63% DEARER than the market at Expected and +29.76% at
+// 0.95, so its cushion never crossed zero and market-conditions-check's section 7
+// was red on that line alone.
 //
-// It ships as a SCALAR anyway, and that is the honest form of not knowing. A
-// Record<CoverageLine, number> holding the same number three times reads like
-// three measurements and invites exactly one of them to be nudged; a scalar
-// cannot be misread. Differentiating it is a one-line type change plus three
-// numbers, and the three numbers are the part nobody has.
+// ⚠ THE CAUSE IS THE CATASTROPHE LOAD, AND THE ENGINE ALREADY PRICES IT. The
+// part of the tower's price above expected ceded loss — RISK_LOAD_LAMBDA x SD —
+// is what the reinsurance market charges for volatility. Per dollar of gross
+// expected loss, at defaults, 24 games x 10 years:
+//
+//     line       tower risk load / gross pure premium
+//     WC              0.3288
+//     GL              0.2865      casualty mean 0.3076
+//     Property        0.4262      +0.1186 above the casualty mean
+//
+// A carrier writing the same Property book carries that same catastrophe load,
+// through its own reinsurance or its own capital — a cat load is a property of
+// the RISK, like the loss cost, and not of who writes it. So Property's market
+// load is the casualty load plus that excess:
+//
+//     1/0.65 + 0.1186 = 1.6570   ->   target 0.6035, recorded as 0.60
+//
+// It is DERIVED ONCE and held, not read live. Reading the pool's own tower each
+// year would make the market a function of the pool's size and layer choices —
+// the circularity this file's header records killing the first attempt — so the
+// constant is a fixed consequence of the cat model at default placement, and
+// re-deriving it is the job of whoever moves RISK_LOAD_LAMBDA or the cat model.
+//
+// ⚠ WHY NOT BUILD THE MARKET FROM CARRIER EXPENSES PLUS THE TOWER LOAD ON EVERY
+// LINE, which was the other option. It would split 0.65 into an expense part and
+// a risk part, and the expense part has no source either — so it trades one
+// judgement for a different one on ALL THREE lines, moving WC's and GL's
+// crossings for a 0.04 difference in their risk loads that is inside the
+// judgement already. Correcting Property alone, by the one quantity that
+// actually separates it, moves nothing that was not wrong.
+//
+// The direction agrees with the market: short-tail property carrying a
+// catastrophe load prices to a LOWER target loss ratio than casualty.
 //
 // ⚠ AND THE TARGET IS LOW-RISK IN A SPECIFIC WAY WORTH STATING. It does NOT set
 // how hard satisfaction reacts — that scale is absorbed by the level weight, so
@@ -412,13 +442,22 @@ export const MARKET_COMPONENTS_UNBUILT: ReadonlyArray<{
 // ============================================================================
 
 /**
- * ⚠ JUDGEMENT. Not measured, not measurable here, and not derived from anything
- * in this repo. 65% is a plausible commercial target loss ratio for these lines
- * — a ~35% expense-and-profit load — and that is the whole of its provenance.
- * It is recorded as a judgement in the same terms RATE_RETENTION_SENSITIVITY's
- * own header uses, which is the house form for a number that had to be picked.
+ * ⚠ 0.65 IS A JUDGEMENT. Not measured, not measurable here, and not derived from
+ * anything in this repo. 65% is a plausible commercial target loss ratio for the
+ * casualty lines — a ~35% expense-and-profit load — and that is the whole of its
+ * provenance. It is recorded as a judgement in the same terms
+ * RATE_RETENTION_SENSITIVITY's own header uses, which is the house form for a
+ * number that had to be picked.
+ *
+ * ⚠ PROPERTY'S 0.60 IS DERIVED FROM IT, not picked: 0.65 plus the catastrophe
+ * load the engine's own reinsurance market charges Property above the casualty
+ * lines. See the block above for the measurement and why it is held.
  */
-export const MARKET_TARGET_LOSS_RATIO = 0.65;
+export const MARKET_TARGET_LOSS_RATIO: Record<CoverageLine, number> = {
+  WC: 0.65,
+  GL: 0.65,
+  Property: 0.60,
+};
 
 // ============================================================================
 // THE UNDERWRITING CYCLE — GL ONLY.
@@ -594,9 +633,10 @@ export function marketCycleLoadFactor(
   return 1 + cycle.amplitude * Math.sin(2 * Math.PI * (yearNumber / period + phase + cycle.phaseOffset));
 }
 
-/** What a carrier charges per unit of gross expected loss. 1.538 at a 65% target. */
-export function marketLoadOverExpectedLoss(): number {
-  return 1 / MARKET_TARGET_LOSS_RATIO;
+/** What a carrier charges per unit of gross expected loss on this line. 1.538 at a
+ *  65% target, 1.667 on Property at 60%. */
+export function marketLoadOverExpectedLoss(line: CoverageLine): number {
+  return 1 / MARKET_TARGET_LOSS_RATIO[line];
 }
 
 /**
@@ -609,16 +649,24 @@ export function marketLoadOverExpectedLoss(): number {
  * Both sides are per $100 of the SAME exposure and both are over the same GROSS
  * expected loss, which is what makes the comparison meaningful: the pool's load
  * carries admin and the occurrence tower explicitly, and the carrier's carries
- * its expenses, its profit and its own reinsurance inside the 35%. That last
- * point is an assumption of the structure and is stated rather than buried.
+ * its expenses, its profit and its own reinsurance inside its target. That last
+ * point is an assumption of the structure and is stated rather than buried — and
+ * it is why Property's target is lower: its reinsurance carries a catastrophe
+ * load the casualty lines do not.
+ *
+ * ⚠ THE LINE IS REQUIRED, AND IT USED TO RIDE ONLY INSIDE THE OPTIONAL CYCLE
+ * ARGUMENT. With one target for all three lines nothing else needed it; with a
+ * per-line target a call without a line would silently read another line's
+ * market. The cycle argument keeps its "omitted means no cycle" meaning.
  *
  * Returns 0 when there is no positive expected loss to compare against, which
  * is the same neutral-on-missing-data rule priceSignalFor uses.
  */
 export function marketLevelGapPct(
+  line: CoverageLine,
   poolTotalRatePer100: number,
   grossPurePremiumPer100: number,
-  cyclePos?: { line: CoverageLine; yearNumber: number; ctx: MarketContext },
+  cyclePos?: { yearNumber: number; ctx: MarketContext },
 ): number {
   if (!(grossPurePremiumPer100 > 0) || !(poolTotalRatePer100 > 0)) return 0;
   // ⚠ THE CYCLE ARGUMENT IS OPTIONAL AND OMITTING IT MEANS "NO CYCLE", NOT
@@ -628,9 +676,9 @@ export function marketLevelGapPct(
   // deliberately does not, because it compares rate LEVELS across lines and a
   // GL-only multiplier would make that comparison read the cycle instead.
   const load = cyclePos
-    ? marketCycleLoadFactor(cyclePos.line, cyclePos.yearNumber, cyclePos.ctx)
+    ? marketCycleLoadFactor(line, cyclePos.yearNumber, cyclePos.ctx)
     : 1;
-  return ((poolTotalRatePer100 / grossPurePremiumPer100) * (MARKET_TARGET_LOSS_RATIO / load) - 1) * 100;
+  return ((poolTotalRatePer100 / grossPurePremiumPer100) * (MARKET_TARGET_LOSS_RATIO[line] / load) - 1) * 100;
 }
 
 /** The ratemaker's experience window. The pool's own, deliberately. */

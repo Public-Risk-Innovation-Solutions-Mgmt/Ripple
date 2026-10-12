@@ -578,7 +578,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // reinsurance cost and the member charge, and the opening book re-rolled because
 // the pin moved. Read with value-identity v53, whose note carries the measured
 // reason declining still wins.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v55.json');
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v56.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

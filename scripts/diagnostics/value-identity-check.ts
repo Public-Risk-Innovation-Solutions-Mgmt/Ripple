@@ -890,7 +890,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (0.12). Layers are priced on the DRAWN severity and recover on the BOOKED
 // occurrence, which forward booking contracts below the attachment. That is the
 // converging-climb work on feature/fast-development, and it is additive to this.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v53.json');
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v54.json');
 
 function seedOf(id: string) {
   let h = 5381;

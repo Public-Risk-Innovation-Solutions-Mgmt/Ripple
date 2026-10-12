@@ -1,6 +1,9 @@
 // ============================================================================
-// RENEWAL UNDERWRITING — the pool declines to renew a member whose EXPERIENCE
-// RATIO is above a threshold the player sets.
+// RENEWAL UNDERWRITING — the pool non-renews the WORST X% of its book on each
+// member's own EXPERIENCE RATIO, X being the renewal slider. See
+// RENEWAL_CUT_STEPS for the steps and the ruling that replaced the threshold
+// tiles; the history below records how the ratio basis was chosen, and it
+// still governs what the ranking reads.
 //
 // ⚠ THE THRESHOLD IS ON THE RATIO, NOT ON THE MODIFIER, AND THAT IS A CHANGE.
 // It used to compare the displayed modifier against 1.25 / 1.15 / 1.10. Those
@@ -167,8 +170,12 @@
 // being watched for, and through a completely different term.
 //
 // renewal-stability-check measures whether it runs away, with four controls.
-// If the ratchet is real the remedy is probably a cap on annual declines —
-// but that is the arm's call, not this file's.
+//
+// ⚠ A SHARE CANNOT RATCHET IN COUNT, WHICH IS ONE THING THE SLIDER BUYS. The
+// count each year is round(share x book) by construction, so the loop above can
+// no longer push MORE members over a fixed bar — there is no bar. What it can
+// still do is move WHICH members are the worst, and the gate now asserts the
+// count is exactly the share and that cut 0 is identical to renewal off.
 // ============================================================================
 
 import { closeInterval } from './membershipHistory';
@@ -178,140 +185,117 @@ import type {
 } from '../types/simulation';
 
 /**
- * The thresholds, on the RAW experience ratio. TWO LEVELS, plus Renew All.
+ * THE RENEWAL SLIDER: THE SHARE OF THE BOOK NOT RENEWED EACH YEAR, WORST FIRST.
  *
- * ASCENDING, and the UI renders them REVERSED — Renew All, 2.50, 2.00, which
- * is most lenient to most strict and is the direction New Business Appetite
- * reads. Ascending is right for a threshold list and wrong for a row of tiles;
- * the same split NEW_BUSINESS_TIERS makes, for the same reason.
+ * ⚠ A SHARE, NOT A THRESHOLD, AND THAT IS THE DESIGN RULING THIS REPLACES THE
+ * TWO TILES WITH. Zero keeps every member. Rising, the pool non-renews the worst
+ * X% of its book on the member's own multi-year loss ratio — the RAW Ap/Ep over
+ * EXPERIENCE_MOD.windowYears, the Loss Ratio column on Membership, the same
+ * window the experience modifier reads. Ranked, so "the worst 5%" means the
+ * same thing in a good year and a bad one; a threshold's count moved with the
+ * book and with luck, which is why the old table carried a "the screen count is
+ * higher than a held level produces" warning that a share does not need.
  *
- * ⚠ TWO LEVELS RATHER THAN ONE, AND THE SECOND IS A DIFFERENT DECISION RATHER
- * THAN A FINER DIAL. This block used to argue for a single level on the
- * grounds that "renewal underwriting is a single question" and middle settings
- * reshape the book rather than manage it. The measurement below is what
- * overturns it: 2.50 and 2.00 are not two points on one dial, they are a
- * renewal decision and a roster decision, and the book effect tells them apart
- * by a factor of two and a half. Offering only the mild one hid the strict one
- * rather than protecting the player from it.
+ * STEPS 0 / 1 / 2 / 3 / 4 / 5%, NARROWED FROM 0 / 2.5 / 5 / 7.5 / 10%. One-percent
+ * steps are the risk-control dials' step, so a player learns one step size across
+ * the Decisions page; and the old top step read more like a mistake than a
+ * decision — at 10% with no intake the WC book fell from 66 to 22 in ten years.
  *
- * ⚠ PICKED OFF THE MEASURED DISTRIBUTION, NOT CHOSEN FOR ROUNDNESS, AND THE
- * TABLE THIS REPLACES WAS BADLY STALE. Every absolute figure in the previous
- * version came off a mean book of 58; the live engine runs a mean book of 92
- * (WC) and 88 (GL) since the intake rebuild, so every count roughly doubled
- * while the shape survived. That is the second table in this control pair to
- * go stale the same way — see newBusinessAppetite.ts, which records the same
- * failure twice — so the BOOK SIZE is now stated beside the counts rather than
- * left implicit, because it is the term that moved.
+ * A threshold SETTLES because the worst members go and fewer clear the bar; a
+ * share DOES NOT — the worst 5% of any book is always 5% of it. Against the
+ * levels the slider replaced (renewal-threshold-derive, mean book ~90): 2.50
+ * settled near 1.2% of the book once held and 2.00 near 2.6%, so 1-3% spans the
+ * old controls and 5% is about twice the old strict level held.
  *
- * MEASURED NOW, 8 games x 14 years, warm years only, default decisions, per
- * line-year on a Renew All history (mean book: WC 91.6, GL 88.4):
+ * MEASURED, 16 games x 10 years, year 10, normaliser out of the draw, WC (GL
+ * alike); cost = the book's expected loss against an all-neutral book:
  *
- *   threshold   WC declines/yr   GL declines/yr   line-years reading 0   max
- *      1.50        18.06            18.50            0% / 0%            28 / 34
- *      2.00         7.05             7.21            0% / 1%            12 / 17
- *      2.50         2.95             3.46            9% / 4%             7 /  8
- *      2.75         1.91             2.45           16% / 10%            5 /  7
- *      3.00         1.26             1.77             —                  —
+ *              no intake                              intake at bar 5 (level 3)
+ *   cut    book   cost   rate/$100  surplus      book   cost   rate/$100  surplus
+ *    0%    65.8   1.017    4.956    $146.6M      90.9   1.013    4.708    $178.9M
+ *    1%    56.9   1.006    4.997    $144.6M      82.0   1.008    4.740    $178.6M
+ *    3%    48.0   0.982    5.071    $140.1M      71.0   0.987    4.805    $169.2M
+ *    5%    39.5   0.947    5.183    $133.1M      59.6   0.960    4.832    $163.1M
+ *   (10%   22.4   0.874    5.628    $116.2M      38.6   0.904    5.159    $142.7M — the old top)
  *
- * 2.50 declines about three members in a typical year — a renewal decision.
- * 2.00 declines about seven, which with the two-year cooldown is a policy that
- * reshapes the roster. Both are offered because both are things a player might
- * actually mean. 1.50 is not: eighteen a year out of ninety is not underwriting.
+ * THE RATE RISES FROM THE FIRST STEP on a closed book: each step trades book for
+ * a smaller fall in expected cost, and a smaller book loses the tower's size
+ * discount faster than its composition gains. At 5% the book is down 40% for a
+ * 7% fall in cost and a 4.6% RISE in the rate — still plainly "it shrinks the
+ * book, it does not clean it", without gutting the pool.
  *
- * ⚠ THE COUNT PER YEAR IS NOT THE COST, AND THE BOOK EFFECT IS THE NUMBER TO
- * JUDGE THESE BY. A decline carries a two-year cooldown, so holding a level
- * costs more than its yearly count. Measured with the threshold APPLIED for a
- * whole game (renewal-threshold-derive section 4, 6 games x 14 years, mean
- * enrolled, renewal off -> on):
+ * ⚠ 1% IS ONE MEMBER A YEAR, AND ZERO ON A BOOK UNDER 50. The count is
+ * round(cut x book), so on the books this game makes the 1% step names one
+ * member a year (0.89 on WC with no intake) and rounds to nobody once the book
+ * falls below 50 — which is why 1% and 2% read alike on a book of ~55. Stated
+ * so a player who sees "0 not renewed" at 1% is reading the arithmetic, not a
+ * fault.
  *
- *   level   WC book            GL book            declines/yr (WC / GL)
- *   2.50    90.6 -> 81.4  (-10.2%)   93.2 -> 80.4  (-13.7%)    1.10 / 1.58
- *   2.00    90.6 -> 67.5  (-25.5%)   93.2 -> 67.9  (-27.1%)    2.38 / 2.57
+ * ⚠ WHAT IT TEACHES, WHICH IS WHY IT SHIPS. A member's loss ratio barely
+ * persists: the modifier's measured credibility is Z = 0.155 (WC) and 0.076
+ * (GL), and true risk quality ranks the loss run at 0.33. So the worst 5% by
+ * last three years are mostly members who had a bad three years, and next
+ * year's book is not much better — the slider SHRINKS the book far more than it
+ * CLEANS it. That is a true lesson about pools, and it is the one this control
+ * exists to let a player discover.
  *
- * So the strict level costs a QUARTER of the book and the mild one a tenth.
- * That is the trade the two tiles exist to put in front of the player, and one
- * tile could not show it.
- *
- * ⚠ AND GL RUNS HOTTER THAN WC AT BOTH LEVELS, WHICH IS NOT A RENEWAL
- * PROPERTY. GL loses more book on a very similar decline rate, so the
- * difference is in how fast each line's recruitment refills rather than in how
- * many members each declines. Recorded here because a reader comparing the two
- * lines will otherwise look for the cause in this file, and it is not in this
- * file.
- *
- * ⚠ THE DECLINE COUNT SHOWN ON THE SCREEN IS HIGHER THAN THE COUNT A HELD
- * LEVEL PRODUCES, AND BOTH ARE RIGHT. The screen counts against the CURRENT
- * book, which on a Renew All history is 2.95 (WC) and 3.46 (GL) per year at
- * 2.50. Once the level has been held for a few years the worst members are
- * gone and the rate settles near 1.10 / 1.58. The screen is not
- * over-promising; the book is improving, which is the mechanism working.
- *
- * ⚠ NO PERCENTAGE IN THE LABEL. The share at a threshold moves with the book,
- * so a static "declines ~3%" would go stale the first time the roster shifted
- * — which is exactly what happened to the table above. The UI renders the LIVE
- * count instead, which cannot.
- *
- * Kept as an array so a third level is a data change rather than a UI change,
- * and so the stability gate can keep reading the tightest shipped value.
+ * Property is inert by construction: its credibility measured 0.000, no Property
+ * member is ever rated, and ranking members on a ratio the Membership page shows
+ * blank would be selecting on a number the player cannot see.
  */
-export const RENEWAL_THRESHOLDS = [2.00, 2.50] as const;
+export const RENEWAL_CUT_STEPS = [0, 0.01, 0.02, 0.03, 0.04, 0.05] as const;
 
-/** null = renew all. Otherwise the RAW-RATIO threshold above which a member is
- *  declined. */
-export type RenewalThreshold = number | null;
+/** Share of the book non-renewed this year, worst first. 0 renews everyone. */
+export type RenewalCut = number;
 
 export interface RenewalDecision {
   memberId: string;
-  /** What the member actually cost, Ap/Ep, UNCLAMPED — and what the threshold
-   *  was compared against. See THE BASIS in the header. */
+  /** What the member actually cost, Ap/Ep, UNCLAMPED — and what the ranking
+   *  was taken on. See THE BASIS in the header. */
   rawRatio: number;
-  /** The same quantity under Mahler's rule 3. RECORDED, NOT RATED: it is what
+  /** The same quantity under Mahler's rule 3. RECORDED, NOT RANKED: it is what
    *  the member's BILL is computed from, so a reader reconciling a decline
    *  against a premium needs both. Nothing compares it. */
   clampedRatio: number;
 }
 
 /**
- * Which members this threshold would decline, on the book as it stands.
+ * Which members this cut would non-renew, on the book as it stands.
  *
  * PURE, and shared by the engine and the UI — the DecisionsPage renders the
  * count from this same function, so the number the player is shown is the
  * number they get rather than a second estimate of it.
  *
- * ⚠ UNRATED MEMBERS ARE NEVER DECLINED, AND THE GUARD IS `rated` RATHER THAN
- * THE RATIO. This mattered more when the comparison was on `clampedRatio`,
- * which is 1 on an unrated member — a filler, not a measurement, and one that
- * sits below every shipped threshold, so comparing it gave the right answer
- * for the wrong reason and would have started declining unrated members the
- * moment a threshold below 1.0 was offered. On the raw ratio the filler is
- * `null` and the guard is load-bearing rather than merely correct. A member
- * with fewer than EXPERIENCE_MOD.minYears of history has no experience to
- * decline them on, and Property — whose credibility measured 0.000 — has no
- * rated members at all, so no Property member can ever be declined.
+ * THE COUNT is round(cut x book), the book being every active member on the
+ * line, rated or not — "the worst X% of the book". THE CANDIDATES are the RATED
+ * members only: a member with fewer than EXPERIENCE_MOD.minYears of history has
+ * no loss run to rank, and an unrated member is never non-renewed (the guard is
+ * `rated`, for the reason the threshold version recorded — a filler is not a
+ * measurement). If fewer members are rated than the count asks for, every rated
+ * member is non-renewed and no more.
  *
- * ⚠ IT COMPARES THE RAW RATIO — THE SAME NUMBER THE SCREEN SHOWS, AND THE SAME
- * NUMBER NEW BUSINESS APPETITE COMPARES. It used to compare `clampedRatio`
- * while New Business Appetite compared `rawRatio`, so one pool had two views of
- * the same quantity. See THE BASIS in the header for the measurement that
- * settled it, and for the larger gap that a reading cannot close.
+ * ⚠ RANKED ON THE RAW RATIO, NOT THE CLAMPED ONE. The clamp ties every member
+ * above 3.0 at 3.0, so a clamped ranking would choose among the very worst
+ * arbitrarily. Ties on the raw ratio break on memberId so the choice is a pure
+ * function of the book.
  */
 export function renewalDeclines(
   members: readonly Member[],
   line: CoverageLine,
   history: MemberLossHistory,
   yearNumber: number,
-  threshold: RenewalThreshold,
+  cut: RenewalCut,
 ): RenewalDecision[] {
-  if (threshold === null || !(threshold > 0)) return [];
-  const mods = memberExperienceMods(members, line, history, yearNumber);
-  const out: RenewalDecision[] = [];
-  for (const m of mods) {
+  if (!(cut > 0)) return [];
+  const count = Math.round(cut * members.length);
+  if (count <= 0) return [];
+  const rated: RenewalDecision[] = [];
+  for (const m of memberExperienceMods(members, line, history, yearNumber)) {
     if (!m.rated || m.rawRatio === null) continue;
-    if (m.rawRatio > threshold) {
-      out.push({ memberId: m.memberId, rawRatio: m.rawRatio, clampedRatio: m.clampedRatio });
-    }
+    rated.push({ memberId: m.memberId, rawRatio: m.rawRatio, clampedRatio: m.clampedRatio });
   }
-  return out;
+  rated.sort((a, b) => (b.rawRatio - a.rawRatio) || (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0));
+  return rated.slice(0, count);
 }
 
 /**

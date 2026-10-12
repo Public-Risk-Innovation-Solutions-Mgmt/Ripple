@@ -234,8 +234,8 @@ const defaultsValue = new Map<CoverageLine, number>();
       + `${m(x => x.reinsurerBenchmark).toFixed(3).padStart(14)}`
       + `${m(x => x.valueAgainstReinsurer).toFixed(3).padStart(14)}`
       + `${money(v.reduce((s, x) => s + x.aboveTowerDollars, 0)).padStart(13)}`);
-    if (!(Math.abs(v[0].marketBenchmark - MARKET_TARGET_LOSS_RATIO) < 1e-12)) {
-      failures.push(`${line}: the market benchmark is not MARKET_TARGET_LOSS_RATIO. The value term and `
+    if (!(Math.abs(v[0].marketBenchmark - MARKET_TARGET_LOSS_RATIO[line as CoverageLine]) < 1e-12)) {
+      failures.push(`${line}: the market benchmark is not this line's MARKET_TARGET_LOSS_RATIO. The value term and `
         + `the satisfaction level term must not hold two different opinions of what a carrier charges.`);
     }
     // The reinsurer's benchmark is E[ceded]/premium and the tower is priced at

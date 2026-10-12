@@ -40,6 +40,7 @@ import {
   expectedWcGrossLossForKLine,
   expectedWcGrossLossForPricing,
   generateWcClaims,
+  memberThetaWc,
   ratingGroupOf,
   tiltedWeights,
 } from '../../src/utils/wcClaimEngine';
@@ -313,6 +314,10 @@ const YEARS = 300;
   const counts = runs.map(r => r.claims.length);
   const drawn = runs.map(r => r.grossUltimateLoss);
 
+  // ⚠ THE COMPARATOR READS memberThetaWc, THE DRAW'S OWN FACTOR — the slope
+  // (RISK_QUALITY_SLOPE.WC) and the re-centring (RISK_QUALITY_CENTRE.WC) with it.
+  // Rebuilding it from rqFrequencyBeta alone would compare against the 1x curve.
+  //
   // ⚠ THE COMPARATOR MUST CARRY THE DRAW'S OWN CONDITIONS. The 1,825.6 headline
   // is the NEUTRAL-RQ, k_line = 1 figure; the draw applies each member's own
   // theta and the book's k_line, and theta does not average to 1 (exp is convex,
@@ -321,7 +326,7 @@ const YEARS = 300;
   let analyticCount = 0;
   for (const m of roster) {
     const spec = M.ratingGroups[ratingGroupOf(m)];
-    analyticCount += (m.exposureByLine.WC ?? 0) * spec.ratePer1M * Math.exp(-M.rqFrequencyBeta * (m.riskQuality - NEUTRAL_RQ)) * kFull;
+    analyticCount += (m.exposureByLine.WC ?? 0) * spec.ratePer1M * memberThetaWc(m.riskQuality) * kFull;
   }
   console.log(`  claims/yr drawn (FULL MARKET): ${mean(counts).toFixed(1)} over ${YEARS} seeds`);
   console.log(`    against the analytic AT THE DRAW'S CONDITIONS (actual RQ, k_line ${kFull.toFixed(4)}): ${analyticCount.toFixed(1)}  ` +
@@ -341,7 +346,7 @@ const YEARS = 300;
   for (const m of roster) {
     const group = ratingGroupOf(m);
     const spec = M.ratingGroups[group];
-    const lambda = (m.exposureByLine.WC ?? 0) * spec.ratePer1M * Math.exp(-M.rqFrequencyBeta * (m.riskQuality - NEUTRAL_RQ)) * kFull;
+    const lambda = (m.exposureByLine.WC ?? 0) * spec.ratePer1M * memberThetaWc(m.riskQuality) * kFull;
     const w = tiltedWeights(group, m.riskQuality);
     spec.mix.forEach(({ component }, i) => {
       const c = WC_SEVERITY_COMPONENTS[component];
@@ -424,7 +429,7 @@ console.log('\n--- 8. WAGE INFLATION: the trend-free lag, and what fixed attachm
         const group = ratingGroupOf(m);
         const spec = M.ratingGroups[group];
         const w = tiltedWeights(group, m.riskQuality);
-        const lambda = (m.exposureByLine.WC ?? 0) * spec.ratePer1M * Math.exp(-M.rqFrequencyBeta * (m.riskQuality - 5));
+        const lambda = (m.exposureByLine.WC ?? 0) * spec.ratePer1M * memberThetaWc(m.riskQuality);
         spec.mix.forEach(({ component }, i) => {
           const c = WC_SEVERITY_COMPONENTS[component];
           const mu = trendedMu(c.mu, yearNumber);

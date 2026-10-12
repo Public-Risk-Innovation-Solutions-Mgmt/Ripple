@@ -423,7 +423,7 @@ const BASELINE = process.env.RENDER_BASELINE
 //   - the 50 rows that did NOT move are exactly the five department memo panes
 //     across all 5 configurations and both years — static prose, no numbers.
 //     That they held is the evidence the capture is value-only.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v19.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v25.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
