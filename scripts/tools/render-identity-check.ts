@@ -455,7 +455,27 @@ const BASELINE = process.env.RENDER_BASELINE
 //        responding to a number, which is what it is built to do.
 // The 24 rows that did NOT move are department memo panes with no numbers in
 // them, which is the evidence nothing moved that should not have.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v25.json');
+// ⚠ v25 -> v26: THE SATISFACTION OPENING FIX. Members are seeded at the anchor
+// their own pool's opening position earns instead of a fixed 7.20-7.22, and the
+// surplus-limb constants were re-solved onto where pools now sit.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 60975ba built in its own
+// worktree, served on :4174, reproducing ALL 298 FINGERPRINTS against the
+// committed v25. Only then was this tree built on :4173 and diffed against it.
+//
+// 31 of 298 moved. 0 added, 0 removed, 0 renamed, and 0 rows with any PROSE
+// change — the alphabetic content of all 31 is identical word for word, so
+// every one is a number. They are exactly the two screens that print member
+// satisfaction, and nothing else moved anywhere:
+//     Membership          26  (every configuration, both years)
+//     Result Spreadsheet   5  (its member table)
+// Sample, GL|Membership|GL|y0: the line's average member satisfaction reads
+// 7.21 -> 8.14, and individual members 7.21 -> 7.73 and 7.20 -> 8.20.
+//
+// That the other ten screens are untouched is the evidence this change stayed
+// in its lane: satisfaction is a scoreboard that feeds nothing, and both value
+// baselines held BIT-EXACTLY across it.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v26.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
