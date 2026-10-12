@@ -28,7 +28,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { deriveSubRng } from '../../src/utils/random';
-import { WC_LOSS_MODEL } from '../../src/data/defaultAssumptions';
+import { RISK_QUALITY_SLOPE, WC_LOSS_MODEL } from '../../src/data/defaultAssumptions';
 import { computeKLine, expectedWcGrossLossForPricing } from '../../src/utils/wcClaimEngine';
 import { computeKGl, expectedGlGrossLossForPricing } from '../../src/utils/glClaimEngine';
 import type { CoverageLine, GameState, Member } from '../../src/types/simulation';
@@ -219,7 +219,9 @@ console.log('\n\n=== TEST 3 — does k_line / k_GL fully neutralise RQ on the EN
       const totalExpo = r.members.reduce((s, m) => s + expo(m), 0);
       if (!(totalExpo > 0)) continue;
       const wRq = r.members.reduce((s, m) => s + expo(m) * m.riskQuality, 0) / totalExpo;
-      const beta = r.line === 'WC' ? WC_LOSS_MODEL.rqFrequencyBeta : 0.055;
+      // The slope multiple applies here too (RISK_QUALITY_SLOPE); the naive mean
+      // below is a reading of the curve the draw actually uses.
+      const beta = r.line === 'WC' ? WC_LOSS_MODEL.rqFrequencyBeta * RISK_QUALITY_SLOPE.WC.frequency : 0.055 * RISK_QUALITY_SLOPE.GL.frequency;
       // Naive exposure-weighted mean theta — the quantity that would have to be
       // cancelled if k acted on a simple exposure average.
       const wTheta = r.members.reduce((s, m) => s + expo(m) * Math.exp(-beta * (m.riskQuality - 5)), 0) / totalExpo;

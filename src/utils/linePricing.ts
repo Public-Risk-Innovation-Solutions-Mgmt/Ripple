@@ -41,7 +41,8 @@
 // differs by whoever joins or leaves — see the parity harness, which measures
 // that residual rather than pretending it is zero.
 
-import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM } from '../data/defaultAssumptions';
+import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED } from '../data/defaultAssumptions';
+import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine, Member } from '../types/simulation';
@@ -77,12 +78,12 @@ export interface LineRateInputs {
  * The book-and-decision inputs the CESSION depends on — everything
  * `expectedCededPer100For` needs that is not the rate itself.
  *
- * ⚠ `members` AND `exposure` ARE SEPARATE ON PURPOSE, AND THE ENGINE'S FINAL
- * PASS GENUINELY PASSES A MISMATCHED PAIR. The occurrence tower is quoted on
- * the PRE-movement book and reused rather than re-quoted (see the note at
- * `towerQuote` in simulationEngine), while the per-$100 divisor is the
- * POST-movement exposure the premium is actually charged on. Collapsing these
- * into one book would silently re-quote the tower and move engine values.
+ * ⚠ `members` AND `exposure` ARE SEPARATE ON PURPOSE. The engine's final pass
+ * hands the COVERED book (post-movement, joiners in, leavers out — see
+ * `towerQuote` in simulationEngine) and the post-movement exposure, so the two
+ * describe the same members there. A caller quoting ahead of movement (the
+ * Decisions panel, the engine's price signal) passes the book as it stands,
+ * which is the only book that exists when it asks.
  */
 export interface CessionBasis {
   /** The book the TOWER prices off. */
@@ -369,6 +370,11 @@ export interface LineRateQuote {
   adminRatePer100: number;
   reinsuranceCost: number;
   reinsRatePer100: number;
+  /** The price of the occurrence layers the pool DECLINED, still charged and
+   *  kept — the engine's retainedCoverMargin, on the same book and year. 0
+   *  whenever every purchasable layer is placed, which is the shipped default. */
+  retainedCoverMargin: number;
+  retainedCoverMarginRatePer100: number;
   totalMemberChargeRatePer100: number;
   poolPremium: number;
   /** Returned so the engine can REUSE the quote for its post-movement pass
@@ -423,10 +429,38 @@ export function quoteLineRates(input: LineRateInputs): LineRateQuote {
 
   const reinsRatePer100 = reinsuranceCost / Math.max(exposure * 10_000, 1);
 
+  // ============================================================================
+  // ⚠ THE FOURTH TERM, WHICH THE QUOTE USED TO LEAVE OUT. The engine's realised
+  // charge is poolPremium + admin + reinsurance + retainedCoverMargin; this quote
+  // built the same charge from the first three. On a pool that declined its
+  // tower the quote therefore came out short by the whole declined price, and
+  // every reader of it saw a rate CUT that the bill never carried — measured as
+  // a phantom 46-point cut, every year, on a fully declined pool. Five readers:
+  // the engine's rateChangePct and rateLoad (retention and departure), the
+  // funding-consequence panel's charge, load and derived rate change, the
+  // Decisions page, and panel-engine-parity-check.
+  //
+  // SAME ARITHMETIC AS THE ENGINE'S, on the same book: the full tower's price
+  // minus the placed tower's, floored at zero, behind the same flag. It is only
+  // COMPUTED when a layer is actually declined, because the full-tower walk is
+  // the expensive part of a quote and is identically the placed one otherwise.
+  // When nothing is declined the term is an exact 0 and `x + 0` is `x`, so a
+  // fully placed pool — the shipped default — is bit-identical across this fix.
+  // ============================================================================
+  const towerLine = line as TowerLine;
+  const placedNow = normalizeLayersPlaced(towerLine, layersPlaced);
+  const anyDeclined = FULL_OCCURRENCE_PLACEMENT[towerLine].some((full, i) => full && !placedNow[i]);
+  const retainedCoverMargin = DECLINED_COVER_MARGIN_ENABLED && anyDeclined
+    ? Math.max(0, occurrenceProgramCost(towerLine, FULL_OCCURRENCE_PLACEMENT[towerLine], members, yearNumber).premium
+      - towerQuote.premium)
+    : 0;
+  const retainedCoverMarginRatePer100 = retainedCoverMargin / Math.max(exposure * 10_000, 1);
+
   const totalMemberChargeRatePer100 =
     poolPremiumRatePer100
     + adminRatePer100
-    + reinsRatePer100;
+    + reinsRatePer100
+    + retainedCoverMarginRatePer100;
 
   return {
     purePremiumPer100,
@@ -436,6 +470,8 @@ export function quoteLineRates(input: LineRateInputs): LineRateQuote {
     adminRatePer100,
     reinsuranceCost,
     reinsRatePer100,
+    retainedCoverMargin,
+    retainedCoverMarginRatePer100,
     totalMemberChargeRatePer100,
     poolPremium,
     towerQuote,

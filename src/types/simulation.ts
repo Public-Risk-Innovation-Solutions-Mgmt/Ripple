@@ -238,7 +238,7 @@ export interface PoolValueRow {
   totalMemberCharge: number;
   /** grossLoss / totalMemberCharge — what came back per dollar billed. */
   returnedPerDollar: number;
-  /** MARKET_TARGET_LOSS_RATIO. */
+  /** MARKET_TARGET_LOSS_RATIO for this row's line. */
   marketBenchmark: number;
   /** returnedPerDollar / marketBenchmark. Above 1: better than a carrier. */
   valueAgainstMarket: number;
@@ -578,25 +578,30 @@ export interface LineDecisionSet {
   dividendPct: number;            // 0.00 to 0.15 of premium
   assessmentPct: number;          // 0.00 to 0.25 of premium
   /**
-   * New Business Appetite: decline to WRITE an applicant whose own raw
-   * experience ratio is at or above this. null accepts every applicant, which
-   * is the default and is the only value that leaves the recruitment draw
-   * untouched — see newBusinessAppetite.ts on why ACCEPT_ALL is "do not filter"
-   * rather than an admitting threshold.
+   * The INTAKE SLIDER, a position 0..INTAKE_LOW: No New Business (0, and absent —
+   * the default), Strict, Moderate, Low. Each position sets a bar on a NOISY
+   * INSPECTION of risk quality and a cap on how many join that year; Low's cap
+   * is MAX_NEW_MEMBER_SHARE, the overall maximum. See intakeInspection.ts.
    *
-   * ⚠ ON THE APPLICANT'S OWN RATIO, WHICH IS NOT ON A MEMBER'S BASIS.
-   * Prospects generate at k = 1 with no risk control, so the two numbers are
-   * comparable but not identical. Stated at the control rather than hidden.
+   * ⚠ REPLACES newBusinessAppetite, which screened applicants on their own loss
+   * run. A save carrying newBusinessAppetite loads at No New Business; there is
+   * no save migration in this repo by design (gameSave.ts). A save written
+   * under the seven-level version of this slider carries a level up to 6, which
+   * reads as Low.
    */
-  newBusinessAppetite?: number | null;
+  intakeLevel?: number;
   /**
-   * Renewal Underwriting: decline members whose DISPLAYED experience modifier
-   * exceeds this. null renews everyone, which is the default.
+   * The RENEWAL SLIDER: the share of this line's book NOT renewed this year,
+   * worst first on the member's own multi-year raw loss ratio. 0 (and absent)
+   * renews everyone, which is the default. One of RENEWAL_CUT_STEPS. See
+   * renewalUnderwriting.ts.
    *
-   * ⚠ ON THE DISPLAYED (median-centred) SCALE, so 1.15 means "more than 15%
-   * above the typical member" in any book. See renewalUnderwriting.ts.
+   * ⚠ REPLACES renewalThreshold, which compared a ratio against a fixed bar. A
+   * save written before this carries renewalThreshold, which nothing reads any
+   * more, and no renewalCut — so it loads renewing everyone. There is no save
+   * migration in this repo by design (gameSave.ts).
    */
-  renewalThreshold?: number | null;
+  renewalCut?: number;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
   // candidates by riskQuality descending and kept the top 60% — exact
   // selection on an attribute the player can no longer see. See

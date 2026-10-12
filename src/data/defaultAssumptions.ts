@@ -746,6 +746,106 @@ export const GL_LOSS_MODEL = {
   rqSeverityBeta: 0.060,
 } as const;
 
+// ============================================================================
+// HOW STEEPLY RISK QUALITY DRIVES LOSSES, PER LINE AND CHANNEL — CHOSEN, NOT SOURCED.
+//
+// A multiple on a line's risk-quality coefficients, per channel: the frequency
+// beta (theta = exp(-beta x frequency x (RQ - 5))) and the severity-tilt beta
+// (heavy weight x exp(-beta_s x severity x (RQ - 5))), in the exponential form
+// WC and GL already use. Property is 1x on both, so its linear form is
+// untouched and never meets the zero its slope would reach at RQ 10 past 2.5x.
+//
+// ⚠ NO PUBLISHED SPREAD EXISTS. No source was found for how far a public
+// entity's true loss cost runs between its best and worst members. Experience
+// mods centre on 1.0 and rating plans widen or compress their range by design,
+// and that is all. So these multiples are a judgement, made for what they make
+// legible:
+//
+//   PERSISTENCE, MATCHED ACROSS THE TWO LINES. At 1x a member's three-year
+//   loss ratio barely repeats (split-half 0.07 on WC, 0.03 on GL), so the 5%
+//   renewal cut removes unlucky members and the rate RISES. The target is the
+//   same persistence on both lines, not a chosen slope. Measured in the engine
+//   at these multiples, 10 games x 18 years, and the cut at year 10 over 40:
+//
+//     line                    split-half   5% renewal cut: book cost / rate
+//     WC  2x freq, 2x sev        0.278       -21.2% / -1.5% +/- 0.5
+//     GL  3.5x freq, 1x sev      0.276       -21.0% / -0.2% +/- 0.4
+//
+//   The cut now CLEANS both books by the same fifth. On WC that lowers the
+//   rate; on GL it holds the rate flat rather than raising it.
+//
+// ⚠ GL IS FREQUENCY-ONLY BECAUSE SEVERITY BROKE THE REAL-POOL ANCHOR. GL's
+// settled-claim log-SD has one external anchor, the real pool's 2.29
+// (CLAIM_SETTLED_LOG_SD_ANCHOR, terminal-severity-check). Steepening GL's
+// severity tilt to 2.5x widened drawn GL claims from 2.17 to 2.22 log-SD on its
+// own, and the settled figure read 2.344, outside the 0.05 tolerance; the gate's
+// remedy was to cut the revision law's phi by three-quarters. Frequency carries
+// the persistence signal without widening claim sizes, and it is the more
+// realistic model: a worse-run member has more incidents, not uniformly bigger
+// ones. At 3.5x frequency, 1x severity the settled figure reads 2.307. (Both
+// channels at 2.5x had matched persistence too, 0.32, before the anchor ruled it
+// out.)
+//
+//   WHAT THE SPREAD BECOMES. Expected cost of the marketplace's book were
+//   every member at RQ 1 against RQ 10, and between the 5th and 95th
+//   percentile of the marketplace's quality (RQ 2 against 8.3), both channels:
+//
+//     line       worst/best, 1x -> new    middle 90%, 1x -> new
+//     WC             3.4x -> 11.6x            2.36x -> 5.59x
+//     GL             2.8x -> 9.6x             2.05x -> 4.87x
+//     Property       unchanged (3.2x)         unchanged (2.16x)
+//
+// ⚠ AND EACH GAME'S OPENING BOOK NOW MATTERS MORE. The re-centring is exact
+// over the marketplace, but a game's opening book is a sample of it. Over 40
+// games the opening book's cost against today's scatters with an SD of 8.4% on
+// WC (mean -3.3% +/- 1.3%: WC's opening books average RQ 5.07 against the
+// marketplace's 5.02, and the steeper slope amplifies that mild selection) and
+// 6.0% on GL (mean -0.05%). The pre-game's opening band also redraws more
+// often, so a game's opening roster can differ from the one it had at 1x. The
+// pool's own triangle prices what its book actually costs; the RQ-5 rate card
+// does not move.
+//
+// THE CONFIDENCE TABLES HOLD WITHOUT RE-DERIVATION. Drawn quantiles of six real
+// opening books per line against the shipped tables, 10,000 draws each: the
+// tables' error moves by at most 0.014 (WC, keyed on CV) and 0.017 (GL, keyed on
+// expected claim count, which falls 339 -> 318 on those books, where the error
+// shrinks). That is small next to WC's own pre-existing tail gap (-0.18 at p90,
+// -0.22 at p95 today).
+//
+// Property stays at 1x. Its renewal is off and the modifier leaves it unrated,
+// so a steeper slope would raise its spread without making any decision more
+// meaningful.
+// ============================================================================
+export const RISK_QUALITY_SLOPE = {
+  WC: { frequency: 2, severity: 2 },
+  GL: { frequency: 3.5, severity: 1 },
+  Property: { frequency: 1, severity: 1 },
+} as const;
+
+// ============================================================================
+// THE RE-CENTRING THAT KEEPS AN AVERAGE MEMBER AVERAGE.
+//
+// The factors multiply, so a steeper curve is not mean-neutral: the
+// marketplace's average member would cost 1.141x the RQ-5 rate card on WC
+// (1.036x today) and 1.128x on GL (1.029x today). Every evaluation at a
+// member's ACTUAL quality (the draw, the actual-quality expectations, the
+// loss-distribution cumulants) is scaled by this constant, which puts the
+// marketplace's average back exactly where it was.
+//
+//   centre = (marketplace cost at 1x) / (marketplace cost at the new slope)
+//
+// over getPredefinedMarketMembers() (the fixed 200-member marketplace), dollar
+// weighted on the both-channel basis at year 1.
+//
+// ⚠ THE RQ-5 RATE CARD IS NOT SCALED, AND THAT IS WHAT HOLDS THE PURE PREMIUM.
+// The pricing basis (riskQualityOverride 5), the held pure premium and the
+// tower's neutral moments all read theta at RQ 5, which stays exactly 1. So an
+// average book keeps costing what it costs today against an unchanged rate
+// card, and a member who really is RQ 5 now draws `centre` of the card: the
+// average member is no longer the RQ-5 member once the curve is this convex.
+// ============================================================================
+export const RISK_QUALITY_CENTRE = { WC: 0.908436, GL: 0.912829, Property: 1 } as const;
+
 // Base retention probability per member per year — high by default for realistic public entity pools
 export const BASE_RETENTION = 0.95;
 
@@ -1064,6 +1164,47 @@ export const MAX_NEW_MEMBER_SHARE = 0.10;
  *
  */
 export const APPLICATION_RATE = 0.06;
+
+/**
+ * ADVERSE SELECTION ON WHO APPLIES. Each available non-member's chance of being
+ * among this year's applicants is weighted by exp(s . (5 - riskQuality)), so a
+ * worse risk is more likely to want in than a better one. 0 reproduces the
+ * unweighted draw exactly.
+ *
+ * ⚠ WHY ANY SKEW AT ALL — THE DIRECTION IS SOURCED, AND THE ENGINE SUPPLIES THE
+ * INCENTIVE. The members most eager to join a pool are often the ones the
+ * market just declined or priced up; adverse selection under pooled pricing is
+ * standard theory (Akerlof 1970; Rothschild and Stiglitz 1976). And this pool
+ * prices almost flat in true quality: the experience modifier passes through
+ * only Z = 15% (WC), 7.5% (GL) and 0% (Property) of a member's own cost
+ * deviation. A quality-2 member costs WC about 45% more than average and pays
+ * at most about 7% more, so the pool is a bargain for a bad risk and dear for a
+ * good one. Without a skew, applicants arrive at the marketplace's own average
+ * quality — the book's — and screening them can gain almost nothing.
+ *
+ * ⚠ THE SIZE IS CHOSEN, NOT SOURCED. Nothing in this repo or in a source to
+ * hand gives the strength for public-entity pools. Measured in a scratch copy
+ * with the normaliser out of the draw, 40 games x 15 years, Open intake:
+ *
+ *     s       applicant RQ (pool 5.02)   applicants' expected cost vs average
+ *     0            5.02                       -1% / -1% / -1%   (WC/GL/Pr)
+ *     0.25         4.57                       +6% / +4% / +4%
+ *     0.50         4.25                      +10% / +8% / +8%
+ *     1.0          3.94                      +14% / +11% / +11%
+ *     5.0          3.75                      +16% / +13% / +14%
+ *
+ * 0.25-0.5 was called defensible: applicants 4-10% dearer than the marketplace
+ * average. 0.35 is the middle of that band and is recorded as a judgement in
+ * the same terms as RATE_RETENTION_SENSITIVITY. The skew SATURATES — the
+ * marketplace is a fixed 200, and once its bad tail has joined nobody worse is
+ * left to apply — so the choice inside the band matters less than it looks.
+ *
+ * ⚠ IT ADDS NO DRAW. The weighting reads each member's position in the shuffle
+ * the engine already makes (Efraimidis-Spirakis keys with the uniform taken from
+ * the shuffled rank), so no stream moves and at s = 0 the applicants are exactly
+ * the shuffled prefix they always were. See selectApplicants in membershipEngine.
+ */
+export const APPLICANT_ADVERSE_SELECTION = 0.35;
 
 // Funding confidence level factor (CLF) table
 // Represents the multiplier applied to expected losses to set funding targets
@@ -1666,6 +1807,29 @@ export const SIZE_WEIGHTS = [0.55, 0.30, 0.12, 0.03];
 // capital to reach their midpoints, not less. Reading a higher K here as "the
 // pool got richer" is backwards: it is the pin compensating for a book that now
 // carries ten accident years of runoff.
+//
+// ⚠ THE uw-decisions MERGE RE-SOLVED THESE AND DELIBERATELY DID NOT MOVE THEM.
+// Both branches changed how pre-game pasts end — required capital and zero risk
+// load on one side, the book-mix normaliser out of the draw and the steepened
+// risk-quality slope on the other — so the pin was re-solved on the merged
+// engine as a matter of course. IT CAME BACK ALREADY CENTRED. The solver's own
+// pass 0, before it moved anything:
+//
+//     WC  offset +0.0010     GL  -0.0316     Property  +0.0401
+//     against its stopping tolerance of 0.06 x band width, about 0.053
+//
+// All three were inside that tolerance on arrival, so the two branches' effects
+// on pre-game endings very largely cancel. The values the solver then proposed
+// (1.4973 / 0.7364 / 0.6084) are NOT better: on opening-centring-check's own
+// 1600 seeds — seeds the solver never sees — the shipped pins read +5%, -15%
+// and -3% of band width and the gate PASSES, and applying the solver's numbers
+// would move Property from -3% to about -9%. The two estimators disagree on GL's
+// magnitude (-0.03 at 600 seeds against -0.13 at 1600) by more than the change
+// they would justify, which is the definition of fitting noise.
+//
+// So the pin is HELD, and the band is unchanged. Re-pinning on the weaker
+// estimate would re-roll every opening book and move all three baselines to
+// chase a difference the stronger estimator cannot see.
 // ============================================================================
 export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
   // ⚠ RE-SOLVED AGAINST THE RESERVE-ANCHORED BAND. WC and GL are bisected so the
@@ -4836,6 +5000,49 @@ export const TRIANGLE_DEVELOPMENT_DRIFT_HORIZON: Record<string, number> = {
   GL: 0.64423,
   Property: 0.30327,
 };
+
+// ============================================================================
+// THE BOOK-MIX NORMALISER IS OUT OF THE DRAW.
+//
+// computeKLine / computeKGl / computeKPr compute neutral / actual expected loss
+// over the ENROLLED book and used to multiply every member's claim frequency by
+// it every year, "so that changing WHO is enrolled doesn't drift the pool's
+// aggregate expected loss away from the held pick". It did exactly that, and
+// that was the defect: it rescaled the DRAW, not only the price, so a better
+// book was scaled back up to neutral and a worse one down. Three findings that
+// were treated separately are this one mechanism — declining members could not
+// improve a book, a risk-quality bar could not improve a book, and growth cost
+// nothing. A pool that admits riskier members has to carry more risk, and with
+// the normaliser in the draw it could not.
+//
+// ⚠ WHAT IT PROTECTED, AND WHY THAT SURVIVES. It was built for PRICING: the held
+// pure premium is derived once at neutral quality and the normaliser kept that
+// held rate correct as the roster changed. With PRICING_TRIANGLE on, the rate is
+// the pool's own paid-triangle window and not the held rate, so a book whose
+// mix differs is priced off its own experience — a few years late, which is the
+// lag a growing pool on bad risks should feel. The held rate is now only the
+// fallback for a triangle too thin to price.
+//
+// MEASURED BEFORE BUILDING (scratch copy, 40 games x 15 years, paired):
+//   - No spiral. With voluntary departures switched on in the scratch copy, the
+//     twin-game loop gain (experience-pricing-check arm 3's method) reads
+//     0.02-0.07 at shipped sensitivity and 0.06-0.15 at 10x retention
+//     sensitivity; with the normaliser in it read 0.03-0.06 / 0.06-0.12.
+//   - Saves load: claimRegeneration redraws with the RECORDED kLineApplied, so a
+//     result written with the normaliser in still redraws exactly, and one
+//     written now records 1.
+//   - Pricing follows: about 55% of a composition cost gap on WC is in the rate
+//     by year 10, ~30% on GL — the 10-year equal-weight window's lag.
+//   - The default book costs 2-4% more than an all-neutral one (Jensen: theta is
+//     convex in risk quality), so every line's loss level steps up by that much.
+//
+// ⚠ ONE FLAG, READ AT THE THREE DRAW SITES IN simulationEngine AND NOWHERE ELSE.
+// The k functions themselves are unchanged and still exported: diagnostics use
+// them to build expectations, and with the flag off an expectation of the
+// ENGINE's draw must pass k = 1. A mutable object, like PRICING_TRIANGLE, so a
+// gate can put the normaliser back for one arm and restore it.
+// ============================================================================
+export const BOOK_MIX_NORMALISER = { inDraw: false };
 
 export const PRICING_TRIANGLE = { enabled: true };
 // ===========================================================================

@@ -37,6 +37,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
+import { RENEWAL_CUT_STEPS } from '../../src/utils/renewalUnderwriting';
 import {
   memberExperienceMods, medianRatedMod, displayedMod, EXPERIENCE_MOD, CREDIBILITY_Z,
 } from '../../src/utils/memberExperienceMod';
@@ -184,12 +185,19 @@ console.log('');
 // A decline carries a two-year cooldown, so the steady-state cost of holding a
 // level is not its yearly count. The old mod-scale 1.10 took WC from 55.5 to
 // 35.3 members; that is not a renewal decision, it is a different pool. This
-// section plays the finalists with the threshold APPLIED and reports where the
+// section plays the finalists with the control APPLIED and reports where the
 // book lands.
+//
+// ⚠ THE CONTROL IS NOW THE RENEWAL SLIDER — A SHARE OF THE BOOK, WORST FIRST —
+// AND THIS SECTION PLAYS ITS STEPS. Sections 1-3 above still measure the ratio
+// distribution and what each historical threshold would have declined; they
+// are the record of the levels RENEWAL_CUT_STEPS was set against. A threshold
+// SETTLES as the worst members go; a share does not, which is what the
+// declines/yr column here shows.
 // ---------------------------------------------------------------------------
-const FINALISTS = [null, 2.00, 2.50, 2.75] as const;
+const FINALISTS = RENEWAL_CUT_STEPS;
 
-function playWith(threshold: number | null): Record<string, { enrolled: number[]; declines: number[] }> {
+function playWith(cut: number): Record<string, { enrolled: number[]; declines: number[] }> {
   const out: Record<string, { enrolled: number[]; declines: number[] }> = {
     WC: { enrolled: [], declines: [] }, GL: { enrolled: [], declines: [] },
     Property: { enrolled: [], declines: [] },
@@ -205,7 +213,7 @@ function playWith(threshold: number | null): Record<string, { enrolled: number[]
     };
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y) as DecisionSet;
-      for (const l of LINES) d.byLine[l].renewalThreshold = threshold;
+      for (const l of LINES) d.byLine[l].renewalCut = cut;
       const p = processYear(gs, d);
       gs = {
         ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState,
@@ -222,12 +230,12 @@ function playWith(threshold: number | null): Record<string, { enrolled: number[]
   return out;
 }
 
-console.log('--- 4. THE BOOK EFFECT, THRESHOLD APPLIED ---');
+console.log('--- 4. THE BOOK EFFECT, RENEWAL SLIDER APPLIED ---');
 console.log('    Two-year cooldown means the steady-state cost is not the yearly count.\n');
-const base = playWith(null);
-console.log('    line   threshold   mean book   vs Renew All   mean declines/yr   final-year book');
+const base = playWith(0);
+console.log('    line       cut   mean book   vs Renew All   mean declines/yr   final-year book');
 for (const t of FINALISTS) {
-  const res = t === null ? base : playWith(t);
+  const res = t === 0 ? base : playWith(t);
   for (const l of ['WC', 'GL'] as const) {
     const enr = res[l].enrolled, dec = res[l].declines;
     const b = mean(base[l].enrolled);
@@ -237,9 +245,9 @@ for (const t of FINALISTS) {
     const finals: number[] = [];
     for (let g = 0; g < GAMES; g++) finals.push(enr[(g + 1) * perGame - 1]);
     console.log(
-      `    ${l.padEnd(6)}${(t === null ? 'Renew All' : t.toFixed(2)).padStart(10)}`
+      `    ${l.padEnd(6)}${(t === 0 ? 'Renew All' : `${(t * 100).toFixed(1)}%`).padStart(10)}`
       + `${m.toFixed(1).padStart(12)}`
-      + `${(t === null ? '—' : `${(m - b >= 0 ? '+' : '')}${(m - b).toFixed(1)}`).padStart(15)}`
+      + `${(t === 0 ? '—' : `${(m - b >= 0 ? '+' : '')}${(m - b).toFixed(1)}`).padStart(15)}`
       + `${mean(dec).toFixed(2).padStart(19)}`
       + `${mean(finals).toFixed(1).padStart(18)}`,
     );

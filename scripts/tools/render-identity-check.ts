@@ -423,7 +423,39 @@ const BASELINE = process.env.RENDER_BASELINE
 //   - the 50 rows that did NOT move are exactly the five department memo panes
 //     across all 5 configurations and both years — static prose, no numbers.
 //     That they held is the evidence the capture is value-only.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v19.json');
+// ⚠ v19 -> v25: THE feature/uw-decisions MERGE. Numbered above BOTH parents:
+// risk-control was at v19 and uw-decisions at v24, and the two branches' version
+// numbers had COLLIDED earlier (each minted its own v52 of the value baseline on
+// different content), so the merged capture takes a number neither side used.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT, as it must: the merge's FIRST
+// PARENT 2e38ecd was built in its own worktree, served on :4174, and reproduced
+// ALL 298 FINGERPRINTS IDENTICAL against the committed v19. Only then was the
+// merged tree built on :4173 and diffed against that same v19.
+//
+// 274 of 298 moved, 0 ADDED, 0 REMOVED, 0 RENAMED. Attributed by dumping both
+// sides' text (RENDER_TEXT_DIR) and comparing word by word. Of the 274:
+//   233  VALUE ONLY — the alphabetic content of the page is identical
+//        word-for-word; only numbers moved. This includes every row of
+//        Calculation Audit, Financial Statements, Pool History, Decision
+//        History, Result Spreadsheet and _header.
+//    26  Membership — PURE PERMUTATIONS. Word multisets identical; the roster
+//        sorts on a value that moved.
+//    32  Decisions and Departments — the only REAL prose changes, and they are
+//        uw-decisions' own UI: "New Business Appetite" tiers replaced by the
+//        intake slider ("No New Business / Strict / Moderate / Low"), the
+//        renewal decline bar replaced by the renewal slider ("Renew all /
+//        Worst 5%"), and the underwriting memo rewritten to match ("drawn when
+//        the year is processed" -> "each applicant is inspected").
+//     8  Dashboard — a magnitude SUFFIX flip (K to M) as a figure crossed a
+//        rounding boundary. Formatting following a value, not an edit.
+//     1  WC|Results|Pool|y2 — the page's own conditional sentence: the loss
+//        ratio crossed 100% (90.2% -> 101.1%) so "covering the year's
+//        underwriting" became "so underwriting lost money this year". The UI
+//        responding to a number, which is what it is built to do.
+// The 24 rows that did NOT move are department memo panes with no numbers in
+// them, which is the evidence nothing moved that should not have.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v25.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

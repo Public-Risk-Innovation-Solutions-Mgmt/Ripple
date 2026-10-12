@@ -36,7 +36,7 @@
 import type { Claim, CoverageLine, Member, MemberLossResult, Occurrence } from '../types/simulation';
 import { deriveSubRng } from './random';
 import { WHOLE_LINE } from './shockEffects';
-import { GL_HEAVY_COMPONENT_INDEX, GL_LOSS_MODEL, GL_SEVERITY_CAP, GL_SEVERITY_COMPONENTS, type GlSeverityComponent } from '../data/defaultAssumptions';
+import { GL_HEAVY_COMPONENT_INDEX, GL_LOSS_MODEL, GL_SEVERITY_CAP, GL_SEVERITY_COMPONENTS, RISK_QUALITY_CENTRE, RISK_QUALITY_SLOPE, type GlSeverityComponent } from '../data/defaultAssumptions';
 import { limitedExpectedValue, memoizeByYear } from './claimMath';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
 import { claimsSystemAdjusted } from './riskControlPrograms';
@@ -239,8 +239,16 @@ export const glCappedSeverityTrend = memoizeByYear(
 
 // --- risk quality ------------------------------------------------------------
 
+// STEEPENED BY RISK_QUALITY_SLOPE.GL.frequency, and identically 1 at RQ 5 at any slope, so
+// the RQ-5 rate card never moves. A real member's quality reads memberThetaGl.
 export function thetaGl(riskQuality: number): number {
-  return Math.exp(-M.rqFrequencyBeta * (riskQuality - NEUTRAL_RQ));
+  return Math.exp(-M.rqFrequencyBeta * RISK_QUALITY_SLOPE.GL.frequency * (riskQuality - NEUTRAL_RQ));
+}
+
+// thetaGl re-centred by RISK_QUALITY_CENTRE.GL, for every evaluation at a
+// member's ACTUAL quality — mirrors memberThetaWc. See the constant.
+export function memberThetaGl(riskQuality: number): number {
+  return RISK_QUALITY_CENTRE.GL * thetaGl(riskQuality);
 }
 
 // THE FITTED WEIGHTS, NORMALISED TO SUM TO EXACTLY 1.
@@ -297,7 +305,7 @@ const NORMALISED_WEIGHTS: number[] = (() => {
 // GL_SEVERITY_COMPONENTS into GL_LOSS_MODEL first and add the argument then.
 export function tiltedGlWeights(riskQuality: number): number[] {
   const base = NORMALISED_WEIGHTS;
-  const factor = Math.exp(-M.rqSeverityBeta * (riskQuality - NEUTRAL_RQ));
+  const factor = Math.exp(-M.rqSeverityBeta * RISK_QUALITY_SLOPE.GL.severity * (riskQuality - NEUTRAL_RQ));
   const tiltedHeavy = Math.min(base[GL_HEAVY_COMPONENT_INDEX] * factor, 0.999);
   const otherTotal = base.reduce((s, w, i) => (i === GL_HEAVY_COMPONENT_INDEX ? s : s + w), 0);
   const scale = otherTotal > 0 ? (1 - tiltedHeavy) / otherTotal : 0;
@@ -450,7 +458,8 @@ function expectedGlGrossLossCore(
     const payroll = member.exposureByLine.GL ?? 0;
     if (payroll <= 0) continue;
     const rq = rqOverride ?? member.riskQuality;
-    const lambda = payroll * M.ratePer1M * thetaGl(rq) * kGl * wholeLineMult;
+    // A real member's quality is re-centred; the RQ-5 rate card (an override) is not.
+    const lambda = payroll * M.ratePer1M * (rqOverride === undefined ? memberThetaGl(rq) : thetaGl(rq)) * kGl * wholeLineMult;
     const severity = basis === 'kLine'
       ? expectedClaimSeverity(tiltedGlWeights(rq), options.yearNumber, options.severityLimit)
       : untiltedSeverity;
@@ -619,7 +628,7 @@ export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult
     const sevRng = deriveSubRng(instanceSeed, yearNumber, `gl_sev:${member.id}`);
 
     const rq = member.riskQuality;
-    const theta = thetaGl(rq);
+    const theta = memberThetaGl(rq);
     const payroll = member.exposureByLine.GL ?? 0;
     const before = claims.length;
 
