@@ -453,10 +453,47 @@ export const MARKET_COMPONENTS_UNBUILT: ReadonlyArray<{
  * load the engine's own reinsurance market charges Property above the casualty
  * lines. See the block above for the measurement and why it is held.
  */
+// ============================================================================
+// ⚠ PROPERTY IS BACK TO 0.65, RE-DERIVED ON THE MERGED ENGINE. The note above
+// derives Property's 0.60 from the EXCESS catastrophe load the tower charged
+// Property over the casualty mean, and ends by saying that re-deriving it "is
+// the job of whoever moves RISK_LOAD_LAMBDA or the cat model". The merge of
+// feature/risk-control moved RISK_LOAD_LAMBDA to 0, so that job fell due here.
+//
+// RE-DERIVED THE SAME WAY — the tower's risk load (price above expected ceded)
+// per dollar of gross pure premium, 24 games x 10 years at defaults:
+//
+//     WC 0.0000   GL 0.0000   casualty mean 0.0000   Property 0.0000 (+0.0000)
+//
+// Every layer is now priced at 1x its expected cession, so "price above
+// expected ceded" is ZERO BY CONSTRUCTION on every line, and the excess that
+// separated Property from the casualty lines does not exist. The derivation
+// runs unchanged and lands on
+//
+//     1/0.65 + 0.0000 = 1.5385   ->   target 0.6500
+//
+// so Property returns to the casualty judgement. The per-line Record STAYS:
+// the quantity is genuinely per line, it is zero on this engine rather than
+// absent, and a cat model or a non-zero lambda would separate them again.
+//
+// ⚠ THE TWO FIXES OVERCORRECT WHEN COMBINED, AND THE GATE CAUGHT IT. Both move
+// Property's cushion the same way — 0.60 makes the market dearer, zero load
+// makes the pool cheaper — and the merged engine at 0.60 is RED on Property in
+// the OPPOSITE direction from the red that motivated 0.60:
+//
+//     Property cushion, Expected -> 0.95 stop
+//       before either fix    +2.63%  -> +29.76%   never crosses: too DEAR
+//       at 0.60, merged     -31.00%  ->  -6.35%   never crosses: too CHEAP
+//       at 0.65, merged     -25.25%  ->  +1.45%   crosses inside the slider
+//
+// At 0.65 Property reads -25.25% at Expected, the SAME figure as WC and GL,
+// which is what a zero excess should produce and is the cross-check that the
+// re-derivation is arithmetic rather than a fitted number.
+// ============================================================================
 export const MARKET_TARGET_LOSS_RATIO: Record<CoverageLine, number> = {
   WC: 0.65,
   GL: 0.65,
-  Property: 0.60,
+  Property: 0.65,
 };
 
 // ============================================================================

@@ -534,7 +534,9 @@ for (const line of LINES) {
   console.log(`  ${line.padEnd(9)} target loss ratio ${MARKET_TARGET_LOSS_RATIO[line].toFixed(2)}, so a carrier charges `
     + `${marketLoadOverExpectedLoss(line).toFixed(4)}x gross expected loss`);
 }
-console.log('  (0.65 is a JUDGEMENT; Property\'s 0.60 is derived from it — see the constant.)');
+console.log('  (0.65 is a JUDGEMENT. Property is DERIVED from it and currently lands back on it: '
+  + 'its derivation adds the tower\'s excess catastrophe load, which is zero at RISK_LOAD_LAMBDA 0 '
+  + '— see the constant.)');
 {
   // The kink's arithmetic, which is where the unmeasured target earns its keep.
   const up = satisfactionLevelReaction(10), down = satisfactionLevelReaction(-10);
