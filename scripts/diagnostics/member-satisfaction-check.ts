@@ -272,50 +272,50 @@ const MAX_GAME_DRIFT_SHARE = 0.50;
  */
 const GAME_LENGTH_HORIZONS = [3, 5, 10];
 /**
- * ONE BREACH IS ACCEPTED, BY NAME, AND IT IS GUARDED IN THE OPPOSITE DIRECTION.
+ * NO BREACH IS ACCEPTED ANY MORE — THE CAUSE WAS FIXED RATHER THAN EXEMPTED.
  *
- * GL over a ten-year game reads 83.5% of a funding stop — nearly a whole click,
- * which is where the drift starts to matter. The ruling accepts it, and the
- * honest way to carry an accepted breach is NOT to widen the bound until it
- * disappears (0.84 would, and would also stop the bound catching anything else).
+ * This list held GL at H=10 and Property at H=5 and H=10. All three were
+ * recorded for the SAME underlying thing, even though their notes gave two
+ * explanations: the opening disposition sat BELOW the anchor the pool's price
+ * earned, so the scoreboard spent the game climbing to it and the climb was
+ * read as drift. OPENING_SATISFACTION was pinned at anchorCentre (7.20) — the
+ * anchor for a pool priced AT the market — while zero risk load had left the
+ * pool about 25% UNDER it, where the anchor is roughly 8.2.
  *
- * ⚠ WHY IT IS NOT SIMPLY LEFT AS A FAILURE, WHICH WAS ASKED FOR AND WHICH I
- * WOULD HAVE PREFERRED. gates.ts's EXPECTED_RED is keyed per GATE, not per
- * assertion — entering this file would mark the whole gate red and swallow the
- * other forty-odd assertions in it, including the allow-list that keeps
- * satisfaction a scoreboard. An expectation that hides its own file's other
- * failures costs more than the record it buys. So the breach is recorded HERE,
- * at assertion granularity, where it can be exempted without exempting anything
- * else.
+ * priorHistoryEngine now seeds each member at the anchor their own pool's
+ * opening position earns, so they start where they would settle. The drift at
+ * defaults fell from +0.68 / +0.75 / +0.55 points over ten years to
+ * -0.13 / -0.05 / -0.10, and these three cells came back inside the bound or
+ * close to it. They are REMOVED rather than re-explained, because an inverted
+ * guard on a condition that no longer exists fails the next person who reads it.
  *
- * ⚠ AND IT HAS TEETH, WHICH IS THE POINT. The exemption is INVERTED: if GL at
- * H=10 ever comes back INSIDE the bound, THAT fails the gate. A closed lag is a
- * pricing change nobody asked for, and it must not land unnoticed just because
- * it made a number look better. This is the same guard EXPECTED_RED's XPASS
- * check applies to a whole gate, applied to one cell.
+ * ⚠ GL'S LAG DID NOT CLOSE, AND THAT MATTERS BECAUSE ITS GUARD EXISTED TO CATCH
+ * EXACTLY THAT. GL's note accepted 83.5% as Venezian's mechanism — the pool
+ * pricing off a lagging paid triangle against trending losses — and inverted the
+ * exemption so that a CLOSED lag would fail here, since closing it would be a
+ * pricing change nobody asked for. No pricing changed. GL's own rate still grows
+ * -0.23%/yr against its own pure premium at +0.91%/yr. What went away is the
+ * opening transient that was being added to the lag and measured with it; the
+ * lag itself is intact and still shows in the 10-year cell at 28%.
  *
- * ⚠ PROPERTY AT H=5 AND H=10 JOINED IT WHEN ITS MARKET TARGET WAS FIXED, AND
- * THE CAUSE IS DIFFERENT FROM GL'S. Property used to pass this section because
- * MARKET_TARGET_LOSS_RATIO was one number for all three lines: it read Property
- * 2.63% DEARER than the market at defaults, which held its anchor BELOW the
- * opening disposition and cancelled the small happy offset anchorCentre's own
- * note calls the mechanic ("the stock settles a little happier than it
- * started"). With Property's target at its derived 0.60 the pool reads 5.26%
- * CHEAPER, like WC and GL, and the anchor sits about +0.21 points above the
- * opening. Property's change term carries almost none of the triangle lag
- * (-0.056pp/yr, against GL's -0.181), so nothing cancels the offset and it shows
- * whole:
+ * ⚠ PROPERTY'S RECORDED CONDITION HAS REVERSED SIGN, WHICH IS WHY LEAVING ITS
+ * GUARD WOULD BE WORSE THAN USELESS. Its note describes "a transient converging
+ * on the anchor" from BELOW, reading +0.097 / +0.144 / +0.236. Property now
+ * reads +0.001 / -0.059 / -0.099. An inverted guard written for an upward
+ * transient, left in place over a downward residual, would pass for a reason
+ * that has nothing to do with what it says.
  *
- *     Property   3yr +0.097 (32%)   5yr +0.144 (53%)   10yr +0.236 (98%)
+ * ⚠ WHAT IS LEFT IS NOT EXEMPTED HERE. WC and Property at H=10 still read about
+ * 59% of a ten-year funding stop, and that residual has its own cause: the stock
+ * settles slightly BELOW its anchor, because the change term lands before the
+ * pull. Seeding that fixed point instead was tried and rejected on evidence —
+ * see priorHistoryEngine, which records why the pre-game cannot supply it. That
+ * is an open failure, deliberately left visible rather than written into this
+ * list.
  *
- * A TRANSIENT TO A FIXED OFFSET, NOT A SLIDE — it is converging, at the level
- * half-life, on the anchor. The pass it replaces was the wrong constant hiding
- * the mechanic. It is recorded by name and inverted exactly like GL's, so a
- * Property cushion that stops reading cheaper than the market fails here.
- *
- * Every other line and horizon is asserted normally. Nothing else is exempt.
+ * Every line and horizon is now asserted normally. Nothing is exempt.
  */
-const ACCEPTED_BREACH: Record<string, number[]> = { GL: [10], Property: [5, 10] };
+const ACCEPTED_BREACH: Record<string, number[]> = {};
 /**
  * THE DENOMINATOR'S ARMS. One stop is taken as the 0.70-to-0.85 span divided by
  * the three stops between them, rather than by measuring a single adjacent pair.

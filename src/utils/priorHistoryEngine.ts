@@ -52,6 +52,11 @@ import {
   STARTING_CAPITAL_TO_PREMIUM,
 } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults } from './simulationEngine';
+import {
+  satisfactionAnchor, memberLossStanding, surplusBandOf, SATISFACTION,
+} from './memberSatisfaction';
+import { marketLevelGapPct } from './marketConditions';
+import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState, getMemberExposure } from './lineHelpers';
 import { defaultDecisionSet } from './decisionDefaults';
 
@@ -439,6 +444,46 @@ export function runPriorHistory(
   // It also makes the opening REPRODUCIBLE FROM THE ROSTER ALONE — a member's
   // Year 1 satisfaction no longer depends on which pre-game attempt was
   // accepted, which is one less thing the opening position carries.
+  //
+  // ⚠ THE PIN IS THE EARNED ANCHOR, NOT A FIXED NUMBER, AND THAT IS THE WHOLE
+  // OF THE 2026-10 CHANGE. It used to re-pin every member to the roster's
+  // static OPENING_SATISFACTION (7.20-7.22), which is anchorCentre — the anchor
+  // for a pool priced AT the market. Once zero risk load left the pool about
+  // 25% UNDER the market, the anchor it actually earns rose to roughly 8.2, and
+  // a roster pinned at 7.21 spent the whole game climbing to it. That climb was
+  // member-satisfaction-check's five drift failures: ~90% of a 0.8-1.0 point gap
+  // closes over ten years at the 20.63%/yr pull, and the measured climb (+0.68
+  // WC, +0.75 GL, +0.55 Property) matched that arithmetic.
+  //
+  // So members now OPEN WHERE THEY WOULD SETTLE. The pool has traded for ten
+  // pre-game years; its members would already reflect its price, not arrive with
+  // an opinion formed about some other pool.
+  //
+  // ⚠ STILL NO DRAW, which is what kept this safe to do here and still does.
+  // Every input is deterministic given the accepted pre-game: the line's own
+  // ending rate against the market, each member's loss standing over the
+  // experience window, and the ending capital band. Nothing is sampled, so no
+  // stream is re-phased and the pin, the band and both baselines stand.
+  //
+  // ⚠ WHAT IS STILL RE-PINNED, AND WHY THE ORIGINAL REASON SURVIVES INTACT. The
+  // accumulated pre-game STOCK is still discarded. A member reached Year 1 at
+  // 4.24 before any of this, carrying grievance about a bootstrap whose rate
+  // moves were nobody's decision. Seeding the anchor keeps that out while
+  // dropping the part that was wrong — the anchor is a property of the pool's
+  // STANDING PRICE, which is a real fact about the pool the player inherits,
+  // whereas the stock was a record of how it was built.
+  //
+  // ⚠ THE PER-MEMBER SPREAD IS PRESERVED, as an OFFSET rather than a level. The
+  // roster's 19-mod-23 walk gives each member a disposition 0 to 0.02 above the
+  // floor; that offset is carried onto the earned anchor, so a member's
+  // disposition stays a property of the member exactly as its note requires.
+  //
+  // ⚠ REPRODUCIBILITY NARROWS BY EXACTLY ONE STEP, STATED SO IT IS NOT A
+  // SURPRISE. The old pin made Year 1 satisfaction readable from the roster
+  // ALONE, independent of which pre-game attempt was accepted. It is now
+  // readable from the roster AND the accepted opening position. That is
+  // unavoidable: the whole point is to reflect the price, and the price is what
+  // the accepted attempt settled. It is still fully deterministic.
   const openingByMember = new Map(
     getPredefinedMarketMembers().map(m => [m.id, m.satisfaction]),
   );
@@ -446,12 +491,57 @@ export function runPriorHistory(
   for (const line of (['WC', 'GL', 'Property'] as CoverageLine[])) {
     const pg = perLine.find(p => p.line === line);
     if (!pg) { lines[line] = emptyLinePoolState(); continue; }
+    const last = pg.lineResults[pg.lineResults.length - 1];
+    // The line's opening price against what a carrier would want for the same
+    // expected loss — the same call, on the same gross basis, that
+    // processLineYear makes. The cycle is read at YEAR 1, the first year the
+    // player actually faces, because that is the anchor they are opening into.
+    const openingRatePer100 = last
+      ? last.totalMemberCharge / Math.max(last.activeExposure * 10_000, 1)
+      : 0;
+    const levelGapPct = last
+      ? marketLevelGapPct(line, openingRatePer100, last.purePremiumPer100 ?? 0,
+        { yearNumber: 1, ctx: { seed: instance.seed, gameId: instance.instanceId } })
+      : 0;
+    const band = surplusBandOf(last?.excessCapitalRatio ?? null);
+    const standing = new Map(
+      memberLossStanding(pg.lineState.members, line, pg.memberLossHistory)
+        .map(x => [x.memberId, x.level]),
+    );
+    // ⚠ WHY THE BARE ANCHOR AND NOT THE SETTLED STOCK — TRIED, MEASURED,
+    // REJECTED. The stock's fixed point under a repeating year is
+    // anchor + delta/pull, not the anchor, because the change term lands before
+    // the pull; measured in play the settled stock sits -0.214 below its anchor
+    // on WC, -0.061 on GL and -0.070 on Property. Seeding that fixed point was
+    // implemented and run, using the rate the pool actually moved between its
+    // last two DECLARED pre-game years. It made GL and Property better and WC
+    // worse by the same margin, flipping WC's residual from -0.133 to +0.134.
+    //
+    // THE REASON IS THE ONE THIS BLOCK ALREADY KNOWS: the pre-game's rate series
+    // is not a policy record, so it does not predict the game's. Measured over
+    // 12 games, mean rate change per year:
+    //
+    //     line        pre-game last yr    pre-game declared mean    IN-GAME
+    //     WC                  +3.044%                   +2.296%     -1.154%
+    //     GL                  -1.021%                   +0.511%     +1.147%
+    //     Property            +0.300%                   -0.099%     +0.337%
+    //
+    // WC's pre-game price is RISING at 3% while its game price FALLS at 1.2% —
+    // opposite sign, four points apart. Any settle offset read off the pre-game
+    // therefore seeds WC for a price path that does not happen. Property worked
+    // only because its two figures happen to agree. Taking the offset from the
+    // pre-game is the very mistake the re-pin exists to prevent, so the seed is
+    // the anchor and the residual walk to the fixed point is left alone.
     lines[line] = {
       ...pg.lineState,
       members: pg.lineState.members.map(m => {
-        const opening = openingByMember.get(m.id);
-        return opening === undefined || opening === m.satisfaction
-          ? m : { ...m, satisfaction: opening };
+        const roster = openingByMember.get(m.id);
+        if (roster === undefined) return m;
+        const offset = roster - OPENING_SATISFACTION.min;
+        const anchor = satisfactionAnchor(levelGapPct, standing.get(m.id) ?? 0, band);
+        const seeded = parseFloat(Math.max(SATISFACTION.floor, Math.min(SATISFACTION.ceiling,
+          anchor + offset)).toFixed(2));
+        return seeded === m.satisfaction ? m : { ...m, satisfaction: seeded };
       }),
     };
   }
