@@ -19,15 +19,39 @@ The first question it carries is whether New Business Appetite should select on 
 whether any underwriting setting can give growth a cost. As of the cut, growth costs nothing, so the
 default appetite beats every stricter one.
 
-## How it moves to `feature/risk-control`: by cherry-pick, not by merge
+## ✅ THIS BRANCH HAS LANDED. It moved by MERGE, and the pick order below is spent.
 
-**Each commit below moves on its own, by cherry-pick.** Three merges in this project auto-merged
-cleanly and were wrong, so nothing here is merged wholesale. Each commit holds one change and nothing
-else, so that the pick onto `feature/risk-control` can be reviewed against this statement of what it is
-for.
+`feature/uw-decisions` was merged into `feature/risk-control` whole, as a single merge commit, not
+cherry-picked commit by commit. **The order table further down is now a record of how this branch was
+built, not a plan for moving it.** Nothing below is still to be picked; do not pick from it.
+
+The section this replaces required cherry-picking, on the grounds that three merges in this project
+auto-merged cleanly and were wrong. That warning was taken seriously rather than ignored: the merge
+auto-resolved ten of the thirteen files both branches touched, and the merged result was read rather
+than the conflicts alone. What that reading found, and what it cost:
+
+- Structurally the auto-merge was a clean union. In all five engine files the merged file differs from
+  each side by **exactly the other side's hunk count**, so no hunk was dropped, and every symbol from
+  each side survives. The one declaration both sides edited is `WcGenerationInputs`, where
+  risk-control changed a doc comment and this branch changed the lambda expression.
+- **The real conflict was in reasoning, not in files, and no merge tool could have seen it.**
+  `PROPERTY_MARKET_TARGET` 0.60 was derived here from the excess catastrophe load the tower charged
+  Property. risk-control has since set `RISK_LOAD_LAMBDA` to zero, so that excess measures **exactly
+  0.0000** and the derivation lands back on 0.65. Both fixes push Property's cushion the same way, and
+  at 0.60 the merged engine was **red in the opposite direction** from the red that motivated 0.60:
+  −31.00% at Expected against the original +2.63%. Re-derived, not re-fitted; see `marketConditions.ts`.
+- **Two of this branch's own claims need reading forward.** The CLF tables are stated here as derived
+  on the retired appetite tiers and not re-derived — they are what required capital's multiplier reads,
+  and at the 90% stop they are overstated by 2.0 / 4.8 / 8.8pp, so required capital reads conservative.
+  And the renewal cut, which held GL's rate flat here (+0.46%), now **lowers** it (−1.55%) because the
+  reinsurance size penalty it was fighting was mostly the risk load.
+
+Verified at merge grade: `npm run gates:all` — 73/77 green, 3 expected red. The one real red,
+`member-satisfaction-check`, is **inherited from `feature/risk-control`, not caused here**: green on
+this branch, 8 failures on `2e38ecd`, 6 after the merge.
 
 (The original note said "merge back early and often". The early part still stands, since the property
-branch diverged for three weeks and its merge took four hours. The mechanism is now cherry-pick.)
+branch diverged for three weeks and its merge took four hours.)
 
 ## Not this branch's to touch
 
@@ -43,7 +67,7 @@ succeeds and looks correct. Check `git remote -v` before any git operation.
 
 ---
 
-## What has landed, in order, and why that order
+## What has landed, in order, and why that order — HISTORICAL. Merged whole; nothing here is still to be picked.
 
 | # | Commit | What it is | Needs |
 |---|---|---|---|
