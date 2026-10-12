@@ -508,7 +508,23 @@ export function runPriorHistory(
       memberLossStanding(pg.lineState.members, line, pg.memberLossHistory)
         .map(x => [x.memberId, x.level]),
     );
-    // ⚠ WHY THE BARE ANCHOR AND NOT THE SETTLED STOCK — TRIED, MEASURED,
+    // ⚠ THE MEASUREMENTS THIS REPLACED A CONSTANT ON, RECORDED HERE BECAUSE
+  // memberCatalog.ts IS MACHINE-GENERATED AND CANNOT CARRY THEM (it is
+  // regenerated and compared byte-for-byte by roster-catalog-check).
+  // OPENING_SATISFACTION's 7.20-7.22 is anchorCentre, the anchor for a pool
+  // priced AT the market. At the cushion the pool actually runs — about
+  // -25.25pp on all three lines once the risk load went to zero — the anchor is
+  // 8.2100 in the Adequate band and 8.4084 in Strong. The engine closes 20.63%
+  // of that gap a year, so ~90% of it closes over ten years: predicted climb
+  // 0.70-0.88 points, measured +0.68 WC, +0.75 GL, +0.55 Property. That climb
+  // was member-satisfaction-check's five drift failures.
+  //
+  // AND IT WAS NOT THE SURPLUS LIMB, tested rather than argued: with
+  // surplusWeight set to 0 — the limb entirely off — every drift failure
+  // survived (WC 10yr 273% -> 244%, GL 5yr 189% -> 167%). The limb carries about
+  // a tenth of the drift and clears none of it.
+  //
+  // ⚠ WHY THE BARE ANCHOR AND NOT THE SETTLED STOCK — TRIED, MEASURED,
     // REJECTED. The stock's fixed point under a repeating year is
     // anchor + delta/pull, not the anchor, because the change term lands before
     // the pull; measured in play the settled stock sits -0.214 below its anchor
