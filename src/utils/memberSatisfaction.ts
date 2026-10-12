@@ -930,7 +930,12 @@ export const SATISFACTION = {
    * target is a continuous quantity both sides share.
    */
   // x3 — see THE SCALE RULING at the head of SATISFACTION.
-  surplusWeight: 0.1548,
+  // ⚠ RE-SOLVED ON THE NEW BOUNDARY, which is the order rule in the block above:
+  // a new boundary makes this weight stale BY CONSTRUCTION, because how much a
+  // funding decision can cancel depends on how many band steps it crosses, and
+  // that depends on where the boundary sits. Bisected to the largest weight
+  // whose cancellation stays inside the 25% bound: 11.3% at 0.1984.
+  surplusWeight: 0.1984,
   /**
    * Where "comfortably above the requirement" sits, in units of
    * excessCapitalRatio = (availableSurplus - reserveRiskMarginNeeded) /
@@ -1053,7 +1058,26 @@ export const SATISFACTION = {
    * that is a property of the measure rather than of the pool. Pooling it in
    * would drag the boundary up by its own irrelevance.
    */
-  surplusComfortable: 0.1385,
+  // ⚠ RE-SOLVED. Trigger 1 fired by TWELVE TIMES its threshold: the pooled
+  // excess-capital median moved 0.2288 -> 1.3341 against a 0.1385 boundary, a
+  // gap of 1.1956 against a 0.10 trigger. The block above left it at 0.1385
+  // when the gap was 0.0903 and recorded why; that reason has expired.
+  //
+  // WHAT MOVED THE MEDIAN — three commits on feature/risk-control, all of which
+  // raise how much surplus a pool holds against its requirement: b9d797e (the
+  // opening to 1.5x premium and the investment return cut), b35dbe2 (required
+  // capital gaining a retained-catastrophe term and the opening re-expressed as
+  // 2.28x of it) and 2e38ecd (zero risk load, so cover is cheaper and more
+  // surplus survives). Pools now open at about 2.3x their required capital
+  // against a boundary set for a far thinner one.
+  //
+  // THE SATURATION THIS CAUSED IS THE GATE'S SIXTH FAILURE, exactly: 91.5% of WC
+  // member-years, 93.7% of GL's and 92.4% of Property's sat ABOVE the old
+  // boundary, so the band reported the same bucket nine times in ten and said
+  // nothing about the player. Solved the way the rule says — the median of
+  // default play, pooled over the lines that discriminate, Property excluded
+  // because its reserve-based denominator is near-constant there.
+  surplusComfortable: 1.3341,
   /**
    * TERM 5 — CASH MOVING BETWEEN THE POOL AND THE MEMBER, as a share of the
    * member's own bill. A dividend received is positive; an assessment paid is

@@ -342,6 +342,32 @@ export const CANONICAL_ROSTER: ReadonlyArray<CanonicalRosterRow> = [
 // member rather than of when they happened to join. The same 19-mod-23 walk the
 // 2.2-point version used, rescaled: it steps through 23 distinct values with no
 // short-period correlation against the roster's own ordering.
+// ⚠ MEASURED AND LEFT ALONE — THIS IS WHERE member-satisfaction-check'S FIVE
+// DRIFT FAILURES COME FROM, AND IT IS NOT THE SURPLUS THRESHOLDS.
+//
+// This range is pinned to SATISFACTION.anchorCentre (7.20), which is the anchor
+// for a pool priced AT the market. The pool is no longer priced at the market:
+// zero risk load made cover much cheaper, and the cushion now reads about
+// -25.25pp on all three lines. At that cushion the anchor is
+//
+//     8.2100 in the Adequate band, 8.4084 in Strong
+//
+// against a roster seeded at 7.20-7.22. The engine pulls 20.63% of the distance
+// each year, so ~90% of that gap closes over ten years and the scoreboard climbs
+// it. Predicted 0.70-0.88 points; MEASURED +0.68 WC, +0.75 GL, +0.55 Property.
+// That climb IS the drift the gate fails on.
+//
+// NOT THE SURPLUS LIMB, tested directly rather than argued: with surplusWeight
+// set to 0 — the limb entirely off — every drift failure survives (WC 10yr 273%
+// -> 244%, GL 5yr 189% -> 167%, Property 3yr 85% -> 73%). The limb carries about
+// a tenth of the drift and clears none of it. Re-solving surplusComfortable, the
+// change that DID land, fixes the sixth failure (band saturation) and moves the
+// drift by one or two points.
+//
+// NOT FIXED HERE, DELIBERATELY. The two candidates are re-seeding this range onto
+// the live anchor, or deciding the pool should not sit 25% under the market in the
+// first place — and the second is a pricing ruling, not a calibration. Re-seeding
+// to chase a cushion that may itself be wrong would bake in the thing to check.
 export const OPENING_SATISFACTION = { min: 7.20, max: 7.22 } as const;
 
 export function openingSatisfaction(index: number): number {
