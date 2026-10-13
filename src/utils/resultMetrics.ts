@@ -158,50 +158,30 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     // from this export divides by Enrolments, not Members. Shipping only Members
     // would make both unreconstructable; shipping only Enrolments is what made
     // the export read 205 where the page read 141.
-    {
-      key: 'activeMembers',
-      category: 'Membership',
-      label: 'Members',
-      value: r => r.activeMembers,
-    },
-    {
-      key: 'enrolmentCount',
-      category: 'Membership',
-      label: 'Enrolments',
-      value: r => r.enrolmentCount,
-    },
-    {
-      key: 'newMembers',
-      category: 'Membership',
-      label: 'New Members',
-      value: r => r.newMembers,
-    },
-    {
-      key: 'withdrawnMembers',
-      category: 'Membership',
-      label: 'Withdrawn Members',
-      value: r => r.withdrawnMembers,
-    },
-    {
-      key: 'memberRetentionRate',
-      category: 'Membership',
-      label: 'Member Retention Rate',
-      value: r => formatPct(r.memberRetentionRate),
-      csvValue: r => r.memberRetentionRate,
-    },
+    // ⚠ THE MEMBER COUNTS ARE GONE FROM THE PUBLISHED LIST, AND THE ENGINE STILL
+    // HAS THEM. The multiplayer game drops individual members; the engine keeps
+    // them until a simplified model replaces it, so this HIDES rather than
+    // deletes. `activeMembers`, `enrolmentCount`, `newMembers`,
+    // `withdrawnMembers` and `memberRetentionRate` are all still real ResultSet
+    // fields, still computed, still saved — they are simply not published to a
+    // screen, a workbook or the host's table any more. Exposure is what a pool
+    // in aggregate is sized by, and it is immediately below.
+    //
+    // ⚠ AND 'averageRiskQuality' WENT WITH THEM, FOR A SECOND AND STRONGER
+    // REASON. Risk quality is UNOBSERVABLE by design — surface-privacy-check
+    // exists solely to keep a member's score away from the player — and the POOL
+    // AVERAGE of it was published here, on screens and in the workbook, the whole
+    // time. That was the hole in the hide, not a casualty of this change.
+    // surface-privacy-check now forbids this key by name so it cannot return.
+    //
+    // ⚠ WHAT STAYS: `memberSatisfaction`. It is the pool's own scoreboard, is
+    // asked for explicitly, and names no member.
     {
       key: 'memberSatisfaction',
       category: 'Membership',
       label: 'Member Satisfaction',
       value: r => r.memberSatisfaction.toFixed(2),
       csvValue: r => r.memberSatisfaction,
-    },
-    {
-      key: 'averageRiskQuality',
-      category: 'Membership',
-      label: 'Average Risk Quality',
-      value: r => r.averageRiskQuality.toFixed(2),
-      csvValue: r => r.averageRiskQuality,
     },
     {
       key: 'activeExposure',

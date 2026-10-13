@@ -140,7 +140,7 @@ export default function HostTeamsTab({ room }: Props) {
               <th className="px-5 py-2 font-medium">Surplus</th>
               <th className="px-5 py-2 font-medium">Loss ratio</th>
               <th className="px-5 py-2 font-medium">Premium</th>
-              <th className="px-5 py-2 font-medium">Members</th>
+              <th className="px-5 py-2 font-medium">Exposure</th>
               <th className="px-5 py-2 font-medium">Funding</th>
             </tr>
           </thead>
@@ -180,7 +180,7 @@ export default function HostTeamsTab({ room }: Props) {
                         {formatCurrency(state.figures.poolPremium, true)}
                       </td>
                       <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {state.figures.activeMembers}
+                        {`$${state.figures.activeExposure.toFixed(1)}M`}
                       </td>
                       <td className="px-5 py-2.5 font-mono text-slate-700">
                         {/* ⚠ A DASH MEANS THE TEAM'S LINES CHOSE DIFFERENT STOPS, not zero

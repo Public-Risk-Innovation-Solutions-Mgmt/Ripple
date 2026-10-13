@@ -23,11 +23,11 @@ export default function HistoryPage({ historicalYears, lineView }: HistoryPagePr
   const last = historicalYears[historicalYears.length - 1];
   const combinedChange = last.actualCombinedRatio - first.actualCombinedRatio;
   const surplusChange = last.endingSurplus - first.endingSurplus;
-  const memberChange = last.activeMembers - first.activeMembers;
+  const exposureChange = last.activeExposure - first.activeExposure;
   const exposureLabel = lineView === 'Property' ? 'TIV Exposure' : 'Payroll Exposure';
 
   const operatingRows: HistoryRow[] = [
-    { label: 'Active Members', value: year => String(year.activeMembers) },
+    { label: 'Active Exposure', value: year => `$${year.activeExposure.toFixed(1)}M` },
     { label: exposureLabel, value: year => formatMillions(year.activeExposure) },
     { label: 'Market Share (% of Exposure)', value: year => formatPct(year.marketShare) },
     // ⚠ BLANK AT POOL SCOPE, AND THE LABEL IS WHY. "per $100 Payroll" is a true
@@ -115,9 +115,9 @@ export default function HistoryPage({ historicalYears, lineView }: HistoryPagePr
         />
         <SummaryCard
           icon={<Users size={17} />}
-          label="Opening Membership"
-          value={String(last.activeMembers)}
-          detail={`${memberChange >= 0 ? '+' : ''}${memberChange} members over history`}
+          label="Opening Exposure"
+          value={`$${last.activeExposure.toFixed(1)}M`}
+          detail={`${exposureChange >= 0 ? '+' : ''}$${exposureChange.toFixed(1)}M over history`}
           valueClass="text-gray-900"
         />
         <SummaryCard

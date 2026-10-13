@@ -32,7 +32,7 @@ function figuresOf(r: LineResultSet): TeamYearFigures {
     endingSurplus: r.endingSurplus,
     actualLossRatioPricingBasis: r.actualLossRatioPricingBasis,
     poolPremium: r.poolPremium,
-    activeMembers: r.activeMembers,
+    activeExposure: r.activeExposure,
     selectedFundingConfidenceLevel: r.selectedFundingConfidenceLevel,
     netUltimateLoss: r.netUltimateLoss,
   };
@@ -64,7 +64,7 @@ function poolFiguresOf(r: ResultSet, lineFigures: TeamYearFigures[]): TeamYearFi
     endingSurplus: r.endingSurplus,
     actualLossRatioPricingBasis: r.actualLossRatioPricingBasis,
     poolPremium: r.poolPremium,
-    activeMembers: r.activeMembers,
+    activeExposure: r.activeExposure,
     ...(agreed === undefined ? {} : { selectedFundingConfidenceLevel: agreed }),
     netUltimateLoss: r.netUltimateLoss,
   };

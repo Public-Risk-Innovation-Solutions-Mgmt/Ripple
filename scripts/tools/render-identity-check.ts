@@ -475,7 +475,33 @@ const BASELINE = process.env.RENDER_BASELINE
 // That the other ten screens are untouched is the evidence this change stayed
 // in its lane: satisfaction is a scoreboard that feeds nothing, and both value
 // baselines held BIT-EXACTLY across it.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v26.json');
+// ⚠ v26 -> v27: MEMBER-LEVEL VIEWS HIDDEN, EXPOSURE AND COMBINED RATIO SHOWN.
+// A KEY-SET CHANGE as well as a value change, which is why the count falls.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 09d1482 built in its own
+// worktree on :4174, reproducing ALL 298 FINGERPRINTS against the committed v26.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 272 keys, down from 298: the 26 Membership keys are GONE because the tab is
+// hidden (the page itself is intact — see TABS above). Of the 272 that remain,
+// 212 moved and 60 held, and EVERY ONE of the 212 is attributed:
+//
+//   ⚠ ALL 212 LOSE THE WORD "Membership", AND THAT IS THE TAB BAR. The nav strip
+//     is part of every page's captured text, so hiding one tab moves every
+//     fingerprint in the file. Six screens — Calculation Audit, Decision
+//     History, Decisions, Departments, Financial Statements, Introduction —
+//     changed by EXACTLY that one word and nothing else, which is the evidence
+//     this stayed in its lane: those are the screens the brief said to leave.
+//   Dashboard (26)          MEMBERS -> EXPOSURE, counts -> $M
+//   Pool History (26)       MEMBERSHIP/Members -> EXPOSURE/Exposure, $M
+//   Results (26)            Active Members, New Members, Members Withdrawn,
+//                           Retention and Avg. Risk Quality out; Combined Ratio
+//                           in. Member Satisfaction stays.
+//   Result Spreadsheet (10) the Active Member Roster table and its ~70 member-
+//                           id rows gone, with the members CSV button.
+//
+// 0 keys were ADDED. Nothing gained a screen; the file only lost one.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v27.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -500,10 +526,17 @@ const CONFIGS: Cfg[] = [
 const LINE_LABEL: Record<string, string> = {
   WC: "Workers' Compensation", GL: 'General Liability', PR: 'Property',
 };
-// The 11 game tabs. 'Game Setup' is excluded: it is the page you leave to start.
+// The 10 game tabs. 'Game Setup' is excluded: it is the page you leave to start.
+//
+// ⚠ 'Membership' CAME OFF THIS LIST BECAUSE THE TAB IS HIDDEN, not because the
+// page was deleted. MembershipPage and its route are intact in GameShell, one
+// commented line from returning; the multiplayer game shows the pool in
+// aggregate, so the tab is not rendered and this harness cannot click it. The
+// baseline loses that tab's keys with it — that is a KEY-SET change, which is
+// exactly the kind this file's header says to expect and to attribute.
 const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-  'Calculation Audit', 'Membership'];
+  'Calculation Audit'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
 // OF THIS FILE LISTED IT. That was a real mistake and it is recorded because it
 // is instructive: the list was App.tsx's LINE_VIEW_PAGES as of 750ce12, which

@@ -110,12 +110,14 @@ const roomRecord = (page, code) => page.evaluate(c =>
     const p = players[0];
     const tabs = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
                   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-                  'Calculation Audit', 'Membership'];
+                  // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows
+                // the pool in aggregate. The PAGE is intact in GameShell.
+                'Calculation Audit'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);
     }
-    ok(present.length === tabs.length, `all 11 solo tabs present (${present.length}/11)`);
+    ok(present.length === tabs.length, `all 10 solo tabs present (${present.length}/10)`);
 
     const setup = await p.getByRole('button', { name: 'Game Setup', exact: true }).count();
     ok(setup === 0, 'Game Setup tab is absent — the room owns the seed');

@@ -59,10 +59,12 @@ async function tabText(page, tab) {
   // ---- IT IS THE SAME SCREEN ----------------------------------------------
   const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
                 'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-                'Calculation Audit', 'Membership'];
+                // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows
+                // the pool in aggregate. The PAGE is intact in GameShell.
+                'Calculation Audit'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
-  ok(present === TABS.length, `viewer has all 11 tabs (${present}/11)`);
+  ok(present === TABS.length, `viewer has all 10 tabs (${present}/10)`);
 
   // ---- IT CANNOT WRITE -----------------------------------------------------
   ok(await viewer.getByRole('button', { name: /Lock Year/ }).count() === 0, 'viewer has NO Lock Year button at all');

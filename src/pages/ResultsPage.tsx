@@ -316,16 +316,18 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
             </ResultCard>
 
             <ResultCard title="Membership" icon={<TrendingUp size={16} />}>
-              <Row label="Active Members" value={String(result.activeMembers)} />
-              <Row label="New Members This Year" value={`+${result.newMembers}`} valueColor="text-emerald-600" />
-              <Row
-                label="Members Withdrawn"
-                value={result.withdrawnMembers > 0 ? `-${result.withdrawnMembers}` : '0'}
-                valueColor={result.withdrawnMembers > 0 ? 'text-red-600' : 'text-gray-700'}
-              />
-              <Row label="Member Retention Rate" value={formatPct(result.memberRetentionRate)} />
+              {/* ⚠ EXPOSURE REPLACES THE MEMBER COUNT, and the churn counts
+                  (New, Withdrawn, Retention) are hidden. The pool is shown in
+                  aggregate now; every one of those fields is still on the
+                  result and still computed. Satisfaction stays — it is the
+                  pool's own scoreboard and names no member. */}
               <Row label="Member Satisfaction" value={`${result.memberSatisfaction.toFixed(1)} / 10`} />
-              <Row label="Avg. Risk Quality" value={`${result.averageRiskQuality.toFixed(1)} / 10`} />
+              {/* ⚠ COMBINED RATIO STANDS WHERE AVERAGE RISK QUALITY STOOD. Risk
+                  quality is unobservable by design — surface-privacy-check keeps
+                  a MEMBER's score from the player — and the pool AVERAGE of it
+                  was on this card the whole time. Actual loss ratio plus actual
+                  expense ratio, both on the member-charge basis. */}
+              <Row label="Combined Ratio" value={formatPct(result.actualCombinedRatio)} />
               <Row label="Payroll Exposure ($M)" value={formatMillions(result.activeExposure)} />
               <Row label="Total Market Payroll ($M)" value={formatMillions(result.totalMarketExposure)} />
               <Row label="Exposure-Based Market Share" value={formatPct(result.marketShare)} valueColor="text-sky-600" />

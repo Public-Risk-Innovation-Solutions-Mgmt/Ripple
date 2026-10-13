@@ -102,8 +102,10 @@ const activeView = page => page.$$eval('nav button', bs =>
   ok(opening.length === 1, `a team that has played nothing still has its opening point (${opening.length})`);
   const rec0 = await host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
   const h0 = rec0.teams.find(t => t.name === 'Harbour Mutual').resultsByYear['0'];
-  ok(h0.pool.endingSurplus > 0 && h0.pool.activeMembers > 0 && h0.pool.netUltimateLoss > 0,
-     `and all THREE metrics have a real year-0 value (surplus ${Math.round(h0.pool.endingSurplus)}, members ${h0.pool.activeMembers}, losses ${Math.round(h0.pool.netUltimateLoss)})`);
+  // ⚠ EXPOSURE, NOT A MEMBER COUNT. TeamYearFigures.activeMembers became
+  // activeExposure when the game moved to showing the pool in aggregate.
+  ok(h0.pool.endingSurplus > 0 && h0.pool.activeExposure > 0 && h0.pool.netUltimateLoss > 0,
+     `and all THREE metrics have a real year-0 value (surplus ${Math.round(h0.pool.endingSurplus)}, exposure ${h0.pool.activeExposure}, losses ${Math.round(h0.pool.netUltimateLoss)})`);
   // ⚠ AND IT IS NOT MARKED LATE, BECAUSE NOTHING IS LATE YET. Pending means
   // "behind what could have been posted"; before the first advance the opening
   // position IS everything that could have been posted.
@@ -159,7 +161,7 @@ const activeView = page => page.$$eval('nav button', bs =>
   await host.waitForTimeout(700);
   await pickView(host, 'Pool');
 
-  for (const id of ['surplus', 'members', 'losses', 'developed']) {
+  for (const id of ['surplus', 'exposure', 'losses', 'developed']) {
     ok(await host.$(`[data-testid="chart-${id}"]`) !== null, `the ${id} chart is drawn`);
   }
 

@@ -583,7 +583,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // no row added, removed or renamed. Read with value-identity v54, whose note
 // carries the full list of what each side contributes and the record that the
 // opening pin was re-solved and held.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v56.json');
+// ⚠ v56 -> v57: THE PUBLISHED METRIC LIST CHANGED, so every workbook does.
+// RESULT_METRICS lost six Membership rows — activeMembers, enrolmentCount,
+// newMembers, withdrawnMembers, memberRetentionRate and averageRiskQuality —
+// and kept memberSatisfaction and activeExposure. No VALUE moved: value-identity
+// holds bit-exactly across this, because the engine still computes every one of
+// those fields and this only stops publishing them. What changed is which
+// columns exist.
+//
+// ⚠ averageRiskQuality IS THE ONE TO NOTICE. Risk quality is unobservable by
+// design and surface-privacy-check exists to keep a member's score from the
+// player; the POOL AVERAGE of it was in this workbook the whole time. The gate
+// now refuses the expression instead of allowing it.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v57.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

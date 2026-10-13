@@ -25,6 +25,13 @@ interface ResultSpreadsheetPageProps {
   poolState: PoolState;
 }
 
+// ⚠ ONE SWITCH FOR THE TWO MEMBER-LEVEL VIEWS ON THIS PAGE: the Active Member
+// Roster table and the members CSV download. The multiplayer game shows the pool
+// in aggregate, so both are hidden — the engine still holds every member and
+// buildMemberCsv still runs, so flipping this back restores them exactly.
+// Typed, not a literal, so it reads as a setting rather than dead code.
+const SHOW_MEMBER_VIEWS: boolean = false;
+
 export default function ResultSpreadsheetPage({ lockedResults, priorHistory, instance, activeLines, instanceId, poolState }: ResultSpreadsheetPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
@@ -143,15 +150,20 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
             Download Claims (.xlsx)
           </button>
 
-          <button
-            type="button"
-            onClick={() => downloadCsv(`source-game-members-year-${selectedYear}.csv`, memberCsv)}
-            disabled={!selectedResult || memberRows.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Download size={16} />
-            Download Members CSV
-          </button>
+          {/* ⚠ THE MEMBERS CSV DOWNLOAD IS HIDDEN, NOT DELETED. buildMemberCsv
+              and memberCsv above still run; nothing in the engine or the export
+              path changed. Uncomment to restore. */}
+          {SHOW_MEMBER_VIEWS && (
+            <button
+              type="button"
+              onClick={() => downloadCsv(`source-game-members-year-${selectedYear}.csv`, memberCsv)}
+              disabled={!selectedResult || memberRows.length === 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download size={16} />
+              Download Members CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -169,6 +181,12 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
         results={poolRowsAsMetricInput(lockedResults)}
       />
 
+      {/* ⚠ THE ACTIVE MEMBER ROSTER TABLE IS HIDDEN, NOT DELETED. The multiplayer
+          game shows the pool in aggregate; the engine still holds every member,
+          and buildMemberCsv / memberRows below are untouched. Restoring this is
+          uncommenting the block. The risk-quality note it carried still applies:
+          no member's score ever appeared here and must not. */}
+      {SHOW_MEMBER_VIEWS && (
       <SpreadsheetTable
         title={`Active Member Roster — Year ${selectedYear}`}
         icon={<Users size={16} />}
@@ -205,6 +223,7 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
         ])}
         emptyMessage="No member roster saved for this year."
       />
+      )}
     </div>
   );
 }

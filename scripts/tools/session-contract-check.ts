@@ -84,7 +84,7 @@ const figures = (surplus: number): TeamYearFigures => ({
   endingSurplus: surplus,
   actualLossRatioPricingBasis: 0.82,
   poolPremium: 4_000_000,
-  activeMembers: 41,
+  activeExposure: 41,
   selectedFundingConfidenceLevel: 0.6,
   netUltimateLoss: 3_300_000,
 });

@@ -43,10 +43,17 @@
 //
 // The allowlist matches whole EXPRESSIONS, not files. Allowing a file would
 // mean the next `member.riskQuality` added to MembershipPage passes silently,
-// which is precisely the regression this exists to catch. Allowing
-// `averageRiskQuality` and refusing `member.riskQuality` is the distinction
-// that carries the ruling: an average is a pool statistic, a per-member read
-// is the attribute.
+// which is precisely the regression this exists to catch.
+//
+// ⚠ `averageRiskQuality` WAS ALLOWED HERE AND IS NOW REFUSED. The reasoning
+// above used to end: "an average is a pool statistic, a per-member read is the
+// attribute", and on that basis the POOL AVERAGE of an attribute declared
+// unobservable was published on the Results card, in RESULT_METRICS and in the
+// results workbook for the whole life of this gate. That is a hole in the hide,
+// not a casualty of the multiplayer change: a player who can read the pool mean
+// each year can watch an unobservable quantity respond to their underwriting.
+// The metric is withdrawn and the expression is refused, so it cannot return
+// through the same argument that let it in.
 //
 // ⚠ COMMENTS ARE STRIPPED BEFORE MATCHING, because a comment cannot render.
 // This file's own subject matter means the surfaces it guards are full of
@@ -78,9 +85,6 @@ const EXPORT_BUILDERS = ['utils/resultsExport.ts', 'utils/resultMetrics.ts', 'ut
  * string array.
  */
 const ALLOWED: { expr: string; why: string }[] = [
-  { expr: 'averageRiskQuality', why: 'pool average over ~60 members; leaks almost nothing about any individual' },
-  { expr: 'Avg. Risk Quality', why: 'the label on that average' },
-  { expr: 'Average Risk Quality', why: 'the same average, in export/audit prose' },
   { expr: 'STARTING_FINANCIALS.riskQuality', why: 'CalculationAuditPage documents the opening RANGE, not a member' },
   { expr: 'startingFinancials.riskQuality', why: 'the opening pool average, same reason' },
   { expr: 'risk quality', why: 'prose in model documentation on the audit page' },

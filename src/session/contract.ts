@@ -188,7 +188,16 @@ export function isSessionError(e: unknown): e is SessionError {
  *   endingSurplus                  <- RESULT_METRICS 'endingSurplus'
  *   actualLossRatioPricingBasis    <- 'actualLossRatioPricingBasis'
  *   poolPremium                    <- 'poolPremium'
- *   activeMembers                  <- 'activeMembers'
+ *   activeExposure                 <- 'activeExposure' ("Active Payroll
+ *                                     Exposure ($M)"). ⚠ REPLACED
+ *                                     `activeMembers`, and the reason is the
+ *                                     same one that pruned the metric list: the
+ *                                     multiplayer game shows the pool in
+ *                                     aggregate, so a host table counting
+ *                                     MEMBERS was reading a figure the player
+ *                                     can no longer see. It is still a
+ *                                     RESULT_METRICS key, which is the rule
+ *                                     this field list exists to keep.
  *   selectedFundingConfidenceLevel <- 'fundingConfidenceLevel' (the metric reads
  *                                     this field; the key is named for the
  *                                     decision, the field for what was selected)
@@ -214,7 +223,15 @@ export interface TeamYearFigures {
   endingSurplus: number;
   actualLossRatioPricingBasis: number;
   poolPremium: number;
-  activeMembers: number;
+  /**
+   * ⚠ EXPOSURE, NOT A MEMBER COUNT, and the field was RENAMED rather than
+   * repurposed so no stored row can be misread. A row written before this
+   * carries `activeMembers` and no `activeExposure`; a reader gets undefined
+   * for the new field rather than a member count silently displayed as payroll.
+   * See the deploy-order warning at the head of this file — this is a second
+   * reason the handler and the front end ship together.
+   */
+  activeExposure: number;
   /**
    * ⚠ OPTIONAL, AND ITS ABSENCE IS INFORMATION. On a LINE's figures it is that
    * line's own choice and is always present. On the POOL's it is present only

@@ -31,7 +31,7 @@
 
 import React from 'react';
 import {
-  LayoutDashboard, ClipboardList, FileText, Users, Settings, BarChart2,
+  LayoutDashboard, ClipboardList, FileText, Settings, BarChart2,
   Calculator, Table, History as HistoryIcon, Layers, HardHat, Scale,
   Building2, ScrollText, BookOpen, Landmark,
 } from 'lucide-react';
@@ -82,12 +82,12 @@ const SETUP_TAB = { id: 'setup' as TabId, label: 'Game Setup', icon: <Settings s
 const PLAY_TABS = [
   { id: 'introduction' as TabId, label: 'Introduction', icon: <BookOpen size={16} /> },
   { id: 'departments' as TabId, label: 'Departments', icon: <Landmark size={16} /> },
-  // Membership sits with the other things a player reads BEFORE deciding, rather
-  // than last behind the two reference tabs. ORDER ONLY — no tab is added,
-  // removed or renamed, and nothing keys off position: every driver and the
-  // render harness resolves a tab by NAME, and the only positional lookups in the
-  // tree are inside the Departments document list, which this does not touch.
-  { id: 'membership' as TabId, label: 'Membership', icon: <Users size={16} /> },
+  // ⚠ THE MEMBERSHIP TAB IS HIDDEN, NOT REMOVED. The multiplayer game shows the
+  // pool in aggregate and drops individual members; the ENGINE keeps them until
+  // a simplified model replaces it, so this hides the view and leaves
+  // MembershipPage, its route and every member path intact. Restoring it is
+  // uncommenting one line.
+  //   { id: 'membership' as TabId, label: 'Membership', icon: <Users size={16} /> },
   { id: 'history' as TabId, label: 'Pool History', icon: <HistoryIcon size={16} /> },
   { id: 'dashboard' as TabId, label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
   { id: 'decisions' as TabId, label: 'Decisions', icon: <ClipboardList size={16} /> },

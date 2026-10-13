@@ -39,7 +39,9 @@ function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + 
 const BUTTONS = [
   { name: 'Download Results (.xlsx)', min: 10_000 },
   { name: 'Download Claims (.xlsx)', min: 10_000 },
-  { name: 'Download Members CSV', min: 200 },
+  // ⚠ 'Download Members CSV' CAME OFF. The button is hidden with the other
+  // member-level views (SHOW_MEMBER_VIEWS in ResultSpreadsheetPage); buildMemberCsv
+  // still runs, so restoring the flag restores the download and this row.
 ];
 
 (async () => {

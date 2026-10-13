@@ -247,7 +247,7 @@ try {
     const conflictsBefore = conflicts;
     const posts = await Promise.all(teams.map((p, i) => settle(fresh().submit({
       code, token: p.teamToken, yearNumber: 0,
-      result: { yearNumber: 0, calendarYear: 2025, byLine: {}, pool: { endingSurplus: i, actualLossRatioPricingBasis: 0, poolPremium: 0, activeMembers: 0, netUltimateLoss: 0 } },
+      result: { yearNumber: 0, calendarYear: 2025, byLine: {}, pool: { endingSurplus: i, actualLossRatioPricingBasis: 0, poolPremium: 0, activeExposure: 0, netUltimateLoss: 0 } },
     }))));
     const after = await t.read({ code, token: hostToken });
     const held = after.room.teams.filter(x => x.resultsByYear?.['0'] !== undefined).length;
@@ -278,7 +278,7 @@ try {
     const t = fresh(); const { code, hostToken } = await mkRoom(t);
     const p = await t.join({ code, teamName: 'A', role: 'player' });
     stallNextQuery(t, async () => {
-      await fresh().submit({ code, token: p.teamToken, yearNumber: 0, result: { yearNumber: 0, calendarYear: 2025, byLine: {}, pool: { endingSurplus: 1, actualLossRatioPricingBasis: 0, poolPremium: 0, activeMembers: 0, netUltimateLoss: 0 } } });
+      await fresh().submit({ code, token: p.teamToken, yearNumber: 0, result: { yearNumber: 0, calendarYear: 2025, byLine: {}, pool: { endingSurplus: 1, actualLossRatioPricingBasis: 0, poolPremium: 0, activeExposure: 0, netUltimateLoss: 0 } } });
     });
     const seen = await t.read({ code, token: hostToken });
     const now = await fresh().read({ code, token: hostToken });
