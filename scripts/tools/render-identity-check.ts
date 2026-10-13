@@ -501,7 +501,24 @@ const BASELINE = process.env.RENDER_BASELINE
 //                           id rows gone, with the members CSV button.
 //
 // 0 keys were ADDED. Nothing gained a screen; the file only lost one.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v27.json');
+// ⚠ v27 -> v28: THE WELCOME MEMO STATES EXPOSURE BY LINE INSTEAD OF A MEMBER
+// COUNT. The smallest diff this file has taken in a while, and that is the
+// result worth recording.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 2709cfe built in its own
+// worktree on :4174, reproducing ALL 272 FINGERPRINTS against the committed v27.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 10 of 272 moved, 0 added, 0 removed — and all ten are Introduction, which is
+// the one screen the memo is on (5 configurations x 2 years). Every other screen
+// is byte-identical, which is the evidence the change stayed inside the one
+// sentence it was meant to touch.
+//
+// The replaced sentence ("serves N of 200 eligible public entities, representing
+// approximately $X in payroll and $Y in total insured value") is absent from all
+// ten, and each shows one bullet per ACTIVE line: a GL-only game renders exactly
+// one, with no empty sentence and no "$0" row for the lines it does not write.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v28.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

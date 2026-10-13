@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import type { GameState } from '../types/simulation';
-import { getMemberExposure } from '../utils/lineHelpers';
+import type { CoverageLine, GameState, ResultSet } from '../types/simulation';
 import { formatMillions, formatCurrency } from '../utils/formatters';
 import { LINE_FULL_NAME } from '../utils/lineDisplay';
 import { applyTemplate } from '../utils/renderMarkdown';
@@ -27,6 +26,21 @@ function formatConjunctionList(items: string[]): string {
 // state) IS that opening position (see Stage 2.10 in App.tsx), so this reads
 // from priorHistory rather than lockedResults regardless of current year.
 //
+// ⚠ THE MEMO STATES EXPOSURE BY LINE, NOT A MEMBER COUNT. It used to open
+// "serves N of 200 eligible public entities", with payroll and TIV summed over
+// the roster. The game shows the pool in aggregate now, so {{EXPOSURE_BY_LINE}}
+// replaces those four tokens with one bullet per ACTIVE line, built in code the
+// way buildInvestmentMemo builds its asset-class table.
+//
+// ⚠ IT READS THE ENGINE'S OWN FIGURES AND RESTATES NEITHER. Each bullet takes
+// `activeExposure` and `totalMarketExposure` straight off that line's opening
+// row — the same two fields the Results card's market share divides — rather
+// than re-summing the roster, which is what the four tokens it replaces did.
+//
+// ⚠ A LINE THE GAME DOES NOT USE IS ABSENT, not zero. The list is built from
+// setup.activeLines and each entry is dropped again if the opening row is
+// missing, so a one-line game produces exactly one bullet and no empty sentence.
+//
 // ⚠ THE ROSTER FIELDS READ `opening.memberList`, NOT `poolState`, AND THAT IS
 // THE WHOLE POINT OF THIS FUNCTION. They used to come from
 // poolState.allMarketMembers — LIVE state — so the three of them tracked
@@ -46,23 +60,36 @@ function formatConjunctionList(items: string[]): string {
 // 200-member roster whose length never changes — members change STATUS, none are
 // added or removed (verified constant at 200 across 12 years and three seeds).
 // There is no equivalent field on ResultSet to move it to.
-function buildWelcomeMemoValues(gameState: GameState): Record<string, string> {
-  const { setup, poolState, priorHistory } = gameState;
-  const opening = priorHistory[priorHistory.length - 1];
+// WC and GL are written on payroll; Property on insured value. Naming the
+// measure per line matters — "$39.9B of exposure" reads as payroll unless it
+// says otherwise.
+const EXPOSURE_MEASURE: Record<CoverageLine, string> = {
+  WC: 'payroll',
+  GL: 'payroll',
+  Property: 'insured value',
+};
 
-  // Filtered rather than taken wholesale: memberList is all-active as written
-  // today, and this keeps the semantics correct if that ever stops being true.
-  const enrolledMembers = opening.memberList.filter(m => m.status === 'active');
-  const enrolledPayrollM = enrolledMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', 1), 0);
-  const enrolledTIVM = enrolledMembers.reduce((sum, m) => sum + getMemberExposure(m, 'Property', 1), 0);
+function exposureByLine(opening: ResultSet, activeLines: CoverageLine[]): string {
+  return activeLines
+    .map(line => {
+      const row = opening.byLine[line];
+      // Absent, not zero — see the note above.
+      if (!row) return null;
+      return `- **${LINE_FULL_NAME[line]}** — ${formatMillions(row.activeExposure)} of `
+        + `${formatMillions(row.totalMarketExposure)} ${EXPOSURE_MEASURE[line]} in the marketplace`;
+    })
+    .filter((x): x is string => x !== null)
+    .join('\n');
+}
+
+function buildWelcomeMemoValues(gameState: GameState): Record<string, string> {
+  const { setup, priorHistory } = gameState;
+  const opening = priorHistory[priorHistory.length - 1];
 
   return {
     poolName: setup.poolName,
     startingYear: String(setup.startingYear),
-    enrolledMemberCount: String(enrolledMembers.length),
-    totalMemberCount: String(poolState.allMarketMembers.length),
-    enrolledPayroll: formatMillions(enrolledPayrollM),
-    enrolledTIV: formatMillions(enrolledTIVM),
+    EXPOSURE_BY_LINE: exposureByLine(opening, setup.activeLines),
     latestEndingSurplus: formatCurrency(opening.endingSurplus, true),
     premiumToSurplusRatio: (opening.totalMemberCharge / opening.endingSurplus).toFixed(2),
     selectedCoverageLines: formatConjunctionList(setup.activeLines.map(l => LINE_FULL_NAME[l])),
