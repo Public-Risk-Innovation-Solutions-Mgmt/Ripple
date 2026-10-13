@@ -1,4 +1,29 @@
 // ============================================================================
+
+// ============================================================================
+// ⚠ THE HANDLER AND THE FRONT END MUST BE DEPLOYED TOGETHER WHEN multiplayer
+// GOES LIVE. THIS IS NOT A STYLE NOTE.
+//
+// This file changed in a way that is NOT backward compatible in one direction:
+//   - a room now carries `lines` and `priorDevelopment`, set at creation;
+//   - `join` no longer sends `lines`, and LINES_LOCKED is gone.
+//
+// A NEW FRONT END against an OLD handler is the break: createRoom's `lines` is
+// dropped on the floor, the room is made without them, and every join is then
+// refused with INVALID_REQUEST ("a team must play at least one coverage line")
+// because the new client sends none. The room is unjoinable. The reverse — an
+// old client against a new handler — is survivable by design: the new server
+// IGNORES a stray `lines` on a join and hands back the room's set.
+//
+// The two ship through DIFFERENT PIPELINES (.github/workflows/handler.yml
+// builds and promotes the Lambda zip; the front end is built and served
+// separately), so nothing enforces this ordering for you. Deploy the handler
+// FIRST, then the front end — that order is safe in both directions.
+//
+// NOTHING ON `multiplayer` IS DEPLOYED TODAY, so there is no live break to fix;
+// this is recorded for whoever first takes this branch to an environment.
+// See docs/handoff/AWS_HANDLER_HANDOFF.md, which carries the same warning.
+// ============================================================================
 // THE SESSION CONTRACT — five endpoints, one interface, no implementation.
 //
 // ⚠ THIS FILE IS THE DELIVERABLE. localStorage is the FIRST implementation of
@@ -83,11 +108,14 @@ export type SessionErrorCode =
   | 'WRONG_YEAR'
   | 'GAME_COMPLETE'
   | 'INVALID_REQUEST'
-  // A rejoin asked for different coverage lines than the team already holds.
-  // Lines are that team's game setup, chosen once; changing them mid-game would
-  // restart its book, so the transport refuses rather than the screen merely
-  // hiding the control.
-  | 'LINES_LOCKED'
+  // ⚠ 'LINES_LOCKED' WAS HERE AND IS GONE, DELIBERATELY. It refused a rejoin that
+  // asked for different coverage lines than the team already held. A team cannot
+  // ask for lines at all any more — the HOST picks the room's lines at creation
+  // and every team plays them, so JoinRequest carries no `lines` field and there
+  // is nothing left to disagree with. The guard is not relaxed; the state it
+  // guarded against is unreachable. Removing it rather than leaving it reserved
+  // is the honest record: a code no server can emit is one a client will be
+  // written to handle for no reason.
   | 'TRANSPORT_FAILURE';
 
 // ⚠ ONE ERROR TYPE FOR EVERY IMPLEMENTATION, and `code` is what callers branch
@@ -282,10 +310,12 @@ export type CallerRole = 'host' | 'player' | 'viewer' | 'anonymous';
 // trusting the caller to look away.
 export interface TeamView {
   name: string;
-  // ⚠ THE TEAM'S OWN COVERAGE LINES, CHOSEN AT JOIN AND FIXED FOR THE SESSION.
-  // Teams in one room now play different books, so the host is reading a table
-  // of games rather than a table of seats — which is why this belongs in the
-  // view rather than being inferable from the room.
+  // ⚠ THE LINES THIS TEAM PLAYS, WHICH ARE NOW THE ROOM'S. It used to be the
+  // team's own choice at join, and the note here used to say teams in one room
+  // play different books. They do not any more: the host sets the room's lines
+  // and every team takes them, so this is a copy of RoomView.lines kept because
+  // the host's table and a viewer both read the team row rather than the room.
+  // It is written from the room at join and never from a request.
   lines: CoverageLine[];
   joined: boolean;
   // The last year this team locked decisions for, or null if it never has.
@@ -328,6 +358,36 @@ export interface TeamView {
   resultsByYear?: Record<string, TeamYearSummary>;
 }
 
+/**
+ * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE DOES NOT READ IT YET.
+ *
+ * A signed fraction of the opening reserve: POSITIVE IS ADVERSE (prior years
+ * develop upward, the pool owes more than it booked) and NEGATIVE IS FAVOURABLE.
+ * So 0.03 is "3% adverse" and -0.02 is "2% favourable", which is how the host
+ * screen phrases it.
+ *
+ * ⚠ STORED, NOT USED. Nothing in the engine reads this field today. It is
+ * carried on the room so that a future update can apply it to the opening
+ * reserves without a second contract change and without re-creating rooms made
+ * before it lands. The host screen says so on screen, in those words, because a
+ * number beside a line that quietly does nothing is worse than no number.
+ *
+ * A line absent from the record takes no development, which is also what an old
+ * room record — written before this field existed — reads as.
+ */
+export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
+
+/**
+ * The defaults the host screen offers. They are the SCREEN's defaults, not the
+ * engine's: the engine has no opinion here yet (see PriorDevelopment), so these
+ * are starting points a host is expected to edit, not calibrated constants.
+ */
+export const DEFAULT_PRIOR_DEVELOPMENT: Readonly<Record<CoverageLine, number>> = {
+  WC: 0.03,
+  GL: 0.10,
+  Property: -0.02,
+};
+
 export interface RoomView {
   code: string;
   status: RoomStatus;
@@ -348,6 +408,17 @@ export interface RoomView {
    * instead of five must not be stuck forever because of a guess.
    */
   expectedTeams: number;
+  /**
+   * ⚠ THE ROOM'S COVERAGE LINES, SET BY THE HOST AT CREATION AND FIXED. Every
+   * team plays exactly these. This replaced a per-team choice made at join: a
+   * session where each team ran a different book was a table of games rather
+   * than one game, and the host could not set the thing the session is about.
+   * At least one line; order is canonical (WC, GL, Property), not the order the
+   * host clicked them.
+   */
+  lines: CoverageLine[];
+  /** Per-line prior development, stored and not yet read. See PriorDevelopment. */
+  priorDevelopment: PriorDevelopment;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamView[];
@@ -419,6 +490,19 @@ export interface CreateRoomRequest {
   eventName: string;
   /** Non-binding — see RoomView.expectedTeams. */
   expectedTeams: number;
+  /**
+   * ⚠ THE LINES THE GAME USES. At least one, and every entry a real coverage
+   * line; an empty or unknown set is refused with BAD_REQUEST. The server
+   * normalises the order to canonical, so a host who clicks Property first does
+   * not create a room that differs from one who clicks WC first.
+   */
+  lines: CoverageLine[];
+  /**
+   * Per-line prior development, stored on the room and NOT read by the engine.
+   * See PriorDevelopment. Optional: omitted means no development recorded, and
+   * entries for lines the room does not play are dropped rather than refused.
+   */
+  priorDevelopment?: PriorDevelopment;
   shocks: ScheduledShockSpec[];
   /**
    * ⚠ THE HOST'S TOKEN, MINTED BY THE CLIENT, AND IT DOUBLES AS THE
@@ -470,18 +554,18 @@ export interface JoinRequest {
   teamName: string;
   role: 'player' | 'viewer';
   /**
-   * ⚠ THE TEAM'S COVERAGE LINES, REQUIRED FOR A PLAYER'S FIRST JOIN AND FIXED
-   * FROM THAT MOMENT. The set may not be empty and every entry must be a real
-   * coverage line, but there is no room-level MENU any more: all three are
-   * available in every room and the host does not constrain the choice. (A
-   * menu, if one is ever wanted, is a field on the room record and a filter
-   * here — it was removed because nothing was using it to say no.) On a REJOIN this may be omitted; if it is supplied and
-   * differs from what the team already holds, the call is refused with
-   * LINES_LOCKED rather than quietly honoured or quietly ignored. Changing them
-   * mid-game would restart that team's book — its pre-game, its roster and its
-   * whole claim history are a function of the lines it opened with.
+   * ⚠ THERE IS NO `lines` FIELD ANY MORE, AND ITS ABSENCE IS THE POINT.
+   * A player used to send its coverage lines here, required on a first join and
+   * refused with LINES_LOCKED if a rejoin disagreed. The HOST now picks the
+   * room's lines at creation and every team plays them, so a team has nothing to
+   * send and nothing to disagree about. JoinResponse.lines still answers "what
+   * do I play" — it is the room's set, returned so a client need not read the
+   * room separately to build its game.
+   *
+   * A server written against this contract must IGNORE a stray `lines` on the
+   * wire rather than refuse it, so a stale client that still sends one joins
+   * correctly and plays the room's lines instead of its own.
    */
-  lines?: CoverageLine[];
   /**
    * ⚠ REJOIN, NOT A SECOND CLAIM. The same browser returning to the same code
    * presents the token it already holds and gets its own seat back. Without
@@ -503,8 +587,10 @@ export interface JoinResponse {
   teamToken: string;
   teamName: string;
   role: 'player' | 'viewer';
-  /** What the team actually holds — authoritative, and on a rejoin this is the
-   *  set chosen originally rather than anything the caller asked for. */
+  /** What the team plays: THE ROOM'S LINES, authoritative. It is no longer "the
+   *  set chosen originally" because nothing is chosen at join — it is the set
+   *  the host fixed at creation, returned here so a client can build its game
+   *  from the join response alone. */
   lines: CoverageLine[];
   rejoined: boolean;
   room: RoomView;

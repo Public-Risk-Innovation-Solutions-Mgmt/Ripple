@@ -1,5 +1,23 @@
 # AWS session handler — handoff
 
+## ⚠ Deploy the handler and the front end together (multiplayer)
+
+The `multiplayer` branch changes the session contract: a room stores its
+coverage `lines` and `priorDevelopment`, chosen by the host at creation, and
+`join` no longer sends lines (`LINES_LOCKED` is gone with the field).
+
+**A new front end against an old handler is a hard break.** `createRoom`'s
+`lines` is dropped, the room is created without them, and every join is then
+refused with `INVALID_REQUEST` because the new client sends no lines — an
+unjoinable room. The other direction is safe on purpose: a new handler **ignores**
+a stray `lines` on a join and returns the room's set.
+
+So **deploy the handler first, then the front end.** That order is safe both
+ways. The two ship through different pipelines and nothing enforces it.
+
+Nothing on `multiplayer` is deployed yet, so there is no live break today.
+
+
 For whoever (or whichever Claude session) picks up the review/prod AWS work next. This is the
 build spec for the one piece nothing else can proceed without: the real Lambda handler. Read
 `SESSION_PRACTICES.md` and `src/session/server/keys.ts` before writing any code — they are

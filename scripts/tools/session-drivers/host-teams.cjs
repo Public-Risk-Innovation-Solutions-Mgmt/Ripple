@@ -9,7 +9,6 @@ async function join(ctx, code, name, line) {
   await p.goto(`/join/${code}`);
   await p.waitForSelector('[data-testid="team-picker"]');
   await p.fill('[data-testid="team-name"]', name);
-  await p.click(`[data-testid="pick-line-${line}"]`);
   await p.click('[data-testid="join-team"]');
   await p.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
   return p;
@@ -35,6 +34,12 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '3');
   await host.fill('[data-testid="expected-teams"]', '3');
+  // ⚠ THE HOST SETS THE LINES NOW, AND THIS ROOM NEEDS TWO OF THEM. Teams used
+  // to pick their own, so this driver had a WC-only team and a GL-only team and
+  // checked that each read ABSENT in the other's view. They cannot differ any
+  // more, so the ROOM plays WC + GL and every team writes both — which is what
+  // the ABSENT assertions below became.
+  await host.uncheck('[data-testid="line-Property"]');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -94,15 +99,19 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
     console.log(`\n  --- ${label} view ---`);
     for (const [name, cells] of Object.entries(t)) console.log(`    ${name.padEnd(18)} ${cells.join(' | ')}`);
     if (label === 'WC') {
-      ok(await host.$('[data-testid="absent-Cedar Valley"]') !== null, 'WC view: the GL-only team reads ABSENT');
+      // ⚠ NO TEAM IS ABSENT ANY MORE, AND THAT IS THE ASSERTION. ABSENT meant
+      // "this team does not write this line", which was reachable only while
+      // teams chose their own. The room's lines are universal, so every team
+      // writes every line the room plays — and a team that somehow did not
+      // would fail here.
+      ok(await host.$('[data-testid="absent-Cedar Valley"]') === null, 'WC view: no team is ABSENT — the room\'s lines are universal');
       ok(await host.$('[data-testid="pending-Tri-County"]') !== null, 'WC view: the team that never reported reads PENDING');
       ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'WC view: the reporting team shows figures');
-      const a = (await host.textContent('[data-testid="absent-Cedar Valley"]')).trim();
       const pnd = (await host.textContent('[data-testid="pending-Tri-County"]')).trim();
-      ok(a !== pnd && !/^0|—$/.test(a) && !/^0|—$/.test(pnd), `absent "${a}" and pending "${pnd}" are distinct and neither is a number`);
+      ok(!/^0|—$/.test(pnd), `pending "${pnd}" is a state, not a number`);
     }
     if (label === 'GL') {
-      ok(await host.$('[data-testid="absent-Harbour Mutual"]') !== null, 'GL view: the WC-only team reads ABSENT');
+      ok(await host.$('[data-testid="absent-Harbour Mutual"]') === null, 'GL view: no team is ABSENT either');
       ok(await host.$('[data-testid="surplus-Cedar Valley"]') !== null, 'GL view: the GL team shows figures');
     }
     if (label === 'Pool') {

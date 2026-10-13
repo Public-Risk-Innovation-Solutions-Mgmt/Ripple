@@ -30,6 +30,11 @@ async function tabText(page, tab) {
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
+  // ⚠ THE HOST SETS THE LINES NOW. Every team in this room used to click WC
+  // for itself; the room declares it instead, and the picker is gone from the
+  // join screen. All three are ticked by default, so WC-only means unticking.
+  await host.uncheck('[data-testid="line-GL"]');
+  await host.uncheck('[data-testid="line-Property"]');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -39,7 +44,6 @@ async function tabText(page, tab) {
   await driver.goto(`/join/${code}`);
   await driver.waitForSelector('[data-testid="team-picker"]');
   await driver.fill('[data-testid="team-name"]', TEAMS[0]);
-  await driver.click('[data-testid="pick-line-WC"]');
   await driver.click('[data-testid="join-team"]');
   await driver.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
 

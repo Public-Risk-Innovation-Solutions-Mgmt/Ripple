@@ -82,12 +82,27 @@
 //   sk                          holds (every item also carries expiresAtSec)
 //   ------------------------    ------------------------------------------------
 //   ROOM                        THE HEADER. seed, eventName, yearCount,
-//                               startingYear, expectedTeams, shocks,
+//                               startingYear, expectedTeams, LINES,
+//                               PRIOR DEVELOPMENT, shocks,
 //                               currentYear, rev, createdAt, updatedAt,
 //                               expiresAtSec (the room's, set once),
 //                               hostTokenHash, and the ROSTER:
 //                                 { [teamId]: { name, lines, joined, lockedYear,
 //                                               tokenHash, posted: { [year]: true } } }
+//
+// ⚠ WHAT THE LINES AND PRIOR DEVELOPMENT COST THE HEADER ITEM: NOTHING THAT
+// MATTERS. `lines` is at most three short strings and `priorDevelopment` at most
+// three numbers — on the order of 100 bytes against DynamoDB's 400 KB item
+// limit, and against a roster that already carries a name, a token hash and a
+// posted-year map per team. The header's size is driven by the roster and the
+// shock list, and neither moved. There is no new item, no new key and no change
+// to the access pattern: both fields are read and written with the header that
+// was already being read and written.
+//
+// ⚠ AND THE ROSTER'S PER-TEAM `lines` IS NOW A COPY OF THE ROOM'S. It is kept
+// because the host's table and a viewer read the team row rather than the room,
+// but it is written FROM THE HEADER at join and never from a request. If it ever
+// disagrees with the header, the header is right.
 //   NAME#<trimmed team name>    { teamId }. Exists only so a name is claimed once.
 //   D#<teamId>#<yyy>            one team's DECISIONS for one year (opaque JSON).
 //   R#<teamId>#<yyy>            one team's RESULT for one year (TeamYearSummary).
@@ -211,8 +226,9 @@
 //                                                               On failure RE-READ and
 //                                                               decide again — ⚠ CORRECTED
 //   join, rejoin        none                                    token hash matches the
-//                                                               roster; lines match
-//                                                               (else LINES_LOCKED)
+//                                                               roster. (The lines
+//                                                               check is GONE: a join
+//                                                               carries none.)
 //   join, viewer        Transact: Put VIEW#, ConditionCheck     VIEW# not exists; TOKEN#
 //                       TOKEN#. No rev bump — viewers are not   not exists (the token
 //                       in RoomView                             claim, above)

@@ -187,12 +187,15 @@ async function freshRoom(t: SessionTransport) {
     startingYear: 2026,
     eventName: 'Ripple Game',
     expectedTeams: 3,
+    // ⚠ THE ROOM DECLARES ITS LINES NOW. Every team in the fixture plays WC
+    // only, which is what each of them used to ask for at join.
+    lines: WC,
     shocks: [{ shockId: 'pandemic', yearNumber: 2 }],
   });
 }
 
-// Every team in the fixture joins WC-only unless a check says otherwise, so a
-// test that cares about lines sets them explicitly and the rest stay comparable.
+// The fixture room plays WC only, so every team in it does too. A check that
+// cares about a different set creates its own room — a team cannot ask.
 const WC: CoverageLine[] = ['WC'];
 
 
@@ -230,11 +233,11 @@ async function main(): Promise<void> {
     ok(!JSON.stringify(created.room).includes(created.hostToken), 'the room view never discloses the host token');
 
     await rejects(
-      t.createRoom({ hostToken: newSessionToken(), seed: 's', yearCount: 0, startingYear: 2026, eventName: 'p', expectedTeams: 3, shocks: [] }),
+      t.createRoom({ hostToken: newSessionToken(), seed: 's', yearCount: 0, startingYear: 2026, eventName: 'p', expectedTeams: 3, shocks: [], lines: WC }),
       'INVALID_REQUEST', 'a zero-year game is refused',
     );
     await rejects(
-      t.createRoom({ hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026, eventName: 'p', expectedTeams: 0, shocks: [] }),
+      t.createRoom({ hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026, eventName: 'p', expectedTeams: 0, shocks: [], lines: WC }),
       'INVALID_REQUEST', 'a room expecting no teams is refused',
     );
     await rejects(t.read({ code: 'ZZZZZZ' }), 'ROOM_NOT_FOUND', 'an unknown code is not found');
@@ -245,7 +248,7 @@ async function main(): Promise<void> {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
 
-    const a = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+    const a = await t.join({ code, teamName: TEAMS[0], role: 'player' });
     eq(a.rejoined, false, 'a first join is not a rejoin');
     eq(a.teamName, TEAMS[0], 'the joiner gets the team it asked for');
 
@@ -257,15 +260,15 @@ async function main(): Promise<void> {
     eq(again.teamToken, a.teamToken, 'a rejoin keeps the original token rather than issuing a new one');
 
     await rejects(
-      t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC }),
+      t.join({ code, teamName: TEAMS[0], role: 'player' }),
       'TEAM_TAKEN', 'a different browser cannot take a name already in the room',
     );
     // ⚠ THE INVERSE OF THE OLD RULE. A name nobody has used is not an error for
     // a player — it is how a team comes into being.
-    const invented = await t.join({ code, teamName: 'Nobody FC', role: 'player', lines: WC });
+    const invented = await t.join({ code, teamName: 'Nobody FC', role: 'player' });
     eq(invented.teamName, 'Nobody FC', 'a player names its own team into existence');
     await rejects(
-      t.join({ code, teamName: 'Nobody FC', role: 'player', lines: WC }),
+      t.join({ code, teamName: 'Nobody FC', role: 'player' }),
       'TEAM_TAKEN', 'a second player cannot reuse a name already in the room',
     );
     await rejects(
@@ -276,7 +279,7 @@ async function main(): Promise<void> {
     // A viewer never claims, so landing as a viewer by accident blocks nobody —
     // and any number of people may watch the same team. The team has to exist
     // first now, so a player creates it.
-    const driver = await t.join({ code, teamName: TEAMS[1], role: 'player', lines: WC });
+    const driver = await t.join({ code, teamName: TEAMS[1], role: 'player' });
     const v1 = await t.join({ code, teamName: TEAMS[1], role: 'viewer' });
     const v2 = await t.join({ code, teamName: TEAMS[1], role: 'viewer' });
     ok(v1.teamToken !== v2.teamToken, 'two viewers of one team get distinct tokens');
@@ -298,7 +301,7 @@ async function main(): Promise<void> {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
     const players = [];
-    for (const name of TEAMS) players.push(await t.join({ code, teamName: name, role: 'player', lines: WC }));
+    for (const name of TEAMS) players.push(await t.join({ code, teamName: name, role: 'player' }));
 
     const s = await t.submit({ code, token: players[0].teamToken, yearNumber: 1, decisions: decisionsFor(1, 'y1-a') });
     eq(s.room.teams[0].locked, true, 'a submit locks that team for the current year');
@@ -328,7 +331,7 @@ async function main(): Promise<void> {
   {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
-    const p = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+    const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
 
     await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'deliberate') });
     await step(t, code, hostToken);
@@ -353,9 +356,9 @@ async function main(): Promise<void> {
     const { code, hostToken } = await t.createRoom({
       hostToken: newSessionToken(),
       seed: 'MAMC6EA4', yearCount: 6, startingYear: 2026,
-      eventName: 'History', expectedTeams: 1, shocks: [],
+      eventName: 'History', expectedTeams: 1, shocks: [], lines: WC,
     });
-    const p = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+    const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
 
     // Lock years 1 and 2 with DIFFERENT sets, skip 3, lock 4.
     await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'y1') });
@@ -391,7 +394,7 @@ async function main(): Promise<void> {
   {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
-    const p = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+    const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
 
     await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'y1') });
     await step(t, code, hostToken);
@@ -432,7 +435,7 @@ async function main(): Promise<void> {
   {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
-    const p = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+    const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
 
     const opened = await t.submit({ code, token: p.teamToken, yearNumber: 0, result: summaryFor(0, 500) });
     eq(opened.room.teams[0].resultsByYear?.['0']?.pool.endingSurplus, 500,
@@ -460,7 +463,7 @@ async function main(): Promise<void> {
     // later post to carry it in, so nothing else would ever notice its absence.
     eq((played.you.postedYears ?? []).join(','), '0,1', 'the caller is told which years the room holds for it');
     eq((opened.you.postedYears ?? []).join(','), '0', 'including when the only one is the opening position');
-    const fresh = await t.join({ code, teamName: TEAMS[1], role: 'player', lines: WC });
+    const fresh = await t.join({ code, teamName: TEAMS[1], role: 'player' });
     eq(fresh.room.teams[1].resultsByYear, undefined, 'a team that has posted nothing has no history');
     const freshRead = await t.read({ code, token: fresh.teamToken });
     eq(freshRead.you.postedYears, undefined, 'and is told so rather than being handed an empty list');
@@ -475,7 +478,7 @@ async function main(): Promise<void> {
   {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
-    const p = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+    const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
 
     await t.submit({ code, token: p.teamToken, yearNumber: 0, result: summaryFor(0, 500, WC, 1) });
     await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'y1') });
@@ -513,9 +516,9 @@ async function main(): Promise<void> {
     const { code, hostToken } = await t.createRoom({
       hostToken: newSessionToken(),
       seed: 'MAMC6EA4', yearCount: 6, startingYear: 2026,
-      eventName: 'Results', expectedTeams: 1, shocks: [],
+      eventName: 'Results', expectedTeams: 1, shocks: [], lines: WC,
     });
-    const p = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+    const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
 
     // Play through four years, posting a DIFFERENT surplus for 1, 2 and 4.
     for (const y of [1, 2, 3, 4]) {
@@ -548,8 +551,8 @@ async function main(): Promise<void> {
   {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
-    const p0 = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
-    const p1 = await t.join({ code, teamName: TEAMS[1], role: 'player', lines: WC });
+    const p0 = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+    const p1 = await t.join({ code, teamName: TEAMS[1], role: 'player' });
     const viewer = await t.join({ code, teamName: TEAMS[0], role: 'viewer' });
 
     await t.submit({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'secret-a') });
@@ -562,7 +565,7 @@ async function main(): Promise<void> {
     // A third team joins but does not lock, so the host has something
     // outstanding to see. It cannot simply be absent now — a team that never
     // joined has no row at all.
-    const p2 = await t.join({ code, teamName: TEAMS[2], role: 'player', lines: WC });
+    const p2 = await t.join({ code, teamName: TEAMS[2], role: 'player' });
     const withThird = await t.read({ code, token: hostToken });
     eq(withThird.room.teams.find(x => x.name === TEAMS[2])!.locked, false,
        'the host sees a joined-but-unlocked team as outstanding');
@@ -588,75 +591,105 @@ async function main(): Promise<void> {
     ok(!JSON.stringify(anon).includes('secret-a'), 'an anonymous caller sees no decisions at all');
   }
 
-  // ---- team-chosen lines -----------------------------------------------
+  // ---- THE HOST'S LINES, AND PRIOR DEVELOPMENT ---------------------------
+  // ⚠ THIS SECTION USED TO BE "team-chosen lines" AND IT TESTED THE OPPOSITE
+  // RULE. A team asked for its own set at join, two teams in one room could play
+  // different books, and a rejoin that disagreed was refused with LINES_LOCKED.
+  // The host picks the room's lines now; every assertion below fails against
+  // that old behaviour, which is the point of rewriting rather than deleting.
   {
     const t = transport();
-    const { code, hostToken } = await freshRoom(t);
 
-    const wcOnly = await t.join({ code, teamName: 'WC Only', role: 'player', lines: ['WC'] });
-    const triple = await t.join({ code, teamName: 'All Three', role: 'player', lines: ['Property', 'WC', 'GL'] });
-
-    eq(wcOnly.lines.join(','), 'WC', 'a team gets exactly the lines it asked for');
-    // Canonical order regardless of click sequence, so two teams with the same
-    // choice compare equal everywhere they are shown.
-    eq(triple.lines.join(','), 'WC,GL,Property', 'lines come back in canonical WC/GL/Property order');
-
-    const asHost = await t.read({ code, token: hostToken });
-    const rowOf = (n: string) => asHost.room.teams.find(x => x.name === n)!;
-    eq(rowOf('WC Only').lines.join(','), 'WC', "the host's table carries each team's lines");
-    eq(rowOf('All Three').lines.join(','), 'WC,GL,Property', 'teams in one room may play different books');
-
-    // ⚠ THERE IS NO MENU ANY MORE, AND THAT IS THE ASSERTION. Every room offers
-    // all three lines; the host does not constrain the choice. What is still
-    // refused is a set that is empty or not made of coverage lines.
-    const narrow = await t.createRoom({
+    // The host declares the set. Canonical order regardless of the order given,
+    // so two hosts who pick the same lines create the same room.
+    const room = await t.createRoom({
       hostToken: newSessionToken(),
       seed: 's', yearCount: 3, startingYear: 2026, eventName: 'p',
       expectedTeams: 2, shocks: [],
+      lines: ['Property', 'WC', 'GL'],
+      priorDevelopment: { WC: 0.03, GL: 0.10, Property: -0.02 },
     });
-    const anyLines = await t.join({ code: narrow.code, teamName: 'Greedy', role: 'player', lines: ['WC', 'GL'] });
-    eq(anyLines.lines.join(','), 'WC,GL', 'any room permits any combination of the three lines');
+    const hostRead = await t.read({ code: room.code, token: room.hostToken });
+    eq(hostRead.room.lines.join(','), 'WC,GL,Property',
+      'the room carries the lines the HOST chose, in canonical order');
+    eq(JSON.stringify(hostRead.room.priorDevelopment),
+      JSON.stringify({ WC: 0.03, GL: 0.10, Property: -0.02 }),
+      'the room carries the prior development factors the host set');
 
-    // ⚠ expectedTeams BINDS NOTHING. The host guessed two; a third team must
-    // still get in, or a room where more people turn up than expected is broken
-    // by an estimate made before anyone arrived.
-    await t.join({ code: narrow.code, teamName: 'Second', role: 'player', lines: ['WC'] });
-    const third = await t.join({ code: narrow.code, teamName: 'Third', role: 'player', lines: ['WC'] });
+    // ⚠ EVERY TEAM PLAYS THE ROOM'S SET, and a team sends nothing.
+    const one = await t.join({ code: room.code, teamName: 'First', role: 'player' });
+    const two = await t.join({ code: room.code, teamName: 'Second', role: 'player' });
+    eq(one.lines.join(','), 'WC,GL,Property', 'a joining team is handed the ROOM\'s lines');
+    eq(two.lines.join(','), one.lines.join(','), 'two teams in one room play the SAME book');
+
+    const after = await t.read({ code: room.code, token: room.hostToken });
+    const rowOf = (n: string) => after.room.teams.find(x => x.name === n)!;
+    eq(rowOf('First').lines.join(','), 'WC,GL,Property', "the host's table carries the room's lines");
+
+    // ⚠ A STRAY `lines` ON THE WIRE IS IGNORED, NOT REFUSED. A client built
+    // against the old contract must still join and must still play the room's
+    // set — the contract says so explicitly, and this is where that is proved.
+    const stale = await t.join(
+      { code: room.code, teamName: 'Stale Client', role: 'player', lines: ['WC'] } as never,
+    );
+    eq(stale.lines.join(','), 'WC,GL,Property',
+      'a stale client sending its own lines is ignored and plays the room\'s');
+
+    // A rejoin needs no lines and never did disagree — there is nothing to send.
+    const back = await t.join({ code: room.code, teamName: 'First', role: 'player', token: one.teamToken });
+    eq(back.rejoined, true, 'a rejoin is still a rejoin');
+    eq(back.lines.join(','), 'WC,GL,Property', "a rejoin returns the room's lines");
+
+    // ---- what the ROOM refuses, which is where the check moved to ----------
+    await rejects(
+      t.createRoom({
+        hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026,
+        eventName: 'p', expectedTeams: 2, shocks: [], lines: [],
+      }),
+      'INVALID_REQUEST', 'a room must use at least one coverage line',
+    );
+    await rejects(
+      t.createRoom({
+        hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026,
+        eventName: 'p', expectedTeams: 2, shocks: [], lines: ['Marine'],
+      } as never),
+      'INVALID_REQUEST', 'a room cannot be created on something that is not a coverage line',
+    );
+
+    // ⚠ A FACTOR FOR A LINE THE ROOM DOES NOT PLAY IS DROPPED, NOT REFUSED. The
+    // host screen keeps a value per line as lines are toggled, so a leftover is
+    // ordinary rather than a bad request.
+    const wcOnly = await t.createRoom({
+      hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026,
+      eventName: 'p', expectedTeams: 1, shocks: [],
+      lines: ['WC'], priorDevelopment: { WC: 0.03, GL: 0.10 },
+    });
+    const wcRead = await t.read({ code: wcOnly.code, token: wcOnly.hostToken });
+    eq(wcRead.room.lines.join(','), 'WC', 'a room may play one line');
+    eq(JSON.stringify(wcRead.room.priorDevelopment), JSON.stringify({ WC: 0.03 }),
+      'a factor for a line the room does not play is dropped');
+
+    // ⚠ OMITTING priorDevelopment IS LEGAL and reads as no development.
+    const bare = await t.createRoom({
+      hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026,
+      eventName: 'p', expectedTeams: 1, shocks: [], lines: ['GL'],
+    });
+    const bareRead = await t.read({ code: bare.code, token: bare.hostToken });
+    eq(JSON.stringify(bareRead.room.priorDevelopment), '{}',
+      'a room created without prior development carries none');
+
+    // expectedTeams still binds nothing.
+    await t.join({ code: wcOnly.code, teamName: 'A', role: 'player' });
+    const third = await t.join({ code: wcOnly.code, teamName: 'B', role: 'player' });
     eq(third.rejoined, false, 'a team beyond expectedTeams still joins');
-    const overfull = await t.read({ code: narrow.code, token: narrow.hostToken });
-    eq(overfull.room.teams.length, 3, 'the room holds more teams than the host expected');
-    eq(overfull.room.expectedTeams, 2, 'and the expectation is unchanged by that');
 
-    await rejects(
-      t.join({ code, teamName: 'Empty', role: 'player', lines: [] }),
-      'INVALID_REQUEST', 'a team must play at least one line',
-    );
-    await rejects(
-      t.join({ code, teamName: 'Lineless', role: 'player' }),
-      'INVALID_REQUEST', 'a first join without lines is refused',
-    );
-
-    // ⚠ FIXED ONCE CHOSEN, AND THE TRANSPORT IS WHAT MAKES THAT TRUE. Changing
-    // them would restart the team's book — its pre-game, roster and claim
-    // history are all a function of the lines it opened with.
-    await rejects(
-      t.join({ code, teamName: 'WC Only', role: 'player', token: wcOnly.teamToken, lines: ['WC', 'GL'] }),
-      'LINES_LOCKED', 'a rejoin asking for different lines is refused',
-    );
-    const back = await t.join({ code, teamName: 'WC Only', role: 'player', token: wcOnly.teamToken });
-    eq(back.rejoined, true, 'a rejoin without lines is still a rejoin');
-    eq(back.lines.join(','), 'WC', 'a rejoin returns the lines chosen originally');
-    const same = await t.join({ code, teamName: 'WC Only', role: 'player', token: wcOnly.teamToken, lines: ['WC'] });
-    eq(same.lines.join(','), 'WC', 'a rejoin restating the SAME lines is accepted');
-
-    // A viewer needs the watched team's lines, or it cannot build the same game.
-    const watcher = await t.join({ code, teamName: 'All Three', role: 'viewer' });
+    // A viewer needs the watched team's lines, which are the room's.
+    const watcher = await t.join({ code: room.code, teamName: 'First', role: 'viewer' });
     eq(watcher.lines.join(','), 'WC,GL,Property', "a viewer is handed the watched team's lines");
-    const asWatcher = await t.read({ code, token: watcher.teamToken });
-    eq((asWatcher.you.lines ?? []).join(','), 'WC,GL,Property', "read gives a viewer the watched team's lines");
-
-    const asPlayer = await t.read({ code, token: wcOnly.teamToken });
-    eq((asPlayer.you.lines ?? []).join(','), 'WC', 'read gives a player its own lines');
+    const asWatcher = await t.read({ code: room.code, token: watcher.teamToken });
+    eq((asWatcher.you.lines ?? []).join(','), 'WC,GL,Property', 'read gives a viewer those lines');
+    const asPlayer = await t.read({ code: room.code, token: one.teamToken });
+    eq((asPlayer.you.lines ?? []).join(','), 'WC,GL,Property', 'read gives a player its own lines');
   }
 
   // ---- completion ------------------------------------------------------
@@ -709,7 +742,7 @@ async function main(): Promise<void> {
     const token = newSessionToken();
     const mk = () => t.createRoom({
       hostToken: token, seed: 'MAMC6EA4', yearCount: 3, startingYear: 2026,
-      eventName: 'Ripple Game', expectedTeams: 3, shocks: [],
+      eventName: 'Ripple Game', expectedTeams: 3, shocks: [], lines: WC,
     });
     const a = await mk();
     const b = await mk();
@@ -723,9 +756,9 @@ async function main(): Promise<void> {
     const t = transport();
     const { code } = await freshRoom(t);
     const token = newSessionToken();
-    const req = { code, teamName: 'Harbour Mutual', role: 'player' as const, lines: WC, token };
+    const req = { code, teamName: 'Harbour Mutual', role: 'player' as const, token };
     const a = await t.join(req);
-    const b = await t.join({ ...req, lines: undefined });
+    const b = await t.join({ ...req });
     ok(a.rejoined === false, 'the first join creates the team rather than rejoining');
     // ⚠ THE RETRY IS A REJOIN, NOT TEAM_TAKEN. This is the assertion the whole
     // client-minted-token change exists for.
@@ -737,7 +770,7 @@ async function main(): Promise<void> {
     // ⚠ AND A CLIENT CANNOT TAKE A SEAT BY PRESENTING SOMEBODY ELSE'S TOKEN.
     // Moving the mint to the client would be a hole without this.
     await rejects(
-      t.join({ code, teamName: 'Cedar Valley', role: 'player', lines: WC, token }),
+      t.join({ code, teamName: 'Cedar Valley', role: 'player', token }),
       'BAD_TOKEN', 'a token already owned by another team is refused on a new join',
     );
   }
@@ -773,8 +806,8 @@ async function main(): Promise<void> {
       ok(isSessionError(e) && e.retryable, 'an injected transport failure is marked retryable');
     }
     try {
-      await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
-      await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+      await t.join({ code, teamName: TEAMS[0], role: 'player' });
+      await t.join({ code, teamName: TEAMS[0], role: 'player' });
     } catch (e) {
       ok(isSessionError(e) && !e.retryable, 'a refused request is NOT marked retryable');
     }
@@ -785,7 +818,7 @@ async function main(): Promise<void> {
     const t = transport();
     const { code, hostToken } = await freshRoom(t);
     const r0 = await t.read({ code, token: hostToken });
-    const p = await t.join({ code, teamName: TEAMS[0], role: 'player', lines: WC });
+    const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
     const r1 = await t.read({ code, token: hostToken });
     await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'x') });
     const r2 = await t.read({ code, token: hostToken });

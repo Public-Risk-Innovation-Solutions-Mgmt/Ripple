@@ -46,6 +46,7 @@ import type {
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
+  PriorDevelopment,
   ReadRequest, ReadResponse,
   RoomStatus, RoomView,
   ScheduledShockSpec,
@@ -85,7 +86,8 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 // this shape directly.
 interface TeamRecord {
   name: string;
-  // Chosen at join, never written again. See the LINES_LOCKED path below.
+  // ⚠ COPIED FROM THE ROOM AT JOIN, never from a request and never written
+  // again. The host owns the line set now; a team has no say and sends none.
   lines: CoverageLine[];
   token: string | null;
   joined: boolean;
@@ -109,6 +111,11 @@ interface RoomRecord {
   yearCount: number;
   startingYear: number;
   expectedTeams: number;
+  // ⚠ OPTIONAL ON THE RECORD, REQUIRED ON THE VIEW. A room written before the
+  // host picked the lines has neither; roomView defaults them so an old record
+  // stays readable rather than rendering an empty game.
+  lines?: CoverageLine[];
+  priorDevelopment?: PriorDevelopment;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamRecord[];
@@ -207,11 +214,8 @@ function highestPlayedYear(t: TeamRecord): number | null {
   return best;
 }
 
-function sameLines(a: CoverageLine[], b: CoverageLine[]): boolean {
-  if (a.length !== b.length) return false;
-  const sa = [...a].sort(), sb = [...b].sort();
-  return sa.every((x, i) => x === sb[i]);
-}
+// sameLines is gone with LINES_LOCKED: a join carries no lines, so there are
+// never two sets to compare.
 
 // ---------------------------------------------------------------- views
 
@@ -254,6 +258,12 @@ function roomView(room: RoomRecord): RoomView {
     code: room.code,
     status: statusOf(room),
     seed: room.seed,
+    // ⚠ DEFAULTED ON READ, NOT ONLY ON WRITE. A room record written before the
+    // host picked the lines has neither field; falling back to all three and to
+    // no development keeps such a record readable instead of rendering a room
+    // with an empty game.
+    lines: [...(room.lines ?? LINE_ORDER)],
+    priorDevelopment: { ...(room.priorDevelopment ?? {}) },
     eventName: room.eventName,
     yearCount: room.yearCount,
     startingYear: room.startingYear,
@@ -382,6 +392,29 @@ export class LocalSessionTransport implements SessionTransport {
         throw new SessionError('INVALID_REQUEST', 'A room needs a valid host token.');
       }
 
+      // ⚠ THE LINE SET IS CHECKED HERE AND NOWHERE ELSE NOW. It used to be
+      // checked on every join, once per team; the host picks it once, so this is
+      // the only gate and it has to be the strict one.
+      const reqLines = Array.isArray(req.lines) ? req.lines : [];
+      if (reqLines.length === 0) {
+        throw new SessionError('INVALID_REQUEST', 'A game must use at least one coverage line.');
+      }
+      const notALine = reqLines.filter(l => !LINE_ORDER.includes(l));
+      if (notALine.length > 0) {
+        throw new SessionError('INVALID_REQUEST', `${notALine.join(', ')} is not a coverage line.`);
+      }
+      // Canonical order regardless of click sequence, so two hosts who pick the
+      // same lines in different orders create the same room.
+      const roomLines = LINE_ORDER.filter(l => reqLines.includes(l));
+      // Entries for lines the room does not play are DROPPED, not refused: the
+      // host screen keeps a value per line as the host toggles them, and a
+      // leftover for an unticked line is not a bad request.
+      const roomPriorDev: PriorDevelopment = {};
+      for (const l of roomLines) {
+        const v = req.priorDevelopment?.[l];
+        if (typeof v === 'number' && Number.isFinite(v)) roomPriorDev[l] = v;
+      }
+
       const store = storage();
 
       // ⚠ THE RETRY PATH, AND IT RETURNS SUCCESS RATHER THAN AN ERROR. A
@@ -411,6 +444,8 @@ export class LocalSessionTransport implements SessionTransport {
         yearCount: req.yearCount,
         startingYear: req.startingYear,
         expectedTeams: req.expectedTeams,
+        lines: roomLines,
+        priorDevelopment: roomPriorDev,
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),
         // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING, not registered in
@@ -474,17 +509,11 @@ export class LocalSessionTransport implements SessionTransport {
         // second person claiming a team that is already claimed. Checking
         // TEAM_TAKEN first would lock the real driver out on a refresh.
         if (req.token && team.token === req.token) {
-          // ⚠ LINES ARE FIXED, AND THE REFUSAL IS THE POINT. A rejoin that asks
-          // for a different set is not honoured and not silently ignored: the
-          // team's pre-game, its roster and its whole claim history are a
-          // function of the lines it opened with, so changing them would
-          // restart its book while looking like a preference change.
-          if (req.lines && !sameLines(req.lines, team.lines)) {
-            throw new SessionError(
-              'LINES_LOCKED',
-              `${team.name} plays ${team.lines.join(' + ')}. Coverage lines are chosen once, when a team joins.`,
-            );
-          }
+          // ⚠ NOTHING TO REFUSE ANY MORE. This branch used to throw LINES_LOCKED
+          // when a rejoin asked for a different set. A join carries no lines, so
+          // there is no disagreement to detect — the team plays the room's lines
+          // on the first join and on every return, and that is the same set by
+          // construction rather than by a check.
           return { teamToken: team.token, teamName: team.name, lines: [...team.lines], role: 'player' as const, rejoined: true, room: roomView(room) };
         }
         // The name is the identity now, so a second person arriving with a name
@@ -493,17 +522,12 @@ export class LocalSessionTransport implements SessionTransport {
       }
 
       // ---- a player creating its team -------------------------------------
-      const lines = req.lines ?? [];
-      if (lines.length === 0) {
-        throw new SessionError('INVALID_REQUEST', 'A team must play at least one coverage line.');
-      }
-      // ⚠ VALIDATED AGAINST THE REAL LINES, NOT AGAINST A ROOM MENU. Every room
-      // offers all three and the host does not constrain it, so the only wrong
-      // answer here is one that is not a coverage line at all.
-      const notALine = lines.filter(l => !LINE_ORDER.includes(l));
-      if (notALine.length > 0) {
-        throw new SessionError('INVALID_REQUEST', `${notALine.join(', ')} is not a coverage line.`);
-      }
+      // ⚠ THE ROOM'S LINES, NOT THE REQUEST'S. There is nothing to validate here
+      // any more: the set was checked once, when the host created the room, and
+      // a team cannot propose another. A stale client that still sends `lines`
+      // is IGNORED rather than refused — it joins and plays the room's set,
+      // which is the behaviour the contract asks a server for.
+      const lines = [...(room.lines ?? LINE_ORDER)];
 
       // ⚠ THE CLIENT'S TOKEN, WHICH IS WHAT MAKES THE FIRST JOIN REPLAYABLE.
       // The team is created owning a secret the caller ALREADY HOLDS, so if the

@@ -187,9 +187,6 @@ async function resultsYearText(page, year) {
   await player.fill('[data-testid="team-name"]', TEAM);
   // ⚠ ALL THREE LINES: the wildfire's property catastrophe lands on Property,
   // and a WC-only book would see only its secondary WC claims.
-  await player.click('[data-testid="pick-line-WC"]');
-  await player.click('[data-testid="pick-line-GL"]');
-  await player.click('[data-testid="pick-line-Property"]');
   await player.click('[data-testid="join-team"]');
   await player.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
 

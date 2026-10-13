@@ -82,7 +82,7 @@ const STATUS: Record<SessionErrorCode, number> = {
   WRONG_YEAR: 409,
   GAME_COMPLETE: 409,
   INVALID_REQUEST: 400,
-  LINES_LOCKED: 409,
+  // LINES_LOCKED is gone from the contract — no server can emit it.
   TRANSPORT_FAILURE: 500,
 };
 

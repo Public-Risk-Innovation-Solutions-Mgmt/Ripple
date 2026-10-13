@@ -54,10 +54,9 @@ import { decisionsForYear, decisionsToJson } from '../client/decisions';
 import { useSessionGame } from '../client/useSessionGame';
 import GameShell from '../../game/GameShell';
 import type { TabId } from '../../components/TabNav';
-import type { CoverageLine, DecisionSet, LineView } from '../../types/simulation';
+import type { DecisionSet, LineView } from '../../types/simulation';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 
-const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
 export type PlayRole = 'player' | 'viewer';
 
@@ -77,7 +76,6 @@ export default function PlayScreen({ code, role }: Props) {
 
   const [claiming, setClaiming] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
-  const [lineDraft, setLineDraft] = useState<CoverageLine[]>([]);
   const [actionError, setActionError] = useState<SessionError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [decisions, setDecisions] = useState<DecisionSet | null>(null);
@@ -113,7 +111,7 @@ export default function PlayScreen({ code, role }: Props) {
     setDecisions(decisionsForYear(room.currentYear, you.decisionsByYear));
   }, [room, you, role]);
 
-  async function enter(teamName: string, lines?: CoverageLine[]) {
+  async function enter(teamName: string) {
     setClaiming(teamName);
     setActionError(null);
     try {
@@ -124,13 +122,14 @@ export default function PlayScreen({ code, role }: Props) {
       // used to lock a player out of the team they had just created, in front
       // of a room.
       if (!joinTokenRef.current[teamName]) joinTokenRef.current[teamName] = newSessionToken();
-      // ⚠ NO `lines` ON A REJOIN. The team already holds its set and the
-      // transport refuses a rejoin that asks for a different one (LINES_LOCKED);
-      // sending the form's current state would turn a refresh into that refusal.
+      // ⚠ NO `lines` AT ALL ANY MORE, ON A FIRST JOIN OR A REJOIN. The HOST
+      // picks the room's lines and every team plays them, so a join has nothing
+      // to say about coverage. The note here used to explain why a rejoin
+      // omitted them (LINES_LOCKED); that error no longer exists because the
+      // field does not.
       const res = await sessionTransport().join({
         code, teamName, role,
         token: held?.teamToken ?? joinTokenRef.current[teamName],
-        lines: held ? undefined : lines,
       });
       saveActive(code, { teamToken: res.teamToken, teamName: res.teamName, role });
       rememberTeamCredential(code, { teamToken: res.teamToken, teamName: res.teamName, role });
@@ -259,43 +258,32 @@ export default function PlayScreen({ code, role }: Props) {
                 />
               </label>
 
+              {/* ⚠ SHOWN, NOT CHOSEN. This was a three-button picker and a
+                  warning that the choice was permanent. The HOST sets the room's
+                  lines now, so there is nothing to pick and nothing to warn
+                  about — the team is told what it will play before it commits a
+                  name, which is the part that was actually useful. */}
               <div>
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Your coverage lines</span>
-                {/* ⚠ SAID BEFORE THE CHOICE IS MADE, not discovered after. The
-                    transport refuses a later change, so the screen must not
-                    imply one is possible. */}
-                <p className="mt-1 text-xs text-amber-700">
-                  Chosen once. Your pool's history and claims are built from these, so they cannot be changed after you join.
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {/* ⚠ ALL THREE, ALWAYS. The host no longer offers a menu — see
-                      HostCreateScreen — so the choice is the team's alone. */}
-                  {LINE_ORDER.map(l => (
-                    <button
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coverage lines</span>
+                <p className="mt-1 text-xs text-slate-400">Set by the host. Every team plays these.</p>
+                <div className="mt-2 flex flex-wrap gap-2" data-testid="room-lines">
+                  {(room.lines ?? []).map(l => (
+                    <span
                       key={l}
-                      type="button"
-                      data-testid={`pick-line-${l}`}
-                      onClick={() => setLineDraft(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l])}
-                      className={`rounded-lg border px-3 py-1.5 text-sm ${
-                        lineDraft.includes(l)
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-slate-300 bg-white text-slate-600'
-                      }`}
+                      data-testid={`room-line-${l}`}
+                      className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm text-slate-700"
                     >
                       {LINE_FULL_NAME[l]}
-                    </button>
+                    </span>
                   ))}
                 </div>
-                {lineDraft.length === 0 && (
-                  <p className="mt-2 text-xs text-slate-400">Pick at least one line.</p>
-                )}
               </div>
 
               <button
                 type="button"
                 data-testid="join-team"
-                disabled={nameDraft.trim().length === 0 || lineDraft.length === 0 || claiming !== null}
-                onClick={() => { void enter(nameDraft.trim(), lineDraft); }}
+                disabled={nameDraft.trim().length === 0 || claiming !== null}
+                onClick={() => { void enter(nameDraft.trim()); }}
                 className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
               >
                 {claiming !== null ? 'Joining…' : 'Join as this team'}

@@ -126,6 +126,7 @@ import type {
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
+  PriorDevelopment,
   ReadRequest, ReadResponse,
   SessionTransport,
   SubmitRequest, SubmitResponse,
@@ -156,11 +157,8 @@ const MAX_YEAR_COUNT = 998;
 /** How many times a mutation re-reads and re-decides after losing a race. */
 const MAX_ATTEMPTS = 5;
 
-function sameLines(a: CoverageLine[], b: CoverageLine[]): boolean {
-  if (a.length !== b.length) return false;
-  const sa = [...a].sort(), sb = [...b].sort();
-  return sa.every((x, i) => x === sb[i]);
-}
+// sameLines is gone with LINES_LOCKED: a join carries no lines, so there are
+// never two sets to compare.
 
 function isString(v: unknown): v is string {
   return typeof v === 'string';
@@ -425,6 +423,23 @@ export class DynamoSessionTransport implements SessionTransport {
       requireString(req.seed, 'seed');
       requireString(req.eventName, 'eventName');
       requireInteger(req.startingYear, 'startingYear');
+      // ⚠ THE ONLY LINE-SET GATE IN THE SERVER NOW. It used to run per join;
+      // the host picks once, so this is it.
+      const reqLines = Array.isArray(req.lines) ? req.lines : [];
+      if (reqLines.length === 0) {
+        throw new SessionError('INVALID_REQUEST', 'A game must use at least one coverage line.');
+      }
+      const notALine = reqLines.filter(l => !LINE_ORDER.includes(l));
+      if (notALine.length > 0) {
+        throw new SessionError('INVALID_REQUEST', `${notALine.join(', ')} is not a coverage line.`);
+      }
+      const roomLines = LINE_ORDER.filter(l => reqLines.includes(l));
+      // Entries for lines the room does not play are dropped, not refused.
+      const roomPriorDev: PriorDevelopment = {};
+      for (const l of roomLines) {
+        const v = req.priorDevelopment?.[l];
+        if (typeof v === 'number' && Number.isFinite(v)) roomPriorDev[l] = v;
+      }
       if (!Array.isArray(req.shocks)) throw new SessionError('INVALID_REQUEST', 'shocks must be a list.');
       const shocks = req.shocks.map(s => ({
         shockId: requireString(s?.shockId, 'shockId'),
@@ -474,6 +489,8 @@ export class DynamoSessionTransport implements SessionTransport {
           yearCount: req.yearCount,
           startingYear: req.startingYear,
           expectedTeams: req.expectedTeams,
+          lines: roomLines,
+          priorDevelopment: roomPriorDev,
           currentYear: 1,
           shocks,
           // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING.
@@ -609,12 +626,9 @@ export class DynamoSessionTransport implements SessionTransport {
         if (team && teamId) {
           // ⚠ REJOIN BEFORE TAKEN — a refresh must not lock the driver out.
           if (req.token && team.tokenHash === hashToken(req.token)) {
-            if (req.lines && !sameLines(req.lines, team.lines)) {
-              throw new SessionError(
-                'LINES_LOCKED',
-                `${team.name} plays ${team.lines.join(' + ')}. Coverage lines are chosen once, when a team joins.`,
-              );
-            }
+            // ⚠ NOTHING TO REFUSE. This threw LINES_LOCKED when a rejoin asked
+            // for a different set; a join carries no lines now, so the team
+            // holds the room's set on the first join and on every return.
             const view = await this.viewFor(header, 'player', teamId);
             return { teamToken: req.token, teamName: team.name, lines: [...team.lines], role: 'player' as const, rejoined: true, room: view.room };
           }
@@ -622,22 +636,19 @@ export class DynamoSessionTransport implements SessionTransport {
         }
 
         // ---- a player creating its team -----------------------------------
-        const lines = req.lines ?? [];
-        if (!Array.isArray(lines) || lines.length === 0) {
-          throw new SessionError('INVALID_REQUEST', 'A team must play at least one coverage line.');
-        }
-        const notALine = lines.filter(l => !LINE_ORDER.includes(l));
-        if (notALine.length > 0) {
-          throw new SessionError('INVALID_REQUEST', `${notALine.join(', ')} is not a coverage line.`);
-        }
+        // ⚠ THE ROOM'S LINES, NOT THE REQUEST'S, AND NO VALIDATION HERE. The set
+        // was checked once when the host created the room. A stale client still
+        // sending `lines` is ignored rather than refused, as the contract asks.
+        const lines = [...(header.lines ?? LINE_ORDER)];
         if (req.token) await this.assertTokenFree(header, req.token);
         const token = req.token ?? newSessionToken();
         const h = hashToken(token);
         const newId = newTeamId();
         const entry: RosterEntry = {
           name,
-          // Canonical WC/GL/Property order regardless of click sequence.
-          lines: LINE_ORDER.filter(l => lines.includes(l)),
+          // The room's set, already canonical — copied onto the roster entry so
+          // the host's table and a viewer read it from the team row as before.
+          lines: [...lines],
           joined: true,
           lockedYear: null,
           tokenHash: h,

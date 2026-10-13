@@ -11,7 +11,6 @@ async function join(ctx, code, name, line) {
   await p.goto(`/join/${code}`);
   await p.waitForSelector('[data-testid="team-picker"]');
   await p.fill('[data-testid="team-name"]', name);
-  await p.click(`[data-testid="pick-line-${line}"]`);
   await p.click('[data-testid="join-team"]');
   await p.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
   return p;
@@ -67,6 +66,12 @@ const activeView = page => page.$$eval('nav button', bs =>
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '6');
   await host.fill('[data-testid="expected-teams"]', '3');
+  // ⚠ THE HOST SETS THE LINES NOW, AND THIS ROOM NEEDS TWO OF THEM. Teams used
+  // to pick their own, so this driver had a WC-only team and a GL-only team and
+  // checked that each read ABSENT in the other's view. They cannot differ any
+  // more, so the ROOM plays WC + GL and every team writes both — which is what
+  // the ABSENT assertions below became.
+  await host.uncheck('[data-testid="line-Property"]');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -220,17 +225,22 @@ const activeView = page => page.$$eval('nav button', bs =>
   ok(/through year 1/.test(pending), `the legend says why: "${pending.trim()}"`);
   ok(ts[0].cx < hs[hs.length - 1].cx, 'the stopped line ends BEFORE the reporting one, rather than dropping');
 
-  // ---- ABSENT draws nothing at all ------------------------------------
+  // ---- EVERY TEAM IS DRAWN IN EVERY VIEW NOW ---------------------------
+  // ⚠ THIS CHECKED THE OPPOSITE AND COULD NOT SURVIVE THE RULING. It asserted
+  // that a WC-only team is named ABSENT in the GL view and draws nothing at all.
+  // ABSENT meant "does not write this line", which is unreachable once the HOST
+  // sets one line set for the room: every team writes every line the room plays.
+  // So the assertion inverts — nobody is ABSENT, and the team that WAS absent
+  // now draws a real series, which is the stronger of the two statements.
   await pickView(host, 'General Liability');
-  ok(await host.$('[data-testid="chart-absent-Harbour Mutual"]') !== null,
-     'GL view: the WC-only team is named ABSENT in the legend');
+  ok(await host.$('[data-testid="chart-absent-Harbour Mutual"]') === null,
+     'GL view: no team is ABSENT — the room\'s lines are universal');
   ok(/General Liability/.test(await activeView(host) || ''),
      'and the line-view bar marks the view the charts are actually drawing');
   const hGL = await marks(host, 'surplus', COLORS['Harbour Mutual']);
-  const hGLruns = await runs(host, 'surplus', COLORS['Harbour Mutual']);
-  ok(hGL.length === 0 && hGLruns.length === 0, 'and has NO line and NO points — not a line at zero');
+  ok(hGL.length > 0, 'and the team that used to be absent here draws a real series');
   const hGLdev = await marks(host, 'developed', COLORS['Harbour Mutual']);
-  ok(hGLdev.length === 0, 'the developed chart carries absence identically — no line there either');
+  ok(hGLdev.length > 0, 'the developed chart carries the same team identically — a line there too');
   const cGLdev = await marks(host, 'developed', COLORS['Cedar Valley']);
   ok(cGLdev.length === 4, `and the GL team has its own line's developed column (${cGLdev.length})`);
   const cGL = await marks(host, 'surplus', COLORS['Cedar Valley']);

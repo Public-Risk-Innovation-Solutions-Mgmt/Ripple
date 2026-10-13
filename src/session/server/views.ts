@@ -22,10 +22,14 @@
 // ============================================================================
 
 import type {
-  CallerRole, CallerView, JsonValue, RoomStatus, RoomView, ScheduledShockSpec,
-  TeamView, TeamYearSummary,
+  CallerRole, CallerView, JsonValue, PriorDevelopment, RoomStatus, RoomView,
+  ScheduledShockSpec, TeamView, TeamYearSummary,
 } from '../contract';
 import type { CoverageLine } from '../../types/simulation';
+
+/** Canonical order, and the fallback for a header written before the host
+ *  picked the lines. Mirrors rooms.ts's own copy. */
+const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
 /** One team as the header's roster holds it. Keyed by teamId in the map. */
 export interface RosterEntry {
@@ -58,6 +62,11 @@ export interface RoomHeader {
   yearCount: number;
   startingYear: number;
   expectedTeams: number;
+  // ⚠ OPTIONAL ON THE ITEM, REQUIRED ON THE VIEW, same as the local transport.
+  // A header written before the host picked the lines carries neither, and
+  // buildRoomView defaults them rather than returning a room with no game.
+  lines?: CoverageLine[];
+  priorDevelopment?: PriorDevelopment;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   roster: Record<string, RosterEntry>;
@@ -137,6 +146,8 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched): RoomView {
     yearCount: header.yearCount,
     startingYear: header.startingYear,
     expectedTeams: header.expectedTeams,
+    lines: [...(header.lines ?? LINE_ORDER)],
+    priorDevelopment: { ...(header.priorDevelopment ?? {}) },
     currentYear: header.currentYear,
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
     teams: orderedRoster(header).map(([teamId, entry]) =>

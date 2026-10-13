@@ -42,7 +42,8 @@ const STATUS: Record<SessionErrorCode, number> = {
   WRONG_YEAR: 409,
   GAME_COMPLETE: 409,
   INVALID_REQUEST: 400,
-  LINES_LOCKED: 409,
+  // LINES_LOCKED is gone from the contract — a join carries no lines, so no
+  // server can emit it. Nothing maps to 409 for it any more.
   TRANSPORT_FAILURE: 500,
 };
 

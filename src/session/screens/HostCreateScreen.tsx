@@ -25,6 +25,9 @@ import { Shuffle, Trash2, Zap } from 'lucide-react';
 import { SHOCK_CATALOG } from '../../data/shockCatalog';
 import { IMPLEMENTED_EFFECTS } from '../../types/shocks';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
+import { DEFAULT_PRIOR_DEVELOPMENT, type PriorDevelopment } from '../contract';
+import type { CoverageLine } from '../../types/simulation';
+import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { rememberHostToken, saveActive } from '../client/identity';
 import { drawShockSchedule } from '../shockDraw';
 import { navigate } from '../client/navigation';
@@ -43,6 +46,15 @@ const SCHEDULABLE = Object.values(SHOCK_CATALOG).map(def => ({
 // `seed: string` is untouched — these are the strings '1' to '20' rather than an
 // eight-character draw, so nothing about what a room stores changes shape.
 const SEED_OPTIONS = Array.from({ length: 20 }, (_, i) => String(i + 1));
+
+const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
+
+// ⚠ THE FACTOR IS SIGNED AND THE SCREEN IS NOT. Stored as a fraction where
+// POSITIVE IS ADVERSE (see PriorDevelopment), but a host reads "3% adverse",
+// never "0.03". These two convert between the two readings and nothing else
+// does, so the sign convention lives in one place.
+const pctOf = (v: number) => Math.round(Math.abs(v) * 1000) / 10;
+const signedFrom = (pct: number, adverse: boolean) => (adverse ? 1 : -1) * (Math.abs(pct) / 100);
 
 // ⚠ THE DEFAULT IS STILL RANDOM, DELIBERATELY. The free-text field it replaces
 // defaulted to a fresh eight-character draw, so two hosts who changed nothing got
@@ -70,6 +82,13 @@ export default function HostCreateScreen() {
   const [yearCount, setYearCount] = useState(5);
   const [startingYear, setStartingYear] = useState(2026);
   const [expectedTeams, setExpectedTeams] = useState(3);
+  // ⚠ ALL THREE LINES ON BY DEFAULT, which is what every room played when teams
+  // chose for themselves — so a host who changes nothing gets the old game.
+  const [lines, setLines] = useState<CoverageLine[]>([...LINE_ORDER]);
+  // Kept for ALL THREE lines even while one is unticked, so toggling a line off
+  // and back on does not silently reset a factor the host had edited. The
+  // transport drops entries for lines the room does not play.
+  const [priorDev, setPriorDev] = useState<PriorDevelopment>({ ...DEFAULT_PRIOR_DEVELOPMENT });
   const [shocks, setShocks] = useState<ScheduledShockSpec[]>([]);
   const [shockId, setShockId] = useState(SCHEDULABLE.find(s => s.buildable)?.id ?? '');
   const [shockYear, setShockYear] = useState(2);
@@ -97,7 +116,7 @@ export default function HostCreateScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<SessionError | null>(null);
 
-  const canCreate = yearCount >= 1 && expectedTeams >= 1 && !busy;
+  const canCreate = yearCount >= 1 && expectedTeams >= 1 && lines.length >= 1 && !busy;
 
   async function handleCreate() {
     setBusy(true);
@@ -115,6 +134,8 @@ export default function HostCreateScreen() {
         startingYear,
         eventName: eventName.trim() || 'Ripple Game',
         expectedTeams,
+        lines,
+        priorDevelopment: priorDev,
         shocks,
       });
       // ⚠ PERSIST THE HOST TOKEN BEFORE NAVIGATING. The room exists the moment
@@ -206,6 +227,79 @@ export default function HostCreateScreen() {
               How many to expect, so you know when everyone has arrived. It does not limit who can join, and
               teams name themselves and pick their own coverage lines at join.
             </p>
+          </div>
+
+          {/* ---- coverage lines, and their prior development ---- */}
+          <div>
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coverage lines</span>
+            {/* ⚠ THE HOST SETS THE GAME, NOT A MENU OF PERMISSIONS. This used to
+                be each team's own choice at join, which made a session a table of
+                different games; the lines are a property of the EVENT, like the
+                seed and the year count. */}
+            <p className="mt-1 text-xs text-slate-400">
+              Every team plays these lines. At least one.
+            </p>
+            <div className="mt-2 space-y-2">
+              {LINE_ORDER.map(l => {
+                const on = lines.includes(l);
+                const v = priorDev[l] ?? 0;
+                const adverse = v >= 0;
+                return (
+                  <div key={l} className="flex items-center gap-3">
+                    <label className="flex w-56 items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        data-testid={`line-${l}`}
+                        checked={on}
+                        onChange={e => setLines(prev => (
+                          e.target.checked
+                            ? LINE_ORDER.filter(x => x === l || prev.includes(x))
+                            : prev.filter(x => x !== l)
+                        ))}
+                      />
+                      {LINE_FULL_NAME[l]}
+                    </label>
+                    <div className={`flex items-center gap-1.5 ${on ? '' : 'opacity-40'}`}>
+                      <input
+                        type="number" min={0} max={100} step={1}
+                        disabled={!on}
+                        data-testid={`prior-dev-pct-${l}`}
+                        className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                        value={pctOf(v)}
+                        onChange={e => setPriorDev(prev => ({
+                          ...prev, [l]: signedFrom(Number(e.target.value), adverse),
+                        }))}
+                      />
+                      <span className="text-sm text-slate-500">%</span>
+                      <select
+                        disabled={!on}
+                        data-testid={`prior-dev-dir-${l}`}
+                        className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                        value={adverse ? 'adverse' : 'favourable'}
+                        onChange={e => setPriorDev(prev => ({
+                          ...prev, [l]: signedFrom(pctOf(prev[l] ?? 0), e.target.value === 'adverse'),
+                        }))}
+                      >
+                        <option value="adverse">adverse</option>
+                        <option value="favourable">favourable</option>
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* ⚠ SAID PLAINLY, BECAUSE A NUMBER THAT DOES NOTHING IS WORSE THAN NO
+                NUMBER. The engine does not read these yet; they are carried on the
+                room so a later update can apply them without re-creating rooms. */}
+            <p className="mt-2 text-xs text-slate-400">
+              Prior development is <span className="font-medium">stored for a future update, not yet used</span> —
+              it does not change the game today.
+            </p>
+            {lines.length === 0 && (
+              <p data-testid="no-lines" className="mt-1.5 text-xs text-amber-700">
+                Pick at least one coverage line.
+              </p>
+            )}
           </div>
 
           {/* ---- shocks ---- */}

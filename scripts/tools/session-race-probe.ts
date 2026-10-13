@@ -73,7 +73,7 @@ try {
   const dynamo = dynamoFromEnv({ tableName: 'probe-table', client });
   const fresh = () => new DynamoSessionTransport({ dynamo });
   const mkRoom = (t: SessionTransport, yearCount = 3, hostToken = newSessionToken()) =>
-    t.createRoom({ hostToken, seed: 's', yearCount, startingYear: 2026, eventName: 'p', expectedTeams: 2, shocks: [] });
+    t.createRoom({ hostToken, seed: 's', yearCount, startingYear: 2026, eventName: 'p', expectedTeams: 2, shocks: [], lines: ['WC'] });
   type Settled<T> = { ok: true; v: T } | { ok: false; code: string };
   const settle = async <T>(p: Promise<T>): Promise<Settled<T>> => {
     try { return { ok: true, v: await p }; } catch (e) { return { ok: false, code: isSessionError(e) ? e.code : String(e) }; }
@@ -155,8 +155,8 @@ try {
   {
     const t = fresh(); const { code } = await mkRoom(t); const token = newSessionToken();
     let a = { ok: false, code: 'not run' } as Settled<JoinResponse>;
-    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'A', role: 'player', lines: ['WC'], token })); });
-    const b = await settle(t.join({ code, teamName: 'B', role: 'player', lines: ['WC'], token }));
+    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'A', role: 'player', token })); });
+    const b = await settle(t.join({ code, teamName: 'B', role: 'player', token }));
     const room = (await fresh().read({ code })).room;
     check(a.ok && !b.ok && b.code === 'BAD_TOKEN', `A: second name with the same token is BAD_TOKEN (a ${a.ok}, b ${shown(b, () => 'resolved')})`);
     check(room.teams.length === 1, `A: one team holds the token (teams ${room.teams.length})`);
@@ -166,19 +166,19 @@ try {
   {
     const t = fresh(); const { code } = await mkRoom(t); const token = newSessionToken();
     let a = { ok: false, code: 'not run' } as Settled<JoinResponse>;
-    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'A', role: 'player', lines: ['WC'], token })); });
-    const b = await settle(t.join({ code, teamName: 'A', role: 'player', lines: ['WC'], token }));
+    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'A', role: 'player', token })); });
+    const b = await settle(t.join({ code, teamName: 'A', role: 'player', token }));
     check(a.ok && a.v.rejoined === false, 'B: the first attempt creates the team');
     check(b.ok && b.v.rejoined === true, `B: the retry that lost the race is a REJOIN, not TEAM_TAKEN (${shown(b, v => 'rejoined ' + v.rejoined)})`);
   }
 
   // B2. viewer token racing a player join with the same token
   {
-    const t = fresh(); const { code } = await mkRoom(t); await fresh().join({ code, teamName: 'W', role: 'player', lines: ['WC'] });
+    const t = fresh(); const { code } = await mkRoom(t); await fresh().join({ code, teamName: 'W', role: 'player' });
     const token = newSessionToken();
     let a = { ok: false, code: 'not run' } as Settled<JoinResponse>;
     stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'W', role: 'viewer', token })); });
-    const b = await settle(t.join({ code, teamName: 'P', role: 'player', lines: ['WC'], token }));
+    const b = await settle(t.join({ code, teamName: 'P', role: 'player', token }));
     check(a.ok && !b.ok && b.code === 'BAD_TOKEN', `B2: a player cannot take a token a viewer claimed mid-flight (b ${shown(b, () => 'resolved')})`);
   }
 
@@ -198,7 +198,7 @@ try {
   // E. decisions racing an advance: the submit's read is stale across the advance
   {
     const t = fresh(); const { code, hostToken } = await mkRoom(t);
-    const p = await t.join({ code, teamName: 'A', role: 'player', lines: ['WC'] });
+    const p = await t.join({ code, teamName: 'A', role: 'player' });
     stallNextRead(t, async () => { await fresh().advance({ code, token: hostToken, expectedYear: 1 }); });
     const s = await settle(t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: { m: 'late' } }));
     const mine = await fresh().read({ code, token: p.teamToken });
@@ -215,7 +215,7 @@ try {
     for (let i = 0; i < 30; i++) {
       const { code } = await mkRoom(fresh());
       const token = newSessionToken();
-      await Promise.all(['A', 'B'].map(n => settle(fresh().join({ code, teamName: n, role: 'player', lines: ['WC'], token }))));
+      await Promise.all(['A', 'B'].map(n => settle(fresh().join({ code, teamName: n, role: 'player', token }))));
       if ((await fresh().read({ code })).room.teams.length > 1) doubled++;
     }
     check(doubled === 0, `A∥: 30 parallel same-token pairs — rooms where one token got two seats: ${doubled}`);
@@ -228,7 +228,7 @@ try {
     for (let i = 0; i < 30; i++) {
       const { code } = await mkRoom(fresh());
       const token = newSessionToken();
-      const out = await Promise.all([0, 1].map(() => settle(fresh().join({ code, teamName: 'A', role: 'player', lines: ['WC'], token }))));
+      const out = await Promise.all([0, 1].map(() => settle(fresh().join({ code, teamName: 'A', role: 'player', token }))));
       if (out.some(o => !o.ok)) taken++;
       if ((await fresh().read({ code })).room.teams.length !== 1) doubled++;
     }
@@ -242,7 +242,7 @@ try {
   {
     const t = fresh(); const { code, hostToken } = await mkRoom(t);
     const teams = [];
-    for (let i = 0; i < 20; i++) teams.push(await t.join({ code, teamName: `T${i}`, role: 'player', lines: ['WC'] }));
+    for (let i = 0; i < 20; i++) teams.push(await t.join({ code, teamName: `T${i}`, role: 'player' }));
     const before = (await t.read({ code, token: hostToken })).room.rev;
     const conflictsBefore = conflicts;
     const posts = await Promise.all(teams.map((p, i) => settle(fresh().submit({
@@ -262,10 +262,10 @@ try {
 
   // B3. B2's mirror: the PLAYER claims the token while the viewer's read is stale.
   {
-    const t = fresh(); const { code } = await mkRoom(t); await fresh().join({ code, teamName: 'W', role: 'player', lines: ['WC'] });
+    const t = fresh(); const { code } = await mkRoom(t); await fresh().join({ code, teamName: 'W', role: 'player' });
     const token = newSessionToken();
     let a = { ok: false, code: 'not run' } as Settled<JoinResponse>;
-    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'P', role: 'player', lines: ['WC'], token })); });
+    stallNextRead(t, async () => { a = await settle(fresh().join({ code, teamName: 'P', role: 'player', token })); });
     const b = await settle(t.join({ code, teamName: 'W', role: 'viewer', token }));
     check(a.ok && !b.ok && b.code === 'BAD_TOKEN', `B3: a viewer cannot take a token a player claimed mid-flight (b ${shown(b, () => 'resolved')})`);
   }
@@ -276,7 +276,7 @@ try {
   // a poller would store that rev and never fetch the missing result.
   {
     const t = fresh(); const { code, hostToken } = await mkRoom(t);
-    const p = await t.join({ code, teamName: 'A', role: 'player', lines: ['WC'] });
+    const p = await t.join({ code, teamName: 'A', role: 'player' });
     stallNextQuery(t, async () => {
       await fresh().submit({ code, token: p.teamToken, yearNumber: 0, result: { yearNumber: 0, calendarYear: 2025, byLine: {}, pool: { endingSurplus: 1, actualLossRatioPricingBasis: 0, poolPremium: 0, activeMembers: 0, netUltimateLoss: 0 } } });
     });

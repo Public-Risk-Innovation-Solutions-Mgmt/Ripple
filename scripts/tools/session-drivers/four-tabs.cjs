@@ -30,6 +30,11 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '3');
   await host.fill('[data-testid="expected-teams"]', '3');
+  // ⚠ THE HOST SETS THE LINES NOW. Every team in this room used to click WC
+  // for itself; the room declares it instead, and the picker is gone from the
+  // join screen. All three are ticked by default, so WC-only means unticking.
+  await host.uncheck('[data-testid="line-GL"]');
+  await host.uncheck('[data-testid="line-Property"]');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -41,7 +46,6 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
     await players[i].waitForSelector('[data-testid="team-picker"]');
     // Teams name themselves and pick their own lines now.
     await players[i].fill('[data-testid="team-name"]', TEAMS[i]);
-    await players[i].click('[data-testid="pick-line-WC"]');
     await players[i].click('[data-testid="join-team"]');
     await players[i].waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
     const mine = (await players[i].textContent('[data-testid="my-team"]')).trim();
@@ -66,7 +70,6 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
     await fourth.goto(`/join/${code}`);
     await fourth.waitForSelector('[data-testid="team-picker"]');
     await fourth.fill('[data-testid="team-name"]', TEAMS[0]);
-    await fourth.click('[data-testid="pick-line-WC"]');
     await fourth.click('[data-testid="join-team"]');
     await fourth.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
     const back = (await fourth.textContent('[data-testid="my-team"]')).trim();
