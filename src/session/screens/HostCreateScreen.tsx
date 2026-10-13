@@ -23,7 +23,7 @@ import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
 import { Shuffle, Trash2, Zap } from 'lucide-react';
 import { SHOCK_CATALOG } from '../../data/shockCatalog';
-import { IMPLEMENTED_EFFECTS } from '../../types/shocks';
+import { hasBuiltEffects } from '../../types/shocks';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
 import { DEFAULT_PRIOR_DEVELOPMENT, type PriorDevelopment } from '../contract';
 import type { CoverageLine } from '../../types/simulation';
@@ -36,11 +36,19 @@ import { navigate } from '../client/navigation';
 // resolver rather than quietly doing nothing (see shockResolver.ts). Offering it
 // in a dropdown would let a host schedule a room that breaks on the year it
 // fires, so the unbuildable ones are listed and disabled with the reason shown.
-const SCHEDULABLE = Object.values(SHOCK_CATALOG).map(def => ({
-  id: def.id,
-  name: def.name,
-  buildable: def.effects.every(e => IMPLEMENTED_EFFECTS.has(e.kind)),
-}));
+// ⚠ EVERY EVENT IS OFFERED, AND THE ONES WITH NO MECHANISM SAY SO. The six
+// events whose effects are not built yet carry the deliberate `notYetBuilt`
+// placeholder: the resolver executes them cleanly as nothing, so scheduling one
+// is legal and cannot break the year it lands on. They are listed ENABLED and
+// labelled, rather than disabled, because this branch is not deployed and a host
+// testing the screen should be able to place one — but never by accident.
+const SCHEDULABLE = Object.values(SHOCK_CATALOG)
+  .map(def => ({
+    id: def.id,
+    name: def.name,
+    built: hasBuiltEffects(def),
+  }))
+  .sort((a, b) => Number(a.id.replace('#', '')) - Number(b.id.replace('#', '')));
 
 // ⚠ THE SEED IS A SHORT MENU NOW, AND IT IS STILL A STRING. The contract's
 // `seed: string` is untouched — these are the strings '1' to '20' rather than an
@@ -90,7 +98,7 @@ export default function HostCreateScreen() {
   // transport drops entries for lines the room does not play.
   const [priorDev, setPriorDev] = useState<PriorDevelopment>({ ...DEFAULT_PRIOR_DEVELOPMENT });
   const [shocks, setShocks] = useState<ScheduledShockSpec[]>([]);
-  const [shockId, setShockId] = useState(SCHEDULABLE.find(s => s.buildable)?.id ?? '');
+  const [shockId, setShockId] = useState(SCHEDULABLE.find(s => s.built)?.id ?? '');
   const [shockYear, setShockYear] = useState(2);
   // What the last Randomise drew FOR. The draw is a pure function of the seed
   // and the year count, so the list is reproducible from the room record only
@@ -318,8 +326,8 @@ export default function HostCreateScreen() {
                 onChange={e => setShockId(e.target.value)}
               >
                 {SCHEDULABLE.map(s => (
-                  <option key={s.id} value={s.id} disabled={!s.buildable}>
-                    {s.id} — {s.name}{s.buildable ? '' : ' (not implemented)'}
+                  <option key={s.id} value={s.id}>
+                    {s.id} — {s.name}{s.built ? '' : ' (no effects yet — nothing will happen)'}
                   </option>
                 ))}
               </select>

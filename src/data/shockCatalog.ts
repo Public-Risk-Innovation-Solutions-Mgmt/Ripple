@@ -28,7 +28,19 @@ import { WHOLE_LINE } from '../utils/shockEffects';
 import { CAT_REGIONS } from '../utils/propertyCatastrophe';
 import { REINSURANCE_TOWER } from './reinsuranceTower';
 
-export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
+/**
+ * ⚠ THE SEVENTEEN RETIRED DEFINITIONS, KEPT FOR THEIR EFFECTS AND NOT WIRED TO
+ * THE ENGINE. The catalog the game reads is SHOCK_CATALOG, below, which is the
+ * new twelve. These rows stay because six of them carry WORKING, TESTED effects
+ * that the new events borrow verbatim, and because the other eleven may be
+ * reused when their events are built — deleting them would throw away sized
+ * mechanisms that cost real work.
+ *
+ * NOTHING IN THE ENGINE READS THIS RECORD. It is reachable only through
+ * `retired()` below, which the new catalog uses to borrow effects at module
+ * load. See the unreachability note at SHOCK_CATALOG for what that means.
+ */
+const RETIRED_DEFINITIONS: Record<string, ShockDefinition> = {
   // -------------------------------------------------------------------------
   // THE CATASTROPHE EVENTS — forceEvent, one kind for every regional peril.
   //
@@ -730,6 +742,158 @@ export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
   },
 };
 
+// ----------------------------------------------------------------------------
+// ⚠ EXPORTED SO THE RETIRED MECHANISMS ARE FINDABLE, not so they are used. The
+// engine reads SHOCK_CATALOG and nothing else.
+export const RETIRED_SHOCK_DEFINITIONS: Readonly<Record<string, ShockDefinition>> = RETIRED_DEFINITIONS;
+
+/**
+ * Borrow a retired definition by its old id.
+ *
+ * ⚠ IT THROWS RATHER THAN DEFAULTING, which is the rule for every keyed lookup
+ * that can miss. A typo here would otherwise produce an event with `undefined`
+ * effects — an event that exists in the dropdown and silently does nothing,
+ * which is exactly the failure the `notYetBuilt` effect exists to prevent. A
+ * miss must stop the module loading, loudly, at startup.
+ */
+function retired(oldId: string): ShockDefinition {
+  const def = RETIRED_DEFINITIONS[oldId];
+  if (!def) {
+    throw new Error(
+      `shockCatalog: retired definition '${oldId}' is not in RETIRED_DEFINITIONS. `
+      + `The new catalog borrows effects from the retired rows by their OLD id; `
+      + `that id must exist.`,
+    );
+  }
+  return def;
+}
+
+/** The deliberate empty effect. See ShockEffect's 'notYetBuilt'. */
+const notYetBuilt = (note: string): ShockDefinition['effects'] => [{ kind: 'notYetBuilt', note }];
+
+// ============================================================================
+// THE LIVE CATALOG — TWELVE EVENTS, NUMBERED 1 TO 12.
+//
+// This replaces the seventeen rows above, which are retired to
+// RETIRED_DEFINITIONS rather than deleted.
+//
+// ⚠ SIX CARRY BORROWED EFFECTS AND SIX CARRY NONE, AND BOTH ARE EXPLICIT.
+//   #1 #2 #3 #7 #8 #9   borrow a retired event's working effects VERBATIM.
+//                       ⚠ THESE ARE PLACEHOLDERS. The magnitudes are the
+//                       retired event's, sized to the retired event's
+//                       mechanism, NOT fitted to the new one. Every one is to
+//                       be replaced by a fitted distribution. A borrowed effect
+//                       is a stand-in that runs, not an answer.
+//   #4 #5 #6 #10 #11 #12  carry `notYetBuilt` — one effect that says so, in the
+//                       data. They are schedulable and they resolve cleanly to
+//                       nothing; Randomise will not draw them (hasBuiltEffects)
+//                       and the host screen labels them.
+//
+// ⚠ WHAT IS NO LONGER REACHABLE. Eleven retired events have no new event
+// pointing at them, so their effects no longer run anywhere:
+//   WATER-CONTAMINATION  Water System Contamination
+//   #4                   Windstorm / Tornado
+//   #5                   Hazardous Materials Release
+//   #6                   Prolonged Freeze
+//   #7                   Aging Infrastructure Failure
+//   #8                   Extreme Heat Emergency
+//   #10                  WC Presumption Expansion
+//   #15                  Catastrophic WC Mega-Claim
+//   #22                  Employment Practices Surge
+//   #25                  Inverse Condemnation
+//   #26                  Dangerous Condition
+// Their code is kept above and is still validated, so it cannot rot unnoticed;
+// it is simply not reachable from the game until some future event borrows it.
+// ⚠ NOTE THE ID COLLISION: retired '#4' through '#8' are NOT the new #4-#8.
+// The old numbers were design-matrix numbers; the new ones are 1-12. Anything
+// naming an id must say which catalog it means.
+// ============================================================================
+export const SHOCK_CATALOG: Record<string, ShockDefinition> = {
+  '#1': {
+    ...retired('#2'),
+    id: '#1', name: 'Earthquake', eventName: 'Earthquake',
+    description: 'PLACEHOLDER EFFECTS, borrowed from the retired Major Earthquake (#2). '
+      + 'A regional earthquake summed into one occurrence, answered by Property\'s tower. '
+      + 'To be replaced by a fitted distribution.',
+  },
+  '#2': {
+    ...retired('WINTER-STORM'),
+    id: '#2', name: 'Winterstorm/Rainstorm', eventName: 'Winterstorm',
+    description: 'PLACEHOLDER EFFECTS, borrowed from the retired Severe Winter Storm. '
+      + 'Many separate weather claims, each its own occurrence. '
+      + 'To be replaced by a fitted distribution.',
+  },
+  '#3': {
+    ...retired('WILDFIRE'),
+    id: '#3', name: 'Wildfire', eventName: 'Wildfire',
+    description: 'PLACEHOLDER EFFECTS, borrowed from the retired Major Wildfire. '
+      + 'To be replaced by a fitted distribution.',
+  },
+  '#4': {
+    id: '#4', name: 'Legislation Change impacting both old and new claims', eventName: 'Legislation Change',
+    horizon: 'current', band: 'severe',
+    description: 'NOT YET BUILT. A statute reaching BOTH open prior claims and new ones '
+      + '(e.g. AB 218). The retroactive half needs prior accident years to be re-valuable, '
+      + 'which is the RETRO HORIZON explicitly out of scope in types/shocks.ts.',
+    effects: notYetBuilt('reaches open prior claims as well as new ones; needs a retro horizon'),
+  },
+  '#5': {
+    id: '#5', name: 'WC Reform', eventName: 'WC Reform',
+    horizon: 'current', band: 'moderate',
+    description: 'NOT YET BUILT. A statutory change to workers compensation benefits or '
+      + 'procedure, moving frequency and severity together and persisting.',
+    effects: notYetBuilt('a persistent statutory shift in WC benefits'),
+  },
+  '#6': {
+    id: '#6', name: 'Economic Recession', eventName: 'Economic Recession',
+    horizon: 'current', band: 'moderate',
+    description: 'NOT YET BUILT. Payroll and exposure fall while claim frequency rises; '
+      + 'touches exposure, investment return and membership at once.',
+    effects: notYetBuilt('exposure down, frequency up, investment return down, together'),
+  },
+  '#7': {
+    ...retired('#21'),
+    id: '#7', name: 'Nuclear Verdict', eventName: 'Nuclear Verdict',
+    description: 'PLACEHOLDER EFFECTS, borrowed from the retired Adverse Jury Verdict (#21). '
+      + 'One very large liability award. To be replaced by a fitted distribution.',
+  },
+  '#8': {
+    ...retired('#19'),
+    id: '#8', name: 'Social Inflation (GL)', eventName: 'Social Inflation',
+    description: 'PLACEHOLDER EFFECTS, borrowed from the retired Social Inflation Hard Market (#19). '
+      + 'A sustained lift in liability severity. To be replaced by a fitted distribution.',
+  },
+  '#9': {
+    ...retired('#28'),
+    id: '#9', name: 'Pandemic', eventName: 'Pandemic',
+    description: 'PLACEHOLDER EFFECTS, borrowed from the retired Pandemic / Infectious Disease Surge (#28). '
+      + 'To be replaced by a fitted distribution.',
+  },
+  '#10': {
+    id: '#10', name: 'Economic Inflation', eventName: 'Economic Inflation',
+    horizon: 'current', band: 'moderate',
+    description: 'NOT YET BUILT. A broad lift in claim costs across every line, '
+      + 'compounding rather than a one-year step.',
+    effects: notYetBuilt('a compounding lift in claim cost across all lines'),
+  },
+  '#11': {
+    id: '#11', name: 'Large Investment Loss', eventName: 'Large Investment Loss',
+    horizon: 'current', band: 'severe',
+    description: 'NOT YET BUILT. A sharp negative return on the invested portfolio. '
+      + 'The investmentShock effect kind exists but has no consumer yet — see '
+      + 'IMPLEMENTED_EFFECTS.',
+    effects: notYetBuilt('a sharp negative investment return; investmentShock has no consumer yet'),
+  },
+  '#12': {
+    id: '#12', name: 'Large Member Withdrawal', eventName: 'Large Member Withdrawal',
+    horizon: 'current', band: 'severe',
+    description: 'NOT YET BUILT. Members leaving at once, around a 25% drop in premium. '
+      + 'Needs membership to move on a schedule rather than on satisfaction.',
+    effects: notYetBuilt('members leave at once, about a 25% premium drop'),
+  },
+};
+
+
 // ---------------------------------------------------------------------------
 // CATALOG VALIDATION AT MODULE LOAD.
 //
@@ -890,4 +1054,8 @@ export function validateShockDefinition(def: ShockDefinition): void {
   }
 }
 
+// ⚠ VALIDATED OVER BOTH, deliberately. The live catalog must be sound, and the
+// retired rows must stay sound too — they are the source the live rows borrow
+// from, so a retired effect that rotted would reach the game through a borrow.
+for (const def of Object.values(RETIRED_DEFINITIONS)) validateShockDefinition(def);
 for (const def of Object.values(SHOCK_CATALOG)) validateShockDefinition(def);

@@ -38,7 +38,6 @@ import { drawShockSchedule, drawableShocks, shockDrawCount } from '../../src/ses
 import { resolveShocks, ownFreqMultipliers, ownComponentFreqMultipliers, ownSevMultipliers } from '../../src/utils/shockResolver';
 import { WHOLE_LINE } from '../../src/utils/shockEffects';
 import { computeKGl, expectedGlGrossLossForPricing, generateGlClaims } from '../../src/utils/glClaimEngine';
-import { computeKLine, componentMean, expectedWcGrossLossForPricing, generateWcClaims } from '../../src/utils/wcClaimEngine';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import type { Member } from '../../src/types/simulation';
 import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
@@ -177,15 +176,15 @@ console.log('\n--- 2. resolver contract ---');
   const empty = { ...base, scheduledShocks: [] as ScheduledShock[] };
   console.log(`  empty list    -> ${resolveShocks(empty, 1) === undefined ? 'undefined' : 'RESOLUTION'}  ${note(resolveShocks(empty, 1) === undefined, 'resolver returns a resolution for an empty list')}`);
   // A CURRENT event in another year contributes nothing and is not recorded.
-  const other = { ...base, scheduledShocks: [{ shockId: '#22', yearNumber: 3 }] };
-  console.log(`  #22 in Y3, asked for Y1 -> ${resolveShocks(other, 1) === undefined ? 'undefined' : 'RESOLUTION'}  ${note(resolveShocks(other, 1) === undefined, 'a current-horizon shock leaks outside its own year')}`);
-  console.log(`  #22 in Y3, asked for Y3 -> ${resolveShocks(other, 3) !== undefined ? 'RESOLUTION' : 'undefined'}  ${note(resolveShocks(other, 3) !== undefined, 'a current-horizon shock does not fire in its own year')}`);
-  console.log(`  #22 in Y3, asked for Y4 -> ${resolveShocks(other, 4) === undefined ? 'undefined' : 'RESOLUTION'}  ${note(resolveShocks(other, 4) === undefined, 'a current-horizon shock persists past its year')}`);
+  const other = { ...base, scheduledShocks: [{ shockId: '#9', yearNumber: 3 }] };
+  console.log(`  #9 in Y3, asked for Y1 -> ${resolveShocks(other, 1) === undefined ? 'undefined' : 'RESOLUTION'}  ${note(resolveShocks(other, 1) === undefined, 'a current-horizon shock leaks outside its own year')}`);
+  console.log(`  #9 in Y3, asked for Y3 -> ${resolveShocks(other, 3) !== undefined ? 'RESOLUTION' : 'undefined'}  ${note(resolveShocks(other, 3) !== undefined, 'a current-horizon shock does not fire in its own year')}`);
+  console.log(`  #9 in Y3, asked for Y4 -> ${resolveShocks(other, 4) === undefined ? 'undefined' : 'RESOLUTION'}  ${note(resolveShocks(other, 4) === undefined, 'a current-horizon shock persists past its year')}`);
   // A FUTURE event persists forward.
-  const future = { ...base, scheduledShocks: [{ shockId: '#10', yearNumber: 3 }] };
+  const future = { ...base, scheduledShocks: [{ shockId: '#8', yearNumber: 3 }] };
   const y5 = resolveShocks(future, 5);
-  console.log(`  #10 in Y3, asked for Y5 -> ${y5 ? 'RESOLUTION' : 'undefined'}  ${note(y5 !== undefined, 'a future-horizon shock does not persist forward')}`);
-  console.log(`  #10 in Y3, asked for Y2 -> ${resolveShocks(future, 2) === undefined ? 'undefined' : 'RESOLUTION'}  ${note(resolveShocks(future, 2) === undefined, 'a future-horizon shock applies before its own year')}`);
+  console.log(`  #8 in Y3, asked for Y5 -> ${y5 ? 'RESOLUTION' : 'undefined'}  ${note(y5 !== undefined, 'a future-horizon shock does not persist forward')}`);
+  console.log(`  #8 in Y3, asked for Y2 -> ${resolveShocks(future, 2) === undefined ? 'undefined' : 'RESOLUTION'}  ${note(resolveShocks(future, 2) === undefined, 'a future-horizon shock applies before its own year')}`);
 
   // An unimplemented effect must THROW, not be silently skipped.
   //
@@ -203,7 +202,7 @@ console.log('\n--- 2. resolver contract ---');
   delete SHOCK_CATALOG['#TEST-UNIMPLEMENTED'];
   console.log(`  an unimplemented effect (investmentShock) throws: ${note(threw, 'an unimplemented effect is being silently skipped')}`);
   let twoThrew = false;
-  try { resolveShocks({ ...base, scheduledShocks: [{ shockId: '#2', yearNumber: 1 }] }, 1); } catch { twoThrew = true; }
+  try { resolveShocks({ ...base, scheduledShocks: [{ shockId: '#1', yearNumber: 1 }] }, 1); } catch { twoThrew = true; }
   console.log(`  #2 resolves now that forceEvent is implemented: ${note(!twoThrew, '#2 still throws — forceEvent is not in IMPLEMENTED_EFFECTS')}`);
   let unknownThrew = false;
   try { resolveShocks({ ...base, scheduledShocks: [{ shockId: '#999', yearNumber: 1 }] }, 1); } catch { unknownThrew = true; }
@@ -227,7 +226,12 @@ console.log('\n--- 4. recording surface ---');
   // A shock that changes the numbers invisibly is worse than no shock, so the
   // record has to actually arrive: on the line it hit, on the pool, and in the
   // export — and NOWHERE when nothing fires.
-  const results = play('MAMC6EA4', 5, [{ shockId: '#22', yearNumber: 2 }]);
+  // ⚠ #7, NOT #9, AND THE EVENT MATTERS HERE. This section asserts that an
+  // UNAFFECTED line carries no record, so it needs a single-line event. It used
+  // retired '#22' (Employment Practices Surge), GL-only and current-horizon;
+  // the live catalog's equivalent is #7 Nuclear Verdict, also GL-only and
+  // current. #9 Pandemic would fail it correctly — it touches WC and GL both.
+  const results = play('MAMC6EA4', 5, [{ shockId: '#7', yearNumber: 2 }]);
   const y1 = results[0], y2 = results[1], y3 = results[2];
   console.log(`  Y1 (no shock) pool record: ${y1.shockEvents === undefined ? 'absent' : 'PRESENT'}  ${note(y1.shockEvents === undefined, 'a shock record appears in a year with no shock')}`);
   console.log(`  Y2 (#22) pool record: ${y2.shockEvents?.length ?? 0} event(s)  ${note(y2.shockEvents?.length === 1, 'the pool record is missing in the shock year')}`);
@@ -271,7 +275,7 @@ console.log('\n--- 5. #22 Employment Practices Surge — measured at both bases 
   // and this project has made that mistake more than once.
   const roster = getPredefinedMarketMembers();
   const kFull = computeKGl(roster, 1);
-  const own = ownFreqMultipliers('#22', 'GL')!;
+  const own = ownFreqMultipliers('#9', 'GL')!;
   const fullBase = expectedGlGrossLossForPricing(roster, { yearNumber: 1, kGl: kFull });
   const fullShocked = expectedGlGrossLossForPricing(roster, { yearNumber: 1, kGl: kFull, freqMultipliers: own });
   console.log(`  effect: ${JSON.stringify(own)}`);
@@ -316,167 +320,34 @@ console.log('\n--- 5. #22 Employment Practices Surge — measured at both bases 
   console.log(`  pricing expectation is shock-blind: ${fmt$(expectedGlGrossLossForPricing(pool, { yearNumber: 1, kGl: kPool }))} unchanged  ${note(expectedGlGrossLossForPricing(pool, { yearNumber: 1, kGl: kPool }) === poolBase, 'the priced expectation moved with the shock')}`);
 }
 
-console.log('\n--- 6. #15 Catastrophic WC Mega-Claim — measured at both bases ---');
+console.log('\n--- 6 & 7. RETIRED MECHANISMS — no longer reachable from the live catalog ---');
 {
-  const roster = getPredefinedMarketMembers();
-  const pool = enrolledBook('MAMC6EA4', 'WC');
-  // RE-TARGETED: was `{ tier: 'catastrophic', count: 2 }`. The tier is retired
-  // and an amount is now REQUIRED — see below for why that requirement is the
-  // whole point of this section.
-  const INJECT_AMOUNT = 9_000_000;
-  const inject = [{ count: 2, amount: INJECT_AMOUNT }];
-
-  const run = (book: Member[], injections?: typeof inject) => generateWcClaims({
-    members: book, yearNumber: 3, calendarYear: 2028, instanceSeed: 24601,
-    kLine: computeKLine(book), riskControlEffectiveness: 0, injections,
-  });
-
-  for (const [label, book] of [['FULL MARKET  ', roster], ['ENROLLED POOL', pool]] as [string, Member[]][]) {
-    const base = run(book);
-    const shocked = run(book, inject);
-    const outcome = shocked.injectionResults[0];
-    console.log(`  ${label} gross ${fmt$(base.grossUltimateLoss)} at this seed`);
-    console.log(`                injected ${outcome.count} claims, ${fmt$(outcome.gross)} — ${fmt$(outcome.gross / outcome.count)} each`);
-    console.log(`                line gross ${fmt$(base.grossUltimateLoss)} -> ${fmt$(shocked.grossUltimateLoss)} (+${((shocked.grossUltimateLoss / base.grossUltimateLoss - 1) * 100).toFixed(1)}%)`);
-    // The injected claims must be the ONLY difference: natural claims are drawn
-    // from their own streams and an injection opens a separate label.
-    const delta = shocked.grossUltimateLoss - base.grossUltimateLoss;
-    console.log(`                delta === injected gross exactly: ${note(Math.abs(delta - outcome.gross) < 1e-6, `${label} injection perturbed the natural draw by ${delta - outcome.gross}`)}`);
-    console.log(`                natural claim count unchanged (${base.claims.length} -> ${shocked.claims.length - outcome.count}): ${note(shocked.claims.length - outcome.count === base.claims.length, 'injection changed the natural claim count')}`);
-  }
-
-  // ⚠ WHY THE AMOUNT IS EXPLICIT, MEASURED RATHER THAN ASSERTED. Injecting two
-  // claims of the heavy component and letting them DRAW would book its MEAN.
-  // The retired catastrophic pair was $17.91M. If that ratio is not ~93x, the
-  // reasoning in the #15 catalog comment has drifted from the parameters.
-  const heavyMean = componentMean('large');
-  const ratio = INJECT_AMOUNT / heavyMean;
-  console.log(`  explicit $${(INJECT_AMOUNT / 1e6).toFixed(1)}M vs the heavy component's MEAN $${Math.round(heavyMean).toLocaleString()}: ${ratio.toFixed(0)}x`);
-  console.log(`    a mean-drawn pair would be ${fmt$(2 * heavyMean)} against the retired pair's $17.91M  ` +
-    `${note(ratio > 80 && ratio < 110, `explicit/mean ratio ${ratio.toFixed(0)}x is outside the ~93x the catalog comment claims`)}`);
-
-  // An injected claim must be a REAL claim, not a bolt-on amount.
-  const s = run(pool, inject);
-  const injected = s.claims.slice(-2);
-  const occIds = new Set(s.occurrences.map(o => o.id));
-  console.log(`  injected claims are real claims:`);
-  console.log(`    booked at the requested amount: ${note(injected.every(c => c.grossUltimate === INJECT_AMOUNT), 'injected claim was not booked at its explicit amount')}`);
-  console.log(`    have an occurrence: ${note(injected.every(c => occIds.has(c.occurrenceId)), 'injected claim has no occurrence')}`);
-  console.log(`    component and rating group set: ${note(injected.every(c => c.tier === 'injected' && !!c.ratingClass), 'injected claim missing component or rating group')}`);
-  console.log(`    reported in the accident year (not backdated): ${note(injected.every(c => c.accidentYear === 3 && c.reportedYear === 3), 'an un-offset injection was backdated')}`);
-  console.log(`    member losses reconcile to the line total: ${note(Math.abs(s.memberLossResults.reduce((t, m) => t + m.simulatedLoss, 0) - s.grossUltimateLoss) < 1e-6, 'injected claims are missing from memberLossResults')}`);
-  console.log(`    a zero/absent amount throws: ${note(throws(() => run(pool, [{ count: 1, amount: 0 }])), 'an injection without a positive amount is silently accepted')}`);
-
-  // ⚠ THE BACKDATING CHECK THAT STOOD HERE IS GONE. It asserted that an
-  // injection with accidentYearOffset split accident year from report year and
-  // landed in emerged prior-year loss. Both the offset and that bucket were
-  // removed with WC's report lag: with no deferral, a claim dated to a prior
-  // year would still hit this year's loss, so the offset changed a label and
-  // nothing else. #10 now files its three claims on enactment — same money,
-  // same year — and section 7 below still covers the event.
+  // ⚠ TWO SECTIONS WERE REMOVED HERE AND THIS SAYS SO RATHER THAN THE GATE
+  // QUIETLY GETTING SHORTER. They covered retired '#15' (Catastrophic WC
+  // Mega-Claim, a single huge WC inject measured at both bases) and retired
+  // '#10' (WC Presumption Expansion — future horizon, componentFreqMultiplier,
+  // and three BACKDATED injects flagged firstYearOnly).
+  //
+  // Neither event is in the twelve-event catalog and no new event borrows their
+  // effects, so the engine cannot reach them: resolveShocks throws on an id that
+  // is not in SHOCK_CATALOG. The definitions are kept in
+  // RETIRED_SHOCK_DEFINITIONS and are still validated at module load, so they
+  // cannot rot — but they are not executable from a game any more, and a test
+  // that scheduled them would simply throw.
+  //
+  // ⚠ WHAT COVERAGE WENT WITH THEM, STATED SO IT IS NOT DISCOVERED LATER:
+  //   - `firstYearOnly` on injectClaim. Retired '#10' is the ONLY definition in
+  //     the file that uses the flag, so nothing live exercises it. The flag and
+  //     its resolver branch remain; they are untested until an event uses them.
+  //   - a future-horizon event that LANDS CLAIMS. The live catalog's only
+  //     future-horizon event is #8 Social Inflation, a severity multiplier.
+  // The general future-horizon rule — fires from its year and persists forward —
+  // is still asserted in section 3, on #8.
+  console.log('  retired: #15 Catastrophic WC Mega-Claim, #10 WC Presumption Expansion');
+  console.log('  unreachable with them: injectClaim.firstYearOnly, and any future-horizon event that lands claims');
+  console.log('  still covered elsewhere: future-horizon persistence (section 3, on #8)');
 }
 
-console.log('\n--- 7. #10 WC Presumption Expansion — componentFreqMultiplier and forward persistence ---');
-{
-  const roster = getPredefinedMarketMembers();
-  const pool = enrolledBook('MAMC6EA4', 'WC');
-  // RE-TARGETED: was a paramOverride on `presumption.ratePer1MPoliceFire`. That
-  // path is gone with the presumption process, and the mechanism went with it —
-  // the allow-list it needed had exactly one entry. The forward half is now an
-  // ARRIVAL-RATE multiplier on the heavy mixture component.
-  const own = ownComponentFreqMultipliers('#10', 'WC')!;
-  console.log(`  component multipliers: ${JSON.stringify(own)}`);
-
-  // ⚠ THE MISTAKE THIS EFFECT EXISTS TO PREVENT, ASSERTED. Raising the heavy
-  // component's ARRIVAL RATE must leave the other components' counts alone. If
-  // this were implemented by raising its WEIGHT, the others would be forced down
-  // — a presumption expansion would make ordinary sprained backs rarer.
-  const S = 150;
-  for (const [label, book] of [['FULL MARKET  ', roster], ['ENROLLED POOL', pool]] as [string, Member[]][]) {
-    const k = computeKLine(book);
-    const base = expectedWcGrossLossForPricing(book, { kLine: k, yearNumber: 1 });
-    const over = expectedWcGrossLossForPricing(book, { kLine: k, yearNumber: 1, componentFreqMultipliers: own });
-    let heavyBase = 0, heavyOver = 0, smallBase = 0, smallOver = 0;
-    for (let i = 1; i <= S; i++) {
-      const args = { members: book, yearNumber: 1, calendarYear: 2026, instanceSeed: 5150 + i * 7919, kLine: k, riskControlEffectiveness: 0 };
-      const b = generateWcClaims(args);
-      const o = generateWcClaims({ ...args, componentFreqMultipliers: own });
-      heavyBase += b.claimCountsByComponent.large; heavyOver += o.claimCountsByComponent.large;
-      smallBase += b.claimCountsByComponent.small; smallOver += o.claimCountsByComponent.small;
-    }
-    const heavyRatio = heavyOver / heavyBase, smallRatio = smallOver / smallBase;
-    console.log(`  ${label} heavy-component count ${(heavyBase / S).toFixed(1)}/yr -> ${(heavyOver / S).toFixed(1)}/yr (ratio ${heavyRatio.toFixed(3)}, expect ${own.large})  ` +
-      `${note(Math.abs(heavyRatio - own.large) / own.large < 0.05, `${label} heavy-component ratio ${heavyRatio.toFixed(3)} vs ${own.large}`)}`);
-    console.log(`                small-component count UNMOVED ${(smallBase / S).toFixed(1)} -> ${(smallOver / S).toFixed(1)} (ratio ${smallRatio.toFixed(3)}, expect 1.000)  ` +
-      `${note(Math.abs(smallRatio - 1) < 0.03, `${label} small-component count moved ${smallRatio.toFixed(3)}x — the effect is scaling WEIGHTS, not the arrival rate`)}`);
-    console.log(`                WC expected gross ${fmt$(base)} -> ${fmt$(over)}   added ${fmt$(over - base)}/yr FORWARD, PERMANENTLY (+${((over / base - 1) * 100).toFixed(2)}%)`);
-  }
-
-  // FORWARD PERSISTENCE through a real game: absent before the fire year,
-  // present from it onward.
-  const results = play('MAMC6EA4', 5, [{ shockId: '#10', yearNumber: 3 }]);
-  const present = results.map(r => (r.shockEvents?.length ?? 0) > 0);
-  console.log(`  fired in Y3, recorded in years: ${present.map((p, i) => (p ? i + 1 : null)).filter(Boolean).join(', ')}  ${note(!present[0] && !present[1] && present[2] && present[3] && present[4], 'a future-horizon shock does not persist correctly across the game')}`);
-  const y4 = results[3].shockEvents![0];
-  console.log(`    Y4 record still reports yearFired ${y4.yearFired} and ${fmt$(y4.expectedGrossLossAdded)} expected added`);
-
-  // ⚠ THE ONE-OFF HALF MUST NOT REPEAT. #10 is FUTURE-horizon, so every effect
-  // it carries applies every year from firing — except the three backdated
-  // injections, which are marked firstYearOnly. Without that flag the same
-  // reach-back would be re-injected annually for the rest of the game, which is
-  // a silent, compounding overstatement.
-  const injY3 = results[2].byLine.WC!.shockEvents?.[0]?.attributableClaims ?? 0;
-  const injY4 = results[3].byLine.WC!.shockEvents?.[0]?.attributableClaims ?? 0;
-  console.log(`  backdated injections: ${injY3} in the fire year, ${injY4} in each later year  ` +
-    `${note(injY3 === 3 && injY4 === 0, `retroactive reach-back repeated (Y3 ${injY3}, Y4 ${injY4}) — firstYearOnly is not being honoured`)}`);
-
-  // THE RULED DYNAMIC, ASSERTED. A legislative change raises realized losses
-  // and leaves premium standing still, because expectedLoss is built from the
-  // HELD purePremiumPer100 rather than the generator's analytic. The player
-  // must re-rate or bleed. Both are deliberate.
-  //
-  // ⚠ THIS USED TO ALSO ASSERT "the reinsurance attachment... does not adjust
-  // either", on the premise that attachment was 125% of expectedLoss (the
-  // retired REINSURANCE_PROGRAMS model). That was already stale before the
-  // field itself was removed: the tower's attachment is
-  // REINSURANCE_TOWER.WC[0].attachment, a fixed per-occurrence dollar
-  // constant with no dependence on expectedLoss at all, so the assertion held
-  // trivially for a reason the comment did not describe. Deleted along with
-  // the field rather than kept testing a constant against itself.
-  const clean = play('MAMC6EA4', 5, []);
-  const wcShock = results[4].byLine.WC!, wcClean = clean[4].byLine.WC!;
-
-  // ⚠ THE YEAR THIS IS ASSERTED IN MOVED FROM 5 TO 2, AND THE REASON IS WC'S
-  // CLASS RATES. It used to compare Y5 and require the pure premium to be
-  // IDENTICAL. That held while WC charged one blended rate: the rate was
-  // roster-blind, so nothing a shock did could reach it.
-  //
-  // WC now holds four rates and charges the exposure-weighted blend over the
-  // ENROLLED book. The shock fires in Y3, drives losses, moves surplus, and
-  // therefore moves who is still enrolled by Y5 — a different class mix, so a
-  // different blend. Measured: 3.897800 against 3.821000, a 2.0% gap, entirely
-  // through membership.
-  //
-  // That is the mechanism working, not the shock reaching the price. But the old
-  // assertion cannot tell those two apart, so it is replaced by one that can:
-  // the pre-shock years, where the books are still identical and any difference
-  // WOULD be the shock leaking into pricing.
-  const preShock = [0, 1];
-  let preIdentical = true;
-  for (const i of preShock) {
-    const a = results[i].byLine.WC!, b = clean[i].byLine.WC!;
-    if (a.purePremiumPer100 !== b.purePremiumPer100 || a.expectedLoss !== b.expectedLoss) preIdentical = false;
-  }
-  console.log(`  Y1-Y2 (pre-shock, identical books): pure premium and expectedLoss bit-identical  ` +
-    `${note(preIdentical, 'the shock moved WC pricing BEFORE it fired — it is reaching the price directly, not through membership')}`);
-  console.log(`  Y5 (post-shock, books have diverged): pure premium ${wcShock.purePremiumPer100.toFixed(6)} vs ${wcClean.purePremiumPer100.toFixed(6)}, ` +
-    `expectedLoss ${fmt$(wcShock.expectedLoss)} vs ${fmt$(wcClean.expectedLoss)}`);
-  console.log(`    REPORTED, NOT ASSERTED. WC's four class rates are held constants and the shock`);
-  console.log(`    cannot touch them; the blend over them follows the book, and the book changed.`);
-  console.log(`    RULED AND INTENDED, AND STILL IS: a law that makes claims more expensive does not`);
-  console.log(`    politely raise your rates for you. What CAN move the rate is members leaving, and`);
-  console.log(`    that is the class-rate mechanism doing its job. Do not "fix" either.`);
-}
 
 console.log('\n--- 8. #28 Pandemic — THE CROSS-LINE TEST ---');
 {
@@ -491,12 +362,12 @@ console.log('\n--- 8. #28 Pandemic — THE CROSS-LINE TEST ---');
   // sub-coverage left to target either, since the GL rebuild deleted them
   // all. Reading the two from different accessors is still the point — they
   // are different mechanisms — even though GL's own key collapsed to WHOLE_LINE.
-  const wcOwn = ownComponentFreqMultipliers('#28', 'WC')!;
-  const glOwn = ownFreqMultipliers('#28', 'GL')!;
+  const wcOwn = ownComponentFreqMultipliers('#9', 'WC')!;
+  const glOwn = ownFreqMultipliers('#9', 'GL')!;
   console.log(`  WC component effects ${JSON.stringify(wcOwn)}   GL whole-line effects ${JSON.stringify(glOwn)}`);
   console.log(`  WC's half did NOT silently vanish: ${note(!!wcOwn && Object.keys(wcOwn).length > 0, "#28's WC half resolves to nothing — the event has silently become GL-only")}`);
 
-  const results = play('MAMC6EA4', 5, [{ shockId: '#28', yearNumber: 2 }]);
+  const results = play('MAMC6EA4', 5, [{ shockId: '#9', yearNumber: 2 }]);
   const clean = play('MAMC6EA4', 5, []);
   const y2 = results[1];
   const rec = y2.shockEvents?.[0];
@@ -627,7 +498,7 @@ console.log('\n--- 8. #28 Pandemic — THE CROSS-LINE TEST ---');
 
   // And the heavy-component channel specifically — #28 and #10 act on the same
   // knob by different mechanisms, so they must compose rather than collide.
-  const both = play('MAMC6EA4', 5, [{ shockId: '#10', yearNumber: 1 }, { shockId: '#28', yearNumber: 2 }]);
+  const both = play('MAMC6EA4', 5, [{ shockId: '#8', yearNumber: 1 }, { shockId: '#9', yearNumber: 2 }]);
   const y2both = both[1];
   console.log(`  #10 + #28 together in Y2: ${y2both.shockEvents?.length} records, ${y2both.shockEvents?.map(s => s.shockId).join(' + ')}  ${note(y2both.shockEvents?.length === 2, 'two concurrent events did not both record')}`);
   console.log(`    #10 raises the heavy component's arrival rate permanently, #28 for one year —`);
@@ -644,7 +515,7 @@ console.log('\n--- 9. #19 Social Inflation Hard Market — the first sevMultipli
   // — the event fires, records, and costs nothing. That is the failure mode the
   // GL `sub` validator guards against for a mis-keyed effect; a whole-line
   // effect needs the end-to-end test instead.
-  const own = ownSevMultipliers('#19', 'GL')!;
+  const own = ownSevMultipliers('#8', 'GL')!;
   const keys = own ? Object.keys(own) : [];
   console.log(`  resolves to ${JSON.stringify(own)}  ${note(!!own && keys.length === 1 && keys[0] === WHOLE_LINE, '#19 does not resolve to a single WHOLE_LINE severity key')}`);
 
@@ -680,7 +551,7 @@ console.log('\n--- 9. #19 Social Inflation Hard Market — the first sevMultipli
   console.log(`  enrolled expected gross ${fmt$(baseExp)} -> ${fmt$(baseExp * factor)}  added ${fmt$(baseExp * (factor - 1))} (+${((factor - 1) * 100).toFixed(2)}% of GL)`);
 
   // AND IT IS A RATCHET: future horizon means it persists every year after firing.
-  const results = play('MAMC6EA4', 5, [{ shockId: '#19', yearNumber: 2 }]);
+  const results = play('MAMC6EA4', 5, [{ shockId: '#8', yearNumber: 2 }]);
   const clean = play('MAMC6EA4', 5, []);
   const moved = [0, 1, 2, 3, 4].map(i => results[i].byLine.GL!.grossUltimateLoss !== clean[i].byLine.GL!.grossUltimateLoss);
   console.log(`  GL gross moved in years: ${moved.map((m, i) => (m ? i + 1 : null)).filter(Boolean).join(', ') || 'none'}`);
@@ -716,44 +587,43 @@ type Shape =
   | { kind: 'weather'; region: Region; n: [number, number]; amt: [number, number] }
   | { kind: 'inject'; line: 'WC' | 'GL'; n: [number, number]; amt: [number, number]; region?: Region };
 const shapeLine = (sh: Shape): CoverageLine => (sh.kind === 'inject' ? sh.line : 'Property');
+// ⚠ THE LIVE CATALOG'S CLAIM-LANDING EVENTS, AND ONLY THOSE. This map used to
+// carry thirteen rows across the seventeen-event catalog. The new catalog has
+// twelve events, of which FOUR land claims: #1, #2, #3 and #7. The rest are
+// either multiplier events (#8 Social Inflation, #9 Pandemic — tested in their
+// own sections, not here) or carry the deliberate `notYetBuilt` placeholder and
+// land nothing by design (#4 #5 #6 #10 #11 #12).
+//
+// ⚠ THE SHAPES ARE UNCHANGED BECAUSE THE EFFECTS ARE: each of these four borrows
+// a retired event's effects verbatim, so the figures below are the retired
+// event's figures and still describe what actually fires. When a fitted
+// distribution replaces a borrowed effect, the row here moves with it.
+//
+// ⚠ AND THE OLD IDS ARE NOT THE NEW ONES. Retired '#4' through '#8' were
+// design-matrix numbers for entirely different events; the rows they described
+// are unreachable now and are not restated here under numbers that would mean
+// something else.
 const EVENT_SHAPES: Record<string, Shape[]> = {
-  '#2': [
+  // #1 Earthquake — borrows retired '#2' Major Earthquake
+  '#1': [
     { kind: 'cat', region: 'Central', loss: [25e6, 100e6], retains: 10e6 },
     { kind: 'inject', line: 'WC', n: [30, 60], amt: [20e3, 300e3], region: 'Central' },
   ],
-  'WILDFIRE': [
+  // #2 Winterstorm/Rainstorm — borrows retired '#2'
+  '#2': [{ kind: 'weather', region: 'North', n: [80, 120], amt: [100e3, 500e3] }],
+  // #3 Wildfire — borrows retired '#3'
+  '#3': [
     { kind: 'cat', region: 'North', loss: [25e6, 100e6], retains: 5e6 },
     { kind: 'inject', line: 'WC', n: [3, 6], amt: [300e3, 2.5e6], region: 'North' },
   ],
-  'WINTER-STORM': [{ kind: 'weather', region: 'North', n: [80, 120], amt: [100e3, 500e3] }],
-  'WATER-CONTAMINATION': [{ kind: 'inject', line: 'GL', n: [2, 5], amt: [5e6, 10e6] }],
-  '#4': [{ kind: 'cat', region: 'South', loss: [10e6, 50e6], retains: 5e6 }],
-  '#6': [{ kind: 'weather', region: 'Central', n: [100, 200], amt: [20e3, 150e3] }],
-  '#15': [{ kind: 'inject', line: 'WC', n: [1, 1], amt: [12e6, 20e6] }],
-  '#21': [{ kind: 'inject', line: 'GL', n: [1, 1], amt: [25e6, 60e6] }],
-  '#25': [{ kind: 'inject', line: 'GL', n: [20, 50], amt: [100e3, 1e6] }],
-  '#26': [{ kind: 'inject', line: 'GL', n: [1, 1], amt: [15e6, 25e6] }],
-  '#5': [
-    { kind: 'cat', region: 'North', loss: [5e6, 20e6], retains: 5e6 },
-    { kind: 'inject', line: 'WC', n: [10, 25], amt: [20e3, 400e3], region: 'North' },
-    { kind: 'inject', line: 'GL', n: [3, 8], amt: [250e3, 3e6] },
-  ],
-  '#7': [
-    { kind: 'cat', region: 'Central', loss: [5e6, 15e6], retains: 5e6 },
-    { kind: 'inject', line: 'WC', n: [2, 5], amt: [50e3, 750e3], region: 'Central' },
-    { kind: 'inject', line: 'GL', n: [25, 60], amt: [25e3, 300e3] },
-  ],
-  '#8': [
-    { kind: 'weather', region: 'South', n: [30, 60], amt: [20e3, 200e3] },
-    { kind: 'inject', line: 'WC', n: [40, 80], amt: [5e3, 80e3], region: 'South' },
-    { kind: 'inject', line: 'GL', n: [1, 3], amt: [1e6, 5e6] },
-  ],
+  // #7 Nuclear Verdict — borrows retired '#21' Adverse Jury Verdict
+  '#7': [{ kind: 'inject', line: 'GL', n: [1, 1], amt: [25e6, 60e6] }],
 };
 // `${seed}|${shockId}` -> the firing year's result, for section 12.
 const FIRED = new Map<string, ResultSet>();
 // YEAR 2, AND THE GAME STOPS THERE. Year 1 is the "nothing moves before it"
 // check; that a current-horizon event does not fire AFTER its year is the
-// resolver's rule, asserted in section 3 (#22 in Y3, asked for Y4). Playing a
+// resolver's rule, asserted in section 3 (#9 in Y3, asked for Y4). Playing a
 // year past it here cost a quarter of this gate's runtime for a fact proved
 // elsewhere, and thirteen events put the gate over the fast tier's bound.
 const FIRE_YEAR = 2;
@@ -767,7 +637,10 @@ console.log('\n--- 10. every event that lands claims: once, where it says, in th
   // The cache's premise, checked rather than assumed: the pre-game a schedule
   // builds is the pre-game an empty one does.
   {
-    const withShock = { ...generateGameInstance(SEEDS[0], seedOf(SEEDS[0])), scheduledShocks: [{ shockId: '#5', yearNumber: FIRE }] };
+    // ⚠ ANY REAL EVENT WILL DO HERE — this asserts the pre-game ignores the
+    // schedule, not what the event does. Was retired '#5' (Hazardous Materials
+    // Release); '#1' is the live catalog's equivalent choice.
+    const withShock = { ...generateGameInstance(SEEDS[0], seedOf(SEEDS[0])), scheduledShocks: [{ shockId: '#1', yearNumber: FIRE }] };
     const setup = { poolName: 'G', gameLength: YEARS, startingYear: 2026, instanceId: SEEDS[0], activeLines: LINES };
     const fresh = runPriorHistory(withShock, setup as never);
     const cached = pregame(SEEDS[0], YEARS, generateGameInstance(SEEDS[0], seedOf(SEEDS[0])));
@@ -777,8 +650,9 @@ console.log('\n--- 10. every event that lands claims: once, where it says, in th
       'the pre-game depends on the schedule — the cached games are not the real ones')}`);
   }
   // Every CURRENT-horizon row that lands claims is in the table, and nothing
-  // else. #10, the one future-horizon row that lands claims, persists past its
-  // year by design and is covered by its own section above.
+  // else. The live catalog has no future-horizon row that lands claims: #8
+  // (Social Inflation) is future but is a severity multiplier, covered in its
+  // own section above.
   const landsClaims = Object.values(SHOCK_CATALOG)
     .filter(d => d.horizon === 'current'
       && d.effects.some(e => e.kind === 'forceEvent' || e.kind === 'weatherEvent' || e.kind === 'injectClaim'))
@@ -905,7 +779,7 @@ console.log('\n--- 10. every event that lands claims: once, where it says, in th
 console.log('\n--- 11. the schedule reaches the game: constructor, save, session rebuild ---');
 {
   const ID = 'MAMC6EA4';
-  const SCHEDULE = [{ shockId: 'WILDFIRE', yearNumber: 3 }];
+  const SCHEDULE = [{ shockId: '#3', yearNumber: 3 }];
 
   // (a) AN EMPTY SCHEDULE IS THE OLD INSTANCE, BYTE FOR BYTE.
   const bare = generateGameInstance(ID, seedOf(ID));
@@ -919,7 +793,7 @@ console.log('\n--- 11. the schedule reaches the game: constructor, save, session
     JSON.stringify(carried.scheduledShocks) === JSON.stringify(SCHEDULE) && JSON.stringify(rest) === JSON.stringify(bare),
     'the constructor dropped the schedule or moved another field')}`);
   console.log(`  constructor rejects an unknown id: ${note(throws(() => generateGameInstance(ID, 1, [{ shockId: '#NOPE', yearNumber: 2 }])), 'an unknown shock id is accepted at build — it would throw in the year it fires instead')}`
-    + `   and year 0: ${note(throws(() => generateGameInstance(ID, 1, [{ shockId: '#22', yearNumber: 0 }])), 'a pre-game fire year is accepted')}`);
+    + `   and year 0: ${note(throws(() => generateGameInstance(ID, 1, [{ shockId: '#9', yearNumber: 0 }])), 'a pre-game fire year is accepted')}`);
 
   const decided = (y: number): DecisionSet => {
     const d = defaultDecisionSet(y);
@@ -947,7 +821,7 @@ console.log('\n--- 11. the schedule reaches the game: constructor, save, session
     return gs;
   };
   const straight = (() => { let g = run(carried); return run(carried, g); })();
-  const firedStraight = straight.lockedResults.map(r => (r.shockEvents ?? []).some(e => e.shockId === 'WILDFIRE'));
+  const firedStraight = straight.lockedResults.map(r => (r.shockEvents ?? []).some(e => e.shockId === '#3'));
   console.log(`  the scheduled wildfire fires in year 3 of a constructed game: ${note(
     firedStraight.join() === [false, false, true, false, false].join(), `fired in years ${firedStraight.map((f, i) => f ? i + 1 : '').filter(Boolean).join(',') || 'none'}`)}`);
 
@@ -971,7 +845,7 @@ console.log('\n--- 11. the schedule reaches the game: constructor, save, session
   };
   const first = playFromRoom(roomRecord);
   const reload = playFromRoom(JSON.parse(JSON.stringify(roomRecord)));
-  const firedSession = reload.lockedResults.map(r => (r.shockEvents ?? []).some(e => e.shockId === 'WILDFIRE'));
+  const firedSession = reload.lockedResults.map(r => (r.shockEvents ?? []).some(e => e.shockId === '#3'));
   console.log(`  a session build carries the room's schedule into the instance: ${note(
     JSON.stringify(first.instance.scheduledShocks) === JSON.stringify(SCHEDULE), "the session build dropped the room's schedule")}`);
   console.log(`  A RELOADED PLAYER'S REBUILD FIRES THE WILDFIRE IN YEAR 3: ${note(
@@ -994,7 +868,10 @@ console.log('\n--- 11. the schedule reaches the game: constructor, save, session
     const n = 1 + (i % 20);
     const sch = drawShockSchedule(`DRAW${i}`, n);
     const years = sch.map(x => x.yearNumber), ids = sch.map(x => x.shockId);
-    if (sch.length !== Math.min(shockDrawCount(n), Math.max(1, n - 1))) shapeOk = false;
+    // ⚠ CAPPED BY THE DRAWABLE COUNT TOO, which now binds. Six of the twelve
+    // events have built effects, so a long game cannot draw one per three years:
+    // drawShockSchedule takes min(count, years, events) and `events` is 6.
+    if (sch.length !== Math.min(shockDrawCount(n), Math.max(1, n - 1), drawable.size)) shapeOk = false;
     if (new Set(years).size !== years.length || new Set(ids).size !== ids.length) shapeOk = false;
     if (years.some(y => y < (n >= 2 ? 2 : 1) || y > n) || ids.some(id => !drawable.has(id))) shapeOk = false;
     if (years.some((y, k) => k > 0 && y < years[k - 1])) shapeOk = false;
@@ -1051,7 +928,15 @@ console.log('\n--- 12. an event is identifiable, and scheduled reads as drawn --
         if (n !== pool.attributableClaims || Math.abs(g - pool.attributableGrossLoss) > 1e-6) splitOk = false;
       }
       const text = r.narrativeExplanation;
-      if (text.includes(sid) || text.includes(def.name) || text.includes(def.description.slice(0, 40)) || /shock/i.test(text)) leakOk = false;
+      // ⚠ THE HOST-NAME CHECK IS SKIPPED WHERE THE TWO NAMES ARE THE SAME STRING,
+      // and that is not a loosening. It exists so the player never reads the
+      // HOST's catalog name ('Major Earthquake') in place of the player name
+      // ('Earthquake'). In the twelve-event catalog several events are called
+      // the same thing on both sides — #3 Wildfire, #7 Nuclear Verdict — so
+      // there is nothing to leak and the old form would fail on an identity.
+      // The id, the catalog prose and the word "shock" are still refused always.
+      const hostNameLeaks = def.name !== def.eventName && text.includes(def.name);
+      if (text.includes(sid) || hostNameLeaks || text.includes(def.description.slice(0, 40)) || /shock/i.test(text)) leakOk = false;
       if (!text.includes(def.eventName)) narrOk = false;
       if (id === SEEDS[0]) seen.push(`${sid}: "${yearEvents(r).map(eventSentence).join(' ')}"`);
     }
@@ -1064,14 +949,14 @@ console.log('\n--- 12. an event is identifiable, and scheduled reads as drawn --
     + `   and never by id, host name, catalog prose or the word "shock": ${note(leakOk, 'the narrative shows how the event was scheduled')}`);
 
   // THE SAME NAME, THE SAME LABEL, scheduled and drawn.
-  const r2 = FIRED.get(`${SEEDS[0]}|#2`)!.byLine.Property!;
-  const qc = (r2.claims ?? []).find(c => c.shockId === '#2')!;
+  const r2 = FIRED.get(`${SEEDS[0]}|#1`)!.byLine.Property!;
+  const qc = (r2.claims ?? []).find(c => c.shockId === '#1')!;
   const qo = (r2.occurrences ?? []).find(o => o.id === qc.occurrenceId)!;
   const drawnClaim = { ...qc, shockId: undefined };
   const drawnOcc = { ...qo, peril: PROPERTY_CAT_EARTHQUAKE.peril };
-  const sameName = SHOCK_CATALOG['#2'].eventName === drawnEventName(PROPERTY_CAT_EARTHQUAKE.peril);
+  const sameName = SHOCK_CATALOG['#1'].eventName === drawnEventName(PROPERTY_CAT_EARTHQUAKE.peril);
   const sameLabel = claimEventLabel(qc, qo) === claimEventLabel(drawnClaim, drawnOcc);
-  console.log(`  #2 and a drawn earthquake carry the same name and the same claim label ("${claimEventLabel(qc, qo)}"): ${note(sameName && sameLabel, 'a scheduled earthquake reads differently from a drawn one')}`);
+  console.log(`  #1 and a drawn earthquake carry the same name and the same claim label ("${claimEventLabel(qc, qo)}"): ${note(sameName && sameLabel, 'a scheduled earthquake reads differently from a drawn one')}`);
 
   // A DRAWN catastrophe, found on the natural book: recorded, labelled, narrated.
   let found = '';
@@ -1102,7 +987,7 @@ console.log('\n--- 12. an event is identifiable, and scheduled reads as drawn --
   console.log(`    recorded on drawnCatastrophes, labelled and narrated like a scheduled one: ${note(!!found && drawnOk, 'a drawn catastrophe is missing from the record, the label or the narrative')}`);
 
   // The catalog requires the player's name.
-  console.log(`  validator rejects a row with no eventName: ${note(throws(() => validateShockDefinition({ ...SHOCK_CATALOG['#2'], eventName: ' ' })), 'a row without a player name is accepted')}`);
+  console.log(`  validator rejects a row with no eventName: ${note(throws(() => validateShockDefinition({ ...SHOCK_CATALOG['#1'], eventName: ' ' })), 'a row without a player name is accepted')}`);
 }
 
 console.log(problems.length === 0

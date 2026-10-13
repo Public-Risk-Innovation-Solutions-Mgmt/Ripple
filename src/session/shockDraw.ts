@@ -21,7 +21,7 @@
 // ============================================================================
 
 import type { ShockBand, ShockDefinition } from '../types/shocks';
-import { IMPLEMENTED_EFFECTS } from '../types/shocks';
+import { IMPLEMENTED_EFFECTS, hasBuiltEffects } from '../types/shocks';
 import { SHOCK_CATALOG } from '../data/shockCatalog';
 import { deriveSubRng } from '../utils/random';
 import { seedFromInstanceId } from '../seedHash';
@@ -35,8 +35,23 @@ export const SHOCK_DRAW_WEIGHT: Record<ShockBand, number> = { moderate: 3, high:
 // not depend on how the catalog object happens to be ordered.
 export function drawableShocks(): ShockDefinition[] {
   return Object.values(SHOCK_CATALOG)
+    // ⚠ TWO FILTERS NOW, AND THEY ASK DIFFERENT QUESTIONS. The first is the old
+    // one: the resolver must be able to execute every effect without throwing.
+    // The second is new: the event must actually DO something. Six of the twelve
+    // carry the deliberate `notYetBuilt` placeholder, which resolves cleanly to
+    // nothing — legal to schedule by hand, but drawing one would fill a test
+    // room with events that change no number, which is the opposite of what
+    // Randomise is for.
     .filter(def => def.effects.every(e => IMPLEMENTED_EFFECTS.has(e.kind)))
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    .filter(hasBuiltEffects)
+    // Numeric by id, not lexicographic: '#10' sorts after '#9', not after '#1'.
+    .sort((a, b) => idNumber(a.id) - idNumber(b.id));
+}
+
+/** '#10' -> 10. Non-numeric ids sort last, stably, rather than throwing. */
+function idNumber(id: string): number {
+  const n = Number(id.replace('#', ''));
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
 }
 
 // ONE EVENT PER THREE YEARS, rounded, and never none: 3 years -> 1, 5 -> 2,

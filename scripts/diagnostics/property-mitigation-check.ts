@@ -91,7 +91,7 @@ interface Played { result: ResultSet; instance: ReturnType<typeof generateGameIn
 const played: Played[] = [];
 for (let g = 0; g < GAMES; g++) {
   const id = `PMG${g}`;
-  const inst = generateGameInstance(id, 6_200_000 + g * 7717, [{ shockId: 'WINTER-STORM', yearNumber: STORM_YEAR }]);
+  const inst = generateGameInstance(id, 6_200_000 + g * 7717, [{ shockId: '#2', yearNumber: STORM_YEAR }]);
   const setup = { poolName: 'P', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   let gs: GameState = {

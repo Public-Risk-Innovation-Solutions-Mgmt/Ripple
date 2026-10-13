@@ -211,7 +211,21 @@ export type ShockEffect =
   // reaches, grep every read of each path first (a read inside a module-level
   // helper must be refactored to take params), and add the kind back to
   // IMPLEMENTED_EFFECTS.
-  | { kind: 'paramOverride'; line: CoverageLine; path: string; multiplier?: number; value?: number };
+  | { kind: 'paramOverride'; line: CoverageLine; path: string; multiplier?: number; value?: number }
+  /**
+   * ⚠ A DELIBERATE EMPTY EFFECT, AND THE ONLY ONE. An event in the catalog whose
+   * mechanism has not been built yet carries exactly this, and nothing else. It
+   * is NOT an id the engine fails to find and NOT an empty `effects` array that
+   * reads like an oversight — it is a row that says, in the data, "this event
+   * exists and does nothing yet", with `note` saying what it will do.
+   *
+   * The resolver handles it by doing nothing, explicitly (see shockResolver).
+   * It IS in IMPLEMENTED_EFFECTS, so scheduling one is legal and resolves
+   * without throwing — but hasBuiltEffects() returns false for the event, which
+   * is what keeps Randomise from drawing it and what labels it on the host
+   * screen. Those two questions are different and were conflated before this.
+   */
+  | { kind: 'notYetBuilt'; note: string };
 
 export type ShockEffectKind = ShockEffect['kind'];
 
@@ -224,7 +238,25 @@ export const IMPLEMENTED_EFFECTS: ReadonlySet<ShockEffectKind> = new Set<ShockEf
   'freqMultiplier',
   'componentFreqMultiplier',
   'sevMultiplier',
+  // ⚠ 'notYetBuilt' IS "IMPLEMENTED" IN THE ONLY SENSE THIS SET MEANS: the
+  // resolver knows what to do with it (nothing) and will not throw. It does NOT
+  // mean the EVENT does anything — ask hasBuiltEffects for that.
+  'notYetBuilt',
 ]);
+
+/**
+ * Does this event actually do something? False for an event whose only effect is
+ * the deliberate `notYetBuilt` placeholder, and false for an event with no
+ * effects at all.
+ *
+ * ⚠ THIS IS A DIFFERENT QUESTION FROM IMPLEMENTED_EFFECTS and the two must not
+ * be collapsed again. IMPLEMENTED_EFFECTS asks "can the resolver execute this
+ * without throwing"; this asks "is there a mechanism here yet". Randomise and
+ * the host screen's label want THIS one.
+ */
+export function hasBuiltEffects(def: { effects: ShockEffect[] }): boolean {
+  return def.effects.length > 0 && def.effects.every(e => e.kind !== 'notYetBuilt');
+}
 
 // ---------------------------------------------------------------------------
 // An event: one CAUSE, one or more effects, possibly across several lines.

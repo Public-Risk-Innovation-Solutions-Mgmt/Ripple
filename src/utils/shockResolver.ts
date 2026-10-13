@@ -63,6 +63,8 @@ function describe(effect: ShockEffect): string {
       return `${effect.label}: $${effect.amount.toLocaleString()}`;
     case 'paramOverride':
       return `${effect.line}.${effect.path} ${effect.multiplier !== undefined ? `x${effect.multiplier}` : `= ${effect.value}`}`;
+    case 'notYetBuilt':
+      return `NOT YET BUILT — ${effect.note}`;
   }
 }
 
@@ -127,6 +129,12 @@ export function resolveShocks(instance: GameInstance, yearNumber: number): Shock
           + `See src/types/shocks.ts for why, and do not schedule this event until it is.`,
         );
       }
+
+      // ⚠ THE DELIBERATE EMPTY EFFECT, HANDLED EXPLICITLY. It changes nothing
+      // and touches no line, which is the whole of its behaviour — but it is a
+      // CASE here rather than a fall-through, so that an event with no mechanism
+      // yet is a decision in the data and not an accident in the control flow.
+      if (effect.kind === 'notYetBuilt') continue;
 
       const line = lineOf(effect);
       if (line) linesAffected.add(line);

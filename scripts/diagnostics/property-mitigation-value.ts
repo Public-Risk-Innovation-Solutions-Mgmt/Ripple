@@ -60,7 +60,7 @@ function play(pct: number): Row[][] {
   const out: Row[][] = [];
   for (let g = 0; g < GAMES; g++) {
     const id = `PMV${g}`;
-    const sched = STORM_YEAR > 0 ? [{ shockId: 'WINTER-STORM', yearNumber: STORM_YEAR }] : [];
+    const sched = STORM_YEAR > 0 ? [{ shockId: '#2', yearNumber: STORM_YEAR }] : [];
     const inst = generateGameInstance(id, 7_100_000 + g * 6379, sched);
     const setup = { poolName: 'V', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: ['Property'] };
     const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
