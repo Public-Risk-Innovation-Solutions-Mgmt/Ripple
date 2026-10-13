@@ -39,11 +39,29 @@ const SCHEDULABLE = Object.values(SHOCK_CATALOG).map(def => ({
   buildable: def.effects.every(e => IMPLEMENTED_EFFECTS.has(e.kind)),
 }));
 
+// ⚠ THE SEED IS A SHORT MENU NOW, AND IT IS STILL A STRING. The contract's
+// `seed: string` is untouched — these are the strings '1' to '20' rather than an
+// eight-character draw, so nothing about what a room stores changes shape.
+const SEED_OPTIONS = Array.from({ length: 20 }, (_, i) => String(i + 1));
+
+// ⚠ THE DEFAULT IS STILL RANDOM, DELIBERATELY. The free-text field it replaces
+// defaulted to a fresh eight-character draw, so two hosts who changed nothing got
+// different games. Defaulting the menu to '1' would quietly undo that and make
+// every unconsidered room identical. A random option keeps the old behaviour
+// inside the new, smaller set.
+// ⚠ THE SCHEDULED LIST READS AS A SENTENCE, NOT AN ID. The id is the number for
+// the events that have one ('#2'), and three events in the current catalog have
+// a word id instead (WILDFIRE, WINTER-STORM, WATER-CONTAMINATION); those show the
+// name alone rather than an invented number. The catalog is to be renumbered 1-12
+// later, so NOTHING here changes an id or a name — this only reads them.
+function shockLabel(id: string): string {
+  const name = SHOCK_CATALOG[id]?.name;
+  if (!name) return id;
+  return id.startsWith('#') ? `${id} ${name}` : name;
+}
+
 function randomSeed(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id = '';
-  for (let i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)];
-  return id;
+  return SEED_OPTIONS[Math.floor(Math.random() * SEED_OPTIONS.length)];
 }
 
 export default function HostCreateScreen() {
@@ -138,12 +156,14 @@ export default function HostCreateScreen() {
             </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Seed</span>
-              <input
+              <select
                 data-testid="seed"
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
                 value={seed}
-                onChange={e => setSeed(e.target.value.toUpperCase())}
-              />
+                onChange={e => setSeed(e.target.value)}
+              >
+                {SEED_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
             </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Years</span>
@@ -154,6 +174,7 @@ export default function HostCreateScreen() {
                 value={yearCount}
                 onChange={e => setYearCount(Number(e.target.value))}
               />
+              <span className="mt-1 block text-xs text-slate-400">How many rounds the game will run.</span>
             </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Starting year</span>
@@ -163,12 +184,13 @@ export default function HostCreateScreen() {
                 value={startingYear}
                 onChange={e => setStartingYear(Number(e.target.value))}
               />
+              <span className="mt-1 block text-xs text-slate-400">Year 0 of the game.</span>
             </label>
           </div>
 
           <div>
             <label className="block max-w-[220px]">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Teams expected</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Number of Teams</span>
               <input
                 data-testid="expected-teams"
                 type="number" min={1} max={40}
@@ -192,10 +214,12 @@ export default function HostCreateScreen() {
             <p className="mt-1 text-xs text-slate-400">
               The same schedule reaches every team. Randomise draws it once, here, from the seed.
             </p>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex items-end gap-2">
+              <label className="flex-1 block">
+                <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Event</span>
               <select
                 data-testid="shock-id"
-                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 value={shockId}
                 onChange={e => setShockId(e.target.value)}
               >
@@ -205,13 +229,17 @@ export default function HostCreateScreen() {
                   </option>
                 ))}
               </select>
-              <input
-                data-testid="shock-year"
-                type="number" min={1} max={yearCount}
-                className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                value={shockYear}
-                onChange={e => setShockYear(Number(e.target.value))}
-              />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Year of Event</span>
+                <input
+                  data-testid="shock-year"
+                  type="number" min={1} max={yearCount}
+                  className="mt-1 w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={shockYear}
+                  onChange={e => setShockYear(Number(e.target.value))}
+                />
+              </label>
               <button
                 type="button"
                 data-testid="add-shock"
@@ -245,10 +273,19 @@ export default function HostCreateScreen() {
             {shocks.length > 0 && (
               <ul data-testid="shock-list" className="mt-2 space-y-1">
                 {shocks.map((s, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                  // ⚠ THE ID AND YEAR STAY IN THE DOM AS ATTRIBUTES, not because the
+                  // screen needs them but because the LABEL is now prose and the
+                  // catalog is about to be renumbered 1-12. A driver matching the
+                  // room record against rendered text would be re-broken by that
+                  // rename; matching these is stable and reads the same fact.
+                  <li
+                    key={i}
+                    data-shock-id={s.shockId}
+                    data-shock-year={s.yearNumber}
+                    className="flex items-center gap-2 text-sm text-slate-600"
+                  >
                     <Zap size={13} className="text-amber-500" />
-                    <span className="font-mono">{s.shockId}</span>
-                    <span className="text-slate-400">year {s.yearNumber}</span>
+                    <span>{shockLabel(s.shockId)} — Year {s.yearNumber}</span>
                     <button
                       type="button"
                       onClick={() => { setShocks(prev => prev.filter((_, j) => j !== i)); setDrawnFor(null); }}

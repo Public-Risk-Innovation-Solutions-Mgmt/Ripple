@@ -46,7 +46,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
 
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', 'MAMC6EA4');
+  await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
   await host.click('[data-testid="create-room"]');

@@ -72,7 +72,7 @@ const anyKeys = page => page.evaluate(() =>
   const host = await hostCtx.newPage();
   await host.goto(`/host?api=${encodeURIComponent(API)}`);
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', 'MAMC6EA4');
+  await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', String(YEARS + 1));
   await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
   await host.click('[data-testid="create-room"]');

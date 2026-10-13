@@ -26,7 +26,11 @@ const YEARS = 4;
 // events to the catalog changed what a uniform draw returns — WINTER-STORM now —
 // and three assertions failed for a reason that was not a defect. Nothing below
 // names an event or a year any more; everything is read back from the room.
-const SEED = 'RFHZCGF2';
+// ⚠ NOW ONE OF THE SEED MENU'S TWENTY OPTIONS. The field became a dropdown of
+// 1-20, so an eight-character string is no longer selectable. Nothing below
+// names an event or a year, so which option this is does not matter — the point
+// above still holds.
+const SEED = '13';
 
 // id -> THE NAME A PLAYER SEES, which is `eventName`, NOT the catalog's `name`.
 //
@@ -118,7 +122,7 @@ async function resultsYearText(page, year) {
   const NAMES = catalogNames();
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', SEED);
+  await host.selectOption('[data-testid="seed"]', SEED);
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', '1');
 
@@ -129,6 +133,8 @@ async function resultsYearText(page, year) {
   await host.click('[data-testid="randomise-shocks"]');
   await host.waitForSelector('[data-testid="shock-list"]');
   const shown = await host.$$eval('[data-testid="shock-list"] li', lis => lis.map(li => li.textContent.replace(/\s+/g, ' ').trim()));
+  const shownAttrs = await host.$$eval('[data-testid="shock-list"] li',
+    lis => lis.map(li => ({ id: li.getAttribute('data-shock-id'), year: li.getAttribute('data-shock-year') })));
   console.log(`  host sees the draw: ${JSON.stringify(shown)}`);
   // ⚠ NON-EMPTY IS THE HALF THAT MATTERS, AND IT IS NOT ENOUGH ON ITS OWN. A
   // driver that only asked "is there a schedule" would pass on a game with no
@@ -136,8 +142,11 @@ async function resultsYearText(page, year) {
   // pinned to the rule (one per three years) and the YEARS are pinned to the
   // range the drawer promises — never year 1, so every team makes one full round
   // of decisions before anything lands. Neither pins WHICH event.
+  // The list reads "#2 Major Earthquake — Year 2" now, so the year is matched
+  // case-sensitively on the capitalised label. Still pins the COUNT and the
+  // YEAR RANGE and still names no event.
   ok(shown.length === expectedDrawCount(YEARS)
-     && shown.every(t => /year (\d+)/.test(t) && +t.match(/year (\d+)/)[1] >= 2 && +t.match(/year (\d+)/)[1] <= YEARS),
+     && shown.every(t => /Year (\d+)/.test(t) && +t.match(/Year (\d+)/)[1] >= 2 && +t.match(/Year (\d+)/)[1] <= YEARS),
     `Randomise drew a non-empty schedule the host can see — ${shown.length} entry/entries for a ${YEARS}-year game, none in year 1`);
   ok(await host.locator('[data-testid="shock-drawn-note"]').count() === 1, 'the host is told what the schedule was drawn from');
 
@@ -150,9 +159,14 @@ async function resultsYearText(page, year) {
   // not a recipe a client re-runs. Checked against the host's own rendered list
   // rather than against a literal, so the two surfaces are tied to each other
   // and neither is tied to a particular catalog.
+  // ⚠ MATCHED ON THE LIST'S DATA ATTRIBUTES, NOT ITS TEXT. The entry used to
+  // read "#2 year 2" and now reads "#2 Major Earthquake — Year 2", and events
+  // without a number show the name alone — so the id is no longer always in the
+  // visible string. The attributes carry id and year exactly, and will survive
+  // the catalog's renumbering, which the text will not.
   ok((carried || []).length > 0
      && carried.length === shown.length
-     && carried.every(s => shown.some(t => t.includes(s.shockId) && t.includes(`year ${s.yearNumber}`))),
+     && carried.every(s => shownAttrs.some(a => a.id === s.shockId && a.year === String(s.yearNumber))),
     `the room record carries exactly what the host was shown, entry for entry (${JSON.stringify(carried)})`);
 
   // ⚠ PLAY FAR ENOUGH TO REACH THE EVENT. The old driver played three years of a

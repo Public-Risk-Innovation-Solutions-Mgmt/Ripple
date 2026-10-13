@@ -32,7 +32,7 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
 
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', 'MAMC6EA4');
+  await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '3');
   await host.fill('[data-testid="expected-teams"]', '3');
   await host.click('[data-testid="create-room"]');
