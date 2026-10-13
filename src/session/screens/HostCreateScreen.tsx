@@ -163,7 +163,7 @@ export default function HostCreateScreen() {
     <>
       <div className="w-full">
         <p className="text-sm text-slate-500">
-          Every team plays the same instance. Teams name themselves and choose their own lines when they join.
+          Every team plays the same instance. Teams name themselves when they join; you choose the coverage lines below.
         </p>
 
         {error && (
@@ -233,7 +233,7 @@ export default function HostCreateScreen() {
                 so the host knows when everybody has arrived. */}
             <p className="mt-1.5 text-xs text-slate-400">
               How many to expect, so you know when everyone has arrived. It does not limit who can join, and
-              teams name themselves and pick their own coverage lines at join.
+              teams name themselves at join and play the coverage lines you pick below.
             </p>
           </div>
 

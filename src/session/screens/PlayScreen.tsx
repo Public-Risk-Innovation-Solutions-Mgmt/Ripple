@@ -187,7 +187,10 @@ export default function PlayScreen({ code, role }: Props) {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Room {code}</p>
           <h1 className="text-2xl font-semibold text-slate-800">{room.eventName}</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {isViewer ? 'Choose a team to watch. Watching claims nothing.' : 'Name your team and choose the lines you will write.'}
+            {/* ⚠ "and choose the lines you will write" WAS STILL HERE after the
+                picker went. The host sets the room's lines; a player names its
+                team and nothing else. */}
+            {isViewer ? 'Choose a team to watch. Watching claims nothing.' : 'Name your team. The host has set the lines.'}
           </p>
 
           {actionError && (
@@ -265,7 +268,9 @@ export default function PlayScreen({ code, role }: Props) {
                   name, which is the part that was actually useful. */}
               <div>
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coverage lines</span>
-                <p className="mt-1 text-xs text-slate-400">Set by the host. Every team plays these.</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Set by the host for this game. Your pool's history and claims are built from these.
+                </p>
                 <div className="mt-2 flex flex-wrap gap-2" data-testid="room-lines">
                   {(room.lines ?? []).map(l => (
                     <span
