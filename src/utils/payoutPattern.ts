@@ -6,6 +6,15 @@
 // LINE_PAYOUT_PATTERN in defaultAssumptions.ts for the parameters and where
 // they came from.
 //
+// ⚠ AND THERE IS A SUCCESSOR ALREADY ON DISK, UNWIRED. The pool's own measured
+// development patterns (age-to-ultimate LDFs on both a paid and an incurred
+// basis, ground-up) are recorded
+// in src/data/paidDevelopmentPatterns.ts and are intended to replace the fitted
+// Weibull curves this file evaluates, when the simplified multiplayer model is
+// built. Nothing reads them yet, and the argument below for a formula over an
+// array is an argument about THIS mechanism — a table that carries its own tail
+// and throws past it answers the same objection differently.
+//
 // ============================================================================
 // ⚠ A FORMULA AND NOT AN ARRAY, AND THE REASON IS WC'S TAIL.
 //

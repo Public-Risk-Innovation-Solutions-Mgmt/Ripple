@@ -90,6 +90,14 @@ const FAST: string[] = [
                                      //         arm 3 of experience-pricing-check measures LOOP GAIN and
                                      //         twin-differencing cancels an ambient ramp by construction, so
                                      //         nothing else pins this. Positive control in its header.
+  'paid-development-check',          //   2s   the pool's development LDFs, paid AND incurred, are
+                                     //         RECORDED AND UNWIRED, so no value baseline would notice a
+                                     //         mistyped factor. Shape only: every LDF >= 1, none rises
+                                     //         with age, 1-1/LDF in [0,1], the age grid in steps of 12,
+                                     //         incurred at or below paid, and both the lookup and the
+                                     //         case/IBNR split THROW past their last row. Carries a
+                                     //         POSITIVE CONTROL — the retired GL "Total" pattern must
+                                     //         still trip the incurred<=paid rule at its 8 known ages.
   'pool-row-metric-check',           //   3s   no exported metric may read a field the pool row does
                                      //         not have. The compiler cannot see inside a metric
                                      //         closure, so the lineOnly flag is hand-written — and

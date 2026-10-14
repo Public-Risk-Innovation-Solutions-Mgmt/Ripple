@@ -2766,6 +2766,18 @@ export const LEGACY_GEOMETRIC_PATTERN: Record<string, PayoutPattern> = {
 
 export const LINE_PAYOUT_PATTERN: Record<string, PayoutPattern> = FITTED_PAYOUT_PATTERN;
 
+// ⚠ THERE IS A SECOND SET OF PAYOUT DATA, AND IT IS NOT WIRED. The pool's own
+// measured DEVELOPMENT PATTERNS — age-to-ultimate LDFs on BOTH a paid and an
+// incurred basis, ground-up, for all three lines, from which case reserves and
+// IBNR fall out — are recorded in src/data/paidDevelopmentPatterns.ts.
+// They are intended to REPLACE the fitted Weibull curves above when the
+// simplified multiplayer model is built, and NOTHING READS THEM YET.
+//
+// They are in their own file rather than here precisely because both will exist
+// at once for a while: two payout patterns in one file is how the next person
+// wires the wrong one. If you came here looking for payout data, read that file
+// before adding anything to this one.
+
 // ===========================================================================
 // CLAIM CLOSURE CURVES — see claimClosure.ts for the form and the discipline.
 //
