@@ -3,7 +3,10 @@ import type { DecisionSet, GameState } from '../types/simulation';
 import DocumentReader, { type DocumentEntry } from '../components/DocumentReader';
 import investmentMemoRaw from '../data/documents/investmentMemo.md?raw';
 import { buildActuarialMemo } from '../utils/actuarialMemo';
-import { buildClaimsMemo } from '../utils/claimsMemo';
+// ⚠ buildClaimsMemo IS NOT IMPORTED WHILE THE CLAIMS PANE IS HIDDEN — see the
+// commented entry in `documents` below. src/utils/claimsMemo.ts, its template
+// and claims-memo-check are all untouched; the import comes back with the pane.
+//   import { buildClaimsMemo } from '../utils/claimsMemo';
 import { buildInvestmentMemo } from '../utils/investmentMemo';
 import { buildRiskControlMemo } from '../utils/riskControlMemo';
 import { buildUnderwritingMemo } from '../utils/underwritingMemo';
@@ -40,20 +43,27 @@ export default function DepartmentsPage({ gameState, currentDecisions }: Departm
     [gameState, currentDecisions],
   );
 
-  // ⚠ NOT KEYED TO selectedYear, AND IT USED TO BE. The listing is struck at a
-  // valuation and it resolves that valuation itself — see ClaimsMemoInput for
-  // why the selected year could not be honoured: claim status would move with
-  // the selection while Paid and Incurred, which come from live cohort state,
-  // would not. Passing the year in was what made the two disagree, so the year
-  // is no longer passed in. The selector still drives the actuarial memorandum,
-  // which keeps a real valuation history, and that document says so.
+  // ⚠ THE CLAIMS MEMO IS NOT BUILT WHILE ITS PANE IS HIDDEN. Commented rather
+  // than deleted, with the entry below, so restoring the department is
+  // uncommenting three blocks and nothing else. Its own note is kept verbatim
+  // because it records a ruling, not an implementation detail:
   //
-  // It rebuilds the whole book to split paid per accident year, which is 41 ms
-  // on a reloaded game, so it is still memoised.
-  const claimsMemo = useMemo(
-    () => buildClaimsMemo({ gameState }),
-    [gameState],
-  );
+  //   ⚠ NOT KEYED TO selectedYear, AND IT USED TO BE. The listing is struck at
+  //   a valuation and it resolves that valuation itself — see ClaimsMemoInput
+  //   for why the selected year could not be honoured: claim status would move
+  //   with the selection while Paid and Incurred, which come from live cohort
+  //   state, would not. Passing the year in was what made the two disagree, so
+  //   the year is no longer passed in. The selector still drives the actuarial
+  //   memorandum, which keeps a real valuation history, and that document says
+  //   so.
+  //
+  //   It rebuilds the whole book to split paid per accident year, which is
+  //   41 ms on a reloaded game, so it is still memoised.
+  //
+  //   const claimsMemo = useMemo(
+  //     () => buildClaimsMemo({ gameState }),
+  //     [gameState],
+  //   );
 
   const documents: DocumentEntry[] = [
     {
@@ -62,12 +72,18 @@ export default function DepartmentsPage({ gameState, currentDecisions }: Departm
       summary: 'Reserve development by accident year',
       content: actuarialMemo,
     },
-    {
-      id: 'claims',
-      title: 'Claims',
-      summary: 'Large loss listing by member and status',
-      content: claimsMemo,
-    },
+    // ⚠ THE CLAIMS DEPARTMENT IS HIDDEN, NOT REMOVED — the same treatment the
+    // Membership tab has in GameShell. The listing is per MEMBER and per claim,
+    // which is the view the multiplayer game drops; the ENGINE keeps every
+    // claim, so this hides the pane and leaves claimsMemo.ts, its template, the
+    // claims workbook download and claims-memo-check untouched. Restoring it is
+    // uncommenting this entry, the useMemo above and the import at the top.
+    //   {
+    //     id: 'claims',
+    //     title: 'Claims',
+    //     summary: 'Large loss listing by member and status',
+    //     content: claimsMemo,
+    //   },
     {
       // ⚠ GATED BY activeLines, WHICH IS WHY IT IS BUILT AND NOT A STATIC .md.
       // Its own second paragraph promises that line-specific programs appear

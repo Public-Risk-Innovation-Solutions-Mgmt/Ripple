@@ -590,7 +590,35 @@ const BASELINE = process.env.RENDER_BASELINE
 // shows the opening surplus of the year being DECIDED, which is that result's
 // endingSurplus carried forward. Checked rather than waved at, because a
 // mismatch between them would otherwise be the first thing to suspect.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v30.json');
+//
+// ⚠ v30 -> v31: THE CLAIMS DEPARTMENT IS HIDDEN. 272 -> 262 FINGERPRINTS, AND
+// THE KEY COUNT FALLING IS THE POINT RATHER THAN A SIDE EFFECT.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 896df2a built in its own
+// worktree on :4174 reproduced ALL 272 FINGERPRINTS against the committed v30.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 20 of 272 moved, and they are two halves of one edit. Nothing outside
+// Departments moved at all:
+//
+//   10 REMOVED — `Departments|doc:Claims` at y0 and y2 across all five
+//   configurations. The document is no longer reachable, so the harness has no
+//   pane to fingerprint. Confirmed to be the memo and not an empty pane: the
+//   control's dump opens "Claims Department — Open claim inventory, evaluated
+//   12/31/2027...", and the string "Large loss listing" appears in NO subject
+//   dump anywhere.
+//
+//   10 MOVED — `Departments|-` at y0 and y2 across all five configurations,
+//   which is the department LIST. One distinct word-level diff across all ten,
+//   removing "Claims Large loss listing by member and status" and adding
+//   NOTHING. A row left behind, or a blank where it stood, would show here as
+//   an addition; there is none.
+//
+// ⚠ THE OTHER FOUR DOCUMENTS DID NOT MOVE. Actuarial, Risk Control,
+// Underwriting and Investment keep their own fingerprints at both year points
+// in all five configurations, which is the evidence this took out one pane
+// rather than disturbing the reader around it.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v31.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
