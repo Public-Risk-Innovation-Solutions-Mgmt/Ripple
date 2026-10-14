@@ -73,6 +73,25 @@ revision law and the booking bias, then the downstream re-solve and recapture �
 That file cut from `b0fd991` and held commits 2–7 until this branch's changes landed; they have, so expect to
 **merge rather than cherry-pick**, and to recapture the baselines at each value-moving commit.
 
+### 1a. Development drifts too far up — beside the climb, and part of the same decision
+
+Claims book below their true cost and then drift up at **one rate per line, whatever their size**. For most
+claims that overshoots: small claims end at about 115% of drawn on WC, 153% on GL, and 128–136% on Property.
+Because claims always book low and climb, **prior years almost always develop adversely**, where a real pool
+sees favourable years too. Property climbs about 26% from first booking, though most of its claims close
+within two years.
+
+Large claims go the other way: WC's largest end at about 63% of drawn. **Lowering the drift uniformly would
+leave them further under-reserved**, so the fix cannot be a single dial turned down.
+
+Two ways to address it, to be **considered together when the climb is built**:
+
+- **The converging climb**, so each claim heads to its own drawn value (item 1).
+- **Booking closer to true cost from the start**, so less drift is needed.
+
+For contrast, the `multiplayer` branch uses simple prior development factors — WC 3% adverse, GL 10%
+adverse, Property 2% favourable — much gentler than this. *(handed over; not checked against that branch)*
+
 ### 2. Reinsurance load
 
 `RISK_LOAD_LAMBDA` is 0. **After the climb**, check whether cover is too cheap: at zero load more cover
@@ -120,9 +139,10 @@ Five risk control sliders. Not started. (`riskControlCategories.ts` lists the fi
 
 ### 7. Average risk quality is intentional in single-player
 
-It is shown to players deliberately (`averageRiskQuality`, `src/utils/resultMetrics.ts`). Record it as
-intentional at the metric, and update `scripts/diagnostics/surface-privacy-check.ts` to **forbid per-member
-risk quality while allowing the pool average**.
+It is shown to players deliberately (`averageRiskQuality`, `src/utils/resultMetrics.ts`). **It is already
+intentional:** `scripts/diagnostics/surface-privacy-check.ts` allows the pool average on purpose, on the
+reasoning that a pool average is a pool statistic, while refusing `member.riskQuality`. No change to the
+check is needed. **The remaining step is a note at the metric saying so.**
 
 ### 8. Members leaving
 
