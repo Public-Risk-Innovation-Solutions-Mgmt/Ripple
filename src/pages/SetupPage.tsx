@@ -71,7 +71,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
         <div className="bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden">
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-8 py-5">
             <h2 className="text-white font-bold text-xl">Game Setup</h2>
-            <p className="text-blue-200 text-base">Configure your simulation before starting (pipeline test 2026-10-14)</p>
+            <p className="text-blue-200 text-base">Configure your simulation before starting</p>
           </div>
 
           <div className="p-8 space-y-7">
