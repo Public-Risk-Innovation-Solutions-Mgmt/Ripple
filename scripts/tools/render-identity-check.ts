@@ -553,7 +553,44 @@ const BASELINE = process.env.RENDER_BASELINE
 // difference between the two year-points would mean something time-dependent
 // had entered the card — the defect class the y0 point exists to catch. The
 // slider reads its default at both and no result feeds it.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v29.json');
+//
+// ⚠ v29 -> v30: THE DIVIDEND / ASSESSMENT CONTROL, AND ITS BASIS.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 0844296 built in its own
+// worktree on :4174 reproduced ALL 272 FINGERPRINTS against the committed v29.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 42 of 272 moved, 0 added, 0 removed, and they attribute word-for-word to
+// exactly THREE edits across two screens. No other screen moved.
+//
+//   16 DECISIONS LINE TABS (WC, GL, PR across all five configurations, y0 and
+//   y2): "None" -> "0%" at the slider's centre, plus the new note
+//   "Surplus: $X 0%". The Decisions POOL tab did NOT move, which is the right
+//   negative — the control is per line and the Pool tab has never carried it.
+//
+//   26 CALCULATION AUDIT rows, from two separate edits:
+//     - the printed slider range, "-25.0%, 0.5%," -> "-15.0%, 1.0%,". This is
+//       the ONLY thing that moved on the 10 Pool rows, which carry the ranges
+//       but no per-line formula.
+//     - the dividend and assessment FORMULA BASIS on the 16 line rows: the
+//       factor changes from pool premium to the opening surplus and is now
+//       labelled "(opening surplus)" — e.g. WC y0 $6,172,742 -> $15,175,300.
+//       Two occurrences per page, the assessments row and the dividends row.
+//
+// ⚠ THE DOLLAR VALUES OF `assessments` AND `dividends` DID NOT MOVE ANYWHERE,
+// and that is the evidence the basis change is inert at the default. The
+// harness plays default decisions, where both percentages are 0, so both
+// figures are $0 on either basis. What moved on the audit is the stated
+// MULTIPLICAND, not the product — which is exactly the claim: the arithmetic
+// shown is now the arithmetic performed.
+//
+// ⚠ THE TWO SCREENS DISAGREE ON THE SURPLUS AND BOTH ARE RIGHT. At WC y0 the
+// Decisions note reads $16.51M and the audit's basis reads $15,175,300. The
+// audit shows the DISPLAYED RESULT's own opening surplus; the Decisions note
+// shows the opening surplus of the year being DECIDED, which is that result's
+// endingSurplus carried forward. Checked rather than waved at, because a
+// mismatch between them would otherwise be the first thing to suspect.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v30.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

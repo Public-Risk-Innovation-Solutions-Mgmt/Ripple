@@ -18,6 +18,7 @@ import { statementLines } from '../utils/financialStatementEngine';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { formatCurrency, formatPct } from '../utils/formatters';
 import { unpaidShare } from '../utils/payoutPattern';
+import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { deriveSubRng } from '../utils/random';
 import { simulateMarketReturns, blendInvestmentReturn } from '../utils/investmentEngine';
 import {
@@ -2732,7 +2733,10 @@ export function buildRevExpRows(
       formula: lineRow === null ? PER_LINE_ONLY : scoped(
         () => ({
           kind: 'product',
-          factors: [cur(result.poolPremium), { value: lineRow.decisions.assessmentPct, format: 'pct', label: 'assessment rate' }],
+          // BASIS IS OPENING SURPLUS, NOT POOL PREMIUM — see
+          // dividendAssessment.ts. `beginingSurplus` is the engine's own name
+          // for this line's opening surplus, and the clamp is the engine's.
+          factors: [cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'), { value: lineRow.decisions.assessmentPct, format: 'pct', label: 'assessment rate' }],
         }),
         x => x.assessments
       ),
@@ -2881,12 +2885,16 @@ export function buildRevExpRows(
       // surplus in. Detected rather than assumed, so the shown arithmetic is
       // never the un-blocked product when the actual figure is zero.
       formula: lineRow === null ? PER_LINE_ONLY
-        : Math.abs(result.dividends - result.poolPremium * lineRow.decisions.dividendPct) > CHECK_TOLERANCE
+        // BASIS IS OPENING SURPLUS, NOT POOL PREMIUM — see dividendAssessment.ts.
+        // The blocked-dividend detection is unchanged in kind: it still asks
+        // whether the engine's figure matches the un-blocked product, only now
+        // against the basis the engine actually uses.
+        : Math.abs(result.dividends - dividendAssessmentBasis(result.beginingSurplus) * lineRow.decisions.dividendPct) > CHECK_TOLERANCE
         ? { kind: 'text', text: `${formatCurrency(0)} — dividend blocked: this line carried a negative surplus into the year` }
         : scoped(
             () => ({
               kind: 'product',
-              factors: [cur(result.poolPremium), { value: lineRow.decisions.dividendPct, format: 'pct', label: 'dividend rate' }],
+              factors: [cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'), { value: lineRow.decisions.dividendPct, format: 'pct', label: 'dividend rate' }],
             }),
             x => x.dividends
           ),

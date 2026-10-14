@@ -2659,10 +2659,24 @@ export const SLIDER_RANGES = {
   dividendPct: { min: 0, max: 0.15, step: 0.005, default: 0 },
   assessmentPct: { min: 0, max: 0.25, step: 0.005, default: 0 },
   // The combined dividend/assessment control's own range: zero at centre,
-  // dividends extend positive (to dividendPct.max), assessments extend
-  // negative (to -assessmentPct.max). dividendPct/assessmentPct above remain
-  // the fields the engine reads; this exists only for the collapsed input.
-  dividendAssessment: { min: -0.25, max: 0.15, step: 0.005, default: 0 },
+  // positive is a dividend, negative is an assessment. dividendPct and
+  // assessmentPct above remain the fields the engine reads; this exists only
+  // for the collapsed input.
+  //
+  // ⚠ SYMMETRIC AT +/-15%, AND NO LONGER THE TWO FIELDS' OWN MAXIMA. It ran
+  // -25% to +15% — assessmentPct.max against dividendPct.max — which made the
+  // centre sit off-centre on the track and gave the two directions different
+  // reach for no stated reason. A control whose zero is not in the middle reads
+  // as a bug every time somebody new looks at it. The underlying fields keep
+  // their own ranges; this control simply does not drive them to the ends.
+  //
+  // ⚠ STEP IS 1%, UP FROM 0.5%. The percentage is a share of SURPLUS now and
+  // the note under the slider prints it as a whole number beside the dollars it
+  // buys, so every stop the player can reach is a figure the note can show
+  // exactly. A 0.5% step put half the stops at a precision the note rounds
+  // away, and a slider that reads "10%" while meaning 9.5% is the same class of
+  // quiet wrongness the basis change was made to remove. 31 stops, -15% to +15%.
+  dividendAssessment: { min: -0.15, max: 0.15, step: 0.01, default: 0 },
   riskControlPct: { min: 0, max: 0.08, step: 0.01, default: 0 },
   // PER LINE, and SCREEN ONLY — the share of that line's premium spent on risk
   // control incentives. Not read by the engine (see

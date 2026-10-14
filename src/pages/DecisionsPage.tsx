@@ -8,6 +8,7 @@ import AllocationBar from '../components/AllocationBar';
 import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumptions';
 import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
+import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { AGG_ATTACHMENT_LEVELS, AGG_LIMIT_MULTIPLE, PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, RISK_LOAD_LAMBDA, TOWER_TOP } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, quoteAggregate } from '../utils/reinsuranceTower';
@@ -160,11 +161,25 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
       },
     });
   };
+  // ⚠ "0%" AT CENTRE, NOT "None". The slider is a percentage of surplus along
+  // its whole length and the note below it prints that percentage; a centre
+  // reading "None" made the one position the player starts on the only one that
+  // did not say what it was a percentage OF. Zero is a percentage like the rest.
   const dividendAssessmentDisplay = (v: number) => {
-    if (v > 0.0001) return `Dividend ${(v * 100).toFixed(1)}%`;
-    if (v < -0.0001) return `Assessment ${(-v * 100).toFixed(1)}%`;
-    return 'None';
+    if (v > 0.0001) return `Dividend ${(v * 100).toFixed(0)}%`;
+    if (v < -0.0001) return `Assessment ${(-v * 100).toFixed(0)}%`;
+    return '0%';
   };
+  // THE SURPLUS THE PERCENTAGE IS A SHARE OF, read from the engine's own figure
+  // rather than recomputed here. This line's opening surplus for the year IS
+  // last year's endingSurplus carried forward (simulationEngine assigns
+  // `updatedLineState.surplus = result.endingSurplus`), and the engine applies
+  // the percentage to exactly this number through the same clamp — see
+  // dividendAssessment.ts. Undefined only before the pre-game has produced
+  // anything, where there is no surplus to show and the note is omitted.
+  const dividendAssessmentSurplus = lastLineResult
+    ? dividendAssessmentBasis(lastLineResult.endingSurplus)
+    : null;
   // Dividend side clamped to 0 while blocked (negative surplus carried in);
   // the assessment side stays fully available, unlike disabling the whole
   // control would allow.
@@ -198,6 +213,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
           />
           <FundingConsequencePanel c={fundingConsequence} lastLineResult={lastLineResult} line={selectedLine} />
           <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
+          <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
           {selectedLoanInfo.dividendBlocked && (
             <p className="text-xs text-red-600 -mt-3">Dividend blocked: this line carried a negative surplus in from last year.</p>
           )}
@@ -911,6 +927,47 @@ function RiskControlIncentives({ line, value, onChange, disabled }: {
         <span>Not yet active — will feed the new rate indication. The figure is saved with the year&rsquo;s decisions, and no result moves with it.</span>
       </p>
     </div>
+  );
+}
+
+// ============================================================================
+// WHAT THE DIVIDEND / ASSESSMENT SLIDER COSTS, IN DOLLARS.
+//
+//   Surplus: $52.4M   +10% ($5.2M)     green, for a dividend
+//   Surplus: $52.4M   -10% ($5.2M)     red and signed, for an assessment
+//   Surplus: $52.4M   0%               gray, and NO dollar amount
+//
+// ⚠ THE DOLLARS ARE THE ENGINE'S, NOT A SECOND SUM. `surplus` arrives already
+// put through dividendAssessmentBasis — the same function simulationEngine
+// multiplies — so `surplus * pct` here is arithmetic on the engine's own two
+// inputs rather than a parallel model of the payment. That is the only reason
+// the figure can be stated as what is paid or charged.
+//
+// ⚠ NO DOLLAR FIGURE AT ZERO, DELIBERATELY. "$0" is a quantity and invites the
+// reading that something moved and netted out. Nothing moves at 0%: the row
+// says what the surplus is and that the share of it is none.
+//
+// ⚠ THE MINUS SIGN IS KEPT ON THE ASSESSMENT and the dollars are not negated.
+// The sign belongs to the DIRECTION of the percentage — money leaving members
+// rather than reaching them — and the amount is an amount either way. Printing
+// "-10% (-$5.2M)" would state the direction twice and read as a negative
+// charge, which is what the basis clamp in dividendAssessment.ts exists to
+// prevent in the engine.
+function DividendAssessmentNote({ surplus, pct }: { surplus: number | null; pct: number }) {
+  if (surplus === null) return null;
+  const isDividend = pct > 0.0001;
+  const isAssessment = pct < -0.0001;
+  const amount = surplus * Math.abs(pct);
+  const tone = isDividend ? 'text-emerald-600' : isAssessment ? 'text-red-600' : 'text-gray-500';
+  const signedPct = `${isDividend ? '+' : isAssessment ? '−' : ''}${Math.round(Math.abs(pct) * 100)}%`;
+  return (
+    <p className="flex items-center gap-2 text-xs text-gray-500 -mt-3">
+      <span>Surplus: {formatCurrency(surplus, true)}</span>
+      <span className={`font-semibold ${tone}`}>
+        {signedPct}
+        {(isDividend || isAssessment) && ` (${formatCurrency(amount, true)})`}
+      </span>
+    </p>
   );
 }
 

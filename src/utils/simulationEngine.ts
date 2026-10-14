@@ -36,6 +36,7 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
   return merged.size > 0 ? [...merged.values()] : undefined;
 }
 import { SeededRandom, deriveSubRng } from './random';
+import { dividendAssessmentBasis } from './dividendAssessment';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
 import {
@@ -2029,11 +2030,20 @@ export function processLineYear(
   // --- Income Statement ---
   // Use reserve-rollforward incurred loss so the income statement and balance sheet tie.
   // This keeps the financial statement logic consistent with the reserve accounting.
-  const assessments = poolPremium * lineDecisions.assessmentPct;
+  // ⚠ THE BASIS IS SURPLUS, NOT POOL PREMIUM. Both lines read
+  // `poolPremium * pct` until the dividend/assessment control was reworked to
+  // show the dollar amount beside the percentage. The shown figure has to BE
+  // the paid figure, so the basis moved here rather than the page approximating
+  // it. The opening surplus — this line's `lineState.surplus`, which is last
+  // year's endingSurplus carried forward — is the one that is not circular and
+  // is the one on screen. The zero floor is a sign guard for a line carrying
+  // negative surplus in; see dividendAssessment.ts for both arguments.
+  const dividendAssessmentBase = dividendAssessmentBasis(lineState.surplus);
+  const assessments = dividendAssessmentBase * lineDecisions.assessmentPct;
   // A line carrying a negative surplus into the year (declined a loan) cannot pay
   // a dividend — the decision is blocked regardless of what was requested. The
   // rule itself is resolved once, above, where satisfaction's term 5 first needs it.
-  const dividends = poolPremium * effectiveDividendPct;
+  const dividends = dividendAssessmentBase * effectiveDividendPct;
 
   // Keep this as a displayed reserve development metric (net basis).
   // Do not add it separately to net income because reserve development is already captured
