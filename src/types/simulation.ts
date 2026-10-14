@@ -618,6 +618,25 @@ export interface LineDecisionSet {
   // AN ARRAY OF STRINGS, so value-identity-check (numeric fields only) is blind
   // to it by construction and no export hash moves for its presence alone.
   riskControlProgramIds?: string[];
+  /**
+   * INVESTMENT IN RISK CONTROL INCENTIVES — 0 to 0.05 of this line's premium,
+   * in 1% steps, default 0. STORED AND NOT READ BY THE ENGINE, exactly as
+   * `priorDevelopment` is stored on the room and not read (see
+   * session/contract.ts's PriorDevelopment).
+   *
+   * ⚠ THE FIELD EXISTS SO THE WIRING IS A ONE-SITE CHANGE LATER, NOT BECAUSE
+   * ANYTHING CONSUMES IT NOW. The rate indication is being redesigned and this
+   * spend is meant to feed it; until that lands the engine must not read the
+   * field, and the screen says so under the slider. Nothing in
+   * simulationEngine.ts, the loss draw or the export touches it, so both value
+   * baselines hold for its presence alone.
+   *
+   * ⚠ OPTIONAL, for the reason riskControlProgramIds is: a save written before
+   * this field restores without it, and every diagnostic that builds a
+   * LineDecisionSet by hand keeps compiling. Absent reads as 0 — no spend —
+   * which is what those harnesses mean.
+   */
+  riskControlIncentivePct?: number;
   // Per-occurrence tower placement, index-aligned to REINSURANCE_TOWER[line].
   // false = that band is RETAINED. ANY COMBINATION IS PERMITTED, including a
   // corridor retention (buying $15M xs $10M while declining $5M xs $5M) — that

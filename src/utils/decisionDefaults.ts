@@ -57,6 +57,10 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
     dividendPct: SLIDER_RANGES.dividendPct.default,
     assessmentPct: SLIDER_RANGES.assessmentPct.default,
     riskControlPct: SLIDER_RANGES.riskControlPct.default,
+    // Spend nothing on incentives. The field is STORED AND UNREAD — see
+    // LineDecisionSet.riskControlIncentivePct — so this is what the slider
+    // opens on, not a value the engine consumes.
+    riskControlIncentivePct: SLIDER_RANGES.riskControlIncentivePct.default,
     // Default: every purchasable occurrence layer placed, no aggregate. Matches
     // the default-on-load rule for saves that predate the tower. KEYED BY
     // LINE — Property's one-layer tower must not receive WC's three-element

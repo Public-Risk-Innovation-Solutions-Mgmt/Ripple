@@ -2664,6 +2664,11 @@ export const SLIDER_RANGES = {
   // the fields the engine reads; this exists only for the collapsed input.
   dividendAssessment: { min: -0.25, max: 0.15, step: 0.005, default: 0 },
   riskControlPct: { min: 0, max: 0.08, step: 0.01, default: 0 },
+  // PER LINE, and SCREEN ONLY — the share of that line's premium spent on risk
+  // control incentives. Not read by the engine (see
+  // LineDecisionSet.riskControlIncentivePct); the rate indication it is meant
+  // to feed is being redesigned.
+  riskControlIncentivePct: { min: 0, max: 0.05, step: 0.01, default: 0 },
 };
 
 // ===========================================================================

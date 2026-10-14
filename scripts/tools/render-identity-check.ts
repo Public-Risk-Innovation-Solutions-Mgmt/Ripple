@@ -518,7 +518,42 @@ const BASELINE = process.env.RENDER_BASELINE
 // approximately $X in payroll and $Y in total insured value") is absent from all
 // ten, and each shows one bullet per ACTIVE line: a GL-only game renders exactly
 // one, with no empty sentence and no "$0" row for the lines it does not write.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v28.json');
+//
+// ⚠ v28 -> v29: RISK CONTROL MOVED OFF THE POOL TAB AND ONTO EACH LINE.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 2eabb44 built in its own
+// worktree on :4174 reproduced ALL 272 FINGERPRINTS against the committed v28.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 26 of 272 moved, 0 added, 0 removed, and EVERY ONE OF THEM IS A DECISIONS
+// SCREEN. That is the whole claim this change makes — it is screen-only, the
+// new field is not read by the engine, and the removed tiles all defaulted to
+// off — so a single moved fingerprint anywhere else would have contradicted it.
+// None did.
+//
+// The 26 attribute word-for-word to exactly two edits, with NO row showing
+// both an addition and a removal:
+//
+//   16 LINE TABS (WC, GL, PR across all five configurations, y0 and y2) ADD
+//   ONLY, and the added words are the new card: "Investment in Risk Control
+//   Incentives", the line's own programme name, "0% of premium / None / 5% of
+//   premium", the premium-source sentence, and the "Not yet active — will feed
+//   the new rate indication" note. The programme name is per line and the
+//   fingerprints prove it: WC's 6 rows carry "Safety & Return-to-Work", GL's 6
+//   "Training and Analytics", Property's 4 "Mitigation".
+//
+//   10 POOL TABS (5 configurations x y0 and y2) REMOVE ONLY, and what leaves
+//   is the whole Loss Prevention card: "Risk Control Programs", every tile the
+//   configuration offered, "Committed this year $0/yr", the "All N available
+//   programs" total and the five-independent-programs sentence. The five
+//   distinct removal texts differ only by which tiles that configuration
+//   showed, which is the card's own gating and not five separate edits.
+//
+// ⚠ y0 AND y2 MOVED TOGETHER ON EVERY ONE, which is the right negative. A
+// difference between the two year-points would mean something time-dependent
+// had entered the card — the defect class the y0 point exists to catch. The
+// slider reads its default at both and no result feeds it.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v29.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

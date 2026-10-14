@@ -220,10 +220,13 @@ export default function GameShell({
 
         {activeTab === 'decisions' && gameState && (
           <DecisionsPage
-            /* DERIVED, NOT STORED. Each locked result echoes the decisions it
-               was played with, so the commitment history is already persisted
-               and replays with the game. See riskControlPrograms.ts. */
-            priorProgramIds={gameState.lockedResults.map(r => r.pool?.riskControlProgramIds)}
+            /* ⚠ priorProgramIds AND activeLines ARE NO LONGER PASSED. The
+               first derived each program's tenure for the Risk Control
+               Programs tiles and the second gated which tiles were offered;
+               the tiles are removed — risk control is a per-line slider now —
+               and neither prop had another reader on that screen. The
+               derivation itself is not lost: simulationEngine rebuilds the
+               same list from lockedResults for the engine's own read. */
             memberLossHistory={gameState.poolState.memberLossHistory ?? {}}
             allMarketMembers={gameState.poolState.allMarketMembers}
             membershipHistory={gameState.poolState.membershipHistory}
@@ -237,7 +240,6 @@ export default function GameShell({
             lineLoanInfo={d.lineLoanInfo}
             lastLineResult={d.lastLineResult}
             fundingConsequence={d.fundingConsequence}
-            activeLines={gameState.setup.activeLines}
             activeMembers={d.decisionLineActiveMembers}
           />
         )}

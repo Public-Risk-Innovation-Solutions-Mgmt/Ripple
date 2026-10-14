@@ -1,4 +1,28 @@
 // ============================================================================
+// ⚠ NOT RENDERED ANYWHERE. READ THIS BEFORE THE HISTORY BELOW.
+//
+// The Risk Control Programs card this component filled has been REMOVED from
+// the Pool tab, all five tiles with it. Risk control is a per-line spend now —
+// one slider under each line's underwriting sliders, named for that line's
+// programme (see DecisionsPage's RiskControlIncentives). This file has NO
+// import and no render site.
+//
+// IT IS KEPT, NOT DELETED, and so is everything behind it. These tiles were
+// the only writer of `decisions.riskControlProgramIds` in the app, so with
+// them gone that list is `[]` on every played year and riskControlPrograms.ts's
+// effect paths — programFreqMultiplier, programAnnualCost, programRtwConversion,
+// claimsSystemSeverityReduction and the standings they call — return identity.
+// The engine still reads the field; nothing reaches it with a non-empty list by
+// any player action. Values do not move, because every tile already defaulted
+// to off.
+//
+// Still EXERCISED BY THE GATES, which is the difference between switched off
+// and rotting: wc-program-check, gl-program-check, claims-system-check and the
+// two program-value diagnostics construct the ids by hand.
+//
+// Everything from here down describes the card as it stood.
+//
+// ============================================================================
 // THE FIVE RISK-CONTROL TILES — compact, in the pool-wide card, where the
 // retired intensity slider used to sit.
 //

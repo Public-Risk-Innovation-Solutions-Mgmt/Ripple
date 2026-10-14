@@ -3,7 +3,8 @@ import { DollarSign, TrendingUp, BarChart2, Shield, RotateCcw, Info } from 'luci
 import type { DecisionSet, LineDecisionSet, CoverageLine, LineView, LineResultSet, Member, MemberLossHistory, MembershipHistory } from '../types/simulation';
 import SliderInput from '../components/SliderInput';
 import AllocationBar from '../components/AllocationBar';
-import RiskControlCategoryBoxes from '../components/RiskControlCategoryBoxes';
+// ⚠ RiskControlCategoryBoxes IS NO LONGER IMPORTED. The Risk Control Programs
+// card it rendered is gone from the Pool tab — see the note where it stood.
 import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumptions';
 import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
@@ -41,12 +42,12 @@ interface DecisionsPageProps {
   // 'pool' hosts the two pool-wide decisions (investment allocation, risk
   // control); each coverage line's tab edits that line's own decisions.
   lineView: LineView;
-  /** The lines the pool writes — gates the risk-control tiles. */
-  activeLines: readonly CoverageLine[];
-  /** Committed risk-control programs of every PLAYED year, oldest first.
-   *  DERIVED by the shell from lockedResults — see riskControlPrograms.ts on
-   *  why no counter is stored. */
-  priorProgramIds?: readonly (readonly string[] | undefined)[];
+  // ⚠ activeLines AND priorProgramIds ARE BOTH GONE FROM THIS SCREEN. They fed
+  // the Risk Control Programs tiles and nothing else here: activeLines gated
+  // which tiles were offered, priorProgramIds gave each its tenure. With the
+  // card removed they had no remaining reader, and a prop kept "in case" would
+  // be a reader the next person has to disprove. GameShell still derives
+  // priorProgramIds nowhere — its one call site went with them.
   lineLoanInfo: Record<CoverageLine, LineLoanInfo>;
   // Last computed result for the line being edited — informational only
   // (excessCapitalRatio / capitalAdequacyStatus for the consequence panel).
@@ -106,12 +107,11 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine): Decisi
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, estimatedExpectedLoss, estimatedAggregateTermsRetained, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, activeLines, priorProgramIds, activeMembers, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
-  // Pool tab: the two pool-wide decisions. One allocation policy and one
-  // risk-control intensity for the whole pool — each line applies them to its
-  // OWN base (own segregated portfolio / own premium).
+export default function DecisionsPage({ decisions, onChange, yearNumber, estimatedExpectedLoss, estimatedAggregateTermsRetained, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, activeMembers, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
+  // Pool tab: ONE pool-wide decision now — the investment allocation. The
+  // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
-    return <PoolDecisionsView decisions={decisions} onChange={onChange} yearNumber={yearNumber} disabled={disabled} activeLines={activeLines} priorProgramIds={priorProgramIds} />;
+    return <PoolDecisionsView decisions={decisions} onChange={onChange} yearNumber={yearNumber} disabled={disabled} />;
   }
 
   // Stage 2.7: every active line's remaining decisions are edited on its own
@@ -203,6 +203,12 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
           )}
         </SectionCard>
 
+        {/* ⚠ ONE GRID CELL HOLDING TWO CARDS, so "Investment in Risk Control
+            Incentives" sits DIRECTLY UNDER the underwriting sliders rather than
+            wherever the grid's flow would drop it. Left as two siblings it
+            would wrap into the left column under Pricing & Funding — the right
+            number of cards in the wrong place. */}
+        <div className="space-y-5">
         <SectionCard title="Growth & Underwriting" icon={<TrendingUp size={16} />}>
           {/* ⚠ THE UNDERWRITING STRICTNESS SLIDER IS DELETED. It said "Strict
               underwriting improves risk quality" and it did exactly that, by
@@ -241,6 +247,16 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
           />
         </SectionCard>
 
+        <SectionCard title="Investment in Risk Control Incentives" icon={<Shield size={16} />}>
+          <RiskControlIncentives
+            line={selectedLine}
+            value={d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default}
+            onChange={v => set('riskControlIncentivePct', v)}
+            disabled={disabled}
+          />
+        </SectionCard>
+        </div>
+
         {outstandingLoanSlider(d, set, selectedLoanInfo, disabled)}
 
         <SectionCard title="Reinsurance Program" icon={<Shield size={16} />}>
@@ -273,13 +289,11 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
 // Pool tab: the two pool-wide decisions. Portfolios remain segregated per
 // line (Stage 2.9) — every line applies this one allocation policy to its own
 // invested assets, and the one risk-control intensity to its own premium.
-function PoolDecisionsView({ decisions, onChange, yearNumber, disabled, activeLines, priorProgramIds }: {
+function PoolDecisionsView({ decisions, onChange, yearNumber, disabled }: {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
   yearNumber: number;
   disabled: boolean;
-  activeLines: readonly CoverageLine[];
-  priorProgramIds?: readonly (readonly string[] | undefined)[];
 }) {
   // ⚠ RESET DOES NOT CANCEL A PROGRAM, AND THAT IS DELIBERATE. This button
   // returns the year's POLICIES to their defaults. A risk-control program is a
@@ -341,27 +355,39 @@ function PoolDecisionsView({ decisions, onChange, yearNumber, disabled, activeLi
           />
         </SectionCard>
 
-        {/* ⚠ STILL INERT, AND IN THE SLIDER'S PLACE. Five compact tiles where
-            the retired intensity slider sat, carrying NAME and TERM only — the
-            full copy waits for a Risk Control department page, and what that
-            page needs for the move to be a move rather than a rewrite is
-            recorded at the component.
+        {/* ⚠ THE RISK CONTROL PROGRAMS CARD STOOD HERE AND IS REMOVED — ALL
+            FIVE TILES, Pool Claims Management and Pool Member Services with
+            them. Risk control is a PER-LINE spend now, a slider under each
+            line's underwriting sliders; see RiskControlIncentives below.
 
-            They are NOT mutually exclusive, unlike the underwriting rows whose
-            look they borrow: five independent programs, any mixture of which a
-            pool can run. PreviewBox is deliberately not reused because its
-            `selected` state would paint exactly one tile blue and make the
-            pick-one reading the default. See the component for the three things
-            that keep them apart. */}
-        <SectionCard title="Loss Prevention" icon={<TrendingUp size={16} />}>
-          <RiskControlCategoryBoxes
-            activeLines={activeLines}
-            programIds={decisions.riskControlProgramIds ?? []}
-            priorProgramIds={priorProgramIds ?? []}
-            onProgramsChange={ids => onChange({ ...decisions, riskControlProgramIds: ids })}
-            disabled={disabled}
-          />
-        </SectionCard>
+            ⚠ THE ENGINE CODE BEHIND THE TILES IS KEPT, SWITCHED OFF, NOT
+            DELETED. These tiles were the only writer of
+            `decisions.riskControlProgramIds` anywhere in the app. The field
+            stays on DecisionSet and LineDecisionSet, defaultDecisionSet still
+            seeds it `[]`, and simulationEngine still reads it — so the three
+            WIRED programs (gl-law-enforcement-analytics, wc-safety-rtw,
+            claims-management-system) now receive an empty list on every played
+            year and their multipliers are identity. Nothing changes in a played
+            game, because every tile already defaulted to off.
+
+            WHAT THIS MAKES UNREACHABLE FROM THE GAME: riskControlPrograms.ts's
+            ramp, tenure, standing, cost and effect paths —
+            programFreqMultiplier, programAnnualCost, programRtwConversion,
+            claimsSystemSeverityReduction and the standings they call — can no
+            longer be reached with a non-empty list by any player action, and
+            RiskControlCategoryBoxes, riskControlCategories.ts and
+            riskControlProgramCopy.ts have no remaining render site. They are
+            NOT unexercised: wc-program-check, gl-program-check,
+            claims-system-check and the two program-value diagnostics build the
+            ids by hand, so the gates still cover the code a future control
+            would drive.
+
+            ⚠ ONE CONSEQUENCE LEFT UNHANDLED, as the retired intensity slider's
+            note above leaves its own: a game SAVED with programs committed
+            restores with them committed and now has no control to stop them.
+            Nothing normalises it on load, for the reason recorded there —
+            silently rewriting a player's saved decisions is the worse failure.
+            New games are unaffected. */}
       </div>
     </div>
   );
@@ -821,6 +847,68 @@ function IntakeSlider({
           average; a lower one writes more, including riskier ones. The entities keenest to join are often
           the ones the market has priced up.
         </span>
+      </p>
+    </div>
+  );
+}
+
+// ============================================================================
+// INVESTMENT IN RISK CONTROL INCENTIVES — ONE SLIDER PER LINE, SCREEN ONLY.
+//
+// Replaces the five-tile Risk Control Programs card that stood on the Pool tab
+// (see the note where it was removed). The programme a line runs is now a
+// property of the LINE, named here, and the only choice is how much of that
+// line's premium goes into it: 0 to 5%, in 1% steps, default 0.
+//
+// ⚠ THE VALUE IS STORED AND NOT READ. The rate indication this spend is meant
+// to feed is being redesigned, so wiring it now would mean wiring it twice.
+// `LineDecisionSet.riskControlIncentivePct` persists with the rest of the
+// line's decisions and reaches the server inside the opaque decisions blob, so
+// it is ready for the one read site the new indication will need. The screen
+// says this in as many words rather than leaving a live-looking control that
+// quietly does nothing — a lever that moves and changes no figure is the kind
+// of thing a player spends a game trying to explain.
+//
+// ⚠ AND THE SPEND COMES OUT OF THE LINE'S PREMIUM. It is not a surcharge added
+// to members' bills: the same dollars that would have paid losses and expenses
+// pay for the programme instead. That is the sentence under the slider, and it
+// is the whole economic claim the control makes while it is unwired.
+const RISK_CONTROL_PROGRAM_NAME: Record<CoverageLine, string> = {
+  WC: 'Safety & Return-to-Work',
+  GL: 'Training and Analytics',
+  Property: 'Mitigation',
+};
+
+function RiskControlIncentives({ line, value, onChange, disabled }: {
+  line: CoverageLine;
+  value: number;
+  onChange: (v: number) => void;
+  disabled: boolean;
+}) {
+  const r = SLIDER_RANGES.riskControlIncentivePct;
+  return (
+    <div className="space-y-3">
+      <SliderInput
+        label={RISK_CONTROL_PROGRAM_NAME[line]}
+        value={value}
+        min={r.min}
+        max={r.max}
+        step={r.step}
+        onChange={onChange}
+        formatValue={v => `${Math.round(v * 100)}% of premium`}
+        leftLabel="None"
+        rightLabel={`${Math.round(r.max * 100)}% of premium`}
+        valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
+        disabled={disabled}
+        helpText={`How much of ${lineDisplayName(line)}'s premium is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}. `
+          + 'The spend comes out of the premium already charged — it is not added to members\' bills.'}
+      />
+      <p className="text-xs text-gray-600">
+        The spend comes out of this line&rsquo;s premium rather than being added to members&rsquo; bills.
+      </p>
+      <p className="flex items-start gap-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 leading-relaxed">
+        <Info size={12} className="mt-0.5 flex-shrink-0" />
+        <span>Not yet active — will feed the new rate indication. The figure is saved with the year&rsquo;s decisions, and no result moves with it.</span>
       </p>
     </div>
   );
