@@ -79,6 +79,7 @@ import type {
   Region,
 } from '../types/simulation';
 import { deriveSubRng } from './random';
+import { WC_SEVERITY_TREND_PER_YEAR_PARAM } from '../data/pricingParameters';
 import { limitedExpectedValue, memoizeByYear } from './claimMath';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
 import {
@@ -214,7 +215,9 @@ export const wcFrequencyTrend = memoizeByYear(
 // 3.63%). See src/data/exposureTrend.ts for the full derivation, why the two
 // trends cancel BY CONSTRUCTION rather than coincidence, and why CAS's
 // prescribed separate medical/indemnity trends are not available to this model.
-export const WC_SEVERITY_TREND_PER_YEAR = 0.0367;
+// ⚠ DEFINED IN pricingParameters.ts NOW. Imported so this file can use it and
+// re-exported so every existing import of the old name keeps resolving.
+export const WC_SEVERITY_TREND_PER_YEAR = WC_SEVERITY_TREND_PER_YEAR_PARAM;
 
 // Live year 1 is the reference (factor 1.0).
 //

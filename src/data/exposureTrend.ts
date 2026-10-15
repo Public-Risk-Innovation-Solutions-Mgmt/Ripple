@@ -53,7 +53,10 @@ import type { CoverageLine } from '../types/simulation';
 import { memoizeByYear } from '../utils/claimMath';
 
 // SOURCED — see the derivation above.
-export const WAGE_INFLATION_PER_YEAR = 0.0363;
+// ⚠ DEFINED IN pricingParameters.ts NOW. Imported so this file can use it and
+// re-exported so every existing import of the old name keeps resolving.
+import { WAGE_INFLATION_PER_YEAR_PARAM } from './pricingParameters';
+export const WAGE_INFLATION_PER_YEAR = WAGE_INFLATION_PER_YEAR_PARAM;
 
 // ⚠ THE PER-LINE SWITCH. WC AND GL LIVE; PROPERTY OFF. Turning a line on is a
 // REPRICING, not a toggle — it must arrive paired with that line's own sourced

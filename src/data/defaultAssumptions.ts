@@ -7,7 +7,10 @@ import type { ClosureCurve } from '../utils/claimClosure';
 
 // Administrative expense is 15% of Pure Premium at CLF 1.000. It is added
 // after the selected CLF is applied and is not itself multiplied by the CLF.
-export const ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM = 0.15;
+// ⚠ DEFINED IN pricingParameters.ts NOW and re-exported here, so every
+// existing import keeps resolving and the engine reads the parameters module
+// transitively. Same value, moved home — see that file's header.
+export { ADMIN_LOAD_OF_EXPECTED_LOSS as ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM } from './pricingParameters';
 
 // EXCESS CAPITAL STATUS, by the excess capital ratio (excess surplus over the
 // reserve risk margin needed): at or above `strong` is Strong, at or above
@@ -5212,7 +5215,8 @@ export const PRICING_TRIANGLE = { enabled: true };
 // lines), because the estimate stops moving at the horizon. GL and Property fit
 // inside the window on both bases. Do not quote the paid figure on the incurred
 // basis; they are different deficiencies.
-export const TRIANGLE_HISTORY_YEARS = 10;
+// ⚠ DEFINED IN pricingParameters.ts NOW — see ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM above.
+export { PRICING_WINDOW_YEARS as TRIANGLE_HISTORY_YEARS } from './pricingParameters';
 
 // ===========================================================================
 // THE INITIAL ESTIMATE — DERIVED FROM THE TERMINAL TARGET, NOT FITTED.

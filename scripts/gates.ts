@@ -90,6 +90,14 @@ const FAST: string[] = [
                                      //         arm 3 of experience-pricing-check measures LOOP GAIN and
                                      //         twin-differencing cancels an ambient ramp by construction, so
                                      //         nothing else pins this. Positive control in its header.
+  'parameters-page-check',           //   6s   docs/PARAMETERS.md must be what the generator
+                                     //         would write. A byte comparison, so it catches an
+                                     //         edited page, a changed constant that was not
+                                     //         regenerated, and a changed generator that was not
+                                     //         re-run. Confirmed red all three ways. It guards a
+                                     //         DOCUMENT because the pricing rebuild exists so the
+                                     //         model can be tuned from one page, and a stale page
+                                     //         is worse than none.
   'paid-development-check',          //   2s   the pool's development LDFs, paid AND incurred, are
                                      //         RECORDED AND UNWIRED, so no value baseline would notice a
                                      //         mistyped factor. Shape only: every LDF >= 1, none rises

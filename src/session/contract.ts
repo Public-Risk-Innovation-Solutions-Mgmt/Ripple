@@ -507,11 +507,8 @@ export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
  * engine's: the engine has no opinion here yet (see PriorDevelopment), so these
  * are starting points a host is expected to edit, not calibrated constants.
  */
-export const DEFAULT_PRIOR_DEVELOPMENT: Readonly<Record<CoverageLine, number>> = {
-  WC: 0.03,
-  GL: 0.10,
-  Property: -0.02,
-};
+// ⚠ DEFINED IN src/data/pricingParameters.ts NOW, re-exported here. Same values.
+export { PRIOR_DEVELOPMENT_DEFAULTS as DEFAULT_PRIOR_DEVELOPMENT } from '../data/pricingParameters';
 
 export interface RoomView {
   code: string;

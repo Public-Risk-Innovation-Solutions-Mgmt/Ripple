@@ -383,7 +383,8 @@ export const TOWER_TOP: Record<TowerLine, number> = { WC: 50e6, GL: 25e6, Proper
 // fares far better only because catastrophes book at full severity. Ever-negative
 // surplus, full against none: WC 0%/0%, GL 0%/0%, Property 17%/25%.
 // ============================================================================
-export const RISK_LOAD_LAMBDA = 0;
+// ⚠ DEFINED IN pricingParameters.ts NOW, re-exported here. Same value (0).
+export { REINSURANCE_RISK_LOAD_LAMBDA as RISK_LOAD_LAMBDA } from './pricingParameters';
 
 // ============================================================================
 // WC AGGREGATE STOP-LOSS — priced at runtime, deliberately.
