@@ -98,7 +98,34 @@ async function lobbyRows(page) {
   check(!!row && /0 teams so far/.test(row.text), 'the row reads 0 teams so far',
     `row read: ${row ? row.text : '(absent)'}`);
 
+  // ---- 2b. Play Solo and Host an Event are SHOWN and go somewhere ---------
+  // ⚠ THERE WAS NO ASSERTION HERE WHEN THEY WERE HIDDEN, so turning them on
+  // moved nothing and no test noticed. Both cards shipped behind a switch; a
+  // switch with nothing watching it is a switch that gets flipped back by
+  // accident. These check that each renders AND that its click lands on the
+  // right screen — a card that rendered and went nowhere would pass a
+  // presence-only check.
+  check(await player.isVisible('[data-testid="play-solo"]'), 'Play Solo is shown on the lobby',
+    'the Play Solo card did not render — SHOW_PLAY_SOLO is off');
+  check(await player.isVisible('[data-testid="host-an-event"]'), 'Host an Event is shown on the lobby',
+    'the Host an Event card did not render — SHOW_HOST_AN_EVENT is off');
+
+  await player.click('[data-testid="play-solo"]');
+  await player.waitForTimeout(800);
+  check(new URL(player.url()).pathname === '/solo', 'Play Solo leads to /solo',
+    `Play Solo landed on ${new URL(player.url()).pathname}`);
+
+  await lobbyRows(player);
+  await player.click('[data-testid="host-an-event"]');
+  await player.waitForTimeout(800);
+  const hostLanded = new URL(player.url()).pathname === '/host'
+    && await player.isVisible('[data-testid="create-room"]');
+  check(hostLanded, 'Host an Event leads to host setup',
+    `Host an Event landed on ${new URL(player.url()).pathname}, create-room visible: `
+    + `${await player.isVisible('[data-testid="create-room"]')}`);
+
   // ---- 3. join as a team leader, from the lobby ---------------------------
+  await lobbyRows(player);
   await player.click(`[data-testid="join-${code}"]`);
   await player.waitForSelector('[data-testid="role-choice"]');
   check(await player.isVisible('[data-testid="team-leader"]'),

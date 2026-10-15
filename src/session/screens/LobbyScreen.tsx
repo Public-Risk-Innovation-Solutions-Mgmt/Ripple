@@ -8,15 +8,16 @@
 // the thing — but they should not differ, and a deliberate change here belongs
 // in the mockup too.
 //
-// ⚠ PLAY SOLO AND HOST AN EVENT ARE BUILT AND HIDDEN, EACH BEHIND ONE SWITCH.
-// Both cards are written out below exactly as they will ship; neither renders.
-// Turning one on is flipping its constant to `true` and nothing else — no JSX
-// to write, no import to add, no layout to rediscover. They are typed
-// `: boolean` rather than left as literal `false` because TypeScript narrows a
-// literal and would then call the card's own JSX unreachable, which is both a
-// lint error and the wrong claim: the code is reachable, it is turned off.
+// ⚠ PLAY SOLO AND HOST AN EVENT ARE BOTH SHOWN, EACH BEHIND ONE SWITCH. They
+// landed hidden and were turned on by flipping the two constants below and
+// nothing else — no JSX to write, no import to add, no layout to rediscover,
+// which is what the switches were for. Turning either back off is the same one
+// line. They stay typed `: boolean` rather than becoming literal `true`
+// because a literal narrows and would make the other branch unreachable, which
+// is both a lint error and the wrong claim about code that is a switch away.
 //
-// Hosts reach setup at /host directly while the card is off.
+// Play Solo goes to /solo; Host an Event goes to /host, which is also still
+// reachable directly as it was while the card was off.
 // ============================================================================
 
 import { useEffect, useState } from 'react';
@@ -24,9 +25,9 @@ import { CheckCircle2, Clock, Eye, Play, Plus } from 'lucide-react';
 import { sessionTransport, isSessionError, type LobbyEvent, type SessionError } from '../index';
 import { navigate } from '../client/navigation';
 
-/** ⚠ ONE LINE EACH. See the header. */
-const SHOW_PLAY_SOLO: boolean = false;
-const SHOW_HOST_AN_EVENT: boolean = false;
+/** ⚠ ONE LINE EACH. See the header. Both are ON. */
+const SHOW_PLAY_SOLO: boolean = true;
+const SHOW_HOST_AN_EVENT: boolean = true;
 
 function StatusBadge({ status }: { status: 'OPEN' | 'IN_PROGRESS' }) {
   const open = status === 'OPEN';
