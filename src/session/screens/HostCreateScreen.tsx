@@ -85,7 +85,11 @@ function randomSeed(): string {
 }
 
 export default function HostCreateScreen() {
-  const [eventName, setEventName] = useState('Ripple Game');
+  // ⚠ OPENS EMPTY, NOT 'Ripple Game'. The field is REQUIRED now and the lobby
+  // lists it, so a default would be the name most events end up called — a
+  // lobby of identical rows, each needing its code read to tell apart. An empty
+  // required field asks the one question the lobby cannot answer for itself.
+  const [eventName, setEventName] = useState('');
   const [seed, setSeed] = useState(() => randomSeed());
   const [yearCount, setYearCount] = useState(5);
   const [startingYear, setStartingYear] = useState(2026);
@@ -124,7 +128,10 @@ export default function HostCreateScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<SessionError | null>(null);
 
-  const canCreate = yearCount >= 1 && expectedTeams >= 1 && lines.length >= 1 && !busy;
+  // ⚠ THE EVENT NAME IS REQUIRED. It was optional and defaulted; the lobby
+  // lists rooms by it, so a nameless event is a row nobody can choose.
+  const canCreate = eventName.trim().length > 0
+    && yearCount >= 1 && expectedTeams >= 1 && lines.length >= 1 && !busy;
 
   async function handleCreate() {
     setBusy(true);
@@ -140,7 +147,7 @@ export default function HostCreateScreen() {
         seed: seed.trim() || randomSeed(),
         yearCount,
         startingYear,
-        eventName: eventName.trim() || 'Ripple Game',
+        eventName: eventName.trim(),
         expectedTeams,
         lines,
         priorDevelopment: priorDev,
@@ -173,16 +180,30 @@ export default function HostCreateScreen() {
         )}
 
         <div className="mt-5 space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          {/* ⚠ MOVED TO THE TOP AND MADE REQUIRED — THE SAME FIELD, NOT A NEW
+              ONE. It sat in the two-column grid below sharing a row with the
+              seed, optional, defaulting to 'Ripple Game'. The lobby lists
+              events by this name, so it is now the first thing the host is
+              asked and the room cannot be created without it. The mockup drew a
+              SECOND field above the existing one; that was wrong, and there is
+              one field here. */}
+          <label className="block">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Event name <span className="text-red-500">*</span>
+            </span>
+            <input
+              data-testid="event-name"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={eventName}
+              onChange={e => setEventName(e.target.value)}
+              placeholder="e.g. PRISM Spring Workshop"
+            />
+            <span className="mt-1 block text-xs text-slate-400">
+              Required. This is how the event appears in the lobby and on every player&rsquo;s screen.
+            </span>
+          </label>
+
           <div className="grid grid-cols-2 gap-4">
-            <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Event</span>
-              <input
-                data-testid="event-name"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                value={eventName}
-                onChange={e => setEventName(e.target.value)}
-              />
-            </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Seed</span>
               <select

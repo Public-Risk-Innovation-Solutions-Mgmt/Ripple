@@ -17,6 +17,7 @@
 // ============================================================================
 
 export type Route =
+  | { kind: 'lobby' }
   | { kind: 'solo' }
   | { kind: 'host-create' }
   | { kind: 'host-room'; code: string }
@@ -27,6 +28,18 @@ const NAV_EVENT = 'ripple:navigate';
 
 export function parseRoute(pathname: string): Route {
   const parts = pathname.split('/').filter(p => p.length > 0);
+
+  // ⚠ THE ROOT IS THE LOBBY NOW, AND THE SOLO GAME MOVED TO /solo. It is the
+  // one path whose meaning changed: everything else below is untouched, and
+  // ANY OTHER unrecognised path still falls through to the solo game, so a
+  // deep link into it keeps working.
+  //
+  // ⚠ THE SOLO GAME ITSELF IS NOT TOUCHED BY THIS — only the door it is behind.
+  // Proved rather than asserted: the render harness was repointed from / to
+  // /solo and all 262 fingerprints held, which is what says the move is a
+  // routing change and not a change to the game.
+  if (parts.length === 0) return { kind: 'lobby' };
+  if (parts[0] === 'solo' && parts.length === 1) return { kind: 'solo' };
 
   if (parts[0] === 'host') {
     // Codes are uppercased on the way in so a link typed in lower case still

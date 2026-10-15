@@ -122,6 +122,9 @@ async function resultsYearText(page, year) {
   const NAMES = catalogNames();
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
+  // ⚠ THE EVENT NAME IS REQUIRED NOW — a driver that types none gets a
+  // dead Create button. It used to default to 'Ripple Game'.
+  await host.fill('[data-testid="event-name"]', 'Driver Session');
   await host.selectOption('[data-testid="seed"]', SEED);
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', '1');

@@ -55,7 +55,9 @@ const BUTTONS = [
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
 
-  await page.goto('/');
+  // ⚠ /solo, NOT /. The root is the LOBBY now; this driver drives the SOLO
+  // game, so it follows the game rather than the URL.
+  await page.goto('/solo');
   await page.waitForSelector('text=Instance ID / Seed', { timeout: 20000 });
   await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
   await page.getByRole('button', { name: /Start/i }).last().click();

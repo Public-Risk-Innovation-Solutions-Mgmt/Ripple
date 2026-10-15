@@ -63,6 +63,9 @@ const activeView = page => page.$$eval('nav button', bs =>
 
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
+  // ⚠ THE EVENT NAME IS REQUIRED NOW — a driver that types none gets a
+  // dead Create button. It used to default to 'Ripple Game'.
+  await host.fill('[data-testid="event-name"]', 'Driver Session');
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '6');
   await host.fill('[data-testid="expected-teams"]', '3');

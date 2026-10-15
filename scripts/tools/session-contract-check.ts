@@ -449,6 +449,19 @@ async function main(): Promise<void> {
       'WRONG_YEAR', 'a year before the opening position is refused — the earlier pre-game is not the session',
     );
 
+    // ⚠ THE SECOND TEAM JOINS HERE, BEFORE THE ADVANCE, AND IT USED TO JOIN AT
+    // THE END OF THIS BLOCK. A new team cannot be created once the event is
+    // IN_PROGRESS — see the lobby block — and `step` below is the first
+    // advance. The assertion it serves is about a team that has POSTED
+    // nothing, which has nothing to do with when it arrived, so moving it is
+    // the whole fix: it still joins, still posts nothing, and still must have
+    // no history. Leaving it late and relaxing the new rule for the harness
+    // would have been testing a server nobody ships.
+    const fresh = await t.join({ code, teamName: TEAMS[1], role: 'player' });
+    eq(fresh.room.teams[1].resultsByYear, undefined, 'a team that has posted nothing has no history');
+    const freshRead = await t.read({ code, token: fresh.teamToken });
+    eq(freshRead.you.postedYears, undefined, 'and is told so rather than being handed an empty list');
+
     // Once a year is actually played, the opening stays put beside it.
     await t.submit({ code, token: p.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'y1') });
     await step(t, code, hostToken);
@@ -463,10 +476,6 @@ async function main(): Promise<void> {
     // later post to carry it in, so nothing else would ever notice its absence.
     eq((played.you.postedYears ?? []).join(','), '0,1', 'the caller is told which years the room holds for it');
     eq((opened.you.postedYears ?? []).join(','), '0', 'including when the only one is the opening position');
-    const fresh = await t.join({ code, teamName: TEAMS[1], role: 'player' });
-    eq(fresh.room.teams[1].resultsByYear, undefined, 'a team that has posted nothing has no history');
-    const freshRead = await t.read({ code, token: fresh.teamToken });
-    eq(freshRead.you.postedYears, undefined, 'and is told so rather than being handed an empty list');
   }
 
   // ---- the developed column --------------------------------------------
@@ -827,6 +836,99 @@ async function main(): Promise<void> {
     eq(r2.room.rev, r0.room.rev + 2, 'the revision counts writes exactly, so a poller can trust it');
   }
 
+  // ---- THE LOBBY -------------------------------------------------------
+  //
+  // ⚠ ALL FOUR OF THESE RUN AGAINST EVERY IMPLEMENTATION, which is the whole
+  // reason they are here and not only in the browser driver. The local
+  // transport keeps its index in localStorage and the Dynamo one keeps it in a
+  // single LOBBY item updated by path expressions — two entirely different
+  // mechanisms that have to produce one answer. A rule enforced in the screen,
+  // or in only one transport, is a rule a client can walk around.
+  {
+    const t = transport();
+
+    // --- listing ---------------------------------------------------------
+    const a = await freshRoom(t);
+    const listedAfterCreate = (await t.listEvents({})).events;
+    const rowA = listedAfterCreate.find(e => e.code === a.code);
+    ok(!!rowA, 'a created event is listed');
+    eq(rowA?.status, 'OPEN', 'a created event is listed OPEN');
+    eq(rowA?.eventName, 'Ripple Game', 'the row carries the event name');
+    eq(rowA?.teams, 0, 'a new event lists no teams');
+    // ⚠ THE ROW CARRIES NO TOKENS AND NO NAMES. The lobby has no passcode, so
+    // anything on a row is public; team NAMES live behind a join.
+    ok(!JSON.stringify(rowA).includes(a.hostToken), 'a lobby row never carries the host token');
+
+    const joined = await t.join({ code: a.code, teamName: TEAMS[0], role: 'player' });
+    eq((await t.listEvents({})).events.find(e => e.code === a.code)?.teams, 1,
+      'the row counts a team that joined');
+
+    // --- status: OPEN until the FIRST ADVANCE ----------------------------
+    // ⚠ NOT 'when somebody joins', which is what RoomStatus does. A room with
+    // teams waiting for the host is exactly what the lobby is for.
+    eq((await t.read({ code: a.code, token: a.hostToken })).room.status, 'running',
+      'RoomStatus turns running on a join, as it always has');
+    eq((await t.listEvents({})).events.find(e => e.code === a.code)?.status, 'OPEN',
+      'the EVENT is still OPEN once a team has joined — the two statuses differ');
+
+    await t.advance({ code: a.code, token: a.hostToken, expectedYear: 1 });
+    const afterAdvance = (await t.listEvents({})).events.find(e => e.code === a.code);
+    eq(afterAdvance?.status, 'IN_PROGRESS', 'the first advance turns the event IN_PROGRESS');
+    eq(afterAdvance?.currentYear, 2, 'the row carries the current year');
+
+    // --- late join: the SERVER refuses, not only the screen ---------------
+    await rejects(
+      t.join({ code: a.code, teamName: 'Johnny Come Lately', role: 'player' }),
+      'EVENT_IN_PROGRESS', 'a NEW team is refused once the event is in progress');
+    // ⚠ AND THE TWO THINGS IT MUST NOT REFUSE.
+    const rejoin = await t.join({ code: a.code, teamName: TEAMS[0], role: 'player', token: joined.teamToken });
+    ok(rejoin.rejoined, 'a team already in the room may still rejoin in progress');
+    const watcher = await t.join({ code: a.code, teamName: TEAMS[0], role: 'viewer' });
+    eq(watcher.role, 'viewer', 'a viewer may still join in progress');
+
+    // --- hiding -----------------------------------------------------------
+    await rejects(
+      t.setEventHidden({ code: a.code, token: joined.teamToken, hidden: true }),
+      'NOT_HOST', 'only the host may hide an event');
+
+    const hid = await t.setEventHidden({ code: a.code, token: a.hostToken, hidden: true });
+    eq(hid.room.hidden, true, 'the room reports itself hidden');
+    ok(!(await t.listEvents({})).events.some(e => e.code === a.code), 'a hidden event is off the lobby');
+    // ⚠ HIDING IS NOT CLOSING — the room keeps working by its code, and the
+    // late-join rule is unchanged by it in BOTH directions.
+    eq((await t.read({ code: a.code, token: a.hostToken })).room.code, a.code,
+      'a hidden room is still reachable by its code');
+    await rejects(
+      t.join({ code: a.code, teamName: 'Also Late', role: 'player' }),
+      'EVENT_IN_PROGRESS', 'hiding does not reopen an in-progress event to new teams');
+
+    await t.setEventHidden({ code: a.code, token: a.hostToken, hidden: false });
+    ok((await t.listEvents({})).events.some(e => e.code === a.code), 'unhiding puts it back');
+    // Idempotent, and silently so: a toggle that threw on a double click would
+    // be a worse contract than one that agrees.
+    const again = await t.setEventHidden({ code: a.code, token: a.hostToken, hidden: false });
+    eq(again.room.hidden, false, 'setting hidden to what it already is succeeds');
+
+    // --- a hidden OPEN event still takes teams ---------------------------
+    const b = await freshRoom(t);
+    await t.setEventHidden({ code: b.code, token: b.hostToken, hidden: true });
+    const intoHidden = await t.join({ code: b.code, teamName: TEAMS[1], role: 'player' });
+    eq(intoHidden.role, 'player',
+      'a hidden event that is still OPEN takes a new team — hiding governs finding, not joining');
+
+    // --- FINISHED drops off ----------------------------------------------
+    for (let y = 2; y <= 3; y++) await t.advance({ code: a.code, token: a.hostToken, expectedYear: y });
+    const finished = (await t.read({ code: a.code, token: a.hostToken })).room;
+    eq(finished.currentYear, 4, 'the room is past its last year');
+    ok(!(await t.listEvents({})).events.some(e => e.code === a.code), 'a finished event drops off the lobby');
+    // ⚠ AND ITS TEAMS KEEP IT. Dropping off the lobby is not expiry.
+    eq((await t.read({ code: a.code, token: joined.teamToken })).room.code, a.code,
+      'a team still reaches a finished room by its code');
+    await rejects(
+      t.join({ code: a.code, teamName: 'Far Too Late', role: 'player' }),
+      'EVENT_IN_PROGRESS', 'a finished event takes no new teams');
+  }
+
 }
 
 // ---------------------------------------------------------------- the passes
@@ -863,7 +965,7 @@ async function all(): Promise<void> {
     console.log(`FAIL — ${bad} assertion(s) failed.`);
     process.exit(1);
   }
-  console.log('PASS — five endpoints, token authority, redaction, carry-forward and the failure path,');
+  console.log('PASS — seven endpoints, token authority, redaction, carry-forward, the lobby and the failure path,');
   console.log(process.argv.includes('--dynamo')
     ? '       identically over localStorage, the stub, DynamoDB and the Lambda handler.'
     : '       identically over localStorage and over the wire.');

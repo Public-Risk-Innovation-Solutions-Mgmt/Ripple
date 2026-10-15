@@ -108,6 +108,12 @@ export type SessionErrorCode =
   | 'WRONG_YEAR'
   | 'GAME_COMPLETE'
   | 'INVALID_REQUEST'
+  // ⚠ A NEW TEAM ARRIVED AFTER THE FIRST ADVANCE. Refused by the SERVER, not
+  // only greyed out on the lobby: the screen knowing the rule is a courtesy to
+  // the player, and a client that skips the lobby and posts straight to /join
+  // must meet the same answer. A REJOIN is not this — a team already in the
+  // room returns with its own token at any status. See mayCreateTeam.
+  | 'EVENT_IN_PROGRESS'
   // ⚠ 'LINES_LOCKED' WAS HERE AND IS GONE, DELIBERATELY. It refused a rejoin that
   // asked for different coverage lines than the team already held. A team cannot
   // ask for lines at all any more — the HOST picks the room's lines at creation
@@ -318,6 +324,108 @@ export interface TeamYearSummary {
 export type RoomStatus = 'lobby' | 'running' | 'complete';
 export type CallerRole = 'host' | 'player' | 'viewer' | 'anonymous';
 
+// ============================================================================
+// THE EVENT'S STATUS — THE LOBBY'S AXIS, AND IT IS NOT RoomStatus.
+//
+// ⚠ TWO STATUS TYPES, AND THE SECOND IS NOT A TIDY-UP OF THE FIRST. RoomStatus
+// above turns 'lobby' -> 'running' WHEN THE FIRST TEAM JOINS. The lobby needs a
+// different boundary: an event with six teams waiting for the host is still
+// OPEN — joining it is exactly what the lobby is for — and it stops being open
+// at the HOST'S FIRST ADVANCE, because that is the moment a new team would have
+// missed a played year.
+//
+//   OPEN         currentYear === 1           nothing has been advanced
+//   IN_PROGRESS  1 < currentYear <= yearCount
+//   FINISHED     currentYear > yearCount     the last year has been advanced
+//
+// Collapsing the two would have moved RoomStatus's meaning under every existing
+// reader of it (HostRoomScreen, PlayScreen, the harness), to make one word
+// serve two questions. They are different questions, so they are different
+// types, and neither is derived from the other.
+//
+// ⚠ ONE DERIVATION, EXPORTED, AND EVERY IMPLEMENTATION CALLS IT. The local
+// transport, the Lambda handler and the lobby index all have to agree about
+// when an event stops being joinable; a second copy of this arithmetic is how
+// the server and the screen come to disagree about who may join.
+export type EventStatus = 'OPEN' | 'IN_PROGRESS' | 'FINISHED';
+
+export function eventStatusOf(currentYear: number, yearCount: number): EventStatus {
+  if (currentYear > yearCount) return 'FINISHED';
+  if (currentYear > 1) return 'IN_PROGRESS';
+  return 'OPEN';
+}
+
+/**
+ * ⚠ THE ONE RULE BOTH THE SCREEN AND THE SERVER READ. A NEW team may be created
+ * only while the event is OPEN. The screen greys the Team Leader card with this;
+ * the server refuses with it. The screen is a courtesy — the server is the rule,
+ * which is why this lives in the contract and not in a component.
+ *
+ * It does NOT govern a REJOIN: a team already in the room comes back with its
+ * own token at any status, or a refreshed browser would lose its seat the moment
+ * the host advanced. Nor does it govern a viewer, who may always watch.
+ */
+export function mayCreateTeam(status: EventStatus): boolean {
+  return status === 'OPEN';
+}
+
+/**
+ * ONE ROW OF THE LOBBY. Deliberately small: the lobby lists events, it does not
+ * preview them, and every field here is one a player needs to choose a row.
+ *
+ * ⚠ NO TOKENS, NO ROSTER, NO SHOCKS. This payload is served to ANYONE — the
+ * lobby has no passcode — so it carries nothing a room's own `read` would
+ * redact. `teams` is a COUNT, not names: the names are in the room, behind a
+ * join, and a lobby that listed them would publish who is playing to the world.
+ */
+export interface LobbyEvent {
+  code: string;
+  eventName: string;
+  status: EventStatus;
+  /** How many teams have joined so far. A count, never the names. */
+  teams: number;
+  currentYear: number;
+  yearCount: number;
+}
+
+// ⚠ NO FILTER, NO CURSOR, NO PAGE. The list is short by construction — FINISHED
+// events drop off it and hidden ones never appear — so paging would be
+// machinery for a case that does not arise. If it ever does, a cursor is an
+// additive field here.
+export type ListEventsRequest = Record<string, never>;
+
+export interface ListEventsResponse {
+  /** OPEN first, then IN_PROGRESS; each newest first. Never FINISHED, never hidden. */
+  events: LobbyEvent[];
+}
+
+/**
+ * THE HOST TAKES AN EVENT OFF THE LOBBY, OR PUTS IT BACK.
+ *
+ * ⚠ HIDING IS NOT CLOSING, AND THE DISTINCTION IS THE WHOLE POINT. A hidden
+ * event keeps running, its teams are unaffected, and ITS DIRECT LINKS KEEP
+ * WORKING — /join/CODE, /view/CODE and the host's own screen all behave exactly
+ * as before. It leaves the LIST and nothing else.
+ *
+ * ⚠ AND THAT IS CONSISTENT WITH THE LATE-JOIN RULE RATHER THAN A HOLE IN IT.
+ * Hiding does not grant anything: a hidden OPEN event can still be joined by
+ * someone with the code, which is the same as an unlisted room has always been;
+ * a hidden IN_PROGRESS event refuses a new team exactly as a listed one does,
+ * because that refusal keys on STATUS, not on listing. So "hidden" is about who
+ * can FIND it, and "in progress" is about who may JOIN it — two independent
+ * questions, and neither is a way around the other.
+ */
+export interface SetEventHiddenRequest {
+  code: string;
+  /** Host token only. Enforced by the implementation, not by hiding the control. */
+  token: string;
+  hidden: boolean;
+}
+
+export interface SetEventHiddenResponse {
+  room: RoomView;
+}
+
 // What a team looks like to anyone allowed to see the table.
 //
 // ⚠ PRESENCE AND PROGRESS ONLY — NEVER ANOTHER TEAM'S DECISIONS. The host runs
@@ -436,6 +544,13 @@ export interface RoomView {
   lines: CoverageLine[];
   /** Per-line prior development, stored and not yet read. See PriorDevelopment. */
   priorDevelopment: PriorDevelopment;
+  /**
+   * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding
+   * existed, which reads as false — not hidden, which is what those rooms were.
+   * See SetEventHiddenRequest for why this changes only whether the event is
+   * LISTED and nothing about who may join it.
+   */
+  hidden?: boolean;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamView[];
@@ -703,6 +818,16 @@ export interface SessionTransport {
   submit(req: SubmitRequest): Promise<SubmitResponse>;
   advance(req: AdvanceRequest): Promise<AdvanceResponse>;
   read(req: ReadRequest): Promise<ReadResponse>;
+  // ---- the lobby ----------------------------------------------------------
+  // ⚠ TWO NEW METHODS, NOT ONE, AND THE SECOND IS NOT AN OVERSIGHT. The lobby
+  // needs a READ (listEvents) and the host's hide control needs a WRITE. There
+  // was nowhere to put the write: `advance` fires once a year and means
+  // something else, `read` is a read, and folding a mutation into either would
+  // make a method that sometimes writes — the kind of thing this contract's
+  // header spends its length arguing against. So hiding gets its own narrow,
+  // host-only endpoint rather than a flag smuggled onto a call that exists.
+  listEvents(req: ListEventsRequest): Promise<ListEventsResponse>;
+  setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse>;
 }
 
 // ---------------------------------------------------------------- faults

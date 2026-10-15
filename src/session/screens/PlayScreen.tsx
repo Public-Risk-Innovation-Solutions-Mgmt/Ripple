@@ -45,11 +45,12 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock, Eye, Loader2 } from 'lucide-react';
+import { CheckCircle2, Clock, Eye, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
-import { newSessionToken } from '../contract';
+import { newSessionToken, eventStatusOf, mayCreateTeam, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
+import { navigate } from '../client/navigation';
 import { decisionsForYear, decisionsToJson } from '../client/decisions';
 import { useSessionGame } from '../client/useSessionGame';
 import GameShell from '../../game/GameShell';
@@ -63,6 +64,84 @@ export type PlayRole = 'player' | 'viewer';
 interface Props {
   code: string;
   role: PlayRole;
+}
+
+// ============================================================================
+// TEAM LEADER OR VIEWER — the choice the lobby hands off to.
+//
+// ⚠ THE GREYING IS A COURTESY, NOT THE RULE. The server refuses a new team once
+// the event is IN_PROGRESS (EVENT_IN_PROGRESS, from the same contract function
+// this reads), so a client that skips the lobby and posts straight to /join
+// meets the same answer. This exists so a player is told WHY before they type a
+// name, rather than after.
+//
+// ⚠ IT DOES NOT GOVERN A REJOIN. A browser already holding a team's credential
+// sees the resume block above this and takes its seat at any status — which is
+// why this renders beside that block rather than in place of it.
+function RoleChoice({ code, role, status, currentYear }: {
+  code: string; role: PlayRole; status: EventStatus; currentYear: number;
+}) {
+  const lateForTeams = !mayCreateTeam(status);
+  return (
+    <div data-testid="role-choice" className="mt-4 grid grid-cols-2 gap-3">
+      <div
+        data-testid={lateForTeams ? 'team-leader-unavailable' : 'team-leader'}
+        className={`rounded-xl border p-4 ${
+          lateForTeams ? 'border-slate-200 bg-slate-50'
+          : role === 'player' ? 'border-blue-300 bg-white ring-1 ring-blue-100'
+          : 'border-slate-200 bg-white'}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className={lateForTeams ? 'text-slate-400' : 'text-blue-600'}>
+            {lateForTeams ? <Lock size={14} /> : <Users size={14} />}
+          </span>
+          <p className={`text-sm font-semibold ${lateForTeams ? 'text-slate-400' : 'text-slate-900'}`}>Team Leader</p>
+          {lateForTeams && (
+            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">UNAVAILABLE</span>
+          )}
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          {lateForTeams
+            ? status === 'FINISHED'
+              ? 'This event has finished, so no new teams can join. You can still watch it.'
+              : `This event is already in year ${currentYear}, so no new teams can join. You can still watch it.`
+            : 'Name your team and make its decisions each year.'}
+        </p>
+        {!lateForTeams && role === 'viewer' && (
+          <button
+            type="button"
+            data-testid="switch-to-player"
+            onClick={() => navigate(`/join/${code}`)}
+            className="mt-2 text-xs font-medium text-blue-700 underline"
+          >
+            Join as a team instead
+          </button>
+        )}
+      </div>
+
+      <div
+        data-testid="viewer-option"
+        className={`rounded-xl border p-4 ${
+          role === 'viewer' ? 'border-blue-300 bg-white ring-1 ring-blue-100' : 'border-slate-200 bg-white'}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-blue-600"><Eye size={14} /></span>
+          <p className="text-sm font-semibold text-slate-900">Viewer</p>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">Follow a team without playing. Watching claims nothing.</p>
+        {role === 'player' && (
+          <button
+            type="button"
+            data-testid="switch-to-viewer"
+            onClick={() => navigate(`/view/${code}`)}
+            className="mt-2 text-xs font-medium text-blue-700 underline"
+          >
+            Watch instead
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function PlayScreen({ code, role }: Props) {
@@ -192,6 +271,17 @@ export default function PlayScreen({ code, role }: Props) {
                 team and nothing else. */}
             {isViewer ? 'Choose a team to watch. Watching claims nothing.' : 'Name your team. The host has set the lines.'}
           </p>
+
+          {/* ⚠ THE ROLE CHOICE, AND THE PATH STILL CARRIES THE ROLE. This file's
+              router note argues that a single link with a role toggle makes the
+              damaging mistake (claiming a team by accident, locking out the
+              person meant to drive it) exactly as easy as the harmless one.
+              That still holds and this does not undo it: /join and /view remain
+              two links, the lobby sends a player to /join, and this block is a
+              DELIBERATE, VISIBLE switch between them rather than a default
+              anyone lands on. The damaging direction is also the one the server
+              refuses once the event is under way. */}
+          <RoleChoice code={code} role={role} status={eventStatusOf(room.currentYear, room.yearCount)} currentYear={room.currentYear} />
 
           {actionError && (
             <div data-testid="claim-error" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

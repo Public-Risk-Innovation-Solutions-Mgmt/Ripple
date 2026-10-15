@@ -42,13 +42,25 @@ const STATUS: Record<SessionErrorCode, number> = {
   WRONG_YEAR: 409,
   GAME_COMPLETE: 409,
   INVALID_REQUEST: 400,
+  // ⚠ 409, NOT 403. A late team is not UNAUTHORISED — nothing is wrong with
+  // who it is, and no credential would help. The room is in a state that
+  // refuses the request, which is the same shape as WRONG_YEAR and TEAM_TAKEN
+  // above and maps to the same code.
+  EVENT_IN_PROGRESS: 409,
   // LINES_LOCKED is gone from the contract — a join carries no lines, so no
   // server can emit it. Nothing maps to 409 for it any more.
   TRANSPORT_FAILURE: 500,
 };
 
-type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read';
-const ENDPOINTS: readonly Endpoint[] = ['createRoom', 'join', 'submit', 'advance', 'read'];
+// ⚠ TWO NEW ROUTES, AND THE DISPATCH BELOW NEEDED NOTHING ELSE. It calls
+// transport[endpoint] generically, so a route is this list plus a method on the
+// transport — which is the property that made adding the lobby a contract
+// change rather than a handler change. Mike adds the routes in API Gateway; see
+// docs/AWS_HANDOFF.md.
+type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read' | 'listEvents' | 'setEventHidden';
+const ENDPOINTS: readonly Endpoint[] = [
+  'createRoom', 'join', 'submit', 'advance', 'read', 'listEvents', 'setEventHidden',
+];
 
 function json(status: number, body: unknown): APIGatewayProxyStructuredResultV2 {
   return {

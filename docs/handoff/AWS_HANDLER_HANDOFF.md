@@ -1,8 +1,50 @@
 # AWS session handler — handoff
 
+## ⚠ TWO NEW ROUTES MIKE MUST ADD
+
+The lobby added two endpoints to the seven-endpoint handler. API Gateway routes
+each one explicitly, so **the handler shipping is not enough — these two routes
+have to be created or they 404 at the gateway before the Lambda is reached**:
+
+```
+POST /listEvents        no Authorization header — the lobby has no passcode
+POST /setEventHidden    Authorization: Bearer <host token>
+```
+
+Same v2 HTTP API proxy integration, same Lambda, same everything else as the
+five that exist (`createRoom`, `join`, `submit`, `advance`, `read`). Nothing in
+the handler changed to add them beyond their names: dispatch is
+`transport[endpoint]`, so a route is a list entry plus a transport method.
+
+`listEvents` is the only endpoint that takes **no token at all**, and that is
+deliberate — the lobby is public and its rows carry no tokens, no team names
+and no roster. If an authorizer is ever put in front of these routes, it must
+not be put in front of that one.
+
+**`GET /` is not a route here.** The lobby is the front end's root path, served
+by the static site; only the two POSTs above are the gateway's business.
+
 ## ⚠ Deploy the handler and the front end together (multiplayer)
 
-The `multiplayer` branch changes the session contract: a room stores its
+**This applies to the lobby change as well, and the two land together.** A new
+front end against an old handler calls `listEvents` and gets a gateway 404,
+which the client reports as `TRANSPORT_FAILURE` — the lobby renders its error
+and lists nothing, so the main URL is a dead page. `setEventHidden` 404s the
+same way, so the host's hide control fails every time it is used. Neither is
+subtle and neither corrupts anything, but both make the product look broken.
+
+The late-join rule makes the order matter more than it did. **The server is the
+rule** — a new team is refused once an event is IN_PROGRESS — so an OLD handler
+under a new front end accepts late teams the screens say are impossible: the
+lobby greys the Team Leader card, and a client that posts anyway gets a seat.
+That is the one direction that puts a room into a state nothing downstream
+expects, which is the reason the order is not merely cosmetic.
+
+**So: deploy the handler first, then the front end.** That order is safe both
+ways, for this change and for the host-picks-lines change below. The two ship
+through different pipelines and nothing enforces the order.
+
+The `multiplayer` branch also changes the session contract: a room stores its
 coverage `lines` and `priorDevelopment`, chosen by the host at creation, and
 `join` no longer sends lines (`LINES_LOCKED` is gone with the field).
 
@@ -11,9 +53,6 @@ coverage `lines` and `priorDevelopment`, chosen by the host at creation, and
 refused with `INVALID_REQUEST` because the new client sends no lines — an
 unjoinable room. The other direction is safe on purpose: a new handler **ignores**
 a stray `lines` on a join and returns the room's set.
-
-So **deploy the handler first, then the front end.** That order is safe both
-ways. The two ship through different pipelines and nothing enforces it.
 
 Nothing on `multiplayer` is deployed yet, so there is no live break today.
 
@@ -189,7 +228,7 @@ deploys nothing is not useful to build first. Start here.
 | `src/session/server/dynamo.ts` | DynamoDB Document Client factory, reading `TABLE_NAME` from the environment (never hard-coded — see `keys.ts`). `hashToken` (SHA-256 hex via `node:crypto` — hosted tokens must be hashed before they touch the table, never stored raw; `keys.ts` is explicit about this for the `CREATE#` index and it applies to every token-bearing item). `newTeamId`. `newRoomCode` — same alphabet/length as `localTransport.ts` uses, duplicated rather than imported (importing would drag a browser-oriented module into the Lambda bundle for one constant). |
 | `src/session/server/views.ts` | `buildRoomView`, `buildTeamView`, `buildCallerView`, `statusOf`, `highestPlayedYear` — the same projections `localTransport.ts` does (compare its `roomView`/`teamView`/`callerView`/`statusOf` functions), rewritten over the DynamoDB header's `roster` map plus queried `D#`/`R#` items instead of an in-memory record. |
 | `src/session/server/rooms.ts` | `export class DynamoSessionTransport implements SessionTransport` — the five endpoints, against DynamoDB. Semantics below. |
-| `src/session/server/handler.ts` | `export const handler` — the actual Lambda entry point. API Gateway **v2 HTTP API** proxy integration (`APIGatewayProxyEventV2` / `...ResultV2` from `@types/aws-lambda`, since the guide's environment is an HTTP API, not a REST API). Routes `POST /<endpoint>` (`createRoom`/`join`/`submit`/`advance`/`read`) to `DynamoSessionTransport`, JSON (de)serializes, maps a thrown `SessionError` to an HTTP status + `{error:{code,message,retryable}}` body matching what `httpTransport.ts`'s `codeForStatus`/`ErrorBody` parsing expects. **No CORS headers** — the guide (section 10) is explicit that API Gateway owns CORS and the handler must not add any. |
+| `src/session/server/handler.ts` | `export const handler` — the actual Lambda entry point. API Gateway **v2 HTTP API** proxy integration (`APIGatewayProxyEventV2` / `...ResultV2` from `@types/aws-lambda`, since the guide's environment is an HTTP API, not a REST API). Routes `POST /<endpoint>` (`createRoom`/`join`/`submit`/`advance`/`read`/`listEvents`/`setEventHidden`) to `DynamoSessionTransport`, JSON (de)serializes, maps a thrown `SessionError` to an HTTP status + `{error:{code,message,retryable}}` body matching what `httpTransport.ts`'s `codeForStatus`/`ErrorBody` parsing expects. **No CORS headers** — the guide (section 10) is explicit that API Gateway owns CORS and the handler must not add any. |
 | `scripts/tools/build-handler.ts` | Bundles `handler.ts` with `esbuild` (new devDependency) into a single CJS file — `platform:'node'`, `target:'node22'`, everything bundled (no externals) for an arm64-safe single artifact per the guide's pipeline spec (section 6). Zips it with `fflate` (already a dependency, no new dep needed) to `dist-lambda/handler.zip` with `index.js` at the zip root exporting `handler`. Run via `npx tsx scripts/tools/build-handler.ts`, matching how every other script in `scripts/tools/` and `scripts/diagnostics/` runs. Wire as `npm run build:handler` in `package.json` — the guide's pipeline (section 6) expects exactly that script name. |
 
 *(⚠ Correction 5: see Status for what else had to change. The build also unzips its own output,

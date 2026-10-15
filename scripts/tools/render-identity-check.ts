@@ -726,8 +726,16 @@ async function settle(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
 }
 
+// ⚠ THE SOLO GAME IS AT /solo NOW, NOT AT THE ROOT. The root became the lobby
+// when it landed; this harness fingerprints the SOLO game and nothing else, so
+// it follows the game rather than the URL. The move was proved inert here: run
+// against /solo on the subject and against / on its parent, all 262
+// fingerprints are identical, which is what says a route changed and the game
+// did not.
+const SOLO_URL = `${BASE_URL.replace(/\/+$/, '')}/solo`;
+
 async function startGame(page: Page, cfg: Cfg): Promise<void> {
-  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+  await page.goto(SOLO_URL, { waitUntil: 'domcontentloaded' });
   // A previous config's save would restore instead of showing setup.
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: 'domcontentloaded' });

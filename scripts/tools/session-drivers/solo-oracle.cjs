@@ -22,7 +22,9 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
 
-  await page.goto('/');
+  // ⚠ /solo, NOT /. The root is the LOBBY now; this driver drives the SOLO
+  // game, so it follows the game rather than the URL.
+  await page.goto('/solo');
   await page.waitForSelector('text=Instance ID / Seed', { timeout: 20000 });
   // Fixed seed so the whole walk is deterministic.
   const seedInput = page.locator('input[placeholder="e.g. ABC12345"]');

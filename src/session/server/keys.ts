@@ -119,6 +119,56 @@
 //
 //   pk = CREATE#<hash(hostToken)>   sk = CREATE      { code }
 //
+// ⚠ AND A SECOND ITEM THAT IS NOT IN A ROOM'S PARTITION EITHER — THE LOBBY.
+//
+//   pk = LOBBY   sk = LOBBY   { events: { <code>: { eventName, status, teams,
+//                                                   currentYear, yearCount,
+//                                                   hidden, updatedAt } } }
+//
+// ⚠ IT EXISTS BECAUSE THIS TABLE CANNOT BE SCANNED FOR ROOMS, BY DESIGN. Every
+// room is its own partition keyed ROOM#<code>; nothing relates them, and that
+// is deliberate — a room is found by the code its host read out, never by
+// enumeration. The lobby needs the opposite: "what is on right now", with no
+// code in hand. A Scan would read every item of every room to answer it, costs
+// the whole table per page view, and gets slower forever.
+//
+//   * ONE ITEM, NOT ONE PER EVENT. A GetItem answers the whole lobby. An item
+//     per event would need a Query on a shared partition key, which is the same
+//     hot partition with more moving parts.
+//   * UPDATED AT FOUR MOMENTS: create, hide, start (the first advance) and
+//     finish (the last). The local transport writes it at the same four, and
+//     additionally when a team joins, so the row's team COUNT is honest.
+//   * ⚠ EVERY WRITE IS AN UpdateExpression ON ONE PATH — SET events.#c = :e —
+//     NEVER A PUT OF THE WHOLE MAP. Two hosts creating at once both read the
+//     item, both add their own row, and a Put from each means the second
+//     silently drops the first: a created event that is simply never listed,
+//     with nothing anywhere recording that it happened. A path update touches
+//     only its own code and the two interleave safely. This is the same
+//     lost-update shape the CREATE# index was CORRECTED for below, and it is
+//     the reason that correction is worth reading before touching this.
+//   * NO CONDITION ON THE PATH, DELIBERATELY. The write is last-writer-wins for
+//     ONE event's row, and the writers of a given row are that room's own
+//     create/advance/hide — already serialised by the header's own conditional
+//     writes. What must not be lost is ANOTHER event's row, and the path
+//     expression is what guarantees that.
+//   * NO TTL ON THIS ITEM. It outlives every room it names, so its rows must be
+//     treated as pointers: listEvents BatchGets the headers and drops a row
+//     whose room is gone (expired by TTL) or whose header disagrees. Rows found
+//     dead are removed with REMOVE events.#c in the same pass, so the item does
+//     not grow without bound.
+//   * SIZE: 118 BYTES A ROW — MEASURED, attribute names plus values in UTF-8,
+//     on a realistic row ("PRISM Spring Workshop", IN_PROGRESS, 6 teams, year
+//     3 of 5). A hundred live events is 11.5 KB against the 400 KB item cap,
+//     and FINISHED rows are pruned, so the live set is what is ON rather than
+//     everything that ever was. It would take roughly 3,400 simultaneous live
+//     events to reach the cap.
+//
+//   ⚠ AND THE ROOM HEADER BARELY MOVES: `hidden` is 11 bytes (name plus a
+//     boolean) on an item the SIZES table below puts at ~3 KB, driven by the
+//     roster and the shock list. No new item in a room's partition, no new key,
+//     and no change to any access pattern — the flag is read and written with
+//     the header that was already being read and written.
+//
 //   * HASHED, NOT RAW. The local implementation keys on the token itself and
 //     says so — the room record beside it already holds the token in the clear
 //     in the same localStorage, so it is no worse THERE. A hosted table is a
@@ -171,9 +221,27 @@
 //     forget. It is still enforced in code, not by the key — see HARD, 6.
 //   * VIEWERS ARE THEIR OWN ITEMS because the viewer list grows with the number
 //     of watchers, not with teams or years, and has no business in the header.
-//   * `status` IS NOT STORED. It is derived from currentYear and the roster, as
-//     localTransport derives it today; storing it would be one more field to
-//     keep in step.
+//   * `status` IS NOT STORED ON THE HEADER, AND STILL IS NOT. It is derived
+//     from currentYear and the roster, as localTransport derives it today;
+//     storing it would be one more field to keep in step.
+//
+//     ⚠ THE LOBBY ROW DOES CARRY A STATUS, AND THAT IS NOT A REVERSAL OF THIS.
+//     The row is an INDEX of rooms it cannot read — the whole reason the item
+//     exists is that answering "what is on" by reading every header is the
+//     access pattern this table refuses. So the status there is a cached copy,
+//     written from eventStatusOf at the four moments, and listEvents RE-DERIVES
+//     from the header it fetches before serving a row. The cache is what makes
+//     the row orderable and prunable; the header remains the authority, and
+//     where they disagree the header wins and the row is rewritten.
+//
+//     ⚠ AND IT IS A DIFFERENT STATUS. RoomStatus ('lobby' | 'running' |
+//     'complete') turns 'running' when the first team JOINS. EventStatus
+//     ('OPEN' | 'IN_PROGRESS' | 'FINISHED') turns IN_PROGRESS at the host's
+//     first ADVANCE, because that is when a new team would have missed a played
+//     year. Two questions, two types; see contract.ts's eventStatusOf.
+//
+//   * `hidden` IS STORED ON THE HEADER, unlike status, because nothing derives
+//     it: it is a choice the host made and the only record of it.
 //   * YEARS ARE PADDED TO THREE DIGITS so the sort order holds past 99. padYear
 //     below refuses anything else rather than truncating.
 //
@@ -239,6 +307,14 @@
 //   advance             Update ROOM only: currentYear = :e+1,   currentYear = :e AND
 //                       ADD rev                                 currentYear <= yearCount
 //                                                               AND hostTokenHash = :h
+//   setEventHidden      Update ROOM: hidden = :h, ADD rev        ROOM exists AND
+//                                                                hostTokenHash = :h
+//   lobby, any moment   Update LOBBY: SET events.#c = :entry     none — see the LOBBY
+//                       (create / start / finish / hide)         item above on why the
+//                                                                PATH is the guarantee
+//                                                                and a condition is not
+//   lobby, prune        Update LOBBY: REMOVE events.#c           none; removing a row
+//                       for a row whose room is gone             twice is a no-op
 //
 // ⚠ CORRECTED — A FAILED CONDITION IS NOT AUTOMATICALLY THE ERROR IT GUARDS.
 // This table said a failed NAME# condition is TEAM_TAKEN. Under concurrency it
@@ -504,6 +580,31 @@ export function createPk(hostTokenHash: string): string {
 
 /** The idempotency index item's sort-key VALUE. */
 export const CREATE_SK = 'CREATE';
+
+/**
+ * THE LOBBY INDEX ITEM — a single item, not in any room's partition, holding
+ * one row per current event. See ONE TABLE above for why it exists and why
+ * every write to it is a path update rather than a Put.
+ *
+ * Both halves are the literal string LOBBY: there is exactly one of these, so
+ * there is nothing to key it by. It is deliberately NOT namespaced under a room
+ * prefix — anything matching ROOM#... must be a room.
+ */
+export const LOBBY_PK = 'LOBBY';
+export const LOBBY_SK = 'LOBBY';
+
+/**
+ * The attribute path of ONE event's row inside that item.
+ *
+ * ⚠ THE CODE GOES IN AN ExpressionAttributeName, NEVER INTO THE EXPRESSION
+ * TEXT. A code is drawn from a fixed alphabet today, so none of them can carry
+ * a character a path would choke on — but an expression built by concatenation
+ * is a habit that outlives the constraint that made it safe, and this one would
+ * be built in the handler where the alphabet is not in view.
+ */
+export function lobbyEventPath(): { expression: string; nameKey: string } {
+  return { expression: 'events.#c', nameKey: '#c' };
+}
 
 /**
  * One PLAYER token's claim, keyed by the hash of the token. Exists only so a

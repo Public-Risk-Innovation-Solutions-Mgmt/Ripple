@@ -67,6 +67,8 @@ export interface RoomHeader {
   // buildRoomView defaults them rather than returning a room with no game.
   lines?: CoverageLine[];
   priorDevelopment?: PriorDevelopment;
+  /** Taken off the lobby by the host. Absent reads as false. */
+  hidden?: boolean;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   roster: Record<string, RosterEntry>;
@@ -148,6 +150,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched): RoomView {
     expectedTeams: header.expectedTeams,
     lines: [...(header.lines ?? LINE_ORDER)],
     priorDevelopment: { ...(header.priorDevelopment ?? {}) },
+    hidden: header.hidden ?? false,
     currentYear: header.currentYear,
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
     teams: orderedRoster(header).map(([teamId, entry]) =>

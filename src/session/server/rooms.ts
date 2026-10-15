@@ -126,18 +126,21 @@ import type {
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
+  ListEventsResponse, LobbyEvent,
   PriorDevelopment,
   ReadRequest, ReadResponse,
+  SetEventHiddenRequest, SetEventHiddenResponse,
   SessionTransport,
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
 } from '../contract';
-import { SessionError, SESSION_TOKEN_PATTERN, newSessionToken } from '../contract';
+import { SessionError, SESSION_TOKEN_PATTERN, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
 import { Faults } from '../faults';
 import type { CoverageLine } from '../../types/simulation';
 import {
-  CREATE_SK, RESULT_PREFIX, ROOM_HEADER_SK,
-  createPk, decisionPrefix, decisionSk, nameSk, resultPrefix, resultSk, roomPk, tokenSk, viewerSk,
+  CREATE_SK, LOBBY_PK, LOBBY_SK, RESULT_PREFIX, ROOM_HEADER_SK,
+  createPk, decisionPrefix, decisionSk, lobbyEventPath, nameSk, resultPrefix, resultSk, roomPk,
+  tokenSk, viewerSk,
 } from './keys';
 import { dynamoFromEnv, hashToken, newRoomCode, newTeamId, type Dynamo, type DynamoConfig } from './dynamo';
 import {
@@ -536,6 +539,10 @@ export class DynamoSessionTransport implements SessionTransport {
         throw new SessionError('TRANSPORT_FAILURE', 'The room index changed under this request.', true);
       }
 
+      // CREATE — the first of the four moments the listing changes. AFTER the
+      // room and its index, for the same reason they are ordered that way: a
+      // failure between them leaves no row pointing at a room nobody made.
+      await this.writeLobbyRow(await this.getHeader(code));
       const view = await this.freshView(code, 'host', null);
       return { code, hostToken: req.hostToken, room: view.room, reused: false };
     });
@@ -636,6 +643,23 @@ export class DynamoSessionTransport implements SessionTransport {
         }
 
         // ---- a player creating its team -----------------------------------
+        // ⚠ THE SERVER REFUSES A LATE TEAM. Reached only on the CREATING path:
+        // every rejoin and every viewer returned above. Keyed on STATUS, not on
+        // whether the event is listed — a hidden OPEN event still takes teams,
+        // a listed IN_PROGRESS one still refuses them. Same rule, same message
+        // and same code as the local transport, from the same contract
+        // function, because the harness runs one set of assertions at both.
+        const joinStatus = eventStatusOf(header.currentYear, header.yearCount);
+        if (!mayCreateTeam(joinStatus)) {
+          throw new SessionError(
+            'EVENT_IN_PROGRESS',
+            joinStatus === 'FINISHED'
+              ? 'This event has finished, so no new teams can join.'
+              : `This event is already in year ${header.currentYear}, so no new teams can join. `
+                + 'You can still watch it as a viewer.',
+          );
+        }
+
         // ⚠ THE ROOM'S LINES, NOT THE REQUEST'S, AND NO VALIDATION HERE. The set
         // was checked once when the host created the room. A stale client still
         // sending `lines` is ignored rather than refused, as the contract asks.
@@ -824,6 +848,189 @@ export class DynamoSessionTransport implements SessionTransport {
    * from NOT_HOST. The update still conditions on the host hash, so case 1 is
    * also enforced by the write itself rather than only by the read before it.
    */
+  // ---------------------------------------------------------------- lobby
+  //
+  // ⚠ EVERY WRITE HERE IS A PATH UPDATE, NEVER A PUT OF THE WHOLE ITEM. Two
+  // hosts creating at once both read the lobby item, both add their own row,
+  // and two Puts mean the second silently drops the first — a created event
+  // that is simply never listed, with nothing recording that it happened. A
+  // path update touches only its own code and the two interleave safely. See
+  // keys.ts, THE LOBBY, and the CREATE# correction it points at.
+  private async writeLobbyRow(header: RoomHeader): Promise<void> {
+    const { expression, nameKey } = lobbyEventPath();
+    const entry = {
+      code: header.code,
+      eventName: header.eventName,
+      status: eventStatusOf(header.currentYear, header.yearCount),
+      teams: Object.values(header.roster ?? {}).filter(t => t.joined).length,
+      currentYear: header.currentYear,
+      yearCount: header.yearCount,
+      hidden: header.hidden ?? false,
+      updatedAt: header.updatedAt,
+    };
+    const setRow = () => this.db.doc.send(new UpdateCommand({
+      TableName: this.db.table,
+      Key: { pk: LOBBY_PK, sk: LOBBY_SK },
+      UpdateExpression: `SET ${expression} = :entry`,
+      ExpressionAttributeNames: { [nameKey]: header.code },
+      ExpressionAttributeValues: { ':entry': entry },
+    }));
+
+    try {
+      await setRow();
+    } catch (err) {
+      // ⚠ A NESTED PATH CANNOT BE SET WHEN ITS PARENT MAP DOES NOT EXIST, and
+      // DynamoDB answers that with a ValidationException reading "The document
+      // path provided in the update expression is invalid for update" — not
+      // with a condition failure, and not by creating the map. The FIRST event
+      // ever created hits it, every time, on a fresh table.
+      //
+      // ⚠ WHY NOT PUT THE WHOLE ITEM, OR SET events AND events.#c TOGETHER.
+      // A Put is the lost update this item exists to avoid (two hosts creating
+      // at once, the second dropping the first), and DynamoDB evaluates every
+      // SET clause against the ORIGINAL item, so `SET events = if_not_exists(
+      // events, :empty), events.#c = :entry` overlaps two paths and is refused
+      // outright. So: create the map if absent — itself conditional, so two
+      // racing creators cannot clear each other's rows — then set the path.
+      // One write in the steady state; two exactly once per table.
+      const name = err instanceof Error ? err.name : '';
+      if (name !== 'ValidationException') throw err;
+      try {
+        await this.db.doc.send(new UpdateCommand({
+          TableName: this.db.table,
+          Key: { pk: LOBBY_PK, sk: LOBBY_SK },
+          UpdateExpression: 'SET events = :empty',
+          ConditionExpression: 'attribute_not_exists(events)',
+          ExpressionAttributeValues: { ':empty': {} },
+        }));
+      } catch (seedErr) {
+        // Somebody else seeded it between our two calls, which is the case the
+        // condition is for. Anything else is real.
+        if (!(seedErr instanceof ConditionalCheckFailedException)) throw seedErr;
+      }
+      await setRow();
+    }
+  }
+
+  /** Drop a row whose room is gone. Removing one twice is a no-op, so no condition. */
+  private async removeLobbyRows(codes: string[]): Promise<void> {
+    const { expression, nameKey } = lobbyEventPath();
+    for (const code of codes) {
+      await this.db.doc.send(new UpdateCommand({
+        TableName: this.db.table,
+        Key: { pk: LOBBY_PK, sk: LOBBY_SK },
+        UpdateExpression: `REMOVE ${expression}`,
+        ExpressionAttributeNames: { [nameKey]: code },
+      }));
+    }
+  }
+
+  // No parameter — ListEventsRequest is empty. See the local transport.
+  listEvents(): Promise<ListEventsResponse> {
+    return this.call(async () => {
+      const got = await this.db.doc.send(new GetCommand({
+        TableName: this.db.table,
+        Key: { pk: LOBBY_PK, sk: LOBBY_SK },
+      }));
+      const rows = (got.Item?.events ?? {}) as Record<string, { code: string; updatedAt?: number }>;
+      const codes = Object.keys(rows);
+      if (codes.length === 0) return { events: [] };
+
+      // ⚠ THE HEADERS ARE THE AUTHORITY, NOT THE ROWS. The index is derived
+      // data and can be stale in either direction, so a row is only ever a
+      // pointer: the status served is RE-DERIVED from the header fetched here.
+      // This is also the only way to notice a room that TTL has deleted — its
+      // row outlives it, and a lobby listing events nobody can open would be
+      // worse than one listing none.
+      const headers = new Map<string, RoomHeader>();
+      for (let i = 0; i < codes.length; i += 100) {
+        const chunk = codes.slice(i, i + 100);
+        const res = await this.db.doc.send(new BatchGetCommand({
+          RequestItems: {
+            [this.db.table]: {
+              Keys: chunk.map(c => ({ pk: roomPk(c), sk: ROOM_HEADER_SK })),
+            },
+          },
+        }));
+        for (const item of res.Responses?.[this.db.table] ?? []) {
+          const h = item as RoomHeader;
+          headers.set(h.code, h);
+        }
+      }
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const dead: string[] = [];
+      const events: LobbyEvent[] = [];
+      for (const code of codes) {
+        const header = headers.get(code);
+        // ⚠ EXPIRED IS BOTH "GONE" AND "PAST ITS STAMP". TTL deletion is a
+        // background sweep that runs well after the expiry, so a header can
+        // still be present and already dead — keys.ts: reads check the stamp,
+        // not the item's presence.
+        if (!header || header.expiresAtSec <= nowSec) { dead.push(code); continue; }
+        if (header.hidden) continue;
+        const status = eventStatusOf(header.currentYear, header.yearCount);
+        // FINISHED EVENTS DROP OFF, and their rows go with them: the room keeps
+        // serving its teams until TTL, it simply stops being walkable-up-to.
+        if (status === 'FINISHED') { dead.push(code); continue; }
+        events.push({
+          code: header.code,
+          eventName: header.eventName,
+          status,
+          teams: Object.values(header.roster ?? {}).filter(t => t.joined).length,
+          currentYear: header.currentYear,
+          yearCount: header.yearCount,
+        });
+      }
+      if (dead.length > 0) await this.removeLobbyRows(dead);
+
+      const rank = (e: LobbyEvent) => (e.status === 'OPEN' ? 0 : 1);
+      events.sort((a, b) => rank(a) - rank(b)
+        || (rows[b.code]?.updatedAt ?? 0) - (rows[a.code]?.updatedAt ?? 0));
+      return { events };
+    });
+  }
+
+  setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      if (typeof req.hidden !== 'boolean') {
+        throw new SessionError('INVALID_REQUEST', 'hidden must be true or false.');
+      }
+      const h = hashToken(req.token);
+      try {
+        // ⚠ THE HOST CHECK IS THE CONDITION, NOT A READ-THEN-WRITE. Reading the
+        // header first and then writing would be the same two-step the advance
+        // path was corrected away from: the authority has to be part of the
+        // write or it is a race with its own re-read.
+        await this.db.doc.send(new UpdateCommand({
+          TableName: this.db.table,
+          Key: { pk: roomPk(code), sk: ROOM_HEADER_SK },
+          // ⚠ `hidden` IS A DYNAMODB RESERVED KEYWORD, so it cannot appear in an
+          // expression as itself — the write fails with "Attribute name is a
+          // reserved keyword". Aliased through ExpressionAttributeNames, which
+          // is the only reason this one field is written differently from
+          // `updatedAt` and `rev` beside it. Caught by the --dynamo pass; the
+          // localStorage and stub-server passes cannot see it, because neither
+          // has an expression language to be reserved in.
+          UpdateExpression: 'SET #hidden = :hid, updatedAt = :now ADD rev :one',
+          ConditionExpression: 'attribute_exists(sk) AND hostTokenHash = :h',
+          ExpressionAttributeNames: { '#hidden': 'hidden' },
+          ExpressionAttributeValues: { ':hid': req.hidden, ':now': Date.now(), ':one': 1, ':h': h },
+          ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+        }));
+      } catch (err) {
+        if (!(err instanceof ConditionalCheckFailedException)) throw err;
+        if (!err.Item) throw new SessionError('ROOM_NOT_FOUND', `No room with code ${code}.`);
+        throw new SessionError('NOT_HOST', 'Only the host may hide an event.');
+      }
+      const header = await this.getHeader(code);
+      await this.writeLobbyRow(header);
+      const view = await this.viewFor(header, 'host', null);
+      return { room: view.room };
+    });
+  }
+
   advance(req: AdvanceRequest): Promise<AdvanceResponse> {
     return this.call(async () => {
       const code = requireString(req.code, 'code');
@@ -870,6 +1077,11 @@ export class DynamoSessionTransport implements SessionTransport {
           `The room is on year ${old.currentYear}; that request expected year ${e}.`,
         );
       }
+      // START and FINISH — the first advance takes the event OPEN ->
+      // IN_PROGRESS, the last IN_PROGRESS -> FINISHED. Written on EVERY advance
+      // so the row's currentYear stays honest for the lobby; listEvents prunes
+      // the row once the status it derives is FINISHED.
+      await this.writeLobbyRow(await this.getHeader(code));
       const view = await this.freshView(code, 'host', null);
       return { room: view.room, currentYear: e + 1, advanced: true };
     });
