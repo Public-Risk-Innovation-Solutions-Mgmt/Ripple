@@ -36,6 +36,9 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
   return merged.size > 0 ? [...merged.values()] : undefined;
 }
 import { SeededRandom, deriveSubRng } from './random';
+// Aliased: the result field is called newPurePremiumPer100 too, and the
+// unaliased import collides with it in this scope.
+import { newPurePremiumPer100 as computeNewPurePremium } from './newPurePremium';
 import { dividendAssessmentBasis } from './dividendAssessment';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
@@ -1041,6 +1044,23 @@ export function processLineYear(
   const pricedPurePremiumPer100 = currentPurePremiumPer100(
     line, yearNumber, enrolledMembers, experienceBasis, pricedCession,
   );
+
+  // ⚠ THE NEW PURE PREMIUM, IN SHADOW. Commit 2 of the pricing rebuild: it is
+  // computed here so it sees exactly the basis the real rate saw, and it is
+  // read by NOTHING below — not by expectedLoss, not by the pool premium, not
+  // by the tower. It reaches the result and the report and stops there. If
+  // this line were deleted the charge would be identical, which is the
+  // property the value baselines assert.
+  //
+  // ⚠ IT TAKES THE UNWINDOWED LEDGER, not `experienceBasis.rows`. That basis is
+  // already cut to the OLD window of ten; the new window is five and takes its
+  // own slice, so handing it a ten-row basis would work by accident and break
+  // the day the two parameters differ in the other direction.
+  const newPp = computeNewPurePremium(line, yearNumber, {
+    rows: lineState.reserveDevelopment ?? [],
+    allMarketMembers: ctx.allMarketMembers,
+    membershipHistory: ctx.membershipHistory,
+  });
 
   const totalMarketExposure = memberResult.totalMarketExposure;
   const marketShare = activeExposure / Math.max(totalMarketExposure, 0.01);
@@ -2432,6 +2452,9 @@ export function processLineYear(
     // every sibling per-$100 field above gets.
     expectedCededPer100,
     netPurePremiumPer100,
+    // SHADOW — see the field's comment. Absent when the window has nothing usable.
+    newPurePremiumPer100: newPp?.purePremiumPer100,
+    newLossCostPer100: newPp?.lossCostPer100,
     writtenExposure: parseFloat(writtenExposure.toFixed(2)),
 
     poolPremium,
@@ -3776,6 +3799,10 @@ function recordReserveDevelopment(
     ...r,
     ultimateByValuation: [...r.ultimateByValuation],
     paidByValuation: [...(r.paidByValuation ?? [])],
+    // ⚠ THE GROUND-UP SERIES, WRITTEN BESIDE THE NET ONE AND READ BY NEITHER
+    // THE ENGINE NOR ANY EXHIBIT. See the field's own comment: the new pricing
+    // needs ground-up losses and every other series on this row is net.
+    grossPaidByValuation: [...(r.grossPaidByValuation ?? [])],
   }]));
 
   // Open a row for any pre-existing cohort the ledger has not met yet. Only
@@ -3788,6 +3815,7 @@ function recordReserveDevelopment(
       calendarYear: c.calendarYear,
       ultimateByValuation: [c.netUltimate],
       paidByValuation: [c.netPaid],
+      grossPaidByValuation: [c.grossPaid ?? c.netPaid],
       firstValuationYear: yearNumber - 1,
       ageAtFirstValuation: c.age,
       horizon: c.horizon,
@@ -3815,6 +3843,12 @@ function recordReserveDevelopment(
     const paid = row.paidByValuation ?? (row.paidByValuation = []);
     while (paid.length < idx) paid.push(paid.length > 0 ? paid[paid.length - 1] : 0);
     paid[idx] = c.netPaid;
+    // The ground-up series, padded identically. `grossPaid` is absent only on a
+    // cohort deserialised from a save older than that field, where the net
+    // figure is the best available and is what the old row already held.
+    const gross = row.grossPaidByValuation ?? (row.grossPaidByValuation = []);
+    while (gross.length < idx) gross.push(gross.length > 0 ? gross[gross.length - 1] : 0);
+    gross[idx] = c.grossPaid ?? c.netPaid;
   }
 
   // The accident year written this year, at its inception estimate.
@@ -3824,6 +3858,7 @@ function recordReserveDevelopment(
       calendarYear: incepted.calendarYear,
       ultimateByValuation: [incepted.netUltimate],
       paidByValuation: [incepted.netPaid],
+      grossPaidByValuation: [incepted.grossPaid ?? incepted.netPaid],
       firstValuationYear: yearNumber,
       ageAtFirstValuation: 0,
       horizon: incepted.horizon,

@@ -90,6 +90,13 @@ const FAST: string[] = [
                                      //         arm 3 of experience-pricing-check measures LOOP GAIN and
                                      //         twin-differencing cancels an ambient ramp by construction, so
                                      //         nothing else pins this. Positive control in its header.
+  'new-pure-premium-report',         //  40s   the NEW pure premium beside the current one.
+                                     //         ASSERTS NOTHING and exits 0 on any number —
+                                     //         commit 2 computes it in shadow and there is no bar
+                                     //         it is supposed to clear yet. A gate with an
+                                     //         invented threshold would be a number somebody
+                                     //         tunes TO. It is a reading, and it is in the sweep
+                                     //         so it cannot rot while the rebuild continues.
   'parameters-page-check',           //   6s   docs/PARAMETERS.md must be what the generator
                                      //         would write. A byte comparison, so it catches an
                                      //         edited page, a changed constant that was not

@@ -1068,6 +1068,28 @@ export interface ReserveDevelopmentRow {
   //
   // Absent on rows written before the ledger existed, and on nothing else.
   paidByValuation?: number[];
+  /**
+   * CUMULATIVE GROUND-UP PAID at the same valuations, same indexing as
+   * `paidByValuation` beside it.
+   *
+   * ⚠ A PARALLEL SERIES THAT THE CURRENT ENGINE NEVER READS, written the same
+   * way and for the same reason ReserveCohort.grossPaid is: the net path stays
+   * bit-identical, so value-identity can still tell an engine change from a
+   * recording. The new pure premium (newPurePremium.ts) is its only reader.
+   *
+   * ⚠ IT EXISTS BECAUSE THE FIRST INDICATION IS PRICED AS IF SELF-FUNDING, and
+   * therefore needs GROUND-UP losses. Everything else on this row is NET, so
+   * without this the new pricing would have had to either gross a net rate back
+   * up through the tower — reintroducing exactly the double-deduction the
+   * current path spends a secant solve avoiding — or price a retained basis and
+   * call it ground-up. The cohort already carries `grossPaid`; this records it
+   * per valuation so a triangle can be built from it.
+   *
+   * Optional only for rows written before this existed. A row without it is
+   * skipped by the new pure premium rather than falling back to the net series,
+   * which would be a silent basis switch.
+   */
+  grossPaidByValuation?: number[];
   // The valuation year that ultimateByValuation[0] belongs to.
   firstValuationYear: number;
   // The cohort's age at that first valuation. Zero for an accident year the
@@ -1277,6 +1299,21 @@ interface ResultRowFields {
   // — it sees a small number where there is an absent one.
   expectedCededPer100: number;
   netPurePremiumPer100: number;
+  /**
+   * THE NEW PURE PREMIUM — SHADOW. Commit 2 of the pricing rebuild.
+   *
+   * ⚠ IT SETS NO RATE AND NOTHING PRICES OFF IT. Computed beside
+   * `purePremiumPer100` so the two can be compared on real games before the
+   * new stack replaces the old one in commit 3. Ground-up, five-year window,
+   * recorded paid LDFs, trended net of exposure growth, plus ALAE and ULAE.
+   * See newPurePremium.ts.
+   *
+   * Optional: absent where the window holds no usable accident year, and on
+   * every result written before this field existed.
+   */
+  newPurePremiumPer100?: number;
+  /** The shadow pure premium's loss-cost limb, before ALAE and ULAE. */
+  newLossCostPer100?: number;
   writtenExposure: number;      // payroll exposure in $M
 
   // Premium
