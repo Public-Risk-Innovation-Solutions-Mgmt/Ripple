@@ -121,6 +121,13 @@ const FAST: string[] = [
                                      //         booking walk rather than the payout. Registered
                                      //         while red deliberately — the bar is the deliverable
                                      //         even though the build behind it is not landing.
+  'opening-reserves-report',         //  40s   the SET opening beside today's search. ASSERTS
+                                     //         NOTHING and exits 0 on any number — openingReserves.ts
+                                     //         is recorded and unwired at commit (a), so there is no
+                                     //         bar to clear yet. It is in the sweep so commit (b)'s
+                                     //         baseline move is a CONFIRMATION rather than a
+                                     //         discovery: a move whose size was not known beforehand
+                                     //         can only be accepted, not checked.
   'parameters-page-check',           //   6s   docs/PARAMETERS.md must be what the generator
                                      //         would write. A byte comparison, so it catches an
                                      //         edited page, a changed constant that was not

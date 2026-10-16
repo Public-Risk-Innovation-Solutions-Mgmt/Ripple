@@ -56,6 +56,16 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 | Prior development defaults | `WC 0.03 · GL 0.10 · Property -0.02` | share | CHOSEN | What the host setup screen offers per line. Stored on the room and NOT read by the engine. |
 | Opening surplus bands | `per line, in defaultAssumptions.ts` | band on a per-line basis | SOURCED | The band each line's opening surplus is drawn inside. REGISTERED, NOT MOVED — the bands carry their own re-translation rule and a standing prohibition on re-deriving them casually. |
 
+## The opening
+
+The SET opening — no acceptance band, no pin, no search. NOT YET USED: commit (a) records them, commit (b) reads them.
+
+| Parameter | Value | Unit | Basis | What it does |
+| --- | --- | --- | --- | --- |
+| Prior history years | `10` | accident years | CHOSEN | How many pre-game years are simulated with real claims behind them. Ten while the old ten-year experience path is live; drops to the new window of five at commit 3, and the two move together. Everything older opens as a bulk cohort. |
+| Opening surplus multiple | `2.28` | x the line's own required capital | CHOSEN · not yet used | Sets opening surplus directly, replacing the band and the pin. REQUIRED CAPITAL IS expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1), the reserve risk margin — not premium, not the reserve itself. 2.28 is today's band midpoint carried over, so the set opening lands where the search was aiming. |
+| Bulk cohort horizon | `each line's own recorded paid pattern` | accident years | SOURCED | How far back the opening runoff reaches: WC 37 years, GL 21, Property 11. The full pattern length. WC is still 9.04% unpaid at 37 years, and its newest 25 accident years hold only 95% of its steady-state reserve, so truncating discards real reserve. |
+
 ## The new pricing parameters
 
 NOT YET USED — read from commit 2 onward. Every one is CHOSEN and is a starting value to be tuned.

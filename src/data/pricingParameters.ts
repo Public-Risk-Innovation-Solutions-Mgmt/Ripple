@@ -229,6 +229,43 @@ export const REINSURANCE_LOAD_CLF_AT_70: PerLine<number> = {
 };
 
 /**
+ * HOW MANY YEARS OF PRIOR HISTORY THE PRE-GAME SIMULATES, with real claims
+ * behind them. Everything OLDER, out to the end of the line's recorded paid
+ * pattern, opens as a BULK cohort — see openingReserves.ts.
+ *
+ * ⚠ TEN WHILE THE OLD TEN-YEAR EXPERIENCE PATH IS LIVE, FIVE AT COMMIT 3.
+ * PRICING_WINDOW_YEARS is still 10 and the experience rate averages that many
+ * accident years; giving it five would starve it, and a rate priced off half
+ * the history it expects is not a smaller sample, it is a different estimator.
+ * It drops to PRICING_WINDOW_YEARS_NEW when commit 3 switches the rate over,
+ * and the two move together.
+ */
+export const PRIOR_HISTORY_YEARS = 10;
+
+/**
+ * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.
+ *
+ * ⚠ THE DENOMINATOR, STATED EXPLICITLY, because "required capital" names three
+ * different quantities elsewhere in this engine and the wrong one is a silent
+ * factor of several:
+ *
+ *   required capital = expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1)
+ *
+ * — the RESERVE RISK MARGIN, which is what priorHistoryEngine's 'required'
+ * band basis already divides by. It is NOT premium, NOT the net reserve
+ * itself, and NOT the funding CLF's margin on the coming year's loss.
+ *
+ * 2.28 is today's figure carried over unchanged: it is the midpoint every
+ * line's OPENING_SURPLUS_BAND was re-translated onto, and each line's
+ * FROZEN_CAPITAL_J equals it by construction. Starting here means the set
+ * opening lands where the search was aiming, so the change is the MECHANISM
+ * and not a re-levelling hidden inside it.
+ *
+ * ⚠ NOT YET USED — commit (b) of the opening rebuild reads it.
+ */
+export const OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2.28;
+
+/**
  * How many years of prior history the new pricing reads.
  * ⚠ NOT YET USED — read from commit 2 onward.
  */
@@ -384,6 +421,33 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: 'per line, in defaultAssumptions.ts', unit: 'band on a per-line basis',
         what: 'The band each line\'s opening surplus is drawn inside.', basis: 'SOURCED',
         note: 'REGISTERED, NOT MOVED — the bands carry their own re-translation rule and a standing prohibition on re-deriving them casually.',
+      }],
+    ],
+  },
+  {
+    title: 'The opening',
+    blurb: 'The SET opening — no acceptance band, no pin, no search. '
+      + 'NOT YET USED: commit (a) records them, commit (b) reads them.',
+    entries: [
+      ['Prior history years', {
+        value: PRIOR_HISTORY_YEARS, unit: 'accident years',
+        what: 'How many pre-game years are simulated with real claims behind them.', basis: 'CHOSEN',
+        note: 'Ten while the old ten-year experience path is live; drops to the new window of five at '
+          + 'commit 3, and the two move together. Everything older opens as a bulk cohort.',
+      }],
+      ['Opening surplus multiple', {
+        value: OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, unit: 'x the line\'s own required capital',
+        what: 'Sets opening surplus directly, replacing the band and the pin.', basis: 'CHOSEN',
+        notYetUsed: true,
+        note: 'REQUIRED CAPITAL IS expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1), the reserve risk '
+          + 'margin — not premium, not the reserve itself. 2.28 is today\'s band midpoint carried over, '
+          + 'so the set opening lands where the search was aiming.',
+      }],
+      ['Bulk cohort horizon', {
+        value: 'each line\'s own recorded paid pattern', unit: 'accident years',
+        what: 'How far back the opening runoff reaches: WC 37 years, GL 21, Property 11.', basis: 'SOURCED',
+        note: 'The full pattern length. WC is still 9.04% unpaid at 37 years, and its newest 25 accident '
+          + 'years hold only 95% of its steady-state reserve, so truncating discards real reserve.',
       }],
     ],
   },
