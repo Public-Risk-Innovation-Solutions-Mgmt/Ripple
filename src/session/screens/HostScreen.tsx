@@ -15,6 +15,7 @@ import HostCreateScreen from './HostCreateScreen';
 import HostRoomScreen from './HostRoomScreen';
 import HostTeamsTab from './HostTeamsTab';
 import HostChartsTab from './HostChartsTab';
+import HostDecisionsTab from './HostDecisionsTab';
 import { useRoom } from '../client/useRoom';
 import { loadActive, loadHeld } from '../client/identity';
 
@@ -49,6 +50,11 @@ export default function HostScreen({ code }: Props) {
       {activeTab === 'charts' && (
         room
           ? <HostChartsTab room={room} />
+          : <p className="text-sm text-slate-400">Loading room…</p>
+      )}
+      {activeTab === 'decisions' && (
+        room
+          ? <HostDecisionsTab room={room} />
           : <p className="text-sm text-slate-400">Loading room…</p>
       )}
     </HostShell>

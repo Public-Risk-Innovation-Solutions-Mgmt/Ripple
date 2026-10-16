@@ -253,12 +253,22 @@ export interface TeamYearFigures {
  * What a team posts at the end of a year, and the ONE payload in this contract
  * that is typed rather than opaque.
  *
- * ⚠ DECISIONS STAY OPAQUE; RESULTS DO NOT, AND THE SPLIT IS PRINCIPLED RATHER
- * THAN CONVENIENT. A team's decisions are read by exactly one client — the one
- * that wrote them — so this layer never needs to know their shape and is better
- * off not knowing. A result is read by a SECOND PARTY: the host renders it in a
- * table. A payload a second party renders has to have an agreed shape, or the
- * agreement lives in two places and drifts.
+ * ⚠ THE OPAQUE/TYPED SPLIT, AND THE RULE THAT DECIDES IT. A payload a SECOND
+ * PARTY renders has to have an agreed shape, or the agreement lives in two
+ * places and drifts; a payload read only by the client that wrote it is better
+ * left opaque, because this layer then cannot be broken by a change to it.
+ *
+ * ⚠ THIS NOTE USED TO READ "DECISIONS STAY OPAQUE; RESULTS DO NOT" AND THAT
+ * HALF IS NOW WRONG — the rule is unchanged, the FACT it was applied to moved.
+ * The live decision stream is still opaque: SubmitRequest.decisions is JSON
+ * this layer does not inspect, and CallerView.decisionsByYear hands it back to
+ * the one client that wrote it. What changed is that the host now renders each
+ * team's decisions for a COMPLETED year, which makes that reading a second
+ * party and so demands an agreed shape — supplied by TeamYearDecisions below,
+ * a chosen projection rather than LineDecisionSet itself.
+ *
+ * The two live side by side on purpose. Opaque where one client reads it,
+ * typed where two do.
  *
  * ⚠ byLine CARRIES ONLY THE LINES THE TEAM WRITES. A team that does not write GL
  * has no GL entry — not a zeroed one. That absence is what lets the host's table
@@ -282,6 +292,78 @@ export interface TeamYearFigures {
  * field, one derivation, two readers.
  */
 export type DevelopedUltimates = Record<string, number>;
+
+// ============================================================================
+// WHAT A TEAM CHOSE, AS THE HOST READS IT BACK AFTER THE YEAR IS ADVANCED.
+//
+// ⚠ THIS IS THE SHAPE'S ONE DEFINITION AND IT LIVES HERE, IN THE CONTRACT,
+// beside TeamYearFigures and for the same reason: a payload a SECOND PARTY
+// renders has to have an agreed shape, or the agreement lives in two places and
+// drifts. LineDecisionSet in types/simulation.ts stays exactly as it is — it is
+// the engine's input type, it carries fields no host screen shows
+// (loanRepaymentAggressiveness, riskControlProgramIds, riskControlIncentivePct)
+// and it will go on changing for engine reasons. This is a projection OF it,
+// chosen field by field, so an engine-side change cannot silently alter what
+// crosses the wire or what a stored row means.
+//
+// ⚠ NOT RESULT_METRICS ENTRIES, AND THAT IS A STATEMENT RATHER THAN AN
+// OVERSIGHT. RESULT_METRICS publishes values OF A ResultSet — what a played
+// year produced. These are INPUTS: what the team asked for before the year ran.
+// They do not live on a ResultSet at all, so there is no ResultSet field for a
+// metric key to name, and inventing one would put an input into the list of
+// outputs. Same reasoning DevelopedUltimates carries above.
+//
+// ⚠ "FUNDING LEVEL" IS TWO FIELDS AND MUST STAY TWO. `atExpected` true means
+// break-even, CLF exactly 1.000, which is a MODE and not a percentile — it
+// falls between stops and moves with the book. Flattening it to a number would
+// record a stop the team did not choose. When it is true, `confidenceLevel` is
+// only the stop the slider would land on if the team dragged off Expected; the
+// host screen shows "Expected", not the number. See LineDecisionSet.
+export interface TeamLineDecisions {
+  confidenceLevel: number;
+  atExpected: boolean;
+  /**
+   * ⚠ PER-BAND, NOT A COUNT, because any combination is permitted — including a
+   * corridor retention. A count would render "2 of 3 placed" for two different
+   * towers. Index-aligned to REINSURANCE_TOWER[line], exactly as layersPlaced.
+   */
+  layersPlaced: boolean[];
+  /** Index into AGG_ATTACHMENT_LEVELS[line], or -1 for not purchased. */
+  aggregateStopLevel: number;
+  /** Share of the book NOT renewed, worst first. Absent on the engine side reads as 0. */
+  renewalCut: number;
+  /** The intake slider's position, 0 = No New Business. */
+  intakeLevel: number;
+  riskControlPct: number;
+  dividendPct: number;
+  assessmentPct: number;
+  /**
+   * ⚠ PERCENTAGE POINTS, 0-100 — NOT a fraction, unlike every other field on
+   * this interface. That is AssetAllocation's own convention and it is carried
+   * unchanged rather than normalised, so a stored row means the same thing as
+   * the engine's own value and no conversion can go missing in one direction
+   * only. Readers must print it directly; putting it through a percent
+   * formatter yields "1000%", which is how the first host render of it read.
+   */
+  allocation: { cashPct: number; bondsPct: number; equitiesPct: number };
+}
+
+/**
+ * ⚠ OPTIONAL, AND ITS ABSENCE IS INFORMATION TWICE OVER.
+ *
+ * Absent on YEAR 0, because year 0 is the opening position — it is posted the
+ * moment a team builds its game, before anybody has decided anything, and a
+ * decisions block there would be inventing choices nobody made.
+ *
+ * Absent on a row WRITTEN BEFORE THIS FIELD EXISTED. A host reading an old
+ * room gets no decisions for its years rather than a block of zeros, and the
+ * screen renders "not recorded" instead of a funding level of 0.00 that would
+ * read as a real and alarming choice. See the deploy-order warning at the head
+ * of this file: this is another reason the handler ships before the front end.
+ *
+ * Absent for a caller who is not the HOST. See TeamView.resultsByYear.
+ */
+export type TeamYearDecisions = Partial<Record<CoverageLine, TeamLineDecisions>>;
 
 export interface TeamYearSummary {
   /**
@@ -317,6 +399,18 @@ export interface TeamYearSummary {
     pool: DevelopedUltimates;
     byLine: Partial<Record<CoverageLine, DevelopedUltimates>>;
   };
+  /**
+   * ⚠ WHAT THE TEAM CHOSE FOR THIS YEAR — carried in the record the team
+   * ALREADY posts at year end, which is what makes the timing right for free.
+   * This record is written when a year is posted, so the host cannot read a
+   * year's decisions before that year is advanced: there is no row to read.
+   * No new endpoint, and no change to who may call what.
+   *
+   * ⚠ HOST ONLY. Both transports strip this for a non-host caller, so a viewer
+   * or another team sees nothing new. A team's own decisions reach it the way
+   * they always did, through CallerView.decisionsByYear.
+   */
+  decisions?: TeamYearDecisions;
 }
 
 // ---------------------------------------------------------------- views

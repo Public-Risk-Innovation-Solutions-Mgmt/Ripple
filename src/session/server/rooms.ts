@@ -377,7 +377,7 @@ export class DynamoSessionTransport implements SessionTransport {
     }
     const entry = teamId ? header.roster?.[teamId] ?? null : null;
     return {
-      room: buildRoomView(header, fetched),
+      room: buildRoomView(header, fetched, role),
       you: buildCallerView(role, teamId, entry, fetched),
     };
   }

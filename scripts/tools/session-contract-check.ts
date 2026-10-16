@@ -76,7 +76,9 @@ import type { SessionTransport } from '../../src/session/contract';
 import { isSessionError, newSessionToken, type SessionErrorCode, type JsonValue } from '../../src/session/contract';
 import type { CoverageLine } from '../../src/types/simulation';
 import { decisionsForYear, governingYear } from '../../src/session/client/decisions';
-import type { RoomView, TeamYearFigures, TeamYearSummary } from '../../src/session/contract';
+import type {
+  RoomView, TeamLineDecisions, TeamYearFigures, TeamYearSummary,
+} from '../../src/session/contract';
 
 // A posted scoreboard row. Every field is a RESULT_METRICS key — see
 // TeamYearFigures in the contract.
@@ -94,11 +96,29 @@ const figures = (surplus: number): TeamYearFigures => ({
 const developedTo = (year: number, factor: number): Record<string, number> =>
   Object.fromEntries(Array.from({ length: year + 1 }, (_, ay) => [String(ay), 1_000_000 * (ay + 1) * factor]));
 
+// A decisions block carrying a MARKER VALUE the redaction assertions can
+// search the whole serialised view for, exactly as the opaque stream's
+// 'secret-a' marker is used. 0.37 is not a stop any default would produce.
+const DECISION_MARKER = 0.37;
+const lineDecisions = (): TeamLineDecisions => ({
+  confidenceLevel: DECISION_MARKER,
+  atExpected: false,
+  layersPlaced: [true, false],
+  aggregateStopLevel: -1,
+  renewalCut: 0.1,
+  intakeLevel: 2,
+  riskControlPct: 0.03,
+  dividendPct: 0.05,
+  assessmentPct: 0,
+  allocation: { cashPct: 0.2, bondsPct: 0.6, equitiesPct: 0.2 },
+});
+
 const summaryFor = (
   year: number,
   surplus: number,
   lines: CoverageLine[] = ['WC'],
   factor = 1,
+  withDecisions = false,
 ): TeamYearSummary => ({
   yearNumber: year,
   calendarYear: 2025 + year,
@@ -108,6 +128,10 @@ const summaryFor = (
     pool: developedTo(year, factor),
     byLine: Object.fromEntries(lines.map(l => [l, developedTo(year, factor)])),
   },
+  // Year 0 never carries decisions — see TeamYearSummary.decisions.
+  ...(withDecisions && year > 0
+    ? { decisions: Object.fromEntries(lines.map(l => [l, lineDecisions()])) }
+    : {}),
 });
 
 // ---------------------------------------------------------------- shim
@@ -598,6 +622,84 @@ async function main(): Promise<void> {
     eq(anon.you.role, 'anonymous', 'a tokenless read is anonymous');
     eq(anon.room.teams.length, 3, 'an anonymous caller still sees the roster, to pick a team from');
     ok(!JSON.stringify(anon).includes('secret-a'), 'an anonymous caller sees no decisions at all');
+  }
+
+  // ---- THE HOST SEES EACH TEAM'S DECISIONS, BUT ONLY AFTER THE ADVANCE ----
+  // ⚠ EVERY ASSERTION HERE FAILS ON THE OLD BEHAVIOUR, and the two controls
+  // that show it were RUN rather than reasoned about:
+  //
+  //   A. the field reaches nobody (summaryFor strips unconditionally — the
+  //      world before TeamYearSummary.decisions existed). MEASURED: 11
+  //      failures, naming "the host sees a team's decisions once the year is
+  //      advanced and posted" and each figure read off it.
+  //   B. the strip is absent (summaryFor returns its input). MEASURED: the
+  //      four non-host assertions fail — player, other team, viewer, anonymous.
+  //
+  // Control B is not hypothetical: the first version of this change stripped in
+  // teamView only, and this block failed on exactly those assertions because
+  // callerView hands a caller its own team's newest row by a second route. The
+  // harness found it, which is the reason the block is worth its length.
+  //
+  // ⚠ THE TIMING IS THE CLAIM, AND IT IS STRUCTURAL RATHER THAN ENFORCED. A
+  // year's decisions ride in the record posted at that year's END, so there is
+  // no row for the host to read until the team has posted it. Nothing checks a
+  // clock and nothing refuses a request; the data simply does not exist yet.
+  // That is why the assertion is worth making over a transport — it proves the
+  // shape of the design, not a guard somebody could delete.
+  {
+    const t = transport();
+    const { code, hostToken } = await freshRoom(t);
+    const p0 = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+    const p1 = await t.join({ code, teamName: TEAMS[1], role: 'player' });
+    const viewer = await t.join({ code, teamName: TEAMS[0], role: 'viewer' });
+
+    // Year 1 is live. The team locks its decisions through the OPAQUE stream,
+    // which is the only thing that exists before the year is played.
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, decisions: decisionsFor(1, 'live-1') });
+    // And posts its OPENING position, which is year 0 and carries no decisions.
+    await t.submit({ code, token: p0.teamToken, yearNumber: 0, result: summaryFor(0, 500, ['WC'], 1, true) });
+
+    const before = await t.read({ code, token: hostToken });
+    ok(!JSON.stringify(before).includes(String(DECISION_MARKER)),
+       'the host cannot see a year\'s decisions before it is advanced — there is no posted row to read');
+    eq(before.room.teams[0].resultsByYear?.['0']?.decisions, undefined,
+       'year 0 carries no decisions: the opening position precedes every choice');
+
+    // The host advances; the team then posts the played year, decisions and all.
+    await t.advance({ code, token: hostToken, expectedYear: 1 });
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, result: summaryFor(1, 600, ['WC'], 1, true) });
+    await t.submit({ code, token: p1.teamToken, yearNumber: 1, result: summaryFor(1, 700, ['WC'], 1, true) });
+
+    const after = await t.read({ code, token: hostToken });
+    const seen = after.room.teams[0].resultsByYear?.['1']?.decisions?.WC;
+    ok(seen !== undefined, 'the host sees a team\'s decisions once the year is advanced and posted');
+    eq(seen?.confidenceLevel, DECISION_MARKER, 'and reads the funding level the team chose');
+    eq(seen?.layersPlaced.join(','), 'true,false', 'and which reinsurance bands were placed, per band');
+    eq(seen?.dividendPct, 0.05, 'and the dividend');
+    eq(after.room.teams[1].resultsByYear?.['1']?.decisions?.WC?.confidenceLevel, DECISION_MARKER,
+       'for EVERY team, not only the first');
+
+    // ⚠ AND NOBODY ELSE SEES THEM. This is the half that would rot silently:
+    // the decisions block rides inside resultsByYear, which localTransport
+    // sends to every caller, so without an explicit strip a player would get
+    // every other team's choices. Each of these fails without it.
+    const asP0 = await t.read({ code, token: p0.teamToken });
+    ok(!JSON.stringify(asP0).includes(String(DECISION_MARKER)),
+       'a player receives no decisions block, not even its own, through the results channel');
+    const asP1 = await t.read({ code, token: p1.teamToken });
+    ok(!JSON.stringify(asP1).includes(String(DECISION_MARKER)),
+       "a player cannot see another team's decisions for a completed year");
+    const asViewer = await t.read({ code, token: viewer.teamToken });
+    ok(!JSON.stringify(asViewer).includes(String(DECISION_MARKER)),
+       'a viewer sees no decisions for a completed year');
+    const anon = await t.read({ code });
+    ok(!JSON.stringify(anon).includes(String(DECISION_MARKER)),
+       'an anonymous caller sees no decisions for a completed year');
+
+    // The figures themselves are untouched for those callers — the strip takes
+    // the decisions and nothing else.
+    eq(asP0.room.teams[0].resultsByYear?.['1']?.pool.endingSurplus, 600,
+       'and the strip removes ONLY the decisions: the figures still arrive');
   }
 
   // ---- THE HOST'S LINES, AND PRIOR DEVELOPMENT ---------------------------

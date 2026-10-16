@@ -388,7 +388,7 @@
 //   1. BatchGetItem [ROOM, VIEW#<hash(token)>] — resolves every role in one
 //      round trip. If rev equals the client's If-None-Match, answer 304 here.
 //   2. By role:
-//        host       Query begins_with R#              ~87 KB at 10x10
+//        host       Query begins_with R#              ~160 KB at 10x10
 //        player     Query begins_with D#<teamId>#     ~11 KB; postedYears come
 //                                                     from the roster
 //                   AND Query begins_with R#<teamId>#   ⚠ CORRECTED: omitted
@@ -404,6 +404,32 @@
 // callers stop receiving other teams' resultsByYear, which no screen of theirs
 // reads — see the note at localTransport's teamView, where that over-send lives
 // on the current build.
+//
+// ⚠ THE R# ITEM GREW WHEN DECISIONS JOINED IT, AND THE FIGURE IS MEASURED, NOT
+// ESTIMATED. A TeamYearSummary carrying a three-line decisions block is +748
+// BYTES, flat — the block is a fixed set of scalars plus a per-band placement
+// array, so it does not grow with the year. Against the row itself that is
+// +63% at year 1 and +37.5% at year 10 (the row grows because `developed`
+// restates every accident year), +47% over a ten-year game.
+//
+// At the HOST's read that compounds: ~87 KB -> ~160 KB at ten teams by ten
+// years, which is the largest single read in this design and roughly doubles
+// it. It is accepted rather than trimmed, for two reasons that should be
+// re-examined if a room gets much bigger than 10x10:
+//   - the read is ETag'd on rev, so an unchanged poll is still a 304 and
+//     transfers nothing. The cost falls on reads that were going to carry a
+//     changed body anyway.
+//   - the obvious saving is not available honestly. Investment allocation and
+//     risk control are POOL-WIDE decisions projected onto each line, so storing
+//     them per line triples them — but they are projected per line, each line
+//     applies them to its own base, and the host's table compares lines. Hoist
+//     them to the pool and a line that differs becomes unrepresentable.
+// A real reduction would mean shortening keys, which trades a wire saving for a
+// stored row nobody can read. Not taken.
+//
+// ⚠ NO NEW ITEM, NO NEW PREFIX, NO NEW ENDPOINT. Decisions ride inside the R#
+// body that already exists. The D# items are untouched and still hold the
+// opaque live decision stream for the team that wrote it.
 //
 // ⚠ HEADER FIRST, ITEMS SECOND — NEVER IN PARALLEL. A header read at rev r
 // followed by a Query can only see items written at r or later: the caller

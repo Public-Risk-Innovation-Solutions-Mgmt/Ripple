@@ -121,10 +121,29 @@ export function orderedRoster(header: RoomHeader): Array<[string, RosterEntry]> 
     a.joinedAt - b.joinedAt || (ia < ib ? -1 : ia > ib ? 1 : 0));
 }
 
+// ⚠ DECISIONS ARE HOST-ONLY, AND THE STRIP IS HERE RATHER THAN IN THE QUERY.
+// The role-keyed Query already decides WHICH teams' R# rows a caller gets —
+// every team for the host, its own for a player or viewer, none for anonymous.
+// That is enough for the figures and is NOT enough for decisions: a player
+// still receives its OWN rows, and those rows now carry a decisions block.
+// Its own choices are not news to it, but sending them back through a second
+// channel widens what the row means for no reason, so the rule is the plain
+// one the contract states — decisions reach the host and nobody else.
+//
+// Defaults to stripping, as localTransport's does and for the same reason: a
+// caller that forgets the role renders a dash, not a leak.
+function summaryFor(s: TeamYearSummary, role: CallerRole): TeamYearSummary {
+  if (role === 'host' || s.decisions === undefined) return s;
+  const { decisions: _omitted, ...rest } = s;
+  void _omitted;
+  return rest;
+}
+
 export function buildTeamView(
   entry: RosterEntry,
   currentYear: number,
   results: Record<string, TeamYearSummary> | undefined,
+  role: CallerRole = 'anonymous',
 ): TeamView {
   return {
     name: entry.name,
@@ -135,11 +154,13 @@ export function buildTeamView(
     resultYear: highestPlayedYear(entry),
     // Absent when nothing was fetched for this team OR it has posted nothing —
     // the same `undefined` localTransport gives a team with no history.
-    resultsByYear: results && Object.keys(results).length > 0 ? { ...results } : undefined,
+    resultsByYear: results && Object.keys(results).length > 0
+      ? Object.fromEntries(Object.entries(results).map(([y, v]) => [y, summaryFor(v, role)]))
+      : undefined,
   };
 }
 
-export function buildRoomView(header: RoomHeader, fetched: Fetched): RoomView {
+export function buildRoomView(header: RoomHeader, fetched: Fetched, role: CallerRole = 'anonymous'): RoomView {
   return {
     code: header.code,
     status: statusOf(header),
@@ -154,7 +175,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched): RoomView {
     currentYear: header.currentYear,
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
     teams: orderedRoster(header).map(([teamId, entry]) =>
-      buildTeamView(entry, header.currentYear, fetched.results.get(teamId))),
+      buildTeamView(entry, header.currentYear, fetched.results.get(teamId), role)),
     createdAt: header.createdAt,
     updatedAt: header.updatedAt,
     rev: header.rev,
@@ -190,7 +211,9 @@ export function buildCallerView(
   const played = highestPlayedYear(entry);
   const results = fetched.results.get(teamId);
   if (played !== null && results?.[String(played)] !== undefined) {
-    view.lastResult = results[String(played)];
+    // Stripped for the same reason as localTransport's — see the note there.
+    // The host has no team, so this route never carries decisions at all.
+    view.lastResult = summaryFor(results[String(played)], role);
     view.lastResultYear = played;
   }
   return view;

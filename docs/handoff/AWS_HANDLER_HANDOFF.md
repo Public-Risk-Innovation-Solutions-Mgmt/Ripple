@@ -54,6 +54,38 @@ refused with `INVALID_REQUEST` because the new client sends no lines — an
 unjoinable room. The other direction is safe on purpose: a new handler **ignores**
 a stray `lines` on a join and returns the room's set.
 
+### The host's Decisions tab — a third change in the same deploy
+
+`TeamYearSummary` gained an optional `decisions` section: what each team chose
+for a year, carried in the record it already posts at year end, so the host can
+read it back once the year is advanced. **This ships with the lobby and
+host-picks-lines changes above, under the same rule — handler first, then the
+front end.**
+
+**The handler itself carries no new code for it.** There is no new endpoint and
+no new item: `submit` stores `req.result` whole into the R# item, and the
+handler routes the payload without inspecting it, so a new field inside an
+existing payload needs nothing from it. The deploy order still matters for the
+ordinary reason — the stored row gains a field, and a new front end against an
+old handler finds rows that do not carry it.
+
+**Both directions are soft, which is the one way this is easier than the two
+above.** The field is optional and its absence is defined as "not recorded": a
+new front end against an old handler renders a dash on the Decisions tab for
+rows written before the change, and an old front end against a new handler
+ignores a field it does not read. Nothing is refused and no room becomes
+unusable. Rows written before this change stay readable forever on the same
+rule, so there is no migration.
+
+**It roughly doubles the host's read.** A three-line decisions block is a
+measured +748 bytes per year-row, flat, which takes a ten-team ten-year host
+read from ~87 KB to ~160 KB. The read is ETag'd on `rev`, so an unchanged poll
+is still a 304 and transfers nothing; the cost falls on reads already carrying
+a changed body. Worth re-examining if rooms get much larger than 10x10 — see
+the READ section of `src/session/server/keys.ts` for why the obvious saving
+(hoisting the pool-wide allocation and risk-control fields out of the per-line
+block) is not available honestly.
+
 Nothing on `multiplayer` is deployed yet, so there is no live break today.
 
 

@@ -323,7 +323,25 @@ function statusOf(room: RoomRecord): RoomStatus {
 // optional. Not done here: it changes what players receive, and wants the
 // contract harness to prove no player screen depended on it. The AWS design
 // assumes it done; see src/session/server/keys.ts, READ.
-function teamView(t: TeamRecord, currentYear: number): TeamView {
+// ⚠ DECISIONS ARE STRIPPED FOR EVERY CALLER BUT THE HOST, AND THIS FAILS
+// CLOSED. The over-send above is unchanged — every caller still receives every
+// team's resultsByYear, which is the gap recorded there and not fixed here —
+// but the DECISIONS section added to those rows must not widen it. So `role`
+// defaults to the most restrictive value rather than the most permissive: a
+// roomView call site that forgets to pass it sends no decisions, which is a
+// screen that renders a dash, not a leak.
+//
+// The host is the only caller any of this is for. A team's own decisions reach
+// it as they always did, through callerView's decisionsByYear.
+function summaryFor(s: TeamYearSummary, role: CallerRole): TeamYearSummary {
+  if (role === 'host' || s.decisions === undefined) return s;
+  const { decisions: _omitted, ...rest } = s;
+  void _omitted;
+  return rest;
+}
+
+function teamView(t: TeamRecord, currentYear: number, role: CallerRole): TeamView {
+  const results = Object.entries(t.resultsByYear);
   return {
     name: t.name,
     lines: [...t.lines],
@@ -334,11 +352,14 @@ function teamView(t: TeamRecord, currentYear: number): TeamView {
     // The scoreboard the host's Teams and Charts tabs read. A year with no entry
     // is a year not reported — which is a DIFFERENT state from a line the team
     // does not write, and the two must not be allowed to look alike.
-    resultsByYear: Object.keys(t.resultsByYear).length > 0 ? { ...t.resultsByYear } : undefined,
+    resultsByYear: results.length > 0
+      ? Object.fromEntries(results.map(([y, s]) => [y, summaryFor(s, role)]))
+      : undefined,
   };
 }
 
-function roomView(room: RoomRecord): RoomView {
+// `role` defaults to the restrictive case on purpose — see summaryFor.
+function roomView(room: RoomRecord, role: CallerRole = 'anonymous'): RoomView {
   return {
     code: room.code,
     status: statusOf(room),
@@ -356,7 +377,7 @@ function roomView(room: RoomRecord): RoomView {
     expectedTeams: room.expectedTeams,
     currentYear: room.currentYear,
     shocks: room.shocks.map(s => ({ ...s })),
-    teams: room.teams.map(t => teamView(t, room.currentYear)),
+    teams: room.teams.map(t => teamView(t, room.currentYear, role)),
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     rev: room.rev,
@@ -406,7 +427,14 @@ function callerView(role: CallerRole, team: TeamRecord | null): CallerView {
 
   const played = highestPlayedYear(team);
   if (played !== null) {
-    view.lastResult = team.resultsByYear[String(played)];
+    // ⚠ STRIPPED HERE TOO, AND THIS IS THE SITE THAT WAS MISSED FIRST. The
+    // contract harness caught it: teamView's strip covers the ROOM's copy, and
+    // callerView hands the caller its own team's newest row by a second route.
+    // A rule enforced at one of two exits is not enforced. `role` is never
+    // 'host' in this function — the host has no team — so this is
+    // unconditional, and it is written through the same helper so the two
+    // cannot drift apart.
+    view.lastResult = summaryFor(team.resultsByYear[String(played)], role);
     view.lastResultYear = played;
   }
   return view;
@@ -552,7 +580,7 @@ export class LocalSessionTransport implements SessionTransport {
       // room, for the same reason the idempotency index is: a failure between
       // them leaves no row pointing at a room that was never written.
       updateLobbyEntry(store, code, () => lobbyEntryFor(room));
-      return { code, hostToken: room.hostToken, room: roomView(room), reused: false };
+      return { code, hostToken: room.hostToken, room: roomView(room, 'host'), reused: false };
     }, true);
   }
 
@@ -725,7 +753,7 @@ export class LocalSessionTransport implements SessionTransport {
       }
 
       saveRoom(room);
-      return { room: roomView(room), you: callerView(role, team) };
+      return { room: roomView(room, role), you: callerView(role, team) };
     }, true);
   }
 
@@ -868,7 +896,7 @@ export class LocalSessionTransport implements SessionTransport {
       }
       // 2. The retry. No write, and success.
       if (room.currentYear === req.expectedYear + 1) {
-        return { room: roomView(room), currentYear: room.currentYear, advanced: false };
+        return { room: roomView(room, 'host'), currentYear: room.currentYear, advanced: false };
       }
       // 3. Past the end.
       if (room.currentYear > room.yearCount) {
@@ -890,7 +918,7 @@ export class LocalSessionTransport implements SessionTransport {
       // entry on EVERY advance rather than only on those two keeps the row's
       // currentYear honest for the lobby, and costs one small write a year.
       updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
-      return { room: roomView(room), currentYear: room.currentYear, advanced: true };
+      return { room: roomView(room, 'host'), currentYear: room.currentYear, advanced: true };
     }, true);
   }
 
@@ -898,7 +926,7 @@ export class LocalSessionTransport implements SessionTransport {
     return this.call(() => {
       const room = loadRoom(req.code);
       const { role, team } = callerOf(room, req.token);
-      return { room: roomView(room), you: callerView(role, team) };
+      return { room: roomView(room, role), you: callerView(role, team) };
     });
   }
 }

@@ -24,7 +24,9 @@
 
 import type { CoverageLine, LineResultSet, PoolState, ResultSet } from '../../types/simulation';
 import { exhibitRows, poolExhibitRows, type ExhibitRow } from '../../utils/actuarialMemo';
-import type { DevelopedUltimates, TeamYearFigures, TeamYearSummary } from '../contract';
+import type {
+  DevelopedUltimates, TeamYearDecisions, TeamYearFigures, TeamYearSummary,
+} from '../contract';
 
 /** A LINE's figures. The funding level is that line's own and always present. */
 function figuresOf(r: LineResultSet): TeamYearFigures {
@@ -112,6 +114,53 @@ function developedAt(poolState: PoolState, lines: CoverageLine[], asAt: number):
  * year. One is the year's own news, the other is what the news did to everything
  * before it, and the second cannot be read off the first.
  */
+/**
+ * The decisions a played year ran on, projected into the contract's shape.
+ *
+ * ⚠ READ OFF THE RESULT, NOT PASSED IN ALONGSIDE IT, and that is what makes it
+ * impossible to post one year's figures beside another year's choices. Every
+ * LineResultSet already ECHOES the LineDecisionSet it was produced from — the
+ * field exists because programTenure reads commitments back off played years —
+ * so the decisions travel with the result by construction rather than by a
+ * caller remembering to pair them.
+ *
+ * ⚠ YEAR 0 GETS NOTHING. The opening position is posted before anybody has
+ * decided anything; its echoed decisions are whatever defaults built the game,
+ * and publishing those as "what the team chose" would be inventing choices.
+ * Returns undefined, which TeamYearSummary.decisions documents as meaning
+ * exactly that.
+ */
+function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | undefined {
+  if (r.yearNumber <= 0) return undefined;
+  const out: TeamYearDecisions = {};
+  for (const line of lines) {
+    const slice = r.byLine[line];
+    // A line the team does not write has no decisions, exactly as it has no
+    // figures. Absent, never zeroed — the host table's two states again.
+    if (!slice) continue;
+    const d = slice.decisions;
+    out[line] = {
+      confidenceLevel: d.fundingConfidenceLevel,
+      atExpected: d.fundingAtExpected,
+      layersPlaced: [...d.layersPlaced],
+      aggregateStopLevel: d.aggregateStopLevel,
+      // Absent reads as 0 on the engine side; it is written as 0 here so the
+      // host renders "renews everyone" rather than an empty cell.
+      renewalCut: d.renewalCut ?? 0,
+      intakeLevel: d.intakeLevel ?? 0,
+      riskControlPct: d.riskControlPct,
+      dividendPct: d.dividendPct,
+      assessmentPct: d.assessmentPct,
+      allocation: {
+        cashPct: d.assetAllocation.cashPct,
+        bondsPct: d.assetAllocation.bondsPct,
+        equitiesPct: d.assetAllocation.equitiesPct,
+      },
+    };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function summarize(r: ResultSet, lines: CoverageLine[], poolState: PoolState): TeamYearSummary {
   const byLine: Partial<Record<CoverageLine, TeamYearFigures>> = {};
   for (const line of lines) {
@@ -126,5 +175,6 @@ export function summarize(r: ResultSet, lines: CoverageLine[], poolState: PoolSt
     pool: poolFiguresOf(r, Object.values(byLine)),
     byLine,
     developed: developedAt(poolState, lines, r.yearNumber),
+    decisions: decisionsOf(r, lines),
   };
 }
