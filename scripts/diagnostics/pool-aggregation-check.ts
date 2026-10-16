@@ -76,6 +76,17 @@ const DOLLARS = new Set([
   'aggregatePremium', 'reinsuranceRecovery', 'netUltimateLoss', 'netIncurredLoss',
   'operatingExpense', 'riskControlInvestment', 'priorYearDevelopment',
   'beginningNetReserve', 'currentYearNetReserve', 'netPaidLosses', 'endingNetReserve',
+  // ⚠ THE DERIVED CASE / IBNR SPLIT. Additive, and for the plainest reason on
+  // this list: they are net dollars of unpaid reserve at one valuation, and
+  // caseReservesNet + ibnrNet is endingNetReserve — which is directly above and
+  // additive itself. A split of an additive quantity adds the same way.
+  //
+  // What is NOT additive is the SHARE they are derived from, which is why that
+  // is nowhere near this file: three lines sit at three ages on three patterns,
+  // so there is no pool-level age to re-derive a pool share at. The dollars are
+  // summed and the ratio is never re-derived. See reserveSplit.ts.
+  'caseReservesNet', 'ibnrNet', 'caseReservesGross', 'ibnrGross',
+  'caseReservesCeded', 'ibnrCeded',
   'investedAssets', 'investmentIncome', 'outstandingLoanBalance', 'loanRepaymentApplied',
   'loanInterestAccrued', 'loanOriginatedThisYear',
   // ⚠ THESE TWO SUM TO ZERO AT POOL SCOPE RATHER THAN TO A TOTAL, and they are

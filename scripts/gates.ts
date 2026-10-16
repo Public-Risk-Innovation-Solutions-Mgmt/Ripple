@@ -207,6 +207,13 @@ const FAST: string[] = [
   'ratemaking-loop-check',           //  80s   THE ACCEPTANCE TEST — 4/4; condition 3 is paired with two null controls
   'ratio-basis-check',               //   7s
   'reserve-centring-check',          //  55s   IBNER_CALENDAR_RHO adds dispersion and NOT drift; carries its own positive control
+  'reserve-split-check',             //   3s   case + IBNR sum EXACTLY to the booked reserve on every
+                                     //         accident year, line and valuation, on all three bases,
+                                     //         and neither half is negative. Then the claim that
+                                     //         matters: the split is a PRESENTATION, so inverting it
+                                     //         must move no economic figure — 17,622 field readings
+                                     //         compared bit-identically. Both claims carry a measured
+                                     //         control in the file's own foot.
   'report-lag-derive',               //  33s   derives LINE_REPORTING_PATTERN and asserts it against the three recorded figures
   'cohort-ledger-check',             //  35s   three ledger identities, BOTH arms — green since the headroom fix
   'reinsurance-tower-check',         //   2s   PROMOTED at this commit

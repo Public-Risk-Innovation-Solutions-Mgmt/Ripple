@@ -49,14 +49,24 @@
 // the lookup made to default, and GL paid pointed at the retired pattern —
 // which produced exactly the eight ages); see the commit message.
 //
-// ⚠ ASSERTION 6 IS THE ONE THAT COULD NOT BE MADE TO FAIL ALONE, and that is
-// worth stating rather than leaving as an untested line. The split past WC's
-// 264 months throws by TWO INDEPENDENT PATHS: reserveSplitAt's own guard, which
-// gives the specific "the split is UNDEFINED" message, and incurredLdfAt's
-// end-of-pattern throw underneath it. Disabling the guard alone leaves the
-// inner throw, so the gate stays green — the REQUIRED BEHAVIOUR still holds,
-// which is what the assertion asks about. It fails only if both are defaulted.
-// The guard is kept for its message, not because it is load-bearing.
+// ⚠ ASSERTION 6 CHANGED MEANING AT PRICING COMMIT 5(c) AND IS STILL TRUE.
+// It used to say that the split throws past WC's 264 months, where the incurred
+// pattern stopped while paid ran on to 444; that gap is GONE, because 5(c)
+// projected WC's incurred table to 444 so a derived case/IBNR presentation
+// would have a factor at every age a game reaches. All three lines' incurred
+// patterns now end exactly where their paid patterns do.
+//
+// What the assertion asserts is unchanged — the split throws exactly where
+// incurred stops, and resolves everywhere before it — and it still passes. Only
+// the age moved, from 276 to 456 on WC, and the gate reads it from the table
+// rather than from a literal, which is why it needed no edit.
+//
+// It also could not be made to fail alone, which was worth stating when
+// reserveSplitAt carried its own "the split is UNDEFINED" guard on top of
+// incurredLdfAt's end-of-pattern throw. THAT GUARD IS NOW REMOVED: with no gap
+// left to guard it only duplicated the lookup's own range check, and a
+// duplicate guard is the kind that goes stale when one table moves. The throw
+// this assertion sees is incurredLdfAt's, and it is load-bearing.
 // ============================================================================
 
 import {

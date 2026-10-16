@@ -34,6 +34,7 @@ import { pricingExperienceBasis, windowRows } from './pricingTriangle';
 import { experienceRatePer100 } from './experienceRating';
 import { clfFor } from './fundingConsequence';
 import { lineDisplayName } from './lineDisplay';
+import { ibnrShareOfUnpaid, splitAgeMonths } from './reserveSplit';
 
 // One accident year as the exhibit presents it, at a chosen valuation year.
 // Nulls are EMPTY CELLS, not zeros: a year with no prior valuation has not
@@ -99,6 +100,27 @@ export interface ExhibitRow {
   // ============================================================================
   paid: number | null;
   paidToIncurred: number | null;
+
+  // ============================================================================
+  // CASE AND IBNR — NET, LIKE EVERY OTHER COLUMN, AND DERIVED RATHER THAN HELD.
+  //
+  // The engine books claims at full cost and keeps no unreported inventory, so
+  // these are a PRESENTATION: the row's own unpaid balance (current ultimate
+  // less paid to date) divided by the recorded patterns' shares at the year's
+  // age. See reserveSplit.ts for the definition and reserve-split-check for the
+  // gate that keeps them from reaching anything economic.
+  //
+  // ⚠ THE ROW STAYS SUBTRACTABLE, which is the property this exhibit protects
+  // everywhere else: paid + case + IBNR = current ultimate, exactly, on the
+  // printed figures. That only holds because the split apportions the unpaid
+  // balance THIS ROW ALREADY SHOWS rather than recomputing one from ultimate
+  // and the pattern — the two differ whenever a cohort is off its curve.
+  //
+  // Null together with `paid`, for the same reason it is: no ledger entry means
+  // no unpaid balance to divide, and an empty cell is not a zero.
+  // ============================================================================
+  caseReserves: number | null;
+  ibnr: number | null;
 }
 
 // ============================================================================
@@ -156,7 +178,7 @@ function ageAt(row: ReserveDevelopmentRow, v: number): number {
   return row.ageAtFirstValuation + (v - row.firstValuationYear);
 }
 
-export function exhibitRows(ledger: ReserveDevelopmentRow[], asAt: number): ExhibitRow[] {
+export function exhibitRows(line: CoverageLine, ledger: ReserveDevelopmentRow[], asAt: number): ExhibitRow[] {
   return ledger
     .filter(r => asAt >= r.firstValuationYear)
     .map(r => {
@@ -165,6 +187,10 @@ export function exhibitRows(ledger: ReserveDevelopmentRow[], asAt: number): Exhi
       const isFirst = asAt === r.firstValuationYear;
       const prior = isFirst ? null : ultimateAt(r, asAt - 1);
       const paid = seriesAt(r.paidByValuation, r, asAt);
+      // The derived split of THIS ROW's unpaid balance — see the field comments.
+      const unpaid = paid === null ? null : current - paid;
+      const ibnrShare = ibnrShareOfUnpaid(line, splitAgeMonths(line, ageAt(r, asAt)).ageMonths);
+      const ibnr = unpaid === null ? null : unpaid * ibnrShare;
       return {
         yearNumber: r.yearNumber,
         calendarYear: r.calendarYear,
@@ -180,6 +206,9 @@ export function exhibitRows(ledger: ReserveDevelopmentRow[], asAt: number): Exhi
         // NET over NET — `current` is this row's net ultimate at the same
         // valuation, so no conversion enters the quotient.
         paidToIncurred: paid !== null && current > 0 ? paid / current : null,
+        // Subtracted, not computed, so paid + case + IBNR ties to `current`.
+        caseReserves: unpaid === null || ibnr === null ? null : unpaid - ibnr,
+        ibnr,
       };
     })
     .sort((a, b) => a.yearNumber - b.yearNumber);
@@ -232,6 +261,13 @@ export function poolExhibitRows(perLine: ExhibitRow[][]): ExhibitRow[] {
         paidToIncurred: anyNull(r => r.paid) || sum(r => r.current) <= 0
           ? null
           : sum(r => r.paid ?? 0) / sum(r => r.current),
+        // Summed, like the dollar columns above and for the same reason: each
+        // line's split is already in net dollars at one valuation, so addition
+        // is the operation the quantity supports. Re-deriving a pool share
+        // would need a pool-level age, which three lines at three ages do not
+        // have.
+        caseReserves: anyNull(r => r.caseReserves) ? null : sum(r => r.caseReserves ?? 0),
+        ibnr: anyNull(r => r.ibnr) ? null : sum(r => r.ibnr ?? 0),
       };
     })
     .sort((a, b) => a.yearNumber - b.yearNumber);
@@ -289,6 +325,9 @@ export function collapsePrior(rows: ExhibitRow[]): ExhibitRow[] {
     paidToIncurred: anyNull(r => r.paid) || sum(r => r.current) <= 0
       ? null
       : sum(r => r.paid ?? 0) / sum(r => r.current),
+    // Summed, like every other dollar column on this row.
+    caseReserves: anyNull(r => r.caseReserves) ? null : sum(r => r.caseReserves ?? 0),
+    ibnr: anyNull(r => r.ibnr) ? null : sum(r => r.ibnr ?? 0),
   };
   return [priorRow, ...kept];
 }
@@ -326,10 +365,12 @@ function cell(value: number | null): string {
 // ⚠ NO DEVELOPMENT COLUMNS — see the header. Restoring them is adding the two
 // columns back here and in renderTable, under the sign rule in
 // docs/PENDING_MULTIPLAYER.md.
+// Case and IBNR sit BESIDE paid to date, which is the order the row reads in:
+// what has been paid, what is held on known claims, what is still to emerge.
 const HEADER =
   '| Accident year | Initial ultimate $M | Prior year ultimate $M | Current ultimate $M ' +
-  '| Paid to date $M | Paid / ultimate |\n' +
-  '|---|---:|---:|---:|---:|---:|';
+  '| Paid to date $M | Case $M | IBNR $M | Paid / ultimate |\n' +
+  '|---|---:|---:|---:|---:|---:|---:|---:|';
 
 function renderTable(rows: ExhibitRow[]): string {
   if (rows.length === 0) return '_No accident years on this exhibit yet._';
@@ -345,7 +386,8 @@ function renderTable(rows: ExhibitRow[]): string {
     // If a gross paid figure is ever wanted on this exhibit it needs its own
     // gross denominator stored beside it; see ReserveDevelopmentRow.
     return `| ${label} | ${m(r.initial)} | ${cell(r.prior)} | ${m(r.current)} `
-      + `| ${cell(r.paid)} | ${ratioCell(r.paidToIncurred)} |`;
+      + `| ${cell(r.paid)} | ${cell(r.caseReserves)} | ${cell(r.ibnr)} `
+      + `| ${ratioCell(r.paidToIncurred)} |`;
   });
   return [HEADER, ...body].join('\n');
 }
@@ -421,7 +463,7 @@ export function buildActuarialMemo({ gameState, asAtYear }: ActuarialMemoInput):
   const perLine = lines.map((line, i) => ({
     line,
     state: gameState.poolState.lines[line],
-    rows: exhibitRows(ledgers[i], asAt),
+    rows: exhibitRows(line, ledgers[i], asAt),
   }));
 
   const out: string[] = [];

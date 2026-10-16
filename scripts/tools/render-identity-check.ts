@@ -629,7 +629,17 @@ const BASELINE = process.env.RENDER_BASELINE
 // The move was taken with the control the recapture rule asks for: the parent
 // commit built in its own worktree and served on :4174 reproduced v33 at
 // 252/252 before any of this was trusted, so the harness is not what moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v34.json');
+//
+// ⚠ v34 -> v35: CASE AND IBNR COLUMNS ON THE ACTUARIAL MEMO. 10 of 252
+// fingerprints moved and ALL TEN ARE THE SAME DOCUMENT: doc:Actuarial at both
+// year points in all five configurations. Nothing else in the capture moved —
+// not the other four department documents, not a tab, not a line view. The
+// exhibit gained two columns and the engine gained six result fields that no
+// screen reads yet, which is exactly the footprint this commit intended.
+//
+// Taken with the control the recapture rule asks for: the parent commit built
+// in its own worktree and served on :4174 reproduced v34 at 252/252 first.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v35.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -74,6 +74,7 @@ import {
 } from './reinsuranceTower';
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
+import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
 import { cloneMembershipHistory, openInterval, closeInterval } from './membershipHistory';
 import { cloneMemberLossHistory, recordMemberLossYear } from './memberLossHistory';
@@ -2047,6 +2048,14 @@ export function processLineYear(
 
   const expectedNetUnpaidLoss = endingNetReserve;
 
+  // ⚠ A PRESENTATION, DERIVED HERE AND READ BY NOTHING BELOW IT. Case and IBNR
+  // divide `endingNetReserve` the way an actuarial exhibit does; full-cost
+  // booking means the engine itself has no unreported inventory and no figure
+  // in this function depends on the division. reserve-split-check asserts that
+  // by swapping the two halves and requiring every economic field to hold.
+  const reserveSplitByYear = splitCohorts(line, allCohorts);
+  const reserveSplitTotals = splitTotals(reserveSplitByYear);
+
   const beginningNetReserve = lineState.reserveCohorts.reduce((s, c) => s + c.netUnpaid, 0);
 
   // --- Income Statement ---
@@ -2524,6 +2533,14 @@ export function processLineYear(
     currentYearNetReserve,
     netPaidLosses: netPaidLossesThisYear,
     endingNetReserve,
+
+    caseReservesNet: reserveSplitTotals.caseNet,
+    ibnrNet: reserveSplitTotals.ibnrNet,
+    caseReservesGross: reserveSplitTotals.caseGross,
+    ibnrGross: reserveSplitTotals.ibnrGross,
+    caseReservesCeded: reserveSplitTotals.caseCeded,
+    ibnrCeded: reserveSplitTotals.ibnrCeded,
+    reserveSplitByYear,
 
     investmentReturnRate,
     investedAssets,
@@ -3667,6 +3684,20 @@ export function aggregateLineResults(
     // checking this line would have been misled about which lines contribute.
     netPaidLosses: addDollars('netPaidLosses'),
     endingNetReserve: addDollars('endingNetReserve'),
+
+    // The derived split, summed as dollars like everything else here. The
+    // per-year rows are COMBINED ACROSS LINES on accident year, because an
+    // accident year is the same calendar fact in every line; the ages differ by
+    // line but the dollars add, and `ageMonths` on a combined row is the
+    // newest contributing line's, which is the same for every line opened in
+    // the same year. See reserveSplit.ts.
+    caseReservesNet: addDollars('caseReservesNet'),
+    ibnrNet: addDollars('ibnrNet'),
+    caseReservesGross: addDollars('caseReservesGross'),
+    ibnrGross: addDollars('ibnrGross'),
+    caseReservesCeded: addDollars('caseReservesCeded'),
+    ibnrCeded: addDollars('ibnrCeded'),
+    reserveSplitByYear: combineSplitRows(lineResults.map(({ result }) => result.reserveSplitByYear)),
 
     // Stage 2.9: per-line portfolios make the pool return an asset-weighted
     // blend of each line's own realized return, not any single line's rate.

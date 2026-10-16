@@ -5,3 +5,4 @@ dist
 *.log
 scripts/diagnostics/*.csv
 dist-lambda
+runlogs/

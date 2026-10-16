@@ -95,9 +95,16 @@ function build(): string {
     const iLast = inc[inc.length - 1];
     const proj = paid.filter(r => r.projected).length;
     const adj = inc.filter(r => r.adjusted).length;
+    // The incurred row carries BOTH labels. WC's incurred table gained a
+    // projected tail at pricing commit 5(c), so "projected" is no longer a
+    // property only the paid patterns have, and a reader comparing the two
+    // rows must be able to see which parts of each are measured.
+    const iProj = inc.filter(r => r.projected).length;
+    const incLabel = [iProj ? `${iProj} projected` : '', adj ? `${adj} adjusted` : '']
+      .filter(Boolean).join(', ');
     out.push(`| ${l} | paid${proj ? ` (${proj} projected)` : ''} | ${paid.length} `
       + `| ${paid[0].ageMonths}–${pLast.ageMonths} | ${pLast.ldf} | ${(pctUnpaid(pLast.ldf) * 100).toFixed(1)}% unpaid |`);
-    out.push(`| ${l} | incurred${adj ? ` (${adj} adjusted)` : ''} | ${inc.length} `
+    out.push(`| ${l} | incurred${incLabel ? ` (${incLabel})` : ''} | ${inc.length} `
       + `| ${inc[0].ageMonths}–${iLast.ageMonths} | ${iLast.ldf} | ${(pctUnpaid(iLast.ldf) * 100).toFixed(1)}% unreported |`);
   }
   out.push('');
@@ -106,8 +113,11 @@ function build(): string {
   out.push('than reported at eight ages, 108 through 192 months. A second WC tail extension');
   out.push('jumping to ~9.3% emergence at 264 months was rejected for breaking the data\'s trend.');
   out.push('');
-  out.push('⚠ WC\'s incurred pattern ends at 264 months while its paid runs to 444, so past 264');
-  out.push('the case/IBNR split is **undefined** and `reserveSplitAt` throws there.');
+  out.push('⚠ WC\'s incurred pattern is **measured to 264 months and projected from 276 to 444**,');
+  out.push('continuing the last measured annual decline in the IBNR share (3.827%). Before this it');
+  out.push('stopped at 264 while paid ran to 444, leaving the case/IBNR split undefined across the');
+  out.push('gap; the split is now a derived presentation shown for every accident year, so the gap');
+  out.push('had to close. All three lines\' incurred patterns now end where their paid patterns do.');
   out.push('');
 
   // ---- to be replaced ------------------------------------------------------

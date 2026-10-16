@@ -96,7 +96,7 @@ before wiring. WC's paid rows from 276 months are a **projected** tail, not meas
 | Line | Basis | Rows | Ages | Ends at | Outstanding at the last age |
 | --- | --- | --- | --- | --- | --- |
 | WC | paid (15 projected) | 37 | 12–444 | 1.099413098 | 9.0% unpaid |
-| WC | incurred | 22 | 12–264 | 1.025102147 | 2.4% unreported |
+| WC | incurred (15 projected) | 37 | 12–444 | 1.01382626 | 1.4% unreported |
 | GL | paid | 21 | 12–252 | 1.011 | 1.1% unpaid |
 | GL | incurred (6 adjusted) | 21 | 12–252 | 1.007 | 0.7% unreported |
 | Property | paid | 11 | 12–132 | 1 | 0.0% unpaid |
@@ -107,8 +107,11 @@ losses are ground-up. The GL "Total" paid pattern is retired for showing more pa
 than reported at eight ages, 108 through 192 months. A second WC tail extension
 jumping to ~9.3% emergence at 264 months was rejected for breaking the data's trend.
 
-⚠ WC's incurred pattern ends at 264 months while its paid runs to 444, so past 264
-the case/IBNR split is **undefined** and `reserveSplitAt` throws there.
+⚠ WC's incurred pattern is **measured to 264 months and projected from 276 to 444**,
+continuing the last measured annual decline in the IBNR share (3.827%). Before this it
+stopped at 264 while paid ran to 444, leaving the case/IBNR split undefined across the
+gap; the split is now a derived presentation shown for every accident year, so the gap
+had to close. All three lines' incurred patterns now end where their paid patterns do.
 
 ## To be replaced by the new distributions
 

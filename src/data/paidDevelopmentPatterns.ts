@@ -239,12 +239,29 @@ const PROPERTY_PAID_DEVELOPMENT: readonly DevelopmentRow[] = [
 
 // WORKERS' COMPENSATION — INCURRED, ground-up.
 //
-// ⚠ ENDS AT 264 WHILE PAID RUNS TO 444. There is no incurred tail extension,
-// and one was not invented to match the paid projection's length. PAST 264
-// MONTHS THE CASE / IBNR SPLIT IS UNDEFINED: paid-to-date is still known from
-// the projected paid rows, but nothing says how the remaining ~10% divides
-// between claims on the books and development yet to emerge. reserveSplitAt
-// THROWS there rather than guessing — see its note.
+// ⚠ MEASURED TO 264, PROJECTED FROM 276 TO 444, marked on the rows as the paid
+// table marks its own. This extension was ADDED AT PRICING COMMIT 5(c), when
+// case and IBNR became a derived presentation that every accident year needs at
+// every age a game reaches. Before it, the table stopped at 264 while paid ran
+// to 444 and reserveSplitAt threw across the gap; a presentation cannot throw
+// on the years it is meant to present, so the gap had to close one way or the
+// other, and closing it with a stated projection is the honest way.
+//
+// HOW THE PROJECTION WAS MADE, so it can be argued with. The IBNR share
+// (1 - 1 / incurred) is continued at the LAST DECLINE THE DATA MEASURED: 3.827%
+// a year, the 252-to-264 step. The three final measured steps run 3.549%,
+// 3.683% and 3.827% — a tight, slowly rising cluster that breaks cleanly from
+// the 5.5-6.6% of the preceding decade — so the late regime is the one being
+// continued. The rate is HELD rather than extrapolated: it is drifting up by
+// about 0.14pp a step, and carrying that drift fifteen steps past the last
+// observation would invent an acceleration the data does not support.
+//
+// ⚠ WHAT THE PROJECTION IS CHECKED AGAINST, because a tail that breaks the
+// split is worse than no tail. Case reserves are 1/incurred - 1/paid, so the
+// incurred factor must stay BELOW the paid factor at every age or case goes
+// negative. It does: case runs 0.1531 of ultimate at 276 down to 0.0768 at 444,
+// positive and declining monotonically throughout, and IBNR declines beside it.
+// reserve-split-check asserts this on every line, age and valuation.
 //
 // The gap between the two bases is wide and early on this line, which is the
 // whole character of WC: 36% reported at 12 months against 8% paid, so most of
@@ -273,6 +290,22 @@ const WC_INCURRED_DEVELOPMENT: readonly DevelopmentRow[] = [
   { ageMonths: 240, ldf: 1.027153377 },
   { ageMonths: 252, ldf: 1.02612725 },
   { ageMonths: 264, ldf: 1.025102147 },
+  // ---- PROJECTED FROM HERE. NOT MEASURED. See the header for the method. ----
+  { ageMonths: 276, ldf: 1.024118318, projected: true },
+  { ageMonths: 288, ldf: 1.023173921, projected: true },
+  { ageMonths: 300, ldf: 1.022267307, projected: true },
+  { ageMonths: 312, ldf: 1.021396903, projected: true },
+  { ageMonths: 324, ldf: 1.020561207, projected: true },
+  { ageMonths: 336, ldf: 1.019758782, projected: true },
+  { ageMonths: 348, ldf: 1.018988255, projected: true },
+  { ageMonths: 360, ldf: 1.018248313, projected: true },
+  { ageMonths: 372, ldf: 1.017537703, projected: true },
+  { ageMonths: 384, ldf: 1.016855222, projected: true },
+  { ageMonths: 396, ldf: 1.016199723, projected: true },
+  { ageMonths: 408, ldf: 1.015570107, projected: true },
+  { ageMonths: 420, ldf: 1.014965322, projected: true },
+  { ageMonths: 432, ldf: 1.014384361, projected: true },
+  { ageMonths: 444, ldf: 1.01382626, projected: true },
 ];
 
 // GENERAL LIABILITY — INCURRED, same limited layer as the paid pattern above.
@@ -449,27 +482,24 @@ export function pctReported(incurredLdf: number): number {
  *   ibnr = 1 - 1 / incurred            reported-to-ultimate development
  *   case + ibnr = 1 - 1 / paid         total unpaid, identically
  *
- * ⚠ THROWS WHERE THE INCURRED PATTERN DOES NOT REACH, which on WC is every age
- * past 264 months even though PAID runs to 444. The split is not merely unknown
- * there — it is UNDEFINED, because no incurred factor exists to divide the
- * balance with. Returning the total as all-case or all-IBNR would be inventing
- * the answer, and the paid tail being projected makes a confident split there
- * doubly wrong. See WC_INCURRED_DEVELOPMENT.
+ * ⚠ THE "SPLIT IS UNDEFINED PAST 264" GUARD IS GONE, and this is the note it
+ * left behind. It existed because WC's incurred pattern stopped at 264 while
+ * paid ran to 444, so across that gap there was no incurred factor to divide
+ * the balance with and throwing beat guessing. Pricing commit 5(c) made case
+ * and IBNR a derived presentation shown for every accident year at every age a
+ * game reaches, and a presentation cannot throw on the years it presents — so
+ * WC's incurred table was PROJECTED to 444 on a stated method instead. The gap
+ * no longer exists on any line: all three incurred patterns now end exactly
+ * where their paid patterns do.
+ *
+ * There is still a range guard, and it is the right one: it belongs to
+ * paidLdfAt and incurredLdfAt, which throw past the last age of their own
+ * tables. A separate guard here would now only duplicate theirs, and a
+ * duplicate guard is the kind that goes stale when one table moves.
  */
 export function reserveSplitAt(line: CoverageLine, ageMonths: number): {
   caseReserves: number; ibnr: number; totalUnpaid: number;
 } {
-  const incurred = INCURRED_DEVELOPMENT_PATTERN[line];
-  const lastIncurred = incurred[incurred.length - 1];
-  if (ageMonths > lastIncurred.ageMonths) {
-    const paid = PAID_DEVELOPMENT_PATTERN[line];
-    throw new Error(
-      `reserveSplitAt: ${line} has no case/IBNR split at age ${ageMonths} months — the incurred pattern `
-      + `ends at ${lastIncurred.ageMonths} while paid runs to ${paid[paid.length - 1].ageMonths}. `
-      + 'Past that age the split is UNDEFINED, not zero: paid-to-date is known but nothing says how the '
-      + 'remaining balance divides between case and IBNR.',
-    );
-  }
   const paidLdf = paidLdfAt(line, ageMonths);
   const incurredLdf = incurredLdfAt(line, ageMonths);
   return {

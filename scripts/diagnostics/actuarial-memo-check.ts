@@ -138,11 +138,41 @@ function checkTable(
     // current — went with them. The paid ratio replaces them as the arithmetic
     // asserted on the printed cells, so this table is still checked by a sum a
     // reader could do.
-    const [initial, prior, current, paid, ratio] = r.cells;
+    // ⚠ SEVEN SINCE PRICING COMMIT 5(c): Case and IBNR were added beside paid
+    // to date. They bring a SECOND row identity with them, asserted below —
+    // paid + case + IBNR === current ultimate, on the printed cells.
+    const [initial, prior, current, paid, caseRes, ibnr, ratio] = r.cells;
     const where = `accident year ${r.label}`;
 
-    if (r.cells.length !== 5) {
-      fail(ctx, 'column count', `${where}: ${r.cells.length} cells, the exhibit has five after the label`);
+    if (r.cells.length !== 7) {
+      fail(ctx, 'column count', `${where}: ${r.cells.length} cells, the exhibit has seven after the label`);
+    }
+
+    // --- ARITHMETIC: paid + case + IBNR === current ------------------------
+    // The exhibit's subtractability rule, extended to the split. Three printed
+    // figures at $0.01M each, so the bound is three quanta plus the one on
+    // `current` itself.
+    if (paid !== EMPTY && caseRes !== EMPTY && ibnr !== EMPTY && current !== EMPTY) {
+      const lhs = num(paid) + num(caseRes) + num(ibnr);
+      if (Math.abs(lhs - num(current)) > 4 * PRINT_QUANTUM) {
+        fail(ctx, 'paid + case + IBNR !== current ultimate',
+          `${where}: ${paid} + ${caseRes} + ${ibnr} = ${lhs.toFixed(2)} against ${current}`);
+      }
+    }
+
+    // --- ARITHMETIC: neither half of the split is negative ------------------
+    if (caseRes !== EMPTY && num(caseRes) < 0) {
+      fail(ctx, 'negative case reserve', `${where}: case = ${caseRes}`);
+    }
+    if (ibnr !== EMPTY && num(ibnr) < 0) {
+      fail(ctx, 'negative IBNR', `${where}: IBNR = ${ibnr}`);
+    }
+
+    // --- PRINTING: the split is blank exactly when paid is -------------------
+    // Both halves divide the unpaid balance, which needs paid to exist.
+    if ((caseRes === EMPTY) !== (paid === EMPTY) || (ibnr === EMPTY) !== (paid === EMPTY)) {
+      fail(ctx, 'split blank without paid',
+        `${where}: paid=${paid} case=${caseRes} ibnr=${ibnr} — the three are blank together or not at all`);
     }
 
     // --- ARITHMETIC: paid / current === the printed ratio ------------------
@@ -350,7 +380,7 @@ for (const arm of ARMS) {
         removedTextAudit({ arm: arm.name, config: name, scope: 'memo', year: asAt }, md);
         const movedBefore = movedRows;
         const tables = parseTables(md);
-        const perLineRows = lines.map(l => exhibitRows(gs.poolState.lines[l]?.reserveDevelopment ?? [], asAt));
+        const perLineRows = lines.map(l => exhibitRows(l, gs.poolState.lines[l]?.reserveDevelopment ?? [], asAt));
 
         for (let i = 0; i < lines.length; i++) {
           const ctx = { arm: arm.name, config: name, scope: lines[i], year: asAt };

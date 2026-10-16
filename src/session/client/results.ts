@@ -98,7 +98,7 @@ function developedAt(poolState: PoolState, lines: CoverageLine[], asAt: number):
   const perLine: ExhibitRow[][] = [];
   const byLine: Partial<Record<CoverageLine, DevelopedUltimates>> = {};
   for (const line of lines) {
-    const rows = exhibitRows(poolState.lines[line]?.reserveDevelopment ?? [], asAt);
+    const rows = exhibitRows(line, poolState.lines[line]?.reserveDevelopment ?? [], asAt);
     perLine.push(rows);
     byLine[line] = onAxis(rows);
   }

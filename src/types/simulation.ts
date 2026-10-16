@@ -1032,6 +1032,30 @@ export interface ReserveCohort {
 // APPEND-ONLY and never pruned, so a reader can rely on a row surviving its
 // cohort's closure. PRICING is windowed to ten accident years at the read site,
 // never by trimming the ledger.
+/**
+ * One accident year's CASE / IBNR split, on all three bases.
+ *
+ * ⚠ A PRESENTATION. Derived in reserveSplit.ts from the recorded patterns at
+ * the year's age and read by nothing economic — see that file's header and
+ * reserve-split-check, which asserts the inertness directly.
+ */
+export interface AccidentYearSplit {
+  yearNumber: number;
+  calendarYear: number;
+  ageMonths: number;
+  /** TRUE where ageMonths was clamped because the cohort outlived its pattern. */
+  beyondPattern: boolean;
+  caseNet: number;
+  ibnrNet: number;
+  unpaidNet: number;
+  caseGross: number;
+  ibnrGross: number;
+  unpaidGross: number;
+  caseCeded: number;
+  ibnrCeded: number;
+  unpaidCeded: number;
+}
+
 export interface ReserveDevelopmentRow {
   yearNumber: number;          // the ACCIDENT year this row describes
   calendarYear: number;
@@ -1630,6 +1654,22 @@ interface ResultRowFields {
   // provision used to be computed, and the IBNER replacement it records.
   netPaidLosses: number;
   endingNetReserve: number;
+
+  // ⚠ CASE AND IBNR — A DERIVED PRESENTATION, READ BY NOTHING ECONOMIC.
+  // Claims book at full cost, so the engine has no unreported inventory; these
+  // divide the reserve the way an actuarial exhibit does, from the recorded
+  // patterns at each accident year's age. See reserveSplit.ts for the
+  // definition and reserve-split-check for the gate that keeps them inert.
+  // caseReservesNet + ibnrNet === endingNetReserve, exactly.
+  caseReservesNet: number;
+  ibnrNet: number;
+  caseReservesGross: number;
+  ibnrGross: number;
+  caseReservesCeded: number;
+  ibnrCeded: number;
+  /** Per accident year, newest first — what the results page reads. */
+  reserveSplitByYear: AccidentYearSplit[];
+  // (AccidentYearSplit is declared below, beside the other result shapes.)
 
   // Investment
   investmentReturnRate: number;

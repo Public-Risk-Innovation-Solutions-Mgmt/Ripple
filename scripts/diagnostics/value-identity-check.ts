@@ -922,7 +922,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 37 and its invested assets rise with it, so every balance-sheet and
 // investment-income field downstream re-rolls. Nothing changed about how a
 // played year develops, which is why the field LIST is identical.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v56.json');
+// v57: CASE AND IBNR, AND NOTHING ELSE. A PURE ADDITION — 1800 field readings
+// added (six scalars x 300 instances: caseReservesNet, ibnrNet,
+// caseReservesGross, ibnrGross, caseReservesCeded, ibnrCeded), 0 removed, and
+// 0 CHANGED. Every field present in v56 is bit-identical here.
+//
+// That is the whole claim of pricing commit 5(c): the split is a PRESENTATION
+// derived from the recorded patterns, read by nothing economic. This capture is
+// one of the two places that claim is tested — reserve-split-check is the
+// other, and it makes the stronger version by inverting the split and
+// requiring the same bit-identity.
+//
+// Recaptured so the new fields are gated from here on rather than sitting
+// outside the baseline, which is how an addition rots.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v57.json');
 
 function seedOf(id: string) {
   let h = 5381;
