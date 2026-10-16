@@ -16,7 +16,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 # first), function, role, API and log group by hand.
 Description: >-
   Ripple session backend: DynamoDB table, ripple-session Lambda and role, HTTP
-  API with five routes, and log group. Reusable across environments via Env.
+  API with seven routes, and log group. Reusable across environments via Env.
 Parameters:
   Env:
     Type: String

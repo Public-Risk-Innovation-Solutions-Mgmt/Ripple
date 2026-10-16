@@ -71,12 +71,13 @@
 //     become 0/46. That is a RE-CAPTURE, and it is only legitimate once you can
 //     say which engine change moved which screen — the same rule the value
 //     baselines carry. A re-capture to make a run green measures nothing after.
-//   · host-charts.cjs, ONE assertion: `dev1At3 > booked1 * 1.05`, that an
-//     accident year grows at least 5% over two valuations. It is the only
-//     threshold in the eight that reads an engine magnitude, and GL's
-//     contraction re-solve is precisely the change that could move it. If it
-//     goes red, check the ratio before touching the driver: a smaller number is
-//     a re-solved contraction, a number below 1.0 would be a real defect.
+//   · host-charts.cjs, ONE assertion: that an aged accident year's ultimate
+//     holds steady after its first booking. It was `dev1At3 > booked1 * 1.05`,
+//     growth of at least 5% over two valuations, until full-cost booking removed
+//     development; it is restated when development returns. If it goes red,
+//     an aged year has moved: either development has come back (restate the
+//     assertion, deliberately) or something is restating prior years that
+//     should not be (a real defect).
 //
 // STRUCTURAL — these should pass unchanged, and a red one is a REAL defect:
 //

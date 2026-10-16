@@ -170,9 +170,19 @@ const activeView = page => page.$$eval('nav button', bs =>
 
   // ---- AS BOOKED vs AS DEVELOPED ---------------------------------------
   //
-  // ⚠ THE WHOLE CLAIM IN ONE ASSERTION: the same accident year, restated
-  // upwards by a later valuation. If these were equal the second chart would be
-  // a copy of the first.
+  // ⚠ UNDER FULL-COST BOOKING AN ACCIDENT YEAR'S ULTIMATE HOLDS STEADY AFTER
+  // ITS FIRST BOOKING, AND THAT IS WHAT IS ASSERTED NOW. This block used to
+  // require the same year to be restated UPWARDS by a later valuation (at least
+  // 1.05x two valuations on, every aged point drawn above its booked point).
+  // Full-cost booking removed development by design, so that read 1.00x on every
+  // run: the same class as the gates repaired in the payout build, asserting a
+  // movement the engine no longer makes. The two charts are therefore the same
+  // figures today; the developed chart is kept because development returns with
+  // the prior development factors, and these assertions are the ones to restate
+  // when it does (see docs/PENDING_MULTIPLAYER.md for the sign rule).
+  //
+  // Checked against reintroduced development: with FULL_COST_BOOKING off, the
+  // aged years move and both assertions below go red.
   const recD = await host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
   const hRec = recD.teams.find(t => t.name === 'Harbour Mutual');
   const booked1 = hRec.resultsByYear['1'].pool.netUltimateLoss;
@@ -180,8 +190,14 @@ const activeView = page => page.$$eval('nav button', bs =>
   const dev1At3 = hRec.resultsByYear['3'].developed.pool['1'];
   ok(Math.abs(dev1At1 - booked1) < 1,
      `at its own valuation, accident year 1 as developed IS its booked figure ($${Math.round(booked1)})`);
-  ok(dev1At3 > booked1 * 1.05,
-     `two valuations later the same year has grown: $${Math.round(booked1)} -> $${Math.round(dev1At3)} (${(dev1At3 / booked1).toFixed(2)}x)`);
+  // Every AGED accident year at the latest valuation, not only year 1: a year
+  // that moved is a development the engine is not supposed to make.
+  const aged = ['1', '2'].map(y => ({
+    y, booked: hRec.resultsByYear[y].pool.netUltimateLoss, developed: hRec.resultsByYear['3'].developed.pool[y],
+  }));
+  ok(aged.every(a => Math.abs(a.developed - a.booked) < 1),
+     `two valuations later the aged years hold steady: ${aged.map(a => `year ${a.y} $${Math.round(a.booked)} -> $${Math.round(a.developed)}`).join(', ')}`);
+  void dev1At3;
   const bookedLatest = hRec.resultsByYear['3'].pool.netUltimateLoss;
   ok(Math.abs(hRec.resultsByYear['3'].developed.pool['3'] - bookedLatest) < 1,
      'and the NEWEST accident year is identical on both charts — it has had no valuation yet');
@@ -196,9 +212,10 @@ const activeView = page => page.$$eval('nav button', bs =>
   const bookMarks = await marks(host, 'losses', COLORS['Harbour Mutual']);
   ok(devMarks.length === bookMarks.length && devMarks.length === 4,
      `the developed chart covers the same accident years (${devMarks.length})`);
-  // Lower y is a HIGHER value: the developed points sit above the booked ones.
-  const above = devMarks.slice(0, 3).every((d, i) => d.cy < bookMarks[i].cy - 1);
-  ok(above, 'and every developed point that has aged sits ABOVE its booked point');
+  // The drawn points agree with the figures: every aged developed point sits ON
+  // its booked point, to a pixel. Was "ABOVE", which assumed development.
+  const onTop = devMarks.slice(0, 3).every((d, i) => Math.abs(d.cy - bookMarks[i].cy) <= 1);
+  ok(onTop, 'and every developed point that has aged sits ON its booked point');
 
   // ---- REPORTED, PENDING, and the line that must not fall to zero ------
   const hs = await marks(host, 'surplus', COLORS['Harbour Mutual']);
