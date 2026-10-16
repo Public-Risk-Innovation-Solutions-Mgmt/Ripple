@@ -40,6 +40,7 @@ import { GL_HEAVY_COMPONENT_INDEX, GL_LOSS_MODEL, GL_SEVERITY_CAP, GL_SEVERITY_C
 import { limitedExpectedValue, memoizeByYear } from './claimMath';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
 import { claimsSystemAdjusted } from './riskControlPrograms';
+import { SEVERITY_TREND_PER_YEAR } from '../data/pricingParameters';
 
 const M = GL_LOSS_MODEL;
 const LINE: CoverageLine = 'GL';
@@ -48,51 +49,41 @@ export const NEUTRAL_RQ = 5;
 
 // --- severity trend ------------------------------------------------------------
 
-// GL SEVERITY TREND — wage inflation compounded with LONG-RUN social inflation.
+// GL SEVERITY TREND — 5%/yr, THE SAME RATE AS THE OTHER TWO LINES.
 //
-//   wage inflation            3.63%   (see exposureTrend.ts for its derivation)
-//   long-run social inflation 2.00%   JUDGMENT — see below
-//   composed                  1.0363 x 1.0200 = 1.057026  ->  5.7026%/yr
+// ⚠ WHAT THIS REPLACED, BECAUSE THE DERIVATION BELOW WAS GOOD AND IS WORTH
+// KEEPING RATHER THAN DELETING. GL carried 5.7026%/yr, composed as
 //
-// ⚠ COMPOSED MULTIPLICATIVELY, NOT SUMMED. Swiss Re define social inflation as
-// severity growth BEYOND economic drivers — an additive excess as a CONCEPT —
-// but the figures only reconcile as a product: 3.63 + 2.00 = 5.63, whereas
-// 1.0363 x 1.020 = 1.057026. Summing the rates would understate the trend and
-// break the rate-trend identity below.
+//   wage inflation            3.63%
+//   long-run social inflation 2.00%   a judgment, not a Swiss Re figure
+//   composed                  1.0363 x 1.0200 = 1.057026
 //
-// THE IDENTITY THAT MAKES THIS PAIR CORRECT: GL's rate is per $100 of NOMINAL
-// payroll, so
-//   rate trend = severityTrend / wageFactor = 1.057026 / 1.0363 = 1.0200
-// exactly the social-inflation half. Payroll grows with the economic half,
-// severity with both, and members feel the difference. Over a ten-year game
-// (nine compounding periods) the rate rises x1.1951 and the member charge
-// x1.6473, against WC's rate which stays flat.
+// MULTIPLICATIVELY, not summed: Swiss Re define social inflation as severity
+// growth BEYOND economic drivers — an additive excess as a CONCEPT — but the
+// figures only reconcile as a product (3.63 + 2.00 = 5.63 against 1.057026).
+// The wage half existed so that, divided by a payroll base growing at the same
+// 3.63%, GL's RATE trend came out at exactly the social-inflation half, +2.00%.
 //
+// THE EXPOSURE BASE IS LEVEL NOW, so that quotient has no denominator and the
+// composition has nothing left to express: a rate built on 5.7026% over a flat
+// base would trend at 5.7026%, which is not what the 2.00% judgment said. One
+// rate for all three lines is the decision instead, and 5% sits between GL's
+// old rate trend (+2.00%) and its old severity trend (+5.70%).
+//
+// SOURCING THAT STILL STANDS, AND WHICH NUMBER WAS NEVER SOURCED. Swiss Re
+// Institute, sigma 4/2024, Social Inflation Index: 57% cumulative over the
+// decade (4.6%/yr), 5.4%/yr average 2017-2022, peaking at 7% in 2023, above
+// zero every year since 2014. THE 2.0% WAS A JUDGMENT — an estimate of a
+// long-run average across episodes AND quiet periods, deliberately not the
+// current episode's 4.6%, because baking an episode in permanently and then
+// adding the hard-market shock (shockCatalog #19) on top double-counts it.
+// That structural argument is untouched by this commit; what changed is that
+// GL no longer prices off a line-specific trend at all.
+//
+// WHAT WOULD DISPLACE THE 5%: a public-entity liability severity trend from a
+// rate filing, or a decision to let the three lines differ again.
 // ===========================================================================
-// SOURCING, AND WHICH NUMBER IS NOT SOURCED
-// ===========================================================================
-//
-// SOURCED — Swiss Re Institute, sigma 4/2024, Social Inflation Index:
-//   57% cumulative over the decade (4.6%/yr), 5.4%/yr average 2017-2022,
-//   peaking at 7% in 2023. Social inflation observed since the 1980s, with
-//   prior episodes in the 1980s and 2000s and the current one beginning in the
-//   mid-2010s; the index has been above zero every year since 2014.
-//
-// ⚠ THE 2.0% IS A JUDGMENT, NOT A SWISS RE FIGURE. The 4.6%, 5.4% and 7.0%
-// figures above are theirs; 2.0% is an estimate of a LONG-RUN AVERAGE ACROSS
-// EPISODES AND QUIET PERIODS.
-//
-// WHY NOT USE 4.6% AS THE BASELINE. It is the CURRENT EPISODE'S average, not a
-// long-run rate. Baking it in permanently asserts the episode never ends — and
-// then the hard-market event (shockCatalog #19) adds another episode on top of
-// it, double-counting. If the EVENT is the episode, the BASELINE has to be the
-// between-episode rate. That is a structural argument, not a calibration one:
-// it would hold even if the resulting numbers were convenient.
-//
-// WHAT WOULD DISPLACE IT: a social-inflation index covering the pre-2014
-// period, or a public-entity liability severity trend from a rate filing.
-// ===========================================================================
-export const GL_SEVERITY_TREND_PER_YEAR = 0.057026;
+export const GL_SEVERITY_TREND_PER_YEAR = SEVERITY_TREND_PER_YEAR.GL;
 
 // Live year 1 is the reference (factor 1.0).
 //

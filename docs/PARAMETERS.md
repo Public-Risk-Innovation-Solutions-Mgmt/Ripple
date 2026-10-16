@@ -9,16 +9,16 @@ change it in the module and regenerate.
 in the note — changing it is a re-fit. **CHOSEN** means picked — changing it is a
 decision. Entries marked *not yet used* are read by nothing today.
 
-## Trend
+## Trend and exposure
 
-Read by the HELD pricing path only. The experience path applies no trend at all.
+Applied at the DRAW, and on the held pricing path so the two cannot diverge. The experience path applies no trend at all.
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
-| WC frequency trend | `-0.015` | per year | SOURCED | A decline. Multiplies WC's held pure premium. Pairs with the severity trend and wage inflation; together the rate trend is ~-1.46%/yr. |
-| WC severity trend | `0.0367` | per year | SOURCED | Trends WC claim severity. WCIRB blended: 52% medical @ 3.70%, 48% indemnity @ 3.63%. |
-| Wage inflation | `0.0363` | per year | SOURCED | Grows the exposure base. Applies to WC and GL, not Property. |
-| GL severity trend | `derived from the GL severity mix` | per year | SOURCED | glCappedSeverityTrend — the capped expected severity relative to year 1. Computed in glClaimEngine.ts rather than held as a scalar, so it is registered and not moved. |
+| Severity trend | `WC 0.050 · GL 0.050 · Property 0.050` | per year | CHOSEN | Accident-year severity growth. One rate, all three lines. Replaces WC 3.67% / GL 5.7026% / Property 0. A round figure above WC's measured 3.67%, and the first number to tune if the rate moves too fast. |
+| Frequency trend | `WC 0.000 · GL 0.000 · Property 0.000` | per year | CHOSEN | Zero on all three lines. A named zero, not a deletion — WC carried -1.5%/yr and the mechanism still reads this. |
+| Exposure growth | `0` | per year | CHOSEN | Payroll and insured value are LEVEL; the base moves only through underwriting. Replaces wage inflation at 3.63% on WC and GL. Removing it alone would have made the rate climb at the full severity trend, which is why the severity rates were replaced with it. |
+| Settlement inflation | `per line, in defaultAssumptions.ts` | per year over a claim's life | SOURCED | The dollar-vintage convention applied between accident year and settlement. REGISTERED, NOT MOVED, AND NOT CHANGED IN THIS COMMIT. Distinct from the accident-year severity trend above; see PAYOUT_TREND_FACTOR for the double-count this separation prevents. |
 
 ## The pricing window
 

@@ -1,142 +1,75 @@
-// WAGE INFLATION ON THE EXPOSURE BASE — pool-wide framework, wired for WC and GL.
+// THE EXPOSURE BASE'S OWN TREND — AND IT IS ZERO. PAYROLL AND TIV ARE LEVEL.
 //
-// The roster is FROZEN and stays frozen: member payroll in memberCatalog is a
-// permanent year-1-dollar figure. This factor rides on top at read time, the
-// same pattern as wcFrequencyTrend — a deterministic function of the year,
-// blind to the roster, applied where exposure is read rather than baked into
-// the data.
+// The roster is FROZEN and stays frozen: member payroll and insured value in
+// memberCatalog are permanent year-1-dollar figures. This module is the single
+// read-time factor that rides on top of them, and it now returns 1 in every
+// year on every line. The pool's exposure moves ONLY through underwriting —
+// members joining, leaving, or changing what they buy.
 //
 // ===========================================================================
-// WHY THE MODEL NEEDS THIS, AND WHY IT DOES NOT NEED A SEVERITY TREND IN RATE
-// TERMS
+// ⚠ WHAT THIS REPLACED, AND WHY IT COULD NOT BE REMOVED ON ITS OWN.
 // ===========================================================================
 //
-// WC severity grows at almost exactly the rate wages grow, and that is by
-// CONSTRUCTION rather than coincidence: indemnity benefits are statutorily
-// two-thirds of wage, so the indemnity half of severity tracks wages by
-// definition.
+// Until this commit the factor grew at WAGE INFLATION, 3.63%/yr, on WC and GL
+// and not on Property. That was half of a PAIR, and the file said so at
+// length: WC severity grew 3.67% and GL severity 5.7026% precisely because
+// their denominators were growing too. The quotient was the rate trend —
+// WC -1.462%/yr, GL +2.00%/yr — and removing the denominator alone would have
+// made WC's rate climb 2.115%/yr and GL's 5.70%/yr overnight.
 //
-//   WCIRB blended severity trend        3.67%
-//     medical    52% of severity  @ 3.70%/yr   (2017-2023)
-//     indemnity  48% of severity  @ 3.63%/yr   ("33% above 2016 by 2024")
-//   Wage inflation                      3.63%
-//     read off the indemnity severity trend itself, since WCIRB attributes
-//     indemnity growth "primarily to increasing average wage levels"
-//   Difference                         +0.04%
+// So both halves moved together. The severity side is now ONE RATE PER LINE,
+// 5% on all three, in pricingParameters.ts; this side is zero. The sourcing
+// that justified 3.63% (WCIRB indemnity benefits being a statutory share of
+// wage, so the indemnity half of WC severity tracks wages by construction) is
+// not refuted by any of this — it is simply no longer being modelled, because
+// a rate per $100 of a base that trends is a quotient of two trends, and the
+// pool's actual growth decisions were the smaller term in it.
 //
-// So there is NO SEVERITY TREND IN RATE TERMS — the NCCI a priori assumption,
-// confirmed by data. The model never needed one.
+// ⚠ A NAMED ZERO, NOT A DELETED MECHANISM. Every call site still routes through
+// exposureFactor, so giving the base a trend again is a one-constant edit at
+// EXPOSURE_GROWTH_PER_YEAR — and it must arrive paired with the severity side,
+// exactly as before. The same discipline, now with the pair stated in one file.
 //
-// What it was missing is the OTHER half of that relationship: payroll did not
-// grow. Exposure sat frozen while the frequency trend pulled the rate down
-// 1.5%/yr, so the pool shrank in nominal terms every year. Real pools grow with
-// their members' wages.
-//
-// ⚠ THE TWO HALVES ARE A PAIR. Inflating payroll WITHOUT inflating severity
-// makes the rate fall 5.1%/yr instead of 1.46%, because the rate's denominator
-// grows while its numerator does not. Both, or neither. WC's severity trend
-// lives in wcClaimEngine (WC_SEVERITY_TREND_PER_YEAR) and is applied at the
-// DRAW; this module is only the exposure half.
-//
-// EXPONENTIAL, NOT LINEAR, per CAS Basic Ratemaking: a linear trend model
-// eventually projects negative severities.
-//
-// ⚠ KNOWN SIMPLIFICATION, NOT AN OVERSIGHT. CAS prescribes SEPARATE medical and
-// indemnity trends for workers' compensation. The severity rebuild made that
-// impossible — the mixture draws ONE amount per claim with no legs to trend
-// differently (see CALIBRATION_FINDINGS 30 for the full list of what the
-// medical/indemnity/impairment split's removal cost). The blended 3.67% is the
-// best available single rate, and a per-leg trend is what a future model with
-// legs would restore.
+// ⚠ PROPERTY'S BASE IS TIV AND INFLATES WITH CONSTRUCTION COST, NOT WAGES.
+// That was the reason Property's switch was off while WC's and GL's were on.
+// With the trend at zero the distinction has nothing to express, so the
+// per-line switch is gone rather than kept as three copies of `false`. A future
+// exposure trend that differs by line reintroduces it; one that does not, does
+// not need it.
 
 import type { CoverageLine } from '../types/simulation';
-import { memoizeByYear } from '../utils/claimMath';
 
-// SOURCED — see the derivation above.
-// ⚠ DEFINED IN pricingParameters.ts NOW. Imported so this file can use it and
+// ⚠ DEFINED IN pricingParameters.ts. Imported so this file can use it and
 // re-exported so every existing import of the old name keeps resolving.
-import { WAGE_INFLATION_PER_YEAR_PARAM } from './pricingParameters';
-export const WAGE_INFLATION_PER_YEAR = WAGE_INFLATION_PER_YEAR_PARAM;
+import { EXPOSURE_GROWTH_PER_YEAR as EXPOSURE_GROWTH_PARAM } from './pricingParameters';
+export const EXPOSURE_GROWTH_PER_YEAR = EXPOSURE_GROWTH_PARAM;
 
-// ⚠ THE PER-LINE SWITCH. WC AND GL LIVE; PROPERTY OFF. Turning a line on is a
-// REPRICING, not a toggle — it must arrive paired with that line's own sourced
-// severity trend, or the rate moves by the full wage rate with nothing
-// offsetting it:
-//
-//   GL — LIVE. Paired with GL_SEVERITY_TREND_PER_YEAR (5.7026%/yr, itself
-//        1.0363 x 1.020 — wage times long-run social inflation), so GL's rate
-//        trend is +2.00%/yr, exactly the social-inflation half. Payroll grows
-//        with the economic half; severity grows with both; the difference is
-//        what members actually feel. See glClaimEngine.ts for the sourcing and
-//        for why the 2.0% is tagged a judgment rather than a Swiss Re figure.
-//
-//        ⚠ THE TWO HALVES ARRIVED TOGETHER AND MUST STAY TOGETHER. Severity
-//        alone makes GL's rate rise 5.70%/yr; payroll alone makes it FALL
-//        3.63%/yr. An earlier version of this note said GL's rate trend would
-//        become "+3.25%/yr rather than +7%" — that assumed a 7% trend GL did
-//        not have, and was wrong even before the sub-coverage rebuild deleted
-//        GL_SOCIAL_INFLATION. Removing either half now reintroduces the same
-//        class of defect finding 37 corrected on WC.
-//
-//   PROPERTY — its exposure base is TIV, not payroll, and TIV inflates with
-//        CONSTRUCTION COST, not wages. 3.63% IS NOT PROPERTY'S RATE. Turning
-//        Property on requires its own sourced figure and its own severity
-//        pairing; reusing this constant would be a category error.
-//
-// Property-solo being byte-identical across a change to this file is the proof
-// its switch is genuinely off, not merely nominally off.
-export const WAGE_INFLATION_APPLIES: Record<CoverageLine, boolean> = {
-  WC: true,
-  GL: true,
-  Property: false,
-};
-
-// The cumulative wage factor for a given year. Live year 1 is the reference
-// (factor 1.0), matching wcFrequencyTrend's convention.
-//
-// ⚠ THE PRE-GAME IS PINNED AT YEAR-1 DOLLARS — the factor FLOORS at 1.0 rather
-// than deflating for negative yearNumbers, and that is deliberate.
-//
-// It would be more symmetric with wcFrequencyTrend (which does let the pre-game
-// run hotter, because the past was more dangerous). But the pre-game is NOT a
-// simulated wage history — it is an INITIAL-CONDITIONS GENERATOR, three years
-// run only to produce an opening balance sheet for a pool that has been
-// operating. Every dollar constant that shapes it is expressed in year-1
-// dollars: STARTING_FINANCIALS' premium and surplus ranges,
-// STARTING_CAPITAL_TO_PREMIUM, and the OPENING_SURPLUS_BAND
-// acceptance test that redraws the pre-game when the opening lands outside it.
-// Deflating exposure ~10% while those stay fixed silently re-rates the opening
-// position — measured at a 5% lower starting surplus and 3 fewer starting
-// members, for no modelling gain.
-//
-// The same mismatch, caught earlier in the same change, is why
-// instanceGenerator pins OPENING_EXPOSURE_YEAR to 1.
-//
-// ⚠ wcSeverityTrend AND glSeverityTrend FLOOR THE SAME WAY AND MUST CONTINUE TO.
-// Each is a pair with this factor: if payroll pins at year 1 pre-game while a
-// line's severity deflates, that line's drawn loss and priced loss diverge across
-// exactly the years that set the opening reserves.
-// MEMOIZED PER LINE. wageFactor is a pure function of (line, yearNumber), but
-// it is called from inside member-list loops at 7+ sites (getMemberExposure's
-// every caller — instanceGenerator.ts, membershipEngine.ts,
-// simulationEngine.ts), several walking the full 200-member market roster
-// every year. One Map per line turns every call after the first, for a given
-// floored year, into a hash lookup. Floors at the cache-key level too (see
-// memoizeByYear's header) — the pre-game's years -2/-1/0 collapse onto the
-// same entry as year 1, since the underlying Math.pow already floors there.
-// ⚠ fn FLOORS INTERNALLY, exactly like the original unmemoized body — the
-// `keyOf` floor below is a cache-key optimisation only, not the source of
-// correctness. memoizeByYear calls fn with the RAW year on a cache miss, so
-// if fn trusted keyOf to have already floored, whichever raw year happened to
-// populate a given slot first (-2, -1, 0 or 1 — order is call-dependent) would
-// silently decide that slot's value from the wrong exponent.
-const wageFactorByLine: Record<CoverageLine, (year: number) => number> = {
-  WC: memoizeByYear(year => Math.pow(1 + WAGE_INFLATION_PER_YEAR, Math.max(1, year) - 1), year => Math.max(1, year)),
-  GL: memoizeByYear(year => Math.pow(1 + WAGE_INFLATION_PER_YEAR, Math.max(1, year) - 1), year => Math.max(1, year)),
-  Property: () => 1,
-};
-
-export function wageFactor(line: CoverageLine, yearNumber: number): number {
-  if (!WAGE_INFLATION_APPLIES[line]) return 1;
-  return wageFactorByLine[line](yearNumber);
+/**
+ * The cumulative exposure factor for a line and year. Live year 1 is the
+ * reference (factor 1.0) and the pre-game FLOORS at year 1 rather than
+ * deflating — see the note below, which outlives the trend being zero.
+ *
+ * ⚠ THE FLOOR IS LOAD-BEARING AND MUST SURVIVE THE TREND COMING BACK. The
+ * pre-game is not a simulated history; it is an INITIAL-CONDITIONS GENERATOR,
+ * three years run only to produce an opening balance sheet. Every dollar
+ * constant that shapes it is in year-1 dollars — STARTING_FINANCIALS' premium
+ * and surplus ranges, STARTING_CAPITAL_TO_PREMIUM, and the OPENING_SURPLUS_BAND
+ * acceptance test that redraws the pre-game when the opening lands outside it.
+ * Deflating exposure while those stay fixed silently re-rates the opening
+ * position: measured, when it was tried, at a 5% lower starting surplus and
+ * three fewer starting members, for no modelling gain. instanceGenerator pins
+ * OPENING_EXPOSURE_YEAR to 1 for the same reason. The severity trends floor the
+ * same way and must continue to, or a line's drawn and priced loss diverge
+ * across exactly the years that set the opening reserves.
+ *
+ * ⚠ NO MEMOISATION ANY MORE, AND THAT IS NOT AN OVERSIGHT. The old body was a
+ * Math.pow behind a per-line Map because it fired inside member-list loops at
+ * seven call sites, several walking the 200-member market roster every year.
+ * At a zero trend the body is a constant and a Map lookup would cost more than
+ * the arithmetic it replaced. Restoring the trend restores the case for the
+ * cache; memoizeByYear is still there and still takes the same floor key.
+ */
+export function exposureFactor(_line: CoverageLine, yearNumber: number): number {
+  if (EXPOSURE_GROWTH_PER_YEAR === 0) return 1;
+  return Math.pow(1 + EXPOSURE_GROWTH_PER_YEAR, Math.max(1, yearNumber) - 1);
 }

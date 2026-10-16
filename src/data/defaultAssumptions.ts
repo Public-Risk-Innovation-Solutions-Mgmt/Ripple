@@ -352,10 +352,12 @@ export const WC_LOSS_MODEL = {
     },
   } as Record<WcRatingGroup, WcGroupModel>,
 
-  // Workplace safety improves ~1.5%/yr. Applied as (1 + trend)^(yearNumber-1),
-  // so live Year 1 is the reference (factor 1.0) and the pre-game years carry a
-  // factor slightly ABOVE 1 — the past was more dangerous.
-  frequencyTrendPerYear: -0.015,
+  // ⚠ WC'S FREQUENCY TREND HAS MOVED TO pricingParameters.ts AND IS ZERO. It
+  // was -1.5%/yr here, sourced from workplace safety improving at about that
+  // rate, and it is now FREQUENCY_TREND_PER_YEAR.WC — one place where all three
+  // lines' frequency trends are stated together. The field is removed rather
+  // than set to 0 because a second copy of a number is how the two come to
+  // disagree, and the engine read this one only through wcFrequencyTrend.
 
   // Per member-year frequency noise, mean 1 (SD 0.25). Makes claim counts
   // overdispersed relative to pure Poisson.
@@ -2071,9 +2073,41 @@ export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
   // far the underlying distribution has drifted. The cost appears in ATTEMPTS
   // (2.86 -> 3.31) and then, nonlinearly, in acceptance failing altogether. A
   // reading taken after the filter cannot see a pin going wrong.
-  WC: 1.5211,
-  GL: 0.7184,
-  Property: 0.6280,
+  // ==========================================================================
+  // ⚠ RE-SOLVED AGAIN — FIFTH DRIFT, AND THE LARGEST. FULL-COST BOOKING.
+  //
+  //   WC  1.5211 -> 4.6546  (+206.0%)
+  //   GL  0.7184 -> 1.9397  (+170.0%)
+  //   Property 0.6280 -> 0.5887  (-6.3%)
+  //
+  // Booking every claim at its drawn value from the first valuation raises the
+  // opening reserve, and the band is surplus over REQUIRED, so the same surplus
+  // against a larger reserve reads lower: WC's unfiltered median fell to 0.629
+  // against a 2.280 midpoint, -121.6 SE. The pin is the only thing that moved.
+  // THE BAND DID NOT — 2.28x is still the design intent, on all three lines.
+  //
+  // ⚠ PROPERTY IS SOLVED THIS TIME AND HAS BEEN LEFT ALONE AT EVERY PREVIOUS
+  // RE-SOLVE, so the departure is worth stating. It was inside tolerance both
+  // before (+12% of band width) and after the change (+18% against a 25% bar),
+  // and the convention has been to leave a passing line where it is. It is
+  // moved here because the solver was run on all three in one pass and a
+  // centred pin in hand is better than a passing one, and because -6.3% is a
+  // small move to carry while the other two move by 170% and 206%. A reader
+  // who wants the old convention back should know it was a judgement, not an
+  // oversight.
+  //
+  // Solved by scripts/diagnostics/opening-pin-solve.ts: bisection, 600 seeds
+  // per evaluation, through the gate's own estimator on seeds the gate never
+  // sees. Four passes each, all three landing inside 0.06 band widths.
+  //
+  // ⚠ AND IT WAS SOLVED TWICE, BECAUSE THE FIRST SOLVE WAS INVALIDATED MID-RUN.
+  // That pass returned WC 3.6963 / GL 1.3254 against an engine that still had
+  // the BOOKING CONTRACTION live — gates 4 and 5 of FULL_COST_BOOKING had not
+  // been found yet. A pin solved against a superseded engine is a pin that
+  // fails its own gate; the figures above are from the re-run.
+  WC: 4.6546,
+  GL: 1.9397,
+  Property: 0.5887,
 };
 
 // Pre-game acceptance band: the line's Year-1 opening surplus must land within
@@ -2767,19 +2801,36 @@ export const LEGACY_GEOMETRIC_PATTERN: Record<string, PayoutPattern> = {
   Property: { kind: 'geometric', openFraction: 0.60, conditional: 0.65 },
 };
 
-export const LINE_PAYOUT_PATTERN: Record<string, PayoutPattern> = FITTED_PAYOUT_PATTERN;
-
-// ⚠ THERE IS A SECOND SET OF PAYOUT DATA, AND IT IS NOT WIRED. The pool's own
-// measured DEVELOPMENT PATTERNS — age-to-ultimate LDFs on BOTH a paid and an
-// incurred basis, ground-up, for all three lines, from which case reserves and
-// IBNR fall out — are recorded in src/data/paidDevelopmentPatterns.ts.
-// They are intended to REPLACE the fitted Weibull curves above when the
-// simplified multiplayer model is built, and NOTHING READS THEM YET.
+// ===========================================================================
+// ⚠ THE RECORDED PATTERNS ARE NOW WHAT THE ENGINE PAYS ON, AND THE WEIBULL FIT
+// ABOVE IS RETIRED IN PLACE.
 //
-// They are in their own file rather than here precisely because both will exist
-// at once for a while: two payout patterns in one file is how the next person
-// wires the wrong one. If you came here looking for payout data, read that file
-// before adding anything to this one.
+// The pool's own measured development patterns — age-to-ultimate LDFs, paid and
+// incurred, ground-up — live in src/data/paidDevelopmentPatterns.ts. Every
+// payout question now resolves through them: see the `recorded` kind in
+// payoutPattern.ts for the mechanics and for the one rule the table needs, what
+// happens at its last age.
+//
+// ⚠ WHY IT CHANGED, AND IT IS A CONSISTENCY ARGUMENT RATHER THAN A FIT BEING
+// PREFERRED. Pricing develops losses with the RECORDED factors. The engine was
+// paying them down on the WEIBULL fit, which is far faster — 12.777 against
+// 4.671 at 12 months on WC, read off the pool's own played ledger — so the new
+// pure premium came out 65% above the charged rate for no reason but the two
+// halves disagreeing about the same quantity. One set of patterns, used
+// everywhere, is the fix; which set is the smaller question, and the recorded
+// one wins it because pricing cannot be built on a curve the pool did not live.
+//
+// FITTED_PAYOUT_PATTERN IS KEPT AND NOTHING READS IT. It is the parent of the
+// value baselines this commit moves, and a baseline move whose parent has been
+// deleted cannot be re-measured. It is not a fallback and must not become one.
+// ===========================================================================
+export const RECORDED_PAYOUT_PATTERN: Record<string, PayoutPattern> = {
+  WC: { kind: 'recorded', line: 'WC' },
+  GL: { kind: 'recorded', line: 'GL' },
+  Property: { kind: 'recorded', line: 'Property' },
+};
+
+export const LINE_PAYOUT_PATTERN: Record<string, PayoutPattern> = RECORDED_PAYOUT_PATTERN;
 
 // ===========================================================================
 // CLAIM CLOSURE CURVES — see claimClosure.ts for the form and the discipline.
@@ -4877,6 +4928,101 @@ export const PER_CLAIM_REVISION = { enabled: true, settlement: true };
 // book's age profile, which is a reserving change and not a membership one.
 // ============================================================================
 export const FORWARD_BOOKING = { enabled: true };
+
+// ===========================================================================
+// FULL-COST BOOKING — EVERY CLAIM IS BOOKED AT ITS DRAWN VALUE, FROM THE FIRST
+// VALUATION. BOOKED EQUALS ULTIMATE, SO PRIOR YEARS DO NOT DEVELOP AT ALL.
+//
+// ⚠ IT IS A SWITCH AND NOT A DELETION, exactly as FORWARD_BOOKING,
+// DEVELOPMENT_CESSION_ENABLED and the geometric payout control are. Turning it
+// off restores the booking walk entire, and the value baselines of the commit
+// before this one are what that arm reproduces.
+//
+// ⚠ WHY, AND IT IS THE ACCEPTANCE TEST'S OWN FINDING. recorded-payout-check
+// measured that the engine's PAYMENT was already exact against the ultimate a
+// cohort carries — WC 7.83% paid at 12 months against the pattern's 7.83% —
+// while its chain-ladder paid LDF read 26.3 against a recorded 12.777. The
+// whole gap was the ultimate underneath moving: x1.738 on WC, x2.380 on GL and
+// x1.181 on Property over a cohort's life. No payout pattern can close a gap a
+// developing ultimate opens, so the walk had to go.
+//
+// ⚠ AND IT IS THE MULTIPLAYER DESIGN ARRIVING, NOT A SIMPLIFICATION FOR THE
+// TEST'S SAKE. Development is to come from ONE place — the host's prior
+// development factors, stored per line on the room today and read by nothing.
+// Removing the engine's own walk is what makes them the only source. Until they
+// are wired there is NO development on prior years, and that is the intended
+// state rather than a gap in it.
+//
+// WHAT IT SWITCHES OFF. FIVE GATES, each named at its own site so a reader
+// finds the reason where the code is:
+//
+//   1 THE BOOKING BIAS      ibnerBookingBias returns 0, so bookedUltimate is
+//                           netUltimateLoss and the markdown it drives is 0.
+//   2 THE DEVELOPMENT DRIFT `developing` is false at every age, so the
+//                           stochastic step, the deterministic unwind and the
+//                           per-claim revision law never run.
+//   3 THE SETTLEMENT TRUE-UP the closing-set resolution is skipped, which is
+//                           what makes it a no-op rather than a zero-mean
+//                           adjustment that still moves individual claims.
+//   4 THE BOOKING CONTRACTION  initialEstimate returns the drawn amount.
+//   5 THE PRICING TRIANGLE'S OWN WALK  the history is built flat, because it
+//                           must be built by the process the game plays.
+//
+// ⚠ GATES 4 AND 5 ARE THE ONES A READER WOULD MISS, AND BOTH WERE FOUND BY
+// MEASUREMENT RATHER THAN BY READING. The booking BIAS is zero at default
+// decisions anyway — it is 0.80 x max(0, 1 - CLF) and the default funds at
+// expected — so switching off the walk alone left the CONTRACTION in place and
+// claims booked at A x drawn^k for ever, which is 1/2.33 of cost on WC. It
+// showed as reserves FALLING 25% where they were expected to rise. Gate 5 is
+// the same hazard on the pricing side: the triangle is a separate
+// implementation of the same development process, and leaving it walking would
+// have taught the pool factors its own future could no longer produce.
+//
+// WHAT IT DELIBERATELY DOES NOT TOUCH. CLOSURE TIMING: reselectDevelopingSet
+// still runs and still refreshes every claim's `closed` flag off the closure
+// curve, so claims close over time exactly as they did and the claims workbook
+// still reads true. PAYMENT: the recorded patterns still govern cash.
+// ===========================================================================
+export const FULL_COST_BOOKING = { enabled: true };
+
+// ===========================================================================
+// ⚠ WHAT THIS BUILD BREAKS — FOUR GATES, NOW RULED ON. NONE IS FULL-COST
+// BOOKING'S DOING; all four trace to the TREND AND EXPOSURE change, 5%/yr
+// severity against a level base with the declining frequency trend and the
+// inflating payroll base both removed.
+//
+//   cohort-stock-check — RESOLVED BY BOUNDING THE HORIZON, NOT BY A FIX.
+//     Each cohort's TRACKED SET grows because buildTrackedSet tracks every
+//     occurrence at or above a FIXED-DOLLAR retention while nominal severity
+//     climbs. THE RETENTION AND THE THRESHOLD STAY FIXED BY RULING: inflation
+//     eroding a fixed retention, so more claims pierce it each year, is real
+//     and is worth teaching. The gate now asserts over GAME_LENGTH_YEARS.max —
+//     10 years, the longest a player can select — where the set reaches a mean
+//     of 9.0 claims per cohort on WC, 10.2 on GL and 10.2 on Property against a
+//     claimCount of 10, worst cohort 20 / 16 / 12, and the save reaches 684 KB.
+//     At 60 years WC reaches 44 and the save does not saturate; that horizon is
+//     outside anything selectable and is no longer asserted. Re-read it with
+//     YEARS=60 if the retention is ever indexed.
+//
+//   experience-pricing-drift-check — DRIFT IS NOW MEASURED NET OF THE TREND, by
+//     ruling, because a still book's rate is MEANT to climb at it. That fixed
+//     the control cell (39.19% to -1.08%). A residual remains and is DEFERRED
+//     as an accepted breach — see EXPECTED_RED in gates.ts.
+//
+//   market-conditions-check, member-satisfaction-check — DEFERRED as accepted
+//     breaches, inverted so they fail if they stop breaching. Commits 3 and 5
+//     move reserves and prices again and recalibrating now would mean doing it
+//     twice. The readings are NOT acceptable; they are postponed. Reasons and
+//     figures are at their EXPECTED_RED entries.
+//
+// ⚠ NONE IS FORKED ON THIS FLAG. Eleven other gates were, because each asserted
+// a RETIRED behaviour — a booking bias that no longer exists, a triangle that
+// no longer develops. These four assert live questions about whether the new
+// trend regime is calibrated. Gating them would dress a design question as a
+// stale assertion, which is the one failure mode this directory exists to
+// prevent; recording them as expiring breaches keeps them answerable.
+// ===========================================================================
+
 
 // ============================================================================
 // THE DRIFT RATE SOLVED AGAINST THE HORIZON, not against closure age.

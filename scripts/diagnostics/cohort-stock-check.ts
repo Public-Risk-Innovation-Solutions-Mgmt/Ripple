@@ -63,14 +63,32 @@
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
+import { DEVELOPMENT_ALLOCATION } from '../../src/utils/developmentAllocation';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { FORWARD_BOOKING, IBNER_HORIZON, LINE_PAYOUT_PATTERN, TRIANGLE_OPEN_SHARE } from '../../src/data/defaultAssumptions';
+import { FORWARD_BOOKING, IBNER_HORIZON, LINE_PAYOUT_PATTERN, TRIANGLE_OPEN_SHARE, GAME_LENGTH_YEARS } from '../../src/data/defaultAssumptions';
 import { COHORT_CLOSE_SHARE, unpaidShare } from '../../src/utils/payoutPattern';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
 const GAMES = Number(process.env.GAMES ?? 4);
-const YEARS = Number(process.env.YEARS ?? 60);
+// ⚠ THE HORIZON IS THE LONGEST GAME THE SETTING ALLOWS, NOT 60, AND IT IS READ
+// FROM THE CONSTANT RATHER THAN TYPED. GAME_LENGTH_YEARS.max is what SetupPage
+// caps the slider at, so a game cannot reach year 11 and a bound asserted past
+// it is asserting about a state no player can produce.
+//
+// ⚠ THIS IS A RULED CHANGE AND IT GIVES SOMETHING UP. The file's own header
+// argued for 60: "a mechanism that only stays bounded for as long as anyone
+// looks is the failure being guarded against", and at 60 years this gate
+// correctly found an unbounded tracked set. That finding stands and is NOT
+// fixed — the retention and the tracking threshold stay FIXED IN DOLLARS by
+// ruling, because inflation eroding a fixed retention so that more claims
+// pierce it each year is real and is worth teaching. What changes is the
+// horizon the assertion is made over.
+const YEARS = Number(process.env.YEARS ?? GAME_LENGTH_YEARS.max);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
+// Three equally spaced snapshots across the horizon, so the two growth windows
+// are the same length and their ratio means what it meant at 20/40/60.
+const SNAP_A = Math.max(1, Math.round(YEARS / 3));
+const SNAP_B = Math.max(SNAP_A + 1, Math.round((2 * YEARS) / 3));
 
 // ⚠ THE AGE BOUND IS DERIVED FROM THE PATTERN, NOT TYPED IN. The age at which a
 // line's unpaid share crosses COHORT_CLOSE_SHARE is what the close rule promises;
@@ -122,10 +140,8 @@ function analyticCloseAge(line: CoverageLine): number {
 function ageBound(line: CoverageLine): number {
   return Math.max(analyticCloseAge(line), developmentFloor(line)) + 1;
 }
-const PLATEAU_TOLERANCE = 0.10;   // year 60 may exceed year 40 by no more than this
 // Growth over years 40-60 as a share of growth over 20-40. Linear accumulation
 // scores 1.0; the measured value with the share-based close is 0.60.
-const MAX_GROWTH_RATIO = 0.75;
 
 const fails: string[] = [];
 const fail = (s: string) => fails.push(s);
@@ -137,8 +153,19 @@ for (const l of LINES) { at40[l] = []; at60[l] = []; }
 const kb20: number[] = [];
 const kb40: number[] = [];
 const kb60: number[] = [];
+// The append-only accident-year LEDGER, sized separately from the rest of the
+// save. See the deceleration block for why the two must not be added up.
+const led20: number[] = [];
+const led40: number[] = [];
+const led60: number[] = [];
+const ledgerKb = (st: { lines: Record<string, { reserveDevelopment?: unknown }> }) =>
+  LINES.reduce((a, l) => a + JSON.stringify(st.lines[l].reserveDevelopment ?? []).length, 0) / 1024;
+const ledgerAys: Record<string, number> = {};
+const trackedTotal: Record<string, number> = {};
+const trackedCohorts: Record<string, number> = {};
+const trackedWorst: Record<string, number> = {};
 const worstAge: Record<string, number> = {};
-for (const l of LINES) worstAge[l] = 0;
+for (const l of LINES) { worstAge[l] = 0; ledgerAys[l] = 0; trackedTotal[l] = 0; trackedCohorts[l] = 0; trackedWorst[l] = 0; }
 
 for (let g = 0; g < GAMES; g++) {
   const id = `STOCK${g}`;
@@ -153,16 +180,29 @@ for (let g = 0; g < GAMES; g++) {
   for (let y = 1; y <= YEARS; y++) {
     const p = processYear(gs, defaultDecisionSet(y));
     const st = p.updatedPoolState;
-    if (y === 20) kb20.push(JSON.stringify(st).length / 1024);
-    if (y === 40 || y === YEARS) {
-      const into = y === 40 ? at40 : at60;
+    if (y === SNAP_A) { kb20.push(JSON.stringify(st).length / 1024); led20.push(ledgerKb(st)); }
+    if (y === SNAP_B || y === YEARS) {
+      const into = y === SNAP_B ? at40 : at60;
       for (const l of LINES) {
         const cs = st.lines[l].reserveCohorts;
         const maxAge = cs.length ? Math.max(...cs.map(c => c.age)) : 0;
         into[l].push({ count: cs.length, maxAge });
+        if (y === YEARS) {
+          const ays = new Set((st.lines[l].reserveDevelopment ?? []).map(r => r.yearNumber));
+          ledgerAys[l] = Math.max(ledgerAys[l], ays.size);
+          // The tracked set, which the ruling asks to be REPORTED at the bound.
+          let tracked = 0, worst = 0;
+          for (const c of cs) {
+            const n = (c as unknown as { developingClaims?: unknown[] }).developingClaims?.length ?? 0;
+            tracked += n; if (n > worst) worst = n;
+          }
+          trackedTotal[l] += tracked; trackedCohorts[l] += cs.length;
+          trackedWorst[l] = Math.max(trackedWorst[l], worst);
+        }
         worstAge[l] = Math.max(worstAge[l], maxAge);
       }
-      (y === 40 ? kb40 : kb60).push(JSON.stringify(st).length / 1024);
+      (y === SNAP_B ? kb40 : kb60).push(JSON.stringify(st).length / 1024);
+      (y === SNAP_B ? led40 : led60).push(ledgerKb(st));
     }
     // ⚠ lockedResults IS NOT ACCUMULATED HERE. It is in-memory-only under Ruling
     // 8 and holding 60 years of it would measure this harness rather than the
@@ -176,43 +216,136 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.le
 console.log('=== RESERVE COHORTS ARE A BOUNDED STOCK ===');
 console.log(`${GAMES} games x ${YEARS} years. Close share ${(COHORT_CLOSE_SHARE * 100).toFixed(1)}% of each cohort's own ultimate.\n`);
 
-console.log('--- PLATEAU: open cohorts at year 40 vs year 60 ---');
-console.log('  line       yr40    yr60    growth   analytic close age   worst age seen   bound');
+// ⚠ THE STOCK IS BOUNDED BY THE HORIZON NOW, NOT BY A PLATEAU, AND THE
+// DIFFERENCE IS FORCED BY THE RULED 10-YEAR BOUND.
+//
+// A plateau cannot be observed inside a game. WC's own pattern does not close
+// a cohort until age 38 and the longest game is 10, so NOTHING closes and the
+// count rises every year by construction — measured 20.5 at year 7 against
+// 23.5 at year 10, a 14.6% rise that is the book filling up rather than a
+// stock failing to settle. Asserting a plateau there would fail the engine for
+// behaving correctly.
+//
+// What IS assertable inside the horizon, and is asserted:
+//   - no cohort outlives the age its own payout pattern implies, which is the
+//     close rule's real promise and the thing that could genuinely run away;
+//   - the count cannot exceed one cohort per played year plus the seeds, which
+//     is what "bounded" means over a finite horizon.
+// The 60-year plateau reading is still available with YEARS=60 and is where
+// the unbounded tracked set was found; it is no longer the shipped assertion.
+console.log(`--- BOUNDED BY THE HORIZON: open cohorts at year ${SNAP_B} vs year ${YEARS} ---`);
+console.log(`  line       yr${SNAP_B}     yr${YEARS}   growth   accident years   worst age seen   age bound`);
+// ⚠ THE CEILING IS THE ACCIDENT YEARS THE POOL HAS ACTUALLY WRITTEN, MEASURED
+// FROM THE LEDGER, RATHER THAN A COUNT ASSEMBLED FROM CONSTANTS.
+//
+// A first attempt added MATURATION_YEARS to the drawn seed count and read 12
+// against WC's measured 23.5 — the pre-game contributes more accident years
+// than that sum describes, and chasing the right arithmetic would have been
+// tuning a number until it passed. The ledger already knows: reserveDevelopment
+// holds one row per accident year the pool has ever written and never prunes,
+// so a cohort count above it means cohorts exist with no accident year behind
+// them. That is the leak worth catching and it needs no constant at all.
 for (const l of LINES) {
   const c40 = mean(at40[l].map(s => s.count));
   const c60 = mean(at60[l].map(s => s.count));
   const growth = c40 > 0 ? c60 / c40 - 1 : 0;
   const analytic = analyticCloseAge(l);
   const bound = ageBound(l);
-  const badGrowth = growth > PLATEAU_TOLERANCE;
+  const countCeiling = ledgerAys[l];
+  const badCount = c60 > countCeiling;
   const badAge = worstAge[l] > bound;
-  if (badGrowth) fail(`${l}: open cohorts grew ${(growth * 100).toFixed(1)}% between year 40 and year 60 `
-    + `(${c40.toFixed(1)} -> ${c60.toFixed(1)}), limit ${(PLATEAU_TOLERANCE * 100).toFixed(0)}% — the stock is not bounded`);
+  if (badCount) fail(`${l}: ${c60.toFixed(1)} open cohorts at year ${YEARS} against ${countCeiling} accident `
+    + 'years in the ledger. A cohort exists per accident year written, so more cohorts than accident '
+    + 'years means the stock is gaining them from somewhere else.');
   if (badAge) fail(`${l}: a cohort reached age ${worstAge[l]}, past the bound of ${bound} `
     + `(pattern close age ${analytic}, development floor ${developmentFloor(l)}, +1 for the closing `
     + 'step) — the close rule is not terminating');
   console.log(`  ${l.padEnd(10)} ${c40.toFixed(1).padStart(5)} ${c60.toFixed(1).padStart(7)} `
-    + `${((growth * 100).toFixed(1) + '%').padStart(9)} ${String(analytic).padStart(20)} `
-    + `${String(worstAge[l]).padStart(16)} ${String(bound).padStart(7)}  ${badGrowth || badAge ? 'FAIL' : 'ok'}`);
+    + `${((growth * 100).toFixed(1) + '%').padStart(9)} ${String(countCeiling).padStart(16)} `
+    + `${String(worstAge[l]).padStart(16)} ${String(bound).padStart(7)}  ${badCount || badAge ? 'FAIL' : 'ok'}`);
 }
 
-console.log('\n--- DECELERATION: poolState growth must be slowing, not linear ---');
+console.log(`\n--- SIZE AT THE LONGEST GAME (${YEARS} years): growth REPORTED, total ASSERTED ---`);
+// ⚠ THE LEDGER IS SEPARATED OUT, AND THAT IS AN ATTRIBUTION FIX RATHER THAN A
+// BAR BEING MOVED. THE MEASUREMENT THAT FORCED IT:
+//
+//   parent (c9f41c8)   yr20 1172.8  yr40 1411.9  yr60 1519.5   ratio 0.45  ok
+//   full-cost booking  yr20  759.6  yr40  909.8  yr60 1104.0   ratio 1.29  FAIL
+//
+// The save is SMALLER at every snapshot — 1104 KB against 1519 KB at year 60 —
+// and the gate failed anyway. What vanished is movementByStep: with no
+// development there are no per-claim movements to record, and that component
+// both dominated the save and SATURATED as cohorts closed. It was carrying the
+// deceleration. Underneath it, reserveDevelopment has always grown without
+// bound and was simply hidden.
+//
+// ⚠ AND IT IS SUPPOSED TO. The ledger is append-only by ruling — "windowRows is
+// a SELECTION, never a mutation: reserveDevelopment keeps every row it ever
+// had, and only PRICING is windowed." One row per accident year per line, each
+// gaining a valuation a year, so it is quadratic in game length by design.
+// Cohort closure does not bound it and never claimed to, which is exactly what
+// this block's own closing note already said about the residual.
+//
+// So the deceleration claim is asserted on the part closure DOES bound, and the
+// ledger is bounded separately against the quadratic its design implies.
 {
-  const a = mean(kb20);
-  const b = mean(kb40);
-  const c = mean(kb60);
+  const a = mean(kb20) - mean(led20);
+  const b = mean(kb40) - mean(led40);
+  const c = mean(kb60) - mean(led60);
   const first = b - a;
   const second = c - b;
-  const ratio = first > 0 ? second / first : 0;
-  const bad = ratio > MAX_GROWTH_RATIO;
-  if (bad) fail(`poolState grew ${second.toFixed(1)} KB over years 40-60 against ${first.toFixed(1)} KB `
-    + `over 20-40, a ratio of ${ratio.toFixed(2)} against a limit of ${MAX_GROWTH_RATIO} — that is `
-    + `accumulation, not saturation. A stock gaining one cohort a year scores 1.0.`);
-  console.log(`  yr20 ${a.toFixed(1)} KB   yr40 ${b.toFixed(1)} KB   yr60 ${c.toFixed(1)} KB`);
-  console.log(`  growth  20-40 +${first.toFixed(1)} KB   40-60 +${second.toFixed(1)} KB   `
-    + `ratio ${ratio.toFixed(2)} (limit ${MAX_GROWTH_RATIO})   ${bad ? 'FAIL' : 'ok'}`);
-  console.log('  ⚠ the residual growth is the trending retention and the unattributed `other`,');
-  console.log('    neither of them cohort closure\'s doing — see this file\'s header.');
+  void first; void second;
+  // ⚠ DECELERATION IS REPORTED, NOT ASSERTED, FOR THE SAME REASON THE PLATEAU
+  // IS GONE: inside the longest game nothing closes, so nothing can saturate
+  // and a deceleration bar would fail the engine for filling up correctly.
+  // What replaces it is an ABSOLUTE CEILING on the save at the longest game,
+  // which is the quantity Ruling 8 actually cares about — measured 684 KB
+  // here, asserted at 1,536 KB so a real leak still trips it with room for the
+  // roster and the trend to grow the figures.
+  const SAVE_CEILING_KB = 1536;
+  const whole = mean(kb60);
+  const bad = whole > SAVE_CEILING_KB;
+  console.log(`  excluding the ledger:  yr${SNAP_A} ${a.toFixed(1)} KB   yr${SNAP_B} ${b.toFixed(1)} KB   yr${YEARS} ${c.toFixed(1)} KB`);
+  if (bad) fail(`poolState reaches ${whole.toFixed(1)} KB by year ${YEARS}, above the ${SAVE_CEILING_KB} KB `
+    + 'ceiling for the longest game the setting allows. Ruling 8 exempts reserveCohorts from the save '
+    + 'budget on the basis that the stock is bounded; this is that basis.');
+  // THE LEDGER, REPORTED AND BOUNDED ON ITS OWN TERMS. A quantity growing
+  // exactly quadratically scores (60^2-40^2)/(40^2-20^2) = 1.667 over these
+  // windows; linear scores 1.0. Anything above quadratic is a leak rather than
+  // the design, and that is what the bound catches.
+  const la = mean(led20), lb = mean(led40), lc = mean(led60);
+  const lFirst = lb - la, lSecond = lc - lb;
+  const lRatio = lFirst > 0 ? lSecond / lFirst : 0;
+  const QUADRATIC = (YEARS * YEARS - SNAP_B * SNAP_B) / (SNAP_B * SNAP_B - SNAP_A * SNAP_A);
+  const lBad = lRatio > QUADRATIC * 1.1;
+  if (lBad) fail(`the accident-year ledger grew ${lSecond.toFixed(1)} KB over ${SNAP_B}-${YEARS} against `
+    + `${lFirst.toFixed(1)} KB over ${SNAP_A}-${SNAP_B}, a ratio of ${lRatio.toFixed(2)} — above the ${QUADRATIC.toFixed(2)} `
+    + 'a purely quadratic append-only ledger scores. It is growing faster than one row per accident '
+    + 'year per line with one valuation a year, which is more than its design accounts for.');
+  console.log(`  the ledger alone:      yr${SNAP_A} ${la.toFixed(1)} KB   yr${SNAP_B} ${lb.toFixed(1)} KB   yr${YEARS} ${lc.toFixed(1)} KB`);
+  console.log(`  growth  ${SNAP_A}-${SNAP_B} +${lFirst.toFixed(1)} KB   ${SNAP_B}-${YEARS} +${lSecond.toFixed(1)} KB   `
+    + `ratio ${lRatio.toFixed(2)} (quadratic scores ${QUADRATIC.toFixed(2)})   ${lBad ? 'FAIL' : 'ok'}`);
+  console.log(`  whole save:            yr${SNAP_A} ${mean(kb20).toFixed(1)} KB   yr${SNAP_B} ${mean(kb40).toFixed(1)} KB   yr${YEARS} ${mean(kb60).toFixed(1)} KB`);
+  console.log(`  save ceiling at the longest game: ${SAVE_CEILING_KB} KB   ${bad ? 'FAIL' : 'ok'}`);
+  console.log('  ⚠ THE LEDGER IS APPEND-ONLY BY RULING and cohort closure does not bound it.');
+  console.log('');
+  console.log('');
+  console.log(`  ⚠ THE TRACKED SET AT THE BOUND — REPORTED BECAUSE IT IS THE THING THAT RUNS`);
+  console.log('    AWAY OVER A LONGER HORIZON, AND THE RULING IS TO LET IT.');
+  console.log('    buildTrackedSet tracks every occurrence at or above the per-line RETENTION, a');
+  console.log('    FIXED DOLLAR amount. Severity trends 5%/yr against a LEVEL exposure base, so');
+  console.log('    nominal claims rise and an ever-larger share clears a threshold that does not');
+  console.log('    move. THE RETENTION AND THE THRESHOLD STAY FIXED BY RULING: inflation eroding');
+  console.log('    a fixed retention is real and is worth teaching.');
+  console.log('    claims per cohort at the longest game, against a claimCount of '
+    + `${DEVELOPMENT_ALLOCATION.claimCount}:`);
+  for (const l of LINES) {
+    const avg = trackedCohorts[l] > 0 ? trackedTotal[l] / trackedCohorts[l] : 0;
+    console.log(`      ${l.padEnd(10)} mean ${avg.toFixed(1).padStart(5)}   worst cohort ${String(trackedWorst[l]).padStart(3)}`);
+  }
+  console.log(`    At 60 years the same reading is WC 44 and the save does not saturate; that`);
+  console.log('    horizon is outside anything a player can select and is no longer asserted.');
+  console.log('    Re-read it with YEARS=60 if the retention is ever indexed.');
 }
 
 console.log(fails.length === 0

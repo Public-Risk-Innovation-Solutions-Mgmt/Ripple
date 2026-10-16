@@ -71,14 +71,56 @@ export const PRICING_WINDOW_YEARS = 10;
  */
 export const REINSURANCE_RISK_LOAD_LAMBDA = 0;
 
-/** Wage inflation, the exposure base's own trend. */
-export const WAGE_INFLATION_PER_YEAR_PARAM = 0.0363;
+// ============================================================================
+// TREND AND EXPOSURE — ONE SEVERITY RATE PER LINE, NO FREQUENCY TREND, AND A
+// LEVEL EXPOSURE BASE.
+//
+// ⚠ THIS REPLACES A THREE-PART ARRANGEMENT AND ALL THREE PARTS HAD TO GO
+// TOGETHER. What was here: WC severity +3.67% with frequency -1.5%, GL severity
+// +5.7026%, Property zero, and an exposure base growing at wage inflation
+// 3.63% on WC and GL but not on Property. The rate trend was then the quotient
+// — WC -1.462%/yr, GL +2.00%/yr, Property flat — and the three lines were on
+// three different footings for reasons that were individually sourced and
+// jointly impossible to price off.
+//
+// Removing the exposure trend ALONE would have made WC's rate rise 2.115%/yr
+// and GL's 5.70%/yr, because each line's severity was paired with it by
+// construction; that pairing is exactly what exposureTrend.ts warned about at
+// length. So the pair is replaced, not half of it.
+//
+// ⚠ THE 3.63% / 3.67% CANCELLATION IS NOT LOST, IT IS EXPRESSED DIFFERENTLY.
+// WCIRB's indemnity trend tracks wages because benefits are a statutory share
+// of wage, and with a level exposure base that relationship no longer has a
+// denominator to cancel against: the full severity trend now reaches the rate.
+// 5% is a CHOSEN round figure for all three lines, deliberately above WC's
+// measured 3.67%, and is the number to tune first if the rate moves too fast.
+// ============================================================================
 
-/** WC severity trend. WCIRB blended: 52% medical @ 3.70%, 48% indemnity @ 3.63%. */
-export const WC_SEVERITY_TREND_PER_YEAR_PARAM = 0.0367;
+/**
+ * ACCIDENT-YEAR SEVERITY TREND — one rate per line, applied at the DRAW.
+ * Each claim in accident year n costs (1 + rate)^(n-1) of its year-1 amount.
+ */
+export const SEVERITY_TREND_PER_YEAR: PerLine<number> = { WC: 0.05, GL: 0.05, Property: 0.05 };
 
-/** WC frequency trend — a DECLINE. */
-export const WC_FREQUENCY_TREND_PER_YEAR = -0.015;
+/**
+ * ACCIDENT-YEAR FREQUENCY TREND — ZERO on all three lines.
+ *
+ * ⚠ A NAMED ZERO, NOT A DELETION. WC carried -1.5%/yr, sourced, and the
+ * mechanism that applies it is still wired and still reads this. Giving a line
+ * a frequency trend again is a one-number edit here; deleting the parameter
+ * would make it a code change.
+ */
+export const FREQUENCY_TREND_PER_YEAR: PerLine<number> = { WC: 0, GL: 0, Property: 0 };
+
+/**
+ * EXPOSURE BASE GROWTH — ZERO. Payroll and insured value are LEVEL.
+ *
+ * ⚠ THE BASE NOW MOVES ONLY THROUGH UNDERWRITING, which is the point: a pool
+ * whose exposure grew 3.63% a year on its own made every per-$100 figure a
+ * quotient of two trends, and a member joining or leaving was the smaller term.
+ * The frozen roster carries year-1 dollars and nothing rides on top of them.
+ */
+export const EXPOSURE_GROWTH_PER_YEAR = 0;
 
 /** The funding confidence level the slider opens on. */
 export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
@@ -235,27 +277,32 @@ const perLine = (v: PerLine<number>, dp = 6) =>
 
 export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   {
-    title: 'Trend',
-    blurb: 'Read by the HELD pricing path only. The experience path applies no trend at all.',
+    title: 'Trend and exposure',
+    blurb: 'Applied at the DRAW, and on the held pricing path so the two cannot diverge. '
+      + 'The experience path applies no trend at all.',
     entries: [
-      ['WC frequency trend', {
-        value: WC_FREQUENCY_TREND_PER_YEAR, unit: 'per year',
-        what: 'A decline. Multiplies WC\'s held pure premium.', basis: 'SOURCED',
-        note: 'Pairs with the severity trend and wage inflation; together the rate trend is ~-1.46%/yr.',
+      ['Severity trend', {
+        value: perLine(SEVERITY_TREND_PER_YEAR, 3), unit: 'per year',
+        what: 'Accident-year severity growth. One rate, all three lines.', basis: 'CHOSEN',
+        note: 'Replaces WC 3.67% / GL 5.7026% / Property 0. A round figure above WC\'s measured 3.67%, '
+          + 'and the first number to tune if the rate moves too fast.',
       }],
-      ['WC severity trend', {
-        value: WC_SEVERITY_TREND_PER_YEAR_PARAM, unit: 'per year',
-        what: 'Trends WC claim severity.', basis: 'SOURCED',
-        note: 'WCIRB blended: 52% medical @ 3.70%, 48% indemnity @ 3.63%.',
+      ['Frequency trend', {
+        value: perLine(FREQUENCY_TREND_PER_YEAR, 3), unit: 'per year',
+        what: 'Zero on all three lines.', basis: 'CHOSEN',
+        note: 'A named zero, not a deletion — WC carried -1.5%/yr and the mechanism still reads this.',
       }],
-      ['Wage inflation', {
-        value: WAGE_INFLATION_PER_YEAR_PARAM, unit: 'per year',
-        what: 'Grows the exposure base. Applies to WC and GL, not Property.', basis: 'SOURCED',
+      ['Exposure growth', {
+        value: EXPOSURE_GROWTH_PER_YEAR, unit: 'per year',
+        what: 'Payroll and insured value are LEVEL; the base moves only through underwriting.', basis: 'CHOSEN',
+        note: 'Replaces wage inflation at 3.63% on WC and GL. Removing it alone would have made the rate '
+          + 'climb at the full severity trend, which is why the severity rates were replaced with it.',
       }],
-      ['GL severity trend', {
-        value: 'derived from the GL severity mix', unit: 'per year',
-        what: 'glCappedSeverityTrend — the capped expected severity relative to year 1.', basis: 'SOURCED',
-        note: 'Computed in glClaimEngine.ts rather than held as a scalar, so it is registered and not moved.',
+      ['Settlement inflation', {
+        value: 'per line, in defaultAssumptions.ts', unit: 'per year over a claim\'s life',
+        what: 'The dollar-vintage convention applied between accident year and settlement.', basis: 'SOURCED',
+        note: 'REGISTERED, NOT MOVED, AND NOT CHANGED IN THIS COMMIT. Distinct from the accident-year '
+          + 'severity trend above; see PAYOUT_TREND_FACTOR for the double-count this separation prevents.',
       }],
     ],
   },

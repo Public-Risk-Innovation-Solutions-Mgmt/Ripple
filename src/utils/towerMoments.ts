@@ -85,7 +85,7 @@ import {
 import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../data/reinsuranceTower';
 import { normalCdf } from './claimMath';
 import { glSeverityCap, glSeverityTrend, thetaGl, untiltedGlWeights } from './glClaimEngine';
-import { propertyInternals } from './propertyClaimEngine';
+import { propertyInternals, propertySeverityTrend } from './propertyClaimEngine';
 import { catLayerAnnualMoments } from './propertyCatastrophe';
 import { ratingGroupOf, thetaWc, trendedMu, wcFrequencyTrend, wcSeverityCap } from './wcClaimEngine';
 import type { Member } from '../types/simulation';
@@ -141,17 +141,21 @@ export interface BandMoments {
 // call and rebuilds the same entries on the next.
 const glBandCache = new Map<number, BandMoments[]>();
 const wcBandCache = new Map<number, BandMoments[]>();
-// Property has exactly one slot, not a Map: nothing it depends on varies by
-// year (see propertyBandMomentsAll's header) or by any per-member dimension,
-// so there is no key to cache on.
-let propertyBandCache: BandMoments[] | null = null;
+// ⚠ PROPERTY IS A Map NOW, AND IT USED TO BE A SINGLE SLOT. Its severity trends
+// at the draw from this commit (PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR), so the
+// mixture the tower integrates moves with the year exactly as WC's and GL's do.
+// A single unkeyed slot would have served year 1's moments to every later year
+// and quietly understated the cession by the whole trend — which is why
+// property-claim-check's year-invariance assertion was a tripwire rather than
+// decoration.
+const propertyBandCache = new Map<number, BandMoments[]>();
 
 // Exported for the harness, which must be able to force a cold cache to prove
 // warm and cold agree. Nothing in the engine calls this.
 export function resetTowerMomentCache(): void {
   glBandCache.clear();
   wcBandCache.clear();
-  propertyBandCache = null;
+  propertyBandCache.clear();
   edgeMomentCache.clear();
 }
 
@@ -301,19 +305,19 @@ function wcBandMomentsAll(yearNumber: number, group: WcRatingGroup): BandMoments
 }
 
 // PROPERTY: one flat mixture, NEUTRAL RQ (severityFactor(5) is identically 1,
-// so no shift term — unlike GL's trend shift or WC's region shift, there is
-// nothing to apply), and NO YEAR DEPENDENCE AT ALL. Property's
-// frequencyTrendPerYear is 0 and, unlike WC/GL, the live generator applies no
-// settlement-trend multiplier to severity either (propertyClaimEngine.ts's
-// PAYOUT_TREND_FACTOR = 1 note) — both trend knobs exist in
-// PROPERTY_LOSS_MODEL for a future accident-year parameterisation but neither
-// is wired into a draw today, so nothing here would have a year to key on even
-// if it wanted one. The `yearNumber` parameter on the exported accessor exists
-// only for call-site symmetry with the WC/GL versions.
-function propertyBandMomentsAll(): BandMoments[] {
-  if (propertyBandCache) return propertyBandCache;
+// so no RQ shift term), and — from this commit — A SEVERITY TREND, applied as a
+// shift of each component's mu exactly as GL's is. Property's frequency trend
+// is still 0 and the settlement-trend multiplier is still 1
+// (propertyClaimEngine.ts's PAYOUT_TREND_FACTOR note); the accident-year
+// severity trend is the one knob that is now wired, and it is enough to make
+// the year a real cache key rather than a symmetry argument.
+function propertyBandMomentsAll(yearNumber: number): BandMoments[] {
+  const yk = severityYearKey(yearNumber);
+  const hit = propertyBandCache.get(yk);
+  if (hit) return hit;
+  const shift = Math.log(propertySeverityTrend(yk));
   const comps = PM.severityMixture.map((c, j) => ({
-    mu: c.mu, sigma: c.sigma, weight: c.weight, cacheKey: `pr|${j}`,
+    mu: c.mu + shift, sigma: c.sigma, weight: c.weight, cacheKey: `pr|${j}|${yk}`,
   }));
   // THE ATTRITIONAL HALF of each layer's cession: the fitted mixture integrated
   // over the layer, STOPPED AT THE SEVERITY CAP. Property's one layer runs to
@@ -326,7 +330,7 @@ function propertyBandMomentsAll(): BandMoments[] {
     lo: Math.min(l.attachment, PM.severityCap),
     hi: Math.min(l.attachment + l.limit, PM.severityCap),
   })));
-  propertyBandCache = out;
+  propertyBandCache.set(yk, out);
   return out;
 }
 
@@ -496,7 +500,7 @@ function layerRiskMomentsFor(
     const bands = line === 'GL'
       ? glBandMomentsAll(yearNumber)
       : line === 'Property'
-        ? propertyBandMomentsAll()
+        ? propertyBandMomentsAll(yearNumber)
         : wcBandMomentsAll(yearNumber, WC_RATING_GROUPS[cell]);
     for (let i = 0; i < n; i++) {
       const { m1, m2 } = bands[i];

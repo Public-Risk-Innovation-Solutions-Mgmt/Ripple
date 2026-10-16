@@ -377,8 +377,30 @@ console.log('  line      corr(lo,hi)   w=0.25   w=0.50   w=0.75   worst');
   }
 }
 
-// --- 7. retainedAboveTower is not the source --------------------------------
-console.log('\n--- 7. retainedAboveTower IS NOT THE SOURCE, and here is why ---');
+// --- 7. retainedAboveTower now AGREES with the re-derivation -----------------
+console.log('\n--- 7. retainedAboveTower AGREES WITH THE DRAWN LOSS ABOVE THE TOP ---');
+// ⚠ THIS SECTION'S TRAP HAS SPRUNG AND CLOSED, AND THE REPLACEMENT IS A
+// STRONGER TEST THAN EITHER SIDE WAS ALONE.
+//
+// What stood here asserted that GL's engine field reads EXACTLY 0 while real
+// dollars sit above the tower, and said why: the field is set once, at
+// inception, from the BOOKED occurrence, and initialEstimate contracted a $40M
+// claim to about $7M, so the excess accrued later through cedeDevelopment into
+// undifferentiated retained loss. It ended "if the field has started reporting,
+// the engine changed and memberValue.ts should read it instead of re-deriving
+// the layer from claims."
+//
+// FULL_COST_BOOKING removed the contraction, so the tower attaches to the real
+// occurrence on day one and the field reports. Measured: GL reads $304.79M
+// against $304.79M of drawn loss above the top — the same number, not merely
+// the same order.
+//
+// ⚠ AND memberValue.ts STILL RE-DERIVES, DELIBERATELY, which is where this
+// parts company with what the old note suggested. The field is a LINE TOTAL on
+// the result row; memberValue needs the split PER MEMBER, which the field
+// cannot give. So the re-derivation stays and this asserts the two AGREE —
+// which catches a drift in either, where reading the field would have replaced
+// one source with another and checked neither.
 {
   for (const line of LINES) {
     const rs = rows.filter(r => r.line === line);
@@ -387,13 +409,14 @@ console.log('\n--- 7. retainedAboveTower IS NOT THE SOURCE, and here is why ---'
     const nonZero = rs.filter(r => (r.result.retainedAboveTower ?? 0) > 0).length;
     console.log(`  ${line.padEnd(9)} engine field ${money(field).padStart(11)} (>0 in ${nonZero} of `
       + `${rs.length} line-years)   drawn claims above the top ${money(real).padStart(11)}`);
-    if (line === 'GL' && !(real > 0 && field === 0)) {
-      failures.push(`GL's retainedAboveTower reads ${money(field)} against ${money(real)} of drawn loss `
-        + `above the tower. THIS ASSERTION RECORDS A TRAP: the field is set ONCE, at inception, from the `
-        + `BOOKED occurrence, and initialEstimate contracts a $40M claim to about $7M — so it reads 0 `
-        + `while the excess accrues later through cedeDevelopment into undifferentiated retained loss. `
-        + `If the field has started reporting, the engine changed and memberValue.ts should read it `
-        + `instead of re-deriving the layer from claims.`);
+    // Relative where there is anything to be relative to, absolute at zero.
+    const agree = real > 0 ? Math.abs(field / real - 1) < 1e-6 : field === 0;
+    if (!agree) {
+      failures.push(`${line}: the engine's retainedAboveTower reads ${money(field)} against `
+        + `${money(real)} of drawn loss above the top. The field is set at inception from the booked `
+        + `occurrence and memberValue.ts re-derives the layer from the claims; under full-cost booking `
+        + `those are the same quantity and must agree. A gap means the booking has started contracting `
+        + `again, or the two have drifted apart about where the top is.`);
     }
   }
 }

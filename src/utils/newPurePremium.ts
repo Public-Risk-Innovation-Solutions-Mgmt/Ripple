@@ -51,11 +51,9 @@
 import {
   PRICING_WINDOW_YEARS_NEW,
   ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
-  WC_FREQUENCY_TREND_PER_YEAR, WC_SEVERITY_TREND_PER_YEAR_PARAM,
-  WAGE_INFLATION_PER_YEAR_PARAM,
+  FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, EXPOSURE_GROWTH_PER_YEAR,
 } from '../data/pricingParameters';
 import { PAID_DEVELOPMENT_PATTERN } from '../data/paidDevelopmentPatterns';
-import { WAGE_INFLATION_APPLIES } from '../data/exposureTrend';
 import { getMemberExposure } from './lineHelpers';
 import { wasActiveInLine } from './membershipHistory';
 import type {
@@ -135,36 +133,31 @@ export interface NewPurePremiumBasis {
 }
 
 /**
- * THE TREND APPLIED TO A LOSS COST, PER YEAR — net of exposure growth.
+ * THE TREND APPLIED TO A LOSS COST, PER YEAR.
  *
- * ⚠ THE NETTING IS THE WHOLE POINT AND WITHOUT IT WAGE INFLATION IS COUNTED
- * TWICE. A loss cost is losses DIVIDED BY EXPOSURE, and the exposure base
- * already grows at the wage rate (`getMemberExposure` multiplies by
- * `wageFactor`). So an older year's loss cost is already expressed against a
- * smaller base; trending it by the full loss trend on top would add the wage
- * growth a second time. What a loss cost needs is the loss trend DIVIDED BY the
- * exposure trend:
+ *   loss cost trend = (1 + frequency) x (1 + severity) / (1 + exposure growth)
+ *                   = 1.000 x 1.050 / 1.000 = 1.05   ->  +5.000%/yr, every line
  *
- *   WC        (1 + freq) x (1 + sev) / (1 + wage)
- *             = 0.985 x 1.0367 / 1.0363 = 0.98538  ->  -1.462%/yr
- *             the same figure wcClaimEngine's own header derives, which is the
- *             check that this is the engine's trend and not a second opinion
- *   GL        1 / (1 + wage) = 0.96496  ->  -3.504%/yr
- *             GL CARRIES NO SEVERITY OR FREQUENCY TREND OF ANY KIND — the
- *             fitted mixture already realises whatever settlement-lag trend
- *             happened, and trending on top would double-count
- *             (defaultAssumptions.ts). Its exposure still grows at the wage
- *             rate, so its loss cost falls at that rate
- *   Property  1.0 — flat. No wage inflation applies to a TIV base
- *             (WAGE_INFLATION_APPLIES.Property is false) and the held pure
- *             premium is a pure function of the year, which is to say constant
+ * ⚠ THE EXPOSURE DIVISOR IS STILL HERE AND IT IS 1. It used to be the whole
+ * subtlety of this function: a loss cost is losses DIVIDED BY exposure, the
+ * base grew at wage inflation, so an older year's loss cost was already
+ * expressed against a smaller base and trending it by the full loss trend
+ * counted wage growth twice. The three lines came out at -1.462%, -3.504% and
+ * 0.0%/yr — three different signs for three different reasons.
+ *
+ * With EXPOSURE_GROWTH_PER_YEAR at zero there is nothing to net out, and the
+ * loss cost trends at exactly the severity trend. The divisor stays written
+ * down because the hazard it guards against is one line of carelessness away
+ * the moment the base trends again.
+ *
+ * ⚠ IT READS THE SAME PARAMETERS THE ENGINE DRAWS AND PRICES ON, which is the
+ * property that makes this a shadow of the engine rather than a second opinion
+ * about it. If these ever diverge, the comparison this module exists to make
+ * is measuring the divergence and not the rate.
  */
 export function lossCostTrendPerYear(line: CoverageLine): number {
-  const wage = WAGE_INFLATION_APPLIES[line] ? 1 + WAGE_INFLATION_PER_YEAR_PARAM : 1;
-  const loss = line === 'WC'
-    ? (1 + WC_FREQUENCY_TREND_PER_YEAR) * (1 + WC_SEVERITY_TREND_PER_YEAR_PARAM)
-    : 1;
-  return loss / wage;
+  return (1 + FREQUENCY_TREND_PER_YEAR[line]) * (1 + SEVERITY_TREND_PER_YEAR[line])
+    / (1 + EXPOSURE_GROWTH_PER_YEAR);
 }
 
 /** The recorded PAID age-to-ultimate factor for a line at an age in months. */

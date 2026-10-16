@@ -79,7 +79,7 @@ import type {
   Region,
 } from '../types/simulation';
 import { deriveSubRng } from './random';
-import { WC_SEVERITY_TREND_PER_YEAR_PARAM } from '../data/pricingParameters';
+import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR } from '../data/pricingParameters';
 import { limitedExpectedValue, memoizeByYear } from './claimMath';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
 import {
@@ -198,26 +198,27 @@ export function memberThetaWc(riskQuality: number): number {
 // deliberately unlike wageFactor/wcSeverityTrend — see this function's own
 // header just above for why the pre-game is allowed to run frequency hotter.
 export const wcFrequencyTrend = memoizeByYear(
-  (yearNumber: number) => Math.pow(1 + M.frequencyTrendPerYear, yearNumber - 1),
+  (yearNumber: number) => Math.pow(1 + FREQUENCY_TREND_PER_YEAR.WC, yearNumber - 1),
 );
 
-// WC SEVERITY TREND — the other half of the wage-inflation pair.
+// WC SEVERITY TREND — 5%/yr, and WC's rate now trends at the full 5%.
 //
-// ⚠ NEVER APPLY THIS WITHOUT THE PAYROLL FACTOR, OR THE PAYROLL FACTOR WITHOUT
-// THIS. They are a pair. Payroll growing while severity does not makes the rate
-// fall 5.1%/yr instead of 1.46%; severity growing while payroll does not makes
-// it rise 2.1%/yr. Together they nearly cancel and the rate trend is the
-// frequency trend alone, adjusted by their 0.04% difference:
+// ⚠ THE PAYROLL PAIRING IS GONE BECAUSE THE EXPOSURE BASE IS LEVEL. This used
+// to be half of a pair with wage inflation: severity +3.67% over payroll
+// +3.63%, which cancelled by construction (indemnity benefits are a statutory
+// share of wage), leaving the rate trend at the frequency trend alone,
+// 0.985 x 1.0367 / 1.0363 = 0.98538, -1.462%/yr. With EXPOSURE_GROWTH_PER_YEAR
+// at zero there is no denominator to cancel against and no frequency trend to
+// net off, so the rate trend IS this number:
 //
-//   rate trend = 0.985 x 1.0367 / 1.0363 = 0.98538  ->  -1.462%/yr
+//   rate trend = 1.00 x 1.05 / 1.00 = 1.05  ->  +5.000%/yr
 //
-// SOURCED: WCIRB blended severity 3.67% (52% medical @ 3.70%, 48% indemnity @
-// 3.63%). See src/data/exposureTrend.ts for the full derivation, why the two
-// trends cancel BY CONSTRUCTION rather than coincidence, and why CAS's
-// prescribed separate medical/indemnity trends are not available to this model.
-// ⚠ DEFINED IN pricingParameters.ts NOW. Imported so this file can use it and
+// The three factors in the pricing branch are unchanged and must stay there —
+// two of them are now 1, which is not the same as being absent.
+//
+// ⚠ DEFINED IN pricingParameters.ts. Imported so this file can use it and
 // re-exported so every existing import of the old name keeps resolving.
-export const WC_SEVERITY_TREND_PER_YEAR = WC_SEVERITY_TREND_PER_YEAR_PARAM;
+export const WC_SEVERITY_TREND_PER_YEAR = SEVERITY_TREND_PER_YEAR.WC;
 
 // Live year 1 is the reference (factor 1.0).
 //

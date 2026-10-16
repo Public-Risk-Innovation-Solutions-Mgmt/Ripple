@@ -161,6 +161,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE } from '../../src/data/defaultAssumptions';
+import { EXPOSURE_GROWTH_PER_YEAR, SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
 const RULE = '='.repeat(84);
@@ -230,12 +231,46 @@ function playOne(seed: number): Track {
   return track;
 }
 
-/** last-window mean over first-window mean, minus one. Zero on a still book. */
-function drift(series: number[]): number {
+// ⚠ DRIFT IS NET OF THE TREND NOW, AND THAT IS A RULED CHANGE RATHER THAN A
+// RELAXATION. A STILL BOOK'S RATE IS MEANT TO CLIMB AT THE TREND.
+//
+// This read tail/head - 1 and called zero correct, which was right while the
+// rate trend was ~0: WC ran -1.46%/yr, GL +2.00% and Property flat, all small
+// enough that a still book looked still. Severity now trends 5%/yr against a
+// LEVEL exposure base, so a correctly-behaving rate rises about 5% a year and
+// the raw ratio reads ~55% over ten years on a book that has done nothing
+// wrong. Property measured 24.28% against a 5.15% bar, and its CONTROL cell —
+// PRICING_TRIANGLE off, which returns the held constant — read 39.19% where
+// the old premise said it must be flat to the digit. Both were the trend
+// arriving, not instability.
+//
+// The expected ratio is computed from the window MEANS rather than from the
+// gap between their centres, so it is exact for a geometric rate instead of
+// approximate: a rate of (1+g)^y has head mean sum((1+g)^y, y in head)/W and
+// likewise for the tail, and their quotient is what a still book must produce.
+const EXPECTED_RATE_TREND: Record<string, number> = {
+  WC: (1 + SEVERITY_TREND_PER_YEAR.WC) / (1 + EXPOSURE_GROWTH_PER_YEAR) - 1,
+  GL: (1 + SEVERITY_TREND_PER_YEAR.GL) / (1 + EXPOSURE_GROWTH_PER_YEAR) - 1,
+  Property: (1 + SEVERITY_TREND_PER_YEAR.Property) / (1 + EXPOSURE_GROWTH_PER_YEAR) - 1,
+};
+
+/** What tail/head must be for a rate growing at exactly `g` a year. */
+function expectedRatio(n: number, g: number): number {
+  const f = (y: number) => Math.pow(1 + g, y);
+  let head = 0, tail = 0;
+  for (let i = 0; i < WINDOW; i++) { head += f(i); tail += f(n - WINDOW + i); }
+  return head === 0 ? NaN : tail / head;
+}
+
+/** last-window mean over first-window mean, NET of the line's own rate trend.
+ *  Zero on a still book whose rate is climbing at exactly the trend. */
+function drift(series: number[], line: string): number {
   if (series.length < 2 * WINDOW) return NaN;
   const head = mean(series.slice(0, WINDOW));
   const tail = mean(series.slice(-WINDOW));
-  return head === 0 ? NaN : tail / head - 1;
+  if (head === 0) return NaN;
+  const expected = expectedRatio(series.length, EXPECTED_RATE_TREND[line] ?? 0);
+  return (tail / head) / expected - 1;
 }
 
 interface Acc { drifts: number[]; expMoves: number[]; rateByYear: number[] }
@@ -250,7 +285,7 @@ function runCell(cell: Cell): Record<string, Acc> {
     for (let g = 0; g < GAMES; g++) {
       const t = playOne(g + 1);
       for (const L of LINES) {
-        acc[L].drifts.push(drift(t[L].rate));
+        acc[L].drifts.push(drift(t[L].rate, L));
         const e = t[L].exposure;
         acc[L].expMoves.push(e.length && e[0] ? Math.abs(e[e.length - 1] / e[0] - 1) : NaN);
         for (let y = 0; y < YEARS; y++) acc[L].rateByYear[y] += (t[L].rate[y] ?? 0) / GAMES;

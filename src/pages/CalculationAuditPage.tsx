@@ -26,7 +26,6 @@ import {
   AGGREGATE_LOSS_DISTRIBUTION,
   CAPITAL_ADEQUACY_THRESHOLDS,
   VOLUNTARY_DEPARTURES_ENABLED,
-  WC_LOSS_MODEL,
   MEMBER_LOSS_VOLATILITY,
   BASE_RETENTION,
   FUNDING_CLF_TABLE,
@@ -48,9 +47,7 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { WC_SEVERITY_TREND_PER_YEAR } from '../utils/wcClaimEngine';
-import { GL_SEVERITY_TREND_PER_YEAR } from '../utils/glClaimEngine';
-import { PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR } from '../utils/propertyClaimEngine';
+import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR } from '../data/pricingParameters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 
 interface CalculationAuditPageProps {
@@ -1210,11 +1207,13 @@ function buildAssumptionRows(): AuditRow[] {
       // lossEnvironment.lossTrend: each line trends its own claims, at the draw,
       // by the constants below — so the row states those, from those.
       metric: 'Loss Trend',
-      value: `WC severity ${signedPct(WC_SEVERITY_TREND_PER_YEAR)}, frequency ${signedPct(WC_LOSS_MODEL.frequencyTrendPerYear)}; `
-        + `GL severity ${signedPct(GL_SEVERITY_TREND_PER_YEAR)}; Property severity ${signedPct(PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR)}`,
+      value: (['WC', 'GL', 'Property'] as const)
+        .map(l => `${l} severity ${signedPct(SEVERITY_TREND_PER_YEAR[l])}, frequency ${signedPct(FREQUENCY_TREND_PER_YEAR[l])}`)
+        .join('; '),
       formula: 'Per line, per year, applied to each claim as it is drawn and frozen onto it at its accident year.',
       note:
-        'There is no single pool-wide loss trend: each line trends its own claims, and a line with no trend listed here has none. '
+        'One severity rate for all three lines, and no frequency trend on any of them. The exposure base is level, so the '
+        + 'rate trends at the full severity rate rather than at a quotient of two trends. '
         + 'The rate is not trended separately — it is priced from the pool\'s own experience of the trended claims.',
     },
     {
@@ -1256,16 +1255,19 @@ function buildAssumptionRows(): AuditRow[] {
       value: (['WC', 'GL', 'Property'] as const)
         .map(l => {
           const pat = LINE_PAYOUT_PATTERN[l];
-          return pat.kind === 'weibull'
+          return pat.kind === 'recorded'
+            ? `${l} recorded paid, ${formatPct(1 - unpaidShare(pat, 1), 1)} by age 1`
+            : pat.kind === 'weibull'
             ? `${l} k=${pat.k.toFixed(2)} b=${pat.b.toFixed(3)}`
             : `${l} geometric ${formatPct(pat.conditional, 0)}`;
         })
         .join('  |  '),
-      formula: 'Cumulative share of ultimate paid by age t is 1 - exp(-(t/b)^k), fitted per line.',
+      formula: 'Share of ultimate paid by age t is 1 / (paid LDF at 12t months), read off the pool\'s own recorded paid development.',
       note:
-        'Replaces a single paydown rate per line. A flat rate is this curve with k pinned to 1, and only Property is '
-        + 'near that. Higher k means payment is deferred and then arrives quickly; lower k means fast early payment '
-        + 'and a long tail. Controls reserve runoff speed, and with it how much of the balance sheet is reserve.',
+        'The pool\'s measured paid patterns, which are also what pricing develops losses with — one set of factors, '
+        + 'used in both places. They replace a fitted Weibull curve that paid far faster than the pool did, and the '
+        + 'gap between the two was most of the distance between the charged rate and the new indication. '
+        + 'Controls reserve runoff speed, and with it how much of the balance sheet is reserve.',
     },
     {
       metric: 'Total Market Members',

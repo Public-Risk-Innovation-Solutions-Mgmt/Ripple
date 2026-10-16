@@ -6,14 +6,15 @@
 // LINE_PAYOUT_PATTERN in defaultAssumptions.ts for the parameters and where
 // they came from.
 //
-// ⚠ AND THERE IS A SUCCESSOR ALREADY ON DISK, UNWIRED. The pool's own measured
-// development patterns (age-to-ultimate LDFs on both a paid and an incurred
-// basis, ground-up) are recorded
-// in src/data/paidDevelopmentPatterns.ts and are intended to replace the fitted
-// Weibull curves this file evaluates, when the simplified multiplayer model is
-// built. Nothing reads them yet, and the argument below for a formula over an
-// array is an argument about THIS mechanism — a table that carries its own tail
-// and throws past it answers the same objection differently.
+// ⚠ THE SUCCESSOR IS NOW WIRED AND IT IS THE `recorded` KIND BELOW. The pool's
+// own measured development patterns (age-to-ultimate LDFs, paid and incurred,
+// ground-up) in src/data/paidDevelopmentPatterns.ts are what LINE_PAYOUT_PATTERN
+// resolves to from this commit. The Weibull fit stays in the file as
+// FITTED_PAYOUT_PATTERN — it is the parent of the value baselines this commit
+// moves, and deleting it would make that move uncheckable — but nothing reads
+// it. The argument below for a formula over an array was an argument about the
+// WEIBULL mechanism; the recorded table answers the same objection differently,
+// by carrying its own projected tail and by stating one rule for its end.
 //
 // ============================================================================
 // ⚠ A FORMULA AND NOT AN ARRAY, AND THE REASON IS WC'S TAIL.
@@ -74,14 +75,89 @@
 // and the step that takes a cohort from age a to a+1 pays at conditional(a + 2).
 // ============================================================================
 
+import type { CoverageLine } from '../types/simulation';
+import { PAID_DEVELOPMENT_PATTERN, paidLdfAt } from '../data/paidDevelopmentPatterns';
+
 /**
- * WEIBULL is the fitted form; GEOMETRIC exists as the null test's control and
- * reproduces the retired mechanism exactly. See the note on the geometric
- * branches below before touching either.
+ * RECORDED is what the engine pays on. WEIBULL is the retired fitted form, kept
+ * as the parent of the baselines this commit moves. GEOMETRIC is the null
+ * test's control and reproduces the pre-pattern mechanism exactly. See the note
+ * on the geometric branches below before touching either of the last two.
  */
 export type PayoutPattern =
+  | { kind: 'recorded'; line: CoverageLine }
   | { kind: 'weibull'; k: number; b: number }
   | { kind: 'geometric'; openFraction: number; conditional: number };
+
+// ============================================================================
+// THE RECORDED PATTERN, AND THE ONE RULE ITS TABLE NEEDS: WHAT HAPPENS AT THE
+// END.
+//
+// Pattern age t is years since the start of the accident year, and the recorded
+// tables are indexed in MONTHS from that same instant, so `ageMonths = 12 t`
+// exactly and no interpolation is ever needed — the engine only ever asks at
+// whole years, which is the valuation grid the tables are on.
+//
+//     unpaidShare(t) = 1 - 1 / paidLdfAt(line, 12 t)
+//
+// ⚠ AT THE TABLE'S LAST AGE THE COHORT IS FINISHED, AND THAT IS A TRUNCATION
+// WITH A MEASURED COST RATHER THAN A FACT ABOUT THE DATA. paidLdfAt THROWS past
+// its last row, correctly — it is asked for a number that does not exist. The
+// engine cannot throw, so this module decides instead, and the decision is that
+// the last recorded age is ultimate. What that writes off, as a share of
+// ultimate still unpaid at the last row:
+//
+//   WC        444 months (age 37)   LDF 1.099413   9.04% unpaid, PAID AT 37
+//   GL        252 months (age 21)   LDF 1.011      1.09% unpaid, PAID AT 21
+//   Property  132 months (age 11)   LDF 1.000      0.00% — the table genuinely ends
+//
+// WC's 9% is the one that matters and it is NOT dropped: the engine's close rule
+// pays a cohort's residual out when it closes, so the dollars are paid, in year
+// 37, rather than lost. The alternative — continuing the tail at its own last
+// conditional rate, 4.77% of the remaining balance a year — is more faithful to
+// the shape and was rejected on a measurement, not on taste: it puts WC's close
+// age at 97 and the cohort stock stops plateauing inside any horizon anyone
+// looks at, which is the exact invariant cohort-stock-check exists to hold.
+// Twelve years of projected tail already stand between the measured data and
+// this point.
+//
+// The honest fix is a longer WC paid table, not a cleverer rule here. Until
+// then the truncation is stated, bounded and dated: it cannot touch a figure
+// inside a game, which runs five to ten years.
+// ============================================================================
+
+const AGE_STEP_MONTHS = 12;
+
+// ⚠ PRECOMPUTED, NOT MEMOISED ON DEMAND, AND IT IS A HOT PATH RATHER THAN
+// tidiness. The engine asks for these inside processIbner's per-cohort loop,
+// twice per cohort per year on the net ledger and twice more on the gross one,
+// and paidLdfAt is a linear scan of up to 37 rows. Measured on the pure-premium
+// report, 8 games x 8 years: 4x slower with the scan in the loop than with this
+// table. The table is INDEXED BY PATTERN AGE t, so `byAge[t]` is the unpaid
+// share at t, and index 0 is 1 by the convention unpaidShare already uses.
+// Lengths: WC 37, GL 21, Property 11 — past which the cohort is finished and
+// the share is 0.
+const RECORDED_UNPAID_BY_AGE: Readonly<Record<CoverageLine, readonly number[]>> =
+  (['WC', 'GL', 'Property'] as const).reduce((acc, line) => {
+    const rows = PAID_DEVELOPMENT_PATTERN[line];
+    const lastAge = rows[rows.length - 1].ageMonths;
+    const byAge: number[] = [1];
+    for (let m = AGE_STEP_MONTHS; m <= lastAge; m += AGE_STEP_MONTHS) {
+      byAge.push(1 - 1 / paidLdfAt(line, m));
+    }
+    acc[line] = byAge;
+    return acc;
+  }, {} as Record<CoverageLine, readonly number[]>);
+
+function recordedUnpaid(line: CoverageLine, t: number): number {
+  const byAge = RECORDED_UNPAID_BY_AGE[line];
+  return t < byAge.length ? byAge[t] : 0;
+}
+
+/** The last pattern age a line's recorded paid table reaches, in YEARS. */
+export function recordedLastAgeYears(line: CoverageLine): number {
+  return RECORDED_UNPAID_BY_AGE[line].length - 1;
+}
 
 /**
  * The share of ULTIMATE still unpaid at pattern age `t`, t >= 1.
@@ -95,6 +171,7 @@ export type PayoutPattern =
  */
 export function unpaidShare(p: PayoutPattern, t: number): number {
   if (t <= 0) return 1;
+  if (p.kind === 'recorded') return recordedUnpaid(p.line, t);
   if (p.kind === 'geometric') return p.openFraction * Math.pow(1 - p.conditional, t - 1);
   return Math.exp(-Math.pow(t / p.b, p.k));
 }
@@ -117,6 +194,16 @@ export function cumulativePaid(p: PayoutPattern, t: number): number {
  */
 export function conditionalPaydown(p: PayoutPattern, t: number): number {
   if (t <= 1) return cumulativePaid(p, 1);
+  // THE STEP IN PAID-TO-DATE, expressed against what is still outstanding —
+  // which is the same statement, because paid(t) - paid(t-1) = unpaid(t-1) -
+  // unpaid(t) identically. Zero once nothing is outstanding, which is the only
+  // reading of "what share of nothing was paid" and the case Property reaches
+  // at age 11 and every line reaches past its table.
+  if (p.kind === 'recorded') {
+    const prev = recordedUnpaid(p.line, t - 1);
+    if (prev <= 0) return 0;
+    return 1 - recordedUnpaid(p.line, t) / prev;
+  }
   if (p.kind === 'geometric') return p.conditional;
   // 1 - rem(t)/rem(t-1), written as a single exponential so the ratio of two
   // very small numbers never has to be formed.

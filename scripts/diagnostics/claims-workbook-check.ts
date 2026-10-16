@@ -46,7 +46,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { buildClaimsWorkbook } from '../../src/utils/claimsExport';
 import { PRIOR_BOUNDARY } from '../../src/utils/actuarialMemo';
 import { initialEstimate } from '../../src/utils/claimTriangle';
-import { FORWARD_BOOKING } from '../../src/data/defaultAssumptions';
+import { FORWARD_BOOKING, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
 import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simulation';
 
@@ -600,17 +600,38 @@ for (const arm of ARMS) {
 // reports a mix, and the assertion is on the PRESENCE of marked-down rows rather
 // than on their being all of them. A reader seeing a few hundred unmarked rows
 // under squeeze is looking at the pre-game, not at a regression.
+// ⚠ THE MARKDOWN ASSERTIONS INVERT UNDER FULL-COST BOOKING, AND THE SQUEEZED
+// ARM IS NO LONGER WHAT DISTINGUISHES THEM.
+//
+// The booking bias is 0.80 x max(0, 1 - CLF), so the squeezed arm was the only
+// one that produced marked-down rows and this asserted their PRESENCE there and
+// their ABSENCE at defaults. With every claim booked at its drawn value there
+// is no markdown on either arm, and "squeezed produced none" is the contract
+// rather than a regression — so it is asserted, on BOTH arms, rather than
+// relaxed on one.
+//
+// ⚠ WHAT IS LOST IS REAL AND IS WORTH NAMING: this was the only place the
+// workbook's Drawn-against-Booked columns were exercised with the two
+// DIFFERENT. They are now equal on every row in every arm, so a defect that
+// made them equal when they should differ could not be seen here. It returns
+// with the bias, and the flag-off arm still carries the old contract.
 const def = stats['defaults'];
 const sqz = stats['squeezed'];
-if (def.drawnGtBooked !== 0) fail(`DEFAULTS produced ${def.drawnGtBooked} marked-down rows; bookingBias should be 0 there`);
-if (sqz.drawnGtBooked === 0) fail('SQUEEZED produced NO marked-down rows; the arm is not exercising the booking bias');
-if (sqz.drawnEqBooked === 0) fail('SQUEEZED produced no unmarked rows at all; the pre-game years should supply some');
+if (FULL_COST_BOOKING.enabled) {
+  if (def.drawnGtBooked !== 0) fail(`DEFAULTS produced ${def.drawnGtBooked} marked-down rows; under full-cost booking every claim books at its drawn value`);
+  if (sqz.drawnGtBooked !== 0) fail(`SQUEEZED produced ${sqz.drawnGtBooked} marked-down rows; under full-cost booking the funding level cannot contract the booking`);
+  if (sqz.drawnEqBooked === 0) fail('SQUEEZED produced no rows at all where drawn equals booked — the workbook is not reading the booked column');
+} else {
+  if (def.drawnGtBooked !== 0) fail(`DEFAULTS produced ${def.drawnGtBooked} marked-down rows; bookingBias should be 0 there`);
+  if (sqz.drawnGtBooked === 0) fail('SQUEEZED produced NO marked-down rows; the arm is not exercising the booking bias');
+  if (sqz.drawnEqBooked === 0) fail('SQUEEZED produced no unmarked rows at all; the pre-game years should supply some');
+}
 
 console.log(fails.length === 0
   ? `OK — ${fails.length} failures. Occurrences gone; the row identity holds on every developed row read`
     + '\n     back out of the parsed file; all three cell states occur; pre-game years -2..0 are on'
     + '\n     the line sheets and agree with Development; the reload marker fires only when detail is'
-    + '\n     actually missing; Drawn === Booked at defaults and'
-    + '\n     Drawn > Booked under squeeze; line sheets and Development agree occurrence by occurrence.'
+    + '\n     actually missing; Drawn === Booked on BOTH arms, which is what full-cost booking'
+    + '\n     means; line sheets and Development agree occurrence by occurrence.'
   : `${fails.length} FAILURE(S):\n` + fails.slice(0, 40).map(f => '  ' + f).join('\n'));
 process.exit(fails.length === 0 ? 0 : 1);

@@ -105,6 +105,7 @@ import { generateGlClaims } from './glClaimEngine';
 import { generatePropertyClaims } from './propertyClaimEngine';
 import { closedShare, claimClosureUnit } from './claimClosure';
 import { cumulativePaid } from './payoutPattern';
+import { FULL_COST_BOOKING } from '../data/defaultAssumptions';
 import { reviseOnce, settlementFactor, type RevisionState } from './claimRevision';
 import { getMemberExposure } from './lineHelpers';
 import {
@@ -186,6 +187,21 @@ export interface ClaimTriangle {
  * and printed a retired form's table for a whole commit.
  */
 export function initialEstimate(line: CoverageLine, drawn: number): number {
+  // ⚠ GATE 4 OF 4 FOR FULL-COST BOOKING, AND IT WAS THE ONE THAT NEARLY GOT
+  // MISSED. The contraction is a SECOND reduction at booking, independent of
+  // the funding-CLF booking bias: forward booking books an occurrence at
+  // A x drawn^k and develops it up, worth 2.33x on WC, 3.38x on GL and 1.31x on
+  // Property (cession-uplift-basis measured those). The bias is zero at default
+  // decisions, so switching off the development walk WITHOUT this left claims
+  // booked at the contracted figure and never climbing — booked BELOW cost for
+  // good, the opposite of what full-cost booking means. It showed as reserves
+  // falling 25% where they were expected to rise, which is why the paired
+  // reading exists.
+  //
+  // Gated HERE rather than at the call sites so there is one definition: the
+  // tower's inception cession, the tracked set, the closure-curve band and the
+  // triangle's own revision seed all read this function.
+  if (FULL_COST_BOOKING.enabled) return Math.max(0, drawn);
   const { k, A } = TRIANGLE_INITIAL_CONTRACTION[line];
   return A * Math.pow(Math.max(0, drawn), k);
 }
@@ -329,7 +345,23 @@ function walkClaim(
   let st: RevisionState = { value: initialEstimate(line, drawn), paidShare: 0 };
   let settled = false;
   for (let age = 1; age <= toAge; age++) {
-    if (!settled && age >= closureAge) {
+    // ⚠ GATE 5 OF 5 FOR FULL-COST BOOKING, AND IT IS HERE BECAUSE THE HISTORY
+    // MUST BE BUILT BY THE SAME PROCESS THE GAME PLAYS. This function's own
+    // header says it: "if the history is built with one development process
+    // and the game applies another, the pool learns factors that stop being
+    // true the moment play starts, and the whole rebuild rests on those
+    // factors being real." The played game now has NO development, so a
+    // triangle that still drifted, revised and settled would teach the pool
+    // factors its own future cannot reproduce — the exact failure the header
+    // names, arriving from the other direction.
+    //
+    // With the flag on, `value` is the drawn amount at every age, `closureAge`
+    // still governs when the file closes, and payment still runs on the
+    // recorded pattern. The triangle becomes what the game is: full cost from
+    // the first valuation, paid down on the recorded curve.
+    if (FULL_COST_BOOKING.enabled) {
+      if (!settled && age >= closureAge) settled = true;
+    } else if (!settled && age >= closureAge) {
       // The adjuster's final resolution, applied once, at the valuation the
       // claim closes — same convention as claimTerminalValue.
       st = { ...st, value: st.value * settlementFactor(gameId, claimId) };

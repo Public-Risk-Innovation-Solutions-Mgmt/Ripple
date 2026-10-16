@@ -27,7 +27,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { wageFactor } from '../../src/data/exposureTrend';
+import { exposureFactor } from '../../src/data/exposureTrend';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
 const GAMES = 50, YEARS = 10;
@@ -63,7 +63,7 @@ function run(placement: boolean[]): G[] {
       const p = processYear(gs, d);
       const r = (p.result as never as { byLine: Record<string, Record<string, number>> }).byLine.GL;
       years.push({
-        members: r.activeMembers, realExp: r.activeExposure / wageFactor('GL', y),
+        members: r.activeMembers, realExp: r.activeExposure / exposureFactor('GL', y),
         rate: r.ratePer100, joined: r.newMembers, left: r.withdrawnMembers, sat: r.memberSatisfaction,
       });
       uw += r.underwritingIncome; inv += r.investmentIncome;

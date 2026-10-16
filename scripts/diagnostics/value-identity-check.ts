@@ -909,7 +909,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // back already centred — solver pass 0 at +0.0010 / -0.0316 / +0.0401 against
 // its own 0.053 tolerance. The pins are unchanged, so opening books re-roll
 // here only because the ENGINE moved, not because the pin did.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v54.json');
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v55.json');
 
 function seedOf(id: string) {
   let h = 5381;

@@ -595,7 +595,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // design and surface-privacy-check exists to keep a member's score from the
 // player; the POOL AVERAGE of it was in this workbook the whole time. The gate
 // now refuses the expression instead of allowing it.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v57.json');
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v58.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

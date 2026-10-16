@@ -30,7 +30,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
+import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
 import {
   PRIOR_BOUNDARY, buildActuarialMemo, collapsePrior, exhibitRows, poolExhibitRows,
   unEmergedDeficiency, type ExhibitRow,
@@ -553,17 +553,46 @@ for (const arm of ARMS) {
 // If the defaults arm ever produced a deficiency, or the squeezed arm produced
 // none, the arms are not doing what their names say and every conclusion drawn
 // from the split is void.
+// ⚠ UNDER FULL-COST BOOKING THE TWO ARMS CANNOT DIFFER, AND THE COVERAGE THIS
+// LOSES IS STATED RATHER THAN QUIETLY DROPPED.
+//
+// The squeezed arm exists because a funding level below break-even switches the
+// booking bias on, which produces a deficiency and adverse development for the
+// exhibit to render. Full-cost booking removes the bias AND the development, so
+// BOTH arms now produce zero of each — not because the arms stopped working but
+// because the quantity they were built to exercise no longer exists.
+//
+// ⚠ WHAT IS GENUINELY UNTESTED NOW: the exhibit's deficiency row, its adverse
+// development rendering, and the post-horizon movement column. Those paths are
+// live code with no input that reaches them, which is exactly the state the
+// coverage block was written to refuse — so it is recorded here as a NAMED GAP
+// rather than deleted. It closes when the host's prior development factors are
+// wired and development has a source again. The flag-off arm still asserts the
+// original contract in full.
 const armErrors: string[] = [];
-if (perArmCoverage['defaults'].deficiency !== 0) {
-  armErrors.push(`defaults arm produced a non-zero deficiency in ${perArmCoverage['defaults'].deficiency} game(s) — bookingBias should be identically 0 there`);
-}
-if (perArmCoverage['squeezed'].deficiency === 0) {
-  armErrors.push('squeezed arm produced NO deficiency anywhere — the arm is not squeezing, and the exhibit is untested where its subject exists');
-}
-for (const arm of ARMS) {
-  const c = perArmCoverage[arm.name];
-  if (c.adverse === 0) armErrors.push(`${arm.name} arm saw no adverse development at all`);
-  if (c.seeded === 0) armErrors.push(`${arm.name} arm saw no daggered row at all — the carried-in caveat never rendered`);
+if (FULL_COST_BOOKING.enabled) {
+  for (const arm of ARMS) {
+    const c = perArmCoverage[arm.name];
+    if (c.deficiency !== 0) armErrors.push(`${arm.name} arm produced a deficiency in ${c.deficiency} game(s) — under full-cost booking there is no booking bias on either arm`);
+    if (c.adverse !== 0) armErrors.push(`${arm.name} arm saw ${c.adverse} adverse development(s) — prior years must not move at all until the prior development factors are wired`);
+    if (c.seeded === 0) armErrors.push(`${arm.name} arm saw no daggered row at all — the carried-in caveat never rendered`);
+  }
+  console.log('\n  ⚠ NAMED COVERAGE GAP: the deficiency row, the adverse-development rendering and');
+  console.log('    the post-horizon movement column have no input that reaches them while');
+  console.log('    FULL_COST_BOOKING is on. They are live and untested; the gap closes when the');
+  console.log('    host\'s prior development factors become the source of development.');
+} else {
+  if (perArmCoverage['defaults'].deficiency !== 0) {
+    armErrors.push(`defaults arm produced a non-zero deficiency in ${perArmCoverage['defaults'].deficiency} game(s) — bookingBias should be identically 0 there`);
+  }
+  if (perArmCoverage['squeezed'].deficiency === 0) {
+    armErrors.push('squeezed arm produced NO deficiency anywhere — the arm is not squeezing, and the exhibit is untested where its subject exists');
+  }
+  for (const arm of ARMS) {
+    const c = perArmCoverage[arm.name];
+    if (c.adverse === 0) armErrors.push(`${arm.name} arm saw no adverse development at all`);
+    if (c.seeded === 0) armErrors.push(`${arm.name} arm saw no daggered row at all — the carried-in caveat never rendered`);
+  }
 }
 if (coverage.finalSections === 0) armErrors.push('the final-position section never rendered');
 if (coverage.prior === 0) armErrors.push('no Prior row was ever rendered — the collapse is untested');
@@ -580,8 +609,10 @@ if (coverage.prior !== coverage.seeded) {
 // The replacement for the retired "matured year moved" assertion. If this ever
 // reads zero the exhibit has stopped showing post-horizon development, which is
 // what this commit corrected it to show.
-if (postHorizonMoved === 0) {
+if (postHorizonMoved === 0 && !FULL_COST_BOOKING.enabled) {
   armErrors.push(`no row past its IBNER horizon was seen to move (${postHorizonShown} post-horizon rows rendered a 1-year figure) — either the blanking is back or the sample no longer reaches one`);
+} else if (postHorizonMoved !== 0 && FULL_COST_BOOKING.enabled) {
+  armErrors.push(`${postHorizonMoved} row(s) past their IBNER horizon MOVED — under full-cost booking no row moves at any age, in or out of the horizon`);
 }
 if (boundaryChecked === 0) armErrors.push('the Prior boundary claim was never evaluated');
 if (proseChecked === 0) armErrors.push('no prose claim was ever evaluated');

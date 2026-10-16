@@ -40,7 +40,7 @@ import { SeededRandom, deriveSubRng } from './random';
 // unaliased import collides with it in this scope.
 import { newPurePremiumPer100 as computeNewPurePremium } from './newPurePremium';
 import { dividendAssessmentBasis } from './dividendAssessment';
-import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
+import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, FULL_COST_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
 import {
   DEVELOPMENT_ALLOCATION, DEVELOPMENT_CESSION_ENABLED, STOCHASTIC_ALLOCATION_MODE,
@@ -80,11 +80,11 @@ import { cloneMemberLossHistory, recordMemberLossYear } from './memberLossHistor
 import { computeKLine, deriveNeutralClassRatesPer100, deriveNeutralPurePremiumPer100, expectedWcGrossLossForPricing, generateWcClaims, ratingGroupOf, wcFrequencyTrend, wcSeverityTrend } from './wcClaimEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import { computeKGl, deriveNeutralGlPurePremiumPer100, expectedGlGrossLossForPricing, generateGlClaims, glCappedSeverityTrend } from './glClaimEngine';
-import { computeKPr, generatePropertyClaims } from './propertyClaimEngine';
+import { computeKPr, generatePropertyClaims, propertyCappedSeverityTrend } from './propertyClaimEngine';
 import { generateNarrative } from './narrativeEngine';
 import { grossUpRetainedPurePremium, quoteLineRates, type CessionBasis } from './linePricing';
 import { getMemberExposure } from './lineHelpers';
-import { wageFactor } from '../data/exposureTrend';
+import { exposureFactor } from '../data/exposureTrend';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 
 export function lookupCLF(level: number): number {
@@ -377,21 +377,25 @@ export function currentPurePremiumPer100(
     ? wcBlendedRatePer100(members, yearNumber)
       * wcFrequencyTrend(yearNumber)
       * wcSeverityTrend(yearNumber)
-      / wageFactor('WC', yearNumber)
+      / exposureFactor('WC', yearNumber)
     : line === 'GL'
     ? GL_HELD_PURE_PREMIUM_PER_100
       * glCappedSeverityTrend(yearNumber)
-      / wageFactor('GL', yearNumber)
-    // ⚠ PROPERTY IS NOW HELD LIKE THE OTHER TWO. It used to be the ONLY line
-    // whose pure premium was a compounding random walk — prior x (1 + lossTrend)
-    // x (1 - rcEffectiveness), seeded from STARTING_FINANCIALS' ratePer100 and
-    // drifting thereafter — so two games with identical decisions priced
-    // Property differently for no modelled reason, and no roster fit could ever
-    // anchor it. It is a pure function of the year now, which is to say a
-    // constant: the fit found no frequency trend, and severity trend is already
-    // inside the payout-pattern convention the generator applies. Adding a
-    // factor here would double-count it, which is the finding-37 trap.
-    : PROPERTY_HELD_PURE_PREMIUM_PER_100;
+      / exposureFactor('GL', yearNumber)
+    // ⚠ PROPERTY CARRIES A TREND FACTOR NOW, AND IT DID NOT BEFORE. It used to
+    // be the ONLY line whose pure premium was a compounding random walk — prior
+    // x (1 + lossTrend) x (1 - rcEffectiveness), seeded from STARTING_FINANCIALS
+    // — so two games with identical decisions priced Property differently for no
+    // modelled reason. Holding it fixed the walk, and leaving it a bare constant
+    // was right for exactly as long as Property's DRAW did not trend.
+    //
+    // It does now, 5%/yr, so a bare constant would be the finding-37 defect with
+    // the sign reversed: the generator inflating while the price stands still.
+    // The factor is the CAPPED trend, not the raw 5%, because Property's ceiling
+    // is flat — see propertyCappedSeverityTrend. There is no exposure divisor on
+    // any of the three branches any more; the base is level.
+    : PROPERTY_HELD_PURE_PREMIUM_PER_100
+      * propertyCappedSeverityTrend(yearNumber);
 }
 
 // The risk-control effectiveness this year's decision produces.
@@ -733,19 +737,17 @@ export function processLineYear(
   // the draw and the price diverge — the defect finding 37 corrected, and it is
   // reintroduced by adding any one of them without the others.
   //
-  //   x wcFrequencyTrend    -1.5%/yr   claims per worker fall
-  //   x wcSeverityTrend     +3.67%/yr  each claim costs more
-  //   / wageFactor          +3.63%/yr  the rate is per $100 of NOMINAL payroll,
-  //                                    and the denominator has grown
+  //   x wcFrequencyTrend     0.0%/yr   a named zero; the mechanism is still wired
+  //   x wcSeverityTrend     +5.00%/yr  each claim costs more
+  //   / exposureFactor       0.0%/yr   a level base; another named zero
   //
-  //   net: 0.985 x 1.0367 / 1.0363 = 0.98538  ->  -1.462%/yr
+  //   net: 1.000 x 1.05 / 1.000 = 1.05  ->  +5.000%/yr
   //
-  // The severity and wage factors nearly cancel BY CONSTRUCTION (indemnity
-  // benefits are a statutory fraction of wage), which is why the rate trend is
-  // very close to the frequency trend alone. Dividing by wageFactor is what makes
-  // premium growth come out at freqTrend x sevTrend = +2.115%/yr INDEPENDENT of
-  // the wage rate — a useful check: if premium growth moves when only
-  // WAGE_INFLATION_PER_YEAR changes, one of these three is missing.
+  // ⚠ TWO OF THE THREE ARE 1 AND ALL THREE MUST STAY. A factor at 1 is not an
+  // absent factor: it is the seam a future trend arrives through, and deleting
+  // it is how the draw and the price come apart. They used to read -1.5%,
+  // +3.67% and +3.63%, cancelling to -1.462%/yr, because WC severity tracks
+  // wages by construction; with a level base there is nothing to cancel.
   //
   // Still HELD: WC_HELD_PURE_PREMIUM_PER_100 is derived once from the neutral
   // full-roster expectation. All three factors are pure functions of the year and
@@ -3971,8 +3973,21 @@ function processIbner(
       // ⚠ FLAG-GATED, SO THE SHIPPED PATH CANNOT MOVE. With FORWARD_BOOKING off
       // this reads `c.age < c.horizon` exactly as before, and value identity on
       // the shipped arm holds by construction rather than by measurement.
-      const developing = c.age < c.horizon
-        || (FORWARD_BOOKING.enabled && openShareAtStep(line, c.age + 1) > 0);
+      // ⚠ GATE 2 OF 3 FOR FULL-COST BOOKING, AND IT IS IN FRONT OF BOTH CLOCKS
+      // DELIBERATELY. A cohort booked at its full cost has nothing left to
+      // develop, so neither the drawn horizon nor the open-share curve has
+      // anything to govern. Gating here rather than zeroing reserveStepSigma
+      // switches off the whole block — the stochastic step, the unwind and the
+      // per-claim revision law together — instead of leaving a live path
+      // multiplying by zero, which is the shape that leaves RNG consumed and
+      // claims rearranged for no movement. See FULL_COST_BOOKING.
+      //
+      // ⚠ CLOSURE IS NOT ON THIS CLOCK AND DOES NOT STOP. reselectDevelopingSet
+      // below still runs and still refreshes every claim's `closed` flag from
+      // the closure curve; only the CAPS it is given go to zero.
+      const developing = !FULL_COST_BOOKING.enabled
+        && (c.age < c.horizon
+          || (FORWARD_BOOKING.enabled && openShareAtStep(line, c.age + 1) > 0));
       let developingClaimsOut = c.developingClaims;
       let cededToDate = c.cededDevelopmentToDate ?? 0;
       let untrackedOut = c.untrackedTotal;
@@ -4439,7 +4454,13 @@ function processIbner(
       // no offset. The two boundaries line up, which is why this one does not
       // leave a residual the way an arbitrary split would.
       // ============================================================================
-      if (PER_CLAIM_REVISION.enabled && PER_CLAIM_REVISION.settlement
+      // ⚠ GATE 3 OF 3 FOR FULL-COST BOOKING. The settlement true-up is the
+      // adjuster's final resolution of an estimate, and a claim booked at its
+      // drawn cost has no estimate left to resolve. It is a NO-OP here rather
+      // than a mean-one draw that still moves individual claims and still
+      // cedes and gives back through the tower. See FULL_COST_BOOKING.
+      if (!FULL_COST_BOOKING.enabled
+        && PER_CLAIM_REVISION.enabled && PER_CLAIM_REVISION.settlement
         && DEVELOPMENT_CESSION_ENABLED && developingClaimsOut && developingClaimsOut.length > 0) {
         // Newly closed = closed now, not closed at the last valuation. Closure is
         // monotone (see reselectDevelopingSet), so this fires exactly once per
@@ -4882,6 +4903,13 @@ function drawStepMultiplier(rng: SeededRandom): number {
 // CLF 1.000 is break-even by construction, so anything at or above it books
 // honestly and returns 0.
 export function ibnerBookingBias(selectedFundingCLF: number): number {
+  // ⚠ GATE 1 OF 3 FOR FULL-COST BOOKING. Zero bias means bookedUltimate is
+  // netUltimateLoss exactly, and the markdown driven off `netUltimateLoss x
+  // bias` is zero with it, so a cohort is born carrying its full drawn cost.
+  // The unwind that reverses the bias is then identically zero too — it reads
+  // `registerSum x bookingBias x weight` — which is why only the bias and not
+  // the schedule needs gating. See FULL_COST_BOOKING.
+  if (FULL_COST_BOOKING.enabled) return 0;
   return IBNER_BOOKING_BIAS_COEFF * Math.max(0, 1 - selectedFundingCLF);
 }
 

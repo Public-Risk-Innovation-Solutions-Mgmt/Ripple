@@ -1,29 +1,30 @@
 import type { CoverageLine, LinePoolState, LineResultSet, LineView, Member, ResultSet } from '../types/simulation';
-import { wageFactor } from '../data/exposureTrend';
+import { exposureFactor } from '../data/exposureTrend';
 
 // A member's exposure in THIS YEAR'S DOLLARS — the NOMINAL, rating-side figure.
 //
-// ⚠ THIS IS THE RATING/PREMIUM/DISPLAY READER. There is a second exposure basis
-// and confusing them is the whole design of the wage-inflation change:
+// ⚠ THE TWO BASES NOW COINCIDE, AND THE DISTINCTION IS KEPT ANYWAY. The
+// exposure base is LEVEL from this commit (EXPOSURE_GROWTH_PER_YEAR = 0), so
+// exposureFactor is 1 and this returns the raw roster figure. The split is
+// still worth stating, because it is what a future exposure trend would need:
 //
-//   NOMINAL (here)      frozen roster payroll x wageFactor(line, year).
+//   NOMINAL (here)      frozen roster payroll x exposureFactor(line, year).
 //                       Premium, member charge, market share, every display.
 //
 //   REAL (raw           `member.exposureByLine.WC` read directly, no factor.
 //    exposureByLine)    CLAIM FREQUENCY, and only claim frequency.
 //                       wcClaimEngine reads it raw.
 //
-// WHY FREQUENCY MUST NOT SEE THE FACTOR: the roster is frozen, so payroll growth
-// here is PURE WAGE INFLATION — same members, same workers, same injuries.
-// Letting claim counts rise 3.63%/yr would assert that paying people more
-// injures more of them, and it would move WC's rate trend from -1.46%/yr to
-// +2.12%/yr, growing premium 5.82%/yr instead of 2.115%.
+// WHY FREQUENCY MUST NOT SEE THE FACTOR, whenever there is one again: the
+// roster is frozen, so growth here is pure base inflation — same members, same
+// workers, same injuries. Letting claim counts rise with it would assert that
+// paying people more injures more of them.
 //
 // yearNumber is REQUIRED, with no default. A default would silently price some
 // call site at year 1 forever, which is exactly the class of defect the
 // frequency-trend fix corrected (finding 37).
 export function getMemberExposure(member: Member, line: CoverageLine, yearNumber: number): number {
-  return (member.exposureByLine[line] ?? 0) * wageFactor(line, yearNumber);
+  return (member.exposureByLine[line] ?? 0) * exposureFactor(line, yearNumber);
 }
 
 // Stage 2.1 view filter: 'pool' returns lockedResults unchanged (by reference —

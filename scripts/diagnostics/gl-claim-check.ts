@@ -35,7 +35,8 @@
 
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { GL_HEAVY_COMPONENT_INDEX, GL_LOSS_MODEL, GL_SEVERITY_CAP, GL_SEVERITY_COMPONENTS, RISK_QUALITY_CENTRE, RISK_QUALITY_SLOPE } from '../../src/data/defaultAssumptions';
-import { WAGE_INFLATION_PER_YEAR, wageFactor } from '../../src/data/exposureTrend';
+import { EXPOSURE_GROWTH_PER_YEAR, exposureFactor } from '../../src/data/exposureTrend';
+import { SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
 import {
   computeKGl,
   deriveNeutralGlPurePremiumPer100,
@@ -226,17 +227,21 @@ console.log('\n--- 2b. k_GL NEUTRALISES BOTH RQ CHANNELS (the held-pure-premium 
   console.log(`  the two bases DO differ at RQ 1 (ratio ${spread.toFixed(4)}): ${note(Math.abs(spread - 1) > 0.05, 'the k_GL and pricing bases are identical away from neutral — the severity tilt is not in the k_GL basis, so k_GL is correcting nothing extra')}`);
 }
 
-console.log('\n--- 2c. THE TREND PAIR: severity and payroll growth, and the four invariants ---');
+console.log('\n--- 2c. THE TREND PAIR: severity and a LEVEL exposure base ---');
 {
-  const SEV = GL_SEVERITY_TREND_PER_YEAR, WAGE = WAGE_INFLATION_PER_YEAR;
-  console.log(`  [ANALYTIC] severity ${(SEV * 100).toFixed(4)}%/yr = wage ${(WAGE * 100).toFixed(2)}% x social 2.00% (multiplicative)`);
-  const composed = 1.0363 * 1.020 - 1;
-  console.log(`    composed check: 1.0363 x 1.020 - 1 = ${composed.toFixed(6)} vs stored ${SEV}  ${note(Math.abs(composed - SEV) < 1e-9, `GL_SEVERITY_TREND_PER_YEAR ${SEV} != 1.0363 x 1.020 - 1`)}`);
-  console.log(`    (SUMMING would give ${(0.0363 + 0.020).toFixed(4)} — the figures only reconcile as a product)`);
+  const SEV = GL_SEVERITY_TREND_PER_YEAR, WAGE = EXPOSURE_GROWTH_PER_YEAR;
+  console.log(`  [ANALYTIC] severity ${(SEV * 100).toFixed(4)}%/yr, exposure growth ${(WAGE * 100).toFixed(2)}%/yr`);
+  // ⚠ THE COMPOSITION CHECK IS RETIRED WITH THE RATE IT CHECKED. GL carried
+  // 5.7026% = 1.0363 x 1.020 (wage x long-run social inflation), and the check
+  // that it reconciled as a PRODUCT rather than a sum was load-bearing while
+  // the pair existed. GL now shares one chosen rate with the other two lines
+  // and there is no composition left to verify — asserting the old identity
+  // would be asserting the retired arrangement.
+  console.log(`    one rate for all three lines: ${note(Math.abs(SEV - SEVERITY_TREND_PER_YEAR.WC) < 1e-12 && Math.abs(SEV - SEVERITY_TREND_PER_YEAR.Property) < 1e-12, `GL severity ${SEV} differs from WC/Property — the lines are meant to share one rate now`)}`);
 
-  // (i) RATE TREND = the social-inflation half, exactly.
+  // (i) RATE TREND = the severity trend, exactly, because the base is level.
   const rate = (1 + SEV) / (1 + WAGE);
-  console.log(`  [ANALYTIC] rate trend = sev / wage = ${rate.toFixed(6)} -> ${((rate - 1) * 100).toFixed(4)}%/yr  ${note(Math.abs(rate - 1.02) < 1e-9, `rate trend ${rate} != 1.02 — the severity/wage pair no longer leaves exactly the social-inflation half`)}`);
+  console.log(`  [ANALYTIC] rate trend = sev / exposure = ${rate.toFixed(6)} -> ${((rate - 1) * 100).toFixed(4)}%/yr  ${note(Math.abs(rate - (1 + SEV)) < 1e-12, `rate trend ${rate} != 1 + severity — the exposure base is not level`)}`);
   console.log(`    over 9 compounding periods: rate x${Math.pow(rate, 9).toFixed(4)}, member charge x${Math.pow(1 + SEV, 9).toFixed(4)}`);
 
   // (ii) PREMIUM TREND = SEVERITY TREND, INDEPENDENT OF THE WAGE RATE.
@@ -390,13 +395,19 @@ console.log('\n--- 2c. THE TREND PAIR: severity and payroll growth, and the four
       / expectedClaimSeverity(glInternals.untiltedGlWeights(), yearNumber);
   const n1 = countExpectationAt(1), n10 = countExpectationAt(10);
   console.log(`  [ANALYTIC] engine count expectation year 1 ${n1.toFixed(6)} vs year 10 ${n10.toFixed(6)}`);
-  console.log(`    ${note(Math.abs(n1 - n10) < 1e-9, `the engine's claim-count expectation moved from year 1 to year 10 (${n1} -> ${n10}) — frequency is reading NOMINAL payroll. It must read member.exposureByLine.GL raw; the wage factor is a rating/premium/display quantity only (lineHelpers.getMemberExposure).`)}  — while NOMINAL payroll grew x${Math.pow(1 + WAGE, 9).toFixed(4)}`);
-  const nominalGrew = Math.abs(wageFactor('GL', 10) - Math.pow(1 + WAGE, 9)) < 1e-12 && wageFactor('GL', 10) > 1.3;
-  console.log(`    and the wage switch really is ON for GL (wageFactor year 10 = ${wageFactor('GL', 10).toFixed(4)}): ${note(nominalGrew, 'WAGE_INFLATION_APPLIES.GL is off — the rating side is not inflating at all')}`);
+  console.log(`    ${note(Math.abs(n1 - n10) < 1e-9, `the engine's claim-count expectation moved from year 1 to year 10 (${n1} -> ${n10}) — frequency is reading NOMINAL payroll. It must read member.exposureByLine.GL raw; the wage factor is a rating/premium/display quantity only (lineHelpers.getMemberExposure).`)}  — while the exposure base stayed at x${Math.pow(1 + WAGE, 9).toFixed(4)}`);
+  // ⚠ THE SWITCH THIS USED TO ASSERT WAS ON IS NOW ASSERTED OFF. GL's exposure
+  // grew at 3.63% and the check existed because a silently-off switch would
+  // have left the rating side flat while severity climbed. The base is level by
+  // decision now, so the same reading is the correct one and the assertion is
+  // inverted rather than deleted — a factor drifting away from 1 is exactly as
+  // much of a defect as it used to be to sit at 1.
+  const baseLevel = exposureFactor('GL', 10) === 1 && exposureFactor('GL', 1) === 1;
+  console.log(`    and the exposure base really is LEVEL for GL (factor year 10 = ${exposureFactor('GL', 10).toFixed(4)}): ${note(baseLevel, 'EXPOSURE_GROWTH_PER_YEAR is not zero — the rating side is inflating under a severity trend that already reaches the rate in full')}`);
 
   // (vi) BOTH FACTORS FLOOR AT YEAR 1 — the pre-game is year-1 dollars.
-  const floors = [-2, -1, 0, 1].every(y => glSeverityTrend(y) === 1 && wageFactor('GL', y) === 1);
-  console.log(`  [ANALYTIC] both factors floor at year 1 (pre-game years -2..0): ${note(floors, 'glSeverityTrend or wageFactor does not floor at year 1 — the pre-game re-rates against year-1 dollar constants')}`);
+  const floors = [-2, -1, 0, 1].every(y => glSeverityTrend(y) === 1 && exposureFactor('GL', y) === 1);
+  console.log(`  [ANALYTIC] both factors floor at year 1 (pre-game years -2..0): ${note(floors, 'glSeverityTrend or exposureFactor does not floor at year 1 — the pre-game re-rates against year-1 dollar constants')}`);
 }
 
 console.log('\n--- 3. [ANALYTIC] full-market claims, gross, loss by band, occurrence counts ---');
