@@ -134,12 +134,37 @@ export function heldGrossPurePremiumPer100(line: CoverageLine, members: Member[]
  * reserve — conservative in the direction that matters least, since those are
  * the smallest cohorts.
  *
- * It is a year-1 ratio because there is no API for any other: every severity
- * trend floors at year 1 (see wageFactor's header for why the pre-game pins
- * there), so allLayerRiskMoments cannot be asked for a deflated level. The
- * honest fix is a trend argument on the tower, which is a reinsurance change
- * and not this commit's. opening-reserves-report MEASURES the size of the bias
- * by reading the ratio at year 1 against year 10.
+ * ⚠ THE SIZE, MEASURED IN DOLLARS RATHER THAN LEFT AS A DIRECTION. The bound
+ * is tight because the true cession on a bulk year lies in [0, year-1 ratio]:
+ *
+ *   line      year-1 cession   bulk reserve as built   if cession were 0
+ *   WC               23.63%                   $23.5M              $30.7M
+ *   GL               41.47%                    $2.6M               $4.5M
+ *   Property         32.68%                    $0.0M               $0.0M
+ *
+ * so the MAXIMUM understatement is $9.1M, 5.1% of the set opening reserve
+ * total. The measured ratio against claim-size scale — WC 23.6% at 1.00x
+ * rising to 45.8% at 1.55x — falls steeply enough that the oldest years are
+ * near the zero end, so the true figure is nearer $9.1M than $0.
+ *
+ * ⚠ IT DOES NOT MOVE THE OPENING'S SHAPE, which is why it is recorded rather
+ * than corrected here. Opening surplus is 2.28 x required and required is a
+ * multiple of the reserve, so understating the reserve understates surplus by
+ * the same proportion and the surplus/required RATIO the opening is set on is
+ * unaffected. What is slightly low is the absolute scale of the oldest and
+ * smallest cohorts.
+ *
+ * ⚠ THE CORRECTION IS SOUND ALGEBRA AND THE TOWER CANNOT EXPRESS IT AS BUILT.
+ * Ceding a claim deflated by d to a layer [A, A+L] equals d x the cession of
+ * the UNDEFLATED claim to [A/d, (A+L)/d] — so an older year is priceable by
+ * scaling the layer bounds UP by (1.05)^age and scaling the answer back down.
+ * The identity holds exactly. What is missing is an entry point: every
+ * exported accessor here prices REINSURANCE_TOWER[line]'s FIXED bounds, and
+ * the one function that takes bounds, bandMomentsForEdges, is private. Asking
+ * at a LATER year scales the bounds the wrong way (claims inflate, so bounds
+ * effectively shrink) and earlier years floor at 1. So the fix is one exported
+ * bounds-taking accessor on towerMoments — small, but a reinsurance-module
+ * change, and this commit is value-neutral by construction.
  */
 export function towerCessionRatio(line: CoverageLine, members: Member[], yearNumber = 1): number {
   if (line === 'Property') {
