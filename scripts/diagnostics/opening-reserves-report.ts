@@ -87,31 +87,29 @@ for (const line of LINES) {
 }
 
 // --------------------------------------------------------------------------
-console.log('\n--- 3. AGAINST TODAY\'S SEARCHED OPENING ---');
-console.log('  line       today reserve   today surplus   + bulk reserve   set surplus   reserve x');
+console.log('\n--- 3. THE OPENING AS SET, PER LINE ---');
+// ⚠ THIS SECTION USED TO COMPARE AGAINST THE SEARCHED OPENING AND CANNOT ANY
+// MORE: the search is gone, so runPriorHistory returns the SET opening and the
+// comparison would be against itself. The old-against-new figures are in
+// commit (b)'s message, measured on a worktree at the parent, which is the
+// only place they could honestly come from.
+console.log('  line       reserve   surplus   required   surplus/required   cohorts');
 for (const line of LINES) {
-  const todayRes: number[] = [], todaySur: number[] = [];
-  let members: Member[] = [];
+  const res: number[] = [], sur: number[] = [], coh: number[] = [];
   for (let g = 0; g < GAMES; g++) {
     const id = `OPEN${g}`;
     const inst = generateGameInstance(id, 6_100_000 + g * 7919);
     const setup = { poolName: 'A', gameLength: 10, startingYear: 2026, instanceId: id, activeLines: LINES };
     const { poolState } = runPriorHistory(inst, setup as never);
     const ls = poolState.lines[line] as LinePoolState;
-    todayRes.push((ls.reserveCohorts ?? []).reduce((a, c) => a + c.netUnpaid, 0));
-    todaySur.push(ls.surplus ?? 0);
-    if (g === 0) members = ls.members ?? [];
+    res.push((ls.reserveCohorts ?? []).reduce((a, c) => a + c.netUnpaid, 0));
+    sur.push(ls.surplus ?? 0);
+    coh.push((ls.reserveCohorts ?? []).length);
   }
-  const bulk = bulkOpeningReserve(line, members);
-  const played = mean(todayRes);
-  const setRes = played + bulk;
-  const margin = staticClf(line as 'WC', 0.90) - 1;
-  const setSur = setRes * margin * OPENING_SURPLUS_MULTIPLE_OF_REQUIRED;
-  console.log(`  ${line.padEnd(9)} ${m$(played).padStart(14)} ${m$(mean(todaySur)).padStart(15)} `
-    + `${m$(bulk).padStart(16)} ${m$(setSur).padStart(13)} ${(setRes / Math.max(played, 1)).toFixed(2).padStart(10)}`);
+  const r = mean(res), u = mean(sur);
+  const req = r * (staticClf(line as 'WC', 0.90) - 1);
+  console.log(`  ${line.padEnd(9)} ${m$(r).padStart(9)} ${m$(u).padStart(9)} ${m$(req).padStart(10)} `
+    + `${(u / Math.max(req, 1)).toFixed(3).padStart(18)} ${mean(coh).toFixed(1).padStart(9)}`);
 }
-console.log('\n  ⚠ "today reserve" IS THE SEARCHED OPENING AND STILL CONTAINS SEED COHORTS. At');
-console.log('    commit (b) those are replaced by the played prior years plus the bulk ones, so');
-console.log('    the "+ bulk reserve" column is an ADDITION to the played years only once the');
-console.log('    seeds come out. The reserve multiple on the right is the honest comparison.');
-console.log('\n  ASSERTS NOTHING. Commit (b) makes these the opening and recaptures the baselines.\n');
+console.log(`\n  surplus/required must read ${OPENING_SURPLUS_MULTIPLE_OF_REQUIRED} on every line — it is set, not searched.`);
+console.log('  ASSERTS NOTHING. The sweep and the baselines are what hold this.\n');

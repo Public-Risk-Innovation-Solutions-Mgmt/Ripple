@@ -2,12 +2,10 @@
 // THE SET OPENING — BULK RESERVES FOR THE ACCIDENT YEARS OLDER THAN THE PRIOR
 // HISTORY. RECORDED AND NOT YET WIRED.
 //
-// ⚠ NOTHING READS THIS FILE. Commit (a) of the opening rebuild builds the
-// derivation and leaves the pre-game SEARCH live; commit (b) switches the
-// opening over to it and retires the search, the pin and their gates. Keeping
-// the two apart is what makes (a) value-neutral — every baseline holds by
-// construction, so (b)'s recapture attributes the whole movement to the
-// opening and nothing else.
+// ⚠ THIS IS NOW THE OPENING. Commit (a) recorded the derivation unwired;
+// commit (b) — this one — switched priorHistoryEngine over to it and retired
+// the search, the band and the pin. Splitting the two is what let (b)'s
+// baseline recapture attribute the whole movement to the opening.
 //
 // ============================================================================
 // WHY BULK COHORTS EXIST AT ALL.
@@ -55,12 +53,14 @@
 //     started and are already inside the net figure.
 // ============================================================================
 
-import type { CoverageLine, Member } from '../types/simulation';
+import type { CoverageLine, Member, ReserveCohort } from '../types/simulation';
 import { PAID_DEVELOPMENT_PATTERN } from '../data/paidDevelopmentPatterns';
 import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { unpaidShare } from './payoutPattern';
+import { staticClf, type StaticClfLine } from '../data/clfTables';
 import {
-  EXPOSURE_GROWTH_PER_YEAR, PRIOR_HISTORY_YEARS, SEVERITY_TREND_PER_YEAR,
+  EXPOSURE_GROWTH_PER_YEAR, OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
+  RESERVE_MARGIN_CONFIDENCE_PARAM, SEVERITY_TREND_PER_YEAR,
 } from '../data/pricingParameters';
 import { computeKLine, deriveNeutralPurePremiumPer100 } from './wcClaimEngine';
 import { computeKGl, deriveNeutralGlPurePremiumPer100 } from './glClaimEngine';
@@ -240,4 +240,57 @@ export function bulkOpeningCohorts(line: CoverageLine, members: Member[]): BulkC
 /** The total bulk reserve a line opens with. */
 export function bulkOpeningReserve(line: CoverageLine, members: Member[]): number {
   return bulkOpeningCohorts(line, members).reduce((a, c) => a + c.netUnpaid, 0);
+}
+
+// ============================================================================
+// THE SET OPENING, APPLIED TO A LINE'S ENDING PRE-GAME STATE.
+//
+// ⚠ IT REPLACES THE SEED COHORTS AND LEAVES THE PLAYED ONES ALONE. The pre-game
+// simulates PRIOR_HISTORY_YEARS of real accident years with claims behind them,
+// and those cohorts stay exactly as they were simulated — pricing reads their
+// history and the whole rebuild rests on it being real. What goes is the
+// BOOTSTRAP's drawn seed cohorts, which were an apportionment of a drawn
+// reserve total across three to five ages and are the thing the search existed
+// to accept or reject. They are replaced by bulk cohorts derived from the
+// patterns.
+//
+// ⚠ SURPLUS IS SET, NOT SEARCHED, AND REQUIRED CAPITAL IS THE RESERVE RISK
+// MARGIN. See OPENING_SURPLUS_MULTIPLE_OF_REQUIRED for the denominator, which
+// is stated there rather than here because the parameter is what a reader
+// tunes. Setting it last means the pre-game's own profit does not reach the
+// opening: whatever the declared years earned, the pool opens where the
+// multiple says.
+// ============================================================================
+
+/** A bulk cohort in the engine's own shape. Seeded, claimless, net. */
+export function bulkCohortsAsReserveCohorts(
+  line: CoverageLine, members: Member[], startingYear: number,
+): ReserveCohort[] {
+  return bulkOpeningCohorts(line, members).map(b => ({
+    yearNumber: b.yearNumber,
+    calendarYear: startingYear + b.yearNumber - 1,
+    netUltimate: b.netUltimate,
+    netPaid: b.netPaid,
+    netUnpaid: b.netUnpaid,
+    closed: false,
+    seeded: true,
+    // ⚠ registerSum IS THE ULTIMATE, exactly as instanceGenerator's seeds set
+    // it: there is no claim register behind a bulk cohort, so the figure the
+    // engine would otherwise sum from claims is the ultimate itself.
+    registerSum: b.netUltimate,
+    horizon: 0,
+    age: b.ageYears,
+    stepMultiplier: 1,
+    bookingBias: 0,
+  }));
+}
+
+/** Required capital for a line: the RESERVE RISK MARGIN on its net unpaid. */
+export function requiredCapital(line: CoverageLine, netUnpaidReserve: number): number {
+  return netUnpaidReserve * (staticClf(line as StaticClfLine, RESERVE_MARGIN_CONFIDENCE_PARAM) - 1);
+}
+
+/** Opening surplus for a line: the ruled multiple of its own required capital. */
+export function setOpeningSurplus(line: CoverageLine, netUnpaidReserve: number): number {
+  return OPENING_SURPLUS_MULTIPLE_OF_REQUIRED * requiredCapital(line, netUnpaidReserve);
 }

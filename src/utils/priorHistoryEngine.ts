@@ -49,7 +49,6 @@ import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import {
   OPENING_SURPLUS_BAND,
   OPERATING_CASH_PCT_OF_PREMIUM,
-  STARTING_CAPITAL_TO_PREMIUM,
 } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults } from './simulationEngine';
 import {
@@ -58,6 +57,7 @@ import {
 import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState, getMemberExposure } from './lineHelpers';
+import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
 import { defaultDecisionSet } from './decisionDefaults';
 
 export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
@@ -144,7 +144,6 @@ export const MATURATION_YEARS = 7;
  *  declared pre-game years. Ten, so ten accident years exist at game start. */
 export const PRE_GAME_DEPTH = MATURATION_YEARS + PRE_GAME_YEARS;
 
-const MAX_HISTORY_ATTEMPTS = 500;
 
 export interface PriorHistoryResult {
   priorHistory: ResultSet[];      // the 3 accepted pre-game years, oldest first (pool aggregate)
@@ -249,7 +248,15 @@ export function simulateLineCandidate(
         .filter(m => m.status === 'active')
         .reduce((s, m) => s + getMemberExposure(m, line, y), 0);
       const linePremium = activeExposure * ls.ratePer100 * 10_000;
-      const targetSurplus = (STARTING_CAPITAL_TO_PREMIUM[line] ?? 1.0) * linePremium;
+      // ⚠ THE RE-PIN USES THE SET FORMULA NOW, WHICH IS WHAT RETIRES THE PIN.
+      // It read STARTING_CAPITAL_TO_PREMIUM x premium — the search origin. With
+      // the opening set rather than searched there is no origin to search from,
+      // and leaving the constant here would have kept it alive for one caller
+      // while its own header called it a search origin. The boundary re-pins to
+      // the same multiple of the same required capital the opening is set on,
+      // so the declared years run from a correctly capitalised base and the
+      // opening is set again at the end from whatever reserve they leave.
+      const targetSurplus = setOpeningSurplus(line, ls.netUnpaidReserve);
       const lineCash = OPERATING_CASH_PCT_OF_PREMIUM * linePremium;
       gs = {
         ...gs,
@@ -360,36 +367,74 @@ export function openingBandRatio(
     : endingSurplus / Math.max(poolPremium, 1);
 }
 
+// ⚠ NO SEARCH, NO BAND, NO REDRAW — ONE SIMULATION, THEN THE OPENING IS SET.
+//
+// What stood here ran up to 500 candidate seeds per line and accepted the
+// first whose ending surplus landed inside OPENING_SURPLUS_BAND, falling back
+// to the closest miss with a console warning. It existed because the opening
+// was an EMERGENT property of a simulated past, and an emergent opening has to
+// be filtered to be usable.
+//
+// ⚠ AND THAT MADE THE OPENING A FUNCTION OF EVERY PRICING CHANGE. The band is
+// on surplus over required, required is a multiple of the reserve, and every
+// commit that moved reserves or rates moved the candidate distribution under
+// the band — so the pin had to be re-solved five times, the last of them by
+// 206% on WC. The opening is now SET: the pre-game supplies the loss history
+// and its own reserves, the older accident years are bulk cohorts from the
+// patterns, and surplus is a stated multiple of required capital. A pricing
+// change can no longer re-roll it.
+//
+// The pre-game still RUNS, at attempt 0, because pricing reads the loss
+// history it produces. What is gone is accepting or rejecting the result.
 function runLinePreGame(
   instance: GameInstance,
   setup: GameSetupSettings,
   line: CoverageLine
 ): LinePreGame {
-  const band = OPENING_SURPLUS_BAND[line] ?? { basis: 'premium' as const, min: 0.83, max: 1.22 };
-  let best: { c: ReturnType<typeof simulateLineCandidate>; attempt: number; distance: number } | null = null;
+  return finalizeLine(simulateLineCandidate(instance, setup, line, 0), line, 0, setup.startingYear);
+}
 
-  for (let attempt = 0; attempt < MAX_HISTORY_ATTEMPTS; attempt++) {
-    const c = simulateLineCandidate(instance, setup, line, attempt);
-    const last = c.lineResults[c.lineResults.length - 1];
-    const multiple = openingBandRatio(line, last.endingSurplus, last.poolPremium, last.endingNetReserve, last.reserveRiskMarginNeeded);
-    if (multiple >= band.min && multiple <= band.max) return finalizeLine(c, line, attempt);
-    // Distance to the band (0 inside): the fallback keeps the closest miss.
-    const distance = multiple < band.min ? band.min - multiple : multiple - band.max;
-    if (!best || distance < best.distance) best = { c, attempt, distance };
-  }
 
-  console.warn(
-    `Prior history (${line}): no attempt of ${MAX_HISTORY_ATTEMPTS} landed in the ` +
-    `[${band.min}, ${band.max}]x opening ${band.basis} band; using closest attempt ${best!.attempt} ` +
-    `(missed by ${best!.distance.toFixed(2)}x).`
-  );
-  return finalizeLine(best!.c, line, best!.attempt);
+// ============================================================================
+// THE SET OPENING, APPLIED. Replaces the bootstrap's drawn seed cohorts with
+// bulk cohorts derived from the patterns, then sets surplus from the ruled
+// multiple of required capital.
+//
+// ⚠ THE PLAYED COHORTS ARE LEFT EXACTLY AS SIMULATED. They are real accident
+// years with claims behind them and pricing reads their history. A seed cohort
+// is identified by `seeded` — the flag instanceGenerator already sets — so the
+// split needs no age arithmetic and cannot drift from what the bootstrap drew.
+//
+// ⚠ invested IS RE-DERIVED FROM THE IDENTITY, not adjusted. surplus = cash +
+// invested - netReserve, so invested = surplus + netReserve - cash. Writing
+// surplus without re-deriving invested would leave the balance sheet not
+// balancing, which every exhibit reads.
+// ============================================================================
+function applySetOpening(
+  line: CoverageLine,
+  ls: LinePoolState,
+  lineCash: number,
+  startingYear: number
+): LinePoolState {
+  const played = (ls.reserveCohorts ?? []).filter(c => c.seeded !== true);
+  const bulk = bulkCohortsAsReserveCohorts(line, ls.members ?? [], startingYear);
+  const reserveCohorts = [...played, ...bulk];
+  const netUnpaidReserve = reserveCohorts.reduce((a, c) => a + c.netUnpaid, 0);
+  const surplus = setOpeningSurplus(line, netUnpaidReserve);
+  return {
+    ...ls,
+    reserveCohorts,
+    netUnpaidReserve,
+    surplus,
+    investedAssets: surplus + netUnpaidReserve - lineCash,
+  };
 }
 
 function finalizeLine(
   c: ReturnType<typeof simulateLineCandidate>,
   line: CoverageLine,
-  attempt: number
+  attempt: number,
+  startingYear: number
 ): LinePreGame {
   // Stamp the accepted attempt onto each pre-game year's result so the
   // effective seed (instance.seed + attempt x 997) that produced it is
@@ -398,7 +443,7 @@ function finalizeLine(
   return {
     line,
     lineResults,
-    lineState: c.poolState.lines[line],
+    lineState: applySetOpening(line, c.poolState.lines[line], c.poolState.cash, startingYear),
     cash: c.poolState.cash,
     unearnedPremium: c.poolState.unearnedPremium,
     members: c.poolState.lines[line].members,

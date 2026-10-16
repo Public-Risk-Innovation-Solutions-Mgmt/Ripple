@@ -121,6 +121,19 @@ const FAST: string[] = [
                                      //         booking walk rather than the payout. Registered
                                      //         while red deliberately — the bar is the deliverable
                                      //         even though the build behind it is not landing.
+  // ⚠ THREE GATES RETIRED WITH THE SEARCH — opening-centring-check,
+  // pin-vs-band-check and pregame-acceptance-check. Every one asserted a
+  // property of a SEARCHED opening: that the unfiltered candidate median sits
+  // on the band's midpoint, that the pin and the band agree about where that
+  // is, and that acceptance stays cheap. The opening is SET now — surplus is a
+  // stated multiple of required capital and reads 2.280 on every line by
+  // construction — so there is no candidate distribution to centre, no pin to
+  // agree with a band, and no acceptance to be cheap. They are deleted rather
+  // than kept red: a gate whose subject no longer exists cannot be made to
+  // pass and cannot be made to fail, which is worse than absent.
+  //
+  // scripts/diagnostics/opening-pin-solve.ts goes with them — it exists only to
+  // re-solve a pin that no longer exists.
   'opening-reserves-report',         //  40s   the SET opening beside today's search. ASSERTS
                                      //         NOTHING and exits 0 on any number — openingReserves.ts
                                      //         is recorded and unwired at commit (a), so there is no
@@ -176,7 +189,6 @@ const FAST: string[] = [
   'member-premium-check',            //  55s   members pay their own WC class rate; the pool total is untouched
                                      //         and the allocation reaches nothing that decides who is enrolled
   'net-funding-fields-check',        //   6s
-  'opening-centring-check',          //  30s
   'paid-headroom-check',             //   7s
   'paid-ledger-check',               //   4s
   'panel-engine-parity-check',       //   4s
@@ -296,15 +308,6 @@ const SLOW: string[] = [
   // 135s — already EXPECTED_RED (exit 3) and currently an UNEXPECTED PASS; the
   // open item it was built for appears fixed. Deferring a gate in that state
   // costs little and its EXPECTED_RED entry wants revisiting either way.
-  'pin-vs-band-check',               //  135s
-  // 112s — STAGE 1 BLOCKER: the pre-game search must still accept on the
-  // shipped path. ⚠ THE DEFERRAL WITH THE SHARPEST EDGE: a change that makes
-  // the search reject would now ship and be found at merge, and a pool that
-  // cannot open its book is not a subtle failure.
-  'pregame-acceptance-check',        //  112s
-  // 106s — the cohort must develop back to its own register, both arms. Thinned
-  // 16 -> 48 games by the same common-factor effect as cession-path-
-  // independence, so it is expensive for the same measured reason.
   'maturity-anchor-check',           //  106s
   // 104s — CLF label backtest. EXPECTED RED; see its EXPECTED_RED entry.
   // Its runtime has been flat across two basis changes and that is a coincidence
@@ -378,7 +381,6 @@ const SLOW: string[] = [
 // ============================================================================
 const PROBES: Record<string, string> = {
   'clf-table-derive': 'derives the static CLF tables — a generator, not a check [240s]',
-  'opening-pin-solve': 'bisects STARTING_CAPITAL_TO_PREMIUM onto each band midpoint — a generator, not a check. Writes nothing; prints a pin to paste. Exists because the constant has drifted three times and every re-solve before this was rebuilt from prose in its own header [420s]',
   'clf-surplus-effect-report': 'what a CLF re-derivation does to ending surplus, in two arms — '
     + 'it cannot hold two tables in one process, so it is run before and after and diffed by hand. '
     + 'No pass condition: "the game got harder" is a judgement [190s]',
@@ -403,7 +405,7 @@ const PROBES: Record<string, string> = {
   'opening-basis-report': 'opening-surplus basis reading; asserts nothing. Renamed from -check [10s]',
   'price-channel-facts': 'price channel facts table [10s]',
   'property-clf-basis-report': 'Property CLF basis report [21s]',
-  'revision-total-sd-report': "the per-claim law's TOTAL development against IBNER_TOTAL_SD's own basis, flag ON against OFF. No threshold, deliberately: nothing ships on the ON arm, so a bar would be invented rather than measured — pregame-acceptance-check's reasoning [32s]",
+  'revision-total-sd-report': "the per-claim law's TOTAL development against IBNER_TOTAL_SD's own basis, flag ON against OFF. No threshold, deliberately: nothing ships on the ON arm, so a bar would be invented rather than measured — the reasoning the retired pregame-acceptance-check used [32s]",
   'property-fit-report': 'Property fit reading; asserts nothing. Renamed from -check — and three engine comments claimed it ASSERTED the fit, now corrected [4s]',
   'property-loss-shape-report': 'Property frequency/severity/concentration reading, and the retention split; no threshold [~5s]',
   'reinsurance-layer-report': 'layer reading; asserts nothing. Renamed from -check [41s]',
