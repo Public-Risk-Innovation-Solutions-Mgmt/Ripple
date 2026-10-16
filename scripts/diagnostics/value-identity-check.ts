@@ -909,7 +909,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // back already centred — solver pass 0 at +0.0010 / -0.0316 / +0.0401 against
 // its own 0.053 tolerance. The pins are unchanged, so opening books re-roll
 // here only because the ENGINE moved, not because the pin did.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v55.json');
+// v56: THE SET OPENING. The pre-game search, the opening pin and its
+// acceptance band are retired. Prior history still plays PRIOR_HISTORY_YEARS
+// years from the seed, but everything older is now a BULK cohort held NET at
+// its expected ultimate times the unpaid share at its age, taken from the
+// game's own recorded patterns over each pattern's full length — WC 37 years,
+// GL 21, Property 11. Opening surplus is set, not searched: 2.28 x the line's
+// own required capital.
+//
+// 17714 cells across 83 fields, shape unchanged (0 added, 0 removed). The
+// direction is the larger WC book: WC's opening reserve goes 13.5 cohorts to
+// 37 and its invested assets rise with it, so every balance-sheet and
+// investment-income field downstream re-rolls. Nothing changed about how a
+// played year develops, which is why the field LIST is identical.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v56.json');
 
 function seedOf(id: string) {
   let h = 5381;

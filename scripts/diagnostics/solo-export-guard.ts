@@ -595,7 +595,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // design and surface-privacy-check exists to keep a member's score from the
 // player; the POOL AVERAGE of it was in this workbook the whole time. The gate
 // now refuses the expression instead of allowing it.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v58.json');
+// ⚠ v58 -> v59: THE SET OPENING. Values move, the column list does not. The
+// pre-game search, the opening pin and its band are gone; accident years older
+// than PRIOR_HISTORY_YEARS are bulk cohorts held NET at expected ultimate x the
+// unpaid share at their age, over each pattern's full length, and opening
+// surplus is 2.28 x the line's own required capital. Every workbook re-rolls
+// because the opening balance sheet it starts from is a different one — WC
+// carries 37 accident years where it carried 13.5. See value-identity v56 for
+// the field-level reading; this capture is the same move seen through the
+// published workbook.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v59.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

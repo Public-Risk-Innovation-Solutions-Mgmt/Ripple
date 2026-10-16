@@ -618,7 +618,18 @@ const BASELINE = process.env.RENDER_BASELINE
 // Underwriting and Investment keep their own fingerprints at both year points
 // in all five configurations, which is the evidence this took out one pane
 // rather than disturbing the reader around it.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v33.json');
+//
+// ⚠ v33 -> v34: THE SET OPENING. 232 of 252 fingerprints moved, and the 20 that
+// HELD are the reading. They are the Investment and Risk Control department
+// documents at both year points in all five configurations — the only two panes
+// in the capture that carry no balance-sheet figure. Every screen that shows
+// money moved; the two that do not, did not. That is what an opening-balance
+// change looks like and it is what this capture is.
+//
+// The move was taken with the control the recapture rule asks for: the parent
+// commit built in its own worktree and served on :4174 reproduced v33 at
+// 252/252 before any of this was trusted, so the harness is not what moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v34.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
