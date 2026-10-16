@@ -50,7 +50,21 @@ export interface ParameterEntry {
   readonly note?: string;
   /** TRUE while nothing reads it. Commit 2 onward clears these as they wire. */
   readonly notYetUsed?: true;
+  /**
+   * What the game did with an EXTERNAL model's parameter. Set only in the
+   * R model section; a union rather than a string so a typo is a compile
+   * error instead of a new category nobody notices on the page.
+   */
+  readonly status?: RModelStatus;
 }
+
+/** The five, and no others. See the R model section's header. */
+export type RModelStatus =
+  | 'ADOPTED'          // used as given
+  | 'ADOPTED, SCALED'  // used after scaling
+  | 'ADAPTED'          // changed to fit the game
+  | 'SUPERSEDED'       // replaced by a game decision
+  | 'NOT USED';        // no game equivalent
 
 export type PerLine<T> = Readonly<Record<CoverageLine, T>>;
 
@@ -291,6 +305,148 @@ export const RATE_CHANGE_CAP_NEW: number | null = null;
 export const RESERVE_BASIS_NEW = 'expected';
 
 // ============================================================================
+// THE R MODEL — THE DATA SCIENTIST'S PARAMETERS, RECORDED AND NOT READ.
+//
+// ⚠ NOTHING IN HERE IS WIRED TO ANYTHING. Every entry is marked `notYetUsed`
+// and the new loss engine is what will read the ones it keeps. It is recorded
+// now, before that engine exists, because the alternative is a build that
+// quietly diverges from its own source and nobody able to say where.
+//
+// ⚠ ONE FROZEN OBJECT, NOT SIXTY EXPORTED CONSTANTS, and the namespacing is
+// the point. These are an EXTERNAL MODEL'S inputs, not this game's: a loose
+// `BASE_PREMIUM` next to the game's own constants is an import waiting to
+// happen. `R_MODEL.basePremium` cannot be mistaken for ours at a call site.
+// The registry below points AT these, so the page and the record cannot
+// disagree about a number — the same rule the rest of this file follows.
+//
+// ⚠ EVERY ENTRY IS CHOSEN, NOT SOURCED, INCLUDING THE ONES THAT LOOK FITTED.
+// The data scientist states plainly that the payout patterns, the routine
+// reserve development and the A/T/R shock assumptions are ILLUSTRATIVE and not
+// fitted to claims data. Nothing else in the model is presented as fitted to
+// this pool either. A SOURCED mark anywhere in this section would be exactly
+// the "CHOSEN number defended as if it were measured" this file's header was
+// written to prevent.
+//
+// THE STATUS COLUMN is what the game did with each one. Five values, no others:
+//   ADOPTED          used as given
+//   ADOPTED, SCALED  used after scaling
+//   ADAPTED          changed to fit the game
+//   SUPERSEDED       replaced by a game decision
+//   NOT USED         no game equivalent
+// ============================================================================
+
+export const R_MODEL = {
+  // General
+  years: '2020-2026 (seven)',
+  preGeneratedScenarios: 10_000,
+  backgroundSimulations: 100,
+  initialMembers: 100,
+  prospects: 100,
+  prospectsPerYear: 5,
+  regions: 'North 25% · South 30% · Central 25% · East 20%',
+  premiumGrowthPerYear: 0.03,
+  initialSurplus: 12_000_000,
+  expenseRatio: 0.08,
+  seeds: '42, 142, 1000+s, 2000+s, 3000+s, 5000+s',
+
+  // Variance. The two CVs carry the data scientist's OWN revision: the earlier
+  // 0.12 and 0.20 were superseded by 0.02 and 0.10 in the model as supplied.
+  baselineCV: 0.02,
+  baselineCVEarlier: 0.12,
+  memberLossCV: 0.10,
+  memberLossCVEarlier: 0.20,
+  memberRiskCV: 0.30,
+  memberSizeCV: 0.40,
+
+  // Shock effects
+  shockDecayRate: 0.65,
+  economicInflationInitialRate: 0.12,
+  investmentLossAdjustment: -0.20,
+  memberWithdrawalReduction: 0.25,
+  newBusinessPenalty: 0.20,
+
+  // Investment
+  investableSurplusRatio: 0.20,
+  defaultEquityAllocation: 0.40,
+  expectedEquityReturn: 0.07,
+  equityReturnSD: 0.15,
+  fixedIncomeReturn: 0.03,
+  investmentPeriodYears: 1,
+  generalInitialInvestments: 25_000_000,
+  generalLegacyInvestmentReturn: 0.045,
+  generalLegacyInvestmentReturnSD: 0.025,
+
+  // Lines
+  basePremium: { GL: 7_000_000, WC: 6_500_000, Property: 4_500_000 },
+  targetLossRatio: { GL: 0.70, WC: 0.72, Property: 0.65 },
+
+  // A — proportional increase on the year's ordinary losses, drawn uniformly.
+  aShock: {
+    GL: { Low: [0.05, 0.15], Mid: [0.15, 0.35], High: [0.35, 0.70] },
+    WC: { Low: [0.05, 0.15], Mid: [0.15, 0.35], High: [0.35, 0.75] },
+    Property: { Low: [0.10, 0.25], Mid: [0.25, 0.50], High: [0.50, 1.00] },
+  },
+  // T — aggregate shock loss at the event's start, drawn uniformly.
+  tShock: {
+    GL: { Low: [1e6, 3e6], Mid: [3e6, 7e6], High: [7e6, 15e6] },
+    WC: { Low: [1e6, 3e6], Mid: [3e6, 6e6], High: [6e6, 12e6] },
+    Property: { Low: [2e6, 5e6], Mid: [5e6, 12e6], High: [12e6, 25e6] },
+  },
+  // R — extra adverse rate on outstanding prior-year reserves, drawn uniformly.
+  rShock: { Low: [0.02, 0.05], Mid: [0.05, 0.12], High: [0.12, 0.25] },
+
+  // Catalogue: annual probability, duration in years, regional.
+  catalogue: [
+    ['Earthquake', 0.002, 1, true], ['Winterstorm', 0.06, 1, true],
+    ['Wildfire', 0.035, 1, true], ['Legislation', 0.015, 3, false],
+    ['WC Reform', 0.02, 3, false], ['Recession', 0.06, 2, false],
+    ['Nuclear Verdict', 0.025, 1, false], ['Social Inflation', 0.045, 3, false],
+    ['Pandemic', 0.01, 2, false], ['Economic Inflation', 0.10, 3, false],
+    ['Investment Loss', 0.04, 1, false], ['Member Withdrawal', 0.02, 2, false],
+  ],
+  // Map: event, line, A level, T level, R level.
+  shockMap: [
+    ['Earthquake', 'GL', 'Mid', 'None', 'None'],
+    ['Earthquake', 'WC', 'High', 'None', 'None'],
+    ['Earthquake', 'Property', 'High', 'High', 'None'],
+    ['Winterstorm', 'Property', 'High', 'Low', 'None'],
+    ['Wildfire', 'Property', 'Low', 'High', 'None'],
+    ['Legislation', 'GL', 'Mid', 'None', 'High'],
+    ['WC Reform', 'WC', 'High', 'None', 'Mid'],
+    ['Recession', 'GL', 'Low', 'None', 'None'],
+    ['Recession', 'WC', 'Low', 'None', 'None'],
+    ['Nuclear Verdict', 'GL', 'None', 'High', 'Mid'],
+    ['Social Inflation', 'GL', 'High', 'Low', 'Mid'],
+    ['Pandemic', 'GL', 'None', 'Mid', 'None'],
+    ['Pandemic', 'WC', 'High', 'High', 'None'],
+  ],
+
+  // Reinsurance: an AGGREGATE stop on the line's annual loss.
+  reinsurance: {
+    GL: { attachment: 5_000_000, limit: 5_000_000, rateOnLine: 0.15 },
+    WC: { attachment: 4_500_000, limit: 4_000_000, rateOnLine: 0.13 },
+    Property: { attachment: 3_500_000, limit: 7_000_000, rateOnLine: 0.16 },
+  },
+
+  // Cumulative paid share by development year.
+  paidCumulative: {
+    GL: [0.15, 0.30, 0.43, 0.55, 0.65, 0.73, 0.80, 0.86, 0.90, 0.94, 0.97, 0.99, 1.00],
+    WC: [0.10, 0.20, 0.30, 0.38, 0.45, 0.51, 0.57, 0.62, 0.67, 0.70,
+         0.73, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.88, 0.94, 1.00],
+    Property: [0.55, 0.75, 0.87, 0.94, 0.98, 1.00],
+  },
+  routineDevelopmentMean: 0.00,
+  routineDevelopmentSD: 0.07,
+} as const;
+
+const rRange = (r: readonly [number, number] | readonly number[], pct = true) =>
+  pct ? `${(r[0] * 100).toFixed(0)}%-${(r[1] * 100).toFixed(0)}%`
+      : `$${(r[0] / 1e6).toFixed(0)}M-$${(r[1] / 1e6).toFixed(0)}M`;
+
+const rLevels = (l: { Low: readonly number[]; Mid: readonly number[]; High: readonly number[] }, pct = true) =>
+  `Low ${rRange(l.Low, pct)} · Mid ${rRange(l.Mid, pct)} · High ${rRange(l.High, pct)}`;
+
+// ============================================================================
 // THE REGISTRY — what the page is generated from.
 //
 // ⚠ IT IS A SECOND DESCRIPTION OF THE CONSTANTS ABOVE AND THAT IS THE ONE PLACE
@@ -497,6 +653,286 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Reserve basis', {
         value: RESERVE_BASIS_NEW, unit: '—',
         what: 'The basis reserves are held on.', basis: 'CHOSEN', notYetUsed: true,
+      }],
+    ],
+  },
+  {
+    title: 'R model (data scientist)',
+    blurb: 'The data scientist\'s R model, recorded in full. **Nothing here is read by the engine** — '
+      + 'every entry is *not yet used*, and the new loss engine is what will read the ones it keeps. '
+      + 'The Status column says what the game did with each: ADOPTED (as given), ADOPTED, SCALED, '
+      + 'ADAPTED (changed to fit), SUPERSEDED (replaced by a game decision) or NOT USED. '
+      + 'Every entry is CHOSEN rather than SOURCED: the data scientist states that the payout patterns, '
+      + 'the routine reserve development and the A/T/R shock assumptions are illustrative and not fitted '
+      + 'to claims data, and nothing else in the model is presented as fitted to this pool either.',
+    entries: [
+      // ---- general ----
+      ['Selected line', {
+        value: 'one of GL / WC / Property', unit: '—', basis: 'CHOSEN', notYetUsed: true,
+        status: 'NOT USED',
+        what: 'The administrator picks ONE line for the whole session.',
+        note: 'The host picks one or more lines, and a team plays the room\'s whole set.',
+      }],
+      ['Years', {
+        value: R_MODEL.years, unit: 'years', basis: 'CHOSEN', notYetUsed: true, status: 'NOT USED',
+        what: 'The model\'s fixed seven-year span.',
+        note: 'The game\'s years are the host\'s, 3 to 10 from a chosen starting year.',
+      }],
+      ['Pre-generated scenarios', {
+        value: R_MODEL.preGeneratedScenarios, unit: 'scenarios', basis: 'CHOSEN', notYetUsed: true,
+        status: 'NOT USED',
+        what: 'How many scenarios the model generates up front.',
+        note: 'The game generates on demand from the seed, so there is no pre-generated pool to size.',
+      }],
+      ['Background simulations', {
+        value: R_MODEL.backgroundSimulations, unit: 'simulations', basis: 'CHOSEN', notYetUsed: true,
+        status: 'ADAPTED',
+        what: 'How many scenarios each displayed figure averages.',
+        note: 'The game averages 10, and the count is a parameter — 100 in a browser, per team per year, '
+          + 'is the cost the game cannot pay.',
+      }],
+      ['Members, prospects, offers', {
+        value: `${R_MODEL.initialMembers} members · ${R_MODEL.prospects} prospects · `
+          + `${R_MODEL.prospectsPerYear} offered a year`,
+        unit: 'members', basis: 'CHOSEN', notYetUsed: true, status: 'SUPERSEDED',
+        what: 'The model\'s individual member population and its new-business pipeline.',
+        note: 'No individual members. Exposure is the unit, and underwriting moves it in and out.',
+      }],
+      ['Regions', {
+        value: R_MODEL.regions, unit: 'share of members', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'Four regions, with a membership share each, for regional shocks.',
+        note: 'The game has three — North, Central, South — already in the type system.',
+      }],
+      ['Premium growth', {
+        value: R_MODEL.premiumGrowthPerYear, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'Renewal premium growth per member.',
+        note: 'The game trends severity at 5% on a level exposure base; see Trend and exposure above.',
+      }],
+      ['Initial surplus', {
+        value: R_MODEL.initialSurplus, unit: 'dollars', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'The opening surplus every player starts with.',
+        note: 'The set opening: 2.28 x the line\'s own required capital. See The opening above.',
+      }],
+      ['Expense ratio', {
+        value: R_MODEL.expenseRatio, unit: 'of premium', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'Operating expense as a flat share of premium.',
+        note: 'The game charges a fixed amount plus a per-exposure admin load.',
+      }],
+      ['Random seeds', {
+        value: R_MODEL.seeds, unit: '—', basis: 'CHOSEN', notYetUsed: true, status: 'NOT USED',
+        what: 'The literal seeds the model sets before each draw.',
+        note: 'The game uses labelled sub-streams off one instance seed.',
+      }],
+
+      // ---- variance ----
+      ['Baseline (year-wide) CV', {
+        value: R_MODEL.baselineCV, unit: 'coefficient of variation', basis: 'CHOSEN', notYetUsed: true,
+        status: 'ADAPTED',
+        what: 'The year-wide ordinary-loss factor\'s CV, shared by every member.',
+        note: `The data scientist's own revision — ${R_MODEL.baselineCVEarlier} earlier, superseded in the `
+          + 'model as supplied. Folded into one CV per line in the game.',
+      }],
+      ['Member loss CV', {
+        value: R_MODEL.memberLossCV, unit: 'coefficient of variation', basis: 'CHOSEN', notYetUsed: true,
+        status: 'ADAPTED',
+        what: 'The per-member, per-year loss factor\'s CV.',
+        note: `The data scientist's own revision — ${R_MODEL.memberLossCVEarlier} earlier, superseded in `
+          + 'the model as supplied. Folded into one CV per line. ⚠ NOT a straight carry-over: this CV '
+          + 'is averaged over 100 members, so it contributes about CV/sqrt(100) to the line. Applied to a '
+          + 'handful of exposure buckets it would contribute far more, and the line would be lumpier '
+          + 'than the model it came from.',
+      }],
+      ['Member risk CV', {
+        value: R_MODEL.memberRiskCV, unit: 'coefficient of variation', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'Spread of the fixed per-member risk score.',
+        note: 'No members, so no risk scores. The game has no per-member quality in the new engine.',
+      }],
+      ['Member size CV', {
+        value: R_MODEL.memberSizeCV, unit: 'coefficient of variation', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'Spread of the fixed per-member size factor.',
+        note: 'No members, so no size factors.',
+      }],
+
+      // ---- shock effects ----
+      ['Shock decay rate', {
+        value: R_MODEL.shockDecayRate, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,
+        status: 'ADOPTED',
+        what: 'A and R decay by this factor each year of an event\'s duration. T fires only at onset.',
+      }],
+      ['Economic inflation, initial', {
+        value: R_MODEL.economicInflationInitialRate, unit: 'on ordinary losses', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED',
+        what: 'The Economic Inflation event\'s first-year uplift, decaying at the decay rate.',
+      }],
+      ['Investment loss adjustment', {
+        value: R_MODEL.investmentLossAdjustment, unit: 'added to the equity return', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED',
+        what: 'The Investment Loss event\'s hit to the equity return in the event year.',
+      }],
+      ['Member withdrawal reduction', {
+        value: R_MODEL.memberWithdrawalReduction, unit: 'of exposure', basis: 'CHOSEN', notYetUsed: true,
+        status: 'ADOPTED',
+        what: 'The Member Withdrawal event cuts exposure by this much from the FOLLOWING year.',
+      }],
+      ['New-business penalty', {
+        value: R_MODEL.newBusinessPenalty, unit: 'on first-year expected loss', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADAPTED',
+        what: 'New business costs more in its first year than its price implies.',
+        note: 'Kept as a parameter and set to 0 for now, so the mechanism exists before the calibration does.',
+      }],
+
+      // ---- investment ----
+      ['Investable surplus ratio', {
+        value: R_MODEL.investableSurplusRatio, unit: 'of positive beginning surplus', basis: 'CHOSEN',
+        notYetUsed: true, status: 'SUPERSEDED',
+        what: 'The share of surplus that earns a return.',
+        note: 'The game invests its own assets on its own model; see the investment parameters elsewhere.',
+      }],
+      ['Default equity allocation', {
+        value: R_MODEL.defaultEquityAllocation, unit: 'of investable assets', basis: 'CHOSEN',
+        notYetUsed: true, status: 'SUPERSEDED', what: 'The default equity share.',
+        note: 'The game\'s allocation is a player decision across cash, bonds and equities.',
+      }],
+      ['Expected equity return', {
+        value: R_MODEL.expectedEquityReturn, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED', what: 'Mean equity return.', note: 'The game\'s investment model sets its own.',
+      }],
+      ['Equity return SD', {
+        value: R_MODEL.equityReturnSD, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED', what: 'Equity return standard deviation.',
+        note: 'The game\'s investment model sets its own.',
+      }],
+      ['Fixed income return', {
+        value: R_MODEL.fixedIncomeReturn, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED', what: 'The fixed-income leg\'s flat return.',
+        note: 'The game\'s investment model sets its own.',
+      }],
+      ['Investment period', {
+        value: R_MODEL.investmentPeriodYears, unit: 'years', basis: 'CHOSEN', notYetUsed: true,
+        status: 'NOT USED', what: 'How long each year\'s investment is held.',
+      }],
+      ['General-tab legacy fields', {
+        value: `$${(R_MODEL.generalInitialInvestments / 1e6).toFixed(0)}M · `
+          + `${(R_MODEL.generalLegacyInvestmentReturn * 100).toFixed(1)}% · `
+          + `${(R_MODEL.generalLegacyInvestmentReturnSD * 100).toFixed(1)}% SD`,
+        unit: 'dollars, per year', basis: 'CHOSEN', notYetUsed: true, status: 'NOT USED',
+        what: 'Initial investments and a legacy return, from the workbook\'s General tab.',
+        note: 'The R model itself marks these unused — superseded there by its Investment Return tab.',
+      }],
+
+      // ---- lines ----
+      ['Base premium', {
+        value: `GL $${(R_MODEL.basePremium.GL / 1e6).toFixed(1)}M · `
+          + `WC $${(R_MODEL.basePremium.WC / 1e6).toFixed(1)}M · `
+          + `Property $${(R_MODEL.basePremium.Property / 1e6).toFixed(1)}M`,
+        unit: 'dollars', basis: 'CHOSEN', notYetUsed: true, status: 'ADOPTED',
+        what: 'The model\'s premium for each line.',
+        note: 'Kept for ONE job: the denominator that scales T per line. See the T shocks row.',
+      }],
+      ['Target loss ratio', {
+        value: `GL ${R_MODEL.targetLossRatio.GL} · WC ${R_MODEL.targetLossRatio.WC} · `
+          + `Property ${R_MODEL.targetLossRatio.Property}`,
+        unit: 'of premium', basis: 'CHOSEN', notYetUsed: true, status: 'NOT USED',
+        what: 'Expected loss as a share of premium, per line.',
+        note: 'The game derives expected loss from its own exposure and pure premium, not from a target.',
+      }],
+
+      // ---- A / T / R ----
+      ['A shocks — GL', {
+        value: rLevels(R_MODEL.aShock.GL), unit: 'increase on ordinary losses', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED',
+        what: 'Drawn uniformly within the level\'s range, then decayed over the event\'s duration.',
+        note: 'Illustrative, says the data scientist — not fitted to claims data.',
+      }],
+      ['A shocks — WC', {
+        value: rLevels(R_MODEL.aShock.WC), unit: 'increase on ordinary losses', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED', what: 'As GL, with WC\'s own High range.',
+      }],
+      ['A shocks — Property', {
+        value: rLevels(R_MODEL.aShock.Property), unit: 'increase on ordinary losses', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED', what: 'The widest of the three, up to a doubling.',
+      }],
+      ['T shocks — GL', {
+        value: rLevels(R_MODEL.tShock.GL, false), unit: 'dollars at onset', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED, SCALED',
+        what: 'An aggregate shock loss at the event\'s start, drawn uniformly.',
+        note: '⚠ SCALED PER LINE, by that line\'s own premium ratio — the game\'s premium for the line '
+          + 'against the R model\'s base premium for the SAME line, never one pool-wide factor. The '
+          + 'model\'s Property book is $4.5M and its GL book $7M, so a single factor would scale them '
+          + 'unevenly. In the game T also arrives as large INDIVIDUAL losses, not a lump sum, so '
+          + 'occurrence reinsurance can respond to it.',
+      }],
+      ['T shocks — WC', {
+        value: rLevels(R_MODEL.tShock.WC, false), unit: 'dollars at onset', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED, SCALED', what: 'As GL, scaled by WC\'s own premium ratio.',
+      }],
+      ['T shocks — Property', {
+        value: rLevels(R_MODEL.tShock.Property, false), unit: 'dollars at onset', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED, SCALED',
+        what: 'The largest of the three, scaled by Property\'s own premium ratio.',
+      }],
+      ['R shocks', {
+        value: rLevels(R_MODEL.rShock), unit: 'on outstanding prior-year reserves', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED',
+        what: 'An extra adverse rate on prior years\' outstanding reserves, drawn uniformly and decayed.',
+        note: 'Illustrative, says the data scientist — not fitted to claims data.',
+      }],
+
+      // ---- catalogue and map ----
+      ['Shock catalogue', {
+        value: `${R_MODEL.catalogue.length} events`, unit: 'probability, duration, regional',
+        basis: 'CHOSEN', notYetUsed: true, status: 'ADOPTED',
+        what: 'Earthquake 0.2%/1y regional · Winterstorm 6%/1y regional · Wildfire 3.5%/1y regional · '
+          + 'Legislation 1.5%/3y · WC Reform 2%/3y · Recession 6%/2y · Nuclear Verdict 2.5%/1y · '
+          + 'Social Inflation 4.5%/3y · Pandemic 1%/2y · Economic Inflation 10%/3y · '
+          + 'Investment Loss 4%/1y · Member Withdrawal 2%/2y.',
+        note: 'Probabilities are ADOPTED for SINGLEPLAYER draws only — in multiplayer the host schedules '
+          + 'events and no probability is consulted. Durations and regional flags adopted throughout.',
+      }],
+      ['Shock map', {
+        value: `${R_MODEL.shockMap.length} event-line pairs`, unit: 'A / T / R level', basis: 'CHOSEN',
+        notYetUsed: true, status: 'ADOPTED',
+        what: 'Earthquake: GL Mid/–/– · WC High/–/– · Property High/High/–. Winterstorm: Property '
+          + 'High/Low/–. Wildfire: Property Low/High/–. Legislation: GL Mid/–/High. WC Reform: WC '
+          + 'High/–/Mid. Recession: GL Low/–/– · WC Low/–/–. Nuclear Verdict: GL –/High/Mid. '
+          + 'Social Inflation: GL High/Low/Mid. Pandemic: GL –/Mid/– · WC High/High/–.',
+        note: 'Which line each event touches, and at what level on each of the three channels.',
+      }],
+
+      // ---- superseded structure ----
+      ['Reinsurance terms', {
+        value: 'GL $5M xs $5M @ 15% · WC $4M xs $4.5M @ 13% · Property $7M xs $3.5M @ 16%',
+        unit: 'limit xs attachment, rate on line', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'A single AGGREGATE stop on each line\'s annual loss, priced at a rate on line.',
+        note: 'The game prices OCCURRENCE layers at expected layer loss x CLF at 70%, which is why T '
+          + 'has to arrive as individual losses rather than one aggregate number.',
+      }],
+      ['Payout patterns', {
+        value: `GL ${R_MODEL.paidCumulative.GL.length}y · WC ${R_MODEL.paidCumulative.WC.length}y · `
+          + `Property ${R_MODEL.paidCumulative.Property.length}y`,
+        unit: 'cumulative paid share by development year', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'GL 15/30/43/55/65/73/80/86/90/94/97/99/100%. '
+          + 'WC 10/20/30/38/45/51/57/62/67/70/73/76/78/80/82/84/86/88/94/100%. '
+          + 'Property 55/75/87/94/98/100%.',
+        note: 'Illustrative, says the data scientist — not fitted to claims data. The game uses the '
+          + 'RECORDED paid and incurred patterns, which are: WC 37 years, GL 21, Property 11.',
+      }],
+      ['Routine reserve development', {
+        value: `mean ${R_MODEL.routineDevelopmentMean.toFixed(2)} · SD ${R_MODEL.routineDevelopmentSD}`,
+        unit: 'on beginning outstanding reserves', basis: 'CHOSEN', notYetUsed: true,
+        status: 'SUPERSEDED',
+        what: 'A normal draw applied each year to each prior year\'s outstanding reserves.',
+        note: 'Illustrative, says the data scientist — not fitted to claims data. Removed: development '
+          + 'comes from the host\'s development setting and from the R-type reserve shocks, and from '
+          + 'nothing else.',
       }],
     ],
   },

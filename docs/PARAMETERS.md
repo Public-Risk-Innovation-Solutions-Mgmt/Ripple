@@ -5,6 +5,10 @@
 and `parameters-page-check` fails if the two disagree. To change a number,
 change it in the module and regenerate.
 
+Where a section has a **Status** column, it says what this game did with an external
+model's parameter: ADOPTED (as given), ADOPTED, SCALED, ADAPTED (changed to fit),
+SUPERSEDED (replaced by a game decision) or NOT USED (no game equivalent).
+
 **SOURCED** means measured from the pool's own data or an external source named
 in the note — changing it is a re-fit. **CHOSEN** means picked — changing it is a
 decision. Entries marked *not yet used* are read by nothing today.
@@ -82,6 +86,53 @@ NOT YET USED — read from commit 2 onward. Every one is CHOSEN and is a startin
 | Pricing window (new) | `5 years, equal weights` | years | CHOSEN · not yet used | The new window and its weighting. |
 | Rate change cap | `none` | — | CHOSEN · not yet used | Limit on how far the rate may move in a year. |
 | Reserve basis | `expected` | — | CHOSEN · not yet used | The basis reserves are held on. |
+
+## R model (data scientist)
+
+The data scientist's R model, recorded in full. **Nothing here is read by the engine** — every entry is *not yet used*, and the new loss engine is what will read the ones it keeps. The Status column says what the game did with each: ADOPTED (as given), ADOPTED, SCALED, ADAPTED (changed to fit), SUPERSEDED (replaced by a game decision) or NOT USED. Every entry is CHOSEN rather than SOURCED: the data scientist states that the payout patterns, the routine reserve development and the A/T/R shock assumptions are illustrative and not fitted to claims data, and nothing else in the model is presented as fitted to this pool either.
+
+| Parameter | Value | Unit | Basis | Status | What it does |
+| --- | --- | --- | --- | --- | --- |
+| Selected line | `one of GL / WC / Property` | — | CHOSEN · not yet used | **NOT USED** | The administrator picks ONE line for the whole session. The host picks one or more lines, and a team plays the room's whole set. |
+| Years | `2020-2026 (seven)` | years | CHOSEN · not yet used | **NOT USED** | The model's fixed seven-year span. The game's years are the host's, 3 to 10 from a chosen starting year. |
+| Pre-generated scenarios | `10000` | scenarios | CHOSEN · not yet used | **NOT USED** | How many scenarios the model generates up front. The game generates on demand from the seed, so there is no pre-generated pool to size. |
+| Background simulations | `100` | simulations | CHOSEN · not yet used | **ADAPTED** | How many scenarios each displayed figure averages. The game averages 10, and the count is a parameter — 100 in a browser, per team per year, is the cost the game cannot pay. |
+| Members, prospects, offers | `100 members · 100 prospects · 5 offered a year` | members | CHOSEN · not yet used | **SUPERSEDED** | The model's individual member population and its new-business pipeline. No individual members. Exposure is the unit, and underwriting moves it in and out. |
+| Regions | `North 25% · South 30% · Central 25% · East 20%` | share of members | CHOSEN · not yet used | **SUPERSEDED** | Four regions, with a membership share each, for regional shocks. The game has three — North, Central, South — already in the type system. |
+| Premium growth | `0.03` | per year | CHOSEN · not yet used | **SUPERSEDED** | Renewal premium growth per member. The game trends severity at 5% on a level exposure base; see Trend and exposure above. |
+| Initial surplus | `12000000` | dollars | CHOSEN · not yet used | **SUPERSEDED** | The opening surplus every player starts with. The set opening: 2.28 x the line's own required capital. See The opening above. |
+| Expense ratio | `0.08` | of premium | CHOSEN · not yet used | **SUPERSEDED** | Operating expense as a flat share of premium. The game charges a fixed amount plus a per-exposure admin load. |
+| Random seeds | `42, 142, 1000+s, 2000+s, 3000+s, 5000+s` | — | CHOSEN · not yet used | **NOT USED** | The literal seeds the model sets before each draw. The game uses labelled sub-streams off one instance seed. |
+| Baseline (year-wide) CV | `0.02` | coefficient of variation | CHOSEN · not yet used | **ADAPTED** | The year-wide ordinary-loss factor's CV, shared by every member. The data scientist's own revision — 0.12 earlier, superseded in the model as supplied. Folded into one CV per line in the game. |
+| Member loss CV | `0.1` | coefficient of variation | CHOSEN · not yet used | **ADAPTED** | The per-member, per-year loss factor's CV. The data scientist's own revision — 0.2 earlier, superseded in the model as supplied. Folded into one CV per line. ⚠ NOT a straight carry-over: this CV is averaged over 100 members, so it contributes about CV/sqrt(100) to the line. Applied to a handful of exposure buckets it would contribute far more, and the line would be lumpier than the model it came from. |
+| Member risk CV | `0.3` | coefficient of variation | CHOSEN · not yet used | **SUPERSEDED** | Spread of the fixed per-member risk score. No members, so no risk scores. The game has no per-member quality in the new engine. |
+| Member size CV | `0.4` | coefficient of variation | CHOSEN · not yet used | **SUPERSEDED** | Spread of the fixed per-member size factor. No members, so no size factors. |
+| Shock decay rate | `0.65` | per year | CHOSEN · not yet used | **ADOPTED** | A and R decay by this factor each year of an event's duration. T fires only at onset. |
+| Economic inflation, initial | `0.12` | on ordinary losses | CHOSEN · not yet used | **ADOPTED** | The Economic Inflation event's first-year uplift, decaying at the decay rate. |
+| Investment loss adjustment | `-0.2` | added to the equity return | CHOSEN · not yet used | **ADOPTED** | The Investment Loss event's hit to the equity return in the event year. |
+| Member withdrawal reduction | `0.25` | of exposure | CHOSEN · not yet used | **ADOPTED** | The Member Withdrawal event cuts exposure by this much from the FOLLOWING year. |
+| New-business penalty | `0.2` | on first-year expected loss | CHOSEN · not yet used | **ADAPTED** | New business costs more in its first year than its price implies. Kept as a parameter and set to 0 for now, so the mechanism exists before the calibration does. |
+| Investable surplus ratio | `0.2` | of positive beginning surplus | CHOSEN · not yet used | **SUPERSEDED** | The share of surplus that earns a return. The game invests its own assets on its own model; see the investment parameters elsewhere. |
+| Default equity allocation | `0.4` | of investable assets | CHOSEN · not yet used | **SUPERSEDED** | The default equity share. The game's allocation is a player decision across cash, bonds and equities. |
+| Expected equity return | `0.07` | per year | CHOSEN · not yet used | **SUPERSEDED** | Mean equity return. The game's investment model sets its own. |
+| Equity return SD | `0.15` | per year | CHOSEN · not yet used | **SUPERSEDED** | Equity return standard deviation. The game's investment model sets its own. |
+| Fixed income return | `0.03` | per year | CHOSEN · not yet used | **SUPERSEDED** | The fixed-income leg's flat return. The game's investment model sets its own. |
+| Investment period | `1` | years | CHOSEN · not yet used | **NOT USED** | How long each year's investment is held. |
+| General-tab legacy fields | `$25M · 4.5% · 2.5% SD` | dollars, per year | CHOSEN · not yet used | **NOT USED** | Initial investments and a legacy return, from the workbook's General tab. The R model itself marks these unused — superseded there by its Investment Return tab. |
+| Base premium | `GL $7.0M · WC $6.5M · Property $4.5M` | dollars | CHOSEN · not yet used | **ADOPTED** | The model's premium for each line. Kept for ONE job: the denominator that scales T per line. See the T shocks row. |
+| Target loss ratio | `GL 0.7 · WC 0.72 · Property 0.65` | of premium | CHOSEN · not yet used | **NOT USED** | Expected loss as a share of premium, per line. The game derives expected loss from its own exposure and pure premium, not from a target. |
+| A shocks — GL | `Low 5%-15% · Mid 15%-35% · High 35%-70%` | increase on ordinary losses | CHOSEN · not yet used | **ADOPTED** | Drawn uniformly within the level's range, then decayed over the event's duration. Illustrative, says the data scientist — not fitted to claims data. |
+| A shocks — WC | `Low 5%-15% · Mid 15%-35% · High 35%-75%` | increase on ordinary losses | CHOSEN · not yet used | **ADOPTED** | As GL, with WC's own High range. |
+| A shocks — Property | `Low 10%-25% · Mid 25%-50% · High 50%-100%` | increase on ordinary losses | CHOSEN · not yet used | **ADOPTED** | The widest of the three, up to a doubling. |
+| T shocks — GL | `Low $1M-$3M · Mid $3M-$7M · High $7M-$15M` | dollars at onset | CHOSEN · not yet used | **ADOPTED, SCALED** | An aggregate shock loss at the event's start, drawn uniformly. ⚠ SCALED PER LINE, by that line's own premium ratio — the game's premium for the line against the R model's base premium for the SAME line, never one pool-wide factor. The model's Property book is $4.5M and its GL book $7M, so a single factor would scale them unevenly. In the game T also arrives as large INDIVIDUAL losses, not a lump sum, so occurrence reinsurance can respond to it. |
+| T shocks — WC | `Low $1M-$3M · Mid $3M-$6M · High $6M-$12M` | dollars at onset | CHOSEN · not yet used | **ADOPTED, SCALED** | As GL, scaled by WC's own premium ratio. |
+| T shocks — Property | `Low $2M-$5M · Mid $5M-$12M · High $12M-$25M` | dollars at onset | CHOSEN · not yet used | **ADOPTED, SCALED** | The largest of the three, scaled by Property's own premium ratio. |
+| R shocks | `Low 2%-5% · Mid 5%-12% · High 12%-25%` | on outstanding prior-year reserves | CHOSEN · not yet used | **ADOPTED** | An extra adverse rate on prior years' outstanding reserves, drawn uniformly and decayed. Illustrative, says the data scientist — not fitted to claims data. |
+| Shock catalogue | `12 events` | probability, duration, regional | CHOSEN · not yet used | **ADOPTED** | Earthquake 0.2%/1y regional · Winterstorm 6%/1y regional · Wildfire 3.5%/1y regional · Legislation 1.5%/3y · WC Reform 2%/3y · Recession 6%/2y · Nuclear Verdict 2.5%/1y · Social Inflation 4.5%/3y · Pandemic 1%/2y · Economic Inflation 10%/3y · Investment Loss 4%/1y · Member Withdrawal 2%/2y. Probabilities are ADOPTED for SINGLEPLAYER draws only — in multiplayer the host schedules events and no probability is consulted. Durations and regional flags adopted throughout. |
+| Shock map | `13 event-line pairs` | A / T / R level | CHOSEN · not yet used | **ADOPTED** | Earthquake: GL Mid/–/– · WC High/–/– · Property High/High/–. Winterstorm: Property High/Low/–. Wildfire: Property Low/High/–. Legislation: GL Mid/–/High. WC Reform: WC High/–/Mid. Recession: GL Low/–/– · WC Low/–/–. Nuclear Verdict: GL –/High/Mid. Social Inflation: GL High/Low/Mid. Pandemic: GL –/Mid/– · WC High/High/–. Which line each event touches, and at what level on each of the three channels. |
+| Reinsurance terms | `GL $5M xs $5M @ 15% · WC $4M xs $4.5M @ 13% · Property $7M xs $3.5M @ 16%` | limit xs attachment, rate on line | CHOSEN · not yet used | **SUPERSEDED** | A single AGGREGATE stop on each line's annual loss, priced at a rate on line. The game prices OCCURRENCE layers at expected layer loss x CLF at 70%, which is why T has to arrive as individual losses rather than one aggregate number. |
+| Payout patterns | `GL 13y · WC 20y · Property 6y` | cumulative paid share by development year | CHOSEN · not yet used | **SUPERSEDED** | GL 15/30/43/55/65/73/80/86/90/94/97/99/100%. WC 10/20/30/38/45/51/57/62/67/70/73/76/78/80/82/84/86/88/94/100%. Property 55/75/87/94/98/100%. Illustrative, says the data scientist — not fitted to claims data. The game uses the RECORDED paid and incurred patterns, which are: WC 37 years, GL 21, Property 11. |
+| Routine reserve development | `mean 0.00 · SD 0.07` | on beginning outstanding reserves | CHOSEN · not yet used | **SUPERSEDED** | A normal draw applied each year to each prior year's outstanding reserves. Illustrative, says the data scientist — not fitted to claims data. Removed: development comes from the host's development setting and from the R-type reserve shocks, and from nothing else. |
 
 ## Payout patterns
 

@@ -41,10 +41,16 @@ function cell(v: number | string): string {
   return Number.isInteger(v) ? String(v) : String(v);
 }
 
-function row(name: string, e: ParameterEntry): string {
+// ⚠ THE STATUS COLUMN IS PER SECTION, NOT PER FILE. Only the R model section
+// carries a status — what the game did with an external model's parameter —
+// and widening every other table with an empty column would imply the field
+// means something everywhere. A section gets the column if any entry in it
+// has one, and then every row in that section renders a cell.
+function row(name: string, e: ParameterEntry, withStatus: boolean): string {
   const basis = e.notYetUsed ? `${e.basis} · not yet used` : e.basis;
   const what = e.note ? `${e.what} ${e.note}` : e.what;
-  return `| ${name} | \`${cell(e.value)}\` | ${e.unit} | ${basis} | ${what} |`;
+  const status = withStatus ? ` **${e.status ?? '—'}** |` : '';
+  return `| ${name} | \`${cell(e.value)}\` | ${e.unit} | ${basis} |${status} ${what} |`;
 }
 
 function build(): string {
@@ -56,6 +62,10 @@ function build(): string {
   out.push('and `parameters-page-check` fails if the two disagree. To change a number,');
   out.push('change it in the module and regenerate.');
   out.push('');
+  out.push('Where a section has a **Status** column, it says what this game did with an external');
+  out.push('model\'s parameter: ADOPTED (as given), ADOPTED, SCALED, ADAPTED (changed to fit),');
+  out.push('SUPERSEDED (replaced by a game decision) or NOT USED (no game equivalent).');
+  out.push('');
   out.push('**SOURCED** means measured from the pool\'s own data or an external source named');
   out.push('in the note — changing it is a re-fit. **CHOSEN** means picked — changing it is a');
   out.push('decision. Entries marked *not yet used* are read by nothing today.');
@@ -65,9 +75,12 @@ function build(): string {
     out.push(`## ${section.title}`);
     out.push('');
     if (section.blurb) { out.push(section.blurb); out.push(''); }
-    out.push('| Parameter | Value | Unit | Basis | What it does |');
-    out.push('| --- | --- | --- | --- | --- |');
-    for (const [name, e] of section.entries) out.push(row(name, e));
+    const withStatus = section.entries.some(([, e]) => e.status !== undefined);
+    out.push(withStatus
+      ? '| Parameter | Value | Unit | Basis | Status | What it does |'
+      : '| Parameter | Value | Unit | Basis | What it does |');
+    out.push(withStatus ? '| --- | --- | --- | --- | --- | --- |' : '| --- | --- | --- | --- | --- |');
+    for (const [name, e] of section.entries) out.push(row(name, e, withStatus));
     out.push('');
   }
 
