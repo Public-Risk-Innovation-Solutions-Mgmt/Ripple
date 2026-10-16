@@ -16,31 +16,24 @@
 // asks. The single exception is at GAME END, where the un-emerged deficiency is
 // disclosed — the game is over and the reveal is the point.
 //
-// ⚠ SIGN CONVENTION, STATED BECAUSE THE ENGINE'S IS THE OPPOSITE. Here a
-// POSITIVE development means the estimate ROSE — adverse. The engine's
-// `developmentImpact` is positive for FAVOURABLE development (it is subtracted
-// from incurred), which is right for that arithmetic and wrong for a reader:
-// an actuary reading a development exhibit expects adverse to be positive. The
-// two are negatives of each other and the memo says so in prose.
+// ⚠ NO DEVELOPMENT COLUMNS WHILE DEVELOPMENT IS ZERO. Full-cost booking leaves
+// every accident year at its initial estimate, so the 1-year and total
+// development columns, and every paragraph that explained them, are not rendered.
+// The exhibit is the accident-year table and the indication. ExhibitRow still
+// computes oneYear and total (the session results and the gate read them). When
+// development returns, so do the columns, under the ONE sign convention recorded
+// in docs/PENDING_MULTIPLAYER.md: this exhibit, the income statement and the
+// results page alike.
 
 import type {
   CoverageLine, GameState, LinePoolState, ReserveDevelopmentRow,
 } from '../types/simulation';
 import { ibnerUnwindWeight } from './simulationEngine';
-import { countDevelopedOccurrences } from './cohortViews';
-import { cumulativePaid } from './payoutPattern';
-import { LINE_PAYOUT_PATTERN, TRIANGLE_HISTORY_YEARS } from '../data/defaultAssumptions';
+import { TRIANGLE_HISTORY_YEARS } from '../data/defaultAssumptions';
 import { pricingExperienceBasis, windowRows } from './pricingTriangle';
 import { experienceRatePer100 } from './experienceRating';
 import { clfFor } from './fundingConsequence';
 import { lineDisplayName } from './lineDisplay';
-
-// A line's share of ultimate paid by the end of its accident year, from the
-// payout pattern the engine pays on — so the memo's "GL near 10%, Property past
-// 50%" follows the pattern rather than restating it.
-function firstYearPaidPct(line: string): string {
-  return `${Math.round(100 * cumulativePaid(LINE_PAYOUT_PATTERN[line], 1))}%`;
-}
 
 // One accident year as the exhibit presents it, at a chosen valuation year.
 // Nulls are EMPTY CELLS, not zeros: a year with no prior valuation has not
@@ -330,60 +323,31 @@ function cell(value: number | null): string {
   return value === null ? EMPTY : m(value);
 }
 
+// ⚠ NO DEVELOPMENT COLUMNS — see the header. Restoring them is adding the two
+// columns back here and in renderTable, under the sign rule in
+// docs/PENDING_MULTIPLAYER.md.
 const HEADER =
   '| Accident year | Initial ultimate $M | Prior year ultimate $M | Current ultimate $M ' +
-  '| 1-yr development $M | Total development $M | Paid to date $M | Paid / ultimate |\n' +
-  '|---|---:|---:|---:|---:|---:|---:|---:|';
+  '| Paid to date $M | Paid / ultimate |\n' +
+  '|---|---:|---:|---:|---:|---:|';
 
 function renderTable(rows: ExhibitRow[]): string {
   if (rows.length === 0) return '_No accident years on this exhibit yet._';
   const body = rows.map(r => {
+    // No dagger: the paragraph it pointed to went with the development columns.
     const label = r.isPrior
-      ? `**Prior** (to ${r.calendarYear})${r.seeded ? ' †' : ''}`
-      : `${r.yearNumber} (${r.calendarYear})${r.seeded ? ' †' : ''}`;
-    // ⚠ THE 1-YEAR CELL IS BLANK FOR EXACTLY ONE REASON: THERE IS NO EARLIER
-    // VALUATION TO SUBTRACT. It used to blank whenever the row was past its
-    // horizon as well, on the claim that such a year "cannot develop further" —
-    // and that claim was false, so the exhibit printed a blank beside a figure
-    // that had visibly moved. 759 of them on the current law.
-    //
-    // THE TWO MEANINGS LOOK IDENTICAL ON A PAGE AND ARE OPPOSITE: "nothing to
-    // measure" (no prior valuation — the year is new) against "measured and it
-    // cannot change" (a claim about the future). Only the first is ever true
-    // here, and `cell` renders it from `oneYear === null`, which is set by
-    // exhibitRows iff this is the row's first valuation. There is no longer a
-    // second path to a blank, so the reader does not have to work out which
-    // kind they are looking at.
-    //
-    // Still not 0.00: that would say "measured, and it did not move", a
-    // different and weaker claim than "there was nothing to measure". Same
-    // distinction the negative-zero rule draws in m() below.
-    const oneYear = cell(r.oneYear);
+      ? `**Prior** (to ${r.calendarYear})`
+      : `${r.yearNumber} (${r.calendarYear})`;
     // ⚠ EVERY COLUMN ON THIS ROW IS NET, INCLUDING THE LAST TWO, which is what
     // makes the row internally subtractable — paid + remaining reserve = current
     // ultimate, exactly, on the printed figures. A gross paid column here would
     // break that silently and would look entirely reasonable in a spreadsheet.
     // If a gross paid figure is ever wanted on this exhibit it needs its own
     // gross denominator stored beside it; see ReserveDevelopmentRow.
-    return `| ${label} | ${m(r.initial)} | ${cell(r.prior)} | ${m(r.current)} | ${oneYear} `
-      + `| ${cell(r.total)} | ${cell(r.paid)} | ${ratioCell(r.paidToIncurred)} |`;
+    return `| ${label} | ${m(r.initial)} | ${cell(r.prior)} | ${m(r.current)} `
+      + `| ${cell(r.paid)} | ${ratioCell(r.paidToIncurred)} |`;
   });
   return [HEADER, ...body].join('\n');
-}
-
-// Counts the memo states in prose. Registered as guarded claims in
-// actuarial-memo-check — every number in a sentence here is derivable, and a
-// sentence beside a correct table is exactly the defect the Calculation Audit
-// page needed a third kind of check to find.
-function sectionProse(rows: ExhibitRow[], collapsed: number): string {
-  // ⚠ "past their IBNER horizon", NOT "no longer developing". The old sentence
-  // asserted the thing the blank asserted and was wrong the same way: a year past
-  // its horizon can still move, and on this exhibit it frequently does. What the
-  // horizon tells a reader is that IBNER has stopped driving the estimate — not
-  // that the estimate has stopped.
-  const past = rows.filter(r => r.pastHorizon).length;
-  return `${rows.length} row(s) on this exhibit; ${past} past their IBNER horizon and ` +
-    `${rows.length - past} still within it; ${collapsed} accident year(s) collapsed into Prior.`;
 }
 
 // THE UN-EMERGED DEFICIENCY, DISCLOSED AT GAME END ONLY.
@@ -469,16 +433,7 @@ export function buildActuarialMemo({ gameState, asAtYear }: ActuarialMemoInput):
       'the most recent valuation. Figures are not carried forward into an unvalued year._',
     );
   }
-  out.push(
-    'Every figure below is an estimate of ULTIMATE loss, net of reinsurance — not reported claims. ' +
-    'Reported claims are paid plus case outstanding; the whole subject of this exhibit is the gap ' +
-    'between that and where an accident year finally lands, so the two must not be confused.',
-  );
-  out.push(
-    '**A positive development means the estimate ROSE — adverse.** Favourable development prints ' +
-    'negative. Note this is the opposite sign to the development figure in the income statement, ' +
-    'which is subtracted from incurred loss and is therefore positive when favourable.',
-  );
+  out.push('Every figure below is ultimate loss, net of reinsurance.');
 
   // ⚠ COLLAPSED LAST, AFTER POOLING, so the pool row set is built from the raw
   // per-line years and only then folded. Collapsing per line first and pooling
@@ -489,7 +444,6 @@ export function buildActuarialMemo({ gameState, asAtYear }: ActuarialMemoInput):
     const shown = collapsePrior(rows);
     out.push(`## ${line}`);
     out.push(renderTable(shown));
-    out.push(sectionProse(shown, rows.length - shown.length + (shown.some(r => r.isPrior) ? 1 : 0)));
   }
 
   if (lines.length > 1) {
@@ -502,79 +456,11 @@ export function buildActuarialMemo({ gameState, asAtYear }: ActuarialMemoInput):
       'valuation date.',
     );
     out.push(renderTable(pool));
-    out.push(sectionProse(pool, poolRaw.length - pool.length + (pool.some(r => r.isPrior) ? 1 : 0)));
-  }
-
-  // ⚠ THE "WHICH CLAIMS DEVELOPED" SCHEDULE LIVES IN THE CLAIMS DEPARTMENT NOW,
-  // and only the COUNT and the pointer stay here.
-  //
-  // It answers a different question from the one this memo asks. This memo's
-  // subject is the reserve — how much, on what basis, moving which way. Which
-  // named occurrences moved, and whose they are, is a claims question, and it is
-  // split by line there because one ranked list across three lines is a GL list
-  // (measured: 17 of the old top 25). See claimsMemo.ts.
-  //
-  // ⚠ THE POINTER IS NOT OPTIONAL POLITENESS. The development figures above are
-  // EXPLAINED by these claims, and a reserve movement left standing on its own
-  // is the thing this sentence exists to prevent. Moving the exhibit without
-  // leaving the pointer would have made this page harder to read, not tidier.
-  // ⚠ AS AT THE SELECTED VALUATION, AND IT USED TO BE AS AT THE LATEST ONE
-  // WHATEVER THE READER HAD SELECTED. Every other figure in this memo moves
-  // with asAtYear; this one field did not, because it counted current cohort
-  // state rather than walking the movement series. Measured on a seven-year
-  // game it printed 778 at every selection against true counts of 440 / 493 /
-  // 557 / 608 / 664 / 721 / 778 — out by 77% at year 1 and converging only at
-  // the latest valuation, which is the single year actuarial-memo-check tested.
-  // The count is now summed over the steps that had landed by asAtYear; see
-  // countDevelopedOccurrences, which also carries the $1,000 floor and the
-  // measurement behind it.
-  // `asAt`, not `asAtYear` — the memo already clamps an unvalued selection back
-  // to the latest valuation and says so at the head, and this sentence must be
-  // the same year as the exhibit above it.
-  const developed = countDevelopedOccurrences(gameState.poolState, lines, asAt);
-
-  if (developed > 0) {
-    out.push(
-      `**A reserve movement is not a number on its own — it is claims deteriorating.** ` +
-      `${developed.toLocaleString()} occurrences across these lines have had development land on ` +
-      'them. The **Claims Department** files them by name and by member, ranked within each line.',
-    );
   }
 
   out.push('### Reading this exhibit');
   out.push(
-    '- **Every column here is NET of reinsurance, paid included,** so the row is subtractable ' +
-    'throughout: paid to date plus the remaining reserve is the current ultimate. The claims ' +
-    'workbook is GROSS throughout, so its Gross Paid column is a larger number for the same ' +
-    'accident year — the difference is what the reinsurance tower is carrying, and the two ' +
-    'documents are not meant to tie.\n' +
-    '- **Paid / incurred is what says whether a year is nearly settled or still moving,** and it ' +
-    'is the reading that only became informative once the three lines got their own payout ' +
-    `patterns. A GL year at its first valuation has paid about ${firstYearPaidPct('GL')} while a Property year of the same age has ` +
-    `paid about ${firstYearPaidPct('Property')}: same age, same exhibit, entirely different amounts of money still to leave. Nothing ` +
-    'else in the game shows that — Net Paid Losses is one calendar-year total per line.\n' +
-    '- **A year can be well paid and still open.** Closure is slower than payment, deliberately ' +
-    'and from the pool\'s own experience, so a high paid ratio does not mean the files are shut.\n' +
-    '- **An empty development cell means there was nothing to subtract, not that nothing ' +
-    'moved.** A blank appears on one row only: the newest accident year, which has no earlier ' +
-    'valuation to compare against. Every other row shows its movement, including zero movement ' +
-    'as 0.00. A blank never means "this year can no longer change".\n' +
-    '- **Past the IBNER horizon is not finished.** The horizon governs how long IBNER drives the ' +
-    'ESTIMATE, not how long the year takes to pay and not whether it can move. Claims revise ' +
-    'while they are open, which outlasts the horizon, so a year past it can and does still ' +
-    'develop — and this exhibit shows that movement rather than hiding it behind a blank.\n' +
-    '- **Prior** collects every accident year older than ' + PRIOR_BOUNDARY + ', as a development ' +
-    'exhibit normally does. Its columns are the sum of the years it replaces.\n' +
-    '- **† this row CONTAINS years carried in at game start.** Not that every year in it was: ' +
-    'Prior collapses by age, and the oldest few of the years it folds together predate the ' +
-    'pool\'s own record while the rest were played before year 1 and have real claim registers. ' +
-    'The carried-in ones were apportioned from an opening reserve total rather than built up ' +
-    'from claims, so for those the INITIAL column is the estimate as at game start, not at ' +
-    'inception — there is no inception figure for them and none has been invented, and their ' +
-    'development is measured from game start for the same reason. **So Prior\'s INITIAL column ' +
-    'is a mixture of the two**, and the dagger is there to say the mixture exists. The ' +
-    'carried-in years are also much smaller than a ' +
-    'year -2 as a jump in loss experience.\n' +
+    '- **Prior** collects every accident year older than ' + PRIOR_BOUNDARY + ', summed.\n' +
     '- **Short-tail lines stop developing and long-tail lines do not.** Property\'s accident ' +
     'years go blank after a few valuations while Workers\' Compensation keeps moving for a ' +
     'decade. That is not an inconsistency in the exhibit; it is the single most useful thing on ' +

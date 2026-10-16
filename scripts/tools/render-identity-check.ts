@@ -618,7 +618,7 @@ const BASELINE = process.env.RENDER_BASELINE
 // Underwriting and Investment keep their own fingerprints at both year points
 // in all five configurations, which is the evidence this took out one pane
 // rather than disturbing the reader around it.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v32.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v33.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
