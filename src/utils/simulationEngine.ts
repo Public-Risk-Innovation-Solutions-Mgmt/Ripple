@@ -1,10 +1,84 @@
 // Core simulation engine for Risk Pool Simulation v1
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
-import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
+import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
 import type { LineShockEffects, ShockFiring, ShockRecord } from '../types/shocks';
 import { resolveShocks, ownFreqMultipliers, ownComponentFreqMultipliers, ownSevMultipliers } from './shockResolver';
 import { WHOLE_LINE } from './shockEffects';
+
+// THE NEW LOSS ENGINE'S FIRINGS, IN THE RECORD SHAPE THE RESULTS PAGES READ.
+// One per event in force that reaches this line — its catalogue name and
+// band, the year it fired and the region it struck — so the event card a
+// player sees names the same event whichever engine produced it. The
+// effects list is empty: the A / T / R of the catalogue are not today's
+// effect kinds, and the description says what they are instead.
+const POOL_WIDE_EVENTS = ['Economic Inflation', 'Investment Loss', 'Member Withdrawal'];
+function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | undefined {
+  const out: ShockFiring[] = [];
+  for (const { firing } of year.inForce) {
+    const e = firing.event;
+    const rows = eventLines(e.name);
+    const lines = new Set<CoverageLine>(rows.map(r => r.line));
+    if (POOL_WIDE_EVENTS.includes(e.name)) NLE_LINES.forEach(l => lines.add(l));
+    if (!lines.has(line)) continue;
+    const def = SHOCK_CATALOG[e.id];
+    const detail = rows.map(r => `${r.line} A ${r.a} / T ${r.t} / R ${r.r}`).join(' · ');
+    out.push({
+      shockId: e.id,
+      name: def.name,
+      eventName: def.eventName,
+      ...(firing.region ? { region: firing.region } : {}),
+      band: def.band,
+      horizon: def.horizon,
+      description: `${e.name}, from the R model's catalogue${firing.region ? `, in ${firing.region}` : ''}. `
+        + (detail || `Acts on the whole pool.`),
+      yearFired: firing.firedYear,
+      linesAffected: [...lines],
+      effects: [],
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+// One line-year of the new loss engine, by component. See NewLossEngineRecord.
+function newLossEngineRecord(
+  ordinary: OrdinaryLossYear, shocks: LineShockYear, large: LargeLossDraw,
+  expected: { ordinary: number; uplift: number; shockLarge: number; routineLarge: number; total: number },
+  rDevelopment: number, withdrawnExposure: number,
+): NewLossEngineRecord {
+  const events = new Map<string, NewLossEngineRecord['events'][number]>();
+  const note = (f: LineShockYear['byFiring'][number]['firing'], uplift: number, rRate: number) => {
+    const key = `${firingKey(f)}@${f.firedYear}`;
+    const cur = events.get(key);
+    if (cur) { cur.uplift += uplift; cur.rRate += rRate; return; }
+    events.set(key, {
+      id: f.event.id, name: f.event.name, firedYear: f.firedYear,
+      ...(f.region ? { region: f.region } : {}), uplift, rRate,
+    });
+  };
+  for (const b of shocks.byFiring) note(b.firing, b.uplift, b.rRate);
+  for (const a of shocks.arrivals) note(a.firing, 0, 0);
+  let shockLarge = 0, shockLargeClaims = 0;
+  for (const t of large.tByFiring.values()) { shockLarge += t.gross; shockLargeClaims += t.claims; }
+  return {
+    ordinaryExpected: ordinary.expected,
+    ordinaryFactor: ordinary.factor,
+    uplift: shocks.uplift,
+    ordinaryRealised: ordinary.realised * (1 + shocks.uplift),
+    shockLarge,
+    shockLargeClaims,
+    routineLargeClaims: large.routine.count,
+    routineLarge: large.routine.excess,
+    expected: {
+      ordinary: expected.ordinary, uplift: expected.uplift, shockLarge: expected.shockLarge,
+      routineLarge: expected.routineLarge, total: expected.total,
+    },
+    rRate: shocks.rRate,
+    rDevelopment,
+    withdrawnExposure,
+    events: [...events.values()],
+  };
+}
 
 // Collapse the per-line shock records into one row per EVENT for the pool
 // result, summing each cost across the lines that event touched and unioning
@@ -77,8 +151,11 @@ import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } fro
 import { newStackAsLineRateQuote, quoteNewRateStack } from './linePricing';
 import { NEW_LOSS_ENGINE, NEW_RATE_STACK, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { applyPoolLimit } from './poolLimit';
-import { developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
+import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
 import { ordinaryLossCostPer100, ordinaryLossYear, ordinaryMemberRecords, type OrdinaryLossYear } from './ordinaryLoss';
+import { drawLargeLosses, firingKey, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { expectedLossBreakdown } from './shockExpectation';
+import { SHOCK_CATALOG } from '../data/shockCatalog';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
 import { cloneMembershipHistory, openInterval, closeInterval } from './membershipHistory';
@@ -566,6 +643,10 @@ interface LineYearContext {
   // audit page reads — a compounded frequency multiplier no longer knows which
   // events produced it, so the narrative has to travel alongside it.
   shockFirings?: ShockFiring[];
+  // THE NEW LOSS ENGINE'S SHOCKS FOR THE YEAR — present only with
+  // NEW_LOSS_ENGINE on. Resolved once in processYear, like `shock`, because
+  // one event reaches several lines.
+  shockYear?: ShockYear;
   // This line's RISK CONTROL PROGRAM frequency multiplier for the year, 1 when
   // no committed program reaches it. Computed once in processYear from the
   // decision history, because tenure is a property of the GAME rather than of
@@ -1027,9 +1108,20 @@ export function processLineYear(
   const renewal = applyRenewalDeclines(
     memberResult.activeMembers, line, yearNumber, renewalDecisions, ctx.membershipHistory,
   );
-  const enrolledMembers = renewal.retained;
+  // ⚠ MEMBER WITHDRAWAL, UNDER NEW_LOSS_ENGINE ONLY: a quarter of the line's
+  // exposure leaves at the renewal after the event — the members' decision,
+  // not the pool's, so it is recorded as a withdrawal and starts the same
+  // cooldown. See withdrawForShock. Absent, this is the renewal as it was.
+  const shockWithdrawal = ctx.shockYear?.withdrawal && !ctx.freezeMembership
+    ? withdrawForShock(renewal.retained, line, yearNumber, instance.seed)
+    : null;
+  if (shockWithdrawal) {
+    for (const m of shockWithdrawal.withdrawn) closeInterval(ctx.membershipHistory, m.id, line, yearNumber - 1);
+  }
+  const enrolledMembers = shockWithdrawal ? shockWithdrawal.retained : renewal.retained;
   const declinedMembers = renewal.declined;
-  const activeExposure = declinedMembers.length === 0
+  const shockWithdrawn = shockWithdrawal?.withdrawn ?? [];
+  const activeExposure = declinedMembers.length === 0 && shockWithdrawn.length === 0
     ? memberResult.activeExposure
     : enrolledMembers.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
 
@@ -1122,6 +1214,9 @@ export function processLineYear(
     const declined = declinedMembers.find(d => d.id === m.id);
     if (declined) return declined;
 
+    const shockLeft = shockWithdrawn.find(d => d.id === m.id);
+    if (shockLeft) return shockLeft;
+
     return m;
   });
 
@@ -1134,14 +1229,17 @@ export function processLineYear(
   // denominator. The net-funding change moves the PREMIUM basis only — it must
   // not move the loss quantities.
   //
-  // ⚠ UNDER NEW_LOSS_ENGINE IT IS THE ORDINARY EXPECTATION, THE SAME FIGURE THE
-  // DRAW IS SCALED FROM, so the engine's expected loss and the mean of its
-  // draws are one number rather than two that could drift. Today's held pure
-  // premium includes the tail above the attachments, which this engine does
-  // not draw until commit 2; reporting it as "expected" would make actual over
-  // expected read 0.5 on GL for a reason that is a timetable, not a defect.
-  const expectedLoss = NEW_LOSS_ENGINE.enabled
-    ? activeExposure * 10_000 * ordinaryLossCostPer100(line, yearNumber)
+  // ⚠ UNDER NEW_LOSS_ENGINE IT IS THE ENGINE'S OWN EX-ANTE EXPECTATION —
+  // ordinary losses, the expected uplift on them, and the large losses the
+  // pool keeps, at the catalogue's probabilities (shockExpectation.ts). It is
+  // an expectation over exactly what the draw does, so actual over expected
+  // averages 1 across games; it does not know a host's schedule, which is
+  // what ex ante means.
+  const newEngineExpected = NEW_LOSS_ENGINE.enabled
+    ? expectedLossBreakdown(line, activeExposure, yearNumber)
+    : undefined;
+  const expectedLoss = newEngineExpected
+    ? newEngineExpected.total
     : activeExposure * pricedPurePremiumPer100 * 10_000;
 
   // The agreed treaty basis in dollars, on the SAME post-movement exposure
@@ -1517,41 +1615,69 @@ export function processLineYear(
   const shockExpectedAdded: Record<string, number> = {};
 
   // ==========================================================================
-  // THE NEW LOSS ENGINE: ONE AGGREGATE ORDINARY LOSS, NO CLAIMS.
+  // THE NEW LOSS ENGINE: ONE AGGREGATE ORDINARY LOSS, AND LARGE LOSSES AS CLAIMS.
   //
-  // Behind NEW_LOSS_ENGINE (off). The line's year is exposure x the expected
-  // ordinary loss cost per $100 x a mean-1 lognormal factor — see
-  // ordinaryLoss.ts. It replaces all three claim engines at once, so it sits
-  // in front of them rather than inside each.
+  // Behind NEW_LOSS_ENGINE (off). It replaces all three claim engines at once,
+  // so it sits in front of them rather than inside each.
   //
-  // ⚠ WHAT THE EMPTY CLAIM ARRAYS DO DOWNSTREAM, AND WHY THAT IS RIGHT. With no
-  // occurrences the tower cedes nothing, the tracked set is empty and the
-  // cohort books its full ultimate with no register — so the accident year is
-  // booked at full cost, pays on the recorded pattern, takes the host's
-  // development held NET (it has nothing to cede to), and splits into case and
-  // IBNR through the existing presentation. Ordinary losses sit below every
-  // attachment by definition, so ceding nothing is the statement and not a
-  // gap. The pre-game runs through this same function and so through this
-  // same branch when the flag is on.
+  //   ORDINARY   exposure x the expected ordinary cost per $100 x a mean-1
+  //              lognormal factor (ordinaryLoss.ts), raised by the year's
+  //              uplift — every A in force and Economic Inflation.
+  //   LARGE      the T losses of every event arriving this year and, with
+  //              ROUTINE_LARGE_LOSSES on, routine claims above the ordinary
+  //              limit (shockLosses.ts). These ARE claims and occurrences, so
+  //              the tower answers them per occurrence exactly as it answers
+  //              any other, the GL pool limit has already been applied, and
+  //              the cohort registers them for development.
   //
-  // ⚠ HOST-SCHEDULED SHOCKS DO NOTHING HERE YET. They act on the claim draw,
-  // and there is no claim draw; the shock catalogue that replaces them is
-  // commit 2. With the flag off they work exactly as before.
+  // ⚠ ORDINARY LOSSES STILL CEDE NOTHING: they sit below every attachment.
+  // The tracked set registers the large losses; the ordinary aggregate is the
+  // register's untracked remainder (see the booking below), so the cohort's
+  // gross ledger opens at the whole year and development is struck on it.
+  // The pre-game runs through this same branch and draws no shocks — nothing
+  // fires before year 1.
   // ==========================================================================
   let ordinaryYear: OrdinaryLossYear | undefined;
+  let largeDraw: LargeLossDraw | undefined;
+  let lineShocks: LineShockYear | undefined;
   if (NEW_LOSS_ENGINE.enabled) {
     ordinaryYear = ordinaryLossYear(line, enrolledMembers, yearNumber, instance.seed);
+    lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
-    generatedClaims = [];
-    generatedOccurrences = [];
-    memberLossResults = ordinaryMemberRecords(line, enrolledMembers, yearNumber, cost, ordinaryYear.factor);
+    const scaled = ordinaryYear.factor * (1 + lineShocks.uplift);
+    const draw = drawLargeLosses(
+      line, enrolledMembers, yearNumber, calendarYear, instance.seed, lineShocks, activeExposure,
+    );
+    largeDraw = draw;
+    generatedClaims = draw.claims;
+    generatedOccurrences = draw.occurrences;
+    // Each member: its exposure share of the ordinary year, plus its own
+    // large losses. Interim, as commit 1's records are — members go in commit 5.
+    memberLossResults = ordinaryMemberRecords(line, enrolledMembers, yearNumber, cost, scaled)
+      .map(r => {
+        const own = draw.byMember.get(r.memberId) ?? 0;
+        return own === 0 ? r : { ...r, simulatedLoss: r.simulatedLoss + own };
+      });
     marketMemberLossResults = [
       ...memberLossResults,
-      ...ordinaryMemberRecords(line, marketplaceProspects, yearNumber, cost, ordinaryYear.factor),
+      ...ordinaryMemberRecords(line, marketplaceProspects, yearNumber, cost, scaled),
     ];
-    aggregateMemberLoss = ordinaryYear.realised;
+    aggregateMemberLoss = ordinaryYear.realised * (1 + lineShocks.uplift) + draw.grossAdded;
     kLineApplied = 1;
-    if (!isWcClaimLine) glClaimCount = 0;
+    if (!isWcClaimLine) glClaimCount = draw.claims.length;
+    // What each event cost this year: its uplift on the ordinary year, plus its
+    // T losses. Both are exact — specific dollars, not an estimate.
+    for (const { firing, uplift } of lineShocks.byFiring) {
+      shockAttributableLoss[firing.event.id] = (shockAttributableLoss[firing.event.id] ?? 0)
+        + uplift * ordinaryYear.realised;
+    }
+    for (const arrival of lineShocks.arrivals) {
+      const t = draw.tByFiring.get(firingKey(arrival.firing));
+      if (!t) continue;
+      const id = arrival.firing.event.id;
+      shockAttributableLoss[id] = (shockAttributableLoss[id] ?? 0) + t.gross;
+      shockAttributableClaims[id] = (shockAttributableClaims[id] ?? 0) + t.claims;
+    }
   } else if (isWcClaimLine) {
     // k_line is recomputed against the CURRENTLY ENROLLED book, after member
     // movement — it is the roster/risk-quality-mix correction, and the reason
@@ -1856,14 +1982,12 @@ export function processLineYear(
     line, generatedClaims ?? [],
     new Map((generatedOccurrences ?? []).map(o => [o.id, o.claimIds.length])),
   );
-  const memberShareAboveLimit = poolLimit.memberShareAboveLimit;
-  //
-  // ⚠ NOT UNDER NEW_LOSS_ENGINE. That engine draws no claims, so the re-sum
-  // below would read the empty register and zero the line — which it did, on
-  // GL, on the first flag-on run: actual over expected 0.0000 while WC and
-  // Property read 1.00. Its ordinary losses are limited per claim at $1M, far
-  // under the $25M pool limit, so the limit cannot bind on them; it returns
-  // with the shocks' large losses in commit 2, which are claims.
+  // ⚠ UNDER NEW_LOSS_ENGINE THE LIMIT IS APPLIED AT THE DRAW, and the excess
+  // comes from there. Its claims arrive already capped, so applyPoolLimit
+  // above finds nothing to trim — and its re-sum below would read only the
+  // large-loss register and drop the ordinary aggregate, which is not a
+  // claim. So the re-sum is skipped and the draw's own excess is reported.
+  const memberShareAboveLimit = largeDraw ? largeDraw.memberShareAboveLimit : poolLimit.memberShareAboveLimit;
   if (POOL_LIMIT_PER_OCCURRENCE[line] !== null && !NEW_LOSS_ENGINE.enabled) {
     aggregateMemberLoss = poolLimit.grossUltimateLoss;
   }
@@ -2032,7 +2156,11 @@ export function processLineYear(
     developmentCeded,
     unallocatedDevelopment,
     developmentAbovePoolLimit,
-  } = processIbner(lineState.reserveCohorts, line, ibnerRng, instance.instanceId, instance.seed, yearNumber);
+    rDevelopment,
+  } = processIbner(
+    lineState.reserveCohorts, line, ibnerRng, instance.instanceId, instance.seed, yearNumber,
+    lineShocks?.rRate ?? 0,
+  );
   void unallocatedDevelopment;   // surfaced by the harness, not by the result
 
   // Current year reserve assumption: 60% unpaid, 40% paid. NET basis —
@@ -2141,8 +2269,21 @@ export function processLineYear(
   // tower — has nothing gross to track, so the ledger opens at the net figures
   // and stays equal to them. That is the honest default: without claims there is
   // no gross/net distinction to record.
-  const grossRegisterBooked = markdown.tracked.length > 0 || (markdown.untrackedTotal ?? 0) > 0
-    ? markdown.tracked.reduce((s, d) => s + d.original, 0) + (markdown.untrackedTotal ?? 0)
+  //
+  // ⚠ UNDER NEW_LOSS_ENGINE THE ORDINARY AGGREGATE IS THE REGISTER'S UNTRACKED
+  // REMAINDER. The tracked set is built from the occurrences, and the ordinary
+  // year is not one — so left alone the register would open at the large
+  // losses only. The remainder is the whole booked gross less what is tracked:
+  // the ordinary year, plus any large loss small enough to go untracked, LESS
+  // the first (trended) limit of each routine claim, which the ordinary year
+  // already holds and the claim is registered at in full. It cannot fall below
+  // zero in any year the count is ordinary; it is floored rather than allowed
+  // to, and shock-loss-check counts the years it bites.
+  const untrackedForBooking = NEW_LOSS_ENGINE.enabled
+    ? Math.max(0, bookedGrossUltimate - markdown.tracked.reduce((s, d) => s + d.original, 0))
+    : markdown.untrackedTotal;
+  const grossRegisterBooked = markdown.tracked.length > 0 || (untrackedForBooking ?? 0) > 0
+    ? markdown.tracked.reduce((s, d) => s + d.original, 0) + (untrackedForBooking ?? 0)
     : bookedUltimate;
   const grossUnpaidCurrentYear = grossRegisterBooked * openFraction;
   const grossPaidCurrentYear = grossRegisterBooked * (1 - openFraction);
@@ -2162,7 +2303,7 @@ export function processLineYear(
     stepMultiplier: drawStepMultiplier(ibnerRng),
     bookingBias,
     developingClaims: markdown.tracked,
-    untrackedTotal: markdown.untrackedTotal,
+    untrackedTotal: untrackedForBooking,
     // Omitted rather than stored empty, so a cohort with no replacements to
     // offer carries no field at all.
     developmentBench: markdown.bench.length > 0 ? markdown.bench : undefined,
@@ -2604,13 +2745,17 @@ export function processLineYear(
 
     activeMembers: enrolledMembers.length,
     newMembers: memberResult.newMembers.length,
-    withdrawnMembers: memberResult.withdrawnMembers.length,
+    // A Member Withdrawal's leavers are withdrawals — the members' choice — so
+    // they count here. Empty with the flag off.
+    withdrawnMembers: memberResult.withdrawnMembers.length + shockWithdrawn.length,
     // At line scope one member is one enrolment, so these two agree with the
     // counts above by construction. Both exist so the POOLED row can tell
     // members from enrolments — see the block on ResultSet.
     enrolmentCount: enrolledMembers.length,
     newMemberIds: memberResult.newMembers.map(m => m.id),
-    withdrawnMemberIds: memberResult.withdrawnMembers.map(m => m.id),
+    withdrawnMemberIds: shockWithdrawn.length === 0
+      ? memberResult.withdrawnMembers.map(m => m.id)
+      : [...memberResult.withdrawnMembers, ...shockWithdrawn].map(m => m.id),
     // ⚠ SEPARATE FROM withdrawnMembers, AND memberRetentionRate DELIBERATELY
     // DOES NOT COUNT THEM. Retention is what the MEMBERS chose; a decline is
     // what the POOL chose. Folding declines into the retention rate would
@@ -2748,6 +2893,14 @@ export function processLineYear(
     bookingGiveBack: markdown.giveBack,
     cededByLayer,
     retainedAboveTower,
+    // Flag on only — see NewLossEngineRecord. Spread so a flag-off result
+    // carries no key at all.
+    ...(ordinaryYear && lineShocks && largeDraw && newEngineExpected
+      ? { newLossEngine: newLossEngineRecord(
+        ordinaryYear, lineShocks, largeDraw, newEngineExpected, rDevelopment,
+        shockWithdrawn.reduce((t, m) => t + getMemberExposure(m, line, yearNumber), 0),
+      ) }
+      : {}),
     // ⚠ NOT THE POOL'S MONEY, AND IT IS HERE SO THAT IS VISIBLE RATHER THAN
     // ABSENT. What fell above the pool's per-occurrence limit and went back to
     // the member. It enters no total on this result — not gross or net loss,
@@ -3074,9 +3227,21 @@ export function processYear(
   // not per line, so two lines with the same allocation earn the same return
   // rate; each line differs only by its allocation and its own asset base. The
   // stream is the unsuffixed 'invest' label (unchanged for a WC-only game).
-  const marketReturns = simulateMarketReturns(
+  // ⚠ UNDER NEW_LOSS_ENGINE, THE YEAR'S SHOCKS ARE RESOLVED FIRST, because
+  // one of them is an investment shock and the market below is what it moves.
+  // Pure in the instance, the timing and the year; nothing before year 1.
+  const shockYear = NEW_LOSS_ENGINE.enabled
+    ? resolveShockYear(instance, shockTimingOf(setup), yearNumber)
+    : undefined;
+  const drawnMarket = simulateMarketReturns(
     deriveSubRng(instance.seed, yearNumber, 'invest')
   );
+  // Investment Loss: twenty points off the equity return in its year, after
+  // the draw and its rails — the event is a shock to the market, not a
+  // different market. Absent, this is the drawn market object itself.
+  const marketReturns = shockYear && shockYear.equityShock !== 0
+    ? { ...drawnMarket, equities: drawnMarket.equities + shockYear.equityShock }
+    : drawnMarket;
 
   // THIS YEAR'S POOL RETURN RATE, for the inter-line loan (Stage 2.9): each
   // active line's realized return weighted by its BEGINNING invested assets.
@@ -3196,8 +3361,14 @@ export function processYear(
       // Ends at yearNumber - 1 — see the field's note on LineYearContext.
       memberLossHistory,
       gPool,
-      shock: shocks?.byLine[line],
-      shockFirings: shocks?.firings.filter(f => f.linesAffected.includes(line)),
+      // ⚠ UNDER NEW_LOSS_ENGINE TODAY'S SHOCK EFFECTS DO NOT RUN — the
+      // catalogue's A / T / R replace them — and the firings recorded are the
+      // new engine's own. Flag off, both lines are exactly what they were.
+      shock: shockYear ? undefined : shocks?.byLine[line],
+      shockFirings: shockYear
+        ? newEngineFirings(shockYear, line)
+        : shocks?.firings.filter(f => f.linesAffected.includes(line)),
+      shockYear,
       programFreqMultiplier: programFreqMultiplier(line, decisions.riskControlProgramIds, priorProgramIds),
       programAnnualCost: programAnnualCost(line, decisions.riskControlProgramIds, priorProgramIds, activeLines.length),
       programSeverityReduction: claimsSystemSeverityReduction(decisions.riskControlProgramIds, priorProgramIds),
@@ -4251,7 +4422,10 @@ function processIbner(
   // The seed, separately, because the reselection streams are derived from it.
   seed: number,
   valuationYear: number,
+  // The new loss engine's R rate this year — 0 with the flag off.
+  extraDevelopmentRate = 0,
 ): {
+  rDevelopment: number;
   developmentImpact: number;
   updatedCohorts: ReserveCohort[];
   netPaidThisYear: number;
@@ -4271,6 +4445,8 @@ function processIbner(
   // Favourable development that met an empty reserve — see the floor below.
   // Surfaced by the harness, not by the result.
   let developmentClamped = 0;
+  // What the R shocks added this year, on the cohorts' own bases.
+  let rDevelopment = 0;
 
   const updatedCohorts = cohorts
     .filter(c => !c.closed)
@@ -4868,11 +5044,23 @@ function processIbner(
       // amount is 0, and every line below is a no-op. That is what makes
       // "all three baselines byte-identical at 0%" a property of the code
       // rather than a measurement that happened to come out right.
-      const emerging = developmentEmergingAtStep(c, line);
+      const hostEmerging = developmentEmergingAtStep(c, line);
+      // ⚠ THE NEW LOSS ENGINE'S R SHOCKS, ON TOP OF THE HOST'S DEVELOPMENT.
+      // An extra adverse rate on this prior year's outstanding at the START of
+      // the year, recognised now, and routed through every line below exactly
+      // as the host's development is — allocated across the register, ceded
+      // under the accident year's own cover, trimmed at the GL pool limit,
+      // floored where favourable. It is NOT added to the lifetime total
+      // (`developmentEmerged` tracks the host's emergence alone), so the
+      // host's percentage still emerges in full and only in full.
+      // Zero with the flag off, and `hostEmerging + 0` is hostEmerging.
+      const rEmerging = extraDevelopmentRate > 0 ? extraDevelopmentRate * developmentBaseOf(c) : 0;
+      const emerging = hostEmerging + rEmerging;
+      rDevelopment += rEmerging;
       let emergedNet = 0;
       let emergedAbovePoolLimit = 0;
       if (emerging !== 0) {
-        emergedOut = (c.developmentEmerged ?? 0) + emerging;
+        emergedOut = (c.developmentEmerged ?? 0) + hostEmerging;
         // --- THE REGISTERED CASE: a gross movement the tower answers -------
         //
         // ⚠ UNDER THE ACCIDENT YEAR'S OWN COVER, NOT THIS YEAR'S.
@@ -5147,6 +5335,7 @@ function processIbner(
 
   void developmentClamped;
   return {
+    rDevelopment,
     developmentAbovePoolLimit,
     developmentImpact,
     updatedCohorts,

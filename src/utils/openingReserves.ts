@@ -75,7 +75,8 @@ import { computeKPr, deriveNeutralPropertyPurePremiumPer100 } from './propertyCl
 import { allLayerRiskMoments, expectedCededAtBoundsScale } from './towerMoments';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { getMemberExposure } from './lineHelpers';
-import { ordinaryLossCostPer100 } from './ordinaryLoss';
+import { expectedLossBreakdown, newEngineLayerMoments } from './shockExpectation';
+import { REINSURANCE_TOWER } from '../data/reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
 
 /** The last age a line's recorded PAID pattern reaches, in whole years. */
@@ -193,6 +194,20 @@ export function heldGrossPurePremiumPer100(line: CoverageLine, members: Member[]
  * deflated gross would deflate twice and hand back year 1's ratio again.
  */
 export function bulkCessionRatioAtAge(line: CoverageLine, members: Member[], ageYears: number): number {
+  // ⚠ UNDER NEW_LOSS_ENGINE, PRICED DIRECTLY AT THE BULK YEAR ITSELF. The
+  // identity below rescales year 1's cession — but year 1 can carry shocks
+  // and a bulk year cannot (nothing fires before year 1), so the new engine's
+  // own figures for that year are read instead: routine large losses' cession
+  // over their gross, and zero when that switch is off.
+  if (NEW_LOSS_ENGINE.enabled) {
+    let exposure = 0;
+    for (const m of members) exposure += getMemberExposure(m, line, 1);
+    const year = 1 - ageYears;
+    const ceded = newEngineLayerMoments(line as TowerLine, exposure, year)
+      .reduce((t, l, i) => t + (REINSURANCE_TOWER[line as TowerLine][i].purchasable ? l.expected : 0), 0);
+    const gross = expectedLossBreakdown(line, exposure, year).total;
+    return gross > 0 ? Math.min(0.95, ceded / gross) : 0;
+  }
   const scale = Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], ageYears);
   const ceded = expectedCededAtBoundsScale(line as TowerLine, members, 1, scale);
   const grossToday = expectedGrossUltimateAtAge(line, 0, members);
@@ -231,16 +246,13 @@ export function expectedGrossUltimateAtAge(
 ): number {
   let exposure = 0;
   for (const m of members) exposure += getMemberExposure(m, line, 1);
-  // ⚠ UNDER NEW_LOSS_ENGINE THE BULK YEARS ARE ORDINARY YEARS. The pre-game
-  // runs on the new engine when the flag is on, so the accident years older
-  // than it must be on the same basis or the pool would open holding today's
-  // tail above the attachments — and, with the tower's expected recovery now
-  // zero (see layerRiskMomentsFor), holding it entirely NET. The ordinary cost
-  // is the year-1 figure; the division below trends it back to each age
-  // exactly as it trends the held rate.
-  const rate = NEW_LOSS_ENGINE.enabled
-    ? ordinaryLossCostPer100(line, 1)
-    : heldGrossPurePremiumPer100(line, members);
+  // ⚠ UNDER NEW_LOSS_ENGINE THE BULK YEARS ARE THE PRE-GAME'S KIND OF YEAR:
+  // ordinary losses, plus routine large losses when that switch is on, and NO
+  // SHOCKS — nothing fires before year 1, and the pre-game draws none. Read
+  // straight off the engine's own expectation at the bulk year (1 - age),
+  // which carries the trend back by itself.
+  if (NEW_LOSS_ENGINE.enabled) return expectedLossBreakdown(line, exposure, 1 - ageYears).total;
+  const rate = heldGrossPurePremiumPer100(line, members);
   return (rate * exposure * 10_000) / Math.pow(1 + rateTrendPerYear(line), ageYears);
 }
 

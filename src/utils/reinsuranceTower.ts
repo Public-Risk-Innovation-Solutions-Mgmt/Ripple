@@ -26,7 +26,9 @@ import {
 import { lognormalPartialMoment } from './claimMath';
 import { quotePropertyAggregate } from './propertyAggregate';
 import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './towerMoments';
-import { NEW_LOSS_ENGINE, ORDINARY_LOSS_CV, REINSURANCE_LOAD_CLF_AT_70 } from '../data/pricingParameters';
+import { NEW_LOSS_ENGINE, REINSURANCE_LOAD_CLF_AT_70 } from '../data/pricingParameters';
+import { retainedSd } from './shockExpectation';
+import { getMemberExposure } from './lineHelpers';
 import type { Claim, Member, Occurrence } from '../types/simulation';
 
 // --- the waterfall (J14) ----------------------------------------------------
@@ -341,26 +343,30 @@ export function quoteAggregate(
   // recovery is computed on what the engine actually draws, and the price is
   // that x the line's CLF at 70%.
   //
-  // WHY THIS ONE IS NOT SIMPLY ZERO. The occurrence layers attach PER CLAIM
-  // and ordinary losses are limited below them, so nothing can reach them.
-  // The aggregate attaches on the ANNUAL TOTAL of retained loss, and the
-  // ordinary total is a lognormal with mean `expectedGrossLoss` and the
-  // line's ORDINARY_LOSS_CV. Nothing cedes through the occurrence layers, so
-  // the whole of it is retained. At 2.2% CV the lowest stop sits about 4.3
-  // standard deviations out and the expected recovery rounds to nothing — but
-  // it is COMPUTED on the drawn distribution rather than assumed, so a CV
-  // tuned upwards prices itself here without anyone remembering to.
+  // The aggregate attaches on the ANNUAL TOTAL the pool retains after the
+  // layers it placed: ordinary losses with their uplift, plus every large
+  // loss less its cession. E[R] is the caller's expected gross less the
+  // placed layers' expected cession — the same derivation the WC path below
+  // uses, so the two cannot drift — and SD[R] is the new engine's own
+  // (retainedSd). The stop is priced on a lognormal with those two moments,
+  // the fit the WC aggregate has always used. Before commit 2 the retained
+  // total was ordinary losses alone, at 2.2% CV, and this rounded to nothing.
   if (NEW_LOSS_ENGINE.enabled) {
-    const expectedRetained = Math.max(1, expectedGrossLoss);
+    const effective = placed.map((on, i) => on && REINSURANCE_TOWER[line][i].purchasable);
+    const layerMoms = allLayerRiskMoments(line, members, yearNumber);
+    const cededByPlaced = REINSURANCE_TOWER[line].reduce((t, _l, i) => t + (effective[i] ? layerMoms[i].expected : 0), 0);
+    const expectedRetained = Math.max(1, expectedGrossLoss - cededByPlaced);
+    let exposure = 0;
+    for (const m of members) exposure += getMemberExposure(m, line, yearNumber);
+    const sdRetained = retainedSd(line, effective, exposure, yearNumber);
     const termsBasis = Math.max(1, termsRetained ?? expectedRetained);
     const rawAttachment = termsBasis * AGG_ATTACHMENT_LEVELS[line][level];
     // Property's terms are agreed in whole $1M, as on its own path below.
     const attachment = line === 'Property' ? Math.round(rawAttachment / 1e6) * 1e6 : rawAttachment;
     const limit = termsBasis * AGG_LIMIT_MULTIPLE;
-    const cv = ORDINARY_LOSS_CV[line];
-    const { expected } = layerMoments(expectedRetained, cv, attachment, attachment + limit);
+    const { expected } = layerMoments(expectedRetained, sdRetained / expectedRetained, attachment, attachment + limit);
     return {
-      attachment, limit, expectedRetained, sdRetained: expectedRetained * cv,
+      attachment, limit, expectedRetained, sdRetained,
       expectedCeded: expected, premium: layerPriceFrom(line, expected),
     };
   }

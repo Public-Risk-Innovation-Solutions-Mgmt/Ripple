@@ -35,6 +35,7 @@ import { expectedWcGrossLossForPricing, NEUTRAL_RQ } from '../../src/utils/wcCla
 import { expectedGlGrossLossForPricing, HELD_PURE_PREMIUM_YEAR } from '../../src/utils/glClaimEngine';
 import { expectedPropertyAttritionalLoss, expectedPropertyGrossLoss } from '../../src/utils/propertyClaimEngine';
 import { ORDINARY_LOSS_LIMIT } from '../../src/data/pricingParameters';
+import { routineLargeBasis } from '../../src/utils/largeLosses';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const roster = getPredefinedMarketMembers();
@@ -66,4 +67,35 @@ for (const [line, ordinary, unlimited] of rows) {
   console.log(`${line.padEnd(10)} $${(ORDINARY_LOSS_LIMIT[line] / 1e6).toFixed(0)}M`
     + `   ${(ordinary / u).toFixed(6).padStart(12)}    ${(unlimited / u).toFixed(6).padStart(13)}`
     + `    ${(100 * ordinary / unlimited).toFixed(1).padStart(13)}%    ${(100 * (1 - ordinary / unlimited)).toFixed(1).padStart(15)}%`);
+}
+
+// ============================================================================
+// COMMIT 2 — ROUTINE LARGE LOSSES AND THE REGIONAL SPLIT, ON THE SAME BASIS.
+//
+// ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M: the expected number of claims ABOVE the
+// ordinary limit per $1M of exposure a year — today's mixture's survival at the
+// limit, summed over the full market's claim rates. Their sizes are drawn at
+// runtime from the same mixture conditioned above the limit (largeLosses.ts),
+// so this count times that conditional mean excess IS the "waits for shocks"
+// share above, by construction rather than by fit.
+//
+// REGION_EXPOSURE_SHARE: each line's exposure split across the game's three
+// regions on today's roster.
+// ============================================================================
+console.log('\nROUTINE LARGE LOSSES — claims above the ordinary limit, full market, year 1\n');
+for (const line of ['WC', 'GL', 'Property'] as const) {
+  const r = routineLargeBasis(line);
+  console.log(`${line.padEnd(10)} ${r.frequencyPer1M.toPrecision(10)} per $1M a year`
+    + `   mean excess $${(r.meanExcess / 1e6).toFixed(4)}M   excess/100 ${(r.frequencyPer1M * r.meanExcess / 1e4).toFixed(6)}`);
+}
+console.log('\nREGION EXPOSURE SHARE — full market\n');
+for (const line of ['WC', 'GL', 'Property'] as const) {
+  const t: Record<string, number> = {};
+  let total = 0;
+  for (const m of roster) {
+    const e = m.exposureByLine[line] ?? 0;
+    t[m.region] = (t[m.region] ?? 0) + e;
+    total += e;
+  }
+  console.log(`${line.padEnd(10)} ${Object.entries(t).map(([k, v]) => `${k} ${(v / total).toFixed(6)}`).join('   ')}`);
 }

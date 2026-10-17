@@ -16,18 +16,21 @@
 //   2. THROUGH THE LABELLED STREAM. The same two moments over 6,000 instance
 //      seeds x 10 accident years, drawn by ordinaryLossYear itself — so the
 //      stream keying, the trend and the exposure scaling are in the loop.
-//   3. THROUGH THE ENGINE. Played games, flag on: actual over expected per
-//      line-year averages to 1 within its confidence interval, the members'
-//      records sum to the line's aggregate, and nothing cedes.
-//   4. EXPECTED IS THE DRAW'S OWN SCALE. On every line-year, the engine's
-//      grossUltimateLoss / expectedLoss IS the factor its labelled stream
-//      draws — to float precision. That is the whole of "no separate held
-//      figure": the expectation the engine reports is exactly what the draw
-//      is a multiple of.
-//   5. THE REINSURANCE RULE. Under the flag the tower's expected recovery is
-//      zero on every layer and so is its price, because ordinary losses sit
-//      below every attachment — computed from the engine's own losses, not
-//      today's distributions.
+//   3. THROUGH THE ENGINE. Played games, flag on: ORDINARY actual over
+//      ordinary expected per line-year — the uplift in force taken out —
+//      averages to 1 within its confidence interval. From commit 2 the line
+//      also carries shocks and large losses, so the ordinary component is
+//      read off the year's NewLossEngineRecord rather than the line total.
+//   4. EXPECTED IS THE DRAW'S OWN SCALE. On every line-year the ordinary
+//      actual over expected IS the factor its labelled stream draws — to float
+//      precision. That is the whole of "no separate held figure". And the
+//      record adds up: ordinary + T + routine excess is the line's gross, the
+//      members' records sum to it, and a year with no large loss recovers
+//      nothing from the tower — ordinary losses sit below every attachment.
+//   5. THE REINSURANCE RULE WHERE ONLY ORDINARY LOSSES CAN ARISE. Before year
+//      1 nothing fires and (routine large losses off) the expected recovery,
+//      and so the price, is zero. Where large losses arise, shock-loss-check
+//      holds the deduction to the recovery.
 //
 // ⚠ AND IT FAILS WHEN BROKEN — see THE CONTROL at the foot.
 // ============================================================================
@@ -110,6 +113,7 @@ try {
   console.log('\n--- 3 & 4. THROUGH THE ENGINE, 12 games x 10 years ---');
   const ae: Record<string, number[]> = { WC: [], GL: [], Property: [] };
   let worstScale = 0, worstMembers = 0, ceded = 0, lineYears = 0;
+  let quietCeded = 0, quietYears = 0, worstRecord = 0;
   for (let g = 0; g < 12; g++) {
     const id = `ORDCHK${g}`;
     const instance = generateGameInstance(id, 2_700_000 + g * 7919);
@@ -123,15 +127,25 @@ try {
       const p = processYear(gs, defaultDecisionSet(y));
       for (const line of LINES) {
         const r = p.result.byLine[line];
-        if (!r || !(r.expectedLoss > 0)) continue;
+        const n = r?.newLossEngine;
+        if (!r || !n || !(n.ordinaryExpected > 0)) continue;
         lineYears++;
-        const ratio = r.grossUltimateLoss / r.expectedLoss;
+        // 3. ordinary actual over ordinary expected, the uplift in force taken out
+        const ratio = n.ordinaryRealised / (n.ordinaryExpected * (1 + n.uplift));
         ae[line].push(ratio);
         // 4. the draw's own scale, recomputed from the same stream
         const factor = drawOrdinaryFactor(ordinaryLossRng(instance.seed, y, line), ORDINARY_LOSS_CV[line]);
-        worstScale = Math.max(worstScale, Math.abs(ratio / factor - 1));
+        worstScale = Math.max(worstScale, Math.abs(ratio / factor - 1), Math.abs(n.ordinaryFactor / factor - 1));
+        // the record adds up to the line's gross: ordinary + T + routine excess
+        worstRecord = Math.max(worstRecord,
+          Math.abs((n.ordinaryRealised + n.shockLarge + n.routineLarge) / r.grossUltimateLoss - 1));
         const memberSum = r.memberLossResults.reduce((s, m) => s + m.simulatedLoss, 0);
         worstMembers = Math.max(worstMembers, Math.abs(memberSum / r.grossUltimateLoss - 1));
+        // ordinary losses cede nothing: a year with no large loss recovers nothing per occurrence
+        if (n.shockLargeClaims === 0 && n.routineLargeClaims === 0) {
+          quietYears++;
+          quietCeded += r.cededByLayer.reduce((a, b) => a + Math.abs(b), 0);
+        }
         ceded += Math.abs(r.reinsuranceRecovery);
       }
       gs = {
@@ -142,23 +156,30 @@ try {
   }
   for (const line of LINES) {
     const m = moments(ae[line]);
-    check(Math.abs(m.mean - 1) < Z * m.seMean, `${line}: actual / expected through the engine averages 1`,
+    check(Math.abs(m.mean - 1) < Z * m.seMean, `${line}: ordinary actual / expected through the engine averages 1`,
       `${m.mean.toFixed(4)} over ${m.n} line-years (${((m.mean - 1) / m.seMean).toFixed(2)} SE)`);
   }
-  check(worstScale < 1e-9, 'expected IS the draw\'s own scale: actual / expected == the stream\'s factor',
+  check(worstScale < 1e-9, 'expected IS the draw\'s own scale: ordinary actual / expected == the stream\'s factor',
     `worst relative ${worstScale.toExponential(2)} on ${lineYears} line-years`);
-  check(worstMembers < 1e-9, 'the members\' records sum to the line\'s aggregate',
+  check(worstRecord < 1e-9, 'ordinary + T + routine excess IS the line\'s gross',
+    `worst relative ${worstRecord.toExponential(2)}`);
+  check(worstMembers < 1e-9, 'the members\' records sum to the line\'s gross',
     `worst relative ${worstMembers.toExponential(2)}`);
-  check(ceded === 0, 'ordinary losses cede nothing', `total recovery $${ceded.toFixed(2)}`);
+  check(quietYears > 0 && quietCeded === 0, 'ordinary losses cede nothing: no occurrence recovery in a year without a large loss',
+    `$${quietCeded.toFixed(2)} over ${quietYears} quiet line-years (all years: $${(ceded / 1e6).toFixed(1)}M, from large losses)`);
 
   // --------------------------------------------------------------------------
-  console.log('\n--- 5. THE REINSURANCE RULE ---');
+  console.log('\n--- 5. THE REINSURANCE RULE, WHERE ONLY ORDINARY LOSSES CAN ARISE ---');
+  // Before year 1 nothing fires, and with routine large losses off the only
+  // losses are ordinary — so the expected recovery the rate deducts and the
+  // price is struck on must be zero there. Where large losses can arise,
+  // shock-loss-check holds the deduction to the recovery.
   const members = getPredefinedMarketMembers();
   for (const line of LINES) {
-    const moms = allLayerRiskMoments(line as never, members, 1);
+    const moms = allLayerRiskMoments(line as never, members, 0);
     const exp = moms.reduce((s, m) => s + m.expected, 0);
-    check(exp === 0, `${line}: expected recovery on every layer is zero, so its price is zero`,
-      `$${exp.toFixed(2)} across ${moms.length} layer(s)`);
+    check(exp === 0, `${line}: ordinary losses only, so expected recovery and its price are zero`,
+      `$${exp.toFixed(2)} across ${moms.length} layer(s), year 0`);
   }
 } finally {
   NEW_LOSS_ENGINE.enabled = was;
@@ -183,10 +204,11 @@ console.log(RULE);
 //   2. DOUBLE THE CV (sigma^2 = ln(1 + 4cv^2)): EXIT 1 — sections 1 and 2's
 //      CV checks fail on every line, 0.0440 against 0.022 (about 447 SE in
 //      section 1, 174 SE in section 2).
-//   3. HOLD A SEPARATE EXPECTED (the engine's expectedLoss x 1.01, the draw
-//      unchanged): EXIT 1 — section 4 fails at a worst relative 9.90e-3, and
-//      section 3's actual/expected fails on WC (-6.37 SE) and Property
-//      (-4.32 SE). Section 4 is the one that catches it on every line-year;
-//      section 3 alone would let a smaller drift through.
+//   3. HOLD A SEPARATE EXPECTED (ordinaryLossYear reports expected x 1.01,
+//      the draw unchanged): EXIT 1 — section 2 at about -111 SE on every
+//      line, and through the engine section 3 (WC -6.37 SE) and section 4,
+//      where actual over expected stops being the stream's factor. Re-run at
+//      commit 2, after sections 3-5 moved to the ordinary component; 1 and 2
+//      read exactly as before.
 // ============================================================================
 process.exit(failed.length === 0 ? 0 : 1);

@@ -90,6 +90,8 @@ import { catLayerAnnualMoments, PROPERTY_LATTICE_BIN } from './propertyCatastrop
 import { ratingGroupOf, thetaWc, trendedMu, wcFrequencyTrend, wcSeverityCap } from './wcClaimEngine';
 import type { Member } from '../types/simulation';
 import { NEW_LOSS_ENGINE } from '../data/pricingParameters';
+import { newEngineLayerMoments } from './shockExpectation';
+import { getMemberExposure } from './lineHelpers';
 
 const GM = GL_LOSS_MODEL;
 const WM = WC_LOSS_MODEL;
@@ -447,7 +449,7 @@ function layerRiskMomentsFor(
 ): LayerRiskMoments[] {
   const layers = REINSURANCE_TOWER[line];
   // ==========================================================================
-  // ⚠ UNDER NEW_LOSS_ENGINE THE EXPECTED RECOVERY IS ZERO ON EVERY LAYER, AND
+  // ⚠ UNDER NEW_LOSS_ENGINE THE EXPECTED RECOVERY IS THE NEW ENGINE'S OWN, AND
   // THIS IS THE ONE PLACE THAT SAYS SO.
   //
   // THE RULE: the rate deducts what the reinsurance will ACTUALLY pay, and the
@@ -458,19 +460,22 @@ function layerRiskMomentsFor(
   // cession at the opening, the Decisions page's tower tile — so stating the
   // rule here states it everywhere at once.
   //
-  // BEFORE COMMIT 2 THE NEW ENGINE GENERATES ONLY ORDINARY LOSSES, and those
-  // are limited per claim at the line's LOWEST attachment, so no occurrence it
-  // produces can reach any layer. Expected recovery is therefore zero, and so
-  // is the price (expected x CLF at 70%). In commit 2 this becomes the
-  // expected recovery on the SHOCK losses, and its price.
+  //   expected ceded     = the expected recovery on the new engine's LARGE
+  //                        losses: each event's T at the catalogue's
+  //                        probability, and routine large claims when that
+  //                        switch is on (shockExpectation.ts)
+  //   reinsurance price  = that x the line's CLF at 70% (layerPriceFrom)
   //
-  // Placement decisions are untouched: still stored, still shown, and they
-  // take effect the moment there are losses to cede.
+  // Ordinary losses add nothing: they sit below every attachment. Pricing is
+  // ex ante, so a host's schedule is not known here. Commit 1 returned zero
+  // on every layer, because ordinary losses were all there were.
   //
   // With the flag off this branch is not taken and nothing below changes.
   // ==========================================================================
   if (NEW_LOSS_ENGINE.enabled) {
-    return layers.map(() => ({ expected: 0, sd: 0, sdOverExpected: 0, lambda: 0 }));
+    let exposure = 0;
+    for (const m of members) exposure += getMemberExposure(m, line, yearNumber);
+    return newEngineLayerMoments(line, exposure, yearNumber, boundsScale);
   }
   const n = layers.length;
   const vg = line === 'GL' ? VG : line === 'WC' ? VG_WC : 0;

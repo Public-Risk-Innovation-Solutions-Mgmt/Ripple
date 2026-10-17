@@ -535,6 +535,37 @@ export interface GameInstance {
 // the simulation engine.)
 export type CoverageLine = 'WC' | 'GL' | 'Property';
 
+/**
+ * One line-year of the new loss engine, by component — what the gates and the
+ * report read, so none of them has to reconstruct the year from the totals.
+ * Every dollar figure is the POOL'S (GL net of its $25M limit).
+ */
+export interface NewLossEngineRecord {
+  /** Exposure x the ordinary cost, trended — the draw's own scale. */
+  ordinaryExpected: number;
+  /** The lognormal year factor drawn on its labelled stream. */
+  ordinaryFactor: number;
+  /** The uplift on ordinary losses in force — every A and Economic Inflation. */
+  uplift: number;
+  /** Ordinary losses as booked: expected x factor x (1 + uplift). */
+  ordinaryRealised: number;
+  /** T losses arriving this year, the pool's share, and how many. */
+  shockLarge: number;
+  shockLargeClaims: number;
+  /** Routine large claims (switch on): count, and the excess booked. */
+  routineLargeClaims: number;
+  routineLarge: number;
+  /** The ex-ante expectation the year was priced and reported on. */
+  expected: { ordinary: number; uplift: number; shockLarge: number; routineLarge: number; total: number };
+  /** The R rate applied to prior years' outstanding this year, and the dollars it added. */
+  rRate: number;
+  rDevelopment: number;
+  /** Exposure that left with a Member Withdrawal at this renewal. */
+  withdrawnExposure: number;
+  /** Events in force on this line: catalogue id, name, the year it fired, region. */
+  events: { id: string; name: string; firedYear: number; region?: Region; uplift: number; rRate: number }[];
+}
+
 export interface GameSetupSettings {
   poolName: string;
   gameLength: number;     // number of years
@@ -551,6 +582,13 @@ export interface GameSetupSettings {
    * before this field existed means the defaults throughout.
    */
   priorDevelopment?: Partial<Record<CoverageLine, number>>;
+  /**
+   * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
+   * 'host' — the room's schedule, and no probability is consulted. Absent in
+   * singleplayer, where each event fires at the catalogue's own probability.
+   * Read only with NEW_LOSS_ENGINE on.
+   */
+  shockTiming?: 'host';
 }
 
 // Per-line player decisions for a given year.
@@ -1660,6 +1698,12 @@ interface ResultRowFields {
    * only the first.
    */
   developmentAbovePoolLimit: number;
+  /**
+   * THE NEW LOSS ENGINE'S OWN RECORD OF THE YEAR — present only when
+   * NEW_LOSS_ENGINE is on, absent otherwise, so a flag-off result serialises
+   * exactly as it did. See NewLossEngineRecord.
+   */
+  newLossEngine?: NewLossEngineRecord;
   // WC aggregate stop-loss on total annual retained loss. 0 when not purchased.
   aggregateRecovery: number;
   aggregatePremium: number;

@@ -233,6 +233,14 @@ const FAST: string[] = [
                                      //         own scale; nothing cedes. ⚠ IT FLIPS NEW_LOSS_ENGINE
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
+  'shock-loss-check',                //  40s   the NEW loss engine's shocks and large losses: events
+                                     //         fire at the catalogue's probabilities (and only as
+                                     //         the host schedules them in a session), arrive as the
+                                     //         stated count and severity, decay at 0.65, land in
+                                     //         their region; and the rate deducts exactly the
+                                     //         expected recovery the draw produces through the tower.
+                                     //         ⚠ FLIPS NEW_LOSS_ENGINE AND ROUTINE_LARGE_LOSSES AT
+                                     //         RUNTIME and restores both — own process only.
   'development-emergence-check',     //  20s   the host's development % emerges IN FULL and only in
                                      //         full: the cumulative matches the closed form the
                                      //         payment pacing implies, at every age of every

@@ -161,6 +161,46 @@ alone, a quiet year carries a quarter to a half of today's expected loss less
 than it does now, and the shocks have to be frequent enough to bring it back on
 average. With routine large claims, the shocks are the tail above them.
 
+### Commit 2 — shocks, large losses, regions (landed, flag off)
+
+Built behind `NEW_LOSS_ENGINE`, with `ROUTINE_LARGE_LOSSES` (off) as the
+switch for the open question above. Held by `shock-loss-check`. The rulings
+and choices it made, so they are not re-decided:
+
+- **T arrives as individual losses** through the occurrence path, each
+  lognormal around T / count — counts per event on `docs/PARAMETERS.md`.
+  **Earthquake and Wildfire are one occurrence each**, as today's catastrophe
+  band books them, so the tower answers the event total and an earthquake
+  keeps its $10M peril deductible. Their sum is priced as one lognormal with
+  the sum's own mean and CV; the gate measures the gap and it is inside the
+  noise.
+- **T scaling is stable**: the line's expected ordinary loss over the R
+  model's base premium x target loss ratio — ordinary against ordinary, so it
+  moves with exposure and trend and never with a team's funding level.
+- **A regional T lands whole in its region**, on members there by exposure;
+  it is not cut to the region's share. A regional A is cut to it.
+- **R is recognised in the year it applies** — its rate on each prior year's
+  opening outstanding — and runs through the host's development code, on top
+  of it, without touching the host's lifetime total.
+- **Member Withdrawal removes members**, a quarter of each line's exposure at
+  the next renewal, since members exist until commit 5.
+- **Nothing fires before year 1**, in either mode: the pre-game and the bulk
+  years are ordinary losses plus routine large losses when that switch is on.
+- **Pricing is ex ante** at the catalogue's probabilities, counting only the
+  years since year 1 an A could have started in. The GL pool limit applies to
+  every large loss at the draw.
+
+**Measured for the team discussion** (`scripts/tools/new-engine-report.ts`,
+40 games x 10 years), against today's ACTUAL losses rather than today's
+expected figure, which runs short of them by the trend gap below: shocks alone
+carry about three-quarters of today's loss on WC, three-fifths on GL and
+about 85% on Property, with a steady rate and reinsurance paying in under one
+year in ten. Routine large losses bring all three back to about today's, the
+tower pays most years, and GL's rate moves more than 20% in about one year in
+seven.
+Property's minimum surplus goes negative even placing every layer: a
+Winterstorm's ten losses each sit under the $5M retention.
+
 ### No individual members
 
 No roster, risk scores, size factors, prospects or experience modifier.
@@ -407,7 +447,9 @@ After pricing commits 3 and 4:
 1. Exposure base and ordinary losses, behind a flag, old path still live.
    **Landed, flag off**; held by `ordinary-loss-check`.
 2. Shock catalogue, with T as occurrences.
-3. Regions.
+   **Landed, flag off**, with regions and the routine large-loss switch;
+   held by `shock-loss-check`.
+3. Regions — **brought into commit 2**, at the brief's request.
 4. Ten worlds, averaging, and per-world retention.
 5. Cut members and the per-claim walk; remove routine development; fork the
    gates that test them.

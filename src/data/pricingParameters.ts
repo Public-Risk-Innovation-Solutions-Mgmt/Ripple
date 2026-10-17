@@ -374,11 +374,13 @@ export const NEW_RATE_STACK = { enabled: true };
  * today's tower moments, today's bulk cohorts. All three baselines are
  * byte-identical with it off, which is the condition for landing it at all.
  *
- * With it ON, each line's losses for a year are ONE aggregate ordinary loss —
- * no individual claims — drawn as exposure x the expected ordinary loss cost
- * per $100 x a lognormal year factor. Ordinary losses are limited per claim at
- * the line's lowest attachment, so they sit below every layer and CEDE
- * NOTHING; losses above arrive only with the shocks, in commit 2.
+ * With it ON, each line's year is ONE aggregate ordinary loss — exposure x the
+ * expected ordinary loss cost per $100 x a lognormal year factor, raised by any
+ * A in force — plus, from commit 2, LARGE losses as individual claims: each
+ * catalogue event's T when it arrives, and routine claims above the ordinary
+ * limit when ROUTINE_LARGE_LOSSES is on. Ordinary losses are limited per claim
+ * at the line's lowest attachment, so they CEDE NOTHING; the large losses go
+ * through the tower per occurrence like any other claim.
  *
  * ⚠ THE REINSURANCE RULE UNDER THIS FLAG. The rate deducts what the
  * reinsurance will ACTUALLY pay, and the reinsurance is priced on that same
@@ -386,13 +388,11 @@ export const NEW_RATE_STACK = { enabled: true };
  * today's member distributions:
  *   expected ceded       = the expected recovery on the new engine's losses
  *   reinsurance price    = that expected recovery x the line's CLF at 70%
- * Before commit 2 every ordinary loss is below every occurrence attachment, so
- * both are ZERO on the occurrence layers. The aggregate stop attaches on the
- * annual TOTAL rather than per claim, so it is priced on the ordinary
- * lognormal itself — about 4.3 standard deviations out at its lowest stop,
- * which rounds to nothing but is computed rather than assumed. Placement
- * decisions stay stored and visible; they take effect once there are losses to
- * cede.
+ * In commit 1 both were zero, because ordinary losses were all there were. In
+ * commit 2 they are the expected recovery on the large losses — each event at
+ * the catalogue's probability, ex ante — computed in shockExpectation.ts over
+ * exactly the draw shockLosses.ts makes. The aggregate stop is priced on the
+ * new engine's retained moments. Placement decisions take effect as before.
  */
 export const NEW_LOSS_ENGINE = { enabled: false };
 
@@ -459,6 +459,92 @@ export const EXPECTED_ORDINARY_LOSS_COST_PER_100: PerLine<number> = {
   GL: 2.830161,
   Property: 0.159515,
 };
+
+// ============================================================================
+// THE NEW LOSS ENGINE — commit 2 of 6: shocks, large losses, regions.
+// All of it behind NEW_LOSS_ENGINE, which stays OFF. See
+// docs/PENDING_MULTIPLAYER.md section 3 and src/utils/shockLosses.ts.
+// ============================================================================
+
+/**
+ * ROUTINE LARGE LOSSES — A SWITCH, OFF, AND THE QUESTION FOR THE TEAM.
+ *
+ * Ordinary losses stop at each line's ordinary limit, and the share of today's
+ * expected loss above it — WC 25.8%, GL 49.4%, Property's 21.1% above $5M —
+ * has to come from somewhere. Two answers, both built:
+ *
+ *   OFF  shocks only. Large losses arrive with the catalogue's events and at
+ *        no other time. Quiet years are quiet, and the line's expected loss
+ *        is ordinary plus what the shocks bring, which is well under today's.
+ *   ON   routine large claims EVERY year — drawn from today's distributions
+ *        above the ordinary limit, at the count that restores those shares —
+ *        with the shocks on top as the tail above them.
+ *
+ * Property's catastrophe band stays with the shocks either way: Earthquake,
+ * Winterstorm and Wildfire are what bring catastrophe, so a routine cat band
+ * would count it twice.
+ */
+export const ROUTINE_LARGE_LOSSES = { enabled: false };
+
+/**
+ * CLAIMS ABOVE THE ORDINARY LIMIT, PER $1M OF EXPOSURE A YEAR — SOURCED.
+ *
+ * Derived ONCE by scripts/tools/derive-ordinary-loss-cost.ts on the basis the
+ * ordinary cost was: today's severity mixture and claim rates, the full
+ * market, neutral risk quality, year 1. Read only when ROUTINE_LARGE_LOSSES is
+ * on. Each claim's size is drawn from the same mixture conditioned above the
+ * limit (largeLosses.ts), so count x mean excess restores exactly the share
+ * of today's loss that ordinary losses leave out — WC 0.965, GL 2.763,
+ * Property 0.050 per $100. ⚠ ON GL THE POOL KEEPS LESS: 7.3% of today's GL
+ * loss lies above the $25M pool limit and is the member's, so the pool's
+ * routine large losses come to 2.352 per $100, not 2.763.
+ */
+export const ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M: PerLine<number> = {
+  WC: 0.005524783216,
+  GL: 0.008769429942,
+  Property: 0.00006964657599,
+};
+
+/**
+ * EACH LINE'S EXPOSURE SPLIT ACROSS THE GAME'S THREE REGIONS — SOURCED.
+ *
+ * Read once from today's 200-member roster by the derivation script. A
+ * regional event's A applies to its region's share of the line's ordinary
+ * losses, read from HERE rather than from the book a team happens to hold —
+ * the engine is leaving members behind (commit 5), and exposure by region has
+ * to be a property of the line when it does.
+ */
+export const REGION_EXPOSURE_SHARE: PerLine<Readonly<Record<'North' | 'Central' | 'South', number>>> = {
+  WC: { North: 0.352177, Central: 0.343909, South: 0.303914 },
+  GL: { North: 0.352177, Central: 0.343909, South: 0.303914 },
+  Property: { North: 0.352290, Central: 0.338421, South: 0.309289 },
+};
+
+/**
+ * HOW MANY LARGE LOSSES EACH EVENT'S T ARRIVES AS — CHOSEN, A STARTING POINT.
+ *
+ * T is the EXPECTED aggregate, scaled to the game (see tScale in
+ * shockLosses.ts); it arrives as this many individual losses, each lognormal
+ * around T / count with CV SHOCK_LOSS_CV, so the realised total varies and is
+ * never rescaled to T. One for a verdict, many for a disaster.
+ *
+ * ⚠ EARTHQUAKE AND WILDFIRE ARE ONE OCCURRENCE (SHOCK_ONE_OCCURRENCE): their
+ * losses are member claims under a single event, as today's catastrophe band
+ * books them, so the tower answers the event total and an earthquake retains
+ * PROPERTY_PERIL_DEDUCTIBLE first. Every other T loss is its own occurrence.
+ */
+export const SHOCK_LOSS_COUNT: Readonly<Record<string, Partial<PerLine<number>>>> = {
+  'Earthquake': { Property: 25 },
+  'Winterstorm': { Property: 10 },
+  'Wildfire': { Property: 15 },
+  'Nuclear Verdict': { GL: 1 },
+  'Social Inflation': { GL: 3 },
+  'Pandemic': { GL: 5, WC: 20 },
+};
+export const SHOCK_ONE_OCCURRENCE: readonly string[] = ['Earthquake', 'Wildfire'];
+
+/** The CV of each T loss around T / count — CHOSEN. */
+export const SHOCK_LOSS_CV = 0.5;
 
 /**
  * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.
@@ -967,10 +1053,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     ],
   },
   {
-    title: 'New loss engine — ordinary losses',
-    blurb: 'Commit 1 of the new loss engine: one aggregate ordinary loss per line per year, no individual '
-      + 'claims. Wired, but behind NEW_LOSS_ENGINE, which is OFF — with it off the engine is exactly what '
-      + 'it was. See docs/PENDING_MULTIPLAYER.md section 3.',
+    title: 'New loss engine',
+    blurb: 'Commits 1 and 2 of the new loss engine: one aggregate ordinary loss per line per year, the R '
+      + 'model\'s twelve-event shock catalogue with large losses as individual claims, regions, and a switch '
+      + 'for routine large losses. Wired, but behind NEW_LOSS_ENGINE, which is OFF — with it off the engine '
+      + 'is exactly what it was. See docs/PENDING_MULTIPLAYER.md section 3.',
     entries: [
       ['New loss engine', {
         value: NEW_LOSS_ENGINE.enabled ? 'on' : 'off', unit: 'flag',
@@ -979,8 +1066,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'Under the flag the rate deducts what the reinsurance will ACTUALLY pay and the reinsurance is '
           + 'priced on the same basis, both from this engine\'s own losses: expected ceded = the expected '
-          + 'recovery on them, price = that x the line\'s CLF at 70%. Ordinary losses sit below every '
-          + 'attachment, so both are zero until the shocks arrive in commit 2. Placements stay stored.',
+          + 'recovery on its large losses (each event\'s T at the catalogue\'s probability, plus routine large '
+          + 'losses when that switch is on), price = that x the line\'s CLF at 70%. Ordinary losses sit below '
+          + 'every attachment and cede nothing. Pricing is ex ante: a host\'s schedule is not known to it.',
       }],
       ['Ordinary loss limit', {
         value: `WC $${(ORDINARY_LOSS_LIMIT.WC / 1e6).toFixed(0)}M · GL $${(ORDINARY_LOSS_LIMIT.GL / 1e6).toFixed(0)}M`
@@ -1006,6 +1094,73 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Property is the attritional band only, its catastrophe band excluded. Share of today\'s expected '
           + 'loss now waiting for the shocks: WC 25.8%, GL 49.4%, Property 33.1% (12.0% the catastrophe band, '
           + '21.1% attritional above $5M).',
+      }],
+      ['Routine large losses', {
+        value: ROUTINE_LARGE_LOSSES.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'Whether claims above the ordinary limit arrive EVERY year, drawn from today\'s distributions, '
+          + 'or only with the shocks.',
+        basis: 'CHOSEN',
+        note: 'FOR THE TEAM: the question is where the large claims come from. OFF — shocks only: quiet years '
+          + 'are quiet, the rate is low and steady, and on WC and GL expected loss sits well under today\'s: '
+          + 'ordinary losses leave out a quarter of WC and half of GL, and the catalogue brings back only a '
+          + 'little of it (Property\'s catastrophe events bring back most of its third). ON — routine large '
+          + 'losses every year, with the shocks as the tail on '
+          + 'top: expected loss returns close to today\'s, the tower pays most years, and the rate moves more. '
+          + 'Property\'s catastrophe band stays with the shocks either way. scripts/tools/new-engine-report.ts '
+          + 'puts the two side by side.',
+      }],
+      ['Routine large-loss frequency', {
+        value: perLine(ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M, 9), unit: 'claims per $1M of exposure a year',
+        what: 'How many claims above the ordinary limit arrive a year when routine large losses are on. Each '
+          + 'size is drawn from today\'s mixture above the limit.',
+        basis: 'SOURCED',
+        note: 'Derived once by the same script as the ordinary cost, on the same basis. Count x mean excess '
+          + 'restores the share ordinary losses leave out: WC 0.965, GL 2.763, Property 0.050 per $100 — on '
+          + 'GL the pool keeps 2.352, the rest lying above its $25M limit.',
+      }],
+      ['Region exposure share', {
+        value: (['WC', 'GL', 'Property'] as const).map(l => `${l} `
+          + (['North', 'Central', 'South'] as const).map(r => `${r} ${(100 * REGION_EXPOSURE_SHARE[l][r]).toFixed(1)}%`).join(' / ')).join(' · '),
+        unit: 'share of the line\'s exposure',
+        what: 'Each line\'s exposure split across the game\'s three regions. A regional event\'s A reaches only '
+          + 'its region\'s share of ordinary losses.',
+        basis: 'SOURCED',
+        note: 'Read once from today\'s roster. A regional T is NOT cut to the share: it is the event\'s own '
+          + 'size and lands whole on members in the struck region, drawn by exposure. The region is drawn '
+          + 'uniformly per firing and is the same on every line the event reaches.',
+      }],
+      ['Large losses per event', {
+        value: Object.entries(SHOCK_LOSS_COUNT).map(([e, by]) =>
+          `${e} ${Object.entries(by).map(([l, n]) => `${l} ${n}`).join(', ')}`).join(' · '),
+        unit: 'losses per T',
+        what: 'How many individual losses each event\'s T arrives as, each lognormal around T / count. T is the '
+          + 'expected aggregate; the realised total varies and is never rescaled.',
+        basis: 'CHOSEN',
+        note: `A starting point. ${SHOCK_ONE_OCCURRENCE.join(' and ')} are ONE occurrence each, as today's `
+          + 'catastrophe band books them, so the tower answers the event total and an earthquake retains its '
+          + '$10M peril deductible first; every other loss is its own occurrence. On GL the pool keeps $25M '
+          + 'of any one loss.',
+      }],
+      ['Large-loss CV', {
+        value: SHOCK_LOSS_CV, unit: 'coefficient of variation',
+        what: 'The spread of each T loss around T / count.', basis: 'CHOSEN',
+      }],
+      ['T scaling', {
+        value: 'expected ordinary loss / (R base premium x R target loss ratio)', unit: 'per line, per year',
+        what: 'How the R model\'s T dollars become the game\'s: each line by its own ratio, never one '
+          + 'pool-wide factor.',
+        basis: 'CHOSEN',
+        note: 'A STABLE basis: both halves are ordinary losses — the R model\'s base premium x target loss '
+          + 'ratio is its ordinary expectation — so the ratio moves with the book\'s exposure and the 5% '
+          + 'trend and with nothing a team decides about price. At full market it is about 7.7 on WC, 7.5 on '
+          + 'GL and 32 on Property.',
+      }],
+      ['Shock timing', {
+        value: 'host in a session · catalogue in singleplayer', unit: '—',
+        what: 'Multiplayer fires only what the host scheduled, consulting no probability. Singleplayer fires '
+          + 'each event at its catalogue probability. Every size is drawn from a stream keyed on the event and '
+          + 'its year, so the same seed gives the same shock. Nothing fires before year 1.',
+        basis: 'CHOSEN',
       }],
     ],
   },
@@ -1042,8 +1197,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   },
   {
     title: 'R model (data scientist)',
-    blurb: 'The data scientist\'s R model, recorded in full. **Nothing here is read by the engine** — '
-      + 'every entry is *not yet used*, and the new loss engine is what will read the ones it keeps. '
+    blurb: 'The data scientist\'s R model, recorded in full. **Read only by the new loss engine, behind '
+      + 'NEW_LOSS_ENGINE (off)** — the shock entries it reads carry no *not yet used* mark, and every other '
+      + 'entry is still unread. '
       + 'The Status column says what the game did with each: ADOPTED (as given), ADOPTED, SCALED, '
       + 'ADAPTED (changed to fit), SUPERSEDED (replaced by a game decision) or NOT USED. '
       + 'Every entry is CHOSEN rather than SOURCED: the data scientist states that the payout patterns, '
@@ -1086,7 +1242,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: R_MODEL.regions, unit: 'share of members', basis: 'CHOSEN', notYetUsed: true,
         status: 'SUPERSEDED',
         what: 'Four regions, with a membership share each, for regional shocks.',
-        note: 'The game has three — North, Central, South — already in the type system.',
+        note: 'The game has three — North, Central, South — already in the type system. Each line\'s split '
+          + 'across them is REGION_EXPOSURE_SHARE, read from today\'s roster.',
       }],
       ['Premium growth', {
         value: R_MODEL.premiumGrowthPerYear, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,
@@ -1145,22 +1302,22 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
 
       // ---- shock effects ----
       ['Shock decay rate', {
-        value: R_MODEL.shockDecayRate, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,
+        value: R_MODEL.shockDecayRate, unit: 'per year', basis: 'CHOSEN',
         status: 'ADOPTED',
         what: 'A and R decay by this factor each year of an event\'s duration. T fires only at onset.',
       }],
       ['Economic inflation, initial', {
         value: R_MODEL.economicInflationInitialRate, unit: 'on ordinary losses', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED',
+        status: 'ADOPTED',
         what: 'The Economic Inflation event\'s first-year uplift, decaying at the decay rate.',
       }],
       ['Investment loss adjustment', {
         value: R_MODEL.investmentLossAdjustment, unit: 'added to the equity return', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED',
+        status: 'ADOPTED',
         what: 'The Investment Loss event\'s hit to the equity return in the event year.',
       }],
       ['Member withdrawal reduction', {
-        value: R_MODEL.memberWithdrawalReduction, unit: 'of exposure', basis: 'CHOSEN', notYetUsed: true,
+        value: R_MODEL.memberWithdrawalReduction, unit: 'of exposure', basis: 'CHOSEN',
         status: 'ADOPTED',
         what: 'The Member Withdrawal event cuts exposure by this much from the FOLLOWING year.',
       }],
@@ -1215,55 +1372,59 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: `GL $${(R_MODEL.basePremium.GL / 1e6).toFixed(1)}M · `
           + `WC $${(R_MODEL.basePremium.WC / 1e6).toFixed(1)}M · `
           + `Property $${(R_MODEL.basePremium.Property / 1e6).toFixed(1)}M`,
-        unit: 'dollars', basis: 'CHOSEN', notYetUsed: true, status: 'ADOPTED',
+        unit: 'dollars', basis: 'CHOSEN', status: 'ADOPTED',
         what: 'The model\'s premium for each line.',
-        note: 'Kept for ONE job: the denominator that scales T per line. See the T shocks row.',
+        note: 'Kept for ONE job: with the target loss ratio, the denominator that scales T per line. See the '
+          + 'T scaling row under New loss engine.',
       }],
       ['Target loss ratio', {
         value: `GL ${R_MODEL.targetLossRatio.GL} · WC ${R_MODEL.targetLossRatio.WC} · `
           + `Property ${R_MODEL.targetLossRatio.Property}`,
-        unit: 'of premium', basis: 'CHOSEN', notYetUsed: true, status: 'NOT USED',
+        unit: 'of premium', basis: 'CHOSEN', status: 'ADAPTED',
         what: 'Expected loss as a share of premium, per line.',
-        note: 'The game derives expected loss from its own exposure and pure premium, not from a target.',
+        note: 'The game derives expected loss from its own exposure and pure premium, not from a target. Used '
+          + 'for one job: base premium x this is the R model\'s ordinary expectation, the denominator of T '
+          + 'scaling.',
       }],
 
       // ---- A / T / R ----
       ['A shocks — GL', {
         value: rLevels(R_MODEL.aShock.GL), unit: 'increase on ordinary losses', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED',
+        status: 'ADOPTED',
         what: 'Drawn uniformly within the level\'s range, then decayed over the event\'s duration.',
         note: 'Illustrative, says the data scientist — not fitted to claims data.',
       }],
       ['A shocks — WC', {
         value: rLevels(R_MODEL.aShock.WC), unit: 'increase on ordinary losses', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED', what: 'As GL, with WC\'s own High range.',
+        status: 'ADOPTED', what: 'As GL, with WC\'s own High range.',
       }],
       ['A shocks — Property', {
         value: rLevels(R_MODEL.aShock.Property), unit: 'increase on ordinary losses', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED', what: 'The widest of the three, up to a doubling.',
+        status: 'ADOPTED', what: 'The widest of the three, up to a doubling.',
       }],
       ['T shocks — GL', {
         value: rLevels(R_MODEL.tShock.GL, false), unit: 'dollars at onset', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED, SCALED',
+        status: 'ADOPTED, SCALED',
         what: 'An aggregate shock loss at the event\'s start, drawn uniformly.',
-        note: '⚠ SCALED PER LINE, by that line\'s own premium ratio — the game\'s premium for the line '
-          + 'against the R model\'s base premium for the SAME line, never one pool-wide factor. The '
-          + 'model\'s Property book is $4.5M and its GL book $7M, so a single factor would scale them '
-          + 'unevenly. In the game T also arrives as large INDIVIDUAL losses, not a lump sum, so '
-          + 'occurrence reinsurance can respond to it.',
+        note: '⚠ SCALED PER LINE, by that line\'s own ratio, never one pool-wide factor — the game\'s '
+          + 'expected ordinary loss against the R model\'s (base premium x target loss ratio), a basis that '
+          + 'does not move with a team\'s funding level; see T scaling under New loss engine. The model\'s '
+          + 'Property book is $4.5M and its GL book $7M, so a single factor would scale them unevenly. In '
+          + 'the game T arrives as large INDIVIDUAL losses, not a lump sum, so occurrence reinsurance can '
+          + 'respond to it.',
       }],
       ['T shocks — WC', {
         value: rLevels(R_MODEL.tShock.WC, false), unit: 'dollars at onset', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED, SCALED', what: 'As GL, scaled by WC\'s own premium ratio.',
+        status: 'ADOPTED, SCALED', what: 'As GL, scaled by WC\'s own premium ratio.',
       }],
       ['T shocks — Property', {
         value: rLevels(R_MODEL.tShock.Property, false), unit: 'dollars at onset', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED, SCALED',
+        status: 'ADOPTED, SCALED',
         what: 'The largest of the three, scaled by Property\'s own premium ratio.',
       }],
       ['R shocks', {
         value: rLevels(R_MODEL.rShock), unit: 'on outstanding prior-year reserves', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED',
+        status: 'ADOPTED',
         what: 'An extra adverse rate on prior years\' outstanding reserves, drawn uniformly and decayed.',
         note: 'Illustrative, says the data scientist — not fitted to claims data.',
       }],
@@ -1271,7 +1432,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       // ---- catalogue and map ----
       ['Shock catalogue', {
         value: `${R_MODEL.catalogue.length} events`, unit: 'probability, duration, regional',
-        basis: 'CHOSEN', notYetUsed: true, status: 'ADOPTED',
+        basis: 'CHOSEN', status: 'ADOPTED',
         what: 'Earthquake 0.2%/1y regional · Winterstorm 6%/1y regional · Wildfire 3.5%/1y regional · '
           + 'Legislation 1.5%/3y · WC Reform 2%/3y · Recession 6%/2y · Nuclear Verdict 2.5%/1y · '
           + 'Social Inflation 4.5%/3y · Pandemic 1%/2y · Economic Inflation 10%/3y · '
@@ -1281,7 +1442,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Shock map', {
         value: `${R_MODEL.shockMap.length} event-line pairs`, unit: 'A / T / R level', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADOPTED',
+        status: 'ADOPTED',
         what: 'Earthquake: GL Mid/–/– · WC High/–/– · Property High/High/–. Winterstorm: Property '
           + 'High/Low/–. Wildfire: Property Low/High/–. Legislation: GL Mid/–/High. WC Reform: WC '
           + 'High/–/Mid. Recession: GL Low/–/– · WC Low/–/–. Nuclear Verdict: GL –/High/Mid. '
