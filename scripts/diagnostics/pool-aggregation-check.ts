@@ -59,6 +59,13 @@ const DOLLARS = new Set([
   'poolPremium', 'adminExpense', 'poolPremiumAndAdminExpense', 'totalMemberCharge',
   'grossPremium', 'assessments', 'dividends', 'aggregateMemberLoss',
   'grossUltimateLoss', 'reinsuranceCost', 'retainedAboveTower', 'aggregateRecovery',
+  // ⚠ A DOLLAR FIGURE THE POOL DOES NOT OWN, AND IT STILL SUMS. What fell
+  // above the pool's per-occurrence limit is the MEMBER'S loss, counted in no
+  // pool total — but it is dollars, it is per line, and the pool-level figure
+  // a team reads is the sum of its lines'. Classifying it anywhere else would
+  // say the addition is wrong, which it is not; what is true of it is said at
+  // the field and at POOL_LIMIT_PER_OCCURRENCE, not by this set.
+  'memberShareAboveLimit',
   // Additive for the same reason its gross and net neighbours are: it is the
   // same register at a different point in the booking, so the pool figure is
   // the sum of the lines and nothing else. ⚠ BOTH OF THEM: the net twin was
@@ -111,6 +118,11 @@ const DOLLARS = new Set([
 ]);
 
 // Distinct member counts — deduplicated by id, equal to the line value at line scope.
+// A COUNT OF CLAIMS, NOT OF MEMBERS, so it cannot join DISTINCT_MEMBERS — two
+// lines' pierced claims are different claims and simply add. Its own set
+// rather than a comment inside someone else's.
+const CLAIM_COUNTS = new Set(['claimsAboveLimit']);
+
 const DISTINCT_MEMBERS = new Set(['activeMembers', 'newMembers', 'withdrawnMembers']);
 
 // Per-line enrolment counts. A weight, never a headcount.
@@ -153,7 +165,7 @@ const FIRST_LINE_PLACEHOLDER = new Set([
   'historyAttempt',
 ]);
 
-const ALL = [DOLLARS, DISTINCT_MEMBERS, ENROLMENTS, MIXED_UNIT_EXPOSURE, RECOMPUTED_RATIOS,
+const ALL = [DOLLARS, CLAIM_COUNTS, DISTINCT_MEMBERS, ENROLMENTS, MIXED_UNIT_EXPOSURE, RECOMPUTED_RATIOS,
   NO_POOL_MEANING, FIRST_LINE_PLACEHOLDER];
 
 function play(id: string, seed: number, lines: CoverageLine[]): ResultSet[] {

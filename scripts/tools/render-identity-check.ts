@@ -700,7 +700,28 @@ const BASELINE = process.env.RENDER_BASELINE
 // That "+0.1%" is the defect in one reading: the panel was comparing an
 // indication built from last year's pure premium against last year's own
 // indication, built from the same figure, so the change column could not move.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v39.json');
+// v40: THE GL POOL LIMIT AND THE PRE-GAME FUNDING LEVEL. 212 of 252 moved.
+// The control ran first: the parent, built in its own worktree and served on
+// 4174, reproduced its own committed baseline 252 of 252.
+//
+// THE 40 THAT DID NOT MOVE ARE THE ATTRIBUTION, and they are the same 40 kinds
+// as at v38: the Departments documents that carry no money (Investment and
+// Risk Control at both year-points, Actuarial at y0) and the y0 rows of the
+// result-only tabs, where no year has been played.
+//
+// TWO SCREENS WERE OPENED AND DIFFED RATHER THAN ASSUMED:
+//   PR|Decisions|PR|y2   $20.93M -> $20.91M, and NOTHING ELSE. Property has no
+//                        pool limit, so the only thing reaching it is the
+//                        pre-game's premium-based opening cash split — a 0.1%
+//                        move. That one screen is the clearest evidence the GL
+//                        limit stayed on GL.
+//   GL|Financial Stmts   surplus $140.68M -> $116.23M. GL's premium falls with
+//                        its rate while most years' actual losses are
+//                        unchanged — only about 9% of GL line-years have a
+//                        claim above $25M — so a quiet year now earns less.
+//                        That is the pool no longer charging for a tail it
+//                        never covered, which is the point of the change.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v40.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

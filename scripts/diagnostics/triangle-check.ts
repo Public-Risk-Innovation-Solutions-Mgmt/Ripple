@@ -60,6 +60,7 @@ import {
 } from '../../src/utils/claimTriangle';
 import { generateWcClaims } from '../../src/utils/wcClaimEngine';
 import { generateGlClaims } from '../../src/utils/glClaimEngine';
+import { applyPoolLimit } from '../../src/utils/poolLimit';
 import { generatePropertyClaims } from '../../src/utils/propertyClaimEngine';
 import { closedShare, claimClosureUnit } from '../../src/utils/claimClosure';
 import {
@@ -179,6 +180,16 @@ console.log('  off-by-one in the ages, a wrong paid share, a settlement applied 
       const r = line === 'WC' ? generateWcClaims({ ...base, kLine: 1 })
         : line === 'GL' ? generateGlClaims({ ...base, kGl: 1, gPool: 1 })
           : generatePropertyClaims({ ...base, kPr: 1 });
+      // ⚠ THE POOL'S LIMIT IS APPLIED TO THE CONTROL'S CLAIMS TOO, for the
+      // same reason the comment below gives for mirroring FULL_COST_BOOKING:
+      // this walk is a control FOR THE TRIANGLE AS SHIPPED, and the shipped
+      // triangle is built on claims capped at the pool's per-occurrence limit
+      // (claimTriangle's drawYear). A control drawing uncapped claims would
+      // compare the module against a book the pool does not have — measured
+      // at a 5.90e-1 relative gap on GL, which is the $25M limit and nothing
+      // else. The composition being compared is still different: a plain loop
+      // here against the module's.
+      applyPoolLimit(line, r.claims);
       const inc = new Array<number>(maturity).fill(0);
       const pd = new Array<number>(maturity).fill(0);
       for (const c of r.claims) {

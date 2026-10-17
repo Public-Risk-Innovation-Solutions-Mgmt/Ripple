@@ -31,6 +31,7 @@
 
 import type {
   CoverageLine,
+  DecisionSet,
   GameInstance,
   GameSetupSettings,
   GameState,
@@ -58,7 +59,7 @@ import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState, getMemberExposure } from './lineHelpers';
 import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
-import { PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
+import { PRE_GAME_FUNDING_LEVEL, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
 import { defaultDecisionSet } from './decisionDefaults';
 
 export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
@@ -250,7 +251,7 @@ export function simulateLineCandidate(
     isComplete: false,
     poolState: bootstrap,
     lockedResults: [],
-    currentDecisions: defaultDecisionSet(-(PRE_GAME_DEPTH - 1)),
+    currentDecisions: preGameDecisionSet(-(PRE_GAME_DEPTH - 1)),
     priorHistory: [],
   };
 
@@ -322,7 +323,7 @@ export function simulateLineCandidate(
     // 200 marketplace members every year — the member loss ledger depends on it
     // and the appetite bar reads it — and the loss history, the reserve build,
     // the maturation years and the surplus re-pin above are untouched.
-    const processed = processYear(gs, defaultDecisionSet(y), { freezeMembership: true });
+    const processed = processYear(gs, preGameDecisionSet(y), { freezeMembership: true });
     gs = {
       ...gs,
       currentYearNumber: y + 1,
@@ -397,6 +398,35 @@ export function openingBandRatio(
   return basis === 'reserve'
     ? endingSurplus / Math.max(endingNetReserve, 1)
     : endingSurplus / Math.max(poolPremium, 1);
+}
+
+/**
+ * THE DECLARED YEARS' DECISIONS — the player's defaults in every respect but
+ * one: the board before them funded at PRE_GAME_FUNDING_LEVEL rather than at
+ * expected.
+ *
+ * ⚠ IT IS THE ONLY DIFFERENCE, AND THAT IS THE POINT. Everything else about
+ * the pre-game — renewals, intake, risk control, the tower, the aggregate —
+ * stays on `defaultDecisionSet`, so the handed-over pool is one that was run
+ * on the same settings the player starts from. A prior board that had also
+ * been declining layers or cutting renewals would make the opening a function
+ * of choices nobody can see, which is the objection the frozen membership
+ * above answers for the roster.
+ *
+ * ⚠ AND THE PLAYER'S OWN DEFAULT IS UNCHANGED: `fundingAtExpected` is still
+ * true from year 1. A team that locks year 1 without touching the slider is
+ * funding at expected where the prior board funded with a cushion, so their
+ * first rate comes in BELOW the declared year before it. That drop is real,
+ * it is the first thing the Decisions panel's change column reports, and the
+ * welcome memo states the 70% so it reads as inheritance rather than error.
+ */
+function preGameDecisionSet(yearNumber: number): DecisionSet {
+  const d = defaultDecisionSet(yearNumber);
+  for (const line of Object.keys(d.byLine) as CoverageLine[]) {
+    d.byLine[line].fundingAtExpected = false;
+    d.byLine[line].fundingConfidenceLevel = PRE_GAME_FUNDING_LEVEL;
+  }
+  return d;
 }
 
 // ⚠ NO SEARCH, NO BAND, NO REDRAW — ONE SIMULATION, THEN THE OPENING IS SET.

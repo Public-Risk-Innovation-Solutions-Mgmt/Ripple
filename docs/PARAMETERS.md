@@ -87,6 +87,25 @@ NOT YET USED — read from commit 2 onward. Every one is CHOSEN and is a startin
 | Rate change cap | `none` | — | CHOSEN · not yet used | Limit on how far the rate may move in a year. |
 | Reserve basis | `expected` | — | CHOSEN · not yet used | The basis reserves are held on. |
 
+## Coverage and the pre-game
+
+What the pool covers, and how the board before the players funded it. Both are LIVE.
+
+| Parameter | Value | Unit | Basis | What it does |
+| --- | --- | --- | --- | --- |
+| GL pool limit | `$25,000,000 per claim` | per occurrence, GL only | CHOSEN | The most the Pool pays on any one GL claim. Above it the loss falls to the MEMBER — reported each year as the member's share, and counted in none of the Pool's losses, premium, reserves or pricing. WC and Property have no limit. This corrects an error: loss above $25M used to be counted as the Pool's own retention — $655.5M over 30 games x 10 years, 7.83% of GL's gross, worst single year $103.9M. Distinct from GL_SEVERITY_CAP ($84M), which is how large a claim can be rather than how much of one the Pool covers. Reinsurance is bought within the limit. |
+| Pre-game funding level | `0.7` | confidence level | CHOSEN | What the previous board funded the declared years at, on each line's own CLF table. The PLAYER'S default is unchanged: funding at EXPECTED, CLF 1.000, from year 1. So a team that locks year 1 untouched prices BELOW the year before it — measured at -7.0% on WC, -4.9% on GL, -3.9% on Property, against +41.7% / +18.5% / +35.7% when the pre-game also funded at expected. The year-1 rate itself is identical either way; only the figure it is compared against moves. The welcome memo reads this constant rather than naming a number. |
+
+## Decided with the loss engine, not yet wired
+
+Decisions already taken about the new loss engine, recorded before it is built. NONE of these is in force — see docs/PENDING_MULTIPLAYER.md.
+
+| Parameter | Value | Unit | Basis | What it does |
+| --- | --- | --- | --- | --- |
+| Development basis | `lifetime total` | — | CHOSEN · not yet used | Development is a TOTAL over each accident year's remaining lifetime, emerging with the payments — a year that is 60% paid has seen about 60% of its development. Not a yearly rate. It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly +54% on GL and +171% on WC in total at today's settings — a different model, not a refinement. |
+| Reinsurance options | `WC none · $9M xs $1M · $5M xs $5M · $14M xs $1M · $10M xs $5M` | structures a team may buy | CHOSEN · not yet used | A choice of programme, replacing today's place-or-decline on each band. GL is the same list as WC. Property: none · $20M xs $5M · $45M xs $5M · $25M xs $25M. |
+| GL ordinary losses | `$0-$1,000,000` | the layer they occupy | CHOSEN · not yet used | GL's ordinary losses are the $0-1M layer, paid on that limited layer's own payout pattern. The matched pattern is the point: the whole-account pattern is dominated by the large claims above this band and would pay these out too slowly. |
+
 ## R model (data scientist)
 
 The data scientist's R model, recorded in full. **Nothing here is read by the engine** — every entry is *not yet used*, and the new loss engine is what will read the ones it keeps. The Status column says what the game did with each: ADOPTED (as given), ADOPTED, SCALED, ADAPTED (changed to fit), SUPERSEDED (replaced by a game decision) or NOT USED. Every entry is CHOSEN rather than SOURCED: the data scientist states that the payout patterns, the routine reserve development and the A/T/R shock assumptions are illustrative and not fitted to claims data, and nothing else in the model is presented as fitted to this pool either.

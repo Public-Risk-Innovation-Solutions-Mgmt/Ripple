@@ -1621,6 +1621,14 @@ interface ResultRowFields {
   // displayed rather than left implicit. Mean is indicative only — the band is
   // unbounded (GL severity is Pareto alpha 1.3) and has no valid CI.
   retainedAboveTower: number;
+  /**
+   * What fell ABOVE the pool's per-occurrence limit and is therefore the
+   * MEMBER'S loss, not the pool's. Reported; counted in nothing. GL only
+   * today — see POOL_LIMIT_PER_OCCURRENCE. Zero on a line with no limit.
+   */
+  memberShareAboveLimit: number;
+  /** How many claims pierced that limit this year. */
+  claimsAboveLimit: number;
   // WC aggregate stop-loss on total annual retained loss. 0 when not purchased.
   aggregateRecovery: number;
   aggregatePremium: number;

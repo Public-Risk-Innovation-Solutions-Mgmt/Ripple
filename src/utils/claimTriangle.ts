@@ -102,6 +102,7 @@
 
 import { generateWcClaims } from './wcClaimEngine';
 import { generateGlClaims } from './glClaimEngine';
+import { applyPoolLimit } from './poolLimit';
 import { generatePropertyClaims } from './propertyClaimEngine';
 import { closedShare, claimClosureUnit } from './claimClosure';
 import { cumulativePaid } from './payoutPattern';
@@ -311,9 +312,20 @@ function drawYear(
   line: CoverageLine, members: Member[], yearNumber: number, calendarYear: number, instanceSeed: number,
 ) {
   const base = { members, yearNumber, calendarYear, instanceSeed, riskControlEffectiveness: 0 };
-  if (line === 'WC') return generateWcClaims({ ...base, kLine: 1 });
-  if (line === 'GL') return generateGlClaims({ ...base, kGl: 1, gPool: 1 });
-  return generatePropertyClaims({ ...base, kPr: 1 });
+  const generated = line === 'WC' ? generateWcClaims({ ...base, kLine: 1 })
+    : line === 'GL' ? generateGlClaims({ ...base, kGl: 1, gPool: 1 })
+      : generatePropertyClaims({ ...base, kPr: 1 });
+  // ⚠ THE POOL'S LIMIT APPLIES HERE TOO, AND FORGETTING IT WAS CAUGHT RATHER
+  // THAN REASONED ABOUT. This redraw exists to REPRODUCE the engine's own
+  // year; the engine caps GL at $25M per claim before anything reads the
+  // register, so a redraw that skipped the cap produced a claim the engine
+  // never had. save-round-trip-check and property-mitigation-check both went
+  // red on exactly that — "regenerated object differs from the drawn one" —
+  // which is the second consumer poolLimit.ts's header warns about, arriving
+  // on schedule. There is one function that decides what the pool keeps and
+  // every path that rebuilds a year goes through it.
+  applyPoolLimit(line, generated.claims);
+  return generated;
 }
 
 /**

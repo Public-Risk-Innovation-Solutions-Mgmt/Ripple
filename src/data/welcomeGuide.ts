@@ -4,6 +4,13 @@
 // markers are parsed by WelcomeModal into <strong> spans.
 
 import { GAME_LENGTH_YEARS } from './defaultAssumptions';
+// ⚠ READ, NEVER TYPED. The 70% below is PRE_GAME_FUNDING_LEVEL interpolated,
+// so the memo cannot drift from what the pre-game actually did. A player who
+// reads "funded at the 70% confidence level" and then sees their year-1 rate
+// come in BELOW the year before is reading two halves of one fact; if the
+// parameter moved and the sentence did not, they would be reading a
+// contradiction and would have no way to tell which half was wrong.
+import { PRE_GAME_FUNDING_LEVEL } from './pricingParameters';
 
 export type WelcomeBlock =
   | { type: 'heading'; text: string }
@@ -101,6 +108,11 @@ export const WELCOME_GUIDE: WelcomeBlock[] = [
   {
     type: 'paragraph',
     text: 'You will then receive information about the organization you will be managing, its starting financial position, membership, and the conditions facing the Pool as you begin your first year.',
+  },
+  {
+    type: 'paragraph',
+    text: `The Pool has been funded at the **${(PRE_GAME_FUNDING_LEVEL * 100).toFixed(0)}% confidence level** `
+      + 'by the board that ran it before you — above the expected cost of its claims, leaving a cushion.',
   },
   { type: 'paragraph', text: 'From there, the decisions are yours.' },
   { type: 'paragraph', text: '**Every decision creates impact.**' },

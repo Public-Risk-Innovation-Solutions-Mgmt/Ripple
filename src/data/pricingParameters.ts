@@ -293,6 +293,73 @@ export const PRIOR_HISTORY_YEARS = 5;
  * the Decisions panel, and the retirement of the 15% admin load, the gross-up
  * step and the retained-cover margin. PRIOR_HISTORY_YEARS is NOT behind it.
  */
+/**
+ * THE POOL'S PER-OCCURRENCE LIMIT — WHAT IT COVERS, AND WHERE THE MEMBER TAKES
+ * OVER. GL ONLY TODAY.
+ *
+ *   GL  $25,000,000 per claim. WC and Property: no limit.
+ *
+ * ⚠ THIS CORRECTS AN ERROR, AND IT IS WORTH STATING AS ONE. The pool covers GL
+ * to $25M per claim; anything above that was never the pool's money. The
+ * engine nevertheless counted it: `cedeOccurrences` returns
+ * `retained = gross - ceded`, which includes everything above TOWER_TOP, and
+ * `retainedAboveTower` was DISPLAYED as the pool's own retention. Measured
+ * over 30 games x 10 years before the fix, GL carried $655.5M above the limit
+ * — 7.83% of its gross loss, in 27 of 300 line-years, with a worst single year
+ * of $103.9M. None of it was ever the pool's to pay.
+ *
+ * ⚠ IT IS A COVERAGE TERM, NOT A SEVERITY CEILING, AND THE TWO MUST NOT BE
+ * CONFUSED. GL_SEVERITY_CAP ($84M) is how large a GL claim can physically be;
+ * this is how much of one the pool is on the hook for. The draw is unchanged —
+ * claims above $25M still happen, and still happen at the same size — so the
+ * limit is applied AFTER generation, as an explicit step, rather than folded
+ * into the claim engine where it would silently become part of the physics.
+ *
+ * ⚠ WHAT THE EXCESS DOES AND DOES NOT TOUCH. It is reported, per line-year, as
+ * `memberShareAboveLimit`, and it enters NOTHING: not gross or net loss, not
+ * reserves, not the ledger the rate is priced from, not premium, not the loss
+ * ratio. The member pays it. `primaryLoss` is unaffected by construction —
+ * it is min(claim, EXPERIENCE_SPLIT_POINT) at $25,000, three orders below this
+ * limit — so a member's experience modifier does not move either.
+ *
+ * ⚠ AND GL's retainedAboveTower IS NOW IDENTICALLY ZERO, which is the clearest
+ * statement that the fix landed: TOWER_TOP.GL is $25M and no capped occurrence
+ * can exceed it. WC ($50M) and Property ($1B) keep theirs, and keep retaining
+ * above it, because no limit has been ruled for them.
+ *
+ * Reinsurance is bought WITHIN the limit and is unaffected: every GL layer
+ * tops out at or below $25M.
+ */
+export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
+  WC: null,
+  GL: 25_000_000,
+  Property: null,
+};
+
+/**
+ * WHAT THE BOARD FUNDED AT BEFORE THE PLAYERS ARRIVED — the 70% confidence
+ * level, on each line's own CLF table.
+ *
+ * ⚠ IT IS THE PRE-GAME ONLY. Players still default to funding at EXPECTED
+ * (CLF 1.000) and choose their own level from year 1, which is
+ * DEFAULT_FUNDING_CONFIDENCE_LEVEL and the `fundingAtExpected` flag on each
+ * line's decisions. This parameter governs the declared years the pool was run
+ * by someone else.
+ *
+ * WHY IT IS NOT "expected": a pool handed over with no cushion is a pool whose
+ * previous board was funding to break even every year, which is not how a
+ * going concern is run and not the position the game means to start from. 70%
+ * is a conservative-but-ordinary stop.
+ *
+ * ⚠ WHAT A PLAYER SEES BECAUSE OF IT. Year 1 at the default shows a rate DROP
+ * against the declared year before it — the player is funding at expected
+ * where the prior board funded with a cushion — and that drop is real rather
+ * than a modelling artefact. It is the first thing the Decisions panel's
+ * change column reports, and the welcome memo states the 70% so the drop is
+ * explicable rather than surprising. The memo READS this constant.
+ */
+export const PRE_GAME_FUNDING_LEVEL = 0.70;
+
 export const NEW_RATE_STACK = { enabled: true };
 
 /**
@@ -342,6 +409,70 @@ export const RATE_CHANGE_CAP_NEW: number | null = null;
  * ⚠ NOT YET USED — read from commit 2 onward.
  */
 export const RESERVE_BASIS_NEW = 'expected';
+
+// ============================================================================
+// DECIDED WITH THE LOSS ENGINE, RECORDED HERE, NOT YET WIRED.
+//
+// ⚠ EVERY CONSTANT BELOW IS READ BY THE PARAMETERS PAGE AND BY NOTHING ELSE.
+// They are decisions already taken about the new loss engine, written down
+// before the engine exists for the reason the R model block gives: a decision
+// that lives only in a conversation is one the next reader re-derives, and
+// usually re-derives differently. Each says plainly that it is not yet in
+// force. See docs/PENDING_MULTIPLAYER.md for the plan they belong to.
+// ============================================================================
+
+/**
+ * DEVELOPMENT IS A TOTAL OVER THE ACCIDENT YEAR'S REMAINING LIFETIME, NOT A
+ * RATE PER YEAR — and the distinction is the whole reason this is written
+ * down rather than left to the implementer.
+ *
+ * The figure says how much an accident year's incurred loss grows from where
+ * it stands to where it finally settles, emerging WITH THE PAYMENTS rather
+ * than on a calendar schedule: a year that is 60% paid has seen about 60% of
+ * its development. One number for the whole remaining life.
+ *
+ * ⚠ READ AS A YEARLY RATE IT COMPOUNDS INTO SOMETHING NOBODY CHOSE. At
+ * today's settings the same percentages applied once per year over each
+ * line's remaining lifetime come to roughly +54% on GL and +171% on WC in
+ * total. That is not a refinement of the intended figure, it is a different
+ * model, and it is the error this note exists to prevent.
+ *
+ * IT CAN BE CHANGED. The value is a judgement about how conservatively the
+ * pool books, not a measurement, and the loss engine is where it lands.
+ */
+export const DEVELOPMENT_IS_LIFETIME_TOTAL = true;
+
+/**
+ * THE REINSURANCE STRUCTURES A TEAM WILL BE ABLE TO BUY — built with the loss
+ * engine, not offered today.
+ *
+ * ⚠ THESE REPLACE THE PRESENT TOWER'S FIXED BANDS WITH A CHOICE OF PROGRAMMES,
+ * which is a different decision from the one REINSURANCE_TOWER encodes: today
+ * a team places or declines each band independently, and here a team picks one
+ * structure. Both are written down because the second does not exist yet and
+ * the first is what ships.
+ *
+ * WC and GL are deliberately the SAME LIST. Property's differs because its
+ * retention and its limits do.
+ */
+export const REINSURANCE_OPTIONS_PLANNED: PerLine<readonly string[]> = {
+  WC: ['none', '$9M xs $1M', '$5M xs $5M', '$14M xs $1M', '$10M xs $5M'],
+  GL: ['none', '$9M xs $1M', '$5M xs $5M', '$14M xs $1M', '$10M xs $5M'],
+  Property: ['none', '$20M xs $5M', '$45M xs $5M', '$25M xs $25M'],
+};
+
+/**
+ * GL'S ORDINARY LOSSES ARE THE $0-1M LAYER, and they are paid on the pattern
+ * that layer is paid on.
+ *
+ * ⚠ THE POINT IS THE MATCHED PATTERN, NOT THE BAND. An ordinary-loss model
+ * built on the whole-account payout pattern would pay out too slowly, because
+ * the account's pattern is dominated by the large claims that sit above this
+ * band and settle years later. The limited layer has its own, faster pattern
+ * and that is the one these losses use.
+ */
+export const GL_ORDINARY_LOSS_BAND_PLANNED = { from: 0, to: 1_000_000 } as const;
+
 
 // ============================================================================
 // THE R MODEL — THE DATA SCIENTIST'S PARAMETERS, RECORDED AND NOT READ.
@@ -692,6 +823,65 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Reserve basis', {
         value: RESERVE_BASIS_NEW, unit: '—',
         what: 'The basis reserves are held on.', basis: 'CHOSEN', notYetUsed: true,
+      }],
+    ],
+  },
+  {
+    title: 'Coverage and the pre-game',
+    blurb: 'What the pool covers, and how the board before the players funded it. Both are LIVE.',
+    entries: [
+      ['GL pool limit', {
+        value: `$${(POOL_LIMIT_PER_OCCURRENCE.GL ?? 0).toLocaleString('en-US')} per claim`,
+        unit: 'per occurrence, GL only',
+        what: 'The most the Pool pays on any one GL claim. Above it the loss falls to the MEMBER — '
+          + 'reported each year as the member\'s share, and counted in none of the Pool\'s losses, '
+          + 'premium, reserves or pricing.',
+        basis: 'CHOSEN',
+        note: 'WC and Property have no limit. This corrects an error: loss above $25M used to be counted '
+          + 'as the Pool\'s own retention — $655.5M over 30 games x 10 years, 7.83% of GL\'s gross, worst '
+          + 'single year $103.9M. Distinct from GL_SEVERITY_CAP ($84M), which is how large a claim can be '
+          + 'rather than how much of one the Pool covers. Reinsurance is bought within the limit.',
+      }],
+      ['Pre-game funding level', {
+        value: PRE_GAME_FUNDING_LEVEL, unit: 'confidence level',
+        what: 'What the previous board funded the declared years at, on each line\'s own CLF table.',
+        basis: 'CHOSEN',
+        note: 'The PLAYER\'S default is unchanged: funding at EXPECTED, CLF 1.000, from year 1. So a team '
+          + 'that locks year 1 untouched prices BELOW the year before it — measured at -7.0% on WC, -4.9% '
+          + 'on GL, -3.9% on Property, against +41.7% / +18.5% / +35.7% when the pre-game also funded at '
+          + 'expected. The year-1 rate itself is identical either way; only the figure it is compared '
+          + 'against moves. The welcome memo reads this constant rather than naming a number.',
+      }],
+    ],
+  },
+  {
+    title: 'Decided with the loss engine, not yet wired',
+    blurb: 'Decisions already taken about the new loss engine, recorded before it is built. '
+      + 'NONE of these is in force — see docs/PENDING_MULTIPLAYER.md.',
+    entries: [
+      ['Development basis', {
+        value: DEVELOPMENT_IS_LIFETIME_TOTAL ? 'lifetime total' : 'per year', unit: '—',
+        what: 'Development is a TOTAL over each accident year\'s remaining lifetime, emerging with the '
+          + 'payments — a year that is 60% paid has seen about 60% of its development. Not a yearly rate.',
+        basis: 'CHOSEN', notYetUsed: true,
+        note: 'It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly '
+          + '+54% on GL and +171% on WC in total at today\'s settings — a different model, not a refinement.',
+      }],
+      ['Reinsurance options', {
+        value: `WC ${REINSURANCE_OPTIONS_PLANNED.WC.join(' · ')}`,
+        unit: 'structures a team may buy',
+        what: 'A choice of programme, replacing today\'s place-or-decline on each band.',
+        basis: 'CHOSEN', notYetUsed: true,
+        note: `GL is the same list as WC. Property: ${REINSURANCE_OPTIONS_PLANNED.Property.join(' · ')}.`,
+      }],
+      ['GL ordinary losses', {
+        value: `$${GL_ORDINARY_LOSS_BAND_PLANNED.from.toLocaleString('en-US')}`
+          + `-$${GL_ORDINARY_LOSS_BAND_PLANNED.to.toLocaleString('en-US')}`,
+        unit: 'the layer they occupy',
+        what: 'GL\'s ordinary losses are the $0-1M layer, paid on that limited layer\'s own payout pattern.',
+        basis: 'CHOSEN', notYetUsed: true,
+        note: 'The matched pattern is the point: the whole-account pattern is dominated by the large claims '
+          + 'above this band and would pay these out too slowly.',
       }],
     ],
   },

@@ -75,7 +75,8 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack } from './linePricing';
-import { NEW_RATE_STACK } from '../data/pricingParameters';
+import { NEW_RATE_STACK, POOL_LIMIT_PER_OCCURRENCE } from '../data/pricingParameters';
+import { applyPoolLimit } from './poolLimit';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
 import { cloneMembershipHistory, openInterval, closeInterval } from './membershipHistory';
@@ -1783,6 +1784,29 @@ export function processLineYear(
   // keep-the-draw question of its own rather than a tidy-up. Left standing and
   // reported.
 
+  // --- THE POOL'S PER-OCCURRENCE LIMIT -------------------------------------
+  //
+  // ⚠ ONE SEAM, AFTER EVERY GENERATION BRANCH AND BEFORE ANYTHING READS THE
+  // CLAIMS. The pool covers GL to $25M per claim; above that the loss is the
+  // member's. Placing it here means the register, the reserve cohorts, the
+  // development ledger the rate is priced from, the financial statements and
+  // the member loss results all see one capped set of claims — there is no
+  // consumer that could be handed the uncapped array by mistake, because
+  // there is only ever one array and it is capped before this line returns.
+  //
+  // ⚠ WC AND PROPERTY ARE BIT-IDENTICAL THROUGH HERE, by construction rather
+  // than by test: their limit is null, so `aggregateMemberLoss` is left
+  // exactly as their generators produced it and not even re-summed. Only a
+  // line with a limit has its gross replaced.
+  const poolLimit = applyPoolLimit(
+    line, generatedClaims ?? [],
+    new Map((generatedOccurrences ?? []).map(o => [o.id, o.claimIds.length])),
+  );
+  const memberShareAboveLimit = poolLimit.memberShareAboveLimit;
+  if (POOL_LIMIT_PER_OCCURRENCE[line] !== null) {
+    aggregateMemberLoss = poolLimit.grossUltimateLoss;
+  }
+
   let grossUltimateLoss = aggregateMemberLoss;
 
   grossUltimateLoss = Math.max(0, grossUltimateLoss);
@@ -2654,6 +2678,14 @@ export function processLineYear(
     bookingGiveBack: markdown.giveBack,
     cededByLayer,
     retainedAboveTower,
+    // ⚠ NOT THE POOL'S MONEY, AND IT IS HERE SO THAT IS VISIBLE RATHER THAN
+    // ABSENT. What fell above the pool's per-occurrence limit and went back to
+    // the member. It enters no total on this result — not gross or net loss,
+    // not premium, not the reserve — and is reported beside retainedAboveTower
+    // precisely because the two used to be the same number on GL and are now
+    // opposites: one is loss the pool keeps, the other is loss it never had.
+    memberShareAboveLimit,
+    claimsAboveLimit: poolLimit.claimsAboveLimit,
     aggregateRecovery: aggregateRecoveryAmount,
     aggregatePremium,
     aggregateAttachment,
@@ -3790,6 +3822,10 @@ export function aggregateLineResults(
       return out;
     })(),
     retainedAboveTower: addDollars('retainedAboveTower'),
+    // Summed like any other dollar figure, and like the per-line field it is
+    // reported and counted in nothing — see memberShareAboveLimit there.
+    memberShareAboveLimit: addDollars('memberShareAboveLimit'),
+    claimsAboveLimit: results.reduce((s2, r) => s2 + (r.claimsAboveLimit ?? 0), 0),
     aggregateRecovery: addDollars('aggregateRecovery'),
     aggregatePremium: addDollars('aggregatePremium'),
     // ⚠ 0, NOT A SUM, BECAUSE NO POOL AGGREGATE TREATY EXISTS TO HAVE AN

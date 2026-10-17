@@ -618,7 +618,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the charge: WC's opening rate goes 2.859 -> 6.177, GL 5.357 -> 8.398,
 // Property 0.284 -> 0.396. Losses and reserves are untouched; see
 // VALUE_IDENTITY's v60 note for the field-level attribution.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v62.json');
+// v63: THE GL POOL LIMIT AND THE PRE-GAME FUNDING LEVEL. All 24 exports move,
+// and all 24 were expected to: every one carries surplus, which moves on all
+// three lines through the pre-game's cash/invested split, and the GL and
+// tri-line exports carry the capped GL loss as well. See VALUE_IDENTITY's v61
+// note for the field-level attribution.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v63.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

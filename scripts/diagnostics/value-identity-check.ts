@@ -998,7 +998,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 1,080 fields are ADDED and are not a value change: expectedToSurplus,
 // finalRatePer100, firstIndicationPer100, lossPurePremiumPer100 and the two
 // prior-year panel fields.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v60.json');
+// v61: THE GL POOL LIMIT AND THE PRE-GAME FUNDING LEVEL. Two changes, and the
+// INSTANCE COUNTS separate them cleanly — which is why they could be captured
+// together rather than one at a time.
+//
+//   300 instances (every line-year)  the pre-game funding level. Surplus,
+//     invested assets, investment income, the capital ratios and the cash both
+//     ends move on ALL THREE LINES by about 0.03%. The opening SURPLUS is
+//     unchanged — it is set from the reserve, which no funding level can move
+//     — but the opening CASH is a share of premium, so funding the declared
+//     years at 70% leaves a different cash/invested split, and the investment
+//     income on it compounds from there.
+//   72-88 instances (GL only)  the pool limit. Reserves, paid, case and IBNR
+//     both bases, expected loss, premium, the charge and seven ratios. GL's
+//     gross falls 7.83% and its rate 5.6%, because the pool no longer prices
+//     for a tail it never covered.
+//   285 instances  memberSatisfaction, 6.8 -> 6.9, because rates fell.
+//
+// 600 fields are ADDED and are not a value change: memberShareAboveLimit and
+// claimsAboveLimit. WC and Property see no loss, reserve or premium move at
+// all — their limit is null and the engine does not even re-sum their gross.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v61.json');
 
 function seedOf(id: string) {
   let h = 5381;

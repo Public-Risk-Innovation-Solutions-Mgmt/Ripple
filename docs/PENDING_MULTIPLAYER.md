@@ -160,6 +160,58 @@ from the host's development setting, still to be wired, plus the R shocks, and
 from nothing else. Removing the engine's own development machinery folds into
 the member-cut commit, since full-cost booking has already switched it off.
 
+### Coverage limit — GL at $25M per claim
+
+**Landed, not pending.** The pool covers GL to $25M per claim; above that the
+loss is the member's. It is recorded here because the loss engine prices off
+the ledger this limit now caps, and because the engine must not reintroduce
+the error it fixes: `cedeOccurrences` returned `retained = gross - ceded`,
+which counted everything above the tower as the pool's — $655.5M over 30 games
+x 10 years on GL, 7.83% of gross, worst year $103.9M. The excess is reported
+as `memberShareAboveLimit` and enters no pool total. WC and Property have no
+limit. See `POOL_LIMIT_PER_OCCURRENCE` and the **Coverage and the pre-game**
+section of [docs/PARAMETERS.md](PARAMETERS.md).
+
+### Pre-game funding level — 70%
+
+**Landed, not pending.** The declared years were funded at the 70% confidence
+level, on each line's own CLF table; players still default to expected. The
+year-1 rate is unchanged by this — only the figure it is compared against
+moves, from +41.7% / +18.5% / +35.7% to -7.0% / -4.9% / -3.9% on WC / GL /
+Property. See `PRE_GAME_FUNDING_LEVEL` and the same page section; the welcome
+memo reads the constant rather than naming a number.
+
+### Development is a lifetime total
+
+Recorded in code as `DEVELOPMENT_IS_LIFETIME_TOTAL`, **not yet wired** — see
+the **Decided with the loss engine, not yet wired** section of
+[docs/PARAMETERS.md](PARAMETERS.md). The percentage is how much an accident
+year grows from where it stands to where it settles, over its REMAINING
+LIFETIME, emerging with the payments: a year 60% paid has seen about 60% of
+its development. It is not a rate per year, and reading it as one compounds to
+roughly +54% on GL and +171% on WC at today's settings — a different model
+rather than a refinement. It can be changed.
+
+### Reinsurance options a team may buy
+
+**Not yet wired**, recorded as `REINSURANCE_OPTIONS_PLANNED` and shown on
+[docs/PARAMETERS.md](PARAMETERS.md). A choice of structure, replacing today's
+place-or-decline on each band:
+
+| Line | Options |
+|---|---|
+| GL | none · $9M xs $1M · $5M xs $5M · $14M xs $1M · $10M xs $5M |
+| WC | the same as GL |
+| Property | none · $20M xs $5M · $45M xs $5M · $25M xs $25M |
+
+### GL ordinary losses — the $0-1M layer
+
+**Not yet wired**, recorded as `GL_ORDINARY_LOSS_BAND_PLANNED`. GL's ordinary
+losses are the $0-1M layer and are paid on **that limited layer's own payout
+pattern**, not the whole account's. The matched pattern is the point: the
+account pattern is dominated by the large claims above this band and would pay
+ordinary losses out too slowly.
+
 ### Payout
 
 The recorded paid and incurred patterns, with case and IBNR as the existing

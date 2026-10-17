@@ -24,6 +24,7 @@
 import type { CoverageLine, Member, Claim, Occurrence } from '../types/simulation';
 import type { LineShockEffects } from '../types/shocks';
 import { deriveSubRng } from './random';
+import { applyPoolLimit } from './poolLimit';
 import { WC_LOSS_MODEL } from '../data/defaultAssumptions';
 import { generateWcClaims, type WcGenerationInputs } from './wcClaimEngine';
 import { generateGlClaims, type GlGenerationInputs } from './glClaimEngine';
@@ -165,14 +166,28 @@ export function propertyGenerationInputs(b: LineYearGenerationBase): PropertyGen
   };
 }
 
-/** Draw one line-year through the shared mapping. Used by the regenerator. */
+/**
+ * Draw one line-year through the shared mapping. Used by the regenerator.
+ *
+ * ⚠ THE POOL'S PER-OCCURRENCE LIMIT IS APPLIED HERE, because what this
+ * returns has to BE the engine's year and not a second opinion about it. The
+ * engine caps GL at $25M per claim before anything reads the register (see
+ * poolLimit.ts); a regenerator that skipped the cap handed back a claim the
+ * pool never had. Three gates said so at once — save-round-trip-check,
+ * property-mitigation-check and claims-memo-check — and all three named the
+ * same thing: "the regenerated object differs from the drawn one".
+ *
+ * There is ONE function that decides what the pool keeps, and both paths that
+ * build a line-year call it.
+ */
 export function generateLineYearClaims(line: CoverageLine, b: LineYearGenerationBase): LineYearGenerationOutput {
+  const limited = (r: { claims: Claim[]; occurrences: Occurrence[] }) => {
+    const { grossUltimateLoss } = applyPoolLimit(line, r.claims);
+    return { claims: r.claims, occurrences: r.occurrences, grossUltimateLoss };
+  };
   switch (line) {
-    case 'WC': { const r = generateWcClaims(wcGenerationInputs(b));
-      return { claims: r.claims, occurrences: r.occurrences, grossUltimateLoss: r.grossUltimateLoss }; }
-    case 'GL': { const r = generateGlClaims(glGenerationInputs(b));
-      return { claims: r.claims, occurrences: r.occurrences, grossUltimateLoss: r.grossUltimateLoss }; }
-    case 'Property': { const r = generatePropertyClaims(propertyGenerationInputs(b));
-      return { claims: r.claims, occurrences: r.occurrences, grossUltimateLoss: r.grossUltimateLoss }; }
+    case 'WC': return limited(generateWcClaims(wcGenerationInputs(b)));
+    case 'GL': return limited(generateGlClaims(glGenerationInputs(b)));
+    case 'Property': return limited(generatePropertyClaims(propertyGenerationInputs(b)));
   }
 }
