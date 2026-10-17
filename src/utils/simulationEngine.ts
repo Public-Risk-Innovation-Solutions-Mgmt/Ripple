@@ -1164,6 +1164,48 @@ export function processLineYear(
   const rateAtConfidenceLevelPer100 =
     netPurePremiumPer100 * selectedFundingCLF * pricingAdjustment;
 
+  // ============================================================================
+  // THE NEW STACK, ON THE BOOK THE POOL ACTUALLY CARRIES — THIS IS THE BILL.
+  //
+  // ⚠ COMMIT 3 WIRED THE SIGNAL AND NOT THE BILL, AND THE GAP WAS MEASURED
+  // RATHER THAN NOTICED. `estimatedQuote` above is the PRICE SIGNAL, struck on
+  // the pre-movement book because that is the book that exists when members
+  // decide. Everything from here prices what the pool carries. Commit 3
+  // swapped only the first, so with the flag on `ratePer100`, `poolPremium`,
+  // `totalMemberCharge` and `reinsuranceCost` came back BIT-IDENTICAL to the
+  // flag-off run across 20 games — the new rate was shown and never charged.
+  // Worse, `memberSatisfaction` DID move (7.1 -> 6.8 on 297 instances),
+  // because satisfaction reads the signal: members were made unhappy by a rate
+  // that never reached their invoice.
+  //
+  // WHERE THE TWO QUOTES LEGITIMATELY DIFFER, and this one stays:
+  //   BOOK      the signal uses `currentActiveMembers`, the bill `towerMembers`
+  //             — the covered book, after joins and departures.
+  //   EXPOSURE  `estimatedExposure` against `activeExposure`, post-movement.
+  // Those are different books on purpose and the two rates per $100 differ
+  // whenever the roster moves. What must NOT differ is the basis: both now
+  // price through quoteNewRateStack.
+  //
+  // ⚠ THE GROUND-UP PURE PREMIUM IS THE SAME NUMBER IN BOTH, and that is a
+  // property of the new stack rather than an oversight. It is a historical
+  // loss cost per $100 read off the ledger, not a blend over the current
+  // roster, so moving the book does not move it — which is exactly why the old
+  // stack needed a second `currentPurePremiumPer100` here and this one does
+  // not.
+  const billedStack = NEW_RATE_STACK.enabled && newPp !== null
+    ? quoteNewRateStack({
+      line,
+      yearNumber,
+      members: towerMembers,
+      exposure: activeExposure,
+      groundUpPurePremiumPer100: newPp.purePremiumPer100,
+      clf: selectedFundingCLF,
+      riskControlPct: lineDecisions.riskControlIncentivePct ?? 0,
+      layersPlaced: lineDecisions.layersPlaced,
+      aggregateStopLevel: lineDecisions.aggregateStopLevel,
+    })
+    : null;
+
   // ⚠ `poolPremiumRatePer100` AND `adminRatePer100` WERE LOCALS HERE AND ARE GONE.
   // Both existed only to build indicatedFundingRatePer100, and both died with it.
   // The identically-named fields on linePricing's LineRateQuote, on
@@ -1171,8 +1213,14 @@ export function processLineYear(
   // different files and are live — HistoryPage, DecisionsPage and
   // panel-engine-parity-check all read them. Do not follow the name across files
   // and conclude something is still needed here.
-  const poolPremium =
-    activeExposure * rateAtConfidenceLevelPer100 * 10_000;
+  // ⚠ THE LOADING IS SPLIT ACROSS POOL PREMIUM AND ADMIN so the charge stays
+  // ADDITIVE, exactly as newStackAsLineRateQuote does it for the signal:
+  // (retained x CLF + admin) / d is retained x CLF / d + admin / d, so the two
+  // components sum to the designed rate to the bit and every downstream reader
+  // that assumes pool + admin + reinsurance === total keeps holding.
+  const poolPremium = billedStack !== null
+    ? activeExposure * (billedStack.retainedPurePremiumPer100 * selectedFundingCLF / billedStack.divisor) * 10_000
+    : activeExposure * rateAtConfidenceLevelPer100 * 10_000;
 
   // MEMBER-LEVEL CLASS PRICING. The line total above is UNTOUCHED and is not on
   // this call's arithmetic path — the allocator splits it by weight rather than
@@ -1203,7 +1251,13 @@ export function processLineYear(
   // worth 0.13 per $100 on GL at the default all-layers placement, which on a
   // $400M book is about $0.5M/yr of expense the pool would stop collecting for
   // work it still has to do.
-  const adminExpense = expectedLoss * ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM;
+  // ⚠ THE 15% LOAD IS RETIRED UNDER THE FLAG, which is what commit 3 said it
+  // would do and could not, having never reached this line. The new admin is a
+  // fixed amount per line spread over exposure plus a per-exposure rate, and it
+  // carries its share of the expense divisor.
+  const adminExpense = billedStack !== null
+    ? activeExposure * (billedStack.adminRatePer100 / billedStack.divisor) * 10_000
+    : expectedLoss * ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM;
   const poolPremiumAndAdminExpense = poolPremium + adminExpense;
 
   // isWcClaimLine / isGlClaimLine / isClaimLine are now declared further up,
@@ -1257,9 +1311,15 @@ export function processLineYear(
   const fullTowerQuote = occurrenceProgramCost(
     line as TowerLine, FULL_OCCURRENCE_PLACEMENT[line as TowerLine], towerMembers, yearNumber,
   );
-  const retainedCoverMargin = DECLINED_COVER_MARGIN_ENABLED
-    ? Math.max(0, fullTowerQuote.premium - towerQuote.premium)
-    : 0;
+  // ⚠ RETIRED UNDER THE NEW STACK, which commit 3 promised and never reached.
+  // Declining a layer now simply raises the RETAINED pure premium — less is
+  // ceded, so more is funded — and charging the declined layers' price on top
+  // of that would bill the member twice for the same self-funded risk.
+  const retainedCoverMargin = billedStack !== null
+    ? 0
+    : DECLINED_COVER_MARGIN_ENABLED
+      ? Math.max(0, fullTowerQuote.premium - towerQuote.premium)
+      : 0;
 
   const totalMemberCharge = poolPremiumAndAdminExpense + reinsuranceCost + retainedCoverMargin;
   const totalMemberRatePer100 = totalMemberCharge / Math.max(activeExposure * 10_000, 1);
@@ -2498,11 +2558,26 @@ export function processLineYear(
     newPurePremiumPer100: newPp?.purePremiumPer100,
     // The new stack's two figures, and last year's pair on the SAME two bases.
     // All absent while NEW_RATE_STACK is off — see the fields' own note.
-    firstIndicationPer100: newStack?.firstIndicationPer100,
-    finalRatePer100: newStack?.finalRatePer100,
-    priorFirstIndicationPer100: newStack !== null ? lineState.lastFirstIndicationPer100 : undefined,
-    priorFinalRatePer100: newStack !== null ? lineState.lastFinalRatePer100 : undefined,
-    expectedToSurplus: newStack?.expectedToSurplus,
+    // ⚠ THE BILLED FIGURES, NOT THE SIGNAL'S. `billedStack` is struck on the
+    // covered book and the post-movement exposure, so these are what the pool
+    // actually charged. The panel's own numbers are the pre-movement estimate
+    // a team sees while deciding, and the two differ whenever the roster
+    // moves — see the note at billedStack. new-rate-bill-check asserts the
+    // charged rate equals the figure stored here, exactly.
+    firstIndicationPer100: billedStack?.firstIndicationPer100,
+    // ⚠ THE CHARGED RATE ITSELF, NOT A SECOND DERIVATION OF IT.
+    // `totalMemberRatePer100` is totalMemberCharge over the billed exposure —
+    // the number the pool actually billed — so storing it here makes "the rate
+    // shown is the rate charged" true by construction rather than by two
+    // computations agreeing. The first version stored
+    // `billedStack.finalRatePer100`, which differed from the charge in the
+    // fifth decimal because the engine's reinsurance limb carries the
+    // aggregate's own terms and the stack's does not. One definition removes
+    // the question.
+    finalRatePer100: billedStack !== null ? totalMemberRatePer100 : undefined,
+    priorFirstIndicationPer100: billedStack !== null ? lineState.lastFirstIndicationPer100 : undefined,
+    priorFinalRatePer100: billedStack !== null ? lineState.lastFinalRatePer100 : undefined,
+    expectedToSurplus: billedStack?.expectedToSurplus,
     newLossCostPer100: newPp?.lossCostPer100,
     writtenExposure: parseFloat(writtenExposure.toFixed(2)),
 
@@ -2687,10 +2762,10 @@ export function processLineYear(
     // Carried forward so NEXT year can compare each indication against its own
     // basis. Left untouched when the flag is off, so a state written under the
     // old stack does not acquire a figure it never priced.
-    lastFirstIndicationPer100: newStack !== null
-      ? newStack.firstIndicationPer100 : lineState.lastFirstIndicationPer100,
-    lastFinalRatePer100: newStack !== null
-      ? newStack.finalRatePer100 : lineState.lastFinalRatePer100,
+    lastFirstIndicationPer100: billedStack !== null
+      ? billedStack.firstIndicationPer100 : lineState.lastFirstIndicationPer100,
+    lastFinalRatePer100: billedStack !== null
+      ? totalMemberRatePer100 : lineState.lastFinalRatePer100,
     surplus: endingSurplus,
     investedAssets: endingInvestments,
 

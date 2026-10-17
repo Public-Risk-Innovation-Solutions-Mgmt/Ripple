@@ -213,6 +213,12 @@ const FAST: string[] = [
   'ratemaking-loop-check',           //  80s   THE ACCEPTANCE TEST — 4/4; condition 3 is paired with two null controls
   'ratio-basis-check',               //   7s
   'reserve-centring-check',          //  55s   IBNER_CALENDAR_RHO adds dispersion and NOT drift; carries its own positive control
+  'new-rate-bill-check',             //  12s   with the flag on, the rate members are CHARGED is the rate
+                                     //         they are SHOWN, the charge is additive, the retained-cover
+                                     //         margin is retired, and the bill is NOT the old stack's.
+                                     //         ⚠ THE CHECK WHOSE ABSENCE LET COMMIT 3 SHIP INERT: it had
+                                     //         wired the price signal and not the bill, and 20 games came
+                                     //         back bit-identical flag-on. Flips the flag in its own process.
   'new-rate-tieout-check',           //   8s   the NEW rate stack's two indications tie to their own
                                      //         components, neither loading error is present and the
                                      //         adapter is additive. ⚠ IT FLIPS NEW_RATE_STACK AT

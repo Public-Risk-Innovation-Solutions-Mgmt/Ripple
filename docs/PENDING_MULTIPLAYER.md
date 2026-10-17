@@ -269,6 +269,29 @@ obsolete and need homes when the flag turns on:
 Until then they render as they always did, because the old panel is still the
 one on screen.
 
+### Ten-world averages will flatter teams that decline reinsurance
+
+**Measured, flag on, 8 games x 6 years:** declining every layer RAISES mean
+ending surplus — GL $44.1M placed against $73.7M declined, Property $17.6M
+against $68.1M, WC $92.2M against $99.4M. That is not a defect in the price.
+Reinsurance now carries a **14% load** (expected layer loss x the line's CLF
+multiplier at 70%), so in expectation a team pays 1.14x what it recovers and
+the mean must favour self-funding. Cover pays in the **tail**, not the mean.
+
+⚠ **SO THE TEN-WORLD AVERAGE IS THE WRONG NUMBER TO SHOW ALONE.** Averaging ten
+worlds is exactly the operation that hides a tail, and a team that declined its
+whole tower will look better than one that bought cover in almost every
+average the game can display. **The MINIMUM surplus across the ten worlds must
+be shown beside the average**, on any screen that reports a team's position.
+Without it the game teaches the opposite of what reinsurance is for.
+
+### Assessments are a percentage of surplus — decided
+
+Assessments are taken as a **% of surplus**, not of premium or of the deficit.
+Recorded here because it is a decision rather than a derivation, and because
+the parameter's own range (`assessmentPct`, 0 to 0.25) does not say which base
+it applies to.
+
 ### Order and commits
 
 After pricing commits 3 and 4:
