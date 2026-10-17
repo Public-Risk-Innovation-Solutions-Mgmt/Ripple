@@ -609,7 +609,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ten, so every workbook starts from a different opening balance sheet. See
 // value-identity v58 for the field-level reading and for the control showing
 // the new rate stack moved none of it.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v60.json');
+// ⚠ v60 -> v61: THE REINSURANCE PRICE AND THE BULK-YEAR CESSION. Values move,
+// the column list does not. See value-identity v59.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v61.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

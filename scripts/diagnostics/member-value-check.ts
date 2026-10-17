@@ -32,6 +32,8 @@ import {
 } from '../../src/utils/memberValue';
 import { MARKET_TARGET_LOSS_RATIO } from '../../src/utils/marketConditions';
 import { TOWER_TOP, RISK_LOAD_LAMBDA } from '../../src/data/reinsuranceTower';
+import { REINSURANCE_LOAD_CLF_AT_70 } from '../../src/data/pricingParameters';
+import type { TowerLine } from '../../src/data/reinsuranceTower';
 import type {
   Claim, CoverageLine, DecisionSet, GameState, LineResultSet, MemberPremiumShare,
 } from '../../src/types/simulation';
@@ -257,10 +259,20 @@ const defaultsValue = new Map<CoverageLine, number>();
           + `quoted premium and the quote carries a positive risk load (lambda `
           + `${RISK_LOAD_LAMBDA}), so it cannot reach 1.`);
       }
-    } else if (!(Math.abs(benchmark - 1) < 1e-9)) {
+    } else if (!(Math.abs(benchmark - 1 / REINSURANCE_LOAD_CLF_AT_70[line as TowerLine]) < 1e-9)) {
+      // ⚠ FORKED AT COMMIT 4, AND THE OLD CLAIM IS KEPT IN WORDS BECAUSE IT WAS
+      // TRUE. The tower was priced at E[ceded] + lambda x SD with lambda 0, so
+      // every layer cost exactly its expected cession and the reinsurer's
+      // implied loss ratio WAS exactly 1.000 — the charity this branch named.
+      // The price is now expected x the line's CLF multiplier at 70%, so the
+      // ratio is exactly 1 / CLF: 0.877193 on WC, 0.881057 on GL, 0.871764 on
+      // Property. Still an exact identity, still not widened to a range — a
+      // `benchmark < 1` here would pass whatever the load happened to be,
+      // including a load that had silently died.
       failures.push(`${line}: the reinsurer's implied loss ratio reads `
-        + `${benchmark.toFixed(6)} at lambda 0, where every layer is priced at 1x its `
-        + `expected cession, so it must be exactly 1.000.`);
+        + `${benchmark.toFixed(6)}, but every layer is priced at expected cession x `
+        + `${REINSURANCE_LOAD_CLF_AT_70[line as TowerLine]} (the CLF at 70%), so it must be `
+        + `exactly ${(1 / REINSURANCE_LOAD_CLF_AT_70[line as TowerLine]).toFixed(6)}.`);
     }
   }
 }

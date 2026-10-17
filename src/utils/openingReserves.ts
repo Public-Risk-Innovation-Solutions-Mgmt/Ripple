@@ -72,7 +72,7 @@ import {
 import { computeKLine, deriveNeutralPurePremiumPer100 } from './wcClaimEngine';
 import { computeKGl, deriveNeutralGlPurePremiumPer100 } from './glClaimEngine';
 import { computeKPr, deriveNeutralPropertyPurePremiumPer100 } from './propertyClaimEngine';
-import { allLayerRiskMoments } from './towerMoments';
+import { allLayerRiskMoments, expectedCededAtBoundsScale } from './towerMoments';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { getMemberExposure } from './lineHelpers';
 import type { TowerLine } from '../data/reinsuranceTower';
@@ -173,6 +173,31 @@ export function heldGrossPurePremiumPer100(line: CoverageLine, members: Member[]
  * bounds-taking accessor on towerMoments — small, but a reinsurance-module
  * change, and this commit is value-neutral by construction.
  */
+/**
+ * THE CESSION RATIO FOR A BULK ACCIDENT YEAR, AT ITS OWN COST LEVEL.
+ *
+ * ⚠ THIS REPLACES TAKING YEAR 1'S RATIO FOR EVERY AGE, which was recorded as a
+ * known bias when the set opening landed and is corrected here. A fixed-dollar
+ * attachment is further up a cheaper year's severity distribution, so an older
+ * year cedes LESS — taking year 1's ratio overstated what those years ceded
+ * and therefore UNDERSTATED their net reserve. Measured before the fix at up
+ * to $9.1M, 5.1% of opening reserves, mostly WC.
+ *
+ * The bounds are scaled by (1 + severity trend)^age and the cession priced on
+ * today's distributions; see expectedCededAtBoundsScale for the identity, and
+ * for why the tower's year axis cannot be used instead (it clamps at year 1).
+ *
+ * ⚠ DIVIDED BY TODAY'S GROSS, NOT THE DEFLATED GROSS. The identity's 1/t and
+ * the deflated year's own 1/t cancel; dividing the scaled cession by the
+ * deflated gross would deflate twice and hand back year 1's ratio again.
+ */
+export function bulkCessionRatioAtAge(line: CoverageLine, members: Member[], ageYears: number): number {
+  const scale = Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], ageYears);
+  const ceded = expectedCededAtBoundsScale(line as TowerLine, members, 1, scale);
+  const grossToday = expectedGrossUltimateAtAge(line, 0, members);
+  return grossToday > 0 ? Math.min(0.95, ceded / grossToday) : 0;
+}
+
 export function towerCessionRatio(line: CoverageLine, members: Member[], yearNumber = 1): number {
   if (line === 'Property') {
     // Property's cat band is not a per-occurrence layer in the same sense and
@@ -228,8 +253,10 @@ export interface BulkCohortSpec {
  * pricing develops with, which is the whole point of the rebuild.
  */
 export function bulkOpeningCohorts(line: CoverageLine, members: Member[]): BulkCohortSpec[] {
-  const cession = towerCessionRatio(line, members);
   return bulkAccidentYearAges(line).map(ageYears => {
+    // ⚠ PER AGE NOW, not one year-1 ratio for all of them. See
+    // bulkCessionRatioAtAge for the bias this removes.
+    const cession = bulkCessionRatioAtAge(line, members, ageYears);
     const netUltimate = expectedGrossUltimateAtAge(line, ageYears, members) * (1 - cession);
     const unpaidShare = unpaidShareAtAge(line, ageYears);
     const netUnpaid = netUltimate * unpaidShare;

@@ -28,6 +28,8 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { REINSURANCE_TOWER, RISK_LOAD_LAMBDA } from '../../src/data/reinsuranceTower';
 import { occurrenceProgramCost } from '../../src/utils/reinsuranceTower';
+import { REINSURANCE_LOAD_CLF_AT_70 } from '../../src/data/pricingParameters';
+import type { TowerLine } from '../../src/data/reinsuranceTower';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, GameState, Member } from '../../src/types/simulation';
 
@@ -181,23 +183,30 @@ console.log(`  Checked analytically on the full canonical roster at lambda ${RIS
     const netCost = (qAll.premium - qAll.expectedCeded) - (qNone.premium - qNone.expectedCeded);
     console.log(`  ${l}: full tower premium $${(qAll.premium / M).toFixed(3)}M, expected ceded ` +
       `$${(qAll.expectedCeded / M).toFixed(3)}M, NET cost to members $${(netCost / M).toFixed(3)}M/yr`);
-    // ⚠ BRANCHED ON THE REGIME, BECAUSE AT ZERO LOAD THIS SECTION'S OWN RESULT
-    // IS THE POINT RATHER THAN A FAILURE. The claim above is that the net member
-    // cost of a layer is lambda x SD[ceded]: placing it costs its premium and
-    // saves its expected ceded, so everything but the load cancels. At
-    // RISK_LOAD_LAMBDA = 0 that identity says the net cost is EXACTLY ZERO, and
-    // the old `netCost > 0` reported the identity holding as a defect.
+    // ⚠ REWRITTEN AT COMMIT 4, AND THE OLD ASSERTION IS RECORDED BECAUSE IT WAS
+    // TRUE AND IS NOW FALSE BY DESIGN. The price was E[ceded] + lambda x SD and
+    // REINSURANCE_RISK_LOAD_LAMBDA is 0, so the tower was actuarially FREE:
+    // placing a layer cost its premium and saved exactly its expected ceded,
+    // and this asserted the net cost was zero to within $1. It held.
     //
-    // Zero is not a weaker assertion than "positive and below gross" — it is a
-    // tighter one. It fails if any layer picks up a load the constant did not
-    // ask for, which a `>= 0` would have waved through.
+    // The price is now expected layer loss x the line's CLF multiplier at 70%,
+    // so the net cost is expected x (CLF - 1) — a real, intended margin. The
+    // old assertion would report the new price working as a defect, which is
+    // the stale-assertion trap this project keeps meeting. It is FORKED rather
+    // than loosened: the claim is still an exact identity, just a different
+    // one, and a `netCost > 0` would have waved through any load at all.
+    const clf = REINSURANCE_LOAD_CLF_AT_70[l as TowerLine];
+    const impliedLoad = qAll.expectedCeded * (clf - 1);
+    check(Math.abs(netCost - impliedLoad) < Math.max(1, qAll.expectedCeded * 1e-9),
+      `${l}: net cost is exactly expected ceded x (CLF@70% - 1)`,
+      `$${(netCost / M).toFixed(3)}M against $${(impliedLoad / M).toFixed(3)}M at CLF ${clf}`);
     if (RISK_LOAD_LAMBDA > 0) {
       check(netCost > 0 && netCost < qAll.premium,
         `${l}: net cost is positive but below the gross premium`,
         `${((netCost / qAll.premium) * 100).toFixed(1)}% of premium`);
     } else {
-      check(Math.abs(netCost) < 1,
-        `${l}: net cost is exactly zero at lambda 0`,
+      check(netCost > 0,
+        `${l}: the tower is no longer actuarially free — the CLF load is real`,
         `$${netCost.toFixed(2)} against a $1 tolerance`);
     }
   }

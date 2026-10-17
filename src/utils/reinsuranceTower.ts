@@ -20,13 +20,13 @@ import {
   AGG_LIMIT_MULTIPLE,
   PROPERTY_PERIL_DEDUCTIBLE,
   REINSURANCE_TOWER,
-  RISK_LOAD_LAMBDA,
   TOWER_TOP,
   type TowerLine,
 } from '../data/reinsuranceTower';
 import { lognormalPartialMoment } from './claimMath';
 import { quotePropertyAggregate } from './propertyAggregate';
 import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './towerMoments';
+import { REINSURANCE_LOAD_CLF_AT_70 } from '../data/pricingParameters';
 import type { Claim, Member, Occurrence } from '../types/simulation';
 
 // --- the waterfall (J14) ----------------------------------------------------
@@ -145,9 +145,32 @@ export function cedeOccurrences(
 // increasing value for free and the gap widened every year. Computing E[ceded]
 // directly from the book removes the mismatch by construction: there is no
 // longer a second, differently-trending quantity for the price to be stated in.
+// ============================================================================
+// THE PRICE: EXPECTED LAYER LOSS x THE LINE'S CLF MULTIPLIER AT 70%.
+//
+// ⚠ IT REPLACES E[ceded] + lambda x SD[ceded], which is retired at commit 4.
+// The old form charged a margin proportional to the layer's own SD, which on a
+// rarely-hit high layer is large relative to its mean — the thinner the layer,
+// the heavier the load, for no reason a market would recognise.
+//
+// ⚠ AND THE MULTIPLIER IS NOT THE 70TH PERCENTILE OF THE LAYER'S OWN LOSSES.
+// That is the trap this parameter exists to avoid and it is worth restating at
+// the call site: a layer hit in fewer than 30% of years has a loss
+// distribution whose 70th percentile is ZERO, so pricing off it would charge
+// nothing for exactly the layers that most need a margin. REINSURANCE_LOAD_
+// CLF_AT_70 is the POOL-level CLF table read at 0.70 — a multiplier on an
+// EXPECTED loss, which behaves properly at any hit rate. See its own note.
+//
+// The expected loss is computed at runtime from the severity-trended
+// distributions, so this price does not inherit the stale held figure that
+// commit 3's trend test found under the old rate.
+// ============================================================================
+function layerPriceFrom(line: TowerLine, expected: number): number {
+  return expected * REINSURANCE_LOAD_CLF_AT_70[line];
+}
+
 export function layerPremium(line: TowerLine, layerIndex: number, members: Member[], yearNumber: number): number {
-  const m = layerRiskMoments(line, layerIndex, members, yearNumber);
-  return m.expected + RISK_LOAD_LAMBDA * m.sd;
+  return layerPriceFrom(line, layerRiskMoments(line, layerIndex, members, yearNumber).expected);
 }
 
 export function expectedCededForLayer(line: TowerLine, layerIndex: number, members: Member[], yearNumber: number): number {
@@ -182,7 +205,7 @@ export function occurrenceProgramCost(
   let premium = 0, expectedCeded = 0;
   REINSURANCE_TOWER[line].forEach((l, i) => {
     if (!(placed[i] && l.purchasable)) return;
-    premium += moments[i].expected + RISK_LOAD_LAMBDA * moments[i].sd;
+    premium += layerPriceFrom(line, moments[i].expected);
     expectedCeded += moments[i].expected;
   });
   return { premium, expectedCeded };
@@ -345,14 +368,16 @@ export function quoteAggregate(
   const termsBasis = Math.max(1, termsRetained ?? expectedRetained);
   const attachment = termsBasis * AGG_ATTACHMENT_LEVELS.WC[level];
   const limit = termsBasis * AGG_LIMIT_MULTIPLE;
-  const { expected, sd } = layerMoments(expectedRetained, sdRetained / expectedRetained, attachment, attachment + limit);
+  const { expected } = layerMoments(expectedRetained, sdRetained / expectedRetained, attachment, attachment + limit);
 
   return {
     attachment, limit, expectedRetained, sdRetained,
     expectedCeded: expected,
-    // SAME risk-load parameter as the occurrence layers. One market view across
-    // the whole program, not a second knob for the aggregate.
-    premium: expected + RISK_LOAD_LAMBDA * sd,
+    // SAME load as the occurrence layers. One market view across the whole
+    // program, not a second knob for the aggregate — which is why the
+    // aggregate moved to the CLF multiplier with them rather than keeping
+    // lambda x SD to itself.
+    premium: layerPriceFrom(line, expected),
   };
 }
 

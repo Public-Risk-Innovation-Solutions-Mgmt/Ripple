@@ -644,7 +644,12 @@ const BASELINE = process.env.RENDER_BASELINE
 // screen that shows money changes with it. Taken with the control the
 // recapture rule asks for — the parent built in its own worktree and served on
 // :4174 reproduced v35 first. Attribution is in the commit message.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v36.json');
+//
+// ⚠ v36 -> v37: THE REINSURANCE PRICE AND THE BULK-YEAR CESSION. Both move the
+// opening and the charge, so every money-bearing screen moves. Taken with the
+// control — the parent on :4174 reproduced v36 first. Attribution in the
+// commit message.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v37.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

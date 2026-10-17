@@ -951,7 +951,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // while played years hold their simulated one, and realised gross ultimate
 // runs above expected on this engine, so trading five played years for five
 // bulk years lowers the reserve. WC and GL fall about 8%, Property is flat.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v58.json');
+// v59: REINSURANCE PRICED AT EXPECTED LAYER LOSS x CLF AT 70%, AND THE
+// BULK-YEAR CESSION FIX. Two changes, both in the tower.
+//
+// The price was E[ceded] + lambda x SD with lambda 0 — the tower was
+// actuarially FREE. It is now expected x the line's CLF multiplier at 70%, so
+// every placed layer costs 14.0% more on WC, 13.5% on GL, 14.7% on Property,
+// and that load is a real cost to members for the first time.
+//
+// The bulk accident years no longer take year 1's cession ratio. Each is
+// priced at layer bounds scaled by (1.05)^age, so an older, cheaper year cedes
+// less through a fixed-dollar attachment and keeps more net reserve: bulk
+// reserve WC +17.9%, GL +7.7%, Property +0.4%.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v59.json');
 
 function seedOf(id: string) {
   let h = 5381;
