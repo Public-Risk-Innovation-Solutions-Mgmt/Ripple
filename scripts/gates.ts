@@ -226,6 +226,13 @@ const FAST: string[] = [
                                      //         runs in its own process. It is the ONLY check that
                                      //         reaches the flag-on path at all, since the sweep and
                                      //         both value baselines exercise the old stack.
+  'ordinary-loss-check',             //  10s   the NEW loss engine's ordinary losses: the mean is
+                                     //         expected and the CV is the parameter, within
+                                     //         confidence intervals, directly, through the labelled
+                                     //         stream and through the engine; expected IS the draw's
+                                     //         own scale; nothing cedes. ⚠ IT FLIPS NEW_LOSS_ENGINE
+                                     //         AT RUNTIME and restores it — safe only because every
+                                     //         gate runs in its own process.
   'development-emergence-check',     //  20s   the host's development % emerges IN FULL and only in
                                      //         full: the cumulative matches the closed form the
                                      //         payment pacing implies, at every age of every

@@ -75,9 +75,10 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack } from './linePricing';
-import { NEW_RATE_STACK, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { NEW_LOSS_ENGINE, NEW_RATE_STACK, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { applyPoolLimit } from './poolLimit';
 import { developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
+import { ordinaryLossCostPer100, ordinaryLossYear, ordinaryMemberRecords, type OrdinaryLossYear } from './ordinaryLoss';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
 import { cloneMembershipHistory, openInterval, closeInterval } from './membershipHistory';
@@ -1132,7 +1133,16 @@ export function processLineYear(
   // stop-loss's attachment basis, the reserve basis, and the finding-6 pricing
   // denominator. The net-funding change moves the PREMIUM basis only — it must
   // not move the loss quantities.
-  const expectedLoss = activeExposure * pricedPurePremiumPer100 * 10_000;
+  //
+  // ⚠ UNDER NEW_LOSS_ENGINE IT IS THE ORDINARY EXPECTATION, THE SAME FIGURE THE
+  // DRAW IS SCALED FROM, so the engine's expected loss and the mean of its
+  // draws are one number rather than two that could drift. Today's held pure
+  // premium includes the tail above the attachments, which this engine does
+  // not draw until commit 2; reporting it as "expected" would make actual over
+  // expected read 0.5 on GL for a reason that is a timetable, not a defect.
+  const expectedLoss = NEW_LOSS_ENGINE.enabled
+    ? activeExposure * 10_000 * ordinaryLossCostPer100(line, yearNumber)
+    : activeExposure * pricedPurePremiumPer100 * 10_000;
 
   // The agreed treaty basis in dollars, on the SAME post-movement exposure
   // `expectedLoss` uses — the book the contract is actually written over.
@@ -1506,7 +1516,43 @@ export function processLineYear(
   const shockAttributableClaims: Record<string, number> = {};
   const shockExpectedAdded: Record<string, number> = {};
 
-  if (isWcClaimLine) {
+  // ==========================================================================
+  // THE NEW LOSS ENGINE: ONE AGGREGATE ORDINARY LOSS, NO CLAIMS.
+  //
+  // Behind NEW_LOSS_ENGINE (off). The line's year is exposure x the expected
+  // ordinary loss cost per $100 x a mean-1 lognormal factor — see
+  // ordinaryLoss.ts. It replaces all three claim engines at once, so it sits
+  // in front of them rather than inside each.
+  //
+  // ⚠ WHAT THE EMPTY CLAIM ARRAYS DO DOWNSTREAM, AND WHY THAT IS RIGHT. With no
+  // occurrences the tower cedes nothing, the tracked set is empty and the
+  // cohort books its full ultimate with no register — so the accident year is
+  // booked at full cost, pays on the recorded pattern, takes the host's
+  // development held NET (it has nothing to cede to), and splits into case and
+  // IBNR through the existing presentation. Ordinary losses sit below every
+  // attachment by definition, so ceding nothing is the statement and not a
+  // gap. The pre-game runs through this same function and so through this
+  // same branch when the flag is on.
+  //
+  // ⚠ HOST-SCHEDULED SHOCKS DO NOTHING HERE YET. They act on the claim draw,
+  // and there is no claim draw; the shock catalogue that replaces them is
+  // commit 2. With the flag off they work exactly as before.
+  // ==========================================================================
+  let ordinaryYear: OrdinaryLossYear | undefined;
+  if (NEW_LOSS_ENGINE.enabled) {
+    ordinaryYear = ordinaryLossYear(line, enrolledMembers, yearNumber, instance.seed);
+    const cost = ordinaryLossCostPer100(line, yearNumber);
+    generatedClaims = [];
+    generatedOccurrences = [];
+    memberLossResults = ordinaryMemberRecords(line, enrolledMembers, yearNumber, cost, ordinaryYear.factor);
+    marketMemberLossResults = [
+      ...memberLossResults,
+      ...ordinaryMemberRecords(line, marketplaceProspects, yearNumber, cost, ordinaryYear.factor),
+    ];
+    aggregateMemberLoss = ordinaryYear.realised;
+    kLineApplied = 1;
+    if (!isWcClaimLine) glClaimCount = 0;
+  } else if (isWcClaimLine) {
     // k_line is recomputed against the CURRENTLY ENROLLED book, after member
     // movement — it is the roster/risk-quality-mix correction, and the reason
     // purePremiumPer100 can be held constant instead of chasing enrollment.
@@ -1811,7 +1857,14 @@ export function processLineYear(
     new Map((generatedOccurrences ?? []).map(o => [o.id, o.claimIds.length])),
   );
   const memberShareAboveLimit = poolLimit.memberShareAboveLimit;
-  if (POOL_LIMIT_PER_OCCURRENCE[line] !== null) {
+  //
+  // ⚠ NOT UNDER NEW_LOSS_ENGINE. That engine draws no claims, so the re-sum
+  // below would read the empty register and zero the line — which it did, on
+  // GL, on the first flag-on run: actual over expected 0.0000 while WC and
+  // Property read 1.00. Its ordinary losses are limited per claim at $1M, far
+  // under the $25M pool limit, so the limit cannot bind on them; it returns
+  // with the shocks' large losses in commit 2, which are claims.
+  if (POOL_LIMIT_PER_OCCURRENCE[line] !== null && !NEW_LOSS_ENGINE.enabled) {
     aggregateMemberLoss = poolLimit.grossUltimateLoss;
   }
 

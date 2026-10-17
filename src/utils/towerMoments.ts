@@ -89,6 +89,7 @@ import { propertyInternals, propertySeverityTrend } from './propertyClaimEngine'
 import { catLayerAnnualMoments, PROPERTY_LATTICE_BIN } from './propertyCatastrophe';
 import { ratingGroupOf, thetaWc, trendedMu, wcFrequencyTrend, wcSeverityCap } from './wcClaimEngine';
 import type { Member } from '../types/simulation';
+import { NEW_LOSS_ENGINE } from '../data/pricingParameters';
 
 const GM = GL_LOSS_MODEL;
 const WM = WC_LOSS_MODEL;
@@ -445,6 +446,32 @@ function layerRiskMomentsFor(
   boundsScale = 1,
 ): LayerRiskMoments[] {
   const layers = REINSURANCE_TOWER[line];
+  // ==========================================================================
+  // ⚠ UNDER NEW_LOSS_ENGINE THE EXPECTED RECOVERY IS ZERO ON EVERY LAYER, AND
+  // THIS IS THE ONE PLACE THAT SAYS SO.
+  //
+  // THE RULE: the rate deducts what the reinsurance will ACTUALLY pay, and the
+  // reinsurance is priced on the same basis — both computed from the losses
+  // the engine in force generates, never from a distribution it does not draw.
+  // Every occurrence-layer figure in the game comes through here — each
+  // layer's price, the expected ceded the rate nets off, the bulk years'
+  // cession at the opening, the Decisions page's tower tile — so stating the
+  // rule here states it everywhere at once.
+  //
+  // BEFORE COMMIT 2 THE NEW ENGINE GENERATES ONLY ORDINARY LOSSES, and those
+  // are limited per claim at the line's LOWEST attachment, so no occurrence it
+  // produces can reach any layer. Expected recovery is therefore zero, and so
+  // is the price (expected x CLF at 70%). In commit 2 this becomes the
+  // expected recovery on the SHOCK losses, and its price.
+  //
+  // Placement decisions are untouched: still stored, still shown, and they
+  // take effect the moment there are losses to cede.
+  //
+  // With the flag off this branch is not taken and nothing below changes.
+  // ==========================================================================
+  if (NEW_LOSS_ENGINE.enabled) {
+    return layers.map(() => ({ expected: 0, sd: 0, sdOverExpected: 0, lambda: 0 }));
+  }
   const n = layers.length;
   const vg = line === 'GL' ? VG : line === 'WC' ? VG_WC : 0;
   const alphaFreq = line === 'GL' ? GL_ALPHA_FREQ : line === 'Property' ? PR_ALPHA_FREQ : WC_ALPHA_FREQ;

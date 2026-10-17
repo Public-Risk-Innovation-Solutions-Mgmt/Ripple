@@ -112,6 +112,55 @@ either of its two input CVs. **No notional exposure units**: the CV is stated
 directly at the line, so nothing has to invent a population to get a variance.
 Severity trend 5% a year, as today.
 
+**Built in commit 1, behind `NEW_LOSS_ENGINE` (off).** Per line per year, one
+aggregate: expected = exposure × the expected ordinary loss cost per $100,
+trended by accident year; realised = expected × a lognormal year factor with
+mean exactly 1 and the line's CV. Each claim is limited at the line's lowest
+reinsurance attachment — WC and GL $1M, Property $5M — and Property is the
+attritional band only, today's catastrophe band excluded. The cost per $100 was
+derived once from today's distributions on the full market at neutral risk
+quality in year 1, and is recorded on `docs/PARAMETERS.md` as sourced, with the
+script that derived it. It is drawn from its own labelled sub-stream, never the
+sequential bootstrap. The pre-game uses the same engine under the flag.
+
+### Reinsurance under the new engine — what it will actually pay
+
+**Ruled.** The rate deducts what the reinsurance will **actually** pay, and the
+reinsurance is priced on the same basis. Under `NEW_LOSS_ENGINE` both are
+computed from the losses **the new engine generates**, never from today's
+member distributions:
+
+- **expected ceded** = the expected recovery on the new engine's own losses;
+- **reinsurance price** = that expected recovery × the line's CLF at 70%.
+
+Before commit 2 every ordinary loss sits below every attachment, so both are
+**zero**, and the code says so at the seam (`layerRiskMomentsFor` in
+`towerMoments.ts`). In commit 2 they become the expected recovery on the shock
+losses, and its price. Placement decisions stay stored and visible; they take
+effect once there are losses to cede.
+
+### What now waits for the shocks
+
+Measured by the same derivation, unlimited against limited, on the same basis.
+This is the share of today's expected loss that **ordinary losses no longer
+carry**, and that commit 2's shocks must bring back:
+
+| Line | Waits for the shocks |
+|---|---:|
+| WC | 25.8% |
+| GL | 49.4% |
+| Property | 33.1% — 12.0% the catastrophe band, 21.1% attritional claims above $5M |
+
+⚠ **Property was first reported as "about 12%". That was the catastrophe band
+alone.** Limiting attritional claims at $5M moves a further 21.1% out of
+ordinary, and the measured total is 33.1%.
+
+**Open question for commit 2:** do large losses arrive **only** with shocks,
+or as **routine large claims every year with shocks on top**? With shocks
+alone, a quiet year carries a quarter to a half of today's expected loss less
+than it does now, and the shocks have to be frequent enough to bring it back on
+average. With routine large claims, the shocks are the tail above them.
+
 ### No individual members
 
 No roster, risk scores, size factors, prospects or experience modifier.
@@ -356,6 +405,7 @@ it applies to.
 After pricing commits 3 and 4:
 
 1. Exposure base and ordinary losses, behind a flag, old path still live.
+   **Landed, flag off**; held by `ordinary-loss-check`.
 2. Shock catalogue, with T as occurrences.
 3. Regions.
 4. Ten worlds, averaging, and per-world retention.

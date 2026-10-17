@@ -362,6 +362,104 @@ export const PRE_GAME_FUNDING_LEVEL = 0.70;
 
 export const NEW_RATE_STACK = { enabled: true };
 
+// ============================================================================
+// THE NEW LOSS ENGINE — commit 1 of 6: exposure base and ordinary losses.
+// See docs/PENDING_MULTIPLAYER.md section 3 for the plan this is one step of.
+// ============================================================================
+
+/**
+ * THE NEW LOSS ENGINE, BEHIND A FLAG — OFF.
+ *
+ * With it OFF the engine is exactly what it was: claims drawn per member,
+ * today's tower moments, today's bulk cohorts. All three baselines are
+ * byte-identical with it off, which is the condition for landing it at all.
+ *
+ * With it ON, each line's losses for a year are ONE aggregate ordinary loss —
+ * no individual claims — drawn as exposure x the expected ordinary loss cost
+ * per $100 x a lognormal year factor. Ordinary losses are limited per claim at
+ * the line's lowest attachment, so they sit below every layer and CEDE
+ * NOTHING; losses above arrive only with the shocks, in commit 2.
+ *
+ * ⚠ THE REINSURANCE RULE UNDER THIS FLAG. The rate deducts what the
+ * reinsurance will ACTUALLY pay, and the reinsurance is priced on that same
+ * basis. Both are computed from the losses THIS engine generates, never from
+ * today's member distributions:
+ *   expected ceded       = the expected recovery on the new engine's losses
+ *   reinsurance price    = that expected recovery x the line's CLF at 70%
+ * Before commit 2 every ordinary loss is below every occurrence attachment, so
+ * both are ZERO on the occurrence layers. The aggregate stop attaches on the
+ * annual TOTAL rather than per claim, so it is priced on the ordinary
+ * lognormal itself — about 4.3 standard deviations out at its lowest stop,
+ * which rounds to nothing but is computed rather than assumed. Placement
+ * decisions stay stored and visible; they take effect once there are losses to
+ * cede.
+ */
+export const NEW_LOSS_ENGINE = { enabled: false };
+
+/**
+ * WHAT ORDINARY LOSSES COVER — per claim, limited at each line's LOWEST
+ * reinsurance attachment. Anything above belongs to the shocks.
+ */
+export const ORDINARY_LOSS_LIMIT: PerLine<number> = {
+  WC: 1_000_000,
+  GL: 1_000_000,
+  Property: 5_000_000,
+};
+
+/**
+ * THE YEAR-TO-YEAR CV OF ORDINARY LOSSES, PER LINE — the one stochastic
+ * parameter of the ordinary engine.
+ *
+ * 2.2% is what the R model's ordinary losses actually produce once its member
+ * factor has averaged over 100 members — not either of its two input CVs (the
+ * 2% year-wide factor and the 10% member factor), which compound to
+ * sqrt(0.02^2 + 0.10^2/100) = 2.24%. Stated directly at the line, so nothing
+ * has to invent a population of exposure units to get a variance.
+ *
+ * The draw is LOGNORMAL WITH MEAN EXACTLY 1: sigma^2 = ln(1 + CV^2) and
+ * mu = -sigma^2/2. So the expected ordinary loss IS the mean of the draws by
+ * construction, and there is no separate "held" figure that could drift from
+ * them. ordinary-loss-check asserts both moments.
+ */
+export const ORDINARY_LOSS_CV: PerLine<number> = {
+  WC: 0.022,
+  GL: 0.022,
+  Property: 0.022,
+};
+
+/**
+ * EXPECTED ORDINARY LOSS COST PER $100 OF EXPOSURE, YEAR 1 — SOURCED.
+ *
+ * Derived ONCE by scripts/tools/derive-ordinary-loss-cost.ts and typed here;
+ * nothing recomputes it at runtime. How: today's own expectation functions —
+ * the ones the current engine prices with — on the full 200-member market at
+ * NEUTRAL risk quality, year 1, k = 1, which is the basis the held pure
+ * premiums are derived on. Each claim LIMITED at ORDINARY_LOSS_LIMIT. Property
+ * is its ATTRITIONAL band only: today's catastrophe band is excluded because
+ * the shock catalogue brings catastrophe in commit 2, and counting it here too
+ * would count it twice.
+ *
+ * The engine trends it at SEVERITY_TREND_PER_YEAR by accident year — 5% — so
+ * year N costs this x 1.05^(N-1), the pre-game's negative years included.
+ *
+ * WHAT IT LEAVES OUT, measured on the same basis by the same script — the share
+ * of today's expected loss that now WAITS FOR THE SHOCKS:
+ *   WC        25.8%   claims above $1M
+ *   GL        49.4%   claims above $1M
+ *   Property  33.1%   the catastrophe band, 12.0%, PLUS attritional claims
+ *                     above $5M, 21.1%
+ * ⚠ PROPERTY WAS FIRST REPORTED AS "ABOUT 12%" AND THAT WAS THE CAT BAND ALONE.
+ * The probe that produced it compared attritional against total without
+ * applying the $5M per-claim limit to the attritional band; the severity
+ * mixture's heavy component runs to $75M and a fifth of expected loss sits
+ * above $5M. The derivation applies the limit, and 33.1% is the figure.
+ */
+export const EXPECTED_ORDINARY_LOSS_COST_PER_100: PerLine<number> = {
+  WC: 2.774112,
+  GL: 2.830161,
+  Property: 0.159515,
+};
+
 /**
  * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.
  *
@@ -865,6 +963,49 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'on GL, -3.9% on Property, against +41.7% / +18.5% / +35.7% when the pre-game also funded at '
           + 'expected. The year-1 rate itself is identical either way; only the figure it is compared '
           + 'against moves. The welcome memo reads this constant rather than naming a number.',
+      }],
+    ],
+  },
+  {
+    title: 'New loss engine — ordinary losses',
+    blurb: 'Commit 1 of the new loss engine: one aggregate ordinary loss per line per year, no individual '
+      + 'claims. Wired, but behind NEW_LOSS_ENGINE, which is OFF — with it off the engine is exactly what '
+      + 'it was. See docs/PENDING_MULTIPLAYER.md section 3.',
+    entries: [
+      ['New loss engine', {
+        value: NEW_LOSS_ENGINE.enabled ? 'on' : 'off', unit: 'flag',
+        what: 'Expected ordinary loss = exposure x the cost per $100 below, trended by accident year at the '
+          + 'severity trend; realised = expected x a lognormal year factor with mean exactly 1.',
+        basis: 'CHOSEN',
+        note: 'Under the flag the rate deducts what the reinsurance will ACTUALLY pay and the reinsurance is '
+          + 'priced on the same basis, both from this engine\'s own losses: expected ceded = the expected '
+          + 'recovery on them, price = that x the line\'s CLF at 70%. Ordinary losses sit below every '
+          + 'attachment, so both are zero until the shocks arrive in commit 2. Placements stay stored.',
+      }],
+      ['Ordinary loss limit', {
+        value: `WC $${(ORDINARY_LOSS_LIMIT.WC / 1e6).toFixed(0)}M · GL $${(ORDINARY_LOSS_LIMIT.GL / 1e6).toFixed(0)}M`
+          + ` · Property $${(ORDINARY_LOSS_LIMIT.Property / 1e6).toFixed(0)}M`,
+        unit: 'per claim',
+        what: 'What ordinary losses cover: each claim limited at the line\'s lowest reinsurance attachment. '
+          + 'Losses above arrive only with the shocks.',
+        basis: 'CHOSEN',
+      }],
+      ['Ordinary loss CV', {
+        value: perLine(ORDINARY_LOSS_CV, 3), unit: 'year-to-year',
+        what: 'The year factor\'s coefficient of variation — the one stochastic parameter of ordinary losses.',
+        basis: 'CHOSEN',
+        note: 'What the R model\'s ordinary losses produce over 100 members: sqrt(0.02^2 + 0.10^2/100) = 2.24%.',
+      }],
+      ['Expected ordinary loss cost', {
+        value: perLine(EXPECTED_ORDINARY_LOSS_COST_PER_100), unit: 'per $100 of exposure, year 1',
+        what: 'The expected ordinary loss per $100, derived ONCE and fixed. It is the mean of the draws by '
+          + 'construction; nothing holds a second figure.',
+        basis: 'SOURCED',
+        note: 'Derived by scripts/tools/derive-ordinary-loss-cost.ts from today\'s distributions on the full '
+          + 'market at neutral risk quality, year 1, k = 1, each claim limited at the line\'s ordinary limit; '
+          + 'Property is the attritional band only, its catastrophe band excluded. Share of today\'s expected '
+          + 'loss now waiting for the shocks: WC 25.8%, GL 49.4%, Property 33.1% (12.0% the catastrophe band, '
+          + '21.1% attritional above $5M).',
       }],
     ],
   },

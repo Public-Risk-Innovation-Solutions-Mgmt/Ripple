@@ -66,7 +66,7 @@ import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { unpaidShare } from './payoutPattern';
 import { staticClf, type StaticClfLine } from '../data/clfTables';
 import {
-  EXPOSURE_GROWTH_PER_YEAR, OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
+  EXPOSURE_GROWTH_PER_YEAR, NEW_LOSS_ENGINE, OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
   RESERVE_MARGIN_CONFIDENCE_PARAM, SEVERITY_TREND_PER_YEAR,
 } from '../data/pricingParameters';
 import { computeKLine, deriveNeutralPurePremiumPer100 } from './wcClaimEngine';
@@ -75,6 +75,7 @@ import { computeKPr, deriveNeutralPropertyPurePremiumPer100 } from './propertyCl
 import { allLayerRiskMoments, expectedCededAtBoundsScale } from './towerMoments';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { getMemberExposure } from './lineHelpers';
+import { ordinaryLossCostPer100 } from './ordinaryLoss';
 import type { TowerLine } from '../data/reinsuranceTower';
 
 /** The last age a line's recorded PAID pattern reaches, in whole years. */
@@ -230,7 +231,16 @@ export function expectedGrossUltimateAtAge(
 ): number {
   let exposure = 0;
   for (const m of members) exposure += getMemberExposure(m, line, 1);
-  const rate = heldGrossPurePremiumPer100(line, members);
+  // ⚠ UNDER NEW_LOSS_ENGINE THE BULK YEARS ARE ORDINARY YEARS. The pre-game
+  // runs on the new engine when the flag is on, so the accident years older
+  // than it must be on the same basis or the pool would open holding today's
+  // tail above the attachments — and, with the tower's expected recovery now
+  // zero (see layerRiskMomentsFor), holding it entirely NET. The ordinary cost
+  // is the year-1 figure; the division below trends it back to each age
+  // exactly as it trends the held rate.
+  const rate = NEW_LOSS_ENGINE.enabled
+    ? ordinaryLossCostPer100(line, 1)
+    : heldGrossPurePremiumPer100(line, members);
   return (rate * exposure * 10_000) / Math.pow(1 + rateTrendPerYear(line), ageYears);
 }
 

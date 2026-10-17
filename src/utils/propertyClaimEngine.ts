@@ -203,14 +203,22 @@ export function propertySeverityCap(): number {
 // restates the whole distribution in later dollars, so the ceiling DOES move
 // with it. Today that distinction costs nothing because Property's trend is 1;
 // it is wired so it stays correct if that changes.
-export function propertySeverityMoment(k: number, severityScale = 1, yearNumber = 1): number {
+export function propertySeverityMoment(
+  k: number, severityScale = 1, yearNumber = 1,
+  // ⚠ A PER-CLAIM LIMIT BELOW THE PHYSICAL CEILING, FOR THE NEW LOSS ENGINE'S
+  // ONE-OFF DERIVATION ONLY. Its ordinary losses are attritional claims
+  // limited at the line's lowest attachment ($5M), and that expectation is
+  // read through this same closed form rather than a second integral. Absent
+  // everywhere else, so every shipped figure is unchanged.
+  limit = propertySeverityCap(),
+): number {
   // ⚠ THE YEAR ENTERS AS A SHIFT OF mu, NOT AS A SHIFT OF THE CEILING. It used
   // to do the opposite — the ceiling moved and the distribution did not — which
   // was inert only while the trend was 1 and would have been backwards the
   // moment it was not.
   const shift = Math.log(Math.max(severityScale, 1e-9) * propertySeverityTrend(yearNumber));
   return M.severityMixture.reduce(
-    (a, c) => a + c.weight * cappedComponentMoment(c.mu + shift, c.sigma, k, propertySeverityCap()),
+    (a, c) => a + c.weight * cappedComponentMoment(c.mu + shift, c.sigma, k, Math.min(limit, propertySeverityCap())),
     0,
   );
 }
@@ -242,6 +250,9 @@ export function propertyCappedSeverityTrend(yearNumber: number): number {
 export interface ExpectedPropertyLossOptions {
   riskQualityOverride?: number;
   kPr?: number;
+  /** Per-claim limit below the physical ceiling. The new loss engine's
+   *  one-off ordinary-loss derivation only; see propertySeverityMoment. */
+  severityLimit?: number;
 }
 
 // Expected ATTRITIONAL loss for a book, in booked (settlement-trended) dollars —
@@ -271,7 +282,7 @@ export function expectedPropertyAttritionalLoss(
     if (!(tiv > 0)) continue;
     const rq = options.riskQualityOverride ?? member.riskQuality;
     const lambda = tiv * M.frequencyPer1mTiv * thetaFrequency(rq) * kPr;
-    total += lambda * propertySeverityMoment(1, severityFactor(rq));
+    total += lambda * propertySeverityMoment(1, severityFactor(rq), 1, options.severityLimit);
   }
   return total;
 }
