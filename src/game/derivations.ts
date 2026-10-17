@@ -205,6 +205,14 @@ export function useGameDerivations(
         lossTrend: gameState.instance.lossEnvironment.lossTrend,
         priorRcEffectiveness: lineState.riskControlEffectiveness,
         riskControlPct: d.riskControlPct,
+        // ⚠ NEW_RATE_STACK ONLY. The ground-up pure premium is read off LAST
+        // YEAR'S result rather than recomputed here: it is a property of the
+        // ledger and the pricing year, not of the slider the panel moves, and
+        // the page has no reserve ledger reader of its own. Undefined before
+        // the first priced year, which is exactly when the new panel has no
+        // comparison to show either.
+        groundUpPurePremiumPer100: lastLineResult?.newPurePremiumPer100,
+        newStackRiskControlPct: d.riskControlIncentivePct ?? 0,
         // S3: the panel prices off the same played triangle the engine does.
         //
         // ⚠ IT DID NOT, UNTIL THIS COMMIT. These three fields were spelled out
@@ -217,7 +225,7 @@ export function useGameDerivations(
         experience: pricingExperienceBasis(gameState.poolState, decisionLine),
       },
     );
-  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineActiveMembers, currentDecisions]);
+  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineActiveMembers, currentDecisions, lastLineResult?.newPurePremiumPer100]);
 
   return {
     decisionLine,

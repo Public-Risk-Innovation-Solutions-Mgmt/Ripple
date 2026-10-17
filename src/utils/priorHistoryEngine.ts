@@ -58,6 +58,7 @@ import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState, getMemberExposure } from './lineHelpers';
 import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
+import { PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
 import { defaultDecisionSet } from './decisionDefaults';
 
 export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
@@ -138,11 +139,42 @@ export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
 // needs. If the suite's runtime has to come down, cut GAMES on the two-armed
 // gates, or stop running the retired arm through the real search where the arm
 // is only being reported — pregame-acceptance-check does the latter and says so.
-export const MATURATION_YEARS = 7;
+// ⚠ THE FIXED SEVEN IS RETIRED. It was `MATURATION_YEARS = 7`, giving a
+// PRE_GAME_DEPTH of 10, and that ten was SILENTLY COUPLED to
+// PRIOR_HISTORY_YEARS, which also read 10. Bulk reserves begin at
+// PRIOR_HISTORY_YEARS + 1, so while both were ten the pre-game's last played
+// accident year (10) sat exactly one short of the first bulk year (11) and the
+// two partitions met without touching. Nothing anywhere said so.
+//
+// Dropping PRIOR_HISTORY_YEARS to 5 broke it in the worst way available: the
+// pre-game went on playing ten years while bulk began at six, so accident
+// years 6 to 10 existed TWICE — once played, once bulk — and the opening
+// double-counted them. Measured before the fix: 5 duplicated years on WC and
+// GL, 2 on Property.
+//
+// ONE PARAMETER DRIVES BOTH NOW. The pre-game plays exactly the prior history
+// the pricing reads, and everything older is a bulk reserve.
+// opening-partition-check asserts the two never overlap and leave no gap.
+export const PRE_GAME_DEPTH = PRIOR_HISTORY_YEARS;
 
-/** Years actually simulated before Year 1: the maturation years plus the three
- *  declared pre-game years. Ten, so ten accident years exist at game start. */
-export const PRE_GAME_DEPTH = MATURATION_YEARS + PRE_GAME_YEARS;
+/**
+ * The simulated years BEFORE the three declared pre-game years — derived now,
+ * not declared. It is the pre-game's depth less the declared years, so it
+ * falls out of the one parameter instead of being a second number to keep in
+ * step. Read by claimsExport.ts for the seed-cohort boundary it prints.
+ *
+ * ⚠ NEGATIVE IF PRIOR_HISTORY_YEARS EVER DROPS BELOW PRE_GAME_YEARS, which
+ * would mean a pre-game shorter than the declared years it is supposed to
+ * contain. Asserted rather than clamped: a clamp would quietly run a 3-year
+ * pre-game under a parameter that said 2.
+ */
+export const MATURATION_YEARS = PRE_GAME_DEPTH - PRE_GAME_YEARS;
+if (MATURATION_YEARS < 0) {
+  throw new Error(
+    `PRIOR_HISTORY_YEARS (${PRIOR_HISTORY_YEARS}) is below PRE_GAME_YEARS (${PRE_GAME_YEARS}): `
+    + 'the pre-game cannot be shorter than the declared pre-game years it contains.',
+  );
+}
 
 
 export interface PriorHistoryResult {

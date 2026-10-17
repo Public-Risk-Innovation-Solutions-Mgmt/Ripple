@@ -247,14 +247,45 @@ export const REINSURANCE_LOAD_CLF_AT_70: PerLine<number> = {
  * behind them. Everything OLDER, out to the end of the line's recorded paid
  * pattern, opens as a BULK cohort — see openingReserves.ts.
  *
- * ⚠ TEN WHILE THE OLD TEN-YEAR EXPERIENCE PATH IS LIVE, FIVE AT COMMIT 3.
- * PRICING_WINDOW_YEARS is still 10 and the experience rate averages that many
- * accident years; giving it five would starve it, and a rate priced off half
- * the history it expects is not a smaller sample, it is a different estimator.
- * It drops to PRICING_WINDOW_YEARS_NEW when commit 3 switches the rate over,
- * and the two move together.
+ * ⚠ FIVE SINCE COMMIT 3, AND IT DROPPED WHETHER OR NOT THE NEW RATE IS ON.
+ * It used to read ten, with a note saying five would STARVE the old ten-year
+ * experience window — "a rate priced off half the history it expects is not a
+ * smaller sample, it is a different estimator". That is still true, and the
+ * drop was ruled anyway: five prior years is the setting going forward, the
+ * new window is five, and running the opening on ten while the rate that
+ * replaces it wants five would mean moving the opening twice.
+ *
+ * ⚠ SO THE OLD RATE IS NOW READING A SHORTER HISTORY THAN IT WAS BUILT FOR,
+ * while NEW_RATE_STACK is off. That is a known and accepted cost of landing
+ * the opening change once rather than twice; it is why all three baselines
+ * move at this commit with the flag still off, and every row of that move is
+ * attributable to this one parameter.
  */
-export const PRIOR_HISTORY_YEARS = 10;
+export const PRIOR_HISTORY_YEARS = 5;
+
+/**
+ * THE NEW RATE STACK — OFF, AND IT STAYS OFF UNTIL THE NEW LOSS ENGINE LANDS.
+ *
+ * ⚠ THE RATE IS RIGHT AND THE ENGINE UNDER IT IS NOT, WHICH IS THE WHOLE
+ * REASON THIS IS A FLAG. Measured at three severity trends over six games:
+ * today's rate UNDERPRICES — WC by about half at the 5% trend, GL by a third,
+ * Property by a quarter — because the engine's held expected figure does not
+ * keep pace with trending losses. The new stack prices that correctly. But on
+ * TODAY'S losses the new pure premium swings 3-5x between otherwise identical
+ * games, because the old engine's losses are that lumpy, and a rate that moves
+ * 3x between two runs of the same game reads as broken in a way that steady
+ * underpricing does not.
+ *
+ * So: off. The new loss engine makes ordinary losses stable AND makes them
+ * average to their expected figure by construction, which removes both halves
+ * of the problem at once. This turns on with it. See the trend findings
+ * recorded in docs/PENDING_MULTIPLAYER.md.
+ *
+ * WHAT THE FLAG GOVERNS: the rate members are charged, the two indications,
+ * the Decisions panel, and the retirement of the 15% admin load, the gross-up
+ * step and the retained-cover margin. PRIOR_HISTORY_YEARS is NOT behind it.
+ */
+export const NEW_RATE_STACK = { enabled: false };
 
 /**
  * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.

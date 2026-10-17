@@ -66,7 +66,7 @@ The SET opening — no acceptance band, no pin, no search. NOT YET USED: commit 
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
-| Prior history years | `10` | accident years | CHOSEN | How many pre-game years are simulated with real claims behind them. Ten while the old ten-year experience path is live; drops to the new window of five at commit 3, and the two move together. Everything older opens as a bulk cohort. |
+| Prior history years | `5` | accident years | CHOSEN | How many pre-game years are simulated with real claims behind them. Ten while the old ten-year experience path is live; drops to the new window of five at commit 3, and the two move together. Everything older opens as a bulk cohort. |
 | Opening surplus multiple | `2.28` | x the line's own required capital | CHOSEN · not yet used | Sets opening surplus directly, replacing the band and the pin. REQUIRED CAPITAL IS expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1), the reserve risk margin — not premium, not the reserve itself. 2.28 is today's band midpoint carried over, so the set opening lands where the search was aiming. |
 | Bulk cohort horizon | `each line's own recorded paid pattern` | accident years | SOURCED | How far back the opening runoff reaches: WC 37 years, GL 21, Property 11. The full pattern length. WC is still 9.04% unpaid at 37 years, and its newest 25 accident years hold only 95% of its steady-state reserve, so truncating discards real reserve. |
 

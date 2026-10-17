@@ -935,7 +935,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //
 // Recaptured so the new fields are gated from here on rather than sitting
 // outside the baseline, which is how an addition rots.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v57.json');
+// v58: FIVE PRIOR YEARS, NOT TEN — ONE PARAMETER, AND NOTHING ELSE MOVED IT.
+// PRIOR_HISTORY_YEARS drops to 5 and the pre-game's depth is DERIVED from it
+// now, so the pre-game plays exactly the history the pricing reads and every
+// older accident year is a bulk reserve. 17160 cells across 67 fields, shape
+// unchanged (0 added, 0 removed).
+//
+// ⚠ THE NEW RATE STACK IS IN THIS COMMIT AND MOVED NONE OF IT. NEW_RATE_STACK
+// ships off, and the control that proves it is the one worth recording: with
+// PRIOR_HISTORY_YEARS alone put back to 10 and every other line of the commit
+// in place, this capture read 0 added, 0 removed, 0 CHANGED against v57. So
+// each of the 17160 cells belongs to the parameter and none to the new stack.
+//
+// The direction is a SMALLER opening: bulk years are held at EXPECTED ultimate
+// while played years hold their simulated one, and realised gross ultimate
+// runs above expected on this engine, so trading five played years for five
+// bulk years lowers the reserve. WC and GL fall about 8%, Property is flat.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v58.json');
 
 function seedOf(id: string) {
   let h = 5381;

@@ -74,6 +74,8 @@ import {
 } from './reinsuranceTower';
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
+import { newStackAsLineRateQuote, quoteNewRateStack } from './linePricing';
+import { NEW_RATE_STACK } from '../data/pricingParameters';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
 import { cloneMembershipHistory, openInterval, closeInterval } from './membershipHistory';
@@ -883,7 +885,17 @@ export function processLineYear(
   // quoteLineRates. (That list used to end "and why Property is deliberately
   // excluded"; Property is not excluded any more — it nets like the other two
   // as of its own occurrence layer.)
-  const estimatedQuote = quoteLineRates({
+  // ⚠ MOVED ABOVE THE QUOTE AT COMMIT 3. It used to sit well below, computed
+  // after the rate as a shadow nothing read. The new stack prices OFF it, so it
+  // has to exist before the quote does. The computation is unchanged, and with
+  // NEW_RATE_STACK off it is still read by nothing but the result field.
+  const newPp = computeNewPurePremium(line, yearNumber, {
+    rows: lineState.reserveDevelopment ?? [],
+    allMarketMembers: ctx.allMarketMembers,
+    membershipHistory: ctx.membershipHistory,
+  });
+
+  const oldStackQuote = quoteLineRates({
     line,
     yearNumber,
     members: currentActiveMembers,
@@ -894,6 +906,30 @@ export function processLineYear(
     layersPlaced: lineDecisions.layersPlaced,
     aggregateStopLevel: lineDecisions.aggregateStopLevel,
   });
+
+  // ⚠ THE NEW STACK IS COMPUTED ONLY WHEN THE FLAG IS ON, and that is a
+  // performance decision as much as a safety one. It prices the tower a second
+  // time, which is the expensive part of a quote; computing it unconditionally
+  // would double that cost on every line-year to produce a number nothing
+  // reads. With the flag off this is `null` and `estimatedQuote` is the old
+  // quote object itself, so the charge is bit-identical.
+  const newStack = NEW_RATE_STACK.enabled && newPp !== null
+    ? quoteNewRateStack({
+      line,
+      yearNumber,
+      members: currentActiveMembers,
+      exposure: estimatedExposure,
+      groundUpPurePremiumPer100: newPp.purePremiumPer100,
+      clf: selectedFundingCLF,
+      riskControlPct: lineDecisions.riskControlIncentivePct ?? 0,
+      layersPlaced: lineDecisions.layersPlaced,
+      aggregateStopLevel: lineDecisions.aggregateStopLevel,
+    })
+    : null;
+
+  const estimatedQuote = newStack !== null
+    ? newStackAsLineRateQuote(newStack, estimatedExposure)
+    : oldStackQuote;
 
   // ⚠ THIS QUOTE IS THE PRICE SIGNAL, NOT THE BILL. It is struck on the book as
   // it stands before anyone joins or leaves, because that is the only book that
@@ -1059,11 +1095,6 @@ export function processLineYear(
   // already cut to the OLD window of ten; the new window is five and takes its
   // own slice, so handing it a ten-row basis would work by accident and break
   // the day the two parameters differ in the other direction.
-  const newPp = computeNewPurePremium(line, yearNumber, {
-    rows: lineState.reserveDevelopment ?? [],
-    allMarketMembers: ctx.allMarketMembers,
-    membershipHistory: ctx.membershipHistory,
-  });
 
   const totalMarketExposure = memberResult.totalMarketExposure;
   const marketShare = activeExposure / Math.max(totalMarketExposure, 0.01);
@@ -2465,6 +2496,13 @@ export function processLineYear(
     netPurePremiumPer100,
     // SHADOW — see the field's comment. Absent when the window has nothing usable.
     newPurePremiumPer100: newPp?.purePremiumPer100,
+    // The new stack's two figures, and last year's pair on the SAME two bases.
+    // All absent while NEW_RATE_STACK is off — see the fields' own note.
+    firstIndicationPer100: newStack?.firstIndicationPer100,
+    finalRatePer100: newStack?.finalRatePer100,
+    priorFirstIndicationPer100: newStack !== null ? lineState.lastFirstIndicationPer100 : undefined,
+    priorFinalRatePer100: newStack !== null ? lineState.lastFinalRatePer100 : undefined,
+    expectedToSurplus: newStack?.expectedToSurplus,
     newLossCostPer100: newPp?.lossCostPer100,
     writtenExposure: parseFloat(writtenExposure.toFixed(2)),
 
@@ -2646,6 +2684,13 @@ export function processLineYear(
     members: enrolledMembersScored,
 
     netUnpaidReserve: endingNetReserve,
+    // Carried forward so NEXT year can compare each indication against its own
+    // basis. Left untouched when the flag is off, so a state written under the
+    // old stack does not acquire a figure it never priced.
+    lastFirstIndicationPer100: newStack !== null
+      ? newStack.firstIndicationPer100 : lineState.lastFirstIndicationPer100,
+    lastFinalRatePer100: newStack !== null
+      ? newStack.finalRatePer100 : lineState.lastFinalRatePer100,
     surplus: endingSurplus,
     investedAssets: endingInvestments,
 

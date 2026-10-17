@@ -639,7 +639,12 @@ const BASELINE = process.env.RENDER_BASELINE
 //
 // Taken with the control the recapture rule asks for: the parent commit built
 // in its own worktree and served on :4174 reproduced v34 at 252/252 first.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v35.json');
+//
+// ⚠ v35 -> v36: FIVE PRIOR YEARS. The opening balance sheet changes, so every
+// screen that shows money changes with it. Taken with the control the
+// recapture rule asks for — the parent built in its own worktree and served on
+// :4174 reproduced v35 first. Attribution is in the commit message.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v36.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

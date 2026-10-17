@@ -134,6 +134,12 @@ const FAST: string[] = [
   //
   // scripts/diagnostics/opening-pin-solve.ts goes with them — it exists only to
   // re-solve a pin that no longer exists.
+  'opening-partition-check',         //   6s   played and bulk accident years PARTITION the opening —
+                                     //         no year held twice, no age held by nothing, nothing past
+                                     //         its own pattern. Written against a real double-count:
+                                     //         PRE_GAME_DEPTH was a fixed 10 silently coupled to
+                                     //         PRIOR_HISTORY_YEARS, and dropping the latter to 5 put
+                                     //         accident years 6-10 in BOTH sets. Carries its control.
   'opening-reserves-report',         //  40s   the SET opening beside today's search. ASSERTS
                                      //         NOTHING and exits 0 on any number — openingReserves.ts
                                      //         is recorded and unwired at commit (a), so there is no
@@ -207,6 +213,13 @@ const FAST: string[] = [
   'ratemaking-loop-check',           //  80s   THE ACCEPTANCE TEST — 4/4; condition 3 is paired with two null controls
   'ratio-basis-check',               //   7s
   'reserve-centring-check',          //  55s   IBNER_CALENDAR_RHO adds dispersion and NOT drift; carries its own positive control
+  'new-rate-tieout-check',           //   8s   the NEW rate stack's two indications tie to their own
+                                     //         components, neither loading error is present and the
+                                     //         adapter is additive. ⚠ IT FLIPS NEW_RATE_STACK AT
+                                     //         RUNTIME and restores it — safe only because every gate
+                                     //         runs in its own process. It is the ONLY check that
+                                     //         reaches the flag-on path at all, since the sweep and
+                                     //         both value baselines exercise the old stack.
   'reserve-split-check',             //   3s   case + IBNR sum EXACTLY to the booked reserve on every
                                      //         accident year, line and valuation, on all three bases,
                                      //         and neither half is negative. Then the claim that
