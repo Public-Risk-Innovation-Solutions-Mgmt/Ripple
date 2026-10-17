@@ -226,6 +226,10 @@ const FAST: string[] = [
                                      //         runs in its own process. It is the ONLY check that
                                      //         reaches the flag-on path at all, since the sweep and
                                      //         both value baselines exercise the old stack.
+  'development-emergence-check',     //  20s   the host's development % emerges IN FULL and only in
+                                     //         full: the cumulative matches the closed form the
+                                     //         payment pacing implies, at every age of every
+                                     //         cohort, and nothing emerges at 0%.
   'reserve-split-check',             //   3s   case + IBNR sum EXACTLY to the booked reserve on every
                                      //         accident year, line and valuation, on all three bases,
                                      //         and neither half is negative. Then the claim that
@@ -835,7 +839,25 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
   //
   // ONE REMAINS, and its open item is now the LOSS ENGINE rather than the rate.
   // ==========================================================================
-  'member-satisfaction-check': {
+  'cession-uplift-basis': {
+    code: 2,
+    why: 'THE UPLIFT LIMITS WERE CALIBRATED ON A BOOK THAT DID NOT DEVELOP, AND THE HOST\'S '
+      + 'DEVELOPMENT % NOW MAKES THEM WRONG — but I am NOT raising them, and the reason is the '
+      + 'number itself. GL reads 10.1% against a 6.0% line limit and the pool 3.7% against 1.5%. '
+      + 'Those limits were set "above the measured value and below the defect": 4.1% measured on WC '
+      + 'against 9.9% under the retired asymmetric routing. GL\'s 10.1% is PAST the figure that used '
+      + 'to signal the defect, so raising the bar to admit it would put the limit above the only '
+      + 'reading anyone has that says what a defect looks like. ⚠ THE RISE IS EXPECTED AND IS THE '
+      + 'COMMISSIONED BEHAVIOUR: adverse development lands on each occurrence and the tower answers '
+      + 'it under that accident year\'s own cover, so "adverse development makes reinsurance worth '
+      + 'more" is the brief\'s own sentence and the uplift is that sentence measured. What is NOT '
+      + 'yet known is how much of 10.1% is that intended effect and how much is option value the '
+      + 'routing is still handing over for free, because this gate\'s denominator is the inception '
+      + 'cession and development was zero when it was chosen. DEFERRED: re-derive the basis against '
+      + 'a developing book — the measurement is a day\'s work and guessing a new limit is five '
+      + 'minutes, which is the whole argument for deferring rather than tuning.',
+  },
+    'member-satisfaction-check': {
     code: 1,
     why: 'THE SCOREBOARD SLIDES AT ALL-DEFAULTS, WHICH IS THE MODEL\'S NEUTRAL POINT, AND TURNING THE '
       + 'NEW RATE ON MOVED IT WITHOUT FIXING IT. Measured either side of the flag, points of drift at '

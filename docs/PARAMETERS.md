@@ -57,7 +57,7 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
-| Prior development defaults | `WC 0.03 · GL 0.10 · Property -0.02` | share | CHOSEN | What the host setup screen offers per line. Stored on the room and NOT read by the engine. |
+| Prior development defaults | `WC 0.03 · GL 0.10 · Property -0.02` | share of the base outstanding, in TOTAL | CHOSEN | LIVE. Each accident year develops by this share of a base outstanding, in TOTAL over its remaining lifetime, arriving in step with the payments. Positive is adverse. Singleplayer takes these defaults; a session takes the host's setting, per line. THE BASE is the accident year's outstanding at the first valuation it meets — game start for prior and bulk years, the end of its own first year for a played one. EACH YEAR'S SHARE is that year's increment in paid share over the share still unpaid at the base, so by run-off exactly this percentage has emerged — asserted per accident year by development-emergence-check. ⚠ NOT A YEARLY RATE: read as one these same percentages compound to about +54% on GL and +171% on WC. Bulk years develop held NET; played years develop GROSS and their reinsurance recoveries are recalculated on each occurrence's revised cost under that accident year's own cover, so adverse development makes reinsurance worth more. The GL $25M pool limit still applies. |
 | Opening surplus bands | `per line, in defaultAssumptions.ts` | band on a per-line basis | SOURCED | The band each line's opening surplus is drawn inside. REGISTERED, NOT MOVED — the bands carry their own re-translation rule and a standing prohibition on re-deriving them casually. |
 
 ## The opening
@@ -102,7 +102,7 @@ Decisions already taken about the new loss engine, recorded before it is built. 
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
-| Development basis | `lifetime total` | — | CHOSEN · not yet used | Development is a TOTAL over each accident year's remaining lifetime, emerging with the payments — a year that is 60% paid has seen about 60% of its development. Not a yearly rate. It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly +54% on GL and +171% on WC in total at today's settings — a different model, not a refinement. |
+| Development basis | `lifetime total` | — | CHOSEN | Development is a TOTAL over each accident year's remaining lifetime, emerging with the payments — a year that is 60% paid has seen about 60% of its development. Not a yearly rate. It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly +54% on GL and +171% on WC in total at today's settings — a different model, not a refinement. |
 | Reinsurance options | `WC none · $9M xs $1M · $5M xs $5M · $14M xs $1M · $10M xs $5M` | structures a team may buy | CHOSEN · not yet used | A choice of programme, replacing today's place-or-decline on each band. GL is the same list as WC. Property: none · $20M xs $5M · $45M xs $5M · $25M xs $25M. |
 | GL ordinary losses | `$0-$1,000,000` | the layer they occupy | CHOSEN · not yet used | GL's ordinary losses are the $0-1M layer, paid on that limited layer's own payout pattern. The matched pattern is the point: the whole-account pattern is dominated by the large claims above this band and would pay these out too slowly. |
 

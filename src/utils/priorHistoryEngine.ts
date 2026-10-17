@@ -59,7 +59,8 @@ import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState, getMemberExposure } from './lineHelpers';
 import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
-import { PRE_GAME_FUNDING_LEVEL, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
+import { PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
+import { withLifetimeDevelopment } from './hostDevelopment';
 import { defaultDecisionSet } from './decisionDefaults';
 
 export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
@@ -453,7 +454,10 @@ function runLinePreGame(
   setup: GameSetupSettings,
   line: CoverageLine
 ): LinePreGame {
-  return finalizeLine(simulateLineCandidate(instance, setup, line, 0), line, 0, setup.startingYear);
+  return finalizeLine(
+    simulateLineCandidate(instance, setup, line, 0), line, 0, setup.startingYear,
+    setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line],
+  );
 }
 
 
@@ -476,11 +480,33 @@ function applySetOpening(
   line: CoverageLine,
   ls: LinePoolState,
   lineCash: number,
-  startingYear: number
+  startingYear: number,
+  developmentPct: number,
 ): LinePoolState {
   const played = (ls.reserveCohorts ?? []).filter(c => c.seeded !== true);
   const bulk = bulkCohortsAsReserveCohorts(line, ls.members ?? [], startingYear);
-  const reserveCohorts = [...played, ...bulk];
+  // ⚠ EVERY COHORT THE POOL OPENS WITH IS BASED HERE, declared years and bulk
+  // years alike, on its outstanding AT GAME START. That is the brief's rule
+  // for prior years and it is one line because the bulk years are in the same
+  // list — they develop too, held net, because they carry no register for the
+  // tower to answer (see hostDevelopment.ts).
+  //
+  // ⚠ IT MUST BE AFTER THE BULK COHORTS ARE BUILT AND BEFORE THE FIRST PLAYED
+  // YEAR, which is what this function is. Based any earlier and the declared
+  // years would develop during the pre-game, which is not a thing that
+  // happened to this pool: the history the players inherit is already told.
+  // ⚠ THE FIELDS ARE CLEARED FIRST, SO THIS IS A BASE AND NOT A NO-OP.
+  // withLifetimeDevelopment refuses to re-base a cohort that already carries a
+  // total — that guard is what stops a cohort compounding by re-striking its
+  // percentage every year. The declared years come out of the pre-game
+  // carrying a total of zero (the pre-game develops nothing, see the
+  // developmentPct note in processYear), and zero IS a total, so without this
+  // clear they would open based at zero and never develop at all.
+  const reserveCohorts = [...played, ...bulk].map(c => withLifetimeDevelopment(
+    { ...c, developmentBase: undefined, developmentTotal: undefined, developmentEmerged: undefined,
+      developmentBaseOpenShare: undefined },
+    line, developmentPct,
+  ));
   const netUnpaidReserve = reserveCohorts.reduce((a, c) => a + c.netUnpaid, 0);
   const surplus = setOpeningSurplus(line, netUnpaidReserve);
   // ⚠ THE PRE-GAME LEDGER IS CUT BACK TO THE COHORTS THAT SURVIVE THE OPENING,
@@ -515,7 +541,8 @@ function finalizeLine(
   c: ReturnType<typeof simulateLineCandidate>,
   line: CoverageLine,
   attempt: number,
-  startingYear: number
+  startingYear: number,
+  developmentPct: number,
 ): LinePreGame {
   // Stamp the accepted attempt onto each pre-game year's result so the
   // effective seed (instance.seed + attempt x 997) that produced it is
@@ -524,7 +551,9 @@ function finalizeLine(
   return {
     line,
     lineResults,
-    lineState: applySetOpening(line, c.poolState.lines[line], c.poolState.cash, startingYear),
+    lineState: applySetOpening(
+      line, c.poolState.lines[line], c.poolState.cash, startingYear, developmentPct,
+    ),
     cash: c.poolState.cash,
     unearnedPremium: c.poolState.unearnedPremium,
     members: c.poolState.lines[line].members,

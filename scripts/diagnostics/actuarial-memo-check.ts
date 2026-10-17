@@ -141,11 +141,41 @@ function checkTable(
     // ⚠ SEVEN SINCE PRICING COMMIT 5(c): Case and IBNR were added beside paid
     // to date. They bring a SECOND row identity with them, asserted below —
     // paid + case + IBNR === current ultimate, on the printed cells.
-    const [initial, prior, current, paid, caseRes, ibnr, ratio] = r.cells;
+    // ⚠ NINE COLUMNS NOW, NOT SEVEN. The 1-year and total development columns
+    // are back on the exhibit — they were dropped when full-cost booking left
+    // every accident year at its initial estimate and both read zero on every
+    // row, and the host's development % gives them something to say again.
+    // They sit between `current` and `paid`, which is the order the row reads
+    // in: where the estimate started, where it was, where it is, how far it
+    // moved this year and in total, then what has been paid of it.
+    const [initial, prior, current, oneYearDev, totalDev, paid, caseRes, ibnr, ratio] = r.cells;
     const where = `accident year ${r.label}`;
 
-    if (r.cells.length !== 7) {
-      fail(ctx, 'column count', `${where}: ${r.cells.length} cells, the exhibit has seven after the label`);
+    if (r.cells.length !== 9) {
+      fail(ctx, 'column count', `${where}: ${r.cells.length} cells, the exhibit has nine after the label`);
+    }
+
+    // --- THE TWO DEVELOPMENT COLUMNS READ WHAT THE OTHERS IMPLY ------------
+    // ⚠ ADVERSE-POSITIVE, which is the one convention every display of
+    // development now uses (developmentDisplay.ts). 1-year is current minus
+    // prior and total is current minus initial, so the exhibit is
+    // subtractable across these two as well, and a sign error here would show
+    // as an exact double rather than as a near miss.
+    const devNum = (t: string) => (t === EMPTY ? NaN
+      : Number(t.replace(/\u2212/g, '-').replace(/[+]/g, '').replace(/\s*(adverse|favourable)\s*/g, '').trim()));
+    if (oneYearDev !== EMPTY && prior !== EMPTY && current !== EMPTY) {
+      const want = num(current) - num(prior);
+      if (Math.abs(devNum(oneYearDev) - want) > 3 * PRINT_QUANTUM) {
+        fail(ctx, '1-year development !== current - prior',
+          `${where}: prints ${oneYearDev}, current - prior = ${want.toFixed(2)}`);
+      }
+    }
+    if (totalDev !== EMPTY && initial !== EMPTY && current !== EMPTY) {
+      const want = num(current) - num(initial);
+      if (Math.abs(devNum(totalDev) - want) > 3 * PRINT_QUANTUM) {
+        fail(ctx, 'total development !== current - initial',
+          `${where}: prints ${totalDev}, current - initial = ${want.toFixed(2)}`);
+      }
     }
 
     // --- ARITHMETIC: paid + case + IBNR === current ------------------------
@@ -533,7 +563,14 @@ if (FULL_COST_BOOKING.enabled) {
   for (const arm of ARMS) {
     const c = perArmCoverage[arm.name];
     if (c.deficiency !== 0) armErrors.push(`${arm.name} arm produced a deficiency in ${c.deficiency} game(s) — under full-cost booking there is no booking bias on either arm`);
-    if (c.moved !== 0) armErrors.push(`${arm.name} arm saw ${c.moved} accident year(s) move — prior years must not move at all until the prior development factors are wired`);
+    // ⚠ INVERTED, AND THIS LINE'S OWN PARAGRAPH CALLED THE DATE: "It closes
+    // when the host's prior development factors are wired and development has
+    // a source again." That is this commit. Accident years move now, by the
+    // host's percentage over their lifetime, and the exhibit's 1-year and
+    // total development columns are back to show it. So the assertion that
+    // NOTHING may move is retired and replaced by its opposite — which is the
+    // one that would catch the mechanism going quiet.
+    if (c.moved === 0) armErrors.push(`${arm.name} arm saw NO accident year move. The host's development % develops every accident year over its lifetime, so the exhibit must show movement — zero means the development is not reaching the memo`);
   }
   console.log('\n  ⚠ NAMED COVERAGE GAP: the deficiency row, the adverse-development rendering and');
   console.log('    the post-horizon movement column have no input that reaches them while');
@@ -556,10 +593,16 @@ if (coverage.prior === 0) armErrors.push('no Prior row was ever rendered — the
 // The replacement for the retired "matured year moved" assertion. If this ever
 // reads zero the exhibit has stopped showing post-horizon development, which is
 // what this commit corrected it to show.
-if (postHorizonMoved === 0 && !FULL_COST_BOOKING.enabled) {
-  armErrors.push(`no row past its IBNER horizon was seen to move (${postHorizonShown} post-horizon rows rendered a 1-year figure) — either the blanking is back or the sample no longer reaches one`);
-} else if (postHorizonMoved !== 0 && FULL_COST_BOOKING.enabled) {
-  armErrors.push(`${postHorizonMoved} row(s) past their IBNER horizon MOVED — under full-cost booking no row moves at any age, in or out of the horizon`);
+// ⚠ THE SECOND HALF IS RETIRED FOR THE SAME REASON AS THE ARM COVERAGE ABOVE,
+// and the FIRST half now applies on both arms. "No row moves at any age" was
+// a statement about full-cost booking having switched the stochastic walk off;
+// it is still off, but the host's development % develops accident years over
+// their whole lifetime and the IBNER horizon does not govern it — development
+// is paced by PAYMENTS, and a cohort past its horizon is still paying. So a
+// post-horizon row moving is now the expected reading rather than a
+// contradiction, and what is worth asserting is that one is seen at all.
+if (postHorizonMoved === 0) {
+  armErrors.push(`no row past its IBNER horizon was seen to move (${postHorizonShown} post-horizon rows rendered a 1-year figure) — the host's development is paced by payments and a cohort past its horizon is still paying, so one must be seen; either the blanking is back or the sample no longer reaches one`);
 }
 if (boundaryChecked === 0) armErrors.push('the Prior boundary claim was never evaluated');
 if (removedTextChecked === 0) armErrors.push('the removed-text audit never ran');
@@ -568,7 +611,7 @@ console.log('\n--- FINDINGS ---');
 if (findings.length === 0 && armErrors.length === 0) {
   console.log('\nEVERY PAID RATIO RECONCILES from its printed cells, in both arms; a blank prior appears');
   console.log('only on the newest year; the Prior row ties to the years it collapses; the pool total');
-  console.log('is the sum of its lines; no removed passage renders; and no accident year moved.');
+  console.log('is the sum of its lines; no removed passage renders; and the two development columns\nread exactly what the ultimates either side of them imply.');
   process.exit(0);
 }
 for (const f of findings.slice(0, 40)) {

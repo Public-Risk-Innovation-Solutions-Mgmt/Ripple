@@ -75,8 +75,9 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack } from './linePricing';
-import { NEW_RATE_STACK, POOL_LIMIT_PER_OCCURRENCE } from '../data/pricingParameters';
+import { NEW_RATE_STACK, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { applyPoolLimit } from './poolLimit';
+import { developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
 import { cloneMembershipHistory, openInterval, closeInterval } from './membershipHistory';
@@ -520,6 +521,13 @@ interface LineYearContext {
    * NOT gate (every draw still runs).
    */
   freezeMembership: boolean;
+  /**
+   * THE HOST'S DEVELOPMENT % FOR THIS LINE — signed, positive is adverse.
+   * Resolved once in processYear from the setup, falling back per line to
+   * PRIOR_DEVELOPMENT_DEFAULTS, so every read site sees one number and no
+   * read site has to know where it came from.
+   */
+  developmentPct: number;
   allMarketMembers: Member[];
   // The authoritative per-line enrollment ledger (as of this year's entry,
   // plus earlier-processed lines' same-year updates — irrelevant to this
@@ -1970,6 +1978,7 @@ export function processLineYear(
     netPaidThisYear,
     developmentCeded,
     unallocatedDevelopment,
+    developmentAbovePoolLimit,
   } = processIbner(lineState.reserveCohorts, line, ibnerRng, instance.instanceId, instance.seed, yearNumber);
   void unallocatedDevelopment;   // surfaced by the harness, not by the result
 
@@ -2108,7 +2117,15 @@ export function processLineYear(
     placedAtInception,
   };
 
-  const allCohorts = [...updatedCohorts, currentYearCohort];
+  // ⚠ THE PLAYED YEAR'S BASE IS STRUCK HERE, at the end of its own first
+  // year, which is exactly the balance `currentYearNetReserve` /
+  // `grossUnpaidCurrentYear` above are. It develops from the NEXT valuation
+  // onward; nothing emerges in the accident year itself, because no payment
+  // increment has happened since the base was taken.
+  const allCohorts = [
+    ...updatedCohorts,
+    withLifetimeDevelopment(currentYearCohort, line, ctx.developmentPct),
+  ];
 
   // ⚠ THE IBNR PROVISION THAT STOOD HERE IS GONE, WITH WC'S REPORT LAG.
   //
@@ -2684,8 +2701,17 @@ export function processLineYear(
     // not premium, not the reserve — and is reported beside retainedAboveTower
     // precisely because the two used to be the same number on GL and are now
     // opposites: one is loss the pool keeps, the other is loss it never had.
+    // ⚠ TWO SEPARATE EVENTS, TWO SEPARATE FIELDS, AND THEY WERE BRIEFLY ONE.
+    // Folding the development's above-limit share into memberShareAboveLimit
+    // broke gl-cutover-check's reconciliation — that identity pins the
+    // INCEPTION excess against sum(member losses) - aggregate, and development
+    // arriving years later is not part of it. Loss above the limit at
+    // inception and adverse development that would carry an occurrence above
+    // it are both the member's, and they happen at different times for
+    // different reasons.
     memberShareAboveLimit,
     claimsAboveLimit: poolLimit.claimsAboveLimit,
+    developmentAbovePoolLimit,
     aggregateRecovery: aggregateRecoveryAmount,
     aggregatePremium,
     aggregateAttachment,
@@ -3093,6 +3119,25 @@ export function processYear(
       calendarYear,
       applicationRateOverride: overrides?.applicationRate,
       freezeMembership: overrides?.freezeMembership === true,
+      // ⚠ A LINE ABSENT FROM THE RECORD TAKES ITS DEFAULT, NOT ZERO. A host who
+      // edited WC and left GL alone meant GL's default; an old room record,
+      // written before the field existed, means the defaults throughout.
+      // Singleplayer passes no record at all and takes all three.
+      // ⚠ ZERO THROUGH THE PRE-GAME, AND THAT IS NOT A SHORTCUT. The declared
+      // years are history the players INHERIT: it has already happened and has
+      // already been told. Developing them as they are simulated would mean
+      // the pool opens with prior years that have partly developed through a
+      // mechanism the host set for the GAME, and the opening reserve would
+      // move with the host's slider. The opening is based instead, once, in
+      // applySetOpening — see hostDevelopment.ts.
+      //
+      // The first version did not do this, and development-emergence-check
+      // caught it at once: the pre-game cohorts carried a base struck mid-
+      // pre-game, so `developmentTotal == pct x base` failed by up to $7.6k
+      // and twelve Property cohorts had emerged the wrong way.
+      developmentPct: overrides?.freezeMembership === true
+        ? 0
+        : gameState.setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line],
       allMarketMembers: currentAllMarketMembers,
       membershipHistory,
       // Ends at yearNumber - 1 — see the field's note on LineYearContext.
@@ -3822,6 +3867,7 @@ export function aggregateLineResults(
       return out;
     })(),
     retainedAboveTower: addDollars('retainedAboveTower'),
+    developmentAbovePoolLimit: addDollars('developmentAbovePoolLimit'),
     // Summed like any other dollar figure, and like the per-line field it is
     // reported and counted in nothing — see memberShareAboveLimit there.
     memberShareAboveLimit: addDollars('memberShareAboveLimit'),
@@ -4158,6 +4204,7 @@ function processIbner(
   netPaidThisYear: number;
   developmentCeded: number;
   unallocatedDevelopment: number;
+  developmentAbovePoolLimit: number;
 } {
   let developmentImpact = 0;
   let netPaidThisYear = 0;
@@ -4165,6 +4212,12 @@ function processIbner(
   // could not be pushed onto any claim because the cohort has no register.
   let developmentCeded = 0;
   let unallocatedDevelopment = 0;
+  // Adverse development the GL pool limit kept off the pool's books — the
+  // member's, like the excess at inception. Reported, reserved for by nobody.
+  let developmentAbovePoolLimit = 0;
+  // Favourable development that met an empty reserve — see the floor below.
+  // Surfaced by the harness, not by the result.
+  let developmentClamped = 0;
 
   const updatedCohorts = cohorts
     .filter(c => !c.closed)
@@ -4200,6 +4253,7 @@ function processIbner(
         && (c.age < c.horizon
           || (FORWARD_BOOKING.enabled && openShareAtStep(line, c.age + 1) > 0));
       let developingClaimsOut = c.developingClaims;
+      let emergedOut = c.developmentEmerged ?? 0;
       let cededToDate = c.cededDevelopmentToDate ?? 0;
       let untrackedOut = c.untrackedTotal;
       let benchOut = c.developmentBench;
@@ -4740,6 +4794,130 @@ function processIbner(
       // Developing the reserve directly removes the crossing entirely: paid is
       // never revisited, and a lognormal factor on a positive balance stays
       // positive. ibner-null-check asserts the floored count is exactly 0.
+      // ====================================================================
+      // THE HOST'S DEVELOPMENT, EMERGING WITH THIS YEAR'S PAYMENTS.
+      //
+      // A lifetime total struck once on the cohort's base outstanding, paid
+      // out in step with the payout pattern — see hostDevelopment.ts for the
+      // maths and for why the increments telescope to exactly the full
+      // percentage by run-off.
+      //
+      // ⚠ IT IS ADDED AFTER THE PAYDOWN, NOT BEFORE, and the order is the
+      // mechanism rather than a detail. This year's payments are what makes
+      // this year's news; the news is recognised once they are made, so it
+      // lands on the closing balance and is paid down by LATER years. Added
+      // before, part of each year's development would be settled in the same
+      // breath as it emerged, and the cohort would run off faster the more
+      // adversely it developed.
+      //
+      // ⚠ A ZERO PERCENTAGE IS BIT-IDENTICAL TO NO MECHANISM AT ALL. There is
+      // no draw here and no branch taken: developmentTotal is 0, the emerging
+      // amount is 0, and every line below is a no-op. That is what makes
+      // "all three baselines byte-identical at 0%" a property of the code
+      // rather than a measurement that happened to come out right.
+      const emerging = developmentEmergingAtStep(c, line);
+      let emergedNet = 0;
+      let emergedAbovePoolLimit = 0;
+      if (emerging !== 0) {
+        emergedOut = (c.developmentEmerged ?? 0) + emerging;
+        // --- THE REGISTERED CASE: a gross movement the tower answers -------
+        //
+        // ⚠ UNDER THE ACCIDENT YEAR'S OWN COVER, NOT THIS YEAR'S.
+        // `placedAtInception` is frozen on the cohort precisely so that a team
+        // which drops a layer in year 6 still recovers on year 3's adverse
+        // development through the layer year 3 was written with. Occurrence
+        // cover attaches to the accident year.
+        const liveTracked = developingClaimsOut ?? [];
+        if (liveTracked.length > 0 || (untrackedOut ?? 0) > 0) {
+          const alloc = allocateDevelopment(
+            liveTracked, untrackedOut ?? 0, emerging, 'proportional',
+          );
+          // ⚠ THE GL POOL LIMIT APPLIES TO THE REVISED COST. Adverse
+          // development that would carry an occurrence above $25M is not the
+          // pool's — it is the member's, exactly as it is at inception. The
+          // delta is trimmed to the headroom and the trimmed part is reported
+          // rather than reserved. Favourable development has no limit to
+          // meet, so the trim is one-sided by construction.
+          const limit = POOL_LIMIT_PER_OCCURRENCE[line];
+          const deltas = limit === null ? alloc.deltas : alloc.deltas.map((d, i) => {
+            if (d <= 0) return d;
+            const headroom = Math.max(0, limit - liveTracked[i].current);
+            emergedAbovePoolLimit += d - Math.min(d, headroom);
+            return Math.min(d, headroom);
+          });
+          // A cohort carrying frozen cover is one the tower was bought for;
+          // a bulk cohort has none and falls to the net branch below.
+          const cession = c.placedAtInception !== undefined
+            ? cedeDevelopment(line as TowerLine, liveTracked, deltas,
+              alloc.untrackedDelta, c.placedAtInception)
+            : null;
+          if (cession !== null) {
+            // ⚠ THE REINSURER CANNOT GIVE BACK MORE THAN IT TOOK. Favourable
+            // development runs the cession backwards — the occurrence's
+            // revised cost reaches less far into the layers, so `ceded` comes
+            // back negative — and left unclamped that drives the cohort's
+            // ceded reserve below zero, which is a recoverable the pool owes
+            // the reinsurer. reserve-split-check caught it on Property, whose
+            // default is favourable: six accident-years with a ceded case or
+            // IBNR a few hundred dollars negative, the worst -$19.6k.
+            //
+            // The give-back is floored at what this cohort has ceded to date;
+            // the rest stays with the pool, which is where it already was.
+            const gross = deltas.reduce((a, b) => a + b, 0) + alloc.untrackedDelta;
+            const ceded = cededToDate + cession.ceded < 0 ? -cededToDate : cession.ceded;
+            // ⚠ THE MOVEMENT IS RECORDED PER CLAIM, NOT JUST APPLIED. The
+            // claims workbook asserts `Booked + the sum of a claim's yearly
+            // movements == its Current value`, so moving `current` without
+            // writing the step leaves the workbook unable to explain its own
+            // figure — 2,182 rows said exactly that, every one reading
+            // "Yr sum 0" against a Current that had moved. The series is
+            // indexed by the cohort's age, the same convention the stochastic
+            // path above uses.
+            developingClaimsOut = cession.moved.map((d, i) => {
+              const moved = d.current - liveTracked[i].current;
+              if (moved === 0) return d;
+              const series = [...(d.movementByStep ?? [])];
+              while (series.length < c.age) series.push(0);
+              series[c.age] = (series[c.age] ?? 0) + moved;
+              return { ...d, movementByStep: series };
+            });
+            cededToDate += ceded;
+            developmentCeded += ceded;
+            emergedNet = gross - ceded;
+          } else {
+            emergedNet = deltas.reduce((a, b) => a + b, 0) + alloc.untrackedDelta;
+          }
+          untrackedOut = (untrackedOut ?? 0) + alloc.untrackedDelta;
+          newGrossUnpaid += emerging - emergedAbovePoolLimit;
+        } else {
+          // --- THE BULK CASE: no register, so it is simply net -------------
+          // A bulk or seeded cohort has no claims to cede to and no gross
+          // ledger of its own; its base was its net outstanding and its
+          // development is net. See hostDevelopment.ts.
+          emergedNet = emerging;
+          newGrossUnpaid += emerging;
+        }
+        // ⚠ FAVOURABLE DEVELOPMENT CANNOT TAKE THE BALANCE BELOW ZERO, and
+        // this floor is NOT the reserve floor that was a bug. That one clipped
+        // a STOCHASTIC walk on the ultimate, one-sidedly, and broke the
+        // martingale. This is a DETERMINISTIC subtraction on a balance that is
+        // already known: a cohort holding $8k of reserve cannot release $18k
+        // of good news, because the money is not there.
+        //
+        // cohort-ledger-check found it on Property, whose default is
+        // favourable: 5 cohort-valuations of 20,680 went to a negative unpaid,
+        // worst -$0.01M, and the close then pushed that negative into paid so
+        // netPaid FELL. The clamped part is still counted as emerged — the
+        // news did arrive; the cohort simply had less reserve than the news —
+        // which keeps the run-off identity exact and lets the cohort close.
+        if (newUnpaid + emergedNet < 0) {
+          developmentClamped += Math.abs(newUnpaid + emergedNet);
+          emergedNet = -newUnpaid;
+        }
+        newUnpaid += emergedNet;
+        developmentAbovePoolLimit += emergedAbovePoolLimit;
+      }
+
       const newUltimate = newPaid + newUnpaid;
       developmentImpact += c.netUltimate - newUltimate;
 
@@ -4863,7 +5041,25 @@ function processIbner(
       // a 35% geometric at about age 23 and does not terminate a Weibull at all:
       // WC reached $1,000 at age 98, so cohorts accumulated one a year and never
       // shed. See cohortCloseBelow for the fraction and what it costs.
-      const closing = !developing && newUnpaid < cohortCloseBelow(LINE_PAYOUT_PATTERN[line], newUltimate);
+      // ⚠ A COHORT THAT STILL OWES DEVELOPMENT IS NOT FINISHED, and this
+      // clause is what makes "by run-off, exactly the full percentage has
+      // emerged" true by construction rather than nearly.
+      //
+      // Without it a cohort whose balance fell below the close floor in a year
+      // when its payment increment was small simply closed, forfeiting the
+      // development it had not yet emerged — development-emergence-check found
+      // that at once, $23.5k on the worst cohort. Releasing the remainder at
+      // the close instead would mean a second cession pass on a cohort that is
+      // being settled in the same breath; keeping it OPEN is both simpler and
+      // the truer statement, because an accident year with news still to come
+      // is an accident year that is still open.
+      //
+      // It terminates: developmentEmergingAtStep releases the whole remainder
+      // on the step where the pattern's unpaid share reaches zero, and every
+      // recorded pattern reaches it.
+      const developmentOutstanding = Math.abs((c.developmentTotal ?? 0) - emergedOut) >= 1;
+      const closing = !developing && !developmentOutstanding
+        && newUnpaid < cohortCloseBelow(LINE_PAYOUT_PATTERN[line], newUltimate);
       if (closing) {
         paydown += newUnpaid;
         newPaid += newUnpaid;
@@ -4892,10 +5088,13 @@ function processIbner(
         untrackedTotal: untrackedOut,
         developmentBench: benchOut,
         cededDevelopmentToDate: cededToDate,
+        developmentEmerged: emergedOut,
       };
     });
 
+  void developmentClamped;
   return {
+    developmentAbovePoolLimit,
     developmentImpact,
     updatedCohorts,
     netPaidThisYear,

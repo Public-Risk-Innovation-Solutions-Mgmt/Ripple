@@ -1018,7 +1018,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 600 fields are ADDED and are not a value change: memberShareAboveLimit and
 // claimsAboveLimit. WC and Property see no loss, reserve or premium move at
 // all — their limit is null and the engine does not even re-sum their gross.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v61.json');
+// v62: THE HOST'S DEVELOPMENT % GOES LIVE, AND THE SIGN CONVENTION WITH IT.
+//
+// ⚠ AT 0% ON EVERY LINE THIS BASELINE IS BYTE-IDENTICAL TO v61 — checked, not
+// claimed, by running this file with PRIOR_DEVELOPMENT_DEFAULTS overridden to
+// zero against the previous capture: VALUE IDENTITY HOLDS. The mechanism
+// takes no draw and no branch at 0%, so the engine is inert; what moves below
+// is the defaults (WC 3% adverse, GL 10% adverse, Property 2% favourable)
+// doing what they say.
+//
+// Reserves, ultimates, paid and the surplus path move on all three lines, in
+// the direction of each line's sign. The two development rows on the results
+// sheet also change their PRINTED SIGN: they were favourable-positive and are
+// now adverse-positive, the one convention every display now uses. That is a
+// presentation change on a field the engine did not touch.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v62.json');
 
 function seedOf(id: string) {
   let h = 5381;

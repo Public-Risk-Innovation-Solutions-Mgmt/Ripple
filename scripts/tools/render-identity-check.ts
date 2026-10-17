@@ -721,7 +721,27 @@ const BASELINE = process.env.RENDER_BASELINE
 //                        claim above $25M — so a quiet year now earns less.
 //                        That is the pool no longer charging for a tail it
 //                        never covered, which is the point of the change.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v40.json');
+// v41: THE HOST'S DEVELOPMENT %, THE SIGN CONVENTION, AND THE MEMO'S TWO
+// RESTORED COLUMNS. 130 of 252 moved. The control ran first: the parent, built
+// in its own worktree and served on 4174, reproduced its own committed
+// baseline 252 of 252.
+//
+// THE SPLIT IS LEGIBLE IN THE UNMOVED SET: 13 of each main tab did not move,
+// and they are the y0 rows — no year has been played, so nothing has
+// developed. Financial Statements is the exception at 4 unmoved, because its
+// y0 shows the pre-game Year 0 statement and that carries the one line the
+// sign convention touches.
+//
+// TWO SCREENS WERE OPENED AND DIFFED RATHER THAN ASSUMED:
+//   WC|Financial Stmts|y0   the ONLY change is "-$0" becoming "$0" on Prior
+//                           year claims. A screen with no played year has no
+//                           development, so what is left is the convention's
+//                           own zero handling — which is the cleanest possible
+//                           evidence that the engine did nothing there.
+//   PR|Results|PR|y2        surplus $20.91M -> $21.76M. Property's default is
+//                           2% FAVOURABLE, so its development adds to surplus;
+//                           the direction is the parameter's sign.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v41.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

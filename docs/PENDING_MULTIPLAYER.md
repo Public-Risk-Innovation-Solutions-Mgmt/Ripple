@@ -50,6 +50,13 @@ That is not stated in the memo for now.
 
 ## 2. The sign of reserve development
 
+**SHIPPED.** The host's development % is wired, the Actuarial exhibit's 1-year
+and total development columns are back, and the convention below is applied to
+all three displays at once — the exhibit, the income statement and the results
+page — through one shared formatter, `src/utils/developmentDisplay.ts`. The
+engine's `priorYearDevelopment` keeps its own favourable-positive sign; only
+the printing changed. The record below stands as what was agreed.
+
 **Ships with:** the return of development. Full-cost booking leaves every
 accident year at its initial estimate, so the Actuarial exhibit currently shows
 no development columns (`src/utils/actuarialMemo.ts`).

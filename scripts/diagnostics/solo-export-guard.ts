@@ -623,7 +623,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // three lines through the pre-game's cash/invested split, and the GL and
 // tri-line exports carry the capped GL loss as well. See VALUE_IDENTITY's v61
 // note for the field-level attribution.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v63.json');
+// v64: THE HOST'S DEVELOPMENT %, AND THE SIGN CONVENTION. All 24 exports move.
+//
+// ⚠ AT 0% THE ENGINE IS INERT AND THIS WAS ISOLATED RATHER THAN ASSUMED. With
+// the development overridden to zero the exports still differed — so the two
+// development rows' sign flip was reverted as well, and at 0% with the old
+// signs all 24 came back BYTE-IDENTICAL to v63. The engine contributes
+// nothing at 0%; the whole of the remaining move is the sign convention, and
+// it is a deliberate display change made in the same commit so no reader ever
+// meets two opposite signs for one event.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v64.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

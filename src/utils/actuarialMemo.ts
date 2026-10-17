@@ -31,6 +31,7 @@ import type {
 import { ibnerUnwindWeight } from './simulationEngine';
 import { TRIANGLE_HISTORY_YEARS } from '../data/defaultAssumptions';
 import { NEW_RATE_STACK } from '../data/pricingParameters';
+import { adverseSigned } from './developmentDisplay';
 import { pricingExperienceBasis, windowRows } from './pricingTriangle';
 import { experienceRatePer100 } from './experienceRating';
 import { clfFor } from './fundingConsequence';
@@ -368,10 +369,23 @@ function cell(value: number | null): string {
 // docs/PENDING_MULTIPLAYER.md.
 // Case and IBNR sit BESIDE paid to date, which is the order the row reads in:
 // what has been paid, what is held on known claims, what is still to emerge.
+// ⚠ THE TWO DEVELOPMENT COLUMNS ARE BACK. They were dropped when full-cost
+// booking left every accident year at its initial estimate and both columns
+// read zero on every row; the host's development % gives them something to
+// say again. `oneYear` and `total` were computed throughout — the session
+// results and the gate have been reading them — so this restores a rendering,
+// not a calculation.
+//
+// ⚠ ONE CONVENTION, AND THESE TWO ARE ALREADY ON IT. current - prior and
+// current - initial RISE when the estimate rises, so they are adverse-positive
+// as printed, and they go through adverseSigned rather than
+// developmentDisplay — which negates, because the engine's own field runs the
+// other way. Getting that backwards would put the two signs this commit exists
+// to unify on one exhibit. See docs/PENDING_MULTIPLAYER.md section 2.
 const HEADER =
   '| Accident year | Initial ultimate $M | Prior year ultimate $M | Current ultimate $M ' +
-  '| Paid to date $M | Case $M | IBNR $M | Paid / ultimate |\n' +
-  '|---|---:|---:|---:|---:|---:|---:|---:|';
+  '| 1-year dev $M | Total dev $M | Paid to date $M | Case $M | IBNR $M | Paid / ultimate |\n' +
+  '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|';
 
 function renderTable(rows: ExhibitRow[]): string {
   if (rows.length === 0) return '_No accident years on this exhibit yet._';
@@ -387,6 +401,7 @@ function renderTable(rows: ExhibitRow[]): string {
     // If a gross paid figure is ever wanted on this exhibit it needs its own
     // gross denominator stored beside it; see ReserveDevelopmentRow.
     return `| ${label} | ${m(r.initial)} | ${cell(r.prior)} | ${m(r.current)} `
+      + `| ${adverseSigned(r.oneYear, m, true)} | ${adverseSigned(r.total, m, true)} `
       + `| ${cell(r.paid)} | ${cell(r.caseReserves)} | ${cell(r.ibnr)} `
       + `| ${ratioCell(r.paidToIncurred)} |`;
   });

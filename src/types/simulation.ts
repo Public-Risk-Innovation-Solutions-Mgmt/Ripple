@@ -541,6 +541,16 @@ export interface GameSetupSettings {
   startingYear: number;   // calendar year label only
   instanceId: string;
   activeLines: CoverageLine[];  // coverage lines the pool writes (at least one)
+  /**
+   * THE HOST'S DEVELOPMENT %, PER LINE — signed, POSITIVE IS ADVERSE.
+   *
+   * Absent in singleplayer, which takes PRIOR_DEVELOPMENT_DEFAULTS. A session
+   * sets it from the room, so every team in a room develops alike. A line
+   * absent from the record takes the default, not zero: a host who edited WC
+   * and left GL alone meant GL's default, and an old room record written
+   * before this field existed means the defaults throughout.
+   */
+  priorDevelopment?: Partial<Record<CoverageLine, number>>;
 }
 
 // Per-line player decisions for a given year.
@@ -999,6 +1009,19 @@ export interface ReserveCohort {
   // on the cohort is what makes that true without having to look up a decision
   // set that may no longer exist.
   placedAtInception?: boolean[];
+  // --- THE HOST'S LIFETIME DEVELOPMENT (see hostDevelopment.ts) -----------
+  /** The outstanding the development was struck on, on this cohort's own
+   *  basis — gross where a register exists, net where one does not. */
+  developmentBase?: number;
+  /** The line's signed % of that base: everything this accident year will
+   *  develop by, in TOTAL, over its remaining lifetime. Positive is adverse. */
+  developmentTotal?: number;
+  /** How much of it has emerged so far. Reaches developmentTotal at run-off,
+   *  which development-emergence-check asserts to the cent. */
+  developmentEmerged?: number;
+  /** The unpaid share at the age the base was struck — the denominator that
+   *  makes each year's increment a share of the whole. */
+  developmentBaseOpenShare?: number;
 }
 
 // ONE ACCIDENT YEAR'S ESTIMATE, AT EVERY VALUATION IT HAS SEEN — the reserve
@@ -1629,6 +1652,14 @@ interface ResultRowFields {
   memberShareAboveLimit: number;
   /** How many claims pierced that limit this year. */
   claimsAboveLimit: number;
+  /**
+   * Adverse DEVELOPMENT that would have carried an occurrence above the pool's
+   * per-occurrence limit, and so went to the member instead. Separate from
+   * memberShareAboveLimit, which is the excess at INCEPTION: the two are
+   * different events years apart, and gl-cutover-check's reconciliation pins
+   * only the first.
+   */
+  developmentAbovePoolLimit: number;
   // WC aggregate stop-loss on total annual retained loss. 0 when not purchased.
   aggregateRecovery: number;
   aggregatePremium: number;

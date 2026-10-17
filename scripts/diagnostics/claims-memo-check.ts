@@ -432,9 +432,17 @@ console.log('\n  POSITIVE CONTROLS (each MUST be caught):');
     // ⚠ NAMED GAP: the Incurred identity and the Paid <= Incurred assertion are
     // still asserted above and still green — what is lost is the evidence that
     // they COULD fail. That returns the moment development does.
+    // ⚠ CONTROL F IS LIVE AGAIN, AND ITS OWN NOTE SAID IT WOULD BE: "That
+    // returns the moment development does." The host's development % develops
+    // every accident year over its lifetime, so the carried ultimate moves
+    // away from the drawn value and the stale-column control can discriminate
+    // once more. What was asserted while it was inert — that the two columns
+    // are the SAME number — is now false by design, so the assertion is the
+    // original one again: the memo must not print the drawn value where the
+    // carried value belongs.
     if (FULL_COST_BOOKING.enabled) {
-      ok(checked > 0 && wouldFail === 0,
-        `control F — INERT: drawn IS the current ultimate on all ${checked} cohorts, so the stale-column control cannot discriminate`,
+      ok(checked > 0 && wouldFail > 0,
+        `control F: drawn and carried differ on ${wouldFail} of ${checked} cohorts, so the stale-column control discriminates`,
         `${wouldFail} of ${checked} cohorts differ between the drawn and carried columns — under full-cost `
         + 'booking they must be the same number, so a difference means something is still contracting the booking');
     } else {
@@ -455,8 +463,12 @@ console.log('\n  POSITIVE CONTROLS (each MUST be caught):');
       // The same inertness as control F — see its note. Paid can no longer
       // exceed the drawn value because the drawn value IS the carried one and
       // payment is a share of it, so there is nothing for the control to find.
-      ok(crossedOld.length === 0,
-        'control G — INERT: no row crosses on the drawn column, because drawn IS the carried value',
+      // ⚠ AND SO IS CONTROL G, for the same reason. Paid is a share of the
+      // CARRIED ultimate; with development the carried value exceeds the drawn
+      // one on an adverse year, so rows do cross the drawn column again and
+      // the control has something to find.
+      ok(crossedOld.length > 0,
+        `control G: ${crossedOld.length} row(s) pay more than their drawn value, so the drawn column is distinguishable from the carried one`,
         `${crossedOld.length} row(s) pay more than their drawn value — under full-cost booking paid is a `
         + 'share of the carried ultimate and the carried ultimate is the drawn one, so nothing may cross');
     } else {

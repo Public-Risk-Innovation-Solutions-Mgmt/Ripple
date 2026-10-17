@@ -65,7 +65,7 @@ const DOLLARS = new Set([
   // a team reads is the sum of its lines'. Classifying it anywhere else would
   // say the addition is wrong, which it is not; what is true of it is said at
   // the field and at POOL_LIMIT_PER_OCCURRENCE, not by this set.
-  'memberShareAboveLimit',
+  'memberShareAboveLimit', 'developmentAbovePoolLimit',
   // Additive for the same reason its gross and net neighbours are: it is the
   // same register at a different point in the booking, so the pool figure is
   // the sum of the lines and nothing else. ⚠ BOTH OF THEM: the net twin was

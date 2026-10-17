@@ -743,8 +743,18 @@ const coverageErrors: string[] = [];
 // DIRECTLY with fixtures, which is what keeps this file worth running; the
 // end-to-end arm does not. It closes when the host's prior development factors
 // become the source of development.
+// ⚠ THIS COVERAGE CLAIM IS NOW INVERTED, AND ITS OWN TEXT CALLED THE DATE.
+// The paragraph above ends "It closes when the host's prior development
+// factors become the source of development" — that is this commit. Full-cost
+// booking still leaves the STOCHASTIC walk switched off, but the host's
+// percentage develops every accident year over its lifetime, those movements
+// land on the register, and the tower answers them under the accident year's
+// own cover. So the end-to-end arm exercises the cession path again and the
+// assertion that it CANNOT is retired rather than loosened: what is asserted
+// instead is that it DOES, which is the statement that would catch the path
+// going quiet again.
 if (FULL_COST_BOOKING.enabled) {
-  if (cover.cededEvents !== 0) coverageErrors.push(`${cover.cededEvents} cession event(s) occurred — under full-cost booking nothing develops, so nothing can cede on development`);
+  if (cover.cededEvents === 0) coverageErrors.push('no cession event occurred on development. The host\'s development % reaches the register and the tower answers it, so the end-to-end arm must exercise this path — zero events means the development is not reaching the cession, which is the defect this file exists for');
   console.log('\n  ⚠ NAMED COVERAGE GAP: the end-to-end development-cession path has no input');
   console.log('    reaching it while FULL_COST_BOOKING is on. The direct allocator fixtures above');
   console.log('    still exercise it; the played-game arm does not.');

@@ -4,6 +4,7 @@ import type { LineResultSet, LineView, ResultSet } from '../types/simulation';
 import { deriveAnnualStatement, statementLines } from '../utils/financialStatementEngine';
 import { RETAINED_ABOVE_TOWER_CAVEAT } from '../utils/reinsuranceDisplay';
 import { formatCurrency, formatPct, colorForNetIncome } from '../utils/formatters';
+import { developmentDisplay } from '../utils/developmentDisplay';
 import { lineDisplayName } from '../utils/lineDisplay';
 
 interface FinancialsPageProps {
@@ -142,7 +143,24 @@ export default function FinancialsPage({ lockedResults, priorResults, lineView }
                         indent2
                       />
                     )}
-                    <ISLine label="Prior year claims" value={formatCurrency(priorYearClaims)} indent2 />
+                    {/* ⚠ ONE CONVENTION, SHARED. priorYearClaims is already
+                        adverse-positive (financialStatementEngine negates the
+                        engine's favourable-positive field), so the SIGN here
+                        was right while the Results page printed the opposite.
+                        What this line gains is the plus sign, the colour and
+                        the word, so the two tabs now read identically — see
+                        developmentDisplay.ts. */}
+                    {(() => {
+                      const d = developmentDisplay(-priorYearClaims, formatCurrency);
+                      return (
+                        <ISLine
+                          label="Prior year claims"
+                          value={d.text}
+                          valueColor={d.className}
+                          indent2
+                        />
+                      );
+                    })()}
                     <ISLine label="Provision for claims, net" value={formatCurrency(is.netIncurredLoss)} indent2 />
                     <ISLine label="General administrative services" value={formatCurrency(is.operatingExpense)} indent />
                     <ISLine label="Loss prevention expenses" value={formatCurrency(is.riskControlInvestment)} indent />

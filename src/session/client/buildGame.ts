@@ -32,7 +32,8 @@ import type { CoverageLine, GameSetupSettings, GameState, Member, PoolState, Res
 import type { JsonValue, RoomView } from '../contract';
 import { decisionsForYear } from './decisions';
 
-export type RoomBuildInputs = Pick<RoomView, 'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'shocks'>;
+export type RoomBuildInputs = Pick<RoomView,
+  'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'shocks' | 'priorDevelopment'>;
 
 export interface BuiltTeamGame {
   gameState: GameState;
@@ -54,6 +55,10 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     startingYear: r.startingYear,
     instanceId: r.seed,
     activeLines: [...lines],
+    // ⚠ THE ROOM'S SETTING, SO EVERY TEAM IN A ROOM DEVELOPS ALIKE. It is no
+    // longer stored-and-inert: the engine reads it per line, falling back to
+    // PRIOR_DEVELOPMENT_DEFAULTS for any line the host did not set.
+    priorDevelopment: r.priorDevelopment,
   };
 
   // THE ROOM'S SCHEDULE, THROUGH THE CONSTRUCTOR. An empty one writes no field.

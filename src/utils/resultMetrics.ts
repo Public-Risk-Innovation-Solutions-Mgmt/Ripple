@@ -7,6 +7,7 @@ import type { SpreadsheetMetric } from './resultsExport';
 import { formatCurrency, formatPct } from './formatters';
 import { eventLabel, yearEvents } from './yearEvents';
 import { placementCode, placementSummary } from './reinsuranceDisplay';
+import { developmentDisplay } from './developmentDisplay';
 import type { CoverageLine, LineDecisionSet, ResultSet } from '../types/simulation';
 
 // Which tower line a result row belongs to — WC or GL ONLY, never a guess.
@@ -541,14 +542,23 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // assemble. It cannot drift from its components: it is computed from them at
       // emit time.
       //
-      // SIGN: priorYearDevelopment is FAVOURABLE-POSITIVE and ceding makes an
-      // adverse year less adverse, so gross is net MINUS the recovery and reads
-      // more negative than the net below it.
+      // ⚠ SIGN: PRINTED ADVERSE-POSITIVE, AND THIS PAGE USED TO PRINT THE
+      // OPPOSITE. The engine's priorYearDevelopment is FAVOURABLE-POSITIVE —
+      // netIncurredLoss subtracts it — and these rows printed it raw, while
+      // the income statement negated it into "Prior year claims". Two opposite
+      // signs for one event on adjacent tabs. Both now go through
+      // developmentDisplay; the engine's field keeps its own sign and only the
+      // printing changed. See docs/PENDING_MULTIPLAYER.md section 2.
+      //
+      // Ceding makes an adverse year less adverse, so GROSS is more adverse
+      // than the net below it — which now reads as a LARGER positive rather
+      // than a more negative number.
       key: 'priorYearDevelopmentGross',
       category: 'Reserves',
-      label: 'Prior-Year Development (gross)',
-      value: r => formatCurrency(r.priorYearDevelopment - r.priorYearDevelopmentCeded),
-      csvValue: r => roundDollars(r.priorYearDevelopment - r.priorYearDevelopmentCeded),
+      label: 'Prior-Year Development, gross (+ adverse)',
+      value: r => developmentDisplay(
+        r.priorYearDevelopment - r.priorYearDevelopmentCeded, formatCurrency).text,
+      csvValue: r => roundDollars(-(r.priorYearDevelopment - r.priorYearDevelopmentCeded)),
     },
     {
       key: 'priorYearDevelopmentCeded',
@@ -563,9 +573,9 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // gross, which is the whole confusion.
       key: 'priorYearDevelopment',
       category: 'Reserves',
-      label: 'Prior-Year Development (net)',
-      value: r => formatCurrency(r.priorYearDevelopment),
-      csvValue: r => roundDollars(r.priorYearDevelopment),
+      label: 'Prior-Year Development, net (+ adverse)',
+      value: r => developmentDisplay(r.priorYearDevelopment, formatCurrency).text,
+      csvValue: r => roundDollars(-r.priorYearDevelopment),
     },
     {
       key: 'beginningNetReserve',

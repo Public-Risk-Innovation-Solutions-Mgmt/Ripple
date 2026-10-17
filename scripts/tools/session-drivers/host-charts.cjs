@@ -190,13 +190,18 @@ const activeView = page => page.$$eval('nav button', bs =>
   const dev1At3 = hRec.resultsByYear['3'].developed.pool['1'];
   ok(Math.abs(dev1At1 - booked1) < 1,
      `at its own valuation, accident year 1 as developed IS its booked figure ($${Math.round(booked1)})`);
-  // Every AGED accident year at the latest valuation, not only year 1: a year
-  // that moved is a development the engine is not supposed to make.
+  // ⚠ AGED YEARS MOVE NOW, AND THAT IS THE ASSERTION. This read "hold steady",
+  // on the premise that full-cost booking left the engine with no development
+  // to make. The host's development % is that development: every accident year
+  // develops by its line's percentage over its lifetime, so two valuations on,
+  // an aged year MUST have moved. The default mix is adverse on WC and GL and
+  // favourable on Property, so the pool figure is adverse on balance and the
+  // direction is asserted with the movement.
   const aged = ['1', '2'].map(y => ({
     y, booked: hRec.resultsByYear[y].pool.netUltimateLoss, developed: hRec.resultsByYear['3'].developed.pool[y],
   }));
-  ok(aged.every(a => Math.abs(a.developed - a.booked) < 1),
-     `two valuations later the aged years hold steady: ${aged.map(a => `year ${a.y} $${Math.round(a.booked)} -> $${Math.round(a.developed)}`).join(', ')}`);
+  ok(aged.every(a => a.developed > a.booked),
+     `two valuations later the aged years have developed ADVERSELY: ${aged.map(a => `year ${a.y} $${Math.round(a.booked)} -> $${Math.round(a.developed)}`).join(', ')}`);
   void dev1At3;
   const bookedLatest = hRec.resultsByYear['3'].pool.netUltimateLoss;
   ok(Math.abs(hRec.resultsByYear['3'].developed.pool['3'] - bookedLatest) < 1,
@@ -212,10 +217,25 @@ const activeView = page => page.$$eval('nav button', bs =>
   const bookMarks = await marks(host, 'losses', COLORS['Harbour Mutual']);
   ok(devMarks.length === bookMarks.length && devMarks.length === 4,
      `the developed chart covers the same accident years (${devMarks.length})`);
-  // The drawn points agree with the figures: every aged developed point sits ON
-  // its booked point, to a pixel. Was "ABOVE", which assumed development.
-  const onTop = devMarks.slice(0, 3).every((d, i) => Math.abs(d.cy - bookMarks[i].cy) <= 1);
-  ok(onTop, 'and every developed point that has aged sits ON its booked point');
+  // ⚠ AND THE DRAWN POINTS FOLLOW THE FIGURES BACK UP. This asserted the
+  // points sat ON each other — correct while nothing developed, and it had
+  // already been "ABOVE" before that. With the host's development live the
+  // pool develops adversely, so a developed point sits ABOVE its booked one;
+  // on the chart's inverted y-axis that is a SMALLER cy.
+  // ⚠ THE AGED ONES ONLY, AND THE NEWEST IS EXCLUDED ON PURPOSE. A year at its
+  // OWN valuation has not developed yet — the assertion forty lines up says
+  // exactly that — so its developed point sits on its booked one and always
+  // will. Only the two that have aged can have moved.
+  //
+  // ⚠ AND THE TEST IS "NEVER BELOW, AT LEAST ONE CLEARLY ABOVE", because a
+  // year of development on this scale is worth a pixel or two and the chart
+  // is drawn in integers. Demanding a strict gap on every point asserts the
+  // renderer's resolution rather than the engine's direction.
+  const agedMarks = devMarks.slice(0, 2);
+  const neverBelow = agedMarks.every((d, i) => d.cy <= bookMarks[i].cy);
+  const oneClear = agedMarks.some((d, i) => d.cy < bookMarks[i].cy);
+  ok(neverBelow && oneClear,
+     'and the aged developed points are drawn ABOVE their booked points (adverse), never below');
 
   // ---- REPORTED, PENDING, and the line that must not fall to zero ------
   const hs = await marks(host, 'surplus', COLORS['Harbour Mutual']);

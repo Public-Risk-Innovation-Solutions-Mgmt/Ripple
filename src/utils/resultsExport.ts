@@ -326,6 +326,16 @@ export function classifyMetricFormat(metric: SpreadsheetMetric, results: LineRes
     // meaning is in the digits after the point. They take the two-decimal
     // bucket: a rate per $100 of payroll is a rate, and the column label already
     // carries the unit.
+    // ⚠ DEVELOPMENT CARRIES A SIGN AND A WORD, AND IS STILL DOLLARS.
+    // "+$614,233 adverse" / "\u2212$614,233 favourable" is the one convention
+    // every display of reserve development now uses (developmentDisplay.ts):
+    // the sign, the colour and the word all say the same thing so no reader
+    // has to remember which is authoritative. It is whole dollars, so it takes
+    // the dollar bucket. Before development went live these rows were zero on
+    // every row and the question never arose; export-number-format-check
+    // raised it the moment they carried numbers, which is the check working.
+    // Note the minus is U+2212, not a hyphen.
+    if (/^[+\u2212-]?\$[\d,]+( adverse| favourable)?$/.test(t)) return '#,##0';
     if (/^-?\$[\d,]+\.\d+$/.test(t)) return '#,##0.00';
     if (/^-?\$[\d,]+$/.test(t)) return '#,##0';
     if (/^-?[\d,]+(\.\d+)?$/.test(t)) return '#,##0.00';

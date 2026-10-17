@@ -878,7 +878,17 @@ const EXPORT_IDENTITIES: {
     parts: ['netUltimateLoss', 'bookedGrossUltimate', 'reinsuranceRecovery'],
     bound: 3 * 0.5, why: '3 columns each rounded to whole dollars in the export',
     check: v => [v.bookedGrossUltimate - v.reinsuranceRecovery, v.netUltimateLoss] },
-  { label: 'endingNetReserve = beginningNetReserve + netUltimate - development - netPaid',
+  // ⚠ THE SIGN OF `development` FLIPPED IN THE EXPORT, AND THIS IDENTITY
+  // FOLLOWS IT. This file reads the WORKBOOK's columns, not the engine's
+  // fields, and the workbook's Prior-Year Development column is now on the one
+  // convention every display of development uses: ADVERSE-POSITIVE, with the
+  // column label saying so ("+ adverse"). The engine's own field is unchanged
+  // and still favourable-positive — see developmentDisplay.ts for why the two
+  // differ on purpose — so the identity reads `+ development` here where it
+  // reads `- priorYearDevelopment` against the engine. Checked against the
+  // engine fields directly at the same commit: residual $0.00 on every
+  // line-year, which is what says the flip is a sign and not a value.
+  { label: 'endingNetReserve = beginningNetReserve + netUltimate + development (+ adverse) - netPaid',
     parts: ['endingNetReserve', 'beginningNetReserve', 'netUltimateLoss', 'priorYearDevelopment', 'netPaidLosses'],
     // ⚠ THIS BOUND WAS $10,000 AND IS NOW THE ROUNDING FLOOR, BECAUSE THE
     // VARIANCE IT ALLOWED FOR NO LONGER EXISTS. It honoured the page's declared
@@ -896,7 +906,7 @@ const EXPORT_IDENTITIES: {
     // bound is now derived exactly as its three neighbours are — five columns,
     // each rounded to whole dollars by the export — and nothing else.
     bound: 5 * 0.5, why: '5 columns each rounded to whole dollars in the export; the identity itself is exact',
-    check: v => [v.beginningNetReserve + v.netUltimateLoss - v.priorYearDevelopment - v.netPaidLosses, v.endingNetReserve] },
+    check: v => [v.beginningNetReserve + v.netUltimateLoss + v.priorYearDevelopment - v.netPaidLosses, v.endingNetReserve] },
 ];
 
 console.log('\n--- DOES THIS REACH THE EXPORT? ---');

@@ -441,6 +441,9 @@ export const RESERVE_BASIS_NEW = 'expected';
  * pool books, not a measurement, and the loss engine is where it lands.
  */
 export const DEVELOPMENT_IS_LIFETIME_TOTAL = true;
+// ⚠ NO LONGER "NOT YET WIRED". The host's development % reads this convention
+// and hostDevelopment.ts implements it; the entry above is live. The constant
+// stays as the written-down statement of WHICH convention is in force.
 
 /**
  * THE REINSURANCE STRUCTURES A TEAM WILL BE ABLE TO BUY — built with the loss
@@ -739,9 +742,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     title: 'Opening position',
     entries: [
       ['Prior development defaults', {
-        value: perLine(PRIOR_DEVELOPMENT_DEFAULTS, 2), unit: 'share',
-        what: 'What the host setup screen offers per line.', basis: 'CHOSEN',
-        note: 'Stored on the room and NOT read by the engine.',
+        value: perLine(PRIOR_DEVELOPMENT_DEFAULTS, 2), unit: 'share of the base outstanding, in TOTAL',
+        what: 'LIVE. Each accident year develops by this share of a base outstanding, in TOTAL over '
+          + 'its remaining lifetime, arriving in step with the payments. Positive is adverse. '
+          + 'Singleplayer takes these defaults; a session takes the host\'s setting, per line.',
+        basis: 'CHOSEN',
+        note: 'THE BASE is the accident year\'s outstanding at the first valuation it meets — game '
+          + 'start for prior and bulk years, the end of its own first year for a played one. '
+          + 'EACH YEAR\'S SHARE is that year\'s increment in paid share over the share still unpaid '
+          + 'at the base, so by run-off exactly this percentage has emerged — asserted per accident '
+          + 'year by development-emergence-check. ⚠ NOT A YEARLY RATE: read as one these same '
+          + 'percentages compound to about +54% on GL and +171% on WC. Bulk years develop held NET; '
+          + 'played years develop GROSS and their reinsurance recoveries are recalculated on each '
+          + 'occurrence\'s revised cost under that accident year\'s own cover, so adverse '
+          + 'development makes reinsurance worth more. The GL $25M pool limit still applies.',
       }],
       ['Opening surplus bands', {
         value: 'per line, in defaultAssumptions.ts', unit: 'band on a per-line basis',
@@ -863,7 +877,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: DEVELOPMENT_IS_LIFETIME_TOTAL ? 'lifetime total' : 'per year', unit: '—',
         what: 'Development is a TOTAL over each accident year\'s remaining lifetime, emerging with the '
           + 'payments — a year that is 60% paid has seen about 60% of its development. Not a yearly rate.',
-        basis: 'CHOSEN', notYetUsed: true,
+        basis: 'CHOSEN',
         note: 'It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly '
           + '+54% on GL and +171% on WC in total at today\'s settings — a different model, not a refinement.',
       }],
