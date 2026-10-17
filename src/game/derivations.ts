@@ -31,6 +31,7 @@ import type { LineLoanInfo } from '../pages/DecisionsPage';
 import type { FundingConsequence } from '../utils/fundingConsequence';
 import { computeFundingConsequence } from '../utils/fundingConsequence';
 import { aggregateTermsRetainedPer100 } from '../utils/simulationEngine';
+import { newPurePremiumPer100 } from '../utils/newPurePremium';
 import { pricingExperienceBasis } from '../utils/pricingTriangle';
 import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEngine';
 import { getMemberExposure, selectResultView } from '../utils/lineHelpers';
@@ -205,13 +206,31 @@ export function useGameDerivations(
         lossTrend: gameState.instance.lossEnvironment.lossTrend,
         priorRcEffectiveness: lineState.riskControlEffectiveness,
         riskControlPct: d.riskControlPct,
-        // ⚠ NEW_RATE_STACK ONLY. The ground-up pure premium is read off LAST
-        // YEAR'S result rather than recomputed here: it is a property of the
-        // ledger and the pricing year, not of the slider the panel moves, and
-        // the page has no reserve ledger reader of its own. Undefined before
-        // the first priced year, which is exactly when the new panel has no
-        // comparison to show either.
-        groundUpPurePremiumPer100: lastLineResult?.newPurePremiumPer100,
+        // ⚠ NEW_RATE_STACK ONLY, AND IT IS NOW READ OFF THE LEDGER RATHER THAN
+        // OFF LAST YEAR'S RESULT. What stood here was
+        // `lastLineResult?.newPurePremiumPer100`, on the reasoning that the
+        // page had no reserve ledger reader of its own. It has one — the
+        // aggregate-terms tile above uses exactly this basis shape — and the
+        // stale figure had a consequence the panel showed on its face: the
+        // "vs last year" row read +0.0% / +0.1% every year while the rate
+        // climbed about 3% a year, because the panel's indication was built
+        // from the SAME pure premium that produced the indication it was being
+        // compared against. A change column that cannot move is not one.
+        //
+        // This is the engine's own call with the engine's own arguments —
+        // simulationEngine.ts computes `newPp` as
+        // computeNewPurePremium(line, yearNumber, { rows: reserveDevelopment,
+        // allMarketMembers, membershipHistory }) — evaluated on the state the
+        // page is holding, which after year N is processed is the state year
+        // N+1 will be priced from. Still undefined before the first priced
+        // year, which is when the panel has no comparison to show either.
+        groundUpPurePremiumPer100: newPurePremiumPer100(
+          decisionLine, gameState.currentYearNumber, {
+            rows: gameState.poolState.lines[decisionLine]?.reserveDevelopment ?? [],
+            allMarketMembers: gameState.poolState.allMarketMembers,
+            membershipHistory: gameState.poolState.membershipHistory,
+          },
+        )?.purePremiumPer100,
         newStackRiskControlPct: d.riskControlIncentivePct ?? 0,
         // S3: the panel prices off the same played triangle the engine does.
         //
@@ -225,7 +244,7 @@ export function useGameDerivations(
         experience: pricingExperienceBasis(gameState.poolState, decisionLine),
       },
     );
-  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineActiveMembers, currentDecisions, lastLineResult?.newPurePremiumPer100]);
+  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineActiveMembers, currentDecisions]);
 
   return {
     decisionLine,

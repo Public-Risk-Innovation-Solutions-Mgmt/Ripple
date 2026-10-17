@@ -547,12 +547,38 @@ function NewRatePanel({ n, prior }: {
   prior?: LineResultSet;
 }) {
   const d2 = (v: number) => `$${v.toFixed(2)}`;
-  const chg = (now: number, before?: number) =>
-    before === undefined || !(before > 0)
-      ? <span className="text-gray-400">—</span>
-      : <span className={now >= before ? 'text-red-600' : 'text-green-700'}>
-          {`${now >= before ? '+' : ''}${(((now / before) - 1) * 100).toFixed(1)}%`}
-        </span>;
+  // ⚠ THE CHANGE IS THE FIGURE; LAST YEAR'S RATE IS THE FOOTNOTE TO IT. A rate
+  // on its own asks the reader to do the subtraction, and the subtraction is
+  // the only part they actually want — "my rate went up 7%" is the sentence,
+  // not "last year it was $8.80". So the percentage is the cell and the rate it
+  // was measured against sits beneath it in smaller text, and on the cell's
+  // title for a reader who hovers. The basis is matched LIKE FOR LIKE: the
+  // first indication against last year's first indication, the final rate
+  // against last year's final rate. Comparing a final rate to an indication
+  // would read as a rate change while being a change of what is in the number.
+  //
+  // ⚠ 4 DECIMAL PLACES ON THE FOOTNOTE, NOT 2. The rows above are rounded to
+  // cents for reading; this one has to RECONSTRUCT the percentage beside it, and
+  // at $0.39 on Property two decimals cannot — $0.39 to $0.40 is anything from
+  // 1.3% to 3.8%. A footnote that contradicts the figure it explains is worse
+  // than no footnote.
+  const d4 = (v: number) => `$${v.toFixed(4)}`;
+  const chg = (now: number, before: number | undefined, what: string) => {
+    if (before === undefined || !(before > 0)) {
+      return <span className="text-gray-400" title={`no ${what} was recorded for last year`}>—</span>;
+    }
+    const pct = ((now / before) - 1) * 100;
+    return (
+      <span title={`last year's ${what} ${d4(before)} → ${d4(now)}`}>
+        <span className={pct >= 0 ? 'text-red-600' : 'text-green-700'}>
+          {`${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`}
+        </span>
+        <span className="block font-normal text-[10px] text-gray-500 tabular-nums">
+          from {d4(before)}
+        </span>
+      </span>
+    );
+  };
 
   const rows: Array<[string, string, string]> = [
     ['Pure premium', d2(n.purePremiumGroundUp), d2(n.purePremiumRetained)],
@@ -592,11 +618,11 @@ function NewRatePanel({ n, prior }: {
           </tr>
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">vs last year</td>
-            <td data-testid="new-rate-vs-indicated" className="py-1 text-right tabular-nums">
-              {chg(n.firstIndicationPer100, prior?.firstIndicationPer100)}
+            <td data-testid="new-rate-vs-indicated" className="py-1 text-right tabular-nums align-top">
+              {chg(n.firstIndicationPer100, prior?.firstIndicationPer100, 'first indication')}
             </td>
-            <td data-testid="new-rate-vs-final" className="py-1 text-right tabular-nums">
-              {chg(n.finalRatePer100, prior?.finalRatePer100)}
+            <td data-testid="new-rate-vs-final" className="py-1 text-right tabular-nums align-top">
+              {chg(n.finalRatePer100, prior?.finalRatePer100, 'final rate')}
             </td>
           </tr>
         </tbody>

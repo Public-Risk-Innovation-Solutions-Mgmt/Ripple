@@ -70,6 +70,50 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
      'all four build-up rows render');
   ok(/vs last year/.test(body), 'the vs-last-year row renders');
 
+  // ⚠ THE vs-last-year CELLS ARE A PERCENTAGE, NOT A RATE, AND THAT IS WHAT IS
+  // ASSERTED. The cell carries a signed percentage and, beneath it in smaller
+  // text, the rate it was measured against — so a test for "does a dollar
+  // figure appear here" would pass on both the right answer and the wrong one.
+  // What separates them is that the percentage must be THE CELL'S OWN LEADING
+  // FIGURE. These regexes anchor on that: the cell must START with +N.N% or
+  // -N.N%, which a cell showing only last year's rate cannot do.
+  //
+  // CONTROL, RUN AND RECORDED: render the cell as `{d4(before)}` alone — the
+  // raw rate, which is the shape the brief asked to replace. MEASURED: exit 1,
+  // 15 of 21, with all SIX assertions below red — "the indicated cell leads
+  // with a signed percentage, not a rate — got "$7.6266"", the 4dp footnote
+  // gone with it, and the arithmetic pair NaN because there is no percentage
+  // left to read. So these can fail, and they fail on exactly that change.
+  for (const [testid, label] of [['new-rate-vs-indicated', 'indicated'], ['new-rate-vs-final', 'final rate']]) {
+    const cell = (await page.textContent(`[data-testid="${testid}"]`)).trim();
+    ok(/^[+-]\d+(\.\d+)?%/.test(cell),
+       `the ${label} cell leads with a signed percentage, not a rate — got "${cell.replace(/\s+/g, ' ')}"`);
+    // And last year's rate is still READABLE, beneath it — the brief asked for
+    // both, and a percentage with nothing to anchor it is a number without a
+    // basis. 4dp, because 2dp cannot reconstruct the percentage on Property.
+    ok(/from \$\d+\.\d{4}/.test(cell.replace(/\s+/g, ' ')),
+       `last year's ${label} is shown beneath it to 4dp — got "${cell.replace(/\s+/g, ' ')}"`);
+  }
+
+  // ⚠ AND THE PERCENTAGE MUST BE ABLE TO MOVE. It read +0.0% / +0.1% every year
+  // before this commit, because the panel built its indication from the same
+  // pure premium that produced the indication it was comparing against. A
+  // column that cannot move is not a change column, and a shape test alone
+  // would never have caught it — so this asserts the arithmetic instead: the
+  // percentage must be what the two rates in the cell actually imply.
+  for (const [testid, label] of [['new-rate-vs-indicated', 'indicated'], ['new-rate-vs-final', 'final rate']]) {
+    const cell = (await page.textContent(`[data-testid="${testid}"]`)).replace(/\s+/g, ' ');
+    const shown = Number(/^([+-]\d+(?:\.\d+)?)%/.exec(cell)?.[1]);
+    const was = Number(/from \$(\d+\.\d{4})/.exec(cell)?.[1]);
+    const now = money(await page.textContent(
+      `[data-testid="${testid === 'new-rate-vs-indicated' ? 'new-rate-indicated' : 'new-rate-final'}"]`));
+    const implied = ((now / was) - 1) * 100;
+    // The "= Rate" cell is rounded to cents, so the reconstruction carries that
+    // rounding: half a cent on a $4 rate is about 0.12 percentage points.
+    ok(Math.abs(implied - shown) < 0.2,
+       `the ${label} percentage ${shown}% is what $${was} -> $${now} implies (${implied.toFixed(2)}%)`);
+  }
+
   // ⚠ NO CLF NOTE BESIDE THE PURE PREMIUM — the brief removed it, and a
   // multiplier printed there invites the reading that the row is pre-CLF.
   ok(!/CLF|×\s*1\./.test(body), 'no CLF multiplier is printed beside the pure premium');

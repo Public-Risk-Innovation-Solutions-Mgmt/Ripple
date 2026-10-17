@@ -679,7 +679,28 @@ const BASELINE = process.env.RENDER_BASELINE
 //                     new-stack charged figure against the old triangle's
 //                     indication and printed the basis change as a window
 //                     movement (-49.1%, "year 2 in, year -8 out").
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v38.json');
+// v39: THE DECISIONS PANEL, AND NOTHING ELSE. 16 of 252 moved, and all 16 are
+// `*|Decisions|<line>|*` — every per-line Decisions view in all five
+// configurations, at both year-points. No other tab moved, and neither did
+// Decisions' Pool view, which hosts no rate panel.
+//
+// The control ran first: the parent built in its own worktree and served on
+// 4174 reproduced its own committed baseline 252 of 252.
+//
+// TWO CHANGES, BOTH ON THAT PANEL, AND THE SECOND IS WHY THE FIRST IS WORTH
+// ANYTHING. The "vs last year" cells now carry the CHANGE as a percentage with
+// last year's rate beneath them in smaller text, and the panel prices off the
+// live ledger instead of last year's stored pure premium. Measured on
+// WC|Decisions|WC|y2, before -> after:
+//
+//     pure premium   $4.52 / $3.36   ->   $4.33 / $3.17
+//     = Rate         $5.38 / $5.48   ->   $5.18 / $5.28
+//     vs last year   +0.0% / +0.1%   ->   -3.7% from $5.3795 / -3.5% from $5.4732
+//
+// That "+0.1%" is the defect in one reading: the panel was comparing an
+// indication built from last year's pure premium against last year's own
+// indication, built from the same figure, so the change column could not move.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v39.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
