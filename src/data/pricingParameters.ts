@@ -264,28 +264,36 @@ export const REINSURANCE_LOAD_CLF_AT_70: PerLine<number> = {
 export const PRIOR_HISTORY_YEARS = 5;
 
 /**
- * THE NEW RATE STACK — OFF, AND IT STAYS OFF UNTIL THE NEW LOSS ENGINE LANDS.
+ * THE NEW RATE STACK — ON.
  *
- * ⚠ THE RATE IS RIGHT AND THE ENGINE UNDER IT IS NOT, WHICH IS THE WHOLE
- * REASON THIS IS A FLAG. Measured at three severity trends over six games:
- * today's rate UNDERPRICES — WC by about half at the 5% trend, GL by a third,
- * Property by a quarter — because the engine's held expected figure does not
- * keep pace with trending losses. The new stack prices that correctly. But on
- * TODAY'S losses the new pure premium swings 3-5x between otherwise identical
- * games, because the old engine's losses are that lumpy, and a rate that moves
- * 3x between two runs of the same game reads as broken in a way that steady
- * underpricing does not.
+ * ⚠ IT IS STILL A FLAG, AND ONE LINE SWITCHES IT BACK. Set `enabled` to false
+ * and the old rate, the old Decisions panel, the 15% admin load, the gross-up
+ * and the retained-cover margin all return; nothing else has to move. It is
+ * kept rather than inlined because the reason it was off has not gone away —
+ * see below — and because a rate change is the one thing in this game that a
+ * session cannot absorb halfway through.
  *
- * So: off. The new loss engine makes ordinary losses stable AND makes them
- * average to their expected figure by construction, which removes both halves
- * of the problem at once. This turns on with it. See the trend findings
- * recorded in docs/PENDING_MULTIPLAYER.md.
+ * ⚠ WHAT IS STILL TRUE, AND WHY IT WAS TURNED ON ANYWAY. Measured at three
+ * severity trends: today's rate UNDERPRICES, because the engine's held
+ * expected figure does not keep pace with trending losses, and the new stack
+ * prices that correctly — WC's ten-year loss ratio falls from 2.225 to 1.194,
+ * Property's surplus from near-collapse at $2.8M to $212.6M. But on TODAY'S
+ * losses the new pure premium still swings 3-5x between otherwise identical
+ * games, because the old engine's losses are that lumpy: roughly one year in
+ * five shows a rate move over 20%, one in 25 over 50%.
+ *
+ * That volatility is the OLD ENGINE's and the new loss engine removes it, by
+ * making ordinary losses stable and making them average to their expected
+ * figure by construction. Until then the game prices correctly on a lumpy
+ * book, which is the better of the two wrong answers: underpricing compounds
+ * into insolvency, while a volatile rate is visible and arguable. See the
+ * trend findings in docs/PENDING_MULTIPLAYER.md.
  *
  * WHAT THE FLAG GOVERNS: the rate members are charged, the two indications,
  * the Decisions panel, and the retirement of the 15% admin load, the gross-up
  * step and the retained-cover margin. PRIOR_HISTORY_YEARS is NOT behind it.
  */
-export const NEW_RATE_STACK = { enabled: false };
+export const NEW_RATE_STACK = { enabled: true };
 
 /**
  * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.

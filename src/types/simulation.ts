@@ -1338,6 +1338,17 @@ interface ResultRowFields {
   newPurePremiumPer100?: number;
   /** The shadow pure premium's loss-cost limb, before ALAE and ULAE. */
   newLossCostPer100?: number;
+  /**
+   * THE ENGINE'S OWN LOSS RATE — what `expectedLoss` is built from.
+   *
+   * ⚠ IT SPLIT FROM `purePremiumPer100` WHEN THE NEW RATE STACK WENT LIVE.
+   * They were one number under the old stack; now the rate is priced from a
+   * ground-up experience figure while losses are still expected at the
+   * engine's own rate, and conflating them makes the Calculation Audit page
+   * state a derivation it cannot reproduce. Equal to purePremiumPer100
+   * whenever NEW_RATE_STACK is off.
+   */
+  lossPurePremiumPer100?: number;
 
   // ============================================================================
   // THE NEW RATE STACK'S TWO FIGURES — commit 3, behind NEW_RATE_STACK.

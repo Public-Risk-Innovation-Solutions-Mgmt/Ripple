@@ -963,7 +963,42 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // priced at layer bounds scaled by (1.05)^age, so an older, cheaper year cedes
 // less through a fixed-dollar attachment and keeps more net reserve: bulk
 // reserve WC +17.9%, GL +7.7%, Property +0.4%.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v59.json');
+// v60: THE NEW RATE STACK, ON. ONE FLAG, AND IT MOVES EVERY PRICED FIGURE —
+// which is the point of the commit rather than a side effect of it.
+//
+// 12,845 readings changed across 47 fields, every one of them downstream of
+// the charge. In four groups, and nothing falls outside them:
+//
+//   THE CHARGE ITSELF (300 each)  poolPremium, adminExpense, the two sums,
+//     totalMemberCharge, grossPremium, operatingExpense; and per line-year
+//     (180 each) ratePer100, purePremiumPer100, purePremium,
+//     netPurePremiumPer100. WC's opening rate goes 2.859 -> 6.177.
+//   WHAT THE CHARGE BUYS  the balance sheet and the surplus path — invested
+//     assets, investment income, cash both ends, total assets, ending surplus,
+//     net income, underwriting income, the funding gap and the two capital
+//     ratios. Reserves and claims do NOT move: the loss side is untouched.
+//   RATIOS  fourteen of them, because premium is the denominator of all but
+//     one. expectedExpenseRatio 0.465 -> 0.264 is the clearest reading of what
+//     the new stack does — the same admin dollars over a much larger premium.
+//   SATISFACTION  285 instances, 7.1 -> 6.8, because members read the rate.
+//
+// AND THREE THAT ARE NOT VALUE MOVES, STATED SO THEY ARE NOT MISREAD AS ONE:
+// surplusTieOutDifference (247, 1.5e-8 -> -4.5e-8), expectedCombinedRatio
+// (179, 0.9999999999999998 -> 1) and investmentReturnRate (35, one ulp) are
+// float reassociation on quantities of a different magnitude, not movement.
+//
+// ⚠ marketShare MOVES ON 39 INSTANCES WITH NO ROSTER MOVEMENT, AND THAT IS NOT
+// A CONTRADICTION. newMembers, withdrawnMembers and declinedMembers are all
+// bit-exactly 0 across all 150 instances, and no per-line marketShare moved.
+// The 39 are POOL rows: the pool's share is the premium-weighted average of
+// the lines' shares, weighted by totalMemberCharge, and the new stack changes
+// the charge mix between lines (WC +116%, GL +57%, Property +40%). The weights
+// moved; the shares did not.
+//
+// 1,080 fields are ADDED and are not a value change: expectedToSurplus,
+// finalRatePer100, firstIndicationPer100, lossPurePremiumPer100 and the two
+// prior-year panel fields.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v60.json');
 
 function seedOf(id: string) {
   let h = 5381;

@@ -84,7 +84,15 @@ async function tabText(page, tab) {
   if (await wcTab.count() > 0) { await wcTab.click(); await viewer.waitForTimeout(500); }
   const vMain = await viewer.locator('main').innerText();
   ok(vMain.includes('Funding Confidence Level'), 'viewer sees the real decisions page');
-  ok(vMain.includes('CLF Multiplier'), 'viewer sees the live funding-consequence panel');
+  // ⚠ FORKED ON THE BUILD, for the reason full-session.cjs states at the same
+  // assertion: under NEW_RATE_STACK the two-column rate panel replaces the
+  // funding-consequence panel and "CLF Multiplier" is a retired readout. What
+  // this driver is actually asserting — that the VIEWER sees the live priced
+  // panel and not a blank — holds either way, so it asks for whichever panel
+  // the build renders.
+  const vNewPanel = await viewer.$('[data-testid="new-rate-panel"]');
+  ok(vNewPanel ? vMain.includes('Expected to surplus') : vMain.includes('CLF Multiplier'),
+     `viewer sees the live ${vNewPanel ? 'two-column rate' : 'funding-consequence'} panel`);
   const ranges = await viewer.$$eval('input[type=range]', els => els.map(e => e.disabled));
   ok(ranges.length > 0 && ranges.every(Boolean), `every decision slider is disabled but present (${ranges.length} sliders)`);
   const enabledInputs = await viewer.$$eval('main input:not([type=range]), main select',

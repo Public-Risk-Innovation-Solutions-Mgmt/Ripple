@@ -47,7 +47,8 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR } from '../data/pricingParameters';
+import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, NEW_RATE_STACK } from '../data/pricingParameters';
+import { adminRatePer100For, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 
 interface CalculationAuditPageProps {
@@ -1928,7 +1929,12 @@ export function buildSupportingRows(
             factors: [
               { value: lineRow.netPurePremiumPer100, format: 'plain', label: 'net pure premium rate' },
               factorTerm(lineRow.selectedFundingCLF, `CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%`),
-              factorTerm(lineRow.rateLevel / 100, `rate level ${lineRow.rateLevel}`),
+              // The expense divisor under the new stack, the rate level under
+              // the old — see the Contributions row for why it belongs here.
+              NEW_RATE_STACK.enabled
+                ? factorTerm(1 / expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0),
+                  `/ ${expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0).toFixed(2)}`)
+                : factorTerm(lineRow.rateLevel / 100, `rate level ${lineRow.rateLevel}`),
             ],
           },
       // ⚠ THE NETTING STEP IS SHOWN, NOT FOLDED IN. This row used to multiply
@@ -2015,7 +2021,11 @@ export function buildSupportingRows(
         ? { kind: 'text', text: 'Not a meaningful product at pool scope — see the note on the Check Difference row below.' }
         : {
             kind: 'product',
-            factors: [expTerm(result.activeExposure, 'payroll, $M'), { value: lineRow.purePremiumPer100, format: 'plain', label: 'pure premium rate' }, { value: 10_000, format: 'plain', label: 'units of $100 per $M' }],
+            // ⚠ THE LOSS RATE, NOT THE RATE'S PURE PREMIUM. This row shows
+            // expectedLoss, and under the new stack the two diverge — see
+            // lossPurePremiumPer100. Falls back for a result written before
+            // the field existed.
+            factors: [expTerm(result.activeExposure, 'payroll, $M'), { value: lineRow.lossPurePremiumPer100 ?? lineRow.purePremiumPer100, format: 'plain', label: 'loss pure premium rate' }, { value: 10_000, format: 'plain', label: 'units of $100 per $M' }],
           },
     },
     {
@@ -2695,7 +2705,17 @@ export function buildRevExpRows(
               label: 'net expected loss',
             },
             { value: lineRow.selectedFundingCLF, format: 'factor', label: `CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%` },
-            { value: lineRow.rateLevel / 100, format: 'factor', label: `rate level ${lineRow.rateLevel}` },
+            // ⚠ THE EXPENSE DIVISOR, UNDER THE NEW STACK. The loading is split
+            // across the pure-premium and admin limbs so the charge stays
+            // additive, so this row carries its own share of it. Flag off, the
+            // factor is the rate level and this reads exactly as it did.
+            ...(NEW_RATE_STACK.enabled
+              ? [{
+                value: 1 / expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0),
+                format: 'factor' as const,
+                label: `/ (1 - risk control - contingency) = / ${expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0).toFixed(2)}`,
+              }]
+              : [{ value: lineRow.rateLevel / 100, format: 'factor' as const, label: `rate level ${lineRow.rateLevel}` }]),
           ],
         }),
         x => x.poolPremium
@@ -2721,7 +2741,24 @@ export function buildRevExpRows(
       formula: lineRow === null ? PER_LINE_ONLY : scoped(
         () => ({
           kind: 'product',
-          factors: [cur(result.expectedLoss, 'expected loss'), { value: ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, format: 'pct' }],
+          factors: NEW_RATE_STACK.enabled && lineRow !== null
+            // ⚠ THE 15% LOAD IS RETIRED UNDER THE NEW STACK. Admin is a fixed
+            // amount per line spread over exposure plus a per-exposure rate,
+            // and it carries its share of the expense divisor — stated here
+            // the way it is charged, because a page that states the old
+            // formula beside the new number is the defect this check exists
+            // to catch.
+            ? [
+              { value: lineRow.activeExposure, format: 'exposure', label: 'exposure, $M' },
+              { value: 10_000, format: 'plain', label: 'units of $100 per $M' },
+              {
+                value: adminRatePer100For(lineRow.line as CoverageLine, lineRow.activeExposure)
+                  / expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0),
+                format: 'plain',
+                label: 'admin rate per $100, loaded',
+              },
+            ]
+            : [cur(result.expectedLoss, 'expected loss'), { value: ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, format: 'pct' }],
         }),
         x => x.adminExpense
       ),

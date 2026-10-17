@@ -813,49 +813,44 @@ function checkManifest(): string[] {
 // ============================================================================
 const EXPECTED_RED: Record<string, { code: number; why: string }> = {
   // ==========================================================================
-  // ⚠ THREE DEFERRALS, ALL AWAITING A RECALIBRATION THAT IS NOT THIS COMMIT'S.
-  // Each is an ACCEPTED BREACH and each is INVERTED by the XPASS guard: if the
-  // gate stops breaching, the sweep fails and the entry must come out. That is
-  // the whole point of recording them here rather than widening a tolerance —
-  // a deferral that cannot expire is a deleted assertion.
+  // ⚠ WAS THREE DEFERRALS. TWO HAVE EXPIRED AND ARE GONE — THE GUARD WORKED.
+  // Each was an ACCEPTED BREACH, INVERTED by the XPASS guard: if the gate stops
+  // breaching, the sweep fails and the entry must come out. That is the whole
+  // point of recording them here rather than widening a tolerance — a deferral
+  // that cannot expire is a deleted assertion.
   //
-  // COMMIT 3 brings the new rate and COMMIT 5 sets the opening. Both move
-  // reserves and prices again, so recalibrating any of these now means doing it
-  // twice. Ruled deferred on that basis, not because the readings are
-  // acceptable — they are not.
+  // All three were deferred on one named open item: the new rate. Turning
+  // NEW_RATE_STACK on is that item arriving, and it expired two of them in the
+  // same run that it landed:
+  //
+  //   market-conditions-check          removed, exits 0. GL's cushion crosses
+  //                                    zero on the slider and all three lines
+  //                                    now breach section 5 on their own terms,
+  //                                    so the ACCEPTED_BREACH list in that file
+  //                                    is empty too.
+  //   experience-pricing-drift-check   removed, exits 0. The residual it
+  //                                    recorded was the untrended average the
+  //                                    new rate replaces; the experience path
+  //                                    no longer lags the trend.
+  //
+  // ONE REMAINS, and its open item is now the LOSS ENGINE rather than the rate.
   // ==========================================================================
   'member-satisfaction-check': {
     code: 1,
-    why: 'THE SCOREBOARD SLIDES AT ALL-DEFAULTS, WHICH IS THE MODEL\'S NEUTRAL POINT. WC moves '
-      + '-0.570 points over a five-year game, 199% of what one funding stop is worth against a 50% '
-      + 'bound; GL reads 564% at ten years. satisfaction reads excessCapitalRatio = (availableSurplus '
-      + '- reserveRiskMarginNeeded) / reserveRiskMarginNeeded, and full-cost booking raises reserves '
-      + '20-38%, so the denominator inflates as reserves accumulate and the neutral point drifts. The '
-      + 'cash limb was tuned against the OLD reserve level. ⚠ THE PARENT IS GREEN — verified on a '
-      + 'clean c9f41c8 worktree, so this is this build\'s doing and not a pre-existing red. DEFERRED: '
-      + 'awaiting recalibration after the set opening (commit 5) and the new rate (commit 3).',
-  },
-  'market-conditions-check': {
-    code: 1,
-    why: 'GL\'S CUSHION NEVER CROSSES ZERO ON THE FUNDING SLIDER — -25.25% at Expected and -1.04% at '
-      + '0.95 — so MARKET_TARGET_LOSS_RATIO\'s kink is unreachable and the level term is a one-sided '
-      + 'slope. GL has also STOPPED breaching section 5 (deciding-pool rate-change SD 4.62% against a '
-      + '2.89% benchmark), which that file calls "a change to find, not a pass to take". Both follow '
-      + 'from the rate level moving under the 5% trend and the level exposure base. DEFERRED: '
-      + 'awaiting recalibration after the set opening (commit 5) and the new rate (commit 3).',
-  },
-  'experience-pricing-drift-check': {
-    code: 2,
-    why: 'THE TREND IS NETTED OUT AND A RESIDUAL REMAINS. Drift is now measured against what a rate '
-      + 'climbing at the line\'s own trend must produce, which is the ruled fix and which WORKED on '
-      + 'the control: the PRICING_TRIANGLE-off cell went from 39.19% to -1.08%, flat as its premise '
-      + 'requires. What is left is the EXPERIENCE path lagging the trend on all three lines — WC '
-      + '-7.98%, GL -6.67%, Property -11.68% over ten years — while the held path is flat. An '
-      + 'untrended ten-year average cannot keep up with a trended loss cost, and that is a property '
-      + 'of the mechanism COMMIT 3 REPLACES. ⚠ I EXTENDED THE DEFERRAL TO THIS GATE: the ruling was '
-      + 'to net out the trend, which is done, and the residual is a different finding. Recorded here '
-      + 'rather than silently tolerated so it can be overruled. DEFERRED: awaiting the new rate '
-      + '(commit 3).',
+    why: 'THE SCOREBOARD SLIDES AT ALL-DEFAULTS, WHICH IS THE MODEL\'S NEUTRAL POINT, AND TURNING THE '
+      + 'NEW RATE ON MOVED IT WITHOUT FIXING IT. Measured either side of the flag, points of drift at '
+      + 'defaults (negative = the scoreboard falls by itself): WC 3yr -5.146 -> -0.811, WC 5yr -3.750 -> '
+      + '-2.068, WC 10yr -2.848 -> -3.286; GL 3yr -2.954 -> -0.174 (now the one cell that passes), GL 5yr '
+      + '-2.348 -> -0.380, GL 10yr -2.060 -> -1.161; Property 3yr -0.331 -> -0.651, Property 5yr -0.497 -> '
+      + '-1.708, Property 10yr -0.871 -> -2.812. SHORT games improved sharply and LONG games got worse, '
+      + 'which is the shape to expect: the rate now rises with experience, so the cash limb sees a bigger '
+      + 'charge every year and the slide compounds over ten. The count went 7 reds to 8 — GL 3yr turned '
+      + 'green, and two new ones appeared: the convex form\'s decision share is no larger than the linear '
+      + 'form\'s, and the surplus band saturates in one bucket on WC and GL. Both are the same '
+      + 'calibration: SATISFACTION\'s boundaries were solved at the median of default play under the OLD '
+      + 'rate, and default play has moved. ⚠ NOT RE-SOLVED HERE ON PURPOSE. The loss engine changes the '
+      + 'loss side of every one of these readings, so solving the boundaries against today\'s play means '
+      + 'solving them twice. DEFERRED: awaiting recalibration after the loss engine, with SOLVE=1.',
   },
   // ⚠ THREE ENTRIES, ALL FROM THE PER-CLAIM FLIP, AND THEY ARE NOT THE SAME KIND
   // OF RED. Two are gates whose SUBJECT was built out of the cohort mechanism's

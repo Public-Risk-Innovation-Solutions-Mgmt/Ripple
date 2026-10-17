@@ -135,8 +135,23 @@ const roomRecord = (page, code) => page.evaluate(c =>
     if (await wc.count() > 0) { await wc.click(); await p.waitForTimeout(400); }
     const main = await p.locator('main').innerText();
     ok(main.includes('Funding Confidence Level'), 'the real DecisionsPage renders (Funding Confidence Level)');
-    ok(main.includes('CLF Multiplier'), 'the funding-consequence panel is live (CLF Multiplier)');
-    ok(main.includes('Total Member Charge Rate'), 'the pricing consequence rows render');
+    // ⚠ FORKED ON WHICH PANEL THE BUILD RENDERS, NOT LOOSENED. Under
+    // NEW_RATE_STACK the two-column rate panel REPLACES the funding-consequence
+    // panel, and "CLF Multiplier" and "Total Member Charge Rate" are retired
+    // readouts — new-rate-panel.cjs asserts by name that they are gone. Left as
+    // they were, these two would demand the old panel from a build that is
+    // right not to render it. The flag is read from the BUILD, by asking which
+    // panel is on the page, rather than from the source: this driver runs
+    // against a served bundle and the source is not what it is testing.
+    const newPanel = await p.$('[data-testid="new-rate-panel"]');
+    if (newPanel) {
+      ok(main.includes('Expected to surplus'), 'the new two-column rate panel is live (Expected to surplus)');
+      ok(main.includes('Indicated') && main.includes('Your rate'),
+         'the new panel\'s two columns render (Indicated / Your rate)');
+    } else {
+      ok(main.includes('CLF Multiplier'), 'the funding-consequence panel is live (CLF Multiplier)');
+      ok(main.includes('Total Member Charge Rate'), 'the pricing consequence rows render');
+    }
     // ⚠ THE CONTROLS WERE RENAMED, NOT REMOVED. The UW merge replaced the
     // "Renewal Underwriting" bar and the "New Business Appetite" tiers with two
     // sliders labelled Renewal and Intake; both old phrases now survive only in

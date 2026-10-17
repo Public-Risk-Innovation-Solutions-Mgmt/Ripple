@@ -1,14 +1,16 @@
 // The new Decisions rate panel — two columns, per $100, behind NEW_RATE_STACK.
 //
-// ⚠ IT NEEDS A FLAG-ON BUILD, AND IT SAYS SO RATHER THAN FAILING. NEW_RATE_STACK
-// is off in every shipped build, so against a normal build the new panel does
-// not render and there is nothing here to drive. This SKIPS in that case, loudly
-// and with exit 0, so it can sit in the driver list without going red every run
-// — and so that a reader of the log can see it did not test anything.
+// ⚠ THE FLAG IS NOW ON AND THIS DRIVER RUNS FOR REAL — 15 of 15 against the
+// shipped build. The paragraph that stood here said "NEW_RATE_STACK is off in
+// every shipped build, so this SKIPS", which was true when it was written and
+// is not now. The skip below is KEPT, deliberately: it is what makes this file
+// safe to run against a build with the flag switched back, which is the one
+// line pricingParameters.ts says it takes. A reader of the log can still see
+// whether it tested anything.
 //
-// To run it for real: flip `NEW_RATE_STACK.enabled` to true in
-// src/data/pricingParameters.ts, `npm run build`, serve, then run this. That is
-// how it was run before the commit that added it; see the commit message.
+// To run it against a flag-off build: flip `NEW_RATE_STACK.enabled` to false in
+// src/data/pricingParameters.ts, `npm run build`, serve, then run this — it
+// will report SKIPPED and exit 0.
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');

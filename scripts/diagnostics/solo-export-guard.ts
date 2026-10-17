@@ -611,7 +611,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the new rate stack moved none of it.
 // ⚠ v60 -> v61: THE REINSURANCE PRICE AND THE BULK-YEAR CESSION. Values move,
 // the column list does not. See value-identity v59.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v61.json');
+// v62: THE NEW RATE STACK, ON. ALL 24 EXPORTS MOVED, AND ALL 24 WERE EXPECTED
+// TO — every export in this guard carries priced figures, in both the default
+// and the squeezed arm, on all three solo lines and the tri-line pool. An
+// export that had NOT moved would have been the finding here. The movement is
+// the charge: WC's opening rate goes 2.859 -> 6.177, GL 5.357 -> 8.398,
+// Property 0.284 -> 0.396. Losses and reserves are untouched; see
+// VALUE_IDENTITY's v60 note for the field-level attribution.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v62.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

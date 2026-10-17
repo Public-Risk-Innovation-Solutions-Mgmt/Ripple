@@ -649,7 +649,37 @@ const BASELINE = process.env.RENDER_BASELINE
 // opening and the charge, so every money-bearing screen moves. Taken with the
 // control — the parent on :4174 reproduced v36 first. Attribution in the
 // commit message.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v37.json');
+// v38: THE NEW RATE STACK, ON. 208 OF 252 FINGERPRINTS MOVED, AND THE 44 THAT
+// DID NOT ARE THE ATTRIBUTION — every unmoved row is a screen with no priced
+// figure on it: the y0 rows of the result-only tabs (Results, Result
+// Spreadsheet, Decision History, _header, and Decisions' Pool view), where no
+// year has been played yet, plus the Departments documents that carry no
+// money — Investment and Risk Control at both year-points.
+//
+// ⚠ THE CONTROL WAS RUN FIRST AND IT IS WHAT MAKES THE DIFF READABLE. The
+// parent commit was built in its own worktree and served on 4174, and it
+// reproduced its own committed baseline 252 of 252 before this capture was
+// taken. So every one of the 208 is this build's doing and none of it is the
+// container's.
+//
+// THREE SCREENS WERE OPENED AND DIFFED RATHER THAN ASSUMED, which is what the
+// recapture rule above asks for:
+//   Introduction      opening surplus and the premium-to-surplus ratio in the
+//                     narrative line: $46.70M / 0.27 -> $43.11M / 0.48.
+//   Financial Stmts   the Year 0 statement — the last PRE-GAME year, not the
+//                     game's opening. Contributions for retained risk $7.17M
+//                     -> $14.66M with claims ($7,477,030) and total
+//                     liabilities ($31,187,305) IDENTICAL. The game's actual
+//                     opening is untouched: the header's Year 1 surplus reads
+//                     $68.10M on both sides, and the opening is set from the
+//                     reserve, which no rate change can move — measured
+//                     separately at 8 games, bit-identical on all three lines.
+//   Actuarial memo    this one was a DEFECT and was fixed before capture, not
+//                     baselined. See actuarialMemo.ts: the memo differenced a
+//                     new-stack charged figure against the old triangle's
+//                     indication and printed the basis change as a window
+//                     movement (-49.1%, "year 2 in, year -8 out").
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v38.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

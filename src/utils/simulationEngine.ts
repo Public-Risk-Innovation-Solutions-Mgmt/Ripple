@@ -2548,12 +2548,36 @@ export function processLineYear(
 
     rateLevel: parseFloat(newRateLevel.toFixed(2)),
     ratePer100: parseFloat(totalMemberRatePer100.toFixed(4)),
-    purePremiumPer100: parseFloat(pricedPurePremiumPer100.toFixed(4)),
-    purePremium: parseFloat(pricedPurePremiumPer100.toFixed(4)),
+    // ⚠ THESE FOLLOW THE STACK THAT ACTUALLY PRICED, and they did not at
+    // first. With the flag on, poolPremium is built from the new ground-up
+    // pure premium while these still reported the OLD experience figure, so
+    // the result described two different rates at once. The Calculation Audit
+    // page states its own derivations from these fields and they stopped
+    // reproducing the numbers beside them — 1,696 row-instances across five
+    // rows, worst gap $35.6M. audit-formula-check caught it; it is a real
+    // defect and not a stale assertion, because a page that states a formula
+    // it cannot reproduce is wrong whatever the formula.
+    //
+    // ⚠ THE RESULT FIELDS ONLY. `expectedLoss` and the LINE STATE's own
+    // purePremiumPer100 are deliberately untouched: expected loss is the
+    // engine's LOSS expectation, which feeds booking and reserves, and the new
+    // stack changes the RATE and not the losses.
+    purePremiumPer100: parseFloat(
+      (billedStack?.groundUpPurePremiumPer100 ?? pricedPurePremiumPer100).toFixed(4)),
+    purePremium: parseFloat(
+      (billedStack?.groundUpPurePremiumPer100 ?? pricedPurePremiumPer100).toFixed(4)),
+    // ⚠ THE LOSS RATE, WHICH IS NO LONGER THE RATE'S PURE PREMIUM. Under the
+    // new stack `purePremiumPer100` above is the ground-up figure the RATE is
+    // built from, while `expectedLoss` is still the engine's own loss
+    // expectation — two different quantities that were one number under the
+    // old stack. The audit page's Pure Premium row shows expectedLoss, so it
+    // needs the rate that actually produces it. Identical to
+    // purePremiumPer100 whenever the flag is off.
+    lossPurePremiumPer100: parseFloat(pricedPurePremiumPer100.toFixed(4)),
     // Unrounded — see the type's comment for why these two skip the toFixed(4)
     // every sibling per-$100 field above gets.
-    expectedCededPer100,
-    netPurePremiumPer100,
+    expectedCededPer100: billedStack?.expectedCededPer100 ?? expectedCededPer100,
+    netPurePremiumPer100: billedStack?.retainedPurePremiumPer100 ?? netPurePremiumPer100,
     // SHADOW — see the field's comment. Absent when the window has nothing usable.
     newPurePremiumPer100: newPp?.purePremiumPer100,
     // The new stack's two figures, and last year's pair on the SAME two bases.

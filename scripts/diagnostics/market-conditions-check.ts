@@ -118,8 +118,23 @@ const DRAWS = Number(process.env.DRAWS ?? 3000);
  * reddens the gate by breaking it is not a control. A power keeps the component
  * strictly positive, which is section 2's requirement, and multiplies its log
  * dispersion by exactly this factor.
+ *
+ * ⚠ RAISED FROM 4 TO 8 WHEN THE NEW RATE STACK WENT LIVE, BECAUSE THE CONTROL
+ * HAD GONE VACUOUS. The control's only job is to show that section 5 CAN go
+ * red; it says nothing about the pool. Under the old rate the deciding pool's
+ * rate-change SD was about 4.6% and power 4 (benchmark SD ~11.4%) cleared it
+ * three times over. The new rate moves 16.1-17.0%, so power 4 reddened 0 of 3
+ * lines and section 5 was passing untested. Measured benchmark SD by power,
+ * against today's pool SDs of WC 16.55 / GL 16.07 / Property 17.01:
+ *
+ *     power  4   WC 11.36%  GL 11.67%  Property 11.50%   reds 0 of 3
+ *     power  6   WC 17.25%  GL 17.73%  Property 17.47%   reds 3, Property by 0.46pp
+ *     power  8   WC 23.41%  GL 24.05%  Property 23.70%   reds 3 by ~40%
+ *
+ * 8 rather than 6 so the control is not itself a near-miss that the next
+ * change to the rate silently turns back into a vacuous one.
  */
-const CONTROL_POWER = 4;
+const CONTROL_POWER = 8;
 /** Section 7 runs the engine per funding stop, so it is deliberately thin. */
 const LEVEL_GAMES = Number(process.env.LEVEL_GAMES ?? 3);
 const LEVEL_YEARS = Number(process.env.LEVEL_YEARS ?? 6);
@@ -404,6 +419,36 @@ console.log('\n--- 5. the benchmark against the rate it judges ---');
 // that FAILS: a deciding pool's rate getting noisier again is a change to find,
 // not a pass to take. WC is asserted normally. Nothing else is exempt.
 //
+// ============================================================================
+// ⚠ AND IT BIT. THE LIST IS NOW EMPTY — the exemption is SPENT, not loosened.
+//
+// Turning NEW_RATE_STACK on reddened both accepted lines as XPASS-FAIL, which
+// is this exemption working exactly as it was written to. What moved, measured
+// on the same deciding arm at 48 games:
+//
+//     line       benchmark   deciding pool            do-nothing pool
+//     WC           2.81%     4.56% -> 16.55%          17.94%
+//     GL           2.89%     2.45% -> 16.07%          17.34%
+//     Property     2.85%     1.92% -> 17.01%          22.39%
+//
+// All three lines now move SEVERAL TIMES the benchmark, so section 5's
+// assertion holds on its own terms everywhere and no line needs exempting.
+//
+// WHY, AND IT IS NOT A DEFECT: the old rate was struck off the engine's
+// expected loss, which is smoothed by construction, so the price barely moved
+// between years. The new rate is struck off a GROUND-UP EXPERIENCE pure
+// premium that reprices each year on a lumpy loss history, and it swings with
+// it. That volatility is stated at the flag in pricingParameters.ts as the
+// known cost of turning the stack on ahead of the loss engine; it is the same
+// fact this table is reading, not a second one.
+//
+// ⚠ THE CONCERN IN THE BLOCK ABOVE NOW POINTS THE OTHER WAY, and should be
+// read before the loss engine lands. The worry was members judging their pool
+// against a market noisier than their rate. Today the pool is the noisy side:
+// a member sees their own rate move 16% while the market moves 3%. Once
+// satisfaction drives departures, THAT is the asymmetry that will move money.
+// ============================================================================
+//
 // ⚠ THE CONCERN IS REAL, FOR LATER. Satisfaction drives nothing today, so a
 // member reading a market louder than their own rate moves no money and no
 // membership. Once satisfaction drives departures, members judging their pool
@@ -412,7 +457,7 @@ console.log('\n--- 5. the benchmark against the rate it judges ---');
 // average of the benchmark), not to quieten the market itself. Revisit this
 // exemption when departures read satisfaction.
 // ============================================================================
-const ACCEPTED_BREACH: readonly string[] = ['GL', 'Property'];
+const ACCEPTED_BREACH: readonly string[] = [];
 
 function playRates(g: number, decide?: (d: DecisionSet) => void): Record<string, number[]> {
   const id = `MKT${g}`;

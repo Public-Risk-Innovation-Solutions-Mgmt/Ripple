@@ -161,6 +161,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE } from '../../src/data/defaultAssumptions';
+import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import { EXPOSURE_GROWTH_PER_YEAR, SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
@@ -346,7 +347,9 @@ if (!shipped || !control) {
   console.log(`  standard error          ${(100 * se).toFixed(2)}%  over ${d.length} games`);
   console.log(`  fires above             ${(100 * threshold).toFixed(2)}%  = max(${SIGMA} x SE, floor ${100 * DETECTION_FLOOR}%)`);
   console.log(`  roster movement         ${(100 * expMove).toFixed(3)}%  (instrument needs < ${(100 * MAX_EXPOSURE_MOVE).toFixed(1)}%)`);
-  console.log(`  control, PT off         ${(100 * cd).toFixed(2)}%  <- must be flat, or this file is measuring itself`);
+  console.log(`  control, PT off         ${(100 * cd).toFixed(2)}%  <- ${NEW_RATE_STACK.enabled
+    ? 'must EQUAL the shipped cell: neither flag is on the new rate\'s path'
+    : 'must be flat, or this file is measuring itself'}`);
   console.log(`  no contraction, FB off  ${(100 * nd).toFixed(2)}%  <- the cell nothing else measures`);
 
   if (!Number.isFinite(expMove) || expMove > MAX_EXPOSURE_MOVE) {
@@ -373,7 +376,42 @@ if (!shipped || !control) {
   // on Property alone; WC's carries a wage divisor and GL's a capped severity
   // trend, so a nonzero reading there is the held path working correctly and
   // asserting on it would make the positive control fail for the wrong reason.
-  if (ASSERTED_LINE === 'Property' && (!Number.isFinite(cd) || Math.abs(cd) > DETECTION_FLOOR)) {
+  //
+  // ⚠ FORKED WHEN THE NEW RATE STACK WENT LIVE, AND THE CONTROL IS A DIFFERENT
+  // CONTROL NOW RATHER THAN A RELAXED ONE. Under the new stack all three cells
+  // return the SAME rate to the last digit, so "PT off must be flat" stopped
+  // being a null: PRICING_TRIANGLE and FORWARD_BOOKING no longer reach the
+  // charged rate at all. That is the design and not a defect — the new rate is
+  // struck from newPurePremium.ts, which reads grossPaidByValuation off the
+  // ledger and develops it on the recorded paid LDFs. It never consults the
+  // BOOKED triangle, so turning the triangle off changes nothing to turn off.
+  //
+  // Left as it was, the control asserted a null that no longer exists and read
+  // the shipped cell's own 5.23% back as a broken instrument.
+  //
+  // WHAT REPLACES IT IS STRONGER, not weaker: the three cells must agree
+  // EXACTLY. That is a checkable claim about the new stack's basis, and it
+  // fails the moment anyone wires the booked triangle back into the rate —
+  // which is the defect the old control would have been watching for if it
+  // still could. The drift verdict above stands on its own either way.
+  //
+  // ⚠ IT IS EXACT, AND THAT WAS MEASURED RATHER THAN HOPED FOR. The cells read
+  // 0 apart across 24 games x 10 years, and the deliberate break — multiplying
+  // the shipped cell by 1 + 1e-7 — fires at 4.54e-8 per $100. A bar at exact
+  // equality is only worth setting if it holds exactly, so it was checked.
+  if (NEW_RATE_STACK.enabled) {
+    const worst = Math.max(
+      ...[control, noContraction].map(c => Math.max(
+        ...shipped.rateByYear.map((r, i) => Math.abs(r - (c.rateByYear[i] ?? NaN))))));
+    if (!Number.isFinite(worst) || worst > 0) {
+      failed.push(`THE CELLS NO LONGER AGREE. ${ASSERTED_LINE}'s mean charged rate differs across the `
+        + `PRICING_TRIANGLE / FORWARD_BOOKING cells by up to ${worst.toExponential(2)} per $100, and under the `
+        + 'new rate stack it must be exactly 0: the rate is struck off the ledger by newPurePremium.ts and '
+        + 'neither flag is on that path. Either something has wired the booked triangle back into the charged '
+        + 'rate, or the ledger those flags write is now feeding it. Find which before reading the drift '
+        + 'verdict above, because that verdict assumes the basis is the one this file thinks it is.');
+    }
+  } else if (ASSERTED_LINE === 'Property' && (!Number.isFinite(cd) || Math.abs(cd) > DETECTION_FLOOR)) {
     failed.push(`THE CONTROL IS NOT FLAT. Property with PRICING_TRIANGLE off drifts ${(100 * cd).toFixed(2)}%, `
       + 'and it should be zero to the digit — that cell returns PROPERTY_HELD_PURE_PREMIUM_PER_100 unchanged, '
       + 'with no trend and no wage divisor. Something upstream moved and the verdict above cannot be trusted '
@@ -394,7 +432,8 @@ if (!shipped || !control) {
   } else if (unevaluated.length) {
     process.exitCode = 1;
   } else {
-    console.log(`NO DRIFT. ${ASSERTED_LINE}'s charged rate is flat on a still book and the control is flat.`);
+    console.log(`NO DRIFT. ${ASSERTED_LINE}'s charged rate is flat on a still book and ${NEW_RATE_STACK.enabled
+      ? 'the three cells agree exactly' : 'the control is flat'}.`);
     console.log('This is the expected result and the gate is a guard, not an open item — see the header for');
     console.log('why it exists given that it was commissioned as a red and is not one.');
   }

@@ -64,6 +64,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
+import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, PricingTriangleState, ReserveDevelopmentRow } from '../../src/types/simulation';
 import { INTAKE_LOW } from '../../src/utils/intakeInspection';
 
@@ -390,18 +391,56 @@ console.log(`  ${flagged.checked} line-years asserted on the flagged arm, from y
 if (flagged.absent > 0) {
   console.log(`  ⚠ ${flagged.absent} of them had NO pricingTriangle — UNEVALUATED, not failed.`);
 }
+// ⚠ CONDITION 4 IS INVERTED UNDER THE NEW RATE STACK, ON THE GATE'S OWN
+// REASONING RATHER THAN A NEW ONE. The paragraph below the loop already says
+// it: where the triangle is not the PRICING INPUT, a charged rate that matched
+// a triangle-stamped one would be a coincidence to investigate, which is why
+// condition 4 must FAIL on the shipped arm. With NEW_RATE_STACK on that is
+// true of BOTH arms — the rate is struck in newPurePremium.ts off the paid
+// ledger, developed on the recorded LDFs and trended, over a five-year window,
+// and the booked triangle is not consulted. So the flagged arm joins the
+// shipped one and the assertion becomes: condition 4 must read ZERO.
+//
+// ⚠ IT IS NOT A WEAKER TEST, BUT IT IS A DIFFERENT ONE, AND THE POSITIVE
+// STATEMENT MOVED RATHER THAN VANISHED. "The charge is reproducible from the
+// basis the pool says it prices on" is now asserted by new-rate-bill-check
+// (billed equals displayed, to the bit) and by funding-basis-check section 1
+// (poolPremium equals the retained pure premium at the CLF over the expense
+// divisor, to 1e-6). What is left here is the other half: that the triangle
+// has NOT crept back into the price.
+//
+// Conditions 1 and 2 are untouched. They are wiring — the played year lands in
+// the triangle at age 1 and the window rolls — and the triangle is still built
+// and still displayed whichever stack prices.
+const triangleIsThePrice = !NEW_RATE_STACK.enabled;
 const c124 = [
-  ['1. the played year is in the triangle at age 1', flagged.c1],
-  ['2. the oldest accident year is gone, depth capped', flagged.c2],
-  ['4. this year was priced off the triangle before it', flagged.c4],
+  ['1. the played year is in the triangle at age 1', flagged.c1, true],
+  ['2. the oldest accident year is gone, depth capped', flagged.c2, true],
+  [triangleIsThePrice
+    ? '4. this year was priced off the triangle before it'
+    : '4. the triangle did NOT price this year (new stack)', flagged.c4, triangleIsThePrice],
 ] as const;
-for (const [label, n] of c124) {
-  const ok = n === flagged.checked && flagged.checked > 0;
+for (const [label, n, wantAll] of c124) {
+  const ok = wantAll ? (n === flagged.checked && flagged.checked > 0) : n === 0;
   console.log(`    ${label.padEnd(52)} ${String(n).padStart(4)} / ${flagged.checked}   ${ok ? 'PASS' : 'FAIL'}`);
-  if (!ok) failures.push(`${label} — ${n} of ${flagged.checked} line-years`);
+  if (!ok) {
+    failures.push(wantAll
+      ? `${label} — ${n} of ${flagged.checked} line-years`
+      : `${label} — ${n} of ${flagged.checked} line-years DID match the triangle's stamp. `
+        + 'With the new rate stack on, the price comes from the paid ledger and not from this '
+        + 'triangle, so a match is the triangle reaching the price again. Investigate before accepting.');
+  }
 }
 if (flagged.notes.length > 0) {
-  console.log('  first failures:');
+  // ⚠ THE HEADING FORKS WITH CONDITION 4. These notes are written whenever a
+  // condition does not hold on a line-year; with the new stack on, condition
+  // 4 not holding IS the pass, so printing them under "first failures" would
+  // describe the gate's own expected reading as a failure — the exact
+  // misreading the verdict block at the foot of funding-basis-check was
+  // written to stop.
+  console.log(triangleIsThePrice
+    ? '  first failures:'
+    : '  the departures condition 4 now EXPECTS, with the two rates side by side:');
   for (const n of flagged.notes) console.log(`    - ${n}`);
 }
 // ⚠ THE SHIPPED ARM HAS A TRIANGLE AND MUST NOT BE PRICED BY IT, WHICH IS THE
