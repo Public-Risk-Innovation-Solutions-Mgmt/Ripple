@@ -209,6 +209,66 @@ it; do not take the 300 ms as the whole cost while the 962 KB stands.
 Becomes **one pool-level index per line**. Designed separately — not part of
 this plan.
 
+### What the trend test measured, and why the flag is off
+
+Before commit 3 landed, the new stack was priced against the old one at three
+severity trends over six games, with `PRIOR_HISTORY_YEARS` at 5. **Nothing was
+committed for the measurement** — it ran in a scratch worktree.
+
+| trend | WC rate | GL | Property | WC actual/expected | GL | Property |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0% | +51% | +20% | +7% | 1.246x | 1.193x | **0.998x** |
+| 3% | +77% | +38% | +23% | 1.429x | 1.330x | 1.122x |
+| 5% | +91% | +48% | +34% | 1.527x | 1.400x | 1.197x |
+
+**THE TREND GAP.** The engine's own *expected* figure does not keep pace with
+trending losses, and today's rate is built on it. Property's gap **vanishes
+entirely at 0%** — 0.998x — and grows with the trend, so on that line the gap
+is trend and nothing else. The new pricing trends the history properly; today's
+does not.
+
+**THE RESIDUAL ON WC AND GL.** About 20-25% survives at 0% on those two lines
+and not on Property. **It is not isolated.** The likeliest reading is their
+heavy large-loss tail, which the held figure does not fully carry, but that was
+not demonstrated and should not be repeated as though it were. The new loss
+engine replaces those losses anyway.
+
+**The gap does not grow during a game** — year by year it is noisy around a
+level, not a drift. It is a level difference between two estimators.
+
+**WHY THE FLAG IS OFF.** Today's rate underprices; the new one prices
+correctly. But on today's losses the new pure premium **swings 3-5x between
+otherwise identical games**, because the old engine's losses are that lumpy. A
+rate that moves 3x between two runs of the same game reads as broken; steady
+underpricing reads as a tough book. So `NEW_RATE_STACK` ships off.
+
+**IT TURNS ON WHEN THE NEW LOSS ENGINE LANDS.** That engine should make
+ordinary losses **average exactly to their expected figure by construction**,
+which removes both halves at once — the trend gap, because expected and drawn
+are the same quantity, and the swings, because the losses are stable.
+
+### What commit 4 does not have to wait for
+
+Reinsurance pricing **does not read the stale figure**: `occurrenceProgramCost`
+sums `allLayerRiskMoments`, computed at runtime from severity-trended
+parameters. Required capital reads `expectedNetUnpaidLoss`, the booked reserve,
+which under full-cost booking is realised rather than held. The CLF tables are
+derived from the same trended distributions. **So commit 4 can price
+reinsurance at expected layer loss on today's engine.**
+
+### Three readouts that move off the Decisions panel
+
+The new panel replaces the old one whole. Three of its readouts are not
+obsolete and need homes when the flag turns on:
+
+- **Expected combined ratio** and the **excess capital ratio** move to the
+  **results page**.
+- The **reserve margin standard** (90% confidence and its CLF) moves to the
+  **parameters page**.
+
+Until then they render as they always did, because the old panel is still the
+one on screen.
+
 ### Order and commits
 
 After pricing commits 3 and 4:

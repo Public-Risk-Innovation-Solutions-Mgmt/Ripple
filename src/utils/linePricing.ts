@@ -42,6 +42,9 @@
 // that residual rather than pretending it is zero.
 
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED } from '../data/defaultAssumptions';
+import {
+  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, PROFIT_AND_CONTINGENCY_OF_RATE,
+} from '../data/pricingParameters';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
@@ -476,5 +479,217 @@ export function quoteLineRates(input: LineRateInputs): LineRateQuote {
     poolPremium,
     towerQuote,
     aggregateQuote,
+  };
+}
+
+// ============================================================================
+// THE NEW RATE STACK — COMMIT 3, BEHIND NEW_RATE_STACK, OFF BY DEFAULT.
+//
+// ⚠ IT IS A SECOND STACK BESIDE THE OLD ONE, NOT A REWRITE OF IT, and that is
+// deliberate. With the flag off, nothing below runs and `quoteLineRates` above
+// is untouched, so every value baseline holds for its presence alone. The
+// alternative — rewriting quoteLineRates to branch internally — would have put
+// the two stacks in one function where a reader could not tell which lines
+// belonged to which, and where a careless edit would move the live rate.
+//
+// WHY IT IS OFF. Measured at three severity trends: the new stack prices
+// correctly and today's underprices (WC by about half at 5%), but on TODAY'S
+// losses the new pure premium swings 3-5x between identical games. See
+// NEW_RATE_STACK's own note and docs/PENDING_MULTIPLAYER.md.
+//
+// THE TWO FIGURES, per $100 of exposure:
+//
+//   FIRST INDICATION   at expected, self-funded, no reinsurance
+//     (ground-up pure premium + admin) / (1 - risk control - profit & cont.)
+//
+//   FINAL RATE         at the team's funding level, with its reinsurance
+//     (retained pure premium x CLF + admin) / (1 - rc - p&c) + reinsurance
+//
+// ⚠ THREE PROPERTIES OF THAT ARITHMETIC THAT ARE EASY TO GET WRONG, each one a
+// thing the old stack did differently:
+//
+//   CLF APPLIES TO THE PURE PREMIUM ONLY. Not to admin, and not to the loaded
+//   total. Funding confidence is a margin on the LOSS estimate; loading admin
+//   by it would charge a confidence margin on a known expense.
+//
+//   REINSURANCE IS ADDED AFTER THE DIVISOR, NEVER GROSSED UP BY IT. The tower's
+//   price is a price, not a loss cost: dividing it by (1 - rc - p&c) would levy
+//   the pool's own profit provision on the reinsurer's premium.
+//
+//   THE PURE PREMIUM IS RETAINED, NOT GROUND-UP. Charging the ground-up figure
+//   AND the tower's price would bill members for the ceded layers twice. This
+//   is the same reason the old stack subtracted expected ceded before the CLF;
+//   what retires is the SECANT SOLVE that used to put a retained rate back on a
+//   gross basis, because the new pure premium is ground-up at source.
+//
+// WHAT THIS RETIRES WHEN THE FLAG IS ON: the 15% admin load
+// (ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM), the gross-up step
+// (grossUpRetainedPurePremium) and the retained-cover margin. Declining a layer
+// now simply means self-funding it — the retained pure premium rises because
+// less is ceded, which is the whole and only effect it should have.
+// ============================================================================
+
+/** Admin per $100: the line's fixed amount spread over exposure, plus the rate. */
+export function adminRatePer100For(line: CoverageLine, exposure: number): number {
+  return ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1)
+    + ADMIN_PER_EXPOSURE_PER_100[line];
+}
+
+/**
+ * The expense divisor, `1 - risk control - profit & contingency`.
+ *
+ * ⚠ RISK CONTROL IS CHARGED IN THE RATE HERE, AND IT DID NOT HAVE TO BE. The
+ * alternative readings are that the spend comes out of SURPLUS — the pool
+ * funds prevention from accumulated capital — or out of the CONTINGENCY
+ * provision already in this divisor. Charging it in the rate says prevention is
+ * a cost of the year's cover, which is the reading the slider's own screen
+ * implies; the other two are defensible and would each change who pays for it.
+ * Recorded because the choice is invisible in the arithmetic.
+ *
+ * ⚠ IT IS riskControlIncentivePct, THE PER-LINE SLIDER — not the pool-wide
+ * `riskControlPct`, which is ALREADY spent as riskControlInvestment and would
+ * be charged twice if it appeared here as well.
+ */
+export function expenseDivisor(riskControlPct: number): number {
+  return 1 - riskControlPct - PROFIT_AND_CONTINGENCY_OF_RATE;
+}
+
+export interface NewStackInputs {
+  line: CoverageLine;
+  yearNumber: number;
+  members: Member[];
+  exposure: number;
+  /** GROUND-UP pure premium per $100 — newPurePremium.ts's figure. */
+  groundUpPurePremiumPer100: number;
+  clf: number;
+  /** The per-line risk control incentive slider. */
+  riskControlPct: number;
+  layersPlaced: boolean[];
+  aggregateStopLevel: number;
+}
+
+export interface NewStackQuote {
+  /** Carried so the adapter below can split the loading without re-deriving it. */
+  clf: number;
+  groundUpPurePremiumPer100: number;
+  expectedCededPer100: number;
+  retainedPurePremiumPer100: number;
+  adminRatePer100: number;
+  divisor: number;
+  /** (ground-up + admin) / divisor. At expected, self-funded, no reinsurance. */
+  firstIndicationPer100: number;
+  /** (retained x CLF + admin) / divisor + reinsurance. What members pay. */
+  finalRatePer100: number;
+  reinsRatePer100: number;
+  reinsuranceCost: number;
+  /** The loading the divisor adds to the final rate, as a rate — for the panel. */
+  riskControlAndContingencyPer100: number;
+  /** The CLF-margin plus the contingency provision, in DOLLARS. */
+  expectedToSurplus: number;
+  towerQuote: ReturnType<typeof occurrenceProgramCost> | null;
+  aggregateQuote: ReturnType<typeof quoteAggregate> | null;
+}
+
+export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
+  const {
+    line, yearNumber, members, exposure, groundUpPurePremiumPer100, clf,
+    riskControlPct, layersPlaced, aggregateStopLevel,
+  } = input;
+
+  const adminRatePer100 = adminRatePer100For(line, exposure);
+  const divisor = expenseDivisor(riskControlPct);
+
+  const firstIndicationPer100 = (groundUpPurePremiumPer100 + adminRatePer100) / divisor;
+
+  // The SAME cession function the old stack uses, on the ground-up figure.
+  const { towerQuote, aggregateQuote, expectedCededPer100 } = expectedCededPer100For(
+    line, yearNumber, groundUpPurePremiumPer100,
+    { members, exposure, layersPlaced, aggregateStopLevel },
+  );
+  const retainedPurePremiumPer100 = Math.max(0, groundUpPurePremiumPer100 - expectedCededPer100);
+
+  if (towerQuote === null) {
+    throw new Error(`quoteNewRateStack: no tower quote for line ${line}`);
+  }
+  const reinsuranceCost = towerQuote.premium + (aggregateQuote?.premium ?? 0);
+  const reinsRatePer100 = reinsuranceCost / Math.max(exposure * 10_000, 1);
+
+  const loadedBase = (retainedPurePremiumPer100 * clf + adminRatePer100) / divisor;
+  const finalRatePer100 = loadedBase + reinsRatePer100;
+
+  // What the divisor ADDED, which is what the panel's third row shows: the
+  // loaded base less the two things that went into it.
+  const riskControlAndContingencyPer100 =
+    loadedBase - (retainedPurePremiumPer100 * clf + adminRatePer100);
+
+  // ⚠ UNDERWRITING ONLY, AND IN DOLLARS RATHER THAN A RATE, because the
+  // question it answers is "what does this year add to surplus if claims come
+  // in at expected" and that is a dollar question. Two terms and no others:
+  //
+  //   THE FUNDING CUSHION  retained x (CLF - 1). At expected, claims cost the
+  //                        retained pure premium and the pool charged CLF times
+  //                        it; the difference is what is left over.
+  //   THE CONTINGENCY      the profit and contingency provision, which is the
+  //                        part of the divisor's loading that is NOT spent.
+  //
+  // Risk control is deliberately NOT here: it is charged in the rate and then
+  // SPENT, so it adds nothing to surplus. Reinsurance is not here either — at
+  // expected the tower's price exceeds its expected recovery by the risk load,
+  // so including it would make buying cover look like a surplus gain.
+  const cushionPer100 = retainedPurePremiumPer100 * (clf - 1);
+  const contingencyPer100 = loadedBase * PROFIT_AND_CONTINGENCY_OF_RATE;
+  const expectedToSurplus = (cushionPer100 + contingencyPer100) * exposure * 10_000;
+
+  return {
+    clf,
+    groundUpPurePremiumPer100,
+    expectedCededPer100,
+    retainedPurePremiumPer100,
+    adminRatePer100,
+    divisor,
+    firstIndicationPer100,
+    finalRatePer100,
+    reinsRatePer100,
+    reinsuranceCost,
+    riskControlAndContingencyPer100,
+    expectedToSurplus,
+    towerQuote,
+    aggregateQuote,
+  };
+}
+
+/**
+ * The new stack expressed in `LineRateQuote`'s shape, so the engine can take
+ * either without a second set of call sites.
+ *
+ * ⚠ THE LOADING IS SPLIT ACROSS THE TWO COMPONENTS RATHER THAN CARRIED
+ * SEPARATELY, and that is what keeps the quote ADDITIVE. Downstream readers —
+ * the engine's charge, the price signal, the parity gate — all assume
+ * `pool + admin + reinsurance + margin === total`. Since
+ * `(retained x CLF + admin) / d` is exactly `retained x CLF / d + admin / d`,
+ * loading each component by the divisor preserves the identity to the bit
+ * while the sum stays the designed rate. The UNLOADED components are on the
+ * NewStackQuote for the panel, which has to show them separately.
+ *
+ * `retainedCoverMargin` is 0: it is retired under this stack. Declining a
+ * layer raises the retained pure premium, which is the whole effect.
+ */
+export function newStackAsLineRateQuote(q: NewStackQuote, exposure: number): LineRateQuote {
+  const adminRatePer100 = q.adminRatePer100 / q.divisor;
+  const poolPremiumRatePer100 = q.retainedPurePremiumPer100 * q.clf / q.divisor;
+  return {
+    purePremiumPer100: q.groundUpPurePremiumPer100,
+    expectedCededPer100: q.expectedCededPer100,
+    netPurePremiumPer100: q.retainedPurePremiumPer100,
+    poolPremiumRatePer100,
+    adminRatePer100,
+    reinsuranceCost: q.reinsuranceCost,
+    reinsRatePer100: q.reinsRatePer100,
+    retainedCoverMargin: 0,
+    retainedCoverMarginRatePer100: 0,
+    totalMemberChargeRatePer100: poolPremiumRatePer100 + adminRatePer100 + q.reinsRatePer100,
+    poolPremium: exposure * poolPremiumRatePer100 * 10_000,
+    towerQuote: q.towerQuote,
+    aggregateQuote: q.aggregateQuote,
   };
 }

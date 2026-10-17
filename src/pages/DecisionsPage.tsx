@@ -521,6 +521,97 @@ function FundingLevelControl({ d, fundingConsequence, setFundingLevel, setFundin
 // whoever joins or leaves — measured at a median 1.0% on WC, 3.2% on GL, 0.0%
 // on Property. That is not closable: the panel is asked the question before the
 // answer exists.
+
+// ============================================================================
+// THE NEW RATE PANEL — two columns, per $100, behind NEW_RATE_STACK.
+//
+// ⚠ TWO COLUMNS BECAUSE THERE ARE TWO QUESTIONS, and the old panel answered
+// only the second. "Indicated" is what the risk costs the pool before it
+// decides anything — at expected, self-funded, no reinsurance. "Your rate" is
+// what the team's own funding level and tower placement turn that into. A
+// player who cannot see the first cannot tell whether a high rate is the book
+// or their own choices.
+//
+// ⚠ NO CLF NOTE BESIDE THE PURE PREMIUM. The CLF is already inside "Your
+// rate"'s pure premium figure — it is the funding level — and printing the
+// multiplier beside it invited the reading that the row was pre-CLF and the
+// number got applied twice somewhere downstream.
+//
+// ⚠ THE REINSURANCE CELL IS A DASH IN THE INDICATED COLUMN, NOT A ZERO. The
+// indication is SELF-FUNDED: there is no reinsurance in it, which is a
+// different statement from reinsurance costing nothing. The same empty-cell-is-
+// not-a-zero rule the Actuarial exhibit follows.
+// ============================================================================
+function NewRatePanel({ n, prior }: {
+  n: NonNullable<FundingConsequence['newStack']>;
+  prior?: LineResultSet;
+}) {
+  const d2 = (v: number) => `$${v.toFixed(2)}`;
+  const chg = (now: number, before?: number) =>
+    before === undefined || !(before > 0)
+      ? <span className="text-gray-400">—</span>
+      : <span className={now >= before ? 'text-red-600' : 'text-green-700'}>
+          {`${now >= before ? '+' : ''}${(((now / before) - 1) * 100).toFixed(1)}%`}
+        </span>;
+
+  const rows: Array<[string, string, string]> = [
+    ['Pure premium', d2(n.purePremiumGroundUp), d2(n.purePremiumRetained)],
+    ['+ Admin', d2(n.adminRatePer100), d2(n.adminRatePer100)],
+    ['+ Risk control & contingency',
+      d2(n.firstIndicationPer100 - n.purePremiumGroundUp - n.adminRatePer100),
+      d2(n.riskControlAndContingencyPer100)],
+  ];
+
+  return (
+    <div data-testid="new-rate-panel" className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
+      <table className="w-full">
+        <thead>
+          <tr className="text-left text-gray-500">
+            <th className="font-medium py-1" />
+            <th className="font-medium py-1 text-right">Indicated<div className="font-normal text-[10px]">expected, self-funded</div></th>
+            <th className="font-medium py-1 text-right">Your rate<div className="font-normal text-[10px]">funding level, with reinsurance</div></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, a, b]) => (
+            <tr key={label} className="border-t border-gray-200/70">
+              <td className="py-1 text-gray-600">{label}</td>
+              <td className="py-1 text-right tabular-nums">{a}</td>
+              <td className="py-1 text-right tabular-nums">{b}</td>
+            </tr>
+          ))}
+          <tr className="border-t border-gray-200/70">
+            <td className="py-1 text-gray-600">+ Reinsurance</td>
+            <td className="py-1 text-right text-gray-400">—</td>
+            <td className="py-1 text-right tabular-nums">{d2(n.reinsRatePer100)}</td>
+          </tr>
+          <tr className="border-t border-gray-300 font-medium">
+            <td className="py-1">= Rate</td>
+            <td data-testid="new-rate-indicated" className="py-1 text-right tabular-nums">{d2(n.firstIndicationPer100)}</td>
+            <td data-testid="new-rate-final" className="py-1 text-right tabular-nums">{d2(n.finalRatePer100)}</td>
+          </tr>
+          <tr className="border-t border-gray-200/70">
+            <td className="py-1 text-gray-600">vs last year</td>
+            <td data-testid="new-rate-vs-indicated" className="py-1 text-right tabular-nums">
+              {chg(n.firstIndicationPer100, prior?.firstIndicationPer100)}
+            </td>
+            <td data-testid="new-rate-vs-final" className="py-1 text-right tabular-nums">
+              {chg(n.finalRatePer100, prior?.finalRatePer100)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      {/* ⚠ DOLLARS, NOT A RATE, and underwriting only — see quoteNewRateStack. */}
+      <p data-testid="expected-to-surplus" className="pt-1">
+        Expected to surplus:{' '}
+        <span className={n.expectedToSurplus >= 0 ? 'text-green-700 font-medium' : 'text-red-600 font-medium'}>
+          {n.expectedToSurplus >= 0 ? '+' : '-'}${Math.abs(n.expectedToSurplus / 1e6).toFixed(2)}M
+        </span>
+      </p>
+    </div>
+  );
+}
+
 function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConsequence | null; lastLineResult?: LineResultSet; line: CoverageLine }) {
   if (!c) return null;
   const pct1 = (v: number) => `${v.toFixed(1)}%`;
@@ -531,6 +622,16 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
   // wrong-curve-on-the-display defect clfFor above this file was written to fix,
   // surviving in the one readout that did not go through it.
   const reserveMarginCLF = hasStaticClf(line) ? staticClf(line, RESERVE_MARGIN_CONFIDENCE) : lookupCLF(RESERVE_MARGIN_CONFIDENCE);
+
+  // ⚠ THE NEW PANEL REPLACES THIS ONE WHOLE, rather than adding rows to it.
+  // Eight readouts go with the old stack — the CLF multiplier, the net and
+  // pool pure premium, the load, the expected combined ratio, the marginal
+  // cost, the reserve margin standard, the excess capital ratio and the
+  // underfunding sentence. Two of those move elsewhere rather than vanishing;
+  // see docs/PENDING_MULTIPLAYER.md.
+  if (c.newStack) {
+    return <NewRatePanel n={c.newStack} prior={lastLineResult} />;
+  }
 
   return (
     <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
@@ -567,6 +668,10 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
             adjusts, reserves and pays a ceded claim in full and only then
             recovers, so ceding transfers the loss and not the handling cost.
             See linePricing.ts. */}
+        {/* ⚠ THE OLD PANEL. It renders while NEW_RATE_STACK is off, which is
+            every shipped build today. The new two-column panel above replaces
+            every row from here to the underfunding sentence; the two are never
+            on screen together. */}
         <DataRow label="Net Pure Premium Rate / $100" value={`$${c.netPurePremiumPer100.toFixed(2)}`} />
         <DataRow label="Pool Premium Rate / $100" value={`$${c.poolPremiumRatePer100.toFixed(2)}`} />
         <DataRow label="… Admin / $100" value={`$${c.adminRatePer100.toFixed(2)}`} />

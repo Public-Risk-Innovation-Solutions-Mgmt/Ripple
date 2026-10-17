@@ -1338,6 +1338,25 @@ interface ResultRowFields {
   newPurePremiumPer100?: number;
   /** The shadow pure premium's loss-cost limb, before ALAE and ULAE. */
   newLossCostPer100?: number;
+
+  // ============================================================================
+  // THE NEW RATE STACK'S TWO FIGURES — commit 3, behind NEW_RATE_STACK.
+  //
+  // ⚠ ABSENT WHEN THE FLAG IS OFF, which is every shipped build today. A
+  // reader must treat absence as "this build does not price this way", not as
+  // zero. See NEW_RATE_STACK in pricingParameters.ts for why it is off.
+  //
+  // `firstIndication` is at expected, self-funded, with no reinsurance — the
+  // pool's own cost of risk before any funding or transfer decision.
+  // `finalRate` is what members are actually charged. The `prior` pair is last
+  // year's SAME figure, so each is compared against its own basis.
+  // ============================================================================
+  firstIndicationPer100?: number;
+  finalRatePer100?: number;
+  priorFirstIndicationPer100?: number;
+  priorFinalRatePer100?: number;
+  /** Underwriting only: the CLF cushion plus the contingency provision, in dollars. */
+  expectedToSurplus?: number;
   writtenExposure: number;      // payroll exposure in $M
 
   // Premium
@@ -2023,6 +2042,20 @@ export interface LinePoolState {
   investedAssets: number;      // this line's own segregated investment portfolio (Stage 2.9),
                                // carried forward year to year like surplus
   totalMarketExposure: number;
+
+  // ⚠ LAST YEAR'S TWO RATES, CARRIED SO EACH INDICATION IS COMPARED AGAINST
+  // ITS OWN BASIS. The first indication is compared with last year's FIRST
+  // indication and the final rate with last year's FINAL rate; comparing a
+  // self-funded indication against a reinsured rate would read the tower as a
+  // rate change. Written only while NEW_RATE_STACK is on, and absent before
+  // the first priced year — which is not the same as zero, so the panel shows
+  // no comparison rather than a 100% rise.
+  //
+  // The PRE-GAME years run through the same engine, so a game whose prior
+  // history was simulated with the flag on reaches year 1 with both already
+  // populated. That is what makes year 1's comparison a real one.
+  lastFirstIndicationPer100?: number;
+  lastFinalRatePer100?: number;
 }
 
 // One continuous stretch of enrollment in a single coverage line, in ACTIVE

@@ -207,6 +207,13 @@ const FAST: string[] = [
   'ratemaking-loop-check',           //  80s   THE ACCEPTANCE TEST — 4/4; condition 3 is paired with two null controls
   'ratio-basis-check',               //   7s
   'reserve-centring-check',          //  55s   IBNER_CALENDAR_RHO adds dispersion and NOT drift; carries its own positive control
+  'new-rate-tieout-check',           //   8s   the NEW rate stack's two indications tie to their own
+                                     //         components, neither loading error is present and the
+                                     //         adapter is additive. ⚠ IT FLIPS NEW_RATE_STACK AT
+                                     //         RUNTIME and restores it — safe only because every gate
+                                     //         runs in its own process. It is the ONLY check that
+                                     //         reaches the flag-on path at all, since the sweep and
+                                     //         both value baselines exercise the old stack.
   'reserve-split-check',             //   3s   case + IBNR sum EXACTLY to the booked reserve on every
                                      //         accident year, line and valuation, on all three bases,
                                      //         and neither half is negative. Then the claim that
