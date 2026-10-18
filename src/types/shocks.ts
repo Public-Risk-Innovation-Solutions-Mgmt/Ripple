@@ -54,4 +54,10 @@ export interface ShockRecord extends ShockFiring, ShockLineCost {
   // contributed — the Property and WC halves of one earthquake — rather than
   // folding it into the total. Absent on a line's own record, which is one line.
   byLine?: Partial<Record<CoverageLine, ShockLineCost>>;
+  /**
+   * On an AVERAGED row (loss engine commit 4b): how many of the year's worlds
+   * the event fired in. Its dollars and claim counts are then the average over
+   * ALL the worlds, counting zero where it did not fire. Absent on a world's own row.
+   */
+  worlds?: { fired: number; of: number };
 }

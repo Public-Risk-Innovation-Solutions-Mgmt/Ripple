@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v11';
+export const SAVE_KEY = 'riskpool_gamestate_v12';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -162,7 +162,10 @@ export const SAVE_KEY = 'riskpool_gamestate_v11';
  * been re-cut. A v10 save cannot be read faithfully, so it is not migrated: the
  * loader clears it and the player starts a new game. This is the key it held.
  */
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10'];
+// ⚠ v12 SINCE LOSS ENGINE COMMIT 4b — the game runs in worlds
+// (GameState.worlds), and its pool state and results are their average. A v11
+// save holds one world's figures and no worlds, so it is cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11'];
 
 /**
  * Fields dropped on the way out.
@@ -296,6 +299,39 @@ export const MEASURED_QUOTA_CHARS = 5_242_613;
  */
 export const SAVE_BUDGET_CHARS = 1_500_000;
 
+/**
+ * Keys dropped from EACH WORLD'S rows on the way out (loss engine commit 4b),
+ * not from the averaged rows the pages read.
+ *
+ * ⚠ THE PER-ACCIDENT-YEAR RESERVE SPLIT, AND ONLY IT. Every world's every year
+ * restates it for every accident year, at pool and line scope: measured, 3.0 MB
+ * of a 7.3 MB raw ten-world save at year ten, and the save at 1.83 MB stored —
+ * past SAVE_BUDGET_CHARS. Nothing reads a world row's split: the averaged row's
+ * is struck from the worlds' when the year settles, in memory, before any save,
+ * and the engine never reads a prior row's. Every other figure on a world's
+ * rows is kept, which is what "keep each world's results" asks.
+ */
+export const WORLD_ROW_STRIPPED_KEYS: readonly string[] = ['reserveSplitByYear'];
+
+function slimRow<T extends object>(r: T): T {
+  const out = { ...r } as Record<string, unknown>;
+  for (const k of WORLD_ROW_STRIPPED_KEYS) delete out[k];
+  if (out.byLine && typeof out.byLine === 'object') {
+    out.byLine = Object.fromEntries(Object.entries(out.byLine as Record<string, object>)
+      .map(([l, row]) => [l, slimRow(row)]));
+  }
+  return out as T;
+}
+
+function slimWorlds(env: SaveEnvelope): SaveEnvelope {
+  const gs = env.gameState as { worlds?: Array<{ lockedResults: object[] }> } | null;
+  if (!gs?.worlds) return env;
+  return {
+    ...env,
+    gameState: { ...gs, worlds: gs.worlds.map(w => ({ ...w, lockedResults: w.lockedResults.map(slimRow) })) },
+  };
+}
+
 export interface SaveEnvelope {
   gameState: unknown;
   startingFinancials: unknown;
@@ -313,7 +349,7 @@ export interface SaveEnvelope {
  */
 export function serialiseSave(env: SaveEnvelope): string {
   const stripped = saveStrippedKeys();
-  return JSON.stringify(env, (key, value) =>
+  return JSON.stringify(slimWorlds(env), (key, value) =>
     (stripped.includes(key) ? undefined : value));
 }
 

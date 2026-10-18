@@ -160,7 +160,11 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-export function summarize(r: ResultSet, lines: CoverageLine[], poolState: PoolState): TeamYearSummary {
+export function summarize(
+  r: ResultSet, lines: CoverageLine[], poolState: PoolState,
+  /** The worlds' ending-surplus spread for this year — see TeamYearSummary.surplusRange. */
+  range?: { min: number; median: number; max: number } | null,
+): TeamYearSummary {
   const byLine: Partial<Record<CoverageLine, TeamYearFigures>> = {};
   for (const line of lines) {
     const slice = r.byLine[line];
@@ -175,5 +179,6 @@ export function summarize(r: ResultSet, lines: CoverageLine[], poolState: PoolSt
     byLine,
     developed: developedAt(poolState, lines, r.yearNumber),
     decisions: decisionsOf(r, lines),
+    ...(range ? { surplusRange: { min: range.min, median: range.median, max: range.max } } : {}),
   };
 }

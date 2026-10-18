@@ -154,6 +154,40 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   await page.waitForTimeout(800);
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
 
+  // ---- ten worlds (loss engine commit 4b) ----------------------------------
+  // Lock a year; the Results page and the Decisions page then show the minimum,
+  // median and maximum ending surplus across the worlds beside the average.
+  const moneyOf = t => { const m = t.replace(/[$,\s]/g, ''); const v = parseFloat(m); return /K$/.test(m) ? v * 1e3 : /M$/.test(m) ? v * 1e6 : /B$/.test(m) ? v * 1e9 : v; };
+  const readRange = async () => ({
+    min: moneyOf(await page.textContent('[data-testid="worlds-surplus-range-min"]')),
+    median: moneyOf(await page.textContent('[data-testid="worlds-surplus-range-median"]')),
+    max: moneyOf(await page.textContent('[data-testid="worlds-surplus-range-max"]')),
+    text: (await page.textContent('[data-testid="worlds-surplus-range"]')).replace(/\s+/g, ' ').trim(),
+  });
+  await page.getByRole('button', { name: /Lock Year/ }).first().click();
+  await page.waitForTimeout(2500);
+  const decline = page.getByRole('button', { name: /Decline/i }).first();
+  if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+  await page.getByRole('button', { name: /^Results$/ }).first().click();
+  await page.waitForSelector('[data-testid="worlds-surplus-range"]', { timeout: 20000 }).catch(() => {});
+  const onResults = await page.$('[data-testid="worlds-surplus-range"]') !== null;
+  ok(onResults, 'Results: the ending surplus across the worlds is shown beside the average');
+  if (onResults) {
+    const r = await readRange();
+    console.log(`  results range : ${r.text}`);
+    ok(r.min <= r.median && r.median <= r.max && r.min < r.max, 'Results: min <= median <= max, and the worlds differ');
+    ok(/across 10 worlds/.test(r.text), 'Results: it says how many worlds');
+  }
+  await page.getByRole('button', { name: /^Decisions$/ }).first().click();
+  await page.waitForTimeout(1000);
+  const onDecisions = await page.$('[data-testid="worlds-surplus-range"]') !== null;
+  ok(onDecisions, 'Decisions: last year\'s ending surplus across the worlds is shown');
+  if (onDecisions) {
+    const r = await readRange();
+    console.log(`  decisions     : ${r.text}`);
+    ok(r.min <= r.median && r.median <= r.max, 'Decisions: min <= median <= max');
+  }
+
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');
   await browser.close();

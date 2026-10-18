@@ -205,7 +205,7 @@ export function useSessionGame(
                 code,
                 token,
                 yearNumber: p.result.yearNumber,
-                result: summarize(p.result, state.setup.activeLines, p.poolState),
+                result: summarize(p.result, state.setup.activeLines, p.poolState, p.surplusRange),
               });
             }
           }

@@ -60,6 +60,7 @@ const ALLOWED: Record<string, string> = {
   'src/utils/memberValue.ts': 'the model itself',
   'src/utils/simulationEngine.ts': 'the post-claims value pass',
   'src/utils/gameSave.ts': 'memberValueRows and poolValue on SAVE_STRIPPED_KEYS',
+  'src/utils/worlds.ts': 'memberValueRows and poolValue DROPPED from an averaged row — per-world only (loss engine 4b)',
 };
 /**
  * How close the split-with-a-weight must sit to the unsplit pot before the

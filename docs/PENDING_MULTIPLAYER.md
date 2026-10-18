@@ -446,42 +446,67 @@ derived presentation. Unchanged by this work.
 
 ### Averaging
 
-Each team's year runs across **10 simulated worlds** — a parameter — with all
-teams sharing the same draws. Each world carries its own reserve ledger and
-surplus. **The pre-game runs once and the opening is shared**, so the fixed cost
-is paid once rather than ten times.
+**Wired in loss engine commit 4b** (`src/utils/worlds.ts`, `WORLD_COUNT` = 10,
+a parameter). Each team's year runs in ten worlds, all teams sharing the same
+worlds' draws: a world is the game's instance with its own seed (world 1 keeps
+the game's own), so each carries its own reserve ledger, cohorts and surplus,
+with its own ordinary year factor, shock severities, routine large losses when
+that switch is on, and investment returns. **The pre-game runs once and the
+opening is shared.** The member path runs one world.
 
-Displayed dollars are averages. **Ratios are recomputed from averaged
-numerators and denominators, never averaged.** **Each world's results are kept,
-not only the average**, so a range can be shown later. Host-scheduled shocks hit
-all ten worlds, with **severity drawn per world** — shared severity would move
-the ten together and collapse the range this exists to show.
+- **Shared:** the team's decisions; one rate (below); host-scheduled shocks,
+  which fire in every world with severity — and region — drawn per world. In
+  singleplayer the catalogue fires per world by probability. Dividends and
+  assessments are each world's own share of its own surplus.
+- **Display:** dollars are the average across worlds; **every ratio is
+  recomputed from averaged numerators and denominators, never averaged.** The
+  game's pool state and results ARE the average; each world's are kept
+  (`GameState.worlds`). The Results and Decisions pages show the minimum,
+  median and maximum ending surplus beside the average; the year's events say
+  how many worlds each fired in.
+- **Claim-level detail is per world.** An averaged year has no claims of its
+  own; the claims workbook exports world 1's and says so.
+- **Loans:** an offer is made when a line is short in any world, showing the
+  mean deficit and how many worlds need it; the team's one choice applies in
+  each of them. Sessions decline, as before.
+- **Size and time:** one averaged year is 59 KB; the save at year ten is
+  1,066 KB stored (the 3a budget of 256 KB is restated to 1,280 KB — see
+  result-size-check — after dropping each world row's per-accident-year reserve
+  split from the save, which nothing reads). A year takes about 65 ms for all
+  ten worlds and three lines.
+- **The gate is worlds-check**, with a failing control for each check.
 
 ### One rate
 
-Set **once per team-year, from the averaged history**, and applied in all ten
-worlds. The commit-3 pricing stack carries over unchanged apart from its history
-source, provided the averaging happens before the rate is struck.
+**Wired in loss engine commit 4b.** Struck **once per team-year, from the
+averaged history** — the worlds' ledgers averaged accident year by accident
+year and their books averaged — by `strikeBookRate`, the engine's own pre-movement
+quote as a function, and charged in every world per $100 of that world's own
+exposure. worlds-check asserts every rate field is bit-identical across worlds,
+equals a rate struck on a ledger the gate averages itself, and that the
+striking function reproduces the engine's own charge on one world.
 
 ### Session layer
 
-Teams post the average in today's record shape, plus the **minimum, median and
-maximum ending surplus** across the worlds.
+**Wired in loss engine commit 4b.** Teams post the average in today's record
+shape, plus `surplusRange` — the **minimum, median and maximum ending surplus**
+across the worlds, pool scope — on every played year. The host's Teams table
+shows the minimum beside the average. A contract change: the handler deploys
+first (docs/handoff/AWS_HANDLER_HANDOFF.md).
 
 ### Performance
 
-Measured on the current build, not estimated:
+Measured at commit 4b, three-line games at default decisions:
 
-| | today |
-| --- | --- |
-| `processYear`, three lines | about 30 ms |
-| ten worlds | about 300 ms a round |
-| save at five years | 8.1 MB |
-| one ResultSet | 962 KB |
+| | before (plan) | one world, 3a | ten worlds, 4b |
+| --- | --- | --- | --- |
+| a year, every world | about 300 ms (estimated) | about 8 ms | about 65 ms |
+| one year's result | 962 KB | 52 KB | 59 KB (averaged) |
+| save at five years, stored | 8.1 MB raw | — | 621 KB |
+| save at ten years, stored | — | 175 KB | 1,066 KB |
 
-The ResultSet is almost all per-claim and per-member detail, so **ten worlds are
-affordable only once that detail goes**. Budget the stripped ResultSet and gate
-it; do not take the 300 ms as the whole cost while the 962 KB stands.
+The per-claim and per-member detail went at 3a, which is what made ten worlds
+affordable. The save budget is restated for ten worlds in result-size-check.
 
 ### Satisfaction
 

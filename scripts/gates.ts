@@ -241,10 +241,15 @@ const FAST: string[] = [
                                      //         expected recovery the draw produces through the tower.
                                      //         ⚠ HOLDS MEMBER_LEVEL OFF AND FLIPS ROUTINE_LARGE_LOSSES AT
                                      //         RUNTIME and restores both — own process only.
-  'result-size-check',               //   5s   one year's result within 64 KB and the save at year
-                                     //         ten within 256 KB stored — the size the ten worlds are
-                                     //         designed around. Control recorded: MEMBER_LEVEL on is
-                                     //         623.5 KB and 1,057.6 KB, EXIT 1.
+  'result-size-check',               //  12s   one year's AVERAGED result within 64 KB and the ten-
+                                     //         world save at year ten within 1,280 KB stored (restated
+                                     //         at 4b from 256 KB — the gate's header says why). Control
+                                     //         recorded: MEMBER_LEVEL on is 623.5 KB, EXIT 1.
+  'worlds-check',                    //  10s   ten worlds: worlds differ only in their draws, the
+                                     //         rate is identical across them and struck from the
+                                     //         averaged history, averaged dollars are the mean and
+                                     //         ratios come from averaged parts, two identical teams
+                                     //         match exactly — each check with a failing control
   'development-emergence-check',     //  20s   the host's development % emerges IN FULL and only in
                                      //         full: the cumulative matches the closed form the
                                      //         payment pacing implies, at every age of every

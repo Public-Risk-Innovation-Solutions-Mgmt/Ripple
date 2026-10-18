@@ -57,7 +57,8 @@
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
-import { processYear } from '../../src/utils/simulationEngine';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
+import { WORLD_ROW_STRIPPED_KEYS } from '../../src/utils/gameSave';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import {
@@ -81,18 +82,24 @@ function start(id: string, seed: number): GameState {
   const inst = generateGameInstance(id, seed);
   const setup = { poolName: 'R', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
-  return {
+  // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b — the game as the app plays and saves it.
+  return openWorlds({
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
-  };
+  });
 }
 
 function advance(gs: GameState, y: number): GameState {
-  const p = processYear(gs, defaultDecisionSet(y));
+  const settled = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
   return {
-    ...gs, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result],
+    ...gs, ...commitSettledYear(gs, settled),
     currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1),
   };
+}
+
+/** A world's rows without the keys the save drops from them (WORLD_ROW_STRIPPED_KEYS). */
+function slimWorlds(ws: GameState['worlds']): unknown {
+  return JSON.parse(JSON.stringify(ws ?? null, (k, v) => (WORLD_ROW_STRIPPED_KEYS.includes(k) ? undefined : v)));
 }
 
 /**
@@ -179,10 +186,13 @@ for (let g = 0; g < GAMES; g++) {
 
   // --- did the strip do what it says? -------------------------------------
   // The same year on both arms, so a kept register can be counted against it.
-  for (const lr of Object.values(a.lockedResults[SAVE_AT - 1].byLine)) {
+  // ⚠ A WORLD'S ROWS, NOT THE AVERAGE'S (loss engine commit 4b): an averaged
+  // row carries no claim register — the registers are each world's.
+  const rowsOf = (gs: GameState) => gs.worlds?.[0].lockedResults ?? gs.lockedResults;
+  for (const lr of Object.values(rowsOf(a)[SAVE_AT - 1].byLine)) {
     if ((lr as { claims?: unknown[] }).claims) strippedPresentA++;
   }
-  for (const lr of Object.values(restored.lockedResults[SAVE_AT - 1].byLine)) {
+  for (const lr of Object.values(rowsOf(restored)[SAVE_AT - 1].byLine)) {
     if ((lr as { claims?: unknown[] }).claims) strippedPresentB++;
   }
 
@@ -196,6 +206,9 @@ for (let g = 0; g < GAMES; g++) {
   // that the claims workbook reads them. This asserts the ENGINE still does not
   // care: everything on those three years except the per-claim flow survives.
   diff(a.priorHistory, c.priorHistory, `g${g}.priorHistory`, out);
+  // EVERY WORLD, restored and continued, against the same world straight through
+  // — the averaged state above is only as right as the worlds under it.
+  diff(slimWorlds(a.worlds), slimWorlds(c.worlds), `g${g}.worlds`, out);
   if (a.currentYearNumber !== c.currentYearNumber) {
     out.push(`g${g}.currentYearNumber: ${a.currentYearNumber} !== ${c.currentYearNumber}`);
   }
@@ -228,7 +241,8 @@ if (newLossEngineRuns()) {
   // With ROUTINE_LARGE_LOSSES off, large losses come only from shocks, so most
   // games' saved years carry none. Seeds are searched, in order, for the first
   // whose saved years do — bounded, and named in the output.
-  const all = (gs: GameState) => [...gs.priorHistory, ...gs.lockedResults];
+  // Every world's rows: the registers are the worlds' (an averaged row has none).
+  const all = (gs: GameState) => [...gs.priorHistory, ...(gs.worlds?.flatMap(w => w.lockedResults) ?? gs.lockedResults)];
   const has = (gs: GameState) => all(gs).some(r => LINES.some(l => (r.byLine[l]?.claims?.length ?? 0) > 0));
   let a = start('RT0', 3_300_000), searched = 0;
   for (let g = 0; g < 40; g++) {

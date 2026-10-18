@@ -218,7 +218,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
-import { processYear } from '../../src/utils/simulationEngine';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { buildResultsWorkbook } from '../../src/utils/resultsExport';
@@ -666,7 +666,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     Property's (7 511 174 -> 1 031 666), the catastrophe year's recovery
 //     (109 448 263 -> 15 000 000), and the reserves, rates, ratios and
 //     surplus that follow.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v67.json');
+// v68: LOSS ENGINE COMMIT 4b — TEN WORLDS. All 24 exports move. This guard now
+// plays each game as the app does — ten worlds, the export built from their
+// AVERAGE — so it guards the workbook a player downloads. The control ran
+// first: 4a (d113666), in its own worktree, reproduced v67 24 of 24; then both
+// sides were diffed as text with GUARD_TEXT_DIR. Three causes, nothing else:
+//   - THE VALUES are the average across the ten worlds: every dollar figure,
+//     and every ratio recomputed from the averaged parts (worlds-check).
+//   - THE EVENTS are every world's, each said once with the worlds it fired in:
+//     "Events This Year" reads e.g. "Nuclear Verdict (in 1 of 10 worlds): 0.1
+//     claims, $2,500,000", the averaged claim count to one place.
+//   - THE SHOCK EVENTS SHEET gains a Worlds column ("2 of 10"), lists events
+//     from every world, and states claim counts to two places.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v68.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
@@ -676,10 +688,13 @@ function play(id: string, lines: CoverageLine[], years: number,
   const instance = generateGameInstance(id, seedOf(id));
   const setup = { poolName: 'G', gameLength: years, startingYear: 2026, instanceId: id, activeLines: lines };
   const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
-  let gs: GameState = { setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory };
+  // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b, played as the app plays them: the
+  // export a player downloads is the AVERAGE across the worlds, so that is what
+  // this guards. Loans are declined, as before (none were ever authorized here).
+  let gs: GameState = openWorlds({ setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
   for (let y = 1; y <= years; y++) {
-    const p = processYear(gs, decisions(y, lines));
-    gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
+    const settled = settleWorldsYear(gs, playWorldsYear(gs, decisions(y, lines)), []);
+    gs = { ...gs, ...commitSettledYear(gs, settled), currentYearNumber: y + 1 };
   }
   return gs.lockedResults;
 }

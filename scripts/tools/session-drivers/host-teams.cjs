@@ -119,6 +119,14 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
     }
     if (label === 'Pool') {
       ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'Pool view: reporting teams show the aggregate');
+      // THE WORST WORLD BESIDE THE AVERAGE (loss engine commit 4b): the team's
+      // minimum ending surplus across its worlds, a currency at or below the
+      // average it sits next to.
+      const money = s2 => { const m = s2.replace(/[$,\s]/g, ''); const v = parseFloat(m); return /K$/.test(m) ? v * 1e3 : /M$/.test(m) ? v * 1e6 : /B$/.test(m) ? v * 1e9 : v; };
+      const avgTxt = (await host.textContent('[data-testid="surplus-Harbour Mutual"]')).trim();
+      const minTxt = (await host.textContent('[data-testid="minsurplus-Harbour Mutual"]')).trim();
+      ok(/^-?\$/.test(minTxt) && money(minTxt) <= money(avgTxt),
+        `Pool view: the minimum across the team's worlds sits beside the average (${minTxt} beside ${avgTxt})`);
       ok(await host.$('[data-testid="pending-Tri-County"]') !== null, 'Pool view: the non-reporter is still pending');
     }
   }

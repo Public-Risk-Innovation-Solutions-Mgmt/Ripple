@@ -1102,6 +1102,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 300 instances because Property's tower reached $1B. It now reads 69,448,263
 // on the two Property catastrophe-year instances (pool and line, both
 // configurations): the loss above the $50M top that every package retains.
+//
+// LOSS ENGINE COMMIT 4b (ten worlds) IS VALUE-NEUTRAL HERE, AND v64 HOLDS
+// UNCHANGED: this harness drives the engine one world at a time through
+// processYear, and the struck-rate seam is inert without a struck rate — no
+// field moved, none was added. What ten worlds change is what the app SHOWS,
+// the average, and that is RENDER_IDENTITY_v45 and SOLO_EXPORT_GUARD_v68.
 const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v64.json');
 
 function seedOf(id: string) {

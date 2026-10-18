@@ -133,6 +133,12 @@ const summaryFor = (
   ...(withDecisions && year > 0
     ? { decisions: Object.fromEntries(lines.map(l => [l, lineDecisions()])) }
     : {}),
+  // The worlds' spread (loss engine commit 4b) rides with the decisions: a played
+  // year carries it, the opening position does not. Off-centre on purpose, so a
+  // transport that recomputed or defaulted it would fail the read-back.
+  ...(withDecisions && year > 0
+    ? { surplusRange: { min: surplus - 123, median: surplus + 7, max: surplus + 456 } }
+    : {}),
 });
 
 // ---------------------------------------------------------------- shim
@@ -679,6 +685,12 @@ async function main(): Promise<void> {
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
     eq(seen?.dividendPct, 0.05, 'and the dividend');
+    // THE WORLDS' SPREAD (loss engine commit 4b): what the team posts beside the
+    // average comes back exactly, for the host's minimum column.
+    const spread = after.room.teams[0].resultsByYear?.['1']?.surplusRange;
+    eq(spread?.min, 600 - 123, 'and the minimum ending surplus across the team\'s worlds');
+    eq(spread?.median, 600 + 7, 'and the median');
+    eq(spread?.max, 600 + 456, 'and the maximum');
     eq(after.room.teams[1].resultsByYear?.['1']?.decisions?.WC?.confidenceLevel, DECISION_MARKER,
        'for EVERY team, not only the first');
 

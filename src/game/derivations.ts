@@ -48,6 +48,7 @@ function lineBookExposure(lineState: LinePoolState, line: CoverageLine, yearNumb
 }
 import { effectiveRiskControlIncentivePct } from '../utils/linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../utils/reinsuranceOptions';
+import { surplusRange, type SurplusRange } from '../utils/worlds';
 
 export interface GameDerivations {
   decisionLine: CoverageLine;
@@ -56,6 +57,8 @@ export interface GameDerivations {
   // placeholder off one. A consumer that needs a line field must now narrow on
   // the view, which is the question that was never being asked.
   viewResults: Array<ResultSet | LineResultSet>;
+  /** Min, median and max ending surplus across the worlds, by played year, at the view's scope. */
+  surplusRangeByYear: Record<number, SurplusRange>;
   viewPriorResults: Array<ResultSet | LineResultSet>;
   historicalYears: HistoricalYear[];
   lineLoanInfo: Record<CoverageLine, LineLoanInfo>;
@@ -76,6 +79,19 @@ export function useGameDerivations(
   const viewResults = React.useMemo(() => {
     if (!gameState) return [];
     return selectResultView(gameState.lockedResults, lineView);
+  }, [gameState, lineView]);
+
+  // THE SPREAD BEHIND THE AVERAGE (loss engine commit 4b): the minimum, median
+  // and maximum ending surplus across the worlds, per played year, at this
+  // view's scope. Empty on a one-world game.
+  const surplusRangeByYear = React.useMemo(() => {
+    const out: Record<number, SurplusRange> = {};
+    if (!gameState?.worlds) return out;
+    for (const r of gameState.lockedResults) {
+      const range = surplusRange(gameState, r.yearNumber, lineView === 'pool' ? undefined : lineView);
+      if (range) out[r.yearNumber] = range;
+    }
+    return out;
   }, [gameState, lineView]);
 
   const lineLoanInfo = React.useMemo(() => {
@@ -274,6 +290,7 @@ export function useGameDerivations(
   return {
     decisionLine,
     viewResults,
+    surplusRangeByYear,
     viewPriorResults,
     historicalYears,
     lineLoanInfo,

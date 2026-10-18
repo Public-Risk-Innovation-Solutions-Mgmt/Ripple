@@ -411,6 +411,14 @@ export interface TeamYearSummary {
    * they always did, through CallerView.decisionsByYear.
    */
   decisions?: TeamYearDecisions;
+  /**
+   * THE SPREAD BEHIND THE AVERAGE (loss engine commit 4b). Every figure above is
+   * the AVERAGE across the team's worlds; this is the pool's ending surplus in
+   * the worst, middle and best of them. Absent for the opening position (one
+   * world, before any year is played) and on a one-world build. ⚠ A CONTRACT
+   * CHANGE — deploy the handler first; see docs/handoff/AWS_HANDLER_HANDOFF.md.
+   */
+  surplusRange?: { min: number; median: number; max: number };
 }
 
 // ---------------------------------------------------------------- views

@@ -110,7 +110,7 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
 import { SeededRandom, deriveSubRng } from './random';
 // Aliased: the result field is called newPurePremiumPer100 too, and the
 // unaliased import collides with it in this scope.
-import { bookPurePremium, newPurePremiumPer100 as computeNewPurePremium } from './newPurePremium';
+import { bookPurePremium, newPurePremiumPer100 as computeNewPurePremium, type NewPurePremiumResult } from './newPurePremium';
 import { dividendAssessmentBasis } from './dividendAssessment';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, FULL_COST_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
@@ -147,7 +147,7 @@ import {
 } from './reinsuranceTower';
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
-import { newStackAsLineRateQuote, quoteNewRateStack } from './linePricing';
+import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
 import { MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
@@ -227,7 +227,7 @@ export function lookupCLF(level: number): number {
 // three lines and PR-solo is no longer a control for anything here.
 // The function itself is unchanged and still correct — only the isolation
 // argument in this comment expired.
-function fundedNetExpectedLoss(r: { poolPremium: number; selectedFundingCLF: number }): number {
+export function fundedNetExpectedLoss(r: { poolPremium: number; selectedFundingCLF: number }): number {
   return r.poolPremium / Math.max(r.selectedFundingCLF, 1e-9);
 }
 
@@ -663,6 +663,79 @@ interface LineYearContext {
   investmentReturnRate: number;
   dividendBlocked: boolean; // true when this line carried a negative surplus in from last year
   priorResult?: LineResultSet;
+  /**
+   * THE RATE, STRUCK ONCE FOR THE TEAM-YEAR FROM THE WORLDS' AVERAGED HISTORY
+   * (loss engine commit 4b — see worlds.ts). Present only when a year runs in
+   * more than one world: every world then charges this one quote per $100 of
+   * its OWN exposure, instead of pricing off its own ledger. Absent, the line
+   * prices itself exactly as before.
+   */
+  struckRate?: StruckLineRate;
+}
+
+/**
+ * A line's rate for one team-year, struck before the year runs: the ground-up
+ * pure premium read off the ledger it was given and the new stack's quote on
+ * the book it was given. See strikeBookRate.
+ */
+export interface StruckLineRate {
+  /** The book the quote was struck on — the averaged book, in a multi-world year. */
+  exposure: number;
+  newPp: NewPurePremiumResult;
+  quote: NewStackQuote;
+}
+
+/** The CLF a line's funding decision selects. One definition, for the engine and strikeBookRate. */
+function selectedClfFor(line: CoverageLine, d: LineDecisionSet): number {
+  return hasStaticClf(line)
+    ? (d.fundingAtExpected ? 1.0 : staticClf(line, d.fundingConfidenceLevel))
+    : lookupCLF(d.fundingConfidenceLevel);
+}
+
+/** The per-line risk-control incentive the rate divides by — zero while RISK_CONTROL is off. */
+function riskControlIncentiveFor(d: LineDecisionSet): number {
+  return RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? 0) : 0;
+}
+
+/**
+ * STRIKE A BOOK LINE'S RATE FROM A LINE STATE — the engine's own pre-movement
+ * quote, as a function, so a rate can be struck on a state no world is running.
+ *
+ * ⚠ THE SAME INPUTS processLineYear's PRICE SIGNAL USES, and it must stay so:
+ * the ledger's ground-up pure premium (bookPurePremium) on the book's exposure
+ * for the year, the funding CLF, the risk-control divisor and the package's
+ * placement. worlds-check asserts that on a single world, in a year the book
+ * does not move, this equals the rate the engine charged.
+ *
+ * Book mode and the new rate stack only; null otherwise (the member path and a
+ * flag-off build price as they always did, and run one world).
+ */
+export function strikeBookRate(
+  line: CoverageLine,
+  lineState: LinePoolState,
+  lineDecisions: LineDecisionSet,
+  yearNumber: number,
+  basis: { allMarketMembers: Member[]; membershipHistory: MembershipHistory },
+): StruckLineRate | null {
+  if (MEMBER_LEVEL.enabled || !NEW_RATE_STACK.enabled) return null;
+  const exposure = (lineState.bookExposure ?? 0) * exposureFactor(line, yearNumber);
+  const newPp = bookPurePremium(line, yearNumber, {
+    rows: lineState.reserveDevelopment ?? [],
+    allMarketMembers: basis.allMarketMembers,
+    membershipHistory: basis.membershipHistory,
+  }, exposure);
+  const quote = quoteNewRateStack({
+    line,
+    yearNumber,
+    members: { exposure },
+    exposure,
+    groundUpPurePremiumPer100: newPp.purePremiumPer100,
+    clf: selectedClfFor(line, lineDecisions),
+    riskControlPct: riskControlIncentiveFor(lineDecisions),
+    layersPlaced: placementFor(line, lineDecisions.reinsuranceOption),
+    aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+  });
+  return { exposure, newPp, quote };
 }
 
 // Shared fields this line's year processing updates. Investments are absent —
@@ -751,7 +824,7 @@ export function processLineYear(
   // lived in the old per-claim generators, so with RISK_CONTROL off the
   // incentive, the spend and the programs are all read as zero here — no
   // charge and no effect — and the decisions themselves are kept as stored.
-  const riskControlIncentivePct = RISK_CONTROL.enabled ? (lineDecisions.riskControlIncentivePct ?? 0) : 0;
+  const riskControlIncentivePct = riskControlIncentiveFor(lineDecisions);
   const riskControlSpendPct = RISK_CONTROL.enabled ? lineDecisions.riskControlPct : 0;
   // ⚠ THE PRE-MOVEMENT k_line / k_GL THAT USED TO BE COMPUTED HERE IS GONE.
   // It existed only to index the retired CV/lambda grids, and the static tables
@@ -779,9 +852,9 @@ export function processLineYear(
   // asserts this against the STORED selectedFundingCLF on all three lines across
   // all 14 reachable confidence levels, with a flag-off control arm; before this
   // commit it asserted a local literal equals itself.
-  const selectedFundingCLF = hasStaticClf(line)
-    ? (lineDecisions.fundingAtExpected ? 1.0 : staticClf(line, selectedFundingConfidenceLevel))
-    : lookupCLF(selectedFundingConfidenceLevel);
+  const selectedFundingCLF = selectedClfFor(line, lineDecisions);
+  // A MULTI-WORLD YEAR'S ONE RATE — see LineYearContext.struckRate.
+  const struck = ctx.struckRate;
 
   // --- Expected Actuarial Loss-Cost Rate ---
   // Expected losses evolve independently from pricing decisions.
@@ -920,9 +993,11 @@ export function processLineYear(
     allMarketMembers: ctx.allMarketMembers,
     membershipHistory: ctx.membershipHistory,
   };
-  const newPp = bookMode
-    ? bookPurePremium(line, yearNumber, newPpBasis, estimatedExposure)
-    : computeNewPurePremium(line, yearNumber, newPpBasis);
+  const newPp = struck
+    ? struck.newPp
+    : bookMode
+      ? bookPurePremium(line, yearNumber, newPpBasis, estimatedExposure)
+      : computeNewPurePremium(line, yearNumber, newPpBasis);
   // THE OLD STACK'S PURE PREMIUM — a roster blend of the old engine's held
   // figures. A book has neither; its pure premium IS the new stack's.
   const newPurePremiumPer100 = bookMode
@@ -1014,7 +1089,9 @@ export function processLineYear(
   // would double that cost on every line-year to produce a number nothing
   // reads. With the flag off this is `null` and `estimatedQuote` is the old
   // quote object itself, so the charge is bit-identical.
-  const newStack = NEW_RATE_STACK.enabled && newPp !== null
+  const newStack = struck
+    ? struck.quote
+    : NEW_RATE_STACK.enabled && newPp !== null
     ? quoteNewRateStack({
       line,
       yearNumber,
@@ -1195,7 +1272,9 @@ export function processLineYear(
   const towerMembers: Book = bookMode
     ? { exposure: activeExposure }
     : bookUnchanged ? currentActiveMembers : enrolledMembers;
-  const towerQuote = bookUnchanged || placedForCost === null
+  // ⚠ STRUCK, THE SIGNAL'S TOWER WAS QUOTED ON THE AVERAGED BOOK, NOT THIS
+  // WORLD'S — so a struck year always quotes the tower on its own covered book.
+  const towerQuote = (bookUnchanged && !struck) || placedForCost === null
     ? estimatedQuote.towerQuote
     : occurrenceProgramCost(line as TowerLine, placedForCost, towerMembers, yearNumber);
 
@@ -1356,7 +1435,11 @@ export function processLineYear(
   // roster, so moving the book does not move it — which is exactly why the old
   // stack needed a second `currentPurePremiumPer100` here and this one does
   // not.
-  const billedStack = NEW_RATE_STACK.enabled && newPp !== null
+  // ⚠ STRUCK, THE BILL IS THE STRUCK QUOTE: one rate per $100 for the team-
+  // year, charged on this world's own exposure below.
+  const billedStack = struck
+    ? struck.quote
+    : NEW_RATE_STACK.enabled && newPp !== null
     ? quoteNewRateStack({
       line,
       yearNumber,
@@ -1453,7 +1536,13 @@ export function processLineYear(
   if (towerQuote === null || !placedForCost) {
     throw new Error(`processLineYear: no tower quote for line ${line}`);
   }
-  const reinsuranceCost = towerQuote.premium + (aggregateQuote?.premium ?? 0);
+  // ⚠ STRUCK, THE PACKAGE IS CHARGED AT THE STRUCK RATE ON THIS WORLD'S BOOK.
+  // The tower premium is linear in a book's exposure, so this is this world's
+  // own premium to float precision; charging it as rate x exposure is what
+  // keeps every world's bill exactly the one rate.
+  const reinsuranceCost = struck
+    ? struck.quote.reinsRatePer100 * activeExposure * 10_000
+    : towerQuote.premium + (aggregateQuote?.premium ?? 0);
 
   // ============================================================================
   // ⚠ THE PRICE OF THE COVER THE POOL DID NOT BUY, STILL CHARGED, AND KEPT.
@@ -1486,7 +1575,11 @@ export function processLineYear(
       : 0;
 
   const totalMemberCharge = poolPremiumAndAdminExpense + reinsuranceCost + retainedCoverMargin;
-  const totalMemberRatePer100 = totalMemberCharge / Math.max(activeExposure * 10_000, 1);
+  // Struck, the rate IS the struck quote's, exactly — not re-read off the
+  // dollars, which would carry float noise between worlds.
+  const totalMemberRatePer100 = struck
+    ? struck.quote.finalRatePer100
+    : totalMemberCharge / Math.max(activeExposure * 10_000, 1);
 
   // ============================================================================
   // PER-MEMBER SATISFACTION — A SCOREBOARD, AND IT RUNS HERE BECAUSE THIS IS THE
@@ -2814,8 +2907,16 @@ export function processLineYear(
     finalRatePer100: billedStack !== null ? totalMemberRatePer100 : undefined,
     priorFirstIndicationPer100: billedStack !== null ? lineState.lastFirstIndicationPer100 : undefined,
     priorFinalRatePer100: billedStack !== null ? lineState.lastFinalRatePer100 : undefined,
-    expectedToSurplus: billedStack?.expectedToSurplus,
+    // Struck, the quote's dollars are on the averaged book; this world's are on its own.
+    expectedToSurplus: struck
+      ? struck.quote.expectedToSurplus * (activeExposure / Math.max(struck.exposure, 1e-12))
+      : billedStack?.expectedToSurplus,
     newLossCostPer100: newPp?.lossCostPer100,
+    // THE BOOK THE YEAR'S RATE WAS STRUCK ON — a multi-world year only, where it
+    // is the averaged book before the year, not this world's moved one. The
+    // audit page states the admin rate at it. Absent on a one-world year, which
+    // bills on its own book after movement.
+    ...(struck ? { ratedExposure: struck.exposure } : {}),
     writtenExposure: parseFloat(writtenExposure.toFixed(2)),
 
     poolPremium,
@@ -3095,6 +3196,9 @@ export interface LoanOffer {
                                 // Genuinely a one-time value for the OFFER — becomes the new loan's
                                 // starting InterLineLoan.currentRate, which then re-floats every year.
   lenderShares: Partial<Record<CoverageLine, number>>; // each lender's share of the loan, sums to 1
+  /** A multi-world year's offer: the worlds whose line needs the loan, of how many. The
+   *  deficit is then the mean over those worlds. See worlds.ts. */
+  worlds?: { needing: number; of: number };
 }
 
 // Full output of a processed year. loanOffers is non-empty only when one or
@@ -3130,7 +3234,12 @@ export function processYear(
    * is not a diagnostic and not a default — see its own note below, and
    * runPriorHistory, which is its only caller.
    */
-  overrides?: { applicationRate?: number; freezeMembership?: boolean },
+  overrides?: {
+    applicationRate?: number;
+    freezeMembership?: boolean;
+    /** A multi-world year's one rate per line — see LineYearContext.struckRate and worlds.ts. */
+    struckRates?: Partial<Record<CoverageLine, StruckLineRate>>;
+  },
 ): ProcessYearResult {
   // Pool-wide decisions (investment allocation, risk-control intensity) are
   // projected into every line's decision slice here — single source of truth
@@ -3306,6 +3415,7 @@ export function processYear(
       calendarYear,
       applicationRateOverride: overrides?.applicationRate,
       freezeMembership: overrides?.freezeMembership === true,
+      struckRate: overrides?.struckRates?.[line],
       // ⚠ A LINE ABSENT FROM THE RECORD TAKES ITS DEFAULT, NOT ZERO. A host who
       // edited WC and left GL alone meant GL's default; an old room record,
       // written before the field existed, means the defaults throughout.
@@ -3512,16 +3622,7 @@ export function processYear(
   // ============================================================================
   const withTriangles: Record<string, LinePoolState> = {};
   for (const [line, st] of Object.entries(updatedLineStates)) {
-    const rows = st.reserveDevelopment ?? [];
-    const basis = { allMarketMembers: currentAllMarketMembers, membershipHistory };
-    const triangle = projectPricingTriangle(line as CoverageLine, rows, basis);
-    const rate = experienceRatePer100(line as CoverageLine, {
-      rows: windowRows(rows), allMarketMembers: currentAllMarketMembers, membershipHistory,
-    });
-    withTriangles[line] = {
-      ...st,
-      pricingTriangle: rate !== null && rate > 0 ? { ...triangle, ratePer100: rate } : triangle,
-    };
+    withTriangles[line] = stampPricingTriangle(line as CoverageLine, st, currentAllMarketMembers, membershipHistory);
   }
 
   const updatedPoolState: PoolState = {
@@ -3699,6 +3800,23 @@ export function applyLoanAuthorizations(
   const result = aggregateLineResults(processed.lineResults, processed.priorPoolResult);
 
   return { updatedPoolState, result };
+}
+
+/**
+ * The pricing triangle stamped on a line state from its own ledger — processYear's
+ * end-of-year stamp, as a function, so the averaged state of a multi-world year
+ * (worlds.ts) is stamped from the averaged ledger by the same code.
+ */
+export function stampPricingTriangle(
+  line: CoverageLine,
+  st: LinePoolState,
+  allMarketMembers: Member[],
+  membershipHistory: MembershipHistory,
+): LinePoolState {
+  const rows = st.reserveDevelopment ?? [];
+  const triangle = projectPricingTriangle(line, rows, { allMarketMembers, membershipHistory });
+  const rate = experienceRatePer100(line, { rows: windowRows(rows), allMarketMembers, membershipHistory });
+  return { ...st, pricingTriangle: rate !== null && rate > 0 ? { ...triangle, ratePer100: rate } : triangle };
 }
 
 // Combines each active line's own LineResultSet into the pool-level ResultSet.

@@ -414,7 +414,9 @@
 // ten-year game. Loss engine commit 4a replaced the placement array and the
 // aggregate level with the package id: measured on the same block, 63 bytes
 // SMALLER (752 -> 689 at the defaults), so every figure below is now a
-// slight overstatement rather than an understatement.
+// slight overstatement rather than an understatement. Loss engine commit 4b
+// added the worlds' surplus spread (min, median, max) to each played year's
+// row: about 93 bytes at full float precision, measured, flat per year.
 //
 // At the HOST's read that compounds: ~87 KB -> ~160 KB at ten teams by ten
 // years, which is the largest single read in this design and roughly doubles

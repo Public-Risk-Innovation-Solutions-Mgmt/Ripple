@@ -110,6 +110,21 @@ the host must read back exactly that package and neither retired field;
 confirmed to fail against the old shape. Run on every pass —
 `npm run contract:dynamo`, `npm run contract:built`, `npm run contract:races`.
 
+### Ten worlds — the surplus spread (loss engine commit 4b)
+
+**This also deploys handler first, then the front end.** Each team's year now
+runs in ten worlds and every figure a team posts is the AVERAGE across them.
+`TeamYearSummary` gains `surplusRange: { min, median, max }` — the pool's
+ending surplus in the worst, middle and best world — on every played year (not
+on the opening position). The host's Teams table shows the minimum beside the
+average. The handler stores the result whole, so it carries no new code; a new
+host screen reading a row posted before the change shows a dash in the minimum
+column. About 93 bytes a year, measured.
+
+**Contract harness:** the fixture posts an off-centre spread and the host must
+read back exactly that minimum, median and maximum; confirmed to fail against
+a summary without it (three assertions per pass).
+
 **What CI runs.** `.github/workflows/handler.yml`, on a pull request into
 `aws`, runs the typecheck, `contract:dynamo` and `contract:races` against
 DynamoDB Local. **It does not run `contract:built`** (the zip's own

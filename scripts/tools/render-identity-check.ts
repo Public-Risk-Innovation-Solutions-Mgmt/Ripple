@@ -820,7 +820,31 @@ const BASELINE = process.env.RENDER_BASELINE
 //     stop buying their top bands. Surplus, ratios, the header, the capital
 //     labels (Strong / Adequate / Thin / Deficient), the prior board's
 //     history and the narrative's "paid" / "did not pay" follow.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v44.json');
+//
+// v45: LOSS ENGINE COMMIT 4b — TEN WORLDS. 116 of 242 moved, EVERY ONE A
+// YEAR-3 SCREEN: no opening (y0) screen moved, which is the pre-game running
+// once and the opening being shared. The control ran first: 4a (d113666),
+// built in its own worktree and served on 4174, reproduced v44 242 of 242.
+// Every moved row was diffed as text on both sides. Causes, nothing else:
+//   - THE VALUES are the average across ten worlds — surplus, ratios (from
+//     averaged parts), the header, the capital labels, the narrative.
+//   - THE SPREAD: Results and Decisions show "Ending surplus across 10
+//     worlds: min · median · max" beside the average.
+//   - THE EVENTS: every world's events, each with "in k of 10 worlds — averaged
+//     over all 10" and averaged claim counts.
+//   - THE CALCULATION AUDIT states a multi-world year's per-world rules as
+//     what they are: the cash as the average of the worlds' own sweeps, the
+//     dividend and assessment bases averaged over the worlds' own surpluses,
+//     the admin rate at the book the rate was struck on. A loan year's
+//     rollforwards include the inter-line transfer, and the investment check
+//     applies the year's Investment Loss — both were pre-existing gaps in loan
+//     and Investment Loss years, which ten worlds make common.
+//   - THE CLAIMS DOWNLOAD reads "world 1 of 10", and a loan year's tie-out on
+//     Results reads as tied after the transfer.
+//   - THE LOAN PROMPT: a line short in any world raises it; this tool now
+//     confirms it at its default (authorize), so the y2 screens include loan
+//     years the one-world game never reached.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v45.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1095,6 +1119,12 @@ async function run(): Promise<Record<string, string>> {
     for (let i = 0; i < 2; i++) {
       await page.getByRole('button', { name: /^Lock Year \d+$/ }).click();
       await settle(page);
+      // ⚠ TEN WORLDS (loss engine commit 4b): a line short in ANY world raises
+      // the loan prompt, so a year can stop at it. Confirmed at the prompt's own
+      // default — every offered loan authorized — which is what a player who
+      // clicks through it gets.
+      const prompt = page.getByRole('button', { name: 'Confirm & Continue' });
+      if (await prompt.count() > 0) { await prompt.click(); await settle(page); }
     }
     await capture(page, cfg, 'y2', out);
   }

@@ -57,6 +57,7 @@ import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
 import HistoryPage from '../pages/HistoryPage';
 import IntroductionPage from '../pages/IntroductionPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
+import { shockTimingOf } from '../utils/shockLosses';
 
 const AUDIT_TAB: TabId = 'audit';
 const SPREADSHEET_TAB: TabId = 'spreadsheet';
@@ -233,6 +234,7 @@ export default function GameShell({
             decisions={currentDecisions}
             onChange={onDecisionsChange}
             yearNumber={gameState.currentYearNumber}
+            lastSurplusRange={d.surplusRangeByYear[gameState.currentYearNumber - 1]}
             disabled={gameState.isComplete || decisionsDisabled}
             lineView={lineView}
             lineLoanInfo={d.lineLoanInfo}
@@ -255,7 +257,7 @@ export default function GameShell({
         )}
 
         {activeTab === 'results' && gameState && (
-          <ResultsPage lockedResults={d.viewResults} lineView={lineView} />
+          <ResultsPage lockedResults={d.viewResults} lineView={lineView} surplusRangeByYear={d.surplusRangeByYear} />
         )}
 
         {activeTab === SPREADSHEET_TAB && gameState && (
@@ -266,6 +268,8 @@ export default function GameShell({
             activeLines={gameState.setup.activeLines}
             instanceId={gameState.setup.instanceId}
             poolState={gameState.poolState}
+            claimsWorld={gameState.worlds?.[0]}
+            worldCount={gameState.worlds?.length}
           />
         )}
 
@@ -275,6 +279,9 @@ export default function GameShell({
             priorHistory={gameState.priorHistory}
             instanceSeed={gameState.instance.seed}
             lineView={lineView}
+            worldResults={gameState.worlds?.map(w => w.lockedResults)}
+            instance={gameState.instance}
+            shockTiming={shockTimingOf(gameState.setup)}
           />
         )}
 

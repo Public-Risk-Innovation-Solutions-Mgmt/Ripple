@@ -396,8 +396,11 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
         const evs = yearEvents(r);
         if (evs.length === 0) return 'None';
         return evs.map(ev => {
-          const label = eventLabel(ev.name, ev.region);
-          if (ev.claims > 0) return `${label}: ${ev.claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
+          // An averaged row (loss engine commit 4b) says in how many worlds it fired.
+          const label = eventLabel(ev.name, ev.region)
+            + (ev.worlds ? ` (in ${ev.worlds.fired} of ${ev.worlds.of} worlds)` : '');
+          const claims = Number.isInteger(ev.claims) ? String(ev.claims) : ev.claims.toFixed(1);
+          if (ev.claims > 0) return `${label}: ${claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
           // An uplift on the year's ordinary losses: real dollars, no claim.
           if (ev.grossLoss > 0) return `${label}: +${formatCurrency(ev.grossLoss)} losses`;
           return `${label}: +${formatCurrency(ev.expectedGrossLossAdded)} expected`;

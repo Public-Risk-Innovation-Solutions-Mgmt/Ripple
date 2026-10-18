@@ -744,6 +744,20 @@ export const REINSURANCE_DEFAULT_OPTION: PerLine<string> = {
 };
 
 /**
+ * TEN WORLDS (loss engine commit 4b). Each team's year runs in this many
+ * worlds, every team sharing the same worlds' draws. Each world carries its own
+ * reserve ledger, cohorts and surplus forward, with its own ordinary year
+ * factor, shock severities, routine large losses and investment returns; the
+ * pre-game runs once and the opening is shared. The team's decisions and ONE
+ * rate per team-year — struck from the worlds' averaged history — are shared.
+ * Displayed dollars are the average across worlds; every ratio is recomputed
+ * from averaged parts. See src/utils/worlds.ts.
+ *
+ * The new engine only: the member path runs one world.
+ */
+export const WORLD_COUNT = 10;
+
+/**
  * GL'S ORDINARY LOSSES ARE THE $0-1M LAYER, and they are paid on the pattern
  * that layer is paid on.
  *
@@ -1313,6 +1327,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         unit: 'per line',
         what: 'The middle option, held by every team until it chooses and by the pre-game\'s prior board.',
         basis: 'CHOSEN',
+      }],
+      ['Worlds', {
+        value: String(WORLD_COUNT), unit: 'worlds per team-year',
+        what: 'Each team\'s year runs in this many worlds, all teams sharing the same worlds\' draws; dollars '
+          + 'shown are the average across worlds and every ratio is recomputed from averaged parts.',
+        basis: 'CHOSEN',
+        note: 'Shared across worlds: the decisions, one rate per team-year struck from the averaged history, '
+          + 'and host-scheduled shocks (severity drawn per world). Per world: the ordinary year factor, shock '
+          + 'severities, routine large losses and investment returns, and its own ledger and surplus.',
       }],
       ['Aggregate cover', {
         value: 'not offered', unit: '—',

@@ -65,6 +65,8 @@ export interface YearEvent {
   claims: number;
   grossLoss: number;
   expectedGrossLossAdded: number;
+  /** On an averaged row: the worlds it fired in. Its figures are then averages over all the worlds. */
+  worlds?: { fired: number; of: number };
 }
 
 const LINE_ORDER: readonly CoverageLine[] = ['Property', 'WC', 'GL'];
@@ -136,6 +138,7 @@ function fromShock(rec: ShockRecord, result: AnyResult): YearEvent {
     claims: rec.attributableClaims,
     grossLoss: rec.attributableGrossLoss,
     expectedGrossLossAdded: rec.expectedGrossLossAdded,
+    ...(rec.worlds ? { worlds: rec.worlds } : {}),
   };
 }
 

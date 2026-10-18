@@ -1427,6 +1427,8 @@ interface ResultRowFields {
   priorFinalRatePer100?: number;
   /** Underwriting only: the CLF cushion plus the contingency provision, in dollars. */
   expectedToSurplus?: number;
+  /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
+  ratedExposure?: number;
   writtenExposure: number;      // payroll exposure in $M
 
   // Premium
@@ -2265,6 +2267,26 @@ export interface GameState {
   // through the real engine at default decisions. Year 0's ending state IS the
   // Year 1 opening position; year 0's result is Year 1's priorResult.
   priorHistory: ResultSet[];
+  /**
+   * THE WORLDS (loss engine commit 4b) — each world's own pool state and played
+   * years, present when the game runs more than one world (src/utils/worlds.ts).
+   * `poolState` and `lockedResults` above are then the AVERAGE across them:
+   * what every page shows, and what the next year's one rate is struck from.
+   * Absent on a one-world game, where the two fields above are the world.
+   */
+  worlds?: WorldState[];
+}
+
+/** One world's own state and played years. See GameState.worlds. */
+export interface WorldState {
+  poolState: PoolState;
+  lockedResults: ResultSet[];
+  /**
+   * Cohorts that have closed and left this world's state, at their final values
+   * without per-occurrence detail — so an averaged cohort still counts a world
+   * where its accident year has closed. See worlds.ts.
+   */
+  closedCohorts?: Partial<Record<CoverageLine, ReserveCohort[]>>;
 }
 
 // Starting financial position

@@ -415,10 +415,11 @@ export function buildResultsWorkbook(
   if (shockRows.length > 1) {
     const ws = XLSX.utils.aoa_to_sheet(shockRows);
     // COLUMN-WISE, like the claims sheets: Year, Calendar Year, Event, Name,
-    // Band, Horizon, Year Fired, Lines, Attributable Gross Loss, Attributable
-    // Claims, Expected Gross Loss Added, Effects, Description.
+    // Band, Horizon, Year Fired, Lines, Worlds, Attributable Gross Loss,
+    // Attributable Claims, Expected Gross Loss Added, Effects, Description.
+    // (Worlds is text — "2 of 10" — added at loss engine commit 4b.)
     const fmts: (NumFmt | undefined)[] = [
-      '0', '0', undefined, undefined, undefined, '#,##0.00', '0', undefined,
+      '0', '0', undefined, undefined, undefined, '#,##0.00', '0', undefined, undefined,
       '#,##0', '#,##0.00', '#,##0', undefined, undefined,
     ];
     const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1');
@@ -439,15 +440,21 @@ export function buildResultsWorkbook(
 // case the caller drops the sheet entirely).
 function buildShockRows(lockedResults: ResultSet[]): (string | number)[][] {
   const rows: (string | number)[][] = [[
-    'Year', 'Calendar Year', 'Event', 'Name', 'Band', 'Horizon', 'Year Fired', 'Lines',
+    'Year', 'Calendar Year', 'Event', 'Name', 'Band', 'Horizon', 'Year Fired', 'Lines', 'Worlds',
     'Attributable Gross Loss', 'Attributable Claims', 'Expected Gross Loss Added', 'Effects', 'Description',
   ]];
+  // ⚠ AVERAGED ROWS (loss engine commit 4b): an event's dollars and claims are
+  // the average over every world, and 'Worlds' says how many it fired in.
+  // Claims are then fractional, so they are shown to two places.
   for (const r of lockedResults) {
     for (const s of r.shockEvents ?? []) {
       rows.push([
         r.yearNumber, r.calendarYear, s.shockId, s.name, s.band, s.horizon, s.yearFired,
         s.linesAffected.join(' + '),
-        Math.round(s.attributableGrossLoss), s.attributableClaims, Math.round(s.expectedGrossLossAdded),
+        s.worlds ? `${s.worlds.fired} of ${s.worlds.of}` : '',
+        Math.round(s.attributableGrossLoss),
+        Number.isInteger(s.attributableClaims) ? s.attributableClaims : Number(s.attributableClaims.toFixed(2)),
+        Math.round(s.expectedGrossLossAdded),
         s.effects.map(e => e.detail).join('; '), s.description,
       ]);
     }

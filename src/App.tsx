@@ -3,7 +3,7 @@ import React, { useState, useCallback } from 'react';
 import type { GameState, GameSetupSettings, DecisionSet, StartingFinancials, Member, LinePoolState, CoverageLine, LineView } from './types/simulation';
 import { getPredefinedMarketMembers } from './data/memberCatalog';
 import { generateGameInstance } from './utils/instanceGenerator';
-import { processYear, applyLoanAuthorizations, type ProcessYearResult } from './utils/simulationEngine';
+import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear, type SettledYear, type WorldsYear } from './utils/worlds';
 import { runPriorHistory } from './utils/priorHistoryEngine';
 import { defaultDecisionSet } from './utils/decisionDefaults';
 import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
@@ -29,7 +29,7 @@ export default function App() {
   const [currentDecisions, setCurrentDecisions] = useState<DecisionSet>(defaultDecisionSet(1));
   // A year that has been processed but is awaiting the player's loan decisions
   // before it can be committed (see handleAdvanceYear / handleResolveLoans).
-  const [pendingYear, setPendingYear] = useState<ProcessYearResult | null>(null);
+  const [pendingYear, setPendingYear] = useState<WorldsYear | null>(null);
   // Stage 2.1 Pool/line view toggle. Display-only — not persisted to
   // localStorage, and not part of GameState/DecisionSet.
   const [lineViewRaw, setLineView] = useState<LineView>('pool');
@@ -220,7 +220,7 @@ export default function App() {
     // memberList is, which is what replaces this at year 1. See openingRoster.
     const initMembers = openingRoster(poolState, settings.activeLines);
 
-    const gs: GameState = {
+    const opened: GameState = {
       setup: settings,
       instance,
       currentYearNumber: 1,
@@ -231,6 +231,8 @@ export default function App() {
       currentDecisions: defaultDecisionSet(1),
       priorHistory,
     };
+    // THE WORLDS (loss engine commit 4b): every world opens on this position.
+    const gs = openWorlds(opened);
 
     const cd = defaultDecisionSet(1);
 
@@ -253,8 +255,10 @@ export default function App() {
     setActiveTab('introduction');
   }, []);
 
-  // Commit a fully-resolved processed year (loan offers, if any, already handled).
-  const commitYear = useCallback((baseGs: GameState, updatedPoolState: GameState['poolState'], result: GameState['lockedResults'][number]) => {
+  // Commit a fully-resolved year (loan offers, if any, already handled) — the
+  // average across the worlds, with the worlds themselves.
+  const commitYear = useCallback((baseGs: GameState, settled: SettledYear) => {
+    const result = settled.result;
     const nextYearNumber = baseGs.currentYearNumber + 1;
     const isComplete = nextYearNumber > baseGs.setup.gameLength;
     // ⚠ RISK-CONTROL PROGRAMS ARE OPT-OUT: a program that ran this year arrives
@@ -284,10 +288,9 @@ export default function App() {
 
     const newGs: GameState = {
       ...baseGs,
+      ...commitSettledYear(baseGs, settled),
       currentYearNumber: nextYearNumber,
       isComplete,
-      poolState: updatedPoolState,
-      lockedResults: [...baseGs.lockedResults, result],
       currentDecisions: nextDecisions,
     };
 
@@ -300,27 +303,24 @@ export default function App() {
   const handleAdvanceYear = useCallback(() => {
     if (!gameState || gameState.isComplete) return;
 
-    const processed = processYear(gameState, currentDecisions);
+    const played = playWorldsYear(gameState, currentDecisions);
 
-    // If any line ended negative without a loan, pause to let the player
-    // authorize/decline before committing the year.
-    if (processed.loanOffers.length > 0) {
-      setPendingYear(processed);
+    // If any line ended negative without a loan IN ANY WORLD, pause to let the
+    // player authorize/decline before committing the year. The choice is the
+    // team's, so it applies in every world whose line needs the loan.
+    if (played.loanOffers.length > 0) {
+      setPendingYear(played);
       return;
     }
 
-    commitYear(gameState, processed.updatedPoolState, processed.result);
+    commitYear(gameState, settleWorldsYear(gameState, played, []));
   }, [gameState, currentDecisions, commitYear]);
 
   const handleResolveLoans = useCallback((authorizedLines: string[]) => {
     if (!gameState || !pendingYear) return;
-    const { updatedPoolState, result } = applyLoanAuthorizations(
-      pendingYear,
-      gameState.currentYearNumber,
-      authorizedLines as CoverageLine[]
-    );
+    const settled = settleWorldsYear(gameState, pendingYear, authorizedLines as CoverageLine[]);
     setPendingYear(null);
-    commitYear(gameState, updatedPoolState, result);
+    commitYear(gameState, settled);
   }, [gameState, pendingYear, commitYear]);
 
   const handleNewGame = useCallback(() => {

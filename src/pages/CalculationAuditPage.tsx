@@ -12,7 +12,9 @@ import {
   Layers,
   Zap,
 } from 'lucide-react';
-import type { CoverageLine, LineResultSet, LineView, ResultSet } from '../types/simulation';
+import type { CoverageLine, GameInstance, LineResultSet, LineView, ResultSet } from '../types/simulation';
+import { resolveShockYear, type ShockTiming } from '../utils/shockLosses';
+import { worldInstance } from '../utils/worlds';
 import { asLineRow } from '../utils/lineHelpers';
 import { statementLines } from '../utils/financialStatementEngine';
 import { lineDisplayName } from '../utils/lineDisplay';
@@ -63,6 +65,11 @@ interface CalculationAuditPageProps {
   // the engine's own stored echo of it.
   instanceSeed: number;
   lineView: LineView;
+  /** Each world's played years, in a multi-world game (loss engine commit 4b). */
+  worldResults?: ResultSet[][];
+  /** The game's instance and shock timing — the investment check applies the year's Investment Loss. */
+  instance?: GameInstance;
+  shockTiming?: ShockTiming;
 }
 
 // Three-state check outcome. 'variance' is a DOCUMENTED, bounded modelling
@@ -362,7 +369,7 @@ const CLAIMS_VARIANCE_CAP = 10_000;
 const CLAIMS_VARIANCE_REASON =
   'a prior-year reserve cohort closed and its residual balance was floored to zero in the rollforward rather than absorbed into the development figure';
 
-export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView }: CalculationAuditPageProps) {
+export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, worldResults, instance, shockTiming }: CalculationAuditPageProps) {
   // Chronological order: earliest pre-game year first, Year 0 (opening) last
   // among prior years, then live Year 1 onward — same convention as the
   // Financial Statements tab, so the audit reaches pre-game history too.
@@ -407,7 +414,12 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
     lineView === 'pool' ? poolResult : poolResult.byLine[lineView];
   const lineRow = asLineRow(result);
   const isPoolView = lineRow === null;
-  const checks = computeAuditChecks(poolResult, lineView, instanceSeed);
+  // A played multi-world year is an average: its per-world rules are checked
+  // against each world's own row. Pre-game years ran once and have none.
+  const worldRows = worldResults?.map(w => w.find(r => r.yearNumber === poolResult.yearNumber));
+  const checks = computeAuditChecks(poolResult, lineView, instanceSeed,
+    worldRows && worldRows.every((r): r is ResultSet => r !== undefined) ? worldRows : undefined,
+    instance && shockTiming ? { instance, timing: shockTiming } : undefined);
 
   // Six supporting cards, built from one exported pure function (mirroring the
   // buildRevExpRows / buildNetPositionRows pattern below) so a regression
@@ -742,6 +754,15 @@ export interface AuditCheckSet {
     liquidityFloorBound: boolean;
     investmentsFloorBound: boolean;
   }[];
+  /**
+   * A MULTI-WORLD YEAR'S PER-WORLD BASES (loss engine commit 4b), by line: the
+   * dividend and assessment bases averaged over the worlds' OWN opening
+   * surpluses (a world whose dividend was blocked counts zero), and how many
+   * worlds. Each world applies the rate to its own surplus, and the basis is
+   * clamped, so the averaged row's figure is the rate times THIS average — not
+   * times the basis of the averaged surplus. Absent on a one-world year.
+   */
+  worldBasis?: Partial<Record<CoverageLine, { assessment: number; dividend: number; worlds: number }>>;
 }
 
 function mkCheck(
@@ -865,10 +886,32 @@ function reconstructSweep(x: LineResultSet) {
   };
 }
 
+/** The worlds' own sweeps, averaged — a floor that bound in any world is reported. */
+function averageSweeps(parts: ReturnType<typeof reconstructSweep>[]): ReturnType<typeof reconstructSweep> {
+  const n = parts.length;
+  const m = (k: 'cash' | 'investments' | 'preSweepCash' | 'operatingCashTarget' | 'investmentsBeforeSweep' | 'sweepTransfer') =>
+    parts.reduce((a, p) => a + p[k], 0) / n;
+  return {
+    cash: m('cash'), investments: m('investments'), preSweepCash: m('preSweepCash'),
+    operatingCashTarget: m('operatingCashTarget'), investmentsBeforeSweep: m('investmentsBeforeSweep'),
+    sweepTransfer: m('sweepTransfer'),
+    liquidityFloorBound: parts.some(p => p.liquidityFloorBound),
+    investmentsFloorBound: parts.some(p => p.investmentsFloorBound),
+  };
+}
+
 export function computeAuditChecks(
   poolResult: ResultSet,
   lineView: LineView,
-  instanceSeed: number
+  instanceSeed: number,
+  /** Each world's row for this year, when the year is a multi-world average (loss engine commit 4b). */
+  worldRows?: ResultSet[],
+  /**
+   * The game's instance and shock timing, so the investment check can apply the
+   * year's Investment Loss — twenty points off equities — as the engine does.
+   * Without it the check re-draws the market alone, as it always did.
+   */
+  market?: { instance: GameInstance; timing: ShockTiming },
 ): AuditCheckSet {
   const r: ResultSet | LineResultSet =
     lineView === 'pool' ? poolResult : poolResult.byLine[lineView];
@@ -1003,12 +1046,36 @@ export function computeAuditChecks(
   );
   // One identity, both directions: ending = beginning + change, equivalently
   // change = ending - beginning. (These were previously two separate rows.)
-  const netPositionRollforward = mkCheck(r.beginingSurplus + r.netIncome, r.endingSurplus);
+  // ⚠ PLUS THE INTER-LINE TRANSFER. A loan moves surplus between lines without
+  // passing through either line's income statement, so in a loan year a line's
+  // ending surplus is its opening plus its income PLUS the transfer — measured
+  // exact to 1e-7 over 960 line-years with loans authorized. Without the term the
+  // check read "unexpected" in every loan year; zero in any year without one.
+  const netPositionRollforward = mkCheck(r.beginingSurplus + r.netIncome + r.interLineTransfer, r.endingSurplus);
 
   // The sweep runs PER LINE inside the engine, so at pool scope the correct
   // reconstruction is the sum of each line's own reconstruction — applying the
   // formula to pool aggregates only coincides when no line hits either floor.
-  const sweepParts = (isPoolView ? lineKeys.map(l => poolResult.byLine[l]) : [rLine]).map(reconstructSweep);
+  //
+  // ⚠ AND ON A MULTI-WORLD YEAR, PER WORLD TOO (loss engine commit 4b). Each
+  // world sweeps its own cash against its own floors, so the averaged row's
+  // cash is the average of each world's reconstruction — a floor that binds in
+  // one world does not bind on the averaged parts.
+  const scopeLines: CoverageLine[] = isPoolView ? lineKeys : [lineView as CoverageLine];
+  const sweepParts = worldRows
+    ? scopeLines.map(l => averageSweeps(worldRows.map(w => reconstructSweep(w.byLine[l]))))
+    : (isPoolView ? lineKeys.map(l => poolResult.byLine[l]) : [rLine]).map(reconstructSweep);
+  const worldBasis = worldRows
+    ? Object.fromEntries(lineKeys.map(l => {
+      const rows = worldRows.map(w => w.byLine[l]);
+      const n = rows.length;
+      return [l, {
+        assessment: rows.reduce((a, x) => a + dividendAssessmentBasis(x.beginingSurplus), 0) / n,
+        dividend: rows.reduce((a, x) => a + (x.dividendBlocked ? 0 : dividendAssessmentBasis(x.beginingSurplus)), 0) / n,
+        worlds: n,
+      }];
+    })) as AuditCheckSet['worldBasis']
+    : undefined;
   const sweep = sweepParts.reduce(
     (a, b) => ({
       cash: a.cash + b.cash,
@@ -1057,7 +1124,10 @@ export function computeAuditChecks(
           `so the balance was clamped at zero before the sweep. A real balance-sheet event, not a ` +
           `reconciliation gap.`,
       }
-    : mkCheck(sweep.investments, r.endingInvestments);
+    // ⚠ PLUS THE LOAN'S SHARE THAT LANDS IN THE PORTFOLIO. Inter-line lending
+    // settles AFTER the sweep (see the Cash & Investments card), so a loan year's
+    // ending investments are the swept balance plus the transfer's investment part.
+    : mkCheck(sweep.investments + (r.interLineTransfer - r.interLineCashTransfer), r.endingInvestments);
 
   // --- Investment income: plumbing consistency, not an independent derivation ---
   // Live years draw one shared market from the plain instance seed. Pre-game
@@ -1074,10 +1144,31 @@ export function computeAuditChecks(
     investmentIncome = { derived: 0, statement: r.investmentIncome, diff: 0, note, status };
   } else {
     const attempt = isLiveYear ? 0 : (r.pregameAttempt ?? 0);
-    const effectiveSeed = attempt === 0 ? instanceSeed : (instanceSeed + attempt * 997) >>> 0;
-    const market = simulateMarketReturns(deriveSubRng(effectiveSeed, r.yearNumber, 'invest'));
-    const blend = blendInvestmentReturn(r.investedAssets, r.assetAllocation, market);
-    investmentIncome = mkCheck(blend.income, r.investmentIncome);
+    // The year's market for one world: its own seed's draw, with the year's
+    // Investment Loss taken off equities as the engine takes it (live years on
+    // the new engine, when the instance is known).
+    const marketFor = (i: number) => {
+      const seed = i === 0 ? instanceSeed : worldInstance({ seed: instanceSeed } as GameInstance, i).seed;
+      const effectiveSeed = attempt === 0 ? seed : (seed + attempt * 997) >>> 0;
+      const drawn = simulateMarketReturns(deriveSubRng(effectiveSeed, r.yearNumber, 'invest'));
+      const shock = market && isLiveYear && newLossEngineRuns()
+        ? resolveShockYear(worldInstance(market.instance, i), market.timing, r.yearNumber).equityShock
+        : 0;
+      return shock !== 0 ? { ...drawn, equities: drawn.equities + shock } : drawn;
+    };
+    // ⚠ A MULTI-WORLD YEAR IS THE AVERAGE OF EACH WORLD'S OWN MARKET on its own
+    // assets (loss engine commit 4b) — no single draw produced the averaged row.
+    const derived = worldRows && isLiveYear
+      ? worldRows.reduce((sum, w, i) => {
+        const x = isPoolView ? w : w.byLine[lineView as CoverageLine];
+        if (isPoolView) {
+          return sum + lineKeys.reduce((a, l) => a + blendInvestmentReturn(
+            w.byLine[l].investedAssets, w.byLine[l].assetAllocation, marketFor(i)).income, 0);
+        }
+        return sum + blendInvestmentReturn(x.investedAssets, x.assetAllocation, marketFor(i)).income;
+      }, 0) / worldRows.length
+      : blendInvestmentReturn(r.investedAssets, r.assetAllocation, marketFor(0)).income;
+    investmentIncome = mkCheck(derived, r.investmentIncome);
   }
 
   // --- Pool = sum of active lines (pool scope only) ---
@@ -1144,6 +1235,7 @@ export function computeAuditChecks(
     investmentsFloorBound: sweep.investmentsFloorBound,
     liquidityFloorBound: sweep.liquidityFloorBound,
     perLineSweep,
+    ...(worldBasis ? { worldBasis } : {}),
   };
 }
 
@@ -2770,7 +2862,9 @@ export function buildRevExpRows(
               { value: lineRow.activeExposure, format: 'exposure', label: 'exposure, $M' },
               { value: 10_000, format: 'plain', label: 'units of $100 per $M' },
               {
-                value: adminRatePer100For(lineRow.line as CoverageLine, lineRow.activeExposure)
+                // At the book the rate was struck on — a multi-world year's
+                // averaged book before the year (ratedExposure), else this one.
+                value: adminRatePer100For(lineRow.line as CoverageLine, lineRow.ratedExposure ?? lineRow.activeExposure)
                   / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)),
                 format: 'plain',
                 label: 'admin rate per $100, loaded',
@@ -2793,7 +2887,13 @@ export function buildRevExpRows(
           // BASIS IS OPENING SURPLUS, NOT POOL PREMIUM — see
           // dividendAssessment.ts. `beginingSurplus` is the engine's own name
           // for this line's opening surplus, and the clamp is the engine's.
-          factors: [cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'), { value: lineRow.decisions.assessmentPct, format: 'pct', label: 'assessment rate' }],
+          factors: [
+            checks.worldBasis?.[lineRow.line as CoverageLine]
+              ? cur(checks.worldBasis[lineRow.line as CoverageLine]!.assessment,
+                `opening surplus basis, averaged over the ${checks.worldBasis[lineRow.line as CoverageLine]!.worlds} worlds' own`)
+              : cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'),
+            { value: lineRow.decisions.assessmentPct, format: 'pct', label: 'assessment rate' },
+          ],
         }),
         x => x.assessments
       ),
@@ -2950,12 +3050,19 @@ export function buildRevExpRows(
         // The blocked-dividend detection is unchanged in kind: it still asks
         // whether the engine's figure matches the un-blocked product, only now
         // against the basis the engine actually uses.
-        : Math.abs(result.dividends - dividendAssessmentBasis(result.beginingSurplus) * lineRow.decisions.dividendPct) > CHECK_TOLERANCE
+        : Math.abs(result.dividends - (checks.worldBasis?.[lineRow.line as CoverageLine]?.dividend
+            ?? dividendAssessmentBasis(result.beginingSurplus)) * lineRow.decisions.dividendPct) > CHECK_TOLERANCE
         ? { kind: 'text', text: `${formatCurrency(0)} — dividend blocked: this line carried a negative surplus into the year` }
         : scoped(
             () => ({
               kind: 'product',
-              factors: [cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'), { value: lineRow.decisions.dividendPct, format: 'pct', label: 'dividend rate' }],
+              factors: [
+                checks.worldBasis?.[lineRow.line as CoverageLine]
+                  ? cur(checks.worldBasis[lineRow.line as CoverageLine]!.dividend,
+                    `opening surplus basis, averaged over the ${checks.worldBasis[lineRow.line as CoverageLine]!.worlds} worlds' own (blocked worlds count zero)`)
+                  : cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'),
+                { value: lineRow.decisions.dividendPct, format: 'pct', label: 'dividend rate' },
+              ],
             }),
             x => x.dividends
           ),
@@ -3304,8 +3411,13 @@ export function buildCashInvestmentRows(
   //                sweep moved money out (surplus) or in (shortfall covered)
   //   floor bound: investments ran out first, so cash lands short at
   //                preSweepCash + whatever investments there were
+  // ⚠ A MULTI-WORLD YEAR'S CASH IS THE AVERAGE OF EACH WORLD'S OWN SWEEP (loss
+  // engine commit 4b): one world can bind at the floor while the rest sweep to
+  // target, so no single branch describes the average. Stated as what it is.
   const endingCashTermFor = (p: typeof sweeps[number]): FormulaTerm =>
-    p.liquidityFloorBound
+    checks.worldBasis
+      ? { product: [cur(p.cash)], label: `${p.line} (average of the worlds' own sweeps${p.liquidityFloorBound ? '; floor bound in at least one' : ''})` }
+      : p.liquidityFloorBound
       ? { product: [cur(p.preSweepCash + p.investmentsBeforeSweep)], label: `${p.line} (liquidity floor bound)` }
       : { product: [cur(p.operatingCashTarget)], label: `${p.line} (swept to target)` };
 
@@ -3409,7 +3521,9 @@ export function buildCashInvestmentRows(
       formula: {
         kind: 'sum',
         terms: [
-          cur(checks.endingInvestmentsSweep.derived, 'investments after sweep'),
+          // The sweep alone — the investments check's derived figure also carries a
+          // loan year's transfer, which settles after the sweep.
+          cur(checks.investmentsBeforeSweep + checks.sweepTransfer, 'investments after sweep'),
           cur(-checks.investmentsBeforeSweep, 'less investments before sweep'),
         ],
       },
