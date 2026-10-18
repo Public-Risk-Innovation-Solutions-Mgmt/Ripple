@@ -1032,7 +1032,42 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // sheet also change their PRINTED SIGN: they were favourable-positive and are
 // now adverse-positive, the one convention every display now uses. That is a
 // presentation change on a field the engine did not touch.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v62.json');
+// v63: LOSS ENGINE COMMIT 3a — THE NEW ENGINE, PERMANENT, ONE BOOK PER LINE.
+// 25,623 instances across 98 fields move; none added, none dropped. Every one
+// is attributed to one of five causes, field by field:
+//
+//   THE ENGINE (NEW_LOSS_ENGINE on). Losses are the aggregate ordinary cohort
+//     plus the shocks' large losses; nothing else arrives. So the gross and net
+//     ultimates, incurred, paid, reserves (case and IBNR, both bases), prior-
+//     year development, the loss ratios and every surplus, asset, cash and
+//     income figure downstream move. Ordinary losses sit below every
+//     attachment, so the ceded reserves, priorYearDevelopmentCeded, recovery
+//     (282 of 300 now 0), reinsuranceCost and expectedCededPer100 fall to
+//     about nothing; developmentAbovePoolLimit, memberShareAboveLimit and
+//     claimsAboveLimit to 0; claimCount to 0 (a quiet year has no large loss).
+//     expectedLoss is the engine's ex-ante expectation; catCapitalNeeded is
+//     newEngineCatCapital's (the basis is an open question to the owner — see
+//     PENDING_MULTIPLAYER). The expense ratios fall with the reinsurance cost.
+//   MEMBERS CUT (MEMBER_LEVEL off). activeMembers, enrolmentCount, applicants
+//     and intakeRoom go to 0; activeExposure, writtenExposure and marketShare
+//     become the opening book's mean (OPENING_BOOK_EXPOSURE), unmoved at
+//     default decisions. memberSatisfaction and averageRiskQuality are carried
+//     at their opening values, hidden and read by nothing — the 6.9 -> 7.4 and
+//     4.0999... -> 4.1 are the opening value, no longer moved by members.
+//   PRICING ON THE NEW LOSSES. ratePer100, the pure premiums, the indications,
+//     the prior-year indications, expectedToSurplus and newLossCostPer100 are
+//     the new stack's on the ledger the new engine writes.
+//   THE STORED LOSS RATE. lossPurePremiumPer100 is now read back off
+//     expectedLoss, which under the new engine is not exposure x a rate — the
+//     audit page's Pure Premium row needs the rate that produces it.
+//   REASSOCIATION. surplusTieOutDifference (+/-1.49e-8), expectedCombinedRatio
+//     (1 -> 1.0000000000000002) and investmentReturnRate (32 instances, last
+//     digit) are the same quantities reached on different figures.
+//
+// ⚠ THE OLD ENGINE STILL REPRODUCES v62 BYTE FOR BYTE: run this file with
+// --import ./scripts/tools/engine-mode/legacy-engine.ts against v62 and it
+// holds. Checked before the recapture, not claimed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v63.json');
 
 function seedOf(id: string) {
   let h = 5381;

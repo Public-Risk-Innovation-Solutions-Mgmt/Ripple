@@ -91,6 +91,8 @@
 // being charged for an opinion the design says it does not have.
 // ============================================================================
 
+// THE MEMBER PATH ON THE OLD ENGINE — first, before anything reads a flag. Member-level losses still need the old per-claim generators: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';

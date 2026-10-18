@@ -394,7 +394,40 @@ export const NEW_RATE_STACK = { enabled: true };
  * exactly the draw shockLosses.ts makes. The aggregate stop is priced on the
  * new engine's retained moments. Placement decisions take effect as before.
  */
-export const NEW_LOSS_ENGINE = { enabled: false };
+export const NEW_LOSS_ENGINE = { enabled: true };
+
+/**
+ * MEMBER-LEVEL PLAY — OFF. Loss engine commit 3.
+ *
+ * Off, each line is ONE BOOK: premium is rate x exposure, losses are the new
+ * engine's ordinary aggregate and its large losses, and underwriting moves
+ * exposure rather than members (BOOK_INTAKE_SHARE, the renewal cut, Member
+ * Withdrawal). There is no roster selection, no per-member premium or loss,
+ * no experience modifier, risk quality, rating group, satisfaction or
+ * departure.
+ *
+ * ⚠ THE MEMBER CODE IS KEPT, AND MAY COME BACK. On, the engine runs the member
+ * path as it stood at commit 2 — the roster, the membership engine, member
+ * premium and losses, the experience modifier, risk quality, rating groups,
+ * departure and per-member satisfaction. The gates that test that code switch
+ * this on inside their own process (scripts/tools/engine-mode), so it keeps
+ * compiling and stays correct while the game runs without it. On the new loss
+ * engine a member's losses are its exposure share of the line's; the gates
+ * that need per-member CLAIMS run it on the old engine's generators, and
+ * whether the member path keeps those is an open decision before commit 3b.
+ */
+export const MEMBER_LEVEL = { enabled: false };
+
+/**
+ * RISK CONTROL — OFF, PENDING DESIGN. Loss engine commit 3.
+ *
+ * Its effects lived in the old per-claim generators, which the new loss engine
+ * does not run, so its spend bought nothing. Off: no charge and no effect; the
+ * Decisions page shows each line's slider disabled at 0% ("coming soon") and
+ * the Departments screen hides the programs. The programs, the spend and their
+ * code are kept intact and unwired, for the pool-level redesign to reuse.
+ */
+export const RISK_CONTROL = { enabled: false };
 
 /**
  * WHAT ORDINARY LOSSES COVER — per claim, limited at each line's LOWEST
@@ -545,6 +578,49 @@ export const SHOCK_ONE_OCCURRENCE: readonly string[] = ['Earthquake', 'Wildfire'
 
 /** The CV of each T loss around T / count — CHOSEN. */
 export const SHOCK_LOSS_CV = 0.5;
+
+// ============================================================================
+// THE BOOK — loss engine commit 3. Read only with MEMBER_LEVEL off.
+// ============================================================================
+
+/**
+ * WHAT EACH LINE OPENS WITH, IN $M OF EXPOSURE — SOURCED.
+ *
+ * The mean of today's opening books — the starting enrolment the roster draw
+ * produced — over 40 seeds: WC 30.1%, GL 28.8% and Property 29.7% of the full
+ * market, each varying about +/-10% between seeds. Without a roster there is
+ * nothing to draw, so every game opens on the mean.
+ */
+export const OPENING_BOOK_EXPOSURE: PerLine<number> = {
+  WC: 391.167,
+  GL: 374.949,
+  Property: 17609.707,
+};
+
+/**
+ * THE MOST A LINE CAN WRITE, IN $M OF EXPOSURE — SOURCED: today's whole
+ * 200-member market. Intake stops at it.
+ */
+export const FULL_MARKET_EXPOSURE: PerLine<number> = {
+  WC: 1300,
+  GL: 1300,
+  Property: 59233.002,
+};
+
+/**
+ * NEW BUSINESS A YEAR, AS A SHARE OF THE CURRENT BOOK, PER INTAKE POSITION —
+ * CHOSEN, A STARTING POINT. No New Business, Strict, Moderate, Low. The R model
+ * wrote about 5 prospects in 100 a year, which is Moderate; today's member
+ * intake joined about 2%, 4% and 7% of the book at the same three positions.
+ */
+export const BOOK_INTAKE_SHARE: readonly number[] = [0, 0.02, 0.05, 0.08];
+
+/**
+ * NEW-BUSINESS PENALTY — on the ordinary losses of exposure written this year,
+ * in its first year. CHOSEN at ZERO: the R model's 20% is kept as the
+ * mechanism, uncalibrated. At zero it changes nothing.
+ */
+export const NEW_BUSINESS_PENALTY = 0;
 
 /**
  * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.
@@ -1054,10 +1130,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   },
   {
     title: 'New loss engine',
-    blurb: 'Commits 1 and 2 of the new loss engine: one aggregate ordinary loss per line per year, the R '
-      + 'model\'s twelve-event shock catalogue with large losses as individual claims, regions, and a switch '
-      + 'for routine large losses. Wired, but behind NEW_LOSS_ENGINE, which is OFF — with it off the engine '
-      + 'is exactly what it was. See docs/PENDING_MULTIPLAYER.md section 3.',
+    blurb: 'The new loss engine, ON and permanent since commit 3: one aggregate ordinary loss per line per '
+      + 'year, the R model\'s twelve-event shock catalogue with large losses as individual claims, regions, '
+      + 'and a switch for routine large losses (off). Each line is ONE BOOK with no individual members. The '
+      + 'old engine is frozen on the legacy-engine branch. See docs/PENDING_MULTIPLAYER.md section 3.',
     entries: [
       ['New loss engine', {
         value: NEW_LOSS_ENGINE.enabled ? 'on' : 'off', unit: 'flag',
@@ -1155,6 +1231,52 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'trend and with nothing a team decides about price. At full market it is about 7.7 on WC, 7.5 on '
           + 'GL and 32 on Property.',
       }],
+      ['Member-level play', {
+        value: MEMBER_LEVEL.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'Off, each line is one book: premium = rate x exposure, and underwriting moves exposure. No '
+          + 'roster selection, per-member premium or losses, experience modifier, risk quality, rating '
+          + 'groups, member satisfaction or departure; satisfaction is hidden and feeds nothing.',
+        basis: 'CHOSEN',
+        note: 'MEMBER-LEVEL PLAY MAY RETURN. The member code is kept, unwired, and its gates run with this '
+          + 'switch on inside their own process so it stays correct.',
+      }],
+      ['Risk control', {
+        value: RISK_CONTROL.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'Off: no charge and no effect. The Decisions page shows each line\'s slider disabled at 0%, '
+          + '"coming soon"; the Departments screen hides the programs.',
+        basis: 'CHOSEN',
+        note: 'PENDING DESIGN at pool level — its effect on the loss engine is being designed separately. '
+          + 'The programs, the spend and their code are kept for the redesign to reuse.',
+      }],
+      ['Opening book', {
+        value: perLine(OPENING_BOOK_EXPOSURE, 3), unit: '$M of exposure, base year',
+        what: 'What each line opens with. Every game opens on it.',
+        basis: 'SOURCED',
+        note: 'The mean of today\'s opening books over 40 seeds: 30.1%, 28.8% and 29.7% of the full market, '
+          + 'each varying about +/-10% between seeds.',
+      }],
+      ['Full-market exposure', {
+        value: perLine(FULL_MARKET_EXPOSURE, 3), unit: '$M of exposure, base year',
+        what: 'The most a line can write — the cap on the book. Intake stops at it.',
+        basis: 'SOURCED',
+        note: 'Today\'s whole 200-member market.',
+      }],
+      ['Book intake', {
+        value: BOOK_INTAKE_SHARE.map(v => `${(100 * v).toFixed(0)}%`).join(' · '),
+        unit: 'of the book a year, by intake position',
+        what: 'New exposure written each year as a share of the book at the start of the year: No New '
+          + 'Business, Strict, Moderate, Low. The renewal cut declines its share of the book, and a Member '
+          + 'Withdrawal removes 25% of what is left from the following year.',
+        basis: 'CHOSEN',
+        note: 'A starting point. The R model wrote about 5 prospects in 100 a year, which is Moderate; today\'s '
+          + 'member intake joined about 2%, 4% and 7% of the book at the same three positions.',
+      }],
+      ['New-business penalty', {
+        value: NEW_BUSINESS_PENALTY, unit: 'on first-year ordinary losses of new exposure',
+        what: 'Exposure written this year costs this much more in its first year, on its ordinary losses.',
+        basis: 'CHOSEN',
+        note: 'The R model\'s 20% kept as the mechanism, uncalibrated. At zero it changes nothing.',
+      }],
       ['Shock timing', {
         value: 'host in a session · catalogue in singleplayer', unit: '—',
         what: 'Multiplayer fires only what the host scheduled, consulting no probability. Singleplayer fires '
@@ -1197,9 +1319,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   },
   {
     title: 'R model (data scientist)',
-    blurb: 'The data scientist\'s R model, recorded in full. **Read only by the new loss engine, behind '
-      + 'NEW_LOSS_ENGINE (off)** — the shock entries it reads carry no *not yet used* mark, and every other '
-      + 'entry is still unread. '
+    blurb: 'The data scientist\'s R model, recorded in full. **Read only by the new loss engine** — the '
+      + 'entries it reads carry no *not yet used* mark, and every other entry is still unread. '
       + 'The Status column says what the game did with each: ADOPTED (as given), ADOPTED, SCALED, '
       + 'ADAPTED (changed to fit), SUPERSEDED (replaced by a game decision) or NOT USED. '
       + 'Every entry is CHOSEN rather than SOURCED: the data scientist states that the payout patterns, '
@@ -1323,9 +1444,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['New-business penalty', {
         value: R_MODEL.newBusinessPenalty, unit: 'on first-year expected loss', basis: 'CHOSEN',
-        notYetUsed: true, status: 'ADAPTED',
+        status: 'ADAPTED',
         what: 'New business costs more in its first year than its price implies.',
-        note: 'Kept as a parameter and set to 0 for now, so the mechanism exists before the calibration does.',
+        note: 'Wired as NEW_BUSINESS_PENALTY on the new book, set to 0 for now, so the mechanism exists before '
+          + 'the calibration does.',
       }],
 
       // ---- investment ----

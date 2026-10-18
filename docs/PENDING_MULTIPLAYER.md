@@ -201,12 +201,67 @@ seven.
 Property's minimum surplus goes negative even placing every layer: a
 Winterstorm's ten losses each sit under the $5M retention.
 
+### Commit 3a — the new engine, permanent, with no members (landed)
+
+`NEW_LOSS_ENGINE` is **on** and the game's only engine; `ROUTINE_LARGE_LOSSES`
+stays off. Each line is **one book**: premium = rate x exposure, ordinary
+losses are the aggregate cohort, large losses stay individual occurrences and
+land on the book (`BOOK_MEMBER_ID`). The book's parameters are on
+`docs/PARAMETERS.md` under "New loss engine".
+
+- **`MEMBER_LEVEL` (off)** is the switch the member path sits behind. Off, there
+  is no roster selection, per-member premium or loss, experience modifier, risk
+  quality, rating group, member satisfaction or departure. ⚠ **Member-level
+  play may return**: the code is kept, unwired, and its gates run with the
+  switch on inside their own process (`scripts/tools/engine-mode/`).
+- **Underwriting is exposure** (`bookUnderwriting.ts`): the renewal cut
+  declines its share of the book; the intake position writes a share of the
+  book as it stood at the start of the year; a Member Withdrawal removes 25%
+  of what is left from the following year; the book is capped at today's full
+  market. The new-business penalty is a parameter at zero.
+- **Satisfaction is hidden** — Dashboard, Results, the results metrics and the
+  exports — and feeds nothing. Nothing a team posts carried it, so hiding it
+  is not a contract change.
+- **The claims register is saved, not redrawn.** It is the year's large losses,
+  a handful a line, and the old generators that redraw a stripped register did
+  not draw it; `claimRegeneration` refuses on the new engine.
+- **The result shrank**, and `result-size-check` holds it: one year's result
+  64 KB, the save at year ten 256 KB stored.
+
+### Risk control — pending design
+
+**Hidden like satisfaction**, behind `RISK_CONTROL` (off): no charge and no
+effect until risk control is redesigned **at pool level** — its effect on the
+loss engine is being designed separately. Its effects lived in the old
+per-claim generators, which the new engine does not run. Each line's slider
+stays **visible on the Decisions page, disabled at 0%, labelled "coming
+soon"**, so testers know it is part of the game; the old programs are hidden on
+the Departments screen. The programs, the spend and their code are kept intact
+and unwired for the redesign to reuse.
+
+### The old engine — frozen on the `legacy-engine` branch
+
+The repository's tag protection refuses a pushed tag, so the old engine is
+preserved as a **branch named `legacy-engine`, at b234c36, never committed
+to**. To run it: `git checkout legacy-engine && npm ci && npm run gates`, or
+`npm run dev` to play it. The `advance-single-player` branch also carries the
+full old engine, as its own game.
+
+### Open: the basis of Property's catastrophe capital
+
+Required capital on Property now holds the **probability-weighted mean** retained
+cost of one regional catastrophe event after the placed layer. The owner has
+asked whether it should reflect the bad case — a severe event's retained cost,
+or a 1-in-100 year — instead. Both were measured and reported; **nothing is
+changed until that is decided.**
+
 ### No individual members
 
 No roster, risk scores, size factors, prospects or experience modifier.
 Underwriting moves **exposure**: a share of old business declined, and an
 intake setting for new business. The new-business penalty stays as a parameter
-at zero, so the mechanism exists before the calibration does.
+at zero, so the mechanism exists before the calibration does. **Done at
+commit 3a**, with the member code kept behind `MEMBER_LEVEL`.
 
 ### Shocks
 
@@ -355,7 +410,7 @@ it; do not take the 300 ms as the whole cost while the 962 KB stands.
 ### Satisfaction
 
 Becomes **one pool-level index per line**. Designed separately — not part of
-this plan.
+this plan. **Hidden since commit 3a**, and feeding nothing, until then.
 
 ### What the trend test measured, and why the flag is off
 
@@ -452,7 +507,11 @@ After pricing commits 3 and 4:
 3. Regions — **brought into commit 2**, at the brief's request.
 4. Ten worlds, averaging, and per-world retention.
 5. Cut members and the per-claim walk; remove routine development; fork the
-   gates that test them.
+   gates that test them. **Brought forward as commit 3.** 3a landed: the new
+   engine on and permanent, one book per line, members behind `MEMBER_LEVEL`
+   (off), risk control and satisfaction hidden. 3b removes only what has no
+   member use — the old shock placeholders and the dead `NEW_LOSS_ENGINE`
+   branches — value-neutral.
 6. Pool-level satisfaction.
 
 **Each lands green before the next.**

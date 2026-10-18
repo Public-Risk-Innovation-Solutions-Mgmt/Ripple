@@ -27,6 +27,34 @@ export function getMemberExposure(member: Member, line: CoverageLine, yearNumber
   return (member.exposureByLine[line] ?? 0) * exposureFactor(line, yearNumber);
 }
 
+/**
+ * WHAT THE NEW LOSS ENGINE PRICES AND DRAWS ON — a roster, or one book's
+ * exposure. With MEMBER_LEVEL off a line is one book and has no roster, so
+ * every function that only ever summed its members' exposure takes the sum
+ * itself. The exposure is the year's own, already through exposureFactor.
+ */
+export type Book = readonly Member[] | { readonly exposure: number };
+
+export const isRoster = (book: Book): book is readonly Member[] => Array.isArray(book);
+
+/** The book's exposure in `yearNumber`, in $M. */
+export function bookExposureOf(book: Book, line: CoverageLine, yearNumber: number): number {
+  if (!isRoster(book)) return book.exposure;
+  let e = 0;
+  for (const m of book) e += getMemberExposure(m, line, yearNumber);
+  return e;
+}
+
+/**
+ * A roster for code that only a roster can serve — the old engine's paths.
+ * Reaching one with a book is a wiring defect, so it throws rather than
+ * pricing an empty roster at zero.
+ */
+export function rosterOf(book: Book, where: string): Member[] {
+  if (!isRoster(book)) throw new Error(`${where}: needs a member roster, and MEMBER_LEVEL is off`);
+  return book as Member[];
+}
+
 // Stage 2.1 view filter: 'pool' returns lockedResults unchanged (by reference —
 // this is what makes the Pool view provably identical to pre-Stage-2.1
 // behavior, not just tested to match). A specific line maps each locked

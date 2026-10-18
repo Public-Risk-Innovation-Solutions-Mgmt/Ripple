@@ -13,6 +13,8 @@
 // Everything here is analytic where a closed form exists and Monte Carlo only
 // where it does not, with the two cross-checked.
 
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

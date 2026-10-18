@@ -38,6 +38,8 @@
 // line-years before this work.
 // ============================================================================
 
+// THE MEMBER PATH ON THE OLD ENGINE — first, before anything reads a flag. See engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

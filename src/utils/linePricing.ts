@@ -48,14 +48,16 @@ import {
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
-import type { CoverageLine, Member } from '../types/simulation';
+import type { CoverageLine } from '../types/simulation';
+import type { Book } from './lineHelpers';
+import { RISK_CONTROL } from '../data/pricingParameters';
 
 export interface LineRateInputs {
   line: CoverageLine;
   yearNumber: number;
-  /** The line's ACTIVE book, pre-movement. The tower prices off the members
-   *  themselves, so this is not interchangeable with an exposure total. */
-  members: Member[];
+  /** The line's ACTIVE book, pre-movement — a roster, or with MEMBER_LEVEL off
+   *  the one book's exposure (see Book). */
+  members: Book;
   /** Sum of getMemberExposure over `members` for this line and year. Passed
    *  rather than recomputed so the caller's own exposure figure is the one
    *  priced against. */
@@ -89,8 +91,8 @@ export interface LineRateInputs {
  * which is the only book that exists when it asks.
  */
 export interface CessionBasis {
-  /** The book the TOWER prices off. */
-  members: Member[];
+  /** The book the TOWER prices off — a roster, or one book's exposure. */
+  members: Book;
   /** The exposure the per-$100 rate is denominated in. */
   exposure: number;
   layersPlaced: boolean[];
@@ -534,6 +536,15 @@ export function adminRatePer100For(line: CoverageLine, exposure: number): number
   return ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1)
     + ADMIN_PER_EXPOSURE_PER_100[line];
 }
+/**
+ * THE INCENTIVE THE RATE ACTUALLY CARRIES — the stored slider with RISK_CONTROL
+ * on, and 0 while risk control is pending design. One reading, so the engine,
+ * the Decisions panel and the audit page cannot price different divisors.
+ */
+export function effectiveRiskControlIncentivePct(d: { riskControlIncentivePct?: number }): number {
+  return RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? 0) : 0;
+}
+
 
 /**
  * The expense divisor, `1 - risk control - profit & contingency`.
@@ -557,7 +568,7 @@ export function expenseDivisor(riskControlPct: number): number {
 export interface NewStackInputs {
   line: CoverageLine;
   yearNumber: number;
-  members: Member[];
+  members: Book;
   exposure: number;
   /** GROUND-UP pure premium per $100 — newPurePremium.ts's figure. */
   groundUpPurePremiumPer100: number;

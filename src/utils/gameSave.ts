@@ -138,6 +138,7 @@
 // ============================================================================
 
 import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
+import { NEW_LOSS_ENGINE } from '../data/pricingParameters';
 
 /**
  * The storage key. A persisted identifier, not a display string.
@@ -253,6 +254,26 @@ export const SAVE_STRIPPED_KEYS: readonly string[] = [
   'memberValueRows', 'poolValue',
 ];
 
+/**
+ * The keys the NEW loss engine keeps, out of the list above.
+ *
+ * ⚠ ITS REGISTER IS SAVED, NOT REDRAWN. Under NEW_LOSS_ENGINE a line-year's
+ * claims are its large losses alone — a handful a year, not hundreds — and the
+ * redraw in claimRegeneration runs the OLD per-member generators, which did not
+ * draw them. A redraw would also need the game's shock timing, which a result
+ * does not carry. So the register stays in the save and claimRegeneration
+ * refuses on the new engine rather than fabricating one. result-size-check
+ * holds the save inside its budget with these kept.
+ */
+export const NEW_ENGINE_KEPT_KEYS: readonly string[] = ['claims', 'occurrences'];
+
+/** The keys stripped on the way out, for the engine in force. */
+export function saveStrippedKeys(): readonly string[] {
+  return NEW_LOSS_ENGINE.enabled
+    ? SAVE_STRIPPED_KEYS.filter(k => !NEW_ENGINE_KEPT_KEYS.includes(k))
+    : SAVE_STRIPPED_KEYS;
+}
+
 /** Measured against a real Chromium — see the header. Not a spec figure. */
 export const MEASURED_QUOTA_CHARS = 5_242_613;
 
@@ -282,8 +303,9 @@ export interface SaveEnvelope {
  * 2x-over-quota save shipped.
  */
 export function serialiseSave(env: SaveEnvelope): string {
+  const stripped = saveStrippedKeys();
   return JSON.stringify(env, (key, value) =>
-    (SAVE_STRIPPED_KEYS.includes(key) ? undefined : value));
+    (stripped.includes(key) ? undefined : value));
 }
 
 /**

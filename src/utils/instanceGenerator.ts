@@ -27,6 +27,8 @@ import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
 import { IMPLEMENTED_EFFECTS } from '../types/shocks';
 import { SHOCK_CATALOG } from '../data/shockCatalog';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE } from '../data/pricingParameters';
+import { exposureFactor } from '../data/exposureTrend';
 
 // Each active line independently enrolls its own starting members. First it
 // draws its own seeded TARGET share within the STARTING_EXPOSURE_SHARE band
@@ -358,13 +360,19 @@ export function generateStartingPoolState(
 ): { poolState: PoolState; startingFinancials: StartingFinancials } {
   const rng = new SeededRandom(instance.seed + 777);
 
-  const allMarketMembers = getPredefinedMarketMembers();
+  // ⚠ WITH MEMBER_LEVEL OFF THERE IS NO ROSTER TO DRAW. Each line opens as one
+  // book at OPENING_BOOK_EXPOSURE, the market carries no members and the
+  // membership ledger is empty. Every draw below on `rng` still happens, in
+  // the same order — the enrolment draws are on their own labelled streams, so
+  // skipping them moves nothing else.
+  const bookMode = !MEMBER_LEVEL.enabled;
+  const allMarketMembers = bookMode ? [] : getPredefinedMarketMembers();
 
   // Each active line draws its OWN starting roster (different but overlapping
   // sets) from its own derived stream — enrollment happens here, BEFORE the
   // pre-game years simulate on the enrolled books.
   const enrolledIdsByLine: Partial<Record<CoverageLine, Set<string>>> = {};
-  for (const line of activeLines) {
+  for (const line of bookMode ? [] : activeLines) {
     enrolledIdsByLine[line] = selectStartingLineMembers(
       allMarketMembers,
       line,
@@ -399,8 +407,12 @@ export function generateStartingPoolState(
   const wcMembers = lineMembers('WC');
   const activeMembers = wcMembers.filter(m => m.status === 'active');
 
-  let activeExposure = activeMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
-  let totalMarketExposure = allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
+  let activeExposure = bookMode
+    ? OPENING_BOOK_EXPOSURE.WC * exposureFactor('WC', OPENING_EXPOSURE_YEAR)
+    : activeMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
+  let totalMarketExposure = bookMode
+    ? FULL_MARKET_EXPOSURE.WC * exposureFactor('WC', OPENING_EXPOSURE_YEAR)
+    : allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
 
   const targetPremium = rng.range(STARTING_FINANCIALS.annualPremium.min, STARTING_FINANCIALS.annualPremium.max);
   const annualPremium = targetPremium;
@@ -478,7 +490,9 @@ export function generateStartingPoolState(
         // The drawn value is used only locally: seededNetReserve = grossDraw - recoverableDraw.
         const glRecoverableDraw = rng.range(GL_STARTING_FINANCIALS.reinsuranceRecoverable.min, GL_STARTING_FINANCIALS.reinsuranceRecoverable.max);
         const glNetUnpaidReserve = glGrossReserveDraw - glRecoverableDraw;
-        const glTotalMarketExposure = allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'GL', OPENING_EXPOSURE_YEAR), 0);
+        const glTotalMarketExposure = bookMode
+          ? FULL_MARKET_EXPOSURE.GL * exposureFactor('GL', OPENING_EXPOSURE_YEAR)
+          : allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'GL', OPENING_EXPOSURE_YEAR), 0);
         const glStartingReserveCohorts = generateStartingReserveCohorts(
           glNetUnpaidReserve,
           startingYear,
@@ -496,6 +510,7 @@ export function generateStartingPoolState(
           riskControlEffectiveness: 0,
           reserveCohorts: glStartingReserveCohorts,
           members: lineMembers('GL'),
+          ...(bookMode ? { bookExposure: OPENING_BOOK_EXPOSURE.GL } : {}),
           netUnpaidReserve: glNetUnpaidReserve,
           // Placeholder — the redistribution block below assigns every active
           // line its weighted share of the opening surplus and investments.
@@ -524,7 +539,9 @@ export function generateStartingPoolState(
         // The drawn value is used only locally: seededNetReserve = grossDraw - recoverableDraw.
         const propertyRecoverableDraw = rng.range(PROPERTY_STARTING_FINANCIALS.reinsuranceRecoverable.min, PROPERTY_STARTING_FINANCIALS.reinsuranceRecoverable.max);
         const propertyNetUnpaidReserve = propertyGrossReserveDraw - propertyRecoverableDraw;
-        const propertyTotalMarketExposure = allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'Property', OPENING_EXPOSURE_YEAR), 0);
+        const propertyTotalMarketExposure = bookMode
+          ? FULL_MARKET_EXPOSURE.Property * exposureFactor('Property', OPENING_EXPOSURE_YEAR)
+          : allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'Property', OPENING_EXPOSURE_YEAR), 0);
         const propertyStartingReserveCohorts = generateStartingReserveCohorts(
           propertyNetUnpaidReserve,
           startingYear,
@@ -542,6 +559,7 @@ export function generateStartingPoolState(
           riskControlEffectiveness: 0,
           reserveCohorts: propertyStartingReserveCohorts,
           members: lineMembers('Property'),
+          ...(bookMode ? { bookExposure: OPENING_BOOK_EXPOSURE.Property } : {}),
           netUnpaidReserve: propertyNetUnpaidReserve,
           // Placeholder — see the redistribution block below (same as GL).
           surplus: -propertyNetUnpaidReserve,
@@ -561,6 +579,7 @@ export function generateStartingPoolState(
     riskControlEffectiveness: 0,
     reserveCohorts: startingReserveCohorts,
     members: wcMembers,
+    ...(bookMode ? { bookExposure: OPENING_BOOK_EXPOSURE.WC } : {}),
     netUnpaidReserve,
     surplus,
     investedAssets: 0, // assigned by the redistribution block below
@@ -588,9 +607,11 @@ export function generateStartingPoolState(
   let poolCash = 0;
   activeLines.forEach(line => {
     const ls = lineStateByLine[line];
-    const activeExp = ls.members
-      .filter(m => m.status === 'active')
-      .reduce((s, m) => s + getMemberExposure(m, line, OPENING_EXPOSURE_YEAR), 0);
+    const activeExp = ls.bookExposure !== undefined
+      ? ls.bookExposure * exposureFactor(line, OPENING_EXPOSURE_YEAR)
+      : ls.members
+        .filter(m => m.status === 'active')
+        .reduce((s, m) => s + getMemberExposure(m, line, OPENING_EXPOSURE_YEAR), 0);
     const linePremium = activeExp * ls.ratePer100 * 10_000;
     const targetSurplus = (STARTING_CAPITAL_TO_PREMIUM[line] ?? 1.0) * linePremium;
     const lineCash = OPERATING_CASH_PCT_OF_PREMIUM * linePremium;

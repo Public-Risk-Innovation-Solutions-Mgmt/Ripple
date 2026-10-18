@@ -55,6 +55,8 @@
 // WHAT IT DOES NOT ASSERT: that 5% and 10% are the right sizes, or what they
 // are worth. That is wc-program-value.ts, a reading with no pass condition.
 // ============================================================================
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';

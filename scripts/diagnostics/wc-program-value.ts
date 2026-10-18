@@ -30,6 +30,8 @@
 //   RTW 10%; charged, the engine read -$1.01M, not -$0.47M — the gap was the
 //   forgone investment income. That is why RTW is now 12.5%.
 // ============================================================================
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';

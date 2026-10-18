@@ -15,6 +15,8 @@
 //
 // The loss figures are still gross of cost, because a loss is not a cost.
 // ============================================================================
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';

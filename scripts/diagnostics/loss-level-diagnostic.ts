@@ -23,6 +23,8 @@
 // TEST 4  realized vs exported Pure Premium through the GAME path, at a sample
 //         large enough to have a usable confidence interval.
 
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

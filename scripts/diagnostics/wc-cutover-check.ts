@@ -78,6 +78,8 @@
 // "restore" a +/-2pp band on the realized mean: WC's catastrophic annuity tier
 // is lumpy enough that such a band fails on correct pricing about as often as
 // not.
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

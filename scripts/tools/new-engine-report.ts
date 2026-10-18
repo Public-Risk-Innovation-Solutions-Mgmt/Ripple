@@ -17,7 +17,7 @@
 // shocks, or every year with shocks on top?
 // ============================================================================
 
-import { NEW_LOSS_ENGINE, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { MEMBER_LEVEL, NEW_LOSS_ENGINE, RISK_CONTROL, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -110,10 +110,17 @@ const M = (x: number) => `$${(x / 1e6).toFixed(1)}M`;
 const P = (x: number) => `${(100 * x).toFixed(0)}%`;
 
 const wasEngine = NEW_LOSS_ENGINE.enabled, wasRoutine = ROUTINE_LARGE_LOSSES.enabled;
+const wasMembers = MEMBER_LEVEL.enabled, wasRc = RISK_CONTROL.enabled;
 const runs: Record<string, { place: ResultSet[][]; decline: ResultSet[][] }> = {};
 try {
+  // "Today" is the old engine as it ran at the legacy-engine branch: it needs
+  // its members and its risk control back (see engine-mode/legacy-engine.ts).
   NEW_LOSS_ENGINE.enabled = false;
+  MEMBER_LEVEL.enabled = true;
+  RISK_CONTROL.enabled = true;
   runs.today = { place: playAll(true), decline: playAll(false) };
+  MEMBER_LEVEL.enabled = wasMembers;
+  RISK_CONTROL.enabled = wasRc;
   NEW_LOSS_ENGINE.enabled = true;
   ROUTINE_LARGE_LOSSES.enabled = false;
   runs.shocks = { place: playAll(true), decline: playAll(false) };
@@ -163,4 +170,6 @@ try {
 } finally {
   NEW_LOSS_ENGINE.enabled = wasEngine;
   ROUTINE_LARGE_LOSSES.enabled = wasRoutine;
+  MEMBER_LEVEL.enabled = wasMembers;
+  RISK_CONTROL.enabled = wasRc;
 }

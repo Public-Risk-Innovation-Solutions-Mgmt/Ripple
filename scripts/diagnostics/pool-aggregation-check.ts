@@ -34,6 +34,8 @@
 // required nothing.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a flag. MEMBER_LEVEL on: see engine-mode/member-path.ts.
+import '../tools/engine-mode/member-path';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

@@ -32,6 +32,8 @@
 // PAYS the residual at closure instead, so the rollforward is an exact
 // identity and this gate needs no allowance for a real leak to hide under.
 
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

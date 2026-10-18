@@ -217,6 +217,8 @@
 // goes quiet the gate is blind and the run fails on that alone.
 // ============================================================================
 
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { INTAKE_LOW, INTAKE_MODERATE, INTAKE_NONE, INTAKE_STRICT } from '../../src/utils/intakeInspection';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';

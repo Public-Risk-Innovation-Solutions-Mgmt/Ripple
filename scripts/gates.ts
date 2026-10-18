@@ -241,6 +241,10 @@ const FAST: string[] = [
                                      //         expected recovery the draw produces through the tower.
                                      //         ⚠ FLIPS NEW_LOSS_ENGINE AND ROUTINE_LARGE_LOSSES AT
                                      //         RUNTIME and restores both — own process only.
+  'result-size-check',               //   5s   one year's result within 64 KB and the save at year
+                                     //         ten within 256 KB stored — the size the ten worlds are
+                                     //         designed around. Control recorded: MEMBER_LEVEL on is
+                                     //         623.5 KB and 1,057.6 KB, EXIT 1.
   'development-emergence-check',     //  20s   the host's development % emerges IN FULL and only in
                                      //         full: the cumulative matches the closed form the
                                      //         payment pacing implies, at every age of every
@@ -859,6 +863,9 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
     why: 'THE UPLIFT LIMITS WERE CALIBRATED ON A BOOK THAT DID NOT DEVELOP, AND THE HOST\'S '
       + 'DEVELOPMENT % NOW MAKES THEM WRONG — but I am NOT raising them, and the reason is the '
       + 'number itself. GL reads 10.1% against a 6.0% line limit and the pool 3.7% against 1.5%. '
+      + 'AT LOSS ENGINE COMMIT 3a GL reads 16.7% and the pool 1.1% (now inside its limit): the inception '
+      + 'cession under the new engine is the large losses alone, so the same development is measured '
+      + 'against a much smaller denominator. Same failure, same deferral. '
       + 'Those limits were set "above the measured value and below the defect": 4.1% measured on WC '
       + 'against 9.9% under the retired asymmetric routing. GL\'s 10.1% is PAST the figure that used '
       + 'to signal the defect, so raising the bar to admit it would put the limit above the only '

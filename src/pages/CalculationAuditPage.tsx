@@ -47,8 +47,8 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, NEW_RATE_STACK } from '../data/pricingParameters';
-import { adminRatePer100For, expenseDivisor } from '../utils/linePricing';
+import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, NEW_LOSS_ENGINE, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
+import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 
 interface CalculationAuditPageProps {
@@ -555,6 +555,22 @@ function buildShockAuditRows(result: ResultSet | LineResultSet): AuditRow[] {
         ? 'One cause, several lines — resolved at pool level and projected into each line.'
         : '',
     } as AuditRow);
+    // ⚠ THE NEW LOSS ENGINE ATTRIBUTES DIFFERENTLY, AND THE CARD SAYS SO. Its
+    // figure is the event's A uplift on this year's ordinary losses plus the
+    // event's own large losses (T) — both exact dollars — and there is no
+    // analytic "expected added" to set beside it: that row described today's
+    // multiplied Poisson draws, which this engine does not make.
+    if (NEW_LOSS_ENGINE.enabled) {
+      rows.push({
+        metric: 'Attributable gross loss',
+        value: formatCurrency(s.attributableGrossLoss),
+        numericValue: s.attributableGrossLoss,
+        formula: `the event's uplift on this year's ordinary losses + ${s.attributableClaims} large `
+          + `loss${s.attributableClaims === 1 ? '' : 'es'} it brought`,
+        note: 'Exact — the uplift\'s dollars on the year\'s ordinary losses, and the event\'s own large losses.',
+      } as AuditRow);
+      continue;
+    }
     rows.push({
       metric: 'Attributable gross loss',
       value: formatCurrency(s.attributableGrossLoss),
@@ -1932,8 +1948,8 @@ export function buildSupportingRows(
               // The expense divisor under the new stack, the rate level under
               // the old — see the Contributions row for why it belongs here.
               NEW_RATE_STACK.enabled
-                ? factorTerm(1 / expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0),
-                  `/ ${expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0).toFixed(2)}`)
+                ? factorTerm(1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)),
+                  `/ ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)).toFixed(2)}`)
                 : factorTerm(lineRow.rateLevel / 100, `rate level ${lineRow.rateLevel}`),
             ],
           },
@@ -2711,9 +2727,9 @@ export function buildRevExpRows(
             // factor is the rate level and this reads exactly as it did.
             ...(NEW_RATE_STACK.enabled
               ? [{
-                value: 1 / expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0),
+                value: 1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)),
                 format: 'factor' as const,
-                label: `/ (1 - risk control - contingency) = / ${expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0).toFixed(2)}`,
+                label: `/ (1 - risk control - contingency) = / ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)).toFixed(2)}`,
               }]
               : [{ value: lineRow.rateLevel / 100, format: 'factor' as const, label: `rate level ${lineRow.rateLevel}` }]),
           ],
@@ -2753,7 +2769,7 @@ export function buildRevExpRows(
               { value: 10_000, format: 'plain', label: 'units of $100 per $M' },
               {
                 value: adminRatePer100For(lineRow.line as CoverageLine, lineRow.activeExposure)
-                  / expenseDivisor(lineRow.decisions.riskControlIncentivePct ?? 0),
+                  / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)),
                 format: 'plain',
                 label: 'admin rate per $100, loaded',
               },
@@ -2907,13 +2923,17 @@ export function buildRevExpRows(
       metric: 'Loss prevention expenses',
       value: formatCurrency(result.riskControlInvestment),
       numericValue: result.riskControlInvestment,
-      formula: lineRow === null ? PER_LINE_ONLY : scoped(
-        () => ({
-          kind: 'product',
-          factors: [cur(result.poolPremium), { value: lineRow.decisions.riskControlPct, format: 'pct', label: 'risk control' }],
-        }),
-        x => x.riskControlInvestment
-      ),
+      // With RISK_CONTROL off nothing is spent or charged: risk control is
+      // pending its pool-level redesign, and the slider reads 0%.
+      formula: lineRow === null ? PER_LINE_ONLY : !RISK_CONTROL.enabled
+        ? { kind: 'echo', value: result.riskControlInvestment, text: 'risk control is coming soon — nothing is spent or charged' }
+        : scoped(
+          () => ({
+            kind: 'product',
+            factors: [cur(result.poolPremium), { value: lineRow.decisions.riskControlPct, format: 'pct', label: 'risk control' }],
+          }),
+          x => x.riskControlInvestment
+        ),
       indent: 1,
     },
     {

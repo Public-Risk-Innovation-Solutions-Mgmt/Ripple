@@ -26,6 +26,8 @@
 // tuning shocks against a pool that cannot lose would make the game brutal the
 // moment it can. Costs are REPORTED. The balance decision stays open.
 
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

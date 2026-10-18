@@ -38,7 +38,29 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { paidLdfAt, PAID_DEVELOPMENT_PATTERN } from '../../src/data/paidDevelopmentPatterns';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
 import { unpaidShare } from '../../src/utils/payoutPattern';
+import { NEW_LOSS_ENGINE } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, ReserveDevelopmentRow } from '../../src/types/simulation';
+
+// ============================================================================
+// ⚠ ON THE NEW LOSS ENGINE THE GAMES RUN WITH NO SHOCKS, AND THAT IS THE
+// QUESTION BEING ASKED, NOT A WAY ROUND IT. This gate tests that the engine
+// PAYS on the recorded patterns. The new engine's R shocks (Social Inflation,
+// Tort Reform, Economic Inflation…) also DEVELOP an accident year's ultimate
+// upward after it is booked — a real effect the old engine did not have — and
+// the pool's own chain ladder then reads that development as payment.
+// Section 3 shows which it is: paid against the CURRENT ultimate sits on the
+// pattern to the digit, and only the ultimate under it moves. So the gate
+// plays a host-timed game with an empty schedule, where nothing develops, and
+// holds the payment to the recorded factors at the same 12%.
+//
+// THE DEVELOPMENT IS REPORTED, NOT ASSERTED, and it is a pricing finding:
+// run with SHOCKS=catalogue to see it. Measured on these seeds at commit 3,
+// the pool's own GL age-to-L factor ran 17.0% above the recorded one at 12
+// months, 15.0% at 24 and 12.3% at 36; WC and Property stayed inside 12%.
+// Pricing develops with the recorded factors, so a GL year that a shock
+// develops is under-developed by that margin until the ledger catches up.
+// ============================================================================
+const NO_SHOCKS = NEW_LOSS_ENGINE.enabled && process.env.SHOCKS !== 'catalogue';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 // ⚠ 2 x 10 IS THE SHORTEST RUN THAT STILL ANSWERS THE QUESTION, and it is
@@ -64,6 +86,11 @@ let failures = 0;
 const fail = (s: string) => { failures++; console.log(`  FAIL  ${s}`); };
 
 console.log('=== RECORDED PAYOUT CHECK ===\n');
+if (NEW_LOSS_ENGINE.enabled) {
+  console.log(NO_SHOCKS
+    ? '  New loss engine: games play with NO SHOCKS (host timing, empty schedule) — the payment alone.\n'
+    : '  New loss engine, SHOCKS=catalogue: shock development included — REPORTED; the bar is for the payment alone.\n');
+}
 
 // --------------------------------------------------------------------------
 console.log('--- 0. THE ENGINE IS ON THE RECORDED PATTERNS AT ALL ---');
@@ -101,7 +128,12 @@ const ledgerRows: Record<string, ReserveDevelopmentRow[]> = { WC: [], GL: [], Pr
 for (let g = 0; g < GAMES; g++) {
   const id = `PAYOUT${g}`;
   const inst = generateGameInstance(id, 7_700_000 + g * 4211);
-  const setup = { poolName: 'A', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
+  // No shocks: the host's timing, with nothing scheduled. See the header.
+  if (NO_SHOCKS) inst.scheduledShocks = [];
+  const setup = {
+    poolName: 'A', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES,
+    ...(NO_SHOCKS ? { shockTiming: 'host' as const } : {}),
+  };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   let gs: GameState = {
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,

@@ -118,6 +118,8 @@
 // on a ranking.
 // ============================================================================
 
+// THE MEMBER PATH ON THE OLD ENGINE — first, before anything reads a flag. See engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';

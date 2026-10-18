@@ -632,7 +632,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // nothing at 0%; the whole of the remaining move is the sign convention, and
 // it is a deliberate display change made in the same commit so no reader ever
 // meets two opposite signs for one event.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v64.json');
+// v65: LOSS ENGINE COMMIT 3a — THE NEW ENGINE, PERMANENT, ONE BOOK PER LINE.
+// All 24 exports move, and all 24 were expected to: every one carries losses,
+// reserves, the rate and surplus, which the engine switch moves on every line
+// (see VALUE_IDENTITY's v63 note for the field-level attribution). The results
+// sheet also LOSES three rows — member satisfaction, risk control % and risk
+// control investment — which are hidden with MEMBER_LEVEL and RISK_CONTROL
+// off. That is a presentation change made in the same commit.
+//
+// ⚠ THE OLD ENGINE STILL REPRODUCES v64 BYTE FOR BYTE: run with --import
+// ./scripts/tools/engine-mode/legacy-engine.ts against v64, all 24 identical.
+// Checked before the recapture, not claimed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v65.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

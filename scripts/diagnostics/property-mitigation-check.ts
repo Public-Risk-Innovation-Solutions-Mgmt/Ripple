@@ -23,6 +23,8 @@
 // with sampling error into a claim-for-claim identity, which is what lets this
 // gate run on 8 games instead of 300.
 // ============================================================================
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';

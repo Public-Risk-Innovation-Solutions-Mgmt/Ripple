@@ -21,6 +21,8 @@
 //      matters. Asserted against what pure noise would give.
 // ============================================================================
 
+// THE MEMBER PATH ON THE OLD ENGINE — first, before anything reads a flag. Member-level losses still need the old per-claim generators: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';

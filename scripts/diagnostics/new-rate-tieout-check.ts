@@ -102,7 +102,11 @@ function play(): Row[] {
         const admin = adminRatePer100For(line, exposure);
         const divisor = expenseDivisor(ld.riskControlIncentivePct ?? 0);
         const { expectedCededPer100 } = expectedCededPer100For(line, y, groundUp, {
-          members: (gs.poolState.lines[line] as LinePoolState).members ?? [],
+          // A book (MEMBER_LEVEL off) is priced on its exposure, as the engine
+          // prices it; a roster on its members.
+          members: (gs.poolState.lines[line] as LinePoolState).bookExposure !== undefined
+            ? { exposure }
+            : (gs.poolState.lines[line] as LinePoolState).members ?? [],
           exposure, layersPlaced: ld.layersPlaced, aggregateStopLevel: ld.aggregateStopLevel,
         });
         const retained = Math.max(0, groundUp - expectedCededPer100);

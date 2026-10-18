@@ -38,6 +38,7 @@ import { hasStaticClf, staticClf, staticClfCrossing } from '../data/clfTables';
 import { quoteLineRates, quoteNewRateStack } from './linePricing';
 import { NEW_RATE_STACK } from '../data/pricingParameters';
 import type { CoverageLine, Member } from '../types/simulation';
+import { isRoster, type Book } from './lineHelpers';
 
 // ⚠ THREADED, NOT GENERIC lookupCLF. This panel used to call lookupCLF
 // unconditionally for every line, while simulationEngine.ts priced WC (and now
@@ -158,7 +159,8 @@ export interface FundingConsequence {
 // genuinely present.
 export interface FundingConsequenceBook {
   yearNumber: number;
-  members: Member[];
+  /** The roster, or with MEMBER_LEVEL off the one book's exposure (see Book). */
+  members: Book;
   exposure: number;
   layersPlaced: boolean[];
   aggregateStopLevel: number;
@@ -219,17 +221,23 @@ function ratesAt(
   // use that same treaty or the two stop being inverse — which on this path
   // would show up as the panel quoting a price the engine does not charge.
   // Resolved once, from the one function that decides it.
-  const aggregateTerms = aggregateTermsRetainedPer100(line, book.experience);
-  const purePremiumPer100 = currentPurePremiumPer100(
-    line, book.yearNumber, book.members, book.experience,
-    {
-      members: book.members,
-      exposure: book.exposure,
-      layersPlaced: book.layersPlaced,
-      aggregateStopLevel: book.aggregateStopLevel,
-      aggregateTermsRetainedPer100: aggregateTerms,
-    },
-  );
+  // ⚠ A BOOK PRICES AS THE ENGINE PRICES IT: no experience-path terms (it has
+  // no membership history to rebuild exposure from) and the new stack's ground-
+  // up figure as its pure premium. A roster takes the old path unchanged.
+  const roster = isRoster(book.members) ? book.members as Member[] : null;
+  const aggregateTerms = roster ? aggregateTermsRetainedPer100(line, book.experience) : undefined;
+  const purePremiumPer100 = roster
+    ? currentPurePremiumPer100(
+      line, book.yearNumber, roster, book.experience,
+      {
+        members: roster,
+        exposure: book.exposure,
+        layersPlaced: book.layersPlaced,
+        aggregateStopLevel: book.aggregateStopLevel,
+        aggregateTermsRetainedPer100: aggregateTerms,
+      },
+    )
+    : book.groundUpPurePremiumPer100 ?? 0;
   const clf = clfFor(line, confidenceLevel, atExpected);
   const q = quoteLineRates({
     line,

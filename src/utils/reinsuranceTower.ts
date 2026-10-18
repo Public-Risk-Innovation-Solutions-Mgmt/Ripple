@@ -28,8 +28,8 @@ import { quotePropertyAggregate } from './propertyAggregate';
 import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './towerMoments';
 import { NEW_LOSS_ENGINE, REINSURANCE_LOAD_CLF_AT_70 } from '../data/pricingParameters';
 import { retainedSd } from './shockExpectation';
-import { getMemberExposure } from './lineHelpers';
-import type { Claim, Member, Occurrence } from '../types/simulation';
+import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
+import type { Claim, Occurrence } from '../types/simulation';
 
 // --- the waterfall (J14) ----------------------------------------------------
 
@@ -171,11 +171,11 @@ function layerPriceFrom(line: TowerLine, expected: number): number {
   return expected * REINSURANCE_LOAD_CLF_AT_70[line];
 }
 
-export function layerPremium(line: TowerLine, layerIndex: number, members: Member[], yearNumber: number): number {
+export function layerPremium(line: TowerLine, layerIndex: number, members: Book, yearNumber: number): number {
   return layerPriceFrom(line, layerRiskMoments(line, layerIndex, members, yearNumber).expected);
 }
 
-export function expectedCededForLayer(line: TowerLine, layerIndex: number, members: Member[], yearNumber: number): number {
+export function expectedCededForLayer(line: TowerLine, layerIndex: number, members: Book, yearNumber: number): number {
   return layerRiskMoments(line, layerIndex, members, yearNumber).expected;
 }
 
@@ -201,7 +201,7 @@ export interface OccurrenceProgramQuote {
 // allLayerRiskMoments. Pricing three layers separately walked the member list
 // three times and re-resolved each member's rating group and lambda each time.
 export function occurrenceProgramCost(
-  line: TowerLine, placed: boolean[], members: Member[], yearNumber: number,
+  line: TowerLine, placed: boolean[], members: Book, yearNumber: number,
 ): OccurrenceProgramQuote {
   const moments = allLayerRiskMoments(line, members, yearNumber);
   let premium = 0, expectedCeded = 0;
@@ -332,7 +332,7 @@ function layerMoments(mean: number, cv: number, a: number, b: number) {
 export function quoteAggregate(
   line: 'WC' | 'Property',
   placed: boolean[],
-  members: Member[],
+  book: Book,
   expectedGrossLoss: number,
   level: number,
   yearNumber: number,
@@ -353,11 +353,10 @@ export function quoteAggregate(
   // total was ordinary losses alone, at 2.2% CV, and this rounded to nothing.
   if (NEW_LOSS_ENGINE.enabled) {
     const effective = placed.map((on, i) => on && REINSURANCE_TOWER[line][i].purchasable);
-    const layerMoms = allLayerRiskMoments(line, members, yearNumber);
+    const layerMoms = allLayerRiskMoments(line, book, yearNumber);
     const cededByPlaced = REINSURANCE_TOWER[line].reduce((t, _l, i) => t + (effective[i] ? layerMoms[i].expected : 0), 0);
     const expectedRetained = Math.max(1, expectedGrossLoss - cededByPlaced);
-    let exposure = 0;
-    for (const m of members) exposure += getMemberExposure(m, line, yearNumber);
+    const exposure = bookExposureOf(book, line, yearNumber);
     const sdRetained = retainedSd(line, effective, exposure, yearNumber);
     const termsBasis = Math.max(1, termsRetained ?? expectedRetained);
     const rawAttachment = termsBasis * AGG_ATTACHMENT_LEVELS[line][level];
@@ -371,6 +370,7 @@ export function quoteAggregate(
     };
   }
 
+  const members = rosterOf(book, 'quoteAggregate (the old engine)');
   if (line === 'Property') {
     // ONE moment pass — same role as WC's layerMoms below, feeding
     // expectedRetained = expectedGrossLoss minus what the PLACED layer cedes.

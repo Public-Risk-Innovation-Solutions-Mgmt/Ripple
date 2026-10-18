@@ -741,7 +741,49 @@ const BASELINE = process.env.RENDER_BASELINE
 //   PR|Results|PR|y2        surplus $20.91M -> $21.76M. Property's default is
 //                           2% FAVOURABLE, so its development adds to surplus;
 //                           the direction is the parameter's sign.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v41.json');
+//
+// v42: LOSS ENGINE COMMIT 3a — THE NEW ENGINE, PERMANENT, ONE BOOK PER LINE.
+// 242 of 252 moved. The control ran first: the parent (b234c36), built in its
+// own worktree and served on 4174, reproduced v41 252 of 252. Every moved row
+// was then diffed as TEXT (RENDER_TEXT_DIR on both sides), not assumed:
+//
+//   UNMOVED (10)   the Investment memo, every configuration and year — it
+//                  reads no loss, premium or member figure.
+//   ABSENT (10)    Departments|doc:Risk Control — the memo is hidden with
+//                  RISK_CONTROL off, as briefed.
+//   NUMBERS ONLY   _header, Introduction, Decision History, and most of
+//                  Results and Result Spreadsheet: every changed token is a
+//                  number — losses, reserves, rates and surplus on the new engine.
+//   Dashboard (26)      the MEMBER SATISFACTION card is gone and the exposure
+//                       sub-label reads "of $XM in the market" for "members";
+//                       the capital words (Strong / Adequate / Deficient /
+//                       Thin) move with the numbers.
+//   Decisions (16 text) the membership intake and renewal text is the book's
+//                       renewal and intake controls, and the risk control
+//                       slider reads "coming soon".
+//   Departments          "Risk Control Programs available for management
+//                       consideration" is hidden; the Actuarial memo's numbers move.
+//   Financial Stmts (26) "Less: reinsurance recoveries — current year" is not
+//                       printed in a year that recovers nothing — the row has
+//                       always been conditional on a non-zero recovery.
+//   Calculation Audit    the per-occurrence cession rows follow the recovery;
+//                       loss prevention reads "risk control is coming soon";
+//                       and a Shock Events card appears where the catalogue
+//                       fired an event (Economic Recession at y2 on this seed).
+//   Pool History (26)    the trend arrows (Up / Down) and capital words move.
+//   Results / Result Spreadsheet  the Member Satisfaction row and the two risk
+//                       control rows are hidden; the narrative names the year's
+//                       own events.
+//
+// ⚠ TWO DEFECTS THE DIFF FOUND, BOTH FIXED BEFORE THIS CAPTURE. (1) The
+// Actuarial memo had LOST its "Indicated pure premium" section: two exposure
+// reconstructions (experienceRating.ts and pricingTriangle.ts) still read the
+// roster and returned 0 for a book. They now read the row's own exposure, as
+// newPurePremium.ts does; no value moved. (2) The Shock Events card described
+// a new-engine event in the old engine's terms — "0 injected claims", and an
+// "expected added" row explaining multiplied Poisson draws. It now states the
+// new attribution.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v42.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

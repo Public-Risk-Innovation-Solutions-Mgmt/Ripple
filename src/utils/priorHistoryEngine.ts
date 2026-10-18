@@ -59,7 +59,8 @@ import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState, getMemberExposure } from './lineHelpers';
 import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
-import { PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
+import { MEMBER_LEVEL, PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
+import { exposureFactor } from '../data/exposureTrend';
 import { withLifetimeDevelopment } from './hostDevelopment';
 import { defaultDecisionSet } from './decisionDefaults';
 
@@ -278,9 +279,11 @@ export function simulateLineCandidate(
     // two origins diverge and the pin is calibrated against neither.
     if (y === -(PRE_GAME_YEARS - 1)) {
       const ls = gs.poolState.lines[line];
-      const activeExposure = ls.members
-        .filter(m => m.status === 'active')
-        .reduce((s, m) => s + getMemberExposure(m, line, y), 0);
+      const activeExposure = ls.bookExposure !== undefined
+        ? ls.bookExposure * exposureFactor(line, y)
+        : ls.members
+          .filter(m => m.status === 'active')
+          .reduce((s, m) => s + getMemberExposure(m, line, y), 0);
       const linePremium = activeExposure * ls.ratePer100 * 10_000;
       // ⚠ THE RE-PIN USES THE SET FORMULA NOW, WHICH IS WHAT RETIRES THE PIN.
       // It read STARTING_CAPITAL_TO_PREMIUM x premium — the search origin. With
@@ -484,7 +487,12 @@ function applySetOpening(
   developmentPct: number,
 ): LinePoolState {
   const played = (ls.reserveCohorts ?? []).filter(c => c.seeded !== true);
-  const bulk = bulkCohortsAsReserveCohorts(line, ls.members ?? [], startingYear);
+  // A book sizes its bulk years on its own exposure, as a roster did on its
+  // members'. The bulk years sit at year 1's exposure basis either way.
+  const bulk = bulkCohortsAsReserveCohorts(
+    line, ls.bookExposure !== undefined ? { exposure: ls.bookExposure * exposureFactor(line, 1) } : ls.members ?? [],
+    startingYear,
+  );
   // ⚠ EVERY COHORT THE POOL OPENS WITH IS BASED HERE, declared years and bulk
   // years alike, on its outstanding AT GAME START. That is the brief's rule
   // for prior years and it is one line because the bulk years are in the same
@@ -734,7 +742,8 @@ export function runPriorHistory(
   for (const pg of perLine) {
     for (const m of pg.members) if (m.status === 'active') activeIds.add(m.id);
   }
-  const allMarketMembers: Member[] = getPredefinedMarketMembers().map(m => ({
+  // With MEMBER_LEVEL off there is no market roster to carry.
+  const allMarketMembers: Member[] = (MEMBER_LEVEL.enabled ? getPredefinedMarketMembers() : []).map(m => ({
     ...m,
     status: activeIds.has(m.id) ? ('active' as const) : ('prospect' as const),
   }));

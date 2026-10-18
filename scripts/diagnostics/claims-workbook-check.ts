@@ -38,6 +38,8 @@
 //                  at the check itself for what it can and cannot catch.
 // ============================================================================
 
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import * as XLSX from 'xlsx';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';

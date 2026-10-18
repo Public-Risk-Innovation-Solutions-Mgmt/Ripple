@@ -95,9 +95,20 @@ async function join(ctx, code, name) {
   await host.waitForFunction(
     () => document.querySelector('[data-testid="decisions-table"]') !== null,
     null, { timeout: 60000 });
+  // ⚠ WAIT FOR BOTH ROWS TO BE REPORTED, NOT MERELY PRESENT. A team that has
+  // not posted yet still has a row — the collapsed "Not reported yet" span —
+  // and a team's "result posted" label goes up when the year is PROCESSED,
+  // before its post is awaited. Waiting on two rows of any kind read the table
+  // between the two posts as soon as the engine got fast enough for them to
+  // land apart (loss engine commit 3a: Harbour Mutual "Not reported yet";
+  // re-read after a pause, both reported). The assertion below is unchanged;
+  // if a post never lands, this wait expires and the assertion fails.
   await host.waitForFunction(
-    () => document.querySelectorAll('[data-testid^="decisions-row-"]').length >= 2,
-    null, { timeout: 60000 });
+    () => {
+      const rs = [...document.querySelectorAll('[data-testid^="decisions-row-"]')];
+      return rs.length >= 2 && rs.every(r => r.children.length === 8);
+    },
+    null, { timeout: 60000 }).catch(() => {});
 
   const rows = await host.$$eval('[data-testid^="decisions-row-"]', rs =>
     rs.map(r => [...r.children].map(c => c.textContent.trim())));

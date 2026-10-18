@@ -71,6 +71,8 @@
 //     that has never been shown to move is not a stability test.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a flag. MEMBER_LEVEL on: see engine-mode/member-path.ts.
+import '../tools/engine-mode/member-path';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';

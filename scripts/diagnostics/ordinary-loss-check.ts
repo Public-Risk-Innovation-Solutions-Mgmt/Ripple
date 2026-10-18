@@ -35,7 +35,7 @@
 // ⚠ AND IT FAILS WHEN BROKEN — see THE CONTROL at the foot.
 // ============================================================================
 
-import { NEW_LOSS_ENGINE, ORDINARY_LOSS_CV } from '../../src/data/pricingParameters';
+import { MEMBER_LEVEL, NEW_LOSS_ENGINE, ORDINARY_LOSS_CV } from '../../src/data/pricingParameters';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -113,7 +113,7 @@ try {
   console.log('\n--- 3 & 4. THROUGH THE ENGINE, 12 games x 10 years ---');
   const ae: Record<string, number[]> = { WC: [], GL: [], Property: [] };
   let worstScale = 0, worstMembers = 0, ceded = 0, lineYears = 0;
-  let quietCeded = 0, quietYears = 0, worstRecord = 0;
+  let quietCeded = 0, quietYears = 0, worstRecord = 0, bookYears = 0;
   for (let g = 0; g < 12; g++) {
     const id = `ORDCHK${g}`;
     const instance = generateGameInstance(id, 2_700_000 + g * 7919);
@@ -139,8 +139,14 @@ try {
         // the record adds up to the line's gross: ordinary + T + routine excess
         worstRecord = Math.max(worstRecord,
           Math.abs((n.ordinaryRealised + n.shockLarge + n.routineLarge) / r.grossUltimateLoss - 1));
-        const memberSum = r.memberLossResults.reduce((s, m) => s + m.simulatedLoss, 0);
-        worstMembers = Math.max(worstMembers, Math.abs(memberSum / r.grossUltimateLoss - 1));
+        // A BOOK (MEMBER_LEVEL off) carries no member records at all — the line is
+        // the record. A roster's records must sum to the line.
+        if (r.memberLossResults.length === 0) {
+          bookYears++;
+        } else {
+          const memberSum = r.memberLossResults.reduce((s, m) => s + m.simulatedLoss, 0);
+          worstMembers = Math.max(worstMembers, Math.abs(memberSum / r.grossUltimateLoss - 1));
+        }
         // ordinary losses cede nothing: a year with no large loss recovers nothing per occurrence
         if (n.shockLargeClaims === 0 && n.routineLargeClaims === 0) {
           quietYears++;
@@ -163,8 +169,9 @@ try {
     `worst relative ${worstScale.toExponential(2)} on ${lineYears} line-years`);
   check(worstRecord < 1e-9, 'ordinary + T + routine excess IS the line\'s gross',
     `worst relative ${worstRecord.toExponential(2)}`);
-  check(worstMembers < 1e-9, 'the members\' records sum to the line\'s gross',
-    `worst relative ${worstMembers.toExponential(2)}`);
+  check(MEMBER_LEVEL.enabled ? worstMembers < 1e-9 && bookYears === 0 : bookYears === lineYears,
+    MEMBER_LEVEL.enabled ? 'the members\' records sum to the line\'s gross' : 'one book per line: no member records on any line-year',
+    MEMBER_LEVEL.enabled ? `worst relative ${worstMembers.toExponential(2)}` : `${bookYears} of ${lineYears} line-years carry none`);
   check(quietYears > 0 && quietCeded === 0, 'ordinary losses cede nothing: no occurrence recovery in a year without a large loss',
     `$${quietCeded.toFixed(2)} over ${quietYears} quiet line-years (all years: $${(ceded / 1e6).toFixed(1)}M, from large losses)`);
 

@@ -91,7 +91,7 @@ import { ratingGroupOf, thetaWc, trendedMu, wcFrequencyTrend, wcSeverityCap } fr
 import type { Member } from '../types/simulation';
 import { NEW_LOSS_ENGINE } from '../data/pricingParameters';
 import { newEngineLayerMoments } from './shockExpectation';
-import { getMemberExposure } from './lineHelpers';
+import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
 
 const GM = GL_LOSS_MODEL;
 const WM = WC_LOSS_MODEL;
@@ -426,7 +426,7 @@ function memberLambda(line: TowerLine, member: Member, yearNumber: number): numb
 // callers cannot drift from the program price.
 export function allLayerRiskMoments(
   line: TowerLine,
-  members: Member[],
+  members: Book,
   yearNumber: number,
 ): LayerRiskMoments[] {
   return layerRiskMomentsFor(line, members, yearNumber, null);
@@ -441,7 +441,7 @@ export function allLayerRiskMoments(
 // distribution it never reads.
 function layerRiskMomentsFor(
   line: TowerLine,
-  members: Member[],
+  book: Book,
   yearNumber: number,
   only: number | null,
   catastrophe = true,
@@ -473,10 +473,9 @@ function layerRiskMomentsFor(
   // With the flag off this branch is not taken and nothing below changes.
   // ==========================================================================
   if (NEW_LOSS_ENGINE.enabled) {
-    let exposure = 0;
-    for (const m of members) exposure += getMemberExposure(m, line, yearNumber);
-    return newEngineLayerMoments(line, exposure, yearNumber, boundsScale);
+    return newEngineLayerMoments(line, bookExposureOf(book, line, yearNumber), yearNumber, boundsScale);
   }
+  const members = rosterOf(book, 'layerRiskMomentsFor (the old engine)');
   const n = layers.length;
   const vg = line === 'GL' ? VG : line === 'WC' ? VG_WC : 0;
   const alphaFreq = line === 'GL' ? GL_ALPHA_FREQ : line === 'Property' ? PR_ALPHA_FREQ : WC_ALPHA_FREQ;
@@ -595,7 +594,7 @@ function layerRiskMomentsFor(
 export function layerRiskMoments(
   line: TowerLine,
   layerIndex: number,
-  members: Member[],
+  members: Book,
   yearNumber: number,
 ): LayerRiskMoments {
   return layerRiskMomentsFor(line, members, yearNumber, layerIndex)[layerIndex];
@@ -609,7 +608,7 @@ export function layerRiskMoments(
 export function attritionalLayerRiskMoments(
   line: TowerLine,
   layerIndex: number,
-  members: Member[],
+  members: Book,
   yearNumber: number,
 ): LayerRiskMoments {
   return layerRiskMomentsFor(line, members, yearNumber, layerIndex, false)[layerIndex];
@@ -810,7 +809,7 @@ export function retainedRiskMoments(
 // record of what that was; the tower as it stands is the only available
 // reading. Stated because it is an assumption, not a derivation.
 export function expectedCededAtBoundsScale(
-  line: TowerLine, members: Member[], yearNumber: number, boundsScale: number,
+  line: TowerLine, members: Book, yearNumber: number, boundsScale: number,
 ): number {
   const moments = layerRiskMomentsFor(line, members, yearNumber, null, true, boundsScale);
   let ceded = 0;

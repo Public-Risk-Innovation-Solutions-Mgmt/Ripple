@@ -8,6 +8,8 @@
 // occurrence-layer selection, and — the whole point of the pricing change — that
 // the price no longer moves with the funding confidence level.
 
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import {
   AGG_ATTACHMENT_LEVELS, REINSURANCE_TOWER, RISK_LOAD_LAMBDA, TOWER_TOP,
 } from '../../src/data/reinsuranceTower';

@@ -1120,6 +1120,12 @@ export interface AccidentYearSplit {
 export interface ReserveDevelopmentRow {
   yearNumber: number;          // the ACCIDENT year this row describes
   calendarYear: number;
+  /**
+   * THE EXPOSURE THE ACCIDENT YEAR WAS WRITTEN ON, $M — written only with
+   * MEMBER_LEVEL off, where no roster or membership history exists to
+   * reconstruct it from. Pricing reads it as each year's denominator.
+   */
+  exposure?: number;
   // The cohort's estimate of ULTIMATE as at the end of each successive
   // valuation year, oldest first. Index k is valuation year
   // firstValuationYear + k. Ultimate, not reported/incurred: the exhibit is
@@ -2131,6 +2137,12 @@ export interface LinePoolState {
   // WC ONLY, empty on GL and Property. Claims drawn but not yet reported.
   //
   members: Member[];
+  /**
+   * THE BOOK, IN $M OF BASE-YEAR EXPOSURE — present only with MEMBER_LEVEL off,
+   * where `members` is empty and this is the line. Renewal, intake and Member
+   * Withdrawal move it; the year's exposure is it x exposureFactor.
+   */
+  bookExposure?: number;
   netUnpaidReserve: number;    // unpaid loss reserve, net of reinsurance
   surplus: number;
   investedAssets: number;      // this line's own segregated investment portfolio (Stage 2.9),

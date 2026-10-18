@@ -6,6 +6,7 @@ import { lineDisplayName } from '../utils/lineDisplay';
 import EndingPositionPanel from '../components/EndingPositionPanel';
 import type { EndingPositionRow } from '../utils/endingPosition';
 import { MARKET_MEMBER_COUNT } from '../data/memberCatalog';
+import { MEMBER_LEVEL } from '../data/pricingParameters';
 
 interface DashboardPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
@@ -80,6 +81,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
   // ⚠ EXPOSURE, NOT A MEMBER COUNT. Same fallback chain, different field; the
   // member counts are still on every result and are simply not shown.
   const displayExposure = last?.activeExposure ?? openingYear?.activeExposure ?? startingFinancials.activeExposure;
+  const displayTotalMarketExposure = last?.totalMarketExposure ?? openingYear?.totalMarketExposure ?? startingFinancials.totalMarketExposure;
   const displayMarketShare = last?.marketShare ?? openingYear?.marketShare ?? startingFinancials.marketShare;
   const displaySatisfaction = last?.memberSatisfaction ?? startingFinancials.memberSatisfaction;
   const displayFunding = last?.capitalAdequacyStatus ?? openingYear?.capitalAdequacyStatus ?? 'Not yet calculated';
@@ -149,14 +151,18 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
           label="Active Exposure"
           value={`$${displayExposure.toFixed(1)}M`}
           icon={<Users size={16} />}
-          sub={`of ${MARKET_MEMBER_COUNT} market members`}
+          sub={MEMBER_LEVEL.enabled ? `of ${MARKET_MEMBER_COUNT} market members` : `of $${displayTotalMarketExposure.toFixed(0)}M in the market`}
         />
-        <StatCard
-          label="Member Satisfaction"
-          value={`${displaySatisfaction.toFixed(1)} / 10`}
-          icon={<Star size={16} />}
-          valueColor={displaySatisfaction >= 7 ? 'text-emerald-600' : displaySatisfaction >= 5 ? 'text-amber-600' : 'text-red-600'}
-        />
+        {/* Hidden with MEMBER_LEVEL off: satisfaction feeds nothing, and returns
+            as a pool-level figure once designed. */}
+        {MEMBER_LEVEL.enabled && (
+          <StatCard
+            label="Member Satisfaction"
+            value={`${displaySatisfaction.toFixed(1)} / 10`}
+            icon={<Star size={16} />}
+            valueColor={displaySatisfaction >= 7 ? 'text-emerald-600' : displaySatisfaction >= 5 ? 'text-amber-600' : 'text-red-600'}
+          />
+        )}
         <StatCard
           label="Excess Capital Status"
           value={displayFunding}

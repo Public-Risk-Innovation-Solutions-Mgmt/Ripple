@@ -64,6 +64,7 @@
 // ============================================================================
 
 import type { CoverageLine, GameInstance, ResultSet } from '../types/simulation';
+import { NEW_LOSS_ENGINE } from '../data/pricingParameters';
 import { resolveShocks } from './shockResolver';
 import { generateLineYearClaims, poolYearFactor, type LineYearGenerationOutput } from './claimGeneration';
 
@@ -88,6 +89,13 @@ export function regenerateLineYearClaims(
   const lr = result.byLine[line];
   const year = result.yearNumber;
   if (!lr) throw new ClaimRegenerationError(line, year, 'the result carries no entry for this line');
+  // ⚠ THE NEW LOSS ENGINE'S REGISTER IS SAVED, NOT REDRAWN — see
+  // gameSave.NEW_ENGINE_KEPT_KEYS. These generators are the old engine's and
+  // would hand back a register that was never drawn.
+  if (NEW_LOSS_ENGINE.enabled) {
+    throw new ClaimRegenerationError(line, year,
+      'the new loss engine keeps its register in the save; the per-member generators here did not draw it');
+  }
   if (!Array.isArray(lr.memberList)) {
     throw new ClaimRegenerationError(line, year, 'memberList is absent — the roster the generator saw was not recorded');
   }

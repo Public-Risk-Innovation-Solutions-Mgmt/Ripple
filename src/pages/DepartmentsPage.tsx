@@ -9,6 +9,7 @@ import { buildActuarialMemo } from '../utils/actuarialMemo';
 //   import { buildClaimsMemo } from '../utils/claimsMemo';
 import { buildInvestmentMemo } from '../utils/investmentMemo';
 import { buildRiskControlMemo } from '../utils/riskControlMemo';
+import { RISK_CONTROL } from '../data/pricingParameters';
 // ⚠ buildUnderwritingMemo IS NOT IMPORTED WHILE THE UNDERWRITING PANE IS HIDDEN —
 // see the commented entry in `documents` below. src/utils/underwritingMemo.ts and
 // its checks are untouched; the import comes back with the pane.
@@ -98,7 +99,10 @@ export default function DepartmentsPage({ gameState }: DepartmentsPageProps) {
     //     summary: 'Large loss listing by member and status',
     //     content: claimsMemo,
     //   },
-    {
+    // ⚠ HIDDEN WHILE RISK_CONTROL IS OFF — risk control is pending design at
+    // pool level, and these programs cost nothing and do nothing until then.
+    // The memo and the programs behind it are kept for the redesign.
+    ...(RISK_CONTROL.enabled ? [{
       // ⚠ GATED BY activeLines, WHICH IS WHY IT IS BUILT AND NOT A STATIC .md.
       // Its own second paragraph promises that line-specific programs appear
       // only if the pool writes that coverage, so the list has to honour it.
@@ -106,7 +110,7 @@ export default function DepartmentsPage({ gameState }: DepartmentsPageProps) {
       title: 'Risk Control',
       summary: 'Programs available for management consideration',
       content: buildRiskControlMemo(gameState.setup.activeLines),
-    },
+    }] : []),
     // ⚠ THE UNDERWRITING DEPARTMENT IS HIDDEN, NOT REMOVED — the same treatment
     // as Claims above. Its memo lists applicants and members by name, which is
     // the per-member view the multiplayer game drops; the pool-level memo that

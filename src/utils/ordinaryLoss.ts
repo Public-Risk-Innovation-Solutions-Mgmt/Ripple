@@ -29,7 +29,7 @@ import {
   EXPECTED_ORDINARY_LOSS_COST_PER_100, ORDINARY_LOSS_CV, SEVERITY_TREND_PER_YEAR,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
-import { getMemberExposure } from './lineHelpers';
+import { bookExposureOf, getMemberExposure, type Book } from './lineHelpers';
 import { primaryShare } from './memberExperienceMod';
 import type { CoverageLine, Member, MemberLossResult } from '../types/simulation';
 
@@ -66,9 +66,9 @@ export interface OrdinaryLossYear {
 
 /** Draw a line's ordinary loss for one accident year on a given book. */
 export function ordinaryLossYear(
-  line: CoverageLine, members: Member[], yearNumber: number, seed: number,
+  line: CoverageLine, book: Book, yearNumber: number, seed: number,
 ): OrdinaryLossYear {
-  const exposure = members.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
+  const exposure = bookExposureOf(book, line, yearNumber);
   const expected = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
   const factor = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ORDINARY_LOSS_CV[line]);
   return { exposure, expected, realised: expected * factor, factor };

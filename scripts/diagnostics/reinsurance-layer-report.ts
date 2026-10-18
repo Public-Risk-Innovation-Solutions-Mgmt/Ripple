@@ -56,6 +56,8 @@
 // the mean as indicative. Same for GL's retained-above-$25M band.
 // ============================================================================
 
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { computeKLine, generateWcClaims } from '../../src/utils/wcClaimEngine';
 import { computeKGl, generateGlClaims } from '../../src/utils/glClaimEngine';

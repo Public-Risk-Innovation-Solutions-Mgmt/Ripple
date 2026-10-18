@@ -21,6 +21,8 @@
 // rule is that those are reported with an interval, never gated. The gates live
 // in wc-severity-rebuild-check (counts, capped means, Little's Law).
 
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

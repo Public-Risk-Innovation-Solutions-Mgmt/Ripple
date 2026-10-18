@@ -32,6 +32,8 @@
 // the reading. A large gap means something else is acting on the book.
 // ============================================================================
 
+// THE MEMBER PATH ON THE OLD ENGINE — first, before anything reads a flag. A reading of member-level behaviour: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';

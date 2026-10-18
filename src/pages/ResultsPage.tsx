@@ -24,6 +24,7 @@ import { metricLabel } from '../utils/resultMetrics';
 import { placementSummary, hasTractableCeded, towerTopLabel, RETAINED_ABOVE_TOWER_CAVEAT } from '../utils/reinsuranceDisplay';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { eventLabel, yearEvents } from '../utils/yearEvents';
+import { MEMBER_LEVEL } from '../data/pricingParameters';
 
 interface ResultsPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
@@ -321,7 +322,10 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
                   aggregate now; every one of those fields is still on the
                   result and still computed. Satisfaction stays — it is the
                   pool's own scoreboard and names no member. */}
-              <Row label="Member Satisfaction" value={`${result.memberSatisfaction.toFixed(1)} / 10`} />
+              {/* Hidden with MEMBER_LEVEL off — see DashboardPage. */}
+              {MEMBER_LEVEL.enabled && (
+                <Row label="Member Satisfaction" value={`${result.memberSatisfaction.toFixed(1)} / 10`} />
+              )}
               {/* ⚠ COMBINED RATIO STANDS WHERE AVERAGE RISK QUALITY STOOD. Risk
                   quality is unobservable by design — surface-privacy-check keeps
                   a MEMBER's score from the player — and the pool AVERAGE of it

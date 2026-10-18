@@ -307,3 +307,30 @@ export function retainedSd(
 export function expectedLargeLossCount(line: CoverageLine, exposure: number, yearNumber: number): number {
   return largeLossMoments(line, exposure, yearNumber, () => 0, () => [], false).occurrences;
 }
+
+/**
+ * PROPERTY'S CATASTROPHE CAPITAL ON THE NEW ENGINE — what the pool retains,
+ * in expectation, from ONE regional catastrophe that happens: Earthquake,
+ * Winterstorm or Wildfire, weighted by how often each occurs, after the layer
+ * it placed. The old engine read the same quantity off its own catastrophe
+ * model over the member roster (catCapitalRetained); with no roster, the
+ * catalogue's regional events are the catastrophes there are. Zero on WC and
+ * GL, as before.
+ */
+export function newEngineCatCapital(
+  line: CoverageLine, exposure: number, yearNumber: number, placed: readonly boolean[] | null,
+): number {
+  if (line !== 'Property' || !(exposure > 0)) return 0;
+  const layers = REINSURANCE_TOWER.Property.filter((l, i) => placed?.[i] === true && l.purchasable);
+  const h: PerLoss = (x, d) => poolShare(line, x) - layers.reduce((s, l) => s + cedeAboveLocal(poolShare(line, x), l, d), 0);
+  const kinks = (d: number) => layers.flatMap(l => [Math.max(l.attachment, d), l.attachment + l.limit]);
+  let weight = 0, retained = 0;
+  for (const e of SHOCK_EVENTS) {
+    if (!e.regional) continue;
+    const c = conditionalEventMoments(line, e.name, exposure, yearNumber, h, kinks);
+    if (c === null) continue;
+    weight += e.probability;
+    retained += e.probability * c.c1;
+  }
+  return weight > 0 ? retained / weight : 0;
+}

@@ -64,7 +64,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
-import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
+import { NEW_LOSS_ENGINE, NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, PricingTriangleState, ReserveDevelopmentRow } from '../../src/types/simulation';
 import { INTAKE_LOW } from '../../src/utils/intakeInspection';
 
@@ -227,6 +227,20 @@ interface ArmResult {
   notes: string[];
 }
 
+// ============================================================================
+// ⚠ ON THE NEW LOSS ENGINE EVERY ARM PLAYS WITH NO SHOCKS (host timing, empty
+// schedule), AND CONDITION 3 IS WHY. Its identity says the per-claim law cannot
+// reach the ledger while FULL_COST_BOOKING is on. The new engine's R shocks are
+// a DIFFERENT mechanism that does reach it, legitimately: they develop each
+// cohort's UNPAID reserve, and FORWARD_BOOKING — one of the two flags these
+// arms vary — changes what is unpaid. Measured with shocks on, at commit 3: the
+// arms differ by up to 2.04e-3 (WC) and 1.51e-3 (GL) in a single cell, every
+// difference on an opening cohort's late valuations; with shocks off, not one
+// ultimate differs. The identity is about the per-claim law, so it is asserted
+// where nothing else develops. shock-loss-check owns the R shocks.
+// ============================================================================
+const NO_SHOCKS = NEW_LOSS_ENGINE.enabled;
+
 function runArm(flagged: boolean, seedOffset = 0, tag = ''): ArmResult {
   const wasF = FORWARD_BOOKING.enabled, wasP = PRICING_TRIANGLE.enabled;
   FORWARD_BOOKING.enabled = flagged;
@@ -242,7 +256,11 @@ function runArm(flagged: boolean, seedOffset = 0, tag = ''): ArmResult {
     for (let g = 0; g < GAMES; g++) {
       const id = `RL${flagged ? 'F' : 'S'}${tag}${g}`;
       const instance = generateGameInstance(id, 9_100_000 + seedOffset + g * 7919);
-      const setup = { poolName: 'L', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
+      if (NO_SHOCKS) instance.scheduledShocks = [];
+      const setup = {
+        poolName: 'L', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES,
+        ...(NO_SHOCKS ? { shockTiming: 'host' as const } : {}),
+      };
       const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
       let gs: GameState = {
         setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false,

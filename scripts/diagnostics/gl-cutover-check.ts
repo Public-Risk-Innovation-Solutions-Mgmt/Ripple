@@ -40,6 +40,8 @@
 // (P99 ~8x mean) give the realized mean a +/-10pp CI of its own, so a +/-2pp
 // band around it is a coin flip. REPORT the realized draw against its own CI;
 // do not gate on it.
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

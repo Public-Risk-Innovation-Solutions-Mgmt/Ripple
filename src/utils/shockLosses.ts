@@ -2,9 +2,15 @@
 // THE NEW LOSS ENGINE'S SHOCKS — the R model's twelve-event catalogue and its
 // shock map, and the large losses they bring.
 //
-// Behind NEW_LOSS_ENGINE (off). Commit 2 of the loss engine plan; see
-// docs/PENDING_MULTIPLAYER.md section 3. With the flag off nothing here runs
-// and today's shocks (shockResolver.ts) are untouched.
+// The game's loss engine since loss engine commit 3, with ordinaryLoss.ts and
+// largeLosses.ts; commit 2 of the plan built it. See docs/PENDING_MULTIPLAYER.md
+// section 3. Each line is one book: with MEMBER_LEVEL off (the default) a large
+// loss lands on the book itself (BOOK_MEMBER_ID), not on a member.
+//
+// ⚠ THE OLD ENGINE IS FROZEN ON THE `legacy-engine` BRANCH (b234c36), never
+// committed to: `git checkout legacy-engine && npm ci && npm run gates`, or
+// `npm run dev` to play it. The advance-single-player branch also carries the
+// full old engine, as its own game.
 //
 // WHAT AN EVENT DOES, per line, on the R model's shock map:
 //
@@ -261,19 +267,37 @@ export interface LargeLossDraw {
   routine: { count: number; groundUp: number; excess: number };
 }
 
-/** A member drawn in proportion to exposure, from `pool` in id order. */
-function pickMember(rng: SeededRandom, pool: { m: Member; w: number }[], total: number): Member {
+/**
+ * WHERE A LARGE LOSS LANDS. A member (MEMBER_LEVEL on), or — with no roster —
+ * the line's book in one of its regions, carrying BOOK_MEMBER_ID.
+ */
+type Lander = Pick<Member, 'id' | 'region'> & { wcRatingGroup?: Member['wcRatingGroup'] };
+
+/** The id a large loss carries when there is no member to carry it. */
+export const BOOK_MEMBER_ID = 'book';
+
+/** A lander drawn in proportion to exposure, from `pool` in id order. */
+function pickMember(rng: SeededRandom, pool: { m: Lander; w: number }[], total: number): Lander {
   let u = rng.next() * total;
   for (const p of pool) { u -= p.w; if (u < 0) return p.m; }
   return pool[pool.length - 1].m;
 }
 
-function weighted(members: readonly Member[], line: CoverageLine, yearNumber: number, region?: Region) {
-  const pool = members
-    .filter(m => !region || m.region === region)
-    .map(m => ({ m, w: getMemberExposure(m, line, yearNumber) }))
-    .filter(p => p.w > 0)
-    .sort((a, b) => (a.m.id < b.m.id ? -1 : a.m.id > b.m.id ? 1 : 0));
+/**
+ * The pool losses land on, weighted by exposure. With no roster it is the
+ * book's three regions at REGION_EXPOSURE_SHARE — or just the struck region
+ * for a regional T, which lands whole there.
+ */
+function weighted(members: readonly Member[] | null, line: CoverageLine, yearNumber: number, region?: Region) {
+  const pool: { m: Lander; w: number }[] = members === null
+    ? CAT_REGIONS
+      .filter(r => !region || r === region)
+      .map(r => ({ m: { id: BOOK_MEMBER_ID, region: r }, w: REGION_EXPOSURE_SHARE[line][r] }))
+    : members
+      .filter(m => !region || m.region === region)
+      .map(m => ({ m: m as Lander, w: getMemberExposure(m, line, yearNumber) }))
+      .filter(p => p.w > 0)
+      .sort((a, b) => (a.m.id < b.m.id ? -1 : a.m.id > b.m.id ? 1 : 0));
   return { pool, total: pool.reduce((s, p) => s + p.w, 0) };
 }
 
@@ -284,7 +308,8 @@ function weighted(members: readonly Member[], line: CoverageLine, yearNumber: nu
  * path takes exactly as it takes any other.
  */
 export function drawLargeLosses(
-  line: CoverageLine, members: readonly Member[], yearNumber: number, calendarYear: number,
+  // null with MEMBER_LEVEL off: losses land on the book, by region.
+  line: CoverageLine, members: readonly Member[] | null, yearNumber: number, calendarYear: number,
   seed: number, shocks: LineShockYear, exposure: number,
 ): LargeLossDraw {
   const out: LargeLossDraw = {
@@ -294,9 +319,9 @@ export function drawLargeLosses(
   const book = weighted(members, line, yearNumber);
   const credit = (memberId: string, amount: number) =>
     out.byMember.set(memberId, (out.byMember.get(memberId) ?? 0) + amount);
-  const claimOf = (id: string, occurrenceId: string, m: Member, tier: string, amount: number, shockId?: string): Claim => ({
+  const claimOf = (id: string, occurrenceId: string, m: Lander, tier: string, amount: number, shockId?: string): Claim => ({
     id, occurrenceId, memberId: m.id, line, accidentYear: yearNumber, calendarYear, tier,
-    ...(line === 'WC' && m.wcRatingGroup ? { ratingClass: ratingGroupOf(m) } : {}),
+    ...(line === 'WC' && m.wcRatingGroup ? { ratingClass: ratingGroupOf(m as Member) } : {}),
     status: 'open', reportedYear: yearNumber, grossUltimate: amount, paidToDate: 0, caseReserve: amount,
     ...(shockId !== undefined ? { shockId } : {}),
   });

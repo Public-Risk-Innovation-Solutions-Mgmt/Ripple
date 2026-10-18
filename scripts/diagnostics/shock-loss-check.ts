@@ -339,9 +339,15 @@ try {
       const w = recs[2].newLossEngine!.withdrawnExposure;
       const stayed = recs[2].activeExposure;
       const share = w / (w + stayed);
-      const biggest = Math.max(...g.before[2].lines[line].members.map(m => getMemberExposure(m, line, 3))) / (w + stayed);
       const others = recs.filter((_, i) => i !== 2).every(r => r.newLossEngine!.withdrawnExposure === 0);
-      if (!(share >= 0.25 && share < 0.25 + biggest + 1e-9 && others)) ok = false;
+      // A book loses exactly a quarter; a roster loses whole members until it
+      // has lost at least a quarter, and not a member more.
+      const members = g.before[2].lines[line].members;
+      const book = g.before[2].lines[line].bookExposure;
+      const ok3 = book !== undefined
+        ? Math.abs(w / book - 0.25) < 1e-12
+        : share >= 0.25 && share < 0.25 + Math.max(...members.map(m => getMemberExposure(m, line, 3))) / (w + stayed) + 1e-9;
+      if (!(ok3 && others)) ok = false;
       detail.push(`${line} ${(100 * share).toFixed(1)}%`);
     }
     check(ok, 'Member Withdrawal: 25% of each line\'s exposure leaves at the next renewal, not a member more, and only then', detail.join(', '));

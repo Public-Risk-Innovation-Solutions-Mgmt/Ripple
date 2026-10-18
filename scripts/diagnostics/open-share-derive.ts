@@ -39,6 +39,8 @@
 // the line's own size mix, which is what this file does.
 // ============================================================================
 
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { initialEstimate } from '../../src/utils/claimTriangle';
 import { closedShare, claimClosureUnit } from '../../src/utils/claimClosure';

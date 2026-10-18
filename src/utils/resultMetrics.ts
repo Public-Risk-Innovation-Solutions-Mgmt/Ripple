@@ -9,6 +9,7 @@ import { eventLabel, yearEvents } from './yearEvents';
 import { placementCode, placementSummary } from './reinsuranceDisplay';
 import { developmentDisplay } from './developmentDisplay';
 import type { CoverageLine, LineDecisionSet, ResultSet } from '../types/simulation';
+import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
 
 // Which tower line a result row belongs to — WC or GL ONLY, never a guess.
 //
@@ -99,19 +100,22 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatPct(r.decisions.assessmentPct, 1),
       csvValue: r => r.decisions.assessmentPct,
     },
-    {
-      key: 'riskControlPct',
-      // Pool-wide: one choice projected into every line. The LINE form reads the
-      // projected copy; the POOL form reads the pool's own field. Same number,
-      // named where it lives — so the Pool tab keeps the row.
-      lineOnly: true,
-      poolCell: r => formatPct(r.pool.riskControlPct, 1),
-      poolCsvCell: r => r.pool.riskControlPct,
-      category: 'Decisions',
-      label: 'Risk Control %',
-      value: r => formatPct(r.decisions.riskControlPct, 1),
-      csvValue: r => r.decisions.riskControlPct,
-    },
+    // Hidden while RISK_CONTROL is off — risk control is pending design and reads 0.
+    ...(RISK_CONTROL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'riskControlPct',
+        // Pool-wide: one choice projected into every line. The LINE form reads the
+        // projected copy; the POOL form reads the pool's own field. Same number,
+        // named where it lives — so the Pool tab keeps the row.
+        lineOnly: true,
+        poolCell: r => formatPct(r.pool.riskControlPct, 1),
+        poolCsvCell: r => r.pool.riskControlPct,
+        category: 'Decisions',
+        label: 'Risk Control %',
+        value: r => formatPct(r.decisions.riskControlPct, 1),
+        csvValue: r => r.decisions.riskControlPct,
+      },
+    ] : []),
     {
       // ONE PRODUCT NOW, and REINSURANCE_PROGRAMS is gone rather than merely
       // dead — all three lines run the per-occurrence tower.
@@ -177,13 +181,16 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     //
     // ⚠ WHAT STAYS: `memberSatisfaction`. It is the pool's own scoreboard, is
     // asked for explicitly, and names no member.
-    {
-      key: 'memberSatisfaction',
-      category: 'Membership',
-      label: 'Member Satisfaction',
-      value: r => r.memberSatisfaction.toFixed(2),
-      csvValue: r => r.memberSatisfaction,
-    },
+    // Hidden with MEMBER_LEVEL off: satisfaction feeds nothing and returns as a pool-level figure once designed.
+    ...(MEMBER_LEVEL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'memberSatisfaction',
+        category: 'Membership',
+        label: 'Member Satisfaction',
+        value: r => r.memberSatisfaction.toFixed(2),
+        csvValue: r => r.memberSatisfaction,
+      },
+    ] : []),
     {
       key: 'activeExposure',
       category: 'Membership',
@@ -468,13 +475,16 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.operatingExpense),
       csvValue: r => roundDollars(r.operatingExpense),
     },
-    {
-      key: 'riskControlInvestment',
-      category: 'Expenses and Income',
-      label: 'Risk Control Investment',
-      value: r => formatCurrency(r.riskControlInvestment),
-      csvValue: r => roundDollars(r.riskControlInvestment),
-    },
+    // Hidden while RISK_CONTROL is off — no spend is charged.
+    ...(RISK_CONTROL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'riskControlInvestment',
+        category: 'Expenses and Income',
+        label: 'Risk Control Investment',
+        value: r => formatCurrency(r.riskControlInvestment),
+        csvValue: r => roundDollars(r.riskControlInvestment),
+      },
+    ] : []),
     {
       /**
        * ⚠ ZERO ON EVERY DEFAULT GAME, AND IT IS STILL A ROW. The default places

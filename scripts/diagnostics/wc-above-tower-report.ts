@@ -42,6 +42,8 @@
 // unaffected by placement — but pricing and surplus are, and the worst-year
 // figure is only interpretable against a stated arm.
 
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';

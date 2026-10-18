@@ -3,6 +3,8 @@
 // below the $5M per-risk retention. Originally written to size the Property
 // Mitigation program; kept as a standing report since PROPERTY_LOSS_MODEL and
 // the roster both keep changing under it.
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { writeFileSync } from 'fs';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { generatePropertyClaims, expectedPropertyGrossLoss } from '../../src/utils/propertyClaimEngine';

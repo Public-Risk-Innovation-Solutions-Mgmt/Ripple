@@ -75,6 +75,8 @@
 // program id cannot express — it was run on a copy with
 // WC_SAFETY_FREQUENCY_REDUCTION set to 0.
 // ============================================================================
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';

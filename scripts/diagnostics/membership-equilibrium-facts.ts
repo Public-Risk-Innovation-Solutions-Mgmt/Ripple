@@ -25,6 +25,8 @@
 //
 // REPORTS ONLY. Changes nothing.
 
+// THE MEMBER PATH ON THE OLD ENGINE — first, before anything reads a flag. A reading of member-level behaviour: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { PREDEFINED_MARKET_MEMBERS, MARKET_MEMBER_COUNT } from '../../src/data/memberCatalog';
 import { getMemberExposure } from '../../src/utils/lineHelpers';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';

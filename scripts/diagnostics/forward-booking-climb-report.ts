@@ -61,6 +61,8 @@
 // seed does not cancel. Size the levels, not the differences.
 // ============================================================================
 
+// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { initialEstimate, cumulativeDevelopment } from '../../src/utils/claimTriangle';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';

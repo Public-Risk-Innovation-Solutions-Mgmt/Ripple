@@ -25,6 +25,8 @@ import {
 import { APPLICATION_RATE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import { applicantInclusion } from '../utils/membershipEngine';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
+import { intakeShare } from '../utils/bookUnderwriting';
 
 export interface LineLoanInfo {
   balance: number;
@@ -242,33 +244,59 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
               MECHANISM being decided against, or the product's changelog? The
               GL retention note below survives it because an uncapped exposure
               is a live financial fact. This one did not. */}
-          <RenewalUnderwriting
-            line={selectedLine}
-            members={lastLineResult?.memberList ?? []}
-            history={memberLossHistory}
-            yearNumber={yearNumber}
-            value={d.renewalCut ?? 0}
-            onChange={v => set('renewalCut', v)}
-            disabled={disabled}
-          />
-          <IntakeSlider
-            line={selectedLine}
-            members={lastLineResult?.memberList ?? []}
-            allMarketMembers={allMarketMembers}
-            membershipHistory={membershipHistory}
-            yearNumber={yearNumber}
-            value={d.intakeLevel ?? INTAKE_NONE}
-            onChange={v => set('intakeLevel', v)}
-            disabled={disabled}
-          />
+          {MEMBER_LEVEL.enabled ? (
+            <>
+              <RenewalUnderwriting
+                line={selectedLine}
+                members={lastLineResult?.memberList ?? []}
+                history={memberLossHistory}
+                yearNumber={yearNumber}
+                value={d.renewalCut ?? 0}
+                onChange={v => set('renewalCut', v)}
+                disabled={disabled}
+              />
+              <IntakeSlider
+                line={selectedLine}
+                members={lastLineResult?.memberList ?? []}
+                allMarketMembers={allMarketMembers}
+                membershipHistory={membershipHistory}
+                yearNumber={yearNumber}
+                value={d.intakeLevel ?? INTAKE_NONE}
+                onChange={v => set('intakeLevel', v)}
+                disabled={disabled}
+              />
+            </>
+          ) : (
+            <>
+              {/* ONE BOOK PER LINE: renewal and intake move the book's exposure,
+                  not members. See bookUnderwriting.ts. */}
+              <BookRenewal
+                exposure={lastLineResult?.activeExposure ?? 0}
+                value={d.renewalCut ?? 0}
+                onChange={v => set('renewalCut', v)}
+                disabled={disabled}
+              />
+              <BookIntake
+                line={selectedLine}
+                exposure={lastLineResult?.activeExposure ?? 0}
+                value={d.intakeLevel ?? INTAKE_NONE}
+                onChange={v => set('intakeLevel', v)}
+                disabled={disabled}
+              />
+            </>
+          )}
         </SectionCard>
 
         <SectionCard title="Investment in Risk Control Incentives" icon={<Shield size={16} />}>
+          {/* ⚠ PENDING DESIGN WHILE RISK_CONTROL IS OFF: shown so testers see it
+              is part of the game, held at 0% and disabled, labelled "coming
+              soon". The stored decision is untouched and nothing reads it. */}
           <RiskControlIncentives
             line={selectedLine}
-            value={d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default}
+            value={RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default) : 0}
             onChange={v => set('riskControlIncentivePct', v)}
-            disabled={disabled}
+            disabled={disabled || !RISK_CONTROL.enabled}
+            comingSoon={!RISK_CONTROL.enabled}
           />
         </SectionCard>
         </div>
@@ -829,6 +857,84 @@ function PropertyNoSignalNote() {
 // deferred for the reasons recorded above IntakeSlider — table time and the
 // loss of the forecast.
 // ============================================================================
+// ============================================================================
+// THE BOOK'S UNDERWRITING — MEMBER_LEVEL off. Two settings on one book: the
+// share of it not renewed, and the share of it written new each year. Both
+// read and act on exposure; no member is named or counted.
+// ============================================================================
+function BookRenewal({ exposure, value, onChange, disabled }: {
+  exposure: number;
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  const top = RENEWAL_CUT_STEPS[RENEWAL_CUT_STEPS.length - 1];
+  const step = RENEWAL_CUT_STEPS[1] - RENEWAL_CUT_STEPS[0];
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
+      <SliderInput
+        label="Renewal"
+        value={value}
+        min={0}
+        max={top}
+        step={step}
+        onChange={onChange}
+        formatValue={v => (v > 0 ? `Non-renew ${(v * 100).toFixed(0)}% of the book` : 'Renew all')}
+        leftLabel="Renew all"
+        rightLabel={`${(top * 100).toFixed(0)}% of the book`}
+        disabled={disabled}
+      />
+      <p className="text-xs text-gray-600">
+        {value > 0
+          ? `About $${(exposure * value).toFixed(0)}M of exposure is not renewed — the book opens next year at about `
+            + `$${(exposure * (1 - value)).toFixed(0)}M before new business.`
+          : `The whole book is renewed — about $${exposure.toFixed(0)}M of exposure before new business.`}
+      </p>
+    </div>
+  );
+}
+
+function BookIntake({ line, exposure, value, onChange, disabled }: {
+  line: CoverageLine;
+  exposure: number;
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  const share = intakeShare(value);
+  const market = FULL_MARKET_EXPOSURE[line];
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
+      <SliderInput
+        label="Intake"
+        value={value}
+        min={INTAKE_NONE}
+        max={INTAKE_LOW}
+        step={1}
+        onChange={onChange}
+        formatValue={intakeLabel}
+        disabled={disabled}
+      />
+      <div className="grid grid-cols-4 text-[11px] text-gray-400 -mt-1">
+        {INTAKE_POSITIONS.map((p, i) => (
+          <span
+            key={p.name}
+            className={`${i === 0 ? 'text-left' : i === INTAKE_POSITIONS.length - 1 ? 'text-right' : 'text-center'} ${i === value ? 'font-semibold text-gray-700' : ''}`}
+          >
+            {p.name} {(intakeShare(i) * 100).toFixed(0)}%
+          </span>
+        ))}
+      </div>
+      <p className="text-xs text-gray-600">
+        {share > 0
+          ? `Writes about $${(exposure * share).toFixed(0)}M of new exposure this year — ${(share * 100).toFixed(0)}% of the book, `
+            + `up to the whole market's $${market.toLocaleString('en-US')}M.`
+          : 'No new business is written.'}
+      </p>
+    </div>
+  );
+}
+
 function RenewalUnderwriting({
   line, members, history, yearNumber, value, onChange, disabled,
 }: {
@@ -1026,11 +1132,13 @@ const RISK_CONTROL_PROGRAM_NAME: Record<CoverageLine, string> = {
   Property: 'Mitigation',
 };
 
-function RiskControlIncentives({ line, value, onChange, disabled }: {
+function RiskControlIncentives({ line, value, onChange, disabled, comingSoon = false }: {
   line: CoverageLine;
   value: number;
   onChange: (v: number) => void;
   disabled: boolean;
+  /** RISK_CONTROL off: the slider is shown at 0%, disabled, as coming soon. */
+  comingSoon?: boolean;
 }) {
   const r = SLIDER_RANGES.riskControlIncentivePct;
   return (
@@ -1055,7 +1163,9 @@ function RiskControlIncentives({ line, value, onChange, disabled }: {
       </p>
       <p className="flex items-start gap-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 leading-relaxed">
         <Info size={12} className="mt-0.5 flex-shrink-0" />
-        <span>Not yet active — will feed the new rate indication. The figure is saved with the year&rsquo;s decisions, and no result moves with it.</span>
+        <span>{comingSoon
+          ? 'Coming soon — risk control is being redesigned for the pool as a whole. It is held at 0% until then and costs nothing.'
+          : 'Not yet active — will feed the new rate indication. The figure is saved with the year\u2019s decisions, and no result moves with it.'}</span>
       </p>
     </div>
   );

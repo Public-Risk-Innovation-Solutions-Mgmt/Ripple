@@ -31,10 +31,22 @@ import type { LineLoanInfo } from '../pages/DecisionsPage';
 import type { FundingConsequence } from '../utils/fundingConsequence';
 import { computeFundingConsequence } from '../utils/fundingConsequence';
 import { aggregateTermsRetainedPer100 } from '../utils/simulationEngine';
-import { newPurePremiumPer100 } from '../utils/newPurePremium';
+import { bookPurePremium, newPurePremiumPer100 } from '../utils/newPurePremium';
 import { pricingExperienceBasis } from '../utils/pricingTriangle';
 import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEngine';
-import { getMemberExposure, selectResultView } from '../utils/lineHelpers';
+import { bookExposureOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
+import { exposureFactor } from '../data/exposureTrend';
+import type { LinePoolState } from '../types/simulation';
+
+/** A line's exposure this year — its book, or its active roster. */
+function lineBookExposure(lineState: LinePoolState, line: CoverageLine, yearNumber: number): number {
+  return lineState.bookExposure !== undefined
+    ? lineState.bookExposure * exposureFactor(line, yearNumber)
+    : lineState.members
+      .filter(m => m.status === 'active')
+      .reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
+}
+import { effectiveRiskControlIncentivePct } from '../utils/linePricing';
 
 export interface GameDerivations {
   decisionLine: CoverageLine;
@@ -116,9 +128,7 @@ export function useGameDerivations(
     if (!gameState) return 3_500_000;
 
     const lineState = gameState.poolState.lines[decisionLine];
-    const exposure = lineState.members
-      .filter(m => m.status === 'active')
-      .reduce((s, m) => s + getMemberExposure(m, decisionLine, gameState.currentYearNumber), 0);
+    const exposure = lineBookExposure(lineState, decisionLine, gameState.currentYearNumber);
 
     return exposure * lineState.purePremiumPer100 * 10_000;
   }, [gameState, decisionLine]);
@@ -143,9 +153,7 @@ export function useGameDerivations(
       membershipHistory: gameState.poolState.membershipHistory,
     });
     if (rate === undefined) return undefined;
-    const exposure = lineState.members
-      .filter(m => m.status === 'active')
-      .reduce((s, m) => s + getMemberExposure(m, decisionLine, gameState.currentYearNumber), 0);
+    const exposure = lineBookExposure(lineState, decisionLine, gameState.currentYearNumber);
     return exposure * rate * 10_000;
   }, [gameState, decisionLine]);
 
@@ -179,6 +187,15 @@ export function useGameDerivations(
     if (!gameState) return [];
     return gameState.poolState.lines[decisionLine].members.filter(m => m.status === 'active');
   }, [gameState, decisionLine]);
+  // What the panel prices — the roster, or with MEMBER_LEVEL off the line's one
+  // book, exactly as the engine does (see Book).
+  const decisionLineBook: Book = React.useMemo(() => {
+    if (!gameState) return [];
+    const lineState = gameState.poolState.lines[decisionLine];
+    return lineState.bookExposure !== undefined
+      ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber) }
+      : decisionLineActiveMembers;
+  }, [gameState, decisionLine, decisionLineActiveMembers]);
 
   const decisionLineFundingLevel = currentDecisions.byLine[decisionLine].fundingConfidenceLevel;
   const decisionLineFundingAtExpected = currentDecisions.byLine[decisionLine].fundingAtExpected;
@@ -195,10 +212,8 @@ export function useGameDerivations(
         yearNumber: gameState.currentYearNumber,
         // The tower prices off the book itself, so the panel needs the members
         // and the year, not just an exposure total.
-        members: decisionLineActiveMembers,
-        exposure: decisionLineActiveMembers.reduce(
-          (sum, m) => sum + getMemberExposure(m, decisionLine, gameState.currentYearNumber), 0,
-        ),
+        members: decisionLineBook,
+        exposure: bookExposureOf(decisionLineBook, decisionLine, gameState.currentYearNumber),
         layersPlaced: d.layersPlaced,
         aggregateStopLevel: d.aggregateStopLevel,
         pricingAdjustment: lineState.rateLevel / 100,
@@ -224,14 +239,20 @@ export function useGameDerivations(
         // page is holding, which after year N is processed is the state year
         // N+1 will be priced from. Still undefined before the first priced
         // year, which is when the panel has no comparison to show either.
-        groundUpPurePremiumPer100: newPurePremiumPer100(
-          decisionLine, gameState.currentYearNumber, {
+        // A book takes the engine's own book rule — the ledger's figure, or
+        // the engine's expectation before the ledger has one.
+        groundUpPurePremiumPer100: (isRoster(decisionLineBook)
+          ? newPurePremiumPer100(decisionLine, gameState.currentYearNumber, {
             rows: gameState.poolState.lines[decisionLine]?.reserveDevelopment ?? [],
             allMarketMembers: gameState.poolState.allMarketMembers,
             membershipHistory: gameState.poolState.membershipHistory,
-          },
-        )?.purePremiumPer100,
-        newStackRiskControlPct: d.riskControlIncentivePct ?? 0,
+          })
+          : bookPurePremium(decisionLine, gameState.currentYearNumber, {
+            rows: gameState.poolState.lines[decisionLine]?.reserveDevelopment ?? [],
+            allMarketMembers: gameState.poolState.allMarketMembers,
+            membershipHistory: gameState.poolState.membershipHistory,
+          }, bookExposureOf(decisionLineBook, decisionLine, gameState.currentYearNumber)))?.purePremiumPer100,
+        newStackRiskControlPct: effectiveRiskControlIncentivePct(d),
         // S3: the panel prices off the same played triangle the engine does.
         //
         // ⚠ IT DID NOT, UNTIL THIS COMMIT. These three fields were spelled out
@@ -241,10 +262,10 @@ export function useGameDerivations(
         // and 72.9% at worst, in every line-year of every game from year one.
         // pricingExperienceBasis is now the single builder; see its header for
         // the measurement and for the identity that validates it.
-        experience: pricingExperienceBasis(gameState.poolState, decisionLine),
+        experience: isRoster(decisionLineBook) ? pricingExperienceBasis(gameState.poolState, decisionLine) : undefined,
       },
     );
-  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineActiveMembers, currentDecisions]);
+  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineBook, currentDecisions]);
 
   return {
     decisionLine,

@@ -1,3 +1,6 @@
+// THE OLD ENGINE — first, before anything reads a flag. It cross-checks quantities on a redrawn
+// per-claim register, an old-engine mechanism: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { RESULT_METRICS } from '../../src/utils/resultMetrics';
 import { toHistoricalYear } from '../../src/utils/priorHistoryEngine';
 import { isClaimClosed } from '../../src/utils/claimClosure';

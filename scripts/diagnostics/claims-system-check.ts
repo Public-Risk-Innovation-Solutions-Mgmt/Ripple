@@ -28,6 +28,8 @@
 // engine used. So the difference between arms is the program and nothing else,
 // and the null arm can be compared claim-for-claim rather than in aggregate.
 // ============================================================================
+// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
+import '../tools/engine-mode/legacy-engine';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';

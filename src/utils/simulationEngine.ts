@@ -44,7 +44,7 @@ function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | 
 function newLossEngineRecord(
   ordinary: OrdinaryLossYear, shocks: LineShockYear, large: LargeLossDraw,
   expected: { ordinary: number; uplift: number; shockLarge: number; routineLarge: number; total: number },
-  rDevelopment: number, withdrawnExposure: number,
+  rDevelopment: number, penalty: number, withdrawnExposure: number,
 ): NewLossEngineRecord {
   const events = new Map<string, NewLossEngineRecord['events'][number]>();
   const note = (f: LineShockYear['byFiring'][number]['firing'], uplift: number, rRate: number) => {
@@ -64,7 +64,7 @@ function newLossEngineRecord(
     ordinaryExpected: ordinary.expected,
     ordinaryFactor: ordinary.factor,
     uplift: shocks.uplift,
-    ordinaryRealised: ordinary.realised * (1 + shocks.uplift),
+    ordinaryRealised: ordinary.realised * (1 + shocks.uplift) * penalty,
     shockLarge,
     shockLargeClaims,
     routineLargeClaims: large.routine.count,
@@ -112,7 +112,7 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
 import { SeededRandom, deriveSubRng } from './random';
 // Aliased: the result field is called newPurePremiumPer100 too, and the
 // unaliased import collides with it in this scope.
-import { newPurePremiumPer100 as computeNewPurePremium } from './newPurePremium';
+import { bookPurePremium, newPurePremiumPer100 as computeNewPurePremium } from './newPurePremium';
 import { dividendAssessmentBasis } from './dividendAssessment';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, FULL_COST_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
@@ -149,12 +149,13 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack } from './linePricing';
-import { NEW_LOSS_ENGINE, NEW_RATE_STACK, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { MEMBER_LEVEL, NEW_BUSINESS_PENALTY, NEW_LOSS_ENGINE, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
+import { bookMovementResult, moveBook } from './bookUnderwriting';
 import { ordinaryLossCostPer100, ordinaryLossYear, ordinaryMemberRecords, type OrdinaryLossYear } from './ordinaryLoss';
 import { drawLargeLosses, firingKey, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
-import { expectedLossBreakdown } from './shockExpectation';
+import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { SHOCK_CATALOG } from '../data/shockCatalog';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
@@ -166,7 +167,7 @@ import { computeKGl, deriveNeutralGlPurePremiumPer100, expectedGlGrossLossForPri
 import { computeKPr, generatePropertyClaims, propertyCappedSeverityTrend } from './propertyClaimEngine';
 import { generateNarrative } from './narrativeEngine';
 import { grossUpRetainedPurePremium, quoteLineRates, type CessionBasis } from './linePricing';
-import { getMemberExposure } from './lineHelpers';
+import { getMemberExposure, type Book } from './lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 
@@ -706,7 +707,18 @@ export function processLineYear(
   // the same constraint (you price off the book you have, not one that
   // hasn't been determined yet); the "preliminary vs final" split already
   // used for estimatedExposure/estimatedPremium below is the same tolerance.
-  const currentActiveMembers = lineState.members.filter(m => m.status === 'active');
+  // ==========================================================================
+  // ⚠ ONE BOOK, OR A ROSTER. With MEMBER_LEVEL off (the game as it ships) the
+  // line has no members: `bookExposure` is the line, and everything that would
+  // have walked a roster reads that one figure instead (see Book in
+  // lineHelpers). With it on, the member path runs as it stood at commit 2.
+  // The book needs the new loss engine — there is nothing else for it to draw.
+  // ==========================================================================
+  const bookMode = !MEMBER_LEVEL.enabled;
+  if (bookMode && !NEW_LOSS_ENGINE.enabled) {
+    throw new Error('processLineYear: MEMBER_LEVEL off needs NEW_LOSS_ENGINE on — a book has no claim generator');
+  }
+  const currentActiveMembers = bookMode ? [] : lineState.members.filter(m => m.status === 'active');
 
   // --- Selected Funding Confidence ---
   // CLF is selected by the player and applied after the expected actuarial loss-cost rate is calculated.
@@ -747,6 +759,12 @@ export function processLineYear(
   // +7.5pp, sized in scripts/diagnostics/property-clf-basis-report.ts — is what
   // that table fixed, and is history rather than a live defect.
   const selectedFundingConfidenceLevel = lineDecisions.fundingConfidenceLevel;
+  // ⚠ RISK CONTROL IS PENDING DESIGN AND COSTS NOTHING WHILE IT IS. Its effects
+  // lived in the old per-claim generators, so with RISK_CONTROL off the
+  // incentive, the spend and the programs are all read as zero here — no
+  // charge and no effect — and the decisions themselves are kept as stored.
+  const riskControlIncentivePct = RISK_CONTROL.enabled ? (lineDecisions.riskControlIncentivePct ?? 0) : 0;
+  const riskControlSpendPct = RISK_CONTROL.enabled ? lineDecisions.riskControlPct : 0;
   // ⚠ THE PRE-MOVEMENT k_line / k_GL THAT USED TO BE COMPUTED HERE IS GONE.
   // It existed only to index the retired CV/lambda grids, and the static tables
   // take no book argument. The DRAW's own k is unaffected and is still computed
@@ -791,7 +809,7 @@ export function processLineYear(
 
   const priorRCEffectiveness = lineState.riskControlEffectiveness;
 
-  const newRCEffectiveness = projectedRcEffectiveness(priorRCEffectiveness, lineDecisions.riskControlPct);
+  const newRCEffectiveness = projectedRcEffectiveness(priorRCEffectiveness, riskControlSpendPct);
 
   // WC and GL price off their claim generators' OWN analytic expectations, so
   // premium and losses share one basis by construction — the finding-6
@@ -875,7 +893,11 @@ export function processLineYear(
   // which needs the cession basis — and the per-$100 divisor in that basis is
   // this exposure. Pure reduce over the pre-movement book; moving it earlier
   // changes no value.
-  const estimatedExposure = currentActiveMembers.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
+  const estimatedExposure = bookMode
+    ? (lineState.bookExposure ?? 0) * exposureFactor(line, yearNumber)
+    : currentActiveMembers.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
+  // The book the pre-movement quote prices — the roster, or its exposure.
+  const preMovementBook: Book = bookMode ? { exposure: estimatedExposure } : currentActiveMembers;
 
   // ⚠ THE AGGREGATE'S TERMS, AGREED ONCE FOR THE WHOLE LINE-YEAR, BEFORE ANY
   // RATE IS SOLVED. Undefined on the held path, where the rate is a constant and
@@ -884,7 +906,10 @@ export function processLineYear(
   // passes and the recovery — so that the treaty the year is PRICED on is the
   // treaty it is SETTLED on. Deriving it separately at any of those sites would
   // be the same class of split-basis defect this file has produced six times.
-  const termsRetainedPer100 = aggregateTermsRetainedPer100(line, experienceBasis);
+  // A book has no membership history for the experience path to rebuild each
+  // year's exposure from, so its terms come from the quote's own expected
+  // retained — the held path's rule.
+  const termsRetainedPer100 = bookMode ? undefined : aggregateTermsRetainedPer100(line, experienceBasis);
 
   // ⚠ THE SAME CESSION THE PRE-MOVEMENT QUOTE WILL SUBTRACT. quoteLineRates is
   // called below with exactly these members, this exposure and these decisions,
@@ -892,15 +917,29 @@ export function processLineYear(
   // different book to either would reintroduce the double deduction in a form
   // no gate would name.
   const estimatedCession: CessionBasis = {
-    members: currentActiveMembers,
+    members: preMovementBook,
     exposure: estimatedExposure,
     layersPlaced: lineDecisions.layersPlaced,
     aggregateStopLevel: lineDecisions.aggregateStopLevel,
     aggregateTermsRetainedPer100: termsRetainedPer100,
   };
-  const newPurePremiumPer100 = currentPurePremiumPer100(
-    line, yearNumber, currentActiveMembers, experienceBasis, estimatedCession,
-  );
+  // ⚠ COMPUTED HERE NOW, AHEAD OF THE OLD STACK. It reads only the ledger and
+  // the roster history, so moving it changes no value; the book needs it first.
+  // With no usable accident year yet — the first years of a book's pre-game —
+  // the book prices at the new engine's own ex-ante expectation instead.
+  const newPpBasis = {
+    rows: lineState.reserveDevelopment ?? [],
+    allMarketMembers: ctx.allMarketMembers,
+    membershipHistory: ctx.membershipHistory,
+  };
+  const newPp = bookMode
+    ? bookPurePremium(line, yearNumber, newPpBasis, estimatedExposure)
+    : computeNewPurePremium(line, yearNumber, newPpBasis);
+  // THE OLD STACK'S PURE PREMIUM — a roster blend of the old engine's held
+  // figures. A book has neither; its pure premium IS the new stack's.
+  const newPurePremiumPer100 = bookMode
+    ? (newPp as NonNullable<typeof newPp>).purePremiumPer100
+    : currentPurePremiumPer100(line, yearNumber, currentActiveMembers, experienceBasis, estimatedCession);
 
   // --- THE PRICE SIGNAL MEMBERS RESPOND TO ---------------------------------
   //
@@ -980,23 +1019,6 @@ export function processLineYear(
   // after the rate as a shadow nothing read. The new stack prices OFF it, so it
   // has to exist before the quote does. The computation is unchanged, and with
   // NEW_RATE_STACK off it is still read by nothing but the result field.
-  const newPp = computeNewPurePremium(line, yearNumber, {
-    rows: lineState.reserveDevelopment ?? [],
-    allMarketMembers: ctx.allMarketMembers,
-    membershipHistory: ctx.membershipHistory,
-  });
-
-  const oldStackQuote = quoteLineRates({
-    line,
-    yearNumber,
-    members: currentActiveMembers,
-    exposure: estimatedExposure,
-    purePremiumPer100: newPurePremiumPer100,
-    clf: selectedFundingCLF,
-    pricingAdjustment,
-    layersPlaced: lineDecisions.layersPlaced,
-    aggregateStopLevel: lineDecisions.aggregateStopLevel,
-  });
 
   // ⚠ THE NEW STACK IS COMPUTED ONLY WHEN THE FLAG IS ON, and that is a
   // performance decision as much as a safety one. It prices the tower a second
@@ -1008,19 +1030,32 @@ export function processLineYear(
     ? quoteNewRateStack({
       line,
       yearNumber,
-      members: currentActiveMembers,
+      members: preMovementBook,
       exposure: estimatedExposure,
       groundUpPurePremiumPer100: newPp.purePremiumPer100,
       clf: selectedFundingCLF,
-      riskControlPct: lineDecisions.riskControlIncentivePct ?? 0,
+      riskControlPct: riskControlIncentivePct,
       layersPlaced: lineDecisions.layersPlaced,
       aggregateStopLevel: lineDecisions.aggregateStopLevel,
     })
     : null;
 
+  // THE OLD STACK, ONLY WHEN THE NEW ONE HAS NOTHING TO PRICE FROM. Computed
+  // only then: it is a roster blend of the old engine's held figures and a book
+  // never reaches it (its fallback above always gives the new stack a figure).
   const estimatedQuote = newStack !== null
     ? newStackAsLineRateQuote(newStack, estimatedExposure)
-    : oldStackQuote;
+    : quoteLineRates({
+    line,
+    yearNumber,
+    members: preMovementBook,
+    exposure: estimatedExposure,
+    purePremiumPer100: newPurePremiumPer100,
+    clf: selectedFundingCLF,
+    pricingAdjustment,
+    layersPlaced: lineDecisions.layersPlaced,
+    aggregateStopLevel: lineDecisions.aggregateStopLevel,
+  });
 
   // ⚠ THIS QUOTE IS THE PRICE SIGNAL, NOT THE BILL. It is struck on the book as
   // it stands before anyone joins or leaves, because that is the only book that
@@ -1048,7 +1083,22 @@ export function processLineYear(
 
   const memberRng = deriveSubRng(instance.seed, yearNumber, lineRngLabel('members', line));
 
-  const memberResult = simulateMemberMovement({
+  // THE BOOK MOVES AS EXPOSURE — renewal, Member Withdrawal, intake, capped at
+  // the full market; frozen through the pre-game. See bookUnderwriting.ts. It
+  // stands in for movement's result below, so the rest of the year reads one
+  // shape either way.
+  const bookMovement = bookMode
+    ? moveBook(line, lineState.bookExposure ?? 0, lineDecisions, ctx.shockYear?.withdrawal === true, ctx.freezeMembership)
+    : null;
+  // THE NEW-BUSINESS PENALTY, on the ordinary losses of exposure written this
+  // year (a book only), read by the draw and by the expectation alike. At its
+  // zero parameter this is exactly 1.
+  const newBusinessPenaltyFactor = 1 + NEW_BUSINESS_PENALTY * (bookMovement?.newShare ?? 0);
+  const memberResult = bookMovement
+    ? bookMovementResult(
+      line, bookMovement, exposureFactor(line, yearNumber), lineState.memberSatisfaction, lineState.averageRiskQuality,
+    )
+    : simulateMemberMovement({
     applicationRateOverride: ctx.applicationRateOverride,
     instanceSeed: instance.seed,
     freezeMembership: ctx.freezeMembership,
@@ -1112,7 +1162,8 @@ export function processLineYear(
   // exposure leaves at the renewal after the event — the members' decision,
   // not the pool's, so it is recorded as a withdrawal and starts the same
   // cooldown. See withdrawForShock. Absent, this is the renewal as it was.
-  const shockWithdrawal = ctx.shockYear?.withdrawal && !ctx.freezeMembership
+  // A book takes its withdrawal in moveBook, as exposure.
+  const shockWithdrawal = ctx.shockYear?.withdrawal && !ctx.freezeMembership && !bookMode
     ? withdrawForShock(renewal.retained, line, yearNumber, instance.seed)
     : null;
   if (shockWithdrawal) {
@@ -1148,9 +1199,14 @@ export function processLineYear(
   // cut at 0 — is bit-identical to what shipped and pays for no second quote.
   // "Unchanged" is the same members in the same order; anything else re-quotes.
   // ============================================================================
-  const bookUnchanged = enrolledMembers.length === currentActiveMembers.length
-    && enrolledMembers.every((m, i) => m.id === currentActiveMembers[i].id);
-  const towerMembers = bookUnchanged ? currentActiveMembers : enrolledMembers;
+  // A book is unchanged when its exposure did not move; it is quoted as itself.
+  const bookUnchanged = bookMovement
+    ? bookMovement.after === bookMovement.before
+    : enrolledMembers.length === currentActiveMembers.length
+      && enrolledMembers.every((m, i) => m.id === currentActiveMembers[i].id);
+  const towerMembers: Book = bookMode
+    ? { exposure: activeExposure }
+    : bookUnchanged ? currentActiveMembers : enrolledMembers;
   const towerQuote = bookUnchanged || placedForCost === null
     ? estimatedQuote.towerQuote
     : occurrenceProgramCost(line as TowerLine, placedForCost, towerMembers, yearNumber);
@@ -1182,9 +1238,11 @@ export function processLineYear(
     aggregateStopLevel: lineDecisions.aggregateStopLevel,
     aggregateTermsRetainedPer100: termsRetainedPer100,
   };
-  const pricedPurePremiumPer100 = currentPurePremiumPer100(
-    line, yearNumber, enrolledMembers, experienceBasis, pricedCession,
-  );
+  // A book's pure premium is the new stack's, and moving the book does not move
+  // it (it is read off the ledger) — the same number as before movement.
+  const pricedPurePremiumPer100 = bookMode
+    ? newPurePremiumPer100
+    : currentPurePremiumPer100(line, yearNumber, enrolledMembers, experienceBasis, pricedCession);
 
   // ⚠ THE NEW PURE PREMIUM, IN SHADOW. Commit 2 of the pricing rebuild: it is
   // computed here so it sees exactly the basis the real rate saw, and it is
@@ -1240,6 +1298,7 @@ export function processLineYear(
     : undefined;
   const expectedLoss = newEngineExpected
     ? newEngineExpected.total
+      + (newBusinessPenaltyFactor - 1) * (newEngineExpected.ordinary + newEngineExpected.uplift)
     : activeExposure * pricedPurePremiumPer100 * 10_000;
 
   // The agreed treaty basis in dollars, on the SAME post-movement exposure
@@ -1317,7 +1376,7 @@ export function processLineYear(
       exposure: activeExposure,
       groundUpPurePremiumPer100: newPp.purePremiumPer100,
       clf: selectedFundingCLF,
-      riskControlPct: lineDecisions.riskControlIncentivePct ?? 0,
+      riskControlPct: riskControlIncentivePct,
       layersPlaced: lineDecisions.layersPlaced,
       aggregateStopLevel: lineDecisions.aggregateStopLevel,
     })
@@ -1524,7 +1583,10 @@ export function processLineYear(
   //
   // ⚠ PER LINE, AND THE PROGRAM IS SCOPED GL, so programAnnualCost is 0 on WC
   // and Property. The charge lands on the book that gets the benefit.
-  const riskControlInvestment = poolPremium * lineDecisions.riskControlPct + ctx.programAnnualCost;
+  // Zero while RISK_CONTROL is off: no spend and no program fee is charged.
+  const riskControlInvestment = RISK_CONTROL.enabled
+    ? poolPremium * riskControlSpendPct + ctx.programAnnualCost
+    : 0;
 
   // --- Loss Simulation ---
   // WC and GL generate individual claims (design doc Parts A and B); Property
@@ -1641,28 +1703,30 @@ export function processLineYear(
   let largeDraw: LargeLossDraw | undefined;
   let lineShocks: LineShockYear | undefined;
   if (NEW_LOSS_ENGINE.enabled) {
-    ordinaryYear = ordinaryLossYear(line, enrolledMembers, yearNumber, instance.seed);
+    ordinaryYear = ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
-    const scaled = ordinaryYear.factor * (1 + lineShocks.uplift);
+    const penalty = newBusinessPenaltyFactor;
+    const scaled = ordinaryYear.factor * (1 + lineShocks.uplift) * penalty;
     const draw = drawLargeLosses(
-      line, enrolledMembers, yearNumber, calendarYear, instance.seed, lineShocks, activeExposure,
+      line, bookMode ? null : enrolledMembers, yearNumber, calendarYear, instance.seed, lineShocks, activeExposure,
     );
     largeDraw = draw;
     generatedClaims = draw.claims;
     generatedOccurrences = draw.occurrences;
     // Each member: its exposure share of the ordinary year, plus its own
     // large losses. Interim, as commit 1's records are — members go in commit 5.
-    memberLossResults = ordinaryMemberRecords(line, enrolledMembers, yearNumber, cost, scaled)
+    // No per-member records for a book — the line is the record.
+    memberLossResults = bookMode ? [] : ordinaryMemberRecords(line, enrolledMembers, yearNumber, cost, scaled)
       .map(r => {
         const own = draw.byMember.get(r.memberId) ?? 0;
         return own === 0 ? r : { ...r, simulatedLoss: r.simulatedLoss + own };
       });
-    marketMemberLossResults = [
+    marketMemberLossResults = bookMode ? undefined : [
       ...memberLossResults,
       ...ordinaryMemberRecords(line, marketplaceProspects, yearNumber, cost, scaled),
     ];
-    aggregateMemberLoss = ordinaryYear.realised * (1 + lineShocks.uplift) + draw.grossAdded;
+    aggregateMemberLoss = ordinaryYear.realised * (1 + lineShocks.uplift) * penalty + draw.grossAdded;
     kLineApplied = 1;
     if (!isWcClaimLine) glClaimCount = draw.claims.length;
     // What each event cost this year: its uplift on the ordinary year, plus its
@@ -2555,7 +2619,12 @@ export function processLineYear(
   // placement, so declining cover now raises the requirement instead of the
   // ratio. Its header has the measurement and the one conservative gap (it is
   // the mean retained event, not a return period).
-  const catCapitalNeeded = catCapitalRetained(line, currentActiveMembers, placedForCost);
+  // ⚠ ON THE NEW ENGINE, ITS OWN CATASTROPHES. The old figure read the old
+  // catastrophe model over the member roster; the new engine's catastrophes are
+  // the catalogue's regional events. See newEngineCatCapital for the basis.
+  const catCapitalNeeded = NEW_LOSS_ENGINE.enabled
+    ? newEngineCatCapital(line, estimatedExposure, yearNumber, placedForCost)
+    : catCapitalRetained(line, currentActiveMembers, placedForCost);
   const reserveRiskMarginNeeded = Math.max(
     0,
     expectedNetUnpaidLoss * (reserveMarginCLF - 1) + catCapitalNeeded
@@ -2812,7 +2881,12 @@ export function processLineYear(
     // old stack. The audit page's Pure Premium row shows expectedLoss, so it
     // needs the rate that actually produces it. Identical to
     // purePremiumPer100 whenever the flag is off.
-    lossPurePremiumPer100: parseFloat(pricedPurePremiumPer100.toFixed(4)),
+    // ⚠ UNDER NEW_LOSS_ENGINE expectedLoss is the engine's own ex-ante
+    // expectation, not exposure × a rate, so the rate that produces it is
+    // read back off it.
+    lossPurePremiumPer100: parseFloat((newEngineExpected && activeExposure > 0
+      ? expectedLoss / (activeExposure * 10_000)
+      : pricedPurePremiumPer100).toFixed(4)),
     // Unrounded — see the type's comment for why these two skip the toFixed(4)
     // every sibling per-$100 field above gets.
     expectedCededPer100: billedStack?.expectedCededPer100 ?? expectedCededPer100,
@@ -2897,8 +2971,10 @@ export function processLineYear(
     // carries no key at all.
     ...(ordinaryYear && lineShocks && largeDraw && newEngineExpected
       ? { newLossEngine: newLossEngineRecord(
-        ordinaryYear, lineShocks, largeDraw, newEngineExpected, rDevelopment,
-        shockWithdrawn.reduce((t, m) => t + getMemberExposure(m, line, yearNumber), 0),
+        ordinaryYear, lineShocks, largeDraw, newEngineExpected, rDevelopment, newBusinessPenaltyFactor,
+        bookMovement
+          ? bookMovement.withdrawn * exposureFactor(line, yearNumber)
+          : shockWithdrawn.reduce((t, m) => t + getMemberExposure(m, line, yearNumber), 0),
       ) }
       : {}),
     // ⚠ NOT THE POOL'S MONEY, AND IT IS HERE SO THAT IS VISIBLE RATHER THAN
@@ -3041,10 +3117,13 @@ export function processLineYear(
       updatedCohorts,
       currentYearCohort,
       yearNumber,
+      bookMode ? activeExposure : undefined,
     ),
     // THE SCORED COPY, so this year's satisfaction is what next year reads and
     // adds to. Identical to `enrolledMembers` in every other field.
     members: enrolledMembersScored,
+    // The book, carried forward in base-year exposure. No key with members.
+    ...(bookMovement ? { bookExposure: bookMovement.after } : {}),
 
     netUnpaidReserve: endingNetReserve,
     // Carried forward so NEXT year can compare each indication against its own
@@ -4273,6 +4352,10 @@ function recordReserveDevelopment(
   after: ReserveCohort[],
   incepted: ReserveCohort,
   yearNumber: number,
+  // With MEMBER_LEVEL off, the book's exposure this year: written onto the row
+  // the year inceptes, and onto any seed row opened now (the bulk years were
+  // sized on the same book). Undefined with members, and no key is written.
+  bookExposure?: number,
 ): ReserveDevelopmentRow[] {
   // ⚠ paidByValuation IS NET, matching ultimateByValuation. The engine's own
   // paid ledger is GROSS and lives on the cohort; this row records the NET
@@ -4303,6 +4386,7 @@ function recordReserveDevelopment(
       ageAtFirstValuation: c.age,
       horizon: c.horizon,
       seeded: true,
+      ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
     });
   }
 
@@ -4346,6 +4430,7 @@ function recordReserveDevelopment(
       ageAtFirstValuation: 0,
       horizon: incepted.horizon,
       seeded: false,
+      ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
     });
   }
 

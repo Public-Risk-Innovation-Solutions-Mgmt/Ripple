@@ -149,7 +149,12 @@ export function pricingExperienceBasis(
 }
 
 /** The exposure enrolled in `line` in accident year `ay`, or 0 if unknowable. */
-function exposureFor(basis: TriangleBasis, line: CoverageLine, ay: number): number {
+function exposureFor(basis: TriangleBasis, line: CoverageLine, row: ReserveDevelopmentRow): number {
+  // ⚠ A BOOK'S LEDGER CARRIES ITS OWN EXPOSURE, as in newPurePremium.ts. With
+  // MEMBER_LEVEL off there is no roster to reconstruct it from, and reading 0
+  // here left the indication null and the actuarial memo without its section.
+  if (row.exposure !== undefined) return row.exposure;
+  const ay = row.yearNumber;
   let e = 0;
   for (const m of basis.allMarketMembers) {
     if (!wasActiveInLine(basis.membershipHistory, m.id, line, ay)) continue;
@@ -201,7 +206,7 @@ export function projectPricingTriangle(
     // figure would be worse than a zero a reader can see. They still carry
     // age-to-age FACTORS, which need no exposure — experienceRating.ts's
     // constraint 2, and the reason a three-accident-year book is workable.
-    exposureByYear[String(r.yearNumber)] = exposureFor(basis, line, r.yearNumber);
+    exposureByYear[String(r.yearNumber)] = exposureFor(basis, line, r);
   }
   return { years, cells, exposureByYear };
 }

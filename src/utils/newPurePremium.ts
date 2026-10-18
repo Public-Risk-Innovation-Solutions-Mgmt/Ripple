@@ -54,6 +54,7 @@ import {
   FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, EXPOSURE_GROWTH_PER_YEAR,
 } from '../data/pricingParameters';
 import { PAID_DEVELOPMENT_PATTERN } from '../data/paidDevelopmentPatterns';
+import { expectedLossBreakdown } from './shockExpectation';
 import { getMemberExposure } from './lineHelpers';
 import { wasActiveInLine } from './membershipHistory';
 import type {
@@ -180,6 +181,11 @@ function recordedPaidLdf(line: CoverageLine, ageMonths: number): number {
 }
 
 function exposureFor(basis: NewPurePremiumBasis, line: CoverageLine, ay: number): number {
+  // ⚠ A BOOK'S LEDGER CARRIES ITS OWN EXPOSURE. With MEMBER_LEVEL off there is
+  // no roster and no membership history to reconstruct an accident year's
+  // exposure from, so each row records the exposure it was written on.
+  const row = basis.rows.find(r => r.yearNumber === ay);
+  if (row?.exposure !== undefined) return row.exposure;
   let e = 0;
   for (const m of basis.allMarketMembers) {
     if (!wasActiveInLine(basis.membershipHistory, m.id, line, ay)) continue;
@@ -256,4 +262,34 @@ export function newPurePremiumPer100(
     points,
     skipped,
   };
+}
+
+/**
+ * THE SAME FIGURE BUILT FROM A LOSS COST IN HAND, for a book with no usable
+ * history yet — the first years of the pre-game, before any accident year has
+ * a ground-up paid figure. The loss cost is the new engine's own ex-ante
+ * expectation, and ALAE and ULAE are added on exactly the rule above, so the
+ * figure the rate is struck on has one shape whichever source it came from.
+ */
+export function newPurePremiumFromLossCost(line: CoverageLine, lossCostPer100: number): NewPurePremiumResult {
+  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCostPer100 * ALAE_OF_LOSS_COST[line];
+  const ulae = lossCostPer100 * ULAE_OF_LOSS_COST[line];
+  return {
+    lossCostPer100, alaePer100: alae, ulaePer100: ulae,
+    purePremiumPer100: lossCostPer100 + alae + ulae, points: [], skipped: 0,
+  };
+}
+
+/**
+ * A BOOK'S PURE PREMIUM — the ledger's figure, or, before the ledger has a
+ * usable accident year, the new engine's own ex-ante expectation on the same
+ * rule. One function, read by the engine and by the Decisions panel, so the
+ * two cannot price a book differently.
+ */
+export function bookPurePremium(
+  line: CoverageLine, pricingYear: number, basis: NewPurePremiumBasis, exposure: number,
+): NewPurePremiumResult {
+  return newPurePremiumPer100(line, pricingYear, basis)
+    ?? newPurePremiumFromLossCost(line,
+      expectedLossBreakdown(line, exposure, pricingYear).total / Math.max(exposure * 10_000, 1));
 }

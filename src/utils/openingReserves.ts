@@ -74,7 +74,7 @@ import { computeKGl, deriveNeutralGlPurePremiumPer100 } from './glClaimEngine';
 import { computeKPr, deriveNeutralPropertyPurePremiumPer100 } from './propertyClaimEngine';
 import { allLayerRiskMoments, expectedCededAtBoundsScale } from './towerMoments';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
-import { getMemberExposure } from './lineHelpers';
+import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
 import { expectedLossBreakdown, newEngineLayerMoments } from './shockExpectation';
 import { REINSURANCE_TOWER } from '../data/reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
@@ -193,15 +193,14 @@ export function heldGrossPurePremiumPer100(line: CoverageLine, members: Member[]
  * the deflated year's own 1/t cancel; dividing the scaled cession by the
  * deflated gross would deflate twice and hand back year 1's ratio again.
  */
-export function bulkCessionRatioAtAge(line: CoverageLine, members: Member[], ageYears: number): number {
+export function bulkCessionRatioAtAge(line: CoverageLine, members: Book, ageYears: number): number {
   // ⚠ UNDER NEW_LOSS_ENGINE, PRICED DIRECTLY AT THE BULK YEAR ITSELF. The
   // identity below rescales year 1's cession — but year 1 can carry shocks
   // and a bulk year cannot (nothing fires before year 1), so the new engine's
   // own figures for that year are read instead: routine large losses' cession
   // over their gross, and zero when that switch is off.
   if (NEW_LOSS_ENGINE.enabled) {
-    let exposure = 0;
-    for (const m of members) exposure += getMemberExposure(m, line, 1);
+    const exposure = bookExposureOf(members, line, 1);
     const year = 1 - ageYears;
     const ceded = newEngineLayerMoments(line as TowerLine, exposure, year)
       .reduce((t, l, i) => t + (REINSURANCE_TOWER[line as TowerLine][i].purchasable ? l.expected : 0), 0);
@@ -209,7 +208,7 @@ export function bulkCessionRatioAtAge(line: CoverageLine, members: Member[], age
     return gross > 0 ? Math.min(0.95, ceded / gross) : 0;
   }
   const scale = Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], ageYears);
-  const ceded = expectedCededAtBoundsScale(line as TowerLine, members, 1, scale);
+  const ceded = expectedCededAtBoundsScale(line as TowerLine, rosterOf(members, 'bulkCessionRatioAtAge'), 1, scale);
   const grossToday = expectedGrossUltimateAtAge(line, 0, members);
   return grossToday > 0 ? Math.min(0.95, ceded / grossToday) : 0;
 }
@@ -242,17 +241,16 @@ export function towerCessionRatio(line: CoverageLine, members: Member[], yearNum
  * own exposure, and the divisor below is where it goes.
  */
 export function expectedGrossUltimateAtAge(
-  line: CoverageLine, ageYears: number, members: Member[],
+  line: CoverageLine, ageYears: number, members: Book,
 ): number {
-  let exposure = 0;
-  for (const m of members) exposure += getMemberExposure(m, line, 1);
+  const exposure = bookExposureOf(members, line, 1);
   // ⚠ UNDER NEW_LOSS_ENGINE THE BULK YEARS ARE THE PRE-GAME'S KIND OF YEAR:
   // ordinary losses, plus routine large losses when that switch is on, and NO
   // SHOCKS — nothing fires before year 1, and the pre-game draws none. Read
   // straight off the engine's own expectation at the bulk year (1 - age),
   // which carries the trend back by itself.
   if (NEW_LOSS_ENGINE.enabled) return expectedLossBreakdown(line, exposure, 1 - ageYears).total;
-  const rate = heldGrossPurePremiumPer100(line, members);
+  const rate = heldGrossPurePremiumPer100(line, rosterOf(members, 'expectedGrossUltimateAtAge'));
   return (rate * exposure * 10_000) / Math.pow(1 + rateTrendPerYear(line), ageYears);
 }
 
@@ -274,7 +272,7 @@ export interface BulkCohortSpec {
  * age says is still unpaid — the same recorded pattern the engine pays on and
  * pricing develops with, which is the whole point of the rebuild.
  */
-export function bulkOpeningCohorts(line: CoverageLine, members: Member[]): BulkCohortSpec[] {
+export function bulkOpeningCohorts(line: CoverageLine, members: Book): BulkCohortSpec[] {
   return bulkAccidentYearAges(line).map(ageYears => {
     // ⚠ PER AGE NOW, not one year-1 ratio for all of them. See
     // bulkCessionRatioAtAge for the bias this removes.
@@ -294,7 +292,7 @@ export function bulkOpeningCohorts(line: CoverageLine, members: Member[]): BulkC
 }
 
 /** The total bulk reserve a line opens with. */
-export function bulkOpeningReserve(line: CoverageLine, members: Member[]): number {
+export function bulkOpeningReserve(line: CoverageLine, members: Book): number {
   return bulkOpeningCohorts(line, members).reduce((a, c) => a + c.netUnpaid, 0);
 }
 
@@ -320,7 +318,7 @@ export function bulkOpeningReserve(line: CoverageLine, members: Member[]): numbe
 
 /** A bulk cohort in the engine's own shape. Seeded, claimless, net. */
 export function bulkCohortsAsReserveCohorts(
-  line: CoverageLine, members: Member[], startingYear: number,
+  line: CoverageLine, members: Book, startingYear: number,
 ): ReserveCohort[] {
   return bulkOpeningCohorts(line, members).map(b => ({
     yearNumber: b.yearNumber,
