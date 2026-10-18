@@ -48,6 +48,7 @@ import {
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
 import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
+import { placementFor } from '../utils/reinsuranceOptions';
 import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 
@@ -262,13 +263,14 @@ function factorTerm(value: number, label?: string): FormulaTerm {
 // attachment, so it was excluded when the elementwise sum was fixed), giving 3
 // against a true tower width of 7 across the three lines.
 //
-// layersPlaced is the actual decision, so it is what the sentence now counts.
+// The placement the team's package buys (placementFor) is the actual decision,
+// so it is what the sentence now counts.
 // A pool row is passed the per-line sets because `decisions` at pool scope is
 // one line's kept as a placeholder.
 function towerReinsCostFormula(x: LineResultSet, perLinePlaced?: { line: CoverageLine; placed: number }[]): FormulaSpec {
   const placed = perLinePlaced
     ? perLinePlaced.reduce((n, pl) => n + pl.placed, 0)
-    : (x.decisions?.layersPlaced ?? []).filter(Boolean).length;
+    : (x.decisions && x.line ? placementFor(x.line, x.decisions.reinsuranceOption) : []).filter(Boolean).length;
   const breakdown = perLinePlaced && perLinePlaced.length > 1
     ? ` (${perLinePlaced.map(pl => `${pl.line} ${pl.placed}`).join(', ')})`
     : '';
@@ -1521,7 +1523,7 @@ export function buildSupportingRows(
         totalMemberCharge: poolResult.byLine[l].totalMemberCharge,
         marketShare: poolResult.byLine[l].marketShare,
         layersPaid: (poolResult.byLine[l].cededByLayer ?? []).filter(v => v > 0).length,
-        placed: (poolResult.byLine[l].decisions?.layersPlaced ?? []).filter(Boolean).length,
+        placed: (poolResult.byLine[l].decisions ? placementFor(l, poolResult.byLine[l].decisions.reinsuranceOption) : []).filter(Boolean).length,
       }))
     : undefined;
   const payrollUnits = Math.max(result.activeExposure * 10_000, 1);

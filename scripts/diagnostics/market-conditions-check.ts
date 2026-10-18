@@ -133,8 +133,19 @@ const DRAWS = Number(process.env.DRAWS ?? 3000);
  *
  * 8 rather than 6 so the control is not itself a near-miss that the next
  * change to the rate silently turns back into a vacuous one.
+ *
+ * ⚠ RAISED FROM 8 TO 12 AT LOSS ENGINE COMMIT 4a, FOR THE SAME REASON. The
+ * reinsurance packages cap Property's tower at $50M (it reached $1B), so the
+ * deciding pool's Property rate-change SD rose to 23.80% — and power 8's
+ * 23.70% benchmark left Property green, reddening 2 of 3. Measured:
+ *
+ *     power  8   WC 23.41%  GL 24.05%  Property 23.70%   reds 2 of 3
+ *     power 10   WC 29.93%  GL 30.75%  Property 30.30%   reds 3, Property by 27%
+ *     power 12   WC 36.91%  GL 37.93%  Property 37.38%   reds 3, Property by 57%
+ *
+ * 12 rather than 10 on the rule above: not a near-miss.
  */
-const CONTROL_POWER = 8;
+const CONTROL_POWER = 12;
 /** Section 7 runs the engine per funding stop, so it is deliberately thin. */
 const LEVEL_GAMES = Number(process.env.LEVEL_GAMES ?? 3);
 const LEVEL_YEARS = Number(process.env.LEVEL_YEARS ?? 6);

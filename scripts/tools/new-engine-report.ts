@@ -19,13 +19,13 @@
 // ============================================================================
 
 import { MEMBER_LEVEL, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
-import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
 import type { CoverageLine, DecisionSet, GameState, ResultSet } from '../../src/types/simulation';
+import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const arg = (name: string, dflt: number) => {
@@ -40,8 +40,7 @@ function decisions(y: number, place: boolean): DecisionSet {
   for (const line of LINES) {
     d.byLine[line] = {
       ...d.byLine[line],
-      layersPlaced: REINSURANCE_TOWER[line as TowerLine].map(l => place && l.purchasable),
-      aggregateStopLevel: -1,
+      reinsuranceOption: place ? fullTowerOption(line) : 'none',
     };
   }
   return d;

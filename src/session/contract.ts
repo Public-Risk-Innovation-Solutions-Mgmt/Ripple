@@ -323,13 +323,13 @@ export interface TeamLineDecisions {
   confidenceLevel: number;
   atExpected: boolean;
   /**
-   * ⚠ PER-BAND, NOT A COUNT, because any combination is permitted — including a
-   * corridor retention. A count would render "2 of 3 placed" for two different
-   * towers. Index-aligned to REINSURANCE_TOWER[line], exactly as layersPlaced.
+   * THE REINSURANCE PACKAGE the team bought on this line — one id from
+   * REINSURANCE_OPTIONS[line] (e.g. '$9M xs $1M'), or 'none'. Loss engine
+   * commit 4a: it replaces `layersPlaced` (per band) and `aggregateStopLevel`,
+   * which are gone from the wire. ⚠ A CONTRACT CHANGE — deploy the handler
+   * first; see docs/handoff/AWS_HANDLER_HANDOFF.md.
    */
-  layersPlaced: boolean[];
-  /** Index into AGG_ATTACHMENT_LEVELS[line], or -1 for not purchased. */
-  aggregateStopLevel: number;
+  reinsuranceOption: string;
   /** Share of the book NOT renewed, worst first. Absent on the engine side reads as 0. */
   renewalCut: number;
   /** The intake slider's position, 0 = No New Business. */

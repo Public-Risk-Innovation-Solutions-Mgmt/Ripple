@@ -134,6 +134,7 @@ import { programFreqMultiplier, programAnnualCost, programRtwConversion, claimsS
 import { catCapitalRetained } from './propertyCatastrophe';
 import { occurrenceProgramCost } from './reinsuranceTower';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
+import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
 import {
   aggregateRecovery,
   cedeOccurrences,
@@ -739,6 +740,12 @@ export function processLineYear(
   // Property — its 60% stop delivered 54.3%, the range running -18.7pp to
   // +7.5pp, sized in scripts/diagnostics/property-clf-basis-report.ts — is what
   // that table fixed, and is history rather than a live defect.
+  // THE PACKAGE, AS THE TOWER READS IT. A team chooses one reinsurance package
+  // per line (loss engine commit 4a); everything below prices and cedes in
+  // tower placements, so the package becomes one here and nowhere else in the
+  // engine. The aggregate stop-loss is not offered.
+  const layersPlaced = placementFor(line, lineDecisions.reinsuranceOption);
+  const aggregateStopLevel = AGGREGATE_NOT_OFFERED;
   const selectedFundingConfidenceLevel = lineDecisions.fundingConfidenceLevel;
   // ⚠ RISK CONTROL IS PENDING DESIGN AND COSTS NOTHING WHILE IT IS. Its effects
   // lived in the old per-claim generators, so with RISK_CONTROL off the
@@ -900,8 +907,8 @@ export function processLineYear(
   const estimatedCession: CessionBasis = {
     members: preMovementBook,
     exposure: estimatedExposure,
-    layersPlaced: lineDecisions.layersPlaced,
-    aggregateStopLevel: lineDecisions.aggregateStopLevel,
+    layersPlaced,
+    aggregateStopLevel,
     aggregateTermsRetainedPer100: termsRetainedPer100,
   };
   // ⚠ COMPUTED HERE NOW, AHEAD OF THE OLD STACK. It reads only the ledger and
@@ -1016,8 +1023,8 @@ export function processLineYear(
       groundUpPurePremiumPer100: newPp.purePremiumPer100,
       clf: selectedFundingCLF,
       riskControlPct: riskControlIncentivePct,
-      layersPlaced: lineDecisions.layersPlaced,
-      aggregateStopLevel: lineDecisions.aggregateStopLevel,
+      layersPlaced,
+      aggregateStopLevel,
     })
     : null;
 
@@ -1034,8 +1041,8 @@ export function processLineYear(
     purePremiumPer100: newPurePremiumPer100,
     clf: selectedFundingCLF,
     pricingAdjustment,
-    layersPlaced: lineDecisions.layersPlaced,
-    aggregateStopLevel: lineDecisions.aggregateStopLevel,
+    layersPlaced,
+    aggregateStopLevel,
   });
 
   // ⚠ THIS QUOTE IS THE PRICE SIGNAL, NOT THE BILL. It is struck on the book as
@@ -1044,7 +1051,7 @@ export function processLineYear(
   // What the pool actually buys is quoted again on the COVERED book after
   // movement — see `towerQuote` there.
   const placedForCost = hasTractableCeded
-    ? normalizeLayersPlaced(line as TowerLine, lineDecisions.layersPlaced)
+    ? normalizeLayersPlaced(line as TowerLine, layersPlaced)
     : null;
 
   const estimatedPremium = estimatedQuote.poolPremium;
@@ -1215,8 +1222,8 @@ export function processLineYear(
   const pricedCession: CessionBasis = {
     members: towerMembers,
     exposure: activeExposure,
-    layersPlaced: lineDecisions.layersPlaced,
-    aggregateStopLevel: lineDecisions.aggregateStopLevel,
+    layersPlaced,
+    aggregateStopLevel,
     aggregateTermsRetainedPer100: termsRetainedPer100,
   };
   // A book's pure premium is the new stack's, and moving the book does not move
@@ -1299,7 +1306,7 @@ export function processLineYear(
   // no aggregate rather than as the treaty nobody writes. See that function.
   // Inert on every default run — the default places the layer.
   const aggLevel = placedForCost
-    ? normalizeAggregateStopLevel(line as TowerLine, placedForCost, lineDecisions.aggregateStopLevel)
+    ? normalizeAggregateStopLevel(line as TowerLine, placedForCost, aggregateStopLevel)
     : -1;
   const aggregateQuote = isAggregateLine && placedForCost && aggLevel >= 0
     ? quoteAggregate(
@@ -1358,8 +1365,8 @@ export function processLineYear(
       groundUpPurePremiumPer100: newPp.purePremiumPer100,
       clf: selectedFundingCLF,
       riskControlPct: riskControlIncentivePct,
-      layersPlaced: lineDecisions.layersPlaced,
-      aggregateStopLevel: lineDecisions.aggregateStopLevel,
+      layersPlaced,
+      aggregateStopLevel,
     })
     : null;
 
@@ -1976,7 +1983,7 @@ export function processLineYear(
 
   if (hasTractableCeded) {
     const towerLine = line as TowerLine;
-    const placed = normalizeLayersPlaced(towerLine, lineDecisions.layersPlaced);
+    const placed = normalizeLayersPlaced(towerLine, layersPlaced);
     const drawnTotals = occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []);
     // ⚠ FORWARD BOOKING: THE TOWER ATTACHES TO THE BOOKED OCCURRENCE, NOT THE
     // DRAWN ONE. A pool does not book a recovery on a claim it has reserved at
@@ -2004,7 +2011,7 @@ export function processLineYear(
     // scope is what makes the aggregate respond to the layer selection at all.
     // Same normalization as the pricing side above, so the cession and the
     // price can never disagree about whether an aggregate exists.
-    const cededAggLevel = normalizeAggregateStopLevel(towerLine, placed, lineDecisions.aggregateStopLevel);
+    const cededAggLevel = normalizeAggregateStopLevel(towerLine, placed, aggregateStopLevel);
     if ((towerLine === 'WC' || towerLine === 'Property') && cededAggLevel >= 0) {
       // ⚠ THE SAME AGREED TERMS THE YEAR WAS PRICED ON. This quote is what the
       // pool RECOVERS against; pricing on one attachment and settling on another
@@ -2142,7 +2149,7 @@ export function processLineYear(
   // default selection this consumes no draw, which is what lets the null test
   // read against the pre-mechanism parent.
   const placedAtInception = hasTractableCeded
-    ? normalizeLayersPlaced(line as TowerLine, lineDecisions.layersPlaced)
+    ? normalizeLayersPlaced(line as TowerLine, layersPlaced)
     : undefined;
 
   //
@@ -2691,11 +2698,11 @@ export function processLineYear(
     expectedCeded: expectedCededDollars,
     // ⚠ THE PLACEMENT, so a declined layer's loss lands in the pot that actually
     // funds it. Invisible at defaults, where everything is placed.
-    layersPlaced: lineDecisions.layersPlaced,
+    layersPlaced,
     deductibles: valueDeductibles,
   });
   const valueRows = memberValueRows(
-    memberPremiumShares, generatedClaims ?? [], line, lineDecisions.layersPlaced, valueDeductibles,
+    memberPremiumShares, generatedClaims ?? [], line, layersPlaced, valueDeductibles,
   );
 
   const result: LineResultSet = {

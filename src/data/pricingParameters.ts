@@ -705,22 +705,42 @@ export const DEVELOPMENT_IS_LIFETIME_TOTAL = true;
 // stays as the written-down statement of WHICH convention is in force.
 
 /**
- * THE REINSURANCE STRUCTURES A TEAM WILL BE ABLE TO BUY — built with the loss
- * engine, not offered today.
+ * THE REINSURANCE A TEAM BUYS — ONE PACKAGE PER LINE, from this fixed set.
+ * Loss engine commit 4a; it replaces placing or declining each band.
  *
- * ⚠ THESE REPLACE THE PRESENT TOWER'S FIXED BANDS WITH A CHOICE OF PROGRAMMES,
- * which is a different decision from the one REINSURANCE_TOWER encodes: today
- * a team places or declines each band independently, and here a team picks one
- * structure. Both are written down because the second does not exist yet and
- * the first is what ships.
+ * Each package is one layer, `limit` xs `attachment` per occurrence, priced as
+ * every layer is: the expected recovery on the new engine's large losses x the
+ * line's CLF at 70%. 'none' buys nothing. GL's $25M pool limit still applies
+ * below any package, so a GL loss above $15M is the pool's to $25M.
+ *
+ * ⚠ THE TOWER IS CUT AT EVERY PACKAGE'S EDGES, so each package is exactly a
+ * set of whole tower layers (REINSURANCE_TOWER, and see reinsuranceOptions.ts,
+ * which checks it at load). Per-occurrence cession and expected-recovery
+ * pricing both add across adjacent layers, so pricing a package as its layers
+ * is pricing it as one layer.
  *
  * WC and GL are deliberately the SAME LIST. Property's differs because its
- * retention and its limits do.
+ * retention and its limits do. The aggregate cover is not among them.
  */
-export const REINSURANCE_OPTIONS_PLANNED: PerLine<readonly string[]> = {
-  WC: ['none', '$9M xs $1M', '$5M xs $5M', '$14M xs $1M', '$10M xs $5M'],
-  GL: ['none', '$9M xs $1M', '$5M xs $5M', '$14M xs $1M', '$10M xs $5M'],
-  Property: ['none', '$20M xs $5M', '$45M xs $5M', '$25M xs $25M'],
+export interface ReinsuranceOption { id: string; attachment: number; limit: number }
+const xs = (limitM: number, attachmentM: number): ReinsuranceOption =>
+  ({ id: `$${limitM}M xs $${attachmentM}M`, attachment: attachmentM * 1e6, limit: limitM * 1e6 });
+const NONE: ReinsuranceOption = { id: 'none', attachment: 0, limit: 0 };
+export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
+  WC: [NONE, xs(9, 1), xs(5, 5), xs(14, 1), xs(10, 5)],
+  GL: [NONE, xs(9, 1), xs(5, 5), xs(14, 1), xs(10, 5)],
+  Property: [NONE, xs(20, 5), xs(45, 5), xs(25, 25)],
+};
+
+/**
+ * WHAT A TEAM HOLDS UNTIL IT CHOOSES — CHOSEN: the middle option, $9M xs $1M on
+ * WC and GL and $20M xs $5M on Property. It is also the pre-game's prior board,
+ * which plays the default decisions, so the opening is built on it.
+ */
+export const REINSURANCE_DEFAULT_OPTION: PerLine<string> = {
+  WC: '$9M xs $1M',
+  GL: '$9M xs $1M',
+  Property: '$20M xs $5M',
 };
 
 /**
@@ -1279,6 +1299,28 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The R model\'s 20% kept as the mechanism, uncalibrated. At zero it changes nothing.',
       }],
+      ['Reinsurance packages', {
+        value: `WC and GL ${REINSURANCE_OPTIONS.WC.map(o => o.id).join(' · ')}`,
+        unit: 'one package per line',
+        what: 'What a team buys: one package per line from this fixed set, each one layer per occurrence, '
+          + 'priced as the expected recovery on the new engine\'s large losses x the line\'s CLF at 70%.',
+        basis: 'CHOSEN',
+        note: `Property: ${REINSURANCE_OPTIONS.Property.map(o => o.id).join(' · ')}. GL's $25M pool limit still `
+          + 'applies. The tower is cut at every package\'s edges, so each package is whole tower layers.',
+      }],
+      ['Default package', {
+        value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,
+        unit: 'per line',
+        what: 'The middle option, held by every team until it chooses and by the pre-game\'s prior board.',
+        basis: 'CHOSEN',
+      }],
+      ['Aggregate cover', {
+        value: 'not offered', unit: '—',
+        what: 'The aggregate stop-loss is not among the packages: not offered, its code kept unwired.',
+        basis: 'CHOSEN',
+        note: 'IT MAY RETURN. Aggregate cover is what protects against a broad surge of small losses — a '
+          + 'winterstorm\'s many claims under the retention — which no per-occurrence package reaches.',
+      }],
       ['Shock timing', {
         value: 'host in a session · catalogue in singleplayer', unit: '—',
         what: 'Multiplayer fires only what the host scheduled, consulting no probability. Singleplayer fires '
@@ -1300,13 +1342,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly '
           + '+54% on GL and +171% on WC in total at today\'s settings — a different model, not a refinement.',
-      }],
-      ['Reinsurance options', {
-        value: `WC ${REINSURANCE_OPTIONS_PLANNED.WC.join(' · ')}`,
-        unit: 'structures a team may buy',
-        what: 'A choice of programme, replacing today\'s place-or-decline on each band.',
-        basis: 'CHOSEN', notYetUsed: true,
-        note: `GL is the same list as WC. Property: ${REINSURANCE_OPTIONS_PLANNED.Property.join(' · ')}.`,
       }],
       ['GL ordinary losses', {
         value: `$${GL_ORDINARY_LOSS_BAND_PLANNED.from.toLocaleString('en-US')}`

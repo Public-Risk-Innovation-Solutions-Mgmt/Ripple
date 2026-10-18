@@ -129,6 +129,31 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     ok(!body.includes(gone), `"${gone}" is not on the new panel`);
   }
 
+  // ---- the reinsurance package (loss engine commit 4a) ---------------------
+  // One choice per line. Choosing NONE must move the panel's build-up — the
+  // package's cost is its Reinsurance line — and mark the choice; choosing the
+  // default back must restore the panel exactly, because the price is a
+  // function of the package. (The final RATE is not compared: in year 1 it
+  // reads $4.00 on either package.)
+  const chosen = async id => (await page.getAttribute(`[data-testid="reins-option-WC-${id}"]`, 'class') || '')
+    .includes('border-blue-500');
+  const panelText = async () => (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
+  const reinsLine = t => (t.match(/\+ Reinsurance[^+=]*/g) || []).join(' | ');
+  ok(await chosen('$9M xs $1M'), 'WC opens on the default package, $9M xs $1M');
+  ok(await page.$('[data-testid="reins-option-WC-$14M xs $1M"]') !== null
+     && await page.$('[data-testid="reins-option-WC-$10M xs $5M"]') !== null,
+     'all five WC packages are offered');
+  const atDefault = await panelText();
+  await page.click('[data-testid="reins-option-WC-none"]');
+  await page.waitForTimeout(800);
+  const atNone = await panelText();
+  ok(await chosen('none') && !(await chosen('$9M xs $1M')), 'clicking None selects it, and only it');
+  ok(reinsLine(atNone) !== reinsLine(atDefault),
+     `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atNone)}")`);
+  await page.click('[data-testid="reins-option-WC-$9M xs $1M"]');
+  await page.waitForTimeout(800);
+  ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
+
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');
   await browser.close();

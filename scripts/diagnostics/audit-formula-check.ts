@@ -66,6 +66,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { applyLoanAuthorizations, processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { placementFor } from '../../src/utils/reinsuranceOptions';
 import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
 import {
   evaluateFormula, renderFormula, computeAuditChecks, buildSupportingRows,
@@ -172,7 +173,7 @@ const ARMS: Arm[] = [
   // dimensions stay separable and a finding is attributable to one of them.
   {
     name: 'decisions',
-    why: 'dividends, assessments, risk control and the aggregate stop-loss all ON; funding at default',
+    why: 'dividends, assessments and risk control all ON; funding at default (the aggregate stop-loss is no longer offered)',
     decisions: (d, lines) => ({
       ...d,
       riskControlPct: 0.05,
@@ -181,9 +182,8 @@ const ARMS: Arm[] = [
         dividendPct: 0.10,
         assessmentPct: 0.10,
         riskControlPct: 0.05,
-        // Level 0 is the LOWEST attachment and so the one most likely to pay.
-        // GL has no aggregate; normalizeAggregateStopLevel returns it to -1.
-        aggregateStopLevel: 0,
+        // The aggregate stop-loss is no longer offered (loss engine commit 4a)
+        // and cannot be turned on from a decision; this arm keeps the rest.
       }])) as never,
     }),
   },
@@ -222,8 +222,7 @@ const ARMS: Arm[] = [
       ...d,
       byLine: Object.fromEntries(lines.map(l => [l, {
         ...d.byLine[l],
-        layersPlaced: d.byLine[l].layersPlaced.map(() => false),
-        aggregateStopLevel: -1,
+        reinsuranceOption: 'none',
         // Left at its default 0.5 rather than raised: repayment has to actually
         // fire in the years AFTER origination, and the default is what a player
         // gets. Raising it would test a path the shipped default does not take.
@@ -243,8 +242,7 @@ const ARMS: Arm[] = [
       ...d,
       byLine: Object.fromEntries(lines.map(l => [l, {
         ...d.byLine[l],
-        layersPlaced: d.byLine[l].layersPlaced.map(() => false),
-        aggregateStopLevel: -1,
+        reinsuranceOption: 'none',
       }])) as never,
     }),
   },
@@ -616,7 +614,10 @@ const PROSE_CLAIMS: ProseClaim[] = [
         ? (Object.keys(poolResult.byLine) as CoverageLine[])
         : [scope as CoverageLine];
       return lines.reduce(
-        (n, l) => n + ((poolResult.byLine[l]?.decisions?.layersPlaced ?? []).filter(Boolean).length), 0);
+        (n, l) => {
+          const opt = poolResult.byLine[l]?.decisions?.reinsuranceOption;
+          return n + (opt ? placementFor(l, opt).filter(Boolean).length : 0);
+        }, 0);
     },
   },
 ];

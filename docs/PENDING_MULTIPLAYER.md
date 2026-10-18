@@ -394,15 +394,42 @@ rather than a refinement. It can be changed.
 
 ### Reinsurance options a team may buy
 
-**Not yet wired**, recorded as `REINSURANCE_OPTIONS_PLANNED` and shown on
-[docs/PARAMETERS.md](PARAMETERS.md). A choice of structure, replacing today's
+**Wired in loss engine commit 4a**, as `REINSURANCE_OPTIONS` and
+`REINSURANCE_DEFAULT_OPTION` (see [docs/PARAMETERS.md](PARAMETERS.md)). A team
+makes ONE choice per line from a fixed set of packages, replacing
 place-or-decline on each band:
 
 | Line | Options |
 |---|---|
-| GL | none · $9M xs $1M · $5M xs $5M · $14M xs $1M · $10M xs $5M |
+| GL | none · **$9M xs $1M** · $5M xs $5M · $14M xs $1M · $10M xs $5M |
 | WC | the same as GL |
-| Property | none · $20M xs $5M · $45M xs $5M · $25M xs $25M |
+| Property | none · **$20M xs $5M** · $45M xs $5M · $25M xs $25M |
+
+**Bold is the default** — the middle option, a parameter marked chosen — for
+players and for the pre-game's prior board.
+
+- **A package is a set of whole tower layers.** The tower is re-cut at every
+  package's edges — WC and GL $4M xs $1M, $5M xs $5M, $5M xs $10M (top
+  $15M); Property retention to $25M, then $25M xs $25M (top $50M) — so each
+  package is a preset placement, and `reinsuranceOptions.ts` checks at load
+  that every package tiles whole layers. Cession and price are therefore
+  computed exactly as before: each placed layer's expected recovery on the
+  new engine's large losses, at the line's CLF at 70%. GL's $25M pool limit
+  still applies, so GL retains $15M-$25M on any package.
+- **Property's earthquake keeps its own $10M retention per occurrence**
+  (`PROPERTY_PERIL_DEDUCTIBLE`, unchanged), so a package attaching below it
+  answers an earthquake from $10M up: $20M xs $5M gives $15M of cover against
+  one. The Decisions page says so beside the packages.
+- **What a team posts changes:** `reinsuranceOption` (the package id, or
+  `none`) replaces `layersPlaced` and `aggregateStopLevel` on the wire, and the
+  host Decisions tab shows each line's package. The handler deploys first —
+  see docs/handoff/AWS_HANDLER_HANDOFF.md.
+- **Saves:** the save key moved to v11; a v10 save is cleared, not migrated.
+
+**The aggregate cover is not offered.** Its code is kept unwired — the level is
+always `AGGREGATE_NOT_OFFERED` — and **it may return**: aggregate cover is what
+protects against a broad surge of small losses, such as the winterstorm's,
+which no per-occurrence package touches.
 
 ### GL ordinary losses — the $0-1M layer
 

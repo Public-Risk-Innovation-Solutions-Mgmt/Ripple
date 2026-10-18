@@ -107,11 +107,17 @@ check(Math.abs(PROPERTY_MEAN_SEVERITY - 418_289) < 500,
     'Property ceiling is FLAT — stated in every year\'s dollars, as GL\'s is',
     `$${(caps[0] / 1e6).toFixed(1)}M`);
   const L = REINSURANCE_TOWER.Property;
-  check(L.length === 1 && L[0].attachment === M.perRiskRetention && L[0].attachment + L[0].limit === PROPERTY_TOWER_TOP,
-    'Property is ONE layer, from the $5M retention to the $1B top',
+  // ⚠ RE-CUT BY LOSS ENGINE COMMIT 4a. Property was ONE layer from the $5M
+  // retention to a $1B top; the tower is now cut at the packages' edges —
+  // retention to $25M, then $25M xs $25M — and tops out at the highest
+  // package edge, $50M. Above it is retained on every package.
+  check(L.length === 2 && L[0].attachment === M.perRiskRetention && L[1].attachment === 25e6
+      && L[0].attachment + L[0].limit === L[1].attachment && L[1].attachment + L[1].limit === PROPERTY_TOWER_TOP
+      && PROPERTY_TOWER_TOP === 50e6,
+    'Property is TWO layers, the $5M retention to $25M and $25M xs $25M, to a $50M top',
     L.map(l => `${l.name}`).join(', '));
   check(TOWER_TOP.Property === PROPERTY_TOWER_TOP && PROPERTY_TOWER_TOP !== M.severityCap,
-    'TOWER_TOP.Property is the $1B occurrence limit, decoupled from severityCap',
+    'TOWER_TOP.Property is the $50M package top, decoupled from severityCap',
     `$${(TOWER_TOP.Property / 1e6).toFixed(0)}M vs cap $${(M.severityCap / 1e6).toFixed(0)}M`);
 
   // ⚠ THE MOMENT MUST MOVE WITH THE YEAR, and this is the assertion that fails

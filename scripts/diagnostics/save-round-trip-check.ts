@@ -45,9 +45,10 @@
 //
 // WHAT IT CANNOT SEE, STATED SO IT IS NOT ASSUMED AWAY:
 //   - App.tsx's LOAD-SIDE MIGRATIONS. The effect that reads the save also
-//     backfills membershipHistory, memberLossHistory, layersPlaced,
-//     aggregateStopLevel and wcRatingGroup, and deletes the retired
-//     reinsuranceLevel. That logic lives inside a React effect and is not
+//     backfills membershipHistory, memberLossHistory and wcRatingGroup, and
+//     deletes the retired reinsuranceLevel. (The placement backfill went with
+//     loss engine commit 4a: the save key moved to v11 and a v10 save, which
+//     carries per-band placements, is cleared rather than migrated.) That logic lives inside a React effect and is not
 //     callable from here. It only fires for saves written by OLDER builds, so a
 //     fresh round trip does not exercise it — which means old-save migration
 //     remains untested. Naming it because untested is not the same as absent.

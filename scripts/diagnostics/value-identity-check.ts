@@ -1070,7 +1070,39 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (Commit 3b removed legacy-engine.ts with the old shocks; the old engine is
 // reproducible now only from the legacy-engine branch. 3b itself is
 // value-neutral: this baseline holds unchanged across it.)
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v63.json');
+//
+// v64: LOSS ENGINE COMMIT 4a — ONE REINSURANCE PACKAGE PER LINE, THE MIDDLE ONE
+// BY DEFAULT. 13,249 instances across 70 fields move; none added, none
+// dropped. The control ran first: 3b (88d1e6e), in its own worktree,
+// reproduced v63 exactly. Every move is the default package replacing the
+// full tower — $9M xs $1M on WC and GL (was to $50M / $25M), $20M xs $5M on
+// Property (was to $1B) — on the tower re-cut at the packages' edges:
+//
+//   WC   the $10M-$50M band is no longer bought. Its cost was tiny on this
+//        book, so only reinsuranceCost and expectedCededPer100 move by more
+//        than 1e-6 relative (netIncome and underwritingIncome on 1-2
+//        instances); everything else on WC moves in the last digits.
+//   GL   the $10M-$25M band is no longer bought: reinsuranceCost (673,345 ->
+//        402,266 in year 1), the net pure premium, the rate, premium, the
+//        ratios and every surplus, asset and income figure downstream.
+//   Property  the cover stops at $25M instead of $1B: reinsuranceCost
+//        (7,511,174 -> 1,031,666), the rate and everything downstream; the one
+//        catastrophe year on two instances recovers 15,000,000 instead of
+//        109,448,263 (the earthquake keeps its $10M retention, so the package
+//        answers it from $10M to $25M), retains 69,448,263 above the $50M top,
+//        and its net reserves, paid, incurred and liabilities rise with it;
+//        catCapitalNeeded, reserveRiskMarginNeeded and fundingMarginNeeded
+//        rise because the pool now retains the catastrophe above $25M.
+//   marketShare (tri pool) follows the rates.
+//   REASSOCIATION: surplusTieOutDifference (+/-1.49e-8 -> 0), expectedCombined
+//        Ratio (1.0000000000000002 -> 1), investmentReturnRate and prior-
+//        YearDevelopment (last digit only).
+//
+// ⚠ ONE IDENTITY BROKE, AND IT IS INTENDED: retainedAboveTower was 0 on all
+// 300 instances because Property's tower reached $1B. It now reads 69,448,263
+// on the two Property catastrophe-year instances (pool and line, both
+// configurations): the loss above the $50M top that every package retains.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v64.json');
 
 function seedOf(id: string) {
   let h = 5381;

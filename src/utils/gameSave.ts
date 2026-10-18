@@ -153,7 +153,16 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v10';
+export const SAVE_KEY = 'riskpool_gamestate_v11';
+
+/**
+ * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
+ * one reinsurance package per line (LineDecisionSet.reinsuranceOption), not a
+ * band-by-band placement, and the tower every past result was ceded through has
+ * been re-cut. A v10 save cannot be read faithfully, so it is not migrated: the
+ * loader clears it and the player starts a new game. This is the key it held.
+ */
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10'];
 
 /**
  * Fields dropped on the way out.

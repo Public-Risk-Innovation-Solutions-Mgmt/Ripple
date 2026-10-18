@@ -2382,11 +2382,13 @@ export const OPENING_SURPLUS_BAND: Record<string,
   // STARTING_CAPITAL_TO_PREMIUM, and the -84%-of-band-width failure recorded
   // there for what moving one alone does.
   //
-  // ⚠ CALIBRATED ON FULL REINSURANCE, WHICH NEEDED NO CHANGE. The pre-game runs
-  // defaultDecisionSet, which places every purchasable occurrence layer and sets
-  // aggregateStopLevel -1, so the opening already assumes the most cover on every
-  // line with WC's aggregate excluded. With the tower placed the catastrophe term
-  // is just the retention, which is what makes these multiples comparable.
+  // ⚠ CALIBRATED ON FULL REINSURANCE; THE PRE-GAME NOW RUNS THE MIDDLE PACKAGE.
+  // These multiples were set when defaultDecisionSet placed every purchasable
+  // occurrence layer (aggregate excluded). Loss engine commit 4a made the
+  // default — for players and for the pre-game's prior board — the middle
+  // package ($9M xs $1M on WC and GL, $20M xs $5M on Property), so the opening
+  // now retains the band above each package. The multiples were not re-set:
+  // the brief changes the default, not the opening's calibration.
   //
   // ⚠ A CORRECTION TO b9d797e's COMMIT MESSAGE, WHICH CANNOT BE REWRITTEN. It
   // says "THE POOL WAS OPENING BELOW ITS OWN REQUIRED CAPITAL ... -7.7%". That

@@ -142,8 +142,7 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
     out[line] = {
       confidenceLevel: d.fundingConfidenceLevel,
       atExpected: d.fundingAtExpected,
-      layersPlaced: [...d.layersPlaced],
-      aggregateStopLevel: d.aggregateStopLevel,
+      reinsuranceOption: d.reinsuranceOption,
       // Absent reads as 0 on the engine side; it is written as 0 here so the
       // host renders "renews everyone" rather than an empty cell.
       renewalCut: d.renewalCut ?? 0,

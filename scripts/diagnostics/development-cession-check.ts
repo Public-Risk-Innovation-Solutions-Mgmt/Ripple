@@ -97,7 +97,7 @@ const ARMS: Arm[] = [
     decisions: (d, lines) => ({
       ...d,
       byLine: Object.fromEntries(lines.map(l =>
-        [l, { ...d.byLine[l], layersPlaced: REINSURANCE_TOWER[l as TowerLine].map(() => false), aggregateStopLevel: -1 }])) as never,
+        [l, { ...d.byLine[l], reinsuranceOption: 'none' }])) as never,
     }),
   },
 ];

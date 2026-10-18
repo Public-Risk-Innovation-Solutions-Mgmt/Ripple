@@ -39,7 +39,7 @@ const towerLineOf = (r: { line?: CoverageLine }): CoverageLine | undefined =>
 // this function is declared against (LineResultSet) does not carry it.
 function poolReinsuranceLevelDetail(
   r: { line?: CoverageLine },
-  render: (line: CoverageLine, decisions: Pick<LineDecisionSet, 'layersPlaced' | 'aggregateStopLevel'>) => string,
+  render: (line: CoverageLine, decisions: Pick<LineDecisionSet, 'reinsuranceOption'>) => string,
 ): string {
   const byLine = (r as unknown as ResultSet).byLine;
   const active = (['WC', 'GL', 'Property'] as const).filter(l => byLine?.[l]);

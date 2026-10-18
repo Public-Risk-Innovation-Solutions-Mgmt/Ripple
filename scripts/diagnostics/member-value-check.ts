@@ -37,6 +37,8 @@ import { MARKET_TARGET_LOSS_RATIO } from '../../src/utils/marketConditions';
 import { TOWER_TOP, RISK_LOAD_LAMBDA } from '../../src/data/reinsuranceTower';
 import { REINSURANCE_LOAD_CLF_AT_70 } from '../../src/data/pricingParameters';
 import type { TowerLine } from '../../src/data/reinsuranceTower';
+import { placementFor } from '../../src/utils/reinsuranceOptions';
+import { occurrenceTotals } from '../../src/utils/reinsuranceTower';
 import type {
   Claim, CoverageLine, DecisionSet, GameState, LineResultSet, MemberPremiumShare,
 } from '../../src/types/simulation';
@@ -110,7 +112,7 @@ function run(games: number, years: number, decisions: (y: number) => DecisionSet
         rows.push({
           line: lr.line as CoverageLine, game: g, year: y,
           claims: r.claims ?? [], shares: r.memberPremiumShares ?? [],
-          placed: r.decisions?.layersPlaced,
+          placed: r.decisions ? placementFor(lr.line as CoverageLine, r.decisions.reinsuranceOption) : undefined,
           expected: (r.memberLossResults ?? []).reduce((s, m) => s + m.expectedLoss, 0),
           result: r,
         });
@@ -421,14 +423,27 @@ console.log('\n--- 7. retainedAboveTower AGREES WITH THE DRAWN LOSS ABOVE THE TO
     const rs = rows.filter(r => r.line === line);
     const field = rs.reduce((s, r) => s + (r.result.retainedAboveTower ?? 0), 0);
     const real = rs.reduce((s, r) => s + layer(r.claims, TOWER_TOP[line as 'WC'], Infinity), 0);
+    // Per OCCURRENCE, as the tower attaches. See the note below on Property.
+    const byOcc = rs.reduce((s, r) => s + occurrenceTotals(r.claims, r.result.occurrences ?? [])
+      .reduce((t, o) => t + Math.max(0, o - TOWER_TOP[line as 'WC']), 0), 0);
     const nonZero = rs.filter(r => (r.result.retainedAboveTower ?? 0) > 0).length;
     console.log(`  ${line.padEnd(9)} engine field ${money(field).padStart(11)} (>0 in ${nonZero} of `
-      + `${rs.length} line-years)   drawn claims above the top ${money(real).padStart(11)}`);
+      + `${rs.length} line-years)   drawn occurrences above the top ${money(byOcc).padStart(11)}`
+      + `   (per claim ${money(real)})`);
+    // ⚠ ASSERTED PER OCCURRENCE SINCE LOSS ENGINE COMMIT 4a, AND THE PER-CLAIM
+    // FIGURE IS NOW REPORTED, NOT ASSERTED. The packages cap Property's tower at
+    // $50M (it reached $1B), so a multi-claim catastrophe occurrence can pierce
+    // the top while none of its claims does alone. Measured: Property's field
+    // $411.48M equals the per-occurrence re-derivation exactly; the per-claim
+    // one reads $368.63M. WC and GL, one claim per occurrence, agree on all
+    // three. The per-claim gap is a MEMBER-PATH limitation — memberValue.ts
+    // splits the band per member by claim — recorded rather than fixed, because
+    // the member path is dormant.
     // Relative where there is anything to be relative to, absolute at zero.
-    const agree = real > 0 ? Math.abs(field / real - 1) < 1e-6 : field === 0;
+    const agree = byOcc > 0 ? Math.abs(field / byOcc - 1) < 1e-6 : field === 0;
     if (!agree) {
       failures.push(`${line}: the engine's retainedAboveTower reads ${money(field)} against `
-        + `${money(real)} of drawn loss above the top. The field is set at inception from the booked `
+        + `${money(byOcc)} of drawn occurrence loss above the top. The field is set at inception from the booked `
         + `occurrence and memberValue.ts re-derives the layer from the claims; under full-cost booking `
         + `those are the same quantity and must agree. A gap means the booking has started contracting `
         + `again, or the two have drifted apart about where the top is.`);

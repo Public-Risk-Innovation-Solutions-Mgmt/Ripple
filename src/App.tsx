@@ -1,7 +1,4 @@
 import React, { useState, useCallback } from 'react';
-import { DEFAULT_LAYERS_PLACED } from './data/reinsuranceTower';
-import type { TowerLine } from './data/reinsuranceTower';
-import { normalizeAggregateStopLevel, normalizeLayersPlaced } from './utils/reinsuranceTower';
 
 import type { GameState, GameSetupSettings, DecisionSet, StartingFinancials, Member, LinePoolState, CoverageLine, LineView } from './types/simulation';
 import { getPredefinedMarketMembers } from './data/memberCatalog';
@@ -9,7 +6,7 @@ import { generateGameInstance } from './utils/instanceGenerator';
 import { processYear, applyLoanAuthorizations, type ProcessYearResult } from './utils/simulationEngine';
 import { runPriorHistory } from './utils/priorHistoryEngine';
 import { defaultDecisionSet } from './utils/decisionDefaults';
-import { SAVE_KEY, unpackSave, writeSave, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
+import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
 import { createSaveScheduler, type SaveScheduler } from './utils/saveScheduler';
 import { seedFromInstanceId } from './seedHash';
 import LoanPromptModal from './components/LoanPromptModal';
@@ -56,6 +53,9 @@ export default function App() {
   // absence because the aggregate Property path never produced them either.
   React.useEffect(() => {
     try {
+      // A save under a retired key is a schema this build cannot read
+      // faithfully; it is cleared, and the player starts a new game.
+      for (const key of RETIRED_SAVE_KEYS) localStorage.removeItem(key);
       const saved = localStorage.getItem(SAVE_KEY);
       if (saved) {
         // ⚠ unpackSave THROWS ON A SAVE WRITTEN BEFORE COMPRESSION, AND THE
@@ -86,48 +86,10 @@ export default function App() {
           if (gs.poolState && !gs.poolState.memberLossHistory) {
             gs.poolState.memberLossHistory = {};
           }
-          // PER-OCCURRENCE TOWER: saves written before it carry only
-          // `reinsuranceLevel` (now removed — see the delete below), and there
-          // is NO honest mapping from a quota-share level to a set of layer
-          // placements — they are different products, not two settings of
-          // one. So the default is every purchasable layer placed and no
-          // aggregate, and an old save silently adopts that rather than
-          // pretending its old program survived the change. The save KEY is
-          // unchanged; only this defaulting is new.
-          // Patch the LIVE decision set (`cd`), which is what the next turn
-          // reads. lockedResults keep their own historical decisions untouched —
-          // those are a record of what was played, not an input.
-          const byLine = (cd as DecisionSet | undefined)?.byLine as
-            Record<string, { layersPlaced?: boolean[]; aggregateStopLevel?: number; reinsuranceLevel?: number }> | undefined;
-          if (byLine) {
-            // KEYED BY LINE — DEFAULT_LAYERS_PLACED is now a Record<TowerLine,
-            // boolean[]>, not one flat array, because Property's one-layer
-            // tower and WC/GL's three-layer towers must not share a default.
-            for (const [line, ld] of Object.entries(byLine)) {
-              if (!ld) continue;
-              if (!Array.isArray(ld.layersPlaced)) ld.layersPlaced = [...DEFAULT_LAYERS_PLACED[line as CoverageLine]];
-              if (typeof ld.aggregateStopLevel !== 'number') ld.aggregateStopLevel = -1;
-              // REINSURANCE_PROGRAMS RETIRED: a save from before this commit
-              // carries `reinsuranceLevel`. Nothing reads it any more — no
-              // validation walks LineDecisionSet's shape, so it would sit
-              // inert rather than throw — but discarded on load anyway so a
-              // resaved game does not keep writing a field that no longer
-              // means anything.
-              delete ld.reinsuranceLevel;
-              // AGGREGATE-OVER-DECLINED-TOWER: reachable in any save written
-              // before the gate existed. Cleared to none rather than rejected —
-              // the save is otherwise valid and the state is now simply not
-              // purchasable, so the honest migration is to drop the purchase.
-              // Only lines with an aggregate at all reach the normalizer; GL
-              // and any non-tower key pass through untouched.
-              if (line === 'WC' || line === 'Property') {
-                const l = line as TowerLine;
-                ld.aggregateStopLevel = normalizeAggregateStopLevel(
-                  l, normalizeLayersPlaced(l, ld.layersPlaced), ld.aggregateStopLevel,
-                );
-              }
-            }
-          }
+          // REINSURANCE: since loss engine commit 4a a decision carries one
+          // package per line (reinsuranceOption). A save from before it was
+          // written under SAVE_KEY v10 and is cleared below, not migrated — see
+          // RETIRED_SAVE_KEYS.
           // WC SEVERITY REBUILD: wcRatingGroup re-stamped onto every member from
           // the canonical catalog. It is roster data, not game state, so
           // rebuilding it is exact rather than a guess — and wcClaimEngine THROWS

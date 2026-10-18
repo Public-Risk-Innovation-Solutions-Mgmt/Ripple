@@ -73,6 +73,7 @@ import {
   REINSURANCE_LOAD_CLF_AT_70,
 } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, LineResultSet, Member } from '../../src/types/simulation';
+import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const RULE = '='.repeat(86);
@@ -155,7 +156,7 @@ for (let y = 1; y <= YEAR; y++) {
   if (pp !== null && result !== undefined && (y === YEAR || y === YEAR - 1)) {
     const d = decisions.byLine[LINE];
     const rc = d.riskControlIncentivePct ?? 0;
-    const placed = d.layersPlaced;
+    const placed = placementFor(LINE, d.reinsuranceOption);
     walks.set(y, {
       year: y, result, pp, members, exposure, rc, placed,
       clf: result.selectedFundingCLF,
@@ -163,7 +164,7 @@ for (let y = 1; y <= YEAR; y++) {
         line: LINE, yearNumber: y, members, exposure,
         groundUpPurePremiumPer100: pp.purePremiumPer100,
         clf: result.selectedFundingCLF, riskControlPct: rc,
-        layersPlaced: placed, aggregateStopLevel: d.aggregateStopLevel,
+        layersPlaced: placed, aggregateStopLevel: AGGREGATE_NOT_OFFERED,
       }),
     });
   }

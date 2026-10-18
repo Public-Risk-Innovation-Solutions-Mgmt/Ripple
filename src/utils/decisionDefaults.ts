@@ -1,4 +1,4 @@
-import { DEFAULT_LAYERS_PLACED } from '../data/reinsuranceTower';
+import { defaultReinsuranceOption } from './reinsuranceOptions';
 import { INTAKE_NONE } from './intakeInspection';
 // Single source of truth for default decisions. Used by the App (new game /
 // next year), the Decisions page (per-line reset), and the Stage 2.10 pre-game
@@ -61,12 +61,10 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
     // LineDecisionSet.riskControlIncentivePct — so this is what the slider
     // opens on, not a value the engine consumes.
     riskControlIncentivePct: SLIDER_RANGES.riskControlIncentivePct.default,
-    // Default: every purchasable occurrence layer placed, no aggregate. Matches
-    // the default-on-load rule for saves that predate the tower. KEYED BY
-    // LINE — Property's one-layer tower must not receive WC's three-element
-    // array (or vice versa); see DEFAULT_LAYERS_PLACED's own header.
-    layersPlaced: [...DEFAULT_LAYERS_PLACED[line]],
-    aggregateStopLevel: -1,
+    // The default reinsurance package — the middle option, a chosen parameter
+    // (REINSURANCE_DEFAULT_OPTION). The pre-game's prior board plays these
+    // decisions, so the opening is built on it too.
+    reinsuranceOption: defaultReinsuranceOption(line),
     assetAllocation: { ...ASSET_ALLOCATION_DEFAULT },
     loanRepaymentAggressiveness: 0.5,
   };

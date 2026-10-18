@@ -47,6 +47,7 @@ function lineBookExposure(lineState: LinePoolState, line: CoverageLine, yearNumb
       .reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
 }
 import { effectiveRiskControlIncentivePct } from '../utils/linePricing';
+import { AGGREGATE_NOT_OFFERED, placementFor } from '../utils/reinsuranceOptions';
 
 export interface GameDerivations {
   decisionLine: CoverageLine;
@@ -62,6 +63,8 @@ export interface GameDerivations {
   estimatedAggregateTermsRetained: number | undefined;
   lastLineResult: LineResultSet | undefined;
   decisionLineActiveMembers: Member[];
+  /** What the decision line's reinsurance is priced on — its book or roster. */
+  decisionLineBook: Book;
   fundingConsequence: FundingConsequence | null;
 }
 
@@ -214,8 +217,9 @@ export function useGameDerivations(
         // and the year, not just an exposure total.
         members: decisionLineBook,
         exposure: bookExposureOf(decisionLineBook, decisionLine, gameState.currentYearNumber),
-        layersPlaced: d.layersPlaced,
-        aggregateStopLevel: d.aggregateStopLevel,
+        // The chosen package, as the tower reads it — the engine's own call.
+        layersPlaced: placementFor(decisionLine, d.reinsuranceOption),
+        aggregateStopLevel: AGGREGATE_NOT_OFFERED,
         pricingAdjustment: lineState.rateLevel / 100,
         priorPurePremiumPer100: lineState.purePremiumPer100,
         lossTrend: gameState.instance.lossEnvironment.lossTrend,
@@ -277,6 +281,7 @@ export function useGameDerivations(
     estimatedAggregateTermsRetained,
     lastLineResult,
     decisionLineActiveMembers,
+    decisionLineBook,
     fundingConsequence,
   };
 }

@@ -45,6 +45,7 @@ import { adminRatePer100For, expenseDivisor, expectedCededPer100For } from '../.
 import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import { quoteNewRateStack, newStackAsLineRateQuote } from '../../src/utils/linePricing';
 import type { CoverageLine, GameState, LinePoolState } from '../../src/types/simulation';
+import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const GAMES = Number(process.env.GAMES ?? 3);
@@ -107,7 +108,7 @@ function play(): Row[] {
           members: (gs.poolState.lines[line] as LinePoolState).bookExposure !== undefined
             ? { exposure }
             : (gs.poolState.lines[line] as LinePoolState).members ?? [],
-          exposure, layersPlaced: ld.layersPlaced, aggregateStopLevel: ld.aggregateStopLevel,
+          exposure, layersPlaced: placementFor(line, ld.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
         });
         const retained = Math.max(0, groundUp - expectedCededPer100);
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);

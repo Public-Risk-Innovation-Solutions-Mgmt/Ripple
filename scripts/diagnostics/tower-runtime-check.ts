@@ -196,9 +196,22 @@ console.log('\n--- 2. YEAR-1 FULL-MARKET REPRODUCES THE CLOSED-FORM REFERENCE --
   // EXPECTED count; the $1M layer is hit often enough for that term to dominate,
   // while the $10M layer's dispersion is already governed by whether its rare
   // claim happens at all.
+  //
+  // ⚠ THE THIRD LAYER WAS RE-CUT AT LOSS ENGINE COMMIT 4a, SO ITS LITERALS ARE
+  // RE-PINNED, NOT RE-DERIVED. The tower is cut at the reinsurance packages'
+  // edges: WC's $40M xs $10M and GL's $15M xs $10M became $5M xs $10M on both.
+  //
+  //   layer                    per100            SD/E
+  //   WC $40M -> $5M xs $10M   0.1390 -> 0.0564  3.389 -> 2.477
+  //   GL $15M -> $5M xs $10M   0.5015 -> 0.2432  1.366 -> 1.217
+  //
+  // The first two layers are unchanged to four decimals, which is the control:
+  // the re-cut touched only the band it moved. The new third-layer values are
+  // the runtime path's own, so their independent check is section 3 — the
+  // Monte Carlo over the generator — not this table.
   const REF: Record<string, { per100: number[]; sdOverE: number[] }> = {
-    WC: { per100: [0.6647, 0.1481, 0.1390], sdOverE: [0.672, 1.500, 3.389] },
-    GL: { per100: [1.3621, 0.4889, 0.5015], sdOverE: [0.452, 0.846, 1.366] },
+    WC: { per100: [0.6647, 0.1481, 0.05643], sdOverE: [0.672, 1.500, 2.477] },
+    GL: { per100: [1.3621, 0.4889, 0.24322], sdOverE: [0.452, 0.846, 1.217] },
   };
   resetTowerMomentCache();
   for (const line of ['WC', 'GL'] as const) {
@@ -342,7 +355,7 @@ console.log('\n--- 5. THE ABOVE-TOWER BAND CAN NOW CARRY A GATE ---');
   // it was simply dominated by mass beyond any feasible sample (the same fact
   // GL_SEVERITY_CAP's own note records as "half the variance above $1.42B").
   // GL_SEVERITY_CAP bounds each occurrence's contribution at $75M
-  // ($100M cap - $25M tower top), which brings the required sample size down
+  // ($100M cap - $25M tower top when written; $85M above the 4a $15M top), which brings the required sample size down
   // from unreachable to a few thousand years.
   const placedAll = REINSURANCE_TOWER.GL.map(l => l.purchasable);
   const r = retainedRiskMoments('GL', placedAll, ROSTER, 1);
@@ -364,7 +377,7 @@ console.log('\n--- 5. THE ABOVE-TOWER BAND CAN NOW CARRY A GATE ---');
   }
   const mc = mean(drawn), mcSd = sdOf(drawn), cv = mcSd / mc;
   const ciPct = 100 * 1.96 * mcSd / Math.sqrt(YEARS) / mc;
-  console.log(`  above $25M, ${YEARS.toLocaleString()} full-market years: E $${(mc / 1e6).toFixed(3)}M/yr  CV ${cv.toFixed(3)}`);
+  console.log(`  above $${(TOWER_TOP.GL / 1e6).toFixed(0)}M, ${YEARS.toLocaleString()} full-market years: E $${(mc / 1e6).toFixed(3)}M/yr  CV ${cv.toFixed(3)}`);
   console.log(`  bounded at $${((GL_SEVERITY_CAP - TOWER_TOP.GL) / 1e6).toFixed(0)}M per occurrence, so this CI is VALID`);
   check(ciPct <= 10.0, 'the above-tower band resolves to +/-10% at this sample size', `+/-${ciPct.toFixed(2)}%`);
   let breach = 0;

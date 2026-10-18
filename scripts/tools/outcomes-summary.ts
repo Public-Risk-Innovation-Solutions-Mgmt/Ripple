@@ -55,6 +55,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simulation';
+import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const RULE = '='.repeat(118);
@@ -80,8 +81,9 @@ const PROFILES: Profile[] = [
   { name: 'funding: expected (default)', apply: d => { for (const l of LINES) { d.byLine[l].fundingAtExpected = true; } } },
   { name: 'funding: 70%', apply: d => { for (const l of LINES) { d.byLine[l].fundingAtExpected = false; d.byLine[l].fundingConfidenceLevel = 0.70; } } },
   { name: 'funding: 90%', apply: d => { for (const l of LINES) { d.byLine[l].fundingAtExpected = false; d.byLine[l].fundingConfidenceLevel = 0.90; } } },
-  { name: 'layers: all placed (default)', apply: d => { for (const l of LINES) { d.byLine[l].layersPlaced = d.byLine[l].layersPlaced.map(() => true); } } },
-  { name: 'layers: all declined', apply: d => { for (const l of LINES) { d.byLine[l].layersPlaced = d.byLine[l].layersPlaced.map(() => false); } } },
+  { name: 'reinsurance: middle package (default)', apply: () => { /* the default */ } },
+  { name: 'reinsurance: full tower', apply: d => { for (const l of LINES) { d.byLine[l].reinsuranceOption = fullTowerOption(l); } } },
+  { name: 'reinsurance: none', apply: d => { for (const l of LINES) { d.byLine[l].reinsuranceOption = 'none'; } } },
   { name: 'risk control: 0% (default)', apply: d => { for (const l of LINES) { d.byLine[l].riskControlIncentivePct = 0; } } },
   { name: 'risk control: 5%', apply: d => { for (const l of LINES) { d.byLine[l].riskControlIncentivePct = 0.05; } } },
 ];

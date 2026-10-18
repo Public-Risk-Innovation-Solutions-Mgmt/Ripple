@@ -37,7 +37,6 @@ import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { formatPct } from '../../utils/formatters';
 import { clfFor } from '../../utils/fundingConsequence';
-import { REINSURANCE_TOWER } from '../../data/reinsuranceTower';
 import type { CoverageLine } from '../../types/simulation';
 import type { RoomView, TeamLineDecisions, TeamView, TeamYearSummary } from '../index';
 
@@ -101,18 +100,11 @@ function flagsFor(line: CoverageLine, d: TeamLineDecisions): Flag[] {
     });
   }
 
-  const declined = d.layersPlaced
-    .map((placed, i) => (placed ? null : i))
-    .filter((i): i is number => i !== null);
-  if (declined.length > 0) {
-    const bands = REINSURANCE_TOWER[line];
-    const named = declined.map(i => bands[i]?.name ?? `band ${i + 1}`).join(', ');
+  if (d.reinsuranceOption === 'none') {
     out.push({
       key: 'reinsurance',
-      label: declined.length === d.layersPlaced.length
-        ? 'Reinsurance declined'
-        : `${declined.length} of ${d.layersPlaced.length} bands retained`,
-      title: `Retained rather than placed: ${named}.`,
+      label: 'Reinsurance declined',
+      title: `No package bought on ${line}: every loss is retained.`,
     });
   }
 
@@ -139,11 +131,12 @@ function fundingLabel(d: TeamLineDecisions): string {
   return d.atExpected ? 'Expected' : formatPct(d.confidenceLevel, 0);
 }
 
+// The package, as the team chose it (loss engine commit 4a). A row posted
+// before that change carries per-band fields instead and renders a dash —
+// "not recorded", the same reading as a row with no decisions at all.
 function reinsuranceLabel(d: TeamLineDecisions): string {
-  const placed = d.layersPlaced.filter(Boolean).length;
-  const total = d.layersPlaced.length;
-  const agg = d.aggregateStopLevel >= 0 ? ' + agg' : '';
-  return `${placed}/${total}${agg}`;
+  if (typeof d.reinsuranceOption !== 'string') return '—';
+  return d.reinsuranceOption === 'none' ? 'None' : d.reinsuranceOption;
 }
 
 const SPAN_NOTE: Record<Exclude<CellState['kind'], 'reported'>, string> = {

@@ -406,11 +406,15 @@
 // on the current build.
 //
 // ⚠ THE R# ITEM GREW WHEN DECISIONS JOINED IT, AND THE FIGURE IS MEASURED, NOT
-// ESTIMATED. A TeamYearSummary carrying a three-line decisions block is +748
-// BYTES, flat — the block is a fixed set of scalars plus a per-band placement
-// array, so it does not grow with the year. Against the row itself that is
-// +63% at year 1 and +37.5% at year 10 (the row grows because `developed`
-// restates every accident year), +47% over a ten-year game.
+// ESTIMATED. A TeamYearSummary carrying a three-line decisions block was +748
+// BYTES, flat, when the block held a per-band placement array; it is a fixed
+// set of scalars plus one package id, so it does not grow with the year.
+// Against the row itself that was +63% at year 1 and +37.5% at year 10 (the
+// row grows because `developed` restates every accident year), +47% over a
+// ten-year game. Loss engine commit 4a replaced the placement array and the
+// aggregate level with the package id: measured on the same block, 63 bytes
+// SMALLER (752 -> 689 at the defaults), so every figure below is now a
+// slight overstatement rather than an understatement.
 //
 // At the HOST's read that compounds: ~87 KB -> ~160 KB at ten teams by ten
 // years, which is the largest single read in this design and roughly doubles

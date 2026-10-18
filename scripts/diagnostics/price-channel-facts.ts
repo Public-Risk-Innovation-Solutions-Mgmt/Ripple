@@ -30,8 +30,8 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
+import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const GAMES = 30, YEARS = 10;
@@ -57,9 +57,9 @@ function run(towerOn: boolean): Record<string, Row[]> {
     } as never as GameState;
 
     for (let y = 1; y <= YEARS; y++) {
-      // ⚠ DEFAULT_LAYERS_PLACED already places every purchasable layer, so the
-      // DEFAULT decision set IS the full tower. The contrast arm is the one
-      // that has to be constructed: strip every layer explicitly.
+      // Both arms are constructed: the full tower (the package that places
+      // every layer — since commit 4a NOT the default, which is the middle
+      // package) against no reinsurance.
       const d = defaultDecisionSet(y);
       // ⚠ ALL THREE LINES. This looped ['WC', 'GL'] until Property got its own
       // occurrence layer, which was correct then (Property was on
@@ -68,7 +68,7 @@ function run(towerOn: boolean): Record<string, Row[]> {
       // BOTH arms, so its "no tower" column was really "tower on" and its load
       // read 1.5176 where a genuinely un-reinsured line reads 1.1500.
       for (const l of LINES) {
-        d.byLine[l].layersPlaced = REINSURANCE_TOWER[l].map(() => towerOn);
+        d.byLine[l].reinsuranceOption = towerOn ? fullTowerOption(l) : 'none';
       }
       // prior rate as the ENGINE sees it: lineState.ratePer100 is last year's
       // totalMemberRatePer100, the same field fundingConsequence compares against.

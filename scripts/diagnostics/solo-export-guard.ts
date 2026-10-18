@@ -655,7 +655,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // claim, and the old filter dropped any event without a claim. The two that did
 // not move are the configurations whose years fired nothing of the kind.
 // 3b is value-neutral: v66 holds unchanged across it.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v66.json');
+// v67: LOSS ENGINE COMMIT 4a — ONE REINSURANCE PACKAGE PER LINE. All 24
+// exports move. The control ran first: 3b (88d1e6e), in its own worktree,
+// reproduced v66 24 of 24; then both sides were diffed as text with
+// GUARD_TEXT_DIR. Two causes, nothing else:
+//   - THE PLACEMENT CODE is the package id: "L1+L2+L3" becomes "$9M xs $1M"
+//     on WC and GL, "L1" becomes "$20M xs $5M" on Property.
+//   - THE VALUES of the default package, exactly as v64 of the value baseline
+//     records them: GL's reinsurance cost (673 345 -> 402 266 in year 1),
+//     Property's (7 511 174 -> 1 031 666), the catastrophe year's recovery
+//     (109 448 263 -> 15 000 000), and the reserves, rates, ratios and
+//     surplus that follow.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v67.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

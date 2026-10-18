@@ -1,6 +1,18 @@
 // PER-OCCURRENCE REINSURANCE TOWER — structure, measured expected-loss constants
 // and the aggregate stop-loss parameters.
 //
+// ============================================================================
+// ⚠ LOSS ENGINE COMMIT 4a CUT THE TOWER AT THE PACKAGES' EDGES. A team now buys
+// ONE PACKAGE per line (REINSURANCE_OPTIONS in pricingParameters.ts) instead of
+// placing or declining each band, and every package is a set of whole layers
+// below: WC and GL $4M xs $1M, $5M xs $5M and $5M xs $10M (the packages end at
+// $15M); Property $20M xs $5M and $25M xs $25M (they end at $50M). Above the
+// top is retained, as above any tower — GL to its $25M pool limit. The aggregate
+// stop-loss is no longer offered; its parameters below are kept, unwired.
+// Much of what follows records the tower before the cut and is kept for its
+// reasoning: read the layer figures in it as history.
+// ============================================================================
+//
 // Replaces the aggregate quota-share model (REINSURANCE_PROGRAMS) for WC, GL and
 // (as of the retention/aggregate commit) Property. REINSURANCE_PROGRAMS and
 // reinsuranceEngine.ts are gone — Property was the model's last consumer.
@@ -134,7 +146,9 @@ export interface TowerLayer {
 // cat ceiling, which was sized by sweeping exceedance on one enrolled book.
 // What a single occurrence draws above it lands in retainedAboveTower,
 // visibly.
-export const PROPERTY_TOWER_TOP = 1_000_000_000;
+// ⚠ $50M SINCE LOSS ENGINE COMMIT 4a — the top of the largest package. It
+// was $1B, one treaty to the real programme's limit; see the history above.
+export const PROPERTY_TOWER_TOP = 50_000_000;
 
 // PER-PERIL DEDUCTIBLES — a Property occurrence of a named peril retains this
 // much before the tower responds, instead of the layer's own $5M attachment.
@@ -251,7 +265,7 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
     // against an inflating distribution. The fixed ceiling was concealing half
     // of it by shrinking the modelled tail at the same rate the tower lost
     // ground. Do not restate this as a single number.
-    layer(10e6, 40e6),
+    layer(10e6, 5e6),   // 4a: $5M xs $10M — the packages end at $15M
   ],
   // GL KEEPS THREE LAYERS — re-confirmed at the runtime-pricing change against
   // the rebuilt severity model. The merge test WC failed is pierce frequency, and
@@ -261,7 +275,7 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   GL: [
     layer(1e6, 4e6),
     layer(5e6, 5e6),
-    layer(10e6, 15e6),
+    layer(10e6, 5e6),   // 4a: $5M xs $10M — the packages end at $15M
     // No fourth layer. Market capacity — see the header. The pool retains above
     // $25M and it is DISPLAYED as retainedAboveTower.
     //
@@ -285,12 +299,9 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   // ⚠ ONE LAYER AGAIN, NOW RUNNING TO $1B RATHER THAN TO THE SEVERITY CAP — see
   // the header. It answers every occurrence, attritional or catastrophe.
   Property: [
-    {
-      name: `$${(PROPERTY_TOWER_TOP - PROPERTY_LOSS_MODEL.perRiskRetention) / 1e6}M xs $${PROPERTY_LOSS_MODEL.perRiskRetention / 1e6}M`,
-      attachment: PROPERTY_LOSS_MODEL.perRiskRetention,
-      limit: PROPERTY_TOWER_TOP - PROPERTY_LOSS_MODEL.perRiskRetention,
-      purchasable: true,
-    },
+    // 4a: cut at $25M, the edge of the $20M xs $5M and $25M xs $25M packages.
+    layer(PROPERTY_LOSS_MODEL.perRiskRetention, 25e6 - PROPERTY_LOSS_MODEL.perRiskRetention),
+    layer(25e6, PROPERTY_TOWER_TOP - 25e6),
   ],
 };
 
@@ -300,7 +311,8 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
 // PROPERTY_LOSS_MODEL.severityCap ($75M), when occurrence == claim made the two
 // the same number. An attritional claim still cannot exceed $75M, so
 // above-tower dollars come only from a single occurrence larger than $1B.
-export const TOWER_TOP: Record<TowerLine, number> = { WC: 50e6, GL: 25e6, Property: PROPERTY_TOWER_TOP };
+// The top of the largest package on each line (loss engine commit 4a).
+export const TOWER_TOP: Record<TowerLine, number> = { WC: 15e6, GL: 15e6, Property: PROPERTY_TOWER_TOP };
 
 // ============================================================================
 // THE RISK LOAD — one market parameter, not four chosen multiples.

@@ -1232,6 +1232,33 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
       + 'low tail; the WC one needs a book-size axis, which was considered and rejected because it '
       + 'makes the rate move as the book moves. Neither is a re-derivation anyone can just run.',
   },
+  // ==========================================================================
+  // THE DORMANT MEMBER PATH'S FIVE SLOW REDS — recorded at loss engine commit
+  // 4a, unchanged since b234c36 (each exits 1 there, on 3b, and here). They run
+  // against MEMBER_LEVEL, which the shipped engine does not use, so they are
+  // excused rather than fixed. Exit 1 only: any other code is still a failure,
+  // and an XPASS still fails the sweep so the entry comes out.
+  // ==========================================================================
+  'property-tower-mc': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'martingale-equivalence-check': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'marketplace-generation-check': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'experience-pricing-check': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'maturity-anchor-check': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
 };
 
 // ---------------------------------------------------------------- runner

@@ -9,10 +9,11 @@ import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumpti
 import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import { dividendAssessmentBasis } from '../utils/dividendAssessment';
-import { hasTractableCeded } from '../utils/reinsuranceDisplay';
-import { AGG_ATTACHMENT_LEVELS, AGG_LIMIT_MULTIPLE, PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, RISK_LOAD_LAMBDA, TOWER_TOP } from '../data/reinsuranceTower';
-import { normalizeAggregateStopLevel, normalizeLayersPlaced, quoteAggregate } from '../utils/reinsuranceTower';
-import { allLayerRiskMoments } from '../utils/towerMoments';
+import { hasTractableCeded, placementSummary } from '../utils/reinsuranceDisplay';
+import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
+import { occurrenceProgramCost } from '../utils/reinsuranceTower';
+import { placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
+import type { Book } from '../utils/lineHelpers';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -37,10 +38,6 @@ interface DecisionsPageProps {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
   yearNumber: number;
-  estimatedExpectedLoss: number;
-  /** The agreed aggregate terms in dollars for the line being edited, or
-   *  undefined on the held path. See TowerControls' own field. */
-  estimatedAggregateTermsRetained?: number;
   disabled?: boolean;
   // 'pool' hosts the two pool-wide decisions (investment allocation, risk
   // control); each coverage line's tab edits that line's own decisions.
@@ -68,10 +65,9 @@ interface DecisionsPageProps {
   // simulateMemberMovement does, rather than estimating it.
   allMarketMembers: Member[];
   membershipHistory: MembershipHistory;
-  // The line's ACTIVE enrolled members. The reinsurance tower prices off the
-  // book itself now, not off a frozen per-$100 rate card times exposure — both
-  // E[ceded] and SD[ceded] depend on who is actually enrolled and on the year.
-  activeMembers: Member[];
+  // What the line's reinsurance is priced on: its one book, or with
+  // MEMBER_LEVEL on its roster — derivations.ts builds it as the engine does.
+  book: Book;
 }
 
 // 0.30-0.45 ADDED alongside the funding-confidence range's extension down from
@@ -110,7 +106,7 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine): Decisi
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, estimatedExpectedLoss, estimatedAggregateTermsRetained, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, activeMembers, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
@@ -311,15 +307,12 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
               stays imported and checked (thrown on else) so a future line
               without one fails loudly here instead of rendering nothing. */}
           {hasTractableCeded(selectedLine) ? (
-            <TowerControls
+            <PackageControls
               line={selectedLine}
               d={d}
-              set={set}
               setMany={setMany}
               disabled={disabled}
-              expectedLoss={estimatedExpectedLoss}
-              aggregateTermsRetained={estimatedAggregateTermsRetained}
-              members={activeMembers}
+              book={book}
               yearNumber={yearNumber}
             />
           ) : (() => { throw new Error(`DecisionsPage: ${selectedLine} has no tractable ceded reinsurance`); })()}
@@ -1233,272 +1226,84 @@ function DataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ===========================================================================
-// PER-OCCURRENCE TOWER CONTROLS — WC, GL and Property, every line now that
-// REINSURANCE_PROGRAMS is retired.
+// ============================================================================
+// THE REINSURANCE PACKAGE — ONE CHOICE PER LINE (loss engine commit 4a).
 //
-// EVERY LAYER'S PRICE IS SHOWN, because the loading rising with attachment IS
-// the mechanic. A player who cannot see that the $15M xs $10M layer costs 3.3x
-// its expected loss while the working layer costs 1.9x has no basis for choosing
-// between them, and the decision collapses into "buy everything".
+// A team picks one package from REINSURANCE_OPTIONS instead of placing each
+// band. Every price here is the engine's own quote — occurrenceProgramCost on
+// the line's book, over the package's layers — so the panel cannot show a
+// figure the engine does not charge. The aggregate stop-loss is not offered.
 //
-// NO ORDERING CONSTRAINT. Any combination is allowed, including buying a higher
-// layer while declining a lower one. A corridor retention is unusual in the
-// market but real, and choosing which bands to keep is the point.
-// ===========================================================================
-function TowerControls({
-  line, d, set, setMany, disabled, expectedLoss, aggregateTermsRetained, members, yearNumber,
-}: {
+// A peril with its own deductible is listed from PROPERTY_PERIL_DEDUCTIBLE, as
+// the per-band panel listed it: the cession applies it, so a package attaching
+// below it answers that peril only from the deductible up.
+// ============================================================================
+function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
   line: CoverageLine;
   d: LineDecisionSet;
-  set: (key: keyof LineDecisionSet, val: number | boolean[]) => void;
   setMany: (patch: Partial<LineDecisionSet>) => void;
   disabled: boolean;
-  expectedLoss: number;
-  /** The agreed aggregate terms in dollars — undefined on the held path, where
-   *  the attachment comes off `expectedLoss` as it always did. Threaded so the
-   *  tile quotes the treaty the engine will actually write: once the pool prices
-   *  off its triangle, the engine's attachment is set from the triangle's own
-   *  retained estimate, and a panel deriving it from a rate instead would show a
-   *  layer nobody buys. See quoteAggregate's header. */
-  aggregateTermsRetained?: number;
-  members: Member[];
+  book: Book;
   yearNumber: number;
 }) {
-  const layers = REINSURANCE_TOWER[line];
-  const placed = normalizeLayersPlaced(line, d.layersPlaced);
-  const hasAggregate = line === 'WC' || line === 'Property';
-
-  // Is an aggregate selectable AT ALL on this line's current placement? Asked
-  // by probing the normalizer with level 0 rather than re-implementing its
-  // condition here — the gate has exactly one definition and this screen reads
-  // it, so the panel cannot drift from the engine.
-  const aggAvailable = hasAggregate && normalizeAggregateStopLevel(line, placed, 0) >= 0;
-  const aggLevel = hasAggregate
-    ? normalizeAggregateStopLevel(line, placed, d.aggregateStopLevel)
-    : -1;
-
-  // Declining the last placed layer CLEARS the aggregate in the same update.
-  // Leaving it selected-but-normalized-away would show a purchase the engine
-  // will not price, which is the drift this gate exists to prevent.
-  const toggle = (i: number) => {
-    if (disabled || !layers[i].purchasable) return;
-    const next = [...placed];
-    next[i] = !next[i];
-    const nextAgg = hasAggregate
-      ? normalizeAggregateStopLevel(line, normalizeLayersPlaced(line, next), d.aggregateStopLevel)
-      : d.aggregateStopLevel;
-    setMany({ layersPlaced: next, aggregateStopLevel: nextAgg });
-  };
-
-  // One moment pass for the whole tower, reused by every row below — calling
-  // layerPremium/expectedCededForLayer per row walked the book six times.
-  const layerMoms = allLayerRiskMoments(line, members, yearNumber);
-  const occCost = layers.reduce((s, l, i) =>
-    s + (placed[i] && l.purchasable ? layerMoms[i].expected + RISK_LOAD_LAMBDA * layerMoms[i].sd : 0), 0);
-  // LIVE, not cached: the aggregate is re-quoted from the CURRENT placements on
-  // every render, so declining a layer immediately raises its price. That
-  // responsiveness is the whole reason the price is computed rather than stored —
-  // without it, "decline everything and buy the aggregate" is free volatility
-  // transfer.
-  const aggQuote = hasAggregate && aggLevel >= 0
-    ? quoteAggregate(line as 'WC' | 'Property', placed, members, expectedLoss, aggLevel, yearNumber, aggregateTermsRetained)
-    : null;
-  const totalCost = occCost + (aggQuote?.premium ?? 0);
-
+  const quotes = reinsuranceOptionsFor(line).map(o => ({
+    o, q: occurrenceProgramCost(line as TowerLine, placementFor(line, o.id), book, yearNumber),
+  }));
+  const chosenOption = reinsuranceOptionsFor(line).find(o => o.id === d.reinsuranceOption);
+  const packageTop = chosenOption && chosenOption.limit > 0 ? chosenOption.attachment + chosenOption.limit : null;
+  const perilDeductibles = line === 'Property' ? Object.entries(PROPERTY_PERIL_DEDUCTIBLE) : [];
   return (
     <div className="space-y-3">
-      <div>
-        {/* One retention per occurrence on every line. On Property a regional
-            catastrophe is one occurrence and meets the same retention as any
-            other claim, so the label says "per occurrence" rather than "per
-            risk": a two-region event retains it twice. A peril with its own
-            deductible is listed from PROPERTY_PERIL_DEDUCTIBLE, so the label
-            names every exception the cession applies. */}
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-          {line === 'Property'
-            ? <>Occurrence Layers — Retention ${layers[0].attachment / 1e6}M per occurrence, catastrophes included{
-                Object.entries(PROPERTY_PERIL_DEDUCTIBLE).map(([peril, d]) =>
-                  `; ${peril.charAt(0).toUpperCase()}${peril.slice(1)} $${d / 1e6}M`).join('')
-              }</>
-            : <>Occurrence Layers — Retention ${layers[0].attachment / 1e6}M</>}
+      <p className="text-xs text-gray-600 leading-relaxed">
+        Choose <strong>one package</strong> for this line. Each covers every occurrence above its attachment
+        up to its limit; the price is the expected recovery on large losses, loaded at the line&apos;s 70% CLF.
+      </p>
+      {perilDeductibles.length > 0 && (
+        <p className="text-xs text-gray-600 leading-relaxed" data-testid="reins-peril-deductibles">
+          {perilDeductibles.map(([peril, ded]) =>
+            `${peril.charAt(0).toUpperCase()}${peril.slice(1)} carries its own $${ded / 1e6}M retention per occurrence: `
+            + 'a package attaching below it answers that peril from there up.').join(' ')}
         </p>
-        <div className="space-y-1.5">
-          {layers.map((l, i) => {
-            const price = layerMoms[i].expected + RISK_LOAD_LAMBDA * layerMoms[i].sd;
-            const expected = layerMoms[i].expected;
-            const multiple = expected > 0 ? price / expected : 0;
-            if (!l.purchasable) {
-              return (
-                <div key={l.name} className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-2.5 text-xs">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-gray-500">{l.name}</span>
-                    <span className="text-gray-400 font-semibold uppercase text-xs tracking-wide">Not available</span>
-                  </div>
-                  <p className="text-gray-500 mt-1 leading-relaxed">
-                    Defined but <strong>not purchasable</strong>. This layer covers multi-claim catastrophe
-                    occurrences — one event injuring several workers. The model emits one claim per WC
-                    occurrence, and a single catastrophic claim tops out near <strong>$15.51M</strong> present
-                    value, so the mechanism it was designed for cannot reach it. Offering it at a price would
-                    be selling cover that cannot pay.
-                  </p>
-                </div>
-              );
-            }
-            return (
-              <button
-                key={l.name}
-                disabled={disabled}
-                onClick={() => toggle(i)}
-                className={`w-full text-left rounded-lg border p-2.5 transition-all text-xs ${
-                  placed[i]
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                } ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
-              >
-                <div className="flex justify-between items-center">
-                  <span className="font-bold">{l.name}</span>
-                  <span className={`font-semibold ${placed[i] ? 'text-blue-100' : 'text-gray-500'}`}>
-                    {placed[i] ? 'PLACED' : 'RETAINED'}
-                  </span>
-                </div>
-                <div className={`flex justify-between mt-1 ${placed[i] ? 'text-blue-100' : 'text-gray-500'}`}>
-                  <span>{formatCurrency(price)}/yr</span>
-                  <span>{multiple.toFixed(2)}x expected loss</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-xs text-gray-500 italic mt-2 leading-relaxed">
-          Any combination is allowed — including buying a higher layer while declining a lower one.
-        </p>
-      </div>
-
-      {/* ⚠ CUT TO ONE LINE, NOT CUT. Four sentences is too long for a decision
-          screen, but unlike the removal note on this page this one states a
-          LIVE FINANCIAL FACT the player is deciding against: above the top
-          layer the pool carries unlimited uncapped exposure with no cover
-          available at any price. A player who discovers that from a loss
-          rather than from the screen has a fair complaint. What went: the
-          market-capacity explanation (why there is no layer is not the
-          decision) and the pointer to Results and Financial Statements (a
-          reader who wants the figure will find it on the exhibit that carries
-          it). What stays: the band, the word unlimited, and that it cannot be
-          bought. Rendered where the next layer would be, so it reads as the
-          top of the tower rather than as an aside. */}
-      {line === 'GL' && (
-        <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
-          <strong>Above ${TOWER_TOP.GL / 1e6}M:</strong> retained in full, unlimited. No cover is available.
-        </div>
       )}
-
-      {(line === 'WC' || line === 'Property') && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Aggregate Stop-Loss — total annual retained loss
-          </p>
-          {/* Column count matches "None" plus however many levels this line
-              offers — WC has 3 (market-range triple), Property has 2 (a wide
-              frequency spread; see AGG_ATTACHMENT_LEVELS.Property's header).
-              Literal class names, not an interpolated grid-cols-${n}, so
-              Tailwind's scanner picks them up. */}
-          <div className={AGG_ATTACHMENT_LEVELS[line].length === 2 ? 'grid grid-cols-3 gap-1' : 'grid grid-cols-4 gap-1'}>
+      <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
+        {quotes.map(({ o, q }) => {
+          const chosen = d.reinsuranceOption === o.id;
+          return (
             <button
+              key={o.id}
+              type="button"
+              data-testid={`reins-option-${line}-${o.id}`}
               disabled={disabled}
-              onClick={() => !disabled && set('aggregateStopLevel', -1)}
-              className={`flex flex-col items-center p-2 rounded-lg border text-center transition-all text-xs ${
-                aggLevel < 0
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-              } ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+              onClick={() => !disabled && setMany({ reinsuranceOption: o.id })}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left ${
+                chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
+              } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
-              <span className="font-bold">None</span>
+              <span>{o.id === 'none' ? 'None — retain every loss' : o.id}</span>
+              <span className="text-xs text-gray-600">
+                {o.id === 'none' ? '$0/yr' : `${formatCurrency(q.premium)}/yr · expected recovery ${formatCurrency(q.expectedCeded)}`}
+              </span>
             </button>
-            {AGG_ATTACHMENT_LEVELS[line].map((mult, lv) => {
-              // Priced even while unavailable, so the disabled button still
-              // shows what the cover WOULD cost once a layer is placed —
-              // greying out a blank tile reads as a broken control.
-              const q = quoteAggregate(line, placed, members, expectedLoss, lv, yearNumber, aggregateTermsRetained);
-              const off = disabled || !aggAvailable;
-              return (
-                <button
-                  key={lv}
-                  disabled={off}
-                  onClick={() => !off && set('aggregateStopLevel', lv)}
-                  className={`flex flex-col items-center p-2 rounded-lg border text-center transition-all text-xs ${
-                    aggLevel === lv
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                  } ${off ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                >
-                  <span className="font-bold">{(mult * 100).toFixed(0)}%</span>
-                  <span className="text-xs opacity-75 mt-0.5">{formatCurrency(q.premium)}</span>
-                </button>
-              );
-            })}
-          </div>
-          {/* A disabled control with no reason reads as a bug. Say the reason —
-              and WC's is worse than Property's, because WC severity has no
-              cap at all, so it gets its own copy rather than sharing Property's. */}
-          {!aggAvailable && line === 'Property' && (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-2 leading-relaxed">
-              <strong>Unavailable while the occurrence layer is declined.</strong> The aggregate
-              protects <em>retained</em> loss and it has a limit. With no occurrence layer capping
-              each claim at the retention, one large claim can exceed the aggregate's
-              attachment plus limit on its own, with nothing above it — so the cover would not
-              answer the exposure it is being bought against. Place the occurrence layer to enable it.
-              Declining everything remains available: that is self-insurance, and it is a real choice.
-            </p>
-          )}
-          {!aggAvailable && line === 'WC' && (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-2 leading-relaxed">
-              <strong>Unavailable while every occurrence layer is declined.</strong> The aggregate
-              protects <em>retained</em> loss and it has a limit. WC's severity has no ceiling — with
-              no per-occurrence layer capping each claim at the retention, there is no bound at all
-              on what a single claim can leave sitting above the aggregate's attachment plus limit.
-              Place a layer to enable it. Declining everything remains available: that is
-              self-insurance, and it is a real choice.
-            </p>
-          )}
-          {aggQuote && (
-            <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5">
-              <DataRow label="Attaches At" value={formatCurrency(aggQuote.attachment)} />
-              <DataRow label="Limit" value={`${formatCurrency(aggQuote.limit)} (${(AGG_LIMIT_MULTIPLE * 100).toFixed(0)}% of exp. retained)`} />
-              <DataRow label="Expected Retained Loss" value={formatCurrency(aggQuote.expectedRetained)} />
-              <DataRow label="Expected Recovery" value={`${formatCurrency(aggQuote.expectedCeded)}/yr`} />
-            </div>
-          )}
-          <p className="text-xs text-gray-500 italic mt-2 leading-relaxed">
-            Covers total annual retained loss — <strong>including loss retained through layers you
-            declined</strong>. Its price is re-quoted live from your layer choices: declining occurrence
-            layers puts large claims back into the retention, raising volatility and so raising this cost.
-          </p>
-        </div>
-      )}
-
+          );
+        })}
+      </div>
+      <p className="text-xs text-gray-500 italic leading-relaxed">
+        Aggregate cover is not offered. It protects against a broad surge of small losses — a winterstorm&apos;s
+        many claims under the retention — which no per-occurrence package reaches, and it may return.
+      </p>
       <div className="bg-blue-50 rounded-lg p-3 border border-blue-200 text-xs">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-          <DataRow label="Occurrence Layers" value={`${formatCurrency(occCost)}/yr`} />
-          {/* WC AND PROPERTY ONLY. Showing "Not purchased" on GL would imply an
-              aggregate is available to decline, and none is offered — see the
-              capacity note. And "Not purchased" implies a choice was made, so
-              the gated state reads "Unavailable" instead. */}
-          {(line === 'WC' || line === 'Property') && (
-            <DataRow
-              label="Aggregate Stop-Loss"
-              value={aggQuote
-                ? `${formatCurrency(aggQuote.premium)}/yr`
-                : (aggAvailable ? 'Not purchased' : 'Unavailable — no layer placed')}
-            />
-          )}
-          <DataRow label="Total Reinsurance Cost" value={`${formatCurrency(totalCost)}/yr`} />
-          {/* Property's "above tower" band is above the $1B occurrence limit —
-              reached only by a single catastrophe occurrence larger than that.
-              It used to be structurally zero, when TOWER_TOP.Property was the
-              $75M severity cap; summing a region's losses into one occurrence
-              made it a real, if rare, band. */}
-          <DataRow label="Retained Above Tower" value={`Above ${TOWER_TOP[line] / 1e6}M — unlimited`} />
+          <DataRow label="Package" value={placementSummary(line, d)} />
+          <DataRow
+            label="Reinsurance Cost"
+            value={`${formatCurrency(quotes.find(x => x.o.id === d.reinsuranceOption)?.q.premium ?? 0)}/yr`}
+          />
+          <DataRow
+            label="Retained Above Package"
+            value={packageTop === null
+              ? 'Every loss'
+              : line === 'GL' ? `Above $${packageTop / 1e6}M — to the $25M pool limit` : `Above $${packageTop / 1e6}M — unlimited`}
+          />
         </div>
       </div>
     </div>

@@ -88,6 +88,35 @@ block) is not available honestly.
 
 Nothing on `multiplayer` is deployed yet, so there is no live break today.
 
+### Reinsurance packages — a contract change (loss engine commit 4a)
+
+**This deploys handler first, then the front end, on the same rule.** Inside
+the decisions section, each line's `layersPlaced` (one boolean per band) and
+`aggregateStopLevel` are replaced by **`reinsuranceOption`** — the package the
+team bought (`$9M xs $1M`, `none`, …); see `TeamLineDecisions` in
+`src/session/contract.ts`. The host Decisions tab shows each line's package
+and flags `none` as "Reinsurance declined".
+
+The handler carries no new code for it — `submit` stores `req.result` whole —
+so, as with the decisions section itself, the order matters for the stored
+rows, not for routing. A new host screen reading a row posted under the old
+shape renders a dash for the package (not recorded); an old host screen
+reading a new row would find no `layersPlaced` to count, which is the
+direction to avoid. The block is 63 bytes smaller than before (measured,
+752 -> 689 at the defaults).
+
+**Contract harness:** the decisions fixture posts a non-default package and
+the host must read back exactly that package and neither retired field;
+confirmed to fail against the old shape. Run on every pass —
+`npm run contract:dynamo`, `npm run contract:built`, `npm run contract:races`.
+
+**What CI runs.** `.github/workflows/handler.yml`, on a pull request into
+`aws`, runs the typecheck, `contract:dynamo` and `contract:races` against
+DynamoDB Local. **It does not run `contract:built`** (the zip's own
+`index.js`), so that pass must be run by hand before `multiplayer` merges into
+`aws`. Docker is available in the cloud container once `dockerd` is started
+(see below); every pass was run there for this change.
+
 
 For whoever (or whichever Claude session) picks up the review/prod AWS work next. This is the
 build spec for the one piece nothing else can proceed without: the real Lambda handler. Read

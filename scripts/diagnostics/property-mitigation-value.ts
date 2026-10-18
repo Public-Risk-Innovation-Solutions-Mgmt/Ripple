@@ -45,7 +45,6 @@ import type { GameState, ResultSet } from '../../src/types/simulation';
 const GAMES = Number(process.env.GAMES ?? 48);
 const YEARS = Number(process.env.YEARS ?? 5);
 const STORM_YEAR = Number(process.env.STORM_YEAR ?? 3);   // 0 for a quiet book
-const AGG = Number(process.env.AGG ?? -1);                // -1 none, 0 or 1 a level
 const M = 1e6;
 const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
 const sd = (a: number[]) => { const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / Math.max(1, a.length - 1)); };
@@ -75,7 +74,6 @@ function play(pct: number): Row[][] {
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y);
       d.riskControlPct = pct;
-      d.byLine.Property!.aggregateStopLevel = AGG;
       const p = processYear(gs, d);
       const r = p.result.byLine.Property! as unknown as Record<string, number> & ResultSet['byLine']['Property'];
       let storm = 0, attr = 0, cat = 0;
@@ -103,7 +101,7 @@ console.log(RULE);
 console.log(`PROPERTY MITIGATION — WHAT IT IS WORTH. ${GAMES} games x ${YEARS} years, Property solo`);
 console.log(RULE);
 console.log(`book: ${STORM_YEAR > 0 ? `WINTER-STORM in year ${STORM_YEAR}` : 'quiet (no scheduled shock)'}`
-  + `   aggregate: ${AGG < 0 ? 'none' : AGG === 0 ? 'level 0.83x E[R]' : 'level 1.49x E[R]'}`);
+  + '   aggregate: none (not offered since loss engine commit 4a)');
 console.log(`building dollar share ${PROPERTY_MITIGATION_BUILDING_DOLLAR_SHARE}; dial lag `
   + `${RISK_CONTROL_PARAMS.lagYears}y to ${100 * RISK_CONTROL_PARAMS.maxEffectiveness}%, `
   + `decay ${100 * RISK_CONTROL_PARAMS.decayRate}%/yr\n`);

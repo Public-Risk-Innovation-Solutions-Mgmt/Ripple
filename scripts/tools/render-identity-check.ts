@@ -801,7 +801,26 @@ const BASELINE = process.env.RENDER_BASELINE
 // The new engine's A raises the year's ordinary losses by exact attributed
 // dollars and brings no claim; the narrative filtered on claims and so never
 // named Recession, Legislation, Economic Inflation or Social Inflation.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v43.json');
+//
+// v44: LOSS ENGINE COMMIT 4a — ONE REINSURANCE PACKAGE PER LINE. 127 of 242
+// moved. The control ran first: 3b (88d1e6e), built in its own worktree and
+// served on 4174, reproduced v43 242 of 242. Every moved row was diffed as
+// text on both sides; three causes, nothing else:
+//   - THE DECISIONS PAGE (20 rows): the per-band tower controls and the
+//     aggregate stop-loss panel are replaced by one package choice per line,
+//     each priced (premium and expected recovery), the note that aggregate
+//     cover is not offered and may return, Property's earthquake retention,
+//     and Package / Reinsurance Cost / Retained Above Package rows.
+//   - THE PACKAGE NAMED WHERE THE PLACEMENT WAS: Decision History's "+ $5M xs
+//     $5M + $15M xs $10M" style list and the Result Spreadsheet's placement
+//     column become the package id.
+//   - THE VALUES of the default package (v64 of the value baseline): Property
+//     buys $20M xs $5M instead of a tower to $1B, so its reinsurance cost
+//     falls and its surplus rises ($27.08M -> $39.79M by year 3); GL and WC
+//     stop buying their top bands. Surplus, ratios, the header, the capital
+//     labels (Strong / Adequate / Thin / Deficient), the prior board's
+//     history and the narrative's "paid" / "did not pay" follow.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v44.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -685,20 +685,12 @@ export interface LineDecisionSet {
    * which is what those harnesses mean.
    */
   riskControlIncentivePct?: number;
-  // Per-occurrence tower placement, index-aligned to REINSURANCE_TOWER[line].
-  // false = that band is RETAINED. ANY COMBINATION IS PERMITTED, including a
-  // corridor retention (buying $15M xs $10M while declining $5M xs $5M) — that
-  // is unusual in the market but real, and choosing which bands to keep is the
-  // point of the decision. Property's tower is one layer, so its only choice
-  // is buy it or retain it — no corridor is possible with a single band.
-  layersPlaced: boolean[];
-  // AGGREGATE STOP-LOSS on total annual retained loss: index into
-  // AGG_ATTACHMENT_LEVELS[line], or -1 for not purchased. WC AND PROPERTY
-  // ONLY — GL is occurrence-only (market capacity, and the pricing model's
-  // lognormal fit is not valid at GL's retained-loss CV; see
-  // reinsuranceTower.ts). Property's aggregate is priced by Panjer recursion
-  // rather than WC's lognormal fit — see propertyAggregate.ts.
-  aggregateStopLevel: number;
+  // THE REINSURANCE PACKAGE this line buys — one id from REINSURANCE_OPTIONS
+  // [line], 'none' for nothing. Loss engine commit 4a: it replaces placing or
+  // declining each band (layersPlaced) and the aggregate stop-loss
+  // (aggregateStopLevel), which is no longer offered. The engine reads the
+  // tower placement through reinsuranceOptions.placementFor.
+  reinsuranceOption: string;
   assetAllocation: AssetAllocation;    // projected from DecisionSet.assetAllocation
   loanRepaymentAggressiveness: number; // 0.00 to 1.00 — share of positive net income used to
                                        // repay an outstanding inter-line loan first; only

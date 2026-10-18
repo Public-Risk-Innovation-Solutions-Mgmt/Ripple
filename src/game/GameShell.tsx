@@ -233,14 +233,12 @@ export default function GameShell({
             decisions={currentDecisions}
             onChange={onDecisionsChange}
             yearNumber={gameState.currentYearNumber}
-            estimatedExpectedLoss={d.estimatedExpectedLoss}
-            estimatedAggregateTermsRetained={d.estimatedAggregateTermsRetained}
             disabled={gameState.isComplete || decisionsDisabled}
             lineView={lineView}
             lineLoanInfo={d.lineLoanInfo}
             lastLineResult={d.lastLineResult}
             fundingConsequence={d.fundingConsequence}
-            activeMembers={d.decisionLineActiveMembers}
+            book={d.decisionLineBook}
           />
         )}
 
