@@ -228,6 +228,23 @@ land on the book (`BOOK_MEMBER_ID`). The book's parameters are on
 - **The result shrank**, and `result-size-check` holds it: one year's result
   64 KB, the save at year ten 256 KB stored.
 
+### Between 3a and 3b — two display fixes (landed)
+
+Found while building 3b, and landed on their own so 3b could stay
+value-neutral. Neither moves a value.
+
+- **An event that cost money without a claim is named.** The new engine's A
+  raises the year's ordinary losses by exact attributed dollars and brings no
+  claim, and the Results narrative, its events card and the results sheet's
+  "Events This Year" row filtered on claims — so Recession, Legislation,
+  Economic Inflation and Social Inflation never appeared there while the audit
+  page showed their cost.
+- **A regional event's large losses name the region it struck.** The claims
+  export took the region from the old catalogue, which fixed one per event
+  (Earthquake: Central; Wildfire and Winterstorm: North); the new engine draws
+  it per firing. Measured: 215 of 600 regional claims were labelled correctly
+  before, 600 of 600 after.
+
 ### Risk control — pending design
 
 **Hidden like satisfaction**, behind `RISK_CONTROL` (off): no charge and no

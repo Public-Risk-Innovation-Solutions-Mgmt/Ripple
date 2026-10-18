@@ -783,7 +783,25 @@ const BASELINE = process.env.RENDER_BASELINE
 // a new-engine event in the old engine's terms — "0 injected claims", and an
 // "expected added" row explaining multiplied Poisson draws. It now states the
 // new attribution.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v42.json');
+//
+// v43: THE RESULTS NARRATIVE NAMES AN EVENT THAT COST MONEY WITHOUT A CLAIM.
+// 14 of 242 moved. The control ran first: 3a (f376877), built in its own
+// worktree and served on 4174, reproduced v42 242 of 242. Every moved row was
+// diffed as text on both sides:
+//
+//   Result Spreadsheet (4: GL, WC, WC+GL, WC+GL+PR)  only the "Events This
+//                       Year" row: "None" becomes e.g. "Economic Recession:
+//                       +$957,692 losses", and a Social Inflation year names it.
+//   Results, y2 (10)    the events card gains the uplift-only event — "Economic
+//                       Recession, in force since year 1 — Workers'
+//                       Compensation: $957,692 added to losses" — and the "What
+//                       Happened This Year" narrative opens with its sentence.
+//                       Nothing else on those screens moved.
+//
+// The new engine's A raises the year's ordinary losses by exact attributed
+// dollars and brings no claim; the narrative filtered on claims and so never
+// named Recession, Legislation, Economic Inflation or Social Inflation.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v43.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

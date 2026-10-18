@@ -198,6 +198,7 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
                     <p key={l.line} className="text-amber-700 font-mono text-xs mt-1">
                       {lineDisplayName(l.line)}:{' '}
                       {l.claims > 0 && `${l.claims} claim${l.claims === 1 ? '' : 's'}, ${formatCurrency(l.grossLoss)}`}
+                      {l.claims === 0 && l.grossLoss > 0 && `${formatCurrency(l.grossLoss)} added to losses`}
                       {l.claims > 0 && l.expectedGrossLossAdded > 0 && '; '}
                       {l.expectedGrossLossAdded > 0 && `${formatCurrency(l.expectedGrossLossAdded)} expected additional loss`}
                     </p>

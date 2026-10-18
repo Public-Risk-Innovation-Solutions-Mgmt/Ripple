@@ -398,6 +398,8 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
         return evs.map(ev => {
           const label = eventLabel(ev.name, ev.region);
           if (ev.claims > 0) return `${label}: ${ev.claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
+          // An uplift on the year's ordinary losses: real dollars, no claim.
+          if (ev.grossLoss > 0) return `${label}: +${formatCurrency(ev.grossLoss)} losses`;
           return `${label}: +${formatCurrency(ev.expectedGrossLossAdded)} expected`;
         }).join('; ');
       },

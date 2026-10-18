@@ -22,6 +22,7 @@
 import type { Claim, CoverageLine, LineResultSet, Occurrence, Region, ResultSet } from '../types/simulation';
 import type { ShockRecord } from '../types/shocks';
 import { SHOCK_CATALOG } from '../data/shockCatalog';
+import { SHOCK_EVENTS } from './shockLosses';
 import { PROPERTY_CAT_EARTHQUAKE } from '../data/defaultAssumptions';
 import { LINE_FULL_NAME } from './lineDisplay';
 
@@ -116,7 +117,12 @@ function fromShock(rec: ShockRecord, result: AnyResult): YearEvent {
     name: shockName(rec),
     region: shockRegion(rec),
     ...(rec.yearFired < result.yearNumber ? { sinceYear: rec.yearFired } : {}),
-    lines: lines.filter(l => l.claims > 0 || l.expectedGrossLossAdded > 0),
+    // ⚠ A LINE THAT COST MONEY WITHOUT A CLAIM IS STILL A LINE THE EVENT HIT.
+    // The new engine's A raises the year's ordinary losses — exact dollars,
+    // attributed to the event — and brings no claim of its own, so filtering on
+    // claims dropped Recession, Legislation, Economic Inflation and the rest
+    // from the Results narrative while the audit page showed their cost.
+    lines: lines.filter(l => l.claims > 0 || l.grossLoss > 0 || l.expectedGrossLossAdded > 0),
     claims: rec.attributableClaims,
     grossLoss: rec.attributableGrossLoss,
     expectedGrossLossAdded: rec.expectedGrossLossAdded,
@@ -128,7 +134,7 @@ export function yearEvents(result: AnyResult): YearEvent[] {
   const out: YearEvent[] = [];
   for (const rec of result.shockEvents ?? []) {
     const ev = fromShock(rec, result);
-    if (ev.claims > 0 || ev.expectedGrossLossAdded > 0) out.push(ev);
+    if (ev.claims > 0 || ev.grossLoss > 0 || ev.expectedGrossLossAdded > 0) out.push(ev);
   }
   const property = result.line === 'Property' ? result : result.line ? undefined : result.byLine?.Property;
   for (const d of property?.drawnCatastrophes ?? []) {
@@ -154,7 +160,14 @@ export function claimEventLabel(claim: Claim, occurrence?: Occurrence): string |
     // The region the event struck ON THIS LINE: a GL injection names none.
     const effect = def?.effects.find(e => 'line' in e && e.line === claim.line && 'region' in e && e.region) as
       { region?: Region } | undefined;
-    return eventLabel(def?.eventName ?? claim.shockId, effect?.region);
+    // ⚠ A REGIONAL EVENT NAMES THE REGION IT ACTUALLY STRUCK — the occurrence's.
+    // The catalogue fixed one region per event, but the new engine draws the
+    // struck region per firing, so labelling from the catalogue exported a
+    // South earthquake as "Earthquake (Central)". On the old engine the two
+    // agree (its regional effects drew in their own fixed region).
+    const regional = SHOCK_EVENTS.find(e => e.id === claim.shockId)?.regional ?? false;
+    return eventLabel(def?.eventName ?? claim.shockId,
+      regional ? (occurrence?.region ?? effect?.region) : effect?.region);
   }
   if (claim.line === 'Property' && claim.tier === CAT_TIER && occurrence?.isCatastrophe) {
     return eventLabel(drawnEventName(occurrence.peril), occurrence.region);
@@ -171,6 +184,8 @@ export function eventSentence(ev: YearEvent): string {
   const since = ev.sinceYear !== undefined ? ` (in force since year ${ev.sinceYear})` : '';
   const withClaims = ev.lines.filter(l => l.claims > 0);
   const expected = ev.lines.filter(l => l.expectedGrossLossAdded > 0);
+  // Lines it raised with no claim of its own — the new engine's A uplift.
+  const raised = ev.lines.filter(l => l.claims === 0 && l.grossLoss > 0);
   const parts: string[] = [];
   if (withClaims.length === 1) {
     const l = withClaims[0];
@@ -180,6 +195,9 @@ export function eventSentence(ev: YearEvent): string {
     const gross = withClaims.reduce((t, l) => t + l.grossLoss, 0);
     const split = withClaims.map(l => `${l.claims} ${LINE_FULL_NAME[l.line]} (${usd(l.grossLoss)})`);
     parts.push(`${plural(total, 'claim')} totalling ${usd(gross)}: ${split.slice(0, -1).join(', ')} and ${split[split.length - 1]}`);
+  }
+  for (const l of raised) {
+    parts.push(`${LINE_FULL_NAME[l.line]} losses up ${usd(l.grossLoss)}`);
   }
   for (const l of expected) {
     parts.push(`expected ${LINE_FULL_NAME[l.line]} losses up ${usd(l.expectedGrossLossAdded)}`);

@@ -643,7 +643,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ⚠ THE OLD ENGINE STILL REPRODUCES v64 BYTE FOR BYTE: run with --import
 // ./scripts/tools/engine-mode/legacy-engine.ts against v64, all 24 identical.
 // Checked before the recapture, not claimed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v65.json');
+// v66: THE RESULTS NARRATIVE NAMES AN EVENT THAT COST MONEY WITHOUT A CLAIM.
+// 22 of 24 exports move, and in every one of them ONLY the "Events This Year"
+// row moved — 108 lines across the shown and raw renderings, diffed as text
+// with GUARD_TEXT_DIR on both sides, and not one line elsewhere. Where it read
+// "None" it now names the new engine's uplift-only events, e.g. "Economic
+// Recession: +$3,136,648 losses" and "Economic Inflation: +$1,...": their A
+// raised the year's ordinary losses by exact attributed dollars and brought no
+// claim, and the old filter dropped any event without a claim. The two that did
+// not move are the configurations whose years fired nothing of the kind.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v66.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
@@ -737,6 +746,13 @@ for (const id of SEEDS) {
     const shown = wb.SheetNames.map(s => XLSX.utils.sheet_to_csv(wb.Sheets[s])).join('\n#SHEET#\n');
     const raw = wb.SheetNames.map(s => XLSX.utils.sheet_to_csv(wb.Sheets[s], { rawNumbers: true })).join('\n#SHEET#\n');
     out[`${arm.name}|${id}|${name}`] = sha(Buffer.from(`${shown}\n#RAW#\n${raw}`, 'utf8'));
+    // GUARD_TEXT_DIR=<dir> keeps the TEXT behind every hash, one file per export,
+    // as render-identity-check's RENDER_TEXT_DIR does: a moved export is then a
+    // plain text diff rather than a changed hash. Off by default.
+    if (process.env.GUARD_TEXT_DIR) {
+      fs.mkdirSync(process.env.GUARD_TEXT_DIR, { recursive: true });
+      fs.writeFileSync(path.join(process.env.GUARD_TEXT_DIR, `${arm.name}-${id}-${name}.txt`), `${shown}\n#RAW#\n${raw}`);
+    }
   }
 }
 }
