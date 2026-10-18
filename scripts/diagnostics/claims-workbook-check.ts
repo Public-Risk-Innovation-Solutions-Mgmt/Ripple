@@ -38,8 +38,9 @@
 //                  at the check itself for what it can and cannot catch.
 // ============================================================================
 
-// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
-import '../tools/engine-mode/legacy-engine';
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import * as XLSX from 'xlsx';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';

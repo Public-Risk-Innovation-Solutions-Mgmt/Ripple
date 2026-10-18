@@ -203,7 +203,8 @@ Winterstorm's ten losses each sit under the $5M retention.
 
 ### Commit 3a — the new engine, permanent, with no members (landed)
 
-`NEW_LOSS_ENGINE` is **on** and the game's only engine; `ROUTINE_LARGE_LOSSES`
+`NEW_LOSS_ENGINE` is **on** and the game's only engine (the flag itself went at
+3b); `ROUTINE_LARGE_LOSSES`
 stays off. Each line is **one book**: premium = rate x exposure, ordinary
 losses are the aggregate cohort, large losses stay individual occurrences and
 land on the book (`BOOK_MEMBER_ID`). The book's parameters are on
@@ -244,6 +245,37 @@ value-neutral. Neither moves a value.
   (Earthquake: Central; Wildfire and Winterstorm: North); the new engine draws
   it per firing. Measured: 215 of 600 regional claims were labelled correctly
   before, 600 of 600 after.
+
+### Commit 3b — one switch, and the old shock placeholders deleted (landed)
+
+Value-neutral: all three baselines are byte-identical to the fix commit
+before it (VALUE_IDENTITY v63, SOLO_EXPORT_GUARD v66, RENDER_IDENTITY v43).
+
+- **One switch.** The `NEW_LOSS_ENGINE` flag is gone. `MEMBER_LEVEL` selects
+  the engine: **off** (the game as it ships) is the new loss engine with one
+  book per line; **on** is the member path. The never-shipped mix of the new
+  engine with members, which gave every member its exposure share of the
+  line's losses, went with the flag.
+- **The member path keeps the per-claim generators.** If members return they
+  need their own claims and experience — exposure shares would make every
+  member identical — so the WC, GL and Property generators, the per-claim
+  register and its redraw, the claim closure and development walk, the roster-
+  priced tower and the GL limit per claim are all kept behind `MEMBER_LEVEL`,
+  and the gates that test them run with it on (`scripts/tools/engine-mode/
+  member-level.ts`). ⚠ **A future member design would likely LAYER member-level
+  risk over the new engine rather than reuse these generators — to be decided
+  if members return.**
+- **The member path has no shocks.** The old shock placeholders are deleted:
+  the old catalogue (`shockCatalog.ts`), its resolver and effect vocabulary,
+  and every channel that carried them into the generators — WC's injections
+  and component multipliers, GL's frequency and severity multipliers and
+  injections, Property's forced catastrophes and weather events. `shock-check`
+  retired with them. Members get shocks only if they return.
+- **Hosts schedule from the twelve.** The setup screen offers every one of the
+  R model's twelve events, and Randomise draws them weighted by their catalogue
+  probability, without replacement, one per three years as before. The events'
+  names and grades on screen are carried over verbatim
+  (`SHOCK_EVENT_LABELS`).
 
 ### Risk control — pending design
 
@@ -526,9 +558,9 @@ After pricing commits 3 and 4:
 5. Cut members and the per-claim walk; remove routine development; fork the
    gates that test them. **Brought forward as commit 3.** 3a landed: the new
    engine on and permanent, one book per line, members behind `MEMBER_LEVEL`
-   (off), risk control and satisfaction hidden. 3b removes only what has no
-   member use — the old shock placeholders and the dead `NEW_LOSS_ENGINE`
-   branches — value-neutral.
+   (off), risk control and satisfaction hidden. 3b landed: one switch
+   (`MEMBER_LEVEL`), the old shock placeholders deleted, the member path kept
+   on the per-claim generators with no shocks — value-neutral.
 6. Pool-level satisfaction.
 
 **Each lands green before the next.**

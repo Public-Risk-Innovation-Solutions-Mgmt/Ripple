@@ -39,8 +39,9 @@
 // the line's own size mix, which is what this file does.
 // ============================================================================
 
-// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
-import '../tools/engine-mode/legacy-engine';
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { initialEstimate } from '../../src/utils/claimTriangle';
 import { closedShare, claimClosureUnit } from '../../src/utils/claimClosure';

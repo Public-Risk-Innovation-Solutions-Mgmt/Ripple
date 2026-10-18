@@ -35,7 +35,6 @@
 
 import type { Claim, CoverageLine, Member, MemberLossResult, Occurrence } from '../types/simulation';
 import { deriveSubRng } from './random';
-import { WHOLE_LINE } from './shockEffects';
 import { GL_HEAVY_COMPONENT_INDEX, GL_LOSS_MODEL, GL_SEVERITY_CAP, GL_SEVERITY_COMPONENTS, RISK_QUALITY_CENTRE, RISK_QUALITY_SLOPE, type GlSeverityComponent } from '../data/defaultAssumptions';
 import { limitedExpectedValue, memoizeByYear } from './claimMath';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
@@ -148,11 +147,8 @@ export const glSeverityCap = memoizeByYear(
 // multiplicative scale on the drawn amount — it leaves sigma untouched, and
 // therefore leaves the per-claim CV untouched, and therefore does not slide a
 // CV-indexed CLF grid. Same trick as wcClaimEngine's trendedMu.
-//
-// THE SHOCK RIDES THE SAME SHIFT rather than scaling the drawn amount
-// afterwards, so there is ONE mechanism and one place for it to be wrong.
-export function trendedMuGl(mu: number, yearNumber: number, severityShock = 1): number {
-  return mu + Math.log(glSeverityTrend(yearNumber) * severityShock);
+export function trendedMuGl(mu: number, yearNumber: number): number {
+  return mu + Math.log(glSeverityTrend(yearNumber));
 }
 
 // HOW FAST THE CAPPED EXPECTED CLAIM ACTUALLY GROWS. With the ceiling flat
@@ -395,16 +391,6 @@ export interface ExpectedGlLossOptions {
   // k_GL's numerator). Omit to use each member's actual risk quality.
   riskQualityOverride?: number;
   kGl?: number;        // default 1
-  // Shock frequency multipliers, for MEASURING a shock's expected cost — NEVER
-  // for pricing. GL has no sub-coverages left to key by, so the only key that
-  // means anything is WHOLE_LINE ('*'); both of GL's shock events are
-  // whole-line multipliers (see shockCatalog.ts #22 and #28, and the
-  // load-time validator there that keeps it that way).
-  //
-  // ⚠ RISK CONTROL IS ABSENT FROM THIS EXPECTATION BY DESIGN (invariant 2), and
-  // so is the SHOCK when this option is omitted. Nothing that prices GL calls
-  // it with this set.
-  freqMultipliers?: Record<string, number>;
   // Cap each claim's severity at this limit inside the expectation.
   //
   // ⚠ EXISTS FOR THE BOUNDED-VARIANCE GATES, NOT FOR PRICING. GL's blended CV is
@@ -440,7 +426,6 @@ function expectedGlGrossLossCore(
 ): number {
   const rqOverride = options.riskQualityOverride;
   const kGl = options.kGl ?? 1;
-  const wholeLineMult = options.freqMultipliers?.[WHOLE_LINE] ?? 1;
   // Hoisted for 'pricing', where severity does not depend on the member.
   const untiltedSeverity = expectedClaimSeverity(untiltedGlWeights(), options.yearNumber, options.severityLimit);
 
@@ -450,7 +435,7 @@ function expectedGlGrossLossCore(
     if (payroll <= 0) continue;
     const rq = rqOverride ?? member.riskQuality;
     // A real member's quality is re-centred; the RQ-5 rate card (an override) is not.
-    const lambda = payroll * M.ratePer1M * (rqOverride === undefined ? memberThetaGl(rq) : thetaGl(rq)) * kGl * wholeLineMult;
+    const lambda = payroll * M.ratePer1M * (rqOverride === undefined ? memberThetaGl(rq) : thetaGl(rq)) * kGl;
     const severity = basis === 'kLine'
       ? expectedClaimSeverity(tiltedGlWeights(rq), options.yearNumber, options.severityLimit)
       : untiltedSeverity;
@@ -543,33 +528,12 @@ export interface GlGenerationInputs {
   kGl: number;
   gPool: number;                    // the year's shared pool factor (from processYear)
   riskControlEffectiveness: number; // DRAW ONLY
-  // Shock-event frequency multipliers. WHOLE_LINE ('*') is the only key that
-  // means anything for GL now — see ExpectedGlLossOptions.freqMultipliers.
-  // DRAW ONLY, like risk control and for the same reason: a shock is a
-  // realized event, not a repricing, so it must move the loss ratio rather
-  // than cancel out of it.
-  freqMultipliers?: Record<string, number>;
-  // Shock-event SEVERITY multipliers, same key convention and the same
-  // DRAW-ONLY rule. Applied through trendedMuGl's log-location shift, so a
-  // severity shock and the severity trend are one mechanism.
-  sevMultipliers?: Record<string, number>;
   /**
    * RISK CONTROL PROGRAM frequency multiplier, whole-line, 1 when none applies.
-   * DRAW ONLY, for the same reason as the two above and as risk control: it has
-   * to move the loss ratio rather than cancel out of it. A SCALAR rather than
-   * the shock's Record — see riskControlPrograms.ts for why the two channels are
-   * deliberately not the same shape.
+   * DRAW ONLY, as risk control: it has to move the loss ratio rather than
+   * cancel out of it. See riskControlPrograms.ts.
    */
   programFreqMultiplier?: number;
-  // Claims a shock event injects this year — the water-system contamination
-  // event is the first GL one. GL read NONE of these until that event: the
-  // resolver bucketed them and glGenerationInputs dropped them, so a GL
-  // injection was silently inert.
-  //
-  // `count` and `amount` may be explicit or a range the matrix states. A range
-  // is drawn from a sub-stream keyed on the SHOCK ID (`gl_inject:<id>:<n>`), so
-  // no natural GL draw moves and two events never share a stream.
-  injections?: { count: number | { min: number; max: number }; amount: number | { min: number; max: number }; shockId: string }[];
   /**
    * CLAIMS SYSTEM severity reduction, 0 or absent when none applies. Applied by
    * claimsSystemAdjusted to claims below the claims system's fixed threshold ONLY — that
@@ -586,20 +550,13 @@ export interface GlGenerationResult {
   memberLossResults: MemberLossResult[];
   claimCount: number;          // total claims generated this line-year
   maxOccurrenceGross: number;  // GL's shock signal: any occurrence > $1M (ruled J11) — occurrence == claim, so this is the largest single claim
-  // One entry per requested injection, in the same order — exact attribution,
-  // the same shape as WC's.
-  injectionResults: { count: number; gross: number }[];
 }
 
 export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult {
   const { members, yearNumber, calendarYear, instanceSeed, kGl, gPool, riskControlEffectiveness } = inputs;
-  const wholeLineMult = inputs.freqMultipliers?.[WHOLE_LINE] ?? 1;
   const sevCut = inputs.programSeverityReduction ?? 0;
-  const severityShock = inputs.sevMultipliers?.[WHOLE_LINE] ?? 1;
   const rcFactor = Math.max(0, 1 - riskControlEffectiveness);
-  // A committed risk-control program's frequency effect. Composes with the
-  // shock multiplier MULTIPLICATIVELY and independently — a shock year is a year
-  // the program made less bad. Neither clamps the other; see
+  // A committed risk-control program's frequency effect; see
   // riskControlPrograms.ts.
   const programMult = Math.max(0, inputs.programFreqMultiplier ?? 1);
 
@@ -628,7 +585,7 @@ export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult
       // sub-coverages left, this is simply the line's own noise term.
       const epsilon = freqRng.gamma(M.memberFrequencyNoise.shape, M.memberFrequencyNoise.scale);
       const lambda = payroll * M.ratePer1M * theta * kGl * epsilon * gPool * rcFactor
-        * wholeLineMult * programMult;
+        * programMult;
 
       if (lambda > 0) {
         const count = freqRng.poisson(lambda);
@@ -641,25 +598,15 @@ export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult
             const componentIdx = sevRng.categorical(weights);
             const component = GL_SEVERITY_COMPONENTS[componentIdx];
             // TRENDED TO THE ACCIDENT YEAR AND FROZEN. GL has no report lag, so
-            // this is the only vintage the claim ever has. The shock rides the
-            // same log-location shift.
+            // this is the only vintage the claim ever has.
             //
-            // ⚠ CLAMPED TO THAT YEAR'S CEILING, AND THE CLAMP IS AFTER THE SHOCK, not
-            // before. The cap is a ceiling on what a real claim can cost, so a
-            // severity shock inflates the draw INTO the ceiling rather than
-            // carrying it upward with them — which does mean a shock's realized
-            // effect is slightly damped (#19's x1.1004 lands as x1.0957 on the
-            // capped mean, a 0.43% relative shortfall). That is the correct
-            // behaviour for a hard ceiling and is reported, not corrected.
+            // ⚠ CLAMPED TO THAT YEAR'S CEILING — a ceiling on what a real claim
+            // can cost.
             //
             // The matched analytic is expectedClaimSeverity, capped at the same
-            // year's ceiling. It does NOT see severityShock, because severity shocks are
-            // deliberately draw-only (a realized event must move the loss ratio
-            // rather than cancel out of it) — so the matched-pair assertion in
-            // gl-claim-check.ts holds at severityShock = 1, which is the basis it
-            // is stated on.
+            // year's ceiling.
             const grossUltimate = Math.min(
-              sevRng.lognormal(trendedMuGl(component.mu, yearNumber, severityShock), component.sigma),
+              sevRng.lognormal(trendedMuGl(component.mu, yearNumber), component.sigma),
               glSeverityCap(yearNumber));
             // The claims system, applied to the DRAW — see claimsSystemAdjusted.
             // Below the retention only; the claim, its case reserve and the line
@@ -747,84 +694,8 @@ export function generateGlClaims(inputs: GlGenerationInputs): GlGenerationResult
     });
   }
 
-  // --- shock injections -------------------------------------------------------
-  //
-  // After every natural draw, from the shock's own streams, so the natural book
-  // is bit-identical whether or not anything is injected.
-  //
-  // WHO IT HAPPENS TO follows GL's natural incidence — payroll x theta(rq), the
-  // member-varying part of the frequency — so an injected claim lands where such
-  // a claim would, not on an arbitrary member.
-  //
-  // CAPPED AT THIS YEAR'S CEILING, as a drawn claim is and as WC's injections
-  // are: the ceiling is a statement about what a GL claim can cost, and an
-  // instructor-scheduled one cannot exceed it either.
-  const injectionResults: { count: number; gross: number }[] = [];
-  if (inputs.injections?.length) {
-    const targets: { member: Member; weight: number }[] = [];
-    let totalWeight = 0;
-    for (const member of members) {
-      const payroll = member.exposureByLine.GL ?? 0;
-      if (!(payroll > 0)) continue;
-      const weight = payroll * thetaGl(member.riskQuality);
-      if (weight > 0) { targets.push({ member, weight }); totalWeight += weight; }
-    }
-    const injectedByMember = new Map<string, number>();
-    const perShock = new Map<string, number>();
-    for (const injection of inputs.injections) {
-      const n = perShock.get(injection.shockId) ?? 0;
-      perShock.set(injection.shockId, n + 1);
-      const rng = deriveSubRng(instanceSeed, yearNumber, `gl_inject:${injection.shockId}:${n}`);
-      const count = typeof injection.count === 'number'
-        ? injection.count
-        : injection.count.min + Math.floor(rng.next() * (injection.count.max - injection.count.min + 1));
-      let placed = 0, gross = 0;
-      for (let i = 0; i < count && totalWeight > 0; i++) {
-        const raw = typeof injection.amount === 'number'
-          ? injection.amount
-          : injection.amount.min + rng.next() * (injection.amount.max - injection.amount.min);
-        if (!(raw > 0)) throw new Error(`GL claim injection requires a positive amount; got ${raw}`);
-        let pick = targets[targets.length - 1];
-        let u = rng.next() * totalWeight;
-        for (const t of targets) { u -= t.weight; if (u <= 0) { pick = t; break; } }
-        // Injected claims are eligible too: a shock's claims are handled by the
-        // same department, and a contamination event is exactly the 2-5 GL files
-        // below the retention this program is for.
-        const amount = claimsSystemAdjusted(LINE, Math.min(raw, glSeverityCap(yearNumber)), sevCut);
-        const occurrenceId = `gl-inject-${yearNumber}-${injection.shockId.replace(/[^A-Za-z0-9]/g, '')}-${n}-${i}`;
-        const claimId = `${occurrenceId}-c1`;
-        claims.push({
-          id: claimId, occurrenceId, memberId: pick.member.id, line: LINE,
-          accidentYear: yearNumber, calendarYear, tier: 'injected', status: 'open',
-          reportedYear: yearNumber, grossUltimate: amount, paidToDate: 0, caseReserve: amount,
-          shockId: injection.shockId,
-        });
-        occurrences.push({
-          id: occurrenceId, line: LINE, memberId: pick.member.id, memberIds: [pick.member.id],
-          accidentYear: yearNumber, calendarYear, region: pick.member.region,
-          isCatastrophe: false, claimIds: [claimId],
-        });
-        if (amount > maxOccurrenceGross) maxOccurrenceGross = amount;
-        injectedByMember.set(pick.member.id, (injectedByMember.get(pick.member.id) ?? 0) + amount);
-        claimCount += 1;
-        placed += 1;
-        gross += amount;
-      }
-      injectionResults.push({ count: placed, gross });
-    }
-    // Into the member's own loss, exactly as WC's injections are — simulatedLoss
-    // only, NOT primaryLoss, so an injected claim does not enter the member's
-    // experience record on either line. Whether a scheduled event SHOULD count
-    // against the member it lands on is a rating question, and it is answered
-    // the same way on both lines until it is answered deliberately.
-    for (const result of memberLossResults) {
-      const added = injectedByMember.get(result.memberId);
-      if (added) result.simulatedLoss += added;
-    }
-  }
-
   const grossUltimateLoss = claims.reduce((s, c) => s + c.grossUltimate, 0);
-  return { claims, occurrences, grossUltimateLoss, memberLossResults, claimCount, maxOccurrenceGross, injectionResults };
+  return { claims, occurrences, grossUltimateLoss, memberLossResults, claimCount, maxOccurrenceGross };
 }
 
 // Exposed for the diagnostic harness: the exact internals the analytic uses,

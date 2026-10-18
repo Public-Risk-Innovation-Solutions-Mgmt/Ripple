@@ -63,7 +63,7 @@ import {
   serialiseSave, packSave, unpackSave, decodeSave, saveStrippedKeys,
 } from '../../src/utils/gameSave';
 import { regenerateLineYearClaims, ClaimRegenerationError } from '../../src/utils/claimRegeneration';
-import { NEW_LOSS_ENGINE } from '../../src/data/pricingParameters';
+import { newLossEngineRuns } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -223,7 +223,7 @@ const sortById = <T extends { id: string }>(xs: T[]) => [...xs].sort((x, y) => x
 //   - THE POSITIVE CONTROL: one claim dropped from a restored register must
 //     show as a difference to the comparison above.
 // ============================================================================
-if (NEW_LOSS_ENGINE.enabled) {
+if (newLossEngineRuns()) {
   // With ROUTINE_LARGE_LOSSES off, large losses come only from shocks, so most
   // games' saved years carry none. Seeds are searched, in order, for the first
   // whose saved years do — bounded, and named in the output.
@@ -478,7 +478,7 @@ console.log(`  ${regenFail.length === 0 ? 'every regenerated claim and occurrenc
 console.log('');
 console.log('THE STRIP, CONFIRMED RATHER THAN TRUSTED:');
 console.log(`  line-results carrying claims, straight through : ${strippedPresentA}  (expected > 0)`);
-if (NEW_LOSS_ENGINE.enabled) {
+if (newLossEngineRuns()) {
   // The new engine keeps its register: every line-result that carried one
   // must carry it after the restore.
   console.log(`  line-results carrying claims, after restore    : ${strippedPresentB}  (expected ${strippedPresentA}, kept)`);
@@ -490,7 +490,7 @@ if (NEW_LOSS_ENGINE.enabled) {
 if (strippedPresentA === 0) fail('the straight-through arm has no claims either — the strip is not what is being measured');
 
 console.log('');
-if (NEW_LOSS_ENGINE.enabled) {
+if (newLossEngineRuns()) {
   console.log('WHAT A RESTORED GAME LOSES NOW: NOTHING A READER CAN SEE.');
   console.log('  On the new loss engine the claims register is the year\'s large losses and is');
   console.log('  KEPT in the save; it comes back verbatim and nothing is redrawn. The rest of the');

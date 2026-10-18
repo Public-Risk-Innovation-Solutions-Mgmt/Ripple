@@ -346,13 +346,6 @@ export interface PropertyGenerationInputs {
   instanceSeed: number;
   kPr: number;
   riskControlEffectiveness: number; // DRAW ONLY
-  // Scheduled catastrophes this year (shock effect `forceEvent`). DRAW ONLY,
-  // like every shock: the price does not see them. Absent on every unshocked
-  // year, and then nothing below reads a stream it did not read before.
-  forcedEvents?: { shockId: string; peril: string; region: Region; loss: { min: number; max: number } }[];
-  // Scheduled NON-CATASTROPHE weather events — many claims, each its own
-  // occurrence. Absent on every unscheduled year.
-  weatherEvents?: { shockId: string; peril: string; region: Region; count: { min: number; max: number }; claim: { min: number; max: number } }[];
   /**
    * CLAIMS SYSTEM severity reduction, 0 or absent when none applies. Applied by
    * claimsSystemAdjusted to claims below the claims system's fixed threshold ONLY — that
@@ -376,13 +369,6 @@ export interface PropertyGenerationResult {
   // struck a region and hit no enrolled member (those emit no occurrence).
   catEvents: number;
   catGrossLoss: number;
-  // One entry per forced event, in input order, for exact shock attribution.
-  // `target` is the drawn size; `gross` is what landed, which is `target`
-  // unless the region's enrolled members could not absorb it all (then every
-  // one of them was hit in full and `shortfall` is the rest).
-  forcedEventResults: { shockId: string; target: number; gross: number; claims: number; shortfall: number }[];
-  // Per scheduled weather event: claims landed and their gross. Every claim its own occurrence.
-  weatherEventResults: { shockId: string; claims: number; gross: number }[];
 }
 
 export function generatePropertyClaims(inputs: PropertyGenerationInputs): PropertyGenerationResult {
@@ -403,8 +389,7 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
   //
   // ⚠ AT e = 0 BOTH MULTIPLIERS ARE EXACTLY 1 AND NOTHING MOVES. riskControlPct
   // defaults to 0 and nothing in the shipped game sets it, so every baseline
-  // draws bit-identically — including the weather path below, where `count`
-  // reduces to the raw draw. That is what makes the null arm provable rather
+  // draws bit-identically. That is what makes the null arm provable rather
   // than merely likely, and property-mitigation-check proves it.
   // ============================================================================
   const mitigation = propertyMitigation(riskControlEffectiveness);
@@ -472,126 +457,6 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
   const eventMemberIds: string[][] = eventRegions.map(() => []);
   let catGrossLoss = 0;
 
-  // ==========================================================================
-  // FORCED CATASTROPHES — a scheduled shock's event (see ShockEffect
-  // 'forceEvent'). The same kind of event as the band's, at a stated size.
-  //
-  // THE SIZE is drawn uniformly inside the shock's range from `pr_force:<id>`.
-  // THE HIT ORDER is one uniform per member from `pr_force:<id>:<member>` — a
-  // member's place in the order is its own draw, so it does not move when an
-  // unrelated member joins or leaves. Members of the named region are hit in
-  // that order, each at the cat band's own loss-if-hit, until the event reaches
-  // its size; the member at the edge takes the partial remainder. Whether a
-  // given member is hit still depends on who else is enrolled — an event of
-  // FIXED size over a variable book cannot avoid that — but no draw of anyone
-  // else's moves, and no cat-band or attritional stream is touched.
-  //
-  // Planned here, emitted in the member loop below so each member's claims
-  // stay contiguous with the rest of its year.
-  // ==========================================================================
-  const forcedEvents = inputs.forcedEvents ?? [];
-  const forcedPlan = new Map<string, { event: number; loss: number }[]>();
-  const forcedEventResults: PropertyGenerationResult['forcedEventResults'] = [];
-  const forcedClaimIds: string[][] = forcedEvents.map(() => []);
-  const forcedMemberIds: string[][] = forcedEvents.map(() => []);
-  forcedEvents.forEach((fe, ev) => {
-    const sizeRng = deriveSubRng(instanceSeed, yearNumber, `pr_force:${fe.shockId}`);
-    const target = fe.loss.min + sizeRng.next() * (fe.loss.max - fe.loss.min);
-    const candidates = members
-      .filter(m => m.region === fe.region && catLossIfHit(m) > 0)
-      .map(m => ({ m, key: deriveSubRng(instanceSeed, yearNumber, `pr_force:${fe.shockId}:${m.id}`).next() }))
-      .sort((a, b) => (a.key - b.key) || (a.m.id < b.m.id ? -1 : a.m.id > b.m.id ? 1 : 0));
-    let landed = 0;
-    let claimsForEvent = 0;
-    for (const { m } of candidates) {
-      if (landed >= target) break;
-      const loss = Math.min(catLossIfHit(m), target - landed);
-      landed += loss;
-      claimsForEvent++;
-      const list = forcedPlan.get(m.id) ?? [];
-      list.push({ event: ev, loss });
-      forcedPlan.set(m.id, list);
-    }
-    forcedEventResults.push({
-      shockId: fe.shockId, target, gross: landed, claims: claimsForEvent, shortfall: Math.max(0, target - landed),
-    });
-  });
-  const forcedOccurrenceId = (ev: number) =>
-    `PR-${yearNumber}-SHOCK-${forcedEvents[ev].shockId.replace(/[^A-Za-z0-9]/g, '')}-${ev}`;
-
-  // ==========================================================================
-  // SCHEDULED NON-CATASTROPHE WEATHER — many claims, EACH ITS OWN OCCURRENCE.
-  //
-  // ⚠ THE SAME DOLLARS COST MORE WHEN THEY ARRIVE APART. A forced catastrophe
-  // sums its claims into one occurrence, the pool keeps $5M and the tower pays
-  // the rest. A hundred $300k claims are a hundred occurrences, none reaches the
-  // retention, and the pool keeps every dollar. Nothing here aggregates.
-  //
-  // ⚠ NOT A CATASTROPHE, AND NOT FLAGGED AS ONE. isCatastrophe stays false and
-  // the tier is WEATHER_BAND, so these book contracted like any claim, develop,
-  // and settle — they are ordinary claims that happen to have company.
-  //
-  // EVERY DRAW IS KEYED, NONE SEQUENTIAL: the count on `pr_weather:<id>`, and
-  // claim n's member and size on `pr_weather:<id>:<n>` — so claim n is the same
-  // whatever the count, and no cat-band, attritional or forced-event stream is
-  // touched. The member is drawn in proportion to insured value from the
-  // region's enrolled book IN id ORDER, so a roster reordering moves nothing;
-  // who is enrolled still decides who CAN be hit, as for a forced event.
-  //
-  // ==========================================================================
-  // ⚠ MITIGATION REACHES THIS EVENT, AND IT IS THE FIRST PROGRAM TO REACH ANY
-  // SCHEDULED SHOCK. A hardened roof does not leak. A winter storm is ice, snow
-  // load and burst pipes on BUILDINGS — no vehicle share at all — so it takes
-  // the FULL mitigation rate rather than the attritional band's building-dollar
-  // scaling. See propertyMitigation() for why the two differ.
-  //
-  // ⚠ EVERY TEAM FACES THE SAME STORM; A TEAM THAT MITIGATED FILES FEWER
-  // CLAIMS. That is intended, and it is a change in kind for the shock system:
-  // a scheduled event used to be a fact about the year, identical for everyone.
-  // It still arrives identically — the COUNT DRAW is untouched — and what the
-  // pool did about it decides how much of it lands.
-  //
-  // ⚠ SCALED AFTER THE DRAW, NOT BEFORE, AND THAT IS WHAT KEEPS IT HONEST. The
-  // count uniform is consumed first and is unchanged, so the mitigated book
-  // keeps a strict PREFIX of the claims the unmitigated book would have had:
-  // claim n's member and size are keyed on n, so claims 0..count-1 are the SAME
-  // claims. Mitigation removes losses that would have happened; it does not
-  // reshuffle the storm into a different one. It also consumes no randomness,
-  // so at e = 0 the round() is the identity and the year is bit-identical.
-  // ==========================================================================
-  const weatherEvents = inputs.weatherEvents ?? [];
-  const weatherPlan = new Map<string, { event: number; n: number; loss: number }[]>();
-  const weatherEventResults: { shockId: string; claims: number; gross: number }[] = [];
-  weatherEvents.forEach((we, ev) => {
-    const countRng = deriveSubRng(instanceSeed, yearNumber, `pr_weather:${we.shockId}`);
-    const drawnCount = we.count.min + Math.floor(countRng.next() * (we.count.max - we.count.min + 1));
-    // round(), not floor(): floor would bias the program upward by half a claim
-    // on every event, which on an 80-120 claim storm is a ~0.5% free saving the
-    // rate never paid for. The identity at e = 0 holds either way.
-    const count = Math.round(drawnCount * mitigation.weatherMultiplier);
-    const book = members
-      .filter(m => m.region === we.region && (m.exposureByLine.Property ?? 0) > 0)
-      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const totalTiv = book.reduce((t, m) => t + (m.exposureByLine.Property ?? 0), 0);
-    let gross = 0, landed = 0;
-    if (totalTiv > 0) {
-      for (let n = 0; n < count; n++) {
-        const rng = deriveSubRng(instanceSeed, yearNumber, `pr_weather:${we.shockId}:${n}`);
-        let u = rng.next() * totalTiv;
-        let pick = book[book.length - 1];
-        for (const m of book) { u -= m.exposureByLine.Property ?? 0; if (u < 0) { pick = m; break; } }
-        const loss = we.claim.min + rng.next() * (we.claim.max - we.claim.min);
-        const list = weatherPlan.get(pick.id) ?? [];
-        list.push({ event: ev, n, loss });
-        weatherPlan.set(pick.id, list);
-        gross += loss;
-        landed++;
-      }
-    }
-    weatherEventResults.push({ shockId: we.shockId, claims: landed, gross });
-  });
-  const weatherOccurrenceId = (ev: number, n: number) =>
-    `PR-${yearNumber}-SHOCK-${weatherEvents[ev].shockId.replace(/[^A-Za-z0-9]/g, '')}-${ev}-${n}`;
 
   for (const member of members) {
     // PER-MEMBER STREAMS, KEYED ON member.id — unchanged from the retired
@@ -731,79 +596,7 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
       }
     }
 
-    // THIS MEMBER'S SHARE OF ANY FORCED CATASTROPHE — planned above. A cat
-    // claim like the band's own: tier 'cat', joining the event's occurrence.
-    for (const { event, loss } of forcedPlan.get(member.id) ?? []) {
-      const occurrenceId = forcedOccurrenceId(event);
-      const claimId = `${occurrenceId}-${member.id}`;
-      // The claims system, applied to the DRAW — see claimsSystemAdjusted. Below the
-      // retention only, and the claim, its case reserve and the line gross all read
-      // the same adjusted figure so nothing downstream needs its own correction.
-      const csAmount = claimsSystemAdjusted(LINE, loss, sevCut);
-      claims.push({
-        id: claimId,
-        occurrenceId,
-        memberId: member.id,
-        line: LINE,
-        accidentYear: yearNumber,
-        calendarYear,
-        tier: CAT_BAND,
-        status: 'open',
-        reportedYear: yearNumber,
-        grossUltimate: csAmount,
-        paidToDate: 0,
-        caseReserve: csAmount,
-        paymentPattern: [...M.payoutPattern],
-        shockId: forcedEvents[event].shockId,
-      });
-      forcedClaimIds[event].push(claimId);
-      forcedMemberIds[event].push(member.id);
-      memberLoss += loss;
-      grossUltimateLoss += csAmount;
-      claimCount++;
-    }
 
-    // THIS MEMBER'S CLAIMS FROM ANY SCHEDULED WEATHER EVENT — planned above.
-    // Each is its own occurrence, emitted with it; not a catastrophe.
-    for (const { event, n, loss } of weatherPlan.get(member.id) ?? []) {
-      const occurrenceId = weatherOccurrenceId(event, n);
-      const claimId = `${occurrenceId}-${member.id}`;
-      // The claims system, applied to the DRAW — see claimsSystemAdjusted. Below the
-      // retention only, and the claim, its case reserve and the line gross all read
-      // the same adjusted figure so nothing downstream needs its own correction.
-      const csAmount = claimsSystemAdjusted(LINE, loss, sevCut);
-      claims.push({
-        id: claimId,
-        occurrenceId,
-        memberId: member.id,
-        line: LINE,
-        accidentYear: yearNumber,
-        calendarYear,
-        tier: WEATHER_BAND,
-        status: 'open',
-        reportedYear: yearNumber,
-        grossUltimate: csAmount,
-        paidToDate: 0,
-        caseReserve: csAmount,
-        shockId: weatherEvents[event].shockId,
-        paymentPattern: [...M.payoutPattern],
-      });
-      occurrences.push({
-        id: occurrenceId,
-        line: LINE,
-        memberId: member.id,
-        memberIds: [member.id],
-        accidentYear: yearNumber,
-        calendarYear,
-        region: weatherEvents[event].region,
-        isCatastrophe: false,
-        claimIds: [claimId],
-        peril: weatherEvents[event].peril,
-      });
-      memberLoss += loss;
-      grossUltimateLoss += csAmount;
-      claimCount++;
-    }
 
     // PER CLAIM, over the claims this member just generated. Property is not
     // RATED on experience (its measured primary-layer credibility is 0.000 —
@@ -853,25 +646,6 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
     });
   });
 
-  // One occurrence per forced event, exactly as for the band's own events —
-  // flagged as a catastrophe so it is booked at full and held there. `peril`
-  // names the scheduled peril — #2's earthquake meets the same $10M deductible
-  // a drawn earthquake does.
-  forcedEvents.forEach((fe, ev) => {
-    if (forcedClaimIds[ev].length === 0) return;
-    occurrences.push({
-      id: forcedOccurrenceId(ev),
-      line: LINE,
-      ...(forcedMemberIds[ev].length === 1 ? { memberId: forcedMemberIds[ev][0] } : {}),
-      memberIds: forcedMemberIds[ev],
-      accidentYear: yearNumber,
-      calendarYear,
-      region: fe.region,
-      isCatastrophe: true,
-      claimIds: forcedClaimIds[ev],
-      peril: fe.peril,
-    });
-  });
 
   return {
     claims,
@@ -884,8 +658,6 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
     capBindings,
     catEvents: eventCount,
     catGrossLoss,
-    forcedEventResults,
-    weatherEventResults,
   };
 }
 

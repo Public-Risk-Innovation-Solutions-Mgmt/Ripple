@@ -1,6 +1,7 @@
 // ============================================================================
-// PROPERTY MITIGATION REACHES BUILDINGS AND WINTER STORMS AND NOTHING ELSE —
-// a GATE.
+// PROPERTY MITIGATION REACHES BUILDINGS AND NOTHING ELSE — a GATE. (It also
+// held the full rate against a scheduled winter storm until loss engine commit
+// 3b deleted the old shock placeholders; see section 2.)
 //
 //   GAMES=8 YEARS=4 npx tsx scripts/diagnostics/property-mitigation-check.ts
 //
@@ -23,16 +24,14 @@
 // with sampling error into a claim-for-claim identity, which is what lets this
 // gate run on 8 games instead of 300.
 // ============================================================================
-// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
-import '../tools/engine-mode/legacy-engine';
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { regenerateLineYearClaims } from '../../src/utils/claimRegeneration';
-import { occurrenceTotals, cedeOccurrences } from '../../src/utils/reinsuranceTower';
-import { FULL_OCCURRENCE_PLACEMENT } from '../../src/data/reinsuranceTower';
-import { PROPERTY_LOSS_MODEL } from '../../src/data/defaultAssumptions';
 import {
   PROPERTY_MITIGATION_BUILDING_DOLLAR_SHARE, propertyMitigation,
 } from '../../src/utils/riskControlPrograms';
@@ -42,10 +41,7 @@ import type { Claim, CoverageLine, GameState, ResultSet } from '../../src/types/
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const GAMES = Number(process.env.GAMES ?? 8);
 const YEARS = Number(process.env.YEARS ?? 4);
-const STORM_YEAR = 2;
 const SHARE = PROPERTY_MITIGATION_BUILDING_DOLLAR_SHARE;
-const RETENTION = PROPERTY_LOSS_MODEL.perRiskRetention;
-const M = 1e6;
 
 const failed: string[] = [];
 const fail = (s: string) => { if (failed.length < 30) failed.push(s); };
@@ -59,9 +55,9 @@ const isAttritional = (c: Claim) => !isCat(c) && !isWeather(c);
 const key = (c: Claim) => `${c.id}|${c.memberId}|${c.grossUltimate}`;
 
 console.log(RULE);
-console.log('PROPERTY MITIGATION — buildings and winter storms, and nothing else');
+console.log('PROPERTY MITIGATION — buildings, and nothing else');
 console.log(RULE);
-console.log(`${GAMES} games x ${YEARS} years, all three lines, WINTER-STORM in year ${STORM_YEAR}.`);
+console.log(`${GAMES} games x ${YEARS} years, all three lines.`);
 console.log(`building dollar share ${SHARE}; rate is riskControlEffectiveness on Property.\n`);
 
 // --- 1. THE TWO MULTIPLIERS, IN ISOLATION ---------------------------------
@@ -88,12 +84,18 @@ console.log('--- 1. the rule: two multipliers from one rate, identity at zero --
   console.log(`   identity at 0, 1-e*${SHARE} / 1-e, storm cut harder, clamped: OK`);
 }
 
-// --- 2. PLAY, WITH A STORM ------------------------------------------------
+// --- 2. PLAY ----------------------------------------------------------------
+// ⚠ NO STORM ANY MORE. This gate scheduled the old catalogue's WINTER-STORM and
+// held mitigation's FULL rate against it (sections 3 and 6, and a control in
+// 7). Loss engine commit 3b deleted the old shock placeholders, so the member
+// path draws no scheduled weather and those assertions went with them. The
+// weather multiplier itself is risk-control code KEPT for the pool-level
+// redesign, and section 1 still holds its arithmetic.
 interface Played { result: ResultSet; instance: ReturnType<typeof generateGameInstance>; year: number }
 const played: Played[] = [];
 for (let g = 0; g < GAMES; g++) {
   const id = `PMG${g}`;
-  const inst = generateGameInstance(id, 6_200_000 + g * 7717, [{ shockId: '#2', yearNumber: STORM_YEAR }]);
+  const inst = generateGameInstance(id, 6_200_000 + g * 7717);
   const setup = { poolName: 'P', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   let gs: GameState = {
@@ -128,7 +130,7 @@ function redraw(pl: Played, line: CoverageLine, e: number) {
 // --- 3. THE NULL ARM, CLAIM FOR CLAIM -------------------------------------
 console.log('\n--- 3. the null arm: a pool that spent nothing draws what it always drew ---');
 {
-  let checked = 0, storms = 0, stormClaims = 0;
+  let checked = 0;
   for (const pl of played) {
     for (const line of LINES) {
       const lr = pl.result.byLine[line];
@@ -140,16 +142,9 @@ console.log('\n--- 3. the null arm: a pool that spent nothing draws what it alwa
       const engine = (lr.claims ?? []).map(key).join('\n');
       ok(re.claims.map(key).join('\n') === engine, `${line} y${pl.year}: the redraw did not reproduce the engine`);
       checked++;
-      if (line === 'Property' && pl.year === STORM_YEAR) {
-        const w = re.claims.filter(isWeather).length;
-        ok(w >= 80 && w <= 120, `the storm landed ${w} claims, outside the catalog's 80-120`);
-        storms++; stormClaims += w;
-      }
     }
   }
-  ok(storms === GAMES, `the storm fired in ${storms} of ${GAMES} games`);
-  console.log(`   ${checked} line-years reproduced claim for claim; ${storms} storms, `
-    + `${(stormClaims / Math.max(1, storms)).toFixed(1)} claims each: OK`);
+  console.log(`   ${checked} line-years reproduced claim for claim: OK`);
 }
 
 // --- 4. CONFINEMENT: THE CAT BAND AND THE OTHER TWO LINES DO NOT MOVE -----
@@ -202,56 +197,6 @@ console.log('\n--- 5. the attritional band: mitigation REMOVES claims, it does n
     + `band -${(100 * cut).toFixed(2)}% against a target of ${(100 * E * SHARE).toFixed(2)}%: OK`);
 }
 
-// --- 6. THE STORM: EXACTLY round(n x (1-e)), AND THE TOWER GETS NONE OF IT -
-console.log('\n--- 6. the storm: the first program to reach a scheduled shock ---');
-{
-  let exact = 0, towerSaving = 0, grossSaving = 0;
-  for (const pl of played.filter(p => p.year === STORM_YEAR)) {
-    const base = redraw(pl, 'Property', 0);
-    const n0 = base.claims.filter(isWeather);
-    for (const e of [0.05, 0.10, 0.15]) {
-      const mit = redraw(pl, 'Property', e);
-      const n1 = mit.claims.filter(isWeather);
-      const want = Math.round(n0.length * (1 - e));
-      ok(n1.length === want, `e=${e}: the storm landed ${n1.length} claims, wanted round(${n0.length} x ${1 - e}) = ${want}`);
-      if (n1.length === want) exact++;
-      // ⚠ A PREFIX IN n, A SUBSET IN THE ARRAY — AND THIS GATE CAUGHT THE
-      // DIFFERENCE. The first version of this assertion compared n1[i] against
-      // n0[i] and failed on every arm. Storm claims are emitted in the MEMBER
-      // loop, in roster order, not in n order: weatherPlan maps member -> the
-      // claims they drew, and each member's are emitted when that member is
-      // reached. So dropping the high-n claims removes entries scattered
-      // through the array. What is a prefix is the set of n RETAINED, which is
-      // what the mechanism actually promises.
-      const base0 = new Set(n0.map(key));
-      ok(n1.every(c => base0.has(key(c))),
-        `e=${e}: a mitigated storm claim was not in the unmitigated storm — it was redrawn, not removed`);
-      // n is the last field of the weather occurrence id: PR-y-SHOCK-<id>-<ev>-<n>.
-      const nOf = (c: Claim) => Number(c.occurrenceId.slice(c.occurrenceId.lastIndexOf('-') + 1));
-      const retained = n1.map(nOf).sort((a, b) => a - b);
-      ok(retained.every((v, i) => v === i),
-        `e=${e}: the storm kept claims ${retained.slice(0, 5).join(',')}... — not the first ${want} by n`);
-      // Every storm claim is its own occurrence and none reaches the retention,
-      // so the tower's share of this saving must be exactly zero.
-      ok(n1.every(c => c.grossUltimate < RETENTION), `e=${e}: a storm claim reached the retention`);
-    }
-    // The tower, on the whole year, at the dial's ceiling.
-    const mit = redraw(pl, 'Property', 0.15);
-    const placed = FULL_OCCURRENCE_PLACEMENT.Property;
-    const c0 = cedeOccurrences('Property', occurrenceTotals(base.claims, base.occurrences), placed).totalCeded;
-    const c1 = cedeOccurrences('Property', occurrenceTotals(mit.claims, mit.occurrences), placed).totalCeded;
-    const sw0 = n0.reduce((s, c) => s + c.grossUltimate, 0);
-    const sw1 = mit.claims.filter(isWeather).reduce((s, c) => s + c.grossUltimate, 0);
-    towerSaving += c0 - c1;
-    grossSaving += sw0 - sw1;
-  }
-  console.log(`   ${exact} of ${3 * GAMES} storm arms landed exactly round(n x (1-e)), each a subset of the`);
-  console.log(`   unmitigated storm keeping claims 0..count-1; $${(grossSaving / M / GAMES).toFixed(2)}M of storm`);
-  console.log(`   loss removed per storm at the ceiling, 100% of it retained by the pool.`);
-  console.log(`   (the whole YEAR's tower cession moved $${(towerSaving / M / GAMES).toFixed(3)}M per storm year — that is`);
-  console.log(`   the attritional band's leak, not the storm's, which cannot reach a layer at all)`);
-}
-
 // --- 7. POSITIVE CONTROLS: EVERY RULE ABOVE CAN FAIL ----------------------
 console.log('\n--- 7. controls: every rule above fires when broken ---');
 {
@@ -263,13 +208,6 @@ console.log('\n--- 7. controls: every rule above fires when broken ---');
     'CONTROL: the count share is indistinguishable from the dollar share');
   ok(wrongBoth(0.10) !== propertyMitigation(0.10).attritionalMultiplier,
     'CONTROL: one multiplier for both bands passes the two-multiplier rule');
-  // A storm scaled before the draw rather than after would NOT be a prefix:
-  // scaling the uniform changes which claim index each draw lands on.
-  const pl = played.find(p => p.year === STORM_YEAR)!;
-  const n0 = redraw(pl, 'Property', 0).claims.filter(isWeather);
-  const n1 = redraw(pl, 'Property', 0.15).claims.filter(isWeather);
-  ok(n1.length < n0.length, 'CONTROL: the storm did not shrink, so the prefix rule proves nothing');
-  ok(n0.length > 0, 'CONTROL: there was no storm to test');
   // And the cat band must be reachable in principle, or "cat untouched" is
   // vacuous. It is checked across the whole run rather than this one year.
   const anyCat = played.some(p => (p.result.byLine.Property?.claims ?? []).some(isCat));
@@ -279,7 +217,7 @@ console.log('\n--- 7. controls: every rule above fires when broken ---');
     console.log('     Raise GAMES to make it bite; the gate does not fail on it, because a');
     console.log('     gate that needs a rare event to pass would be red for the wrong reason.');
   }
-  console.log(`   the wrong share, one-multiplier, and a non-shrinking storm all fire; `
+  console.log(`   the wrong share and one-multiplier both fire; `
     + `cat band present in this run: ${anyCat}`);
 }
 
@@ -291,8 +229,6 @@ if (failed.length) {
   process.exit(1);
 }
 console.log('OK — mitigation cuts the attritional band by the building DOLLAR share and removes');
-console.log('claims rather than redrawing them; cuts a scheduled winter storm by the FULL rate,');
-console.log('keeping claims 0..count-1 of the storm that would have happened; leaves the');
-console.log('catastrophe band and the other two lines bit-identical; and is the identity at a');
-console.log('rate of zero.');
+console.log('claims rather than redrawing them; leaves the catastrophe band and the other two');
+console.log('lines bit-identical; and is the identity at a rate of zero.');
 console.log(RULE);

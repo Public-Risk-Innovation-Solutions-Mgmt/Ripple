@@ -52,8 +52,9 @@
 // leg is the one the mechanism controls, so the gross leg is the one gated.
 // ============================================================================
 
-// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
-import '../tools/engine-mode/legacy-engine';
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { initialEstimate } from '../../src/utils/claimTriangle';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';

@@ -1,7 +1,7 @@
 // ============================================================================
 // THE NEW LOSS ENGINE'S ORDINARY LOSSES — one aggregate per line per year.
 //
-// Behind NEW_LOSS_ENGINE. See pricingParameters.ts for the parameters and
+// Part of the new loss engine, which runs whenever MEMBER_LEVEL is off. See pricingParameters.ts for the parameters and
 // docs/PENDING_MULTIPLAYER.md section 3 for the plan.
 //
 //   expected = exposure x EXPECTED_ORDINARY_LOSS_COST_PER_100 x (1 + trend)^(year - 1)

@@ -47,7 +47,7 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, NEW_LOSS_ENGINE, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
+import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
 import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 
@@ -560,7 +560,7 @@ function buildShockAuditRows(result: ResultSet | LineResultSet): AuditRow[] {
     // event's own large losses (T) — both exact dollars — and there is no
     // analytic "expected added" to set beside it: that row described today's
     // multiplied Poisson draws, which this engine does not make.
-    if (NEW_LOSS_ENGINE.enabled) {
+    if (newLossEngineRuns()) {
       rows.push({
         metric: 'Attributable gross loss',
         value: formatCurrency(s.attributableGrossLoss),

@@ -22,7 +22,6 @@
 // ============================================================================
 
 import type { CoverageLine, Member, Claim, Occurrence } from '../types/simulation';
-import type { LineShockEffects } from '../types/shocks';
 import { deriveSubRng } from './random';
 import { applyPoolLimit } from './poolLimit';
 import { WC_LOSS_MODEL } from '../data/defaultAssumptions';
@@ -67,15 +66,11 @@ export interface LineYearGenerationBase {
   riskControlEffectiveness: number;
   /** GL's shared pool-year factor. Ignored by WC and Property, which run at 1. */
   gPool: number;
-  /** This line's shock effects for the year, or undefined when none is in force. */
-  shock: LineShockEffects | undefined;
   /**
    * This line's RISK CONTROL PROGRAM frequency multiplier, 1 when none applies.
    *
-   * ⚠ A SEPARATE CHANNEL FROM `shock`, NOT A FIELD OF IT. Both end up
-   * multiplying the same lambda, but the marketplace draw receives the shock
-   * effects and must NOT receive this — see riskControlPrograms.ts, which
-   * records the rule and the two ways sharing one record goes wrong.
+   * ⚠ NEVER PASSED TO THE MARKETPLACE DRAW — see riskControlPrograms.ts,
+   * which records the rule.
    */
   programFreqMultiplier: number;
   /**
@@ -104,24 +99,19 @@ export interface LineYearGenerationOutput {
 }
 
 /**
- * The three generators take different input shapes and different shock
- * channels. These three functions are the ONLY place that mapping is written;
- * processYear passes their output to the generators for the live draw, and
- * regenerateLineYearClaims passes it for the redraw.
+ * The three generators take different input shapes. These three functions are
+ * the ONLY place that mapping is written; processYear passes their output to
+ * the generators for the live draw, and regenerateLineYearClaims passes it for
+ * the redraw. GL takes gPool; Property does not (its fitted mixture already
+ * contains what gPool would add — see the note at its engine call site).
  *
- * ⚠ THE SHOCK CHANNELS DIFFER BY LINE AND THAT IS NOT AN OVERSIGHT. WC takes
- * component arrival-rate multipliers and injections (explicit, or ranged and
- * region-bound, keyed on the shock id); GL takes
- * whole-line frequency and severity multipliers, injections (explicit or
- * ranged) and gPool; Property takes forced catastrophes, weather events and no gPool (its
- * fitted mixture already contains what gPool would add — see the note at its
- * engine call site). A shock effect the line does not read is dropped here —
- * and shockCatalog now REJECTS such an effect at load, so a catalog event can
- * no longer be dropped silently.
+ * The member path runs with NO SHOCKS: the old shock placeholders and the
+ * channels that carried them into these generators were deleted at loss engine
+ * commit 3b.
  *
  * ⚠ THESE RETURN INPUTS, NOT RESULTS, and that is deliberate. The engine reads
  * generator outputs the regenerator has no use for — WC's per-component counts
- * and injection attribution, GL's maxOccurrenceGross — so a shared function
+ * and GL's maxOccurrenceGross — so a shared function
  * that RAN the generator would have to return every line's full result type.
  * Sharing the argument construction and letting each caller run the generator
  * itself keeps one mapping without forcing one output shape.
@@ -130,13 +120,6 @@ export function wcGenerationInputs(b: LineYearGenerationBase): WcGenerationInput
   return {
     members: b.members, yearNumber: b.yearNumber, calendarYear: b.calendarYear,
     instanceSeed: b.instanceSeed, kLine: b.k, riskControlEffectiveness: b.riskControlEffectiveness,
-    componentFreqMultipliers: b.shock?.componentFreqMultipliers,
-    // Ranges and a region reach WC now, keyed on the shock id; an explicit,
-    // region-less injection is passed exactly as before and takes WC's original
-    // path, so every shipped fixed-amount event is bit-identical.
-    injections: b.shock?.injections?.map(i => (typeof i.count === 'number' && typeof i.amount === 'number' && !i.region
-      ? { count: i.count, amount: i.amount, recordAs: i.shockId }
-      : { count: i.count, amount: i.amount, shockId: i.shockId, ...(i.region ? { region: i.region } : {}) })),
     programFreqMultiplier: b.programFreqMultiplier,
     programRtwConversion: b.programRtwConversion,
     programSeverityReduction: b.programSeverityReduction,
@@ -148,10 +131,7 @@ export function glGenerationInputs(b: LineYearGenerationBase): GlGenerationInput
     members: b.members, yearNumber: b.yearNumber, calendarYear: b.calendarYear,
     instanceSeed: b.instanceSeed, kGl: b.k, gPool: b.gPool,
     riskControlEffectiveness: b.riskControlEffectiveness,
-    freqMultipliers: b.shock?.freqMultipliers,
-    sevMultipliers: b.shock?.sevMultipliers,
     programFreqMultiplier: b.programFreqMultiplier,
-    injections: b.shock?.injections,
     programSeverityReduction: b.programSeverityReduction,
   };
 }
@@ -160,8 +140,6 @@ export function propertyGenerationInputs(b: LineYearGenerationBase): PropertyGen
   return {
     members: b.members, yearNumber: b.yearNumber, calendarYear: b.calendarYear,
     instanceSeed: b.instanceSeed, kPr: b.k, riskControlEffectiveness: b.riskControlEffectiveness,
-    forcedEvents: b.shock?.forcedEvents,
-    weatherEvents: b.shock?.weatherEvents,
     programSeverityReduction: b.programSeverityReduction,
   };
 }

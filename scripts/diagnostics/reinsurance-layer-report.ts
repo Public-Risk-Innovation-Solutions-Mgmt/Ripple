@@ -56,8 +56,9 @@
 // the mean as indicative. Same for GL's retained-above-$25M band.
 // ============================================================================
 
-// THE OLD ENGINE — first, before anything reads a flag. A reading of an old-engine mechanism: see engine-mode/legacy-engine.ts.
-import '../tools/engine-mode/legacy-engine';
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { computeKLine, generateWcClaims } from '../../src/utils/wcClaimEngine';
 import { computeKGl, generateGlClaims } from '../../src/utils/glClaimEngine';

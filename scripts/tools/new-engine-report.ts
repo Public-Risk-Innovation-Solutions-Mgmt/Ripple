@@ -5,9 +5,10 @@
 //   npx tsx scripts/tools/new-engine-report.ts [--games 40]
 //
 // Plays the same seeds, singleplayer (the catalogue's probabilities), ten
-// years, with NEW_LOSS_ENGINE forced on, under each ROUTINE_LARGE_LOSSES
-// setting — once for a team PLACING every layer and once for a team
-// DECLINING every layer — and today's engine (flag off) as a reference.
+// years, under each ROUTINE_LARGE_LOSSES setting — once for a team PLACING
+// every layer and once for a team DECLINING every layer. The old engine it
+// used to print beside them is frozen on the legacy-engine branch, where this
+// report still runs its "Today" column.
 // Prints Markdown: by line, the expected loss and what each event contributes
 // to it, the rate and how often it swings, how often reinsurance pays, and
 // surplus at years 5 and 10, mean and minimum across games.
@@ -17,7 +18,7 @@
 // shocks, or every year with shocks on top?
 // ============================================================================
 
-import { MEMBER_LEVEL, NEW_LOSS_ENGINE, RISK_CONTROL, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { MEMBER_LEVEL, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -109,19 +110,11 @@ function summarise(games: ResultSet[][], line: CoverageLine): Summary {
 const M = (x: number) => `$${(x / 1e6).toFixed(1)}M`;
 const P = (x: number) => `${(100 * x).toFixed(0)}%`;
 
-const wasEngine = NEW_LOSS_ENGINE.enabled, wasRoutine = ROUTINE_LARGE_LOSSES.enabled;
-const wasMembers = MEMBER_LEVEL.enabled, wasRc = RISK_CONTROL.enabled;
+const wasRoutine = ROUTINE_LARGE_LOSSES.enabled, wasMembers = MEMBER_LEVEL.enabled;
 const runs: Record<string, { place: ResultSet[][]; decline: ResultSet[][] }> = {};
 try {
-  // "Today" is the old engine as it ran at the legacy-engine branch: it needs
-  // its members and its risk control back (see engine-mode/legacy-engine.ts).
-  NEW_LOSS_ENGINE.enabled = false;
-  MEMBER_LEVEL.enabled = true;
-  RISK_CONTROL.enabled = true;
-  runs.today = { place: playAll(true), decline: playAll(false) };
-  MEMBER_LEVEL.enabled = wasMembers;
-  RISK_CONTROL.enabled = wasRc;
-  NEW_LOSS_ENGINE.enabled = true;
+  // The new loss engine runs whenever MEMBER_LEVEL is off.
+  MEMBER_LEVEL.enabled = false;
   ROUTINE_LARGE_LOSSES.enabled = false;
   runs.shocks = { place: playAll(true), decline: playAll(false) };
   ROUTINE_LARGE_LOSSES.enabled = true;
@@ -129,10 +122,10 @@ try {
 
   console.log(`# The new loss engine — shocks only, or routine large losses with shocks on top\n`);
   console.log(`${GAMES} singleplayer games x ${YEARS} years, the same seeds in every column; events fire at the `
-    + `catalogue's probabilities. "Today" is the current engine, for reference. Dollars are per line, per year.\n`);
+    + `catalogue's probabilities. Dollars are per line, per year.\n`);
   for (const line of LINES) {
     const cols = [
-      ['Today', runs.today], ['Shocks only', runs.shocks], ['Routine + shocks', runs.routine],
+      ['Shocks only', runs.shocks], ['Routine + shocks', runs.routine],
     ] as const;
     const S = cols.map(([, r]) => ({ place: summarise(r.place, line), decline: summarise(r.decline, line) }));
     console.log(`## ${line}\n`);
@@ -168,8 +161,6 @@ try {
     console.log(`| **Total** | **${M(off.total)}** | **${M(on.total)}** |\n`);
   }
 } finally {
-  NEW_LOSS_ENGINE.enabled = wasEngine;
   ROUTINE_LARGE_LOSSES.enabled = wasRoutine;
   MEMBER_LEVEL.enabled = wasMembers;
-  RISK_CONTROL.enabled = wasRc;
 }

@@ -92,7 +92,6 @@ import {
   type WcComponentKey,
   type WcRatingGroup,
 } from '../data/defaultAssumptions';
-import { shockFactorFor } from './shockEffects';
 import { WC_RTW_CONVERSION_CEILING, WC_RTW_LOST_TIME_COMPONENTS } from './riskControlPrograms';
 import { claimsSystemAdjusted } from './riskControlPrograms';
 
@@ -357,10 +356,6 @@ export interface ExpectedWcLossOptions {
   riskQualityOverride?: number;
   kLine?: number;        // default 1
   yearNumber?: number;   // default 1 (frequency trend factor 1.0)
-  // Shock component-frequency multipliers, for MEASURING a shock's expected
-  // cost — never for pricing. The difference between this expectation with and
-  // without them IS the analytic expected addition.
-  componentFreqMultipliers?: Record<string, number>;
   // Limit each CLAIM to this amount before taking the expectation, i.e.
   // E[min(X, limit)] per claim instead of E[min(X, cap)]. Composes with the
   // year's severity cap by min(), exactly as glClaimEngine's option of the
@@ -414,10 +409,7 @@ function expectedWcGrossLossCore(
     const weights = basis === 'kLine' ? tiltedWeights(group, rq, params) : groupWeights(group, params);
 
     for (let i = 0; i < g.mix.length; i++) {
-      let componentLambda = lambda * weights[i];
-      if (options.componentFreqMultipliers) {
-        componentLambda *= shockFactorFor(options.componentFreqMultipliers, g.mix[i].component);
-      }
+      const componentLambda = lambda * weights[i];
       const yr = options.yearNumber ?? 1;
       // The two ceilings COMPOSE by min(): min(min(X, cap_t), limit).
       const limit = Math.min(options.severityLimit ?? Number.POSITIVE_INFINITY, wcSeverityCap(yr));
@@ -561,28 +553,8 @@ export interface WcGenerationInputs {
   instanceSeed: number;
   kLine: number;
   riskControlEffectiveness: number; // DRAW ONLY — see invariant 2
-  // Claims a shock event injects this year, each with an EXPLICIT AMOUNT.
-  //
-  // ⚠ NO accidentYearOffset ANY MORE. Backdating existed so a retroactive shock
-  // could add claims to prior accident years and have them surface through the
-  // report-lag inventory. With claims reported in the year they occur there is
-  // no channel for that, and a claim labelled to a prior year would still hit
-  // this year's P&L — the label would be decoration. See shock #10, retargeted.
-  // An EXPLICIT, region-less injection ({count, amount}) takes the original
-  // sequential 'wc_inject' path. A RANGED or REGIONAL one carries its shockId and
-  // is drawn on streams keyed on it — see the shock injections block.
-  //
-  // `recordAs` is the explicit path's shock id, stamped on its claims (Claim.
-  // shockId) WITHOUT keying any draw on it — so the explicit path's draws are
-  // exactly what they were and its claims still name the event that made them.
-  injections?: ({ count: number; amount: number; shockId?: undefined; region?: undefined; recordAs?: string }
-    | { count: number | { min: number; max: number }; amount: number | { min: number; max: number }; shockId: string; region?: Region })[];
-  // Current-horizon shock multipliers on a COMPONENT'S ARRIVAL RATE. Keys are
-  // component names ('large', ...) or '*' for every component. DRAW ONLY.
-  componentFreqMultipliers?: Record<string, number>;
-  // RISK CONTROL PROGRAM channels — see riskControlPrograms.ts. DRAW ONLY, and
-  // deliberately NOT fields of the shock record: the marketplace call passes
-  // componentFreqMultipliers and must never receive either of these. Absent
+  // RISK CONTROL PROGRAM channels — see riskControlPrograms.ts. DRAW ONLY; the
+  // marketplace call must never receive either of these. Absent
   // reads as no program (1 and 0), which is what every caller that predates
   // them means.
   //
@@ -615,19 +587,15 @@ export interface WcGenerationResult {
   memberLossResults: MemberLossResult[];
   claimCountsByGroup: Record<string, number>;
   claimCountsByComponent: Record<string, number>;
-  // One entry per requested injection, in the same order.
-  injectionResults: { count: number; gross: number }[];
 }
 
 export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult {
   const { members, yearNumber, calendarYear, instanceSeed, kLine, riskControlEffectiveness } = inputs;
   const params = M;
-  const componentFreqMultipliers = inputs.componentFreqMultipliers;
 
   const trend = wcFrequencyTrend(yearNumber);
   const rcFactor = Math.max(0, 1 - riskControlEffectiveness);
-  // The safety lever. Composes with a shock multiplicatively and independently,
-  // exactly as GL's program does.
+  // The safety lever, exactly as GL's program.
   const programMult = Math.max(0, inputs.programFreqMultiplier ?? 1);
 
   const claims: Claim[] = [];
@@ -647,16 +615,13 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
     memberId: string,
     region: Region,
     ratingGroup: WcRatingGroup,
-    component: WcComponentKey | 'injected',
+    component: WcComponentKey,
     amount: number,
     accidentYear: number,
     reportedYear: number,
-    shockId?: string,
   ) => {
     // ⚠ THE CLAIMS SYSTEM IS APPLIED HERE, AT THE ONE CHOKEPOINT EVERY WC CLAIM
-    // PASSES THROUGH — drawn and injected alike. An injected claim is a shock's
-    // claim and is handled by the same department, so it is eligible on the same
-    // terms. Shadowing the parameter means the claim, its case reserve, the line
+    // PASSES THROUGH. Shadowing the parameter means the claim, its case reserve, the line
     // gross (summed from claims) and memberLossResults (read off the emitted
     // claims) all carry the adjusted figure without a second correction.
     amount = claimsSystemAdjusted(LINE, amount, inputs.programSeverityReduction ?? 0);
@@ -691,8 +656,6 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
       grossUltimate: amount,
       paidToDate: 0,
       caseReserve: amount,
-      // Only an injected claim carries it — every drawn claim serialises as before.
-      ...(shockId !== undefined ? { shockId } : {}),
     });
   };
 
@@ -747,10 +710,7 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
       // that mistake cannot be written.
       for (let i = 0; i < g.mix.length; i++) {
         const componentKey = g.mix[i].component;
-        let componentLambda = lambda * weights[i];
-        if (componentFreqMultipliers) {
-          componentLambda *= shockFactorFor(componentFreqMultipliers, componentKey);
-        }
+        const componentLambda = lambda * weights[i];
         const count = freqRng.poisson(componentLambda);
         if (count <= 0) continue;
         claimCountsByGroup[group] += count;
@@ -859,135 +819,6 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
     }
   }
 
-  // --- shock injections ---------------------------------------------------------
-  //
-  // Emitted through the SAME `emit` closure the natural draws use, so an
-  // injected claim is indistinguishable from a drawn one.
-  //
-  // ⚠ AN INJECTION CARRIES AN EXPLICIT AMOUNT, and that is deliberate. Injecting
-  // "one claim of component `large`" and letting it draw would produce its MEAN
-  // of $96,529 — against the retired catastrophic tier's $9.0M, which is 93x
-  // smaller and would silently gut the event. $9.0M is component `large`'s
-  // 99.95th percentile, not its mean. An instructor-triggered event wants a
-  // reproducible amount, not a tail draw.
-  //
-  // ITS OWN RNG STREAM ('wc_inject'), so natural claims are bit-identical whether
-  // or not anything is injected.
-  const injectionResults: { count: number; gross: number }[] = [];
-  if (inputs.injections?.length) {
-    const injRng = deriveSubRng(instanceSeed, yearNumber, 'wc_inject');
-
-    // WHO IT HAPPENS TO, drawn from the NATURAL INCIDENCE of severe claims:
-    // payroll x group rate x the group's heavy-component weight. An injected
-    // event lands where such an event actually lands, rather than on an
-    // arbitrary or worst-case member.
-    const targets: { member: Member; group: WcRatingGroup; weight: number }[] = [];
-    let totalWeight = 0;
-    for (const member of members) {
-      const payroll = member.exposureByLine.WC ?? 0;
-      if (payroll <= 0) continue;
-      const group = ratingGroupOf(member);
-      const g = params.ratingGroups[group];
-      const heavy = g.mix.find(m => m.component === g.heavyComponent);
-      const weight = payroll * g.ratePer1M * (heavy?.weight ?? 0);
-      if (weight > 0) { targets.push({ member, group, weight }); totalWeight += weight; }
-    }
-
-    const injectedByMember = new Map<string, number>();
-    let injSeq = 0;
-    const perShock = new Map<string, number>();
-    for (const injection of inputs.injections) {
-      // ⚠ A RANGED OR REGIONAL INJECTION — the shape of a disaster's injuries,
-      // many claims or a handful of severe ones, each its own occurrence like
-      // every WC claim. Every draw is KEYED, none sequential: the count on
-      // `wc_inject:<id>:<n>`, claim i's member and size on `wc_inject:<id>:<n>:<i>`.
-      // It never touches the shared 'wc_inject' stream, so the original path
-      // below is bit-identical whether or not one of these is in the year.
-      //
-      // WHO: members in the event's region (all of them when none is named),
-      // in proportion to ORDINARY claim incidence — payroll x group rate —
-      // because these are ordinary injuries in number, not the heavy tail.
-      // In id order, so a roster reordering moves nothing.
-      // HOW MUCH: a ranged amount is LOG-UNIFORM — WC severity is heavily
-      // right-skewed, so the typical injury sits at the range's geometric
-      // middle. Capped at the year's ceiling like every WC claim.
-      if (injection.shockId !== undefined) {
-        const sid = injection.shockId;
-        const n = perShock.get(sid) ?? 0;
-        perShock.set(sid, n + 1);
-        const countRng = deriveSubRng(instanceSeed, yearNumber, `wc_inject:${sid}:${n}`);
-        const want = typeof injection.count === 'number'
-          ? injection.count
-          : injection.count.min + Math.floor(countRng.next() * (injection.count.max - injection.count.min + 1));
-        const pool = members
-          .filter(m => (m.exposureByLine.WC ?? 0) > 0 && (!injection.region || m.region === injection.region))
-          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-          .map(m => { const group = ratingGroupOf(m); return { member: m, group, weight: (m.exposureByLine.WC ?? 0) * params.ratingGroups[group].ratePer1M }; })
-          .filter(t => t.weight > 0);
-        const poolWeight = pool.reduce((t, p) => t + p.weight, 0);
-        let count = 0, gross = 0;
-        for (let i = 0; i < want && poolWeight > 0; i++) {
-          const rng = deriveSubRng(instanceSeed, yearNumber, `wc_inject:${sid}:${n}:${i}`);
-          let u = rng.next() * poolWeight;
-          let pick = pool[pool.length - 1];
-          for (const t of pool) { u -= t.weight; if (u < 0) { pick = t; break; } }
-          const raw = typeof injection.amount === 'number'
-            ? injection.amount
-            : injection.amount.min * Math.exp(rng.next() * Math.log(injection.amount.max / injection.amount.min));
-          if (!(raw > 0)) throw new Error(`WC claim injection requires a positive amount; got ${raw}`);
-          const amount = Math.min(raw, wcSeverityCap(yearNumber));
-          emit(`wc-inject-${yearNumber}-${sid.replace(/[^A-Za-z0-9]/g, '')}-${n}-${i}`, pick.member.id, pick.member.region, pick.group, 'injected', amount, yearNumber, yearNumber, sid);
-          claimCountsByGroup[pick.group] += 1;
-          injectedByMember.set(pick.member.id, (injectedByMember.get(pick.member.id) ?? 0) + amount);
-          count += 1;
-          gross += amount;
-        }
-        injectionResults.push({ count, gross });
-        continue;
-      }
-      if (!(injection.amount > 0)) {
-        throw new Error(`WC claim injection requires a positive explicit amount; got ${injection.amount}`);
-      }
-      let count = 0;
-      let gross = 0;
-      for (let i = 0; i < injection.count && totalWeight > 0; i++) {
-        let pick = targets[targets.length - 1];
-        let u = injRng.next() * totalWeight;
-        for (const t of targets) { u -= t.weight; if (u <= 0) { pick = t; break; } }
-
-        // Always THIS accident year. Backdating is gone with the report lag —
-        // see the note on WcGenerationInputs.injections.
-        injSeq += 1;
-        const id = `wc-inject-${yearNumber}-${injSeq}`;
-        // ⚠ AN INJECTED CLAIM IS CAPPED TOO, AT THIS YEAR'S CEILING. The cap is
-        // a statement about what a WC claim can cost, so an instructor-triggered
-        // event cannot exceed it either — otherwise "WC severity is bounded"
-        // would be false on exactly the path most likely to be pointed at in a
-        // classroom. Inert against the current catalog (its two WC injections
-        // are $900k and $9M), so this changes no shipped scenario; it is here
-        // so a future $200M event is clamped rather than silently reopening
-        // the unbounded band.
-        //
-        // The injected amount is a NOMINAL instruction — the instructor names a
-        // dollar figure — so it is not trended, but the ceiling it is clamped
-        // against is. A $200M event injected in year 10 therefore lands at that
-        // year's higher ceiling, not year 1's.
-        const injectedAmount = Math.min(injection.amount, wcSeverityCap(yearNumber));
-        emit(id, pick.member.id, pick.member.region, pick.group, 'injected', injectedAmount, yearNumber, yearNumber, injection.recordAs);
-        claimCountsByGroup[pick.group] += 1;
-        injectedByMember.set(pick.member.id, (injectedByMember.get(pick.member.id) ?? 0) + injectedAmount);
-        count += 1;
-        gross += injectedAmount;
-      }
-      injectionResults.push({ count, gross });
-    }
-
-    for (const result of memberLossResults) {
-      const added = injectedByMember.get(result.memberId);
-      if (added) result.simulatedLoss += added;
-    }
-  }
-
   const grossUltimateLoss = claims.reduce((s, c) => s + c.grossUltimate, 0);
   return {
     claims,
@@ -996,6 +827,5 @@ export function generateWcClaims(inputs: WcGenerationInputs): WcGenerationResult
     memberLossResults,
     claimCountsByGroup,
     claimCountsByComponent,
-    injectionResults,
   };
 }

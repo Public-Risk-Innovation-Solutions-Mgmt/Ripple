@@ -230,7 +230,7 @@ const FAST: string[] = [
                                      //         expected and the CV is the parameter, within
                                      //         confidence intervals, directly, through the labelled
                                      //         stream and through the engine; expected IS the draw's
-                                     //         own scale; nothing cedes. ⚠ IT FLIPS NEW_LOSS_ENGINE
+                                     //         own scale; nothing cedes. ⚠ IT HOLDS MEMBER_LEVEL OFF
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
   'shock-loss-check',                //  40s   the NEW loss engine's shocks and large losses: events
@@ -239,7 +239,7 @@ const FAST: string[] = [
                                      //         stated count and severity, decay at 0.65, land in
                                      //         their region; and the rate deducts exactly the
                                      //         expected recovery the draw produces through the tower.
-                                     //         ⚠ FLIPS NEW_LOSS_ENGINE AND ROUTINE_LARGE_LOSSES AT
+                                     //         ⚠ HOLDS MEMBER_LEVEL OFF AND FLIPS ROUTINE_LARGE_LOSSES AT
                                      //         RUNTIME and restores both — own process only.
   'result-size-check',               //   5s   one year's result within 64 KB and the save at year
                                      //         ten within 256 KB stored — the size the ten worlds are
@@ -267,7 +267,6 @@ const FAST: string[] = [
   'save-round-trip-check',           //   3s
   'save-size-check',                 //   4s
   'seed-cohort-shape-check',         //   1s
-  'shock-check',                     //   6s
   'solo-export-guard',               //   4s
   'surface-privacy-check',           //   1s   risk quality reaches no player-facing render or export path
   'terminal-severity-check',         //  30s   STAGE 1 — derives phi against the pool's settled log-SD

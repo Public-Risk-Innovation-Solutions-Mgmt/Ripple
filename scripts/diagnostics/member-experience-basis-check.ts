@@ -111,8 +111,9 @@
 // and FAIL. A gate with only a passing case is untested.
 // ============================================================================
 
-// THE MEMBER PATH ON THE OLD ENGINE — first, before anything reads a flag. Member-level losses still need the old per-claim generators: see engine-mode/legacy-engine.ts.
-import '../tools/engine-mode/legacy-engine';
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';

@@ -2,7 +2,7 @@
 // WHAT THE NEW LOSS ENGINE EXPECTS, EX ANTE — the shocks at the catalogue's
 // probabilities, and routine large losses when that switch is on.
 //
-// Behind NEW_LOSS_ENGINE (off). Every figure here is an expectation over the
+// Part of the new loss engine, which runs whenever MEMBER_LEVEL is off. Every figure here is an expectation over the
 // SAME draw shockLosses.ts makes — the same events, levels, counts, CVs,
 // scale, pool limit and occurrence grouping — integrated in closed form
 // rather than simulated, so the rate and the reinsurance price are

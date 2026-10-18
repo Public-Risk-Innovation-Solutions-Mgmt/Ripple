@@ -38,7 +38,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { paidLdfAt, PAID_DEVELOPMENT_PATTERN } from '../../src/data/paidDevelopmentPatterns';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
 import { unpaidShare } from '../../src/utils/payoutPattern';
-import { NEW_LOSS_ENGINE } from '../../src/data/pricingParameters';
+import { newLossEngineRuns } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, ReserveDevelopmentRow } from '../../src/types/simulation';
 
 // ============================================================================
@@ -60,7 +60,7 @@ import type { CoverageLine, GameState, ReserveDevelopmentRow } from '../../src/t
 // Pricing develops with the recorded factors, so a GL year that a shock
 // develops is under-developed by that margin until the ledger catches up.
 // ============================================================================
-const NO_SHOCKS = NEW_LOSS_ENGINE.enabled && process.env.SHOCKS !== 'catalogue';
+const NO_SHOCKS = newLossEngineRuns() && process.env.SHOCKS !== 'catalogue';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 // ⚠ 2 x 10 IS THE SHORTEST RUN THAT STILL ANSWERS THE QUESTION, and it is
@@ -86,7 +86,7 @@ let failures = 0;
 const fail = (s: string) => { failures++; console.log(`  FAIL  ${s}`); };
 
 console.log('=== RECORDED PAYOUT CHECK ===\n');
-if (NEW_LOSS_ENGINE.enabled) {
+if (newLossEngineRuns()) {
   console.log(NO_SHOCKS
     ? '  New loss engine: games play with NO SHOCKS (host timing, empty schedule) — the payment alone.\n'
     : '  New loss engine, SHOCKS=catalogue: shock development included — REPORTED; the bar is for the payment alone.\n');

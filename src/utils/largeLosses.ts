@@ -2,7 +2,7 @@
 // LARGE INDIVIDUAL LOSSES FOR THE NEW LOSS ENGINE — the routine ones, and the
 // one piece of arithmetic every large loss is priced with.
 //
-// Behind NEW_LOSS_ENGINE (off). Commit 2 of the loss engine plan; see
+// Part of the new loss engine, which runs whenever MEMBER_LEVEL is off. Commit 2 of the loss engine plan; see
 // docs/PENDING_MULTIPLAYER.md section 3.
 //
 // TWO THINGS LIVE HERE.

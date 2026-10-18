@@ -5,7 +5,8 @@
 //
 //   npx tsx scripts/diagnostics/shock-loss-check.ts
 //
-// Runs with NEW_LOSS_ENGINE forced ON (and ROUTINE_LARGE_LOSSES flipped where
+// Runs with MEMBER_LEVEL held OFF, so the new loss engine runs (and
+// ROUTINE_LARGE_LOSSES flipped where
 // a section needs it), both restored in a `finally` — safe only because every
 // gate runs in its own process.
 //
@@ -47,7 +48,7 @@
 // ============================================================================
 
 import {
-  NEW_LOSS_ENGINE, ORDINARY_LOSS_LIMIT, R_MODEL, REGION_EXPOSURE_SHARE, REINSURANCE_LOAD_CLF_AT_70, ROUTINE_LARGE_LOSSES,
+  MEMBER_LEVEL, ORDINARY_LOSS_LIMIT, R_MODEL, REGION_EXPOSURE_SHARE, REINSURANCE_LOAD_CLF_AT_70, ROUTINE_LARGE_LOSSES,
   ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
@@ -137,10 +138,11 @@ function arrivalYear(eventName: string, line: CoverageLine, f: EventFiring): Lin
 }
 const EMPTY: LineShockYear = { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
 
-const wasEngine = NEW_LOSS_ENGINE.enabled;
+// The new loss engine runs whenever MEMBER_LEVEL is off; held off here.
+const wasMembers = MEMBER_LEVEL.enabled;
 const wasRoutine = ROUTINE_LARGE_LOSSES.enabled;
 try {
-  NEW_LOSS_ENGINE.enabled = true;
+  MEMBER_LEVEL.enabled = false;
   ROUTINE_LARGE_LOSSES.enabled = false;
   const market = getPredefinedMarketMembers();
   const exposureOf = (line: CoverageLine, y: number) => market.reduce((s, m) => s + getMemberExposure(m, line, y), 0);
@@ -521,7 +523,7 @@ try {
     if (routine) console.log(`        untracked remainder floored in ${floorBit} line-year(s)`);
   }
 } finally {
-  NEW_LOSS_ENGINE.enabled = wasEngine;
+  MEMBER_LEVEL.enabled = wasMembers;
   ROUTINE_LARGE_LOSSES.enabled = wasRoutine;
 }
 

@@ -25,8 +25,7 @@ import {
 } from '../../src/utils/newPurePremium';
 import { ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST } from '../../src/data/pricingParameters';
 import { paidAgeToAgeFactors } from '../../src/utils/experienceRating';
-import { SHOCK_CATALOG } from '../../src/data/shockCatalog';
-import { IMPLEMENTED_EFFECTS } from '../../src/types/shocks';
+import { SHOCK_EVENTS, eventLines } from '../../src/utils/shockLosses';
 import type { CoverageLine, GameState, Member, MembershipHistory, ReserveDevelopmentRow } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -48,10 +47,17 @@ function basisFrom(st: unknown, line: CoverageLine) {
   };
 }
 
-function play(seed: number, years: number, shocks: { shockId: string; yearNumber: number }[] = []) {
+// ⚠ HOST TIMING, ON BOTH ARMS OF THE SHOCK CONTROL. In singleplayer the new
+// engine fires the catalogue at its probabilities and ignores a schedule, so a
+// scheduled shock only reaches a game played on the host's timing. Section 3
+// passes `hostTiming`; the other sections play as a solo game does.
+function play(seed: number, years: number, shocks: { shockId: string; yearNumber: number }[] = [], hostTiming = false) {
   const id = `npp-${seed}`;
   const instance = generateGameInstance(id, seed, shocks);
-  const setup = { poolName: 'N', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES };
+  const setup = {
+    poolName: 'N', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES,
+    ...(hostTiming ? { shockTiming: 'host' as const } : {}),
+  };
   const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
   let gs: GameState = {
     setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
@@ -179,29 +185,27 @@ console.log('   ledger-estimated factors apply at the same age:');
 // 3. SHOCKS — a shock year's losses enter the history, so they enter the window.
 console.log('\n3. SHOCKS — do shock losses enter the history used for pricing?');
 console.log('   ⚠ THE PREMISE NEEDED CHECKING AND IS NARROWER THAN IT LOOKS. A shock reaches');
-console.log('   a game ONLY if a host scheduled one: generateGameInstance writes no');
-console.log('   scheduledShocks field at all for an empty list, and nothing else sets it. So');
-console.log('   in SOLO play, and in any room whose host scheduled nothing, no shock loss');
-console.log('   ever enters the history — there is no shock to enter. Where one IS');
-console.log('   scheduled its losses are drawn by the ordinary generators (ctx.shock feeds');
-console.log('   the claim draw), land in the cohort, and so land in the ledger the window');
-console.log('   reads. Measured as a PAIRED CONTROL — the same instance played twice, with');
-console.log('   and without one scheduled shock, so the only difference is the shock:');
+console.log('   a SESSION only if the host scheduled it; a solo game fires the catalogue at');
+console.log('   its probabilities instead. Its losses — the A uplift on ordinary losses and');
+console.log('   the T large losses — land in the cohort, and so in the ledger the window');
+console.log('   reads. Measured as a PAIRED CONTROL on the host\'s timing — the same');
+console.log('   instance played twice, with and without one scheduled event, so the only');
+console.log('   difference is the event:');
 {
   const FIRE_YEAR = 2;
-  const id = Object.keys(SHOCK_CATALOG).find(k => {
-    const d = SHOCK_CATALOG[k];
-    return d.effects.length > 0 && d.effects.every(e => IMPLEMENTED_EFFECTS.has(e.kind));
-  });
+  // The first event that brings large losses (a T) — so it lands on every line
+  // it reaches and the ledger has something to carry.
+  const event = SHOCK_EVENTS.find(e => eventLines(e.name).some(r => r.t !== 'None'));
+  const id = event?.id;
   if (!id) {
-    console.log('     no catalog entry has runnable effects — nothing to measure.');
+    console.log('     no event brings large losses — nothing to measure.');
   } else {
-    console.log(`     shock: '${id}' (${SHOCK_CATALOG[id].name}), fired in year ${FIRE_YEAR}\n`);
+    console.log(`     shock: '${id}' (${event.name}), fired in year ${FIRE_YEAR}\n`);
     const on: Row[] = [], off: Row[] = [];
     for (let g = 0; g < 6; g++) {
       const seed = 6_200_000 + g * 7919;
-      on.push(...play(seed, YEARS, [{ shockId: id, yearNumber: FIRE_YEAR }]).rows);
-      off.push(...play(seed, YEARS, []).rows);
+      on.push(...play(seed, YEARS, [{ shockId: id, yearNumber: FIRE_YEAR }], true).rows);
+      off.push(...play(seed, YEARS, [], true).rows);
     }
     for (const l of LINES) {
       const a = mean(on.filter(r => r.line === l && Number.isFinite(r.neu)).map(r => r.neu));

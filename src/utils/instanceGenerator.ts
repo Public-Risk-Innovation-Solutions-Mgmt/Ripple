@@ -25,8 +25,7 @@ import {
 } from '../data/defaultAssumptions';
 import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
-import { IMPLEMENTED_EFFECTS } from '../types/shocks';
-import { SHOCK_CATALOG } from '../data/shockCatalog';
+import { SHOCK_EVENTS } from './shockLosses';
 import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE } from '../data/pricingParameters';
 import { exposureFactor } from '../data/exposureTrend';
 
@@ -280,10 +279,10 @@ function generateStartingReserveCohorts(
 //
 // ⚠ THE LIST IS COPIED AND CHECKED, NOT TRUSTED. It is copied so a caller's
 // array cannot be mutated underneath the instance. It is checked because a
-// room's schedule arrives from another machine: an id the catalog does not
-// know, or one whose effects cannot run, would otherwise throw inside
-// resolveShocks in the year it fires — possibly years into a session, on every
-// team at once. Here it fails when the game is BUILT, before year 1.
+// room's schedule arrives from another machine: an id that is not one of the
+// R model's twelve would otherwise throw inside the new engine in the year it
+// fires — possibly years into a session, on every team at once. Here it fails
+// when the game is BUILT, before year 1. Any of the twelve may be scheduled.
 // No randomness is consumed: the schedule is data, drawn (if it was drawn at
 // all) once, by the host, before the room existed.
 // ============================================================================
@@ -293,10 +292,8 @@ export function generateGameInstance(
   scheduledShocks: readonly ScheduledShock[] = [],
 ): GameInstance {
   for (const s of scheduledShocks) {
-    const def = SHOCK_CATALOG[s.shockId];
-    if (!def) throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' is not in SHOCK_CATALOG`);
-    if (!def.effects.every(e => IMPLEMENTED_EFFECTS.has(e.kind))) {
-      throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' uses an effect that is not implemented`);
+    if (!SHOCK_EVENTS.some(e => e.id === s.shockId)) {
+      throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' is not one of the twelve`);
     }
     if (!Number.isInteger(s.yearNumber) || s.yearNumber < 1) {
       throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' has fire year ${s.yearNumber}; it must be a game year, 1 or later`);

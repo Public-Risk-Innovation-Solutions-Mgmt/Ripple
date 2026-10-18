@@ -138,7 +138,7 @@
 // ============================================================================
 
 import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
-import { NEW_LOSS_ENGINE } from '../data/pricingParameters';
+import { newLossEngineRuns } from '../data/pricingParameters';
 
 /**
  * The storage key. A persisted identifier, not a display string.
@@ -257,7 +257,7 @@ export const SAVE_STRIPPED_KEYS: readonly string[] = [
 /**
  * The keys the NEW loss engine keeps, out of the list above.
  *
- * ⚠ ITS REGISTER IS SAVED, NOT REDRAWN. Under NEW_LOSS_ENGINE a line-year's
+ * ⚠ ITS REGISTER IS SAVED, NOT REDRAWN. On the new loss engine a line-year's
  * claims are its large losses alone — a handful a year, not hundreds — and the
  * redraw in claimRegeneration runs the OLD per-member generators, which did not
  * draw them. A redraw would also need the game's shock timing, which a result
@@ -269,7 +269,7 @@ export const NEW_ENGINE_KEPT_KEYS: readonly string[] = ['claims', 'occurrences']
 
 /** The keys stripped on the way out, for the engine in force. */
 export function saveStrippedKeys(): readonly string[] {
-  return NEW_LOSS_ENGINE.enabled
+  return newLossEngineRuns()
     ? SAVE_STRIPPED_KEYS.filter(k => !NEW_ENGINE_KEPT_KEYS.includes(k))
     : SAVE_STRIPPED_KEYS;
 }

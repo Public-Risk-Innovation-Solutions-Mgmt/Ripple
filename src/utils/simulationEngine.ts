@@ -2,9 +2,7 @@
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
 import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
-import type { LineShockEffects, ShockFiring, ShockRecord } from '../types/shocks';
-import { resolveShocks, ownFreqMultipliers, ownComponentFreqMultipliers, ownSevMultipliers } from './shockResolver';
-import { WHOLE_LINE } from './shockEffects';
+import type { ShockFiring, ShockRecord } from '../types/shocks';
 
 // THE NEW LOSS ENGINE'S FIRINGS, IN THE RECORD SHAPE THE RESULTS PAGES READ.
 // One per event in force that reaches this line — its catalogue name and
@@ -21,7 +19,7 @@ function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | 
     const lines = new Set<CoverageLine>(rows.map(r => r.line));
     if (POOL_WIDE_EVENTS.includes(e.name)) NLE_LINES.forEach(l => lines.add(l));
     if (!lines.has(line)) continue;
-    const def = SHOCK_CATALOG[e.id];
+    const def = SHOCK_EVENT_LABELS[e.id];
     const detail = rows.map(r => `${r.line} A ${r.a} / T ${r.t} / R ${r.r}`).join(' · ');
     out.push({
       shockId: e.id,
@@ -149,21 +147,20 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack } from './linePricing';
-import { MEMBER_LEVEL, NEW_BUSINESS_PENALTY, NEW_LOSS_ENGINE, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
 import { bookMovementResult, moveBook } from './bookUnderwriting';
 import { ordinaryLossCostPer100, ordinaryLossYear, ordinaryMemberRecords, type OrdinaryLossYear } from './ordinaryLoss';
-import { drawLargeLosses, firingKey, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { drawLargeLosses, firingKey, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
-import { SHOCK_CATALOG } from '../data/shockCatalog';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
 import { cloneMembershipHistory, openInterval, closeInterval } from './membershipHistory';
 import { cloneMemberLossHistory, recordMemberLossYear } from './memberLossHistory';
-import { computeKLine, deriveNeutralClassRatesPer100, deriveNeutralPurePremiumPer100, expectedWcGrossLossForPricing, generateWcClaims, ratingGroupOf, wcFrequencyTrend, wcSeverityTrend } from './wcClaimEngine';
+import { computeKLine, deriveNeutralClassRatesPer100, deriveNeutralPurePremiumPer100, generateWcClaims, ratingGroupOf, wcFrequencyTrend, wcSeverityTrend } from './wcClaimEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
-import { computeKGl, deriveNeutralGlPurePremiumPer100, expectedGlGrossLossForPricing, generateGlClaims, glCappedSeverityTrend } from './glClaimEngine';
+import { computeKGl, deriveNeutralGlPurePremiumPer100, generateGlClaims, glCappedSeverityTrend } from './glClaimEngine';
 import { computeKPr, generatePropertyClaims, propertyCappedSeverityTrend } from './propertyClaimEngine';
 import { generateNarrative } from './narrativeEngine';
 import { grossUpRetainedPurePremium, quoteLineRates, type CessionBasis } from './linePricing';
@@ -630,23 +627,12 @@ interface LineYearContext {
   // IGNORES this, so there is no double application while it awaits its own
   // generator.
   gPool: number;
-  // This line's slice of the year's shock resolution, PROJECTED DOWN from
-  // processYear. Absent when nothing is in force, which keeps the no-shock code
-  // path textually identical to what it was before shocks existed.
-  //
-  // A line receives only its OWN effects and cannot see another line's, which
-  // is the point: events emit into several lines from one cause, but the
-  // coordination happens at pool level and a line-local generator never learns
-  // that another line exists.
-  shock?: LineShockEffects;
-  // The firings that touched this line, for RECORDING. Separate from `shock`
-  // because effects are what the generators consume and firings are what the
-  // audit page reads — a compounded frequency multiplier no longer knows which
-  // events produced it, so the narrative has to travel alongside it.
+  // The new engine's firings that touched this line, for RECORDING — what the
+  // audit page and the results narrative read.
   shockFirings?: ShockFiring[];
-  // THE NEW LOSS ENGINE'S SHOCKS FOR THE YEAR — present only with
-  // NEW_LOSS_ENGINE on. Resolved once in processYear, like `shock`, because
-  // one event reaches several lines.
+  // THE NEW LOSS ENGINE'S SHOCKS FOR THE YEAR — present only when it runs
+  // (MEMBER_LEVEL off). Resolved once in processYear because one event reaches
+  // several lines.
   shockYear?: ShockYear;
   // This line's RISK CONTROL PROGRAM frequency multiplier for the year, 1 when
   // no committed program reaches it. Computed once in processYear from the
@@ -654,9 +640,7 @@ interface LineYearContext {
   // the line-year, and a per-line recomputation would be three chances to
   // disagree about how many years a program has run.
   //
-  // ⚠ A SEPARATE FIELD FROM `shock`, NOT A MEMBER OF IT — see
-  // riskControlPrograms.ts. The marketplace draw takes `shock` and must not take
-  // this.
+  // ⚠ NEVER PASSED TO THE MARKETPLACE DRAW — see riskControlPrograms.ts.
   programFreqMultiplier: number;
   // Dollars this line is charged for committed risk-control programs this year.
   // Derived in processYear from the SAME decision history as the multiplier
@@ -711,13 +695,10 @@ export function processLineYear(
   // ⚠ ONE BOOK, OR A ROSTER. With MEMBER_LEVEL off (the game as it ships) the
   // line has no members: `bookExposure` is the line, and everything that would
   // have walked a roster reads that one figure instead (see Book in
-  // lineHelpers). With it on, the member path runs as it stood at commit 2.
-  // The book needs the new loss engine — there is nothing else for it to draw.
+  // lineHelpers). With it on, the member path draws each member's own claims
+  // with the per-claim generators — newLossEngineRuns() is false.
   // ==========================================================================
   const bookMode = !MEMBER_LEVEL.enabled;
-  if (bookMode && !NEW_LOSS_ENGINE.enabled) {
-    throw new Error('processLineYear: MEMBER_LEVEL off needs NEW_LOSS_ENGINE on — a book has no claim generator');
-  }
   const currentActiveMembers = bookMode ? [] : lineState.members.filter(m => m.status === 'active');
 
   // --- Selected Funding Confidence ---
@@ -1158,7 +1139,7 @@ export function processLineYear(
   const renewal = applyRenewalDeclines(
     memberResult.activeMembers, line, yearNumber, renewalDecisions, ctx.membershipHistory,
   );
-  // ⚠ MEMBER WITHDRAWAL, UNDER NEW_LOSS_ENGINE ONLY: a quarter of the line's
+  // ⚠ MEMBER WITHDRAWAL, ON THE NEW LOSS ENGINE ONLY: a quarter of the line's
   // exposure leaves at the renewal after the event — the members' decision,
   // not the pool's, so it is recorded as a withdrawal and starts the same
   // cooldown. See withdrawForShock. Absent, this is the renewal as it was.
@@ -1287,13 +1268,13 @@ export function processLineYear(
   // denominator. The net-funding change moves the PREMIUM basis only — it must
   // not move the loss quantities.
   //
-  // ⚠ UNDER NEW_LOSS_ENGINE IT IS THE ENGINE'S OWN EX-ANTE EXPECTATION —
+  // ⚠ ON THE NEW LOSS ENGINE IT IS THE ENGINE'S OWN EX-ANTE EXPECTATION —
   // ordinary losses, the expected uplift on them, and the large losses the
   // pool keeps, at the catalogue's probabilities (shockExpectation.ts). It is
   // an expectation over exactly what the draw does, so actual over expected
   // averages 1 across games; it does not know a host's schedule, which is
   // what ex ante means.
-  const newEngineExpected = NEW_LOSS_ENGINE.enabled
+  const newEngineExpected = newLossEngineRuns()
     ? expectedLossBreakdown(line, activeExposure, yearNumber)
     : undefined;
   const expectedLoss = newEngineExpected
@@ -1679,7 +1660,7 @@ export function processLineYear(
   // ==========================================================================
   // THE NEW LOSS ENGINE: ONE AGGREGATE ORDINARY LOSS, AND LARGE LOSSES AS CLAIMS.
   //
-  // Behind NEW_LOSS_ENGINE (off). It replaces all three claim engines at once,
+  // Part of the new loss engine, which runs whenever MEMBER_LEVEL is off. It replaces all three claim engines at once,
   // so it sits in front of them rather than inside each.
   //
   //   ORDINARY   exposure x the expected ordinary cost per $100 x a mean-1
@@ -1702,7 +1683,7 @@ export function processLineYear(
   let ordinaryYear: OrdinaryLossYear | undefined;
   let largeDraw: LargeLossDraw | undefined;
   let lineShocks: LineShockYear | undefined;
-  if (NEW_LOSS_ENGINE.enabled) {
+  if (newLossEngineRuns()) {
     ordinaryYear = ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
@@ -1764,7 +1745,7 @@ export function processLineYear(
     //     ratio instead of cancelling out of it.
     const generated = generateWcClaims(wcGenerationInputs({
       members: enrolledMembers, yearNumber, calendarYear, instanceSeed: instance.seed,
-      k: kLine, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool, shock: ctx.shock,
+      k: kLine, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool,
       programFreqMultiplier: ctx.programFreqMultiplier,
       programRtwConversion: ctx.programRtwConversion,
       programSeverityReduction: ctx.programSeverityReduction,
@@ -1780,10 +1761,6 @@ export function processLineYear(
         instanceSeed: instance.seed,
         kLine: 1,
         riskControlEffectiveness: 0,
-        // Market-wide conditions DO reach prospects: a statutory change or a bad
-        // year is not a pool membership benefit. Pool-specific claim injections
-        // do NOT — those are events landing on the pool's own book.
-        componentFreqMultipliers: ctx.shock?.componentFreqMultipliers,
       })
       : undefined;
     generatedClaims = generated.claims;
@@ -1797,34 +1774,6 @@ export function processLineYear(
       ...(prospectGenerated?.memberLossResults ?? []),
     ];
     kLineApplied = kLine;
-
-    // EXACT attribution: the engine returns one outcome per requested
-    // injection, in order, and ctx.shock.injections carries the shockId that
-    // asked for each. No estimation involved — these are specific claims.
-    (ctx.shock?.injections ?? []).forEach((injection, i) => {
-      const outcome = generated.injectionResults[i];
-      if (!outcome) return;
-      shockAttributableLoss[injection.shockId] = (shockAttributableLoss[injection.shockId] ?? 0) + outcome.gross;
-      shockAttributableClaims[injection.shockId] = (shockAttributableClaims[injection.shockId] ?? 0) + outcome.count;
-    });
-
-    // EXPECTED cost of any component multiplier in force, per event, measured
-    // against the unshocked book with WC's own analytic. Reconstructing the
-    // expectation here would create a second definition of WC's expected loss.
-    //
-    // PRICING BASIS on both sides: the difference is what the EVENT adds, and
-    // measuring it on a basis that includes the risk-quality severity tilt would
-    // fold the book's RQ mix into a figure attributed to the shock.
-    if (ctx.shock?.componentFreqMultipliers && ctx.shockFirings?.length) {
-      const baseline = expectedWcGrossLossForPricing(enrolledMembers, { kLine, yearNumber });
-      for (const firing of ctx.shockFirings) {
-        const multipliers = ownComponentFreqMultipliers(firing.shockId, 'WC');
-        if (!multipliers) continue;
-        shockExpectedAdded[firing.shockId] = expectedWcGrossLossForPricing(enrolledMembers, {
-          kLine, yearNumber, componentFreqMultipliers: multipliers,
-        }) - baseline;
-      }
-    }
   } else if (isGlClaimLine) {
     // Same discipline as WC: k_GL is the per-year roster/risk-quality-mix
     // correction against the currently enrolled book; the pure premium itself
@@ -1832,11 +1781,10 @@ export function processLineYear(
     // ⚠ ENROLLED BOOK, NOT THE FULL ROSTER — same trap as WC's k_line above.
     const kGl = BOOK_MIX_NORMALISER.inDraw ? computeKGl(enrolledMembers, yearNumber) : 1;
     // Shared mapping — see the WC call above and claimGeneration.ts. Risk
-    // control and the shock multipliers are DRAW ONLY (finding 17): a shock is
-    // a realized event, not a repricing.
+    // control is DRAW ONLY (finding 17).
     const generated = generateGlClaims(glGenerationInputs({
       members: enrolledMembers, yearNumber, calendarYear, instanceSeed: instance.seed,
-      k: kGl, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool, shock: ctx.shock,
+      k: kGl, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool,
       programFreqMultiplier: ctx.programFreqMultiplier,
       programRtwConversion: ctx.programRtwConversion,
       programSeverityReduction: ctx.programSeverityReduction,
@@ -1850,8 +1798,6 @@ export function processLineYear(
         instanceSeed: instance.seed,
         kGl: 1,
         riskControlEffectiveness: 0,
-        freqMultipliers: ctx.shock?.freqMultipliers,
-        sevMultipliers: ctx.shock?.sevMultipliers,
         gPool: ctx.gPool,
       })
       : undefined;
@@ -1865,57 +1811,18 @@ export function processLineYear(
       ...(prospectGenerated?.memberLossResults ?? []),
     ];
     kLineApplied = kGl;
-
-    // EXACT attribution of any injected claims, as on WC: one outcome per
-    // requested injection, in order, each carrying the shock that asked for it.
-    (ctx.shock?.injections ?? []).forEach((injection, i) => {
-      const outcome = generated.injectionResults[i];
-      if (!outcome) return;
-      shockAttributableLoss[injection.shockId] = (shockAttributableLoss[injection.shockId] ?? 0) + outcome.gross;
-      shockAttributableClaims[injection.shockId] = (shockAttributableClaims[injection.shockId] ?? 0) + outcome.count;
-    });
-
-    // The EXPECTED cost of any frequency shock on this line, attributed per
-    // event. Computed as the difference between GL's own analytic expectation
-    // with and without the multipliers, rather than reconstructed — a second
-    // definition of GL's expected loss would drift from the first.
-    //
-    // PER EVENT INDEPENDENTLY: each firing is priced against the unshocked
-    // baseline using only its OWN effects. When two events compound on GL
-    // (both are whole-line multipliers now — no sub-coverage left to target)
-    // their individual figures therefore do not sum to the combined effect,
-    // which is correct — each answers "what did this event add", not "how do
-    // we split the interaction".
-    if ((ctx.shock?.freqMultipliers || ctx.shock?.sevMultipliers) && ctx.shockFirings?.length) {
-      const baseline = expectedGlGrossLossForPricing(enrolledMembers, { yearNumber, kGl });
-      for (const firing of ctx.shockFirings) {
-        const ownFreq = ownFreqMultipliers(firing.shockId, 'GL');
-        const ownSev = ownSevMultipliers(firing.shockId, 'GL');
-        if (!ownFreq && !ownSev) continue;
-        // A SEVERITY multiplier scales the whole expectation linearly, so it is
-        // applied here rather than threaded into the expectation's options: the
-        // analytic has no severity-shock parameter, and giving it one would put
-        // a shock inside the PRICING function, which is exactly what must not
-        // happen. This stays a measurement of the event's cost.
-        const sevFactor = ownSev?.[WHOLE_LINE] ?? 1;
-        const shocked = expectedGlGrossLossForPricing(enrolledMembers, {
-          yearNumber, kGl, ...(ownFreq ? { freqMultipliers: ownFreq } : {}),
-        }) * sevFactor;
-        shockExpectedAdded[firing.shockId] = shocked - baseline;
-      }
-    }
   } else if (isPropertyClaimLine) {
     // PROPERTY, CUT OVER. Same discipline as WC and GL: the pure premium is
     // HELD and k_Pr is the per-year roster/risk-quality-mix correction against
     // the ENROLLED book — not the full roster, which is the trap both other
     // lines carry a warning about.
     const kPr = BOOK_MIX_NORMALISER.inDraw ? computeKPr(enrolledMembers) : 1;
-    // Shared mapping — see claimGeneration.ts. Property reads no shock channel
-    // and no gPool; the mapper drops both, exactly as this literal always did.
+    // Shared mapping — see claimGeneration.ts. Property reads no gPool; the
+    // mapper drops it, exactly as this literal always did.
     // Risk control acts on the DRAW ONLY (finding 17), as in WC and GL.
     const generated = generatePropertyClaims(propertyGenerationInputs({
       members: enrolledMembers, yearNumber, calendarYear, instanceSeed: instance.seed,
-      k: kPr, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool, shock: ctx.shock,
+      k: kPr, riskControlEffectiveness: newRCEffectiveness, gPool: ctx.gPool,
       programFreqMultiplier: ctx.programFreqMultiplier,
       programRtwConversion: ctx.programRtwConversion,
       programSeverityReduction: ctx.programSeverityReduction,
@@ -1926,20 +1833,6 @@ export function processLineYear(
     aggregateMemberLoss = generated.grossUltimateLoss;
     kLineApplied = kPr;
     glClaimCount = generated.claimCount;
-    // EXACT attribution of a forced catastrophe: the generator reports what
-    // each scheduled event landed, in input order, keyed to its shock.
-    for (const r of generated.forcedEventResults) {
-      shockAttributableLoss[r.shockId] = (shockAttributableLoss[r.shockId] ?? 0) + r.gross;
-      shockAttributableClaims[r.shockId] = (shockAttributableClaims[r.shockId] ?? 0) + r.claims;
-    }
-    // And of a scheduled weather event, the same way. ⚠ THIS WAS MISSING when
-    // WINTER-STORM landed (e1639c7): its claims were drawn and booked but the
-    // shock record read $0 and 0 claims, so the Results card named the storm
-    // and attributed nothing to it.
-    for (const r of generated.weatherEventResults) {
-      shockAttributableLoss[r.shockId] = (shockAttributableLoss[r.shockId] ?? 0) + r.gross;
-      shockAttributableClaims[r.shockId] = (shockAttributableClaims[r.shockId] ?? 0) + r.claims;
-    }
     // ⚠ NO SHOCK CHANNEL — BUT A CAT BAND, AND ITS LOAD, TOGETHER. Property's
     // shock used to arrive as an aggregate add-on keyed off commonLossFactor,
     // which went with the Gamma path; the cat shock events are still gated
@@ -2046,13 +1939,13 @@ export function processLineYear(
     line, generatedClaims ?? [],
     new Map((generatedOccurrences ?? []).map(o => [o.id, o.claimIds.length])),
   );
-  // ⚠ UNDER NEW_LOSS_ENGINE THE LIMIT IS APPLIED AT THE DRAW, and the excess
+  // ⚠ ON THE NEW LOSS ENGINE THE LIMIT IS APPLIED AT THE DRAW, and the excess
   // comes from there. Its claims arrive already capped, so applyPoolLimit
   // above finds nothing to trim — and its re-sum below would read only the
   // large-loss register and drop the ordinary aggregate, which is not a
   // claim. So the re-sum is skipped and the draw's own excess is reported.
   const memberShareAboveLimit = largeDraw ? largeDraw.memberShareAboveLimit : poolLimit.memberShareAboveLimit;
-  if (POOL_LIMIT_PER_OCCURRENCE[line] !== null && !NEW_LOSS_ENGINE.enabled) {
+  if (POOL_LIMIT_PER_OCCURRENCE[line] !== null && !newLossEngineRuns()) {
     aggregateMemberLoss = poolLimit.grossUltimateLoss;
   }
 
@@ -2334,7 +2227,7 @@ export function processLineYear(
   // and stays equal to them. That is the honest default: without claims there is
   // no gross/net distinction to record.
   //
-  // ⚠ UNDER NEW_LOSS_ENGINE THE ORDINARY AGGREGATE IS THE REGISTER'S UNTRACKED
+  // ⚠ ON THE NEW LOSS ENGINE THE ORDINARY AGGREGATE IS THE REGISTER'S UNTRACKED
   // REMAINDER. The tracked set is built from the occurrences, and the ordinary
   // year is not one — so left alone the register would open at the large
   // losses only. The remainder is the whole booked gross less what is tracked:
@@ -2343,7 +2236,7 @@ export function processLineYear(
   // already holds and the claim is registered at in full. It cannot fall below
   // zero in any year the count is ordinary; it is floored rather than allowed
   // to, and shock-loss-check counts the years it bites.
-  const untrackedForBooking = NEW_LOSS_ENGINE.enabled
+  const untrackedForBooking = newLossEngineRuns()
     ? Math.max(0, bookedGrossUltimate - markdown.tracked.reduce((s, d) => s + d.original, 0))
     : markdown.untrackedTotal;
   const grossRegisterBooked = markdown.tracked.length > 0 || (untrackedForBooking ?? 0) > 0
@@ -2622,7 +2515,7 @@ export function processLineYear(
   // ⚠ ON THE NEW ENGINE, ITS OWN CATASTROPHES. The old figure read the old
   // catastrophe model over the member roster; the new engine's catastrophes are
   // the catalogue's regional events. See newEngineCatCapital for the basis.
-  const catCapitalNeeded = NEW_LOSS_ENGINE.enabled
+  const catCapitalNeeded = newLossEngineRuns()
     ? newEngineCatCapital(line, estimatedExposure, yearNumber, placedForCost)
     : catCapitalRetained(line, currentActiveMembers, placedForCost);
   const reserveRiskMarginNeeded = Math.max(
@@ -2881,7 +2774,7 @@ export function processLineYear(
     // old stack. The audit page's Pure Premium row shows expectedLoss, so it
     // needs the rate that actually produces it. Identical to
     // purePremiumPer100 whenever the flag is off.
-    // ⚠ UNDER NEW_LOSS_ENGINE expectedLoss is the engine's own ex-ante
+    // ⚠ ON THE NEW LOSS ENGINE expectedLoss is the engine's own ex-ante
     // expectation, not exposure × a rate, so the rate that produces it is
     // read back off it.
     lossPurePremiumPer100: parseFloat((newEngineExpected && activeExposure > 0
@@ -3306,10 +3199,10 @@ export function processYear(
   // not per line, so two lines with the same allocation earn the same return
   // rate; each line differs only by its allocation and its own asset base. The
   // stream is the unsuffixed 'invest' label (unchanged for a WC-only game).
-  // ⚠ UNDER NEW_LOSS_ENGINE, THE YEAR'S SHOCKS ARE RESOLVED FIRST, because
+  // ⚠ ON THE NEW LOSS ENGINE, THE YEAR'S SHOCKS ARE RESOLVED FIRST, because
   // one of them is an investment shock and the market below is what it moves.
   // Pure in the instance, the timing and the year; nothing before year 1.
-  const shockYear = NEW_LOSS_ENGINE.enabled
+  const shockYear = newLossEngineRuns()
     ? resolveShockYear(instance, shockTimingOf(setup), yearNumber)
     : undefined;
   const drawnMarket = simulateMarketReturns(
@@ -3363,16 +3256,6 @@ export function processYear(
   // deriveSubRng cannot express a draw common to all lines. Its own purpose
   // label means it consumes nothing from any existing stream.
   const gPool = poolYearFactor(instance.seed, yearNumber);
-
-  // Shock resolution — pool level, for the same reason gPool is drawn here: a
-  // per-line deriveSubRng cannot express something common to all lines, and a
-  // single event can emit into several of them. Per-line effects are projected
-  // into each LineYearContext below.
-  //
-  // CONSUMES NO RANDOMNESS, and returns undefined rather than an empty object
-  // when nothing is in force, so a game with no shocks takes exactly the code
-  // path it took before shocks existed.
-  const shocks = resolveShocks(instance, yearNumber);
 
   // Sequential fold: each line sees the shared roster as updated by lines
   // already processed this year (a member withdrawing from one line becomes
@@ -3440,13 +3323,9 @@ export function processYear(
       // Ends at yearNumber - 1 — see the field's note on LineYearContext.
       memberLossHistory,
       gPool,
-      // ⚠ UNDER NEW_LOSS_ENGINE TODAY'S SHOCK EFFECTS DO NOT RUN — the
-      // catalogue's A / T / R replace them — and the firings recorded are the
-      // new engine's own. Flag off, both lines are exactly what they were.
-      shock: shockYear ? undefined : shocks?.byLine[line],
-      shockFirings: shockYear
-        ? newEngineFirings(shockYear, line)
-        : shocks?.firings.filter(f => f.linesAffected.includes(line)),
+      // The new engine's firings, for recording. The member path has no shocks:
+      // the old placeholders were deleted at loss engine commit 3b.
+      shockFirings: shockYear ? newEngineFirings(shockYear, line) : undefined,
       shockYear,
       programFreqMultiplier: programFreqMultiplier(line, decisions.riskControlProgramIds, priorProgramIds),
       programAnnualCost: programAnnualCost(line, decisions.riskControlProgramIds, priorProgramIds, activeLines.length),

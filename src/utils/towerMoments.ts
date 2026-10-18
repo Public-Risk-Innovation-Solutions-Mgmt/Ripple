@@ -89,7 +89,7 @@ import { propertyInternals, propertySeverityTrend } from './propertyClaimEngine'
 import { catLayerAnnualMoments, PROPERTY_LATTICE_BIN } from './propertyCatastrophe';
 import { ratingGroupOf, thetaWc, trendedMu, wcFrequencyTrend, wcSeverityCap } from './wcClaimEngine';
 import type { Member } from '../types/simulation';
-import { NEW_LOSS_ENGINE } from '../data/pricingParameters';
+import { newLossEngineRuns } from '../data/pricingParameters';
 import { newEngineLayerMoments } from './shockExpectation';
 import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
 
@@ -449,7 +449,7 @@ function layerRiskMomentsFor(
 ): LayerRiskMoments[] {
   const layers = REINSURANCE_TOWER[line];
   // ==========================================================================
-  // ⚠ UNDER NEW_LOSS_ENGINE THE EXPECTED RECOVERY IS THE NEW ENGINE'S OWN, AND
+  // ⚠ ON THE NEW LOSS ENGINE THE EXPECTED RECOVERY IS THE NEW ENGINE'S OWN, AND
   // THIS IS THE ONE PLACE THAT SAYS SO.
   //
   // THE RULE: the rate deducts what the reinsurance will ACTUALLY pay, and the
@@ -472,7 +472,7 @@ function layerRiskMomentsFor(
   //
   // With the flag off this branch is not taken and nothing below changes.
   // ==========================================================================
-  if (NEW_LOSS_ENGINE.enabled) {
+  if (newLossEngineRuns()) {
     return newEngineLayerMoments(line, bookExposureOf(book, line, yearNumber), yearNumber, boundsScale);
   }
   const members = rosterOf(book, 'layerRiskMomentsFor (the old engine)');

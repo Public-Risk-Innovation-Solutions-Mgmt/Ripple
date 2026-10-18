@@ -22,33 +22,19 @@
 import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
 import { Shuffle, Trash2, Zap } from 'lucide-react';
-import { SHOCK_CATALOG } from '../../data/shockCatalog';
-import { hasBuiltEffects } from '../../types/shocks';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
 import { DEFAULT_PRIOR_DEVELOPMENT, type PriorDevelopment } from '../contract';
 import type { CoverageLine } from '../../types/simulation';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { rememberHostToken, saveActive } from '../client/identity';
-import { drawShockSchedule } from '../shockDraw';
+import { drawShockSchedule, drawableShocks } from '../shockDraw';
 import { navigate } from '../client/navigation';
 
-// A shock whose effects the generators cannot execute throws inside the
-// resolver rather than quietly doing nothing (see shockResolver.ts). Offering it
-// in a dropdown would let a host schedule a room that breaks on the year it
-// fires, so the unbuildable ones are listed and disabled with the reason shown.
-// ⚠ EVERY EVENT IS OFFERED, AND THE ONES WITH NO MECHANISM SAY SO. The six
-// events whose effects are not built yet carry the deliberate `notYetBuilt`
-// placeholder: the resolver executes them cleanly as nothing, so scheduling one
-// is legal and cannot break the year it lands on. They are listed ENABLED and
-// labelled, rather than disabled, because this branch is not deployed and a host
-// testing the screen should be able to place one — but never by accident.
-const SCHEDULABLE = Object.values(SHOCK_CATALOG)
-  .map(def => ({
-    id: def.id,
-    name: def.name,
-    built: hasBuiltEffects(def),
-  }))
-  .sort((a, b) => Number(a.id.replace('#', '')) - Number(b.id.replace('#', '')));
+// ⚠ EVERY ONE OF THE R MODEL'S TWELVE EVENTS IS OFFERED, AND EVERY ONE RUNS.
+// Loss engine commit 3b retired the old catalogue, which only built six of
+// them; the new engine runs all twelve. The list is the same one Randomise
+// draws from (session/shockDraw.ts), so the two cannot offer different events.
+const SCHEDULABLE = drawableShocks();
 
 // ⚠ THE SEED IS A SHORT MENU NOW, AND IT IS STILL A STRING. The contract's
 // `seed: string` is untouched — these are the strings '1' to '20' rather than an
@@ -69,13 +55,10 @@ const signedFrom = (pct: number, adverse: boolean) => (adverse ? 1 : -1) * (Math
 // different games. Defaulting the menu to '1' would quietly undo that and make
 // every unconsidered room identical. A random option keeps the old behaviour
 // inside the new, smaller set.
-// ⚠ THE SCHEDULED LIST READS AS A SENTENCE, NOT AN ID. The id is the number for
-// the events that have one ('#2'), and three events in the current catalog have
-// a word id instead (WILDFIRE, WINTER-STORM, WATER-CONTAMINATION); those show the
-// name alone rather than an invented number. The catalog is to be renumbered 1-12
-// later, so NOTHING here changes an id or a name — this only reads them.
+// ⚠ THE SCHEDULED LIST READS AS A SENTENCE, NOT AN ID: '#2 Winterstorm/Rainstorm'.
+// An id that is not one of the twelve shows as itself.
 function shockLabel(id: string): string {
-  const name = SHOCK_CATALOG[id]?.name;
+  const name = SCHEDULABLE.find(s => s.id === id)?.name;
   if (!name) return id;
   return id.startsWith('#') ? `${id} ${name}` : name;
 }
@@ -102,7 +85,7 @@ export default function HostCreateScreen() {
   // transport drops entries for lines the room does not play.
   const [priorDev, setPriorDev] = useState<PriorDevelopment>({ ...DEFAULT_PRIOR_DEVELOPMENT });
   const [shocks, setShocks] = useState<ScheduledShockSpec[]>([]);
-  const [shockId, setShockId] = useState(SCHEDULABLE.find(s => s.built)?.id ?? '');
+  const [shockId, setShockId] = useState(SCHEDULABLE[0]?.id ?? '');
   const [shockYear, setShockYear] = useState(2);
   // What the last Randomise drew FOR. The draw is a pure function of the seed
   // and the year count, so the list is reproducible from the room record only
@@ -348,7 +331,7 @@ export default function HostCreateScreen() {
               >
                 {SCHEDULABLE.map(s => (
                   <option key={s.id} value={s.id}>
-                    {s.id} — {s.name}{s.built ? '' : ' (no effects yet — nothing will happen)'}
+                    {s.id} — {s.name}
                   </option>
                 ))}
               </select>

@@ -28,8 +28,9 @@
 // runtime cost budget, and the enrolment feedback loop the runtime price
 // introduces.
 
-// THE OLD ENGINE — first, before anything reads a flag. Classified RETIRE: see engine-mode/legacy-engine.ts.
-import '../tools/engine-mode/legacy-engine';
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { REINSURANCE_TOWER, TOWER_TOP } from '../../src/data/reinsuranceTower';
 import { GL_SEVERITY_CAP, WC_LOSS_MODEL } from '../../src/data/defaultAssumptions';

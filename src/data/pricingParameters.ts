@@ -368,33 +368,30 @@ export const NEW_RATE_STACK = { enabled: true };
 // ============================================================================
 
 /**
- * THE NEW LOSS ENGINE, BEHIND A FLAG — OFF.
+ * THE NEW LOSS ENGINE — THE GAME'S LOSS ENGINE, WHENEVER MEMBER_LEVEL IS OFF.
  *
- * With it OFF the engine is exactly what it was: claims drawn per member,
- * today's tower moments, today's bulk cohorts. All three baselines are
- * byte-identical with it off, which is the condition for landing it at all.
+ * Commit 3b retired the NEW_LOSS_ENGINE flag: there is one switch, MEMBER_LEVEL.
+ * Off (the game as it ships), each line is one book and its year is ONE
+ * aggregate ordinary loss — exposure x the expected ordinary loss cost per
+ * $100 x a lognormal year factor, raised by any A in force — plus LARGE losses
+ * as individual claims: each catalogue event's T when it arrives, and routine
+ * claims above the ordinary limit when ROUTINE_LARGE_LOSSES is on. Ordinary
+ * losses are limited per claim at the line's lowest attachment, so they CEDE
+ * NOTHING; the large losses go through the tower per occurrence like any other
+ * claim. On, the member path draws each member's own claims with the per-claim
+ * generators instead (see MEMBER_LEVEL). The old engine as a whole is frozen
+ * on the legacy-engine branch.
  *
- * With it ON, each line's year is ONE aggregate ordinary loss — exposure x the
- * expected ordinary loss cost per $100 x a lognormal year factor, raised by any
- * A in force — plus, from commit 2, LARGE losses as individual claims: each
- * catalogue event's T when it arrives, and routine claims above the ordinary
- * limit when ROUTINE_LARGE_LOSSES is on. Ordinary losses are limited per claim
- * at the line's lowest attachment, so they CEDE NOTHING; the large losses go
- * through the tower per occurrence like any other claim.
- *
- * ⚠ THE REINSURANCE RULE UNDER THIS FLAG. The rate deducts what the
- * reinsurance will ACTUALLY pay, and the reinsurance is priced on that same
- * basis. Both are computed from the losses THIS engine generates, never from
- * today's member distributions:
+ * ⚠ THE REINSURANCE RULE. The rate deducts what the reinsurance will ACTUALLY
+ * pay, and the reinsurance is priced on that same basis. Both are computed
+ * from the losses THIS engine generates:
  *   expected ceded       = the expected recovery on the new engine's losses
  *   reinsurance price    = that expected recovery x the line's CLF at 70%
- * In commit 1 both were zero, because ordinary losses were all there were. In
- * commit 2 they are the expected recovery on the large losses — each event at
- * the catalogue's probability, ex ante — computed in shockExpectation.ts over
- * exactly the draw shockLosses.ts makes. The aggregate stop is priced on the
- * new engine's retained moments. Placement decisions take effect as before.
+ * — each event at the catalogue's probability, ex ante — computed in
+ * shockExpectation.ts over exactly the draw shockLosses.ts makes. The aggregate
+ * stop is priced on the new engine's retained moments.
  */
-export const NEW_LOSS_ENGINE = { enabled: true };
+export const newLossEngineRuns = (): boolean => !MEMBER_LEVEL.enabled;
 
 /**
  * MEMBER-LEVEL PLAY — OFF. Loss engine commit 3.
@@ -407,14 +404,17 @@ export const NEW_LOSS_ENGINE = { enabled: true };
  * departure.
  *
  * ⚠ THE MEMBER CODE IS KEPT, AND MAY COME BACK. On, the engine runs the member
- * path as it stood at commit 2 — the roster, the membership engine, member
- * premium and losses, the experience modifier, risk quality, rating groups,
- * departure and per-member satisfaction. The gates that test that code switch
- * this on inside their own process (scripts/tools/engine-mode), so it keeps
- * compiling and stays correct while the game runs without it. On the new loss
- * engine a member's losses are its exposure share of the line's; the gates
- * that need per-member CLAIMS run it on the old engine's generators, and
- * whether the member path keeps those is an open decision before commit 3b.
+ * path — the roster, the membership engine, member premium, the experience
+ * modifier, risk quality, rating groups, departure and per-member satisfaction
+ * — with each member's OWN claims from the per-claim generators, because
+ * members need their own claims and experience (exposure shares would make
+ * every member identical). It runs with NO SHOCKS: commit 3b deleted the old
+ * shock placeholders, and members get shocks only if they return. The gates
+ * that test the member code switch this on inside their own process
+ * (scripts/tools/engine-mode/member-level.ts), so it keeps compiling and stays
+ * correct while the game runs without it. A future member design would likely
+ * LAYER member-level risk over the new engine rather than reuse these
+ * generators — to be decided if members return.
  */
 export const MEMBER_LEVEL = { enabled: false };
 
@@ -495,8 +495,7 @@ export const EXPECTED_ORDINARY_LOSS_COST_PER_100: PerLine<number> = {
 
 // ============================================================================
 // THE NEW LOSS ENGINE — commit 2 of 6: shocks, large losses, regions.
-// All of it behind NEW_LOSS_ENGINE, which stays OFF. See
-// docs/PENDING_MULTIPLAYER.md section 3 and src/utils/shockLosses.ts.
+// See docs/PENDING_MULTIPLAYER.md section 3 and src/utils/shockLosses.ts.
 // ============================================================================
 
 /**
@@ -1136,7 +1135,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       + 'old engine is frozen on the legacy-engine branch. See docs/PENDING_MULTIPLAYER.md section 3.',
     entries: [
       ['New loss engine', {
-        value: NEW_LOSS_ENGINE.enabled ? 'on' : 'off', unit: 'flag',
+        value: newLossEngineRuns() ? 'on' : 'off — member path', unit: 'whenever MEMBER_LEVEL is off',
         what: 'Expected ordinary loss = exposure x the cost per $100 below, trended by accident year at the '
           + 'severity trend; realised = expected x a lognormal year factor with mean exactly 1.',
         basis: 'CHOSEN',
@@ -1237,8 +1236,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'roster selection, per-member premium or losses, experience modifier, risk quality, rating '
           + 'groups, member satisfaction or departure; satisfaction is hidden and feeds nothing.',
         basis: 'CHOSEN',
-        note: 'MEMBER-LEVEL PLAY MAY RETURN. The member code is kept, unwired, and its gates run with this '
-          + 'switch on inside their own process so it stays correct.',
+        note: 'MEMBER-LEVEL PLAY MAY RETURN. On, it is the member path: each member\'s own claims from the '
+          + 'per-claim generators, with no shocks. The code is kept, unwired, and its gates run with this switch '
+          + 'on inside their own process so it stays correct. A future member design would likely layer '
+          + 'member-level risk over the new engine rather than reuse these generators — to be decided if '
+          + 'members return.',
       }],
       ['Risk control', {
         value: RISK_CONTROL.enabled ? 'on' : 'off', unit: 'switch',

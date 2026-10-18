@@ -74,6 +74,7 @@ import { ordinaryLossCostPer100 } from './ordinaryLoss';
 import { drawRoutineLargeSize, lognormalFromMean, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ratingGroupOf } from './wcClaimEngine';
 import type { Claim, CoverageLine, GameInstance, Member, Occurrence, Region } from '../types/simulation';
+import type { ShockBand, ShockHorizon } from '../types/shocks';
 
 export const LINES: readonly CoverageLine[] = ['WC', 'GL', 'Property'];
 export type ShockLevel = 'Low' | 'Mid' | 'High' | 'None';
@@ -81,7 +82,7 @@ export type ShockLevel = 'Low' | 'Mid' | 'High' | 'None';
 export interface ShockEvent {
   /** 0..11, the catalogue's order. */
   index: number;
-  /** The live catalogue's id for the same event — SHOCK_CATALOG['#n']. */
+  /** The event's id, '#1' to '#12' in catalogue order — what a host schedules. */
   id: string;
   name: string;
   probability: number;
@@ -95,6 +96,31 @@ export const SHOCK_EVENTS: readonly ShockEvent[] = R_MODEL.catalogue.map(
     probability: probability as number, duration: duration as number, regional: regional as boolean,
   }),
 );
+/**
+ * HOW EACH EVENT IS NAMED AND GRADED ON SCREEN — the twelve, by id. Carried
+ * over VERBATIM from the retired shock catalogue at loss engine commit 3b, so
+ * every screen, record and host list reads exactly as it did; the catalogue's
+ * effects, which this engine never ran, went with it. `name` is the record's
+ * own, `eventName` the player's, and band and horizon are the grades the
+ * audit page prints.
+ */
+export const SHOCK_EVENT_LABELS: Readonly<Record<string, {
+  name: string; eventName: string; band: ShockBand; horizon: ShockHorizon;
+}>> = {
+  '#1': { name: 'Earthquake', eventName: 'Earthquake', band: 'severe', horizon: 'current' },
+  '#2': { name: 'Winterstorm/Rainstorm', eventName: 'Winterstorm', band: 'high', horizon: 'current' },
+  '#3': { name: 'Wildfire', eventName: 'Wildfire', band: 'high', horizon: 'current' },
+  '#4': { name: 'Legislation Change impacting both old and new claims', eventName: 'Legislation Change', band: 'severe', horizon: 'current' },
+  '#5': { name: 'WC Reform', eventName: 'WC Reform', band: 'moderate', horizon: 'current' },
+  '#6': { name: 'Economic Recession', eventName: 'Economic Recession', band: 'moderate', horizon: 'current' },
+  '#7': { name: 'Nuclear Verdict', eventName: 'Nuclear Verdict', band: 'severe', horizon: 'current' },
+  '#8': { name: 'Social Inflation (GL)', eventName: 'Social Inflation', band: 'high', horizon: 'future' },
+  '#9': { name: 'Pandemic', eventName: 'Pandemic', band: 'high', horizon: 'current' },
+  '#10': { name: 'Economic Inflation', eventName: 'Economic Inflation', band: 'moderate', horizon: 'current' },
+  '#11': { name: 'Large Investment Loss', eventName: 'Large Investment Loss', band: 'severe', horizon: 'current' },
+  '#12': { name: 'Large Member Withdrawal', eventName: 'Large Member Withdrawal', band: 'severe', horizon: 'current' },
+};
+
 const MAX_DURATION = Math.max(...SHOCK_EVENTS.map(e => e.duration));
 export const DECAY = R_MODEL.shockDecayRate;
 

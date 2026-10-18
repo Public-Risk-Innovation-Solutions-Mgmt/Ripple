@@ -30,7 +30,6 @@ import { PRICING_PARAMETER_SECTIONS, type ParameterEntry } from '../../src/data/
 import {
   PAID_DEVELOPMENT_PATTERN, INCURRED_DEVELOPMENT_PATTERN, pctUnpaid,
 } from '../../src/data/paidDevelopmentPatterns';
-import { SHOCK_CATALOG } from '../../src/data/shockCatalog';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const PAGE = path.join(__dirname, '../../docs/PARAMETERS.md');
@@ -146,9 +145,6 @@ function build(): string {
   out.push('| GL claim frequency and severity | `src/utils/glClaimEngine.ts` | Severity drawn from a tilted categorical over statistical tiers. |');
   out.push('| Property claim and catastrophe model | `src/utils/propertyClaimEngine.ts` | Non-cat and cat components. |');
   out.push('| Development / IBNER law | `src/data/defaultAssumptions.ts` | Mean-one per-claim revision law. |');
-  // ⚠ A Record, NOT AN ARRAY — `.length` on it reads undefined, which is how
-  // the first generated page came to say "undefined live events".
-  out.push(`| Shock catalog | \`src/data/shockCatalog.ts\` | ${Object.keys(SHOCK_CATALOG).length} catalog entries. |`);
   out.push('');
 
   return out.join('\n') + '\n';

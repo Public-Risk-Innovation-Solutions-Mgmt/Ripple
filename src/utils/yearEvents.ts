@@ -21,8 +21,7 @@
 
 import type { Claim, CoverageLine, LineResultSet, Occurrence, Region, ResultSet } from '../types/simulation';
 import type { ShockRecord } from '../types/shocks';
-import { SHOCK_CATALOG } from '../data/shockCatalog';
-import { SHOCK_EVENTS } from './shockLosses';
+import { SHOCK_EVENTS, SHOCK_EVENT_LABELS } from './shockLosses';
 import { PROPERTY_CAT_EARTHQUAKE } from '../data/defaultAssumptions';
 import { LINE_FULL_NAME } from './lineDisplay';
 
@@ -70,15 +69,26 @@ export interface YearEvent {
 
 const LINE_ORDER: readonly CoverageLine[] = ['Property', 'WC', 'GL'];
 
+// The region the retired shock catalogue fixed per event and line — exactly
+// what it held. Only a FALLBACK now: a regional event's claim names the region
+// its occurrence records, and a record carries its own region; this answers for
+// a save written before either did, as the catalogue did until loss engine
+// commit 3b deleted it.
+const RETIRED_CATALOGUE_REGION: Readonly<Record<string, Partial<Record<CoverageLine, Region>>>> = {
+  '#1': { Property: 'Central', WC: 'Central' },
+  '#2': { Property: 'North' },
+  '#3': { Property: 'North', WC: 'North' },
+};
+
 function shockName(rec: { shockId: string; eventName?: string; name: string }): string {
-  return rec.eventName ?? SHOCK_CATALOG[rec.shockId]?.eventName ?? rec.name;
+  return rec.eventName ?? SHOCK_EVENT_LABELS[rec.shockId]?.eventName ?? rec.name;
 }
 
 function shockRegion(rec: { shockId: string; region?: Region }): Region | undefined {
   if (rec.region) return rec.region;
-  const def = SHOCK_CATALOG[rec.shockId];
-  const struck = def?.effects.find(e => 'region' in e && e.region) as { region?: Region } | undefined;
-  return struck?.region;
+  // A save from before the record carried its region: the catalogue's first.
+  const fixed = RETIRED_CATALOGUE_REGION[rec.shockId];
+  return fixed ? Object.values(fixed)[0] : undefined;
 }
 
 // A pool result (with byLine) or a line's own (without). The metric rows pass
@@ -156,18 +166,14 @@ export function yearEvents(result: AnyResult): YearEvent[] {
 /** The event a claim came from, as a player reads it — or undefined for an ordinary claim. */
 export function claimEventLabel(claim: Claim, occurrence?: Occurrence): string | undefined {
   if (claim.shockId !== undefined) {
-    const def = SHOCK_CATALOG[claim.shockId];
-    // The region the event struck ON THIS LINE: a GL injection names none.
-    const effect = def?.effects.find(e => 'line' in e && e.line === claim.line && 'region' in e && e.region) as
-      { region?: Region } | undefined;
     // ⚠ A REGIONAL EVENT NAMES THE REGION IT ACTUALLY STRUCK — the occurrence's.
-    // The catalogue fixed one region per event, but the new engine draws the
-    // struck region per firing, so labelling from the catalogue exported a
-    // South earthquake as "Earthquake (Central)". On the old engine the two
-    // agree (its regional effects drew in their own fixed region).
+    // The retired catalogue fixed one region per event, but the new engine
+    // draws the struck region per firing; the catalogue's region is only the
+    // fallback when no occurrence is to hand, as it was before 3b.
     const regional = SHOCK_EVENTS.find(e => e.id === claim.shockId)?.regional ?? false;
-    return eventLabel(def?.eventName ?? claim.shockId,
-      regional ? (occurrence?.region ?? effect?.region) : effect?.region);
+    const fixed = RETIRED_CATALOGUE_REGION[claim.shockId]?.[claim.line];
+    return eventLabel(SHOCK_EVENT_LABELS[claim.shockId]?.eventName ?? claim.shockId,
+      regional ? (occurrence?.region ?? fixed) : fixed);
   }
   if (claim.line === 'Property' && claim.tier === CAT_TIER && occurrence?.isCatastrophe) {
     return eventLabel(drawnEventName(occurrence.peril), occurrence.region);

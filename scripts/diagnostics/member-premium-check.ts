@@ -57,8 +57,9 @@
 // enrolled roster differing — which is exactly when it should.
 // ============================================================================
 
-// THE MEMBER PATH — first, before anything reads a flag. MEMBER_LEVEL on: see engine-mode/member-path.ts.
-import '../tools/engine-mode/member-path';
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

@@ -1067,6 +1067,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ⚠ THE OLD ENGINE STILL REPRODUCES v62 BYTE FOR BYTE: run this file with
 // --import ./scripts/tools/engine-mode/legacy-engine.ts against v62 and it
 // holds. Checked before the recapture, not claimed.
+// (Commit 3b removed legacy-engine.ts with the old shocks; the old engine is
+// reproducible now only from the legacy-engine branch. 3b itself is
+// value-neutral: this baseline holds unchanged across it.)
 const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v63.json');
 
 function seedOf(id: string) {

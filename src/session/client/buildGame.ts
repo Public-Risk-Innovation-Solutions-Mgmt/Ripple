@@ -59,7 +59,7 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     // longer stored-and-inert: the engine reads it per line, falling back to
     // PRIOR_DEVELOPMENT_DEFAULTS for any line the host did not set.
     priorDevelopment: r.priorDevelopment,
-    // ⚠ THE HOST SCHEDULES THE SHOCKS. Under NEW_LOSS_ENGINE a session fires
+    // ⚠ THE HOST SCHEDULES THE SHOCKS. On the new loss engine a session fires
     // only what the room scheduled and consults no probability; singleplayer
     // leaves this absent and draws from the catalogue. Read by nothing with
     // the flag off.

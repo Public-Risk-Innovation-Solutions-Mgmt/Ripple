@@ -66,7 +66,7 @@ import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { unpaidShare } from './payoutPattern';
 import { staticClf, type StaticClfLine } from '../data/clfTables';
 import {
-  EXPOSURE_GROWTH_PER_YEAR, NEW_LOSS_ENGINE, OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
+  EXPOSURE_GROWTH_PER_YEAR, newLossEngineRuns, OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
   RESERVE_MARGIN_CONFIDENCE_PARAM, SEVERITY_TREND_PER_YEAR,
 } from '../data/pricingParameters';
 import { computeKLine, deriveNeutralPurePremiumPer100 } from './wcClaimEngine';
@@ -194,12 +194,12 @@ export function heldGrossPurePremiumPer100(line: CoverageLine, members: Member[]
  * deflated gross would deflate twice and hand back year 1's ratio again.
  */
 export function bulkCessionRatioAtAge(line: CoverageLine, members: Book, ageYears: number): number {
-  // ⚠ UNDER NEW_LOSS_ENGINE, PRICED DIRECTLY AT THE BULK YEAR ITSELF. The
+  // ⚠ ON THE NEW LOSS ENGINE, PRICED DIRECTLY AT THE BULK YEAR ITSELF. The
   // identity below rescales year 1's cession — but year 1 can carry shocks
   // and a bulk year cannot (nothing fires before year 1), so the new engine's
   // own figures for that year are read instead: routine large losses' cession
   // over their gross, and zero when that switch is off.
-  if (NEW_LOSS_ENGINE.enabled) {
+  if (newLossEngineRuns()) {
     const exposure = bookExposureOf(members, line, 1);
     const year = 1 - ageYears;
     const ceded = newEngineLayerMoments(line as TowerLine, exposure, year)
@@ -244,12 +244,12 @@ export function expectedGrossUltimateAtAge(
   line: CoverageLine, ageYears: number, members: Book,
 ): number {
   const exposure = bookExposureOf(members, line, 1);
-  // ⚠ UNDER NEW_LOSS_ENGINE THE BULK YEARS ARE THE PRE-GAME'S KIND OF YEAR:
+  // ⚠ ON THE NEW LOSS ENGINE THE BULK YEARS ARE THE PRE-GAME'S KIND OF YEAR:
   // ordinary losses, plus routine large losses when that switch is on, and NO
   // SHOCKS — nothing fires before year 1, and the pre-game draws none. Read
   // straight off the engine's own expectation at the bulk year (1 - age),
   // which carries the trend back by itself.
-  if (NEW_LOSS_ENGINE.enabled) return expectedLossBreakdown(line, exposure, 1 - ageYears).total;
+  if (newLossEngineRuns()) return expectedLossBreakdown(line, exposure, 1 - ageYears).total;
   const rate = heldGrossPurePremiumPer100(line, rosterOf(members, 'expectedGrossUltimateAtAge'));
   return (rate * exposure * 10_000) / Math.pow(1 + rateTrendPerYear(line), ageYears);
 }

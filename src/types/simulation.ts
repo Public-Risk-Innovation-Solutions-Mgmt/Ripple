@@ -586,7 +586,7 @@ export interface GameSetupSettings {
    * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
    * 'host' — the room's schedule, and no probability is consulted. Absent in
    * singleplayer, where each event fires at the catalogue's own probability.
-   * Read only with NEW_LOSS_ENGINE on.
+   * Read only by the new loss engine (MEMBER_LEVEL off).
    */
   shockTiming?: 'host';
 }
@@ -1706,7 +1706,7 @@ interface ResultRowFields {
   developmentAbovePoolLimit: number;
   /**
    * THE NEW LOSS ENGINE'S OWN RECORD OF THE YEAR — present only when
-   * NEW_LOSS_ENGINE is on, absent otherwise, so a flag-off result serialises
+   * the new loss engine ran (MEMBER_LEVEL off), absent otherwise, so a member-path result serialises
    * exactly as it did. See NewLossEngineRecord.
    */
   newLossEngine?: NewLossEngineRecord;

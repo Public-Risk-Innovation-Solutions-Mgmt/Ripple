@@ -643,6 +643,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ⚠ THE OLD ENGINE STILL REPRODUCES v64 BYTE FOR BYTE: run with --import
 // ./scripts/tools/engine-mode/legacy-engine.ts against v64, all 24 identical.
 // Checked before the recapture, not claimed.
+// (Commit 3b removed legacy-engine.ts with the old shocks; the old engine is
+// reproducible now only from the legacy-engine branch.)
 // v66: THE RESULTS NARRATIVE NAMES AN EVENT THAT COST MONEY WITHOUT A CLAIM.
 // 22 of 24 exports move, and in every one of them ONLY the "Events This Year"
 // row moved — 108 lines across the shown and raw renderings, diffed as text
@@ -652,6 +654,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // raised the year's ordinary losses by exact attributed dollars and brought no
 // claim, and the old filter dropped any event without a claim. The two that did
 // not move are the configurations whose years fired nothing of the kind.
+// 3b is value-neutral: v66 holds unchanged across it.
 const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v66.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }

@@ -64,7 +64,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
-import { NEW_LOSS_ENGINE, NEW_RATE_STACK } from '../../src/data/pricingParameters';
+import { newLossEngineRuns, NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, PricingTriangleState, ReserveDevelopmentRow } from '../../src/types/simulation';
 import { INTAKE_LOW } from '../../src/utils/intakeInspection';
 
@@ -239,7 +239,7 @@ interface ArmResult {
 // ultimate differs. The identity is about the per-claim law, so it is asserted
 // where nothing else develops. shock-loss-check owns the R shocks.
 // ============================================================================
-const NO_SHOCKS = NEW_LOSS_ENGINE.enabled;
+const NO_SHOCKS = newLossEngineRuns();
 
 function runArm(flagged: boolean, seedOffset = 0, tag = ''): ArmResult {
   const wasF = FORWARD_BOOKING.enabled, wasP = PRICING_TRIANGLE.enabled;

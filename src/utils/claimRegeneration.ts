@@ -29,9 +29,8 @@
 //                           past year's applied value was not recorded.
 //   calendarYear, year      on the ResultSet
 //   gPool                   poolYearFactor(seed, year) — a pure function
-//   shock effects           resolveShocks(instance, year) — consumes no
-//                           randomness; instance.scheduledShocks is never
-//                           mutated after creation
+//   (shocks                 none: the member path has had no shocks since
+//                           loss engine commit 3b deleted the old placeholders)
 //
 // So of the inputs a redraw needs, THREE were already there (roster, k, and the
 // pre-game attempt), ONE had to be added (rc, a single number per line-year),
@@ -64,8 +63,7 @@
 // ============================================================================
 
 import type { CoverageLine, GameInstance, ResultSet } from '../types/simulation';
-import { NEW_LOSS_ENGINE } from '../data/pricingParameters';
-import { resolveShocks } from './shockResolver';
+import { newLossEngineRuns } from '../data/pricingParameters';
 import { generateLineYearClaims, poolYearFactor, type LineYearGenerationOutput } from './claimGeneration';
 
 export class ClaimRegenerationError extends Error {
@@ -92,7 +90,7 @@ export function regenerateLineYearClaims(
   // ⚠ THE NEW LOSS ENGINE'S REGISTER IS SAVED, NOT REDRAWN — see
   // gameSave.NEW_ENGINE_KEPT_KEYS. These generators are the old engine's and
   // would hand back a register that was never drawn.
-  if (NEW_LOSS_ENGINE.enabled) {
+  if (newLossEngineRuns()) {
     throw new ClaimRegenerationError(line, year,
       'the new loss engine keeps its register in the save; the per-member generators here did not draw it');
   }
@@ -132,7 +130,6 @@ export function regenerateLineYearClaims(
     k: lr.kLineApplied,
     riskControlEffectiveness: lr.rcEffectivenessApplied,
     gPool: poolYearFactor(effectiveSeed, year),
-    shock: resolveShocks(instance, year)?.byLine[line],
     // ⚠ `?? 1` HERE AND A THROW ABOVE, AND THE ASYMMETRY IS DELIBERATE. An
     // absent rcEffectivenessApplied could have been any slider value, so
     // defaulting it would fabricate a register. An absent programFreqApplied has

@@ -26,7 +26,7 @@ import {
 import { lognormalPartialMoment } from './claimMath';
 import { quotePropertyAggregate } from './propertyAggregate';
 import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './towerMoments';
-import { NEW_LOSS_ENGINE, REINSURANCE_LOAD_CLF_AT_70 } from '../data/pricingParameters';
+import { newLossEngineRuns, REINSURANCE_LOAD_CLF_AT_70 } from '../data/pricingParameters';
 import { retainedSd } from './shockExpectation';
 import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
 import type { Claim, Occurrence } from '../types/simulation';
@@ -338,7 +338,7 @@ export function quoteAggregate(
   yearNumber: number,
   termsRetained?: number,
 ): AggregateQuote {
-  // ⚠ UNDER NEW_LOSS_ENGINE, PRICED ON THE NEW ENGINE'S OWN LOSSES — the same
+  // ⚠ ON THE NEW LOSS ENGINE, PRICED ON THE NEW ENGINE'S OWN LOSSES — the same
   // rule as the occurrence layers (see layerRiskMomentsFor): the expected
   // recovery is computed on what the engine actually draws, and the price is
   // that x the line's CLF at 70%.
@@ -351,7 +351,7 @@ export function quoteAggregate(
   // (retainedSd). The stop is priced on a lognormal with those two moments,
   // the fit the WC aggregate has always used. Before commit 2 the retained
   // total was ordinary losses alone, at 2.2% CV, and this rounded to nothing.
-  if (NEW_LOSS_ENGINE.enabled) {
+  if (newLossEngineRuns()) {
     const effective = placed.map((on, i) => on && REINSURANCE_TOWER[line][i].purchasable);
     const layerMoms = allLayerRiskMoments(line, book, yearNumber);
     const cededByPlaced = REINSURANCE_TOWER[line].reduce((t, _l, i) => t + (effective[i] ? layerMoms[i].expected : 0), 0);
