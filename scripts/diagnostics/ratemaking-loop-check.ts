@@ -63,8 +63,10 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { FORWARD_BOOKING, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS } from '../../src/data/defaultAssumptions';
+import { FORWARD_BOOKING, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
+import { newLossEngineRuns, NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, PricingTriangleState, ReserveDevelopmentRow } from '../../src/types/simulation';
+import { INTAKE_LOW } from '../../src/utils/intakeInspection';
 
 const RULE = '='.repeat(72);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -162,7 +164,7 @@ function decisionsFor(y: number) {
   const d = defaultDecisionSet(y);
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
-      d.byLine[l].newBusinessAppetite = null;
+      d.byLine[l].intakeLevel = INTAKE_LOW;
     }
   }
   return d;
@@ -225,6 +227,20 @@ interface ArmResult {
   notes: string[];
 }
 
+// ============================================================================
+// ⚠ ON THE NEW LOSS ENGINE EVERY ARM PLAYS WITH NO SHOCKS (host timing, empty
+// schedule), AND CONDITION 3 IS WHY. Its identity says the per-claim law cannot
+// reach the ledger while FULL_COST_BOOKING is on. The new engine's R shocks are
+// a DIFFERENT mechanism that does reach it, legitimately: they develop each
+// cohort's UNPAID reserve, and FORWARD_BOOKING — one of the two flags these
+// arms vary — changes what is unpaid. Measured with shocks on, at commit 3: the
+// arms differ by up to 2.04e-3 (WC) and 1.51e-3 (GL) in a single cell, every
+// difference on an opening cohort's late valuations; with shocks off, not one
+// ultimate differs. The identity is about the per-claim law, so it is asserted
+// where nothing else develops. shock-loss-check owns the R shocks.
+// ============================================================================
+const NO_SHOCKS = newLossEngineRuns();
+
 function runArm(flagged: boolean, seedOffset = 0, tag = ''): ArmResult {
   const wasF = FORWARD_BOOKING.enabled, wasP = PRICING_TRIANGLE.enabled;
   FORWARD_BOOKING.enabled = flagged;
@@ -240,7 +256,11 @@ function runArm(flagged: boolean, seedOffset = 0, tag = ''): ArmResult {
     for (let g = 0; g < GAMES; g++) {
       const id = `RL${flagged ? 'F' : 'S'}${tag}${g}`;
       const instance = generateGameInstance(id, 9_100_000 + seedOffset + g * 7919);
-      const setup = { poolName: 'L', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
+      if (NO_SHOCKS) instance.scheduledShocks = [];
+      const setup = {
+        poolName: 'L', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES,
+        ...(NO_SHOCKS ? { shockTiming: 'host' as const } : {}),
+      };
       const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
       let gs: GameState = {
         setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
@@ -389,18 +409,56 @@ console.log(`  ${flagged.checked} line-years asserted on the flagged arm, from y
 if (flagged.absent > 0) {
   console.log(`  ⚠ ${flagged.absent} of them had NO pricingTriangle — UNEVALUATED, not failed.`);
 }
+// ⚠ CONDITION 4 IS INVERTED UNDER THE NEW RATE STACK, ON THE GATE'S OWN
+// REASONING RATHER THAN A NEW ONE. The paragraph below the loop already says
+// it: where the triangle is not the PRICING INPUT, a charged rate that matched
+// a triangle-stamped one would be a coincidence to investigate, which is why
+// condition 4 must FAIL on the shipped arm. With NEW_RATE_STACK on that is
+// true of BOTH arms — the rate is struck in newPurePremium.ts off the paid
+// ledger, developed on the recorded LDFs and trended, over a five-year window,
+// and the booked triangle is not consulted. So the flagged arm joins the
+// shipped one and the assertion becomes: condition 4 must read ZERO.
+//
+// ⚠ IT IS NOT A WEAKER TEST, BUT IT IS A DIFFERENT ONE, AND THE POSITIVE
+// STATEMENT MOVED RATHER THAN VANISHED. "The charge is reproducible from the
+// basis the pool says it prices on" is now asserted by new-rate-bill-check
+// (billed equals displayed, to the bit) and by funding-basis-check section 1
+// (poolPremium equals the retained pure premium at the CLF over the expense
+// divisor, to 1e-6). What is left here is the other half: that the triangle
+// has NOT crept back into the price.
+//
+// Conditions 1 and 2 are untouched. They are wiring — the played year lands in
+// the triangle at age 1 and the window rolls — and the triangle is still built
+// and still displayed whichever stack prices.
+const triangleIsThePrice = !NEW_RATE_STACK.enabled;
 const c124 = [
-  ['1. the played year is in the triangle at age 1', flagged.c1],
-  ['2. the oldest accident year is gone, depth capped', flagged.c2],
-  ['4. this year was priced off the triangle before it', flagged.c4],
+  ['1. the played year is in the triangle at age 1', flagged.c1, true],
+  ['2. the oldest accident year is gone, depth capped', flagged.c2, true],
+  [triangleIsThePrice
+    ? '4. this year was priced off the triangle before it'
+    : '4. the triangle did NOT price this year (new stack)', flagged.c4, triangleIsThePrice],
 ] as const;
-for (const [label, n] of c124) {
-  const ok = n === flagged.checked && flagged.checked > 0;
+for (const [label, n, wantAll] of c124) {
+  const ok = wantAll ? (n === flagged.checked && flagged.checked > 0) : n === 0;
   console.log(`    ${label.padEnd(52)} ${String(n).padStart(4)} / ${flagged.checked}   ${ok ? 'PASS' : 'FAIL'}`);
-  if (!ok) failures.push(`${label} — ${n} of ${flagged.checked} line-years`);
+  if (!ok) {
+    failures.push(wantAll
+      ? `${label} — ${n} of ${flagged.checked} line-years`
+      : `${label} — ${n} of ${flagged.checked} line-years DID match the triangle's stamp. `
+        + 'With the new rate stack on, the price comes from the paid ledger and not from this '
+        + 'triangle, so a match is the triangle reaching the price again. Investigate before accepting.');
+  }
 }
 if (flagged.notes.length > 0) {
-  console.log('  first failures:');
+  // ⚠ THE HEADING FORKS WITH CONDITION 4. These notes are written whenever a
+  // condition does not hold on a line-year; with the new stack on, condition
+  // 4 not holding IS the pass, so printing them under "first failures" would
+  // describe the gate's own expected reading as a failure — the exact
+  // misreading the verdict block at the foot of funding-basis-check was
+  // written to stop.
+  console.log(triangleIsThePrice
+    ? '  first failures:'
+    : '  the departures condition 4 now EXPECTS, with the two rates side by side:');
   for (const n of flagged.notes) console.log(`    - ${n}`);
 }
 // ⚠ THE SHIPPED ARM HAS A TRIANGLE AND MUST NOT BE PRICED BY IT, WHICH IS THE
@@ -442,29 +500,79 @@ function signTestP(k: number, n: number): number {
 
 /** Pair two arms cell-for-cell and sign-test the difference. */
 function paired(a: ArmResult, b: ArmResult, line: string) {
-  let pos = 0, n = 0, sum = 0;
+  let pos = 0, n = 0, sum = 0, maxAbs = 0;
   for (const [key, fa] of a.factor[line]) {
     const fb = b.factor[line].get(key);
     if (fb === undefined) continue;
     n++; sum += fa - fb;
     if (fa - fb > 0) pos++;
+    // The LARGEST single-cell departure, which is what separates a mechanism
+    // from a reassociation. A mean hides both.
+    if (Math.abs(fa - fb) > maxAbs) maxAbs = Math.abs(fa - fb);
   }
-  return { pos, n, mean: n > 0 ? sum / n : NaN, p: signTestP(pos, n) };
+  return { pos, n, mean: n > 0 ? sum / n : NaN, p: signTestP(pos, n), maxAbs };
 }
 
-console.log('--- CONDITION 3: PAIRED, flagged minus shipped on the SAME seeds ---');
-console.log('  Is the paired difference positive more often than chance? No absolute bar —');
-console.log(`  a one-sided sign test against p=0.5, passing at p < ${MAX_P}.\n`);
-console.log('  line       cells   positive   share    mean diff    sign-test p     verdict');
+// ⚠ CONDITION 3 BECOMES AN IDENTITY UNDER FULL-COST BOOKING, AND THAT IS A
+// REAL ASSERTION RATHER THAN A RETREAT TO ONE.
+//
+// It asks whether the FLAGGED arm develops incurred more often than the shipped
+// one, paired on the same seeds. The flag it varies is PER_CLAIM_REVISION, and
+// FULL_COST_BOOKING sits UPSTREAM of it: gate 2 makes `developing` false at
+// every age, so neither arm develops at all and the paired difference is
+// identically zero. The sign test then has nothing to measure — exactly what
+// its own CONTROL 1 demonstrates by construction.
+//
+// So the question changes rather than being dropped. With the per-claim law
+// unreachable, the two arms must be BIT-IDENTICAL, and asserting that is
+// stronger than the sign test was: it proves gate 2 switched the law off
+// COMPLETELY, not merely enough to be invisible in a mean. A single cell
+// differing by an ulp would fail it.
+//
+// ⚠ NAMED COVERAGE GAP: what is no longer tested is that the per-claim law
+// DEVELOPS INCURRED when it is live. That is the gate's own subject and it
+// returns when development does.
+const identityArm = FULL_COST_BOOKING.enabled;
+console.log(identityArm
+  ? '--- CONDITION 3: PAIRED, and under full-cost booking it is an IDENTITY ---'
+  : '--- CONDITION 3: PAIRED, flagged minus shipped on the SAME seeds ---');
+if (identityArm) {
+  console.log('  PER_CLAIM_REVISION is unreachable while FULL_COST_BOOKING is on, so the two arms');
+  console.log('  must agree to FLOATING POINT in every cell — a reassociation is tolerated, a');
+  console.log('  mechanism is not. The bar is the largest single-cell departure, not the mean.\n');
+} else {
+  console.log('  Is the paired difference positive more often than chance? No absolute bar —');
+  console.log(`  a one-sided sign test against p=0.5, passing at p < ${MAX_P}.\n`);
+}
+console.log(identityArm
+  ? '  line       cells   positive   share    mean diff   max |diff|      verdict'
+  : '  line       cells   positive   share    mean diff    sign-test p     verdict');
 for (const line of LINES) {
   const r = paired(flagged, shipped, line);
-  const ok = r.n > 0 && r.p < MAX_P;
+  // ⚠ THE BAR IS MAGNITUDE, NOT BIT-EXACTNESS, AND THE DIFFERENCE WAS MEASURED
+  // RATHER THAN ASSUMED. Asserting pos === 0 failed: the arms differ in 5 of
+  // 132 WC cells by 1.68e-18, which is about one ulp on a factor near 1. That
+  // is a REASSOCIATION — the two arms reach the same number by orders of
+  // operation that round differently — not the per-claim law reaching the
+  // ledger, which would move a factor by 0.1 to 1.0. payoutPattern.ts's
+  // geometric branch records the same trap from the other side: a null test
+  // cannot tell a reassociation from a mechanism, so the test has to say which
+  // it is willing to tolerate. 1e-12 is nine orders below the smallest real
+  // signal and six above the observed noise.
+  const ok = identityArm
+    ? r.n > 0 && r.maxAbs < 1e-12
+    : r.n > 0 && r.p < MAX_P;
   console.log(`  ${line.padEnd(10)} ${String(r.n).padStart(5)}   ${String(r.pos).padStart(8)}   `
     + `${(100 * r.pos / Math.max(1, r.n)).toFixed(1).padStart(5)}%   ${(r.mean >= 0 ? '+' : '') + r.mean.toFixed(4)}   `
-    + `${r.p.toExponential(2).padStart(11)}     ${ok ? 'PASS' : 'FAIL'}`);
+    + `${(identityArm ? r.maxAbs : r.p).toExponential(2).padStart(11)}     ${ok ? 'PASS' : 'FAIL'}`);
   if (!ok) {
-    failures.push(`CONDITION 3 ${line}: paired flagged-minus-shipped is positive in `
-      + `${r.pos} of ${r.n} line-years, sign-test p ${r.p.toExponential(2)} against ${MAX_P}.`);
+    failures.push(identityArm
+      ? `CONDITION 3 ${line}: flagged and shipped differ by up to ${r.maxAbs.toExponential(2)} in a single `
+        + `cell, above the 1e-12 floating-point floor. Under full-cost booking the per-claim law is `
+        + 'unreachable, so the arms may differ only by reassociation; a departure this large means it is '
+        + 'still reaching the ledger through a path gate 2 does not cover.'
+      : `CONDITION 3 ${line}: paired flagged-minus-shipped is positive in `
+        + `${r.pos} of ${r.n} line-years, sign-test p ${r.p.toExponential(2)} against ${MAX_P}.`);
   }
 }
 

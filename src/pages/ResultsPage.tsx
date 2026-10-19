@@ -24,10 +24,15 @@ import { metricLabel } from '../utils/resultMetrics';
 import { placementSummary, hasTractableCeded, towerTopLabel, RETAINED_ABOVE_TOWER_CAVEAT } from '../utils/reinsuranceDisplay';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { eventLabel, yearEvents } from '../utils/yearEvents';
+import { MEMBER_LEVEL } from '../data/pricingParameters';
+import WorldsSurplusRange from '../components/WorldsSurplusRange';
+import type { SurplusRange } from '../utils/worlds';
 
 interface ResultsPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
   lineView: LineView;
+  /** Ending surplus across the worlds, by played year, at this view's scope (loss engine commit 4b). */
+  surplusRangeByYear?: Record<number, SurplusRange>;
 }
 
 // Stage 2.3 — Individual-Year Comparison. 'goodUp'/'goodDown' color the change
@@ -121,7 +126,7 @@ function formatMetricValue(kind: MetricKind, value: number): string {
   return kind === 'ratio' ? formatPct(value) : formatCurrency(value);
 }
 
-export default function ResultsPage({ lockedResults, lineView }: ResultsPageProps) {
+export default function ResultsPage({ lockedResults, lineView, surplusRangeByYear }: ResultsPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
   );
@@ -192,11 +197,20 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
                     {ev.sinceYear !== undefined && (
                       <span className="ml-2 font-normal text-amber-700">in force since year {ev.sinceYear}</span>
                     )}
+                    {ev.worlds && (
+                      // An averaged row (loss engine commit 4b): the figures below
+                      // are averages over every world, counting zero where it did
+                      // not fire.
+                      <span data-testid="event-worlds" className="ml-2 font-normal text-amber-700">
+                        in {ev.worlds.fired} of {ev.worlds.of} worlds — averaged over all {ev.worlds.of}
+                      </span>
+                    )}
                   </p>
                   {ev.lines.map(l => (
                     <p key={l.line} className="text-amber-700 font-mono text-xs mt-1">
                       {lineDisplayName(l.line)}:{' '}
-                      {l.claims > 0 && `${l.claims} claim${l.claims === 1 ? '' : 's'}, ${formatCurrency(l.grossLoss)}`}
+                      {l.claims > 0 && `${Number.isInteger(l.claims) ? l.claims : l.claims.toFixed(1)} claim${l.claims === 1 ? '' : 's'}, ${formatCurrency(l.grossLoss)}`}
+                      {l.claims === 0 && l.grossLoss > 0 && `${formatCurrency(l.grossLoss)} added to losses`}
                       {l.claims > 0 && l.expectedGrossLossAdded > 0 && '; '}
                       {l.expectedGrossLossAdded > 0 && `${formatCurrency(l.expectedGrossLossAdded)} expected additional loss`}
                     </p>
@@ -316,16 +330,21 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
             </ResultCard>
 
             <ResultCard title="Membership" icon={<TrendingUp size={16} />}>
-              <Row label="Active Members" value={String(result.activeMembers)} />
-              <Row label="New Members This Year" value={`+${result.newMembers}`} valueColor="text-emerald-600" />
-              <Row
-                label="Members Withdrawn"
-                value={result.withdrawnMembers > 0 ? `-${result.withdrawnMembers}` : '0'}
-                valueColor={result.withdrawnMembers > 0 ? 'text-red-600' : 'text-gray-700'}
-              />
-              <Row label="Member Retention Rate" value={formatPct(result.memberRetentionRate)} />
-              <Row label="Member Satisfaction" value={`${result.memberSatisfaction.toFixed(1)} / 10`} />
-              <Row label="Avg. Risk Quality" value={`${result.averageRiskQuality.toFixed(1)} / 10`} />
+              {/* ⚠ EXPOSURE REPLACES THE MEMBER COUNT, and the churn counts
+                  (New, Withdrawn, Retention) are hidden. The pool is shown in
+                  aggregate now; every one of those fields is still on the
+                  result and still computed. Satisfaction stays — it is the
+                  pool's own scoreboard and names no member. */}
+              {/* Hidden with MEMBER_LEVEL off — see DashboardPage. */}
+              {MEMBER_LEVEL.enabled && (
+                <Row label="Member Satisfaction" value={`${result.memberSatisfaction.toFixed(1)} / 10`} />
+              )}
+              {/* ⚠ COMBINED RATIO STANDS WHERE AVERAGE RISK QUALITY STOOD. Risk
+                  quality is unobservable by design — surface-privacy-check keeps
+                  a MEMBER's score from the player — and the pool AVERAGE of it
+                  was on this card the whole time. Actual loss ratio plus actual
+                  expense ratio, both on the member-charge basis. */}
+              <Row label="Combined Ratio" value={formatPct(result.actualCombinedRatio)} />
               <Row label="Payroll Exposure ($M)" value={formatMillions(result.activeExposure)} />
               <Row label="Total Market Payroll ($M)" value={formatMillions(result.totalMarketExposure)} />
               <Row label="Exposure-Based Market Share" value={formatPct(result.marketShare)} valueColor="text-sky-600" />
@@ -475,18 +494,27 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
                 valueColor={colorForSurplus(result.endingSurplus)}
                 bold
               />
+              <WorldsSurplusRange range={surplusRangeByYear?.[selectedYear]} label="Ending surplus" />
               <Row
                 label="Tie-Out Difference"
                 value={formatCurrency(result.surplusTieOutDifference)}
-                valueColor={Math.abs(result.surplusTieOutDifference) < 100 ? 'text-emerald-600' : 'text-amber-600'}
+                valueColor={Math.abs(result.surplusTieOutDifference - result.interLineTransfer) < 100 ? 'text-emerald-600' : 'text-amber-600'}
               />
               <p className="text-xs text-gray-400 mt-2">
                 Balance check: {formatCurrency(result.totalAssets)} Assets - {formatCurrency(result.totalLiabilities)} Liabilities ={' '}
                 {formatCurrency(result.endingSurplus)}
               </p>
-              {Math.abs(result.surplusTieOutDifference) < 100 ? (
+              {/* ⚠ A LOAN YEAR'S DIFFERENCE IS THE TRANSFER. An inter-line loan moves
+                  surplus between lines without passing through either income
+                  statement, so the rollforward ties AFTER it — the audit page's
+                  rule. Common since ten worlds (loss engine commit 4b): a loan
+                  authorized in any world shows here as its average. */}
+              {Math.abs(result.surplusTieOutDifference - result.interLineTransfer) < 100 ? (
                 <p className="text-xs text-emerald-600 mt-1">
-                  Surplus rollforward ties to the balance sheet.
+                  Surplus rollforward ties to the balance sheet
+                  {Math.abs(result.interLineTransfer) >= 100
+                    ? `, after this year's inter-line loan transfer of ${formatCurrency(result.interLineTransfer)}.`
+                    : '.'}
                 </p>
               ) : (
                 <p className="text-xs text-amber-600 mt-1">

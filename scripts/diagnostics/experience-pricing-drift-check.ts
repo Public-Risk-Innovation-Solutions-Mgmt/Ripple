@@ -161,6 +161,8 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE } from '../../src/data/defaultAssumptions';
+import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
+import { EXPOSURE_GROWTH_PER_YEAR, SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
 const RULE = '='.repeat(84);
@@ -230,12 +232,46 @@ function playOne(seed: number): Track {
   return track;
 }
 
-/** last-window mean over first-window mean, minus one. Zero on a still book. */
-function drift(series: number[]): number {
+// ⚠ DRIFT IS NET OF THE TREND NOW, AND THAT IS A RULED CHANGE RATHER THAN A
+// RELAXATION. A STILL BOOK'S RATE IS MEANT TO CLIMB AT THE TREND.
+//
+// This read tail/head - 1 and called zero correct, which was right while the
+// rate trend was ~0: WC ran -1.46%/yr, GL +2.00% and Property flat, all small
+// enough that a still book looked still. Severity now trends 5%/yr against a
+// LEVEL exposure base, so a correctly-behaving rate rises about 5% a year and
+// the raw ratio reads ~55% over ten years on a book that has done nothing
+// wrong. Property measured 24.28% against a 5.15% bar, and its CONTROL cell —
+// PRICING_TRIANGLE off, which returns the held constant — read 39.19% where
+// the old premise said it must be flat to the digit. Both were the trend
+// arriving, not instability.
+//
+// The expected ratio is computed from the window MEANS rather than from the
+// gap between their centres, so it is exact for a geometric rate instead of
+// approximate: a rate of (1+g)^y has head mean sum((1+g)^y, y in head)/W and
+// likewise for the tail, and their quotient is what a still book must produce.
+const EXPECTED_RATE_TREND: Record<string, number> = {
+  WC: (1 + SEVERITY_TREND_PER_YEAR.WC) / (1 + EXPOSURE_GROWTH_PER_YEAR) - 1,
+  GL: (1 + SEVERITY_TREND_PER_YEAR.GL) / (1 + EXPOSURE_GROWTH_PER_YEAR) - 1,
+  Property: (1 + SEVERITY_TREND_PER_YEAR.Property) / (1 + EXPOSURE_GROWTH_PER_YEAR) - 1,
+};
+
+/** What tail/head must be for a rate growing at exactly `g` a year. */
+function expectedRatio(n: number, g: number): number {
+  const f = (y: number) => Math.pow(1 + g, y);
+  let head = 0, tail = 0;
+  for (let i = 0; i < WINDOW; i++) { head += f(i); tail += f(n - WINDOW + i); }
+  return head === 0 ? NaN : tail / head;
+}
+
+/** last-window mean over first-window mean, NET of the line's own rate trend.
+ *  Zero on a still book whose rate is climbing at exactly the trend. */
+function drift(series: number[], line: string): number {
   if (series.length < 2 * WINDOW) return NaN;
   const head = mean(series.slice(0, WINDOW));
   const tail = mean(series.slice(-WINDOW));
-  return head === 0 ? NaN : tail / head - 1;
+  if (head === 0) return NaN;
+  const expected = expectedRatio(series.length, EXPECTED_RATE_TREND[line] ?? 0);
+  return (tail / head) / expected - 1;
 }
 
 interface Acc { drifts: number[]; expMoves: number[]; rateByYear: number[] }
@@ -250,7 +286,7 @@ function runCell(cell: Cell): Record<string, Acc> {
     for (let g = 0; g < GAMES; g++) {
       const t = playOne(g + 1);
       for (const L of LINES) {
-        acc[L].drifts.push(drift(t[L].rate));
+        acc[L].drifts.push(drift(t[L].rate, L));
         const e = t[L].exposure;
         acc[L].expMoves.push(e.length && e[0] ? Math.abs(e[e.length - 1] / e[0] - 1) : NaN);
         for (let y = 0; y < YEARS; y++) acc[L].rateByYear[y] += (t[L].rate[y] ?? 0) / GAMES;
@@ -311,7 +347,9 @@ if (!shipped || !control) {
   console.log(`  standard error          ${(100 * se).toFixed(2)}%  over ${d.length} games`);
   console.log(`  fires above             ${(100 * threshold).toFixed(2)}%  = max(${SIGMA} x SE, floor ${100 * DETECTION_FLOOR}%)`);
   console.log(`  roster movement         ${(100 * expMove).toFixed(3)}%  (instrument needs < ${(100 * MAX_EXPOSURE_MOVE).toFixed(1)}%)`);
-  console.log(`  control, PT off         ${(100 * cd).toFixed(2)}%  <- must be flat, or this file is measuring itself`);
+  console.log(`  control, PT off         ${(100 * cd).toFixed(2)}%  <- ${NEW_RATE_STACK.enabled
+    ? 'must EQUAL the shipped cell: neither flag is on the new rate\'s path'
+    : 'must be flat, or this file is measuring itself'}`);
   console.log(`  no contraction, FB off  ${(100 * nd).toFixed(2)}%  <- the cell nothing else measures`);
 
   if (!Number.isFinite(expMove) || expMove > MAX_EXPOSURE_MOVE) {
@@ -338,7 +376,42 @@ if (!shipped || !control) {
   // on Property alone; WC's carries a wage divisor and GL's a capped severity
   // trend, so a nonzero reading there is the held path working correctly and
   // asserting on it would make the positive control fail for the wrong reason.
-  if (ASSERTED_LINE === 'Property' && (!Number.isFinite(cd) || Math.abs(cd) > DETECTION_FLOOR)) {
+  //
+  // ⚠ FORKED WHEN THE NEW RATE STACK WENT LIVE, AND THE CONTROL IS A DIFFERENT
+  // CONTROL NOW RATHER THAN A RELAXED ONE. Under the new stack all three cells
+  // return the SAME rate to the last digit, so "PT off must be flat" stopped
+  // being a null: PRICING_TRIANGLE and FORWARD_BOOKING no longer reach the
+  // charged rate at all. That is the design and not a defect — the new rate is
+  // struck from newPurePremium.ts, which reads grossPaidByValuation off the
+  // ledger and develops it on the recorded paid LDFs. It never consults the
+  // BOOKED triangle, so turning the triangle off changes nothing to turn off.
+  //
+  // Left as it was, the control asserted a null that no longer exists and read
+  // the shipped cell's own 5.23% back as a broken instrument.
+  //
+  // WHAT REPLACES IT IS STRONGER, not weaker: the three cells must agree
+  // EXACTLY. That is a checkable claim about the new stack's basis, and it
+  // fails the moment anyone wires the booked triangle back into the rate —
+  // which is the defect the old control would have been watching for if it
+  // still could. The drift verdict above stands on its own either way.
+  //
+  // ⚠ IT IS EXACT, AND THAT WAS MEASURED RATHER THAN HOPED FOR. The cells read
+  // 0 apart across 24 games x 10 years, and the deliberate break — multiplying
+  // the shipped cell by 1 + 1e-7 — fires at 4.54e-8 per $100. A bar at exact
+  // equality is only worth setting if it holds exactly, so it was checked.
+  if (NEW_RATE_STACK.enabled) {
+    const worst = Math.max(
+      ...[control, noContraction].map(c => Math.max(
+        ...shipped.rateByYear.map((r, i) => Math.abs(r - (c.rateByYear[i] ?? NaN))))));
+    if (!Number.isFinite(worst) || worst > 0) {
+      failed.push(`THE CELLS NO LONGER AGREE. ${ASSERTED_LINE}'s mean charged rate differs across the `
+        + `PRICING_TRIANGLE / FORWARD_BOOKING cells by up to ${worst.toExponential(2)} per $100, and under the `
+        + 'new rate stack it must be exactly 0: the rate is struck off the ledger by newPurePremium.ts and '
+        + 'neither flag is on that path. Either something has wired the booked triangle back into the charged '
+        + 'rate, or the ledger those flags write is now feeding it. Find which before reading the drift '
+        + 'verdict above, because that verdict assumes the basis is the one this file thinks it is.');
+    }
+  } else if (ASSERTED_LINE === 'Property' && (!Number.isFinite(cd) || Math.abs(cd) > DETECTION_FLOOR)) {
     failed.push(`THE CONTROL IS NOT FLAT. Property with PRICING_TRIANGLE off drifts ${(100 * cd).toFixed(2)}%, `
       + 'and it should be zero to the digit — that cell returns PROPERTY_HELD_PURE_PREMIUM_PER_100 unchanged, '
       + 'with no trend and no wage divisor. Something upstream moved and the verdict above cannot be trusted '
@@ -359,7 +432,8 @@ if (!shipped || !control) {
   } else if (unevaluated.length) {
     process.exitCode = 1;
   } else {
-    console.log(`NO DRIFT. ${ASSERTED_LINE}'s charged rate is flat on a still book and the control is flat.`);
+    console.log(`NO DRIFT. ${ASSERTED_LINE}'s charged rate is flat on a still book and ${NEW_RATE_STACK.enabled
+      ? 'the three cells agree exactly' : 'the control is flat'}.`);
     console.log('This is the expected result and the gate is a guard, not an open item — see the header for');
     console.log('why it exists given that it was commissioned as a red and is not one.');
   }

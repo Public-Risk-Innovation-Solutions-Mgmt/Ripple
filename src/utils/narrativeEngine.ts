@@ -2,7 +2,7 @@
 
 import type { ResultSet } from '../types/simulation';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
-import { normalizeLayersPlaced } from './reinsuranceTower';
+import { placementFor } from './reinsuranceOptions';
 import { ratioBand } from './formatters';
 import { LINE_FULL_NAME } from './lineDisplay';
 import { eventSentence, yearEvents } from './yearEvents';
@@ -162,7 +162,7 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
     const lowestPlaced = TOWER_LINES
       .filter(line => result.byLine?.[line])
       .map(line => {
-        const placed = normalizeLayersPlaced(line, result.byLine[line].decisions.layersPlaced);
+        const placed = placementFor(line, result.byLine[line].decisions.reinsuranceOption);
         const attachments = REINSURANCE_TOWER[line].filter((_, i) => placed[i]).map(l => l.attachment);
         return { line, attachment: attachments.length > 0 ? Math.min(...attachments) : null };
       })

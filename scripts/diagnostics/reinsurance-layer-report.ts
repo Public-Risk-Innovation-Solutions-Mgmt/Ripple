@@ -56,6 +56,9 @@
 // the mean as indicative. Same for GL's retained-above-$25M band.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { computeKLine, generateWcClaims } from '../../src/utils/wcClaimEngine';
 import { computeKGl, generateGlClaims } from '../../src/utils/glClaimEngine';

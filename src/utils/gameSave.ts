@@ -138,6 +138,7 @@
 // ============================================================================
 
 import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
+import { newLossEngineRuns } from '../data/pricingParameters';
 
 /**
  * The storage key. A persisted identifier, not a display string.
@@ -152,7 +153,19 @@ import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v10';
+export const SAVE_KEY = 'riskpool_gamestate_v12';
+
+/**
+ * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
+ * one reinsurance package per line (LineDecisionSet.reinsuranceOption), not a
+ * band-by-band placement, and the tower every past result was ceded through has
+ * been re-cut. A v10 save cannot be read faithfully, so it is not migrated: the
+ * loader clears it and the player starts a new game. This is the key it held.
+ */
+// ⚠ v12 SINCE LOSS ENGINE COMMIT 4b — the game runs in worlds
+// (GameState.worlds), and its pool state and results are their average. A v11
+// save holds one world's figures and no worlds, so it is cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11'];
 
 /**
  * Fields dropped on the way out.
@@ -253,6 +266,26 @@ export const SAVE_STRIPPED_KEYS: readonly string[] = [
   'memberValueRows', 'poolValue',
 ];
 
+/**
+ * The keys the NEW loss engine keeps, out of the list above.
+ *
+ * ⚠ ITS REGISTER IS SAVED, NOT REDRAWN. On the new loss engine a line-year's
+ * claims are its large losses alone — a handful a year, not hundreds — and the
+ * redraw in claimRegeneration runs the OLD per-member generators, which did not
+ * draw them. A redraw would also need the game's shock timing, which a result
+ * does not carry. So the register stays in the save and claimRegeneration
+ * refuses on the new engine rather than fabricating one. result-size-check
+ * holds the save inside its budget with these kept.
+ */
+export const NEW_ENGINE_KEPT_KEYS: readonly string[] = ['claims', 'occurrences'];
+
+/** The keys stripped on the way out, for the engine in force. */
+export function saveStrippedKeys(): readonly string[] {
+  return newLossEngineRuns()
+    ? SAVE_STRIPPED_KEYS.filter(k => !NEW_ENGINE_KEPT_KEYS.includes(k))
+    : SAVE_STRIPPED_KEYS;
+}
+
 /** Measured against a real Chromium — see the header. Not a spec figure. */
 export const MEASURED_QUOTA_CHARS = 5_242_613;
 
@@ -265,6 +298,39 @@ export const MEASURED_QUOTA_CHARS = 5_242_613;
  * measurement could not rule out.
  */
 export const SAVE_BUDGET_CHARS = 1_500_000;
+
+/**
+ * Keys dropped from EACH WORLD'S rows on the way out (loss engine commit 4b),
+ * not from the averaged rows the pages read.
+ *
+ * ⚠ THE PER-ACCIDENT-YEAR RESERVE SPLIT, AND ONLY IT. Every world's every year
+ * restates it for every accident year, at pool and line scope: measured, 3.0 MB
+ * of a 7.3 MB raw ten-world save at year ten, and the save at 1.83 MB stored —
+ * past SAVE_BUDGET_CHARS. Nothing reads a world row's split: the averaged row's
+ * is struck from the worlds' when the year settles, in memory, before any save,
+ * and the engine never reads a prior row's. Every other figure on a world's
+ * rows is kept, which is what "keep each world's results" asks.
+ */
+export const WORLD_ROW_STRIPPED_KEYS: readonly string[] = ['reserveSplitByYear'];
+
+function slimRow<T extends object>(r: T): T {
+  const out = { ...r } as Record<string, unknown>;
+  for (const k of WORLD_ROW_STRIPPED_KEYS) delete out[k];
+  if (out.byLine && typeof out.byLine === 'object') {
+    out.byLine = Object.fromEntries(Object.entries(out.byLine as Record<string, object>)
+      .map(([l, row]) => [l, slimRow(row)]));
+  }
+  return out as T;
+}
+
+function slimWorlds(env: SaveEnvelope): SaveEnvelope {
+  const gs = env.gameState as { worlds?: Array<{ lockedResults: object[] }> } | null;
+  if (!gs?.worlds) return env;
+  return {
+    ...env,
+    gameState: { ...gs, worlds: gs.worlds.map(w => ({ ...w, lockedResults: w.lockedResults.map(slimRow) })) },
+  };
+}
 
 export interface SaveEnvelope {
   gameState: unknown;
@@ -282,8 +348,9 @@ export interface SaveEnvelope {
  * 2x-over-quota save shipped.
  */
 export function serialiseSave(env: SaveEnvelope): string {
-  return JSON.stringify(env, (key, value) =>
-    (SAVE_STRIPPED_KEYS.includes(key) ? undefined : value));
+  const stripped = saveStrippedKeys();
+  return JSON.stringify(slimWorlds(env), (key, value) =>
+    (stripped.includes(key) ? undefined : value));
 }
 
 /**

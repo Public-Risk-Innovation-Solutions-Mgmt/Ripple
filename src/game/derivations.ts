@@ -31,9 +31,24 @@ import type { LineLoanInfo } from '../pages/DecisionsPage';
 import type { FundingConsequence } from '../utils/fundingConsequence';
 import { computeFundingConsequence } from '../utils/fundingConsequence';
 import { aggregateTermsRetainedPer100 } from '../utils/simulationEngine';
+import { bookPurePremium, newPurePremiumPer100 } from '../utils/newPurePremium';
 import { pricingExperienceBasis } from '../utils/pricingTriangle';
 import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEngine';
-import { getMemberExposure, selectResultView } from '../utils/lineHelpers';
+import { bookExposureOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
+import { exposureFactor } from '../data/exposureTrend';
+import type { LinePoolState } from '../types/simulation';
+
+/** A line's exposure this year — its book, or its active roster. */
+function lineBookExposure(lineState: LinePoolState, line: CoverageLine, yearNumber: number): number {
+  return lineState.bookExposure !== undefined
+    ? lineState.bookExposure * exposureFactor(line, yearNumber)
+    : lineState.members
+      .filter(m => m.status === 'active')
+      .reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
+}
+import { effectiveRiskControlIncentivePct } from '../utils/linePricing';
+import { AGGREGATE_NOT_OFFERED, placementFor } from '../utils/reinsuranceOptions';
+import { surplusRange, type SurplusRange } from '../utils/worlds';
 
 export interface GameDerivations {
   decisionLine: CoverageLine;
@@ -42,6 +57,8 @@ export interface GameDerivations {
   // placeholder off one. A consumer that needs a line field must now narrow on
   // the view, which is the question that was never being asked.
   viewResults: Array<ResultSet | LineResultSet>;
+  /** Min, median and max ending surplus across the worlds, by played year, at the view's scope. */
+  surplusRangeByYear: Record<number, SurplusRange>;
   viewPriorResults: Array<ResultSet | LineResultSet>;
   historicalYears: HistoricalYear[];
   lineLoanInfo: Record<CoverageLine, LineLoanInfo>;
@@ -49,6 +66,8 @@ export interface GameDerivations {
   estimatedAggregateTermsRetained: number | undefined;
   lastLineResult: LineResultSet | undefined;
   decisionLineActiveMembers: Member[];
+  /** What the decision line's reinsurance is priced on — its book or roster. */
+  decisionLineBook: Book;
   fundingConsequence: FundingConsequence | null;
 }
 
@@ -60,6 +79,19 @@ export function useGameDerivations(
   const viewResults = React.useMemo(() => {
     if (!gameState) return [];
     return selectResultView(gameState.lockedResults, lineView);
+  }, [gameState, lineView]);
+
+  // THE SPREAD BEHIND THE AVERAGE (loss engine commit 4b): the minimum, median
+  // and maximum ending surplus across the worlds, per played year, at this
+  // view's scope. Empty on a one-world game.
+  const surplusRangeByYear = React.useMemo(() => {
+    const out: Record<number, SurplusRange> = {};
+    if (!gameState?.worlds) return out;
+    for (const r of gameState.lockedResults) {
+      const range = surplusRange(gameState, r.yearNumber, lineView === 'pool' ? undefined : lineView);
+      if (range) out[r.yearNumber] = range;
+    }
+    return out;
   }, [gameState, lineView]);
 
   const lineLoanInfo = React.useMemo(() => {
@@ -115,9 +147,7 @@ export function useGameDerivations(
     if (!gameState) return 3_500_000;
 
     const lineState = gameState.poolState.lines[decisionLine];
-    const exposure = lineState.members
-      .filter(m => m.status === 'active')
-      .reduce((s, m) => s + getMemberExposure(m, decisionLine, gameState.currentYearNumber), 0);
+    const exposure = lineBookExposure(lineState, decisionLine, gameState.currentYearNumber);
 
     return exposure * lineState.purePremiumPer100 * 10_000;
   }, [gameState, decisionLine]);
@@ -142,9 +172,7 @@ export function useGameDerivations(
       membershipHistory: gameState.poolState.membershipHistory,
     });
     if (rate === undefined) return undefined;
-    const exposure = lineState.members
-      .filter(m => m.status === 'active')
-      .reduce((s, m) => s + getMemberExposure(m, decisionLine, gameState.currentYearNumber), 0);
+    const exposure = lineBookExposure(lineState, decisionLine, gameState.currentYearNumber);
     return exposure * rate * 10_000;
   }, [gameState, decisionLine]);
 
@@ -178,6 +206,15 @@ export function useGameDerivations(
     if (!gameState) return [];
     return gameState.poolState.lines[decisionLine].members.filter(m => m.status === 'active');
   }, [gameState, decisionLine]);
+  // What the panel prices — the roster, or with MEMBER_LEVEL off the line's one
+  // book, exactly as the engine does (see Book).
+  const decisionLineBook: Book = React.useMemo(() => {
+    if (!gameState) return [];
+    const lineState = gameState.poolState.lines[decisionLine];
+    return lineState.bookExposure !== undefined
+      ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber) }
+      : decisionLineActiveMembers;
+  }, [gameState, decisionLine, decisionLineActiveMembers]);
 
   const decisionLineFundingLevel = currentDecisions.byLine[decisionLine].fundingConfidenceLevel;
   const decisionLineFundingAtExpected = currentDecisions.byLine[decisionLine].fundingAtExpected;
@@ -194,17 +231,48 @@ export function useGameDerivations(
         yearNumber: gameState.currentYearNumber,
         // The tower prices off the book itself, so the panel needs the members
         // and the year, not just an exposure total.
-        members: decisionLineActiveMembers,
-        exposure: decisionLineActiveMembers.reduce(
-          (sum, m) => sum + getMemberExposure(m, decisionLine, gameState.currentYearNumber), 0,
-        ),
-        layersPlaced: d.layersPlaced,
-        aggregateStopLevel: d.aggregateStopLevel,
+        members: decisionLineBook,
+        exposure: bookExposureOf(decisionLineBook, decisionLine, gameState.currentYearNumber),
+        // The chosen package, as the tower reads it — the engine's own call.
+        layersPlaced: placementFor(decisionLine, d.reinsuranceOption),
+        aggregateStopLevel: AGGREGATE_NOT_OFFERED,
         pricingAdjustment: lineState.rateLevel / 100,
         priorPurePremiumPer100: lineState.purePremiumPer100,
         lossTrend: gameState.instance.lossEnvironment.lossTrend,
         priorRcEffectiveness: lineState.riskControlEffectiveness,
         riskControlPct: d.riskControlPct,
+        // ⚠ NEW_RATE_STACK ONLY, AND IT IS NOW READ OFF THE LEDGER RATHER THAN
+        // OFF LAST YEAR'S RESULT. What stood here was
+        // `lastLineResult?.newPurePremiumPer100`, on the reasoning that the
+        // page had no reserve ledger reader of its own. It has one — the
+        // aggregate-terms tile above uses exactly this basis shape — and the
+        // stale figure had a consequence the panel showed on its face: the
+        // "vs last year" row read +0.0% / +0.1% every year while the rate
+        // climbed about 3% a year, because the panel's indication was built
+        // from the SAME pure premium that produced the indication it was being
+        // compared against. A change column that cannot move is not one.
+        //
+        // This is the engine's own call with the engine's own arguments —
+        // simulationEngine.ts computes `newPp` as
+        // computeNewPurePremium(line, yearNumber, { rows: reserveDevelopment,
+        // allMarketMembers, membershipHistory }) — evaluated on the state the
+        // page is holding, which after year N is processed is the state year
+        // N+1 will be priced from. Still undefined before the first priced
+        // year, which is when the panel has no comparison to show either.
+        // A book takes the engine's own book rule — the ledger's figure, or
+        // the engine's expectation before the ledger has one.
+        groundUpPurePremiumPer100: (isRoster(decisionLineBook)
+          ? newPurePremiumPer100(decisionLine, gameState.currentYearNumber, {
+            rows: gameState.poolState.lines[decisionLine]?.reserveDevelopment ?? [],
+            allMarketMembers: gameState.poolState.allMarketMembers,
+            membershipHistory: gameState.poolState.membershipHistory,
+          })
+          : bookPurePremium(decisionLine, gameState.currentYearNumber, {
+            rows: gameState.poolState.lines[decisionLine]?.reserveDevelopment ?? [],
+            allMarketMembers: gameState.poolState.allMarketMembers,
+            membershipHistory: gameState.poolState.membershipHistory,
+          }, bookExposureOf(decisionLineBook, decisionLine, gameState.currentYearNumber)))?.purePremiumPer100,
+        newStackRiskControlPct: effectiveRiskControlIncentivePct(d),
         // S3: the panel prices off the same played triangle the engine does.
         //
         // ⚠ IT DID NOT, UNTIL THIS COMMIT. These three fields were spelled out
@@ -214,14 +282,15 @@ export function useGameDerivations(
         // and 72.9% at worst, in every line-year of every game from year one.
         // pricingExperienceBasis is now the single builder; see its header for
         // the measurement and for the identity that validates it.
-        experience: pricingExperienceBasis(gameState.poolState, decisionLine),
+        experience: isRoster(decisionLineBook) ? pricingExperienceBasis(gameState.poolState, decisionLine) : undefined,
       },
     );
-  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineActiveMembers, currentDecisions]);
+  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineBook, currentDecisions]);
 
   return {
     decisionLine,
     viewResults,
+    surplusRangeByYear,
     viewPriorResults,
     historicalYears,
     lineLoanInfo,
@@ -229,6 +298,7 @@ export function useGameDerivations(
     estimatedAggregateTermsRetained,
     lastLineResult,
     decisionLineActiveMembers,
+    decisionLineBook,
     fundingConsequence,
   };
 }

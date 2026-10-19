@@ -58,6 +58,9 @@
 // showing the weaker basis for all of them. The exhibit must label the column
 // "as at game start" and mean it for every row.
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance, generateStartingPoolState } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

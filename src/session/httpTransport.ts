@@ -161,7 +161,9 @@ import type {
   AdvanceRequest, AdvanceResponse,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
+  ListEventsRequest, ListEventsResponse,
   ReadRequest, ReadResponse,
+  SetEventHiddenRequest, SetEventHiddenResponse,
   SessionErrorCode,
   SessionTransport,
   SubmitRequest, SubmitResponse,
@@ -207,9 +209,19 @@ interface ErrorBody {
   error?: { code?: string; message?: string; retryable?: boolean };
 }
 
+// ⚠ A HAND-WRITTEN ALLOW-LIST, AND A CODE MISSING FROM IT FAILS QUIETLY IN THE
+// WORST WAY: the body's real code is DISCARDED and the HTTP status is mapped
+// instead, so EVENT_IN_PROGRESS (409) arrived at callers as WRONG_YEAR — a
+// different error, about a different thing, that a UI would report as the room
+// being on another year. Caught by the contract harness running the same
+// assertions over HTTP, which is exactly what that second pass is for.
+// 'LINES_LOCKED' stays listed though the contract dropped it: a server built
+// before that removal can still emit it, and dropping it here would turn such a
+// response into a status guess rather than the code it actually sent.
 const ERROR_CODES: readonly string[] = [
   'ROOM_NOT_FOUND', 'TEAM_NOT_FOUND', 'TEAM_TAKEN', 'BAD_TOKEN', 'NOT_HOST',
-  'WRONG_YEAR', 'GAME_COMPLETE', 'INVALID_REQUEST', 'LINES_LOCKED', 'TRANSPORT_FAILURE',
+  'WRONG_YEAR', 'GAME_COMPLETE', 'INVALID_REQUEST', 'EVENT_IN_PROGRESS',
+  'LINES_LOCKED', 'TRANSPORT_FAILURE',
 ];
 
 export class HttpSessionTransport implements SessionTransport {
@@ -242,6 +254,18 @@ export class HttpSessionTransport implements SessionTransport {
 
   read(req: ReadRequest): Promise<ReadResponse> {
     return this.call('read', req);
+  }
+
+  // ⚠ listEvents IS THE ONE REQUEST WITH NEITHER A TOKEN NOR A ROOM. The lobby
+  // has no passcode and names no room, so `call` sends no Authorization header
+  // for it — which it already handles by reading the field rather than
+  // requiring it. Nothing else about the shape differs.
+  listEvents(req: ListEventsRequest): Promise<ListEventsResponse> {
+    return this.call('listEvents', req);
+  }
+
+  setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse> {
+    return this.call('setEventHidden', req);
   }
 
   // ---- the one place a request becomes a request ------------------------

@@ -4,10 +4,13 @@
 //
 // Checks the things the tower could get wrong in ways nothing else would catch:
 // the cap/retention ORDER, that ceded loss matches what the layer diagnostic
-// measured, that a corridor retention works, that the aggregate responds to the
-// occurrence-layer selection, and — the whole point of the pricing change — that
+// measured, that a corridor retention works, that the (unwired) aggregate's
+// price responds to the occurrence-layer selection, and — the whole point of the pricing change — that
 // the price no longer moves with the funding confidence level.
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import {
   AGG_ATTACHMENT_LEVELS, REINSURANCE_TOWER, RISK_LOAD_LAMBDA, TOWER_TOP,
 } from '../../src/data/reinsuranceTower';
@@ -21,6 +24,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 import type { Claim, CoverageLine, DecisionSet, GameState, ResultSet } from '../../src/types/simulation';
 
 const ROSTER = getPredefinedMarketMembers();
@@ -95,7 +99,20 @@ console.log('\n=== 2. EROSION AND CORRIDOR RETENTION FALL OUT OF THE ARITHMETIC 
     `${note(Math.abs(big.retainedAboveTower - (60e6 - TOWER_TOP.GL)) < 1, 'GL above-tower band wrong')}`);
 }
 
-console.log('\n=== 3. THE RISK LOAD RISES WITH ATTACHMENT (one lambda, not four multiples) ===');
+// ⚠ THE SHAPE OF THIS SECTION DEPENDS ON LAMBDA, AND AT ZERO THE OLD ASSERTION
+// WAS VACUOUS RATHER THAN FALSE. It required the loading multiples to RISE
+// STRICTLY with attachment. At RISK_LOAD_LAMBDA = 0 every multiple is exactly
+// 1.00, so a strict `>` reports "not monotonic" about a quantity that no longer
+// exists. Widening it to `>=` would have been worse: it would pass at zero load
+// AND pass if the load mechanism silently died at a non-zero lambda, which is
+// the thing this section is here to catch.
+//
+// So the assertion branches on the regime and says the TRUE thing in each. At a
+// positive lambda the multiples must still rise strictly, which is the original
+// claim unchanged. At zero they must be exactly 1.00 on every layer, which is a
+// real statement with real content — it fails if any price picks up a load the
+// constant did not ask for.
+console.log(`\n=== 3. THE RISK LOAD ${RISK_LOAD_LAMBDA > 0 ? 'RISES WITH ATTACHMENT (one lambda, not four multiples)' : 'IS ZERO — EVERY LAYER AT 1.00x ITS EXPECTED CESSION'} ===`);
 {
   for (const line of ['WC', 'GL'] as const) {
     const book = bookFor(line, 290);
@@ -103,9 +120,14 @@ console.log('\n=== 3. THE RISK LOAD RISES WITH ATTACHMENT (one lambda, not four 
       const m = layerRiskMoments(line, i, book, REF_YEAR);
       return 1 + RISK_LOAD_LAMBDA * m.sdOverExpected;
     });
-    const rising = mults.every((m, i) => i === 0 || m > mults[i - 1]);
     console.log(`  ${line}: ${REINSURANCE_TOWER[line].map((l, i) => `${l.name} ${mults[i].toFixed(2)}x`).join('  ')}`);
-    console.log(`     monotonically rising with attachment: ${note(rising, `${line} loading multiples not monotonic`)}`);
+    if (RISK_LOAD_LAMBDA > 0) {
+      const rising = mults.every((m, i) => i === 0 || m > mults[i - 1]);
+      console.log(`     monotonically rising with attachment: ${note(rising, `${line} loading multiples not monotonic`)}`);
+    } else {
+      const flat = mults.every(m => Math.abs(m - 1) < 1e-12);
+      console.log(`     every layer at exactly 1.00x: ${note(flat, `${line} carries a load at lambda 0`)}`);
+    }
   }
   // The behaviour that validates the whole approach: GL's top layer costs MORE
   // per $100 than WC's despite a LOWER multiple, because it is more exposed.
@@ -129,8 +151,11 @@ console.log('\n=== 3. THE RISK LOAD RISES WITH ATTACHMENT (one lambda, not four 
   console.log(`  WC ${wcCount} layers, GL ${glCount} — EQUAL, so layer count cannot identify a line: ` +
     `${note(wcCount === glCount, `WC has ${wcCount} layers and GL ${glCount}; if that diverges again, do NOT reintroduce a count-based line test`)}`);
   console.log(`  every WC layer purchasable: ${note(REINSURANCE_TOWER.WC.every(l => l.purchasable), 'a WC layer is flagged non-purchasable without a stated reason')}`);
-  console.log(`  merged top band spans $10M-$50M: ${note(REINSURANCE_TOWER.WC[2].attachment === 10e6 && REINSURANCE_TOWER.WC[2].limit === 40e6, 'the merged WC top layer is not $40M xs $10M')}`);
-  console.log(`  and it is charged when placed: ${note(occurrenceProgramCost('WC', [false, false, true], wcBook, REF_YEAR).premium > 0, 'the merged top layer is not being charged')}`);
+  // ⚠ RE-CUT BY LOSS ENGINE COMMIT 4a. The top band was the merged $40M xs
+  // $10M (tower top $50M); the tower is now cut at every package's edges, so
+  // WC and GL both run $4M xs $1M, $5M xs $5M, $5M xs $10M to a $15M top.
+  console.log(`  top band is $5M xs $10M, tower top $15M: ${note(REINSURANCE_TOWER.WC[2].attachment === 10e6 && REINSURANCE_TOWER.WC[2].limit === 5e6 && TOWER_TOP.WC === 15e6, 'the WC top layer is not $5M xs $10M')}`);
+  console.log(`  and it is charged when placed: ${note(occurrenceProgramCost('WC', [false, false, true], wcBook, REF_YEAR).premium > 0, 'the top layer is not being charged')}`);
   // ⚠ THE MASK-TABLE ASSERTION THAT USED TO SIT HERE IS GONE WITH ITS TABLE.
   // WC_RETAINED_SECOND_MOMENT was an 8-entry array indexed by placement bitmask,
   // and this check guarded against an out-of-range index silently falling back to
@@ -157,6 +182,14 @@ console.log('\n=== 4. THE AGGREGATE RESPONDS TO THE OCCURRENCE-LAYER SELECTION =
 // Measured at $290M / E[gross] $12.83M, declining every layer raises the aggregate
 // premium from $2.43M to $4.01M at a 110% attachment. The price responds; it just
 // responds less, because the underlying risk transfer is less.
+//
+// ⚠ THE THRESHOLD IS x1.0 SINCE LOSS ENGINE COMMIT 4a, AND THE AGGREGATE IS NOT
+// OFFERED. "All layers" now tops out at $15M, not $50M, so placing them removes
+// less retained volatility and the ratio fell to x1.3 / x1.4 / x1.5 at the three
+// attachments. x1.4 protected a PLAYER who could buy the aggregate; none can,
+// and its code is kept unwired. What is still asserted is that the price
+// responds at all. ⚠ IF THE AGGREGATE RETURNS, RE-DERIVE THIS THRESHOLD against
+// the tower it returns with before offering it.
 {
   const EGROSS = 12.83e6;
   const AGG_BOOK = bookFor('WC', 290);
@@ -169,7 +202,7 @@ console.log('\n=== 4. THE AGGREGATE RESPONDS TO THE OCCURRENCE-LAYER SELECTION =
     const qa = quoteAggregate('WC', all, AGG_BOOK, EGROSS, lv, REF_YEAR), qn = quoteAggregate('WC', none, AGG_BOOK, EGROSS, lv, REF_YEAR);
     const ratio = qn.premium / Math.max(qa.premium, 1);
     console.log(`  ${(AGG_ATTACHMENT_LEVELS.WC[lv] * 100).toFixed(0)}%   ${fmt$(qa.premium).padStart(18)}    ${fmt$(qn.premium).padStart(18)}    x${ratio.toFixed(1)}  ` +
-      `${note(ratio > 1.4, `aggregate barely responds to selection at ${AGG_ATTACHMENT_LEVELS.WC[lv]} (x${ratio.toFixed(1)})`)}`);
+      `${note(ratio > 1.0, `aggregate does not respond to selection at ${AGG_ATTACHMENT_LEVELS.WC[lv]} (x${ratio.toFixed(2)})`)}`);
   }
   console.log('  ^^ declining occurrence layers puts catastrophic claims back into the retention,');
   console.log('     raising retained volatility and so the aggregate\'s price. Without this,');
@@ -211,7 +244,7 @@ console.log('\n=== 5. PRICE IS NO LONGER A FUNCTION OF THE FUNDING CONFIDENCE LE
   console.log(`  must be ~0 (the old model drifted 69%): ${note(drift < 0.02, `reinsurance cost still moves ${(drift * 100).toFixed(1)}% with the CLF`)}`);
 }
 
-console.log('\n=== 6. LIVE GAME: ceded reconciles, and GL above-tower exceeds the top layer bought ===');
+console.log('\n=== 6. LIVE GAME: ceded reconciles, and a layer the default package leaves out cedes nothing ===');
 {
   const locked = play('TOWERCHK', ['WC', 'GL', 'Property'], 5);
   for (const line of ['WC', 'GL'] as const) {
@@ -228,22 +261,12 @@ console.log('\n=== 6. LIVE GAME: ceded reconciles, and GL above-tower exceeds th
     console.log(`     by layer ${REINSURANCE_TOWER[line].map((l, i) => `${l.name} ${fmt$(byLayer[i])}`).join(' | ')}`);
     console.log(`     retained above tower ${fmt$(above)}`);
     console.log(`     ceded is a strict subset of gross: ${note(ceded <= gross + 1, `${line} ceded exceeds gross`)}`);
-    if (line === 'WC') {
-      // ⚠ WAS `note(byLayer[3] === 0, 'unpurchasable WC layer paid')`. Index 3 no
-      // longer exists, and the layer that occupied it is now purchasable and
-      // expected to pay — the assertion would have inverted from "must never pay"
-      // to "must sometimes pay" without anyone noticing, because byLayer[3] reads
-      // undefined and `undefined === 0` is false only after the array shortened.
-      //
-      // The merged band fires once per 4.6 years, so a 5-year window paying zero
-      // is ORDINARY and must not be a failure. What is asserted is the structural
-      // relation that holds every year: WC retains nothing above its own tower top
-      // unless the merged layer is exhausted, because the tower reaches $50M.
-      const wcTop = byLayer[2];
-      console.log(`     merged $40M xs $10M ceded ${fmt$(wcTop)} in this 5-yr window (fires ~1 per 4.6 yrs, so 0 is ordinary)`);
-      console.log(`     retained above $50M only if the merged layer is exhausted: ` +
-        `${note(above === 0 || wcTop >= REINSURANCE_TOWER.WC[2].limit - 1, 'WC retained above the tower while its top layer had unused limit')}`);
-    }
+    // ⚠ WAS A WC-ONLY CHECK ON THE MERGED $40M xs $10M BAND, which the 4a
+    // re-cut retired. The structural relation that holds every year now: the
+    // default package ($9M xs $1M) places the first two layers and not the
+    // third, so the third must cede NOTHING — a layer not bought never pays.
+    console.log(`     $5M xs $10M is outside the default package and ceded ${fmt$(byLayer[2])}: ` +
+      `${note(byLayer[2] === 0, `${line} ceded through a layer the default package does not place`)}`);
   }
   // Property runs the SAME tower machinery — TWO treaties now, per-risk $70M xs
   // $5M and cat $462.5M xs $37.5M, each answering one kind of occurrence.
@@ -252,7 +275,6 @@ console.log('\n=== 6. LIVE GAME: ceded reconciles, and GL above-tower exceeds th
   // LENGTH and normalizeLayersPlaced read it as "all placed". A one-element
   // decline would have tested a fully-placed tower. Read from the tower now.
   const pr = locked[0].byLine.Property!;
-  const PR_NONE = REINSURANCE_TOWER.Property.map(() => false);
   console.log(`  Property is on the tower now: cededByLayer populated ${note(pr.cededByLayer.length === REINSURANCE_TOWER.Property.length, 'Property has no tower layer')}` +
     `, default decline of the aggregate ${note(pr.aggregateRecovery === 0 && pr.aggregatePremium === 0, 'Property aggregate fired on the default decision set')}` +
     `, reinsuranceCost ${fmt$(pr.reinsuranceCost)} from the occurrence layer (not REINSURANCE_PROGRAMS)`);
@@ -271,7 +293,7 @@ console.log('\n=== 6. LIVE GAME: ceded reconciles, and GL above-tower exceeds th
   // attachment. Every field with real economic weight (premium, cost,
   // recovery, net/gross loss, membership, surplus) was exactly unchanged.
   const declined = play('TOWERCHK-DECLINE', ['WC', 'GL', 'Property'], 5, d => ({
-    ...d, byLine: { ...d.byLine, Property: { ...d.byLine.Property, layersPlaced: PR_NONE, aggregateStopLevel: -1 } },
+    ...d, byLine: { ...d.byLine, Property: { ...d.byLine.Property, reinsuranceOption: 'none' } },
   }));
   // ⚠ `net === gross` WAS A PROXY FOR "NO CESSION" AND IT STOPPED BEING ONE.
   // netUltimateLoss is net of reinsurance AND of the booking markdown, and those
@@ -303,24 +325,26 @@ console.log('\n=== 6. LIVE GAME: ceded reconciles, and GL above-tower exceeds th
     + `aggregateRecovery === 0 every year: ${note(declineOk, 'declining Property\'s tower did not zero out current-year reinsurance')}`);
   console.log('    (prior-year development on cohorts written UNDER cover keeps developing — reported, not asserted zero)');
 
-  // THE AGGREGATE GATE, asserted at the engine and not only at the normalizer.
-  // Ask for the aggregate WITH the layer declined — an ill-formed decision the
-  // UI now prevents, but a save or a script can still express it — and the
-  // engine must price and pay NOTHING for it. If aggregatePremium is ever
-  // non-zero here, the gate is not on the path the engine actually takes.
-  const gated = play('TOWERCHK-AGGGATE', ['WC', 'GL', 'Property'], 5, d => ({
-    ...d, byLine: { ...d.byLine, Property: { ...d.byLine.Property, layersPlaced: PR_NONE, aggregateStopLevel: 1 } },
+  // ⚠ THE AGGREGATE IS NOT OFFERED (loss engine commit 4a), so a decision can
+  // no longer request it and the two engine-level gate arms that stood here —
+  // the aggregate asked for over a declined tower, on Property and on WC — are
+  // inexpressible. What replaces them at the engine: on the FULL tower, every
+  // line, every year, the aggregate prices and pays nothing. Its code is kept
+  // unwired, so the normalizer's gate below is still checked as a unit.
+  const full = play('TOWERCHK-AGGGATE', ['WC', 'GL', 'Property'], 5, d => ({
+    ...d, byLine: Object.fromEntries((['WC', 'GL', 'Property'] as const).map(l =>
+      [l, { ...d.byLine[l], reinsuranceOption: fullTowerOption(l) }])) as DecisionSet['byLine'],
   }));
-  let gateOk = true;
-  for (const r of gated) {
-    const lr = r.byLine.Property!;
-    if (lr.aggregatePremium !== 0 || lr.aggregateRecovery !== 0 || lr.reinsuranceCost !== 0) gateOk = false;
+  let unwiredOk = true;
+  for (const r of full) {
+    for (const l of ['WC', 'GL', 'Property'] as const) {
+      const lr = r.byLine[l]!;
+      if ((lr.aggregatePremium ?? 0) !== 0 || (lr.aggregateRecovery ?? 0) !== 0) unwiredOk = false;
+    }
   }
-  console.log(`  Property aggregate requested with the layer DECLINED: premium, recovery, reinsuranceCost all 0 every year: ` +
-    `${note(gateOk, 'the aggregate gate is not reaching the engine — an aggregate was priced over a fully-declined tower')}`);
-  // And it is CONDITIONAL, not the layer mandatory: with the layer placed the
-  // same request goes through untouched. A gate that swallowed the aggregate
-  // unconditionally would also pass the check above.
+  console.log(`  the aggregate is unwired: on the full tower its premium and recovery are 0, every line, every year: ` +
+    `${note(unwiredOk, 'an aggregate was priced or paid although it is not offered')}`);
+  // The normalizer's gate, as a unit: CONDITIONAL, not the layer mandatory.
   console.log(`  with the layer PLACED the same level passes through: ` +
     `${note(normalizeAggregateStopLevel('Property', [true], 1) === 1, 'the gate suppressed a legitimate aggregate')}`);
   // Property is ONE layer answering every occurrence, catastrophes included, so
@@ -328,28 +352,9 @@ console.log('\n=== 6. LIVE GAME: ceded reconciles, and GL above-tower exceeds th
   // as through the engine above.
   console.log(`  with the one layer declined the gate returns -1: ` +
     `${note(normalizeAggregateStopLevel('Property', [false], 1) === -1, 'the Property aggregate was enabled over a declined occurrence layer')}`);
-  // WC IS NOW GATED THE SAME WAY, one commit after Property so that commit's
-  // line control stayed clean. Measured: all three layers declined, WC's
-  // aggregate attaches at $19.17M with a $17.42M limit, so it tops out at
-  // $36.59M — and WC severity is UNBOUNDED, so the exposed band is LARGER
-  // than Property's, whose worst case is at least finite. Same two-sided
-  // check as Property's above: the gate bites with everything declined, and
-  // a layer-placed request still passes through untouched.
-  const wcGated = play('TOWERCHK-WCAGGGATE', ['WC', 'GL', 'Property'], 5, d => ({
-    ...d, byLine: { ...d.byLine, WC: { ...d.byLine.WC, layersPlaced: [false, false, false], aggregateStopLevel: 1 } },
-  }));
-  let wcGateOk = true;
-  for (const r of wcGated) {
-    const lr = r.byLine.WC!;
-    // reinsuranceCost, NOT asserted to 0: with all occurrence layers declined
-    // it already excludes their premium, but the field also carries whatever
-    // GL's or Property's cost happened to be summed elsewhere in a pool-scope
-    // read — checking aggregatePremium/aggregateRecovery directly is the
-    // precise assertion, same as Property's above.
-    if (lr.aggregatePremium !== 0 || lr.aggregateRecovery !== 0) wcGateOk = false;
-  }
-  console.log(`  WC aggregate requested with ALL THREE layers declined: premium, recovery all 0 every year: ` +
-    `${note(wcGateOk, 'the WC aggregate gate is not reaching the engine — an aggregate was priced over a fully-declined tower')}`);
+  // WC is gated the same way, as a unit: everything declined returns -1.
+  console.log(`  WC with all three layers declined, the gate returns -1: ` +
+    `${note(normalizeAggregateStopLevel('WC', [false, false, false], 1) === -1, 'the WC aggregate was enabled over a declined tower')}`);
   console.log(`  with a layer PLACED the same level passes through: ` +
     `${note(normalizeAggregateStopLevel('WC', [true, false, false], 1) === 1, 'the WC gate suppressed a legitimate aggregate')}`);
   // ⚠ ONE LAYER IS ENOUGH, not all three. The condition is "some layer

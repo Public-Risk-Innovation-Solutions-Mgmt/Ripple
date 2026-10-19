@@ -30,6 +30,9 @@
 //   RTW 10%; charged, the engine read -$1.01M, not -$0.47M — the gap was the
 //   forgone investment income. That is why RTW is now 12.5%.
 // ============================================================================
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';

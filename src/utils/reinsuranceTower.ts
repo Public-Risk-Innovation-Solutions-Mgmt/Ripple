@@ -20,14 +20,16 @@ import {
   AGG_LIMIT_MULTIPLE,
   PROPERTY_PERIL_DEDUCTIBLE,
   REINSURANCE_TOWER,
-  RISK_LOAD_LAMBDA,
   TOWER_TOP,
   type TowerLine,
 } from '../data/reinsuranceTower';
 import { lognormalPartialMoment } from './claimMath';
 import { quotePropertyAggregate } from './propertyAggregate';
 import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './towerMoments';
-import type { Claim, Member, Occurrence } from '../types/simulation';
+import { newLossEngineRuns, REINSURANCE_LOAD_CLF_AT_70 } from '../data/pricingParameters';
+import { retainedSd } from './shockExpectation';
+import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
+import type { Claim, Occurrence } from '../types/simulation';
 
 // --- the waterfall (J14) ----------------------------------------------------
 
@@ -145,12 +147,35 @@ export function cedeOccurrences(
 // increasing value for free and the gap widened every year. Computing E[ceded]
 // directly from the book removes the mismatch by construction: there is no
 // longer a second, differently-trending quantity for the price to be stated in.
-export function layerPremium(line: TowerLine, layerIndex: number, members: Member[], yearNumber: number): number {
-  const m = layerRiskMoments(line, layerIndex, members, yearNumber);
-  return m.expected + RISK_LOAD_LAMBDA * m.sd;
+// ============================================================================
+// THE PRICE: EXPECTED LAYER LOSS x THE LINE'S CLF MULTIPLIER AT 70%.
+//
+// ⚠ IT REPLACES E[ceded] + lambda x SD[ceded], which is retired at commit 4.
+// The old form charged a margin proportional to the layer's own SD, which on a
+// rarely-hit high layer is large relative to its mean — the thinner the layer,
+// the heavier the load, for no reason a market would recognise.
+//
+// ⚠ AND THE MULTIPLIER IS NOT THE 70TH PERCENTILE OF THE LAYER'S OWN LOSSES.
+// That is the trap this parameter exists to avoid and it is worth restating at
+// the call site: a layer hit in fewer than 30% of years has a loss
+// distribution whose 70th percentile is ZERO, so pricing off it would charge
+// nothing for exactly the layers that most need a margin. REINSURANCE_LOAD_
+// CLF_AT_70 is the POOL-level CLF table read at 0.70 — a multiplier on an
+// EXPECTED loss, which behaves properly at any hit rate. See its own note.
+//
+// The expected loss is computed at runtime from the severity-trended
+// distributions, so this price does not inherit the stale held figure that
+// commit 3's trend test found under the old rate.
+// ============================================================================
+function layerPriceFrom(line: TowerLine, expected: number): number {
+  return expected * REINSURANCE_LOAD_CLF_AT_70[line];
 }
 
-export function expectedCededForLayer(line: TowerLine, layerIndex: number, members: Member[], yearNumber: number): number {
+export function layerPremium(line: TowerLine, layerIndex: number, members: Book, yearNumber: number): number {
+  return layerPriceFrom(line, layerRiskMoments(line, layerIndex, members, yearNumber).expected);
+}
+
+export function expectedCededForLayer(line: TowerLine, layerIndex: number, members: Book, yearNumber: number): number {
   return layerRiskMoments(line, layerIndex, members, yearNumber).expected;
 }
 
@@ -176,13 +201,13 @@ export interface OccurrenceProgramQuote {
 // allLayerRiskMoments. Pricing three layers separately walked the member list
 // three times and re-resolved each member's rating group and lambda each time.
 export function occurrenceProgramCost(
-  line: TowerLine, placed: boolean[], members: Member[], yearNumber: number,
+  line: TowerLine, placed: boolean[], members: Book, yearNumber: number,
 ): OccurrenceProgramQuote {
   const moments = allLayerRiskMoments(line, members, yearNumber);
   let premium = 0, expectedCeded = 0;
   REINSURANCE_TOWER[line].forEach((l, i) => {
     if (!(placed[i] && l.purchasable)) return;
-    premium += moments[i].expected + RISK_LOAD_LAMBDA * moments[i].sd;
+    premium += layerPriceFrom(line, moments[i].expected);
     expectedCeded += moments[i].expected;
   });
   return { premium, expectedCeded };
@@ -307,12 +332,45 @@ function layerMoments(mean: number, cv: number, a: number, b: number) {
 export function quoteAggregate(
   line: 'WC' | 'Property',
   placed: boolean[],
-  members: Member[],
+  book: Book,
   expectedGrossLoss: number,
   level: number,
   yearNumber: number,
   termsRetained?: number,
 ): AggregateQuote {
+  // ⚠ ON THE NEW LOSS ENGINE, PRICED ON THE NEW ENGINE'S OWN LOSSES — the same
+  // rule as the occurrence layers (see layerRiskMomentsFor): the expected
+  // recovery is computed on what the engine actually draws, and the price is
+  // that x the line's CLF at 70%.
+  //
+  // The aggregate attaches on the ANNUAL TOTAL the pool retains after the
+  // layers it placed: ordinary losses with their uplift, plus every large
+  // loss less its cession. E[R] is the caller's expected gross less the
+  // placed layers' expected cession — the same derivation the WC path below
+  // uses, so the two cannot drift — and SD[R] is the new engine's own
+  // (retainedSd). The stop is priced on a lognormal with those two moments,
+  // the fit the WC aggregate has always used. Before commit 2 the retained
+  // total was ordinary losses alone, at 2.2% CV, and this rounded to nothing.
+  if (newLossEngineRuns()) {
+    const effective = placed.map((on, i) => on && REINSURANCE_TOWER[line][i].purchasable);
+    const layerMoms = allLayerRiskMoments(line, book, yearNumber);
+    const cededByPlaced = REINSURANCE_TOWER[line].reduce((t, _l, i) => t + (effective[i] ? layerMoms[i].expected : 0), 0);
+    const expectedRetained = Math.max(1, expectedGrossLoss - cededByPlaced);
+    const exposure = bookExposureOf(book, line, yearNumber);
+    const sdRetained = retainedSd(line, effective, exposure, yearNumber);
+    const termsBasis = Math.max(1, termsRetained ?? expectedRetained);
+    const rawAttachment = termsBasis * AGG_ATTACHMENT_LEVELS[line][level];
+    // Property's terms are agreed in whole $1M, as on its own path below.
+    const attachment = line === 'Property' ? Math.round(rawAttachment / 1e6) * 1e6 : rawAttachment;
+    const limit = termsBasis * AGG_LIMIT_MULTIPLE;
+    const { expected } = layerMoments(expectedRetained, sdRetained / expectedRetained, attachment, attachment + limit);
+    return {
+      attachment, limit, expectedRetained, sdRetained,
+      expectedCeded: expected, premium: layerPriceFrom(line, expected),
+    };
+  }
+
+  const members = rosterOf(book, 'quoteAggregate (the old engine)');
   if (line === 'Property') {
     // ONE moment pass — same role as WC's layerMoms below, feeding
     // expectedRetained = expectedGrossLoss minus what the PLACED layer cedes.
@@ -345,14 +403,16 @@ export function quoteAggregate(
   const termsBasis = Math.max(1, termsRetained ?? expectedRetained);
   const attachment = termsBasis * AGG_ATTACHMENT_LEVELS.WC[level];
   const limit = termsBasis * AGG_LIMIT_MULTIPLE;
-  const { expected, sd } = layerMoments(expectedRetained, sdRetained / expectedRetained, attachment, attachment + limit);
+  const { expected } = layerMoments(expectedRetained, sdRetained / expectedRetained, attachment, attachment + limit);
 
   return {
     attachment, limit, expectedRetained, sdRetained,
     expectedCeded: expected,
-    // SAME risk-load parameter as the occurrence layers. One market view across
-    // the whole program, not a second knob for the aggregate.
-    premium: expected + RISK_LOAD_LAMBDA * sd,
+    // SAME load as the occurrence layers. One market view across the whole
+    // program, not a second knob for the aggregate — which is why the
+    // aggregate moved to the CLF multiplier with them rather than keeping
+    // lambda x SD to itself.
+    premium: layerPriceFrom(line, expected),
   };
 }
 

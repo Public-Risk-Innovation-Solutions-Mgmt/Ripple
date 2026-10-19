@@ -1,5 +1,138 @@
 # AWS session handler — handoff
 
+## ⚠ TWO NEW ROUTES MIKE MUST ADD
+
+The lobby added two endpoints to the seven-endpoint handler. API Gateway routes
+each one explicitly, so **the handler shipping is not enough — these two routes
+have to be created or they 404 at the gateway before the Lambda is reached**:
+
+```
+POST /listEvents        no Authorization header — the lobby has no passcode
+POST /setEventHidden    Authorization: Bearer <host token>
+```
+
+Same v2 HTTP API proxy integration, same Lambda, same everything else as the
+five that exist (`createRoom`, `join`, `submit`, `advance`, `read`). Nothing in
+the handler changed to add them beyond their names: dispatch is
+`transport[endpoint]`, so a route is a list entry plus a transport method.
+
+`listEvents` is the only endpoint that takes **no token at all**, and that is
+deliberate — the lobby is public and its rows carry no tokens, no team names
+and no roster. If an authorizer is ever put in front of these routes, it must
+not be put in front of that one.
+
+**`GET /` is not a route here.** The lobby is the front end's root path, served
+by the static site; only the two POSTs above are the gateway's business.
+
+## ⚠ Deploy the handler and the front end together (multiplayer)
+
+**This applies to the lobby change as well, and the two land together.** A new
+front end against an old handler calls `listEvents` and gets a gateway 404,
+which the client reports as `TRANSPORT_FAILURE` — the lobby renders its error
+and lists nothing, so the main URL is a dead page. `setEventHidden` 404s the
+same way, so the host's hide control fails every time it is used. Neither is
+subtle and neither corrupts anything, but both make the product look broken.
+
+The late-join rule makes the order matter more than it did. **The server is the
+rule** — a new team is refused once an event is IN_PROGRESS — so an OLD handler
+under a new front end accepts late teams the screens say are impossible: the
+lobby greys the Team Leader card, and a client that posts anyway gets a seat.
+That is the one direction that puts a room into a state nothing downstream
+expects, which is the reason the order is not merely cosmetic.
+
+**So: deploy the handler first, then the front end.** That order is safe both
+ways, for this change and for the host-picks-lines change below. The two ship
+through different pipelines and nothing enforces the order.
+
+The `multiplayer` branch also changes the session contract: a room stores its
+coverage `lines` and `priorDevelopment`, chosen by the host at creation, and
+`join` no longer sends lines (`LINES_LOCKED` is gone with the field).
+
+**A new front end against an old handler is a hard break.** `createRoom`'s
+`lines` is dropped, the room is created without them, and every join is then
+refused with `INVALID_REQUEST` because the new client sends no lines — an
+unjoinable room. The other direction is safe on purpose: a new handler **ignores**
+a stray `lines` on a join and returns the room's set.
+
+### The host's Decisions tab — a third change in the same deploy
+
+`TeamYearSummary` gained an optional `decisions` section: what each team chose
+for a year, carried in the record it already posts at year end, so the host can
+read it back once the year is advanced. **This ships with the lobby and
+host-picks-lines changes above, under the same rule — handler first, then the
+front end.**
+
+**The handler itself carries no new code for it.** There is no new endpoint and
+no new item: `submit` stores `req.result` whole into the R# item, and the
+handler routes the payload without inspecting it, so a new field inside an
+existing payload needs nothing from it. The deploy order still matters for the
+ordinary reason — the stored row gains a field, and a new front end against an
+old handler finds rows that do not carry it.
+
+**Both directions are soft, which is the one way this is easier than the two
+above.** The field is optional and its absence is defined as "not recorded": a
+new front end against an old handler renders a dash on the Decisions tab for
+rows written before the change, and an old front end against a new handler
+ignores a field it does not read. Nothing is refused and no room becomes
+unusable. Rows written before this change stay readable forever on the same
+rule, so there is no migration.
+
+**It roughly doubles the host's read.** A three-line decisions block is a
+measured +748 bytes per year-row, flat, which takes a ten-team ten-year host
+read from ~87 KB to ~160 KB. The read is ETag'd on `rev`, so an unchanged poll
+is still a 304 and transfers nothing; the cost falls on reads already carrying
+a changed body. Worth re-examining if rooms get much larger than 10x10 — see
+the READ section of `src/session/server/keys.ts` for why the obvious saving
+(hoisting the pool-wide allocation and risk-control fields out of the per-line
+block) is not available honestly.
+
+Nothing on `multiplayer` is deployed yet, so there is no live break today.
+
+### Reinsurance packages — a contract change (loss engine commit 4a)
+
+**This deploys handler first, then the front end, on the same rule.** Inside
+the decisions section, each line's `layersPlaced` (one boolean per band) and
+`aggregateStopLevel` are replaced by **`reinsuranceOption`** — the package the
+team bought (`$9M xs $1M`, `none`, …); see `TeamLineDecisions` in
+`src/session/contract.ts`. The host Decisions tab shows each line's package
+and flags `none` as "Reinsurance declined".
+
+The handler carries no new code for it — `submit` stores `req.result` whole —
+so, as with the decisions section itself, the order matters for the stored
+rows, not for routing. A new host screen reading a row posted under the old
+shape renders a dash for the package (not recorded); an old host screen
+reading a new row would find no `layersPlaced` to count, which is the
+direction to avoid. The block is 63 bytes smaller than before (measured,
+752 -> 689 at the defaults).
+
+**Contract harness:** the decisions fixture posts a non-default package and
+the host must read back exactly that package and neither retired field;
+confirmed to fail against the old shape. Run on every pass —
+`npm run contract:dynamo`, `npm run contract:built`, `npm run contract:races`.
+
+### Ten worlds — the surplus spread (loss engine commit 4b)
+
+**This also deploys handler first, then the front end.** Each team's year now
+runs in ten worlds and every figure a team posts is the AVERAGE across them.
+`TeamYearSummary` gains `surplusRange: { min, median, max }` — the pool's
+ending surplus in the worst, middle and best world — on every played year (not
+on the opening position). The host's Teams table shows the minimum beside the
+average. The handler stores the result whole, so it carries no new code; a new
+host screen reading a row posted before the change shows a dash in the minimum
+column. About 93 bytes a year, measured.
+
+**Contract harness:** the fixture posts an off-centre spread and the host must
+read back exactly that minimum, median and maximum; confirmed to fail against
+a summary without it (three assertions per pass).
+
+**What CI runs.** `.github/workflows/handler.yml`, on a pull request into
+`aws`, runs the typecheck, `contract:dynamo` and `contract:races` against
+DynamoDB Local. **It does not run `contract:built`** (the zip's own
+`index.js`), so that pass must be run by hand before `multiplayer` merges into
+`aws`. Docker is available in the cloud container once `dockerd` is started
+(see below); every pass was run there for this change.
+
+
 For whoever (or whichever Claude session) picks up the review/prod AWS work next. This is the
 build spec for the one piece nothing else can proceed without: the real Lambda handler. Read
 `SESSION_PRACTICES.md` and `src/session/server/keys.ts` before writing any code — they are
@@ -171,7 +304,7 @@ deploys nothing is not useful to build first. Start here.
 | `src/session/server/dynamo.ts` | DynamoDB Document Client factory, reading `TABLE_NAME` from the environment (never hard-coded — see `keys.ts`). `hashToken` (SHA-256 hex via `node:crypto` — hosted tokens must be hashed before they touch the table, never stored raw; `keys.ts` is explicit about this for the `CREATE#` index and it applies to every token-bearing item). `newTeamId`. `newRoomCode` — same alphabet/length as `localTransport.ts` uses, duplicated rather than imported (importing would drag a browser-oriented module into the Lambda bundle for one constant). |
 | `src/session/server/views.ts` | `buildRoomView`, `buildTeamView`, `buildCallerView`, `statusOf`, `highestPlayedYear` — the same projections `localTransport.ts` does (compare its `roomView`/`teamView`/`callerView`/`statusOf` functions), rewritten over the DynamoDB header's `roster` map plus queried `D#`/`R#` items instead of an in-memory record. |
 | `src/session/server/rooms.ts` | `export class DynamoSessionTransport implements SessionTransport` — the five endpoints, against DynamoDB. Semantics below. |
-| `src/session/server/handler.ts` | `export const handler` — the actual Lambda entry point. API Gateway **v2 HTTP API** proxy integration (`APIGatewayProxyEventV2` / `...ResultV2` from `@types/aws-lambda`, since the guide's environment is an HTTP API, not a REST API). Routes `POST /<endpoint>` (`createRoom`/`join`/`submit`/`advance`/`read`) to `DynamoSessionTransport`, JSON (de)serializes, maps a thrown `SessionError` to an HTTP status + `{error:{code,message,retryable}}` body matching what `httpTransport.ts`'s `codeForStatus`/`ErrorBody` parsing expects. **No CORS headers** — the guide (section 10) is explicit that API Gateway owns CORS and the handler must not add any. |
+| `src/session/server/handler.ts` | `export const handler` — the actual Lambda entry point. API Gateway **v2 HTTP API** proxy integration (`APIGatewayProxyEventV2` / `...ResultV2` from `@types/aws-lambda`, since the guide's environment is an HTTP API, not a REST API). Routes `POST /<endpoint>` (`createRoom`/`join`/`submit`/`advance`/`read`/`listEvents`/`setEventHidden`) to `DynamoSessionTransport`, JSON (de)serializes, maps a thrown `SessionError` to an HTTP status + `{error:{code,message,retryable}}` body matching what `httpTransport.ts`'s `codeForStatus`/`ErrorBody` parsing expects. **No CORS headers** — the guide (section 10) is explicit that API Gateway owns CORS and the handler must not add any. |
 | `scripts/tools/build-handler.ts` | Bundles `handler.ts` with `esbuild` (new devDependency) into a single CJS file — `platform:'node'`, `target:'node22'`, everything bundled (no externals) for an arm64-safe single artifact per the guide's pipeline spec (section 6). Zips it with `fflate` (already a dependency, no new dep needed) to `dist-lambda/handler.zip` with `index.js` at the zip root exporting `handler`. Run via `npx tsx scripts/tools/build-handler.ts`, matching how every other script in `scripts/tools/` and `scripts/diagnostics/` runs. Wire as `npm run build:handler` in `package.json` — the guide's pipeline (section 6) expects exactly that script name. |
 
 *(⚠ Correction 5: see Status for what else had to change. The build also unzips its own output,

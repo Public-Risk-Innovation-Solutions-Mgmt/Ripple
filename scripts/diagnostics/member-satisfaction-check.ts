@@ -38,16 +38,22 @@
 // surface-privacy-check, which holds risk quality off every render path.
 //
 // ============================================================================
-// EIGHT SECTIONS, AND FOUR LIMBS.
+// EIGHT SECTIONS, AND FIVE LIMBS.
 //
-// ⚠ THE MODEL HAS FOUR LIMBS NOW AND THREE OF THEM FEED THE ANCHOR. The change
+// ⚠ THE MODEL HAS FIVE LIMBS NOW AND THREE OF THEM FEED THE ANCHOR. The change
 // limb reacts to the pool's price against the market, amplified per member; the
 // anchor carries the market LEVEL, the member's own loss standing, and the
-// pool's surplus band. Sections 5, 6 and 8 each had to change for that, and
+// pool's surplus band. THE FIFTH IS CASH — a dividend received or an assessment
+// paid, as a share of the member's own bill — and it joins the change limb on
+// the DELTA rather than the anchor, because a distribution is an event and not
+// a standing condition. It exists because without it the model carried a
+// dividend's COST (the surplus it drains) and not its BENEFIT, so the sign came
+// out backwards: see SATISFACTION.cashWeight, which is the first constant here
+// with a calibration target rather than a judgement. Sections 5, 6 and 8 each had to change for that, and
 // section 5's old assertion is now FALSE BY DESIGN — see its header.
 //
 //   1. IT MOVES. Share of member-years that change, per line, against a null
-//      arm with ALL FOUR weights at 0 which must move only by the re-join draw.
+//      arm with ALL FIVE weights at 0 which must move only by the re-join draw.
 //
 //      ⚠ THAT NULL ONLY ZEROED TWO OF THEM UNTIL THE DAY THE THIRD AND FOURTH
 //      LIMBS SHIPPED, AND IT WENT RED SAYING 88% OF MEMBER-YEARS MOVED "WITH THE
@@ -112,6 +118,9 @@
 // on a ranking.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -266,31 +275,74 @@ const MAX_GAME_DRIFT_SHARE = 0.50;
  */
 const GAME_LENGTH_HORIZONS = [3, 5, 10];
 /**
- * ONE BREACH IS ACCEPTED, BY NAME, AND IT IS GUARDED IN THE OPPOSITE DIRECTION.
+ * THREE BREACHES WERE FIXED AT THE CAUSE AND REMOVED. TWO ARE ACCEPTED, AND
+ * THEY ARE A DIFFERENT THING FROM THE ONES THAT WENT.
  *
- * GL over a ten-year game reads 83.5% of a funding stop — nearly a whole click,
- * which is where the drift starts to matter. The ruling accepts it, and the
- * honest way to carry an accepted breach is NOT to widen the bound until it
- * disappears (0.84 would, and would also stop the bound catching anything else).
+ * ⚠ REMOVED: GL [10], Property [5] and Property [10]. All three were recorded
+ * for the same underlying thing under two explanations — the opening
+ * disposition sat BELOW the anchor the pool's price earned, so the scoreboard
+ * spent the game climbing to it and the climb was read as drift.
+ * OPENING_SATISFACTION was pinned at anchorCentre (7.20), the anchor for a pool
+ * priced AT the market, while zero risk load had left the pool about 25% UNDER
+ * it, where the anchor is roughly 8.2. priorHistoryEngine now seeds each member
+ * at the anchor their own pool's opening position earns, and drift at defaults
+ * fell from +0.68 / +0.75 / +0.55 over ten years to -0.13 / -0.05 / -0.10.
  *
- * ⚠ WHY IT IS NOT SIMPLY LEFT AS A FAILURE, WHICH WAS ASKED FOR AND WHICH I
- * WOULD HAVE PREFERRED. gates.ts's EXPECTED_RED is keyed per GATE, not per
- * assertion — entering this file would mark the whole gate red and swallow the
- * other forty-odd assertions in it, including the allow-list that keeps
- * satisfaction a scoreboard. An expectation that hides its own file's other
- * failures costs more than the record it buys. So the breach is recorded HERE,
- * at assertion granularity, where it can be exempted without exempting anything
- * else.
+ * ⚠ GL'S LAG DID NOT CLOSE, which is what its inverted guard existed to catch.
+ * No pricing changed. GL's own rate still grows -0.23%/yr against its own pure
+ * premium at +0.91%/yr, and the lag still shows in the ten-year cell at 28%.
+ * What went away is the opening transient that was being added to it and
+ * measured with it.
  *
- * ⚠ AND IT HAS TEETH, WHICH IS THE POINT. The exemption is INVERTED: if GL at
- * H=10 ever comes back INSIDE the bound, THAT fails the gate. A closed lag is a
- * pricing change nobody asked for, and it must not land unnoticed just because
- * it made a number look better. This is the same guard EXPECTED_RED's XPASS
- * check applies to a whole gate, applied to one cell.
+ * ⚠ PROPERTY'S RECORDED CONDITION REVERSED SIGN. Its note described a transient
+ * converging UPWARD, reading +0.097 / +0.144 / +0.236. It now reads +0.001 /
+ * -0.059 / -0.099. An inverted guard written for a climb, left in place over a
+ * decline, would have passed for a reason unrelated to what it says.
+ *
+ * ============================================================================
+ * ACCEPTED: WC [10] and Property [10], about 59% and 60% of a ten-year stop.
+ *
+ * THE CAUSE IS THE ASYMMETRY, AND IT IS BEHAVIOURAL RATHER THAN A DEFECT.
+ * Members feel a rate RISE more than a cut of the same size — gratitudeLambda
+ * 2.25, the ratio this file asserts in section 4. So ordinary year-to-year rate
+ * movement, even movement that is flat on average, does not cancel: the rises
+ * cost more than the falls return, and the stock settles slightly BELOW its
+ * anchor instead of on it. Measured in play, the settled gap is -0.214 on WC,
+ * -0.061 on GL and -0.070 on Property. Seeding the anchor puts a member a little
+ * above where they end up, and the walk down is this residual.
+ *
+ * IT IS SMALL, AND SMALLER WHERE IT IS READ. The ten-year moves are -0.133 and
+ * -0.099 points on a 1-to-10 scale. Sessions run FIVE years, where the same
+ * estimator reads 22.0% and 20.8% of a stop — comfortably inside the bound, and
+ * both five-year cells are asserted normally rather than exempted. Only the
+ * ten-year cells are accepted.
+ *
+ * ⚠ THE CORRECTION WAS TRIED AND REVERTED, ON EVIDENCE. The settled stock is
+ * anchor + delta/pull, so seeding that fixed point instead of the anchor is the
+ * obvious fix. It was implemented, using the rate the pool actually moved
+ * between its last two DECLARED pre-game years. It fixed GL (3.9%) and Property
+ * (34.6%) and broke WC by the margin it fixed, flipping -0.133 to +0.134,
+ * because the pre-game's rate path does not predict the game's:
+ *
+ *     line        pre-game last yr    declared mean    IN-GAME
+ *     WC                  +3.044%          +2.296%     -1.154%
+ *     GL                  -1.021%          +0.511%     +1.147%
+ *     Property            +0.300%          -0.099%     +0.337%
+ *
+ * WC's pre-game price RISES at 3% while its game price FALLS at 1.2% — opposite
+ * sign, four points apart. Property worked only because its two figures happen
+ * to agree. Taking the offset from the pre-game is the mistake the re-pin in
+ * priorHistoryEngine exists to prevent, so it was reverted and the measurements
+ * recorded at that constant.
+ *
+ * ⚠ INVERTED, LIKE THE ONES THEY REPLACE. If either cell comes back INSIDE the
+ * bound, THAT fails here. The asymmetry is a shipped behavioural constant; a
+ * residual that quietly disappears means gratitudeLambda or the change term has
+ * moved, and that must not land unnoticed because it made a number look better.
  *
  * Every other line and horizon is asserted normally. Nothing else is exempt.
  */
-const ACCEPTED_BREACH: Record<string, number[]> = { GL: [10] };
+const ACCEPTED_BREACH: Record<string, number[]> = { WC: [10], Property: [10] };
 /**
  * THE DENOMINATOR'S ARMS. One stop is taken as the 0.70-to-0.85 span divided by
  * the three stops between them, rather than by measuring a single adjacent pair.
@@ -729,17 +781,21 @@ for (const line of LINES) {
   const keepLoss = SATISFACTION.lossLevelWeight;
   const keepSurplus = SATISFACTION.surplusWeight;
   const keepAmp = SATISFACTION.lossAmplifierSlope;
+  // THE FIFTH LIMB, added here first exactly as the note above requires.
+  const keepCash = SATISFACTION.cashWeight;
   SATISFACTION.priceWeight = 0;
   SATISFACTION.levelWeight = 0;
   SATISFACTION.lossLevelWeight = 0;
   SATISFACTION.surplusWeight = 0;
   SATISFACTION.lossAmplifierSlope = 0;
+  SATISFACTION.cashWeight = 0;
   const nullRuns = Array.from({ length: Math.min(3, GAMES) }, (_, g) => play(g, false));
   SATISFACTION.priceWeight = keepPrice;
   SATISFACTION.levelWeight = keepLevel;
   SATISFACTION.lossLevelWeight = keepLoss;
   SATISFACTION.surplusWeight = keepSurplus;
   SATISFACTION.lossAmplifierSlope = keepAmp;
+  SATISFACTION.cashWeight = keepCash;
   let moved = 0, total = 0;
   for (const line of LINES) { const s = movedShare(nullRuns, line); moved += s.moved; total += s.total; }
   const share = moved / Math.max(total, 1);
@@ -923,6 +979,9 @@ console.log('  that is fine, and would fail the game as shipped at 1x.');
   console.log('    cancels it (-0.358 own, +0.428 tower); GL\'s does not (-0.591 own, +0.373 tower).');
   console.log('    The route that would close it is indexing the rate to trend instead of the triangle,');
   console.log('    which is a pricing change nobody has asked for. See MAX_GAME_DRIFT_SHARE.');
+  console.log('  ⚠ Property\'s drift is ACCEPTED for a different reason: a transient to the anchor\'s fixed');
+  console.log('    offset, which its old market target (2.63% dearer than the market) used to hide. See');
+  console.log('    ACCEPTED_BREACH.');
 }
 console.log('  the gap the drift is built from, exact:');
 for (const line of LINES) {

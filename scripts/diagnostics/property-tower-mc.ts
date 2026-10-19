@@ -18,6 +18,9 @@
 // What re-measuring properly then exposed: an 18% understatement at the higher
 // attachment that was REAL and was this module's own defect — see section 0.
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

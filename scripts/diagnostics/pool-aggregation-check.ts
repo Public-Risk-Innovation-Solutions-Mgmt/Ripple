@@ -34,6 +34,9 @@
 // required nothing.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -59,6 +62,13 @@ const DOLLARS = new Set([
   'poolPremium', 'adminExpense', 'poolPremiumAndAdminExpense', 'totalMemberCharge',
   'grossPremium', 'assessments', 'dividends', 'aggregateMemberLoss',
   'grossUltimateLoss', 'reinsuranceCost', 'retainedAboveTower', 'aggregateRecovery',
+  // ⚠ A DOLLAR FIGURE THE POOL DOES NOT OWN, AND IT STILL SUMS. What fell
+  // above the pool's per-occurrence limit is the MEMBER'S loss, counted in no
+  // pool total — but it is dollars, it is per line, and the pool-level figure
+  // a team reads is the sum of its lines'. Classifying it anywhere else would
+  // say the addition is wrong, which it is not; what is true of it is said at
+  // the field and at POOL_LIMIT_PER_OCCURRENCE, not by this set.
+  'memberShareAboveLimit', 'developmentAbovePoolLimit',
   // Additive for the same reason its gross and net neighbours are: it is the
   // same register at a different point in the booking, so the pool figure is
   // the sum of the lines and nothing else. ⚠ BOTH OF THEM: the net twin was
@@ -76,6 +86,17 @@ const DOLLARS = new Set([
   'aggregatePremium', 'reinsuranceRecovery', 'netUltimateLoss', 'netIncurredLoss',
   'operatingExpense', 'riskControlInvestment', 'priorYearDevelopment',
   'beginningNetReserve', 'currentYearNetReserve', 'netPaidLosses', 'endingNetReserve',
+  // ⚠ THE DERIVED CASE / IBNR SPLIT. Additive, and for the plainest reason on
+  // this list: they are net dollars of unpaid reserve at one valuation, and
+  // caseReservesNet + ibnrNet is endingNetReserve — which is directly above and
+  // additive itself. A split of an additive quantity adds the same way.
+  //
+  // What is NOT additive is the SHARE they are derived from, which is why that
+  // is nowhere near this file: three lines sit at three ages on three patterns,
+  // so there is no pool-level age to re-derive a pool share at. The dollars are
+  // summed and the ratio is never re-derived. See reserveSplit.ts.
+  'caseReservesNet', 'ibnrNet', 'caseReservesGross', 'ibnrGross',
+  'caseReservesCeded', 'ibnrCeded',
   'investedAssets', 'investmentIncome', 'outstandingLoanBalance', 'loanRepaymentApplied',
   'loanInterestAccrued', 'loanOriginatedThisYear',
   // ⚠ THESE TWO SUM TO ZERO AT POOL SCOPE RATHER THAN TO A TOTAL, and they are
@@ -87,6 +108,11 @@ const DOLLARS = new Set([
   'expectedLoss', 'clfAdjustedExpectedLoss',
   'expectedNetUnpaidLoss', 'priorYearDevelopmentCeded', 'bookingGiveBack',
   'netFundingTarget', 'indicatedNetReserveAtConfidenceLevel', 'reserveRiskMarginNeeded',
+  // The retained-catastrophe term INSIDE reserveRiskMarginNeeded. Dollars, and
+  // additive for the same reason the margin it sits in is: each line computes
+  // its own against its own book and placement. Zero on WC and GL, which have no
+  // catastrophe band, so the pool figure is Property's.
+  'catCapitalNeeded',
   'fundingMarginNeeded', 'availableFunding', 'availableSurplus', 'fundingGap',
   'capitalFundingGap', 'excessAvailableSurplus', 'underwritingIncome', 'netIncome',
   'beginningCash', 'endingCash', 'beginningInvestments', 'endingInvestments',
@@ -95,6 +121,11 @@ const DOLLARS = new Set([
 ]);
 
 // Distinct member counts — deduplicated by id, equal to the line value at line scope.
+// A COUNT OF CLAIMS, NOT OF MEMBERS, so it cannot join DISTINCT_MEMBERS — two
+// lines' pierced claims are different claims and simply add. Its own set
+// rather than a comment inside someone else's.
+const CLAIM_COUNTS = new Set(['claimsAboveLimit']);
+
 const DISTINCT_MEMBERS = new Set(['activeMembers', 'newMembers', 'withdrawnMembers']);
 
 // Per-line enrolment counts. A weight, never a headcount.
@@ -137,7 +168,7 @@ const FIRST_LINE_PLACEHOLDER = new Set([
   'historyAttempt',
 ]);
 
-const ALL = [DOLLARS, DISTINCT_MEMBERS, ENROLMENTS, MIXED_UNIT_EXPOSURE, RECOMPUTED_RATIOS,
+const ALL = [DOLLARS, CLAIM_COUNTS, DISTINCT_MEMBERS, ENROLMENTS, MIXED_UNIT_EXPOSURE, RECOMPUTED_RATIOS,
   NO_POOL_MEANING, FIRST_LINE_PLACEHOLDER];
 
 function play(id: string, seed: number, lines: CoverageLine[]): ResultSet[] {

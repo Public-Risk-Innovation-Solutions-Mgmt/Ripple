@@ -39,6 +39,7 @@ import {
   computeKPr, deriveNeutralPropertyPurePremiumPer100, deriveNeutralPropertyPurePremiumSplit,
   expectedPropertyAttritionalLoss, expectedPropertyGrossLoss,
   generatePropertyClaims, propertySeverityMoment, propertySeverityCap, PROPERTY_MEAN_SEVERITY,
+  PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR, propertyCappedSeverityTrend,
 } from '../../src/utils/propertyClaimEngine';
 import { CAT_REGIONS, catEventGrossDistribution } from '../../src/utils/propertyCatastrophe';
 
@@ -82,44 +83,62 @@ check(Math.abs(PROPERTY_MEAN_SEVERITY - 418_289) < 500,
   check(Math.abs(w - 1) < 1e-9, 'mixture weights sum to 1', w.toFixed(6));
 }
 
-// ⚠ PROPERTY'S CEILING IS WIRED LIKE WC's AND GL's BUT IS INERT, AND THIS
-// ASSERTS THE INERTNESS RATHER THAN TRUSTING THE COMMENT THAT CLAIMS IT.
+// ⚠ PROPERTY'S SEVERITY TRENDS NOW, ITS CEILING DOES NOT, AND THIS ASSERTS
+// BOTH HALVES RATHER THAN THE INERTNESS IT USED TO.
 //
-// WC and GL trend their ceilings at their own severity trends. Property's
-// propertySeverityTrend is exactly 1 — its severity does not trend at the DRAW,
-// because the construction-cost inflation is consumed by the accident-year ->
-// settlement convention instead. So propertySeverityCap must return the same
-// number in every year.
+// What stood here asserted that propertySeverityCap returned the same number in
+// every year, because Property's draw-side trend was exactly 0. It was a
+// TRIPWIRE, written to fire at whoever switched the trend on and send them to
+// propertySeverityCap's header, where three year-blind seams were listed. It
+// fired, and what it found is recorded in that header: the DRAW never routed
+// through propertySeverityTrend at all, so the constant alone would have
+// trended the ceiling and the price while leaving the losses in year-1 dollars.
 //
-// This matters more than an inert check usually would, because three things
-// silently assume it: PROPERTY_MEAN_SEVERITY is a module-level const,
-// expectedPropertyGrossLoss takes no yearNumber at all, and towerMoments'
-// propertyBandCache is a single slot with no year key. Worse, Property's
-// ceiling sets the per-risk layer's limit — so switching the trend on would
-// silently grow the purchased reinsurance tower. If someone gives Property a
-// severity trend, this check is the tripwire that should fire first and send
-// them to propertySeverityCap's header.
-//
-// ⚠ IT NO LONGER SETS TOWER_TOP.Property. That is PROPERTY_TOWER_TOP, the $1B
-// per-occurrence limit, decoupled when a regional event became one occurrence;
-// asserted below so the two cannot quietly re-weld. The one layer runs from the
-// $5M retention to that top.
+// The arrangement it now guards, which is GL's:
+//   - the ceiling is FLAT, a worst case that can be stated in any year
+//   - the severity MIXTURE trends, at the draw and in the capped moments alike
+//   - so the capped mean is NOT year-invariant, and the price must therefore
+//     carry propertyCappedSeverityTrend rather than the raw rate
+//   - towerMoments' Property band cache is keyed on the year, not one slot
 {
-  const caps = [1, 2, 5, 10, 20].map(y => propertySeverityCap(y));
+  const caps = [1, 2, 5, 10, 20].map(() => propertySeverityCap());
   const allSame = caps.every(c => c === caps[0]);
-  check(allSame, 'Property ceiling is year-invariant (its severity trend is exactly 1)',
-    `${caps.map(c => `$${(c / 1e6).toFixed(1)}M`).join(' ')}`);
-  check(caps[0] === M.severityCap, 'and equals PROPERTY_LOSS_MODEL.severityCap',
+  check(allSame && caps[0] === M.severityCap,
+    'Property ceiling is FLAT — stated in every year\'s dollars, as GL\'s is',
     `$${(caps[0] / 1e6).toFixed(1)}M`);
   const L = REINSURANCE_TOWER.Property;
-  check(L.length === 1 && L[0].attachment === M.perRiskRetention && L[0].attachment + L[0].limit === PROPERTY_TOWER_TOP,
-    'Property is ONE layer, from the $5M retention to the $1B top',
+  // ⚠ RE-CUT BY LOSS ENGINE COMMIT 4a. Property was ONE layer from the $5M
+  // retention to a $1B top; the tower is now cut at the packages' edges —
+  // retention to $25M, then $25M xs $25M — and tops out at the highest
+  // package edge, $50M. Above it is retained on every package.
+  check(L.length === 2 && L[0].attachment === M.perRiskRetention && L[1].attachment === 25e6
+      && L[0].attachment + L[0].limit === L[1].attachment && L[1].attachment + L[1].limit === PROPERTY_TOWER_TOP
+      && PROPERTY_TOWER_TOP === 50e6,
+    'Property is TWO layers, the $5M retention to $25M and $25M xs $25M, to a $50M top',
     L.map(l => `${l.name}`).join(', '));
   check(TOWER_TOP.Property === PROPERTY_TOWER_TOP && PROPERTY_TOWER_TOP !== M.severityCap,
-    'TOWER_TOP.Property is the $1B occurrence limit, decoupled from severityCap',
+    'TOWER_TOP.Property is the $50M package top, decoupled from severityCap',
     `$${(TOWER_TOP.Property / 1e6).toFixed(0)}M vs cap $${(M.severityCap / 1e6).toFixed(0)}M`);
-  const momentSame = propertySeverityMoment(1, 1, 1) === propertySeverityMoment(1, 1, 20);
-  check(momentSame, 'and the capped mixture moment is therefore year-invariant too');
+
+  // ⚠ THE MOMENT MUST MOVE WITH THE YEAR, and this is the assertion that fails
+  // against the old behaviour — it was `momentSame` and it was true.
+  const m1 = propertySeverityMoment(1, 1, 1);
+  const m10 = propertySeverityMoment(1, 1, 10);
+  check(m10 > m1 * 1.3,
+    'the capped mixture mean TRENDS with the year (year 10 vs year 1)',
+    `$${m1.toFixed(0)} -> $${m10.toFixed(0)}, x${(m10 / m1).toFixed(4)}`);
+
+  // ⚠ THE CAP BITES HARDER EACH YEAR AND THAT IS MEASURED, NOT ASSERTED AWAY.
+  // A flat ceiling over a trending distribution is not scale-invariant: the
+  // capped mean grows by LESS than the raw trend. The gap is what
+  // propertyCappedSeverityTrend carries into the price instead of the raw 5%.
+  const raw = Math.pow(1 + PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR, 9);
+  const capped = propertyCappedSeverityTrend(10);
+  console.log(`    [MEASURED] year-10 severity: raw x${raw.toFixed(4)}, capped x${capped.toFixed(4)} `
+    + `— the ceiling absorbs ${((1 - capped / raw) * 100).toFixed(2)}% of the trend by year 10`);
+  check(capped <= raw + 1e-12 && capped > 1,
+    'and the CAPPED trend is at or below the raw trend, which is what the price uses',
+    `${capped.toFixed(6)} <= ${raw.toFixed(6)}`);
 }
 
 console.log('\n--- 2. THE HELD PURE PREMIUM RECONCILES FROM ITS PARTS ---');
@@ -171,15 +190,30 @@ console.log('  The attritional band only: the cat band runs through primaryAsset
 }
 
 console.log('\n--- 4. INVARIANT 1: THE DRAW REPRODUCES THE ANALYTIC EXPECTATION ---');
-console.log(`  ${YEARS.toLocaleString()} independent full-roster years at neutral kPr and no risk control.\n`);
+console.log(`  ${YEARS.toLocaleString()} independent full-roster REPLICATES, all at YEAR 1, at neutral kPr and no risk control.\n`);
+// ⚠ THE REPLICATE INDEX IS NO LONGER THE ACCIDENT YEAR, AND THAT DISTINCTION
+// ONLY STARTED MATTERING WHEN PROPERTY GOT A SEVERITY TREND.
+//
+// This loop read `yearNumber: y` while y ran to 3,000, using the year as a
+// replicate counter. That was exact while propertySeverityTrend was identically
+// 1 and cost nothing. At 5%/yr it asks the generator for accident year 3,000,
+// where severity is 1.05^2999 of year 1 and every claim pins at the $75M cap:
+// measured, drawn/analytic read 149.35 and 95% of claims bound the cap. Neither
+// was an engine defect — the harness was requesting a year three millennia out.
+//
+// The analytic it is compared against is expectedPropertyGrossLoss, which is
+// deliberately YEAR-BLIND (it is the year-1 basis the held pure premium is
+// derived at — see propertyCappedSeverityTrend), so the draw must be at year 1
+// for the two to be the same quantity. Independence now comes from the SEED
+// alone, which is where it always actually came from.
 {
   const analytic = expectedPropertyGrossLoss(roster, { kPr: computeKPr(roster) });
   const totals: number[] = [];
   let counts = 0, maxClaim = 0, breaches = 0, capBinds = 0;
-  for (let y = 1; y <= YEARS; y++) {
+  for (let rep = 1; rep <= YEARS; rep++) {
     const r = generatePropertyClaims({
-      members: roster, yearNumber: y, calendarYear: 2025 + y,
-      instanceSeed: 990_000 + y * 7919, kPr: computeKPr(roster), riskControlEffectiveness: 0,
+      members: roster, yearNumber: 1, calendarYear: 2026,
+      instanceSeed: 990_000 + rep * 7919, kPr: computeKPr(roster), riskControlEffectiveness: 0,
     });
     totals.push(r.grossUltimateLoss);
     counts += r.claimCount; breaches += r.perRiskBreaches; capBinds += r.capBindings;
@@ -190,7 +224,7 @@ console.log(`  ${YEARS.toLocaleString()} independent full-roster years at neutra
   // A heavy tail needs a wide band on a sample mean — this is a convergence
   // test, not a calibration gate. Finding 26.
   check(Math.abs(ratio - 1) < 0.06, 'drawn / analytic within 6%, both bands', ratio.toFixed(4));
-  console.log(`\n  analytic $${(analytic / 1e6).toFixed(2)}M   drawn $${(drawn / 1e6).toFixed(2)}M   over ${YEARS.toLocaleString()} years`);
+  console.log(`\n  analytic $${(analytic / 1e6).toFixed(2)}M   drawn $${(drawn / 1e6).toFixed(2)}M   over ${YEARS.toLocaleString()} replicates`);
   console.log(`  claims/yr ${(counts / YEARS).toFixed(1)} (full market, ${fullTiv.toFixed(0)}M TIV)`);
   console.log(`  annual aggregate CV ${(Math.sqrt(mean(totals.map(t => (t - drawn) ** 2))) / drawn).toFixed(3)}`);
   console.log(`  p50 $${(q(totals, 0.5) / 1e6).toFixed(2)}M   p90 $${(q(totals, 0.9) / 1e6).toFixed(2)}M   p99 $${(q(totals, 0.99) / 1e6).toFixed(2)}M   worst $${(Math.max(...totals) / 1e6).toFixed(1)}M`);

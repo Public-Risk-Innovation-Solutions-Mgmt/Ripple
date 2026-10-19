@@ -7,7 +7,10 @@ import type { ClosureCurve } from '../utils/claimClosure';
 
 // Administrative expense is 15% of Pure Premium at CLF 1.000. It is added
 // after the selected CLF is applied and is not itself multiplied by the CLF.
-export const ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM = 0.15;
+// ⚠ DEFINED IN pricingParameters.ts NOW and re-exported here, so every
+// existing import keeps resolving and the engine reads the parameters module
+// transitively. Same value, moved home — see that file's header.
+export { ADMIN_LOAD_OF_EXPECTED_LOSS as ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM } from './pricingParameters';
 
 // EXCESS CAPITAL STATUS, by the excess capital ratio (excess surplus over the
 // reserve risk margin needed): at or above `strong` is Strong, at or above
@@ -349,10 +352,12 @@ export const WC_LOSS_MODEL = {
     },
   } as Record<WcRatingGroup, WcGroupModel>,
 
-  // Workplace safety improves ~1.5%/yr. Applied as (1 + trend)^(yearNumber-1),
-  // so live Year 1 is the reference (factor 1.0) and the pre-game years carry a
-  // factor slightly ABOVE 1 — the past was more dangerous.
-  frequencyTrendPerYear: -0.015,
+  // ⚠ WC'S FREQUENCY TREND HAS MOVED TO pricingParameters.ts AND IS ZERO. It
+  // was -1.5%/yr here, sourced from workplace safety improving at about that
+  // rate, and it is now FREQUENCY_TREND_PER_YEAR.WC — one place where all three
+  // lines' frequency trends are stated together. The field is removed rather
+  // than set to 0 because a second copy of a number is how the two come to
+  // disagree, and the engine read this one only through wcFrequencyTrend.
 
   // Per member-year frequency noise, mean 1 (SD 0.25). Makes claim counts
   // overdispersed relative to pure Poisson.
@@ -746,6 +751,106 @@ export const GL_LOSS_MODEL = {
   rqSeverityBeta: 0.060,
 } as const;
 
+// ============================================================================
+// HOW STEEPLY RISK QUALITY DRIVES LOSSES, PER LINE AND CHANNEL — CHOSEN, NOT SOURCED.
+//
+// A multiple on a line's risk-quality coefficients, per channel: the frequency
+// beta (theta = exp(-beta x frequency x (RQ - 5))) and the severity-tilt beta
+// (heavy weight x exp(-beta_s x severity x (RQ - 5))), in the exponential form
+// WC and GL already use. Property is 1x on both, so its linear form is
+// untouched and never meets the zero its slope would reach at RQ 10 past 2.5x.
+//
+// ⚠ NO PUBLISHED SPREAD EXISTS. No source was found for how far a public
+// entity's true loss cost runs between its best and worst members. Experience
+// mods centre on 1.0 and rating plans widen or compress their range by design,
+// and that is all. So these multiples are a judgement, made for what they make
+// legible:
+//
+//   PERSISTENCE, MATCHED ACROSS THE TWO LINES. At 1x a member's three-year
+//   loss ratio barely repeats (split-half 0.07 on WC, 0.03 on GL), so the 5%
+//   renewal cut removes unlucky members and the rate RISES. The target is the
+//   same persistence on both lines, not a chosen slope. Measured in the engine
+//   at these multiples, 10 games x 18 years, and the cut at year 10 over 40:
+//
+//     line                    split-half   5% renewal cut: book cost / rate
+//     WC  2x freq, 2x sev        0.278       -21.2% / -1.5% +/- 0.5
+//     GL  3.5x freq, 1x sev      0.276       -21.0% / -0.2% +/- 0.4
+//
+//   The cut now CLEANS both books by the same fifth. On WC that lowers the
+//   rate; on GL it holds the rate flat rather than raising it.
+//
+// ⚠ GL IS FREQUENCY-ONLY BECAUSE SEVERITY BROKE THE REAL-POOL ANCHOR. GL's
+// settled-claim log-SD has one external anchor, the real pool's 2.29
+// (CLAIM_SETTLED_LOG_SD_ANCHOR, terminal-severity-check). Steepening GL's
+// severity tilt to 2.5x widened drawn GL claims from 2.17 to 2.22 log-SD on its
+// own, and the settled figure read 2.344, outside the 0.05 tolerance; the gate's
+// remedy was to cut the revision law's phi by three-quarters. Frequency carries
+// the persistence signal without widening claim sizes, and it is the more
+// realistic model: a worse-run member has more incidents, not uniformly bigger
+// ones. At 3.5x frequency, 1x severity the settled figure reads 2.307. (Both
+// channels at 2.5x had matched persistence too, 0.32, before the anchor ruled it
+// out.)
+//
+//   WHAT THE SPREAD BECOMES. Expected cost of the marketplace's book were
+//   every member at RQ 1 against RQ 10, and between the 5th and 95th
+//   percentile of the marketplace's quality (RQ 2 against 8.3), both channels:
+//
+//     line       worst/best, 1x -> new    middle 90%, 1x -> new
+//     WC             3.4x -> 11.6x            2.36x -> 5.59x
+//     GL             2.8x -> 9.6x             2.05x -> 4.87x
+//     Property       unchanged (3.2x)         unchanged (2.16x)
+//
+// ⚠ AND EACH GAME'S OPENING BOOK NOW MATTERS MORE. The re-centring is exact
+// over the marketplace, but a game's opening book is a sample of it. Over 40
+// games the opening book's cost against today's scatters with an SD of 8.4% on
+// WC (mean -3.3% +/- 1.3%: WC's opening books average RQ 5.07 against the
+// marketplace's 5.02, and the steeper slope amplifies that mild selection) and
+// 6.0% on GL (mean -0.05%). The pre-game's opening band also redraws more
+// often, so a game's opening roster can differ from the one it had at 1x. The
+// pool's own triangle prices what its book actually costs; the RQ-5 rate card
+// does not move.
+//
+// THE CONFIDENCE TABLES HOLD WITHOUT RE-DERIVATION. Drawn quantiles of six real
+// opening books per line against the shipped tables, 10,000 draws each: the
+// tables' error moves by at most 0.014 (WC, keyed on CV) and 0.017 (GL, keyed on
+// expected claim count, which falls 339 -> 318 on those books, where the error
+// shrinks). That is small next to WC's own pre-existing tail gap (-0.18 at p90,
+// -0.22 at p95 today).
+//
+// Property stays at 1x. Its renewal is off and the modifier leaves it unrated,
+// so a steeper slope would raise its spread without making any decision more
+// meaningful.
+// ============================================================================
+export const RISK_QUALITY_SLOPE = {
+  WC: { frequency: 2, severity: 2 },
+  GL: { frequency: 3.5, severity: 1 },
+  Property: { frequency: 1, severity: 1 },
+} as const;
+
+// ============================================================================
+// THE RE-CENTRING THAT KEEPS AN AVERAGE MEMBER AVERAGE.
+//
+// The factors multiply, so a steeper curve is not mean-neutral: the
+// marketplace's average member would cost 1.141x the RQ-5 rate card on WC
+// (1.036x today) and 1.128x on GL (1.029x today). Every evaluation at a
+// member's ACTUAL quality (the draw, the actual-quality expectations, the
+// loss-distribution cumulants) is scaled by this constant, which puts the
+// marketplace's average back exactly where it was.
+//
+//   centre = (marketplace cost at 1x) / (marketplace cost at the new slope)
+//
+// over getPredefinedMarketMembers() (the fixed 200-member marketplace), dollar
+// weighted on the both-channel basis at year 1.
+//
+// ⚠ THE RQ-5 RATE CARD IS NOT SCALED, AND THAT IS WHAT HOLDS THE PURE PREMIUM.
+// The pricing basis (riskQualityOverride 5), the held pure premium and the
+// tower's neutral moments all read theta at RQ 5, which stays exactly 1. So an
+// average book keeps costing what it costs today against an unchanged rate
+// card, and a member who really is RQ 5 now draws `centre` of the card: the
+// average member is no longer the RQ-5 member once the curve is this convex.
+// ============================================================================
+export const RISK_QUALITY_CENTRE = { WC: 0.908436, GL: 0.912829, Property: 1 } as const;
+
 // Base retention probability per member per year — high by default for realistic public entity pools
 export const BASE_RETENTION = 0.95;
 
@@ -1065,6 +1170,47 @@ export const MAX_NEW_MEMBER_SHARE = 0.10;
  */
 export const APPLICATION_RATE = 0.06;
 
+/**
+ * ADVERSE SELECTION ON WHO APPLIES. Each available non-member's chance of being
+ * among this year's applicants is weighted by exp(s . (5 - riskQuality)), so a
+ * worse risk is more likely to want in than a better one. 0 reproduces the
+ * unweighted draw exactly.
+ *
+ * ⚠ WHY ANY SKEW AT ALL — THE DIRECTION IS SOURCED, AND THE ENGINE SUPPLIES THE
+ * INCENTIVE. The members most eager to join a pool are often the ones the
+ * market just declined or priced up; adverse selection under pooled pricing is
+ * standard theory (Akerlof 1970; Rothschild and Stiglitz 1976). And this pool
+ * prices almost flat in true quality: the experience modifier passes through
+ * only Z = 15% (WC), 7.5% (GL) and 0% (Property) of a member's own cost
+ * deviation. A quality-2 member costs WC about 45% more than average and pays
+ * at most about 7% more, so the pool is a bargain for a bad risk and dear for a
+ * good one. Without a skew, applicants arrive at the marketplace's own average
+ * quality — the book's — and screening them can gain almost nothing.
+ *
+ * ⚠ THE SIZE IS CHOSEN, NOT SOURCED. Nothing in this repo or in a source to
+ * hand gives the strength for public-entity pools. Measured in a scratch copy
+ * with the normaliser out of the draw, 40 games x 15 years, Open intake:
+ *
+ *     s       applicant RQ (pool 5.02)   applicants' expected cost vs average
+ *     0            5.02                       -1% / -1% / -1%   (WC/GL/Pr)
+ *     0.25         4.57                       +6% / +4% / +4%
+ *     0.50         4.25                      +10% / +8% / +8%
+ *     1.0          3.94                      +14% / +11% / +11%
+ *     5.0          3.75                      +16% / +13% / +14%
+ *
+ * 0.25-0.5 was called defensible: applicants 4-10% dearer than the marketplace
+ * average. 0.35 is the middle of that band and is recorded as a judgement in
+ * the same terms as RATE_RETENTION_SENSITIVITY. The skew SATURATES — the
+ * marketplace is a fixed 200, and once its bad tail has joined nobody worse is
+ * left to apply — so the choice inside the band matters less than it looks.
+ *
+ * ⚠ IT ADDS NO DRAW. The weighting reads each member's position in the shuffle
+ * the engine already makes (Efraimidis-Spirakis keys with the uniform taken from
+ * the shuffled rank), so no stream moves and at s = 0 the applicants are exactly
+ * the shuffled prefix they always were. See selectApplicants in membershipEngine.
+ */
+export const APPLICANT_ADVERSE_SELECTION = 0.35;
+
 // Funding confidence level factor (CLF) table
 // Represents the multiplier applied to expected losses to set funding targets
 // 0.60 ALIGNED TO 1.000, matching the reference chart — the chart is the
@@ -1141,29 +1287,52 @@ export const FUNDING_CLF_TABLE: Record<number, number> = {
 // it. The intent broke because the thing it was set against moved underneath
 // it — nobody loosened it.
 //
-// ⚠ REVIEWED AND DELIBERATELY LEFT. 5.28% net, with bonds at 5.20% gross, is a
-// defensible short-duration investment-grade posture on its own terms, and the
-// dominance arrived through a CORRECT change to the reserve. Cutting returns to
-// restore an intent whose premise had moved would be correcting a right thing
-// with a wrong one. The dominance is also not implausible: a long-tail pool
-// with a large float genuinely can absorb underwriting losses for years, which
-// is cash-flow underwriting, and it is the mechanism that makes reserving
-// matter now that the ending-position panel shows what is still owed.
+// ⚠ "REVIEWED AND DELIBERATELY LEFT" STOOD HERE AND IS NO LONGER THE POSITION.
+// The paragraph is kept because its argument is still correct and is the reason
+// the cut below is NOT described as a correction: 5.28% net, with bonds at 5.20%
+// gross, was a defensible short-duration investment-grade posture on its own
+// terms, and the dominance arrived through a CORRECT change to the reserve.
+// Cutting returns to restore an intent whose premise had moved would have been
+// correcting a right thing with a wrong one. The dominance is also not
+// implausible: a long-tail pool with a large float genuinely can absorb
+// underwriting losses for years, which is cash-flow underwriting, and it is the
+// mechanism that makes reserving matter now that the ending-position panel shows
+// what is still owed. None of that has been shown to be wrong.
+//
+// WHAT CHANGED IS THE QUESTION. The returns are now scaled by
+// INVESTMENT_RETURN_SCALE to model a LOWER-RATE MARKET — see its own note. That
+// is a choice about what market the game is set in, not a finding that the old
+// figures were mis-measured, and the baseline they are scaled from is still the
+// unsourced one described next.
 //
 // ⚠ AND THE PARAMETERS CITE NO SOURCE. "Whole-period historical values that
 // already include crash years" names no index, no period and no study, here or
-// in the commit that introduced them (406fba9) or in the player-facing
-// investmentMemo, which restates this table downstream rather than sourcing it.
-// They are considered numbers, not sourced ones. A reader should not assume
-// there is a reference behind them, and anyone who wants to move them is
-// choosing against judgement rather than against data.
+// in the commit that introduced them (406fba9). They are considered numbers, not
+// sourced ones. A reader should not assume there is a reference behind them, and
+// anyone who wants to move them is choosing against judgement rather than
+// against data. Scaling them does not make them sourced: the figures below are a
+// deliberate third under an unsourced baseline, which is a stated choice resting
+// on an unstated one.
+//
+// ⚠ THE "restates this table downstream rather than sourcing it" CLAUSE IS GONE
+// BECAUSE THE DEFECT IS. investmentMemo.md no longer carries the numbers: it
+// carries {{ASSET_CLASS_TABLE}} and {{DEFAULT_ALLOCATION}}, filled from these
+// constants by src/utils/investmentMemo.ts. The audit page always read them.
 //
 // ============================================================================
 // THE OPEN ITEM IS THE ALLOCATION, NOT THE RATE.
 //
 // AllocationBar is a free 0-100% control across the three classes, so the
-// reachable mean spans 4.15% (all cash) to 8.14% (all equities) — and NOTHING
-// PRICES THE VOLATILITY except insolvency. On a $40M float over five years:
+// reachable mean spans 2.75% (all cash) to 5.38% (all equities) — it was 4.15%
+// to 8.14% before INVESTMENT_RETURN_SCALE, and the figures below are the
+// PRE-SCALE ones, left as measured rather than rescaled on paper. The SPREAD
+// narrows with the means (3.99 points to 2.63) while the volatility does not
+// move at all, so the open item below gets SMALLER at the lower rate: the same
+// ±$16.3M of noise now buys about two-thirds as much expected gain. The
+// conclusion is unchanged and slightly less sharp.
+//
+// NOTHING PRICES THE VOLATILITY except insolvency. On a $40M float over five
+// years, AT THE PRE-SCALE RATES:
 //
 //     default 10/80/10   E +$10.6M    SD  $3.3M
 //     all equities       E +$16.3M    SD $16.3M
@@ -1188,23 +1357,65 @@ export interface AssetClassAssumption {
   maxReturn: number;           // net clamp ceiling (sanity rail)
 }
 
+/**
+ * A LOWER-RATE MARKET. Every asset class's MEAN return is scaled by this; the
+ * standard deviations, the fees and the clamps are not.
+ *
+ * ⚠ IT IS A SCALAR AND NOT THREE REWRITTEN LITERALS, SO THAT THE BASELINE STAYS
+ * VISIBLE AND THE NEXT CHANGE IS ONE NUMBER. The unsourced figures above are
+ * still in the file, still unsourced, and the relationship to them — exactly a
+ * third lower — is stated rather than buried in three decimals. A reader can see
+ * both what was chosen and what it was chosen against.
+ *
+ * ⚠ A THIRD, NOT A HALF, AND THE REASON IS WHERE THE EFFECT SITS. The first cut
+ * does about two-thirds of the total available effect: today to a third lower
+ * drops the net blend 1.76 points, a third lower to half drops it only 0.88.
+ * Surplus, underfunding and the reinsurance gap all move most in the first step.
+ * It also keeps the market legible — a losing portfolio year goes from about one
+ * in thirteen to about one in six, where halving would make it one in four and
+ * start to make results look random.
+ *
+ * ⚠ WHAT IT LANDS AT, AND WHY IT IS NOT 3.53%. Scaling the GROSS means while
+ * holding the fees puts the default 10/80/10 blend at 3.4877% net, against
+ * 5.2894% before — down 1.80 points. 3.53% is what the blend would be if the
+ * FEES scaled too (5.2894 x 2/3 = 3.5263), and they do not: a fee is a charge on
+ * assets under management, not a share of the return, so it does not fall
+ * because the market does. The 0.04-point difference IS the unscaled fee drag.
+ *
+ * ⚠ AND THE CLAMPS DID NOT MOVE EITHER. minReturn and maxReturn are sanity rails
+ * rather than parameters, and at the lower means they bind less often, not more
+ * — cash's 0% floor sits 6.9 SD below a 2.79% mean where it sat 10.5 SD below
+ * 4.19%. Left alone deliberately; moving a rail to match a mean would make it a
+ * parameter.
+ *
+ * MEASURED AT THIS SCALE (and these are the figures this change was commissioned
+ * on, from the arm run on feature/low-rates):
+ *   underfunded pools going negative within ten years   67% -> 83%
+ *   pool surplus at defaults                            $148M -> $117M
+ *   the reinsurance gap                                 $655M -> $605M
+ */
+export const INVESTMENT_RETURN_SCALE = 2 / 3;
+
 export const ASSET_CLASS_ASSUMPTIONS: Record<'cash' | 'bonds' | 'equities', AssetClassAssumption> = {
   cash: {
-    expectedReturn: 0.0419,
+    // 0.0419 at the unsourced baseline -> 2.79% here. Net of fee, 2.7533%.
+    expectedReturn: 0.0419 * INVESTMENT_RETURN_SCALE,
     standardDeviation: 0.0040,
     feeRate: 0.00040,
     minReturn: 0.0,
     maxReturn: 0.08,
   },
   bonds: {
-    expectedReturn: 0.0520,
+    // 0.0520 at the unsourced baseline -> 3.47% here. Net of fee, 3.3427%.
+    expectedReturn: 0.0520 * INVESTMENT_RETURN_SCALE,
     standardDeviation: 0.0404,
     feeRate: 0.00124,
     minReturn: -0.20,
     maxReturn: 0.25,
   },
   equities: {
-    expectedReturn: 0.0826,
+    // 0.0826 at the unsourced baseline -> 5.51% here. Net of fee, 5.3827%.
+    expectedReturn: 0.0826 * INVESTMENT_RETURN_SCALE,
     standardDeviation: 0.1825,
     feeRate: 0.00124,
     minReturn: -0.60,
@@ -1601,6 +1812,29 @@ export const SIZE_WEIGHTS = [0.55, 0.30, 0.12, 0.03];
 // capital to reach their midpoints, not less. Reading a higher K here as "the
 // pool got richer" is backwards: it is the pin compensating for a book that now
 // carries ten accident years of runoff.
+//
+// ⚠ THE uw-decisions MERGE RE-SOLVED THESE AND DELIBERATELY DID NOT MOVE THEM.
+// Both branches changed how pre-game pasts end — required capital and zero risk
+// load on one side, the book-mix normaliser out of the draw and the steepened
+// risk-quality slope on the other — so the pin was re-solved on the merged
+// engine as a matter of course. IT CAME BACK ALREADY CENTRED. The solver's own
+// pass 0, before it moved anything:
+//
+//     WC  offset +0.0010     GL  -0.0316     Property  +0.0401
+//     against its stopping tolerance of 0.06 x band width, about 0.053
+//
+// All three were inside that tolerance on arrival, so the two branches' effects
+// on pre-game endings very largely cancel. The values the solver then proposed
+// (1.4973 / 0.7364 / 0.6084) are NOT better: on opening-centring-check's own
+// 1600 seeds — seeds the solver never sees — the shipped pins read +5%, -15%
+// and -3% of band width and the gate PASSES, and applying the solver's numbers
+// would move Property from -3% to about -9%. The two estimators disagree on GL's
+// magnitude (-0.03 at 600 seeds against -0.13 at 1600) by more than the change
+// they would justify, which is the definition of fitting noise.
+//
+// So the pin is HELD, and the band is unchanged. Re-pinning on the weaker
+// estimate would re-roll every opening book and move all three baselines to
+// chase a difference the stronger estimator cannot see.
 // ============================================================================
 export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
   // ⚠ RE-SOLVED AGAINST THE RESERVE-ANCHORED BAND. WC and GL are bisected so the
@@ -1771,9 +2005,109 @@ export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
   // base and the gate's base disagreed by about 0.018 in K. Here the gate reads
   // the shipped value inside its own tolerance on its own seeds, so there is
   // nothing to pool away — see the run recorded in the commit.
-  WC: 0.4718,
-  GL: 0.2027,
-  Property: 0.5452,
+  // ========================================================================
+  // ⚠ RE-SOLVED FOR THE 1.5x PREMIUM BANDS — the fourth re-solve of this pin,
+  // and the first that followed a deliberate LEVEL change rather than a drift.
+  // opening-pin-solve, 600 seeds per pass, bisected to within 6% of band width,
+  // on its own seed prefix; opening-centring-check then verifies on seeds the
+  // solver never saw.
+  //
+  //   line        pin              unfiltered median   target (midpoint)
+  //   WC       0.4718 -> 0.7549        0.6792              0.6924
+  //   GL       0.2027 -> 0.5473        1.0910              1.0788
+  //   Property 0.5452 -> 0.5725        1.5336              1.5000
+  //
+  // ⚠ THE PIN IS A PREMIUM MULTIPLE AND THE BAND IS NOT, ON TWO OF THREE LINES,
+  // AND THAT IS WHY THESE NUMBERS LOOK UNRELATED TO THE TARGET. K seeds surplus
+  // at K x premium at the START of a ten-year pre-game (instanceGenerator); the
+  // band gates where that past ENDS, on reserve for WC and GL. So K is not the
+  // opening the player receives and never was — ten years of underwriting,
+  // investment and runoff sit between them. GL needing 0.5473 to end at 1.0788
+  // of reserve while WC needs 0.7549 to end at 0.6924 is that difference, not
+  // an inconsistency.
+  //
+  // ⚠ PROPERTY MOVED 5.0% AND THE OTHER TWO MOVED 60% AND 170%. Property was
+  // already opening at 1.367x premium, so 1.5x barely asked anything of it; GL
+  // was at 0.704x and had to roughly double. That unevenness is the premium
+  // basis showing through and is the same fact recorded at OPENING_SURPLUS_BAND.
+  // ========================================================================
+  // ⚠ RE-SOLVED AGAINST THE REQUIRED-CAPITAL BANDS — the fifth re-solve, and the
+  // second in a row that followed a deliberate change of BASIS rather than a
+  // drift. opening-pin-solve, 600 seeds per pass, bisected to within 6% of band
+  // width on its own seed prefix; opening-centring-check verifies on seeds the
+  // solver never saw.
+  //
+  //   line        pin              unfiltered median   target (midpoint 2.2800)
+  //   WC       0.7549 -> 1.1701
+  //   GL       0.5473 -> 0.5747          2.2762
+  //   Property 0.5725 -> 0.4652
+  //
+  // ⚠ WC'S PIN NOW EXCEEDS 1.0 AND THAT IS NOT AN ERROR. K seeds surplus at
+  // K x premium at the START of a ten-year pre-game; the band grades where that
+  // past ENDS, against REQUIRED CAPITAL. WC is the line that was thinnest
+  // relative to what it needs (1.44x against the pool's 2.28x), so it is the one
+  // that has to start with more than a year's premium to finish on the common
+  // multiple. The pin is not the opening and never was.
+  //
+  // ⚠ AND THE THREE PINS NO LONGER LOOK ALIKE, WHICH IS THE POINT. 1.17 / 0.57 /
+  // 0.47 is what "the same safety on every line" costs in starting capital once
+  // the denominator is each line's own requirement rather than its premium. An
+  // even-looking set of pins would mean an uneven set of openings.
+  // ⚠ RE-SOLVED AT ZERO RISK LOAD — the sixth re-solve, and the first caused by
+  // a REINSURANCE PRICE rather than by the opening's own definition. Cheaper
+  // cover is a smaller member charge, so the pre-game accumulates less surplus
+  // over its ten years and the candidate distribution slid off the band:
+  // opening-centring-check read the unfiltered median at 1.70-1.77 against a
+  // 2.28 midpoint, -59% to -63% of band width and about 20 SE, with 53-55% of
+  // candidates below the band. THE BAND DID NOT MOVE — 2.28x is still the
+  // design intent — only the pin.
+  //
+  //   line        pin
+  //   WC       1.1701 -> 1.5211
+  //   GL       0.5747 -> 0.7184
+  //   Property 0.4652 -> 0.6280
+  //
+  // ⚠ AND THE ACCEPTED SAMPLE DID NOT SHOW THIS, WHICH IS WHY THE GATE READS THE
+  // UNFILTERED ONE. Measured on accepted openings the multiple barely moved —
+  // 2.25x to 2.24x — because the band filters the survivors into itself however
+  // far the underlying distribution has drifted. The cost appears in ATTEMPTS
+  // (2.86 -> 3.31) and then, nonlinearly, in acceptance failing altogether. A
+  // reading taken after the filter cannot see a pin going wrong.
+  // ==========================================================================
+  // ⚠ RE-SOLVED AGAIN — FIFTH DRIFT, AND THE LARGEST. FULL-COST BOOKING.
+  //
+  //   WC  1.5211 -> 4.6546  (+206.0%)
+  //   GL  0.7184 -> 1.9397  (+170.0%)
+  //   Property 0.6280 -> 0.5887  (-6.3%)
+  //
+  // Booking every claim at its drawn value from the first valuation raises the
+  // opening reserve, and the band is surplus over REQUIRED, so the same surplus
+  // against a larger reserve reads lower: WC's unfiltered median fell to 0.629
+  // against a 2.280 midpoint, -121.6 SE. The pin is the only thing that moved.
+  // THE BAND DID NOT — 2.28x is still the design intent, on all three lines.
+  //
+  // ⚠ PROPERTY IS SOLVED THIS TIME AND HAS BEEN LEFT ALONE AT EVERY PREVIOUS
+  // RE-SOLVE, so the departure is worth stating. It was inside tolerance both
+  // before (+12% of band width) and after the change (+18% against a 25% bar),
+  // and the convention has been to leave a passing line where it is. It is
+  // moved here because the solver was run on all three in one pass and a
+  // centred pin in hand is better than a passing one, and because -6.3% is a
+  // small move to carry while the other two move by 170% and 206%. A reader
+  // who wants the old convention back should know it was a judgement, not an
+  // oversight.
+  //
+  // Solved by scripts/diagnostics/opening-pin-solve.ts: bisection, 600 seeds
+  // per evaluation, through the gate's own estimator on seeds the gate never
+  // sees. Four passes each, all three landing inside 0.06 band widths.
+  //
+  // ⚠ AND IT WAS SOLVED TWICE, BECAUSE THE FIRST SOLVE WAS INVALIDATED MID-RUN.
+  // That pass returned WC 3.6963 / GL 1.3254 against an engine that still had
+  // the BOOKING CONTRACTION live — gates 4 and 5 of FULL_COST_BOOKING had not
+  // been found yet. A pin solved against a superseded engine is a pin that
+  // fails its own gate; the figures above are from the re-run.
+  WC: 4.6546,
+  GL: 1.9397,
+  Property: 0.5887,
 };
 
 // Pre-game acceptance band: the line's Year-1 opening surplus must land within
@@ -2002,7 +2336,7 @@ export const STARTING_CAPITAL_TO_PREMIUM: Record<string, number> = {
 // other two, and it costs nothing because it is already being run.
 // ============================================================================
 export const OPENING_SURPLUS_BAND: Record<string,
-  { basis: 'premium' | 'reserve'; min: number; max: number }> = {
+  { basis: 'premium' | 'reserve' | 'required'; min: number; max: number }> = {
   // Each band keeps the RELATIVE half-width the premium band had — WC +/-19.02%,
   // GL +/-19.21% — so only the denominator and the centre change, and the
   // acceptance cost above is attributable to those two things alone.
@@ -2012,9 +2346,62 @@ export const OPENING_SURPLUS_BAND: Record<string,
   // centre moves; the shape of the band is untouched, which is what makes this a
   // translation rather than a re-tune. See FROZEN_CAPITAL_J for the defect that
   // triggered it and for why the pin moved with it.
-  WC: { basis: 'reserve', min: 0.3830, max: 0.5630 },
-  GL: { basis: 'reserve', min: 0.4056, max: 0.5984 },
-  Property: { basis: 'premium', min: 1.13, max: 1.70 },
+  // ========================================================================
+  // ⚠ EVERY LINE OPENS AT THE SAME MULTIPLE OF ITS OWN REQUIRED CAPITAL — 2.28x.
+  // THE BASIS IS NEW AND IT IS THE POINT: 'required' divides surplus by
+  // reserveRiskMarginNeeded, which is now the reserve margin PLUS the
+  // catastrophe the pool retains (catCapitalRetained). It is the only
+  // denominator on which "the same multiple" is a statement about SAFETY rather
+  // than about a quantity that happens to differ by line.
+  //
+  // ⚠ THIS REPLACES b9d797e's 1.5x PREMIUM, WHICH WAS EVEN IN THE WRONG UNIT.
+  // Premium is a flow and the liability is a stock, and premium/reserve differs
+  // by line, so an even premium multiple left the lines at 1.44x / 2.15x / 2.85x
+  // of what they each need. Measured, b9d797e's opening:
+  //
+  //     line        required   surplus   multiple   x premium
+  //     WC           $10.1M    $14.6M     1.44x       1.48
+  //     GL           $10.1M    $21.7M     2.15x       1.51
+  //     Property     $17.2M    $49.0M     2.85x       1.52
+  //     POOL         $37.4M    $85.2M     2.28x
+  //
+  // 2.28x IS THE POOL'S OWN CURRENT MULTIPLE, chosen so this REDISTRIBUTES
+  // capital rather than cutting it: the pool total is unchanged at $85.2M, WC
+  // rises 58%, GL 6%, and Property falls 20%. A level was not invented; the
+  // pool's existing total was held and the unevenness taken out of it.
+  //
+  // ⚠ AND THE UNEVENNESS WAS NOT WHERE IT LOOKED. Before the catastrophe term
+  // Property read 3.72x and looked like the over-padded line. Most of that was
+  // the MEASURE: its retained catastrophe was missing from the denominator. With
+  // it in, Property is 2.85x and WC at 1.44x is the thin one. The fix moves
+  // capital TO WC, not away from GL.
+  //
+  // ⚠ HALF-WIDTHS UNCHANGED — WC +/-19.03%, GL +/-19.20%, Property +/-20.14%,
+  // each the relative half-width it already had, so only the centre moves and
+  // this stays a translation. The pin moved with it; see
+  // STARTING_CAPITAL_TO_PREMIUM, and the -84%-of-band-width failure recorded
+  // there for what moving one alone does.
+  //
+  // ⚠ CALIBRATED ON FULL REINSURANCE; THE PRE-GAME NOW RUNS THE MIDDLE PACKAGE.
+  // These multiples were set when defaultDecisionSet placed every purchasable
+  // occurrence layer (aggregate excluded). Loss engine commit 4a made the
+  // default — for players and for the pre-game's prior board — the middle
+  // package ($9M xs $1M on WC and GL, $20M xs $5M on Property), so the opening
+  // now retains the band above each package. The multiples were not re-set:
+  // the brief changes the default, not the opening's calibration.
+  //
+  // ⚠ A CORRECTION TO b9d797e's COMMIT MESSAGE, WHICH CANNOT BE REWRITTEN. It
+  // says "THE POOL WAS OPENING BELOW ITS OWN REQUIRED CAPITAL ... -7.7%". That
+  // was WC ALONE, from a probe that captured the first line of a loop and
+  // labelled it the pool. At ee953aa the pool opened at +97.6% — nearly DOUBLE
+  // its required capital — with WC at 1.00x and GL at 1.03x, which is the J90
+  // anchor working exactly as intended. The pool was never deficient. The same
+  // bug produced the "-12.9%" and "+41.3%" figures in that message; the pool
+  // figures are +97.6%, +159%, and +159% respectively.
+  // ========================================================================
+  WC: { basis: 'required', min: 1.8461, max: 2.7139 },
+  GL: { basis: 'required', min: 1.8422, max: 2.7178 },
+  Property: { basis: 'required', min: 1.8208, max: 2.7392 },
 };
 
 // ============================================================================
@@ -2311,11 +2698,30 @@ export const SLIDER_RANGES = {
   dividendPct: { min: 0, max: 0.15, step: 0.005, default: 0 },
   assessmentPct: { min: 0, max: 0.25, step: 0.005, default: 0 },
   // The combined dividend/assessment control's own range: zero at centre,
-  // dividends extend positive (to dividendPct.max), assessments extend
-  // negative (to -assessmentPct.max). dividendPct/assessmentPct above remain
-  // the fields the engine reads; this exists only for the collapsed input.
-  dividendAssessment: { min: -0.25, max: 0.15, step: 0.005, default: 0 },
+  // positive is a dividend, negative is an assessment. dividendPct and
+  // assessmentPct above remain the fields the engine reads; this exists only
+  // for the collapsed input.
+  //
+  // ⚠ SYMMETRIC AT +/-15%, AND NO LONGER THE TWO FIELDS' OWN MAXIMA. It ran
+  // -25% to +15% — assessmentPct.max against dividendPct.max — which made the
+  // centre sit off-centre on the track and gave the two directions different
+  // reach for no stated reason. A control whose zero is not in the middle reads
+  // as a bug every time somebody new looks at it. The underlying fields keep
+  // their own ranges; this control simply does not drive them to the ends.
+  //
+  // ⚠ STEP IS 1%, UP FROM 0.5%. The percentage is a share of SURPLUS now and
+  // the note under the slider prints it as a whole number beside the dollars it
+  // buys, so every stop the player can reach is a figure the note can show
+  // exactly. A 0.5% step put half the stops at a precision the note rounds
+  // away, and a slider that reads "10%" while meaning 9.5% is the same class of
+  // quiet wrongness the basis change was made to remove. 31 stops, -15% to +15%.
+  dividendAssessment: { min: -0.15, max: 0.15, step: 0.01, default: 0 },
   riskControlPct: { min: 0, max: 0.08, step: 0.01, default: 0 },
+  // PER LINE, and SCREEN ONLY — the share of that line's premium spent on risk
+  // control incentives. Not read by the engine (see
+  // LineDecisionSet.riskControlIncentivePct); the rate indication it is meant
+  // to feed is being redesigned.
+  riskControlIncentivePct: { min: 0, max: 0.05, step: 0.01, default: 0 },
 };
 
 // ===========================================================================
@@ -2397,7 +2803,36 @@ export const LEGACY_GEOMETRIC_PATTERN: Record<string, PayoutPattern> = {
   Property: { kind: 'geometric', openFraction: 0.60, conditional: 0.65 },
 };
 
-export const LINE_PAYOUT_PATTERN: Record<string, PayoutPattern> = FITTED_PAYOUT_PATTERN;
+// ===========================================================================
+// ⚠ THE RECORDED PATTERNS ARE NOW WHAT THE ENGINE PAYS ON, AND THE WEIBULL FIT
+// ABOVE IS RETIRED IN PLACE.
+//
+// The pool's own measured development patterns — age-to-ultimate LDFs, paid and
+// incurred, ground-up — live in src/data/paidDevelopmentPatterns.ts. Every
+// payout question now resolves through them: see the `recorded` kind in
+// payoutPattern.ts for the mechanics and for the one rule the table needs, what
+// happens at its last age.
+//
+// ⚠ WHY IT CHANGED, AND IT IS A CONSISTENCY ARGUMENT RATHER THAN A FIT BEING
+// PREFERRED. Pricing develops losses with the RECORDED factors. The engine was
+// paying them down on the WEIBULL fit, which is far faster — 12.777 against
+// 4.671 at 12 months on WC, read off the pool's own played ledger — so the new
+// pure premium came out 65% above the charged rate for no reason but the two
+// halves disagreeing about the same quantity. One set of patterns, used
+// everywhere, is the fix; which set is the smaller question, and the recorded
+// one wins it because pricing cannot be built on a curve the pool did not live.
+//
+// FITTED_PAYOUT_PATTERN IS KEPT AND NOTHING READS IT. It is the parent of the
+// value baselines this commit moves, and a baseline move whose parent has been
+// deleted cannot be re-measured. It is not a fallback and must not become one.
+// ===========================================================================
+export const RECORDED_PAYOUT_PATTERN: Record<string, PayoutPattern> = {
+  WC: { kind: 'recorded', line: 'WC' },
+  GL: { kind: 'recorded', line: 'GL' },
+  Property: { kind: 'recorded', line: 'Property' },
+};
+
+export const LINE_PAYOUT_PATTERN: Record<string, PayoutPattern> = RECORDED_PAYOUT_PATTERN;
 
 // ===========================================================================
 // CLAIM CLOSURE CURVES — see claimClosure.ts for the form and the discipline.
@@ -4496,6 +4931,101 @@ export const PER_CLAIM_REVISION = { enabled: true, settlement: true };
 // ============================================================================
 export const FORWARD_BOOKING = { enabled: true };
 
+// ===========================================================================
+// FULL-COST BOOKING — EVERY CLAIM IS BOOKED AT ITS DRAWN VALUE, FROM THE FIRST
+// VALUATION. BOOKED EQUALS ULTIMATE, SO PRIOR YEARS DO NOT DEVELOP AT ALL.
+//
+// ⚠ IT IS A SWITCH AND NOT A DELETION, exactly as FORWARD_BOOKING,
+// DEVELOPMENT_CESSION_ENABLED and the geometric payout control are. Turning it
+// off restores the booking walk entire, and the value baselines of the commit
+// before this one are what that arm reproduces.
+//
+// ⚠ WHY, AND IT IS THE ACCEPTANCE TEST'S OWN FINDING. recorded-payout-check
+// measured that the engine's PAYMENT was already exact against the ultimate a
+// cohort carries — WC 7.83% paid at 12 months against the pattern's 7.83% —
+// while its chain-ladder paid LDF read 26.3 against a recorded 12.777. The
+// whole gap was the ultimate underneath moving: x1.738 on WC, x2.380 on GL and
+// x1.181 on Property over a cohort's life. No payout pattern can close a gap a
+// developing ultimate opens, so the walk had to go.
+//
+// ⚠ AND IT IS THE MULTIPLAYER DESIGN ARRIVING, NOT A SIMPLIFICATION FOR THE
+// TEST'S SAKE. Development is to come from ONE place — the host's prior
+// development factors, stored per line on the room today and read by nothing.
+// Removing the engine's own walk is what makes them the only source. Until they
+// are wired there is NO development on prior years, and that is the intended
+// state rather than a gap in it.
+//
+// WHAT IT SWITCHES OFF. FIVE GATES, each named at its own site so a reader
+// finds the reason where the code is:
+//
+//   1 THE BOOKING BIAS      ibnerBookingBias returns 0, so bookedUltimate is
+//                           netUltimateLoss and the markdown it drives is 0.
+//   2 THE DEVELOPMENT DRIFT `developing` is false at every age, so the
+//                           stochastic step, the deterministic unwind and the
+//                           per-claim revision law never run.
+//   3 THE SETTLEMENT TRUE-UP the closing-set resolution is skipped, which is
+//                           what makes it a no-op rather than a zero-mean
+//                           adjustment that still moves individual claims.
+//   4 THE BOOKING CONTRACTION  initialEstimate returns the drawn amount.
+//   5 THE PRICING TRIANGLE'S OWN WALK  the history is built flat, because it
+//                           must be built by the process the game plays.
+//
+// ⚠ GATES 4 AND 5 ARE THE ONES A READER WOULD MISS, AND BOTH WERE FOUND BY
+// MEASUREMENT RATHER THAN BY READING. The booking BIAS is zero at default
+// decisions anyway — it is 0.80 x max(0, 1 - CLF) and the default funds at
+// expected — so switching off the walk alone left the CONTRACTION in place and
+// claims booked at A x drawn^k for ever, which is 1/2.33 of cost on WC. It
+// showed as reserves FALLING 25% where they were expected to rise. Gate 5 is
+// the same hazard on the pricing side: the triangle is a separate
+// implementation of the same development process, and leaving it walking would
+// have taught the pool factors its own future could no longer produce.
+//
+// WHAT IT DELIBERATELY DOES NOT TOUCH. CLOSURE TIMING: reselectDevelopingSet
+// still runs and still refreshes every claim's `closed` flag off the closure
+// curve, so claims close over time exactly as they did and the claims workbook
+// still reads true. PAYMENT: the recorded patterns still govern cash.
+// ===========================================================================
+export const FULL_COST_BOOKING = { enabled: true };
+
+// ===========================================================================
+// ⚠ WHAT THIS BUILD BREAKS — FOUR GATES, NOW RULED ON. NONE IS FULL-COST
+// BOOKING'S DOING; all four trace to the TREND AND EXPOSURE change, 5%/yr
+// severity against a level base with the declining frequency trend and the
+// inflating payroll base both removed.
+//
+//   cohort-stock-check — RESOLVED BY BOUNDING THE HORIZON, NOT BY A FIX.
+//     Each cohort's TRACKED SET grows because buildTrackedSet tracks every
+//     occurrence at or above a FIXED-DOLLAR retention while nominal severity
+//     climbs. THE RETENTION AND THE THRESHOLD STAY FIXED BY RULING: inflation
+//     eroding a fixed retention, so more claims pierce it each year, is real
+//     and is worth teaching. The gate now asserts over GAME_LENGTH_YEARS.max —
+//     10 years, the longest a player can select — where the set reaches a mean
+//     of 9.0 claims per cohort on WC, 10.2 on GL and 10.2 on Property against a
+//     claimCount of 10, worst cohort 20 / 16 / 12, and the save reaches 684 KB.
+//     At 60 years WC reaches 44 and the save does not saturate; that horizon is
+//     outside anything selectable and is no longer asserted. Re-read it with
+//     YEARS=60 if the retention is ever indexed.
+//
+//   experience-pricing-drift-check — DRIFT IS NOW MEASURED NET OF THE TREND, by
+//     ruling, because a still book's rate is MEANT to climb at it. That fixed
+//     the control cell (39.19% to -1.08%). A residual remains and is DEFERRED
+//     as an accepted breach — see EXPECTED_RED in gates.ts.
+//
+//   market-conditions-check, member-satisfaction-check — DEFERRED as accepted
+//     breaches, inverted so they fail if they stop breaching. Commits 3 and 5
+//     move reserves and prices again and recalibrating now would mean doing it
+//     twice. The readings are NOT acceptable; they are postponed. Reasons and
+//     figures are at their EXPECTED_RED entries.
+//
+// ⚠ NONE IS FORKED ON THIS FLAG. Eleven other gates were, because each asserted
+// a RETIRED behaviour — a booking bias that no longer exists, a triangle that
+// no longer develops. These four assert live questions about whether the new
+// trend regime is calibrated. Gating them would dress a design question as a
+// stale assertion, which is the one failure mode this directory exists to
+// prevent; recording them as expiring breaches keeps them answerable.
+// ===========================================================================
+
+
 // ============================================================================
 // THE DRIFT RATE SOLVED AGAINST THE HORIZON, not against closure age.
 //
@@ -4653,6 +5183,49 @@ export const TRIANGLE_DEVELOPMENT_DRIFT_HORIZON: Record<string, number> = {
   Property: 0.30327,
 };
 
+// ============================================================================
+// THE BOOK-MIX NORMALISER IS OUT OF THE DRAW.
+//
+// computeKLine / computeKGl / computeKPr compute neutral / actual expected loss
+// over the ENROLLED book and used to multiply every member's claim frequency by
+// it every year, "so that changing WHO is enrolled doesn't drift the pool's
+// aggregate expected loss away from the held pick". It did exactly that, and
+// that was the defect: it rescaled the DRAW, not only the price, so a better
+// book was scaled back up to neutral and a worse one down. Three findings that
+// were treated separately are this one mechanism — declining members could not
+// improve a book, a risk-quality bar could not improve a book, and growth cost
+// nothing. A pool that admits riskier members has to carry more risk, and with
+// the normaliser in the draw it could not.
+//
+// ⚠ WHAT IT PROTECTED, AND WHY THAT SURVIVES. It was built for PRICING: the held
+// pure premium is derived once at neutral quality and the normaliser kept that
+// held rate correct as the roster changed. With PRICING_TRIANGLE on, the rate is
+// the pool's own paid-triangle window and not the held rate, so a book whose
+// mix differs is priced off its own experience — a few years late, which is the
+// lag a growing pool on bad risks should feel. The held rate is now only the
+// fallback for a triangle too thin to price.
+//
+// MEASURED BEFORE BUILDING (scratch copy, 40 games x 15 years, paired):
+//   - No spiral. With voluntary departures switched on in the scratch copy, the
+//     twin-game loop gain (experience-pricing-check arm 3's method) reads
+//     0.02-0.07 at shipped sensitivity and 0.06-0.15 at 10x retention
+//     sensitivity; with the normaliser in it read 0.03-0.06 / 0.06-0.12.
+//   - Saves load: claimRegeneration redraws with the RECORDED kLineApplied, so a
+//     result written with the normaliser in still redraws exactly, and one
+//     written now records 1.
+//   - Pricing follows: about 55% of a composition cost gap on WC is in the rate
+//     by year 10, ~30% on GL — the 10-year equal-weight window's lag.
+//   - The default book costs 2-4% more than an all-neutral one (Jensen: theta is
+//     convex in risk quality), so every line's loss level steps up by that much.
+//
+// ⚠ ONE FLAG, READ AT THE THREE DRAW SITES IN simulationEngine AND NOWHERE ELSE.
+// The k functions themselves are unchanged and still exported: diagnostics use
+// them to build expectations, and with the flag off an expectation of the
+// ENGINE's draw must pass k = 1. A mutable object, like PRICING_TRIANGLE, so a
+// gate can put the normaliser back for one arm and restore it.
+// ============================================================================
+export const BOOK_MIX_NORMALISER = { inDraw: false };
+
 export const PRICING_TRIANGLE = { enabled: true };
 // ===========================================================================
 // ⚠ THIS FLAG HAD A RETIREMENT CONDITION, WRITTEN ON DAY ONE, AND IT IS NOW MET.
@@ -4790,7 +5363,8 @@ export const PRICING_TRIANGLE = { enabled: true };
 // lines), because the estimate stops moving at the horizon. GL and Property fit
 // inside the window on both bases. Do not quote the paid figure on the incurred
 // basis; they are different deficiencies.
-export const TRIANGLE_HISTORY_YEARS = 10;
+// ⚠ DEFINED IN pricingParameters.ts NOW — see ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM above.
+export { PRICING_WINDOW_YEARS as TRIANGLE_HISTORY_YEARS } from './pricingParameters';
 
 // ===========================================================================
 // THE INITIAL ESTIMATE — DERIVED FROM THE TERMINAL TARGET, NOT FITTED.
@@ -5546,8 +6120,17 @@ export const PROPERTY_PURE_PREMIUM_SPLIT = { nonCatDerived: 0.2100, catDerived: 
 //   - kPr and risk quality. The cat loss has no RQ term, so there is nothing
 //     for the RQ-mix correction to correct.
 //   - risk control. Property Mitigation discounts the attritional frequency
-//     only. Whether it should touch cat damage is a design question this
-//     commit does not answer.
+//     only. ⚠ "Whether it should touch cat damage is a design question this
+//     commit does not answer" — IT IS ANSWERED NOW, AND THE ANSWER IS NO, on a
+//     measurement rather than a preference. A catastrophe is ONE occurrence
+//     carrying many claims and it is enormous: measured over 300 Property
+//     line-years, 20 cat occurrences averaging $78.5M, of which the pool keeps
+//     6.37% and the tower takes 93.63%. So a seismic retrofit buys the pool
+//     about six cents in the dollar and the reinsurer the rest. The attritional
+//     band keeps 75.25% and a scheduled winter storm keeps 100.00%, which is
+//     where the program was pointed instead. See PROPERTY LOSS PREVENTION &
+//     MITIGATION in riskControlPrograms.ts; property-mitigation-check asserts
+//     this band stays bit-identical at the dial's ceiling.
 export const PROPERTY_CAT_MODEL = {
   eventsPerYear: 0.08412,
   regionWeights: { North: 0.3523, Central: 0.3384, South: 0.3093 },

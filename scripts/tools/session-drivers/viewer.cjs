@@ -27,9 +27,17 @@ async function tabText(page, tab) {
 
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', 'MAMC6EA4');
+  // ⚠ THE EVENT NAME IS REQUIRED NOW — a driver that types none gets a
+  // dead Create button. It used to default to 'Ripple Game'.
+  await host.fill('[data-testid="event-name"]', 'Driver Session');
+  await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
+  // ⚠ THE HOST SETS THE LINES NOW. Every team in this room used to click WC
+  // for itself; the room declares it instead, and the picker is gone from the
+  // join screen. All three are ticked by default, so WC-only means unticking.
+  await host.uncheck('[data-testid="line-GL"]');
+  await host.uncheck('[data-testid="line-Property"]');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -39,7 +47,6 @@ async function tabText(page, tab) {
   await driver.goto(`/join/${code}`);
   await driver.waitForSelector('[data-testid="team-picker"]');
   await driver.fill('[data-testid="team-name"]', TEAMS[0]);
-  await driver.click('[data-testid="pick-line-WC"]');
   await driver.click('[data-testid="join-team"]');
   await driver.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
 
@@ -55,10 +62,12 @@ async function tabText(page, tab) {
   // ---- IT IS THE SAME SCREEN ----------------------------------------------
   const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
                 'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-                'Calculation Audit', 'Membership'];
+                // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows
+                // the pool in aggregate. The PAGE is intact in GameShell.
+                'Calculation Audit'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
-  ok(present === TABS.length, `viewer has all 11 tabs (${present}/11)`);
+  ok(present === TABS.length, `viewer has all 10 tabs (${present}/10)`);
 
   // ---- IT CANNOT WRITE -----------------------------------------------------
   ok(await viewer.getByRole('button', { name: /Lock Year/ }).count() === 0, 'viewer has NO Lock Year button at all');
@@ -75,7 +84,15 @@ async function tabText(page, tab) {
   if (await wcTab.count() > 0) { await wcTab.click(); await viewer.waitForTimeout(500); }
   const vMain = await viewer.locator('main').innerText();
   ok(vMain.includes('Funding Confidence Level'), 'viewer sees the real decisions page');
-  ok(vMain.includes('CLF Multiplier'), 'viewer sees the live funding-consequence panel');
+  // ⚠ FORKED ON THE BUILD, for the reason full-session.cjs states at the same
+  // assertion: under NEW_RATE_STACK the two-column rate panel replaces the
+  // funding-consequence panel and "CLF Multiplier" is a retired readout. What
+  // this driver is actually asserting — that the VIEWER sees the live priced
+  // panel and not a blank — holds either way, so it asks for whichever panel
+  // the build renders.
+  const vNewPanel = await viewer.$('[data-testid="new-rate-panel"]');
+  ok(vNewPanel ? vMain.includes('Expected to surplus') : vMain.includes('CLF Multiplier'),
+     `viewer sees the live ${vNewPanel ? 'two-column rate' : 'funding-consequence'} panel`);
   const ranges = await viewer.$$eval('input[type=range]', els => els.map(e => e.disabled));
   ok(ranges.length > 0 && ranges.every(Boolean), `every decision slider is disabled but present (${ranges.length} sliders)`);
   const enabledInputs = await viewer.$$eval('main input:not([type=range]), main select',

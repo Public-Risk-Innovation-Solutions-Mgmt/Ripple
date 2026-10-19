@@ -60,10 +60,11 @@ import {
 } from '../../src/utils/claimTriangle';
 import { generateWcClaims } from '../../src/utils/wcClaimEngine';
 import { generateGlClaims } from '../../src/utils/glClaimEngine';
+import { applyPoolLimit } from '../../src/utils/poolLimit';
 import { generatePropertyClaims } from '../../src/utils/propertyClaimEngine';
 import { closedShare, claimClosureUnit } from '../../src/utils/claimClosure';
 import {
-  LINE_PAYOUT_PATTERN, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS,
+  FULL_COST_BOOKING, LINE_PAYOUT_PATTERN, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS,
   TRIANGLE_INITIAL_CONTRACTION, resolveClosureCurve,
 } from '../../src/data/defaultAssumptions';
 import type { CoverageLine } from '../../src/types/simulation';
@@ -117,6 +118,28 @@ if (!PRICING_TRIANGLE.enabled) {
     + 'assuming this is safe.');
 }
 
+// ⚠ THE RETIRED LAW'S CONTRACTION, READ FROM ITS CONSTANTS RATHER THAN THROUGH
+// initialEstimate, AND USED BY EVERY BLOCK THAT CALIBRATES THAT LAW.
+//
+// Sections 3 and 4 solve the contraction against the drift and the settlement
+// level. That law is switched off by FULL_COST_BOOKING but is still on disk and
+// must stay calibrated for the day it returns. initialEstimate is GATED and
+// returns the drawn amount, so composing it with the ungated
+// cumulativeDevelopment measures a half-gated chimera — it read a terminal of
+// 2.5719x drawn on WC, which is the drift applied to an uncontracted base.
+//
+// ⚠ IT IS A SECOND EXPRESSION OF A*x^k AND THAT IS THE NARROW EXCEPTION, not a
+// licence. initialEstimate's own header forbids a second copy because a drift
+// between them is a real defect. The copy is admissible here for exactly one
+// reason: this file's job is to check those constants, and a checker that reads
+// its subject through a switch cannot see past the switch. It reads the SAME
+// constants, so the two cannot disagree about a number — only about the gate,
+// which is the difference being relied on.
+function contractedInitial(line: CoverageLine, drawn: number): number {
+  const { k, A } = TRIANGLE_INITIAL_CONTRACTION[line];
+  return A * Math.pow(Math.max(0, drawn), k);
+}
+
 // ---------------------------------------------------------------- 1. shape
 console.log('--- 1. THE SHAPE IS A TRIANGLE, NOT A RECTANGLE ---');
 {
@@ -157,6 +180,16 @@ console.log('  off-by-one in the ages, a wrong paid share, a settlement applied 
       const r = line === 'WC' ? generateWcClaims({ ...base, kLine: 1 })
         : line === 'GL' ? generateGlClaims({ ...base, kGl: 1, gPool: 1 })
           : generatePropertyClaims({ ...base, kPr: 1 });
+      // ⚠ THE POOL'S LIMIT IS APPLIED TO THE CONTROL'S CLAIMS TOO, for the
+      // same reason the comment below gives for mirroring FULL_COST_BOOKING:
+      // this walk is a control FOR THE TRIANGLE AS SHIPPED, and the shipped
+      // triangle is built on claims capped at the pool's per-occurrence limit
+      // (claimTriangle's drawYear). A control drawing uncapped claims would
+      // compare the module against a book the pool does not have — measured
+      // at a 5.90e-1 relative gap on GL, which is the $25M limit and nothing
+      // else. The composition being compared is still different: a plain loop
+      // here against the module's.
+      applyPoolLimit(line, r.claims);
       const inc = new Array<number>(maturity).fill(0);
       const pd = new Array<number>(maturity).fill(0);
       for (const c of r.claims) {
@@ -167,7 +200,16 @@ console.log('  off-by-one in the ages, a wrong paid share, a settlement applied 
         let st: RevisionState = { value: initialEstimate(line, c.grossUltimate), paidShare: 0 };
         let settled = false;
         for (let age = 1; age <= maturity; age++) {
-          if (!settled && age >= ca) {
+          // ⚠ THE INDEPENDENT WALK MIRRORS THE GATE, because the thing it is a
+          // control FOR is the triangle as shipped. Under FULL_COST_BOOKING
+          // walkClaim holds `value` at the drawn amount and only flips
+          // `settled`; a control that kept developing would be comparing the
+          // module against a law the module no longer runs, which tests
+          // nothing. The composition is still different — a plain loop here
+          // against the module's — which is what section 2 is for.
+          if (FULL_COST_BOOKING.enabled) {
+            if (!settled && age >= ca) settled = true;
+          } else if (!settled && age >= ca) {
             st = { ...st, value: st.value * settlementFactor(gameId, c.id) };
             settled = true;
           } else if (!settled) {
@@ -231,7 +273,9 @@ function meanRatioFor(line: CoverageLine, families: number): number {
           : line === 'GL' ? generateGlClaims({ ...base, kGl: 1, gPool: 1 })
             : generatePropertyClaims({ ...base, kPr: 1 });
         for (const c of r.claims) {
-          const init = initialEstimate(line, c.grossUltimate);
+          // The RETIRED law's own contraction, not the gated accessor — see
+          // contractedInitial for why this block must bypass the switch.
+          const init = contractedInitial(line, c.grossUltimate);
           sumDrawn += c.grossUltimate;
           const curve = resolveClosureCurve(line, c.grossUltimate);
           const u = claimClosureUnit(gameId, c.id);
@@ -310,7 +354,9 @@ for (const line of LINES) {
           : line === 'GL' ? generateGlClaims({ ...base, kGl: 1, gPool: 1 })
             : generatePropertyClaims({ ...base, kPr: 1 });
         for (const c of r.claims) {
-          const init = initialEstimate(line, c.grossUltimate);
+          // The RETIRED law's own contraction, not the gated accessor — see
+          // contractedInitial for why this block must bypass the switch.
+          const init = contractedInitial(line, c.grossUltimate);
           sumDrawn += c.grossUltimate;
           const curve = resolveClosureCurve(line, c.grossUltimate);
           const u = claimClosureUnit(gameId, c.id);
@@ -338,7 +384,7 @@ for (const line of LINES) {
 }
 
 // ------------------------------------------------ 5. development is real
-console.log('\n--- 5. THE INCURRED TRIANGLE ACTUALLY DEVELOPS ---');
+console.log(`\n--- 5. THE INCURRED TRIANGLE ${FULL_COST_BOOKING.enabled ? 'IS FLAT, BY DESIGN' : 'ACTUALLY DEVELOPS'} ---`);
 console.log('  The shipped ENGINE path reads 0.992-1.002 and a chain ladder returns the');
 console.log('  truth. S1\'s triangle read flat too, for a different reason: a mean-one law');
 console.log('  gives E[terminal] = E[initial] whatever the initial spread. This asserts');
@@ -365,10 +411,21 @@ for (const line of LINES) {
   // perfectly. A floor at WC's or GL's level would fail Property for being
   // short-tailed. This catches a drift that is not applied; assertion 6 is what
   // pins the SIZE, and only GL has an anchor for that.
-  console.log(`  ${' '.repeat(9)}           ${note(cum > 1.05,
-    `${line}: the incurred triangle is FLAT — cumulative development ${cum.toFixed(4)} over ${nShow} steps. `
-    + 'A chain ladder on it returns the truth and there is nothing for a factor selection to be wrong about. '
-    + 'TRIANGLE_DEVELOPMENT_DRIFT is not reaching the walk.')}`);
+  // ⚠ THE ASSERTION INVERTS UNDER FULL-COST BOOKING, AND THAT IS THE POINT OF
+  // THE COMMIT RATHER THAN A BAR BEING LOWERED. With the walk switched off the
+  // played game has no development, and a triangle that still developed would
+  // teach the pool factors its own future cannot produce — the failure
+  // walkClaim's own header names. So a FLAT triangle is the contract here, and
+  // it is asserted as tightly as the developing one was: cumulative 1.0000.
+  console.log(`  ${' '.repeat(9)}           ${FULL_COST_BOOKING.enabled
+    ? note(Math.abs(cum - 1) < 1e-9,
+      `${line}: the incurred triangle DEVELOPS — cumulative ${cum.toFixed(6)} over ${nShow} steps, against 1.000000. `
+      + 'Under FULL_COST_BOOKING every claim is booked at its drawn value and the history must be flat, '
+      + 'because the game it teaches from has no development in it.')
+    : note(cum > 1.05,
+      `${line}: the incurred triangle is FLAT — cumulative development ${cum.toFixed(4)} over ${nShow} steps. `
+      + 'A chain ladder on it returns the truth and there is nothing for a factor selection to be wrong about. '
+      + 'TRIANGLE_DEVELOPMENT_DRIFT is not reaching the walk.')}`);
 }
 
 // ------------------------------------------------ 6. GL lands on its own anchor
@@ -420,9 +477,14 @@ if (failed.length > 0) {
   console.log(RULE);
   process.exitCode = 1;
 } else {
-  console.log('THE TRIANGLE HOLDS — ragged by construction, developed forward through');
-  console.log('claimRevision\'s own law, landing on the severity fit as a TERMINAL target');
-  console.log('with the mean preserved, and the incurred triangle genuinely develops.');
+  console.log(FULL_COST_BOOKING.enabled
+    ? 'THE TRIANGLE HOLDS — ragged by construction, FLAT by design: every claim\n'
+      + 'booked at its drawn value, paid down on the recorded pattern, so the history\n'
+      + 'is built by the same process the game plays. The retired law\'s contraction is\n'
+      + 'still calibrated above against its own constants, ready for the day it returns.'
+    : 'THE TRIANGLE HOLDS — ragged by construction, developed forward through\n'
+      + 'claimRevision\'s own law, landing on the severity fit as a TERMINAL target\n'
+      + 'with the mean preserved, and the incurred triangle genuinely develops.');
   console.log('');
   console.log('  ⚠ THE WINDOW TAIL IS WC\'s ALONE. GL and Property have 0.1% of value open at');
   console.log('    age 10, so no drift reaches past the window on either — their tail factors');

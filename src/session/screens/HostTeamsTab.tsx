@@ -52,7 +52,7 @@ const LINE_VIEW_ICONS: Record<LineView, React.ReactNode> = {
 type RowState =
   | { kind: 'absent' }
   | { kind: 'pending' }
-  | { kind: 'reported'; figures: TeamYearFigures };
+  | { kind: 'reported'; figures: TeamYearFigures; minSurplus?: number };
 
 /**
  * ⚠ THE WHOLE POINT OF THIS FUNCTION IS THE ORDER OF ITS CHECKS. Absence is
@@ -81,7 +81,11 @@ function rowState(team: TeamView, view: LineView, reportingYear: number): RowSta
   // A team that writes the line but whose posted summary has no slice for it is
   // pending rather than absent — the summary predates the line, not the team.
   if (!figures) return { kind: 'pending' };
-  return { kind: 'reported', figures };
+  // THE WORST WORLD (loss engine commit 4b): the figures are the average across
+  // the team's worlds, and the pool's minimum ending surplus sits beside it. Pool
+  // scope only — the spread is posted for the pool.
+  const minSurplus = view === 'pool' ? posted.surplusRange?.min : undefined;
+  return { kind: 'reported', figures, ...(minSurplus !== undefined ? { minSurplus } : {}) };
 }
 
 interface Props {
@@ -137,10 +141,11 @@ export default function HostTeamsTab({ room }: Props) {
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
               <th className="px-5 py-2 font-medium">Team</th>
-              <th className="px-5 py-2 font-medium">Surplus</th>
+              <th className="px-5 py-2 font-medium">Surplus (avg)</th>
+              <th className="px-5 py-2 font-medium">Min</th>
               <th className="px-5 py-2 font-medium">Loss ratio</th>
               <th className="px-5 py-2 font-medium">Premium</th>
-              <th className="px-5 py-2 font-medium">Members</th>
+              <th className="px-5 py-2 font-medium">Exposure</th>
               <th className="px-5 py-2 font-medium">Funding</th>
             </tr>
           </thead>
@@ -157,13 +162,13 @@ export default function HostTeamsTab({ room }: Props) {
                   {state.kind === 'absent' && (
                     // ⚠ ONE CELL, IN WORDS. Nothing here can be read as a
                     // number, which is the requirement.
-                    <td colSpan={5} data-testid={`absent-${t.name}`} className="px-5 py-2.5 text-xs italic text-slate-400">
+                    <td colSpan={6} data-testid={`absent-${t.name}`} className="px-5 py-2.5 text-xs italic text-slate-400">
                       does not write {effectiveView === 'pool' ? '' : effectiveView}
                     </td>
                   )}
 
                   {state.kind === 'pending' && (
-                    <td colSpan={5} data-testid={`pending-${t.name}`} className="px-5 py-2.5 text-xs text-amber-600">
+                    <td colSpan={6} data-testid={`pending-${t.name}`} className="px-5 py-2.5 text-xs text-amber-600">
                       {reportingYear < 1 ? 'no year played yet' : `year ${reportingYear} not reported yet`}
                     </td>
                   )}
@@ -173,6 +178,10 @@ export default function HostTeamsTab({ room }: Props) {
                       <td data-testid={`surplus-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForSurplus(state.figures.endingSurplus)}`}>
                         {formatCurrency(state.figures.endingSurplus, true)}
                       </td>
+                      <td data-testid={`minsurplus-${t.name}`}
+                        className={`px-5 py-2.5 font-mono ${state.minSurplus !== undefined ? colorForSurplus(state.minSurplus) : 'text-slate-300'}`}>
+                        {state.minSurplus !== undefined ? formatCurrency(state.minSurplus, true) : '—'}
+                      </td>
                       <td data-testid={`ratio-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForRatio(state.figures.actualLossRatioPricingBasis)}`}>
                         {formatPct(state.figures.actualLossRatioPricingBasis)}
                       </td>
@@ -180,7 +189,7 @@ export default function HostTeamsTab({ room }: Props) {
                         {formatCurrency(state.figures.poolPremium, true)}
                       </td>
                       <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {state.figures.activeMembers}
+                        {`$${state.figures.activeExposure.toFixed(1)}M`}
                       </td>
                       <td className="px-5 py-2.5 font-mono text-slate-700">
                         {/* ⚠ A DASH MEANS THE TEAM'S LINES CHOSE DIFFERENT STOPS, not zero

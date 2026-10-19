@@ -11,7 +11,6 @@ async function join(ctx, code, name, line) {
   await p.goto(`/join/${code}`);
   await p.waitForSelector('[data-testid="team-picker"]');
   await p.fill('[data-testid="team-name"]', name);
-  await p.click(`[data-testid="pick-line-${line}"]`);
   await p.click('[data-testid="join-team"]');
   await p.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
   return p;
@@ -64,9 +63,18 @@ const activeView = page => page.$$eval('nav button', bs =>
 
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', 'MAMC6EA4');
+  // ⚠ THE EVENT NAME IS REQUIRED NOW — a driver that types none gets a
+  // dead Create button. It used to default to 'Ripple Game'.
+  await host.fill('[data-testid="event-name"]', 'Driver Session');
+  await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '6');
   await host.fill('[data-testid="expected-teams"]', '3');
+  // ⚠ THE HOST SETS THE LINES NOW, AND THIS ROOM NEEDS TWO OF THEM. Teams used
+  // to pick their own, so this driver had a WC-only team and a GL-only team and
+  // checked that each read ABSENT in the other's view. They cannot differ any
+  // more, so the ROOM plays WC + GL and every team writes both — which is what
+  // the ABSENT assertions below became.
+  await host.uncheck('[data-testid="line-Property"]');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -97,8 +105,10 @@ const activeView = page => page.$$eval('nav button', bs =>
   ok(opening.length === 1, `a team that has played nothing still has its opening point (${opening.length})`);
   const rec0 = await host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
   const h0 = rec0.teams.find(t => t.name === 'Harbour Mutual').resultsByYear['0'];
-  ok(h0.pool.endingSurplus > 0 && h0.pool.activeMembers > 0 && h0.pool.netUltimateLoss > 0,
-     `and all THREE metrics have a real year-0 value (surplus ${Math.round(h0.pool.endingSurplus)}, members ${h0.pool.activeMembers}, losses ${Math.round(h0.pool.netUltimateLoss)})`);
+  // ⚠ EXPOSURE, NOT A MEMBER COUNT. TeamYearFigures.activeMembers became
+  // activeExposure when the game moved to showing the pool in aggregate.
+  ok(h0.pool.endingSurplus > 0 && h0.pool.activeExposure > 0 && h0.pool.netUltimateLoss > 0,
+     `and all THREE metrics have a real year-0 value (surplus ${Math.round(h0.pool.endingSurplus)}, exposure ${h0.pool.activeExposure}, losses ${Math.round(h0.pool.netUltimateLoss)})`);
   // ⚠ AND IT IS NOT MARKED LATE, BECAUSE NOTHING IS LATE YET. Pending means
   // "behind what could have been posted"; before the first advance the opening
   // position IS everything that could have been posted.
@@ -154,15 +164,25 @@ const activeView = page => page.$$eval('nav button', bs =>
   await host.waitForTimeout(700);
   await pickView(host, 'Pool');
 
-  for (const id of ['surplus', 'members', 'losses', 'developed']) {
+  for (const id of ['surplus', 'exposure', 'losses', 'developed']) {
     ok(await host.$(`[data-testid="chart-${id}"]`) !== null, `the ${id} chart is drawn`);
   }
 
   // ---- AS BOOKED vs AS DEVELOPED ---------------------------------------
   //
-  // ⚠ THE WHOLE CLAIM IN ONE ASSERTION: the same accident year, restated
-  // upwards by a later valuation. If these were equal the second chart would be
-  // a copy of the first.
+  // ⚠ UNDER FULL-COST BOOKING AN ACCIDENT YEAR'S ULTIMATE HOLDS STEADY AFTER
+  // ITS FIRST BOOKING, AND THAT IS WHAT IS ASSERTED NOW. This block used to
+  // require the same year to be restated UPWARDS by a later valuation (at least
+  // 1.05x two valuations on, every aged point drawn above its booked point).
+  // Full-cost booking removed development by design, so that read 1.00x on every
+  // run: the same class as the gates repaired in the payout build, asserting a
+  // movement the engine no longer makes. The two charts are therefore the same
+  // figures today; the developed chart is kept because development returns with
+  // the prior development factors, and these assertions are the ones to restate
+  // when it does (see docs/PENDING_MULTIPLAYER.md for the sign rule).
+  //
+  // Checked against reintroduced development: with FULL_COST_BOOKING off, the
+  // aged years move and both assertions below go red.
   const recD = await host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
   const hRec = recD.teams.find(t => t.name === 'Harbour Mutual');
   const booked1 = hRec.resultsByYear['1'].pool.netUltimateLoss;
@@ -170,8 +190,19 @@ const activeView = page => page.$$eval('nav button', bs =>
   const dev1At3 = hRec.resultsByYear['3'].developed.pool['1'];
   ok(Math.abs(dev1At1 - booked1) < 1,
      `at its own valuation, accident year 1 as developed IS its booked figure ($${Math.round(booked1)})`);
-  ok(dev1At3 > booked1 * 1.05,
-     `two valuations later the same year has grown: $${Math.round(booked1)} -> $${Math.round(dev1At3)} (${(dev1At3 / booked1).toFixed(2)}x)`);
+  // ⚠ AGED YEARS MOVE NOW, AND THAT IS THE ASSERTION. This read "hold steady",
+  // on the premise that full-cost booking left the engine with no development
+  // to make. The host's development % is that development: every accident year
+  // develops by its line's percentage over its lifetime, so two valuations on,
+  // an aged year MUST have moved. The default mix is adverse on WC and GL and
+  // favourable on Property, so the pool figure is adverse on balance and the
+  // direction is asserted with the movement.
+  const aged = ['1', '2'].map(y => ({
+    y, booked: hRec.resultsByYear[y].pool.netUltimateLoss, developed: hRec.resultsByYear['3'].developed.pool[y],
+  }));
+  ok(aged.every(a => a.developed > a.booked),
+     `two valuations later the aged years have developed ADVERSELY: ${aged.map(a => `year ${a.y} $${Math.round(a.booked)} -> $${Math.round(a.developed)}`).join(', ')}`);
+  void dev1At3;
   const bookedLatest = hRec.resultsByYear['3'].pool.netUltimateLoss;
   ok(Math.abs(hRec.resultsByYear['3'].developed.pool['3'] - bookedLatest) < 1,
      'and the NEWEST accident year is identical on both charts — it has had no valuation yet');
@@ -186,9 +217,25 @@ const activeView = page => page.$$eval('nav button', bs =>
   const bookMarks = await marks(host, 'losses', COLORS['Harbour Mutual']);
   ok(devMarks.length === bookMarks.length && devMarks.length === 4,
      `the developed chart covers the same accident years (${devMarks.length})`);
-  // Lower y is a HIGHER value: the developed points sit above the booked ones.
-  const above = devMarks.slice(0, 3).every((d, i) => d.cy < bookMarks[i].cy - 1);
-  ok(above, 'and every developed point that has aged sits ABOVE its booked point');
+  // ⚠ AND THE DRAWN POINTS FOLLOW THE FIGURES BACK UP. This asserted the
+  // points sat ON each other — correct while nothing developed, and it had
+  // already been "ABOVE" before that. With the host's development live the
+  // pool develops adversely, so a developed point sits ABOVE its booked one;
+  // on the chart's inverted y-axis that is a SMALLER cy.
+  // ⚠ THE AGED ONES ONLY, AND THE NEWEST IS EXCLUDED ON PURPOSE. A year at its
+  // OWN valuation has not developed yet — the assertion forty lines up says
+  // exactly that — so its developed point sits on its booked one and always
+  // will. Only the two that have aged can have moved.
+  //
+  // ⚠ AND THE TEST IS "NEVER BELOW, AT LEAST ONE CLEARLY ABOVE", because a
+  // year of development on this scale is worth a pixel or two and the chart
+  // is drawn in integers. Demanding a strict gap on every point asserts the
+  // renderer's resolution rather than the engine's direction.
+  const agedMarks = devMarks.slice(0, 2);
+  const neverBelow = agedMarks.every((d, i) => d.cy <= bookMarks[i].cy);
+  const oneClear = agedMarks.some((d, i) => d.cy < bookMarks[i].cy);
+  ok(neverBelow && oneClear,
+     'and the aged developed points are drawn ABOVE their booked points (adverse), never below');
 
   // ---- REPORTED, PENDING, and the line that must not fall to zero ------
   const hs = await marks(host, 'surplus', COLORS['Harbour Mutual']);
@@ -220,17 +267,22 @@ const activeView = page => page.$$eval('nav button', bs =>
   ok(/through year 1/.test(pending), `the legend says why: "${pending.trim()}"`);
   ok(ts[0].cx < hs[hs.length - 1].cx, 'the stopped line ends BEFORE the reporting one, rather than dropping');
 
-  // ---- ABSENT draws nothing at all ------------------------------------
+  // ---- EVERY TEAM IS DRAWN IN EVERY VIEW NOW ---------------------------
+  // ⚠ THIS CHECKED THE OPPOSITE AND COULD NOT SURVIVE THE RULING. It asserted
+  // that a WC-only team is named ABSENT in the GL view and draws nothing at all.
+  // ABSENT meant "does not write this line", which is unreachable once the HOST
+  // sets one line set for the room: every team writes every line the room plays.
+  // So the assertion inverts — nobody is ABSENT, and the team that WAS absent
+  // now draws a real series, which is the stronger of the two statements.
   await pickView(host, 'General Liability');
-  ok(await host.$('[data-testid="chart-absent-Harbour Mutual"]') !== null,
-     'GL view: the WC-only team is named ABSENT in the legend');
+  ok(await host.$('[data-testid="chart-absent-Harbour Mutual"]') === null,
+     'GL view: no team is ABSENT — the room\'s lines are universal');
   ok(/General Liability/.test(await activeView(host) || ''),
      'and the line-view bar marks the view the charts are actually drawing');
   const hGL = await marks(host, 'surplus', COLORS['Harbour Mutual']);
-  const hGLruns = await runs(host, 'surplus', COLORS['Harbour Mutual']);
-  ok(hGL.length === 0 && hGLruns.length === 0, 'and has NO line and NO points — not a line at zero');
+  ok(hGL.length > 0, 'and the team that used to be absent here draws a real series');
   const hGLdev = await marks(host, 'developed', COLORS['Harbour Mutual']);
-  ok(hGLdev.length === 0, 'the developed chart carries absence identically — no line there either');
+  ok(hGLdev.length > 0, 'the developed chart carries the same team identically — a line there too');
   const cGLdev = await marks(host, 'developed', COLORS['Cedar Valley']);
   ok(cGLdev.length === 4, `and the GL team has its own line's developed column (${cGLdev.length})`);
   const cGL = await marks(host, 'surplus', COLORS['Cedar Valley']);

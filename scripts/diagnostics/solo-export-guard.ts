@@ -218,7 +218,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
-import { processYear } from '../../src/utils/simulationEngine';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { buildResultsWorkbook } from '../../src/utils/resultsExport';
@@ -552,7 +552,133 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //       severity recalibration moves 69.8% of PR-solo's values.
 // A recapture that could not say which of those two things happened would be
 // the blank cheque this file's header warns about. It can, so it is not.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v52.json');
+// ⚠ v52 -> v53: THE INVESTMENT RETURN CUT. All 24 exports move, and unlike v52
+// they ALL move for the SAME reason and it is a VALUE reason, not a shape one:
+// no row is added, removed or renamed by this change. Every workbook carries
+// investment income, invested assets, surplus and the funding figures derived
+// from them, and INVESTMENT_RETURN_SCALE moves all of those on every line of
+// every configuration.
+//
+// ⚠ AND THE CHARGES IN THESE WORKBOOKS MOVE TOO, WHICH IS NOT PRICING. These
+// are free-running games, so they go through runLinePreGame's acceptance search,
+// which selects a past on ENDING SURPLUS / premium — a quantity that contains
+// investment income. A different rate can accept a different past, and the
+// opening roster changes with it. value-identity v51's note carries the
+// isolating test: replayed from an IDENTICAL past, charges, pool premium and
+// membership are bit-identical in 24 of 24 games while investment income differs
+// in 24 of 24. Read the two captures together, as v52 said to.
+// ⚠ v53 -> v54: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
+// All 24 move, for VALUE reasons only — no row is added, removed or renamed.
+// Every workbook carries surplus, funding and capital-adequacy figures, and the
+// opening book itself re-rolled because the acceptance band changed. Read with
+// value-identity v52, whose note carries the isolating test and the correction
+// to b9d797e's -7.7%.
+// ⚠ v54 -> v55: ZERO RISK LOAD AND THE PIN THAT FOLLOWED IT. All 24 move, for
+// VALUE reasons only — no row added, removed or renamed. Every workbook carries
+// reinsurance cost and the member charge, and the opening book re-rolled because
+// the pin moved. Read with value-identity v53, whose note carries the measured
+// reason declining still wins.
+// ⚠ v55 -> v56: THE feature/uw-decisions MERGE, numbered above both parents
+// (the branches' numbering had collided). All 24 move, for VALUE reasons only —
+// no row added, removed or renamed. Read with value-identity v54, whose note
+// carries the full list of what each side contributes and the record that the
+// opening pin was re-solved and held.
+// ⚠ v56 -> v57: THE PUBLISHED METRIC LIST CHANGED, so every workbook does.
+// RESULT_METRICS lost six Membership rows — activeMembers, enrolmentCount,
+// newMembers, withdrawnMembers, memberRetentionRate and averageRiskQuality —
+// and kept memberSatisfaction and activeExposure. No VALUE moved: value-identity
+// holds bit-exactly across this, because the engine still computes every one of
+// those fields and this only stops publishing them. What changed is which
+// columns exist.
+//
+// ⚠ averageRiskQuality IS THE ONE TO NOTICE. Risk quality is unobservable by
+// design and surface-privacy-check exists to keep a member's score from the
+// player; the POOL AVERAGE of it was in this workbook the whole time. The gate
+// now refuses the expression instead of allowing it.
+// ⚠ v58 -> v59: THE SET OPENING. Values move, the column list does not. The
+// pre-game search, the opening pin and its band are gone; accident years older
+// than PRIOR_HISTORY_YEARS are bulk cohorts held NET at expected ultimate x the
+// unpaid share at their age, over each pattern's full length, and opening
+// surplus is 2.28 x the line's own required capital. Every workbook re-rolls
+// because the opening balance sheet it starts from is a different one — WC
+// carries 37 accident years where it carried 13.5. See value-identity v56 for
+// the field-level reading; this capture is the same move seen through the
+// published workbook.
+// ⚠ v59 -> v60: FIVE PRIOR YEARS. Values move, the column list does not. The
+// pre-game now plays PRIOR_HISTORY_YEARS accident years rather than a fixed
+// ten, so every workbook starts from a different opening balance sheet. See
+// value-identity v58 for the field-level reading and for the control showing
+// the new rate stack moved none of it.
+// ⚠ v60 -> v61: THE REINSURANCE PRICE AND THE BULK-YEAR CESSION. Values move,
+// the column list does not. See value-identity v59.
+// v62: THE NEW RATE STACK, ON. ALL 24 EXPORTS MOVED, AND ALL 24 WERE EXPECTED
+// TO — every export in this guard carries priced figures, in both the default
+// and the squeezed arm, on all three solo lines and the tri-line pool. An
+// export that had NOT moved would have been the finding here. The movement is
+// the charge: WC's opening rate goes 2.859 -> 6.177, GL 5.357 -> 8.398,
+// Property 0.284 -> 0.396. Losses and reserves are untouched; see
+// VALUE_IDENTITY's v60 note for the field-level attribution.
+// v63: THE GL POOL LIMIT AND THE PRE-GAME FUNDING LEVEL. All 24 exports move,
+// and all 24 were expected to: every one carries surplus, which moves on all
+// three lines through the pre-game's cash/invested split, and the GL and
+// tri-line exports carry the capped GL loss as well. See VALUE_IDENTITY's v61
+// note for the field-level attribution.
+// v64: THE HOST'S DEVELOPMENT %, AND THE SIGN CONVENTION. All 24 exports move.
+//
+// ⚠ AT 0% THE ENGINE IS INERT AND THIS WAS ISOLATED RATHER THAN ASSUMED. With
+// the development overridden to zero the exports still differed — so the two
+// development rows' sign flip was reverted as well, and at 0% with the old
+// signs all 24 came back BYTE-IDENTICAL to v63. The engine contributes
+// nothing at 0%; the whole of the remaining move is the sign convention, and
+// it is a deliberate display change made in the same commit so no reader ever
+// meets two opposite signs for one event.
+// v65: LOSS ENGINE COMMIT 3a — THE NEW ENGINE, PERMANENT, ONE BOOK PER LINE.
+// All 24 exports move, and all 24 were expected to: every one carries losses,
+// reserves, the rate and surplus, which the engine switch moves on every line
+// (see VALUE_IDENTITY's v63 note for the field-level attribution). The results
+// sheet also LOSES three rows — member satisfaction, risk control % and risk
+// control investment — which are hidden with MEMBER_LEVEL and RISK_CONTROL
+// off. That is a presentation change made in the same commit.
+//
+// ⚠ THE OLD ENGINE STILL REPRODUCES v64 BYTE FOR BYTE: run with --import
+// ./scripts/tools/engine-mode/legacy-engine.ts against v64, all 24 identical.
+// Checked before the recapture, not claimed.
+// (Commit 3b removed legacy-engine.ts with the old shocks; the old engine is
+// reproducible now only from the legacy-engine branch.)
+// v66: THE RESULTS NARRATIVE NAMES AN EVENT THAT COST MONEY WITHOUT A CLAIM.
+// 22 of 24 exports move, and in every one of them ONLY the "Events This Year"
+// row moved — 108 lines across the shown and raw renderings, diffed as text
+// with GUARD_TEXT_DIR on both sides, and not one line elsewhere. Where it read
+// "None" it now names the new engine's uplift-only events, e.g. "Economic
+// Recession: +$3,136,648 losses" and "Economic Inflation: +$1,...": their A
+// raised the year's ordinary losses by exact attributed dollars and brought no
+// claim, and the old filter dropped any event without a claim. The two that did
+// not move are the configurations whose years fired nothing of the kind.
+// 3b is value-neutral: v66 holds unchanged across it.
+// v67: LOSS ENGINE COMMIT 4a — ONE REINSURANCE PACKAGE PER LINE. All 24
+// exports move. The control ran first: 3b (88d1e6e), in its own worktree,
+// reproduced v66 24 of 24; then both sides were diffed as text with
+// GUARD_TEXT_DIR. Two causes, nothing else:
+//   - THE PLACEMENT CODE is the package id: "L1+L2+L3" becomes "$9M xs $1M"
+//     on WC and GL, "L1" becomes "$20M xs $5M" on Property.
+//   - THE VALUES of the default package, exactly as v64 of the value baseline
+//     records them: GL's reinsurance cost (673 345 -> 402 266 in year 1),
+//     Property's (7 511 174 -> 1 031 666), the catastrophe year's recovery
+//     (109 448 263 -> 15 000 000), and the reserves, rates, ratios and
+//     surplus that follow.
+// v68: LOSS ENGINE COMMIT 4b — TEN WORLDS. All 24 exports move. This guard now
+// plays each game as the app does — ten worlds, the export built from their
+// AVERAGE — so it guards the workbook a player downloads. The control ran
+// first: 4a (d113666), in its own worktree, reproduced v67 24 of 24; then both
+// sides were diffed as text with GUARD_TEXT_DIR. Three causes, nothing else:
+//   - THE VALUES are the average across the ten worlds: every dollar figure,
+//     and every ratio recomputed from the averaged parts (worlds-check).
+//   - THE EVENTS are every world's, each said once with the worlds it fired in:
+//     "Events This Year" reads e.g. "Nuclear Verdict (in 1 of 10 worlds): 0.1
+//     claims, $2,500,000", the averaged claim count to one place.
+//   - THE SHOCK EVENTS SHEET gains a Worlds column ("2 of 10"), lists events
+//     from every world, and states claim counts to two places.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v68.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
@@ -562,10 +688,13 @@ function play(id: string, lines: CoverageLine[], years: number,
   const instance = generateGameInstance(id, seedOf(id));
   const setup = { poolName: 'G', gameLength: years, startingYear: 2026, instanceId: id, activeLines: lines };
   const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
-  let gs: GameState = { setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory };
+  // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b, played as the app plays them: the
+  // export a player downloads is the AVERAGE across the worlds, so that is what
+  // this guards. Loans are declined, as before (none were ever authorized here).
+  let gs: GameState = openWorlds({ setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
   for (let y = 1; y <= years; y++) {
-    const p = processYear(gs, decisions(y, lines));
-    gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
+    const settled = settleWorldsYear(gs, playWorldsYear(gs, decisions(y, lines)), []);
+    gs = { ...gs, ...commitSettledYear(gs, settled), currentYearNumber: y + 1 };
   }
   return gs.lockedResults;
 }
@@ -646,6 +775,13 @@ for (const id of SEEDS) {
     const shown = wb.SheetNames.map(s => XLSX.utils.sheet_to_csv(wb.Sheets[s])).join('\n#SHEET#\n');
     const raw = wb.SheetNames.map(s => XLSX.utils.sheet_to_csv(wb.Sheets[s], { rawNumbers: true })).join('\n#SHEET#\n');
     out[`${arm.name}|${id}|${name}`] = sha(Buffer.from(`${shown}\n#RAW#\n${raw}`, 'utf8'));
+    // GUARD_TEXT_DIR=<dir> keeps the TEXT behind every hash, one file per export,
+    // as render-identity-check's RENDER_TEXT_DIR does: a moved export is then a
+    // plain text diff rather than a changed hash. Off by default.
+    if (process.env.GUARD_TEXT_DIR) {
+      fs.mkdirSync(process.env.GUARD_TEXT_DIR, { recursive: true });
+      fs.writeFileSync(path.join(process.env.GUARD_TEXT_DIR, `${arm.name}-${id}-${name}.txt`), `${shown}\n#RAW#\n${raw}`);
+    }
   }
 }
 }

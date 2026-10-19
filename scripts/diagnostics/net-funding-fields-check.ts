@@ -14,6 +14,8 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { NEW_RATE_STACK, RISK_CONTROL_INCENTIVE_RANGE } from '../../src/data/pricingParameters';
+import { expenseDivisor } from '../../src/utils/linePricing';
 import type { CoverageLine, GameState, LineResultSet } from '../../src/types/simulation';
 
 const GAMES = Number(process.env.GAMES ?? 30);
@@ -66,8 +68,18 @@ for (let g = 0; g < GAMES; g++) {
       n++;
 
       // 1. THE IDENTITY THE COMMIT EXISTS FOR: poolPremium from stored fields alone.
+      // ⚠ FORKED WHEN THE NEW RATE STACK WENT LIVE. The identity is unchanged
+      // in substance — poolPremium is still reconstructable from stored
+      // fields and nothing else, which is the whole reason these two fields
+      // are stored. What changed is the LOADING FACTOR: the old stack applied
+      // a rate level, the new one divides by (1 - risk control - profit and
+      // contingency). Left unforked this read exactly 5.00e-2 on all three
+      // lines, which is the divisor and not an error in the fields.
+      const loadFactor = NEW_RATE_STACK.enabled
+        ? 1 / expenseDivisor(RISK_CONTROL_INCENTIVE_RANGE.default)
+        : r.rateLevel / 100;
       const reconstructed =
-        r.activeExposure * r.netPurePremiumPer100 * r.selectedFundingCLF * (r.rateLevel / 100) * 10_000;
+        r.activeExposure * r.netPurePremiumPer100 * r.selectedFundingCLF * loadFactor * 10_000;
       const relErr = Math.abs(reconstructed - r.poolPremium) / Math.max(Math.abs(r.poolPremium), 1);
       worstReconstruct[l] = Math.max(worstReconstruct[l], relErr);
       // activeExposure itself is stored rounded to 2dp (pre-existing, not
@@ -100,7 +112,12 @@ for (let g = 0; g < GAMES; g++) {
 console.log(`${n} line-years across ${GAMES} games x ${YEARS} years.\n`);
 
 console.log('--- 1. poolPremium RECONSTRUCTED FROM STORED FIELDS ALONE ---');
-console.log('  activeExposure x netPurePremiumPer100 x selectedFundingCLF x (rateLevel/100) x 10_000\n');
+console.log(NEW_RATE_STACK.enabled
+  ? '  activeExposure x netPurePremiumPer100 x selectedFundingCLF / (1 - rc - contingency) x 10_000\n'
+    + '  ⚠ The risk control incentive is read from the slider DEFAULT, not the row: this gate plays\n'
+    + '  all-defaults by construction, so that is its value throughout, and taking it from the\n'
+    + '  parameter keeps the assumption visible.\n'
+  : '  activeExposure x netPurePremiumPer100 x selectedFundingCLF x (rateLevel/100) x 10_000\n');
 console.log('  ⚠ NOT gated at float precision. activeExposure is already stored rounded to 2dp');
 console.log('  (pre-existing, simulationEngine.ts:1333 — untouched by this commit), which alone');
 console.log('  bounds the achievable relative error at ~0.005/activeExposure, several orders above');

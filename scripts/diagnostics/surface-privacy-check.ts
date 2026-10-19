@@ -43,10 +43,17 @@
 //
 // The allowlist matches whole EXPRESSIONS, not files. Allowing a file would
 // mean the next `member.riskQuality` added to MembershipPage passes silently,
-// which is precisely the regression this exists to catch. Allowing
-// `averageRiskQuality` and refusing `member.riskQuality` is the distinction
-// that carries the ruling: an average is a pool statistic, a per-member read
-// is the attribute.
+// which is precisely the regression this exists to catch.
+//
+// ⚠ `averageRiskQuality` WAS ALLOWED HERE AND IS NOW REFUSED. The reasoning
+// above used to end: "an average is a pool statistic, a per-member read is the
+// attribute", and on that basis the POOL AVERAGE of an attribute declared
+// unobservable was published on the Results card, in RESULT_METRICS and in the
+// results workbook for the whole life of this gate. That is a hole in the hide,
+// not a casualty of the multiplayer change: a player who can read the pool mean
+// each year can watch an unobservable quantity respond to their underwriting.
+// The metric is withdrawn and the expression is refused, so it cannot return
+// through the same argument that let it in.
 //
 // ⚠ COMMENTS ARE STRIPPED BEFORE MATCHING, because a comment cannot render.
 // This file's own subject matter means the surfaces it guards are full of
@@ -78,9 +85,6 @@ const EXPORT_BUILDERS = ['utils/resultsExport.ts', 'utils/resultMetrics.ts', 'ut
  * string array.
  */
 const ALLOWED: { expr: string; why: string }[] = [
-  { expr: 'averageRiskQuality', why: 'pool average over ~60 members; leaks almost nothing about any individual' },
-  { expr: 'Avg. Risk Quality', why: 'the label on that average' },
-  { expr: 'Average Risk Quality', why: 'the same average, in export/audit prose' },
   { expr: 'STARTING_FINANCIALS.riskQuality', why: 'CalculationAuditPage documents the opening RANGE, not a member' },
   { expr: 'startingFinancials.riskQuality', why: 'the opening pool average, same reason' },
   { expr: 'risk quality', why: 'prose in model documentation on the audit page' },
@@ -235,16 +239,20 @@ if (dead.length > 0) {
 // module, EVERY mention of risk quality must be a neutral override.
 // ===========================================================================
 {
-  // ⚠ TWO MODULES, BECAUSE THE RATIO NOW FEEDS TWO DECISIONS. memberExperienceMod
-  // computes it; newBusinessAppetite thresholds APPLICANTS on it. A prospect's
-  // ratio has to be computed at neutral risk quality on both legs for exactly
-  // the reason a member's does — more so, in fact, since an applicant is chosen
-  // ON that number rather than merely billed by it. newBusinessAppetite gets
-  // its ratio by delegating to memberExperienceMods, so today it inherits the
-  // property; it is listed here so that the day someone computes a prospect
-  // ratio locally instead, the gate is already watching the file they will
-  // write it in.
-  const RATIO_MODULES = ['utils/memberExperienceMod.ts', 'utils/newBusinessAppetite.ts'];
+  // ⚠ TWO MODULES, BECAUSE THE RATIO FEEDS TWO THINGS. memberExperienceMod
+  // computes it and bills on it; renewalUnderwriting RANKS members on it for the
+  // renewal slider. A member is chosen ON that number rather than merely billed
+  // by it, so it must be computed at neutral risk quality on both legs.
+  // renewalUnderwriting gets its ratio by delegating to memberExperienceMods, so
+  // today it inherits the property; it is listed so that the day someone
+  // computes a ratio locally instead, the gate is already watching the file.
+  //
+  // ⚠ newBusinessAppetite.ts WAS THE SECOND MODULE AND IS DELETED. Intake no
+  // longer reads the loss ratio at all: intakeInspection.ts reads TRUE risk
+  // quality through a deliberately noisy inspection, engine-side, as the claim
+  // engines do. That is not a surface, and the page sums its probabilities
+  // without rendering any per-member figure — the scan above is what holds that.
+  const RATIO_MODULES = ['utils/memberExperienceMod.ts', 'utils/renewalUnderwriting.ts'];
   for (const RATIO_MODULE of RATIO_MODULES) {
   const p = path.join(SRC, RATIO_MODULE);
   console.log('');
@@ -282,7 +290,7 @@ if (dead.length > 0) {
     // SHOULD EXIST. memberExperienceMod is where the expectation is computed, so
     // zero mentions there means the neutral basis is gone and the assertion
     // above is passing on nothing — the inert-probe failure wearing a green
-    // tick. newBusinessAppetite DELEGATES and is expected to have none, so the
+    // tick. renewalUnderwriting DELEGATES and is expected to have none, so the
     // same control there would fail a correct file.
     const RATIO_CONTROL_MIN = RATIO_MODULE.includes('memberExperienceMod') ? 4 : 0;
     const ratioSane = clean >= RATIO_CONTROL_MIN;

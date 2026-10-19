@@ -20,6 +20,21 @@
 // HttpSessionTransport reads the body's code first and falls back to the status
 // only for responses the server did not write (a gateway 502, an HTML page).
 //
+// ⚠ THE DECISIONS SECTION NEEDED NO CODE HERE, AND THAT IS THE FILE'S CLAIM
+// HOLDING RATHER THAN THE CHANGE MISSING IT. TeamYearSummary gained a
+// `decisions` block; submit stores `req.result` whole (rooms.ts writes
+// JSON.stringify(req.result) into the R# item) and this file routes the payload
+// without inspecting it. A new field inside an existing payload is therefore a
+// contract-and-transport change, not a handler one. It is named here because
+// "the handler was not touched" is a thing a reader should be able to confirm
+// deliberately rather than infer from a silent file.
+//
+// ⚠ IT STILL SHIPS FIRST. The handler carries no new code but the DEPLOY ORDER
+// is unchanged and still matters: the stored R# row gains a field, and a front
+// end deployed ahead of the handler would read rows that do not carry it. See
+// docs/AWS_HANDOFF.md — this lands with the lobby and host-picks-lines changes,
+// handler first, then the front end.
+//
 // Deployed as dist-lambda/handler.zip, `index.js` at the root exporting
 // `handler` — built by scripts/tools/build-handler.ts (`npm run build:handler`).
 // The table comes from TABLE_NAME; retention from ROOM_RETENTION_SEC (undecided,
@@ -42,12 +57,25 @@ const STATUS: Record<SessionErrorCode, number> = {
   WRONG_YEAR: 409,
   GAME_COMPLETE: 409,
   INVALID_REQUEST: 400,
-  LINES_LOCKED: 409,
+  // ⚠ 409, NOT 403. A late team is not UNAUTHORISED — nothing is wrong with
+  // who it is, and no credential would help. The room is in a state that
+  // refuses the request, which is the same shape as WRONG_YEAR and TEAM_TAKEN
+  // above and maps to the same code.
+  EVENT_IN_PROGRESS: 409,
+  // LINES_LOCKED is gone from the contract — a join carries no lines, so no
+  // server can emit it. Nothing maps to 409 for it any more.
   TRANSPORT_FAILURE: 500,
 };
 
-type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read';
-const ENDPOINTS: readonly Endpoint[] = ['createRoom', 'join', 'submit', 'advance', 'read'];
+// ⚠ TWO NEW ROUTES, AND THE DISPATCH BELOW NEEDED NOTHING ELSE. It calls
+// transport[endpoint] generically, so a route is this list plus a method on the
+// transport — which is the property that made adding the lobby a contract
+// change rather than a handler change. Mike adds the routes in API Gateway; see
+// docs/AWS_HANDOFF.md.
+type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read' | 'listEvents' | 'setEventHidden';
+const ENDPOINTS: readonly Endpoint[] = [
+  'createRoom', 'join', 'submit', 'advance', 'read', 'listEvents', 'setEventHidden',
+];
 
 function json(status: number, body: unknown): APIGatewayProxyStructuredResultV2 {
   return {

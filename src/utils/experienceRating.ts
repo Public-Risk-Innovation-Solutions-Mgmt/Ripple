@@ -135,7 +135,12 @@ function cdfFrom(factors: number[], age: number): number {
 }
 
 /** The exposure enrolled in `line` in accident year `ay`, or 0 if unknowable. */
-function exposureFor(basis: ExperienceBasis, line: CoverageLine, ay: number): number {
+function exposureFor(basis: ExperienceBasis, line: CoverageLine, row: ReserveDevelopmentRow): number {
+  // ⚠ A BOOK'S LEDGER CARRIES ITS OWN EXPOSURE, as in newPurePremium.ts. With
+  // MEMBER_LEVEL off there is no roster to reconstruct it from; reading 0 here
+  // left every point unusable and the actuarial memo without its indication.
+  if (row.exposure !== undefined) return row.exposure;
+  const ay = row.yearNumber;
   let e = 0;
   for (const m of basis.allMarketMembers) {
     if (!wasActiveInLine(basis.membershipHistory, m.id, line, ay)) continue;
@@ -166,7 +171,7 @@ export function experiencePoints(
     const latestPaid = p[p.length - 1];
     if (!(latestPaid > 0)) continue;
     const age = (r.ageAtFirstValuation ?? 0) + p.length - 1;
-    const exposure = exposureFor(basis, line, r.yearNumber);
+    const exposure = exposureFor(basis, line, r);
     if (!(exposure > 0)) continue;              // seeded: contributes factors only
     const developed = latestPaid * cdfFrom(factors, age);
     points.push({

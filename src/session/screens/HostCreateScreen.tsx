@@ -22,38 +22,70 @@
 import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
 import { Shuffle, Trash2, Zap } from 'lucide-react';
-import { SHOCK_CATALOG } from '../../data/shockCatalog';
-import { IMPLEMENTED_EFFECTS } from '../../types/shocks';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
+import { DEFAULT_PRIOR_DEVELOPMENT, type PriorDevelopment } from '../contract';
+import type { CoverageLine } from '../../types/simulation';
+import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { rememberHostToken, saveActive } from '../client/identity';
-import { drawShockSchedule } from '../shockDraw';
+import { drawShockSchedule, drawableShocks } from '../shockDraw';
 import { navigate } from '../client/navigation';
 
-// A shock whose effects the generators cannot execute throws inside the
-// resolver rather than quietly doing nothing (see shockResolver.ts). Offering it
-// in a dropdown would let a host schedule a room that breaks on the year it
-// fires, so the unbuildable ones are listed and disabled with the reason shown.
-const SCHEDULABLE = Object.values(SHOCK_CATALOG).map(def => ({
-  id: def.id,
-  name: def.name,
-  buildable: def.effects.every(e => IMPLEMENTED_EFFECTS.has(e.kind)),
-}));
+// ⚠ EVERY ONE OF THE R MODEL'S TWELVE EVENTS IS OFFERED, AND EVERY ONE RUNS.
+// Loss engine commit 3b retired the old catalogue, which only built six of
+// them; the new engine runs all twelve. The list is the same one Randomise
+// draws from (session/shockDraw.ts), so the two cannot offer different events.
+const SCHEDULABLE = drawableShocks();
+
+// ⚠ THE SEED IS A SHORT MENU NOW, AND IT IS STILL A STRING. The contract's
+// `seed: string` is untouched — these are the strings '1' to '20' rather than an
+// eight-character draw, so nothing about what a room stores changes shape.
+const SEED_OPTIONS = Array.from({ length: 20 }, (_, i) => String(i + 1));
+
+const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
+
+// ⚠ THE FACTOR IS SIGNED AND THE SCREEN IS NOT. Stored as a fraction where
+// POSITIVE IS ADVERSE (see PriorDevelopment), but a host reads "3% adverse",
+// never "0.03". These two convert between the two readings and nothing else
+// does, so the sign convention lives in one place.
+const pctOf = (v: number) => Math.round(Math.abs(v) * 1000) / 10;
+const signedFrom = (pct: number, adverse: boolean) => (adverse ? 1 : -1) * (Math.abs(pct) / 100);
+
+// ⚠ THE DEFAULT IS STILL RANDOM, DELIBERATELY. The free-text field it replaces
+// defaulted to a fresh eight-character draw, so two hosts who changed nothing got
+// different games. Defaulting the menu to '1' would quietly undo that and make
+// every unconsidered room identical. A random option keeps the old behaviour
+// inside the new, smaller set.
+// ⚠ THE SCHEDULED LIST READS AS A SENTENCE, NOT AN ID: '#2 Winterstorm/Rainstorm'.
+// An id that is not one of the twelve shows as itself.
+function shockLabel(id: string): string {
+  const name = SCHEDULABLE.find(s => s.id === id)?.name;
+  if (!name) return id;
+  return id.startsWith('#') ? `${id} ${name}` : name;
+}
 
 function randomSeed(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id = '';
-  for (let i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)];
-  return id;
+  return SEED_OPTIONS[Math.floor(Math.random() * SEED_OPTIONS.length)];
 }
 
 export default function HostCreateScreen() {
-  const [eventName, setEventName] = useState('Ripple Game');
+  // ⚠ OPENS EMPTY, NOT 'Ripple Game'. The field is REQUIRED now and the lobby
+  // lists it, so a default would be the name most events end up called — a
+  // lobby of identical rows, each needing its code read to tell apart. An empty
+  // required field asks the one question the lobby cannot answer for itself.
+  const [eventName, setEventName] = useState('');
   const [seed, setSeed] = useState(() => randomSeed());
   const [yearCount, setYearCount] = useState(5);
   const [startingYear, setStartingYear] = useState(2026);
   const [expectedTeams, setExpectedTeams] = useState(3);
+  // ⚠ ALL THREE LINES ON BY DEFAULT, which is what every room played when teams
+  // chose for themselves — so a host who changes nothing gets the old game.
+  const [lines, setLines] = useState<CoverageLine[]>([...LINE_ORDER]);
+  // Kept for ALL THREE lines even while one is unticked, so toggling a line off
+  // and back on does not silently reset a factor the host had edited. The
+  // transport drops entries for lines the room does not play.
+  const [priorDev, setPriorDev] = useState<PriorDevelopment>({ ...DEFAULT_PRIOR_DEVELOPMENT });
   const [shocks, setShocks] = useState<ScheduledShockSpec[]>([]);
-  const [shockId, setShockId] = useState(SCHEDULABLE.find(s => s.buildable)?.id ?? '');
+  const [shockId, setShockId] = useState(SCHEDULABLE[0]?.id ?? '');
   const [shockYear, setShockYear] = useState(2);
   // What the last Randomise drew FOR. The draw is a pure function of the seed
   // and the year count, so the list is reproducible from the room record only
@@ -79,7 +111,10 @@ export default function HostCreateScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<SessionError | null>(null);
 
-  const canCreate = yearCount >= 1 && expectedTeams >= 1 && !busy;
+  // ⚠ THE EVENT NAME IS REQUIRED. It was optional and defaulted; the lobby
+  // lists rooms by it, so a nameless event is a row nobody can choose.
+  const canCreate = eventName.trim().length > 0
+    && yearCount >= 1 && expectedTeams >= 1 && lines.length >= 1 && !busy;
 
   async function handleCreate() {
     setBusy(true);
@@ -95,8 +130,10 @@ export default function HostCreateScreen() {
         seed: seed.trim() || randomSeed(),
         yearCount,
         startingYear,
-        eventName: eventName.trim() || 'Ripple Game',
+        eventName: eventName.trim(),
         expectedTeams,
+        lines,
+        priorDevelopment: priorDev,
         shocks,
       });
       // ⚠ PERSIST THE HOST TOKEN BEFORE NAVIGATING. The room exists the moment
@@ -116,7 +153,7 @@ export default function HostCreateScreen() {
     <>
       <div className="w-full">
         <p className="text-sm text-slate-500">
-          Every team plays the same instance. Teams name themselves and choose their own lines when they join.
+          Every team plays the same instance. Teams name themselves when they join; you choose the coverage lines below.
         </p>
 
         {error && (
@@ -126,24 +163,40 @@ export default function HostCreateScreen() {
         )}
 
         <div className="mt-5 space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          {/* ⚠ MOVED TO THE TOP AND MADE REQUIRED — THE SAME FIELD, NOT A NEW
+              ONE. It sat in the two-column grid below sharing a row with the
+              seed, optional, defaulting to 'Ripple Game'. The lobby lists
+              events by this name, so it is now the first thing the host is
+              asked and the room cannot be created without it. The mockup drew a
+              SECOND field above the existing one; that was wrong, and there is
+              one field here. */}
+          <label className="block">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Event name <span className="text-red-500">*</span>
+            </span>
+            <input
+              data-testid="event-name"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={eventName}
+              onChange={e => setEventName(e.target.value)}
+              placeholder="e.g. PRISM Spring Workshop"
+            />
+            <span className="mt-1 block text-xs text-slate-400">
+              Required. This is how the event appears in the lobby and on every player&rsquo;s screen.
+            </span>
+          </label>
+
           <div className="grid grid-cols-2 gap-4">
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Event</span>
-              <input
-                data-testid="event-name"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                value={eventName}
-                onChange={e => setEventName(e.target.value)}
-              />
-            </label>
-            <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Seed</span>
-              <input
+              <select
                 data-testid="seed"
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
                 value={seed}
-                onChange={e => setSeed(e.target.value.toUpperCase())}
-              />
+                onChange={e => setSeed(e.target.value)}
+              >
+                {SEED_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
             </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Years</span>
@@ -154,6 +207,7 @@ export default function HostCreateScreen() {
                 value={yearCount}
                 onChange={e => setYearCount(Number(e.target.value))}
               />
+              <span className="mt-1 block text-xs text-slate-400">How many rounds the game will run.</span>
             </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Starting year</span>
@@ -163,12 +217,13 @@ export default function HostCreateScreen() {
                 value={startingYear}
                 onChange={e => setStartingYear(Number(e.target.value))}
               />
+              <span className="mt-1 block text-xs text-slate-400">Year 0 of the game.</span>
             </label>
           </div>
 
           <div>
             <label className="block max-w-[220px]">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Teams expected</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Number of Teams</span>
               <input
                 data-testid="expected-teams"
                 type="number" min={1} max={40}
@@ -182,8 +237,81 @@ export default function HostCreateScreen() {
                 so the host knows when everybody has arrived. */}
             <p className="mt-1.5 text-xs text-slate-400">
               How many to expect, so you know when everyone has arrived. It does not limit who can join, and
-              teams name themselves and pick their own coverage lines at join.
+              teams name themselves at join and play the coverage lines you pick below.
             </p>
+          </div>
+
+          {/* ---- coverage lines, and their prior development ---- */}
+          <div>
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coverage lines</span>
+            {/* ⚠ THE HOST SETS THE GAME, NOT A MENU OF PERMISSIONS. This used to
+                be each team's own choice at join, which made a session a table of
+                different games; the lines are a property of the EVENT, like the
+                seed and the year count. */}
+            <p className="mt-1 text-xs text-slate-400">
+              Every team plays these lines. At least one.
+            </p>
+            <div className="mt-2 space-y-2">
+              {LINE_ORDER.map(l => {
+                const on = lines.includes(l);
+                const v = priorDev[l] ?? 0;
+                const adverse = v >= 0;
+                return (
+                  <div key={l} className="flex items-center gap-3">
+                    <label className="flex w-56 items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        data-testid={`line-${l}`}
+                        checked={on}
+                        onChange={e => setLines(prev => (
+                          e.target.checked
+                            ? LINE_ORDER.filter(x => x === l || prev.includes(x))
+                            : prev.filter(x => x !== l)
+                        ))}
+                      />
+                      {LINE_FULL_NAME[l]}
+                    </label>
+                    <div className={`flex items-center gap-1.5 ${on ? '' : 'opacity-40'}`}>
+                      <input
+                        type="number" min={0} max={100} step={1}
+                        disabled={!on}
+                        data-testid={`prior-dev-pct-${l}`}
+                        className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                        value={pctOf(v)}
+                        onChange={e => setPriorDev(prev => ({
+                          ...prev, [l]: signedFrom(Number(e.target.value), adverse),
+                        }))}
+                      />
+                      <span className="text-sm text-slate-500">%</span>
+                      <select
+                        disabled={!on}
+                        data-testid={`prior-dev-dir-${l}`}
+                        className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                        value={adverse ? 'adverse' : 'favourable'}
+                        onChange={e => setPriorDev(prev => ({
+                          ...prev, [l]: signedFrom(pctOf(prev[l] ?? 0), e.target.value === 'adverse'),
+                        }))}
+                      >
+                        <option value="adverse">adverse</option>
+                        <option value="favourable">favourable</option>
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* ⚠ SAID PLAINLY, BECAUSE A NUMBER THAT DOES NOTHING IS WORSE THAN NO
+                NUMBER. The engine does not read these yet; they are carried on the
+                room so a later update can apply them without re-creating rooms. */}
+            <p className="mt-2 text-xs text-slate-400">
+              Prior development is <span className="font-medium">stored for a future update, not yet used</span> —
+              it does not change the game today.
+            </p>
+            {lines.length === 0 && (
+              <p data-testid="no-lines" className="mt-1.5 text-xs text-amber-700">
+                Pick at least one coverage line.
+              </p>
+            )}
           </div>
 
           {/* ---- shocks ---- */}
@@ -192,26 +320,32 @@ export default function HostCreateScreen() {
             <p className="mt-1 text-xs text-slate-400">
               The same schedule reaches every team. Randomise draws it once, here, from the seed.
             </p>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex items-end gap-2">
+              <label className="flex-1 block">
+                <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Event</span>
               <select
                 data-testid="shock-id"
-                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 value={shockId}
                 onChange={e => setShockId(e.target.value)}
               >
                 {SCHEDULABLE.map(s => (
-                  <option key={s.id} value={s.id} disabled={!s.buildable}>
-                    {s.id} — {s.name}{s.buildable ? '' : ' (not implemented)'}
+                  <option key={s.id} value={s.id}>
+                    {s.id} — {s.name}
                   </option>
                 ))}
               </select>
-              <input
-                data-testid="shock-year"
-                type="number" min={1} max={yearCount}
-                className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                value={shockYear}
-                onChange={e => setShockYear(Number(e.target.value))}
-              />
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Year of Event</span>
+                <input
+                  data-testid="shock-year"
+                  type="number" min={1} max={yearCount}
+                  className="mt-1 w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  value={shockYear}
+                  onChange={e => setShockYear(Number(e.target.value))}
+                />
+              </label>
               <button
                 type="button"
                 data-testid="add-shock"
@@ -245,10 +379,19 @@ export default function HostCreateScreen() {
             {shocks.length > 0 && (
               <ul data-testid="shock-list" className="mt-2 space-y-1">
                 {shocks.map((s, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                  // ⚠ THE ID AND YEAR STAY IN THE DOM AS ATTRIBUTES, not because the
+                  // screen needs them but because the LABEL is now prose and the
+                  // catalog is about to be renumbered 1-12. A driver matching the
+                  // room record against rendered text would be re-broken by that
+                  // rename; matching these is stable and reads the same fact.
+                  <li
+                    key={i}
+                    data-shock-id={s.shockId}
+                    data-shock-year={s.yearNumber}
+                    className="flex items-center gap-2 text-sm text-slate-600"
+                  >
                     <Zap size={13} className="text-amber-500" />
-                    <span className="font-mono">{s.shockId}</span>
-                    <span className="text-slate-400">year {s.yearNumber}</span>
+                    <span>{shockLabel(s.shockId)} — Year {s.yearNumber}</span>
                     <button
                       type="button"
                       onClick={() => { setShocks(prev => prev.filter((_, j) => j !== i)); setDrawnFor(null); }}

@@ -45,9 +45,10 @@
 //
 // WHAT IT CANNOT SEE, STATED SO IT IS NOT ASSUMED AWAY:
 //   - App.tsx's LOAD-SIDE MIGRATIONS. The effect that reads the save also
-//     backfills membershipHistory, memberLossHistory, layersPlaced,
-//     aggregateStopLevel and wcRatingGroup, and deletes the retired
-//     reinsuranceLevel. That logic lives inside a React effect and is not
+//     backfills membershipHistory, memberLossHistory and wcRatingGroup, and
+//     deletes the retired reinsuranceLevel. (The placement backfill went with
+//     loss engine commit 4a: the save key moved to v11 and a v10 save, which
+//     carries per-band placements, is cleared rather than migrated.) That logic lives inside a React effect and is not
 //     callable from here. It only fires for saves written by OLDER builds, so a
 //     fresh round trip does not exercise it — which means old-save migration
 //     remains untested. Naming it because untested is not the same as absent.
@@ -56,13 +57,15 @@
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
-import { processYear } from '../../src/utils/simulationEngine';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
+import { WORLD_ROW_STRIPPED_KEYS } from '../../src/utils/gameSave';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import {
-  serialiseSave, packSave, unpackSave, decodeSave, SAVE_STRIPPED_KEYS,
+  serialiseSave, packSave, unpackSave, decodeSave, saveStrippedKeys,
 } from '../../src/utils/gameSave';
-import { regenerateLineYearClaims } from '../../src/utils/claimRegeneration';
+import { regenerateLineYearClaims, ClaimRegenerationError } from '../../src/utils/claimRegeneration';
+import { newLossEngineRuns } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -70,6 +73,7 @@ const YEARS = Number(process.env.YEARS ?? 10);
 const SAVE_AT = Number(process.env.SAVE_AT ?? 4);   // the year the old save first failed
 const GAMES = Number(process.env.GAMES ?? 4);
 
+const STRIPPED = saveStrippedKeys();
 const failed: string[] = [];
 const fail = (s: string) => { if (failed.length < 30) failed.push(s); };
 const RULE = '='.repeat(72);
@@ -78,18 +82,24 @@ function start(id: string, seed: number): GameState {
   const inst = generateGameInstance(id, seed);
   const setup = { poolName: 'R', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
-  return {
+  // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b — the game as the app plays and saves it.
+  return openWorlds({
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
-  };
+  });
 }
 
 function advance(gs: GameState, y: number): GameState {
-  const p = processYear(gs, defaultDecisionSet(y));
+  const settled = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
   return {
-    ...gs, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result],
+    ...gs, ...commitSettledYear(gs, settled),
     currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1),
   };
+}
+
+/** A world's rows without the keys the save drops from them (WORLD_ROW_STRIPPED_KEYS). */
+function slimWorlds(ws: GameState['worlds']): unknown {
+  return JSON.parse(JSON.stringify(ws ?? null, (k, v) => (WORLD_ROW_STRIPPED_KEYS.includes(k) ? undefined : v)));
 }
 
 /**
@@ -122,7 +132,7 @@ function diff(a: unknown, b: unknown, path: string, out: string[], depth = 0): v
   const ao = a as Record<string, unknown>, bo = b as Record<string, unknown>;
   const keys = new Set([...Object.keys(ao), ...Object.keys(bo)]);
   for (const k of keys) {
-    if (SAVE_STRIPPED_KEYS.includes(k)) continue;
+    if (STRIPPED.includes(k)) continue;
     // ⚠ ABSENT AND PRESENT-BUT-UNDEFINED ARE THE SAME THING HERE, and this is a
     // correction to the comparison rather than a relaxation of the gate.
     // JSON.stringify DROPS a key whose value is undefined, so every optional
@@ -175,10 +185,14 @@ for (let g = 0; g < GAMES; g++) {
   for (let y = SAVE_AT + 1; y <= YEARS; y++) c = advance(c, y);
 
   // --- did the strip do what it says? -------------------------------------
-  for (const lr of Object.values(a.lockedResults[YEARS - 1].byLine)) {
+  // The same year on both arms, so a kept register can be counted against it.
+  // ⚠ A WORLD'S ROWS, NOT THE AVERAGE'S (loss engine commit 4b): an averaged
+  // row carries no claim register — the registers are each world's.
+  const rowsOf = (gs: GameState) => gs.worlds?.[0].lockedResults ?? gs.lockedResults;
+  for (const lr of Object.values(rowsOf(a)[SAVE_AT - 1].byLine)) {
     if ((lr as { claims?: unknown[] }).claims) strippedPresentA++;
   }
-  for (const lr of Object.values(restored.lockedResults[SAVE_AT - 1].byLine)) {
+  for (const lr of Object.values(rowsOf(restored)[SAVE_AT - 1].byLine)) {
     if ((lr as { claims?: unknown[] }).claims) strippedPresentB++;
   }
 
@@ -192,6 +206,9 @@ for (let g = 0; g < GAMES; g++) {
   // that the claims workbook reads them. This asserts the ENGINE still does not
   // care: everything on those three years except the per-claim flow survives.
   diff(a.priorHistory, c.priorHistory, `g${g}.priorHistory`, out);
+  // EVERY WORLD, restored and continued, against the same world straight through
+  // — the averaged state above is only as right as the worlds under it.
+  diff(slimWorlds(a.worlds), slimWorlds(c.worlds), `g${g}.worlds`, out);
   if (a.currentYearNumber !== c.currentYearNumber) {
     out.push(`g${g}.currentYearNumber: ${a.currentYearNumber} !== ${c.currentYearNumber}`);
   }
@@ -209,7 +226,66 @@ const regenFail: string[] = [];
 const canon = (o: unknown) => JSON.stringify(o, (_k, v) => (typeof v === 'number' ? Number(v.toPrecision(15)) : v));
 const sortById = <T extends { id: string }>(xs: T[]) => [...xs].sort((x, y) => x.id.localeCompare(y.id));
 
-for (let g = 0; g < GAMES; g++) {
+// ============================================================================
+// ⚠ ON THE NEW LOSS ENGINE THERE IS NOTHING TO REDRAW. Its register — the large
+// losses, a handful a line-year — is KEPT in the save (gameSave.
+// NEW_ENGINE_KEPT_KEYS), so the year-by-year comparison above has already
+// compared every restored claim and occurrence field by field: they are no
+// longer skipped. What this section adds on that engine:
+//   - the register is not empty, so that comparison had something to compare;
+//   - regeneration REFUSES, so no consumer gets the old generators' register;
+//   - THE POSITIVE CONTROL: one claim dropped from a restored register must
+//     show as a difference to the comparison above.
+// ============================================================================
+if (newLossEngineRuns()) {
+  // With ROUTINE_LARGE_LOSSES off, large losses come only from shocks, so most
+  // games' saved years carry none. Seeds are searched, in order, for the first
+  // whose saved years do — bounded, and named in the output.
+  // Every world's rows: the registers are the worlds' (an averaged row has none).
+  const all = (gs: GameState) => [...gs.priorHistory, ...(gs.worlds?.flatMap(w => w.lockedResults) ?? gs.lockedResults)];
+  const has = (gs: GameState) => all(gs).some(r => LINES.some(l => (r.byLine[l]?.claims?.length ?? 0) > 0));
+  let a = start('RT0', 3_300_000), searched = 0;
+  for (let g = 0; g < 40; g++) {
+    a = start(`RT${g}`, 3_300_000 + g * 6421);
+    for (let y = 1; y <= SAVE_AT; y++) a = advance(a, y);
+    searched = g + 1;
+    if (has(a)) break;
+  }
+  console.log(`  new engine: game RT${searched - 1} is the first of ${searched} searched whose saved years carry large losses`);
+  const restored = (unpackSave(packSave({
+    gameState: a, startingFinancials: {}, initialMembers: [], currentDecisions: a.currentDecisions,
+  })) as { gameState: GameState }).gameState;
+  let withClaims: { y: number; line: CoverageLine } | null = null;
+  const back = all(restored);
+  all(a).forEach((r, i) => {
+    for (const line of LINES) {
+      const ca = r.byLine[line]?.claims, cb = back[i].byLine[line]?.claims;
+      if (!ca) continue;
+      regenYears++;
+      if (!cb) { regenFail.push(`y${r.yearNumber} ${line}: register lost in the save`); continue; }
+      if (canon(ca) !== canon(cb)) regenFail.push(`y${r.yearNumber} ${line}: restored register differs`);
+      regenClaims += ca.length;
+      regenOccs += r.byLine[line]?.occurrences?.length ?? 0;
+      if (ca.length > 0 && !withClaims) withClaims = { y: i, line };
+    }
+  });
+  if (regenClaims === 0) regenFail.push('no large losses in the saved years — the register comparison compared nothing');
+  let refused = false;
+  try { regenerateLineYearClaims(restored.instance, back[0], 'GL'); } catch (e) { refused = e instanceof ClaimRegenerationError; }
+  if (!refused) regenFail.push('regeneration redrew a new-engine register instead of refusing');
+  let controlFired = false;
+  if (withClaims) {
+    const { y, line } = withClaims as { y: number; line: CoverageLine };
+    const cut = JSON.parse(JSON.stringify(back)) as typeof back;
+    cut[y].byLine[line]!.claims = cut[y].byLine[line]!.claims!.slice(1);
+    const out: string[] = [];
+    diff(all(a), cut, 'control', out);
+    controlFired = out.length > 0;
+    if (!controlFired) regenFail.push('POSITIVE CONTROL FAILED: a claim dropped from a restored register was not seen by the comparison');
+  }
+  console.log(`  new engine: register kept, regeneration ${refused ? 'refuses' : 'DID NOT REFUSE'}, `
+    + `positive control (one claim dropped) ${controlFired ? 'DIFFERS' : 'same!'}`);
+} else for (let g = 0; g < GAMES; g++) {
   const id = `RT${g}`;
   const seed = 3_300_000 + g * 6421;
   let a = start(id, seed);
@@ -417,11 +493,24 @@ console.log(`  ${regenFail.length === 0 ? 'every regenerated claim and occurrenc
 console.log('');
 console.log('THE STRIP, CONFIRMED RATHER THAN TRUSTED:');
 console.log(`  line-results carrying claims, straight through : ${strippedPresentA}  (expected > 0)`);
-console.log(`  line-results carrying claims, after restore    : ${strippedPresentB}  (expected 0)`);
+if (newLossEngineRuns()) {
+  // The new engine keeps its register: every line-result that carried one
+  // must carry it after the restore.
+  console.log(`  line-results carrying claims, after restore    : ${strippedPresentB}  (expected ${strippedPresentA}, kept)`);
+  if (strippedPresentB !== strippedPresentA) fail(`${strippedPresentA - strippedPresentB} restored line-results lost their register`);
+} else {
+  console.log(`  line-results carrying claims, after restore    : ${strippedPresentB}  (expected 0)`);
+  if (strippedPresentB !== 0) fail(`${strippedPresentB} restored line-results still carry claims — the strip did not fire`);
+}
 if (strippedPresentA === 0) fail('the straight-through arm has no claims either — the strip is not what is being measured');
-if (strippedPresentB !== 0) fail(`${strippedPresentB} restored line-results still carry claims — the strip did not fire`);
 
 console.log('');
+if (newLossEngineRuns()) {
+  console.log('WHAT A RESTORED GAME LOSES NOW: NOTHING A READER CAN SEE.');
+  console.log('  On the new loss engine the claims register is the year\'s large losses and is');
+  console.log('  KEPT in the save; it comes back verbatim and nothing is redrawn. The rest of the');
+  console.log('  strip is unchanged. The legacy text follows for the old engine.');
+} else {
 console.log('WHAT A RESTORED GAME LOSES NOW: NOTHING A READER CAN SEE.');
 console.log('  claims / occurrences / marketMemberLossResults are still absent from the save for');
 console.log('  every year played before the reload — the strip is unchanged. The save grew by one');
@@ -434,6 +523,7 @@ console.log('  recorded — and names the reason when it fires.');
 console.log('  marketMemberLossResults is the one thing not rebuilt: the prospect view is a');
 console.log('  second generator call over the 200-member roster whose claims the engine discards,');
 console.log('  and nothing exported reads it.');
+}
 
 console.log('');
 console.log(RULE);

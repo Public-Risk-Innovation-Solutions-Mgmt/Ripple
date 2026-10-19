@@ -78,8 +78,16 @@ export function sessionTransport(): SessionTransport {
 // would be the wrong one to keep.
 export function installFaultHandle(): void {
   if (typeof window === 'undefined') return;
+  // ⚠ THE TRANSPORT ITSELF IS ON THE HANDLE TOO, and for the same reason the
+  // fault injector is: a driver has to be able to make a call the SCREENS do
+  // not offer. The lobby driver needs to post a join that the join screen
+  // refuses to let it build — greying a card proves nothing about a client that
+  // skips the lobby, and the rule being the server's is the whole point of it.
+  // It exposes no authority a page did not already have: every token this can
+  // reach is one the same browser is already holding in localStorage.
   const t = sessionTransport() as { faults?: unknown };
-  if (t.faults) {
-    (window as unknown as { __ripple?: unknown }).__ripple = { faults: t.faults };
-  }
+  (window as unknown as { __ripple?: unknown }).__ripple = {
+    faults: t.faults,
+    transport: sessionTransport(),
+  };
 }

@@ -23,11 +23,14 @@
 // business. That is precisely why level and change drive different things, and
 // this run is the test of that design decision, not just of the magnitude.
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { wageFactor } from '../../src/data/exposureTrend';
+import { exposureFactor } from '../../src/data/exposureTrend';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
 const GAMES = 50, YEARS = 10;
@@ -43,7 +46,7 @@ const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 interface Y { members: number; realExp: number; rate: number; joined: number; left: number; sat: number; }
 interface G { s0: number; end: number; uw: number; inv: number; years: Y[]; }
 
-function run(placement: boolean[]): G[] {
+function run(option: string): G[] {
   const out: G[] = [];
   for (let g = 0; g < GAMES; g++) {
     const id = `TDS${g}`;
@@ -59,11 +62,11 @@ function run(placement: boolean[]): G[] {
     let uw = 0, inv = 0;
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y);
-      d.byLine.GL.layersPlaced = [...placement];
+      d.byLine.GL.reinsuranceOption = option;
       const p = processYear(gs, d);
       const r = (p.result as never as { byLine: Record<string, Record<string, number>> }).byLine.GL;
       years.push({
-        members: r.activeMembers, realExp: r.activeExposure / wageFactor('GL', y),
+        members: r.activeMembers, realExp: r.activeExposure / exposureFactor('GL', y),
         rate: r.ratePer100, joined: r.newMembers, left: r.withdrawnMembers, sat: r.memberSatisfaction,
       });
       uw += r.underwritingIncome; inv += r.investmentIncome;
@@ -77,14 +80,14 @@ function run(placement: boolean[]): G[] {
 
 console.log('=== TOWER DOWNSIDE CHECK — GL only, 50 games x 10 years, all other decisions default ===');
 console.log('ENROLLED BASIS. Real exposure deflated by GL\'s wageFactor. Reported, not gated.\n');
-console.log('--- arm A: NO reinsurance (every layer stripped) ---');
-const armA = run([false, false, false]);
-console.log('--- arm B: FULL tower (which is the DEFAULT placement) ---');
-const armB = run([true, true, true]);
-// The single most likely real decision: keep the two upper layers, decline the
-// working layer that is pierced several times a year.
-console.log('--- arm C: decline $4M xs $1M only, keep $5M xs $5M and $15M xs $10M ---');
-const armC = run([false, true, true]);
+console.log('--- arm A: NO reinsurance (package none) ---');
+const armA = run('none');
+console.log('--- arm B: FULL tower ($14M xs $1M; the default is $9M xs $1M) ---');
+const armB = run('$14M xs $1M');
+// The single most likely real decision: decline the working layer that is
+// pierced several times a year, keep the cover above it.
+console.log('--- arm C: $10M xs $5M — the working layer retained ---');
+const armC = run('$10M xs $5M');
 
 function report(label: string, games: G[]) {
   const mult = games.map(g => g.end / g.s0);

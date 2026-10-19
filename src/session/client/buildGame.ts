@@ -26,13 +26,14 @@ import { seedFromInstanceId } from '../../seedHash';
 import { openingRoster } from '../../game/openingRoster';
 import { generateGameInstance } from '../../utils/instanceGenerator';
 import { runPriorHistory } from '../../utils/priorHistoryEngine';
-import { applyLoanAuthorizations, processYear } from '../../utils/simulationEngine';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, surplusRange, type SurplusRange } from '../../utils/worlds';
 import { defaultDecisionSet } from '../../utils/decisionDefaults';
 import type { CoverageLine, GameSetupSettings, GameState, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
 import type { JsonValue, RoomView } from '../contract';
 import { decisionsForYear } from './decisions';
 
-export type RoomBuildInputs = Pick<RoomView, 'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'shocks'>;
+export type RoomBuildInputs = Pick<RoomView,
+  'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'shocks' | 'priorDevelopment'>;
 
 export interface BuiltTeamGame {
   gameState: GameState;
@@ -54,6 +55,15 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     startingYear: r.startingYear,
     instanceId: r.seed,
     activeLines: [...lines],
+    // ⚠ THE ROOM'S SETTING, SO EVERY TEAM IN A ROOM DEVELOPS ALIKE. It is no
+    // longer stored-and-inert: the engine reads it per line, falling back to
+    // PRIOR_DEVELOPMENT_DEFAULTS for any line the host did not set.
+    priorDevelopment: r.priorDevelopment,
+    // ⚠ THE HOST SCHEDULES THE SHOCKS. On the new loss engine a session fires
+    // only what the room scheduled and consults no probability; singleplayer
+    // leaves this absent and draws from the catalogue. Read by nothing with
+    // the flag off.
+    shockTiming: 'host',
   };
 
   // THE ROOM'S SCHEDULE, THROUGH THE CONSTRUCTOR. An empty one writes no field.
@@ -61,7 +71,9 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
 
   const { poolState, startingFinancials, priorHistory } = runPriorHistory(instance, settings);
 
-  const gameState: GameState = {
+  // THE WORLDS (loss engine commit 4b): every world opens on the pre-game's
+  // position, and every team in the room shares the same worlds' draws.
+  const gameState: GameState = openWorlds({
     setup: settings,
     instance,
     currentYearNumber: 1,
@@ -71,7 +83,7 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     lockedResults: [],
     currentDecisions: defaultDecisionSet(1),
     priorHistory,
-  };
+  });
 
   const openingResult = priorHistory.find(res => res.yearNumber === 0) ?? null;
   return {
@@ -93,9 +105,9 @@ export function replayTeamYears(
   start: GameState,
   targetYear: number,
   decisionsByYear: Record<string, JsonValue> | undefined,
-): { state: GameState; produced: Array<{ result: ResultSet; poolState: PoolState }> } {
+): { state: GameState; produced: Array<{ result: ResultSet; poolState: PoolState; surplusRange: SurplusRange | null }> } {
   let state = start;
-  const produced: Array<{ result: ResultSet; poolState: PoolState }> = [];
+  const produced: Array<{ result: ResultSet; poolState: PoolState; surplusRange: SurplusRange | null }> = [];
 
   // ⚠ EVERY YEAR THE LOOP PRODUCES, NOT THE LAST ONE, each with its own pool
   // state — the caller posts all of them. See useSessionGame for the defect a
@@ -111,7 +123,7 @@ export function replayTeamYears(
     // the seed, and reading one slot for all of them produced results the team
     // never played.
     const decisions = decisionsForYear(year, decisionsByYear);
-    const processed = processYear(state, decisions);
+    const played = playWorldsYear(state, decisions);
 
     // ⚠ AN UNRESOLVED LOAN OFFER IS DECLINED, AND THAT IS A REAL
     // SIMPLIFICATION TO FLAG. Solo play pauses on a loan offer and asks the
@@ -122,20 +134,18 @@ export function replayTeamYears(
     // renewal and appetite defaults. An interactive loan step belongs in the
     // turn cycle later, before a deficient line is a realistic outcome in a
     // taught session.
-    const settled = processed.loanOffers.length > 0
-      ? applyLoanAuthorizations(processed, year, [])
-      : { updatedPoolState: processed.updatedPoolState, result: processed.result };
+    // Declined in every world, for the reason above.
+    const settled = settleWorldsYear(state, played, []);
 
     const nextYear = year + 1;
     state = {
       ...state,
       currentYearNumber: nextYear,
       isComplete: nextYear > state.setup.gameLength,
-      poolState: settled.updatedPoolState,
-      lockedResults: [...state.lockedResults, settled.result],
+      ...commitSettledYear(state, settled),
       currentDecisions: defaultDecisionSet(nextYear),
     };
-    produced.push({ result: settled.result, poolState: settled.updatedPoolState });
+    produced.push({ result: settled.result, poolState: settled.poolState, surplusRange: surplusRange(state, year) });
   }
   return { state, produced };
 }

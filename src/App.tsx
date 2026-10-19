@@ -1,15 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { DEFAULT_LAYERS_PLACED } from './data/reinsuranceTower';
-import type { TowerLine } from './data/reinsuranceTower';
-import { normalizeAggregateStopLevel, normalizeLayersPlaced } from './utils/reinsuranceTower';
 
 import type { GameState, GameSetupSettings, DecisionSet, StartingFinancials, Member, LinePoolState, CoverageLine, LineView } from './types/simulation';
 import { getPredefinedMarketMembers } from './data/memberCatalog';
 import { generateGameInstance } from './utils/instanceGenerator';
-import { processYear, applyLoanAuthorizations, type ProcessYearResult } from './utils/simulationEngine';
+import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear, type SettledYear, type WorldsYear } from './utils/worlds';
 import { runPriorHistory } from './utils/priorHistoryEngine';
 import { defaultDecisionSet } from './utils/decisionDefaults';
-import { SAVE_KEY, unpackSave, writeSave, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
+import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
 import { createSaveScheduler, type SaveScheduler } from './utils/saveScheduler';
 import { seedFromInstanceId } from './seedHash';
 import LoanPromptModal from './components/LoanPromptModal';
@@ -32,7 +29,7 @@ export default function App() {
   const [currentDecisions, setCurrentDecisions] = useState<DecisionSet>(defaultDecisionSet(1));
   // A year that has been processed but is awaiting the player's loan decisions
   // before it can be committed (see handleAdvanceYear / handleResolveLoans).
-  const [pendingYear, setPendingYear] = useState<ProcessYearResult | null>(null);
+  const [pendingYear, setPendingYear] = useState<WorldsYear | null>(null);
   // Stage 2.1 Pool/line view toggle. Display-only — not persisted to
   // localStorage, and not part of GameState/DecisionSet.
   const [lineViewRaw, setLineView] = useState<LineView>('pool');
@@ -56,6 +53,9 @@ export default function App() {
   // absence because the aggregate Property path never produced them either.
   React.useEffect(() => {
     try {
+      // A save under a retired key is a schema this build cannot read
+      // faithfully; it is cleared, and the player starts a new game.
+      for (const key of RETIRED_SAVE_KEYS) localStorage.removeItem(key);
       const saved = localStorage.getItem(SAVE_KEY);
       if (saved) {
         // ⚠ unpackSave THROWS ON A SAVE WRITTEN BEFORE COMPRESSION, AND THE
@@ -86,48 +86,10 @@ export default function App() {
           if (gs.poolState && !gs.poolState.memberLossHistory) {
             gs.poolState.memberLossHistory = {};
           }
-          // PER-OCCURRENCE TOWER: saves written before it carry only
-          // `reinsuranceLevel` (now removed — see the delete below), and there
-          // is NO honest mapping from a quota-share level to a set of layer
-          // placements — they are different products, not two settings of
-          // one. So the default is every purchasable layer placed and no
-          // aggregate, and an old save silently adopts that rather than
-          // pretending its old program survived the change. The save KEY is
-          // unchanged; only this defaulting is new.
-          // Patch the LIVE decision set (`cd`), which is what the next turn
-          // reads. lockedResults keep their own historical decisions untouched —
-          // those are a record of what was played, not an input.
-          const byLine = (cd as DecisionSet | undefined)?.byLine as
-            Record<string, { layersPlaced?: boolean[]; aggregateStopLevel?: number; reinsuranceLevel?: number }> | undefined;
-          if (byLine) {
-            // KEYED BY LINE — DEFAULT_LAYERS_PLACED is now a Record<TowerLine,
-            // boolean[]>, not one flat array, because Property's one-layer
-            // tower and WC/GL's three-layer towers must not share a default.
-            for (const [line, ld] of Object.entries(byLine)) {
-              if (!ld) continue;
-              if (!Array.isArray(ld.layersPlaced)) ld.layersPlaced = [...DEFAULT_LAYERS_PLACED[line as CoverageLine]];
-              if (typeof ld.aggregateStopLevel !== 'number') ld.aggregateStopLevel = -1;
-              // REINSURANCE_PROGRAMS RETIRED: a save from before this commit
-              // carries `reinsuranceLevel`. Nothing reads it any more — no
-              // validation walks LineDecisionSet's shape, so it would sit
-              // inert rather than throw — but discarded on load anyway so a
-              // resaved game does not keep writing a field that no longer
-              // means anything.
-              delete ld.reinsuranceLevel;
-              // AGGREGATE-OVER-DECLINED-TOWER: reachable in any save written
-              // before the gate existed. Cleared to none rather than rejected —
-              // the save is otherwise valid and the state is now simply not
-              // purchasable, so the honest migration is to drop the purchase.
-              // Only lines with an aggregate at all reach the normalizer; GL
-              // and any non-tower key pass through untouched.
-              if (line === 'WC' || line === 'Property') {
-                const l = line as TowerLine;
-                ld.aggregateStopLevel = normalizeAggregateStopLevel(
-                  l, normalizeLayersPlaced(l, ld.layersPlaced), ld.aggregateStopLevel,
-                );
-              }
-            }
-          }
+          // REINSURANCE: since loss engine commit 4a a decision carries one
+          // package per line (reinsuranceOption). A save from before it was
+          // written under SAVE_KEY v10 and is cleared below, not migrated — see
+          // RETIRED_SAVE_KEYS.
           // WC SEVERITY REBUILD: wcRatingGroup re-stamped onto every member from
           // the canonical catalog. It is roster data, not game state, so
           // rebuilding it is exact rather than a guess — and wcClaimEngine THROWS
@@ -258,7 +220,7 @@ export default function App() {
     // memberList is, which is what replaces this at year 1. See openingRoster.
     const initMembers = openingRoster(poolState, settings.activeLines);
 
-    const gs: GameState = {
+    const opened: GameState = {
       setup: settings,
       instance,
       currentYearNumber: 1,
@@ -269,6 +231,8 @@ export default function App() {
       currentDecisions: defaultDecisionSet(1),
       priorHistory,
     };
+    // THE WORLDS (loss engine commit 4b): every world opens on this position.
+    const gs = openWorlds(opened);
 
     const cd = defaultDecisionSet(1);
 
@@ -291,8 +255,10 @@ export default function App() {
     setActiveTab('introduction');
   }, []);
 
-  // Commit a fully-resolved processed year (loan offers, if any, already handled).
-  const commitYear = useCallback((baseGs: GameState, updatedPoolState: GameState['poolState'], result: GameState['lockedResults'][number]) => {
+  // Commit a fully-resolved year (loan offers, if any, already handled) — the
+  // average across the worlds, with the worlds themselves.
+  const commitYear = useCallback((baseGs: GameState, settled: SettledYear) => {
+    const result = settled.result;
     const nextYearNumber = baseGs.currentYearNumber + 1;
     const isComplete = nextYearNumber > baseGs.setup.gameLength;
     // ⚠ RISK-CONTROL PROGRAMS ARE OPT-OUT: a program that ran this year arrives
@@ -322,10 +288,9 @@ export default function App() {
 
     const newGs: GameState = {
       ...baseGs,
+      ...commitSettledYear(baseGs, settled),
       currentYearNumber: nextYearNumber,
       isComplete,
-      poolState: updatedPoolState,
-      lockedResults: [...baseGs.lockedResults, result],
       currentDecisions: nextDecisions,
     };
 
@@ -338,27 +303,24 @@ export default function App() {
   const handleAdvanceYear = useCallback(() => {
     if (!gameState || gameState.isComplete) return;
 
-    const processed = processYear(gameState, currentDecisions);
+    const played = playWorldsYear(gameState, currentDecisions);
 
-    // If any line ended negative without a loan, pause to let the player
-    // authorize/decline before committing the year.
-    if (processed.loanOffers.length > 0) {
-      setPendingYear(processed);
+    // If any line ended negative without a loan IN ANY WORLD, pause to let the
+    // player authorize/decline before committing the year. The choice is the
+    // team's, so it applies in every world whose line needs the loan.
+    if (played.loanOffers.length > 0) {
+      setPendingYear(played);
       return;
     }
 
-    commitYear(gameState, processed.updatedPoolState, processed.result);
+    commitYear(gameState, settleWorldsYear(gameState, played, []));
   }, [gameState, currentDecisions, commitYear]);
 
   const handleResolveLoans = useCallback((authorizedLines: string[]) => {
     if (!gameState || !pendingYear) return;
-    const { updatedPoolState, result } = applyLoanAuthorizations(
-      pendingYear,
-      gameState.currentYearNumber,
-      authorizedLines as CoverageLine[]
-    );
+    const settled = settleWorldsYear(gameState, pendingYear, authorizedLines as CoverageLine[]);
     setPendingYear(null);
-    commitYear(gameState, updatedPoolState, result);
+    commitYear(gameState, settled);
   }, [gameState, pendingYear, commitYear]);
 
   const handleNewGame = useCallback(() => {

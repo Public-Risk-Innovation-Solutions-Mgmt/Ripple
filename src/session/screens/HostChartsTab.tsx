@@ -156,14 +156,15 @@ const METRICS: Metric[] = [
     zeroRule: true,
   },
   {
-    id: 'members',
-    title: 'Active members',
-    note: 'RESULT_METRICS · activeMembers',
+    id: 'exposure',
+    title: 'Active exposure',
+    note: 'RESULT_METRICS · activeExposure',
     source: 'figures',
-    pick: f => f.activeMembers,
-    format: v => String(Math.round(v)),
-    // ⚠ NOT ANCHORED AT ZERO, DELIBERATELY. Every pool has dozens of members, so
-    // a zero-anchored axis would squash the churn that is the only thing this
+    pick: f => f.activeExposure,
+    // Payroll in $M, as the metric stores it.
+    format: v => `$${v.toFixed(1)}M`,
+    // ⚠ NOT ANCHORED AT ZERO, DELIBERATELY. Every pool carries a large standing
+    // exposure, so a zero-anchored axis would squash the churn that is the only thing this
     // chart is for. The axis is labelled, and no member count is near zero.
     anchorZero: false,
     zeroRule: false,

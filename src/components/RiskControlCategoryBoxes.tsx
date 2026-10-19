@@ -1,4 +1,28 @@
 // ============================================================================
+// ⚠ NOT RENDERED ANYWHERE. READ THIS BEFORE THE HISTORY BELOW.
+//
+// The Risk Control Programs card this component filled has been REMOVED from
+// the Pool tab, all five tiles with it. Risk control is a per-line spend now —
+// one slider under each line's underwriting sliders, named for that line's
+// programme (see DecisionsPage's RiskControlIncentives). This file has NO
+// import and no render site.
+//
+// IT IS KEPT, NOT DELETED, and so is everything behind it. These tiles were
+// the only writer of `decisions.riskControlProgramIds` in the app, so with
+// them gone that list is `[]` on every played year and riskControlPrograms.ts's
+// effect paths — programFreqMultiplier, programAnnualCost, programRtwConversion,
+// claimsSystemSeverityReduction and the standings they call — return identity.
+// The engine still reads the field; nothing reaches it with a non-empty list by
+// any player action. Values do not move, because every tile already defaulted
+// to off.
+//
+// Still EXERCISED BY THE GATES, which is the difference between switched off
+// and rotting: wc-program-check, gl-program-check, claims-system-check and the
+// two program-value diagnostics construct the ids by hand.
+//
+// Everything from here down describes the card as it stood.
+//
+// ============================================================================
 // THE FIVE RISK-CONTROL TILES — compact, in the pool-wide card, where the
 // retired intensity slider used to sit.
 //
@@ -108,13 +132,14 @@ const SCOPE_STYLE: Record<string, string> = {
   Pool: 'bg-gray-200 text-gray-600',
 };
 
-// ⚠ TWO TILES ARE BUTTONS AND THREE ARE STILL DIVS, AND THE SPLIT IS THE POINT.
+// ⚠ THREE TILES ARE BUTTONS AND TWO ARE STILL DIVS, AND THE SPLIT IS THE POINT.
 // The header above says an inert button is a lie about interactivity. That
 // argument has not changed — it has simply stopped applying to the two programs
 // that are BUYABLE (GL's analytics and WC's safety & return-to-work; each shows
-// only in a pool writing its line). The other three stay divs because they still
-// do nothing; the moment one has a standing and a charge it becomes a button by
-// the same rule.
+// only in a pool writing its line) — and now to a third, the claims management
+// system, which is POOL-SCOPED and therefore shows in every pool including a
+// one-line one. The other two stay divs because they still do nothing; the
+// moment one has a standing and a charge it becomes a button by the same rule.
 //
 // ⚠ "Safety & Return-to-Work" was checked against the drivers' button queries
 // the way "Law Enforcement Analytics" was: none is unanchored on a string it

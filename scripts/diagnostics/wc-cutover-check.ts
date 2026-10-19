@@ -78,6 +78,9 @@
 // "restore" a +/-2pp band on the realized mean: WC's catastrophic annuity tier
 // is lumpy enough that such a band fails on correct pricing about as often as
 // not.
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';

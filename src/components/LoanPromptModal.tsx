@@ -43,6 +43,14 @@ export default function LoanPromptModal({ offers, onResolve }: LoanPromptModalPr
                     Deficit {formatCurrency(o.deficit)}
                   </span>
                 </div>
+                {o.worlds && (
+                  // A multi-world year: the line is short in some worlds, and the
+                  // deficit is their average. The choice applies in each of them.
+                  <p className="text-xs text-gray-600 mb-1" data-testid={`loan-worlds-${o.line}`}>
+                    Short in {o.worlds.needing} of {o.worlds.of} worlds; the deficit shown is their average.
+                    Your choice applies in every world that needs the loan.
+                  </p>
+                )}
                 <p className="text-xs text-gray-500 mb-1">
                   Starting rate (the pool's asset-weighted blended investment return this year,
                   floored at 0% — it re-floats to the current rate each year the loan is

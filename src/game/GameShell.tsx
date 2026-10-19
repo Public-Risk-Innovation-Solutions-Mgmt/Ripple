@@ -31,7 +31,7 @@
 
 import React from 'react';
 import {
-  LayoutDashboard, ClipboardList, FileText, Users, Settings, BarChart2,
+  LayoutDashboard, ClipboardList, FileText, Settings, BarChart2,
   Calculator, Table, History as HistoryIcon, Layers, HardHat, Scale,
   Building2, ScrollText, BookOpen, Landmark,
 } from 'lucide-react';
@@ -57,6 +57,7 @@ import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
 import HistoryPage from '../pages/HistoryPage';
 import IntroductionPage from '../pages/IntroductionPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
+import { shockTimingOf } from '../utils/shockLosses';
 
 const AUDIT_TAB: TabId = 'audit';
 const SPREADSHEET_TAB: TabId = 'spreadsheet';
@@ -82,12 +83,12 @@ const SETUP_TAB = { id: 'setup' as TabId, label: 'Game Setup', icon: <Settings s
 const PLAY_TABS = [
   { id: 'introduction' as TabId, label: 'Introduction', icon: <BookOpen size={16} /> },
   { id: 'departments' as TabId, label: 'Departments', icon: <Landmark size={16} /> },
-  // Membership sits with the other things a player reads BEFORE deciding, rather
-  // than last behind the two reference tabs. ORDER ONLY — no tab is added,
-  // removed or renamed, and nothing keys off position: every driver and the
-  // render harness resolves a tab by NAME, and the only positional lookups in the
-  // tree are inside the Departments document list, which this does not touch.
-  { id: 'membership' as TabId, label: 'Membership', icon: <Users size={16} /> },
+  // ⚠ THE MEMBERSHIP TAB IS HIDDEN, NOT REMOVED. The multiplayer game shows the
+  // pool in aggregate and drops individual members; the ENGINE keeps them until
+  // a simplified model replaces it, so this hides the view and leaves
+  // MembershipPage, its route and every member path intact. Restoring it is
+  // uncommenting one line.
+  //   { id: 'membership' as TabId, label: 'Membership', icon: <Users size={16} /> },
   { id: 'history' as TabId, label: 'Pool History', icon: <HistoryIcon size={16} /> },
   { id: 'dashboard' as TabId, label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
   { id: 'decisions' as TabId, label: 'Decisions', icon: <ClipboardList size={16} /> },
@@ -220,25 +221,26 @@ export default function GameShell({
 
         {activeTab === 'decisions' && gameState && (
           <DecisionsPage
-            /* DERIVED, NOT STORED. Each locked result echoes the decisions it
-               was played with, so the commitment history is already persisted
-               and replays with the game. See riskControlPrograms.ts. */
-            priorProgramIds={gameState.lockedResults.map(r => r.pool?.riskControlProgramIds)}
+            /* ⚠ priorProgramIds AND activeLines ARE NO LONGER PASSED. The
+               first derived each program's tenure for the Risk Control
+               Programs tiles and the second gated which tiles were offered;
+               the tiles are removed — risk control is a per-line slider now —
+               and neither prop had another reader on that screen. The
+               derivation itself is not lost: simulationEngine rebuilds the
+               same list from lockedResults for the engine's own read. */
             memberLossHistory={gameState.poolState.memberLossHistory ?? {}}
             allMarketMembers={gameState.poolState.allMarketMembers}
             membershipHistory={gameState.poolState.membershipHistory}
             decisions={currentDecisions}
             onChange={onDecisionsChange}
             yearNumber={gameState.currentYearNumber}
-            estimatedExpectedLoss={d.estimatedExpectedLoss}
-            estimatedAggregateTermsRetained={d.estimatedAggregateTermsRetained}
+            lastSurplusRange={d.surplusRangeByYear[gameState.currentYearNumber - 1]}
             disabled={gameState.isComplete || decisionsDisabled}
             lineView={lineView}
             lineLoanInfo={d.lineLoanInfo}
             lastLineResult={d.lastLineResult}
             fundingConsequence={d.fundingConsequence}
-            activeLines={gameState.setup.activeLines}
-            activeMembers={d.decisionLineActiveMembers}
+            book={d.decisionLineBook}
           />
         )}
 
@@ -255,7 +257,7 @@ export default function GameShell({
         )}
 
         {activeTab === 'results' && gameState && (
-          <ResultsPage lockedResults={d.viewResults} lineView={lineView} />
+          <ResultsPage lockedResults={d.viewResults} lineView={lineView} surplusRangeByYear={d.surplusRangeByYear} />
         )}
 
         {activeTab === SPREADSHEET_TAB && gameState && (
@@ -266,6 +268,8 @@ export default function GameShell({
             activeLines={gameState.setup.activeLines}
             instanceId={gameState.setup.instanceId}
             poolState={gameState.poolState}
+            claimsWorld={gameState.worlds?.[0]}
+            worldCount={gameState.worlds?.length}
           />
         )}
 
@@ -275,6 +279,9 @@ export default function GameShell({
             priorHistory={gameState.priorHistory}
             instanceSeed={gameState.instance.seed}
             lineView={lineView}
+            worldResults={gameState.worlds?.map(w => w.lockedResults)}
+            instance={gameState.instance}
+            shockTiming={shockTimingOf(gameState.setup)}
           />
         )}
 

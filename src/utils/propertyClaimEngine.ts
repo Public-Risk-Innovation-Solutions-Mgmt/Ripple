@@ -40,6 +40,8 @@ import { deriveSubRng } from './random';
 import { PROPERTY_CAT_EARTHQUAKE, PROPERTY_CAT_MODEL, PROPERTY_LOSS_MODEL } from '../data/defaultAssumptions';
 import { EXPERIENCE_SPLIT_POINT } from './memberLossHistory';
 import { CAT_REGIONS, catLossIfHit, expectedPropertyCatLoss, memberExpectedCatLoss } from './propertyCatastrophe';
+import { claimsSystemAdjusted, propertyMitigation } from './riskControlPrograms';
+import { SEVERITY_TREND_PER_YEAR } from '../data/pricingParameters';
 
 const M = PROPERTY_LOSS_MODEL;
 const LINE: CoverageLine = 'Property';
@@ -130,61 +132,62 @@ function cappedComponentMoment(mu: number, sigma: number, k: number, cap: number
   return below + atCap;
 }
 
-// PROPERTY'S SEVERITY TREND IS EXACTLY 1, AND THAT IS A REAL STATEMENT, not a
-// placeholder. Property's severity does not trend at the DRAW: the construction-
-// cost inflation in PROPERTY_LOSS_MODEL.severityTrendPerYear is consumed by the
-// accident-year -> settlement dollar-vintage convention (PAYOUT_TREND_FACTOR),
-// not by shifting mu each year. The fit found no second trending convention and
-// adding one here would double-count it — the finding-37 trap the pure-premium
-// comment in simulationEngine warns about.
+// PROPERTY'S SEVERITY NOW TRENDS AT THE DRAW, 5%/yr, THE SAME RATE AS WC AND GL.
 //
-// ⚠ THE RATE IS A NAMED CONSTANT AT ZERO, AND THE FUNCTION HAS THE SAME SHAPE
-// AS wcSeverityTrend AND glSeverityTrend — including the year-1 floor — rather
-// than being a stub that returns 1. That is the difference between "Property is
-// special-cased" and "Property's rate happens to be zero": giving Property a
-// draw-side severity trend is a one-constant edit here, and everything
-// downstream (the ceiling, the capped moments, the draw) already routes through
-// it. Read propertySeverityCap's header FIRST if you are about to make that
-// edit — the tower is welded to Property's ceiling in three places.
+// ⚠ IT WAS EXACTLY 1 UNTIL THIS COMMIT AND THE TRIPWIRE THAT GUARDED THAT FIRED
+// AS DESIGNED. property-claim-check asserted the ceiling's year-invariance
+// precisely so that whoever switched this on would be sent here first. What it
+// sent them to find:
 //
-// ⚠ NOT PROPERTY_LOSS_MODEL.severityTrendPerYear (0.04). That one is live and
-// means something different: construction-cost inflation consumed by the
-// accident-year -> settlement dollar-vintage convention. Setting THIS to 0.04
-// would apply the same inflation twice — the finding-37 trap PAYOUT_TREND_FACTOR
-// already documents. The two names are deliberately distinct.
-export const PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR = 0;
+//   ⚠ THE DRAW DID NOT ROUTE THROUGH THIS FUNCTION, WHATEVER THE OLD COMMENT
+//   SAID. It claimed "everything downstream (the ceiling, the capped moments,
+//   the draw) already routes through it"; the ceiling did, the moments did so
+//   only through the ceiling, and generatePropertyClaims shifted mu by the
+//   risk-quality factor ALONE. Setting the constant without touching the draw
+//   would have trended Property's ceiling and its price while leaving its
+//   losses in year-1 dollars. Both the draw and the moment now take the shift.
+//
+//   ⚠ THE CEILING DOES NOT TREND, AND THAT IS GL'S PRECEDENT RATHER THAN AN
+//   EXCEPTION. GL settled this already: a worst case that grows every year is
+//   one nobody can state, so GL_SEVERITY_CAP is flat and IS the ceiling in
+//   every year's dollars. Property's reads the same way now. It also happens to
+//   be what keeps the two structural welds honest — towerMoments integrates the
+//   attritional cession to this cap and propertyAggregate falls back to it —
+//   so neither silently grows the purchased tower.
+//
+//   ⚠ WHAT DID HAVE TO MOVE. towerMoments' propertyBandCache was ONE SLOT with
+//   no year key and is a Map keyed on the year now: the mixture it integrates
+//   trends, so a single slot would have served year 1's cession for ever.
+//   PROPERTY_MEAN_SEVERITY and expectedPropertyGrossLoss stay YEAR-BLIND on
+//   purpose — they are the year-1 basis the held pure premium is derived at,
+//   and the year is applied to the PRICE by propertyCappedSeverityTrend below,
+//   exactly as glCappedSeverityTrend does for GL.
+//
+// ⚠ STILL NOT PROPERTY_LOSS_MODEL.severityTrendPerYear (0.04). That one is live
+// and means something different: construction-cost inflation consumed by the
+// accident-year -> settlement dollar-vintage convention. The two are separate
+// trends over separate intervals — this one over ACCIDENT YEARS, that one over
+// a claim's LIFE — and collapsing them is the finding-37 double count that
+// PAYOUT_TREND_FACTOR already documents.
+export const PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR = SEVERITY_TREND_PER_YEAR.Property;
 
 export function propertySeverityTrend(yearNumber: number): number {
   return Math.pow(1 + PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR, Math.max(1, yearNumber) - 1);
 }
 
-// THE CEILING IN THAT YEAR'S DOLLARS — the Property member of the same family as
-// wcSeverityCap and glSeverityCap. INERT TODAY because the trend above is 1.
+// THE CEILING, FLAT IN EVERY YEAR'S DOLLARS — the Property member of the same
+// family as wcSeverityCap and glSeverityCap, and now on GL's footing rather
+// than WC's: it does NOT trend with the severity it caps. See the trend's
+// header above for why, and for the two structural welds that depend on it
+// (towerMoments' integration bound, propertyAggregate's threshold fallback).
 //
-// ⚠ IT CANNOT SIMPLY BE SWITCHED ON, AND THIS IS THE PART TO READ BEFORE GIVING
-// PROPERTY A SEVERITY TREND. Property's ceiling is not only a severity
-// statement — it is STRUCTURALLY WELDED TO THE REINSURANCE TOWER in two places
-// that WC's and GL's are not:
-//
-//   towerMoments.ts       the layer's attritional cession is integrated to severityCap
-//   propertyAggregate.ts  the aggregate threshold falls back to severityCap
-//
-// (There were three. TOWER_TOP.Property WAS severityCap until a regional event
-// became one occurrence; it is PROPERTY_TOWER_TOP, the $1B occurrence limit,
-// now, and the layer's limit runs to it rather than to this cap.)
-//
-// So a trending Property ceiling would silently grow the purchased tower and
-// move an aggregate threshold, which is a reinsurance change wearing a severity
-// change's clothes. Three further things assume year-invariance and would need
-// a year threaded or a key added: PROPERTY_MEAN_SEVERITY (a module-level
-// const), expectedPropertyGrossLoss (ExpectedPropertyLossOptions carries no
-// yearNumber at all, deliberately — Property's expectation is year-blind
-// today), and towerMoments' propertyBandCache (a single slot with no year
-// key). property-claim-check.ts
-// ASSERTS the invariance rather than trusting this comment, so switching the
-// trend on fails loudly at exactly these seams instead of drifting.
-export function propertySeverityCap(yearNumber: number): number {
-  return M.severityCap * propertySeverityTrend(yearNumber);
+// ⚠ THE COST IS REAL AND IS THE ONE GL ACCEPTED. A stationary ceiling over a
+// trending distribution tightens in real terms — at 5%/yr it is worth 64% of
+// its year-1 value by year 10 — which means the capped mixture's shape is not
+// strictly trend-invariant. property-claim-check measures what that does to the
+// capped mean rather than asserting it away.
+export function propertySeverityCap(): number {
+  return M.severityCap;
 }
 
 // The capped mixture's k-th moment at a given severity scale factor. The
@@ -200,11 +203,22 @@ export function propertySeverityCap(yearNumber: number): number {
 // restates the whole distribution in later dollars, so the ceiling DOES move
 // with it. Today that distinction costs nothing because Property's trend is 1;
 // it is wired so it stays correct if that changes.
-export function propertySeverityMoment(k: number, severityScale = 1, yearNumber = 1): number {
-  const shift = Math.log(Math.max(severityScale, 1e-9));
+export function propertySeverityMoment(
+  k: number, severityScale = 1, yearNumber = 1,
+  // ⚠ A PER-CLAIM LIMIT BELOW THE PHYSICAL CEILING, FOR THE NEW LOSS ENGINE'S
+  // ONE-OFF DERIVATION ONLY. Its ordinary losses are attritional claims
+  // limited at the line's lowest attachment ($5M), and that expectation is
+  // read through this same closed form rather than a second integral. Absent
+  // everywhere else, so every shipped figure is unchanged.
+  limit = propertySeverityCap(),
+): number {
+  // ⚠ THE YEAR ENTERS AS A SHIFT OF mu, NOT AS A SHIFT OF THE CEILING. It used
+  // to do the opposite — the ceiling moved and the distribution did not — which
+  // was inert only while the trend was 1 and would have been backwards the
+  // moment it was not.
+  const shift = Math.log(Math.max(severityScale, 1e-9) * propertySeverityTrend(yearNumber));
   return M.severityMixture.reduce(
-    (a, c) => a + c.weight * cappedComponentMoment(
-      c.mu + shift, c.sigma, k, propertySeverityCap(yearNumber)),
+    (a, c) => a + c.weight * cappedComponentMoment(c.mu + shift, c.sigma, k, Math.min(limit, propertySeverityCap())),
     0,
   );
 }
@@ -219,11 +233,26 @@ export function propertySeverityMoment(k: number, severityScale = 1, yearNumber 
 // name alone was enough to make three comments in this engine credit it.
 export const PROPERTY_MEAN_SEVERITY = propertySeverityMoment(1, 1);
 
+/**
+ * THE CAPPED SEVERITY TREND PROPERTY PRICES AT — the capped expected severity
+ * in a year relative to year 1. The Property member of the same family as
+ * glCappedSeverityTrend, and it exists for the same reason: with a FLAT ceiling
+ * over a trending distribution the price trend is NOT the raw severity trend,
+ * because the cap bites a little harder each year. Computed as a ratio so it
+ * stays correct automatically if the ceiling is ever re-pinned.
+ */
+export function propertyCappedSeverityTrend(yearNumber: number): number {
+  return propertySeverityMoment(1, 1, yearNumber) / PROPERTY_MEAN_SEVERITY;
+}
+
 // --- analytic expectation (invariant 1) -------------------------------------
 
 export interface ExpectedPropertyLossOptions {
   riskQualityOverride?: number;
   kPr?: number;
+  /** Per-claim limit below the physical ceiling. The new loss engine's
+   *  one-off ordinary-loss derivation only; see propertySeverityMoment. */
+  severityLimit?: number;
 }
 
 // Expected ATTRITIONAL loss for a book, in booked (settlement-trended) dollars —
@@ -253,7 +282,7 @@ export function expectedPropertyAttritionalLoss(
     if (!(tiv > 0)) continue;
     const rq = options.riskQualityOverride ?? member.riskQuality;
     const lambda = tiv * M.frequencyPer1mTiv * thetaFrequency(rq) * kPr;
-    total += lambda * propertySeverityMoment(1, severityFactor(rq));
+    total += lambda * propertySeverityMoment(1, severityFactor(rq), 1, options.severityLimit);
   }
   return total;
 }
@@ -317,13 +346,13 @@ export interface PropertyGenerationInputs {
   instanceSeed: number;
   kPr: number;
   riskControlEffectiveness: number; // DRAW ONLY
-  // Scheduled catastrophes this year (shock effect `forceEvent`). DRAW ONLY,
-  // like every shock: the price does not see them. Absent on every unshocked
-  // year, and then nothing below reads a stream it did not read before.
-  forcedEvents?: { shockId: string; peril: string; region: Region; loss: { min: number; max: number } }[];
-  // Scheduled NON-CATASTROPHE weather events — many claims, each its own
-  // occurrence. Absent on every unscheduled year.
-  weatherEvents?: { shockId: string; peril: string; region: Region; count: { min: number; max: number }; claim: { min: number; max: number } }[];
+  /**
+   * CLAIMS SYSTEM severity reduction, 0 or absent when none applies. Applied by
+   * claimsSystemAdjusted to claims below the claims system's fixed threshold ONLY — that
+   * function is the single place the rule is written and this engine must not
+   * re-implement it.
+   */
+  programSeverityReduction?: number;
 }
 
 export interface PropertyGenerationResult {
@@ -340,33 +369,31 @@ export interface PropertyGenerationResult {
   // struck a region and hit no enrolled member (those emit no occurrence).
   catEvents: number;
   catGrossLoss: number;
-  // One entry per forced event, in input order, for exact shock attribution.
-  // `target` is the drawn size; `gross` is what landed, which is `target`
-  // unless the region's enrolled members could not absorb it all (then every
-  // one of them was hit in full and `shortfall` is the rest).
-  forcedEventResults: { shockId: string; target: number; gross: number; claims: number; shortfall: number }[];
-  // Per scheduled weather event: claims landed and their gross. Every claim its own occurrence.
-  weatherEventResults: { shockId: string; claims: number; gross: number }[];
 }
 
 export function generatePropertyClaims(inputs: PropertyGenerationInputs): PropertyGenerationResult {
   const { members, yearNumber, calendarYear, instanceSeed, kPr, riskControlEffectiveness } = inputs;
-  const rcFactor = Math.max(0, 1 - riskControlEffectiveness);
+  const sevCut = inputs.programSeverityReduction ?? 0;
 
-  // ⚠ ACCEPTED SIMPLIFICATION, RECORDED SINCE VEHICLES WERE FOLDED IN: rcFactor
-  // discounts ONE frequency lambda that now generates both building and
-  // vehicle claims indiscriminately. Property Mitigation (roofs, water
-  // detection, wind bracing) cannot reduce a fleet's collision or theft
-  // frequency — physically, it targets none of the auto share of this line —
-  // but there is no separate auto/building split in this generator for the
-  // discount to respect, so it applies uniformly today regardless. IF the
-  // buildings-only frequency (2.81/$1B TIV) is still the building component
-  // inside the vehicle-inclusive 5.01, vehicles are ~44% of frequency
-  // ((5.01-2.81)/5.01) — a bigger share than "roughly a third", though both
-  // are the same qualitative point: a substantial share of what this line now
-  // generates is immune to the only program built to reduce it. Not fixed
-  // here — fixing it needs a real auto/building split this generator does not
-  // have.
+  // ============================================================================
+  // PROPERTY MITIGATION. The rate is riskControlEffectiveness — the pool-wide
+  // risk-control dial, which on THIS line means a cut in BUILDING claim
+  // frequency. The two multipliers and the whole argument for them are in
+  // propertyMitigation(); this is the only place either is read.
+  //
+  // ⚠ THE OLD `rcFactor = 1 - riskControlEffectiveness` IS GONE, AND THE
+  // DIFFERENCE IS THE POINT. It discounted one lambda that generates both
+  // building and vehicle claims indiscriminately, so a "5% mitigation program"
+  // removed 5% of the fleet's collisions too. The attritional multiplier now
+  // carries the building DOLLAR share, so the rate means what it says.
+  //
+  // ⚠ AT e = 0 BOTH MULTIPLIERS ARE EXACTLY 1 AND NOTHING MOVES. riskControlPct
+  // defaults to 0 and nothing in the shipped game sets it, so every baseline
+  // draws bit-identically. That is what makes the null arm provable rather
+  // than merely likely, and property-mitigation-check proves it.
+  // ============================================================================
+  const mitigation = propertyMitigation(riskControlEffectiveness);
+  const rcFactor = mitigation.attritionalMultiplier;
 
   const claims: Claim[] = [];
   const occurrences: Occurrence[] = [];
@@ -430,101 +457,6 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
   const eventMemberIds: string[][] = eventRegions.map(() => []);
   let catGrossLoss = 0;
 
-  // ==========================================================================
-  // FORCED CATASTROPHES — a scheduled shock's event (see ShockEffect
-  // 'forceEvent'). The same kind of event as the band's, at a stated size.
-  //
-  // THE SIZE is drawn uniformly inside the shock's range from `pr_force:<id>`.
-  // THE HIT ORDER is one uniform per member from `pr_force:<id>:<member>` — a
-  // member's place in the order is its own draw, so it does not move when an
-  // unrelated member joins or leaves. Members of the named region are hit in
-  // that order, each at the cat band's own loss-if-hit, until the event reaches
-  // its size; the member at the edge takes the partial remainder. Whether a
-  // given member is hit still depends on who else is enrolled — an event of
-  // FIXED size over a variable book cannot avoid that — but no draw of anyone
-  // else's moves, and no cat-band or attritional stream is touched.
-  //
-  // Planned here, emitted in the member loop below so each member's claims
-  // stay contiguous with the rest of its year.
-  // ==========================================================================
-  const forcedEvents = inputs.forcedEvents ?? [];
-  const forcedPlan = new Map<string, { event: number; loss: number }[]>();
-  const forcedEventResults: PropertyGenerationResult['forcedEventResults'] = [];
-  const forcedClaimIds: string[][] = forcedEvents.map(() => []);
-  const forcedMemberIds: string[][] = forcedEvents.map(() => []);
-  forcedEvents.forEach((fe, ev) => {
-    const sizeRng = deriveSubRng(instanceSeed, yearNumber, `pr_force:${fe.shockId}`);
-    const target = fe.loss.min + sizeRng.next() * (fe.loss.max - fe.loss.min);
-    const candidates = members
-      .filter(m => m.region === fe.region && catLossIfHit(m) > 0)
-      .map(m => ({ m, key: deriveSubRng(instanceSeed, yearNumber, `pr_force:${fe.shockId}:${m.id}`).next() }))
-      .sort((a, b) => (a.key - b.key) || (a.m.id < b.m.id ? -1 : a.m.id > b.m.id ? 1 : 0));
-    let landed = 0;
-    let claimsForEvent = 0;
-    for (const { m } of candidates) {
-      if (landed >= target) break;
-      const loss = Math.min(catLossIfHit(m), target - landed);
-      landed += loss;
-      claimsForEvent++;
-      const list = forcedPlan.get(m.id) ?? [];
-      list.push({ event: ev, loss });
-      forcedPlan.set(m.id, list);
-    }
-    forcedEventResults.push({
-      shockId: fe.shockId, target, gross: landed, claims: claimsForEvent, shortfall: Math.max(0, target - landed),
-    });
-  });
-  const forcedOccurrenceId = (ev: number) =>
-    `PR-${yearNumber}-SHOCK-${forcedEvents[ev].shockId.replace(/[^A-Za-z0-9]/g, '')}-${ev}`;
-
-  // ==========================================================================
-  // SCHEDULED NON-CATASTROPHE WEATHER — many claims, EACH ITS OWN OCCURRENCE.
-  //
-  // ⚠ THE SAME DOLLARS COST MORE WHEN THEY ARRIVE APART. A forced catastrophe
-  // sums its claims into one occurrence, the pool keeps $5M and the tower pays
-  // the rest. A hundred $300k claims are a hundred occurrences, none reaches the
-  // retention, and the pool keeps every dollar. Nothing here aggregates.
-  //
-  // ⚠ NOT A CATASTROPHE, AND NOT FLAGGED AS ONE. isCatastrophe stays false and
-  // the tier is WEATHER_BAND, so these book contracted like any claim, develop,
-  // and settle — they are ordinary claims that happen to have company.
-  //
-  // EVERY DRAW IS KEYED, NONE SEQUENTIAL: the count on `pr_weather:<id>`, and
-  // claim n's member and size on `pr_weather:<id>:<n>` — so claim n is the same
-  // whatever the count, and no cat-band, attritional or forced-event stream is
-  // touched. The member is drawn in proportion to insured value from the
-  // region's enrolled book IN id ORDER, so a roster reordering moves nothing;
-  // who is enrolled still decides who CAN be hit, as for a forced event.
-  // ==========================================================================
-  const weatherEvents = inputs.weatherEvents ?? [];
-  const weatherPlan = new Map<string, { event: number; n: number; loss: number }[]>();
-  const weatherEventResults: { shockId: string; claims: number; gross: number }[] = [];
-  weatherEvents.forEach((we, ev) => {
-    const countRng = deriveSubRng(instanceSeed, yearNumber, `pr_weather:${we.shockId}`);
-    const count = we.count.min + Math.floor(countRng.next() * (we.count.max - we.count.min + 1));
-    const book = members
-      .filter(m => m.region === we.region && (m.exposureByLine.Property ?? 0) > 0)
-      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const totalTiv = book.reduce((t, m) => t + (m.exposureByLine.Property ?? 0), 0);
-    let gross = 0, landed = 0;
-    if (totalTiv > 0) {
-      for (let n = 0; n < count; n++) {
-        const rng = deriveSubRng(instanceSeed, yearNumber, `pr_weather:${we.shockId}:${n}`);
-        let u = rng.next() * totalTiv;
-        let pick = book[book.length - 1];
-        for (const m of book) { u -= m.exposureByLine.Property ?? 0; if (u < 0) { pick = m; break; } }
-        const loss = we.claim.min + rng.next() * (we.claim.max - we.claim.min);
-        const list = weatherPlan.get(pick.id) ?? [];
-        list.push({ event: ev, n, loss });
-        weatherPlan.set(pick.id, list);
-        gross += loss;
-        landed++;
-      }
-    }
-    weatherEventResults.push({ shockId: we.shockId, claims: landed, gross });
-  });
-  const weatherOccurrenceId = (ev: number, n: number) =>
-    `PR-${yearNumber}-SHOCK-${weatherEvents[ev].shockId.replace(/[^A-Za-z0-9]/g, '')}-${ev}-${n}`;
 
   for (const member of members) {
     // PER-MEMBER STREAMS, KEYED ON member.id — unchanged from the retired
@@ -569,16 +501,23 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
         let idx = 0;
         while (idx < cumulative.length - 1 && u > cumulative[idx]) idx++;
         const comp = M.severityMixture[idx];
-        const raw = sevRng.lognormal(comp.mu + Math.log(sevScale), comp.sigma);
-        // Already settlement dollars — see PAYOUT_TREND_FACTOR above.
-        // THAT YEAR'S ceiling, wired like WC's and GL's; inert while
-        // propertySeverityTrend is 1. See propertySeverityCap.
-        const cap = propertySeverityCap(yearNumber);
+        // ⚠ THE ACCIDENT-YEAR TREND IS APPLIED HERE AND WAS NOT BEFORE. The
+        // shift carries risk quality AND the year; the settlement-dollar
+        // convention is separate and already inside the mixture (see
+        // PAYOUT_TREND_FACTOR above).
+        const raw = sevRng.lognormal(
+          comp.mu + Math.log(sevScale * propertySeverityTrend(yearNumber)), comp.sigma);
+        // The ceiling is FLAT — stated in every year's dollars, as GL's is.
+        const cap = propertySeverityCap();
         const gross = Math.min(raw, cap);
         if (raw > cap) capBindings++;
 
         const occurrenceId = `PR-${yearNumber}-${member.id}-${i}`;
         const claimId = `${occurrenceId}-c1`;
+        // The claims system, applied to the DRAW — see claimsSystemAdjusted. Below the
+        // retention only, and the claim, its case reserve and the line gross all read
+        // the same adjusted figure so nothing downstream needs its own correction.
+        const csAmount = claimsSystemAdjusted(LINE, gross, sevCut);
         claims.push({
           id: claimId,
           occurrenceId,
@@ -590,9 +529,9 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
           status: 'open',
           // Property damage is known the day it happens.
           reportedYear: yearNumber,
-          grossUltimate: gross,
+          grossUltimate: csAmount,
           paidToDate: 0,
-          caseReserve: gross,
+          caseReserve: csAmount,
           paymentPattern: [...M.payoutPattern],
         });
         // One claim per occurrence — for the ATTRITIONAL band. The cat band
@@ -610,7 +549,7 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
           peril: BAND,
         });
         memberLoss += gross;
-        grossUltimateLoss += gross;
+        grossUltimateLoss += csAmount;
         claimCount++;
         if (gross > maxClaimGross) maxClaimGross = gross;
         if (gross > M.perRiskRetention) perRiskBreaches++;
@@ -629,6 +568,10 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
         if (u >= PROPERTY_CAT_MODEL.footprint) continue;
         const occurrenceId = `PR-${yearNumber}-CAT-${e}`;
         const claimId = `${occurrenceId}-${member.id}`;
+        // The claims system, applied to the DRAW — see claimsSystemAdjusted. Below the
+        // retention only, and the claim, its case reserve and the line gross all read
+        // the same adjusted figure so nothing downstream needs its own correction.
+        const csAmount = claimsSystemAdjusted(LINE, lossIfHit, sevCut);
         claims.push({
           id: claimId,
           occurrenceId,
@@ -639,85 +582,21 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
           tier: CAT_BAND,
           status: 'open',
           reportedYear: yearNumber,
-          grossUltimate: lossIfHit,
+          grossUltimate: csAmount,
           paidToDate: 0,
-          caseReserve: lossIfHit,
+          caseReserve: csAmount,
           paymentPattern: [...M.payoutPattern],
         });
         eventClaimIds[e].push(claimId);
         eventMemberIds[e].push(member.id);
         memberLoss += lossIfHit;
-        grossUltimateLoss += lossIfHit;
+        grossUltimateLoss += csAmount;
         catGrossLoss += lossIfHit;
         claimCount++;
       }
     }
 
-    // THIS MEMBER'S SHARE OF ANY FORCED CATASTROPHE — planned above. A cat
-    // claim like the band's own: tier 'cat', joining the event's occurrence.
-    for (const { event, loss } of forcedPlan.get(member.id) ?? []) {
-      const occurrenceId = forcedOccurrenceId(event);
-      const claimId = `${occurrenceId}-${member.id}`;
-      claims.push({
-        id: claimId,
-        occurrenceId,
-        memberId: member.id,
-        line: LINE,
-        accidentYear: yearNumber,
-        calendarYear,
-        tier: CAT_BAND,
-        status: 'open',
-        reportedYear: yearNumber,
-        grossUltimate: loss,
-        paidToDate: 0,
-        caseReserve: loss,
-        paymentPattern: [...M.payoutPattern],
-        shockId: forcedEvents[event].shockId,
-      });
-      forcedClaimIds[event].push(claimId);
-      forcedMemberIds[event].push(member.id);
-      memberLoss += loss;
-      grossUltimateLoss += loss;
-      claimCount++;
-    }
 
-    // THIS MEMBER'S CLAIMS FROM ANY SCHEDULED WEATHER EVENT — planned above.
-    // Each is its own occurrence, emitted with it; not a catastrophe.
-    for (const { event, n, loss } of weatherPlan.get(member.id) ?? []) {
-      const occurrenceId = weatherOccurrenceId(event, n);
-      const claimId = `${occurrenceId}-${member.id}`;
-      claims.push({
-        id: claimId,
-        occurrenceId,
-        memberId: member.id,
-        line: LINE,
-        accidentYear: yearNumber,
-        calendarYear,
-        tier: WEATHER_BAND,
-        status: 'open',
-        reportedYear: yearNumber,
-        grossUltimate: loss,
-        paidToDate: 0,
-        caseReserve: loss,
-        shockId: weatherEvents[event].shockId,
-        paymentPattern: [...M.payoutPattern],
-      });
-      occurrences.push({
-        id: occurrenceId,
-        line: LINE,
-        memberId: member.id,
-        memberIds: [member.id],
-        accidentYear: yearNumber,
-        calendarYear,
-        region: weatherEvents[event].region,
-        isCatastrophe: false,
-        claimIds: [claimId],
-        peril: weatherEvents[event].peril,
-      });
-      memberLoss += loss;
-      grossUltimateLoss += loss;
-      claimCount++;
-    }
 
     // PER CLAIM, over the claims this member just generated. Property is not
     // RATED on experience (its measured primary-layer credibility is 0.000 —
@@ -767,25 +646,6 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
     });
   });
 
-  // One occurrence per forced event, exactly as for the band's own events —
-  // flagged as a catastrophe so it is booked at full and held there. `peril`
-  // names the scheduled peril — #2's earthquake meets the same $10M deductible
-  // a drawn earthquake does.
-  forcedEvents.forEach((fe, ev) => {
-    if (forcedClaimIds[ev].length === 0) return;
-    occurrences.push({
-      id: forcedOccurrenceId(ev),
-      line: LINE,
-      ...(forcedMemberIds[ev].length === 1 ? { memberId: forcedMemberIds[ev][0] } : {}),
-      memberIds: forcedMemberIds[ev],
-      accidentYear: yearNumber,
-      calendarYear,
-      region: fe.region,
-      isCatastrophe: true,
-      claimIds: forcedClaimIds[ev],
-      peril: fe.peril,
-    });
-  });
 
   return {
     claims,
@@ -798,8 +658,6 @@ export function generatePropertyClaims(inputs: PropertyGenerationInputs): Proper
     capBindings,
     catEvents: eventCount,
     catGrossLoss,
-    forcedEventResults,
-    weatherEventResults,
   };
 }
 

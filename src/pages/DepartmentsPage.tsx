@@ -3,14 +3,24 @@ import type { DecisionSet, GameState } from '../types/simulation';
 import DocumentReader, { type DocumentEntry } from '../components/DocumentReader';
 import investmentMemoRaw from '../data/documents/investmentMemo.md?raw';
 import { buildActuarialMemo } from '../utils/actuarialMemo';
-import { buildClaimsMemo } from '../utils/claimsMemo';
+// ⚠ buildClaimsMemo IS NOT IMPORTED WHILE THE CLAIMS PANE IS HIDDEN — see the
+// commented entry in `documents` below. src/utils/claimsMemo.ts, its template
+// and claims-memo-check are all untouched; the import comes back with the pane.
+//   import { buildClaimsMemo } from '../utils/claimsMemo';
+import { buildInvestmentMemo } from '../utils/investmentMemo';
 import { buildRiskControlMemo } from '../utils/riskControlMemo';
-import { buildUnderwritingMemo } from '../utils/underwritingMemo';
+import { RISK_CONTROL } from '../data/pricingParameters';
+// ⚠ buildUnderwritingMemo IS NOT IMPORTED WHILE THE UNDERWRITING PANE IS HIDDEN —
+// see the commented entry in `documents` below. src/utils/underwritingMemo.ts and
+// its checks are untouched; the import comes back with the pane.
+//   import { buildUnderwritingMemo } from '../utils/underwritingMemo';
 
 interface DepartmentsPageProps {
   gameState: GameState;
   /** The decisions the player is editing NOW — not gameState.currentDecisions,
-   *  which resets to defaults the moment a year locks. See buildUnderwritingMemo. */
+   *  which resets to defaults the moment a year locks. See buildUnderwritingMemo.
+   *  Read only by the Underwriting memo, which is hidden; kept on the props so
+   *  restoring the pane does not touch the call site. */
   currentDecisions: DecisionSet;
 }
 
@@ -18,7 +28,9 @@ interface DepartmentsPageProps {
 // selector is built now even though Investment (this pass's only occupant) is
 // static and does not yet vary by year — retrofitting a selector once those
 // two exist would mean reworking this tab's shape, not just adding rows.
-export default function DepartmentsPage({ gameState, currentDecisions }: DepartmentsPageProps) {
+// ⚠ currentDecisions IS NOT DESTRUCTURED WHILE THE UNDERWRITING PANE IS HIDDEN —
+// it is that memo's only reader. Restoring the pane puts it back here.
+export default function DepartmentsPage({ gameState }: DepartmentsPageProps) {
   const [selectedYear, setSelectedYear] = useState(gameState.currentYearNumber);
   const [selectedId, setSelectedId] = useState('investment');
 
@@ -32,27 +44,41 @@ export default function DepartmentsPage({ gameState, currentDecisions }: Departm
     [gameState, selectedYear],
   );
 
-  // Memoised on the same rule as the other two: it walks the whole marketplace
-  // and every member's stored history for each active line.
-  const underwritingMemo = useMemo(
-    () => buildUnderwritingMemo(gameState, currentDecisions),
-    [gameState, currentDecisions],
-  );
-
-  // ⚠ NOT KEYED TO selectedYear, AND IT USED TO BE. The listing is struck at a
-  // valuation and it resolves that valuation itself — see ClaimsMemoInput for
-  // why the selected year could not be honoured: claim status would move with
-  // the selection while Paid and Incurred, which come from live cohort state,
-  // would not. Passing the year in was what made the two disagree, so the year
-  // is no longer passed in. The selector still drives the actuarial memorandum,
-  // which keeps a real valuation history, and that document says so.
+  // ⚠ THE UNDERWRITING MEMO IS NOT BUILT WHILE ITS PANE IS HIDDEN — commented
+  // rather than deleted, the same treatment the Claims memo has below, so
+  // restoring the department is uncommenting this block, the entry in
+  // `documents`, the import at the top and `currentDecisions` in the signature.
+  // Its own note, kept verbatim:
   //
-  // It rebuilds the whole book to split paid per accident year, which is 41 ms
-  // on a reloaded game, so it is still memoised.
-  const claimsMemo = useMemo(
-    () => buildClaimsMemo({ gameState }),
-    [gameState],
-  );
+  //   Memoised on the same rule as the other two: it walks the whole marketplace
+  //   and every member's stored history for each active line.
+  //
+  //   const underwritingMemo = useMemo(
+  //     () => buildUnderwritingMemo(gameState, currentDecisions),
+  //     [gameState, currentDecisions],
+  //   );
+
+  // ⚠ THE CLAIMS MEMO IS NOT BUILT WHILE ITS PANE IS HIDDEN. Commented rather
+  // than deleted, with the entry below, so restoring the department is
+  // uncommenting three blocks and nothing else. Its own note is kept verbatim
+  // because it records a ruling, not an implementation detail:
+  //
+  //   ⚠ NOT KEYED TO selectedYear, AND IT USED TO BE. The listing is struck at
+  //   a valuation and it resolves that valuation itself — see ClaimsMemoInput
+  //   for why the selected year could not be honoured: claim status would move
+  //   with the selection while Paid and Incurred, which come from live cohort
+  //   state, would not. Passing the year in was what made the two disagree, so
+  //   the year is no longer passed in. The selector still drives the actuarial
+  //   memorandum, which keeps a real valuation history, and that document says
+  //   so.
+  //
+  //   It rebuilds the whole book to split paid per accident year, which is
+  //   41 ms on a reloaded game, so it is still memoised.
+  //
+  //   const claimsMemo = useMemo(
+  //     () => buildClaimsMemo({ gameState }),
+  //     [gameState],
+  //   );
 
   const documents: DocumentEntry[] = [
     {
@@ -61,13 +87,22 @@ export default function DepartmentsPage({ gameState, currentDecisions }: Departm
       summary: 'Reserve development by accident year',
       content: actuarialMemo,
     },
-    {
-      id: 'claims',
-      title: 'Claims',
-      summary: 'Large loss listing by member and status',
-      content: claimsMemo,
-    },
-    {
+    // ⚠ THE CLAIMS DEPARTMENT IS HIDDEN, NOT REMOVED — the same treatment the
+    // Membership tab has in GameShell. The listing is per MEMBER and per claim,
+    // which is the view the multiplayer game drops; the ENGINE keeps every
+    // claim, so this hides the pane and leaves claimsMemo.ts, its template, the
+    // claims workbook download and claims-memo-check untouched. Restoring it is
+    // uncommenting this entry, the useMemo above and the import at the top.
+    //   {
+    //     id: 'claims',
+    //     title: 'Claims',
+    //     summary: 'Large loss listing by member and status',
+    //     content: claimsMemo,
+    //   },
+    // ⚠ HIDDEN WHILE RISK_CONTROL IS OFF — risk control is pending design at
+    // pool level, and these programs cost nothing and do nothing until then.
+    // The memo and the programs behind it are kept for the redesign.
+    ...(RISK_CONTROL.enabled ? [{
       // ⚠ GATED BY activeLines, WHICH IS WHY IT IS BUILT AND NOT A STATIC .md.
       // Its own second paragraph promises that line-specific programs appear
       // only if the pool writes that coverage, so the list has to honour it.
@@ -75,23 +110,33 @@ export default function DepartmentsPage({ gameState, currentDecisions }: Departm
       title: 'Risk Control',
       summary: 'Programs available for management consideration',
       content: buildRiskControlMemo(gameState.setup.activeLines),
-    },
-    {
-      // ⚠ THE ONLY DOCUMENT WHOSE CONTENT IS A FUNCTION OF THE YEAR. Risk
-      // Control is prose; Actuarial and Claims are generated but describe the
-      // pool. This lists a SET that turns over every year — different
-      // candidates, different members over the bar — so its fingerprint differs
-      // between year points by design, where the others mostly do not.
-      id: 'underwriting',
-      title: 'Underwriting',
-      summary: 'Membership, applicants, and risk profile',
-      content: underwritingMemo,
-    },
+    }] : []),
+    // ⚠ THE UNDERWRITING DEPARTMENT IS HIDDEN, NOT REMOVED — the same treatment
+    // as Claims above. Its memo lists applicants and members by name, which is
+    // the per-member view the multiplayer game drops; the pool-level memo that
+    // replaces it ships with pool-level underwriting and is recorded in
+    // docs/PENDING_MULTIPLAYER.md. underwritingMemo.ts and its checks are
+    // untouched. Restoring it is uncommenting this entry, the useMemo above,
+    // the import at the top and `currentDecisions` in the signature.
+    //   {
+    //     // ⚠ THE ONLY DOCUMENT WHOSE CONTENT IS A FUNCTION OF THE YEAR. Risk
+    //     // Control is prose; Actuarial and Claims are generated but describe the
+    //     // pool. This lists a SET that turns over every year — different
+    //     // candidates, different members over the bar — so its fingerprint differs
+    //     // between year points by design, where the others mostly do not.
+    //     id: 'underwriting',
+    //     title: 'Underwriting',
+    //     summary: 'Membership, applicants, and risk profile',
+    //     content: underwritingMemo,
+    //   },
     {
       id: 'investment',
       title: 'Investment',
       summary: 'Strategy, asset allocation, and liquidity',
-      content: investmentMemoRaw,
+      // ⚠ BUILT, NOT RAW. The asset table and the default allocation are filled
+      // from the engine's constants — see buildInvestmentMemo. The raw file
+      // carries tokens, so rendering it unfilled would show them to a player.
+      content: buildInvestmentMemo(investmentMemoRaw),
     },
   ];
 

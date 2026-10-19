@@ -43,9 +43,13 @@
 import type {
   AdvanceRequest, AdvanceResponse,
   CallerRole, CallerView,
+  EventStatus,
+  ListEventsResponse, LobbyEvent,
+  SetEventHiddenRequest, SetEventHiddenResponse,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
+  PriorDevelopment,
   ReadRequest, ReadResponse,
   RoomStatus, RoomView,
   ScheduledShockSpec,
@@ -54,7 +58,7 @@ import type {
   SubmitRequest, SubmitResponse,
   TeamView,
 } from './contract';
-import { SessionError, SESSION_TOKEN_PATTERN, newSessionToken } from './contract';
+import { SessionError, SESSION_TOKEN_PATTERN, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
 import { Faults } from './faults';
 import type { CoverageLine } from '../types/simulation';
 
@@ -74,6 +78,86 @@ const KEY_PREFIX = ROOM_KEY_PREFIX;
 // constrain it.
 const IDEMPOTENCY_PREFIX = 'ripple.session.v1.create.';
 
+// ============================================================================
+// THE LOBBY INDEX — ONE RECORD LISTING CURRENT EVENTS.
+//
+// ⚠ A LOCAL STORE COULD BE SCANNED AND THIS ONE DELIBERATELY IS NOT. Listing
+// events here could be a loop over every ROOM_KEY_PREFIX key, which cannot
+// drift because it reads the rooms themselves. The hosted table has no such
+// option — see keys.ts, which has no way to scan rooms by design — so it must
+// keep an index, and an index is the thing that CAN go stale.
+//
+// Keeping the same mechanism on both sides is the point of this transport: it
+// is the rehearsal for the hosted one, and a rehearsal that uses an easier
+// mechanism rehearses nothing. Every staleness bug the index can have is
+// reachable here, in a browser, with no AWS account.
+//
+// SHAPE: one JSON object, code -> entry. Updated on CREATE, HIDE, START (the
+// first advance) and FINISH (the last), which are exactly the four moments the
+// listing changes.
+const LOBBY_KEY = 'ripple.session.v1.lobby';
+
+interface LobbyIndexEntry {
+  code: string;
+  eventName: string;
+  status: EventStatus;
+  teams: number;
+  currentYear: number;
+  yearCount: number;
+  hidden: boolean;
+  updatedAt: number;
+}
+
+function loadLobbyIndex(store: Storage): Record<string, LobbyIndexEntry> {
+  const raw = store.getItem(LOBBY_KEY);
+  if (raw === null) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, LobbyIndexEntry>;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    // ⚠ A CORRUPT INDEX IS AN EMPTY LOBBY, NOT A DEAD APP. The index is
+    // derived data: every room it names is still reachable by its code, and
+    // the next write rebuilds the entry. Throwing here would take the whole
+    // front page down over a cache nothing depends on.
+    return {};
+  }
+}
+
+/**
+ * Read-modify-write ONE entry, leaving every other entry exactly as found.
+ *
+ * ⚠ THE WHOLE-OBJECT WRITE IS WHY THIS MUST RUN UNDER THE ROOM LOCK. Two hosts
+ * creating at once both read the index, both add their own row and both write
+ * the whole object back — and the second silently drops the first. That is the
+ * lost update the hosted side spends a conditional write on (keys.ts: the
+ * LOBBY record is updated with an UpdateExpression touching only its own
+ * `events.<code>` path, never a Put of the whole map). Here the lock does it,
+ * and every caller of this function is already inside `call(..., true)`.
+ */
+function updateLobbyEntry(
+  store: Storage, code: string, patch: (prev: LobbyIndexEntry | undefined) => LobbyIndexEntry | null,
+): void {
+  const index = loadLobbyIndex(store);
+  const next = patch(index[code]);
+  if (next === null) delete index[code];
+  else index[code] = next;
+  store.setItem(LOBBY_KEY, JSON.stringify(index));
+}
+
+/** The entry a room record implies. One derivation, so the index cannot invent a status. */
+function lobbyEntryFor(room: RoomRecord): LobbyIndexEntry {
+  return {
+    code: room.code,
+    eventName: room.eventName,
+    status: eventStatusOf(room.currentYear, room.yearCount),
+    teams: room.teams.filter(t => t.joined).length,
+    currentYear: room.currentYear,
+    yearCount: room.yearCount,
+    hidden: room.hidden ?? false,
+    updatedAt: room.updatedAt,
+  };
+}
+
 // No O/0/I/1 — a room code gets read aloud across a room and written on a
 // whiteboard, and those are the four characters that come back wrong.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -85,7 +169,8 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 // this shape directly.
 interface TeamRecord {
   name: string;
-  // Chosen at join, never written again. See the LINES_LOCKED path below.
+  // ⚠ COPIED FROM THE ROOM AT JOIN, never from a request and never written
+  // again. The host owns the line set now; a team has no say and sends none.
   lines: CoverageLine[];
   token: string | null;
   joined: boolean;
@@ -109,6 +194,13 @@ interface RoomRecord {
   yearCount: number;
   startingYear: number;
   expectedTeams: number;
+  // ⚠ OPTIONAL ON THE RECORD, REQUIRED ON THE VIEW. A room written before the
+  // host picked the lines has neither; roomView defaults them so an old record
+  // stays readable rather than rendering an empty game.
+  lines?: CoverageLine[];
+  priorDevelopment?: PriorDevelopment;
+  /** Taken off the lobby by the host. Absent reads as false — see the contract. */
+  hidden?: boolean;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamRecord[];
@@ -207,11 +299,8 @@ function highestPlayedYear(t: TeamRecord): number | null {
   return best;
 }
 
-function sameLines(a: CoverageLine[], b: CoverageLine[]): boolean {
-  if (a.length !== b.length) return false;
-  const sa = [...a].sort(), sb = [...b].sort();
-  return sa.every((x, i) => x === sb[i]);
-}
+// sameLines is gone with LINES_LOCKED: a join carries no lines, so there are
+// never two sets to compare.
 
 // ---------------------------------------------------------------- views
 
@@ -234,7 +323,25 @@ function statusOf(room: RoomRecord): RoomStatus {
 // optional. Not done here: it changes what players receive, and wants the
 // contract harness to prove no player screen depended on it. The AWS design
 // assumes it done; see src/session/server/keys.ts, READ.
-function teamView(t: TeamRecord, currentYear: number): TeamView {
+// ⚠ DECISIONS ARE STRIPPED FOR EVERY CALLER BUT THE HOST, AND THIS FAILS
+// CLOSED. The over-send above is unchanged — every caller still receives every
+// team's resultsByYear, which is the gap recorded there and not fixed here —
+// but the DECISIONS section added to those rows must not widen it. So `role`
+// defaults to the most restrictive value rather than the most permissive: a
+// roomView call site that forgets to pass it sends no decisions, which is a
+// screen that renders a dash, not a leak.
+//
+// The host is the only caller any of this is for. A team's own decisions reach
+// it as they always did, through callerView's decisionsByYear.
+function summaryFor(s: TeamYearSummary, role: CallerRole): TeamYearSummary {
+  if (role === 'host' || s.decisions === undefined) return s;
+  const { decisions: _omitted, ...rest } = s;
+  void _omitted;
+  return rest;
+}
+
+function teamView(t: TeamRecord, currentYear: number, role: CallerRole): TeamView {
+  const results = Object.entries(t.resultsByYear);
   return {
     name: t.name,
     lines: [...t.lines],
@@ -245,22 +352,32 @@ function teamView(t: TeamRecord, currentYear: number): TeamView {
     // The scoreboard the host's Teams and Charts tabs read. A year with no entry
     // is a year not reported — which is a DIFFERENT state from a line the team
     // does not write, and the two must not be allowed to look alike.
-    resultsByYear: Object.keys(t.resultsByYear).length > 0 ? { ...t.resultsByYear } : undefined,
+    resultsByYear: results.length > 0
+      ? Object.fromEntries(results.map(([y, s]) => [y, summaryFor(s, role)]))
+      : undefined,
   };
 }
 
-function roomView(room: RoomRecord): RoomView {
+// `role` defaults to the restrictive case on purpose — see summaryFor.
+function roomView(room: RoomRecord, role: CallerRole = 'anonymous'): RoomView {
   return {
     code: room.code,
     status: statusOf(room),
     seed: room.seed,
+    // ⚠ DEFAULTED ON READ, NOT ONLY ON WRITE. A room record written before the
+    // host picked the lines has neither field; falling back to all three and to
+    // no development keeps such a record readable instead of rendering a room
+    // with an empty game.
+    lines: [...(room.lines ?? LINE_ORDER)],
+    priorDevelopment: { ...(room.priorDevelopment ?? {}) },
+    hidden: room.hidden ?? false,
     eventName: room.eventName,
     yearCount: room.yearCount,
     startingYear: room.startingYear,
     expectedTeams: room.expectedTeams,
     currentYear: room.currentYear,
     shocks: room.shocks.map(s => ({ ...s })),
-    teams: room.teams.map(t => teamView(t, room.currentYear)),
+    teams: room.teams.map(t => teamView(t, room.currentYear, role)),
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     rev: room.rev,
@@ -310,7 +427,14 @@ function callerView(role: CallerRole, team: TeamRecord | null): CallerView {
 
   const played = highestPlayedYear(team);
   if (played !== null) {
-    view.lastResult = team.resultsByYear[String(played)];
+    // ⚠ STRIPPED HERE TOO, AND THIS IS THE SITE THAT WAS MISSED FIRST. The
+    // contract harness caught it: teamView's strip covers the ROOM's copy, and
+    // callerView hands the caller its own team's newest row by a second route.
+    // A rule enforced at one of two exits is not enforced. `role` is never
+    // 'host' in this function — the host has no team — so this is
+    // unconditional, and it is written through the same helper so the two
+    // cannot drift apart.
+    view.lastResult = summaryFor(team.resultsByYear[String(played)], role);
     view.lastResultYear = played;
   }
   return view;
@@ -382,6 +506,29 @@ export class LocalSessionTransport implements SessionTransport {
         throw new SessionError('INVALID_REQUEST', 'A room needs a valid host token.');
       }
 
+      // ⚠ THE LINE SET IS CHECKED HERE AND NOWHERE ELSE NOW. It used to be
+      // checked on every join, once per team; the host picks it once, so this is
+      // the only gate and it has to be the strict one.
+      const reqLines = Array.isArray(req.lines) ? req.lines : [];
+      if (reqLines.length === 0) {
+        throw new SessionError('INVALID_REQUEST', 'A game must use at least one coverage line.');
+      }
+      const notALine = reqLines.filter(l => !LINE_ORDER.includes(l));
+      if (notALine.length > 0) {
+        throw new SessionError('INVALID_REQUEST', `${notALine.join(', ')} is not a coverage line.`);
+      }
+      // Canonical order regardless of click sequence, so two hosts who pick the
+      // same lines in different orders create the same room.
+      const roomLines = LINE_ORDER.filter(l => reqLines.includes(l));
+      // Entries for lines the room does not play are DROPPED, not refused: the
+      // host screen keeps a value per line as the host toggles them, and a
+      // leftover for an unticked line is not a bad request.
+      const roomPriorDev: PriorDevelopment = {};
+      for (const l of roomLines) {
+        const v = req.priorDevelopment?.[l];
+        if (typeof v === 'number' && Number.isFinite(v)) roomPriorDev[l] = v;
+      }
+
       const store = storage();
 
       // ⚠ THE RETRY PATH, AND IT RETURNS SUCCESS RATHER THAN AN ERROR. A
@@ -411,6 +558,8 @@ export class LocalSessionTransport implements SessionTransport {
         yearCount: req.yearCount,
         startingYear: req.startingYear,
         expectedTeams: req.expectedTeams,
+        lines: roomLines,
+        priorDevelopment: roomPriorDev,
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),
         // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING, not registered in
@@ -427,7 +576,11 @@ export class LocalSessionTransport implements SessionTransport {
       // The index AFTER the room, so a failure between the two leaves no index
       // pointing at a room that was never written.
       store.setItem(IDEMPOTENCY_PREFIX + req.hostToken, code);
-      return { code, hostToken: room.hostToken, room: roomView(room), reused: false };
+      // CREATE — the first of the four moments the listing changes. After the
+      // room, for the same reason the idempotency index is: a failure between
+      // them leaves no row pointing at a room that was never written.
+      updateLobbyEntry(store, code, () => lobbyEntryFor(room));
+      return { code, hostToken: room.hostToken, room: roomView(room, 'host'), reused: false };
     }, true);
   }
 
@@ -474,17 +627,11 @@ export class LocalSessionTransport implements SessionTransport {
         // second person claiming a team that is already claimed. Checking
         // TEAM_TAKEN first would lock the real driver out on a refresh.
         if (req.token && team.token === req.token) {
-          // ⚠ LINES ARE FIXED, AND THE REFUSAL IS THE POINT. A rejoin that asks
-          // for a different set is not honoured and not silently ignored: the
-          // team's pre-game, its roster and its whole claim history are a
-          // function of the lines it opened with, so changing them would
-          // restart its book while looking like a preference change.
-          if (req.lines && !sameLines(req.lines, team.lines)) {
-            throw new SessionError(
-              'LINES_LOCKED',
-              `${team.name} plays ${team.lines.join(' + ')}. Coverage lines are chosen once, when a team joins.`,
-            );
-          }
+          // ⚠ NOTHING TO REFUSE ANY MORE. This branch used to throw LINES_LOCKED
+          // when a rejoin asked for a different set. A join carries no lines, so
+          // there is no disagreement to detect — the team plays the room's lines
+          // on the first join and on every return, and that is the same set by
+          // construction rather than by a check.
           return { teamToken: team.token, teamName: team.name, lines: [...team.lines], role: 'player' as const, rejoined: true, room: roomView(room) };
         }
         // The name is the identity now, so a second person arriving with a name
@@ -493,17 +640,32 @@ export class LocalSessionTransport implements SessionTransport {
       }
 
       // ---- a player creating its team -------------------------------------
-      const lines = req.lines ?? [];
-      if (lines.length === 0) {
-        throw new SessionError('INVALID_REQUEST', 'A team must play at least one coverage line.');
+      // ⚠ THE SERVER REFUSES A LATE TEAM, NOT ONLY THE SCREEN. Reached only on
+      // the CREATING path: every rejoin returned above, and a viewer returned
+      // further above still, so neither is caught by this. A team arriving
+      // after the host's first advance would be starting at a year the room has
+      // already played, with no decisions on record for the years behind it.
+      //
+      // ⚠ AND IT KEYS ON STATUS, NOT ON WHETHER THE EVENT IS LISTED. A hidden
+      // OPEN event still takes new teams; a listed IN_PROGRESS one still
+      // refuses them. See SetEventHiddenRequest.
+      const status = eventStatusOf(room.currentYear, room.yearCount);
+      if (!mayCreateTeam(status)) {
+        throw new SessionError(
+          'EVENT_IN_PROGRESS',
+          status === 'FINISHED'
+            ? 'This event has finished, so no new teams can join.'
+            : `This event is already in year ${room.currentYear}, so no new teams can join. `
+              + 'You can still watch it as a viewer.',
+        );
       }
-      // ⚠ VALIDATED AGAINST THE REAL LINES, NOT AGAINST A ROOM MENU. Every room
-      // offers all three and the host does not constrain it, so the only wrong
-      // answer here is one that is not a coverage line at all.
-      const notALine = lines.filter(l => !LINE_ORDER.includes(l));
-      if (notALine.length > 0) {
-        throw new SessionError('INVALID_REQUEST', `${notALine.join(', ')} is not a coverage line.`);
-      }
+
+      // ⚠ THE ROOM'S LINES, NOT THE REQUEST'S. There is nothing to validate here
+      // any more: the set was checked once, when the host created the room, and
+      // a team cannot propose another. A stale client that still sends `lines`
+      // is IGNORED rather than refused — it joins and plays the room's set,
+      // which is the behaviour the contract asks a server for.
+      const lines = [...(room.lines ?? LINE_ORDER)];
 
       // ⚠ THE CLIENT'S TOKEN, WHICH IS WHAT MAKES THE FIRST JOIN REPLAYABLE.
       // The team is created owning a secret the caller ALREADY HOLDS, so if the
@@ -528,6 +690,10 @@ export class LocalSessionTransport implements SessionTransport {
       };
       room.teams.push(created);
       saveRoom(room);
+      // Not one of the four moments, but the row carries a team COUNT and the
+      // lobby shows it — a listing that said "0 teams so far" under a room six
+      // people had joined would be worse than no count at all.
+      updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
       return { teamToken: token, teamName: created.name, lines: [...created.lines], role: 'player' as const, rejoined: false, room: roomView(room) };
     }, true);
   }
@@ -587,7 +753,7 @@ export class LocalSessionTransport implements SessionTransport {
       }
 
       saveRoom(room);
-      return { room: roomView(room), you: callerView(role, team) };
+      return { room: roomView(room, role), you: callerView(role, team) };
     }, true);
   }
 
@@ -631,6 +797,91 @@ export class LocalSessionTransport implements SessionTransport {
    * no second advance — indistinguishable from a retry, by construction, and
    * the safe failure of the two. Two or more years stale is WRONG_YEAR.
    */
+  // ---------------------------------------------------------------- lobby
+  // ⚠ NO PARAMETER, WHICH SATISFIES THE INTERFACE. ListEventsRequest is an
+  // empty object — the lobby takes no filter — so naming an argument only to
+  // ignore it is a lint error with nothing to say.
+  listEvents(): Promise<ListEventsResponse> {
+    return this.call(() => {
+      const store = storage();
+      const index = loadLobbyIndex(store);
+      const events: LobbyEvent[] = [];
+      let pruned = false;
+
+      for (const entry of Object.values(index)) {
+        // ⚠ THE ROOM IS THE AUTHORITY, NOT THE ROW. The index is derived data
+        // and can be stale in either direction; a row is only ever a pointer.
+        // Reading the room back is what the hosted side does with a BatchGet
+        // and what keeps a stale status from being served.
+        const raw = store.getItem(KEY_PREFIX + entry.code);
+        if (raw === null) {
+          // SKIP AN EXPIRED ROOM, AND FORGET IT. Locally a room expires by
+          // being cleared; on the table it expires by TTL. Either way the row
+          // outlives it, and a lobby that listed events nobody can open would
+          // be worse than one that listed none.
+          delete index[entry.code];
+          pruned = true;
+          continue;
+        }
+        let room: RoomRecord;
+        try { room = JSON.parse(raw) as RoomRecord; } catch { continue; }
+
+        if (room.hidden) continue;
+        const status = eventStatusOf(room.currentYear, room.yearCount);
+        // FINISHED EVENTS DROP OFF. The room keeps running for the teams in it
+        // — they read their results by code until it expires — it simply stops
+        // being something to walk up to.
+        if (status === 'FINISHED') continue;
+
+        events.push({
+          code: room.code,
+          eventName: room.eventName,
+          status,
+          teams: room.teams.filter(t => t.joined).length,
+          currentYear: room.currentYear,
+          yearCount: room.yearCount,
+        });
+      }
+      if (pruned) store.setItem(LOBBY_KEY, JSON.stringify(index));
+
+      // OPEN first — the rows a player can act on — then IN_PROGRESS; each
+      // newest first, so a workshop opened minutes ago is at the top.
+      const rank = (e: LobbyEvent) => (e.status === 'OPEN' ? 0 : 1);
+      events.sort((a, b) => rank(a) - rank(b)
+        || (index[b.code]?.updatedAt ?? 0) - (index[a.code]?.updatedAt ?? 0));
+      return { events };
+    }, true);
+  }
+
+  setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      // Authority first, as everywhere else here: a non-host must not learn
+      // anything about the room from the shape of the refusal.
+      const { role } = callerOf(room, req.token);
+      if (role !== 'host') {
+        throw new SessionError('NOT_HOST', 'Only the host may hide an event.');
+      }
+      if (typeof req.hidden !== 'boolean') {
+        throw new SessionError('INVALID_REQUEST', 'hidden must be true or false.');
+      }
+      // ⚠ IDEMPOTENT, AND SILENTLY SO. Hiding a hidden event is a no-op that
+      // SUCCEEDS rather than an error: the caller asked for a state, the state
+      // holds, and a toggle that threw on a double click would be a worse
+      // contract than one that agrees.
+      if ((room.hidden ?? false) === req.hidden) {
+        return { room: roomView(room) };
+      }
+      room.hidden = req.hidden;
+      saveRoom(room);
+      // HIDE — the fourth moment. The row stays in the index carrying the flag
+      // rather than being deleted, so unhiding is a flag flip and not a
+      // rebuild, and `listEvents` filters on it.
+      updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
+      return { room: roomView(room) };
+    }, true);
+  }
+
   advance(req: AdvanceRequest): Promise<AdvanceResponse> {
     return this.call(() => {
       const room = loadRoom(req.code);
@@ -645,7 +896,7 @@ export class LocalSessionTransport implements SessionTransport {
       }
       // 2. The retry. No write, and success.
       if (room.currentYear === req.expectedYear + 1) {
-        return { room: roomView(room), currentYear: room.currentYear, advanced: false };
+        return { room: roomView(room, 'host'), currentYear: room.currentYear, advanced: false };
       }
       // 3. Past the end.
       if (room.currentYear > room.yearCount) {
@@ -661,7 +912,13 @@ export class LocalSessionTransport implements SessionTransport {
 
       room.currentYear += 1;
       saveRoom(room);
-      return { room: roomView(room), currentYear: room.currentYear, advanced: true };
+      // START and FINISH, the second and third of the four moments. Both are
+      // this one line because both are an advance: the first takes the event
+      // OPEN -> IN_PROGRESS, the last IN_PROGRESS -> FINISHED. Writing the
+      // entry on EVERY advance rather than only on those two keeps the row's
+      // currentYear honest for the lobby, and costs one small write a year.
+      updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
+      return { room: roomView(room, 'host'), currentYear: room.currentYear, advanced: true };
     }, true);
   }
 
@@ -669,7 +926,7 @@ export class LocalSessionTransport implements SessionTransport {
     return this.call(() => {
       const room = loadRoom(req.code);
       const { role, team } = callerOf(room, req.token);
-      return { room: roomView(room), you: callerView(role, team) };
+      return { room: roomView(room, role), you: callerView(role, team) };
     });
   }
 }

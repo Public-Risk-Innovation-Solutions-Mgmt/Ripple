@@ -306,8 +306,545 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //
 // ⚠ THE FLAT CHARGE AND THE RATIO PAIR DO NOT APPEAR ABOVE and their absence is
 // correct: v14 was captured at b856340, which already carried them.
+// ⚠ v15 -> v16: THE CLAIMS MANAGEMENT SYSTEM BECAME BUYABLE. 10 of 298 moved,
+// every one of them Decisions|Pool, and ALL TEN HAVE THE SAME CAUSE — the
+// sentence naming which tiles are live. Classified mechanically against the
+// prior commit's own text, three variants:
+//   4 rows  GL-only and WC-only: "is" -> "and Claims Management are", because
+//           those pools went from one buyable program to two.
+//   4 rows  WC+GL and WC+GL+PR: "+ and Claims Management", same cause.
+//   2 rows  PROPERTY-ONLY: the whole sentence "Claims Management is live; the
+//           others are not yet buyable." INSERTED, because a Property-only pool
+//           previously had NO buyable program at all and so had no sentence to
+//           name one. That is this program giving Property its first.
+//
+// ⚠ THE TILE ITSELF DOES NOT APPEAR ABOVE AND ITS ABSENCE IS CORRECT. The
+// fingerprint is a hash of innerText, so a tile turning from a div into a button
+// is invisible to it: the name, the scope chip and the cost were already
+// rendered and are unchanged. Nothing was skipped — there is nothing to see.
+//
+// ⚠ THE CONTROL RAN FIRST AND ON A SEPARATE PORT: cb3b5d5 built into its own
+// worktree and served on 4174 reproduced ALL 298 against the committed v15.
+//
+// ⚠ v16 -> v17: THE INVESTMENT RETURN CUT. 280 of 298 moved, which is the
+// largest capture this file has taken, and a number that size is exactly when
+// the header's "do NOT re-capture to make this green" has to be answered rather
+// than quoted. It is answered in three parts.
+//
+//   THE CONTROL FIRED. ee953aa built into its own worktree and served on 4174
+//   reproduced ALL 298 against the committed v16 on the same run of this
+//   harness. So the 280 are this change and nothing else.
+//
+//   2 of 298 ARE THE DOCUMENT, AND THE DIFF IS THREE NUMBERS.
+//   Departments|doc:Investment moved from a3d218cd64dd1fae to 6a5d6efc84f23082
+//   — ONE fingerprint across every configuration and both years, because the
+//   memo is static and says the same thing to every pool. Diffed as text, the
+//   whole change is "4.19% -> 2.79%", "5.20% -> 3.47%", "8.26% -> 5.51%" in the
+//   assumptions table. Every other word, including the allocation line, is
+//   byte-identical. Both now come from the constants via buildInvestmentMemo.
+//
+//   8 of 298 ARE THE AUDIT PAGE'S ASSET ROW plus its game numbers. Calculation
+//   Audit's "Asset Class Assumptions" row reads ASSET_CLASS_ASSUMPTIONS directly
+//   and always did: Return 4.2%/5.2%/8.3% gross -> 2.8%/3.5%/5.5%.
+//
+//   THE REMAINING 270 ARE GAME NUMBERS, FOR THREE REASONS. Investment income is
+//   lower on every screen that shows a financial figure — expected. The opening
+//   book itself is different, because runLinePreGame accepts a past on ENDING
+//   SURPLUS / premium, which contains investment income, so a lower rate can
+//   reject a past the old rate accepted and redraw the history behind it (22 of
+//   24 measured games accepted a different attempt on at least one line). AND
+//   the opening LEVEL moved deliberately: OPENING_SURPLUS_BAND and
+//   STARTING_CAPITAL_TO_PREMIUM were re-levelled together so every line opens at
+//   1.5x annual premium. That is why screens with no investment figure on them
+//   at all — Membership, Pool History — moved too.
+//
+//   ⚠ THE 18 THAT HELD ARE EXACTLY THE DEPARTMENTS DOCUMENTS WITH NO ENGINE
+//   FIGURE IN THEM: doc:Risk Control on all five configurations, doc:Underwriting
+//   on WC and PR, doc:Actuarial and doc:Claims on WC. Nothing with a number on it
+//   held, and nothing without one moved — which is the shape to expect from a
+//   change that moves values and no layout.
+//
+//   ⚠ AND THE MEMO'S FINGERPRINT IS THE SAME ONE IT TOOK BEFORE THE OPENING
+//   MOVED (6a5d6efc84f23082), which is itself the evidence the document is
+//   static: the pre-game re-rolled twice under it and it did not notice.
+//
+//   18 HELD, and they are the screens with no number and no document on them.
 const BASELINE = process.env.RENDER_BASELINE
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v15.json');
+//
+// ⚠ v17 -> v18: THE CATASTROPHE CAPITAL TERM AND THE COMMON OPENING MULTIPLE.
+// 248 of 298 moved, and the split is cleaner than v17's because this change
+// touches NO player-facing prose at all.
+//
+//   THE CONTROL FIRED FIRST. b9d797e built in its own worktree and served on
+//   4174 reproduced ALL 298 against its own committed v17, so the 248 are this
+//   change and not the instrument.
+//
+//   50 HELD, AND THEY ARE EVERY DEPARTMENTS DOCUMENT — Actuarial, Claims,
+//   Investment, Risk Control and Underwriting, on all five configurations, both
+//   years. No memo, no document and no displayed constant moved. Spot-checked
+//   on the Calculation Audit: its asset row still reads 2.8% / 3.5% / 5.5%
+//   gross, so the investment returns are untouched; 114 words of 4,477 differ
+//   on that page and every one is a game number.
+//
+//   248 MOVED, for two reasons. Property's required capital gained
+//   catCapitalRetained, so every capital, funding and adequacy figure on that
+//   line moves. And every line's opening book re-rolled, because the pre-game
+//   accepts against OPENING_SURPLUS_BAND and the band changed both basis
+//   ('reserve'/'premium' -> 'required') and level (to a common 2.28x).
+//
+//   ⚠ ONE EXCEPTION, ADDED AFTER audit-formula-check WENT RED: the Calculation
+//   Audit's "Reserve Risk Margin Needed" row now states a SUM (reserve margin
+//   plus retained catastrophe) where it stated a product, because the margin
+//   gained a term and the printed derivation no longer reproduced its own
+//   value. So that row's TEXT moved too, on top of its numbers.
+//
+//   Otherwise nothing with words moved and everything with a number did. That
+//   is the shape to expect from a change that moves values and no layout.
+// ⚠ v18 -> v19: ZERO RISK LOAD, AND THE OPENING PIN THAT FOLLOWED IT.
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT, as it must before any diff is
+// read: b35dbe2 built into its own worktree, served on :4174, checked against
+// the COMMITTED v18 and reproducing ALL 298 FINGERPRINTS IDENTICAL. Only then
+// was the working tree built on :4173 and diffed against that same v18.
+//
+// 248 of 298 moved. NOTHING WAS ADDED, REMOVED OR RENAMED — 0 added, 0 removed,
+// and every changed token across all 248 rows is a number, a price string or a
+// re-sort. Attributed by dumping the text of both sides (RENDER_TEXT_DIR) and
+// diffing them word by word:
+//   - layer prices fall by the load and nothing else: GL $1M xs $1M
+//     $8,701,773/yr -> $6,076,014/yr, $5M xs $5M $4,034,744 -> $2,180,750,
+//     WC tower $7,720,692 -> $3,364,339, Property quake $36,025,249 ->
+//     $15,854,274. Higher layers fall further, which is the load being
+//     proportional to the cession's spread.
+//   - TOTAL MEMBER CHARGE falls with them (GL y0 $42.48M -> $34.89M).
+//   - surplus moves in BOTH directions (WC y2 $21.50M -> $19.69M, GL y2
+//     $35.83M -> $36.38M) because the opening book re-rolled when the pin moved.
+//   - Membership is a PURE REORDER. All 26 of those rows have a word-for-word
+//     identical multiset; the roster sorts on a value that moved.
+//   - the 50 rows that did NOT move are exactly the five department memo panes
+//     across all 5 configurations and both years — static prose, no numbers.
+//     That they held is the evidence the capture is value-only.
+// ⚠ v19 -> v25: THE feature/uw-decisions MERGE. Numbered above BOTH parents:
+// risk-control was at v19 and uw-decisions at v24, and the two branches' version
+// numbers had COLLIDED earlier (each minted its own v52 of the value baseline on
+// different content), so the merged capture takes a number neither side used.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT, as it must: the merge's FIRST
+// PARENT 2e38ecd was built in its own worktree, served on :4174, and reproduced
+// ALL 298 FINGERPRINTS IDENTICAL against the committed v19. Only then was the
+// merged tree built on :4173 and diffed against that same v19.
+//
+// 274 of 298 moved, 0 ADDED, 0 REMOVED, 0 RENAMED. Attributed by dumping both
+// sides' text (RENDER_TEXT_DIR) and comparing word by word. Of the 274:
+//   233  VALUE ONLY — the alphabetic content of the page is identical
+//        word-for-word; only numbers moved. This includes every row of
+//        Calculation Audit, Financial Statements, Pool History, Decision
+//        History, Result Spreadsheet and _header.
+//    26  Membership — PURE PERMUTATIONS. Word multisets identical; the roster
+//        sorts on a value that moved.
+//    32  Decisions and Departments — the only REAL prose changes, and they are
+//        uw-decisions' own UI: "New Business Appetite" tiers replaced by the
+//        intake slider ("No New Business / Strict / Moderate / Low"), the
+//        renewal decline bar replaced by the renewal slider ("Renew all /
+//        Worst 5%"), and the underwriting memo rewritten to match ("drawn when
+//        the year is processed" -> "each applicant is inspected").
+//     8  Dashboard — a magnitude SUFFIX flip (K to M) as a figure crossed a
+//        rounding boundary. Formatting following a value, not an edit.
+//     1  WC|Results|Pool|y2 — the page's own conditional sentence: the loss
+//        ratio crossed 100% (90.2% -> 101.1%) so "covering the year's
+//        underwriting" became "so underwriting lost money this year". The UI
+//        responding to a number, which is what it is built to do.
+// The 24 rows that did NOT move are department memo panes with no numbers in
+// them, which is the evidence nothing moved that should not have.
+// ⚠ v25 -> v26: THE SATISFACTION OPENING FIX. Members are seeded at the anchor
+// their own pool's opening position earns instead of a fixed 7.20-7.22, and the
+// surplus-limb constants were re-solved onto where pools now sit.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 60975ba built in its own
+// worktree, served on :4174, reproducing ALL 298 FINGERPRINTS against the
+// committed v25. Only then was this tree built on :4173 and diffed against it.
+//
+// 31 of 298 moved. 0 added, 0 removed, 0 renamed, and 0 rows with any PROSE
+// change — the alphabetic content of all 31 is identical word for word, so
+// every one is a number. They are exactly the two screens that print member
+// satisfaction, and nothing else moved anywhere:
+//     Membership          26  (every configuration, both years)
+//     Result Spreadsheet   5  (its member table)
+// Sample, GL|Membership|GL|y0: the line's average member satisfaction reads
+// 7.21 -> 8.14, and individual members 7.21 -> 7.73 and 7.20 -> 8.20.
+//
+// That the other ten screens are untouched is the evidence this change stayed
+// in its lane: satisfaction is a scoreboard that feeds nothing, and both value
+// baselines held BIT-EXACTLY across it.
+// ⚠ v26 -> v27: MEMBER-LEVEL VIEWS HIDDEN, EXPOSURE AND COMBINED RATIO SHOWN.
+// A KEY-SET CHANGE as well as a value change, which is why the count falls.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 09d1482 built in its own
+// worktree on :4174, reproducing ALL 298 FINGERPRINTS against the committed v26.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 272 keys, down from 298: the 26 Membership keys are GONE because the tab is
+// hidden (the page itself is intact — see TABS above). Of the 272 that remain,
+// 212 moved and 60 held, and EVERY ONE of the 212 is attributed:
+//
+//   ⚠ ALL 212 LOSE THE WORD "Membership", AND THAT IS THE TAB BAR. The nav strip
+//     is part of every page's captured text, so hiding one tab moves every
+//     fingerprint in the file. Six screens — Calculation Audit, Decision
+//     History, Decisions, Departments, Financial Statements, Introduction —
+//     changed by EXACTLY that one word and nothing else, which is the evidence
+//     this stayed in its lane: those are the screens the brief said to leave.
+//   Dashboard (26)          MEMBERS -> EXPOSURE, counts -> $M
+//   Pool History (26)       MEMBERSHIP/Members -> EXPOSURE/Exposure, $M
+//   Results (26)            Active Members, New Members, Members Withdrawn,
+//                           Retention and Avg. Risk Quality out; Combined Ratio
+//                           in. Member Satisfaction stays.
+//   Result Spreadsheet (10) the Active Member Roster table and its ~70 member-
+//                           id rows gone, with the members CSV button.
+//
+// 0 keys were ADDED. Nothing gained a screen; the file only lost one.
+// ⚠ v27 -> v28: THE WELCOME MEMO STATES EXPOSURE BY LINE INSTEAD OF A MEMBER
+// COUNT. The smallest diff this file has taken in a while, and that is the
+// result worth recording.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 2709cfe built in its own
+// worktree on :4174, reproducing ALL 272 FINGERPRINTS against the committed v27.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 10 of 272 moved, 0 added, 0 removed — and all ten are Introduction, which is
+// the one screen the memo is on (5 configurations x 2 years). Every other screen
+// is byte-identical, which is the evidence the change stayed inside the one
+// sentence it was meant to touch.
+//
+// The replaced sentence ("serves N of 200 eligible public entities, representing
+// approximately $X in payroll and $Y in total insured value") is absent from all
+// ten, and each shows one bullet per ACTIVE line: a GL-only game renders exactly
+// one, with no empty sentence and no "$0" row for the lines it does not write.
+//
+// ⚠ v28 -> v29: RISK CONTROL MOVED OFF THE POOL TAB AND ONTO EACH LINE.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 2eabb44 built in its own
+// worktree on :4174 reproduced ALL 272 FINGERPRINTS against the committed v28.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 26 of 272 moved, 0 added, 0 removed, and EVERY ONE OF THEM IS A DECISIONS
+// SCREEN. That is the whole claim this change makes — it is screen-only, the
+// new field is not read by the engine, and the removed tiles all defaulted to
+// off — so a single moved fingerprint anywhere else would have contradicted it.
+// None did.
+//
+// The 26 attribute word-for-word to exactly two edits, with NO row showing
+// both an addition and a removal:
+//
+//   16 LINE TABS (WC, GL, PR across all five configurations, y0 and y2) ADD
+//   ONLY, and the added words are the new card: "Investment in Risk Control
+//   Incentives", the line's own programme name, "0% of premium / None / 5% of
+//   premium", the premium-source sentence, and the "Not yet active — will feed
+//   the new rate indication" note. The programme name is per line and the
+//   fingerprints prove it: WC's 6 rows carry "Safety & Return-to-Work", GL's 6
+//   "Training and Analytics", Property's 4 "Mitigation".
+//
+//   10 POOL TABS (5 configurations x y0 and y2) REMOVE ONLY, and what leaves
+//   is the whole Loss Prevention card: "Risk Control Programs", every tile the
+//   configuration offered, "Committed this year $0/yr", the "All N available
+//   programs" total and the five-independent-programs sentence. The five
+//   distinct removal texts differ only by which tiles that configuration
+//   showed, which is the card's own gating and not five separate edits.
+//
+// ⚠ y0 AND y2 MOVED TOGETHER ON EVERY ONE, which is the right negative. A
+// difference between the two year-points would mean something time-dependent
+// had entered the card — the defect class the y0 point exists to catch. The
+// slider reads its default at both and no result feeds it.
+//
+// ⚠ v29 -> v30: THE DIVIDEND / ASSESSMENT CONTROL, AND ITS BASIS.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 0844296 built in its own
+// worktree on :4174 reproduced ALL 272 FINGERPRINTS against the committed v29.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 42 of 272 moved, 0 added, 0 removed, and they attribute word-for-word to
+// exactly THREE edits across two screens. No other screen moved.
+//
+//   16 DECISIONS LINE TABS (WC, GL, PR across all five configurations, y0 and
+//   y2): "None" -> "0%" at the slider's centre, plus the new note
+//   "Surplus: $X 0%". The Decisions POOL tab did NOT move, which is the right
+//   negative — the control is per line and the Pool tab has never carried it.
+//
+//   26 CALCULATION AUDIT rows, from two separate edits:
+//     - the printed slider range, "-25.0%, 0.5%," -> "-15.0%, 1.0%,". This is
+//       the ONLY thing that moved on the 10 Pool rows, which carry the ranges
+//       but no per-line formula.
+//     - the dividend and assessment FORMULA BASIS on the 16 line rows: the
+//       factor changes from pool premium to the opening surplus and is now
+//       labelled "(opening surplus)" — e.g. WC y0 $6,172,742 -> $15,175,300.
+//       Two occurrences per page, the assessments row and the dividends row.
+//
+// ⚠ THE DOLLAR VALUES OF `assessments` AND `dividends` DID NOT MOVE ANYWHERE,
+// and that is the evidence the basis change is inert at the default. The
+// harness plays default decisions, where both percentages are 0, so both
+// figures are $0 on either basis. What moved on the audit is the stated
+// MULTIPLICAND, not the product — which is exactly the claim: the arithmetic
+// shown is now the arithmetic performed.
+//
+// ⚠ THE TWO SCREENS DISAGREE ON THE SURPLUS AND BOTH ARE RIGHT. At WC y0 the
+// Decisions note reads $16.51M and the audit's basis reads $15,175,300. The
+// audit shows the DISPLAYED RESULT's own opening surplus; the Decisions note
+// shows the opening surplus of the year being DECIDED, which is that result's
+// endingSurplus carried forward. Checked rather than waved at, because a
+// mismatch between them would otherwise be the first thing to suspect.
+//
+// ⚠ v30 -> v31: THE CLAIMS DEPARTMENT IS HIDDEN. 272 -> 262 FINGERPRINTS, AND
+// THE KEY COUNT FALLING IS THE POINT RATHER THAN A SIDE EFFECT.
+//
+// THE CONTROL RAN FIRST AND ON A SEPARATE PORT: 896df2a built in its own
+// worktree on :4174 reproduced ALL 272 FINGERPRINTS against the committed v30.
+// Only then was this tree built on :4173 and diffed against it.
+//
+// 20 of 272 moved, and they are two halves of one edit. Nothing outside
+// Departments moved at all:
+//
+//   10 REMOVED — `Departments|doc:Claims` at y0 and y2 across all five
+//   configurations. The document is no longer reachable, so the harness has no
+//   pane to fingerprint. Confirmed to be the memo and not an empty pane: the
+//   control's dump opens "Claims Department — Open claim inventory, evaluated
+//   12/31/2027...", and the string "Large loss listing" appears in NO subject
+//   dump anywhere.
+//
+//   10 MOVED — `Departments|-` at y0 and y2 across all five configurations,
+//   which is the department LIST. One distinct word-level diff across all ten,
+//   removing "Claims Large loss listing by member and status" and adding
+//   NOTHING. A row left behind, or a blank where it stood, would show here as
+//   an addition; there is none.
+//
+// ⚠ THE OTHER FOUR DOCUMENTS DID NOT MOVE. Actuarial, Risk Control,
+// Underwriting and Investment keep their own fingerprints at both year points
+// in all five configurations, which is the evidence this took out one pane
+// rather than disturbing the reader around it.
+//
+// ⚠ v33 -> v34: THE SET OPENING. 232 of 252 fingerprints moved, and the 20 that
+// HELD are the reading. They are the Investment and Risk Control department
+// documents at both year points in all five configurations — the only two panes
+// in the capture that carry no balance-sheet figure. Every screen that shows
+// money moved; the two that do not, did not. That is what an opening-balance
+// change looks like and it is what this capture is.
+//
+// The move was taken with the control the recapture rule asks for: the parent
+// commit built in its own worktree and served on :4174 reproduced v33 at
+// 252/252 before any of this was trusted, so the harness is not what moved.
+//
+// ⚠ v34 -> v35: CASE AND IBNR COLUMNS ON THE ACTUARIAL MEMO. 10 of 252
+// fingerprints moved and ALL TEN ARE THE SAME DOCUMENT: doc:Actuarial at both
+// year points in all five configurations. Nothing else in the capture moved —
+// not the other four department documents, not a tab, not a line view. The
+// exhibit gained two columns and the engine gained six result fields that no
+// screen reads yet, which is exactly the footprint this commit intended.
+//
+// Taken with the control the recapture rule asks for: the parent commit built
+// in its own worktree and served on :4174 reproduced v34 at 252/252 first.
+//
+// ⚠ v35 -> v36: FIVE PRIOR YEARS. The opening balance sheet changes, so every
+// screen that shows money changes with it. Taken with the control the
+// recapture rule asks for — the parent built in its own worktree and served on
+// :4174 reproduced v35 first. Attribution is in the commit message.
+//
+// ⚠ v36 -> v37: THE REINSURANCE PRICE AND THE BULK-YEAR CESSION. Both move the
+// opening and the charge, so every money-bearing screen moves. Taken with the
+// control — the parent on :4174 reproduced v36 first. Attribution in the
+// commit message.
+// v38: THE NEW RATE STACK, ON. 208 OF 252 FINGERPRINTS MOVED, AND THE 44 THAT
+// DID NOT ARE THE ATTRIBUTION — every unmoved row is a screen with no priced
+// figure on it: the y0 rows of the result-only tabs (Results, Result
+// Spreadsheet, Decision History, _header, and Decisions' Pool view), where no
+// year has been played yet, plus the Departments documents that carry no
+// money — Investment and Risk Control at both year-points.
+//
+// ⚠ THE CONTROL WAS RUN FIRST AND IT IS WHAT MAKES THE DIFF READABLE. The
+// parent commit was built in its own worktree and served on 4174, and it
+// reproduced its own committed baseline 252 of 252 before this capture was
+// taken. So every one of the 208 is this build's doing and none of it is the
+// container's.
+//
+// THREE SCREENS WERE OPENED AND DIFFED RATHER THAN ASSUMED, which is what the
+// recapture rule above asks for:
+//   Introduction      opening surplus and the premium-to-surplus ratio in the
+//                     narrative line: $46.70M / 0.27 -> $43.11M / 0.48.
+//   Financial Stmts   the Year 0 statement — the last PRE-GAME year, not the
+//                     game's opening. Contributions for retained risk $7.17M
+//                     -> $14.66M with claims ($7,477,030) and total
+//                     liabilities ($31,187,305) IDENTICAL. The game's actual
+//                     opening is untouched: the header's Year 1 surplus reads
+//                     $68.10M on both sides, and the opening is set from the
+//                     reserve, which no rate change can move — measured
+//                     separately at 8 games, bit-identical on all three lines.
+//   Actuarial memo    this one was a DEFECT and was fixed before capture, not
+//                     baselined. See actuarialMemo.ts: the memo differenced a
+//                     new-stack charged figure against the old triangle's
+//                     indication and printed the basis change as a window
+//                     movement (-49.1%, "year 2 in, year -8 out").
+// v39: THE DECISIONS PANEL, AND NOTHING ELSE. 16 of 252 moved, and all 16 are
+// `*|Decisions|<line>|*` — every per-line Decisions view in all five
+// configurations, at both year-points. No other tab moved, and neither did
+// Decisions' Pool view, which hosts no rate panel.
+//
+// The control ran first: the parent built in its own worktree and served on
+// 4174 reproduced its own committed baseline 252 of 252.
+//
+// TWO CHANGES, BOTH ON THAT PANEL, AND THE SECOND IS WHY THE FIRST IS WORTH
+// ANYTHING. The "vs last year" cells now carry the CHANGE as a percentage with
+// last year's rate beneath them in smaller text, and the panel prices off the
+// live ledger instead of last year's stored pure premium. Measured on
+// WC|Decisions|WC|y2, before -> after:
+//
+//     pure premium   $4.52 / $3.36   ->   $4.33 / $3.17
+//     = Rate         $5.38 / $5.48   ->   $5.18 / $5.28
+//     vs last year   +0.0% / +0.1%   ->   -3.7% from $5.3795 / -3.5% from $5.4732
+//
+// That "+0.1%" is the defect in one reading: the panel was comparing an
+// indication built from last year's pure premium against last year's own
+// indication, built from the same figure, so the change column could not move.
+// v40: THE GL POOL LIMIT AND THE PRE-GAME FUNDING LEVEL. 212 of 252 moved.
+// The control ran first: the parent, built in its own worktree and served on
+// 4174, reproduced its own committed baseline 252 of 252.
+//
+// THE 40 THAT DID NOT MOVE ARE THE ATTRIBUTION, and they are the same 40 kinds
+// as at v38: the Departments documents that carry no money (Investment and
+// Risk Control at both year-points, Actuarial at y0) and the y0 rows of the
+// result-only tabs, where no year has been played.
+//
+// TWO SCREENS WERE OPENED AND DIFFED RATHER THAN ASSUMED:
+//   PR|Decisions|PR|y2   $20.93M -> $20.91M, and NOTHING ELSE. Property has no
+//                        pool limit, so the only thing reaching it is the
+//                        pre-game's premium-based opening cash split — a 0.1%
+//                        move. That one screen is the clearest evidence the GL
+//                        limit stayed on GL.
+//   GL|Financial Stmts   surplus $140.68M -> $116.23M. GL's premium falls with
+//                        its rate while most years' actual losses are
+//                        unchanged — only about 9% of GL line-years have a
+//                        claim above $25M — so a quiet year now earns less.
+//                        That is the pool no longer charging for a tail it
+//                        never covered, which is the point of the change.
+// v41: THE HOST'S DEVELOPMENT %, THE SIGN CONVENTION, AND THE MEMO'S TWO
+// RESTORED COLUMNS. 130 of 252 moved. The control ran first: the parent, built
+// in its own worktree and served on 4174, reproduced its own committed
+// baseline 252 of 252.
+//
+// THE SPLIT IS LEGIBLE IN THE UNMOVED SET: 13 of each main tab did not move,
+// and they are the y0 rows — no year has been played, so nothing has
+// developed. Financial Statements is the exception at 4 unmoved, because its
+// y0 shows the pre-game Year 0 statement and that carries the one line the
+// sign convention touches.
+//
+// TWO SCREENS WERE OPENED AND DIFFED RATHER THAN ASSUMED:
+//   WC|Financial Stmts|y0   the ONLY change is "-$0" becoming "$0" on Prior
+//                           year claims. A screen with no played year has no
+//                           development, so what is left is the convention's
+//                           own zero handling — which is the cleanest possible
+//                           evidence that the engine did nothing there.
+//   PR|Results|PR|y2        surplus $20.91M -> $21.76M. Property's default is
+//                           2% FAVOURABLE, so its development adds to surplus;
+//                           the direction is the parameter's sign.
+//
+// v42: LOSS ENGINE COMMIT 3a — THE NEW ENGINE, PERMANENT, ONE BOOK PER LINE.
+// 242 of 252 moved. The control ran first: the parent (b234c36), built in its
+// own worktree and served on 4174, reproduced v41 252 of 252. Every moved row
+// was then diffed as TEXT (RENDER_TEXT_DIR on both sides), not assumed:
+//
+//   UNMOVED (10)   the Investment memo, every configuration and year — it
+//                  reads no loss, premium or member figure.
+//   ABSENT (10)    Departments|doc:Risk Control — the memo is hidden with
+//                  RISK_CONTROL off, as briefed.
+//   NUMBERS ONLY   _header, Introduction, Decision History, and most of
+//                  Results and Result Spreadsheet: every changed token is a
+//                  number — losses, reserves, rates and surplus on the new engine.
+//   Dashboard (26)      the MEMBER SATISFACTION card is gone and the exposure
+//                       sub-label reads "of $XM in the market" for "members";
+//                       the capital words (Strong / Adequate / Deficient /
+//                       Thin) move with the numbers.
+//   Decisions (16 text) the membership intake and renewal text is the book's
+//                       renewal and intake controls, and the risk control
+//                       slider reads "coming soon".
+//   Departments          "Risk Control Programs available for management
+//                       consideration" is hidden; the Actuarial memo's numbers move.
+//   Financial Stmts (26) "Less: reinsurance recoveries — current year" is not
+//                       printed in a year that recovers nothing — the row has
+//                       always been conditional on a non-zero recovery.
+//   Calculation Audit    the per-occurrence cession rows follow the recovery;
+//                       loss prevention reads "risk control is coming soon";
+//                       and a Shock Events card appears where the catalogue
+//                       fired an event (Economic Recession at y2 on this seed).
+//   Pool History (26)    the trend arrows (Up / Down) and capital words move.
+//   Results / Result Spreadsheet  the Member Satisfaction row and the two risk
+//                       control rows are hidden; the narrative names the year's
+//                       own events.
+//
+// ⚠ TWO DEFECTS THE DIFF FOUND, BOTH FIXED BEFORE THIS CAPTURE. (1) The
+// Actuarial memo had LOST its "Indicated pure premium" section: two exposure
+// reconstructions (experienceRating.ts and pricingTriangle.ts) still read the
+// roster and returned 0 for a book. They now read the row's own exposure, as
+// newPurePremium.ts does; no value moved. (2) The Shock Events card described
+// a new-engine event in the old engine's terms — "0 injected claims", and an
+// "expected added" row explaining multiplied Poisson draws. It now states the
+// new attribution.
+//
+// v43: THE RESULTS NARRATIVE NAMES AN EVENT THAT COST MONEY WITHOUT A CLAIM.
+// 14 of 242 moved. The control ran first: 3a (f376877), built in its own
+// worktree and served on 4174, reproduced v42 242 of 242. Every moved row was
+// diffed as text on both sides:
+//
+//   Result Spreadsheet (4: GL, WC, WC+GL, WC+GL+PR)  only the "Events This
+//                       Year" row: "None" becomes e.g. "Economic Recession:
+//                       +$957,692 losses", and a Social Inflation year names it.
+//   Results, y2 (10)    the events card gains the uplift-only event — "Economic
+//                       Recession, in force since year 1 — Workers'
+//                       Compensation: $957,692 added to losses" — and the "What
+//                       Happened This Year" narrative opens with its sentence.
+//                       Nothing else on those screens moved.
+//
+// The new engine's A raises the year's ordinary losses by exact attributed
+// dollars and brings no claim; the narrative filtered on claims and so never
+// named Recession, Legislation, Economic Inflation or Social Inflation.
+//
+// v44: LOSS ENGINE COMMIT 4a — ONE REINSURANCE PACKAGE PER LINE. 127 of 242
+// moved. The control ran first: 3b (88d1e6e), built in its own worktree and
+// served on 4174, reproduced v43 242 of 242. Every moved row was diffed as
+// text on both sides; three causes, nothing else:
+//   - THE DECISIONS PAGE (20 rows): the per-band tower controls and the
+//     aggregate stop-loss panel are replaced by one package choice per line,
+//     each priced (premium and expected recovery), the note that aggregate
+//     cover is not offered and may return, Property's earthquake retention,
+//     and Package / Reinsurance Cost / Retained Above Package rows.
+//   - THE PACKAGE NAMED WHERE THE PLACEMENT WAS: Decision History's "+ $5M xs
+//     $5M + $15M xs $10M" style list and the Result Spreadsheet's placement
+//     column become the package id.
+//   - THE VALUES of the default package (v64 of the value baseline): Property
+//     buys $20M xs $5M instead of a tower to $1B, so its reinsurance cost
+//     falls and its surplus rises ($27.08M -> $39.79M by year 3); GL and WC
+//     stop buying their top bands. Surplus, ratios, the header, the capital
+//     labels (Strong / Adequate / Thin / Deficient), the prior board's
+//     history and the narrative's "paid" / "did not pay" follow.
+//
+// v45: LOSS ENGINE COMMIT 4b — TEN WORLDS. 116 of 242 moved, EVERY ONE A
+// YEAR-3 SCREEN: no opening (y0) screen moved, which is the pre-game running
+// once and the opening being shared. The control ran first: 4a (d113666),
+// built in its own worktree and served on 4174, reproduced v44 242 of 242.
+// Every moved row was diffed as text on both sides. Causes, nothing else:
+//   - THE VALUES are the average across ten worlds — surplus, ratios (from
+//     averaged parts), the header, the capital labels, the narrative.
+//   - THE SPREAD: Results and Decisions show "Ending surplus across 10
+//     worlds: min · median · max" beside the average.
+//   - THE EVENTS: every world's events, each with "in k of 10 worlds — averaged
+//     over all 10" and averaged claim counts.
+//   - THE CALCULATION AUDIT states a multi-world year's per-world rules as
+//     what they are: the cash as the average of the worlds' own sweeps, the
+//     dividend and assessment bases averaged over the worlds' own surpluses,
+//     the admin rate at the book the rate was struck on. A loan year's
+//     rollforwards include the inter-line transfer, and the investment check
+//     applies the year's Investment Loss — both were pre-existing gaps in loan
+//     and Investment Loss years, which ten worlds make common.
+//   - THE CLAIMS DOWNLOAD reads "world 1 of 10", and a loan year's tie-out on
+//     Results reads as tied after the transfer.
+//   - THE LOAN PROMPT: a line short in any world raises it; this tool now
+//     confirms it at its default (authorize), so the y2 screens include loan
+//     years the one-world game never reached.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v45.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -332,10 +869,17 @@ const CONFIGS: Cfg[] = [
 const LINE_LABEL: Record<string, string> = {
   WC: "Workers' Compensation", GL: 'General Liability', PR: 'Property',
 };
-// The 11 game tabs. 'Game Setup' is excluded: it is the page you leave to start.
+// The 10 game tabs. 'Game Setup' is excluded: it is the page you leave to start.
+//
+// ⚠ 'Membership' CAME OFF THIS LIST BECAUSE THE TAB IS HIDDEN, not because the
+// page was deleted. MembershipPage and its route are intact in GameShell, one
+// commented line from returning; the multiplayer game shows the pool in
+// aggregate, so the tab is not rendered and this harness cannot click it. The
+// baseline loses that tab's keys with it — that is a KEY-SET change, which is
+// exactly the kind this file's header says to expect and to attribute.
 const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-  'Calculation Audit', 'Membership'];
+  'Calculation Audit'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
 // OF THIS FILE LISTED IT. That was a real mistake and it is recorded because it
 // is instructive: the list was App.tsx's LINE_VIEW_PAGES as of 750ce12, which
@@ -408,8 +952,16 @@ async function settle(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
 }
 
+// ⚠ THE SOLO GAME IS AT /solo NOW, NOT AT THE ROOT. The root became the lobby
+// when it landed; this harness fingerprints the SOLO game and nothing else, so
+// it follows the game rather than the URL. The move was proved inert here: run
+// against /solo on the subject and against / on its parent, all 262
+// fingerprints are identical, which is what says a route changed and the game
+// did not.
+const SOLO_URL = `${BASE_URL.replace(/\/+$/, '')}/solo`;
+
 async function startGame(page: Page, cfg: Cfg): Promise<void> {
-  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+  await page.goto(SOLO_URL, { waitUntil: 'domcontentloaded' });
   // A previous config's save would restore instead of showing setup.
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -567,6 +1119,12 @@ async function run(): Promise<Record<string, string>> {
     for (let i = 0; i < 2; i++) {
       await page.getByRole('button', { name: /^Lock Year \d+$/ }).click();
       await settle(page);
+      // ⚠ TEN WORLDS (loss engine commit 4b): a line short in ANY world raises
+      // the loan prompt, so a year can stop at it. Confirmed at the prompt's own
+      // default — every offered loan authorized — which is what a player who
+      // clicks through it gets.
+      const prompt = page.getByRole('button', { name: 'Confirm & Continue' });
+      if (await prompt.count() > 0) { await prompt.click(); await settle(page); }
     }
     await capture(page, cfg, 'y2', out);
   }

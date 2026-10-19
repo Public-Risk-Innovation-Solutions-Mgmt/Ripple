@@ -35,13 +35,16 @@
 // matters here is that it is the SAME book, claim for claim.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { packSave, unpackSave } from '../../src/utils/gameSave';
 import { isClaimClosed, claimPaidSplit } from '../../src/utils/claimClosure';
-import { resolveClosureCurve } from '../../src/data/defaultAssumptions';
+import { resolveClosureCurve, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
 import { regenerateLineYearClaims } from '../../src/utils/claimRegeneration';
 import {
   buildClaimsMemo, claimListing, evaluationDate, programYear, CLAIMS_ROWS_PER_LINE,
@@ -419,10 +422,38 @@ console.log('\n  POSITIVE CONTROLS (each MUST be caught):');
         if (Math.abs(got - want) / want > 1e-9) wouldFail++;
       }
     }
-    ok(wouldFail > 0 && checked > 0,
-      `control F — the stale DRAWN column would fail the Incurred identity (${wouldFail} of ${checked} cohorts)`,
-      'the drawn values already sum to the current ultimate, so the identity cannot tell the two '
-      + 'vintages apart and the fix is unverified');
+    // ⚠ CONTROLS F AND G ARE INERT UNDER FULL-COST BOOKING, AND THEY SAY SO
+    // RATHER THAN BEING DELETED OR QUIETLY PASSING.
+    //
+    // Both work by using the STALE DRAWN column as a wrong-vintage control:
+    // the memo once showed the drawn value where the carried one belonged, and
+    // these prove the fixed assertions can still catch that. The proof needs
+    // the two vintages to DIFFER. Booked now equals drawn at every valuation,
+    // so the stale column and the current one are the same number and no
+    // control built on their difference can discriminate.
+    //
+    // ⚠ NAMED GAP: the Incurred identity and the Paid <= Incurred assertion are
+    // still asserted above and still green — what is lost is the evidence that
+    // they COULD fail. That returns the moment development does.
+    // ⚠ CONTROL F IS LIVE AGAIN, AND ITS OWN NOTE SAID IT WOULD BE: "That
+    // returns the moment development does." The host's development % develops
+    // every accident year over its lifetime, so the carried ultimate moves
+    // away from the drawn value and the stale-column control can discriminate
+    // once more. What was asserted while it was inert — that the two columns
+    // are the SAME number — is now false by design, so the assertion is the
+    // original one again: the memo must not print the drawn value where the
+    // carried value belongs.
+    if (FULL_COST_BOOKING.enabled) {
+      ok(checked > 0 && wouldFail > 0,
+        `control F: drawn and carried differ on ${wouldFail} of ${checked} cohorts, so the stale-column control discriminates`,
+        `${wouldFail} of ${checked} cohorts differ between the drawn and carried columns — under full-cost `
+        + 'booking they must be the same number, so a difference means something is still contracting the booking');
+    } else {
+      ok(wouldFail > 0 && checked > 0,
+        `control F — the stale DRAWN column would fail the Incurred identity (${wouldFail} of ${checked} cohorts)`,
+        'the drawn values already sum to the current ultimate, so the identity cannot tell the two '
+        + 'vintages apart and the fix is unverified');
+    }
   }
 
   // G: AND Paid <= Incurred MUST BE ABLE TO FAIL. Against the OLD column — the
@@ -431,10 +462,24 @@ console.log('\n  POSITIVE CONTROLS (each MUST be caught):');
     const rows = claimListing({ gameState: live }).rows;
     const crossedOld = rows.filter(r =>
       r.paid !== undefined && r.paid > r.claim.grossUltimate * (1 + 1e-9));
-    ok(crossedOld.length > 0,
-      `control G — against the stale DRAWN column, ${crossedOld.length} row(s) do cross`,
-      'no row crosses even on the drawn column, so the Paid <= Incurred assertion is vacuous here '
-      + 'and this book does not exercise the defect the fix was for');
+    if (FULL_COST_BOOKING.enabled) {
+      // The same inertness as control F — see its note. Paid can no longer
+      // exceed the drawn value because the drawn value IS the carried one and
+      // payment is a share of it, so there is nothing for the control to find.
+      // ⚠ AND SO IS CONTROL G, for the same reason. Paid is a share of the
+      // CARRIED ultimate; with development the carried value exceeds the drawn
+      // one on an adverse year, so rows do cross the drawn column again and
+      // the control has something to find.
+      ok(crossedOld.length > 0,
+        `control G: ${crossedOld.length} row(s) pay more than their drawn value, so the drawn column is distinguishable from the carried one`,
+        `${crossedOld.length} row(s) pay more than their drawn value — under full-cost booking paid is a `
+        + 'share of the carried ultimate and the carried ultimate is the drawn one, so nothing may cross');
+    } else {
+      ok(crossedOld.length > 0,
+        `control G — against the stale DRAWN column, ${crossedOld.length} row(s) do cross`,
+        'no row crosses even on the drawn column, so the Paid <= Incurred assertion is vacuous here '
+        + 'and this book does not exercise the defect the fix was for');
+    }
   }
 
   // E: the description column APPEARS when a claim has one — the other half of

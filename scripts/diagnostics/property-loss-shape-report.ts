@@ -3,6 +3,9 @@
 // below the $5M per-risk retention. Originally written to size the Property
 // Mitigation program; kept as a standing report since PROPERTY_LOSS_MODEL and
 // the roster both keep changing under it.
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { writeFileSync } from 'fs';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { generatePropertyClaims, expectedPropertyGrossLoss } from '../../src/utils/propertyClaimEngine';

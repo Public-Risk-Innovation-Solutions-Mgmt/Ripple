@@ -46,9 +46,17 @@ const roomRecord = (page, code) => page.evaluate(c =>
 
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', 'MAMC6EA4');
+  // ⚠ THE EVENT NAME IS REQUIRED NOW — a driver that types none gets a
+  // dead Create button. It used to default to 'Ripple Game'.
+  await host.fill('[data-testid="event-name"]', 'Driver Session');
+  await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
+  // ⚠ THE ROOM PLAYS WC + GL, SET BY THE HOST. Team 3 used to add GL for
+  // itself while the others played WC only — teams in one room cannot hold
+  // different books any more, so the room declares the set and all three teams
+  // play it. Property is unticked; WC and GL stay.
+  await host.uncheck('[data-testid="line-Property"]');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -59,11 +67,9 @@ const roomRecord = (page, code) => page.evaluate(c =>
     await players[i].waitForSelector('[data-testid="team-picker"]');
     // Teams name themselves and pick their own lines now.
     await players[i].fill('[data-testid="team-name"]', TEAMS[i]);
-    await players[i].click('[data-testid="pick-line-WC"]');
     // ⚠ TEAM 3 PLAYS A DIFFERENT BOOK. Teams in one room now choose their own
     // lines, so the run has to contain at least two different ones or it is not
     // exercising the change at all.
-    if (i === 2) await players[i].click('[data-testid="pick-line-GL"]');
     await players[i].click('[data-testid="join-team"]');
     // The pre-game now runs before the shell appears.
     await players[i].waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
@@ -85,14 +91,18 @@ const roomRecord = (page, code) => page.evaluate(c =>
     await players[0].waitForTimeout(400);
     const t1 = await linesOf(players[0]);
     const t3 = await linesOf(players[2]);
-    ok(t1.length === 1 && t1[0].includes('Workers'), `team 1 writes WC only (${t1.join(', ')})`);
+    ok(t1.length === 2, `team 1 writes the room's two lines (${t1.join(', ')})`);
     ok(t3.length === 2, `team 3 writes two lines (${t3.join(', ')})`);
 
     // And the host is reading a table of different games.
     const l1 = (await host.textContent(`[data-testid="lines-${TEAMS[0]}"]`)).trim();
     const l3 = (await host.textContent(`[data-testid="lines-${TEAMS[2]}"]`)).trim();
-    ok(l1 === 'WC', `host table shows team 1's lines (${l1})`);
-    ok(l3 === 'WC + GL', `host table shows team 3's lines (${l3})`);
+    // ⚠ EVERY TEAM SHOWS THE SAME LINES NOW, and that IS the assertion. These
+    // read 'WC' and 'WC + GL' when each team chose for itself; the host sets one
+    // set and all three take it.
+    ok(l1 === 'WC + GL', `host table shows the room's lines for team 1 (${l1})`);
+    ok(l3 === 'WC + GL', `host table shows the room's lines for team 3 (${l3})`);
+    ok(l1 === l3, 'every team in the room plays the same lines');
 
     // ⚠ SAME WC CLAIMS DESPITE DIFFERENT BOOKS is the premise this rests on, and
     // it is checked after the first processed year below.
@@ -103,12 +113,14 @@ const roomRecord = (page, code) => page.evaluate(c =>
     const p = players[0];
     const tabs = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
                   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-                  'Calculation Audit', 'Membership'];
+                  // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows
+                // the pool in aggregate. The PAGE is intact in GameShell.
+                'Calculation Audit'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);
     }
-    ok(present.length === tabs.length, `all 11 solo tabs present (${present.length}/11)`);
+    ok(present.length === tabs.length, `all 10 solo tabs present (${present.length}/10)`);
 
     const setup = await p.getByRole('button', { name: 'Game Setup', exact: true }).count();
     ok(setup === 0, 'Game Setup tab is absent — the room owns the seed');
@@ -123,9 +135,30 @@ const roomRecord = (page, code) => page.evaluate(c =>
     if (await wc.count() > 0) { await wc.click(); await p.waitForTimeout(400); }
     const main = await p.locator('main').innerText();
     ok(main.includes('Funding Confidence Level'), 'the real DecisionsPage renders (Funding Confidence Level)');
-    ok(main.includes('CLF Multiplier'), 'the funding-consequence panel is live (CLF Multiplier)');
-    ok(main.includes('Total Member Charge Rate'), 'the pricing consequence rows render');
-    ok(/Renewal Underwriting|New Business Appetite/.test(main), 'renewal / appetite controls render');
+    // ⚠ FORKED ON WHICH PANEL THE BUILD RENDERS, NOT LOOSENED. Under
+    // NEW_RATE_STACK the two-column rate panel REPLACES the funding-consequence
+    // panel, and "CLF Multiplier" and "Total Member Charge Rate" are retired
+    // readouts — new-rate-panel.cjs asserts by name that they are gone. Left as
+    // they were, these two would demand the old panel from a build that is
+    // right not to render it. The flag is read from the BUILD, by asking which
+    // panel is on the page, rather than from the source: this driver runs
+    // against a served bundle and the source is not what it is testing.
+    const newPanel = await p.$('[data-testid="new-rate-panel"]');
+    if (newPanel) {
+      ok(main.includes('Expected to surplus'), 'the new two-column rate panel is live (Expected to surplus)');
+      ok(main.includes('Indicated') && main.includes('Your rate'),
+         'the new panel\'s two columns render (Indicated / Your rate)');
+    } else {
+      ok(main.includes('CLF Multiplier'), 'the funding-consequence panel is live (CLF Multiplier)');
+      ok(main.includes('Total Member Charge Rate'), 'the pricing consequence rows render');
+    }
+    // ⚠ THE CONTROLS WERE RENAMED, NOT REMOVED. The UW merge replaced the
+    // "Renewal Underwriting" bar and the "New Business Appetite" tiers with two
+    // sliders labelled Renewal and Intake; both old phrases now survive only in
+    // code comments, so this assertion had been failing for a legitimate reason.
+    // It checks BOTH sliders rather than either, which is stricter than the
+    // or-test it replaces.
+    ok(/Renewal/.test(main) && /Intake/.test(main), 'the renewal and intake sliders render');
   }
 
   for (let year = 1; year <= YEARS; year++) {

@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import App from '../App';
 import { onRouteChange, parseRoute, type Route } from './client/navigation';
 import HostScreen from './screens/HostScreen';
+import LobbyScreen from './screens/LobbyScreen';
 import PlayScreen from './screens/PlayScreen';
 
 function useRoute(): Route {
@@ -36,6 +37,11 @@ export default function SessionRouter() {
       return <PlayScreen code={route.code} role="player" />;
     case 'view':
       return <PlayScreen code={route.code} role="viewer" />;
+    // ⚠ THE LOBBY IS THE ROOT AND THE SOLO GAME IS /solo. App is rendered
+    // unchanged by both: the session layer stays additive, and nothing above it
+    // was rewritten to make room for the lobby.
+    case 'lobby':
+      return <LobbyScreen />;
     case 'solo':
       return <App />;
   }

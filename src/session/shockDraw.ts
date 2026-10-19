@@ -20,23 +20,43 @@
 // other.
 // ============================================================================
 
-import type { ShockBand, ShockDefinition } from '../types/shocks';
-import { IMPLEMENTED_EFFECTS } from '../types/shocks';
-import { SHOCK_CATALOG } from '../data/shockCatalog';
+import { SHOCK_EVENTS, SHOCK_EVENT_LABELS } from '../utils/shockLosses';
 import { deriveSubRng } from '../utils/random';
 import { seedFromInstanceId } from '../seedHash';
 import type { ScheduledShockSpec } from './contract';
 
-// ⚠ WEIGHTED TOWARD THE MILDER BANDS, so a severe event is the rarer draw — the
-// same ordering the matrix's severity grades express. 3 : 2 : 1.
-export const SHOCK_DRAW_WEIGHT: Record<ShockBand, number> = { moderate: 3, high: 2, severe: 1 };
+/** One event a host can schedule, as the host's screens name it. */
+export interface DrawableShock {
+  id: string;
+  name: string;
+  eventName: string;
+  /** The R model's annual probability — the draw's weight. */
+  probability: number;
+}
 
-// Every event that can actually run, in a FIXED order (by id) so the draw does
-// not depend on how the catalog object happens to be ordered.
-export function drawableShocks(): ShockDefinition[] {
-  return Object.values(SHOCK_CATALOG)
-    .filter(def => def.effects.every(e => IMPLEMENTED_EFFECTS.has(e.kind)))
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+// ⚠ ALL TWELVE, AND WEIGHTED BY THE CATALOGUE'S OWN PROBABILITY. Loss engine
+// commit 3b retired the old catalogue, which only "built" six of the twelve and
+// weighted them by a severity band. Every one of the R model's events now runs,
+// so every one can be drawn, and a frequent event (Economic Inflation, 10% a
+// year) comes up more often than a rare one (Earthquake, 0.2%) — the same odds
+// a singleplayer game fires them at. Fixed order, by id, so the draw does not
+// depend on how anything happens to be ordered.
+export function drawableShocks(): DrawableShock[] {
+  return SHOCK_EVENTS
+    .map(e => ({
+      id: e.id,
+      name: SHOCK_EVENT_LABELS[e.id]?.name ?? e.name,
+      eventName: SHOCK_EVENT_LABELS[e.id]?.eventName ?? e.name,
+      probability: e.probability,
+    }))
+    // Numeric by id, not lexicographic: '#10' sorts after '#9', not after '#1'.
+    .sort((a, b) => idNumber(a.id) - idNumber(b.id));
+}
+
+/** '#10' -> 10. Non-numeric ids sort last, stably, rather than throwing. */
+function idNumber(id: string): number {
+  const n = Number(id.replace('#', ''));
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
 }
 
 // ONE EVENT PER THREE YEARS, rounded, and never none: 3 years -> 1, 5 -> 2,
@@ -65,16 +85,12 @@ export function drawShockSchedule(roomSeed: string, yearCount: number): Schedule
   }
   const chosenYears = years.slice(0, count).sort((a, b) => a - b);
 
-  // EVENTS: weighted by band, WITHOUT replacement — no event twice in one
-  // schedule. A repeat of the same named event inside a short game reads as a
-  // bug to a room, and with seventeen drawable events and at most seven draws
-  // (a 20-year game) there is always a fresh one to take.
-  //
-  // THE MIX, at seventeen: 4 moderate, 10 high, 3 severe, weights 12 : 20 : 3 of
-  // 35 — a first draw is moderate 34%, high 57%, severe 9% (it was 32 / 63 / 5
-  // at nine). Each moderate event 8.6%, each high 5.7%, each severe 2.9%.
-  const pool = events.map(def => ({ def, w: SHOCK_DRAW_WEIGHT[def.band] }));
-  const chosen: ShockDefinition[] = [];
+  // EVENTS: weighted by probability, WITHOUT replacement — no event twice in
+  // one schedule. A repeat of the same named event inside a short game reads as
+  // a bug to a room, and with twelve events and at most seven draws (a 20-year
+  // game) there is always a fresh one to take.
+  const pool = events.map(def => ({ def, w: def.probability }));
+  const chosen: DrawableShock[] = [];
   for (let i = 0; i < count; i++) {
     const total = pool.reduce((s, p) => s + p.w, 0);
     let u = rng.next() * total;

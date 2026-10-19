@@ -6,10 +6,19 @@ TEMPLATE. Regenerated per game seed. Shown in the Introduction tab, dated Year 1
 Per-seed fields:
   poolName               player-selected at setup, free text
   startingYear           the calendar year the first decision applies to
-  enrolledMemberCount    subset of the fixed 200-member roster
-  totalMemberCount       always 200 (roster v3)
-  enrolledPayroll        sum of payroll for enrolled members only
-  enrolledTIV            sum of TIV for enrolled members only
+  EXPOSURE_BY_LINE       ONE TOKEN, FILLED IN CODE, one bullet per line the game
+                         actually uses — the Pool's exposure against the whole
+                         marketplace's, per line. Built the way the investment
+                         memo builds its asset-class table, so a line the game
+                         does not use is simply ABSENT: no empty sentence, no
+                         "$0" row. WC and GL read payroll, Property reads insured
+                         value. It reads the engine's own activeExposure and
+                         totalMarketExposure off each line's opening row rather
+                         than restating either.
+                         (It replaced enrolledMemberCount / totalMemberCount /
+                         enrolledPayroll / enrolledTIV, which stated the pool's
+                         size as a member count. The game shows the pool in
+                         aggregate now.)
   latestEndingSurplus    most recent year-end surplus only
   premiumToSurplusRatio  most recent year, headline only
   selectedCoverageLines  formatted list of active lines, e.g. "Workers' Compensation,
@@ -31,9 +40,11 @@ You are assuming responsibility for the Pool as it enters the {{startingYear}} p
 years ahead, you will oversee the Pool's financial and operating strategy and make decisions that will
 affect its members, its financial position, and its ability to meet its obligations over the long term.
 
-{{poolName}} currently serves {{enrolledMemberCount}} of {{totalMemberCount}} eligible public entities,
-representing approximately {{enrolledPayroll}} in payroll and {{enrolledTIV}} in total insured value. The
-Pool closed the most recent year with approximately {{latestEndingSurplus}} in surplus and a
+{{poolName}} currently writes the following exposure, against the whole marketplace's:
+
+{{EXPOSURE_BY_LINE}}
+
+The Pool closed the most recent year with approximately {{latestEndingSurplus}} in surplus and a
 premium-to-surplus ratio of {{premiumToSurplusRatio}}. Additional information regarding the Pool's
 membership, recent financial results, claims experience, and coverage lines is included in the reports
 provided to you.

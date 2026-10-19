@@ -1,5 +1,5 @@
 // ============================================================================
-// A THROWAWAY STUB SERVER FOR THE FIVE ENDPOINTS. NOT A DEPLOYMENT.
+// A THROWAWAY STUB SERVER FOR THE SEVEN ENDPOINTS. NOT A DEPLOYMENT.
 //
 // ⚠ THIS IS NOT THE SERVER. The real one is Lambda behind API Gateway with
 // DynamoDB underneath, and nothing in this file survives that: no handler
@@ -82,14 +82,19 @@ const STATUS: Record<SessionErrorCode, number> = {
   WRONG_YEAR: 409,
   GAME_COMPLETE: 409,
   INVALID_REQUEST: 400,
-  LINES_LOCKED: 409,
+  // A late team is a state refusal, not an authorisation one — same shape as
+  // WRONG_YEAR. See the handler's own map.
+  EVENT_IN_PROGRESS: 409,
+  // LINES_LOCKED is gone from the contract — no server can emit it.
   TRANSPORT_FAILURE: 500,
 };
 
 // ---------------------------------------------------------------- routing
 
-type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read';
-const ENDPOINTS: Endpoint[] = ['createRoom', 'join', 'submit', 'advance', 'read'];
+type Endpoint = 'createRoom' | 'join' | 'submit' | 'advance' | 'read' | 'listEvents' | 'setEventHidden';
+const ENDPOINTS: Endpoint[] = [
+  'createRoom', 'join', 'submit', 'advance', 'read', 'listEvents', 'setEventHidden',
+];
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);

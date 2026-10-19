@@ -3,25 +3,33 @@ import { DollarSign, TrendingUp, BarChart2, Shield, RotateCcw, Info } from 'luci
 import type { DecisionSet, LineDecisionSet, CoverageLine, LineView, LineResultSet, Member, MemberLossHistory, MembershipHistory } from '../types/simulation';
 import SliderInput from '../components/SliderInput';
 import AllocationBar from '../components/AllocationBar';
-import RiskControlCategoryBoxes from '../components/RiskControlCategoryBoxes';
+// ⚠ RiskControlCategoryBoxes IS NO LONGER IMPORTED. The Risk Control Programs
+// card it rendered is gone from the Pool tab — see the note where it stood.
 import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumptions';
 import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
-import { hasTractableCeded } from '../utils/reinsuranceDisplay';
-import { AGG_ATTACHMENT_LEVELS, AGG_LIMIT_MULTIPLE, PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, RISK_LOAD_LAMBDA, TOWER_TOP } from '../data/reinsuranceTower';
-import { normalizeAggregateStopLevel, normalizeLayersPlaced, quoteAggregate } from '../utils/reinsuranceTower';
-import { allLayerRiskMoments } from '../utils/towerMoments';
+import { dividendAssessmentBasis } from '../utils/dividendAssessment';
+import { hasTractableCeded, placementSummary } from '../utils/reinsuranceDisplay';
+import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
+import WorldsSurplusRange from '../components/WorldsSurplusRange';
+import type { SurplusRange } from '../utils/worlds';
+import { occurrenceProgramCost } from '../utils/reinsuranceTower';
+import { placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
+import type { Book } from '../utils/lineHelpers';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import type { FundingConsequence } from '../utils/fundingConsequence';
-import { RENEWAL_THRESHOLDS, renewalDeclines } from '../utils/renewalUnderwriting';
+import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import {
-  NEW_BUSINESS_APPETITE_TIERS, NO_NEW_BUSINESS, appetiteEligible,
-} from '../utils/newBusinessAppetite';
-import { APPLICATION_RATE, MAX_NEW_MEMBER_SHARE } from '../data/defaultAssumptions';
+  INTAKE_LOW, INTAKE_NONE, INTAKE_POSITIONS, intakeCap, intakeForecast, intakeLabel, intakePassProbability,
+} from '../utils/intakeInspection';
+import { APPLICATION_RATE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
+import { applicantInclusion } from '../utils/membershipEngine';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
+import { intakeShare } from '../utils/bookUnderwriting';
 
 export interface LineLoanInfo {
   balance: number;
@@ -32,20 +40,18 @@ interface DecisionsPageProps {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
   yearNumber: number;
-  estimatedExpectedLoss: number;
-  /** The agreed aggregate terms in dollars for the line being edited, or
-   *  undefined on the held path. See TowerControls' own field. */
-  estimatedAggregateTermsRetained?: number;
   disabled?: boolean;
+  /** Last played year's ending surplus across the worlds, at this view's scope (loss engine commit 4b). */
+  lastSurplusRange?: SurplusRange;
   // 'pool' hosts the two pool-wide decisions (investment allocation, risk
   // control); each coverage line's tab edits that line's own decisions.
   lineView: LineView;
-  /** The lines the pool writes — gates the risk-control tiles. */
-  activeLines: readonly CoverageLine[];
-  /** Committed risk-control programs of every PLAYED year, oldest first.
-   *  DERIVED by the shell from lockedResults — see riskControlPrograms.ts on
-   *  why no counter is stored. */
-  priorProgramIds?: readonly (readonly string[] | undefined)[];
+  // ⚠ activeLines AND priorProgramIds ARE BOTH GONE FROM THIS SCREEN. They fed
+  // the Risk Control Programs tiles and nothing else here: activeLines gated
+  // which tiles were offered, priorProgramIds gave each its tenure. With the
+  // card removed they had no remaining reader, and a prop kept "in case" would
+  // be a reader the next person has to disprove. GameShell still derives
+  // priorProgramIds nowhere — its one call site went with them.
   lineLoanInfo: Record<CoverageLine, LineLoanInfo>;
   // Last computed result for the line being edited — informational only
   // (excessCapitalRatio / capitalAdequacyStatus for the consequence panel).
@@ -63,10 +69,9 @@ interface DecisionsPageProps {
   // simulateMemberMovement does, rather than estimating it.
   allMarketMembers: Member[];
   membershipHistory: MembershipHistory;
-  // The line's ACTIVE enrolled members. The reinsurance tower prices off the
-  // book itself now, not off a frozen per-$100 rate card times exposure — both
-  // E[ceded] and SD[ceded] depend on who is actually enrolled and on the year.
-  activeMembers: Member[];
+  // What the line's reinsurance is priced on: its one book, or with
+  // MEMBER_LEVEL on its roster — derivations.ts builds it as the engine does.
+  book: Book;
 }
 
 // 0.30-0.45 ADDED alongside the funding-confidence range's extension down from
@@ -105,12 +110,11 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine): Decisi
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, estimatedExpectedLoss, estimatedAggregateTermsRetained, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, activeLines, priorProgramIds, activeMembers, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
-  // Pool tab: the two pool-wide decisions. One allocation policy and one
-  // risk-control intensity for the whole pool — each line applies them to its
-  // OWN base (own segregated portfolio / own premium).
+export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lastSurplusRange, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
+  // Pool tab: ONE pool-wide decision now — the investment allocation. The
+  // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
-    return <PoolDecisionsView decisions={decisions} onChange={onChange} yearNumber={yearNumber} disabled={disabled} activeLines={activeLines} priorProgramIds={priorProgramIds} />;
+    return <PoolDecisionsView decisions={decisions} onChange={onChange} yearNumber={yearNumber} disabled={disabled} lastSurplusRange={lastSurplusRange} />;
   }
 
   // Stage 2.7: every active line's remaining decisions are edited on its own
@@ -159,11 +163,25 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
       },
     });
   };
+  // ⚠ "0%" AT CENTRE, NOT "None". The slider is a percentage of surplus along
+  // its whole length and the note below it prints that percentage; a centre
+  // reading "None" made the one position the player starts on the only one that
+  // did not say what it was a percentage OF. Zero is a percentage like the rest.
   const dividendAssessmentDisplay = (v: number) => {
-    if (v > 0.0001) return `Dividend ${(v * 100).toFixed(1)}%`;
-    if (v < -0.0001) return `Assessment ${(-v * 100).toFixed(1)}%`;
-    return 'None';
+    if (v > 0.0001) return `Dividend ${(v * 100).toFixed(0)}%`;
+    if (v < -0.0001) return `Assessment ${(-v * 100).toFixed(0)}%`;
+    return '0%';
   };
+  // THE SURPLUS THE PERCENTAGE IS A SHARE OF, read from the engine's own figure
+  // rather than recomputed here. This line's opening surplus for the year IS
+  // last year's endingSurplus carried forward (simulationEngine assigns
+  // `updatedLineState.surplus = result.endingSurplus`), and the engine applies
+  // the percentage to exactly this number through the same clamp — see
+  // dividendAssessment.ts. Undefined only before the pre-game has produced
+  // anything, where there is no surplus to show and the note is omitted.
+  const dividendAssessmentSurplus = lastLineResult
+    ? dividendAssessmentBasis(lastLineResult.endingSurplus)
+    : null;
   // Dividend side clamped to 0 while blocked (negative surplus carried in);
   // the assessment side stays fully available, unlike disabling the whole
   // control would allow.
@@ -197,11 +215,19 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
           />
           <FundingConsequencePanel c={fundingConsequence} lastLineResult={lastLineResult} line={selectedLine} />
           <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
+          <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
+          <WorldsSurplusRange range={lastSurplusRange} label={`Ending surplus, year ${yearNumber - 1}`} />
           {selectedLoanInfo.dividendBlocked && (
             <p className="text-xs text-red-600 -mt-3">Dividend blocked: this line carried a negative surplus in from last year.</p>
           )}
         </SectionCard>
 
+        {/* ⚠ ONE GRID CELL HOLDING TWO CARDS, so "Investment in Risk Control
+            Incentives" sits DIRECTLY UNDER the underwriting sliders rather than
+            wherever the grid's flow would drop it. Left as two siblings it
+            would wrap into the left column under Pricing & Funding — the right
+            number of cards in the wrong place. */}
+        <div className="space-y-5">
         <SectionCard title="Growth & Underwriting" icon={<TrendingUp size={16} />}>
           {/* ⚠ THE UNDERWRITING STRICTNESS SLIDER IS DELETED. It said "Strict
               underwriting improves risk quality" and it did exactly that, by
@@ -219,27 +245,62 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
               MECHANISM being decided against, or the product's changelog? The
               GL retention note below survives it because an uncapped exposure
               is a live financial fact. This one did not. */}
-          <RenewalUnderwriting
+          {MEMBER_LEVEL.enabled ? (
+            <>
+              <RenewalUnderwriting
+                line={selectedLine}
+                members={lastLineResult?.memberList ?? []}
+                history={memberLossHistory}
+                yearNumber={yearNumber}
+                value={d.renewalCut ?? 0}
+                onChange={v => set('renewalCut', v)}
+                disabled={disabled}
+              />
+              <IntakeSlider
+                line={selectedLine}
+                members={lastLineResult?.memberList ?? []}
+                allMarketMembers={allMarketMembers}
+                membershipHistory={membershipHistory}
+                yearNumber={yearNumber}
+                value={d.intakeLevel ?? INTAKE_NONE}
+                onChange={v => set('intakeLevel', v)}
+                disabled={disabled}
+              />
+            </>
+          ) : (
+            <>
+              {/* ONE BOOK PER LINE: renewal and intake move the book's exposure,
+                  not members. See bookUnderwriting.ts. */}
+              <BookRenewal
+                exposure={lastLineResult?.activeExposure ?? 0}
+                value={d.renewalCut ?? 0}
+                onChange={v => set('renewalCut', v)}
+                disabled={disabled}
+              />
+              <BookIntake
+                line={selectedLine}
+                exposure={lastLineResult?.activeExposure ?? 0}
+                value={d.intakeLevel ?? INTAKE_NONE}
+                onChange={v => set('intakeLevel', v)}
+                disabled={disabled}
+              />
+            </>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Investment in Risk Control Incentives" icon={<Shield size={16} />}>
+          {/* ⚠ PENDING DESIGN WHILE RISK_CONTROL IS OFF: shown so testers see it
+              is part of the game, held at 0% and disabled, labelled "coming
+              soon". The stored decision is untouched and nothing reads it. */}
+          <RiskControlIncentives
             line={selectedLine}
-            members={lastLineResult?.memberList ?? []}
-            history={memberLossHistory}
-            yearNumber={yearNumber}
-            value={d.renewalThreshold ?? null}
-            onChange={v => set('renewalThreshold', v)}
-            disabled={disabled}
-          />
-          <NewBusinessAppetite
-            line={selectedLine}
-            members={lastLineResult?.memberList ?? []}
-            allMarketMembers={allMarketMembers}
-            membershipHistory={membershipHistory}
-            history={memberLossHistory}
-            yearNumber={yearNumber}
-            value={d.newBusinessAppetite ?? null}
-            onChange={v => set('newBusinessAppetite', v)}
-            disabled={disabled}
+            value={RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default) : 0}
+            onChange={v => set('riskControlIncentivePct', v)}
+            disabled={disabled || !RISK_CONTROL.enabled}
+            comingSoon={!RISK_CONTROL.enabled}
           />
         </SectionCard>
+        </div>
 
         {outstandingLoanSlider(d, set, selectedLoanInfo, disabled)}
 
@@ -251,15 +312,12 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
               stays imported and checked (thrown on else) so a future line
               without one fails loudly here instead of rendering nothing. */}
           {hasTractableCeded(selectedLine) ? (
-            <TowerControls
+            <PackageControls
               line={selectedLine}
               d={d}
-              set={set}
               setMany={setMany}
               disabled={disabled}
-              expectedLoss={estimatedExpectedLoss}
-              aggregateTermsRetained={estimatedAggregateTermsRetained}
-              members={activeMembers}
+              book={book}
               yearNumber={yearNumber}
             />
           ) : (() => { throw new Error(`DecisionsPage: ${selectedLine} has no tractable ceded reinsurance`); })()}
@@ -273,13 +331,12 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, estimat
 // Pool tab: the two pool-wide decisions. Portfolios remain segregated per
 // line (Stage 2.9) — every line applies this one allocation policy to its own
 // invested assets, and the one risk-control intensity to its own premium.
-function PoolDecisionsView({ decisions, onChange, yearNumber, disabled, activeLines, priorProgramIds }: {
+function PoolDecisionsView({ decisions, onChange, yearNumber, disabled, lastSurplusRange }: {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
   yearNumber: number;
   disabled: boolean;
-  activeLines: readonly CoverageLine[];
-  priorProgramIds?: readonly (readonly string[] | undefined)[];
+  lastSurplusRange?: SurplusRange;
 }) {
   // ⚠ RESET DOES NOT CANCEL A PROGRAM, AND THAT IS DELIBERATE. This button
   // returns the year's POLICIES to their defaults. A risk-control program is a
@@ -306,6 +363,7 @@ function PoolDecisionsView({ decisions, onChange, yearNumber, disabled, activeLi
           </button>
         )}
       </div>
+      <WorldsSurplusRange range={lastSurplusRange} label={`Pool ending surplus, year ${yearNumber - 1}`} />
 
       {/* ⚠ THE RISK CONTROL SLIDER IS RETIRED HERE, PENDING THE BOXES BELOW, AND
           THE FIELD IS LIVE AND PINNED.
@@ -341,27 +399,39 @@ function PoolDecisionsView({ decisions, onChange, yearNumber, disabled, activeLi
           />
         </SectionCard>
 
-        {/* ⚠ STILL INERT, AND IN THE SLIDER'S PLACE. Five compact tiles where
-            the retired intensity slider sat, carrying NAME and TERM only — the
-            full copy waits for a Risk Control department page, and what that
-            page needs for the move to be a move rather than a rewrite is
-            recorded at the component.
+        {/* ⚠ THE RISK CONTROL PROGRAMS CARD STOOD HERE AND IS REMOVED — ALL
+            FIVE TILES, Pool Claims Management and Pool Member Services with
+            them. Risk control is a PER-LINE spend now, a slider under each
+            line's underwriting sliders; see RiskControlIncentives below.
 
-            They are NOT mutually exclusive, unlike the underwriting rows whose
-            look they borrow: five independent programs, any mixture of which a
-            pool can run. PreviewBox is deliberately not reused because its
-            `selected` state would paint exactly one tile blue and make the
-            pick-one reading the default. See the component for the three things
-            that keep them apart. */}
-        <SectionCard title="Loss Prevention" icon={<TrendingUp size={16} />}>
-          <RiskControlCategoryBoxes
-            activeLines={activeLines}
-            programIds={decisions.riskControlProgramIds ?? []}
-            priorProgramIds={priorProgramIds ?? []}
-            onProgramsChange={ids => onChange({ ...decisions, riskControlProgramIds: ids })}
-            disabled={disabled}
-          />
-        </SectionCard>
+            ⚠ THE ENGINE CODE BEHIND THE TILES IS KEPT, SWITCHED OFF, NOT
+            DELETED. These tiles were the only writer of
+            `decisions.riskControlProgramIds` anywhere in the app. The field
+            stays on DecisionSet and LineDecisionSet, defaultDecisionSet still
+            seeds it `[]`, and simulationEngine still reads it — so the three
+            WIRED programs (gl-law-enforcement-analytics, wc-safety-rtw,
+            claims-management-system) now receive an empty list on every played
+            year and their multipliers are identity. Nothing changes in a played
+            game, because every tile already defaulted to off.
+
+            WHAT THIS MAKES UNREACHABLE FROM THE GAME: riskControlPrograms.ts's
+            ramp, tenure, standing, cost and effect paths —
+            programFreqMultiplier, programAnnualCost, programRtwConversion,
+            claimsSystemSeverityReduction and the standings they call — can no
+            longer be reached with a non-empty list by any player action, and
+            RiskControlCategoryBoxes, riskControlCategories.ts and
+            riskControlProgramCopy.ts have no remaining render site. They are
+            NOT unexercised: wc-program-check, gl-program-check,
+            claims-system-check and the two program-value diagnostics build the
+            ids by hand, so the gates still cover the code a future control
+            would drive.
+
+            ⚠ ONE CONSEQUENCE LEFT UNHANDLED, as the retired intensity slider's
+            note above leaves its own: a game SAVED with programs committed
+            restores with them committed and now has no control to stop them.
+            Nothing normalises it on load, for the reason recorded there —
+            silently rewriting a player's saved decisions is the worse failure.
+            New games are unaffected. */}
       </div>
     </div>
   );
@@ -479,6 +549,123 @@ function FundingLevelControl({ d, fundingConsequence, setFundingLevel, setFundin
 // whoever joins or leaves — measured at a median 1.0% on WC, 3.2% on GL, 0.0%
 // on Property. That is not closable: the panel is asked the question before the
 // answer exists.
+
+// ============================================================================
+// THE NEW RATE PANEL — two columns, per $100, behind NEW_RATE_STACK.
+//
+// ⚠ TWO COLUMNS BECAUSE THERE ARE TWO QUESTIONS, and the old panel answered
+// only the second. "Indicated" is what the risk costs the pool before it
+// decides anything — at expected, self-funded, no reinsurance. "Your rate" is
+// what the team's own funding level and tower placement turn that into. A
+// player who cannot see the first cannot tell whether a high rate is the book
+// or their own choices.
+//
+// ⚠ NO CLF NOTE BESIDE THE PURE PREMIUM. The CLF is already inside "Your
+// rate"'s pure premium figure — it is the funding level — and printing the
+// multiplier beside it invited the reading that the row was pre-CLF and the
+// number got applied twice somewhere downstream.
+//
+// ⚠ THE REINSURANCE CELL IS A DASH IN THE INDICATED COLUMN, NOT A ZERO. The
+// indication is SELF-FUNDED: there is no reinsurance in it, which is a
+// different statement from reinsurance costing nothing. The same empty-cell-is-
+// not-a-zero rule the Actuarial exhibit follows.
+// ============================================================================
+function NewRatePanel({ n, prior }: {
+  n: NonNullable<FundingConsequence['newStack']>;
+  prior?: LineResultSet;
+}) {
+  const d2 = (v: number) => `$${v.toFixed(2)}`;
+  // ⚠ THE CHANGE IS THE FIGURE; LAST YEAR'S RATE IS THE FOOTNOTE TO IT. A rate
+  // on its own asks the reader to do the subtraction, and the subtraction is
+  // the only part they actually want — "my rate went up 7%" is the sentence,
+  // not "last year it was $8.80". So the percentage is the cell and the rate it
+  // was measured against sits beneath it in smaller text, and on the cell's
+  // title for a reader who hovers. The basis is matched LIKE FOR LIKE: the
+  // first indication against last year's first indication, the final rate
+  // against last year's final rate. Comparing a final rate to an indication
+  // would read as a rate change while being a change of what is in the number.
+  //
+  // ⚠ 4 DECIMAL PLACES ON THE FOOTNOTE, NOT 2. The rows above are rounded to
+  // cents for reading; this one has to RECONSTRUCT the percentage beside it, and
+  // at $0.39 on Property two decimals cannot — $0.39 to $0.40 is anything from
+  // 1.3% to 3.8%. A footnote that contradicts the figure it explains is worse
+  // than no footnote.
+  const d4 = (v: number) => `$${v.toFixed(4)}`;
+  const chg = (now: number, before: number | undefined, what: string) => {
+    if (before === undefined || !(before > 0)) {
+      return <span className="text-gray-400" title={`no ${what} was recorded for last year`}>—</span>;
+    }
+    const pct = ((now / before) - 1) * 100;
+    return (
+      <span title={`last year's ${what} ${d4(before)} → ${d4(now)}`}>
+        <span className={pct >= 0 ? 'text-red-600' : 'text-green-700'}>
+          {`${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`}
+        </span>
+        <span className="block font-normal text-[10px] text-gray-500 tabular-nums">
+          from {d4(before)}
+        </span>
+      </span>
+    );
+  };
+
+  const rows: Array<[string, string, string]> = [
+    ['Pure premium', d2(n.purePremiumGroundUp), d2(n.purePremiumRetained)],
+    ['+ Admin', d2(n.adminRatePer100), d2(n.adminRatePer100)],
+    ['+ Risk control & contingency',
+      d2(n.firstIndicationPer100 - n.purePremiumGroundUp - n.adminRatePer100),
+      d2(n.riskControlAndContingencyPer100)],
+  ];
+
+  return (
+    <div data-testid="new-rate-panel" className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
+      <table className="w-full">
+        <thead>
+          <tr className="text-left text-gray-500">
+            <th className="font-medium py-1" />
+            <th className="font-medium py-1 text-right">Indicated<div className="font-normal text-[10px]">expected, self-funded</div></th>
+            <th className="font-medium py-1 text-right">Your rate<div className="font-normal text-[10px]">funding level, with reinsurance</div></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, a, b]) => (
+            <tr key={label} className="border-t border-gray-200/70">
+              <td className="py-1 text-gray-600">{label}</td>
+              <td className="py-1 text-right tabular-nums">{a}</td>
+              <td className="py-1 text-right tabular-nums">{b}</td>
+            </tr>
+          ))}
+          <tr className="border-t border-gray-200/70">
+            <td className="py-1 text-gray-600">+ Reinsurance</td>
+            <td className="py-1 text-right text-gray-400">—</td>
+            <td className="py-1 text-right tabular-nums">{d2(n.reinsRatePer100)}</td>
+          </tr>
+          <tr className="border-t border-gray-300 font-medium">
+            <td className="py-1">= Rate</td>
+            <td data-testid="new-rate-indicated" className="py-1 text-right tabular-nums">{d2(n.firstIndicationPer100)}</td>
+            <td data-testid="new-rate-final" className="py-1 text-right tabular-nums">{d2(n.finalRatePer100)}</td>
+          </tr>
+          <tr className="border-t border-gray-200/70">
+            <td className="py-1 text-gray-600">vs last year</td>
+            <td data-testid="new-rate-vs-indicated" className="py-1 text-right tabular-nums align-top">
+              {chg(n.firstIndicationPer100, prior?.firstIndicationPer100, 'first indication')}
+            </td>
+            <td data-testid="new-rate-vs-final" className="py-1 text-right tabular-nums align-top">
+              {chg(n.finalRatePer100, prior?.finalRatePer100, 'final rate')}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      {/* ⚠ DOLLARS, NOT A RATE, and underwriting only — see quoteNewRateStack. */}
+      <p data-testid="expected-to-surplus" className="pt-1">
+        Expected to surplus:{' '}
+        <span className={n.expectedToSurplus >= 0 ? 'text-green-700 font-medium' : 'text-red-600 font-medium'}>
+          {n.expectedToSurplus >= 0 ? '+' : '-'}${Math.abs(n.expectedToSurplus / 1e6).toFixed(2)}M
+        </span>
+      </p>
+    </div>
+  );
+}
+
 function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConsequence | null; lastLineResult?: LineResultSet; line: CoverageLine }) {
   if (!c) return null;
   const pct1 = (v: number) => `${v.toFixed(1)}%`;
@@ -489,6 +676,16 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
   // wrong-curve-on-the-display defect clfFor above this file was written to fix,
   // surviving in the one readout that did not go through it.
   const reserveMarginCLF = hasStaticClf(line) ? staticClf(line, RESERVE_MARGIN_CONFIDENCE) : lookupCLF(RESERVE_MARGIN_CONFIDENCE);
+
+  // ⚠ THE NEW PANEL REPLACES THIS ONE WHOLE, rather than adding rows to it.
+  // Eight readouts go with the old stack — the CLF multiplier, the net and
+  // pool pure premium, the load, the expected combined ratio, the marginal
+  // cost, the reserve margin standard, the excess capital ratio and the
+  // underfunding sentence. Two of those move elsewhere rather than vanishing;
+  // see docs/PENDING_MULTIPLAYER.md.
+  if (c.newStack) {
+    return <NewRatePanel n={c.newStack} prior={lastLineResult} />;
+  }
 
   return (
     <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
@@ -509,9 +706,11 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
 
             ⚠ THESE ARE THE INCOME STATEMENT'S OWN FIGURES, NOT A RATIO APPLIED
             TO THE DISPLAY. quoteLineRates defines
-            totalMemberChargeRatePer100 = pool + admin + reins, and the engine
-            defines totalMemberCharge = (poolPremium + adminExpense) +
-            reinsuranceCost from the same three quantities — reinsurance off the
+            totalMemberChargeRatePer100 = pool + admin + reins + retained
+            cover margin, and the engine defines totalMemberCharge =
+            (poolPremium + adminExpense) + reinsuranceCost + retainedCoverMargin
+            from the same four quantities. The fourth row renders only when a
+            layer is declined — it is an exact 0 otherwise — reinsurance off the
             runtime tower quote, admin off ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM.
             So the four rows below add up exactly rather than approximately, and
             panel-engine-parity-check asserts both components against the engine
@@ -523,10 +722,17 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
             adjusts, reserves and pays a ceded claim in full and only then
             recovers, so ceding transfers the loss and not the handling cost.
             See linePricing.ts. */}
+        {/* ⚠ THE OLD PANEL. It renders while NEW_RATE_STACK is off, which is
+            every shipped build today. The new two-column panel above replaces
+            every row from here to the underfunding sentence; the two are never
+            on screen together. */}
         <DataRow label="Net Pure Premium Rate / $100" value={`$${c.netPurePremiumPer100.toFixed(2)}`} />
         <DataRow label="Pool Premium Rate / $100" value={`$${c.poolPremiumRatePer100.toFixed(2)}`} />
         <DataRow label="… Admin / $100" value={`$${c.adminRatePer100.toFixed(2)}`} />
         <DataRow label="… Reinsurance / $100" value={`$${c.reinsRatePer100.toFixed(2)}`} />
+        {c.retainedCoverMarginRatePer100 > 0 && (
+          <DataRow label="… Declined Cover, Kept / $100" value={`$${c.retainedCoverMarginRatePer100.toFixed(2)}`} />
+        )}
         <DataRow label="Total Member Charge Rate / $100" value={`$${c.totalMemberChargeRatePer100.toFixed(2)}`} />
         <DataRow label="The Load (charge ÷ expected loss)" value={`${c.load.toFixed(2)}×`} />
         <DataRow label="Expected Combined Ratio" value={pct1(c.expectedCombinedRatio * 100)} />
@@ -575,47 +781,9 @@ function FundingConsequencePanel({ c, lastLineResult, line }: { c: FundingConseq
 // a ready-made way to ship dark. InactiveBadge went with it — it was the
 // wrapper's own badge and had no other caller.
 
-// Shared box-selection styling for Renewal Underwriting and New Business
-// Appetite — the SAME classes as the Reinsurance Level boxes (bold title,
-// description beneath allowed to wrap, selected box filled blue with
-// reversed-out text).
-//
-// ⚠ THE NAME IS NOW WRONG AND IS KEPT ANYWAY, DELIBERATELY. It was built for
-// two INACTIVE previews and both controls are live, so "Preview" describes
-// nothing. Renaming it touches every call site for no behavioural gain and
-// would bury the one thing worth reading here in a diff of identifier churn.
-// Rename it in a commit that is only that.
-function PreviewBox({ title, description, selected, active = false }: { title: string; description: string; selected: boolean; active?: boolean }) {
-  return (
-    <button
-      type="button"
-      disabled={!active}
-      tabIndex={active ? 0 : -1}
-      className={`w-full h-full flex flex-col items-center p-2 rounded-lg border text-center transition-all text-xs ${active ? 'cursor-pointer hover:border-blue-400' : 'cursor-not-allowed'} ${selected ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200'}`}
-    >
-      <span className="font-bold">{title}</span>
-      <span className="text-xs opacity-75 mt-0.5 leading-tight">{description}</span>
-    </button>
-  );
-}
-
-/**
- * The New Business subtitle: how many members would JOIN, after the cap.
- *
- * ⚠ JUST THE NUMBER, AND NO TILDE. It read "~3 of ~7" — a ratio hedged twice.
- * The tile's title is a NAME, so the subtitle carries the whole of what the
- * choice costs, and the cost is a count.
- *
- * ⚠ "N join" AND NOT "N joins", AT EVERY COUNT INCLUDING 1. It reads as a verb —
- * seven join, one join — so the singular is the correct form and the plural
- * agreement the first version carried was solving a problem the phrasing does
- * not have. The tilde came off because one term
- * of the three is a draw and the other two are exact; hedging the whole figure
- * read as doubt about the control rather than sampling noise on who applies.
- */
-function joinLabel(n: number): string {
-  return `${n} join`;
-}
+// ⚠ PreviewBox AND joinLabel ARE DELETED. They rendered the Renewal and New
+// Business tiles, which are sliders now (RenewalUnderwriting, IntakeSlider), and
+// had no other caller.
 
 // ⚠ PROPERTY HAS NOTHING TO RATE ON, AND THE CONTROLS SAY SO RATHER THAN
 // DISAPPEARING. Hiding the line would leave a player wondering whether
@@ -667,59 +835,106 @@ function PropertyNoSignalNote() {
 }
 
 // ============================================================================
-// RENEWAL UNDERWRITING — ACTIVE. The pool declines to renew members whose
-// displayed experience modifier is above the level chosen here.
+// RENEWAL — THE SLIDER. Zero keeps every member; rising, the pool non-renews
+// the worst X% of the book on each member's own multi-year loss ratio — the
+// Loss Ratio column on Membership. See RENEWAL_CUT_STEPS for the steps and for
+// what the slider teaches.
 //
-// ⚠ THE COUNTS ARE LIVE AND THE LABELS CARRY NO PERCENTAGE, DELIBERATELY.
-// The share of a book above a given modifier moves as the roster changes, so
-// a static "declines about 5%" would be wrong the first time membership
-// shifted and would keep being wrong silently. The count is recomputed from
-// the current book every render, by the SAME function the engine applies —
-// so the number shown is the number that happens, not an estimate of it.
+// ⚠ THE NUMBER SHOWN IS THE NUMBER THAT HAPPENS. The count and the list come
+// from renewalDeclines, the SAME function the engine applies, on the current
+// book, ledger and year — no forecast. A share of the book has no settling
+// effect the screen would have to warn about (a threshold's count fell as the
+// worst members went; a share's does not), so the label can carry the share.
 //
-// ⚠ AND THE COUNT IS ONE YEAR'S, WHILE THE EFFECT COMPOUNDS. A declined
-// member enters the two-year cooldown and cannot be recruited back, so a
-// level held for several years shrinks the book by much more than its annual
-// count suggests. Measured over 14 years with the level APPLIED, mean enrolled
-// against renewal off: 2.50 takes WC from 90.6 to 81.4 and 2.00 takes it to
-// 67.5. The note below says so, because the control cannot show it.
+// ⚠ AND IT SHOWS WHAT THE CHOICE DOES TO THE BOOK, because that is the part a
+// player misjudges. The loss ratio barely persists (Z = 0.155 on WC), so the
+// members this removes are mostly ones who had a bad three years, not bad
+// risks: the slider shrinks the book faster than it cleans it. The line under
+// the slider puts the book size beside the count so the shrinking is visible
+// before any member reacts.
 //
-// ⚠ IT IS THIS YEAR'S ACTUAL COUNT AND IT SWINGS, WHICH READS AS A BUG AND IS
-// NOT ONE. renewalDeclines is handed the CURRENT book, the CURRENT ledger and
-// the CURRENT yearNumber and returns the actual list — no average, no forecast,
-// the same call the engine makes when the year is processed. So the tile reading
-// 7 one year and 0 the next is two true statements about two different years,
-// not an unstable estimate of one quantity. A decline needs a member running
-// more than the bar times their own expected cost, and few members do, so how
-// many sit above it in a given year is a property of the loss draw.
-//
-// MEASURED, 8 games x 14 years on a Renew All history — this is the tile's own
-// distribution, taken from the same call it renders, per line-year:
-//
-//   bar     line       mean   max   reads 0
-//   2.50    WC         2.95     7     8.8%
-//   2.50    GL         3.46     8     3.8%
-//   2.00    WC         7.05    12     0.0%
-//   2.00    GL         7.21    17     1.3%
-//   any     Property   0.00     0    100.0%
-//
-// So BOTH SCREENSHOTS ARE ORDINARY at the mild bar: a 0 turns up in about one
-// line-year in fifteen and a 7 is the top of the range. THE STRICT BAR BARELY
-// READS 0 AT ALL, which is the clearest thing the second tile adds — it is not
-// a finer setting of the same control, it is a different decision.
-//
-// ⚠ AND PROPERTY IS ALWAYS EXACTLY 0, which is not a swing at all — it has no
-// rated members, so nothing can clear a threshold. It never shows this tile
-// (PropertyNoSignalNote renders instead), so a 0 seen on screen came from WC or
-// GL and is a real year rather than the degenerate line.
-//
-// ⚠ PER-APPLICANT OVERRIDE APPLIES HERE TOO, AND IS DEFERRED FOR THE SAME TWO
-// REASONS. The threshold would FLAG who it means to decline and the player would
-// confirm or spare each. See the block above NewBusinessAppetite for the shape
-// and for the costs — table time, and the loss of the forecast the counts rest
-// on. Recorded in one place rather than two so the two controls cannot acquire
-// different answers to the same question.
+// ⚠ PER-MEMBER OVERRIDE (flag who it would decline, spare individuals) is still
+// deferred for the reasons recorded above IntakeSlider — table time and the
+// loss of the forecast.
 // ============================================================================
+// ============================================================================
+// THE BOOK'S UNDERWRITING — MEMBER_LEVEL off. Two settings on one book: the
+// share of it not renewed, and the share of it written new each year. Both
+// read and act on exposure; no member is named or counted.
+// ============================================================================
+function BookRenewal({ exposure, value, onChange, disabled }: {
+  exposure: number;
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  const top = RENEWAL_CUT_STEPS[RENEWAL_CUT_STEPS.length - 1];
+  const step = RENEWAL_CUT_STEPS[1] - RENEWAL_CUT_STEPS[0];
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
+      <SliderInput
+        label="Renewal"
+        value={value}
+        min={0}
+        max={top}
+        step={step}
+        onChange={onChange}
+        formatValue={v => (v > 0 ? `Non-renew ${(v * 100).toFixed(0)}% of the book` : 'Renew all')}
+        leftLabel="Renew all"
+        rightLabel={`${(top * 100).toFixed(0)}% of the book`}
+        disabled={disabled}
+      />
+      <p className="text-xs text-gray-600">
+        {value > 0
+          ? `About $${(exposure * value).toFixed(0)}M of exposure is not renewed — the book opens next year at about `
+            + `$${(exposure * (1 - value)).toFixed(0)}M before new business.`
+          : `The whole book is renewed — about $${exposure.toFixed(0)}M of exposure before new business.`}
+      </p>
+    </div>
+  );
+}
+
+function BookIntake({ line, exposure, value, onChange, disabled }: {
+  line: CoverageLine;
+  exposure: number;
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  const share = intakeShare(value);
+  const market = FULL_MARKET_EXPOSURE[line];
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
+      <SliderInput
+        label="Intake"
+        value={value}
+        min={INTAKE_NONE}
+        max={INTAKE_LOW}
+        step={1}
+        onChange={onChange}
+        formatValue={intakeLabel}
+        disabled={disabled}
+      />
+      <div className="grid grid-cols-4 text-[11px] text-gray-400 -mt-1">
+        {INTAKE_POSITIONS.map((p, i) => (
+          <span
+            key={p.name}
+            className={`${i === 0 ? 'text-left' : i === INTAKE_POSITIONS.length - 1 ? 'text-right' : 'text-center'} ${i === value ? 'font-semibold text-gray-700' : ''}`}
+          >
+            {p.name} {(intakeShare(i) * 100).toFixed(0)}%
+          </span>
+        ))}
+      </div>
+      <p className="text-xs text-gray-600">
+        {share > 0
+          ? `Writes about $${(exposure * share).toFixed(0)}M of new exposure this year — ${(share * 100).toFixed(0)}% of the book, `
+            + `up to the whole market's $${market.toLocaleString('en-US')}M.`
+          : 'No new business is written.'}
+      </p>
+    </div>
+  );
+}
+
 function RenewalUnderwriting({
   line, members, history, yearNumber, value, onChange, disabled,
 }: {
@@ -727,238 +942,273 @@ function RenewalUnderwriting({
   members: Member[];
   history: MemberLossHistory;
   yearNumber: number;
-  value: number | null;
-  onChange: (v: number | null) => void;
+  value: number;
+  onChange: (v: number) => void;
   disabled?: boolean;
 }) {
-  // The count comes from the SAME function the engine calls, so the number
-  // shown is the number the player gets rather than a second estimate of it.
-  // ⚠ DISPLAY ORDER, MOST LENIENT TO MOST STRICT, REVERSED AT THE RENDER SITE.
-  // RENEWAL_THRESHOLDS is ascending because that is right for a threshold list
-  // and because renewal-stability-check reads Math.min off it; a row of tiles
-  // wants the opposite. Reversed HERE rather than in the constant, and paired
-  // with its count in one object so a count can never be shown against the
-  // wrong bar — the transposition NEW_BUSINESS_APPETITE_TIERS was restructured
-  // to make impossible.
-  const tiles = React.useMemo(
-    () => [...RENEWAL_THRESHOLDS].reverse().map(t => ({
-      threshold: t,
-      declines: renewalDeclines(members, line, history, yearNumber, t).length,
-    })),
-    [members, line, history, yearNumber],
+  const declines = React.useMemo(
+    () => renewalDeclines(members, line, history, yearNumber, value).length,
+    [members, line, history, yearNumber, value],
   );
   const rated = line !== 'Property';
-
+  const top = RENEWAL_CUT_STEPS[RENEWAL_CUT_STEPS.length - 1];
+  const step = RENEWAL_CUT_STEPS[1] - RENEWAL_CUT_STEPS[0];
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-      <span className="text-sm font-semibold text-gray-700">Renewal Underwriting</span>
       {rated ? (
         <>
-          {/* THREE BOXES, OPEN TO CLOSED — the same direction New Business
-              Appetite below reads. See RENEWAL_THRESHOLDS for why two levels
-              and not one: 2.50 and 2.00 are a renewal decision and a roster
-              decision, and the book effect tells them apart by two and a half
-              times. */}
-          <div className="grid grid-cols-3 gap-1.5">
-            <div onClick={() => !disabled && onChange(null)}>
-              <PreviewBox title="Renew All" description="Renew every member" selected={value === null} active={!disabled} />
-            </div>
-            {tiles.map(({ threshold, declines }) => (
-              <div key={threshold} onClick={() => !disabled && onChange(threshold)}>
-                <PreviewBox
-                  title={`Decline above ${threshold.toFixed(2)}x`}
-                  description={`${declines} member${declines === 1 ? '' : 's'} this year`}
-                  selected={value === threshold}
-                  active={!disabled}
-                />
-              </div>
-            ))}
-          </div>
+          <SliderInput
+            label="Renewal"
+            value={value}
+            min={0}
+            max={top}
+            step={step}
+            onChange={onChange}
+            formatValue={v => (v > 0 ? `Non-renew worst ${(v * 100).toFixed(0)}%` : 'Renew all')}
+            leftLabel="Renew all"
+            rightLabel={`Worst ${(top * 100).toFixed(0)}%`}
+            disabled={disabled}
+          />
+          <p className="text-xs text-gray-600">
+            {value > 0
+              ? `${declines} of ${members.length} member${members.length === 1 ? '' : 's'} not renewed this year — `
+                + `the book opens next year at ${members.length - declines} before anyone joins.`
+              : `Every member is renewed — the book opens next year at ${members.length} before anyone joins.`}
+          </p>
           <p className="flex items-start gap-1 text-[11px] text-gray-500 leading-relaxed">
             <Info size={12} className="mt-0.5 flex-shrink-0" />
             <span>
-              Declines members whose losses have run more than the bar times their own expected cost over
-              the last {EXPERIENCE_MOD.windowYears} years — the Loss Ratio column on Membership. A declined
-              member cannot rejoin for {REENROLLMENT_COOLDOWN_YEARS} years, so holding a level costs more than its yearly count.
+              Ranks members by how much their losses have run against their own expected cost over the
+              last {EXPERIENCE_MOD.windowYears} years — the Loss Ratio column on Membership — and does not renew
+              the worst. A member not renewed cannot rejoin for {REENROLLMENT_COOLDOWN_YEARS} years.
             </span>
           </p>
         </>
       ) : (
-        <PropertyNoSignalNote />
+        <>
+          <span className="text-sm font-semibold text-gray-700">Renewal</span>
+          <PropertyNoSignalNote />
+        </>
       )}
     </div>
   );
 }
 
 // ============================================================================
-// NEW BUSINESS APPETITE — live. The mirror of Renewal Underwriting above it,
-// in the same card because both are one decision about pool membership:
-// existing members versus applicants.
+// INTAKE — ONE SLIDER, FOUR NAMED POSITIONS: No New Business, Strict, Moderate,
+// Low. Each sets a bar on a NOISY INSPECTION of risk quality and a cap on how
+// many join; the names sit on the slider, so a player reads "Strict" rather
+// than a bar value. See intakeInspection.ts for the positions and the
+// measurement they were set against, and INSPECTION_SIGMA for why it is an
+// inspection and not the truth.
 //
-// FIVE NAMED TIERS, READ MOST OPEN TO MOST CLOSED — Open, Broad, Selective,
-// Strict, No New Business. That is the same direction Renewal Underwriting above
-// it reads (Renew All, then Decline above), so the two controls in one card do
-// not run opposite ways.
+// ⚠ THE FORECAST IS AN EXPECTATION AND IS LABELLED AS ONE. The available pool,
+// the application count and the intake room are exact; WHICH members apply is
+// drawn (and skewed toward worse risks, APPLICANT_ADVERSE_SELECTION), and each
+// applicant's inspection is drawn. So the page sums, over the available pool,
+// each member's chance of applying (applicantInclusion) times their chance of
+// clearing the bar (intakePassProbability), then takes E[min(cap, passing)]
+// (intakeForecast) — no draw, and no per-member figure reaches the screen, only
+// the sum. When more are expected to pass than the cap allows, it says the CAP
+// is what limits intake this year, not the standard.
 //
-// ⚠ NAMES RATHER THAN THRESHOLDS, AND THE TILE CARRIES NO RATIO AT ALL. "Below
-// 1.00x" asks a player to hold a loss-ratio distribution in their head to know
-// whether that is strict; "Selective" says it. The threshold is still exact and
-// still what the engine filters on — it is just not what the player is asked to
-// reason about while choosing, and it is not on the tile.
+// ⚠ WHAT IT MOVES. Intake shapes the book's QUALITY, and with pricing
+// cost-plus that shows in members' rates rather than in surplus — a better
+// intake lowers the triangle's loss cost a few years later. What the slider
+// can show before members react is how many join and the book they join; the
+// rate consequence is on the funding panel, a few years on.
 //
-// ⚠ THE ORDER AND THE NAME-TO-VALUE MAPPING BOTH LIVE AT
-// NEW_BUSINESS_APPETITE_TIERS, not here. This row is one map over that list.
-// The version before it held the order in the page and the values in the module
-// and rendered an ascending array in reverse — correct, and one transposition
-// away from pairing every count with the wrong name.
-//
-// ⚠ THE TIERS ONCE RENDERED 0.75 / 1.00 / 1.50 AFTER Accept All, which was open,
-// then MOST closed, then loosening again. Nobody chose that; it was
-// NEW_BUSINESS_TIERS in its own ascending order, which is the right order for a
-// threshold list and the wrong one for a row of tiles.
-//
-// ⚠ THE SUBTITLE IS HOW MANY MEMBERS WOULD JOIN, AFTER THE CAP, AND IT USED TO
-// BE NEITHER. It read "~3 of ~7" — a ratio, tilded, and computed before the
-// intake cap. The threshold is already in the tile's title; the subtitle is what
-// the choice costs.
-//
-// ⚠ AND IT IS POST-CAP NOW, WHICH IT WAS NOT. intakeRoom = floor(book x
-// MAX_NEW_MEMBER_SHARE) is the only intake limit left, and it BINDS — the share
-// cap fires whenever applications exceed a tenth of the book, which the
-// arithmetic in MAX_NEW_MEMBER_SHARE puts at any book below about 75 members.
-// A tile reading 7 while the pool had room for 5 was telling the player about a
-// pool of applicants, not about a decision.
-//
-// ⚠ THE BRIEF NAMED MAX_NEW_MEMBERS_PER_YEAR = 4 AS THE CAP AND THAT CONSTANT IS
-// DELETED. defaultAssumptions.ts records why: it "capped a demand term that no
-// longer exists". The live limit is the SHARE cap, which is why the number on
-// the tile moves with the book instead of sitting at 4.
-//
+// ⚠ PER-APPLICANT ACCEPT/DECLINE IS DEFERRED, NOT PENDING. A dozen decisions a
+// year, across ten years and five teams, is the whole session in a facilitated
+// room, and per-applicant has nothing to forecast — the join count depends on
+// choices not yet made. The slider is a POLICY, which is what makes the count
+// above computable. Reopening it means arguing those two costs down. (The same
+// reasoning covers per-member renewal overrides.)
 // ============================================================================
-// ⚠ PER-APPLICANT ACCEPT/DECLINE IS DEFERRED, NOT PENDING, AND THE DIFFERENCE IS
-// THE POINT OF THIS BLOCK. The tiered control is the shipped answer. What
-// follows is recorded so the alternative is not redesigned from scratch by
-// someone who assumes it was simply never got to.
-//
-// THE INTENDED SHAPE, IF IT IS EVER BUILT. The tier sets a DEFAULT and the
-// player overrides individuals — it does not replace the tier. Set Selective,
-// see this year's applicants with the ones it would take already selected, and
-// change your mind on any of them. Renewals work the same way: the threshold
-// FLAGS who it would decline and the player confirms or spares each one. The
-// policy stays the thing you set; the overrides are the exceptions to it.
-//
-// WHAT IT COSTS, WHICH IS WHY IT IS DEFERRED AND NOT SCHEDULED:
-//
-//   THE TABLE TIME. A dozen per-applicant decisions a year, across ten years and
-//   five teams, is the whole session. This game is played in a facilitated room
-//   against a clock, and a control that consumes the room is not a better
-//   control however much more expressive it is. That is a fact about the
-//   SETTING rather than about the UI, which is why no amount of interface work
-//   retires it.
-//
-//   THE FORECAST GOES. The join-count tiles work because a tier is a POLICY —
-//   the share of applicants clearing a bar is computable before the draw, so
-//   the tile can say what the choice costs. Per-applicant has nothing to
-//   forecast: the answer depends on choices the player has not made yet. So the
-//   display would have to change too, from "N join" to a list with no summary,
-//   and the thing that makes this control readable would be the thing removed.
-//
-// ⚠ SO THE TRADE IS EXPRESSIVENESS AGAINST LEGIBILITY AND TIME, and it was
-// decided rather than postponed. Reopening it means arguing those two costs
-// down, not building the list.
-// ============================================================================
-// ============================================================================
-function NewBusinessAppetite({
-  line, members, allMarketMembers, membershipHistory, history, yearNumber, value, onChange, disabled,
+function IntakeSlider({
+  line, members, allMarketMembers, membershipHistory, yearNumber, value, onChange, disabled,
 }: {
   line: CoverageLine;
   members: Member[];
   allMarketMembers: Member[];
   membershipHistory: MembershipHistory;
-  history: MemberLossHistory;
   yearNumber: number;
-  value: number | null;
-  onChange: (v: number | null) => void;
+  value: number;
+  onChange: (v: number) => void;
   disabled?: boolean;
 }) {
-  // The applicant pool as the engine will build it: marketplace minus enrolled,
-  // minus anyone inside their two-year cooldown. Same source as
+  // The applicant pool as the engine builds it: marketplace minus enrolled,
+  // minus anyone inside their two-year cooldown — same source as
   // simulateMemberMovement so the counts cannot drift from the draw.
-  // ⚠ ONE COMPONENT OF THIS IS AN EXPECTATION AND THE REST IS EXACT, AND THE
-  // DISTINCTION IS WORTH HAVING STRAIGHT BECAUSE THE TILDES CAME OFF.
-  //
-  //   EXACT: the available pool, the application COUNT (deterministic —
-  //     round(pool x APPLICATION_RATE), see membershipEngine's own note that the
-  //     count carries no draw), the share of the pool clearing each bar, and
-  //     intakeRoom.
-  //   DRAWN: WHICH members apply. The engine shuffles the available pool at
-  //     movement time and takes a prefix, so the number of APPLICANTS clearing a
-  //     bar is a hypergeometric draw about a known mean rather than a fact.
-  //
-  // So `share x applications` is the expected eligible count, not this year's
-  // actual, and membershipEngine puts its standard deviation near 1.4. The tile
-  // shows it without a tilde because a tilde on every tier reads as doubt about
-  // the whole control rather than as sampling noise on one term.
-  const joins = React.useMemo(() => {
+  const forecast = React.useMemo(() => {
     const enrolled = new Set(members.map(m => m.id));
     const available = allMarketMembers.filter(
       m => !enrolled.has(m.id) && canReenroll(membershipHistory, m.id, line, yearNumber),
     );
-    const applications = Math.min(
-      available.length, Math.round(available.length * APPLICATION_RATE),
-    );
-    // THE CAP, and it is the engine's own line: intakeRoom = floor(book x share).
-    const intakeRoom = Math.floor(members.length * MAX_NEW_MEMBER_SHARE);
-    const capped = (n: number) => Math.min(intakeRoom, n);
+    const applications = Math.min(available.length, Math.round(available.length * APPLICATION_RATE));
+    // The position's cap, on the same book the engine reads.
+    const cap = intakeCap(value, members.length);
+    // Expected applicants clearing the bar: each member's chance of applying
+    // (applicantInclusion, the draw's own law) times their chance of passing.
+    const inclusion = applicantInclusion(available, applications);
+    let passing = 0;
+    for (const m of available) passing += (inclusion.get(m.id) ?? 0) * intakePassProbability(m, value);
+    const f = intakeForecast(applications, passing, cap);
     return {
-      pool: available.length,
-      applications,
-      intakeRoom,
-      // ONE COUNT PER NAMED TIER, in the ladder's own display order, so the tile
-      // row is a single map and a count can never be paired with the wrong name.
-      // The previous shape carried `acceptAll` separately and indexed the rest
-      // into an ascending array while rendering it reversed — correct, and one
-      // transposition away from silently mislabelling every bar.
-      byTier: NEW_BUSINESS_APPETITE_TIERS.map(({ appetite }) => {
-        if (appetite === NO_NEW_BUSINESS) return 0;
-        if (appetite === null) return capped(applications);
-        if (available.length === 0) return 0;
-        const share = appetiteEligible(available, line, history, yearNumber, appetite).length
-          / available.length;
-        return capped(Math.round(applications * share));
-      }),
+      applications, cap, passing,
+      joins: Math.round(f.expectedJoins),
+      capLimits: passing > cap,
     };
-  }, [members, allMarketMembers, membershipHistory, history, line, yearNumber]);
-
-  const rated = line !== 'Property';
-
+  }, [members, allMarketMembers, membershipHistory, line, yearNumber, value]);
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-      <span className="text-sm font-semibold text-gray-700">New Business Appetite</span>
-      {rated ? (
-        <>
-          {/* NAMES, NOT THRESHOLDS, AND THE ORDER AND THE MAPPING BOTH LIVE AT
-              NEW_BUSINESS_APPETITE_TIERS. Rendering straight off that list is
-              what keeps the screen and the constant from disagreeing — the
-              previous version held the order in the page and the values in the
-              module, which is two places to get one thing right. */}
-          <div className="grid grid-cols-5 gap-1">
-            {NEW_BUSINESS_APPETITE_TIERS.map(({ name, appetite }, i) => (
-              <div key={name} onClick={() => !disabled && onChange(appetite)}>
-                <PreviewBox
-                  title={name}
-                  description={joinLabel(joins.byTier[i])}
-                  selected={value === appetite}
-                  active={!disabled}
-                />
-              </div>
-            ))}
-          </div>
-        </>
-      ) : (
-        <PropertyNoSignalNote />
-      )}
+      <SliderInput
+        label="Intake"
+        value={value}
+        min={INTAKE_NONE}
+        max={INTAKE_LOW}
+        step={1}
+        onChange={onChange}
+        formatValue={intakeLabel}
+        disabled={disabled}
+      />
+      {/* THE NAMES ON THE SLIDER, one under each stop, the current one in bold. */}
+      <div className="grid grid-cols-4 text-[11px] text-gray-400 -mt-1">
+        {INTAKE_POSITIONS.map((p, i) => (
+          <span
+            key={p.name}
+            className={`${i === 0 ? 'text-left' : i === INTAKE_POSITIONS.length - 1 ? 'text-right' : 'text-center'} ${i === value ? 'font-semibold text-gray-700' : ''}`}
+          >
+            {p.name}
+          </span>
+        ))}
+      </div>
+      <p className="text-xs text-gray-600">
+        {value <= INTAKE_NONE
+          ? `Nobody is written. About ${forecast.applications} entities will apply this year.`
+          : `About ${forecast.joins} join this year — of about ${forecast.applications} applicants, about `
+            + `${Math.round(forecast.passing)} expected to pass inspection, with room for ${forecast.cap} at this setting.`
+            + (forecast.capLimits
+              ? ' More are expected to pass than there is room for, so the room — not the standard — limits intake, and the best-inspected are taken.'
+              : ' The standard, not the room, is what limits intake.')}
+      </p>
+      <p className="flex items-start gap-1 text-[11px] text-gray-500 leading-relaxed">
+        <Info size={12} className="mt-0.5 flex-shrink-0" />
+        <span>
+          Applicants are inspected before they are written, and the inspection is imperfect — some good
+          risks fail it and some poor ones pass. A stricter setting writes fewer members and better ones on
+          average; a lower one writes more, including riskier ones. The entities keenest to join are often
+          the ones the market has priced up.
+        </span>
+      </p>
     </div>
+  );
+}
+
+// ============================================================================
+// INVESTMENT IN RISK CONTROL INCENTIVES — ONE SLIDER PER LINE, SCREEN ONLY.
+//
+// Replaces the five-tile Risk Control Programs card that stood on the Pool tab
+// (see the note where it was removed). The programme a line runs is now a
+// property of the LINE, named here, and the only choice is how much of that
+// line's premium goes into it: 0 to 5%, in 1% steps, default 0.
+//
+// ⚠ THE VALUE IS STORED AND NOT READ. The rate indication this spend is meant
+// to feed is being redesigned, so wiring it now would mean wiring it twice.
+// `LineDecisionSet.riskControlIncentivePct` persists with the rest of the
+// line's decisions and reaches the server inside the opaque decisions blob, so
+// it is ready for the one read site the new indication will need. The screen
+// says this in as many words rather than leaving a live-looking control that
+// quietly does nothing — a lever that moves and changes no figure is the kind
+// of thing a player spends a game trying to explain.
+//
+// ⚠ AND THE SPEND COMES OUT OF THE LINE'S PREMIUM. It is not a surcharge added
+// to members' bills: the same dollars that would have paid losses and expenses
+// pay for the programme instead. That is the sentence under the slider, and it
+// is the whole economic claim the control makes while it is unwired.
+const RISK_CONTROL_PROGRAM_NAME: Record<CoverageLine, string> = {
+  WC: 'Safety & Return-to-Work',
+  GL: 'Training and Analytics',
+  Property: 'Mitigation',
+};
+
+function RiskControlIncentives({ line, value, onChange, disabled, comingSoon = false }: {
+  line: CoverageLine;
+  value: number;
+  onChange: (v: number) => void;
+  disabled: boolean;
+  /** RISK_CONTROL off: the slider is shown at 0%, disabled, as coming soon. */
+  comingSoon?: boolean;
+}) {
+  const r = SLIDER_RANGES.riskControlIncentivePct;
+  return (
+    <div className="space-y-3">
+      <SliderInput
+        label={RISK_CONTROL_PROGRAM_NAME[line]}
+        value={value}
+        min={r.min}
+        max={r.max}
+        step={r.step}
+        onChange={onChange}
+        formatValue={v => `${Math.round(v * 100)}% of premium`}
+        leftLabel="None"
+        rightLabel={`${Math.round(r.max * 100)}% of premium`}
+        valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
+        disabled={disabled}
+        helpText={`How much of ${lineDisplayName(line)}'s premium is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}. `
+          + 'The spend comes out of the premium already charged — it is not added to members\' bills.'}
+      />
+      <p className="text-xs text-gray-600">
+        The spend comes out of this line&rsquo;s premium rather than being added to members&rsquo; bills.
+      </p>
+      <p className="flex items-start gap-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 leading-relaxed">
+        <Info size={12} className="mt-0.5 flex-shrink-0" />
+        <span>{comingSoon
+          ? 'Coming soon — risk control is being redesigned for the pool as a whole. It is held at 0% until then and costs nothing.'
+          : 'Not yet active — will feed the new rate indication. The figure is saved with the year\u2019s decisions, and no result moves with it.'}</span>
+      </p>
+    </div>
+  );
+}
+
+// ============================================================================
+// WHAT THE DIVIDEND / ASSESSMENT SLIDER COSTS, IN DOLLARS.
+//
+//   Surplus: $52.4M   +10% ($5.2M)     green, for a dividend
+//   Surplus: $52.4M   -10% ($5.2M)     red and signed, for an assessment
+//   Surplus: $52.4M   0%               gray, and NO dollar amount
+//
+// ⚠ THE DOLLARS ARE THE ENGINE'S, NOT A SECOND SUM. `surplus` arrives already
+// put through dividendAssessmentBasis — the same function simulationEngine
+// multiplies — so `surplus * pct` here is arithmetic on the engine's own two
+// inputs rather than a parallel model of the payment. That is the only reason
+// the figure can be stated as what is paid or charged.
+//
+// ⚠ NO DOLLAR FIGURE AT ZERO, DELIBERATELY. "$0" is a quantity and invites the
+// reading that something moved and netted out. Nothing moves at 0%: the row
+// says what the surplus is and that the share of it is none.
+//
+// ⚠ THE MINUS SIGN IS KEPT ON THE ASSESSMENT and the dollars are not negated.
+// The sign belongs to the DIRECTION of the percentage — money leaving members
+// rather than reaching them — and the amount is an amount either way. Printing
+// "-10% (-$5.2M)" would state the direction twice and read as a negative
+// charge, which is what the basis clamp in dividendAssessment.ts exists to
+// prevent in the engine.
+function DividendAssessmentNote({ surplus, pct }: { surplus: number | null; pct: number }) {
+  if (surplus === null) return null;
+  const isDividend = pct > 0.0001;
+  const isAssessment = pct < -0.0001;
+  const amount = surplus * Math.abs(pct);
+  const tone = isDividend ? 'text-emerald-600' : isAssessment ? 'text-red-600' : 'text-gray-500';
+  const signedPct = `${isDividend ? '+' : isAssessment ? '−' : ''}${Math.round(Math.abs(pct) * 100)}%`;
+  return (
+    <p className="flex items-center gap-2 text-xs text-gray-500 -mt-3">
+      <span>Surplus: {formatCurrency(surplus, true)}</span>
+      <span className={`font-semibold ${tone}`}>
+        {signedPct}
+        {(isDividend || isAssessment) && ` (${formatCurrency(amount, true)})`}
+      </span>
+    </p>
   );
 }
 
@@ -983,272 +1233,84 @@ function DataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ===========================================================================
-// PER-OCCURRENCE TOWER CONTROLS — WC, GL and Property, every line now that
-// REINSURANCE_PROGRAMS is retired.
+// ============================================================================
+// THE REINSURANCE PACKAGE — ONE CHOICE PER LINE (loss engine commit 4a).
 //
-// EVERY LAYER'S PRICE IS SHOWN, because the loading rising with attachment IS
-// the mechanic. A player who cannot see that the $15M xs $10M layer costs 3.3x
-// its expected loss while the working layer costs 1.9x has no basis for choosing
-// between them, and the decision collapses into "buy everything".
+// A team picks one package from REINSURANCE_OPTIONS instead of placing each
+// band. Every price here is the engine's own quote — occurrenceProgramCost on
+// the line's book, over the package's layers — so the panel cannot show a
+// figure the engine does not charge. The aggregate stop-loss is not offered.
 //
-// NO ORDERING CONSTRAINT. Any combination is allowed, including buying a higher
-// layer while declining a lower one. A corridor retention is unusual in the
-// market but real, and choosing which bands to keep is the point.
-// ===========================================================================
-function TowerControls({
-  line, d, set, setMany, disabled, expectedLoss, aggregateTermsRetained, members, yearNumber,
-}: {
+// A peril with its own deductible is listed from PROPERTY_PERIL_DEDUCTIBLE, as
+// the per-band panel listed it: the cession applies it, so a package attaching
+// below it answers that peril only from the deductible up.
+// ============================================================================
+function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
   line: CoverageLine;
   d: LineDecisionSet;
-  set: (key: keyof LineDecisionSet, val: number | boolean[]) => void;
   setMany: (patch: Partial<LineDecisionSet>) => void;
   disabled: boolean;
-  expectedLoss: number;
-  /** The agreed aggregate terms in dollars — undefined on the held path, where
-   *  the attachment comes off `expectedLoss` as it always did. Threaded so the
-   *  tile quotes the treaty the engine will actually write: once the pool prices
-   *  off its triangle, the engine's attachment is set from the triangle's own
-   *  retained estimate, and a panel deriving it from a rate instead would show a
-   *  layer nobody buys. See quoteAggregate's header. */
-  aggregateTermsRetained?: number;
-  members: Member[];
+  book: Book;
   yearNumber: number;
 }) {
-  const layers = REINSURANCE_TOWER[line];
-  const placed = normalizeLayersPlaced(line, d.layersPlaced);
-  const hasAggregate = line === 'WC' || line === 'Property';
-
-  // Is an aggregate selectable AT ALL on this line's current placement? Asked
-  // by probing the normalizer with level 0 rather than re-implementing its
-  // condition here — the gate has exactly one definition and this screen reads
-  // it, so the panel cannot drift from the engine.
-  const aggAvailable = hasAggregate && normalizeAggregateStopLevel(line, placed, 0) >= 0;
-  const aggLevel = hasAggregate
-    ? normalizeAggregateStopLevel(line, placed, d.aggregateStopLevel)
-    : -1;
-
-  // Declining the last placed layer CLEARS the aggregate in the same update.
-  // Leaving it selected-but-normalized-away would show a purchase the engine
-  // will not price, which is the drift this gate exists to prevent.
-  const toggle = (i: number) => {
-    if (disabled || !layers[i].purchasable) return;
-    const next = [...placed];
-    next[i] = !next[i];
-    const nextAgg = hasAggregate
-      ? normalizeAggregateStopLevel(line, normalizeLayersPlaced(line, next), d.aggregateStopLevel)
-      : d.aggregateStopLevel;
-    setMany({ layersPlaced: next, aggregateStopLevel: nextAgg });
-  };
-
-  // One moment pass for the whole tower, reused by every row below — calling
-  // layerPremium/expectedCededForLayer per row walked the book six times.
-  const layerMoms = allLayerRiskMoments(line, members, yearNumber);
-  const occCost = layers.reduce((s, l, i) =>
-    s + (placed[i] && l.purchasable ? layerMoms[i].expected + RISK_LOAD_LAMBDA * layerMoms[i].sd : 0), 0);
-  // LIVE, not cached: the aggregate is re-quoted from the CURRENT placements on
-  // every render, so declining a layer immediately raises its price. That
-  // responsiveness is the whole reason the price is computed rather than stored —
-  // without it, "decline everything and buy the aggregate" is free volatility
-  // transfer.
-  const aggQuote = hasAggregate && aggLevel >= 0
-    ? quoteAggregate(line as 'WC' | 'Property', placed, members, expectedLoss, aggLevel, yearNumber, aggregateTermsRetained)
-    : null;
-  const totalCost = occCost + (aggQuote?.premium ?? 0);
-
+  const quotes = reinsuranceOptionsFor(line).map(o => ({
+    o, q: occurrenceProgramCost(line as TowerLine, placementFor(line, o.id), book, yearNumber),
+  }));
+  const chosenOption = reinsuranceOptionsFor(line).find(o => o.id === d.reinsuranceOption);
+  const packageTop = chosenOption && chosenOption.limit > 0 ? chosenOption.attachment + chosenOption.limit : null;
+  const perilDeductibles = line === 'Property' ? Object.entries(PROPERTY_PERIL_DEDUCTIBLE) : [];
   return (
     <div className="space-y-3">
-      <div>
-        {/* One retention per occurrence on every line. On Property a regional
-            catastrophe is one occurrence and meets the same retention as any
-            other claim, so the label says "per occurrence" rather than "per
-            risk": a two-region event retains it twice. A peril with its own
-            deductible is listed from PROPERTY_PERIL_DEDUCTIBLE, so the label
-            names every exception the cession applies. */}
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-          {line === 'Property'
-            ? <>Occurrence Layers — Retention ${layers[0].attachment / 1e6}M per occurrence, catastrophes included{
-                Object.entries(PROPERTY_PERIL_DEDUCTIBLE).map(([peril, d]) =>
-                  `; ${peril.charAt(0).toUpperCase()}${peril.slice(1)} $${d / 1e6}M`).join('')
-              }</>
-            : <>Occurrence Layers — Retention ${layers[0].attachment / 1e6}M</>}
+      <p className="text-xs text-gray-600 leading-relaxed">
+        Choose <strong>one package</strong> for this line. Each covers every occurrence above its attachment
+        up to its limit; the price is the expected recovery on large losses, loaded at the line&apos;s 70% CLF.
+      </p>
+      {perilDeductibles.length > 0 && (
+        <p className="text-xs text-gray-600 leading-relaxed" data-testid="reins-peril-deductibles">
+          {perilDeductibles.map(([peril, ded]) =>
+            `${peril.charAt(0).toUpperCase()}${peril.slice(1)} carries its own $${ded / 1e6}M retention per occurrence: `
+            + 'a package attaching below it answers that peril from there up.').join(' ')}
         </p>
-        <div className="space-y-1.5">
-          {layers.map((l, i) => {
-            const price = layerMoms[i].expected + RISK_LOAD_LAMBDA * layerMoms[i].sd;
-            const expected = layerMoms[i].expected;
-            const multiple = expected > 0 ? price / expected : 0;
-            if (!l.purchasable) {
-              return (
-                <div key={l.name} className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-2.5 text-xs">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-gray-500">{l.name}</span>
-                    <span className="text-gray-400 font-semibold uppercase text-xs tracking-wide">Not available</span>
-                  </div>
-                  <p className="text-gray-500 mt-1 leading-relaxed">
-                    Defined but <strong>not purchasable</strong>. This layer covers multi-claim catastrophe
-                    occurrences — one event injuring several workers. The model emits one claim per WC
-                    occurrence, and a single catastrophic claim tops out near <strong>$15.51M</strong> present
-                    value, so the mechanism it was designed for cannot reach it. Offering it at a price would
-                    be selling cover that cannot pay.
-                  </p>
-                </div>
-              );
-            }
-            return (
-              <button
-                key={l.name}
-                disabled={disabled}
-                onClick={() => toggle(i)}
-                className={`w-full text-left rounded-lg border p-2.5 transition-all text-xs ${
-                  placed[i]
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                } ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
-              >
-                <div className="flex justify-between items-center">
-                  <span className="font-bold">{l.name}</span>
-                  <span className={`font-semibold ${placed[i] ? 'text-blue-100' : 'text-gray-500'}`}>
-                    {placed[i] ? 'PLACED' : 'RETAINED'}
-                  </span>
-                </div>
-                <div className={`flex justify-between mt-1 ${placed[i] ? 'text-blue-100' : 'text-gray-500'}`}>
-                  <span>{formatCurrency(price)}/yr</span>
-                  <span>{multiple.toFixed(2)}x expected loss</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-xs text-gray-500 italic mt-2 leading-relaxed">
-          Any combination is allowed — including buying a higher layer while declining a lower one.
-        </p>
-      </div>
-
-      {/* ⚠ CUT TO ONE LINE, NOT CUT. Four sentences is too long for a decision
-          screen, but unlike the removal note on this page this one states a
-          LIVE FINANCIAL FACT the player is deciding against: above the top
-          layer the pool carries unlimited uncapped exposure with no cover
-          available at any price. A player who discovers that from a loss
-          rather than from the screen has a fair complaint. What went: the
-          market-capacity explanation (why there is no layer is not the
-          decision) and the pointer to Results and Financial Statements (a
-          reader who wants the figure will find it on the exhibit that carries
-          it). What stays: the band, the word unlimited, and that it cannot be
-          bought. Rendered where the next layer would be, so it reads as the
-          top of the tower rather than as an aside. */}
-      {line === 'GL' && (
-        <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
-          <strong>Above ${TOWER_TOP.GL / 1e6}M:</strong> retained in full, unlimited. No cover is available.
-        </div>
       )}
-
-      {(line === 'WC' || line === 'Property') && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Aggregate Stop-Loss — total annual retained loss
-          </p>
-          {/* Column count matches "None" plus however many levels this line
-              offers — WC has 3 (market-range triple), Property has 2 (a wide
-              frequency spread; see AGG_ATTACHMENT_LEVELS.Property's header).
-              Literal class names, not an interpolated grid-cols-${n}, so
-              Tailwind's scanner picks them up. */}
-          <div className={AGG_ATTACHMENT_LEVELS[line].length === 2 ? 'grid grid-cols-3 gap-1' : 'grid grid-cols-4 gap-1'}>
+      <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
+        {quotes.map(({ o, q }) => {
+          const chosen = d.reinsuranceOption === o.id;
+          return (
             <button
+              key={o.id}
+              type="button"
+              data-testid={`reins-option-${line}-${o.id}`}
               disabled={disabled}
-              onClick={() => !disabled && set('aggregateStopLevel', -1)}
-              className={`flex flex-col items-center p-2 rounded-lg border text-center transition-all text-xs ${
-                aggLevel < 0
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-              } ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+              onClick={() => !disabled && setMany({ reinsuranceOption: o.id })}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left ${
+                chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
+              } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
-              <span className="font-bold">None</span>
+              <span>{o.id === 'none' ? 'None — retain every loss' : o.id}</span>
+              <span className="text-xs text-gray-600">
+                {o.id === 'none' ? '$0/yr' : `${formatCurrency(q.premium)}/yr · expected recovery ${formatCurrency(q.expectedCeded)}`}
+              </span>
             </button>
-            {AGG_ATTACHMENT_LEVELS[line].map((mult, lv) => {
-              // Priced even while unavailable, so the disabled button still
-              // shows what the cover WOULD cost once a layer is placed —
-              // greying out a blank tile reads as a broken control.
-              const q = quoteAggregate(line, placed, members, expectedLoss, lv, yearNumber, aggregateTermsRetained);
-              const off = disabled || !aggAvailable;
-              return (
-                <button
-                  key={lv}
-                  disabled={off}
-                  onClick={() => !off && set('aggregateStopLevel', lv)}
-                  className={`flex flex-col items-center p-2 rounded-lg border text-center transition-all text-xs ${
-                    aggLevel === lv
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                  } ${off ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                >
-                  <span className="font-bold">{(mult * 100).toFixed(0)}%</span>
-                  <span className="text-xs opacity-75 mt-0.5">{formatCurrency(q.premium)}</span>
-                </button>
-              );
-            })}
-          </div>
-          {/* A disabled control with no reason reads as a bug. Say the reason —
-              and WC's is worse than Property's, because WC severity has no
-              cap at all, so it gets its own copy rather than sharing Property's. */}
-          {!aggAvailable && line === 'Property' && (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-2 leading-relaxed">
-              <strong>Unavailable while the occurrence layer is declined.</strong> The aggregate
-              protects <em>retained</em> loss and it has a limit. With no occurrence layer capping
-              each claim at the retention, one large claim can exceed the aggregate's
-              attachment plus limit on its own, with nothing above it — so the cover would not
-              answer the exposure it is being bought against. Place the occurrence layer to enable it.
-              Declining everything remains available: that is self-insurance, and it is a real choice.
-            </p>
-          )}
-          {!aggAvailable && line === 'WC' && (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-2 leading-relaxed">
-              <strong>Unavailable while every occurrence layer is declined.</strong> The aggregate
-              protects <em>retained</em> loss and it has a limit. WC's severity has no ceiling — with
-              no per-occurrence layer capping each claim at the retention, there is no bound at all
-              on what a single claim can leave sitting above the aggregate's attachment plus limit.
-              Place a layer to enable it. Declining everything remains available: that is
-              self-insurance, and it is a real choice.
-            </p>
-          )}
-          {aggQuote && (
-            <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5">
-              <DataRow label="Attaches At" value={formatCurrency(aggQuote.attachment)} />
-              <DataRow label="Limit" value={`${formatCurrency(aggQuote.limit)} (${(AGG_LIMIT_MULTIPLE * 100).toFixed(0)}% of exp. retained)`} />
-              <DataRow label="Expected Retained Loss" value={formatCurrency(aggQuote.expectedRetained)} />
-              <DataRow label="Expected Recovery" value={`${formatCurrency(aggQuote.expectedCeded)}/yr`} />
-            </div>
-          )}
-          <p className="text-xs text-gray-500 italic mt-2 leading-relaxed">
-            Covers total annual retained loss — <strong>including loss retained through layers you
-            declined</strong>. Its price is re-quoted live from your layer choices: declining occurrence
-            layers puts large claims back into the retention, raising volatility and so raising this cost.
-          </p>
-        </div>
-      )}
-
+          );
+        })}
+      </div>
+      <p className="text-xs text-gray-500 italic leading-relaxed">
+        Aggregate cover is not offered. It protects against a broad surge of small losses — a winterstorm&apos;s
+        many claims under the retention — which no per-occurrence package reaches, and it may return.
+      </p>
       <div className="bg-blue-50 rounded-lg p-3 border border-blue-200 text-xs">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-          <DataRow label="Occurrence Layers" value={`${formatCurrency(occCost)}/yr`} />
-          {/* WC AND PROPERTY ONLY. Showing "Not purchased" on GL would imply an
-              aggregate is available to decline, and none is offered — see the
-              capacity note. And "Not purchased" implies a choice was made, so
-              the gated state reads "Unavailable" instead. */}
-          {(line === 'WC' || line === 'Property') && (
-            <DataRow
-              label="Aggregate Stop-Loss"
-              value={aggQuote
-                ? `${formatCurrency(aggQuote.premium)}/yr`
-                : (aggAvailable ? 'Not purchased' : 'Unavailable — no layer placed')}
-            />
-          )}
-          <DataRow label="Total Reinsurance Cost" value={`${formatCurrency(totalCost)}/yr`} />
-          {/* Property's "above tower" band is above the $1B occurrence limit —
-              reached only by a single catastrophe occurrence larger than that.
-              It used to be structurally zero, when TOWER_TOP.Property was the
-              $75M severity cap; summing a region's losses into one occurrence
-              made it a real, if rare, band. */}
-          <DataRow label="Retained Above Tower" value={`Above ${TOWER_TOP[line] / 1e6}M — unlimited`} />
+          <DataRow label="Package" value={placementSummary(line, d)} />
+          <DataRow
+            label="Reinsurance Cost"
+            value={`${formatCurrency(quotes.find(x => x.o.id === d.reinsuranceOption)?.q.premium ?? 0)}/yr`}
+          />
+          <DataRow
+            label="Retained Above Package"
+            value={packageTop === null
+              ? 'Every loss'
+              : line === 'GL' ? `Above $${packageTop / 1e6}M — to the $25M pool limit` : `Above $${packageTop / 1e6}M — unlimited`}
+          />
         </div>
       </div>
     </div>

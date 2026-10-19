@@ -82,18 +82,28 @@ import {
   IBNER_CALENDAR_RHO, RATE_NEUTRAL_CHANGE_PCT, TRIANGLE_HISTORY_YEARS, openShareAtStep,
 } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simulation';
+import { INTAKE_LOW } from '../../src/utils/intakeInspection';
 
 const RULE = '='.repeat(78);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 /**
- * ⚠ 16, AND THE REASON IS SECTION 5'S MARGIN ON WC. The pool side of that
+ * ⚠ 48, RAISED FROM 16 WHEN THE NORMALISER CAME OUT OF THE DRAW, AND IT IS THE
+ * SAMPLE AND NOT THE MODEL THAT MOVED. At 16 games Property's ratio read 0.95
+ * before that change and 1.00 after — red by a hundredth. At 48 games, both
+ * commits measured side by side, it reads 0.93 before and 0.94 after: the
+ * engine did not move the ratio; the 16-game sample was spending its whole
+ * margin on noise on the line now closest to the bar (Property, where GL used
+ * to be). Raising the sample rather than the bar, as below and as
+ * WORKING_PRACTICES' heavy-tailed-gate rule says.
+ *
+ * ⚠ 16, AND THE REASON WAS SECTION 5'S MARGIN ON WC. The pool side of that
  * comparison is the noisy one — GAMES x (YEARS - 1) observations of a
  * rate change against DRAWS x 4 of the benchmark — and WC is the line where the
  * two are closest: ratio 0.88 at 4 games, 0.88 at 8, 0.84 at 16. At 4 games the
  * pool's own SD read 3.17% against 3.34% at 16, which is a fifth of the margin
  * spent on sampling. A gate whose margin is its own noise is a gate that flakes.
  */
-const GAMES = Number(process.env.GAMES ?? 16);
+const GAMES = Number(process.env.GAMES ?? 48);
 const YEARS = Number(process.env.YEARS ?? 10);
 /** Draws for the mean-1 and dispersion measurements. Cheap — no engine. */
 const DRAWS = Number(process.env.DRAWS ?? 3000);
@@ -108,8 +118,34 @@ const DRAWS = Number(process.env.DRAWS ?? 3000);
  * reddens the gate by breaking it is not a control. A power keeps the component
  * strictly positive, which is section 2's requirement, and multiplies its log
  * dispersion by exactly this factor.
+ *
+ * ⚠ RAISED FROM 4 TO 8 WHEN THE NEW RATE STACK WENT LIVE, BECAUSE THE CONTROL
+ * HAD GONE VACUOUS. The control's only job is to show that section 5 CAN go
+ * red; it says nothing about the pool. Under the old rate the deciding pool's
+ * rate-change SD was about 4.6% and power 4 (benchmark SD ~11.4%) cleared it
+ * three times over. The new rate moves 16.1-17.0%, so power 4 reddened 0 of 3
+ * lines and section 5 was passing untested. Measured benchmark SD by power,
+ * against today's pool SDs of WC 16.55 / GL 16.07 / Property 17.01:
+ *
+ *     power  4   WC 11.36%  GL 11.67%  Property 11.50%   reds 0 of 3
+ *     power  6   WC 17.25%  GL 17.73%  Property 17.47%   reds 3, Property by 0.46pp
+ *     power  8   WC 23.41%  GL 24.05%  Property 23.70%   reds 3 by ~40%
+ *
+ * 8 rather than 6 so the control is not itself a near-miss that the next
+ * change to the rate silently turns back into a vacuous one.
+ *
+ * ⚠ RAISED FROM 8 TO 12 AT LOSS ENGINE COMMIT 4a, FOR THE SAME REASON. The
+ * reinsurance packages cap Property's tower at $50M (it reached $1B), so the
+ * deciding pool's Property rate-change SD rose to 23.80% — and power 8's
+ * 23.70% benchmark left Property green, reddening 2 of 3. Measured:
+ *
+ *     power  8   WC 23.41%  GL 24.05%  Property 23.70%   reds 2 of 3
+ *     power 10   WC 29.93%  GL 30.75%  Property 30.30%   reds 3, Property by 27%
+ *     power 12   WC 36.91%  GL 37.93%  Property 37.38%   reds 3, Property by 57%
+ *
+ * 12 rather than 10 on the rule above: not a near-miss.
  */
-const CONTROL_POWER = 4;
+const CONTROL_POWER = 12;
 /** Section 7 runs the engine per funding stop, so it is deliberately thin. */
 const LEVEL_GAMES = Number(process.env.LEVEL_GAMES ?? 3);
 const LEVEL_YEARS = Number(process.env.LEVEL_YEARS ?? 6);
@@ -367,6 +403,73 @@ console.log('\n--- 5. the benchmark against the rate it judges ---');
 // default. This gate should be re-pointed BACK at defaults the moment that
 // happens.
 // ============================================================================
+//
+// ============================================================================
+// ⚠ GL AND PROPERTY ARE ACCEPTED BREACHES OF SECTION 5, BY NAME, AND INVERTED.
+//
+// WHAT CHANGED. The commit that bills the tower on the book it covers (joiners
+// in, leavers out) removed DEFECT NOISE from an intake-open pool's rate. The
+// tower used to be struck on the book from before movement and divided over the
+// bigger book after it, so the JOINER COUNT, which varies year to year, jittered
+// the rate. That jitter is what kept GL and Property above the benchmark.
+// Measured on the deciding arm at 48 games, before -> after:
+//
+//     line       benchmark   deciding pool      do-nothing pool
+//     WC           2.81%     5.07% -> 4.56%         4.39%
+//     GL           2.89%     3.25% -> 2.45%         2.20%
+//     Property     2.85%     3.05% -> 1.92%         1.95%
+//
+// With the jitter gone, an open pool's rate moves about as little as an idle
+// pool's. And this gate ALREADY accepts the benchmark being louder than the idle
+// pool, as a known property of the defaults (the block above). So this is
+// CONSISTENCY, not a new exception. It is also realistic: a pool's
+// experience-rated price is smoother than a commercial market that swings with
+// its cycle.
+//
+// ⚠ IT HAS TEETH. If GL or Property ever comes back QUIETER-BENCHMARK-THAN-POOL,
+// that FAILS: a deciding pool's rate getting noisier again is a change to find,
+// not a pass to take. WC is asserted normally. Nothing else is exempt.
+//
+// ============================================================================
+// ⚠ AND IT BIT. THE LIST IS NOW EMPTY — the exemption is SPENT, not loosened.
+//
+// Turning NEW_RATE_STACK on reddened both accepted lines as XPASS-FAIL, which
+// is this exemption working exactly as it was written to. What moved, measured
+// on the same deciding arm at 48 games:
+//
+//     line       benchmark   deciding pool            do-nothing pool
+//     WC           2.81%     4.56% -> 16.55%          17.94%
+//     GL           2.89%     2.45% -> 16.07%          17.34%
+//     Property     2.85%     1.92% -> 17.01%          22.39%
+//
+// All three lines now move SEVERAL TIMES the benchmark, so section 5's
+// assertion holds on its own terms everywhere and no line needs exempting.
+//
+// WHY, AND IT IS NOT A DEFECT: the old rate was struck off the engine's
+// expected loss, which is smoothed by construction, so the price barely moved
+// between years. The new rate is struck off a GROUND-UP EXPERIENCE pure
+// premium that reprices each year on a lumpy loss history, and it swings with
+// it. That volatility is stated at the flag in pricingParameters.ts as the
+// known cost of turning the stack on ahead of the loss engine; it is the same
+// fact this table is reading, not a second one.
+//
+// ⚠ THE CONCERN IN THE BLOCK ABOVE NOW POINTS THE OTHER WAY, and should be
+// read before the loss engine lands. The worry was members judging their pool
+// against a market noisier than their rate. Today the pool is the noisy side:
+// a member sees their own rate move 16% while the market moves 3%. Once
+// satisfaction drives departures, THAT is the asymmetry that will move money.
+// ============================================================================
+//
+// ⚠ THE CONCERN IS REAL, FOR LATER. Satisfaction drives nothing today, so a
+// member reading a market louder than their own rate moves no money and no
+// membership. Once satisfaction drives departures, members judging their pool
+// against a noisier market would carry market swings the player cannot control.
+// The likely remedy then is to compare against a SMOOTHED market (a moving
+// average of the benchmark), not to quieten the market itself. Revisit this
+// exemption when departures read satisfaction.
+// ============================================================================
+const ACCEPTED_BREACH: readonly string[] = [];
+
 function playRates(g: number, decide?: (d: DecisionSet) => void): Record<string, number[]> {
   const id = `MKT${g}`;
   const instance = generateGameInstance(id, 9_000_000 + g * 7919);
@@ -391,16 +494,23 @@ function playRates(g: number, decide?: (d: DecisionSet) => void): Record<string,
 
 /** The arm the assertion runs on: a player who is actually underwriting. */
 const DECIDING = (d: DecisionSet) => {
-  for (const l of LINES) d.byLine[l].newBusinessAppetite = null;
+  for (const l of LINES) d.byLine[l].intakeLevel = INTAKE_LOW;
 };
 
 const poolChange: Record<string, number[]> = { WC: [], GL: [], Property: [] };
 const idleChange: Record<string, number[]> = { WC: [], GL: [], Property: [] };
+// ⚠ THE DO-NOTHING ARM STAYS AT 16 GAMES. It is reported and never asserted, so
+// the sample raise that keeps the ASSERTED arm off its own noise (see GAMES)
+// buys nothing there and would only add to the runtime of an every-commit gate.
+const IDLE_GAMES = Math.min(GAMES, 16);
 for (let g = 0; g < GAMES; g++) {
   const r = playRates(g, DECIDING);
-  const idle = playRates(g);
   for (const line of LINES) {
     for (let i = 1; i < r[line].length; i++) poolChange[line].push((r[line][i] / r[line][i - 1] - 1) * 100);
+  }
+  if (g >= IDLE_GAMES) continue;
+  const idle = playRates(g);
+  for (const line of LINES) {
     for (let i = 1; i < idle[line].length; i++) idleChange[line].push((idle[line][i] / idle[line][i - 1] - 1) * 100);
   }
 }
@@ -428,10 +538,19 @@ for (const line of LINES) {
   const p = sd(poolChange[line]);
   const idle = sd(idleChange[line]);
   const ok = b < p;
+  const accepted = ACCEPTED_BREACH.includes(line);
+  // An accepted line is expected to BREACH. Passing there is the failure.
+  const verdict = accepted ? (ok ? 'XPASS-FAIL' : 'ACCEPTED') : (ok ? 'OK' : 'FAIL');
   console.log(`  ${line.padEnd(9)} benchmark SD ${b.toFixed(2)}%   deciding pool ${p.toFixed(2)}%   `
-    + `ratio ${(b / p).toFixed(2)}  ${ok ? 'OK' : 'FAIL'}`
+    + `ratio ${(b / p).toFixed(2)}  ${verdict}`
     + `   |  do-nothing pool ${idle.toFixed(2)}% (${b < idle ? 'also quieter' : 'BENCHMARK LOUDER — reported, not asserted'})`);
-  if (!ok) {
+  if (accepted && ok) {
+    failures.push(`${line} is an ACCEPTED BREACH of section 5 and it is no longer breaching: the `
+      + `deciding pool's rate-change SD is ${p.toFixed(2)}% against a benchmark of ${b.toFixed(2)}%. `
+      + `The breach was accepted because removing the joiner-billing defect left an open pool about as `
+      + `quiet as an idle one. A deciding pool getting noisier again is a change to find, not a pass to `
+      + `take. Find out what moved, then remove ${line} from ACCEPTED_BREACH.`);
+  } else if (!accepted && !ok) {
     failures.push(`${line}: the market benchmark's SD is ${b.toFixed(2)}% against the pool's own `
       + `rate-change SD of ${p.toFixed(2)}%. A benchmark noisier than its subject makes every member's `
       + `grievance a reading of the benchmark's own draw rather than of a decision. See the calendar `
@@ -467,8 +586,13 @@ console.log(`\n--- 6. positive control: every non-deterministic component raised
 
 // --- 7. the market LEVEL, and the cushion at every stop --------------------
 console.log('\n--- 7. the market level: the cushion, and where it crosses zero ---');
-console.log(`  target loss ratio ${MARKET_TARGET_LOSS_RATIO} (JUDGEMENT — see the constant), so a carrier`);
-console.log(`  charges ${marketLoadOverExpectedLoss().toFixed(4)}x gross expected loss.`);
+for (const line of LINES) {
+  console.log(`  ${line.padEnd(9)} target loss ratio ${MARKET_TARGET_LOSS_RATIO[line].toFixed(2)}, so a carrier charges `
+    + `${marketLoadOverExpectedLoss(line).toFixed(4)}x gross expected loss`);
+}
+console.log('  (0.65 is a JUDGEMENT. Property is DERIVED from it and currently lands back on it: '
+  + 'its derivation adds the tower\'s excess catastrophe load, which is zero at RISK_LOAD_LAMBDA 0 '
+  + '— see the constant.)');
 {
   // The kink's arithmetic, which is where the unmeasured target earns its keep.
   const up = satisfactionLevelReaction(10), down = satisfactionLevelReaction(-10);
@@ -516,7 +640,7 @@ console.log(`  charges ${marketLoadOverExpectedLoss().toFixed(4)}x gross expecte
         gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
         for (const lr of p.lineResults) {
           const x = lr.result as never as Record<string, number>;
-          acc[lr.line as string].push(marketLevelGapPct(x.ratePer100, x.purePremiumPer100));
+          acc[lr.line as string].push(marketLevelGapPct(lr.line, x.ratePer100, x.purePremiumPer100));
         }
       }
     }

@@ -45,25 +45,103 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock, Eye, Loader2 } from 'lucide-react';
+import { CheckCircle2, Clock, Eye, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
-import { newSessionToken } from '../contract';
+import { newSessionToken, eventStatusOf, mayCreateTeam, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
+import { navigate } from '../client/navigation';
 import { decisionsForYear, decisionsToJson } from '../client/decisions';
 import { useSessionGame } from '../client/useSessionGame';
 import GameShell from '../../game/GameShell';
 import type { TabId } from '../../components/TabNav';
-import type { CoverageLine, DecisionSet, LineView } from '../../types/simulation';
+import type { DecisionSet, LineView } from '../../types/simulation';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 
-const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
 export type PlayRole = 'player' | 'viewer';
 
 interface Props {
   code: string;
   role: PlayRole;
+}
+
+// ============================================================================
+// TEAM LEADER OR VIEWER — the choice the lobby hands off to.
+//
+// ⚠ THE GREYING IS A COURTESY, NOT THE RULE. The server refuses a new team once
+// the event is IN_PROGRESS (EVENT_IN_PROGRESS, from the same contract function
+// this reads), so a client that skips the lobby and posts straight to /join
+// meets the same answer. This exists so a player is told WHY before they type a
+// name, rather than after.
+//
+// ⚠ IT DOES NOT GOVERN A REJOIN. A browser already holding a team's credential
+// sees the resume block above this and takes its seat at any status — which is
+// why this renders beside that block rather than in place of it.
+function RoleChoice({ code, role, status, currentYear }: {
+  code: string; role: PlayRole; status: EventStatus; currentYear: number;
+}) {
+  const lateForTeams = !mayCreateTeam(status);
+  return (
+    <div data-testid="role-choice" className="mt-4 grid grid-cols-2 gap-3">
+      <div
+        data-testid={lateForTeams ? 'team-leader-unavailable' : 'team-leader'}
+        className={`rounded-xl border p-4 ${
+          lateForTeams ? 'border-slate-200 bg-slate-50'
+          : role === 'player' ? 'border-blue-300 bg-white ring-1 ring-blue-100'
+          : 'border-slate-200 bg-white'}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className={lateForTeams ? 'text-slate-400' : 'text-blue-600'}>
+            {lateForTeams ? <Lock size={14} /> : <Users size={14} />}
+          </span>
+          <p className={`text-sm font-semibold ${lateForTeams ? 'text-slate-400' : 'text-slate-900'}`}>Team Leader</p>
+          {lateForTeams && (
+            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">UNAVAILABLE</span>
+          )}
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          {lateForTeams
+            ? status === 'FINISHED'
+              ? 'This event has finished, so no new teams can join. You can still watch it.'
+              : `This event is already in year ${currentYear}, so no new teams can join. You can still watch it.`
+            : 'Name your team and make its decisions each year.'}
+        </p>
+        {!lateForTeams && role === 'viewer' && (
+          <button
+            type="button"
+            data-testid="switch-to-player"
+            onClick={() => navigate(`/join/${code}`)}
+            className="mt-2 text-xs font-medium text-blue-700 underline"
+          >
+            Join as a team instead
+          </button>
+        )}
+      </div>
+
+      <div
+        data-testid="viewer-option"
+        className={`rounded-xl border p-4 ${
+          role === 'viewer' ? 'border-blue-300 bg-white ring-1 ring-blue-100' : 'border-slate-200 bg-white'}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-blue-600"><Eye size={14} /></span>
+          <p className="text-sm font-semibold text-slate-900">Viewer</p>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">Follow a team without playing. Watching claims nothing.</p>
+        {role === 'player' && (
+          <button
+            type="button"
+            data-testid="switch-to-viewer"
+            onClick={() => navigate(`/view/${code}`)}
+            className="mt-2 text-xs font-medium text-blue-700 underline"
+          >
+            Watch instead
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function PlayScreen({ code, role }: Props) {
@@ -77,7 +155,6 @@ export default function PlayScreen({ code, role }: Props) {
 
   const [claiming, setClaiming] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
-  const [lineDraft, setLineDraft] = useState<CoverageLine[]>([]);
   const [actionError, setActionError] = useState<SessionError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [decisions, setDecisions] = useState<DecisionSet | null>(null);
@@ -113,7 +190,7 @@ export default function PlayScreen({ code, role }: Props) {
     setDecisions(decisionsForYear(room.currentYear, you.decisionsByYear));
   }, [room, you, role]);
 
-  async function enter(teamName: string, lines?: CoverageLine[]) {
+  async function enter(teamName: string) {
     setClaiming(teamName);
     setActionError(null);
     try {
@@ -124,13 +201,14 @@ export default function PlayScreen({ code, role }: Props) {
       // used to lock a player out of the team they had just created, in front
       // of a room.
       if (!joinTokenRef.current[teamName]) joinTokenRef.current[teamName] = newSessionToken();
-      // ⚠ NO `lines` ON A REJOIN. The team already holds its set and the
-      // transport refuses a rejoin that asks for a different one (LINES_LOCKED);
-      // sending the form's current state would turn a refresh into that refusal.
+      // ⚠ NO `lines` AT ALL ANY MORE, ON A FIRST JOIN OR A REJOIN. The HOST
+      // picks the room's lines and every team plays them, so a join has nothing
+      // to say about coverage. The note here used to explain why a rejoin
+      // omitted them (LINES_LOCKED); that error no longer exists because the
+      // field does not.
       const res = await sessionTransport().join({
         code, teamName, role,
         token: held?.teamToken ?? joinTokenRef.current[teamName],
-        lines: held ? undefined : lines,
       });
       saveActive(code, { teamToken: res.teamToken, teamName: res.teamName, role });
       rememberTeamCredential(code, { teamToken: res.teamToken, teamName: res.teamName, role });
@@ -188,8 +266,22 @@ export default function PlayScreen({ code, role }: Props) {
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Room {code}</p>
           <h1 className="text-2xl font-semibold text-slate-800">{room.eventName}</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {isViewer ? 'Choose a team to watch. Watching claims nothing.' : 'Name your team and choose the lines you will write.'}
+            {/* ⚠ "and choose the lines you will write" WAS STILL HERE after the
+                picker went. The host sets the room's lines; a player names its
+                team and nothing else. */}
+            {isViewer ? 'Choose a team to watch. Watching claims nothing.' : 'Name your team. The host has set the lines.'}
           </p>
+
+          {/* ⚠ THE ROLE CHOICE, AND THE PATH STILL CARRIES THE ROLE. This file's
+              router note argues that a single link with a role toggle makes the
+              damaging mistake (claiming a team by accident, locking out the
+              person meant to drive it) exactly as easy as the harmless one.
+              That still holds and this does not undo it: /join and /view remain
+              two links, the lobby sends a player to /join, and this block is a
+              DELIBERATE, VISIBLE switch between them rather than a default
+              anyone lands on. The damaging direction is also the one the server
+              refuses once the event is under way. */}
+          <RoleChoice code={code} role={role} status={eventStatusOf(room.currentYear, room.yearCount)} currentYear={room.currentYear} />
 
           {actionError && (
             <div data-testid="claim-error" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -259,43 +351,34 @@ export default function PlayScreen({ code, role }: Props) {
                 />
               </label>
 
+              {/* ⚠ SHOWN, NOT CHOSEN. This was a three-button picker and a
+                  warning that the choice was permanent. The HOST sets the room's
+                  lines now, so there is nothing to pick and nothing to warn
+                  about — the team is told what it will play before it commits a
+                  name, which is the part that was actually useful. */}
               <div>
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Your coverage lines</span>
-                {/* ⚠ SAID BEFORE THE CHOICE IS MADE, not discovered after. The
-                    transport refuses a later change, so the screen must not
-                    imply one is possible. */}
-                <p className="mt-1 text-xs text-amber-700">
-                  Chosen once. Your pool's history and claims are built from these, so they cannot be changed after you join.
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coverage lines</span>
+                <p className="mt-1 text-xs text-slate-400">
+                  Set by the host for this game. Your pool's history and claims are built from these.
                 </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {/* ⚠ ALL THREE, ALWAYS. The host no longer offers a menu — see
-                      HostCreateScreen — so the choice is the team's alone. */}
-                  {LINE_ORDER.map(l => (
-                    <button
+                <div className="mt-2 flex flex-wrap gap-2" data-testid="room-lines">
+                  {(room.lines ?? []).map(l => (
+                    <span
                       key={l}
-                      type="button"
-                      data-testid={`pick-line-${l}`}
-                      onClick={() => setLineDraft(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l])}
-                      className={`rounded-lg border px-3 py-1.5 text-sm ${
-                        lineDraft.includes(l)
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-slate-300 bg-white text-slate-600'
-                      }`}
+                      data-testid={`room-line-${l}`}
+                      className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm text-slate-700"
                     >
                       {LINE_FULL_NAME[l]}
-                    </button>
+                    </span>
                   ))}
                 </div>
-                {lineDraft.length === 0 && (
-                  <p className="mt-2 text-xs text-slate-400">Pick at least one line.</p>
-                )}
               </div>
 
               <button
                 type="button"
                 data-testid="join-team"
-                disabled={nameDraft.trim().length === 0 || lineDraft.length === 0 || claiming !== null}
-                onClick={() => { void enter(nameDraft.trim(), lineDraft); }}
+                disabled={nameDraft.trim().length === 0 || claiming !== null}
+                onClick={() => { void enter(nameDraft.trim()); }}
                 className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
               >
                 {claiming !== null ? 'Joining…' : 'Join as this team'}
