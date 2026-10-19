@@ -1128,7 +1128,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   - SURPLUS, net income and the capital ratios that follow.
 // No rate, premium or pricing field moved: pricing reads the five played and
 // prior years, never the bulk.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v65.json');
+//
+// v66: LOSS ADJUSTMENT EXPENSE IS BOOKED (lossExpense.ts) — incurred, paid and
+// reserved as the rate's shares of the ground-up loss (ULAE alone on GL). The
+// control ran first: e8333a5 reproduced v65 exactly. SEVEN FIELDS ADDED on
+// every row — alaeIncurred, ulaeIncurred, laeIncurred, laePaid,
+// beginningLaeReserve, endingLaeReserve, actualLaeRatio — none removed. 24
+// fields move, each the LAE or what follows it:
+//   - UNDERWRITING spends it: underwritingIncome (e.g. 2,221,770 -> 414,000),
+//     netIncome, and actualCombinedRatio / combinedRatio, which now carry the
+//     LAE ratio (e.g. 0.856 -> 0.973).
+//   - THE BALANCE SHEET holds it: totalLiabilities rise by the loss expense
+//     reserve; the opening holds assets for it, so totalAssets, investments
+//     (beginning, ending, invested) and the income they earn rise with it.
+//   - SURPLUS and the capital ratios that follow (year 1's beginning surplus is
+//     the ruled opening and does not move — 240 of 300 beginning-surplus
+//     instances do, the later years).
+//   - surplusTieOutDifference reads 0 where it carried float noise; cash moves
+//     by one ulp on 87 instances.
+// NO loss, paid, reserve, development, rate or premium field moved.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v66.json');
 
 function seedOf(id: string) {
   let h = 5381;

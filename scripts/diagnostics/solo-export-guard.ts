@@ -732,7 +732,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // export names — the Events row and the Shock Events sheet alike — is the
 // schedule's, where before the headline named one world's and the sheet
 // another's. What follows is the region's exposure share and the losses on it.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v72.json');
+// v73: LOSS ADJUSTMENT EXPENSE IS BOOKED (see VALUE_IDENTITY_v66). All 24
+// exports move. The control ran first: e8333a5 reproduced v72 24 of 24; then
+// both sides were diffed row by row, by label. FOUR ROWS ADDED on every sheet:
+// Loss Adjustment Expenses Incurred (ALAE + ULAE), Loss Adjustment Expenses
+// Paid, Loss Expense Reserves, Actual LAE Ratio; none removed. The rows that
+// move: the combined ratio, net income, total liabilities, total assets and
+// the investments and their income, surplus and the capital ratios (Excess
+// Capital Status on 12 sheets), cash on 32. Never moved: net incurred loss,
+// paid losses, reserves, development, pure premium, every rate, admin and
+// reinsurance row.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v73.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

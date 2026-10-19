@@ -471,6 +471,14 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.netIncurredLoss),
       csvValue: r => roundDollars(r.netIncurredLoss),
     },
+    {
+      // Booked as a share of the ground-up loss incurred — see lossExpense.ts.
+      key: 'laeIncurred',
+      category: 'Losses',
+      label: 'Loss Adjustment Expenses Incurred (ALAE + ULAE)',
+      value: r => formatCurrency(r.laeIncurred),
+      csvValue: r => roundDollars(r.laeIncurred),
+    },
 
     // Expenses and income
     {
@@ -619,6 +627,20 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       label: 'Ending Net Reserve',
       value: r => formatCurrency(r.endingNetReserve),
       csvValue: r => roundDollars(r.endingNetReserve),
+    },
+    {
+      key: 'laePaid',
+      category: 'Reserves',
+      label: 'Loss Adjustment Expenses Paid',
+      value: r => formatCurrency(r.laePaid),
+      csvValue: r => roundDollars(r.laePaid),
+    },
+    {
+      key: 'endingLaeReserve',
+      category: 'Reserves',
+      label: 'Loss Expense Reserves',
+      value: r => formatCurrency(r.endingLaeReserve),
+      csvValue: r => roundDollars(r.endingLaeReserve),
     },
     {
       key: 'expectedNetUnpaidLoss',
@@ -855,6 +877,13 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       label: 'Actual Expense Ratio (member charge basis)',
       value: r => formatPct(r.actualExpenseRatio),
       csvValue: r => r.actualExpenseRatio,
+    },
+    {
+      key: 'actualLaeRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual LAE Ratio (member charge basis)',
+      value: r => formatPct(r.actualLaeRatio),
+      csvValue: r => r.actualLaeRatio,
     },
     {
       key: 'actualCombinedRatio',

@@ -59,6 +59,7 @@ import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState, getMemberExposure } from './lineHelpers';
 import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
+import { lossExpenseReserve } from './lossExpense';
 import { MEMBER_LEVEL, PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
 import { exposureFactor } from '../data/exposureTrend';
 import { withLifetimeDevelopment } from './hostDevelopment';
@@ -305,8 +306,10 @@ export function simulateLineCandidate(
             [line]: {
               ...ls,
               surplus: targetSurplus,
-              // surplus = cash + invested − netReserve ⇒ invested = surplus + netReserve − cash
-              investedAssets: targetSurplus + ls.netUnpaidReserve - lineCash,
+              // surplus = cash + invested − netReserve − LAE reserve
+              //   ⇒ invested = surplus + netReserve + LAE reserve − cash
+              investedAssets: targetSurplus + ls.netUnpaidReserve
+                + lossExpenseReserve(line, ls.reserveCohorts ?? []) - lineCash,
             },
           },
         },
@@ -475,7 +478,8 @@ function runLinePreGame(
 // split needs no age arithmetic and cannot drift from what the bootstrap drew.
 //
 // ⚠ invested IS RE-DERIVED FROM THE IDENTITY, not adjusted. surplus = cash +
-// invested - netReserve, so invested = surplus + netReserve - cash. Writing
+// invested - netReserve - LAE reserve, so invested = surplus + netReserve + LAE
+// reserve - cash. Writing
 // surplus without re-deriving invested would leave the balance sheet not
 // balancing, which every exhibit reads.
 // ============================================================================
@@ -541,7 +545,9 @@ function applySetOpening(
     reserveDevelopment,
     netUnpaidReserve,
     surplus,
-    investedAssets: surplus + netUnpaidReserve - lineCash,
+    // ⚠ THE LOSS EXPENSE RESERVE IS A LIABILITY TOO, so the opening holds assets
+    // for it: the ruled surplus is surplus OVER both reserves.
+    investedAssets: surplus + netUnpaidReserve + lossExpenseReserve(line, reserveCohorts) - lineCash,
   };
 }
 

@@ -1770,6 +1770,18 @@ interface ResultRowFields {
   netPaidLosses: number;
   endingNetReserve: number;
 
+  // LOSS ADJUSTMENT EXPENSE — booked as a share of the GROUND-UP loss, what the
+  // rate charges it on (lossExpense.ts): ALAE with the losses (none on GL, whose
+  // losses include it), ULAE as claims are handled. Incurred = paid + the change
+  // in the loss expense reserve, exactly; the reserve is a liability.
+  alaeIncurred: number;
+  ulaeIncurred: number;
+  laeIncurred: number;
+  laePaid: number;
+  beginningLaeReserve: number;
+  /** LOSS EXPENSE RESERVES — the LAE still to pay on the unpaid losses. */
+  endingLaeReserve: number;
+
   // ⚠ CASE AND IBNR — A DERIVED PRESENTATION, READ BY NOTHING ECONOMIC.
   // Claims book at full cost, so the engine has no unreported inventory; these
   // divide the reserve the way an actuarial exhibit does, from the recorded
@@ -1990,7 +2002,8 @@ interface ResultRowFields {
   // basis, so it may not be added to anything: a reported figure only.
   actualLossRatioRetainedPremium: number;
   actualExpenseRatio: number;            // MEMBER-CHARGE basis
-  actualCombinedRatio: number;           // member-charge basis on both terms
+  actualLaeRatio: number;                // LAE incurred over the member charge
+  actualCombinedRatio: number;           // member-charge basis: loss + LAE + expense
   combinedRatio: number;
   lossRatio: number;
   expenseRatio: number;

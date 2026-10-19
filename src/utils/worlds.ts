@@ -214,14 +214,15 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 export function deriveLineRatios(r: Pick<LineResultSet,
   'poolPremium' | 'selectedFundingCLF' | 'poolPremiumAndAdminExpense' | 'totalMemberCharge' | 'adminExpense'
   | 'reinsuranceCost' | 'netIncurredLoss' | 'poolLayerLoss' | 'reserveRiskMarginNeeded' | 'excessAvailableSurplus'
-  | 'activeExposure' | 'totalMarketExposure'> & { bookedGrossUltimate?: number; grossUltimateLoss: number }) {
+  | 'activeExposure' | 'totalMarketExposure' | 'laeIncurred'> & { bookedGrossUltimate?: number; grossUltimateLoss: number }) {
   const funded = fundedNetExpectedLoss({ poolPremium: r.poolPremium, selectedFundingCLF: r.selectedFundingCLF });
   const expectedLossRatio = funded / Math.max(r.poolPremiumAndAdminExpense, 1);
   const expectedLossRatioMemberBasis = funded / Math.max(r.totalMemberCharge, 1);
   const expectedExpenseRatio = (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
   const actualLossRatio = r.netIncurredLoss / Math.max(r.totalMemberCharge, 1);
   const actualExpenseRatio = (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
-  const actualCombinedRatio = actualLossRatio + actualExpenseRatio;
+  const actualLaeRatio = r.laeIncurred / Math.max(r.totalMemberCharge, 1);
+  const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
   const excessCapitalRatio = r.reserveRiskMarginNeeded > 0
     ? r.excessAvailableSurplus / r.reserveRiskMarginNeeded
     : null;
@@ -234,6 +235,7 @@ export function deriveLineRatios(r: Pick<LineResultSet,
     actualLossRatioPricingBasis: r.netIncurredLoss / Math.max(r.poolPremiumAndAdminExpense, 1),
     actualLossRatioRetainedPremium: r.netIncurredLoss / Math.max(r.poolPremium, 1),
     actualExpenseRatio,
+    actualLaeRatio,
     actualCombinedRatio,
     combinedRatio: actualCombinedRatio,
     lossRatio: actualLossRatio,
@@ -252,7 +254,7 @@ export function deriveLineRatios(r: Pick<LineResultSet,
 export const LINE_RATIO_FIELDS = [
   'expectedLossRatio', 'expectedLossRatioMemberBasis', 'expectedExpenseRatio', 'expectedCombinedRatio',
   'actualLossRatio', 'actualLossRatioPricingBasis', 'actualLossRatioRetainedPremium', 'actualExpenseRatio',
-  'actualCombinedRatio', 'combinedRatio', 'lossRatio', 'expenseRatio', 'poolLayerLossRatio',
+  'actualLaeRatio', 'actualCombinedRatio', 'combinedRatio', 'lossRatio', 'expenseRatio', 'poolLayerLossRatio',
   'totalLossRatioGross', 'excessCapitalRatio', 'capitalAdequacyRatio', 'capitalAdequacyStatus', 'marketShare',
 ] as const;
 

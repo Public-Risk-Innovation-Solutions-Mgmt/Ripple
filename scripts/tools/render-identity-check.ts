@@ -881,7 +881,25 @@ const BASELINE = process.env.RENDER_BASELINE
 // reproduced v47 242 of 242. Every moved screen was diffed word by word and
 // every change is a figure — paid losses, reserves, investments and their
 // income, development, surplus and the ratios that follow; not one word moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v48.json');
+// v49: LOSS ADJUSTMENT EXPENSE IS BOOKED (see VALUE_IDENTITY_v66). 222 of 242
+// moved — 111 y0 and 111 y2; no key added or removed. The control ran first:
+// e8333a5, served on 4174, reproduced v48 242 of 242. Every moved screen was
+// diffed word by word. y0 moves because the pre-game books LAE too — its year
+// 0 net income, surplus and capital status on the history screens (GL's audit
+// capital status Strong -> Adequate) — and the opening holds assets for the
+// loss expense reserve. The words that move:
+//   - ADDED: "Loss adjustment expenses" on the Financial Statements and the
+//     audit (ALAE + ULAE); "Loss expense reserve — current / noncurrent
+//     portion" on both; the audit's LAE terms in total expenses, the cash
+//     reconstruction ("loss adjustment expense paid"), the back-solved net
+//     incurred and the combined ratio ("LAE ratio"); its pool sums for LAE
+//     incurred, paid and reserve; the Result Spreadsheet's four LAE rows.
+//   - RELABELLED: "Unpaid loss and LAE reserve" -> "Unpaid loss reserve", now
+//     that LAE is its own line; the liability subtotals now sum both.
+//   - FOLLOWING THE FIGURES: Results narrative signs ("paid" / "did not pay"),
+//     and one Property dividend shown "(blocked)" — the line carried a negative
+//     surplus into the year.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v49.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

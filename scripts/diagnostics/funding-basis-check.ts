@@ -12,7 +12,8 @@
 //  1. poolPremium / (expectedLoss - expectedCeded) == CLF exactly. Under the old
 //     gross basis this ratio was CLF against expectedLoss itself.
 //  2. The underwriting identity still holds EXACTLY: at defaults,
-//     underwritingIncome == poolPremium - netIncurredLoss. What changes is not
+//     underwritingIncome == poolPremium - netIncurredLoss - laeIncurred (LAE
+//     since it is booked). What changes is not
 //     the identity but its expectation.
 //  3. E[underwriting income] at CLF 1.000 is now ~ZERO rather than ~E[ceded].
 //     This is the whole point: the pool no longer banks the ceded portion.
@@ -63,7 +64,7 @@ function check(ok: boolean, label: string, detail = '') {
 
 interface Row {
   poolPremium: number; adminExpense: number; expectedLoss: number; reinsuranceCost: number;
-  totalMemberCharge: number; netIncurredLoss: number; underwritingIncome: number;
+  totalMemberCharge: number; netIncurredLoss: number; laeIncurred: number; underwritingIncome: number;
   activeExposure: number; purePremiumPer100: number; ratePer100: number; clf: number;
   netPurePremiumPer100: number; rcIncentive: number;
 }
@@ -99,7 +100,7 @@ for (let g = 0; g < GAMES; g++) {
       rows[line].push({
         poolPremium: r.poolPremium, adminExpense: r.adminExpense, expectedLoss: r.expectedLoss,
         reinsuranceCost: r.reinsuranceCost, totalMemberCharge: r.totalMemberCharge,
-        netIncurredLoss: r.netIncurredLoss, underwritingIncome: r.underwritingIncome,
+        netIncurredLoss: r.netIncurredLoss, laeIncurred: r.laeIncurred, underwritingIncome: r.underwritingIncome,
         activeExposure: r.activeExposure, purePremiumPer100: r.purePremiumPer100,
         ratePer100: r.ratePer100, clf: r.selectedFundingCLF,
         netPurePremiumPer100: r.netPurePremiumPer100,
@@ -197,9 +198,11 @@ for (const l of LINES) {
 
 console.log('\n--- 3. THE UNDERWRITING IDENTITY STILL HOLDS EXACTLY ---');
 for (const l of LINES) {
-  const diff = rows[l].map(r => Math.abs(r.underwritingIncome - (r.poolPremium - r.netIncurredLoss)));
+  // ⚠ LESS LAE SINCE IT IS BOOKED: the pool premium funds the loss AND its
+  // adjustment expense (the pure premium carries both), and both are spent.
+  const diff = rows[l].map(r => Math.abs(r.underwritingIncome - (r.poolPremium - r.netIncurredLoss - r.laeIncurred)));
   check(Math.max(...diff) < 1e-6,
-    `${l}: underwritingIncome == poolPremium - netIncurredLoss`, `max abs diff $${Math.max(...diff).toExponential(2)}`);
+    `${l}: underwritingIncome == poolPremium - netIncurredLoss - laeIncurred`, `max abs diff $${Math.max(...diff).toExponential(2)}`);
 }
 
 console.log('\n--- 4. E[UW INCOME] AT CLF 1.000 IS NOW ~ZERO, NOT E[CEDED] ---');

@@ -183,7 +183,8 @@ console.log('  no longer reproduces from its stated parts has had one side chang
       t('expectedExpenseRatio', r.expectedExpenseRatio, (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1));
       t('actualLossRatio', r.actualLossRatio, r.netIncurredLoss / Math.max(r.totalMemberCharge, 1));
       t('actualExpenseRatio', r.actualExpenseRatio, (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1));
-      t('actualCombinedRatio', r.actualCombinedRatio, r.actualLossRatio + r.actualExpenseRatio);
+      t('actualLaeRatio', r.actualLaeRatio, r.laeIncurred / Math.max(r.totalMemberCharge, 1));
+      t('actualCombinedRatio', r.actualCombinedRatio, r.actualLossRatio + r.actualLaeRatio + r.actualExpenseRatio);
       // The member-charge identity every one of the above leans on.
       t('totalMemberCharge identity', r.totalMemberCharge, r.poolPremium + r.adminExpense + r.reinsuranceCost);
     }

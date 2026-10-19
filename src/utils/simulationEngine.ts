@@ -154,6 +154,7 @@ import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment }
 import { bookMovementResult, moveBook } from './bookUnderwriting';
 import { ordinaryLossCostPer100, ordinaryLossYear, ordinaryMemberRecords, type OrdinaryLossYear } from './ordinaryLoss';
 import { drawLargeLosses, firingKey, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { laeForYear, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
 import { simulateMemberMovement } from './membershipEngine';
@@ -2471,6 +2472,14 @@ export function processLineYear(
     endingNetReserve -
     beginningNetReserve;
 
+  // ⚠ LOSS ADJUSTMENT EXPENSE, BOOKED. The rate charges ALAE and ULAE on the
+  // ground-up loss cost; here the pool spends them — incurred as a share of the
+  // year's gross incurred loss, paid as the losses are paid, and reserved for
+  // on what is still unpaid. A function of the cohorts (lossExpense.ts), so
+  // paid + the change in reserve is incurred exactly and there is no second
+  // stock to keep.
+  const lae = laeForYear(line, lineState.reserveCohorts, allCohorts);
+
   // Underwriting Income excludes investment income: it is the pool's premium/assessment
   // revenue net of losses (incl. reserve development), expenses, risk control, reinsurance,
   // and dividends returned to members. Assessments and dividends are treated as offsets to
@@ -2479,6 +2488,7 @@ export function processLineYear(
     totalMemberCharge +
     assessments -
     netIncurredLoss -
+    lae.laeIncurred -
     operatingExpense -
     riskControlInvestment -
     reinsuranceCost -
@@ -2501,6 +2511,7 @@ export function processLineYear(
     totalMemberCharge +
     assessments -
     netPaidLossesThisYear -
+    lae.laePaid -
     operatingExpense -
     riskControlInvestment -
     reinsuranceCost -
@@ -2536,6 +2547,7 @@ export function processLineYear(
 
   const totalLiabilities =
     endingNetReserve +
+    lae.endingLaeReserve +
     unearnedPremium;
 
   const endingSurplus = totalAssets - totalLiabilities;
@@ -2731,7 +2743,9 @@ export function processLineYear(
   // surplus path and in the two-part loss ratio, not here.
   const actualExpenseRatio =
     (adminExpense + reinsuranceCost) / Math.max(totalMemberCharge, 1);
-  const actualCombinedRatio = actualLossRatio + actualExpenseRatio;
+  // LAE is its own ratio, beside the loss ratio and inside the combined one.
+  const actualLaeRatio = lae.laeIncurred / Math.max(totalMemberCharge, 1);
+  const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
 
   const combinedRatio = actualCombinedRatio;
   const lossRatio = actualLossRatio;
@@ -3012,6 +3026,13 @@ export function processLineYear(
     netPaidLosses: netPaidLossesThisYear,
     endingNetReserve,
 
+    alaeIncurred: lae.alaeIncurred,
+    ulaeIncurred: lae.ulaeIncurred,
+    laeIncurred: lae.laeIncurred,
+    laePaid: lae.laePaid,
+    beginningLaeReserve: lae.beginningLaeReserve,
+    endingLaeReserve: lae.endingLaeReserve,
+
     caseReservesNet: reserveSplitTotals.caseNet,
     ibnrNet: reserveSplitTotals.ibnrNet,
     caseReservesGross: reserveSplitTotals.caseGross,
@@ -3092,6 +3113,7 @@ export function processLineYear(
     poolLayerLossRatio,
     totalLossRatioGross,
     actualExpenseRatio,
+    actualLaeRatio,
     actualCombinedRatio,
     combinedRatio,
     lossRatio,
@@ -3152,8 +3174,8 @@ export function processLineYear(
 // Each active line's share of the shared cash/other-assets pool. The weight is
 // exactly what makes the line's allocated slice of the shared pot reproduce its
 // own stored surplus (so the surplus rollforward ties out every year):
-//   slice_needed = surplus + netReserve − investedAssets
-// because surplus = [cash slice] + investedAssets − netReserve.
+//   slice_needed = surplus + netReserve + LAE reserve − investedAssets
+// because surplus = [cash slice] + investedAssets − netReserve − LAE reserve.
 // Stage 2.9 subtracts investedAssets
 // (each line's own portfolio is no longer part of the shared pot); before that,
 // the pot included investments and the weight was surplus + netReserve. The sum
@@ -3170,7 +3192,10 @@ function computeContributionShares(
   const raw = activeLines.map(line => {
     const ls = poolState.lines[line];
     const netReserve = Math.max(0, ls.netUnpaidReserve);
-    return ls.surplus + netReserve - ls.investedAssets;
+    // The loss expense reserve is a liability beside the loss reserve, so the
+    // line's cash slice carries it too — leaving it out shifts cash between
+    // lines and breaks every line's surplus tie-out.
+    return ls.surplus + netReserve + lossExpenseReserve(line, ls.reserveCohorts ?? []) - ls.investedAssets;
   });
   const total = raw.reduce((s, v) => s + v, 0);
   const shares = {} as Record<CoverageLine, number>;
@@ -4034,7 +4059,8 @@ export function aggregateLineResults(
   const actualLossRatioRetainedPremium =
     netIncurredLossSum / Math.max(addDollars('poolPremium'), 1);
   const actualExpenseRatio = (adminExpenseSum + reinsuranceCostSum) / Math.max(totalMemberChargeSum, 1);
-  const actualCombinedRatio = actualLossRatio + actualExpenseRatio;
+  const actualLaeRatio = addDollars('laeIncurred') / Math.max(totalMemberChargeSum, 1);
+  const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
 
   const excessCapitalRatio = reserveRiskMarginNeededSum > 0
     ? excessAvailableSurplusSum / reserveRiskMarginNeededSum
@@ -4315,10 +4341,17 @@ export function aggregateLineResults(
     poolLayerLossRatio: addDollars('poolLayerLoss') / Math.max(poolPremiumAndAdminExpenseSum, 1),
     totalLossRatioGross: addDollars('bookedGrossUltimate') / Math.max(totalMemberChargeSum, 1),
     actualExpenseRatio,
+    actualLaeRatio,
     actualCombinedRatio,
     combinedRatio: actualCombinedRatio,
     lossRatio: actualLossRatio,
     expenseRatio: actualExpenseRatio,
+    alaeIncurred: addDollars('alaeIncurred'),
+    ulaeIncurred: addDollars('ulaeIncurred'),
+    laeIncurred: addDollars('laeIncurred'),
+    laePaid: addDollars('laePaid'),
+    beginningLaeReserve: addDollars('beginningLaeReserve'),
+    endingLaeReserve: addDollars('endingLaeReserve'),
 
     narrativeExplanation: '',
     byLine,

@@ -164,14 +164,16 @@ export const PRIOR_DEVELOPMENT_DEFAULTS: PerLine<number> = {
 // ============================================================================
 
 /**
- * ALAE — allocated loss adjustment expense, as a share of loss cost.
- * ⚠ NOT YET USED — read from commit 2 onward.
+ * ALAE — allocated loss adjustment expense, as a share of loss cost. Charged in
+ * the rate (newPurePremium) and booked as a cost on the ground-up loss
+ * (lossExpense.ts); neither on GL, whose losses already include it.
  */
 export const ALAE_OF_LOSS_COST: PerLine<number> = { WC: 0.083, GL: 0.083, Property: 0.083 };
 
 /**
- * ULAE — unallocated loss adjustment expense, as a share of loss cost.
- * ⚠ NOT YET USED — read from commit 2 onward.
+ * ULAE — unallocated loss adjustment expense, as a share of loss cost. Charged
+ * in the rate and booked as claims-handling cost, paid as losses are paid
+ * (lossExpense.ts).
  */
 export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.083, GL: 0.083, Property: 0.083 };
 
@@ -1090,11 +1092,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['ALAE', {
         value: perLine(ALAE_OF_LOSS_COST, 3), unit: 'share of loss cost',
-        what: 'Allocated loss adjustment expense.', basis: 'CHOSEN', notYetUsed: true,
+        what: 'Allocated loss adjustment expense. Charged in the rate on the ground-up loss cost and booked '
+          + 'as a cost: incurred as this share of the ground-up loss incurred, paid on the loss pattern, the '
+          + 'unpaid part held as the loss expense reserve.', basis: 'CHOSEN',
+        note: 'Not on GL, whose fitted severities already include ALAE — neither charged nor booked there.',
       }],
       ['ULAE', {
         value: perLine(ULAE_OF_LOSS_COST, 3), unit: 'share of loss cost',
-        what: 'Unallocated loss adjustment expense.', basis: 'CHOSEN', notYetUsed: true,
+        what: 'Unallocated loss adjustment expense — claims handling. Charged in the rate on the ground-up '
+          + 'loss cost and booked as a cost: paid as losses are paid, the unpaid part held as the loss '
+          + 'expense reserve.', basis: 'CHOSEN',
       }],
       ['Admin, fixed', {
         value: perLine(ADMIN_FIXED_PER_YEAR, 0), unit: 'dollars per year',

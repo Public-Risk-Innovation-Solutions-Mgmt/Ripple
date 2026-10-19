@@ -252,6 +252,11 @@ const FAST: string[] = [
                                      //         averaged history, averaged dollars are the mean and
                                      //         ratios come from averaged parts, two identical teams
                                      //         match exactly — each check with a failing control
+  'lae-booking-check',               //  15s   LAE is booked: incurred, paid and reserved as the rate's
+                                     //         shares of the ground-up loss (ULAE alone on GL), the
+                                     //         reserve rolls, the balance sheet holds it, underwriting
+                                     //         spends it, the opening holds assets for it — each with a
+                                     //         control — and the pool's underwriting with shocks off
   'solo-shock-schedule-check',       //  15s   a solo game draws its shock schedule once, by the
                                      //         host's Randomise rule on its own stream: every world
                                      //         fires the same events in the same years with its own

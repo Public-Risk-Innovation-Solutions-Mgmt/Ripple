@@ -76,8 +76,8 @@ NOT YET USED — read from commit 2 onward. Every one is CHOSEN and is a startin
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
-| ALAE | `WC 0.083 · GL 0.083 · Property 0.083` | share of loss cost | CHOSEN · not yet used | Allocated loss adjustment expense. |
-| ULAE | `WC 0.083 · GL 0.083 · Property 0.083` | share of loss cost | CHOSEN · not yet used | Unallocated loss adjustment expense. |
+| ALAE | `WC 0.083 · GL 0.083 · Property 0.083` | share of loss cost | CHOSEN | Allocated loss adjustment expense. Charged in the rate on the ground-up loss cost and booked as a cost: incurred as this share of the ground-up loss incurred, paid on the loss pattern, the unpaid part held as the loss expense reserve. Not on GL, whose fitted severities already include ALAE — neither charged nor booked there. |
+| ULAE | `WC 0.083 · GL 0.083 · Property 0.083` | share of loss cost | CHOSEN | Unallocated loss adjustment expense — claims handling. Charged in the rate on the ground-up loss cost and booked as a cost: paid as losses are paid, the unpaid part held as the loss expense reserve. |
 | Admin, fixed | `WC 1078586 · GL 1751022 · Property 3398817` | dollars per year | CHOSEN · not yet used | The fixed half of administration. Calibrated so opening admin equals today's 15% load, half of it fixed. Measured over 12 games at year 1. |
 | Admin, per exposure | `WC 0.275138 · GL 0.459324 · Property 0.018236` | dollars per $100 of exposure | CHOSEN · not yet used | The variable half of administration. The same calibration: 0.5 x 0.15 x the opening pure premium per $100. |
 | Profit and contingency | `0.05` | share of rate | CHOSEN · not yet used | May be set to 0. |
