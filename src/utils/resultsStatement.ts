@@ -389,12 +389,8 @@ export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStat
   // Balance sheet: each year's year-end; the last pre-game year's is the opening.
   const opening = openingPosition(gs, scope);
   const positionAt = (r: ResultSet): Position => (r.yearNumber === 0 ? opening : positionOf(at(r, scope)!));
-  // ⚠ PAID-IN CAPITAL IS THE SURPLUS THE POOL STARTED THE PRE-GAME WITH (Prompt
-  // A commit 2), so earned surplus builds from zero through the pre-game. It was
-  // the opening surplus, which read the pre-game's own earnings as negative.
-  const paidIn = preGame.length > 0 ? at(preGame[0], scope)?.beginingSurplus : opening.surplus;
   const balance = calendar('balance', 'Balance Sheet at Year-End', 'each year at its year-end; the last pre-game year at the opening',
-    balanceRows(gs, scope, paidIn,
+    balanceRows(gs, scope, opening.surplus,
       hasCalendarPrior ? { position: positionAt(rolled[rolled.length - 1]), premium: operatingAll[first - 1].premium } : null,
       window.map((r, i) => ({ yearNumber: r.yearNumber, position: positionAt(r), premium: operatingAll[first + i].premium }))));
 
