@@ -162,10 +162,11 @@ function operatingRows(prior: OperatingYear | null, cols: OperatingYear[]): Stat
 // ---------------------------------------------------------------------------
 // BALANCE SHEET AT YEAR-END. Each year's own year-end, read from its result —
 // except the last pre-game year (2025 for a 2026 start), whose year-end is THE
-// OPENING: the engine re-sets the pre-game's surplus at the opening (the set
-// opening, priorHistoryEngine), and the opening is what year 1 begins from.
-// It is read as year 1's beginning position, or the opening state itself
-// before any year is played.
+// OPENING, which is what year 1 begins from. Its surplus is that year's own
+// year-end — the pre-game starts from the surplus that lands it there — but the
+// set opening swaps the seed reserves for bulk cohorts (priorHistoryEngine), so
+// its reserves and invested assets are the opening's. It is read as year 1's
+// beginning position, or the opening state itself before any year is played.
 // ---------------------------------------------------------------------------
 interface Position { invested?: number; cash?: number; lossRes?: number; laeRes?: number; other?: number; surplus?: number }
 
@@ -429,7 +430,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStat
   const notes = [
     'Dollars are the average of the ten worlds; every ratio is worked out from those averaged figures. The surplus range is the one per-world figure; the pre-game ran once, before the worlds.',
     `The most recent ${STATEMENT_WINDOW_YEARS} years are shown as their own columns; every older year collects in Prior — flows summed, balances at the end of the last year in it. Total covers the ${STATEMENT_WINDOW_YEARS} years shown: the sum for flows, the latest year for balances, ratios and changes.`,
-    `The ${preGame.length} pre-game years are the pool's played history. The engine re-sets the pre-game's surplus twice — at the start of its last three years, and again at the opening — so surplus does not roll across those two year-ends. The last pre-game year's year-end is shown as the opening, which is what year 1 begins from.`,
+    `The ${preGame.length} pre-game years are the pool's played history. Surplus moves through them only by each year's income, assessments and dividends, from a starting surplus chosen so the last of them ends at the set opening. That year's year-end is shown as the opening, which is what year 1 begins from; its reserves are the opening's, older years included.`,
     'In the Gross, Ceded and Net blocks Prior holds every older program year, the bulk reserves from before the pre-game included. Those carry no premium, so Prior has no Loss and LAE Ratio.',
     'Loss adjustment expense is the rate\'s share of the ground-up loss: paid with the losses, its reserve held in IBNR. The reinsurer reimburses none of it, so it is in gross and net alike.',
   ];
