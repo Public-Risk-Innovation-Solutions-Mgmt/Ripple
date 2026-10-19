@@ -321,12 +321,27 @@ export const SAVE_BUDGET_CHARS = 1_500_000;
  */
 export const WORLD_ROW_STRIPPED_KEYS: readonly string[] = ['reserveSplitByYear'];
 
-function slimRow<T extends object>(r: T): T {
+/**
+ * Keys dropped from the rows of every world BUT THE FIRST, once its year has
+ * settled (Prompt B commit 1): the individual claim and occurrence lists.
+ *
+ * ⚠ WORLD 1 KEEPS THEM: the claims download reads world 1's claims and no
+ * other's. Nothing reads another world's lists after the year settles — the
+ * averaged row carries no claims, the engine develops a claim from its
+ * cohort's register (developingClaims, which is pool state and is kept), and
+ * the screens read a world's summary figures (its ending surplus for the
+ * spread, its row figures for the audit), all of which stay. Measured at year
+ * ten: about 5% of the stored save.
+ */
+export const OTHER_WORLD_ROW_STRIPPED_KEYS: readonly string[] = ['claims', 'occurrences'];
+
+function slimRow<T extends object>(r: T, extra: readonly string[] = []): T {
   const out = { ...r } as Record<string, unknown>;
   for (const k of WORLD_ROW_STRIPPED_KEYS) delete out[k];
+  for (const k of extra) delete out[k];
   if (out.byLine && typeof out.byLine === 'object') {
     out.byLine = Object.fromEntries(Object.entries(out.byLine as Record<string, object>)
-      .map(([l, row]) => [l, slimRow(row)]));
+      .map(([l, row]) => [l, slimRow(row, extra)]));
   }
   return out as T;
 }
@@ -336,7 +351,13 @@ function slimWorlds(env: SaveEnvelope): SaveEnvelope {
   if (!gs?.worlds) return env;
   return {
     ...env,
-    gameState: { ...gs, worlds: gs.worlds.map(w => ({ ...w, lockedResults: w.lockedResults.map(slimRow) })) },
+    gameState: {
+      ...gs,
+      worlds: gs.worlds.map((w, i) => ({
+        ...w,
+        lockedResults: w.lockedResults.map(r => slimRow(r, i === 0 ? [] : OTHER_WORLD_ROW_STRIPPED_KEYS)),
+      })),
+    },
   };
 }
 

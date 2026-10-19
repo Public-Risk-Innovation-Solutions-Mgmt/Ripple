@@ -58,7 +58,9 @@
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
-import { WORLD_ROW_STRIPPED_KEYS } from '../../src/utils/gameSave';
+import { OTHER_WORLD_ROW_STRIPPED_KEYS, WORLD_ROW_STRIPPED_KEYS } from '../../src/utils/gameSave';
+import { buildAnnualStatement } from '../../src/utils/resultsStatement';
+import { surplusRange } from '../../src/utils/worlds';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import {
@@ -97,9 +99,39 @@ function advance(gs: GameState, y: number): GameState {
   };
 }
 
-/** A world's rows without the keys the save drops from them (WORLD_ROW_STRIPPED_KEYS). */
-function slimWorlds(ws: GameState['worlds']): unknown {
-  return JSON.parse(JSON.stringify(ws ?? null, (k, v) => (WORLD_ROW_STRIPPED_KEYS.includes(k) ? undefined : v)));
+/**
+ * The worlds without the keys the save drops from them: WORLD_ROW_STRIPPED_KEYS
+ * from every world's rows, and OTHER_WORLD_ROW_STRIPPED_KEYS (the claim and
+ * occurrence lists, Prompt B commit 1) from the rows of every world but the
+ * first. Cohort registers are pool state and are compared in full.
+ */
+function slimWorlds(ws: GameState['worlds']): unknown[] {
+  const strip = (x: unknown, keys: readonly string[]) =>
+    JSON.parse(JSON.stringify(x ?? null, (k, v) => (keys.includes(k) ? undefined : v)));
+  return (ws ?? []).map((w, i) => ({
+    ...w,
+    lockedResults: strip(w.lockedResults, i === 0 ? WORLD_ROW_STRIPPED_KEYS : [...WORLD_ROW_STRIPPED_KEYS, ...OTHER_WORLD_ROW_STRIPPED_KEYS]),
+    poolState: strip(w.poolState, []),
+  }));
+}
+
+/**
+ * WHAT A PLAYER SEES, AT THE MOMENT OF SAVING, BEFORE AND AFTER THE RELOAD —
+ * every figure a screen reads: the averaged rows, the pre-game, the pool
+ * state, the spread across the worlds at every year and scope, the Annual
+ * Statement at every scope, and world 1 whole (the claims download reads its
+ * registers). The worlds' other rows are compared too, less the claim lists
+ * the save drops from them, which nothing reads.
+ */
+function playerView(gs: GameState): unknown {
+  const scopes = ['pool', ...LINES] as const;
+  return JSON.parse(JSON.stringify({
+    lockedResults: gs.lockedResults, priorHistory: gs.priorHistory, earlyPreGameHistory: gs.earlyPreGameHistory,
+    poolState: gs.poolState, world1: gs.worlds?.[0],
+    otherWorlds: slimWorlds(gs.worlds).slice(1),
+    spread: gs.lockedResults.flatMap(r => scopes.map(s => surplusRange(gs, r.yearNumber, s === 'pool' ? undefined : s))),
+    statements: scopes.map(s => buildAnnualStatement(gs, s)),
+  }, (k, v) => (WORLD_ROW_STRIPPED_KEYS.includes(k) ? undefined : v)));
 }
 
 /**
@@ -154,6 +186,8 @@ console.log('=== SAVE ROUND TRIP ===');
 console.log(`${GAMES} games, ${YEARS} years, save+restore after year ${SAVE_AT}, all three lines.\n`);
 
 let compared = 0;
+let viewsSame = 0;
+let viewControlCaught = false;
 let strippedPresentA = 0;
 let strippedPresentB = 0;
 
@@ -181,6 +215,30 @@ for (let g = 0; g < GAMES; g++) {
   // ⚠ THE RESTORED OBJECT IS USED AS-IS. No repair, no re-hydration, no
   // reaching back into `b`. If the engine needs something JSON cannot carry —
   // a Set, a Map, a Date, an undefined that mattered — it has to fail here.
+  // --- what the player sees, before and after the reload ------------------
+  {
+    const view: string[] = [];
+    diff(playerView(b), playerView(restored), `g${g}.view`, view);
+    if (view.length > 0) fail(`g${g}: the reloaded save does not show what the game showed — ${view[0]}`);
+    else viewsSame++;
+    // The strip itself: world 1 keeps its claim lists, the others carry none.
+    const lists = (gs: GameState, i: number) => (gs.worlds?.[i]?.lockedResults ?? [])
+      .reduce((t, r) => t + LINES.reduce((u, l) => u + (r.byLine[l]?.claims ? 1 : 0), 0), 0);
+    if (lists(restored, 0) !== lists(b, 0)) fail(`g${g}: world 1 lost claim lists in the save`);
+    const others = (b.worlds ?? []).slice(1).reduce((t, _w, i) => t + lists(restored, i + 1), 0);
+    if (others !== 0) fail(`g${g}: ${others} claim lists of worlds 2-${b.worlds?.length} survived the save`);
+    // THE CONTROL: a restored save missing world 1's claims must be caught.
+    if (g === 0) {
+      const broken = { ...restored, worlds: restored.worlds?.map((w, i) => (i !== 0 ? w : {
+        ...w, lockedResults: w.lockedResults.map(r => ({ ...r, byLine: Object.fromEntries(Object.entries(r.byLine)
+          .map(([l, lr]) => [l, { ...lr, claims: undefined }])) as typeof r.byLine })),
+      })) };
+      const ctl: string[] = [];
+      diff(playerView(b), playerView(broken), 'control', ctl);
+      viewControlCaught = ctl.length > 0;
+    }
+  }
+
   let c = restored;
   for (let y = SAVE_AT + 1; y <= YEARS; y++) c = advance(c, y);
 
@@ -242,7 +300,9 @@ if (newLossEngineRuns()) {
   // games' saved years carry none. Seeds are searched, in order, for the first
   // whose saved years do — bounded, and named in the output.
   // Every world's rows: the registers are the worlds' (an averaged row has none).
-  const all = (gs: GameState) => [...gs.priorHistory, ...(gs.worlds?.flatMap(w => w.lockedResults) ?? gs.lockedResults)];
+  // ⚠ WORLD 1'S ROWS SINCE PROMPT B COMMIT 1: the save keeps the registers of
+  // world 1 only (the claims download reads it), and drops the others'.
+  const all = (gs: GameState) => [...gs.priorHistory, ...(gs.worlds?.[0].lockedResults ?? gs.lockedResults)];
   const has = (gs: GameState) => all(gs).some(r => LINES.some(l => (r.byLine[l]?.claims?.length ?? 0) > 0));
   let a = start('RT0', 3_300_000), searched = 0;
   for (let g = 0; g < 40; g++) {
@@ -295,6 +355,30 @@ if (newLossEngineRuns()) {
   const restored = (unpackSave(packSave({
     gameState: b, startingFinancials: {}, initialMembers: [], currentDecisions: b.currentDecisions,
   })) as { gameState: GameState }).gameState;
+  // --- what the player sees, before and after the reload ------------------
+  {
+    const view: string[] = [];
+    diff(playerView(b), playerView(restored), `g${g}.view`, view);
+    if (view.length > 0) fail(`g${g}: the reloaded save does not show what the game showed — ${view[0]}`);
+    else viewsSame++;
+    // The strip itself: world 1 keeps its claim lists, the others carry none.
+    const lists = (gs: GameState, i: number) => (gs.worlds?.[i]?.lockedResults ?? [])
+      .reduce((t, r) => t + LINES.reduce((u, l) => u + (r.byLine[l]?.claims ? 1 : 0), 0), 0);
+    if (lists(restored, 0) !== lists(b, 0)) fail(`g${g}: world 1 lost claim lists in the save`);
+    const others = (b.worlds ?? []).slice(1).reduce((t, _w, i) => t + lists(restored, i + 1), 0);
+    if (others !== 0) fail(`g${g}: ${others} claim lists of worlds 2-${b.worlds?.length} survived the save`);
+    // THE CONTROL: a restored save missing world 1's claims must be caught.
+    if (g === 0) {
+      const broken = { ...restored, worlds: restored.worlds?.map((w, i) => (i !== 0 ? w : {
+        ...w, lockedResults: w.lockedResults.map(r => ({ ...r, byLine: Object.fromEntries(Object.entries(r.byLine)
+          .map(([l, lr]) => [l, { ...lr, claims: undefined }])) as typeof r.byLine })),
+      })) };
+      const ctl: string[] = [];
+      diff(playerView(b), playerView(broken), 'control', ctl);
+      viewControlCaught = ctl.length > 0;
+    }
+  }
+
   let c = restored;
   for (let y = SAVE_AT + 1; y <= YEARS; y++) c = advance(c, y);
 
@@ -490,6 +574,12 @@ console.log(`  ${regenFail.length === 0 ? 'every regenerated claim and occurrenc
 }
 
 // ============================================================================
+console.log('');
+console.log('WHAT A PLAYER SEES, BEFORE AND AFTER THE RELOAD:');
+console.log(`  games whose reloaded save shows exactly what the game showed: ${viewsSame} of ${GAMES}`);
+console.log(`  control — world 1's claims dropped from the reload: ${viewControlCaught ? 'caught' : 'MISSED'}`);
+if (!viewControlCaught) fail('control: a reload missing world 1\'s claims was not caught');
+
 console.log('');
 console.log('THE STRIP, CONFIRMED RATHER THAN TRUSTED:');
 console.log(`  line-results carrying claims, straight through : ${strippedPresentA}  (expected > 0)`);
