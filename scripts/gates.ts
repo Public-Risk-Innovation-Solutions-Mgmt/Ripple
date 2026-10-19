@@ -252,6 +252,12 @@ const FAST: string[] = [
                                      //         averaged history, averaged dollars are the mean and
                                      //         ratios come from averaged parts, two identical teams
                                      //         match exactly — each check with a failing control
+  'results-statement-check',         //   8s   the Annual Statement holds together: reported = paid +
+                                     //         case, ultimate = reported + IBNR, net = gross − ceded,
+                                     //         the balance sheet balances with LAE reserves, the
+                                     //         combined ratio is worked from its parts, underwriting
+                                     //         ties to the engine, Total sums flows and takes the
+                                     //         latest year otherwise — each with a control
   'lae-booking-check',               //  15s   LAE is booked: incurred, paid and reserved as the rate's
                                      //         shares of the ground-up loss (ULAE alone on GL), the
                                      //         reserve rolls, the balance sheet holds it, underwriting

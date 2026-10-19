@@ -1432,6 +1432,10 @@ interface ResultRowFields {
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;
   writtenExposure: number;      // payroll exposure in $M
+  /** The book renewed this year, in written-exposure units — a book only. */
+  renewalExposure?: number;
+  /** The book newly written this year, in written-exposure units — a book only. */
+  newBusinessExposure?: number;
 
   // Premium
   poolPremium: number;                     // expected loss at selected CLF

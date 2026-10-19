@@ -54,7 +54,7 @@ import ResultsPage from '../pages/ResultsPage';
 import MembershipPage from '../pages/MembershipPage';
 import CalculationAuditPage from '../pages/CalculationAuditPage';
 import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
-import HistoryPage from '../pages/HistoryPage';
+import ResultsStatementPage from '../pages/ResultsStatementPage';
 import IntroductionPage from '../pages/IntroductionPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
 import { shockTimingOf } from '../utils/shockLosses';
@@ -63,13 +63,14 @@ const AUDIT_TAB: TabId = 'audit';
 const SPREADSHEET_TAB: TabId = 'spreadsheet';
 
 // Pages that support the Pool / per-line view toggle (Stage 2.1; 'history'
-// added in Stage 2.10 — each line now has its own real pre-game history).
+// added in Stage 2.10 — each line now has its own real pre-game history —
+// and 'statement', the Annual Statement, in its place since it replaced it).
 // ⚠ 'membership' JOINED THIS LIST, AND IT IS THE REASON THE PAGE CAN BE HONEST.
 // Its per-member experience columns are PER LINE — a member has one loss ratio
 // on WC and another on GL, not one ratio — and until the bar existed the page
 // read WC unconditionally whatever the pool wrote. The selector is what lets the
 // three per-line columns name their line instead of assuming one.
-const LINE_VIEW_PAGES: TabId[] = ['history', 'dashboard', 'decisions', 'decisionHistory', 'financials', 'results', 'audit', 'membership'];
+const LINE_VIEW_PAGES: TabId[] = ['statement', 'dashboard', 'decisions', 'decisionHistory', 'financials', 'results', 'audit', 'membership'];
 
 const LINE_VIEW_ICONS: Record<LineView, React.ReactNode> = {
   pool: <Layers size={14} />,
@@ -89,7 +90,10 @@ const PLAY_TABS = [
   // MembershipPage, its route and every member path intact. Restoring it is
   // uncommenting one line.
   //   { id: 'membership' as TabId, label: 'Membership', icon: <Users size={16} /> },
-  { id: 'history' as TabId, label: 'Pool History', icon: <HistoryIcon size={16} /> },
+  // ⚠ THE ANNUAL STATEMENT REPLACES POOL HISTORY FOR PLAYERS. HistoryPage is
+  // kept in the tree, unrouted; Results, the Result Spreadsheet and the
+  // Calculation Audit stay as they are, for testing.
+  { id: 'statement' as TabId, label: 'Annual Statement', icon: <HistoryIcon size={16} /> },
   { id: 'dashboard' as TabId, label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
   { id: 'decisions' as TabId, label: 'Decisions', icon: <ClipboardList size={16} /> },
   { id: 'decisionHistory' as TabId, label: 'Decision History', icon: <ScrollText size={16} /> },
@@ -212,11 +216,8 @@ export default function GameShell({
           />
         )}
 
-        {activeTab === 'history' && gameState && startingFinancials && (
-          <HistoryPage
-            historicalYears={d.historicalYears}
-            lineView={lineView}
-          />
+        {activeTab === 'statement' && gameState && (
+          <ResultsStatementPage gameState={gameState} lineView={lineView} />
         )}
 
         {activeTab === 'decisions' && gameState && (

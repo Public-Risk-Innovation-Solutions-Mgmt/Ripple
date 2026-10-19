@@ -2932,6 +2932,14 @@ export function processLineYear(
     // bills on its own book after movement.
     ...(struck ? { ratedExposure: struck.exposure } : {}),
     writtenExposure: parseFloat(writtenExposure.toFixed(2)),
+    // THE BOOK'S MOVEMENT, in written-exposure units ($M at this year's trend):
+    // what renewed (the book kept after the renewal cut and any withdrawal) and
+    // what was newly written. Together they are the written exposure. A book
+    // only — the member path has no such split, so it carries neither field.
+    ...(bookMovement ? {
+      renewalExposure: (bookMovement.before - bookMovement.renewedOff - bookMovement.withdrawn) * exposureFactor(line, yearNumber),
+      newBusinessExposure: bookMovement.written * exposureFactor(line, yearNumber),
+    } : {}),
 
     poolPremium,
     adminExpense,
@@ -3185,7 +3193,7 @@ export function processLineYear(
 // slice) — no flooring, or the identity breaks and every line's tie-out drifts.
 // For a single active line the share is always 1 regardless of the formula, so
 // a WC-only game is unaffected.
-function computeContributionShares(
+export function computeContributionShares(
   poolState: PoolState,
   activeLines: CoverageLine[]
 ): Record<CoverageLine, number> {
@@ -4128,6 +4136,11 @@ export function aggregateLineResults(
     // is what fundedNetExpectedLoss's identity is asserted against; byLine
     // carries it.
     writtenExposure: addMixedUnitExposure('writtenExposure'),
+    // Mixed units like writtenExposure; present only where every line carries it.
+    ...(results.every(r => r.renewalExposure !== undefined && r.newBusinessExposure !== undefined) ? {
+      renewalExposure: results.reduce((s, r) => s + (r.renewalExposure ?? 0), 0),
+      newBusinessExposure: results.reduce((s, r) => s + (r.newBusinessExposure ?? 0), 0),
+    } : {}),
 
     poolPremium: addDollars('poolPremium'),
     adminExpense: adminExpenseSum,

@@ -1147,7 +1147,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   - surplusTieOutDifference reads 0 where it carried float noise; cash moves
 //     by one ulp on 87 instances.
 // NO loss, paid, reserve, development, rate or premium field moved.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v66.json');
+//
+// v67: THE ANNUAL STATEMENT'S TWO RESULT FIELDS. The engine computed the book's
+// movement and kept only the retention rate; the results page needs the split,
+// so every line row — and the pool row, in mixed units like writtenExposure —
+// now carries renewalExposure (the book kept after the renewal cut and any
+// withdrawal) and newBusinessExposure (the book newly written), in written-
+// exposure units, summing to writtenExposure. The control ran first: 6549695
+// reproduced v66 exactly. 600 field instances ADDED — those two, on every row —
+// none removed, and 0 changed: every field present in both is bit-identical.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v67.json');
 
 function seedOf(id: string) {
   let h = 5381;

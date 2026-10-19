@@ -135,7 +135,7 @@ const DISTINCT_MEMBERS = new Set(['activeMembers', 'newMembers', 'withdrawnMembe
 const ENROLMENTS = new Set(['enrolmentCount']);
 
 // WC/GL payroll added to Property TIV. Retained for display; never unit-labelled.
-const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'writtenExposure']);
+const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'writtenExposure', 'renewalExposure', 'newBusinessExposure']);
 
 // Recomputed from summed components — never summed directly.
 // ⚠ RESERVE-WEIGHTED, LIKE investmentReturnRate. A rate summed across lines is

@@ -899,7 +899,16 @@ const BASELINE = process.env.RENDER_BASELINE
 //   - FOLLOWING THE FIGURES: Results narrative signs ("paid" / "did not pay"),
 //     and one Property dividend shown "(blocked)" — the line carried a negative
 //     surplus into the year.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v49.json');
+// v50: THE ANNUAL STATEMENT REPLACES POOL HISTORY. TABS names 'Annual
+// Statement' where it named 'Pool History'. The control ran first: 6549695,
+// with its own copy of this tool, reproduced v49 242 of 242. Then, with the
+// keys aligned: 26 'Pool History' keys REMOVED and 26 'Annual Statement' keys
+// ADDED (the same configurations, scopes and year-points); the other 186
+// screens moved, and diffed word by word every one of them differs in exactly
+// one place — the tab bar's "Pool History" now reads "Annual Statement". No
+// figure and no other word moved anywhere. Results, the Result Spreadsheet and
+// the Calculation Audit are unchanged.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v50.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -932,7 +941,7 @@ const LINE_LABEL: Record<string, string> = {
 // aggregate, so the tab is not rendered and this harness cannot click it. The
 // baseline loses that tab's keys with it — that is a KEY-SET change, which is
 // exactly the kind this file's header says to expect and to attribute.
-const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
+const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
   'Calculation Audit'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
