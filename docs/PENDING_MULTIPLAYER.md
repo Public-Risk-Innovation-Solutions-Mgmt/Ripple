@@ -335,6 +335,14 @@ Moved from FAST (18): `claims-memo-check`, `claims-system-check`, `claims-workbo
 
 Moved from SLOW (9): `clf-label-backtest-check`, `experience-pricing-check`, `ibner-null-check`, `marketplace-generation-check`, `martingale-equivalence-check`, `maturity-anchor-check`, `member-satisfaction-check`, `property-tower-mc`, `wc-program-verify`.
 
+**Three came back, forked onto the new engine.** `pool-aggregation-check`,
+`reinsurance-tower-check` and `tower-runtime-check` cover what the new engine
+uses — pooled fields and the reinsurance tower — so each was forked to run in
+book mode and returned to FAST, with controls, and confirmed red against a real
+break in the engine. Their member-path originals stay in DORMANT as
+`pool-aggregation-member-check`, `reinsurance-tower-member-check` and
+`tower-runtime-member-check`.
+
 ### Shocks
 
 The twelve-event catalogue with its A / T / R effects.

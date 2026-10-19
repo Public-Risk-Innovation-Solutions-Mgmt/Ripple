@@ -183,6 +183,18 @@ const FAST: string[] = [
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
+  // ⚠ THREE GATES FORKED BACK FROM DORMANT onto the new engine (book mode).
+  // Their member-path originals stay dormant as *-member-check; these cover
+  // what the new engine uses — pooled fields and the reinsurance tower — each
+  // with controls, and each confirmed red against a real break in the engine.
+  'pool-aggregation-check',          //   2s   every pooled field classified, the additive classes add, no
+                                     //         members on a book, cededByLayer cells line up, solo = its line
+  'reinsurance-tower-check',         //   4s   cession arithmetic, the tower's shape and price on a book, the
+                                     //         aggregate's response, CLF-flat price, live games: an unbought layer
+                                     //         cedes nothing while the full tower does, declined costs nothing
+  'tower-runtime-check',             //   5s   pricing purity (the memo key's successor), the seam IS
+                                     //         newEngineLayerMoments, the SD/E floor, above-tower bounds, cost
+                                     //         of a pricing pass, feedback gain
   'prose-identifier-check',          //   3s   every code-shaped name in PLAYER-FACING prose exists in src; positive
                                      //         control inside. --comments lists the same over developer comments
                                      //         as a report, never a failure (246 names, mostly deliberate history)
@@ -351,7 +363,9 @@ const SLOW: string[] = [
 // Every gate here imports engine-mode/member-level, which turns MEMBER_LEVEL on
 // for its whole process, so each runs ONLY on the member path. They were moved
 // out of FAST (18) and SLOW (9) together, each with its own notes. The member
-// path's probes stay in PROBES, which no sweep runs either.
+// path's probes stay in PROBES, which no sweep runs either. Three came back to
+// FAST as new-engine forks (pool-aggregation-check, reinsurance-tower-check,
+// tower-runtime-check); their member-path originals stay here as *-member-check.
 // ============================================================================
 const DORMANT: string[] = [
   // --- from FAST -----------------------------------------------------------
@@ -376,14 +390,14 @@ const DORMANT: string[] = [
                                      //         its tower — plus a priced-up control on value against the market
   'member-premium-check',            //  55s   members pay their own WC class rate; the pool total is untouched
                                      //         and the allocation reaches nothing that decides who is enrolled
-  'pool-aggregation-check',          //   2s
+  'pool-aggregation-member-check',   //   2s   (forked: pool-aggregation-check runs on the new engine, in FAST)
   'property-mitigation-check',       //  33s   the mitigation DIAL: null arm against the ENGINE, the building
                                      //         DOLLAR share on the attritional band, the full rate on a scheduled
                                      //         winter storm (the first program to reach a shock), cat band and
                                      //         the other two lines bit-identical at the dial's ceiling, 4 controls
-  'reinsurance-tower-check',         //   2s   PROMOTED at this commit
+  'reinsurance-tower-member-check',  //   2s   (forked: reinsurance-tower-check runs on the new engine, in FAST)
   'renewal-stability-check',         //  95s   declining the worst members does not ratchet; four controls
-  'tower-runtime-check',             //  13s
+  'tower-runtime-member-check',      //  13s   (forked: tower-runtime-check runs on the new engine, in FAST)
   'wc-cutover-check',                //   6s   PROMOTED at this commit
   'wc-program-check',                //  15s   the WC safety & RTW program reaches WC's draw and nothing else
 

@@ -1,0 +1,288 @@
+// POOL-SCOPE AGGREGATION CHECK — is every pooled field still the thing its name says?
+//
+//   npx tsx scripts/diagnostics/pool-aggregation-member-check.ts
+//
+// ============================================================================
+// WHY THIS EXISTS, AND WHY A COMMENT WAS NOT ENOUGH.
+//
+// Seven pool-scope aggregation defects reached players, each found by tripping
+// over it rather than by looking. THREE of them were added directly underneath
+// a comment warning about exactly that class:
+//
+//   activeExposure / totalMarketExposure   the warning itself (payroll + TIV)
+//   writtenExposure                        added later, same defect, NOT named
+//                                          by the warning three lines above it
+//   cededByLayer                           its justification said "only
+//                                          meaningful because WC and GL share
+//                                          attachments" — then Property got a
+//                                          tower and its $70M xs $5M layer
+//                                          landed in the $4M xs $1M cell
+//
+// A warning naming three fields did not stop the fourth. That is the evidence
+// that prose does not hold this line: the failure is always "a field was added
+// (or a LINE was added) and nobody re-read the neighbouring comment".
+//
+// So aggregateLineResults now has NO generic `sum`. Every call names its class —
+// addDollars / addEnrolments / addMixedUnitExposure / noPoolMeaning — and this
+// script asserts that every numeric field on the pooled row is COVERED by one
+// of the four classifications below. A field added to ResultSet without being
+// classified here turns this red.
+//
+// ⚠ THIS CHECKS BOOKKEEPING, NOT TRUTH. It cannot tell you that a field is in
+// the wrong class — only that somebody made a choice and wrote it down. The
+// value is that adding a field now requires a deliberate act, where before it
+// required nothing.
+// ============================================================================
+
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
+import { generateGameInstance } from '../../src/utils/instanceGenerator';
+import { processYear } from '../../src/utils/simulationEngine';
+import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
+import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import type { CoverageLine, GameState, ResultSet } from '../../src/types/simulation';
+
+const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
+let failures = 0;
+// ⚠ THE VERDICT NAMES WHAT FAILED. IT USED TO COUNT. A bare "N CHECK(S) FAILED"
+// at the end of a long report makes the reader scroll back for the FAIL lines,
+// and whatever prose they land on on the way gets read as the explanation. That
+// is not hypothetical: this project misdiagnosed a red gate exactly that way.
+const failed: string[] = [];
+// The verdict is fenced so no neighbouring paragraph can be read as covering it.
+const RULE = '='.repeat(72);
+const note = (ok: boolean, msg: string) => { if (!ok) { failures++; failed.push(msg); return `FAIL — ${msg}`; } return 'OK'; };
+
+// --- THE CLASSIFICATION -----------------------------------------------------
+// Every numeric field on the pooled row must appear in exactly one of these.
+
+// Extensive money and other genuinely additive quantities.
+const DOLLARS = new Set([
+  'poolPremium', 'adminExpense', 'poolPremiumAndAdminExpense', 'totalMemberCharge',
+  'grossPremium', 'assessments', 'dividends', 'aggregateMemberLoss',
+  'grossUltimateLoss', 'reinsuranceCost', 'retainedAboveTower', 'aggregateRecovery',
+  // ⚠ A DOLLAR FIGURE THE POOL DOES NOT OWN, AND IT STILL SUMS. What fell
+  // above the pool's per-occurrence limit is the MEMBER'S loss, counted in no
+  // pool total — but it is dollars, it is per line, and the pool-level figure
+  // a team reads is the sum of its lines'. Classifying it anywhere else would
+  // say the addition is wrong, which it is not; what is true of it is said at
+  // the field and at POOL_LIMIT_PER_OCCURRENCE, not by this set.
+  'memberShareAboveLimit', 'developmentAbovePoolLimit',
+  // Additive for the same reason its gross and net neighbours are: it is the
+  // same register at a different point in the booking, so the pool figure is
+  // the sum of the lines and nothing else. ⚠ BOTH OF THEM: the net twin was
+  // added to ResultSet in the same commit as the gross one and classified in
+  // neither set, which turned this red for two commits — precisely the "a field
+  // added without a class turns this red" case the section exists to catch,
+  // found late only because two briefs in a row skipped the sweep.
+  'bookedGrossUltimate', 'bookedNetUltimate',
+  // The price of the layers the pool declined — a dollar charge like its
+  // reinsuranceCost neighbour, and additive for the same reason.
+  'retainedCoverMargin',
+  // The two-part loss ratio's numerator. Additive: each line's own below-the-
+  // retention loss, and the pool's is their sum.
+  'poolLayerLoss',
+  'aggregatePremium', 'reinsuranceRecovery', 'netUltimateLoss', 'netIncurredLoss',
+  'operatingExpense', 'riskControlInvestment', 'priorYearDevelopment',
+  'beginningNetReserve', 'currentYearNetReserve', 'netPaidLosses', 'endingNetReserve',
+  // Loss adjustment expense — dollars of each line's own LAE and its reserve,
+  // so the pool's is their sum like the losses they are a share of.
+  'alaeIncurred', 'ulaeIncurred', 'laeIncurred', 'laePaid', 'beginningLaeReserve', 'endingLaeReserve',
+  // ⚠ THE DERIVED CASE / IBNR SPLIT. Additive, and for the plainest reason on
+  // this list: they are net dollars of unpaid reserve at one valuation, and
+  // caseReservesNet + ibnrNet is endingNetReserve — which is directly above and
+  // additive itself. A split of an additive quantity adds the same way.
+  //
+  // What is NOT additive is the SHARE they are derived from, which is why that
+  // is nowhere near this file: three lines sit at three ages on three patterns,
+  // so there is no pool-level age to re-derive a pool share at. The dollars are
+  // summed and the ratio is never re-derived. See reserveSplit.ts.
+  'caseReservesNet', 'ibnrNet', 'caseReservesGross', 'ibnrGross',
+  'caseReservesCeded', 'ibnrCeded',
+  'investedAssets', 'investmentIncome', 'outstandingLoanBalance', 'loanRepaymentApplied',
+  'loanInterestAccrued', 'loanOriginatedThisYear',
+  // ⚠ THESE TWO SUM TO ZERO AT POOL SCOPE RATHER THAN TO A TOTAL, and they are
+  // still DOLLARS: every dollar one line receives from inter-line lending is a
+  // dollar another line paid, so the pool row is 0 by construction. Summing is
+  // the correct aggregation AND the check — a pool total that drifts off zero
+  // means the borrower side and the lender side disagree.
+  'interLineTransfer', 'interLineCashTransfer',
+  'expectedLoss', 'clfAdjustedExpectedLoss',
+  'expectedNetUnpaidLoss', 'priorYearDevelopmentCeded', 'bookingGiveBack',
+  'netFundingTarget', 'indicatedNetReserveAtConfidenceLevel', 'reserveRiskMarginNeeded',
+  // The retained-catastrophe term INSIDE reserveRiskMarginNeeded. Dollars, and
+  // additive for the same reason the margin it sits in is: each line computes
+  // its own against its own book and placement. Zero on WC and GL, which have no
+  // catastrophe band, so the pool figure is Property's.
+  'catCapitalNeeded',
+  'fundingMarginNeeded', 'availableFunding', 'availableSurplus', 'fundingGap',
+  'capitalFundingGap', 'excessAvailableSurplus', 'underwritingIncome', 'netIncome',
+  'beginningCash', 'endingCash', 'beginningInvestments', 'endingInvestments',
+  'totalAssets', 'unearnedPremium', 'totalLiabilities', 'beginingSurplus', 'endingSurplus',
+  'surplusFromIncome', 'surplusTieOutDifference',
+]);
+
+// Distinct member counts — deduplicated by id, equal to the line value at line scope.
+// A COUNT OF CLAIMS, NOT OF MEMBERS, so it cannot join DISTINCT_MEMBERS — two
+// lines' pierced claims are different claims and simply add. Its own set
+// rather than a comment inside someone else's.
+const CLAIM_COUNTS = new Set(['claimsAboveLimit']);
+
+const DISTINCT_MEMBERS = new Set(['activeMembers', 'newMembers', 'withdrawnMembers']);
+
+// Per-line enrolment counts. A weight, never a headcount.
+const ENROLMENTS = new Set(['enrolmentCount']);
+
+// WC/GL payroll added to Property TIV. Retained for display; never unit-labelled.
+const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'writtenExposure', 'renewalExposure', 'newBusinessExposure']);
+
+// Recomputed from summed components — never summed directly.
+// ⚠ RESERVE-WEIGHTED, LIKE investmentReturnRate. A rate summed across lines is
+// nonsense; the pool's next-year paydown rate is the pool's own next-year
+// payment over the pool's own reserve.
+const RECOMPUTED_RATIOS = new Set([
+  // Both halves of the two-part ratio: sums over sums at pool scope, never a
+  // mean of the line ratios — their denominators are different quantities.
+  'poolLayerLossRatio', 'totalLossRatioGross',
+  'nextYearPaydownRate',
+  'marketShare', 'memberRetentionRate', 'memberSatisfaction', 'averageRiskQuality',
+  'investmentReturnRate', 'expectedLossRatio', 'expectedLossRatioMemberBasis',
+  'expectedExpenseRatio', 'expectedCombinedRatio', 'actualLossRatio', 'actualExpenseRatio', 'actualLaeRatio',
+  // ⚠ THESE TWO NEED THE RULE MORE THAN THE OTHERS, NOT LESS. Their
+  // denominators EXCLUDE the reinsurance premium, and the ceded share differs
+  // sharply by line (GL about half its charge, Property about two fifths), so
+  // an average of the three line ratios would be weighted by a quantity that is
+  // not in any of them. Summed numerator over summed denominator, as here.
+  'actualLossRatioPricingBasis', 'actualLossRatioRetainedPremium',
+  'actualCombinedRatio', 'combinedRatio', 'lossRatio', 'expenseRatio',
+  'excessCapitalRatio', 'capitalAdequacyRatio',
+]);
+
+// No pool-level referent. Carried as a placeholder; read byLine instead.
+const NO_POOL_MEANING = new Set(['aggregateAttachment', 'commonLossFactor']);
+
+// Line-ambiguous descriptive/rate fields showing the first active line's value.
+// Documented at the definition; not aggregations at all.
+const FIRST_LINE_PLACEHOLDER = new Set([
+  'yearNumber', 'calendarYear', 'rateLevel', 'ratePer100', 'purePremiumPer100', 'purePremium',
+  'expectedCededPer100', 'netPurePremiumPer100', 'selectedFundingConfidenceLevel',
+  'selectedFundingCLF', 'fundingCLF',
+  'historyAttempt',
+]);
+
+const ALL = [DOLLARS, CLAIM_COUNTS, DISTINCT_MEMBERS, ENROLMENTS, MIXED_UNIT_EXPOSURE, RECOMPUTED_RATIOS,
+  NO_POOL_MEANING, FIRST_LINE_PLACEHOLDER];
+
+function play(id: string, seed: number, lines: CoverageLine[]): ResultSet[] {
+  const inst = generateGameInstance(id, seed);
+  const setup = { poolName: 'P', gameLength: 5, startingYear: 2026, instanceId: id, activeLines: lines };
+  const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
+  let gs: GameState = {
+    setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
+    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
+  };
+  const out: ResultSet[] = [];
+  for (let y = 1; y <= 5; y++) {
+    const p = processYear(gs, defaultDecisionSet(y));
+    out.push(p.result);
+    gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
+  }
+  return out;
+}
+
+const tri = play('POOLAGG', 5_150_000, LINES);
+
+console.log('=== 1. EVERY NUMERIC POOLED FIELD IS CLASSIFIED ===');
+console.log('  A field added to ResultSet without a class turns this red — that is the point.\n');
+{
+  const seen = new Set<string>();
+  for (const r of tri) for (const [k, v] of Object.entries(r)) {
+    if (typeof v === 'number' && Number.isFinite(v)) seen.add(k);
+  }
+  const unclassified = [...seen].filter(k => !ALL.some(s => s.has(k))).sort();
+  const duplicated = [...seen].filter(k => ALL.filter(s => s.has(k)).length > 1).sort();
+  console.log(`  ${seen.size} numeric fields on the pooled row`);
+  console.log(`  unclassified ${unclassified.length}${unclassified.length ? `: ${unclassified.join(', ')}` : ''}  ` +
+    `${note(unclassified.length === 0, `unclassified pooled field(s): ${unclassified.join(', ')} — add each to exactly one set in this file`)}`);
+  console.log(`  in two classes ${duplicated.length}${duplicated.length ? `: ${duplicated.join(', ')}` : ''}  ` +
+    `${note(duplicated.length === 0, `field(s) in more than one class: ${duplicated.join(', ')}`)}`);
+}
+
+console.log('\n=== 2. DISTINCT MEMBER COUNTS ARE ACTUALLY DISTINCT ===');
+console.log('  activeMembers must equal the deduplicated roster, not the enrolment sum.\n');
+{
+  let worstGap = 0, worstEnrol = 0;
+  for (const r of tri) {
+    worstGap = Math.max(worstGap, Math.abs(r.activeMembers - r.memberList.length));
+    worstEnrol = Math.max(worstEnrol, r.enrolmentCount - r.activeMembers);
+  }
+  console.log(`  worst |activeMembers - memberList.length| ${worstGap}  ` +
+    `${note(worstGap === 0, 'activeMembers is not the distinct roster at pool scope')}`);
+  // The enrolment sum must still EXCEED the roster on a multi-line pool, or the
+  // weight has been silently deduplicated and satisfaction/quality are wrong.
+  console.log(`  enrolmentCount - activeMembers, worst ${worstEnrol}  ` +
+    `${note(worstEnrol > 0, 'enrolmentCount no longer exceeds the roster on a three-line pool — the WEIGHT has been deduplicated, which breaks memberSatisfaction and averageRiskQuality')}`);
+  const r = tri[tri.length - 1];
+  console.log(`  e.g. ${r.activeMembers} members carrying ${r.enrolmentCount} enrolments`);
+}
+
+console.log('\n=== 3. JOINERS AND LEAVERS ARE DEDUPLICATED TOO ===');
+console.log('  A member entering WC and GL in one year is one joiner, not two.\n');
+{
+  let badNew = 0, badWd = 0;
+  for (const r of tri) {
+    const sumNew = LINES.reduce((s, l) => s + r.byLine[l].newMembers, 0);
+    const sumWd = LINES.reduce((s, l) => s + r.byLine[l].withdrawnMembers, 0);
+    if (r.newMembers > sumNew) badNew++;
+    if (r.withdrawnMembers > sumWd) badWd++;
+  }
+  console.log(`  years where pooled newMembers exceeded the per-line sum: ${badNew}  ` +
+    `${note(badNew === 0, 'pooled joiner count exceeds the sum of per-line joiners — impossible for a union')}`);
+  console.log(`  years where pooled withdrawnMembers exceeded the per-line sum: ${badWd}  ` +
+    `${note(badWd === 0, 'pooled leaver count exceeds the sum of per-line leavers — impossible for a union')}`);
+  const tot = tri.reduce((s, r) => s + LINES.reduce((a, l) => a + r.byLine[l].newMembers, 0), 0);
+  const dis = tri.reduce((s, r) => s + r.newMembers, 0);
+  console.log(`  over 5 years: ${tot} per-line joins collapse to ${dis} distinct joiners`);
+}
+
+console.log('\n=== 4. cededByLayer CELLS LINE UP ===');
+console.log('  Elementwise sums require a shared attachment. Property does not share one.\n');
+{
+  const r = tri[0];
+  const wcGl = LINES.filter(l => l !== 'Property')
+    .reduce((acc, l) => { r.byLine[l].cededByLayer.forEach((v, i) => { acc[i] = (acc[i] ?? 0) + v; }); return acc; }, [] as number[]);
+  const matches = r.cededByLayer.length === wcGl.length
+    && r.cededByLayer.every((v, i) => Math.abs(v - wcGl[i]) < 1e-6);
+  console.log(`  pooled  [${r.cededByLayer.map(v => (v / 1e6).toFixed(2)).join(', ')}]`);
+  console.log(`  WC+GL   [${wcGl.map(v => (v / 1e6).toFixed(2)).join(', ')}]`);
+  console.log(`  Property (excluded, single $70M xs $5M layer) [${r.byLine.Property.cededByLayer.map(v => (v / 1e6).toFixed(2)).join(', ')}]`);
+  console.log(`  ${note(matches, 'pooled cededByLayer is not the WC+GL elementwise sum — Property has been folded back into cells whose attachment it does not share')}`);
+}
+
+console.log('\n=== 5. A SOLO POOL IS ITS ONE LINE, EXACTLY ===');
+console.log('  With one active line every aggregation is the identity. Any drift here is a bug\n' +
+  '  in the aggregation itself rather than in the pooling, so it localises the fault.\n');
+{
+  for (const line of LINES) {
+    const solo = play(`SOLO${line}`, 6_200_000, [line]);
+    let worst = '', worstRel = 0;
+    for (const r of solo) {
+      for (const [k, v] of Object.entries(r)) {
+        if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+        if (FIRST_LINE_PLACEHOLDER.has(k) || NO_POOL_MEANING.has(k)) continue;
+        const lv = (r.byLine[line] as unknown as Record<string, number>)[k];
+        if (typeof lv !== 'number' || !Number.isFinite(lv)) continue;
+        const scale = Math.max(Math.abs(v), Math.abs(lv), 1);
+        const rel = Math.abs(v - lv) / scale;
+        if (rel > worstRel) { worstRel = rel; worst = k; }
+      }
+    }
+    console.log(`  ${line.padEnd(9)} worst pooled-vs-line divergence ${worstRel.toExponential(2)}${worst ? ` (${worst})` : ''}  ` +
+      `${note(worstRel < 1e-12, `${line}-solo pooled row differs from its only line at ${worst}`)}`);
+  }
+}
+
+console.log(failures === 0 ? '\nALL POOL AGGREGATION CHECKS PASS.'
+  : `\n${RULE}\n${failures} CHECK(S) FAILED:\n  ${failed.join('\n  ')}\n${RULE}`);
+process.exit(failures === 0 ? 0 : 1);
