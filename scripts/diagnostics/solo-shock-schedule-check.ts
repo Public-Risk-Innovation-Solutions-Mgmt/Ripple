@@ -17,6 +17,9 @@
 //   4. THE SCHEDULE SURVIVES A SAVE AND RELOAD: out through packSave, back
 //      through unpackSave at year 3, the reloaded game carries the same schedule
 //      and its timing, and plays on to exactly the game that never stopped.
+//   6. A REGIONAL EVENT STRIKES ONE REGION IN EVERY WORLD — the region the
+//      instance resolved once with the schedule — on a solo schedule and a
+//      host's alike, while its size is still drawn per world.
 //   5. PRICING NEVER READS IT: a game whose schedule differs only in a year's
 //      event charges the same rate and the same reinsurance in that year —
 //      reinsurance and expected losses use the catalogue's probabilities.
@@ -28,7 +31,7 @@
 
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { drawShockSchedule, shockDrawCount, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
-import { firingsStartingIn } from '../../src/utils/shockLosses';
+import { firingsStartingIn, SHOCK_EVENTS } from '../../src/utils/shockLosses';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -149,7 +152,8 @@ console.log(`  schedule: ${schedule.map(s => `${s.shockId} in year ${s.yearNumbe
 console.log('\n--- 1. the schedule is the Randomise rule\'s, drawn once ---');
 check(solo.setup.shockTiming === 'solo', 'the solo setup is marked to fire its schedule');
 check(scheduleShape(schedule, YEARS).length === 0, `${shockDrawCount(YEARS)} events, distinct years from 2, no event twice`, scheduleShape(schedule, YEARS)[0] ?? '');
-check(same(schedule, drawShockSchedule(ID, YEARS, SOLO_SHOCK_STREAM)), 're-derived from the seed alone, on the solo stream');
+const idYear = (s: readonly ScheduledShock[]) => s.map(e => ({ shockId: e.shockId, yearNumber: e.yearNumber }));
+check(same(idYear(schedule), drawShockSchedule(ID, YEARS, SOLO_SHOCK_STREAM)), 're-derived from the seed alone, on the solo stream');
 check(worldInstances.every(i => same(i.scheduledShocks, schedule)) && new Set(worldInstances.map(i => i.seed)).size === WORLD_COUNT,
   'every world\'s instance carries the one schedule, on its own seed');
 
@@ -164,6 +168,52 @@ console.log('\n--- 2. every world fires the same events in the same years, sever
   check(sev.length === 0, 'each firing\'s size draws are the world\'s own', sev[0] ?? '');
   const differing = lossesDiffer(worldRows, schedule);
   check(differing > 0, `and the loss it books differs across worlds (${differing} of ${schedule.length} events)`);
+}
+
+console.log('\n--- 6. a regional event strikes one region in every world ---');
+/**
+ * Each scheduled regional firing's region in every world — at the engine's
+ * firing, k-th entry of an event in a year against its k-th firing, so two of
+ * one event in a year are told apart — and, where an event fires once that
+ * year, as the world's results record it.
+ */
+function regionsByWorld(insts: GameInstance[], rows: GameState['lockedResults'][], sched: readonly ScheduledShock[]): string[] {
+  const out: string[] = [];
+  const seenK = new Map<string, number>();
+  for (const s of sched) {
+    const key = `${s.shockId}_${s.yearNumber}`;
+    const k = seenK.get(key) ?? 0; seenK.set(key, k + 1);
+    if (!REGIONAL.has(s.shockId)) continue;
+    const fired = insts.map(i => firingsStartingIn(i, 'host', s.yearNumber).filter(f => f.event.id === s.shockId)[k]?.region ?? 'none');
+    if (new Set(fired).size !== 1 || fired[0] !== s.region) out.push(`${s.shockId} #${k + 1} in year ${s.yearNumber}: schedule ${s.region}, worlds fire ${[...new Set(fired)].join('/')}`);
+    if (sched.filter(e => e.shockId === s.shockId && e.yearNumber === s.yearNumber).length === 1) {
+      const recorded = rows.map(r => (r[s.yearNumber - 1]?.shockEvents ?? [])
+        .find(e => e.shockId === s.shockId && e.yearFired === s.yearNumber)?.region ?? 'none');
+      if (new Set(recorded).size !== 1 || recorded[0] !== s.region) out.push(`${s.shockId} in year ${s.yearNumber}: schedule ${s.region}, worlds record ${[...new Set(recorded)].join('/')}`);
+    }
+  }
+  return out;
+}
+const REGIONAL = new Set(SHOCK_EVENTS.filter(e => e.regional).map(e => e.id));
+// A host's schedule: hand-picked, all three regional events, one of them twice in a year.
+const HOST_LIST = [{ shockId: '#1', yearNumber: 2 }, { shockId: '#2', yearNumber: 3 }, { shockId: '#3', yearNumber: 3 }, { shockId: '#3', yearNumber: 3 }];
+const hostInst = generateGameInstance('SSHOST', seedFromInstanceId('SSHOST'), HOST_LIST);
+const H = playTo(open({ ...settingsFor('SSHOST'), shockTiming: 'host' }, hostInst), 1, 3);
+const hostRows = H.worlds!.map(w => w.lockedResults);
+const hostSched = hostInst.scheduledShocks ?? [];
+{
+  const soloRegional = schedule.filter(s => REGIONAL.has(s.shockId));
+  check(schedule.every(s => REGIONAL.has(s.shockId) === (s.region !== undefined)),
+    'every regional event in the solo schedule carries a region, and no other does', `${soloRegional.length} regional`);
+  const bad = regionsByWorld(worldInstances, worldRows, schedule);
+  check(bad.length === 0, `the solo schedule's regional events strike its region in all ${WORLD_COUNT} worlds`, bad[0] ?? soloRegional.map(s => `${s.shockId} ${s.region}`).join(', '));
+  check(hostSched.every(s => s.region !== undefined), 'a host\'s hand-picked regional events are each given a region when the game is built');
+  const badH = regionsByWorld(H.worlds!.map((_, i) => worldInstance(H.instance, i)), hostRows, hostSched);
+  check(badH.length === 0, `and strike it in all ${WORLD_COUNT} worlds, the same event twice in one year included`, badH[0] ?? hostSched.map(s => `${s.shockId}y${s.yearNumber} ${s.region}`).join(', '));
+  check(same(generateGameInstance('SSHOST', seedFromInstanceId('SSHOST'), HOST_LIST).scheduledShocks, hostSched),
+    'every team building from the same seed and list resolves the same regions');
+  const sevH = severityPerWorld(H.worlds!.map((_, i) => worldInstance(H.instance, i)), hostSched);
+  check(sevH.length === 0, 'with each firing\'s size still drawn per world', sevH[0] ?? '');
 }
 
 console.log('\n--- 3. the same seed gives the same schedule ---');
@@ -217,6 +267,11 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   // Severity shared by every world.
   check(severityPerWorld(worldInstances.map(() => worldInstances[0]), schedule).length > 0,
     'control: one severity in every world is caught');
+  // Regions drawn per world: the same host list on an instance whose entries carry none.
+  const unresolved = { ...hostInst, scheduledShocks: HOST_LIST.map(s => ({ ...s })) };
+  const P = playTo(open({ ...settingsFor('SSHOST'), shockTiming: 'host' }, unresolved), 1, 3);
+  check(regionsByWorld(P.worlds!.map((_, i) => worldInstance(P.instance, i)), P.worlds!.map(w => w.lockedResults), hostSched).length > 0,
+    'control: a region drawn per world is caught');
   check(lossesDiffer(worldRows.map(() => worldRows[0]), schedule) === 0,
     'control: one world\'s losses in every world are caught');
   // A schedule redrawn per load: a reload that loses it.

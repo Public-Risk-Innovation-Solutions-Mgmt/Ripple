@@ -155,29 +155,38 @@ const firingKey = (f: EventFiring) => `${f.event.index}_${f.ordinal}`;
 /** The events that START in `yearNumber`. None before year 1. */
 export function firingsStartingIn(instance: GameInstance, timing: ShockTiming, yearNumber: number): EventFiring[] {
   if (yearNumber < 1) return [];
-  const started: ShockEvent[] = [];
+  const started: { event: ShockEvent; region?: Region }[] = [];
   if (timing === 'catalogue') {
     // One draw per event per year, ALWAYS, in catalogue order — so whether
     // one event fires cannot move another's.
     const rng = deriveSubRng(instance.seed, yearNumber, 'nle_fire');
-    for (const e of SHOCK_EVENTS) if (rng.next() < e.probability) started.push(e);
+    for (const e of SHOCK_EVENTS) if (rng.next() < e.probability) started.push({ event: e });
   } else {
-    const ids = (instance.scheduledShocks ?? [])
+    // A stable sort, so two entries of one event keep their order — the order
+    // generateGameInstance resolved their regions in.
+    const entries = (instance.scheduledShocks ?? [])
       .filter(s => s.yearNumber === yearNumber)
-      .map(s => s.shockId)
-      .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-    for (const id of ids) {
-      const e = SHOCK_EVENTS.find(x => x.id === id);
-      if (!e) throw new Error(`shockLosses: scheduled shock '${id}' is not one of the twelve`);
-      started.push(e);
+      .sort((a, b) => Number(a.shockId.slice(1)) - Number(b.shockId.slice(1)));
+    for (const s of entries) {
+      const e = SHOCK_EVENTS.find(x => x.id === s.shockId);
+      if (!e) throw new Error(`shockLosses: scheduled shock '${s.shockId}' is not one of the twelve`);
+      started.push({ event: e, ...(s.region ? { region: s.region } : {}) });
     }
   }
   const seen = new Map<number, number>();
-  return started.map(event => {
+  return started.map(({ event, region: scheduled }) => {
     const ordinal = seen.get(event.index) ?? 0;
     seen.set(event.index, ordinal + 1);
     const rng = deriveSubRng(instance.seed, yearNumber, `nle_event_${event.index}_${ordinal}`);
-    const region = event.regional ? CAT_REGIONS[Math.min(2, Math.floor(rng.next() * 3))] : undefined;
+    // ⚠ THE WORLD'S OWN REGION DRAW IS STILL TAKEN, AND THEN SET ASIDE FOR THE
+    // SCHEDULE'S. A scheduled regional event strikes the region the schedule
+    // resolved once (generateGameInstance), in every world; consuming the draw
+    // anyway keeps every size draw below exactly where it was, so severity is
+    // still the world's own and nothing but the region moves. The drawn region
+    // stands only where there is no scheduled one: catalogue timing, and a save
+    // from before regions were scheduled.
+    const drawn = event.regional ? CAT_REGIONS[Math.min(2, Math.floor(rng.next() * 3))] : undefined;
+    const region = event.regional ? (scheduled ?? drawn) : undefined;
     const draws = {} as EventFiring['draws'];
     for (const line of LINES) draws[line] = { a: rng.next(), r: rng.next(), t: rng.next() };
     return { event, firedYear: yearNumber, ordinal, ...(region ? { region } : {}), draws };

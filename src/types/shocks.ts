@@ -17,6 +17,14 @@ export type ShockBand = 'moderate' | 'high' | 'severe';
 export interface ScheduledShock {
   shockId: string;
   yearNumber: number;
+  /**
+   * WHERE A REGIONAL EVENT STRIKES — resolved ONCE, when the game's instance is
+   * built (generateGameInstance), so every world's earthquake hits the same
+   * region; only its size is drawn per world. Absent on a non-regional event,
+   * on the room record (the server keeps id and year; every team resolves the
+   * same region from the same seed and list), and on a save from before it.
+   */
+  region?: Region;
 }
 
 // ---------------------------------------------------------------------------

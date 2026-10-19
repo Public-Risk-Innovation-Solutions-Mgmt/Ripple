@@ -720,7 +720,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Rate; Prior-Year Development, Net Incurred Loss and the loss and combined
 // ratios; Net Income, Surplus and the capital ratios — and Excess Capital
 // Status on 2 sheets, where the ratio crossed a band.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v71.json');
+// v72: A REGIONAL EVENT'S REGION IS RESOLVED ONCE, WITH THE SCHEDULE, so every
+// world's earthquake strikes the same region; its size is still each world's.
+// 16 of 24 exports move — exactly the 16 a regional event touches: MAMC6EA4's
+// four (Earthquake, year 2, North — WC, GL and Property — and Winterstorm,
+// year 4, South), and the Property and three-line exports of 6KA6WGLJ and
+// ZZTEST99 (Winterstorm, year 3, Central); their WC and GL exports, which no
+// regional event touches, hold. The control ran first: 7544361 reproduced v71
+// 24 of 24; then both sides were diffed cell by cell. No row is added or
+// removed; nothing moves before the regional event's year; and every region an
+// export names — the Events row and the Shock Events sheet alike — is the
+// schedule's, where before the headline named one world's and the sheet
+// another's. What follows is the region's exposure share and the losses on it.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v72.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
