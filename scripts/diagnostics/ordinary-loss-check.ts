@@ -37,6 +37,8 @@
 // ============================================================================
 
 import { MEMBER_LEVEL, ORDINARY_LOSS_CV, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { newEngineLayerMoments } from '../../src/utils/shockExpectation';
+import { bookExposureOf } from '../../src/utils/lineHelpers';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -186,12 +188,19 @@ try {
   const routineWas = ROUTINE_LARGE_LOSSES.enabled;
   try {
     ROUTINE_LARGE_LOSSES.enabled = false;
+    // ⚠ AND THE PRICE IS NOT THE LOSSES (Prompt A commit 2). A price is struck
+    // ex ante on the catalogue's probabilities in every year, the pre-game
+    // included, so year 0's TOWER PRICE is the shocks' cover and is not zero.
+    // What ordinary losses alone cede is asked with exAnte off: nothing.
     const members = getPredefinedMarketMembers();
     for (const line of LINES) {
-      const moms = allLayerRiskMoments(line as never, members, 0);
-      const exp = moms.reduce((s, m) => s + m.expected, 0);
-      check(exp === 0, `${line}: ordinary losses only, so expected recovery and its price are zero`,
-        `$${exp.toFixed(2)} across ${moms.length} layer(s), year 0, routine large losses held off`);
+      const exposure = bookExposureOf(members, line, 0);
+      const actual = newEngineLayerMoments(line as never, exposure, 0, 1, false).reduce((s, m) => s + m.expected, 0);
+      check(actual === 0, `${line}: ordinary losses only, so the year's expected recovery is zero`,
+        `$${actual.toFixed(2)}, year 0, routine large losses held off`);
+      const priced = allLayerRiskMoments(line as never, members, 0).reduce((s, m) => s + m.expected, 0);
+      check(priced > 0, `${line}: and the year is still PRICED ex ante, on the catalogue's shocks`,
+        `$${(priced / 1e6).toFixed(3)}M expected recovery priced at year 0`);
     }
   } finally {
     ROUTINE_LARGE_LOSSES.enabled = routineWas;

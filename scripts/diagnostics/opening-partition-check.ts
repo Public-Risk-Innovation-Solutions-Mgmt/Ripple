@@ -18,9 +18,12 @@
 //
 //   NO OVERLAP   no accident year is both a played cohort and a bulk cohort,
 //                and no year appears twice in the opening at all.
-//   NO GAP       every age from 1 to the line's pattern length is covered by
+//   NO GAP       every age from 1 to the OPENING WINDOW — OPENING_RESERVE_YEARS,
+//                or the line's pattern if that is shorter — is covered by
 //                exactly one of the two.
-//   NO STRAYS    nothing is held past the age its own pattern runs to.
+//   NO STRAYS    nothing is held past the window: older accident years are
+//                closed (Prompt A commit 2; the window was each pattern's
+//                full length before).
 //
 // AND THE OPENING PAYS FROM WHERE IT SAYS IT IS:
 //
@@ -28,6 +31,12 @@
 //                share at its own pattern age (`age + 1`), on ONE convention for
 //                played and bulk cohorts alike.
 //   ONE STEP     year 1 pays each bulk cohort one pattern step, not two.
+//
+// AND THE PRE-GAME CARRIES THE BULK YEARS, so the opening is no jump:
+//
+//   NO JUMP      the last pre-game year's ending net reserve IS the opening
+//                net reserve, and the first pre-game year opens with the bulk
+//                years on its books (Prompt A commit 2).
 //
 // ⚠ IT ASSERTS COVERAGE BY AGE, NOT BY COUNT. A count test — "played + bulk
 // equals the pattern length" — passes on a set that double-counts one year and
@@ -38,17 +47,19 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory, PRE_GAME_DEPTH, PRE_GAME_YEARS, MATURATION_YEARS } from '../../src/utils/priorHistoryEngine';
 import { patternLengthYears, bulkAccidentYearAges } from '../../src/utils/openingReserves';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
-import { conditionalPaydown, unpaidShare } from '../../src/utils/payoutPattern';
+import { cohortCloseBelow, conditionalPaydown, unpaidShare } from '../../src/utils/payoutPattern';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear } from '../../src/utils/worlds';
 import type { GameState, ReserveCohort } from '../../src/types/simulation';
-import { PRIOR_HISTORY_YEARS } from '../../src/data/pricingParameters';
+import { OPENING_RESERVE_YEARS, PRIOR_HISTORY_YEARS } from '../../src/data/pricingParameters';
 import type { CoverageLine, LinePoolState } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const GAMES = Number(process.env.GAMES ?? 4);
 
 let failures = 0;
+/** The opening reserve is not the pre-game's last year-end reserve. */
+const jumps = (endOfPreGame: number, opening: number) => Math.abs(endOfPreGame - opening) > 1e-6 * Math.max(1, opening);
 const fail = (s: string) => { failures++; if (failures <= 24) console.log(`  FAIL  ${s}`); };
 
 console.log('=== OPENING PARTITION CHECK ===\n');
@@ -58,6 +69,20 @@ console.log(`  PRIOR_HISTORY_YEARS ${PRIOR_HISTORY_YEARS} · PRE_GAME_DEPTH ${PR
 // --------------------------------------------------------------------------
 // 1. THE CONSTANTS THEMSELVES, before any game is played. If these disagree no
 //    opening can be right, and the message says which way they drifted.
+/** The opening window on a line: OPENING_RESERVE_YEARS, or its pattern if shorter. */
+function windowOf(line: CoverageLine): number { return Math.min(OPENING_RESERVE_YEARS, patternLengthYears(line)); }
+/**
+ * An age the engine has CLOSED by the opening: its pattern's unpaid share is
+ * under the close floor (cohortCloseBelow, as a share of ultimate), so the
+ * cohort paid out its remainder and left. Since the bulk years run through
+ * the pre-game (Prompt A commit 2) they meet that rule like any cohort —
+ * Property's oldest close inside the pre-game — so NO GAP excuses exactly
+ * these ages and no others.
+ */
+function closedByOpening(line: CoverageLine, patternAge: number): boolean {
+  return unpaidShare(LINE_PAYOUT_PATTERN[line], patternAge) < cohortCloseBelow(LINE_PAYOUT_PATTERN[line], 1);
+}
+
 console.log('--- 1. THE TWO PARTITIONS MEET, AT THE PARAMETER LEVEL ---');
 if (PRE_GAME_DEPTH !== PRIOR_HISTORY_YEARS) {
   fail(`PRE_GAME_DEPTH ${PRE_GAME_DEPTH} is not PRIOR_HISTORY_YEARS ${PRIOR_HISTORY_YEARS} — `
@@ -71,13 +96,13 @@ for (const line of LINES) {
       + 'last played year');
   }
   const lastBulkAge = bulkAccidentYearAges(line).slice(-1)[0];
-  if (lastBulkAge !== undefined && lastBulkAge !== patternLengthYears(line)) {
-    fail(`${line}: bulk ends at age ${lastBulkAge}, not the pattern's ${patternLengthYears(line)}`);
+  if (lastBulkAge !== undefined && lastBulkAge !== windowOf(line)) {
+    fail(`${line}: bulk ends at age ${lastBulkAge}, not the window's ${windowOf(line)}`);
   }
 }
-console.log(`  bulk begins at age ${PRIOR_HISTORY_YEARS + 1} on every line; `
-  + `pattern lengths WC ${patternLengthYears('WC')} GL ${patternLengthYears('GL')} `
-  + `Property ${patternLengthYears('Property')}.`);
+console.log(`  bulk begins at age ${PRIOR_HISTORY_YEARS + 1} on every line and ends at the window: `
+  + `WC ${windowOf('WC')} GL ${windowOf('GL')} Property ${windowOf('Property')} `
+  + `(OPENING_RESERVE_YEARS ${OPENING_RESERVE_YEARS}; patterns ${patternLengthYears('WC')}/${patternLengthYears('GL')}/${patternLengthYears('Property')}).`);
 
 // --------------------------------------------------------------------------
 console.log('\n--- 2. THE OPENING ITSELF, ON PLAYED GAMES ---');
@@ -88,10 +113,22 @@ for (let g = 0; g < GAMES; g++) {
   const setup = {
     poolName: 'A', gameLength: 6, startingYear: 2026, instanceId: id, activeLines: LINES,
   };
-  const { poolState } = runPriorHistory(inst, setup as never);
+  const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(inst, setup as never);
+  const firstPreGame = (earlyPreGameHistory ?? [])[0] ?? priorHistory[0];
 
   for (const line of LINES) {
     checked++;
+    // NO JUMP — the last pre-game year ends on the opening's reserve, and the
+    // first begins with the bulk years already on the books.
+    const endOfPreGame = priorHistory.at(-1)!.byLine[line].endingNetReserve;
+    const openingReserve = (poolState.lines[line] as LinePoolState).netUnpaidReserve;
+    if (jumps(endOfPreGame, openingReserve)) {
+      fail(`${line} g${g}: the reserve JUMPS at the opening — $${(endOfPreGame / 1e6).toFixed(2)}M at the last pre-game `
+        + `year-end, $${(openingReserve / 1e6).toFixed(2)}M at the opening`);
+    }
+    if (!(firstPreGame.byLine[line].beginningNetReserve > 0)) {
+      fail(`${line} g${g}: the first pre-game year opens with no reserve — the bulk years are not on its books`);
+    }
     const cohorts = (poolState.lines[line] as LinePoolState).reserveCohorts ?? [];
     const played = cohorts.filter(c => c.seeded !== true);
     const bulk = cohorts.filter(c => c.seeded === true);
@@ -126,25 +163,31 @@ for (let g = 0; g < GAMES; g++) {
     const patternAge = (c: { age: number }) => c.age + 1;
     const byAge = new Map<number, number>();
     for (const c of cohorts) byAge.set(patternAge(c), (byAge.get(patternAge(c)) ?? 0) + 1);
-    const len = patternLengthYears(line);
+    const len = windowOf(line);
     const missing: number[] = [];
-    for (let a = 1; a <= len; a++) if (!byAge.has(a)) missing.push(a);
+    for (let a = 1; a <= len; a++) if (!byAge.has(a) && !closedByOpening(line, a)) missing.push(a);
     if (missing.length > 0) {
       fail(`${line} g${g}: ${missing.length} age(s) held by NOTHING — ${missing.slice(0, 8).join(', ')}`);
     }
     const strays = [...byAge.keys()].filter(a => a < 1 || a > len);
     if (strays.length > 0) {
-      fail(`${line} g${g}: ${strays.length} cohort age(s) past the pattern's ${len} — ${strays.slice(0, 6).join(', ')}`);
+      fail(`${line} g${g}: ${strays.length} cohort age(s) past the window's ${len} — ${strays.slice(0, 6).join(', ')}`);
     }
 
     if (g === 0) {
       console.log(`  ${line.padEnd(9)} ${String(cohorts.length).padStart(3)} cohorts = `
         + `${String(played.length).padStart(2)} played (ages 1-${PRIOR_HISTORY_YEARS}) `
-        + `+ ${String(bulk.length).padStart(2)} bulk (ages ${PRIOR_HISTORY_YEARS + 1}-${len})`);
+        + `+ ${String(bulk.length).padStart(2)} bulk (ages ${PRIOR_HISTORY_YEARS + 1}-${len}`
+        + `${[...Array(len).keys()].map(i => i + 1).some(a => closedByOpening(line, a)) ? `; closed from age ${[...Array(len).keys()].map(i => i + 1).find(a => closedByOpening(line, a))}` : ''})`);
     }
   }
 }
 console.log(`\n  ${checked} line-openings checked; ${dupTotal} duplicated accident year(s).`);
+
+// THE NO-JUMP CONTROL — the opening this replaced: WC's pre-game ended 2025 at
+// $38.7M of reserve and opened at $74.7M once the runoff was swapped in.
+if (!jumps(38.7e6, 74.7e6)) fail('control: the old reserve jump at the opening was not caught');
+else console.log('  control: the old jump ($38.7M at year-end, $74.7M at the opening) is caught');
 
 // --------------------------------------------------------------------------
 // 3 and 4. THE AGE AGREES WITH THE PAID-TO-DATE, AND YEAR 1 PAYS ONE STEP.
@@ -152,7 +195,8 @@ console.log(`\n  ${checked} line-openings checked; ${dupTotal} duplicated accide
 
 /** Opening cohorts whose unpaid share is not their pattern's at `age + 1`. */
 function ageDisagrees(line: CoverageLine, cohorts: readonly ReserveCohort[]): string[] {
-  return cohorts.filter(c => c.netUltimate > 0).flatMap(c => {
+  // A closed cohort paid its remainder at the close; its unpaid is 0 by design.
+  return cohorts.filter(c => c.netUltimate > 0 && !(c.closed || c.netUnpaid === 0 && closedByOpening(line, c.age + 1))).flatMap(c => {
     const want = unpaidShare(LINE_PAYOUT_PATTERN[line], c.age + 1);
     const got = c.netUnpaid / c.netUltimate;
     return Math.abs(got - want) > 1e-9 ? [`AY${c.yearNumber} age ${c.age}: unpaid share ${got.toFixed(4)}, pattern ${want.toFixed(4)}`] : [];
@@ -243,6 +287,6 @@ console.log('\n--- CONTROL: the old bulk ages (pattern age stored as `age`) ---'
 //   parameter-level failure at section 1.
 // --------------------------------------------------------------------------
 console.log(`\n${failures === 0
-  ? 'PLAYED AND BULK PARTITION THE OPENING: NO YEAR TWICE, NO AGE UNCOVERED, NOTHING PAST ITS PATTERN.'
+  ? 'PLAYED AND BULK PARTITION THE OPENING: NO YEAR TWICE, NO AGE UNCOVERED, NOTHING PAST THE WINDOW, NO JUMP.'
   : `${failures} FAILURE(S).`}`);
 process.exit(failures === 0 ? 0 : 1);
