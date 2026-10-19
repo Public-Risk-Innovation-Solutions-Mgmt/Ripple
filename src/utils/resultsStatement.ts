@@ -1,18 +1,22 @@
 // ============================================================================
 // THE ANNUAL STATEMENT — the results page's figures, built once, pure.
 //
-// Columns: Prior · each game year · Total.
-//   PRIOR   the opening position on the balance sheet; all earlier program
-//           years combined in the program-year blocks; the last pre-game year
-//           (year 0) in the calendar sections, as its own year.
-//   TOTAL   the sum of the game years for flow rows; the latest year for
-//           balances, ratios and changes.
+// COLUMNS — A ROLLING FIVE-YEAR WINDOW over one timeline: the five pre-game
+// years, then the game years. The most recent five are individual columns,
+// labelled by calendar year; every older year collects in PRIOR.
+//   PRIOR   flows summed over the years rolled out; balances at the end of the
+//           last of them; in the program-year blocks, every older program
+//           year combined — the bulk reserves included, so the blocks carry a
+//           Prior from game start while the calendar sections show one only
+//           once a year has rolled out.
+//   TOTAL   over the five years shown: the sum for flow rows; the latest year
+//           for balances, ratios and changes.
 //
 // ⚠ EVERY FIGURE IS READ, NEVER RESTATED. Dollars are the ten-world averages
 // the game state holds (lockedResults, the averaged ledger and its reserve
-// split); every ratio is recomputed here from those averaged parts, never read
-// as a stored ratio and never averaged. The only per-world figure is the
-// ending-surplus range, which is what it is for.
+// split; the pre-game ran once, before the worlds); every ratio is recomputed
+// here from those averaged parts, never read as a stored ratio and never
+// averaged. The only per-world figure is the ending-surplus range.
 //
 // ⚠ A FIGURE WITH NO SOURCE IS "not yet available", NEVER ZERO. Each such cell
 // is a 'na' cell and the page lists the rows that carry one.
@@ -37,11 +41,14 @@ export type Cell =
 /** How a row totals: flows sum the game years; points take the latest year. */
 export type RowClass = 'flow' | 'point';
 
+/** The window: the most recent years shown as their own columns. */
+export const STATEMENT_WINDOW_YEARS = 5;
+
 export interface StatementRow {
   label: string;
   format: CellFormat;
   rowClass: RowClass;
-  /** Prior, each game year, Total. */
+  /** Aligned with the section's columns: [Prior,] each window year, Total. */
   cells: Cell[];
   indent?: boolean;
   emphasis?: boolean;
@@ -51,13 +58,16 @@ export interface StatementSection {
   key: 'operating' | 'balance' | 'underwriting' | 'gross' | 'ceded' | 'net';
   title: string;
   basis: string;
+  /** e.g. 'Prior (2021–22)', '2023', …, 'Total'. Prior only where something predates the window. */
+  columns: string[];
+  hasPrior: boolean;
+  /** The yearNumber of each window column. */
+  windowYears: number[];
   rows: StatementRow[];
 }
 
 export interface AnnualStatement {
   scope: LineView;
-  /** 'Prior', 'Year 1 / 2026', …, 'Total'. */
-  columns: string[];
   sections: StatementSection[];
   notes: string[];
 }
@@ -82,9 +92,10 @@ export function totalCell(rowClass: RowClass, gameCells: readonly Cell[]): Cell 
   return { kind: 'value', v: gameCells.reduce((s, c) => s + (c as { v: number }).v, 0) };
 }
 
-function row(label: string, format: CellFormat, rowClass: RowClass, prior: Cell, game: Cell[],
+/** A row: Prior (null where the section has none), the window, and its Total. */
+function row(label: string, format: CellFormat, rowClass: RowClass, prior: Cell | null, game: Cell[],
   opts: { indent?: boolean; emphasis?: boolean } = {}): StatementRow {
-  return { label, format, rowClass, cells: [prior, ...game, totalCell(rowClass, game)], ...opts };
+  return { label, format, rowClass, cells: [...(prior ? [prior] : []), ...game, totalCell(rowClass, game)], ...opts };
 }
 
 type Scoped = ResultSet | LineResultSet;
@@ -113,11 +124,19 @@ const operatingOf = (r: Scoped | undefined): OperatingYear => (r ? {
 const add = (...xs: (number | undefined)[]) => (xs.some(x => x === undefined) ? undefined : xs.reduce<number>((s, x) => s + x!, 0));
 const sub = (a: number | undefined, b: number | undefined) => (a === undefined || b === undefined ? undefined : a - b);
 
-function operatingRows(cols: OperatingYear[]): StatementRow[] {
+/** Prior's operating year: every field summed over the years rolled out. */
+function sumOperating(ys: OperatingYear[]): OperatingYear {
+  const k = (f: keyof OperatingYear) => add(...ys.map(o => o[f]));
+  return { premium: k('premium'), losses: k('losses'), lae: k('lae'), admin: k('admin'), riskControl: k('riskControl'),
+    assessDiv: k('assessDiv'), investment: k('investment'), netIncome: k('netIncome') };
+}
+
+function operatingRows(prior: OperatingYear | null, cols: OperatingYear[]): StatementRow[] {
   const mk = (label: string, f: (o: OperatingYear) => number | undefined, opts: { indent?: boolean; emphasis?: boolean } = {}) =>
-    row(label, 'dollars', 'flow', v(f(cols[0])), cols.slice(1).map(o => v(f(o))), opts);
+    row(label, 'dollars', 'flow', prior ? v(f(prior)) : null, cols.map(o => v(f(o))), opts);
+  // Prior's ratios come from Prior's own summed parts.
   const pct = (label: string, f: (o: OperatingYear) => number | undefined) =>
-    row(label, 'pct', 'point', div(f(cols[0]), cols[0].premium), cols.slice(1).map(o => div(f(o), o.premium)), { indent: true });
+    row(label, 'pct', 'point', prior ? div(f(prior), prior.premium) : null, cols.map(o => div(f(o), o.premium)), { indent: true });
   const lossLae = (o: OperatingYear) => add(o.losses, o.lae);
   const expenses = (o: OperatingYear) => add(o.admin, o.riskControl);
   const nui = (o: OperatingYear) => sub(o.premium, add(o.losses, o.lae, o.admin, o.riskControl));
@@ -141,8 +160,13 @@ function operatingRows(cols: OperatingYear[]): StatementRow[] {
 }
 
 // ---------------------------------------------------------------------------
-// BALANCE SHEET AT YEAR-END. Prior is the opening: year 1's beginning
-// position, or — before any year is played — the opening state itself.
+// BALANCE SHEET AT YEAR-END. Each year's own year-end, read from its result —
+// except the last pre-game year (2025 for a 2026 start), whose year-end is THE
+// OPENING, which is what year 1 begins from. Its surplus is that year's own
+// year-end — the pre-game starts from the surplus that lands it there — but the
+// set opening swaps the seed reserves for bulk cohorts (priorHistoryEngine), so
+// its reserves and invested assets are the opening's. It is read as year 1's
+// beginning position, or the opening state itself before any year is played.
 // ---------------------------------------------------------------------------
 interface Position { invested?: number; cash?: number; lossRes?: number; laeRes?: number; other?: number; surplus?: number }
 
@@ -177,16 +201,21 @@ const positionOf = (r: Scoped): Position => ({
   surplus: r.endingSurplus,
 });
 
-function balanceRows(gs: GameState, scope: LineView, positions: Position[], premiums: (number | undefined)[]): StatementRow[] {
-  const paidIn = positions[0].surplus;
+function balanceRows(
+  gs: GameState, scope: LineView, paidIn: number | undefined,
+  prior: { position: Position; premium?: number } | null,
+  cols: { yearNumber: number; position: Position; premium?: number }[],
+): StatementRow[] {
   const bal = (label: string, f: (p: Position) => number | undefined, opts: { indent?: boolean; emphasis?: boolean } = {}) =>
-    row(label, 'dollars', 'point', v(f(positions[0])), positions.slice(1).map(p => v(f(p))), opts);
+    row(label, 'dollars', 'point', prior ? v(f(prior.position)) : null, cols.map(c => v(f(c.position))), opts);
   const reserves = (p: Position) => add(p.lossRes, p.laeRes);
   const ratio = (label: string, num_: (p: Position, prem?: number) => number | undefined, den: (p: Position, prem?: number) => number | undefined) =>
-    row(label, 'ratio', 'point', div(num_(positions[0], premiums[0]), den(positions[0], premiums[0])),
-      positions.slice(1).map((p, i) => div(num_(p, premiums[i + 1]), den(p, premiums[i + 1]))), { indent: true });
-  const ranges: Cell[] = gs.lockedResults.map(r => {
-    const rg = surplusRange(gs, r.yearNumber, scope === 'pool' ? undefined : scope);
+    row(label, 'ratio', 'point', prior ? div(num_(prior.position, prior.premium), den(prior.position, prior.premium)) : null,
+      cols.map(c => div(num_(c.position, c.premium), den(c.position, c.premium))), { indent: true });
+  // The worlds exist from year 1; the pre-game ran once, so it has no spread.
+  const ranges: Cell[] = cols.map(c => {
+    if (c.yearNumber < 1) return NONE;
+    const rg = surplusRange(gs, c.yearNumber, scope === 'pool' ? undefined : scope);
     return rg ? { kind: 'range', min: rg.min, median: rg.median, max: rg.max } : NA;
   });
   return [
@@ -198,7 +227,7 @@ function balanceRows(gs: GameState, scope: LineView, positions: Position[], prem
     bal('Paid-in Capital', () => paidIn, { indent: true }),
     bal('Earned Surplus', p => sub(p.surplus, paidIn), { indent: true }),
     bal('Ending Surplus', p => p.surplus, { emphasis: true }),
-    row('Ending surplus across the worlds (min · median · max)', 'dollars', 'point', NONE, ranges, { indent: true }),
+    row('Ending surplus across the worlds (min · median · max)', 'dollars', 'point', prior ? NONE : null, ranges, { indent: true }),
     ratio('Premium to Surplus', (_p, prem) => prem, p => p.surplus),
     ratio('Reserve to Surplus', reserves, p => p.surplus),
     ratio('Premium to Reserve', (_p, prem) => prem, reserves),
@@ -210,8 +239,12 @@ function balanceRows(gs: GameState, scope: LineView, positions: Position[], prem
 // value on Property, so at pool scope the exposure rows and the rate read "by
 // line": a sum across them is not a number.
 // ---------------------------------------------------------------------------
-function underwritingRows(scope: LineView, prev: Scoped | undefined, cols: (Scoped | undefined)[]): StatementRow[] {
+function underwritingRows(scope: LineView, timeline: (Scoped | undefined)[], firstWindow: number): StatementRow[] {
   const pool = scope === 'pool';
+  // The window's results, and the year before the window opens (Prior's last).
+  const cols = timeline.slice(firstWindow);
+  const prev = firstWindow > 0 ? timeline[firstWindow - 1] : undefined;
+  const rolled = timeline.slice(0, firstWindow);
   const rate = (r?: Scoped) => (r ? ((r as LineResultSet).finalRatePer100 ?? (r as LineResultSet).ratePer100) : undefined);
   const series = (f: (r?: Scoped) => number | undefined) => cols.map(r => (pool ? BY_LINE : v(f(r))));
   const change = (f: (r?: Scoped) => number | undefined, asRatio: boolean) => cols.map((r, i) => {
@@ -221,16 +254,27 @@ function underwritingRows(scope: LineView, prev: Scoped | undefined, cols: (Scop
     if (a === undefined || b === undefined) return NA;
     return asRatio ? (b === 0 ? NONE : { kind: 'value' as const, v: a / b - 1 }) : { kind: 'value' as const, v: a - b };
   });
-  const mk = (label: string, format: CellFormat, rowClass: RowClass, cells: Cell[], indent = false) =>
-    row(label, format, rowClass, cells[0], cells.slice(1), { indent });
+  // Prior: points at the last year rolled out (its change against the one
+  // before it); flows summed over every year rolled out.
+  const priorPoint = (f: (r?: Scoped) => number | undefined): Cell => (pool ? BY_LINE : v(f(prev)));
+  const priorFlow = (f: (r?: Scoped) => number | undefined): Cell => (pool ? BY_LINE : v(add(...rolled.map(f))));
+  const priorChange = (f: (r?: Scoped) => number | undefined, asRatio: boolean): Cell => {
+    if (pool) return BY_LINE;
+    const a = f(prev), b = f(firstWindow > 1 ? timeline[firstWindow - 2] : undefined);
+    if (a === undefined || b === undefined) return NA;
+    return asRatio ? (b === 0 ? NONE : { kind: 'value', v: a / b - 1 }) : { kind: 'value', v: a - b };
+  };
+  const hasPrior = firstWindow > 0;
+  const mk = (label: string, format: CellFormat, rowClass: RowClass, prior: Cell, cells: Cell[], indent = false) =>
+    row(label, format, rowClass, hasPrior ? prior : null, cells, { indent });
   return [
-    mk('Written Exposure', 'exposure', 'point', series(r => r?.writtenExposure)),
-    mk('Change from Prior', 'exposure', 'point', change(r => r?.writtenExposure, false), true),
-    mk('New Business', 'exposure', 'flow', series(r => r?.newBusinessExposure), true),
-    mk('Renewal', 'exposure', 'flow', series(r => r?.renewalExposure), true),
-    mk('Retained %', 'pct', 'point', series(r => r?.memberRetentionRate), true),
-    mk('Current Rate', 'rate', 'point', series(rate)),
-    mk('% Change Over Prior', 'pct', 'point', change(rate, true), true),
+    mk('Written Exposure', 'exposure', 'point', priorPoint(r => r?.writtenExposure), series(r => r?.writtenExposure)),
+    mk('Change from Prior', 'exposure', 'point', priorChange(r => r?.writtenExposure, false), change(r => r?.writtenExposure, false), true),
+    mk('New Business', 'exposure', 'flow', priorFlow(r => r?.newBusinessExposure), series(r => r?.newBusinessExposure), true),
+    mk('Renewal', 'exposure', 'flow', priorFlow(r => r?.renewalExposure), series(r => r?.renewalExposure), true),
+    mk('Retained %', 'pct', 'point', priorPoint(r => r?.memberRetentionRate), series(r => r?.memberRetentionRate), true),
+    mk('Current Rate', 'rate', 'point', priorPoint(rate), series(rate)),
+    mk('% Change Over Prior', 'pct', 'point', priorChange(rate, true), change(rate, true), true),
   ];
 }
 
@@ -291,14 +335,14 @@ const premiumsOf = (r: Scoped | undefined): Premiums => (r ? {
 
 function programRows(
   block: 'gross' | 'ceded' | 'net', priorLoss: AyLoss, gameLoss: AyLoss[],
-  priorPremium: number | undefined, gamePremium: (number | undefined)[], yearZeroPremium: number | undefined,
+  priorPremium: number | undefined, gamePremium: (number | undefined)[], beforeWindowPremium: number | undefined,
 ): StatementRow[] {
   const prem = (x: number | undefined) => v(x);
   const change = gamePremium.map((p, i) => {
-    const b = i === 0 ? yearZeroPremium : gamePremium[i - 1];
+    const b = i === 0 ? beforeWindowPremium : gamePremium[i - 1];
     return p === undefined || b === undefined ? NA : { kind: 'value' as const, v: p - b };
   });
-  const ofPrior = gamePremium.map((p, i) => div(p, i === 0 ? yearZeroPremium : gamePremium[i - 1]));
+  const ofPrior = gamePremium.map((p, i) => div(p, i === 0 ? beforeWindowPremium : gamePremium[i - 1]));
   const ult = (l: AyLoss) => l.paid + l.case_ + l.ibnr;
   const L = (label: string, f: (l: AyLoss) => number, opts: { indent?: boolean; emphasis?: boolean } = {}) =>
     row(label, 'dollars', 'flow', v(f(priorLoss)), gameLoss.map(l => v(f(l))), opts);
@@ -311,65 +355,93 @@ function programRows(
     L('Reported Loss + LAE', l => l.paid + l.case_, { emphasis: true }),
     L('IBNR Reserve', l => l.ibnr),
     L('Ultimates', ult, { emphasis: true }),
-    // ⚠ PRIOR HAS NO COMPLETE PREMIUM: the bulk years carry none, so a ratio
-    // over the combined years would divide losses that have no premium.
+    // ⚠ PRIOR HAS NO COMPLETE PREMIUM: it always holds the bulk years, which
+    // carry none, so a ratio over it would divide losses that have no premium.
     row('Loss and LAE Ratio', 'pct', 'point', NA, gameLoss.map((l, i) => div(ult(l), gamePremium[i]))),
   ];
 }
 
 // ---------------------------------------------------------------------------
+const yearsLabel = (first: number, last: number) =>
+  (first === last ? `${first}` : `${first}–${String(last).slice(-2)}`);
+
 export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStatement {
   const lines: CoverageLine[] = scope === 'pool' ? gs.setup.activeLines : [scope];
-  const years = gs.lockedResults;
-  const hist = gs.priorHistory ?? [];
-  const y0 = hist.at(-1), yMinus1 = hist.at(-2);
-  const columns = ['Prior', ...years.map(r => `Year ${r.yearNumber} / ${r.calendarYear}`), 'Total'];
+  // THE TIMELINE: every pre-game year, then every game year, oldest first.
+  const preGame = [...(gs.earlyPreGameHistory ?? []), ...(gs.priorHistory ?? [])];
+  const timeline: ResultSet[] = [...preGame, ...gs.lockedResults];
+  const first = Math.max(0, timeline.length - STATEMENT_WINDOW_YEARS);
+  const window = timeline.slice(first), rolled = timeline.slice(0, first);
+  const windowYears = window.map(r => r.yearNumber);
+  const hasCalendarPrior = rolled.length > 0;
+  const priorLabel = !hasCalendarPrior ? ''
+    : rolled.length === preGame.length && rolled.every(r => r.yearNumber <= 0) ? 'Prior (all pre-game)'
+    : `Prior (${yearsLabel(rolled[0].calendarYear, rolled[rolled.length - 1].calendarYear)})`;
+  const calendarColumns = [...(hasCalendarPrior ? [priorLabel] : []), ...window.map(r => `${r.calendarYear}`), 'Total'];
+  const calendar = (key: StatementSection['key'], title: string, basis: string, rows: StatementRow[]): StatementSection =>
+    ({ key, title, basis, columns: calendarColumns, hasPrior: hasCalendarPrior, windowYears, rows });
 
-  const operating = [y0, ...years].map(r => operatingOf(r ? at(r, scope) : undefined));
-  const positions = [openingPosition(gs, scope), ...years.map(r => positionOf(at(r, scope)!))];
+  // Operating results.
+  const operatingAll = timeline.map(r => operatingOf(at(r, scope)));
+  const operating = calendar('operating', 'Operating Results', 'by calendar year, net of reinsurance',
+    operatingRows(hasCalendarPrior ? sumOperating(operatingAll.slice(0, first)) : null, operatingAll.slice(first)));
 
-  // Program years, summed over the scope's lines.
+  // Balance sheet: each year's year-end; the last pre-game year's is the opening.
+  const opening = openingPosition(gs, scope);
+  const positionAt = (r: ResultSet): Position => (r.yearNumber === 0 ? opening : positionOf(at(r, scope)!));
+  const balance = calendar('balance', 'Balance Sheet at Year-End', 'each year at its year-end; the last pre-game year at the opening',
+    balanceRows(gs, scope, opening.surplus,
+      hasCalendarPrior ? { position: positionAt(rolled[rolled.length - 1]), premium: operatingAll[first - 1].premium } : null,
+      window.map((r, i) => ({ yearNumber: r.yearNumber, position: positionAt(r), premium: operatingAll[first + i].premium }))));
+
+  const underwriting = calendar('underwriting', 'Underwriting', 'by calendar year',
+    underwritingRows(scope, timeline.map(r => at(r, scope)), first));
+
+  // Program years, summed over the scope's lines. The window is the same five
+  // years, as program years; Prior holds every older one, bulk years included.
   const perLine = lines.map(l => programYearsOf(gs, l));
   const blockAt = (pick: (b: AyBlock) => AyLoss, ays: (ay: number) => boolean) =>
     perLine.reduce((acc, m) => [...m.entries()].filter(([ay]) => ays(ay)).reduce((a, [, b]) => addLoss(a, pick(b)), acc), zero());
-  const gameAy = (ay: number) => (pick: (b: AyBlock) => AyLoss) => blockAt(pick, x => x === ay);
-  const premGame = years.map(r => premiumsOf(at(r, scope)));
-  const premHist = hist.map(r => premiumsOf(at(r, scope)));
-  const sumHist = (k: keyof Premiums) => (premHist.length === 0 || premHist.some(p => p[k] === undefined)
-    ? undefined : premHist.reduce((s, p) => s + p[k]!, 0));
-  const y0Prem = premiumsOf(y0 ? at(y0, scope) : undefined);
-
-  const block = (key: 'gross' | 'ceded' | 'net', title: string, pick: (b: AyBlock) => AyLoss): StatementSection => ({
-    key, title, basis: 'by program year, at the latest valuation',
-    rows: programRows(key, blockAt(pick, ay => ay <= 0), years.map(r => gameAy(r.yearNumber)(pick)),
-      sumHist(key), premGame.map(p => p[key]), y0Prem[key]),
-  });
+  const firstAy = windowYears[0] ?? 1;
+  const programPrior = perLine.some(m => [...m.keys()].some(ay => ay < firstAy));
+  const premAll = timeline.map(r => premiumsOf(at(r, scope)));
+  const firstCalendar = window[0]?.calendarYear ?? gs.setup.startingYear;
+  const programColumns = [
+    ...(programPrior ? [hasCalendarPrior ? `Prior (${firstCalendar - 1} and earlier)` : `Prior (before ${firstCalendar})`] : []),
+    ...window.map(r => `${r.calendarYear}`), 'Total',
+  ];
+  const block = (key: 'gross' | 'ceded' | 'net', title: string, pick: (b: AyBlock) => AyLoss): StatementSection => {
+    // Prior premium: the rolled-out years that have one; none at all → no source.
+    const priorPrem = rolled.length === 0 ? undefined : add(...premAll.slice(0, first).map(p => p[key]));
+    const rows = programRows(key, blockAt(pick, ay => ay < firstAy), windowYears.map(ay => blockAt(pick, x => x === ay)),
+      priorPrem, premAll.slice(first).map(p => p[key]), first > 0 ? premAll[first - 1][key] : undefined);
+    // Drop the Prior cell where nothing predates the window (never, while bulk years exist).
+    if (!programPrior) for (const r of rows) r.cells.shift();
+    return { key, title, basis: 'by program year, at the latest valuation', columns: programColumns, hasPrior: programPrior, windowYears, rows };
+  };
 
   const sections: StatementSection[] = [
-    { key: 'operating', title: 'Operating Results', basis: 'by calendar year, net of reinsurance', rows: operatingRows(operating) },
-    { key: 'balance', title: 'Balance Sheet at Year-End', basis: 'Prior is the opening position', rows: balanceRows(gs, scope, positions, operating.map(o => o.premium)) },
-    { key: 'underwriting', title: 'Underwriting', basis: 'by calendar year',
-      rows: underwritingRows(scope, yMinus1 ? at(yMinus1, scope) : undefined, [y0, ...years].map(r => (r ? at(r, scope) : undefined))) },
+    operating, balance, underwriting,
     block('gross', 'Gross', b => b.gross),
     block('ceded', 'Ceded (Reinsurance)', b => b.ceded),
     block('net', 'Net', b => b.net),
   ];
 
   const notes = [
-    'Dollars are the average of the ten worlds; every ratio is worked out from those averaged figures. The surplus range is the one per-world figure.',
-    'Prior: the opening position on the balance sheet; all earlier program years combined in the Gross, Ceded and Net blocks; the last pre-game year (year 0) in Operating Results and Underwriting.',
-    `Prior premium is the ${hist.length} pre-game years kept as results (program years ${hist.map(r => r.yearNumber).join(', ')}). The two earliest pre-game years are played but their premium is not kept, and the older bulk years carry none — so Prior has no Loss and LAE Ratio.`,
-    'Total: the game years summed for flows; the latest year for balances, ratios and changes.',
+    'Dollars are the average of the ten worlds; every ratio is worked out from those averaged figures. The surplus range is the one per-world figure; the pre-game ran once, before the worlds.',
+    `The most recent ${STATEMENT_WINDOW_YEARS} years are shown as their own columns; every older year collects in Prior — flows summed, balances at the end of the last year in it. Total covers the ${STATEMENT_WINDOW_YEARS} years shown: the sum for flows, the latest year for balances, ratios and changes.`,
+    `The ${preGame.length} pre-game years are the pool's played history. Surplus moves through them only by each year's income, assessments and dividends, from a starting surplus chosen so the last of them ends at the set opening. That year's year-end is shown as the opening, which is what year 1 begins from; its reserves are the opening's, older years included.`,
+    'In the Gross, Ceded and Net blocks Prior holds every older program year, the bulk reserves from before the pre-game included. Those carry no premium, so Prior has no Loss and LAE Ratio.',
     'Loss adjustment expense is the rate\'s share of the ground-up loss: paid with the losses, its reserve held in IBNR. The reinsurer reimburses none of it, so it is in gross and net alike.',
   ];
-  return { scope, columns, sections, notes };
+  return { scope, sections, notes };
 }
 
 /** Every row carrying a "not yet available" cell, as "Section — Row (column)". */
 export function notYetAvailable(st: AnnualStatement): string[] {
   const out: string[] = [];
   for (const s of st.sections) for (const r of s.rows) r.cells.forEach((c, i) => {
-    if (c.kind === 'na') out.push(`${s.title} — ${r.label} (${st.columns[i]})`);
+    if (c.kind === 'na') out.push(`${s.title} — ${r.label} (${s.columns[i]})`);
   });
   return out;
 }

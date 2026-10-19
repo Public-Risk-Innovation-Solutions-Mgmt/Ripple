@@ -1787,6 +1787,9 @@ export const SIZE_WEIGHTS = [0.55, 0.30, 0.12, 0.03];
 // now plays seven maturation years before its three declared ones, so ten
 // accident years exist at game start, and re-pins surplus at the boundary so
 // what carries forward is the book rather than the profit that built it.
+// (That boundary re-pin is gone since the smooth pre-game: surplus now runs
+// unbroken from a solved start — see solvePreGameStart. This record stands as
+// the derivation it was.)
 // Re-solved against the shipped configuration afterwards — FB on, PT off, the
 // same method, 250 seeds per K and a Newton step on 800 INDEPENDENT seeds:
 //

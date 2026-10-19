@@ -4,8 +4,9 @@
 // -1, 0) produced by the same engine as live years, at default decisions —
 // preceded by MATURATION_YEARS further simulated years that are NOT part of the
 // declared past and exist only to leave a ten-accident-year book behind. See
-// MATURATION_YEARS for why, and for the re-pin that separates the book from the
-// profit that built it. Each
+// MATURATION_YEARS for why. Surplus is not re-pinned anywhere inside it: the
+// line starts from the surplus that lands its last year-end on the set opening
+// (solvePreGameStart) and moves only by its own income from there. Each
 // line is simulated IN ISOLATION (a single-line pre-game), so its history is
 // config-independent: WC's pre-game is byte-identical whether the game is
 // WC-only, WC+GL, or WC+GL+Property. There is no shared roster fold and no
@@ -47,17 +48,14 @@ import type {
 } from '../types/simulation';
 import { generateStartingPoolState } from './instanceGenerator';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
-import {
-  OPENING_SURPLUS_BAND,
-  OPERATING_CASH_PCT_OF_PREMIUM,
-} from '../data/defaultAssumptions';
+import { OPENING_SURPLUS_BAND } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults } from './simulationEngine';
 import {
   satisfactionAnchor, memberLossStanding, surplusBandOf, SATISFACTION,
 } from './memberSatisfaction';
 import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
-import { emptyLinePoolState, getMemberExposure } from './lineHelpers';
+import { emptyLinePoolState } from './lineHelpers';
 import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
 import { lossExpenseReserve } from './lossExpense';
 import { MEMBER_LEVEL, PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
@@ -183,6 +181,13 @@ if (MATURATION_YEARS < 0) {
 
 export interface PriorHistoryResult {
   priorHistory: ResultSet[];      // the 3 accepted pre-game years, oldest first (pool aggregate)
+  /**
+   * THE PRE-GAME'S EARLIER YEARS — every played pre-game year before the three
+   * in priorHistory (yearNumbers -4, -3), oldest first, aggregated the same way.
+   * Kept for the Annual Statement, which shows all five; priorHistory is
+   * unchanged, so nothing else that reads it moves.
+   */
+  earlyPreGameHistory: ResultSet[];
   poolState: PoolState;           // ending state after year 0 = Year 1 opening
   startingFinancials: StartingFinancials;
   historyAttempt: number;         // max accepted per-line attempt (0 = all lines passed on base seed)
@@ -193,6 +198,8 @@ export interface PriorHistoryResult {
 interface LinePreGame {
   line: CoverageLine;
   lineResults: LineResultSet[];   // years -2, -1, 0 for this line
+  /** The pre-game's earlier years (-4, -3), kept for the Annual Statement. */
+  earlyLineResults: LineResultSet[];
   lineState: LinePoolState;       // ending state (Year 1 opening for this line)
   cash: number;                   // this line's own ending operating cash
   unearnedPremium: number;
@@ -203,8 +210,8 @@ interface LinePreGame {
 }
 
 // Run one line's pre-game IN ISOLATION (single-line sim) on a given candidate
-// seed: MATURATION_YEARS to build the book, the re-pin, then the 3 declared
-// pre-game years. Loan offers can't arise (single line), and the ending is
+// seed: MATURATION_YEARS to build the book, then the 3 declared pre-game
+// years, one surplus carried through all of them from startingSurplus. Loan offers can't arise (single line), and the ending is
 // gated by that line's own adequacy in the caller.
 //
 // ⚠ EXPORTED SO opening-centring-check STOPS REIMPLEMENTING IT. That gate needs
@@ -217,7 +224,10 @@ export function simulateLineCandidate(
   instance: GameInstance,
   setup: GameSetupSettings,
   line: CoverageLine,
-  attempt: number
+  attempt: number,
+  // The surplus the line enters its first pre-game year with. Omitted, it is
+  // the bootstrap's own pin; runLinePreGame passes the solved one.
+  startingSurplus?: number,
 ): { lineResults: LineResultSet[]; poolState: PoolState; pooled: ResultSet[] } {
   const candidateInstance: GameInstance = attempt === 0
     ? instance
@@ -245,6 +255,20 @@ export function simulateLineCandidate(
   bootstrap.lines[line].reserveCohorts = bootstrap.lines[line].reserveCohorts.map(
     c => ({ ...c, yearNumber: c.yearNumber - PRE_GAME_DEPTH })
   );
+  // ⚠ THE STARTING SURPLUS IS THE ONLY CAPITAL EVENT IN THE PRE-GAME. From here
+  // the line's surplus moves only by its income, dividends and assessments, year
+  // by year, into the opening. invested is re-derived from the identity, loss
+  // expense reserve included, so the first year opens balanced.
+  {
+    const ls = bootstrap.lines[line];
+    const surplus = startingSurplus ?? ls.surplus;
+    bootstrap.lines[line] = {
+      ...ls,
+      surplus,
+      investedAssets: surplus + ls.netUnpaidReserve
+        + lossExpenseReserve(line, ls.reserveCohorts ?? []) - bootstrap.cash,
+    };
+  }
 
   let gs: GameState = {
     setup: soloSetup,
@@ -259,62 +283,6 @@ export function simulateLineCandidate(
   };
 
   for (let y = -(PRE_GAME_DEPTH - 1); y <= 0; y++) {
-    // ------------------------------------------------------------------ re-pin
-    // ⚠ THE BOUNDARY. The maturation years' accumulated surplus is DISCARDED
-    // here and the line is re-pinned exactly as generateStartingPoolState pins
-    // it at a bootstrap. What carries forward is the BOOK, not the profit that
-    // built it.
-    //
-    // ⚠ THIS IS NOT A CAPITAL EVENT AND THE CONSTANT SAYS SO ITSELF:
-    // STARTING_CAPITAL_TO_PREMIUM's own note opens "⚠ THIS IS A SEARCH ORIGIN,
-    // NOT A CAPITAL STANDARD. Read that sentence before reasoning about these
-    // numbers at all." Moving the origin from year -9 to year -2 is using it as
-    // precisely what it says it is. Without the re-pin the maturation years
-    // compound instead of maturing: measured at ten played years, the reserve
-    // does arrive (WC 1.014 -> 2.005) and the opening goes the WRONG WAY
-    // (WC median 2.207 -> 4.691, zero of forty seeds in band on any line),
-    // because ten years at default decisions accumulate profit.
-    //
-    // ⚠ IT MUST STAY THE SAME ARITHMETIC AS instanceGenerator's pin, not merely
-    // a similar one — same exposure basis, same rate, same cash target — or the
-    // two origins diverge and the pin is calibrated against neither.
-    if (y === -(PRE_GAME_YEARS - 1)) {
-      const ls = gs.poolState.lines[line];
-      const activeExposure = ls.bookExposure !== undefined
-        ? ls.bookExposure * exposureFactor(line, y)
-        : ls.members
-          .filter(m => m.status === 'active')
-          .reduce((s, m) => s + getMemberExposure(m, line, y), 0);
-      const linePremium = activeExposure * ls.ratePer100 * 10_000;
-      // ⚠ THE RE-PIN USES THE SET FORMULA NOW, WHICH IS WHAT RETIRES THE PIN.
-      // It read STARTING_CAPITAL_TO_PREMIUM x premium — the search origin. With
-      // the opening set rather than searched there is no origin to search from,
-      // and leaving the constant here would have kept it alive for one caller
-      // while its own header called it a search origin. The boundary re-pins to
-      // the same multiple of the same required capital the opening is set on,
-      // so the declared years run from a correctly capitalised base and the
-      // opening is set again at the end from whatever reserve they leave.
-      const targetSurplus = setOpeningSurplus(line, ls.netUnpaidReserve);
-      const lineCash = OPERATING_CASH_PCT_OF_PREMIUM * linePremium;
-      gs = {
-        ...gs,
-        poolState: {
-          ...gs.poolState,
-          cash: lineCash,
-          lines: {
-            ...gs.poolState.lines,
-            [line]: {
-              ...ls,
-              surplus: targetSurplus,
-              // surplus = cash + invested − netReserve − LAE reserve
-              //   ⇒ invested = surplus + netReserve + LAE reserve − cash
-              investedAssets: targetSurplus + ls.netUnpaidReserve
-                + lossExpenseReserve(line, ls.reserveCohorts ?? []) - lineCash,
-            },
-          },
-        },
-      };
-    }
     // ⚠ THE PRE-GAME DOES NOT MOVE MEMBERSHIP. The roster that enters year 1 is
     // the STARTING ENROLMENT generateStartingPoolState drew, unchanged.
     //
@@ -328,8 +296,8 @@ export function simulateLineCandidate(
     //
     // ⚠ EVERYTHING ELSE THESE YEARS DO STAYS. Claims are still generated for all
     // 200 marketplace members every year — the member loss ledger depends on it
-    // and the appetite bar reads it — and the loss history, the reserve build,
-    // the maturation years and the surplus re-pin above are untouched.
+    // and the appetite bar reads it — and the loss history, the reserve build
+    // and the maturation years are untouched.
     const processed = processYear(gs, preGameDecisionSet(y), { freezeMembership: true });
     gs = {
       ...gs,
@@ -460,10 +428,107 @@ function runLinePreGame(
   setup: GameSetupSettings,
   line: CoverageLine
 ): LinePreGame {
-  return finalizeLine(
-    simulateLineCandidate(instance, setup, line, 0), line, 0, setup.startingYear,
-    setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line],
-  );
+  const developmentPct = setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line];
+  // One pre-game from a given starting surplus, and how far its last year-end
+  // misses the opening that the rule sets on the state it leaves.
+  const run = (startingSurplus?: number) => {
+    const c = simulateLineCandidate(instance, setup, line, 0, startingSurplus);
+    const opened = finalizeLine(c, line, 0, setup.startingYear, developmentPct);
+    return {
+      start: c.pooled[0].byLine[line].beginingSurplus,
+      gap: c.poolState.lines[line].surplus - opened.lineState.surplus,
+      opened,
+    };
+  };
+  // ⚠ THE MEMBER PATH IS FLOORED AT ZERO, AND KEEPS ITS OPENING RESET. The
+  // dormant member path (MEMBER_LEVEL, run only by the gates that import
+  // engine-mode/member-level) has no shocks, and its pre-game earns more than
+  // the opening on many seeds — measured over 40 host instances, 1 WC, 7 GL
+  // and 29 Property pre-games end above the opening even from a zero start.
+  // A pool cannot start its history insolvent, and the engine cannot either:
+  // at and below zero the first year's balance sheet stops tying and the
+  // year-end no longer depends on the start at all. So that path
+  // starts no lower than zero, and where even zero ends above the opening,
+  // applySetOpening's rule takes the difference out at the opening, as it did
+  // before the smooth pre-game. The shipped game (book mode) needs no floor —
+  // the same 40 instances solve at $36M or more on every line — and
+  // pregame-surplus-flow-check holds it to no reset anywhere.
+  return solvePreGameStart(run, line, MEMBER_LEVEL.enabled ? 0 : undefined).opened;
+}
+
+// ============================================================================
+// THE STARTING SURPLUS, SOLVED — the pre-game starts from whatever surplus makes
+// its last year-end land exactly on the set opening, so the five years flow into
+// year 1 with no reset between them.
+//
+// ⚠ IT IS A SECANT ON THE WHOLE PRE-GAME, NOT A FORMULA FOR IT. Each step runs
+// the line's pre-game from a trial start and measures the gap between its year-0
+// year-end and the opening the rule sets ON THAT RUN'S END STATE; the next start
+// is where the line through the last two (start, gap) points crosses zero. It
+// never reads how the opening is set — only the opening it produces — so it
+// holds for whatever the opening rule is.
+//
+// The losses, reserves and rates do not read surplus, so the year-end is affine
+// in the start (an extra dollar in earns its investment return each year) and
+// the second step lands (book mode: three runs, at most five, on 40 instances).
+// The loop keeps going while anything nonlinear — dividends or assessments on a
+// surplus basis, a rule that reads the year-end — leaves a gap, halves the
+// bracket where the secant cannot step, and refuses to hand over a pre-game
+// that does not close.
+// ============================================================================
+const PRE_GAME_START_TOLERANCE = 0.01; // dollars
+// Ample for halving a bracket of hundreds of millions to a cent; the shipped
+// path lands in three runs.
+const PRE_GAME_START_MAX_STEPS = 60;
+
+export function solvePreGameStart<T extends { start: number; gap: number }>(
+  run: (startingSurplus?: number) => T,
+  line: CoverageLine,
+  // The lowest start allowed. If even the floor ends above the opening, the
+  // floor's run is returned with its gap open — see the member path above.
+  floor?: number,
+): T {
+  const clamp = (x: number) => (floor !== undefined && x < floor ? floor : x);
+  const stuckAtFloor = (r: T) => floor !== undefined && r.start <= floor && r.gap > 0;
+  // The tightest starts seen either side of the opening — once both exist the
+  // root is between them, and a step that leaves them is replaced by halving.
+  let below: T | undefined, above: T | undefined;
+  const bracket = (r: T) => {
+    if (r.gap < 0 && (!below || r.start > below.start)) below = r;
+    if (r.gap > 0 && (!above || r.start < above.start)) above = r;
+  };
+  let a = run();
+  if (Math.abs(a.gap) <= PRE_GAME_START_TOLERANCE) return a;
+  bracket(a);
+  // First step assumes a dollar in is a dollar out; the secant corrects it.
+  let b = run(clamp(a.start - a.gap));
+  for (let step = 0; step < PRE_GAME_START_MAX_STEPS && Math.abs(b.gap) > PRE_GAME_START_TOLERANCE; step++) {
+    // At the floor and still above the opening: nothing allowed closes it.
+    if (stuckAtFloor(b)) return b;
+    bracket(b);
+    const slope = (b.gap - a.gap) / (b.start - a.start);
+    let next = b.start - b.gap / slope;
+    // ⚠ A FLAT STRETCH IS NOT THE END WHEN THE ROOT IS BRACKETED. Just above
+    // zero the first year's balance sheet stops tying and the year-end stops
+    // responding to the start (measured on the member path: $0 and $0.75M end
+    // identically). A secant through two points on that stretch has no slope,
+    // but a bracket still holds the root, so halve it.
+    const inside = below && above && next > below.start && next < above.start;
+    if (below && above && (!Number.isFinite(next) || !inside)) {
+      next = (below.start + above.start) / 2;
+    } else if (!Number.isFinite(slope) || Math.abs(slope) < 1e-9) {
+      // No slope and no bracket: the year-end does not depend on the start — a
+      // reset somewhere inside the pre-game — and no start can close the gap.
+      throw new Error(`pre-game ${line}: year-end does not respond to the starting surplus (slope ${slope})`);
+    }
+    a = b;
+    b = run(clamp(next));
+  }
+  if (stuckAtFloor(b)) return b;
+  if (Math.abs(b.gap) > PRE_GAME_START_TOLERANCE) {
+    throw new Error(`pre-game ${line}: starting surplus did not converge (gap ${b.gap})`);
+  }
+  return b;
 }
 
 
@@ -562,9 +627,14 @@ function finalizeLine(
   // effective seed (instance.seed + attempt x 997) that produced it is
   // recoverable later from saved state, not just during this simulation run.
   const lineResults = c.lineResults.map(r => ({ ...r, pregameAttempt: attempt }));
+  // The same accepted attempt's earlier years — every pre-game year before the
+  // declared three, off the single-line pooled results it already returns.
+  const earlyLineResults = c.pooled.slice(0, -PRE_GAME_YEARS)
+    .map(r => ({ ...r.byLine[line], pregameAttempt: attempt }));
   return {
     line,
     lineResults,
+    earlyLineResults,
     lineState: applySetOpening(
       line, c.poolState.lines[line], c.poolState.cash, startingYear, developmentPct,
     ),
@@ -592,9 +662,9 @@ export function runPriorHistory(
   // that), so the live-year contribution-share split reproduces each line's
   // stored surplus and Year 1 ties out.
   // ============================================================================
-  // ⚠ SATISFACTION IS RE-PINNED AT THE BOUNDARY, EXACTLY AS SURPLUS IS, AND FOR
-  // THE SAME REASON: WHAT CARRIES FORWARD IS THE BOOK, NOT THE HISTORY THAT
-  // BUILT IT.
+  // ⚠ SATISFACTION IS RE-PINNED AT THE BOUNDARY — WHAT CARRIES FORWARD IS THE
+  // BOOK, NOT THE HISTORY THAT BUILT IT. (Surplus no longer is: it flows into
+  // the opening from a solved start, see solvePreGameStart.)
   //
   // Per-member satisfaction is a STOCK, so ten pre-game years of it accumulate.
   // Measured before this re-pin, a member entered Year 1 at 4.24 against an
@@ -818,8 +888,17 @@ export function runPriorHistory(
     priorHistory.push(aggregateLineResults(lineResults, priorHistory[i - 1]));
   }
 
+  // The earlier pre-game years, aggregated exactly as the declared three are.
+  const earlyPreGameHistory: ResultSet[] = [];
+  const earlyCount = perLine[0]?.earlyLineResults.length ?? 0;
+  for (let i = 0; i < earlyCount; i++) {
+    const lineResults = perLine.map(p => ({ line: p.line, result: p.earlyLineResults[i] }));
+    earlyPreGameHistory.push(aggregateLineResults(lineResults, earlyPreGameHistory[i - 1]));
+  }
+
   return {
     priorHistory,
+    earlyPreGameHistory,
     poolState,
     startingFinancials: deriveStartingFinancials(poolState, priorHistory),
     historyAttempt: Math.max(0, ...perLine.map(p => p.attempt)),

@@ -257,7 +257,13 @@ const FAST: string[] = [
                                      //         the balance sheet balances with LAE reserves, the
                                      //         combined ratio is worked from its parts, underwriting
                                      //         ties to the engine, Total sums flows and takes the
-                                     //         latest year otherwise — each with a control
+                                     //         latest year otherwise; the five-year window rolls,
+                                     //         Prior + the five reconcile to the full history, the
+                                     //         pre-game columns are the engine's — each with a control
+  'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
+                                     //         and dividends across all five years and into year 1,
+                                     //         with no reset before 2023 or at the opening, and year 1
+                                     //         opens at the set opening — each reset restored a control
   'lae-booking-check',               //  15s   LAE is booked: incurred, paid and reserved as the rate's
                                      //         shares of the ground-up loss (ULAE alone on GL), the
                                      //         reserve rolls, the balance sheet holds it, underwriting

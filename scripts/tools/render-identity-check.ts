@@ -908,7 +908,32 @@ const BASELINE = process.env.RENDER_BASELINE
 // one place — the tab bar's "Pool History" now reads "Annual Statement". No
 // figure and no other word moved anywhere. Results, the Result Spreadsheet and
 // the Calculation Audit are unchanged.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v50.json');
+// v51: THE ANNUAL STATEMENT'S ROLLING FIVE-YEAR WINDOW, with the pre-game's
+// five years kept (GameState.earlyPreGameHistory). The control ran first:
+// a7fd84a, served on 4174, reproduced v50 242 of 242. 26 of 242 moved —
+// exactly the 26 Annual Statement screens; no key added or removed, no other
+// screen moved. Diffed as text: at y0 the calendar sections read "2021 2022
+// 2023 2024 2025 Total" where they read "Prior Total", with every pre-game
+// year's figures in its own column, and the program-year blocks read "Prior
+// (before 2021) 2021 … 2025"; at y2 "Prior (2021–22) 2023 … 2027" where they
+// read "Prior Year 1 / 2026 Year 2 / 2027", Total now over the five shown, and
+// the notes and the not-yet-available list follow.
+// v52: THE SMOOTH PRE-GAME — no surplus reset before 2023 or at the opening;
+// the pre-game starts from the surplus that lands it on the set opening. The
+// control ran first: 935f96f, served on 4174, reproduced v51 242 of 242. 111
+// of 242 moved, no key added or removed, and value identity is bit-exact, so
+// no played year moved. Diffed as text, every move is the pre-game's surplus
+// and what reads it: the pre-game years' surplus, investment income and net
+// income (Annual Statement, Dashboard, Financial Statements, 26 each); the
+// year-0 figures and the pre-game capital status in the Calculation Audit (13,
+// Adequate -> Strong, Deficient -> Adequate); the Introduction's last-year
+// surplus and premium-to-surplus ratio, now the opening (10 — Property read
+// -$1.36M, now $22.79M); the Decisions page's "Dividend Surplus", now the
+// opening the engine pays on rather than the year-0 year-end (8); and
+// Property's 2026 dividend no longer shown "(blocked)" (2 — read off that
+// negative year-end; the engine never blocked it). The statement's note on the
+// two resets is reworded.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v52.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
