@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v14';
+export const SAVE_KEY = 'riskpool_gamestate_v15';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -173,7 +173,14 @@ export const SAVE_KEY = 'riskpool_gamestate_v14';
 // with no assets held for the loss expense reserve — its liability appears the
 // first year after reload — so its surplus would read short by that reserve,
 // and its results carry no LAE fields. Cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13'];
+// ⚠ v15 SINCE PROMPT B COMMIT 2 — ONE BUMP FOR FOUR CHANGES. A v14 save was
+// written before routine large losses were on (every year's large claims and
+// the pre-game history pricing reads), before the opening held ten accident
+// years at 2x on a pre-game with years behind it, before Property opened on
+// its full requirement, and before worlds 2-10 dropped their claim lists from
+// the save. Its pre-game, its opening and its book are ones this engine no
+// longer builds, so it cannot continue faithfully and is cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14'];
 
 /**
  * Fields dropped on the way out.
