@@ -25,8 +25,8 @@
 //      the engine and not in worlds.ts fails here.
 //   5. TWO TEAMS ON IDENTICAL DECISIONS MATCH EXACTLY — every world and the
 //      average.
-//   6. SHOCKS: host-scheduled events fire in every world, with severity drawn
-//      per world; catalogue events fire per world by probability.
+//   6. SHOCKS: a solo game's schedule and a host's both fire in every world,
+//      with severity drawn per world (solo-shock-schedule-check has the rest).
 //
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over data, and THE
 // CONTROLS at the foot feed each one a deliberately broken input and require it
@@ -34,6 +34,7 @@
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
+import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear, strikeBookRate } from '../../src/utils/simulationEngine';
@@ -70,12 +71,12 @@ function decisionsFor(y: number): DecisionSet {
 
 interface Played { gs: GameState; starts: GameState[]; openingJson: string }
 
+/** A solo game as the app builds it, or — given a host's schedule — a session team's. */
 function play(id: string, seed: number, opts: { shocks?: Array<{ shockId: string; yearNumber: number }> } = {}): Played {
-  const inst = generateGameInstance(id, seed, opts.shocks ?? []);
-  const setup = {
-    poolName: 'W', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES,
-    ...(opts.shocks ? { shockTiming: 'host' as const } : {}),
-  };
+  const base = { poolName: 'W', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
+  const { setup, instance: inst } = opts.shocks
+    ? { setup: { ...base, shockTiming: 'host' as const }, instance: generateGameInstance(id, seed, opts.shocks) }
+    : openSoloInstance(base as never);
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   // Every world opens on this ONE object; snapshotted to prove no world writes to it.
   const openingJson = JSON.stringify(poolState);
@@ -160,7 +161,7 @@ function worldsDiffer(worldRows: (LineResultSet | ResultSet)[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
-console.log(`=== TEN WORLDS — WORLD_COUNT ${WORLD_COUNT}, three-line games, ${YEARS} years, catalogue shocks ===`);
+console.log(`=== TEN WORLDS — WORLD_COUNT ${WORLD_COUNT}, three-line solo games, ${YEARS} years ===`);
 check(worldCount() === WORLD_COUNT && WORLD_COUNT > 1, `the new engine runs ${WORLD_COUNT} worlds`);
 const A = play('WCHK1', 5_150_515);
 const gs = A.gs;
@@ -348,7 +349,7 @@ check(JSON.stringify(B.gs.lockedResults) === JSON.stringify(gs.lockedResults)
 console.log('\n--- 6. shocks ---');
 {
   const fired = gs.lockedResults.flatMap(r => r.shockEvents ?? []).map(e => e.worlds?.fired ?? 0);
-  check(fired.some(f => f > 0 && f < WORLD_COUNT), 'catalogue events fire per world: some fire in only part of the worlds',
+  check(fired.length > 0 && fired.every(f => f === WORLD_COUNT), 'a solo game\'s drawn events fire in every world',
     `fired-in counts ${[...new Set(fired)].sort((a, b) => a - b).join(',')}`);
   const H = play('WCHK2', 7_070_707, { shocks: [{ shockId: '#2', yearNumber: 2 }] });
   const ev = (H.gs.lockedResults[1].shockEvents ?? []).find(e => e.shockId === '#2');
@@ -408,7 +409,7 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   check(wrong.newStack?.finalRatePer100 !== W[0].lockedResults[2].byLine.GL.finalRatePer100,
     'control: a panel quoting a package the team did not buy does not match the charged rate');
   // Two teams that do not match.
-  const C = play('WCHK1', 5_150_516);
+  const C = play('WCHK3', 5_150_516);
   check(JSON.stringify(C.gs.lockedResults) !== JSON.stringify(gs.lockedResults),
     'control: two teams on different seeds do not match — the identity test can fail');
 }

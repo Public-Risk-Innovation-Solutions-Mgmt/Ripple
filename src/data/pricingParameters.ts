@@ -1345,10 +1345,13 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'winterstorm\'s many claims under the retention — which no per-occurrence package reaches.',
       }],
       ['Shock timing', {
-        value: 'host in a session · catalogue in singleplayer', unit: '—',
-        what: 'Multiplayer fires only what the host scheduled, consulting no probability. Singleplayer fires '
-          + 'each event at its catalogue probability. Every size is drawn from a stream keyed on the event and '
-          + 'its year, so the same seed gives the same shock. Nothing fires before year 1.',
+        value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',
+        what: 'Multiplayer fires only what the host scheduled. Singleplayer draws its schedule once, at the '
+          + 'game\'s start, by the same rule as the host\'s Randomise (one event per three years, from year 2, '
+          + 'weighted by the catalogue\'s probabilities) on its own stream, and keeps it in the save. Either way '
+          + 'every world fires the same events in the same years, and only each firing\'s size is drawn per '
+          + 'world, from a stream keyed on the world, the event and its year. Pricing uses the catalogue\'s '
+          + 'probabilities, never the schedule. Nothing fires before year 1.',
         basis: 'CHOSEN',
       }],
     ],

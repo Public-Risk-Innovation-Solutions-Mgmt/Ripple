@@ -856,7 +856,26 @@ const BASELINE = process.env.RENDER_BASELINE
 // 5.33 -> 4.56 per $100 (world 1 had taken a $24.4M year-1 loss against about
 // $11.5M in the others), premium 19.99M -> 17.09M on the same 14.83M incurred,
 // so the combined ratio reads 94.6% -> 110.6%.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v46.json');
+// v47: THE SOLO SHOCK SCHEDULE — a solo game draws its schedule once at its
+// start, by the host's Randomise rule on its own stream, and every world fires
+// it. RENDERBASE1's five years draw Economic Recession in year 2 and WC Reform
+// in year 3. 116 of 242 moved, the same y2 screens; no y0 screen and no key.
+// The control ran first: the averaging fix (729a714), served on 4174,
+// reproduced v46 242 of 242. Every moved screen was diffed word by word. One
+// cause, the events, and what they left:
+//   - THE EVENTS: year 2's is Economic Recession "in 10 of 10 worlds" on every
+//     line it touches, where each world had drawn its own by probability ("in 1
+//     of 10 worlds" — Nuclear Verdict, WC Reform, Social Inflation, Wildfire,
+//     Winterstorm, Member Withdrawal); "3 events" reads "An event". No screen
+//     names year 3's WC Reform — the schedule is not shown ahead.
+//   - WHAT THEY LEFT: no large loss reached a tower, so the recovery rows, the
+//     "Retained Above Tower" rows and their narrative go; Property is no longer
+//     short in the three-line game, so its inter-line loan — the transfer
+//     terms, the repayment slider, the loan rows — goes; the liquidity floor no
+//     longer binds and the audit's known variance goes with it; capital reads
+//     Adequate for Thin; surplus, ratios, the Actuarial development figures and
+//     the narrative that follows their signs.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v47.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

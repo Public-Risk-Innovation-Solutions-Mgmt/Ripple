@@ -217,7 +217,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { generateGameInstance } from '../../src/utils/instanceGenerator';
+import { openSoloInstance } from '../../src/utils/soloGame';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -688,16 +688,37 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the first year to move is year 2, where the rate moves, and every later
 // figure follows from the rate — e.g. ZZTEST99 three lines, GL's rate per $100
 // in year 4 3.75 -> 4.09, Property's 0.22 -> 0.24.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v69.json');
+// v70: THE SOLO SHOCK SCHEDULE. A solo game now draws its schedule once, at its
+// start, by the host's Randomise rule on its own stream, and every world fires
+// it; this guard builds its games as the app does (openSoloInstance). All 24
+// exports move, for that one cause. The control ran first: the averaging fix
+// (729a714), in its own worktree, reproduced v69 24 of 24; then both sides were
+// diffed cell by cell, the Shock Events sheet read for each year's events:
+//   - THE EVENTS are the drawn schedule's and only those, each "in 10 of 10
+//     worlds" — e.g. ZZTEST99, Winterstorm in year 3 and Economic Recession in
+//     year 4 — where each world had drawn its own by probability ("in 1 of 10
+//     worlds", several a year). A single line's export lists the scheduled
+//     events that touch its line; the three-line export lists them all.
+//   - EVERY EXPORT MOVES FROM YEAR 1, and no figure moves before its events do:
+//     the rule never schedules year 1, and the old timing had fired something
+//     in some world's year 1 in all 24 (Investment Loss on ZZTEST99 WC, which
+//     the WC events row does not list but the Shock Events sheet does).
+//   - PRICING DID NOT MOVE: all 696 year-1 rate, pure premium, expected-ceded and
+//     reinsurance cost cells are unchanged — pricing reads the catalogue's
+//     probabilities, never the schedule. Later years' rates move with the
+//     history the different events left.
+// No row is added or removed outside the Shock Events sheet, which lists fewer.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v70.json');
 
-function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
 function play(id: string, lines: CoverageLine[], years: number,
               decisions: (y: number, l: CoverageLine[]) => DecisionSet = y => defaultDecisionSet(y)): ResultSet[] {
-  const instance = generateGameInstance(id, seedOf(id));
-  const setup = { poolName: 'G', gameLength: years, startingYear: 2026, instanceId: id, activeLines: lines };
-  const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
+  // ⚠ BUILT AS THE APP BUILDS A SOLO GAME (utils/soloGame): the shock schedule
+  // drawn once at the start, on the instance, fired in every world.
+  const { setup, instance } = openSoloInstance(
+    { poolName: 'G', gameLength: years, startingYear: 2026, instanceId: id, activeLines: lines } as never);
+  const { poolState, priorHistory } = runPriorHistory(instance, setup);
   // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b, played as the app plays them: the
   // export a player downloads is the AVERAGE across the worlds, so that is what
   // this guards. Loans are declined, as before (none were ever authorized here).

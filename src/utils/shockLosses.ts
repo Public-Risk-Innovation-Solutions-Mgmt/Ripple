@@ -52,11 +52,15 @@
 // every regional firing, uniformly, from the firing's own stream; one event's
 // region is the same on every line it touches.
 //
-// TIMING. Multiplayer: the host's schedule (setup.shockTiming === 'host'),
-// and no probability is consulted. Singleplayer: each event fires with the
-// catalogue's annual probability, drawn from the labelled sub-stream
-// 'nle_fire'. Either way every SIZE is drawn from a stream keyed on the event,
-// the firing year and its ordinal, so the same seed gives the same shock.
+// TIMING. Multiplayer: the host's schedule (setup.shockTiming === 'host').
+// Singleplayer: the schedule the game drew once at its start, by the same rule
+// as the host's Randomise (setup.shockTiming === 'solo'; utils/soloGame). Both
+// are the instance's scheduledShocks, so every world fires the same events in
+// the same years and no probability is consulted. Only a harness's bare
+// instance, unmarked, fires each event with the catalogue's annual probability
+// on the labelled sub-stream 'nle_fire' — per world. Every SIZE is drawn from a
+// stream keyed on the world's seed, the event, the firing year and its ordinal,
+// so the same seed gives the same shock and each world its own severity.
 //
 // ⚠ NO SHOCKS BEFORE YEAR 1, in either mode. The pre-game is history the
 // players inherit and is told as it stands; its expectation below is ordinary
@@ -437,9 +441,13 @@ export function drawLargeLosses(
 
 export { firingKey };
 
-/** The timing a game runs on. A session marks its setup; singleplayer does not. */
-export const shockTimingOf = (setup: { shockTiming?: 'host' }): ShockTiming =>
-  setup.shockTiming === 'host' ? 'host' : 'catalogue';
+/**
+ * The timing a game runs on. A session marks its setup 'host' and a solo game
+ * 'solo'; both fire the instance's schedule ('host' timing — the schedule, not
+ * who drew it). An unmarked setup is a harness's bare instance.
+ */
+export const shockTimingOf = (setup: { shockTiming?: 'host' | 'solo' }): ShockTiming =>
+  setup.shockTiming === 'host' || setup.shockTiming === 'solo' ? 'host' : 'catalogue';
 
 /**
  * MEMBER WITHDRAWAL: 25% of the line's exposure leaves at this renewal.

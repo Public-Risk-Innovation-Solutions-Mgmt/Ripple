@@ -250,6 +250,11 @@ const FAST: string[] = [
                                      //         averaged history, averaged dollars are the mean and
                                      //         ratios come from averaged parts, two identical teams
                                      //         match exactly — each check with a failing control
+  'solo-shock-schedule-check',       //  15s   a solo game draws its shock schedule once, by the
+                                     //         host's Randomise rule on its own stream: every world
+                                     //         fires the same events in the same years with its own
+                                     //         severity, the seed reproduces it, a save and reload
+                                     //         keeps it, pricing never reads it — each with a control
   'development-emergence-check',     //  20s   the host's development % emerges IN FULL and only in
                                      //         full: the cumulative matches the closed form the
                                      //         payment pacing implies, at every age of every

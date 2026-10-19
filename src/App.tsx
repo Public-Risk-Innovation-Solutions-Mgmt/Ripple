@@ -2,13 +2,12 @@ import React, { useState, useCallback } from 'react';
 
 import type { GameState, GameSetupSettings, DecisionSet, StartingFinancials, Member, LinePoolState, CoverageLine, LineView } from './types/simulation';
 import { getPredefinedMarketMembers } from './data/memberCatalog';
-import { generateGameInstance } from './utils/instanceGenerator';
+import { openSoloInstance } from './utils/soloGame';
 import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear, type SettledYear, type WorldsYear } from './utils/worlds';
 import { runPriorHistory } from './utils/priorHistoryEngine';
 import { defaultDecisionSet } from './utils/decisionDefaults';
 import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
 import { createSaveScheduler, type SaveScheduler } from './utils/saveScheduler';
-import { seedFromInstanceId } from './seedHash';
 import LoanPromptModal from './components/LoanPromptModal';
 import type { TabId } from './components/TabNav';
 import SetupPage from './pages/SetupPage';
@@ -207,21 +206,19 @@ export default function App() {
   }
 
   const handleStartGame = useCallback((settings: GameSetupSettings) => {
-    const seed = seedFromInstanceId(settings.instanceId);
-    // ⚠ NO SCHEDULE: the solo setup screen has no shock control, so solo passes
-    // an empty list and the instance carries no field at all. The session passes
-    // its room's list through this same constructor (session/client/buildGame).
-    const instance = generateGameInstance(settings.instanceId, seed, []);
+    // THE SHOCK SCHEDULE IS DRAWN HERE, ONCE, by the host's Randomise rule on the
+    // solo stream, and rides on the instance into the save and every world.
+    const { setup, instance } = openSoloInstance(settings);
     // Stage 2.10: each active line simulates its own 3-year pre-game past
     // through the real engine; the ending state is the Year 1 opening position.
-    const { poolState, startingFinancials: sf, priorHistory } = runPriorHistory(instance, settings);
+    const { poolState, startingFinancials: sf, priorHistory } = runPriorHistory(instance, setup);
 
     // Every active line's roster, deduplicated — the same object the pool row's
     // memberList is, which is what replaces this at year 1. See openingRoster.
     const initMembers = openingRoster(poolState, settings.activeLines);
 
     const opened: GameState = {
-      setup: settings,
+      setup,
       instance,
       currentYearNumber: 1,
       isStarted: true,

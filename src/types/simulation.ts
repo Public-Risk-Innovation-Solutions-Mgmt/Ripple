@@ -584,11 +584,13 @@ export interface GameSetupSettings {
   priorDevelopment?: Partial<Record<CoverageLine, number>>;
   /**
    * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
-   * 'host' — the room's schedule, and no probability is consulted. Absent in
-   * singleplayer, where each event fires at the catalogue's own probability.
-   * Read only by the new loss engine (MEMBER_LEVEL off).
+   * 'host' — the room's schedule. A solo game sets 'solo' — the schedule it drew
+   * once at its start (utils/soloGame). Either way the instance's
+   * scheduledShocks fire, in every world, and no probability is consulted.
+   * Absent only on a bare instance a harness builds, where each event fires at
+   * the catalogue's probability, per world. Read only by the new loss engine.
    */
-  shockTiming?: 'host';
+  shockTiming?: 'host' | 'solo';
 }
 
 // Per-line player decisions for a given year.
