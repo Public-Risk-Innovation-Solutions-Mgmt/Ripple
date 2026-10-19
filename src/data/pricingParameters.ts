@@ -652,7 +652,9 @@ export const NEW_BUSINESS_PENALTY = 0;
  * opening lands where the search was aiming, so the change is the MECHANISM
  * and not a re-levelling hidden inside it.
  *
- * ⚠ NOT YET USED — commit (b) of the opening rebuild reads it.
+ * ⚠ AND THE REQUIREMENT IS THE LINE'S FULL ONE SINCE PROMPT A COMMIT 3: the
+ * margin above PLUS the retained-catastrophe charge (Property only), the same
+ * total the engine grades capital on every year. See setOpeningSurplus.
  */
 export const OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2.28;
 
@@ -1083,10 +1085,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Opening surplus multiple', {
         value: OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, unit: 'x the line\'s own required capital',
         what: 'Sets opening surplus directly, replacing the band and the pin.', basis: 'CHOSEN',
-        notYetUsed: true,
-        note: 'REQUIRED CAPITAL IS expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1), the reserve risk '
-          + 'margin — not premium, not the reserve itself. 2.28 is today\'s band midpoint carried over, '
-          + 'so the set opening lands where the search was aiming.',
+        note: 'Against each line\'s FULL required capital: the reserve risk margin, expectedNetUnpaidLoss x '
+          + '(staticClf(line, 0.90) - 1), PLUS the retained-catastrophe charge — on Property only; WC and GL '
+          + 'have none. The charge is in it since Prompt A commit 3; before, Property opened on the margin '
+          + 'alone, below the requirement the engine grades it on. 2.28 is the old band midpoint carried over.',
       }],
       ['Bulk cohort horizon', {
         value: 'each line\'s own recorded paid pattern', unit: 'accident years',

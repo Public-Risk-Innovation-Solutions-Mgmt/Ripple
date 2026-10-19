@@ -75,7 +75,9 @@ import { computeKPr, deriveNeutralPropertyPurePremiumPer100 } from './propertyCl
 import { allLayerRiskMoments, expectedCededAtBoundsScale } from './towerMoments';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
-import { expectedLossBreakdown, newEngineLayerMoments } from './shockExpectation';
+import { expectedLossBreakdown, newEngineCatCapital, newEngineLayerMoments } from './shockExpectation';
+import { catCapitalRetained } from './propertyCatastrophe';
+import { defaultReinsuranceOption, placementFor } from './reinsuranceOptions';
 import { REINSURANCE_TOWER } from '../data/reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
 
@@ -353,7 +355,30 @@ export function requiredCapital(line: CoverageLine, netUnpaidReserve: number): n
   return netUnpaidReserve * (staticClf(line as StaticClfLine, RESERVE_MARGIN_CONFIDENCE_PARAM) - 1);
 }
 
-/** Opening surplus for a line: the ruled multiple of its own required capital. */
-export function setOpeningSurplus(line: CoverageLine, netUnpaidReserve: number): number {
-  return OPENING_SURPLUS_MULTIPLE_OF_REQUIRED * requiredCapital(line, netUnpaidReserve);
+/**
+ * THE RETAINED-CATASTROPHE CHARGE THE LINE OPENS WITH — the second term of its
+ * full requirement, on the opening book, at year 1, behind the default
+ * package the prior board bought. The SAME expression the engine charges in
+ * every year (simulationEngine's catCapitalNeeded): zero on WC and GL, which
+ * have no catastrophe band.
+ */
+export function openingCatCapital(line: CoverageLine, members: Book): number {
+  const placed = placementFor(line, defaultReinsuranceOption(line));
+  return newLossEngineRuns()
+    ? newEngineCatCapital(line, bookExposureOf(members, line, 1), 1, placed)
+    : catCapitalRetained(line, [...rosterOf(members, 'openingCatCapital')], placed);
+}
+
+/**
+ * Opening surplus for a line: the ruled multiple of its own FULL required
+ * capital — the reserve risk margin PLUS the retained-catastrophe charge.
+ *
+ * ⚠ THE CHARGE IS IN IT SINCE PROMPT A COMMIT 3. The engine has always held
+ * Property to margin + charge (reserveRiskMarginNeeded) every year, but the
+ * opening was set on the margin alone — so Property opened below its own
+ * requirement and its first capital reading was Deficient. Every line now
+ * opens at the same multiple of the requirement the engine then grades it on.
+ */
+export function setOpeningSurplus(line: CoverageLine, netUnpaidReserve: number, catCapital = 0): number {
+  return OPENING_SURPLUS_MULTIPLE_OF_REQUIRED * (requiredCapital(line, netUnpaidReserve) + catCapital);
 }

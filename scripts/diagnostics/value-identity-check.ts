@@ -1170,7 +1170,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // reached the tower in these games before; routine claims now pierce the
 // retention, and the tower answers their development as the accident year's
 // own cover — which is what the field exists to record.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v68.json');
+// v69: PROPERTY OPENS ON ITS FULL REQUIREMENT (Prompt A commit 3) — the
+// retained-catastrophe charge joins the reserve margin in the opening rule.
+// The control ran first: 4e44465 reproduced v68 exactly. Shape unchanged;
+// 2,479 instances moved across 20 fields, all of them surplus and what holds
+// or earns it — surplus, invested assets and cash, investment income and net
+// income, the funding gaps and capital ratios, the tie-out's float noise. NO
+// loss, premium, rate, reserve or cession field moved, and no identity left
+// its value: the pre-game's losses do not read surplus, so a larger opening
+// changes what the pool holds and earns on, not what it pays.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v69.json');
 
 function seedOf(id: string) {
   let h = 5381;

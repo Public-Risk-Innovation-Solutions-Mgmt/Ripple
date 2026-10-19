@@ -56,7 +56,7 @@ import {
 import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState } from './lineHelpers';
-import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
+import { bulkCohortsAsReserveCohorts, openingCatCapital, setOpeningSurplus } from './openingReserves';
 import { lossExpenseReserve } from './lossExpense';
 import { MEMBER_LEVEL, PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
 import { exposureFactor } from '../data/exposureTrend';
@@ -585,7 +585,11 @@ function applySetOpening(
     line, developmentPct,
   ));
   const netUnpaidReserve = reserveCohorts.reduce((a, c) => a + c.netUnpaid, 0);
-  const surplus = setOpeningSurplus(line, netUnpaidReserve);
+  // The FULL requirement: Property's retained-catastrophe charge included, on
+  // the same book the bulk years were sized on. See setOpeningSurplus.
+  const bookForCapital = ls.bookExposure !== undefined
+    ? { exposure: ls.bookExposure * exposureFactor(line, 1) } : ls.members ?? [];
+  const surplus = setOpeningSurplus(line, netUnpaidReserve, openingCatCapital(line, bookForCapital));
   // ⚠ THE PRE-GAME LEDGER IS CUT BACK TO THE COHORTS THAT SURVIVE THE OPENING,
   // AND IT HAS TO BE. The pre-game carries instanceGenerator's own seed cohorts
   // through its years, and recordReserveDevelopment opens a ledger row for each
