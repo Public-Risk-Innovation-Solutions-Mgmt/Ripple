@@ -50,7 +50,13 @@ const GAMES = Number(process.env.GAMES ?? 6);
 // ⚠ LONG ENOUGH TO RUN OFF, WHICH IS THE WHOLE POINT. The recorded payout
 // tables reach zero unpaid by age 11 on Property and later on WC and GL; a
 // game short enough to leave cohorts open would assert nothing about a TOTAL.
-const YEARS = Number(process.env.YEARS ?? 24);
+//
+// ⚠ 30 SINCE PROMPT A COMMIT 2, WAS 24. The opening holds ten accident years
+// now (OPENING_RESERVE_YEARS), not each pattern's full runoff, so the oldest
+// WC cohort a game starts with is 10 years old rather than 37. WC's pattern
+// runs to 37, so 24 years left every WC cohort open — section 3's adverse WC
+// sample was empty (0 of 0) — and 30 is the first round figure past 37 - 10.
+const YEARS = Number(process.env.YEARS ?? 30);
 const RULE = '='.repeat(78);
 
 const failed: string[] = [];

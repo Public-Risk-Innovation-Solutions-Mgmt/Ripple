@@ -62,13 +62,13 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 
 ## The opening
 
-The SET opening — no acceptance band, no pin, no search. NOT YET USED: commit (a) records them, commit (b) reads them.
+The SET opening — no acceptance band, no pin, no search, and no reset: the pre-game starts from the surplus that lands its last year-end on the opening.
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
 | Prior history years | `5` | accident years | CHOSEN | How many pre-game years are simulated with real claims behind them. Ten while the old ten-year experience path is live; drops to the new window of five at commit 3, and the two move together. Everything older opens as a bulk cohort. |
-| Opening surplus multiple | `2.28` | x the line's own required capital | CHOSEN | Sets opening surplus directly, replacing the band and the pin. Against each line's FULL required capital: the reserve risk margin, expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1), PLUS the retained-catastrophe charge — on Property only; WC and GL have none. The charge is in it since Prompt A commit 3; before, Property opened on the margin alone, below the requirement the engine grades it on. 2.28 is the old band midpoint carried over. |
-| Bulk cohort horizon | `each line's own recorded paid pattern` | accident years | SOURCED | How far back the opening runoff reaches: WC 37 years, GL 21, Property 11. The full pattern length. WC is still 9.04% unpaid at 37 years, and its newest 25 accident years hold only 95% of its steady-state reserve, so truncating discards real reserve. |
+| Opening surplus multiple | `2` | x the line's own required capital | CHOSEN | Sets opening surplus directly, replacing the band and the pin. Against each line's FULL required capital: the reserve risk margin, expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1), PLUS the retained-catastrophe charge — on Property only; WC and GL have none (since Prompt A commit 3). 2 since Prompt A commit 2 (was 2.28, the old band's midpoint carried over). The pre-game starts from the surplus that lands its last year-end here, so the opening is set without a reset. |
+| Opening reserve years | `10` | accident years | CHOSEN | How many accident years the opening holds reserves for; older years are treated as closed. The prior history years played with claims, and the years before them as bulk cohorts on the books from the start of the pre-game, paying down through it. Was each pattern's full length (WC 37 years, GL 21, Property 11) before Prompt A commit 2. |
 
 ## The new pricing parameters
 

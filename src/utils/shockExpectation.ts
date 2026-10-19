@@ -178,10 +178,13 @@ function largeLossMoments(
   line: CoverageLine, exposure: number, yearNumber: number,
   h: PerLoss, kinks: (deductible: number) => number[], routineOffset: boolean,
   routineOn = ROUTINE_LARGE_LOSSES.enabled,
+  // Count the catalogue's events in a year before year 1 too — what a PRICE
+  // does (ex ante); what HAPPENED there does not, since nothing fires then.
+  shocksInEveryYear = false,
 ): LargeMoments {
   const byEvent = new Map<string, number>();
   let mean = 0, variance = 0, occurrences = 0, routine = 0;
-  if (yearNumber >= 1 && exposure > 0) {
+  if ((yearNumber >= 1 || shocksInEveryYear) && exposure > 0) {
     for (const e of SHOCK_EVENTS) {
       const c = conditionalEventMoments(line, e.name, exposure, yearNumber, h, kinks);
       if (c === null) continue;
@@ -267,14 +270,24 @@ export interface NewEngineLayerMoments { expected: number; sd: number; sdOverExp
  * large losses. Bounds may be scaled (the bulk years' identity — see
  * expectedCededAtBoundsScale), which here is exact: every large loss scales
  * with the same trend.
+ *
+ * ⚠ EX ANTE IN EVERY YEAR, THE PRE-GAME INCLUDED (Prompt A commit 2). A price
+ * is struck before the year on the catalogue's probabilities, so a pre-game
+ * year's tower is priced exactly as a game year's: the prior board paid the
+ * market price for shock cover and simply had quiet years. Until then the
+ * shocks were left out before year 1 — "nothing fires then" — which priced
+ * Property's layers at the routine claims alone and its Prior ceded premium
+ * at nothing beside game years' $1M. `exAnte = false` asks instead what the
+ * year's losses actually were expected to cede, which before year 1 is the
+ * routine claims only: the bulk years' net ultimates are struck on that.
  */
 export function newEngineLayerMoments(
-  line: TowerLine, exposure: number, yearNumber: number, boundsScale = 1,
+  line: TowerLine, exposure: number, yearNumber: number, boundsScale = 1, exAnte = true,
 ): NewEngineLayerMoments[] {
   return REINSURANCE_TOWER[line].map(l => {
     const layer = { attachment: l.attachment * boundsScale, limit: l.limit * boundsScale };
     const c = layerCession(line, layer);
-    const m = largeLossMoments(line, exposure, yearNumber, c.h, c.kinks, false);
+    const m = largeLossMoments(line, exposure, yearNumber, c.h, c.kinks, false, ROUTINE_LARGE_LOSSES.enabled, exAnte);
     const sd = Math.sqrt(Math.max(0, m.variance));
     return { expected: m.mean, sd, sdOverExpected: m.mean > 0 ? sd / m.mean : 0, lambda: m.occurrences };
   });

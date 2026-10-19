@@ -53,6 +53,9 @@ interface Chain {
   year1: Year[];               // year 1 in every world
   opening: number;             // the opening surplus the game holds
   setOpening: number;          // what the opening rule sets
+  // The start was floored at zero and even so the pre-game ended above the
+  // opening — the one case allowed an opening reset (see runLinePreGame).
+  floored: boolean;
 }
 
 const yearOf = (r: { yearNumber: number; beginingSurplus: number; endingSurplus: number; netIncome: number; underwritingIncome: number; investmentIncome: number }): Year => ({
@@ -73,9 +76,13 @@ function seamMiss(c: Chain): number {
 }
 /** Worst jump from the last pre-game year-end to the opening and to year 1's start in any world. */
 function openingMiss(c: Chain): number {
-  const y0 = c.preGame.at(-1)!.end;
-  return Math.max(Math.abs(c.opening - y0), ...c.year1.map(y => Math.abs(y.begin - y0)));
+  // A floored pool opens at the rule, not at its year-end: its reset is the
+  // allowed one. Year 1 must still begin exactly where the pool opened.
+  const ref = c.floored ? c.opening : c.preGame.at(-1)!.end;
+  return Math.max(Math.abs(c.opening - ref), ...c.year1.map(y => Math.abs(y.begin - ref)));
 }
+const isFloored = (preGame: Year[], opening: number) =>
+  preGame.length > 0 && preGame[0].begin === 0 && preGame.at(-1)!.end > opening + DOLLAR;
 function setMiss(c: Chain): number {
   return Math.abs(c.opening - c.setOpening);
 }
@@ -118,11 +125,13 @@ for (const id of SEEDS) {
       opening: ls.surplus,
       setOpening: setOpeningSurplus(line, ls.netUnpaidReserve,
         openingCatCapital(line, { exposure: (ls.bookExposure ?? 0) * exposureFactor(line, 1) })),
+      floored: false,
     };
+    c.floored = isFloored(c.preGame, c.opening);
     // THE CONTROLS' RUNS — the same line's pre-game from the bootstrap's own
     // pin, which is what the engine ran before the start was solved.
     const unsolved = simulateLineCandidate(instance, setup, line, 0).pooled.map(r => yearOf(r.byLine[line]));
-    opensUnsolved.push({ ...c, label: `${c.label} unsolved`, preGame: unsolved });
+    opensUnsolved.push({ ...c, label: `${c.label} unsolved`, preGame: unsolved, floored: isFloored(unsolved, c.opening) });
     seamRestored.push({ ...c, label: `${c.label} spliced`, preGame: [...unsolved.slice(0, PRE_GAME - 3), ...c.preGame.slice(-3)] });
     return c;
   });
@@ -133,11 +142,14 @@ for (const id of SEEDS) {
     year1: worlds.map(w => yearOf(w.lockedResults[0])),
     opening: lineChains.reduce((a, c) => a + c.opening, 0),
     setOpening: lineChains.reduce((a, c) => a + c.setOpening, 0),
+    floored: lineChains.some(c => c.floored),
   });
 }
 
 console.log(`PRE-GAME SURPLUS FLOWS — ${SEEDS.length} solo games, ${LINES.join('/')} + pool, ${chains[0].year1.length} worlds, pre-game depth ${PRE_GAME_DEPTH}`);
 grade(chains, '');
+const flooredLines = chains.filter(c => c.floored && !c.label.endsWith('pool')).map(c => c.label);
+console.log(`  floored at a zero start (an opening reset allowed): ${flooredLines.length ? flooredLines.join(', ') : 'none'}`);
 
 // ---------------------------------------------------------------- controls
 console.log('\nCONTROLS — each must FAIL');
