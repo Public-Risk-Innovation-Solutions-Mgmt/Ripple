@@ -111,7 +111,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
   // ---- IT IS THE REAL GAME -------------------------------------------------
   {
     const p = players[0];
-    const tabs = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
+    const tabs = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
                   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
                   // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows
                 // the pool in aggregate. The PAGE is intact in GameShell.

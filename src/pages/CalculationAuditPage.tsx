@@ -731,6 +731,8 @@ export interface AuditCheckSet {
   priorYearClaimsValue: number;
   currentUnpaidPortion: number;
   noncurrentUnpaidPortion: number;
+  currentLaePortion: number;
+  noncurrentLaePortion: number;
   cashAndEquivalents: number;
   cashSliceOfInvestments: number;
   noncurrentInvestments: number;
@@ -825,6 +827,9 @@ const POOL_SUM_METRICS: { key: Extract<keyof LineResultSet, keyof ResultSet>; la
   { key: 'netUltimateLoss', label: 'Net Ultimate Loss' },
   { key: 'netIncurredLoss', label: 'Net Incurred Loss' },
   { key: 'netPaidLosses', label: 'Net Paid Losses' },
+  { key: 'laeIncurred', label: 'Loss Adjustment Expense Incurred' },
+  { key: 'laePaid', label: 'Loss Adjustment Expense Paid' },
+  { key: 'endingLaeReserve', label: 'Loss Expense Reserve' },
   { key: 'operatingExpense', label: 'Operating Expense' },
   { key: 'riskControlInvestment', label: 'Risk Control Investment' },
   { key: 'reinsuranceCost', label: 'Reinsurance Cost' },
@@ -854,7 +859,7 @@ const POOL_SUM_METRICS: { key: Extract<keyof LineResultSet, keyof ResultSet>; la
 // distinguishable from a reconciliation gap.
 function reconstructSweep(x: LineResultSet) {
   const preSweepCash =
-    x.beginningCash + x.totalMemberCharge + x.assessments - x.netPaidLosses -
+    x.beginningCash + x.totalMemberCharge + x.assessments - x.netPaidLosses - x.laePaid -
     x.operatingExpense - x.riskControlInvestment - x.reinsuranceCost - x.dividends;
   const rawInvestments = x.beginningInvestments + x.investmentIncome;
   const investmentsBeforeSweep = Math.max(0, rawInvestments);
@@ -1028,9 +1033,11 @@ export function computeAuditChecks(
     ? lineKeys.reduce((s, l) => s + poolResult.byLine[l].endingNetReserve * poolResult.byLine[l].nextYearPaydownRate, 0)
     : r.endingNetReserve * r.nextYearPaydownRate;
   const noncurrentUnpaidPortion = r.endingNetReserve - currentUnpaidPortion;
+  // The loss expense reserve splits on the same weighting — the shared derivation.
+  const { currentLaePortion, noncurrentLaePortion } = lines;
 
   const totalLiabilitiesSplit = mkCheck(
-    currentUnpaidPortion + noncurrentUnpaidPortion + r.unearnedPremium,
+    currentUnpaidPortion + noncurrentUnpaidPortion + currentLaePortion + noncurrentLaePortion + r.unearnedPremium,
     r.totalLiabilities
   );
   const assetsMinusLiabilities = mkCheck(r.totalAssets - r.totalLiabilities, r.endingSurplus);
@@ -1225,6 +1232,8 @@ export function computeAuditChecks(
     priorYearClaimsValue,
     currentUnpaidPortion,
     noncurrentUnpaidPortion,
+    currentLaePortion,
+    noncurrentLaePortion,
     cashAndEquivalents,
     // The slice itself, recovered from the two figures the helper returns.
     cashSliceOfInvestments: cashAndEquivalents - r.endingCash,
@@ -1798,6 +1807,7 @@ export function buildSupportingRows(
     result.grossPremium +
     result.assessments +
     result.investmentIncome -
+    result.laeIncurred -
     result.operatingExpense -
     result.riskControlInvestment -
     result.reinsuranceCost -
@@ -1811,7 +1821,7 @@ export function buildSupportingRows(
   // the duplicates are gone rather than stated twice with different wording.
 
   const combinedRatioCheck =
-    (netIncurredLossFromIncome + result.adminExpense + result.reinsuranceCost) /
+    (netIncurredLossFromIncome + result.laeIncurred + result.adminExpense + result.reinsuranceCost) /
     Math.max(result.totalMemberCharge, 1);
 
   const lossRatioCheck =
@@ -2360,6 +2370,7 @@ export function buildSupportingRows(
         kind: 'sum',
         terms: [
           curTerm(result.grossPremium, 'gross premium'), curTerm(result.assessments), curTerm(result.investmentIncome),
+          curTerm(-result.laeIncurred, 'loss adjustment expense'),
           curTerm(-result.operatingExpense), curTerm(-result.riskControlInvestment), curTerm(-result.reinsuranceCost),
           curTerm(-result.dividends), curTerm(-result.netIncome),
         ],
@@ -2550,7 +2561,7 @@ export function buildSupportingRows(
       metric: 'Actual Combined Ratio',
       value: formatPct(result.combinedRatio),
       numericValue: result.combinedRatio,
-      formula: { kind: 'sum', terms: [pctTerm(result.lossRatio, 'actual loss ratio'), pctTerm(result.expenseRatio, 'actual expense ratio')] },
+      formula: { kind: 'sum', terms: [pctTerm(result.lossRatio, 'actual loss ratio'), pctTerm(result.actualLaeRatio, 'LAE ratio'), pctTerm(result.expenseRatio, 'actual expense ratio')] },
     },
     {
       metric: 'Combined Ratio Check Difference',
@@ -3015,6 +3026,14 @@ export function buildRevExpRows(
       status: checks.provisionForClaims.status,
     },
     {
+      metric: 'Loss adjustment expenses',
+      value: formatCurrency(result.laeIncurred),
+      numericValue: result.laeIncurred,
+      formula: { kind: 'sum', terms: [cur(result.alaeIncurred, 'ALAE'), cur(result.ulaeIncurred, 'ULAE')] },
+      explain: 'Booked as a share of the ground-up loss incurred — what the rate charges them on: ALAE with the losses it is allocated to (none on GL, whose losses already include it), ULAE as claims are handled. Paid as the losses are paid; the rest is held as the loss expense reserve.',
+      indent: 1,
+    },
+    {
       metric: 'General administrative services',
       value: formatCurrency(result.operatingExpense),
       numericValue: result.operatingExpense,
@@ -3075,8 +3094,8 @@ export function buildRevExpRows(
       formula: {
         kind: 'sum',
         terms: [
-          cur(result.reinsuranceCost), cur(result.netIncurredLoss), cur(result.operatingExpense),
-          cur(result.riskControlInvestment), cur(result.dividends),
+          cur(result.reinsuranceCost), cur(result.netIncurredLoss), cur(result.laeIncurred, 'LAE'),
+          cur(result.operatingExpense), cur(result.riskControlInvestment), cur(result.dividends),
         ],
       },
       emphasis: 'subtotal',
@@ -3273,7 +3292,7 @@ export function buildNetPositionRows(
 
     { kind: 'section', metric: 'Current liabilities', value: '', formula: '' },
     {
-      metric: 'Unpaid loss and LAE reserve, net of reinsurance — current portion',
+      metric: 'Unpaid loss reserve, net of reinsurance — current portion',
       value: formatCurrency(checks.currentUnpaidPortion),
       numericValue: checks.currentUnpaidPortion,
       formula: isPoolView
@@ -3300,16 +3319,24 @@ export function buildNetPositionRows(
       indent: 1,
     },
     {
+      metric: 'Loss expense reserve — current portion',
+      value: formatCurrency(checks.currentLaePortion),
+      numericValue: checks.currentLaePortion,
+      formula: { kind: 'text', text: 'the loss expense reserve at the same next-year paydown weighting as the loss reserve' },
+      explain: 'LAE is paid as the losses are paid, so the share due within twelve months follows the losses\' own.',
+      indent: 1,
+    },
+    {
       metric: 'Total current liabilities',
-      value: formatCurrency(checks.currentUnpaidPortion),
-      numericValue: checks.currentUnpaidPortion,
-      formula: { kind: 'echo', value: checks.currentUnpaidPortion, text: 'the current reserve portion is the only current liability' },
+      value: formatCurrency(checks.currentUnpaidPortion + checks.currentLaePortion),
+      numericValue: checks.currentUnpaidPortion + checks.currentLaePortion,
+      formula: { kind: 'sum', terms: [cur(checks.currentUnpaidPortion, 'loss reserve'), cur(checks.currentLaePortion, 'loss expense reserve')] },
       emphasis: 'subtotal',
     },
 
     { kind: 'section', metric: 'Noncurrent liabilities', value: '', formula: '' },
     {
-      metric: 'Unpaid loss and LAE reserve, net of reinsurance — noncurrent portion',
+      metric: 'Unpaid loss reserve, net of reinsurance — noncurrent portion',
       value: formatCurrency(checks.noncurrentUnpaidPortion),
       numericValue: checks.noncurrentUnpaidPortion,
       formula: {
@@ -3320,10 +3347,20 @@ export function buildNetPositionRows(
       indent: 1,
     },
     {
+      metric: 'Loss expense reserve — noncurrent portion',
+      value: formatCurrency(checks.noncurrentLaePortion),
+      numericValue: checks.noncurrentLaePortion,
+      formula: {
+        kind: 'sum',
+        terms: [cur(result.endingLaeReserve, 'loss expense reserve'), cur(-checks.currentLaePortion, 'current portion')],
+      },
+      indent: 1,
+    },
+    {
       metric: 'Total noncurrent liabilities',
-      value: formatCurrency(checks.noncurrentUnpaidPortion),
-      numericValue: checks.noncurrentUnpaidPortion,
-      formula: { kind: 'echo', value: checks.noncurrentUnpaidPortion, text: 'the noncurrent reserve portion is the only noncurrent liability' },
+      value: formatCurrency(checks.noncurrentUnpaidPortion + checks.noncurrentLaePortion),
+      numericValue: checks.noncurrentUnpaidPortion + checks.noncurrentLaePortion,
+      formula: { kind: 'sum', terms: [cur(checks.noncurrentUnpaidPortion, 'loss reserve'), cur(checks.noncurrentLaePortion, 'loss expense reserve')] },
       emphasis: 'subtotal',
     },
 
@@ -3334,8 +3371,8 @@ export function buildNetPositionRows(
       formula: {
         kind: 'sum',
         terms: [
-          cur(checks.currentUnpaidPortion, 'current'),
-          cur(checks.noncurrentUnpaidPortion, 'noncurrent'),
+          cur(checks.currentUnpaidPortion + checks.currentLaePortion, 'current'),
+          cur(checks.noncurrentUnpaidPortion + checks.noncurrentLaePortion, 'noncurrent'),
           cur(result.unearnedPremium, 'unearned premium'),
         ],
       },
@@ -3544,6 +3581,7 @@ export function buildCashInvestmentRows(
             cur(result.totalMemberCharge, 'member charge'),
             cur(result.assessments, 'assessments'),
             cur(-result.netPaidLosses, 'net paid losses'),
+            cur(-result.laePaid, 'loss adjustment expense paid'),
             cur(-result.operatingExpense, 'operating expense'),
             cur(-result.riskControlInvestment, 'risk control'),
             cur(-result.reinsuranceCost, 'reinsurance cost'),

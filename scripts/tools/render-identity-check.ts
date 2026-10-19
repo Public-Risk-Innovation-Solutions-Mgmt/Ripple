@@ -844,7 +844,71 @@ const BASELINE = process.env.RENDER_BASELINE
 //   - THE LOAN PROMPT: a line short in any world raises it; this tool now
 //     confirms it at its default (authorize), so the y2 screens include loan
 //     years the one-world game never reached.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v45.json');
+// v46: THE AVERAGED LEDGER AVERAGES ITS PAID SERIES — 4b kept world 1's paid
+// and gross paid, and the pure premium reads paid. 116 of 242 moved, the same
+// 116 y2 screens; no y0 screen and no key added or removed. The control ran
+// first: the 4b merge (cc20263), served on 4174, reproduced v45 242 of 242.
+// Every moved screen was diffed word by word: every change is a figure, and
+// the only words that move are the Results narrative that follows a figure's
+// sign ("paid for itself" / "did not pay", "generated net income …
+// strengthening" / "experienced a net loss … reducing"). One cause: the rate.
+// Losses are unchanged to the dollar — e.g. GL alone, year 2: the rate falls
+// 5.33 -> 4.56 per $100 (world 1 had taken a $24.4M year-1 loss against about
+// $11.5M in the others), premium 19.99M -> 17.09M on the same 14.83M incurred,
+// so the combined ratio reads 94.6% -> 110.6%.
+// v47: THE SOLO SHOCK SCHEDULE — a solo game draws its schedule once at its
+// start, by the host's Randomise rule on its own stream, and every world fires
+// it. RENDERBASE1's five years draw Economic Recession in year 2 and WC Reform
+// in year 3. 116 of 242 moved, the same y2 screens; no y0 screen and no key.
+// The control ran first: the averaging fix (729a714), served on 4174,
+// reproduced v46 242 of 242. Every moved screen was diffed word by word. One
+// cause, the events, and what they left:
+//   - THE EVENTS: year 2's is Economic Recession "in 10 of 10 worlds" on every
+//     line it touches, where each world had drawn its own by probability ("in 1
+//     of 10 worlds" — Nuclear Verdict, WC Reform, Social Inflation, Wildfire,
+//     Winterstorm, Member Withdrawal); "3 events" reads "An event". No screen
+//     names year 3's WC Reform — the schedule is not shown ahead.
+//   - WHAT THEY LEFT: no large loss reached a tower, so the recovery rows, the
+//     "Retained Above Tower" rows and their narrative go; Property is no longer
+//     short in the three-line game, so its inter-line loan — the transfer
+//     terms, the repayment slider, the loan rows — goes; the liquidity floor no
+//     longer binds and the audit's known variance goes with it; capital reads
+//     Adequate for Thin; surplus, ratios, the Actuarial development figures and
+//     the narrative that follows their signs.
+// v48: BULK COHORTS OPEN AT THEIR OWN AGE — year 1 had paid them two years'
+// worth (see VALUE_IDENTITY_v65). 107 of 242 moved, every one a y2 screen; no
+// y0 screen and no key. The control ran first: 1431cd7, served on 4174,
+// reproduced v47 242 of 242. Every moved screen was diffed word by word and
+// every change is a figure — paid losses, reserves, investments and their
+// income, development, surplus and the ratios that follow; not one word moved.
+// v49: LOSS ADJUSTMENT EXPENSE IS BOOKED (see VALUE_IDENTITY_v66). 222 of 242
+// moved — 111 y0 and 111 y2; no key added or removed. The control ran first:
+// e8333a5, served on 4174, reproduced v48 242 of 242. Every moved screen was
+// diffed word by word. y0 moves because the pre-game books LAE too — its year
+// 0 net income, surplus and capital status on the history screens (GL's audit
+// capital status Strong -> Adequate) — and the opening holds assets for the
+// loss expense reserve. The words that move:
+//   - ADDED: "Loss adjustment expenses" on the Financial Statements and the
+//     audit (ALAE + ULAE); "Loss expense reserve — current / noncurrent
+//     portion" on both; the audit's LAE terms in total expenses, the cash
+//     reconstruction ("loss adjustment expense paid"), the back-solved net
+//     incurred and the combined ratio ("LAE ratio"); its pool sums for LAE
+//     incurred, paid and reserve; the Result Spreadsheet's four LAE rows.
+//   - RELABELLED: "Unpaid loss and LAE reserve" -> "Unpaid loss reserve", now
+//     that LAE is its own line; the liability subtotals now sum both.
+//   - FOLLOWING THE FIGURES: Results narrative signs ("paid" / "did not pay"),
+//     and one Property dividend shown "(blocked)" — the line carried a negative
+//     surplus into the year.
+// v50: THE ANNUAL STATEMENT REPLACES POOL HISTORY. TABS names 'Annual
+// Statement' where it named 'Pool History'. The control ran first: 6549695,
+// with its own copy of this tool, reproduced v49 242 of 242. Then, with the
+// keys aligned: 26 'Pool History' keys REMOVED and 26 'Annual Statement' keys
+// ADDED (the same configurations, scopes and year-points); the other 186
+// screens moved, and diffed word by word every one of them differs in exactly
+// one place — the tab bar's "Pool History" now reads "Annual Statement". No
+// figure and no other word moved anywhere. Results, the Result Spreadsheet and
+// the Calculation Audit are unchanged.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v50.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -877,7 +941,7 @@ const LINE_LABEL: Record<string, string> = {
 // aggregate, so the tab is not rendered and this harness cannot click it. The
 // baseline loses that tab's keys with it — that is a KEY-SET change, which is
 // exactly the kind this file's header says to expect and to attribute.
-const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
+const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
   'Calculation Audit'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION

@@ -76,8 +76,8 @@ NOT YET USED — read from commit 2 onward. Every one is CHOSEN and is a startin
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
-| ALAE | `WC 0.083 · GL 0.083 · Property 0.083` | share of loss cost | CHOSEN · not yet used | Allocated loss adjustment expense. |
-| ULAE | `WC 0.083 · GL 0.083 · Property 0.083` | share of loss cost | CHOSEN · not yet used | Unallocated loss adjustment expense. |
+| ALAE | `WC 0.083 · GL 0.083 · Property 0.083` | share of loss cost | CHOSEN | Allocated loss adjustment expense. Charged in the rate on the ground-up loss cost and booked as a cost: incurred as this share of the ground-up loss incurred, paid on the loss pattern, the unpaid part held as the loss expense reserve. Not on GL, whose fitted severities already include ALAE — neither charged nor booked there. |
+| ULAE | `WC 0.083 · GL 0.083 · Property 0.083` | share of loss cost | CHOSEN | Unallocated loss adjustment expense — claims handling. Charged in the rate on the ground-up loss cost and booked as a cost: paid as losses are paid, the unpaid part held as the loss expense reserve. |
 | Admin, fixed | `WC 1078586 · GL 1751022 · Property 3398817` | dollars per year | CHOSEN · not yet used | The fixed half of administration. Calibrated so opening admin equals today's 15% load, half of it fixed. Measured over 12 games at year 1. |
 | Admin, per exposure | `WC 0.275138 · GL 0.459324 · Property 0.018236` | dollars per $100 of exposure | CHOSEN · not yet used | The variable half of administration. The same calibration: 0.5 x 0.15 x the opening pure premium per $100. |
 | Profit and contingency | `0.05` | share of rate | CHOSEN · not yet used | May be set to 0. |
@@ -122,7 +122,7 @@ The new loss engine, ON and permanent since commit 3: one aggregate ordinary los
 | Default package | `WC $9M xs $1M · GL $9M xs $1M · Property $20M xs $5M` | per line | CHOSEN | The middle option, held by every team until it chooses and by the pre-game's prior board. |
 | Worlds | `10` | worlds per team-year | CHOSEN | Each team's year runs in this many worlds, all teams sharing the same worlds' draws; dollars shown are the average across worlds and every ratio is recomputed from averaged parts. Shared across worlds: the decisions, one rate per team-year struck from the averaged history, and host-scheduled shocks (severity drawn per world). Per world: the ordinary year factor, shock severities, routine large losses and investment returns, and its own ledger and surplus. |
 | Aggregate cover | `not offered` | — | CHOSEN | The aggregate stop-loss is not among the packages: not offered, its code kept unwired. IT MAY RETURN. Aggregate cover is what protects against a broad surge of small losses — a winterstorm's many claims under the retention — which no per-occurrence package reaches. |
-| Shock timing | `host in a session · catalogue in singleplayer` | — | CHOSEN | Multiplayer fires only what the host scheduled, consulting no probability. Singleplayer fires each event at its catalogue probability. Every size is drawn from a stream keyed on the event and its year, so the same seed gives the same shock. Nothing fires before year 1. |
+| Shock timing | `a schedule drawn once — the host's, or singleplayer's at its start` | — | CHOSEN | Multiplayer fires only what the host scheduled. Singleplayer draws its schedule once, at the game's start, by the same rule as the host's Randomise (one event per three years, from year 2, weighted by the catalogue's probabilities) on its own stream, and keeps it in the save. Either way every world fires the same events in the same years — a regional event in the same region, resolved once when the game is built — and only each firing's size is drawn per world, from a stream keyed on the world, the event and its year. Pricing uses the catalogue's probabilities, never the schedule. Nothing fires before year 1. |
 
 ## Decided with the loss engine, not yet wired
 

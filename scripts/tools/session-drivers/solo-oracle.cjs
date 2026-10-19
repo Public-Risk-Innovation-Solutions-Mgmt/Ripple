@@ -5,7 +5,7 @@ const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 const crypto = require('crypto');
 const OUT = process.argv[2] || 'before';
 
-const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
+const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
                'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
                'Calculation Audit', 'Membership'];
 const LINE_VIEWS = ['Pool', "Workers' Compensation"];

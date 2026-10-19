@@ -22,6 +22,13 @@
 //                exactly one of the two.
 //   NO STRAYS    nothing is held past the age its own pattern runs to.
 //
+// AND THE OPENING PAYS FROM WHERE IT SAYS IT IS:
+//
+//   AGE = PAID   every opening cohort's unpaid share is its pattern's unpaid
+//                share at its own pattern age (`age + 1`), on ONE convention for
+//                played and bulk cohorts alike.
+//   ONE STEP     year 1 pays each bulk cohort one pattern step, not two.
+//
 // ⚠ IT ASSERTS COVERAGE BY AGE, NOT BY COUNT. A count test — "played + bulk
 // equals the pattern length" — passes on a set that double-counts one year and
 // omits another, which is the shape of the defect it is written against.
@@ -30,6 +37,11 @@
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory, PRE_GAME_DEPTH, PRE_GAME_YEARS, MATURATION_YEARS } from '../../src/utils/priorHistoryEngine';
 import { patternLengthYears, bulkAccidentYearAges } from '../../src/utils/openingReserves';
+import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
+import { conditionalPaydown, unpaidShare } from '../../src/utils/payoutPattern';
+import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear } from '../../src/utils/worlds';
+import type { GameState, ReserveCohort } from '../../src/types/simulation';
 import { PRIOR_HISTORY_YEARS } from '../../src/data/pricingParameters';
 import type { CoverageLine, LinePoolState } from '../../src/types/simulation';
 
@@ -104,17 +116,14 @@ for (let g = 0; g < GAMES; g++) {
     //
     // ⚠ AGE, NOT yearNumber. Counting years would not notice a missing middle.
     //
-    // ⚠ AND THE TWO KINDS OF COHORT STORE `age` ON DIFFERENT CONVENTIONS,
-    // which this gate got wrong first time and is worth stating because it is
-    // a live trap. An ENGINE-BORN cohort holds a 0-based age: `age = a` is the
-    // valuation at (a+1)x12 months, so its pattern age is `age + 1`. A SEEDED
-    // cohort — instanceGenerator's and the bulk reserves alike — stores the
-    // PATTERN AGE DIRECTLY, because that is what it was built from
-    // (`age: ageYears`, paid at `cumulativePaid(ageYears)`). Reading `age + 1`
-    // on both made the bulk set look one year too old: age 6 held by nothing
-    // and a stray at the pattern's length plus one, on every line.
-    const patternAge = (c: { age: number; seeded?: boolean }) =>
-      c.seeded === true ? c.age : c.age + 1;
+    // ⚠ ONE CONVENTION FOR EVERY COHORT: `age` counts steps taken, so the
+    // pattern age is `age + 1`. This gate used to read a SEEDED cohort's `age`
+    // as its pattern age directly, because the bulk reserves stored it that way
+    // (`age: ageYears`) — and that was the defect, not a second convention: the
+    // engine steps every cohort to `age + 2`, so a bulk cohort skipped a year
+    // and year 1 paid it two years' worth. Section 3 now asserts the convention
+    // against the paid-to-date, which is what the age has to agree with.
+    const patternAge = (c: { age: number }) => c.age + 1;
     const byAge = new Map<number, number>();
     for (const c of cohorts) byAge.set(patternAge(c), (byAge.get(patternAge(c)) ?? 0) + 1);
     const len = patternLengthYears(line);
@@ -136,6 +145,92 @@ for (let g = 0; g < GAMES; g++) {
   }
 }
 console.log(`\n  ${checked} line-openings checked; ${dupTotal} duplicated accident year(s).`);
+
+// --------------------------------------------------------------------------
+// 3 and 4. THE AGE AGREES WITH THE PAID-TO-DATE, AND YEAR 1 PAYS ONE STEP.
+// Each is a function over data, so the control can feed it the defect.
+
+/** Opening cohorts whose unpaid share is not their pattern's at `age + 1`. */
+function ageDisagrees(line: CoverageLine, cohorts: readonly ReserveCohort[]): string[] {
+  return cohorts.filter(c => c.netUltimate > 0).flatMap(c => {
+    const want = unpaidShare(LINE_PAYOUT_PATTERN[line], c.age + 1);
+    const got = c.netUnpaid / c.netUltimate;
+    return Math.abs(got - want) > 1e-9 ? [`AY${c.yearNumber} age ${c.age}: unpaid share ${got.toFixed(4)}, pattern ${want.toFixed(4)}`] : [];
+  });
+}
+
+/** Year 1's payment on the bulk cohorts ÷ one pattern step on their opening balances. */
+function yearOneStepRatio(line: CoverageLine, opening: readonly ReserveCohort[], after: readonly ReserveCohort[]): number {
+  let paid = 0, step = 0;
+  for (const c of opening.filter(x => x.seeded === true)) {
+    const a = after.find(x => x.yearNumber === c.yearNumber);
+    paid += a ? a.netPaid - c.netPaid : c.netUnpaid;
+    step += c.netUnpaid * conditionalPaydown(LINE_PAYOUT_PATTERN[line], c.age + 2);
+  }
+  return paid / step;
+}
+
+/** Play year 1 in its worlds from an opening; world 1's cohorts after it. */
+function playYearOne(base: GameState): Record<string, ReserveCohort[]> {
+  const gs = openWorlds(base);
+  const s = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(1)), []);
+  const w = commitSettledYear(gs, s).worlds![0];
+  return Object.fromEntries(LINES.map(l => [l, (w.poolState.lines[l] as LinePoolState).reserveCohorts ?? []]));
+}
+
+// Year 1 pays its bulk cohorts within this of one step. The cohorts' own
+// development and the forward-booking true-up move it a few points (WC 1.02,
+// GL 1.09 measured); the defect paid 1.6-2.0x.
+const STEP_TOLERANCE = 1.15;
+
+console.log('\n--- 3. EVERY OPENING COHORT\'S PAID-TO-DATE IS ITS AGE\'S ---');
+console.log('--- 4. YEAR 1 PAYS EACH BULK COHORT ONE PATTERN STEP ---');
+let control: { opening: GameState; ages: Record<string, ReserveCohort[]> } | undefined;
+for (let g = 0; g < 2; g++) {
+  const id = `PS${g}`;
+  const inst = generateGameInstance(id, 6_300_000 + g * 7919);
+  const setup = { poolName: 'A', gameLength: 6, startingYear: 2026, instanceId: id, activeLines: LINES };
+  const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
+  const base: GameState = {
+    setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
+    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
+  };
+  const after = playYearOne(base);
+  for (const line of LINES) {
+    const opening = (poolState.lines[line] as LinePoolState).reserveCohorts ?? [];
+    const bad = ageDisagrees(line, opening);
+    if (bad.length > 0) fail(`${line} g${g}: ${bad.length} cohort(s) whose age disagrees with their paid — ${bad[0]}`);
+    const r = yearOneStepRatio(line, opening, after[line]);
+    if (!(r > 1 / STEP_TOLERANCE && r < STEP_TOLERANCE)) fail(`${line} g${g}: year 1 paid the bulk cohorts ${r.toFixed(2)}x one step`);
+    if (g === 0) console.log(`  ${line.padEnd(9)} ${opening.length} cohorts agree with their age; year 1 paid bulk ${r.toFixed(3)}x one step`);
+  }
+  if (g === 0) control = { opening: base, ages: Object.fromEntries(LINES.map(l => [l, (poolState.lines[l] as LinePoolState).reserveCohorts ?? []])) };
+}
+
+// THE CONTROL — the defect itself: bulk cohorts a year older than their paid.
+console.log('\n--- CONTROL: the old bulk ages (pattern age stored as `age`) ---');
+{
+  const { opening } = control!;
+  const bumped: GameState = {
+    ...opening,
+    poolState: {
+      ...opening.poolState,
+      lines: Object.fromEntries(Object.entries(opening.poolState.lines).map(([l, ls]) => [l, {
+        ...(ls as LinePoolState),
+        reserveCohorts: ((ls as LinePoolState).reserveCohorts ?? []).map(c => (c.seeded ? { ...c, age: c.age + 1 } : c)),
+      }])) as GameState['poolState']['lines'],
+    },
+  };
+  const after = playYearOne(bumped);
+  for (const line of ['WC', 'GL'] as CoverageLine[]) {
+    const coh = (bumped.poolState.lines[line] as LinePoolState).reserveCohorts ?? [];
+    const caught3 = ageDisagrees(line, coh).length > 0;
+    const r = yearOneStepRatio(line, coh.map(c => (c.seeded ? { ...c, age: c.age - 1 } : c)), after[line]);
+    const caught4 = !(r > 1 / STEP_TOLERANCE && r < STEP_TOLERANCE);
+    console.log(`  ${line}: age-vs-paid ${caught3 ? 'caught' : 'MISSED'}; year 1 paid ${r.toFixed(2)}x one step — ${caught4 ? 'caught' : 'MISSED'}`);
+    if (!caught3 || !caught4) fail(`control on ${line}: the old bulk ages were not caught`);
+  }
+}
 
 // --------------------------------------------------------------------------
 // THE CONTROL — run by hand against the defect this was written for, recorded

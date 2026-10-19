@@ -5,6 +5,7 @@ export type TabId =
   | 'introduction'
   | 'departments'
   | 'history'
+  | 'statement'
   | 'dashboard'
   | 'decisions'
   | 'decisionHistory'

@@ -1108,7 +1108,55 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // processYear, and the struck-rate seam is inert without a struck rate — no
 // field moved, none was added. What ten worlds change is what the app SHOWS,
 // the average, and that is RENDER_IDENTITY_v45 and SOLO_EXPORT_GUARD_v68.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v64.json');
+//
+// v65: BULK COHORTS OPEN AT THEIR OWN AGE. They stored their PATTERN age as
+// `age`, a step older than the convention the engine steps by, so year 1 paid
+// them two years' worth and they ran a year ahead of their pattern after. The
+// control ran first: 1431cd7, in its own worktree, reproduced v64 exactly. 43
+// fields move, no field added or removed, and every one is the payment timing
+// or follows from it:
+//   - PAID: netPaidLosses (e.g. year 1 9,426,968 -> 7,543,683) — the bulk
+//     years now pay one step a year.
+//   - WHAT IS NOT PAID STAYS: endingNetReserve and everything struck on it
+//     (beginningNetReserve, case and IBNR, expectedNetUnpaidLoss, the reserve
+//     risk margin and funding targets, totalLiabilities, nextYearPaydownRate),
+//     the cash and investments it is held in, investment income on them, and
+//     totalAssets.
+//   - DEVELOPMENT on the larger unpaid balances: priorYearDevelopment, and so
+//     netIncurredLoss, the loss and combined ratios and underwriting income, by
+//     a few thousand dollars a line-year.
+//   - SURPLUS, net income and the capital ratios that follow.
+// No rate, premium or pricing field moved: pricing reads the five played and
+// prior years, never the bulk.
+//
+// v66: LOSS ADJUSTMENT EXPENSE IS BOOKED (lossExpense.ts) — incurred, paid and
+// reserved as the rate's shares of the ground-up loss (ULAE alone on GL). The
+// control ran first: e8333a5 reproduced v65 exactly. SEVEN FIELDS ADDED on
+// every row — alaeIncurred, ulaeIncurred, laeIncurred, laePaid,
+// beginningLaeReserve, endingLaeReserve, actualLaeRatio — none removed. 24
+// fields move, each the LAE or what follows it:
+//   - UNDERWRITING spends it: underwritingIncome (e.g. 2,221,770 -> 414,000),
+//     netIncome, and actualCombinedRatio / combinedRatio, which now carry the
+//     LAE ratio (e.g. 0.856 -> 0.973).
+//   - THE BALANCE SHEET holds it: totalLiabilities rise by the loss expense
+//     reserve; the opening holds assets for it, so totalAssets, investments
+//     (beginning, ending, invested) and the income they earn rise with it.
+//   - SURPLUS and the capital ratios that follow (year 1's beginning surplus is
+//     the ruled opening and does not move — 240 of 300 beginning-surplus
+//     instances do, the later years).
+//   - surplusTieOutDifference reads 0 where it carried float noise; cash moves
+//     by one ulp on 87 instances.
+// NO loss, paid, reserve, development, rate or premium field moved.
+//
+// v67: THE ANNUAL STATEMENT'S TWO RESULT FIELDS. The engine computed the book's
+// movement and kept only the retention rate; the results page needs the split,
+// so every line row — and the pool row, in mixed units like writtenExposure —
+// now carries renewalExposure (the book kept after the renewal cut and any
+// withdrawal) and newBusinessExposure (the book newly written), in written-
+// exposure units, summing to writtenExposure. The control ran first: 6549695
+// reproduced v66 exactly. 600 field instances ADDED — those two, on every row —
+// none removed, and 0 changed: every field present in both is bit-identical.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v67.json');
 
 function seedOf(id: string) {
   let h = 5381;

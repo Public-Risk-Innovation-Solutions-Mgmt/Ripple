@@ -25,8 +25,8 @@
 //      the engine and not in worlds.ts fails here.
 //   5. TWO TEAMS ON IDENTICAL DECISIONS MATCH EXACTLY — every world and the
 //      average.
-//   6. SHOCKS: host-scheduled events fire in every world, with severity drawn
-//      per world; catalogue events fire per world by probability.
+//   6. SHOCKS: a solo game's schedule and a host's both fire in every world,
+//      with severity drawn per world (solo-shock-schedule-check has the rest).
 //
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over data, and THE
 // CONTROLS at the foot feed each one a deliberately broken input and require it
@@ -34,6 +34,7 @@
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
+import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear, strikeBookRate } from '../../src/utils/simulationEngine';
@@ -70,12 +71,12 @@ function decisionsFor(y: number): DecisionSet {
 
 interface Played { gs: GameState; starts: GameState[]; openingJson: string }
 
+/** A solo game as the app builds it, or — given a host's schedule — a session team's. */
 function play(id: string, seed: number, opts: { shocks?: Array<{ shockId: string; yearNumber: number }> } = {}): Played {
-  const inst = generateGameInstance(id, seed, opts.shocks ?? []);
-  const setup = {
-    poolName: 'W', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES,
-    ...(opts.shocks ? { shockTiming: 'host' as const } : {}),
-  };
+  const base = { poolName: 'W', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
+  const { setup, instance: inst } = opts.shocks
+    ? { setup: { ...base, shockTiming: 'host' as const }, instance: generateGameInstance(id, seed, opts.shocks) }
+    : openSoloInstance(base as never);
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   // Every world opens on this ONE object; snapshotted to prove no world writes to it.
   const openingJson = JSON.stringify(poolState);
@@ -160,7 +161,7 @@ function worldsDiffer(worldRows: (LineResultSet | ResultSet)[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
-console.log(`=== TEN WORLDS — WORLD_COUNT ${WORLD_COUNT}, three-line games, ${YEARS} years, catalogue shocks ===`);
+console.log(`=== TEN WORLDS — WORLD_COUNT ${WORLD_COUNT}, three-line solo games, ${YEARS} years ===`);
 check(worldCount() === WORLD_COUNT && WORLD_COUNT > 1, `the new engine runs ${WORLD_COUNT} worlds`);
 const A = play('WCHK1', 5_150_515);
 const gs = A.gs;
@@ -209,11 +210,24 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       bad.push(...rateIdentical(W.map(w => w.lockedResults[y - 1].byLine[l])).map(e => `Y${y} ${l} ${e}`));
       // The averaged ledger, built here from the worlds' own ledgers.
       const own = start.worlds!.map(w => w.poolState.lines[l].reserveDevelopment ?? []);
+      // ⚠ EVERY SERIES, NOT ONLY THE ULTIMATES. The pure premium reads paid-to-date
+      // too; this construction once averaged the ultimates alone — the same
+      // omission averageLedger had — so it agreed with a rate struck on world
+      // 1's paid history and caught nothing (up to 29.5% off, measured).
+      const avgSeries = (pick: (r: typeof own[0][0]) => number[] | undefined, i: number) => {
+        const first = pick(own[0][i]);
+        if (!first) return undefined;
+        return first.map((_, k) => own.reduce((s, w) => {
+          const a = pick(w[i])!;
+          return s + a[Math.min(k, a.length - 1)];
+        }, 0) / own.length);
+      };
       const ledger = own[0].map((row, i) => ({
         ...row,
         ...(row.exposure !== undefined ? { exposure: own.reduce((s, w) => s + (w[i].exposure ?? 0), 0) / own.length } : {}),
-        ultimateByValuation: row.ultimateByValuation.map((_, k) =>
-          own.reduce((s, w) => s + w[i].ultimateByValuation[Math.min(k, w[i].ultimateByValuation.length - 1)], 0) / own.length),
+        ultimateByValuation: avgSeries(r => r.ultimateByValuation, i)!,
+        ...(row.paidByValuation ? { paidByValuation: avgSeries(r => r.paidByValuation, i) } : {}),
+        ...(row.grossPaidByValuation ? { grossPaidByValuation: avgSeries(r => r.grossPaidByValuation, i) } : {}),
       }));
       const book = start.worlds!.reduce((s, w) => s + (w.poolState.lines[l].bookExposure ?? 0), 0) / start.worlds!.length;
       const mine = strikeBookRate(l, { ...start.poolState.lines[l], reserveDevelopment: ledger, bookExposure: book },
@@ -288,6 +302,20 @@ console.log('\n--- 3. averaged dollars are the mean of the worlds ---');
   const ledgerOk = LINES.every(l => JSON.stringify(gs.poolState.lines[l].reserveDevelopment)
     === JSON.stringify(averageLedger(W.map(w => w.poolState.lines[l].reserveDevelopment ?? []))));
   check(ledgerOk, 'the averaged state\'s ledger is the worlds\' ledgers averaged');
+  // Independently of averageLedger: each accident year's latest paid-to-date,
+  // net and gross, is the mean of the worlds' own — the paid series were world
+  // 1's until the results page found it.
+  const lastOf = (a?: number[]) => (a && a.length > 0 ? a[a.length - 1] : 0);
+  const paidBad: string[] = [];
+  for (const l of LINES) {
+    for (const row of gs.poolState.lines[l].reserveDevelopment ?? []) {
+      for (const key of ['paidByValuation', 'grossPaidByValuation'] as const) {
+        const m = W.reduce((acc, w) => acc + lastOf(w.poolState.lines[l].reserveDevelopment?.find(r => r.yearNumber === row.yearNumber)?.[key]), 0) / W.length;
+        if (Math.abs(lastOf(row[key]) - m) > 1e-6 * Math.max(1, Math.abs(m))) paidBad.push(`${l} AY${row.yearNumber} ${key}`);
+      }
+    }
+  }
+  check(paidBad.length === 0, 'and every accident year\'s paid-to-date, net and gross, is the worlds\' mean', paidBad[0] ?? '');
 }
 
 console.log('\n--- 4. ratios come from averaged parts, never averaged ---');
@@ -321,7 +349,7 @@ check(JSON.stringify(B.gs.lockedResults) === JSON.stringify(gs.lockedResults)
 console.log('\n--- 6. shocks ---');
 {
   const fired = gs.lockedResults.flatMap(r => r.shockEvents ?? []).map(e => e.worlds?.fired ?? 0);
-  check(fired.some(f => f > 0 && f < WORLD_COUNT), 'catalogue events fire per world: some fire in only part of the worlds',
+  check(fired.length > 0 && fired.every(f => f === WORLD_COUNT), 'a solo game\'s drawn events fire in every world',
     `fired-in counts ${[...new Set(fired)].sort((a, b) => a - b).join(',')}`);
   const H = play('WCHK2', 7_070_707, { shocks: [{ shockId: '#2', yearNumber: 2 }] });
   const ev = (H.gs.lockedResults[1].shockEvents ?? []).find(e => e.shockId === '#2');
@@ -353,6 +381,14 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
     'control: a ratio formula that drifted from the engine\'s is caught');
   // Worlds that share their draws.
   check(!worldsDiffer(W.map(() => W[0].lockedResults[y])), 'control: worlds with identical draws are caught');
+  // A ledger's paid taken from one world rather than averaged.
+  {
+    const row = gs.poolState.lines.GL.reserveDevelopment!.find(r => r.yearNumber === 2)!;
+    const w0 = W[0].poolState.lines.GL.reserveDevelopment!.find(r => r.yearNumber === 2)!;
+    const m = W.reduce((acc, w) => acc + (w.poolState.lines.GL.reserveDevelopment!.find(r => r.yearNumber === 2)!.paidByValuation!.slice(-1)[0]), 0) / W.length;
+    check(Math.abs(w0.paidByValuation!.slice(-1)[0] - m) > 1e-6 && Math.abs(row.paidByValuation!.slice(-1)[0] - m) < 1e-6 * m,
+      'control: one world\'s paid-to-date in place of the mean is caught');
+  }
   // An opening a world wrote to.
   const touched = { ...A.starts[0].poolState, cash: A.starts[0].poolState.cash + 1 };
   check(JSON.stringify(touched) !== A.openingJson, 'control: an opening one world wrote to is caught');
@@ -373,7 +409,7 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   check(wrong.newStack?.finalRatePer100 !== W[0].lockedResults[2].byLine.GL.finalRatePer100,
     'control: a panel quoting a package the team did not buy does not match the charged rate');
   // Two teams that do not match.
-  const C = play('WCHK1', 5_150_516);
+  const C = play('WCHK3', 5_150_516);
   check(JSON.stringify(C.gs.lockedResults) !== JSON.stringify(gs.lockedResults),
     'control: two teams on different seeds do not match — the identity test can fail');
 }

@@ -52,11 +52,15 @@
 // every regional firing, uniformly, from the firing's own stream; one event's
 // region is the same on every line it touches.
 //
-// TIMING. Multiplayer: the host's schedule (setup.shockTiming === 'host'),
-// and no probability is consulted. Singleplayer: each event fires with the
-// catalogue's annual probability, drawn from the labelled sub-stream
-// 'nle_fire'. Either way every SIZE is drawn from a stream keyed on the event,
-// the firing year and its ordinal, so the same seed gives the same shock.
+// TIMING. Multiplayer: the host's schedule (setup.shockTiming === 'host').
+// Singleplayer: the schedule the game drew once at its start, by the same rule
+// as the host's Randomise (setup.shockTiming === 'solo'; utils/soloGame). Both
+// are the instance's scheduledShocks, so every world fires the same events in
+// the same years and no probability is consulted. Only a harness's bare
+// instance, unmarked, fires each event with the catalogue's annual probability
+// on the labelled sub-stream 'nle_fire' — per world. Every SIZE is drawn from a
+// stream keyed on the world's seed, the event, the firing year and its ordinal,
+// so the same seed gives the same shock and each world its own severity.
 //
 // ⚠ NO SHOCKS BEFORE YEAR 1, in either mode. The pre-game is history the
 // players inherit and is told as it stands; its expectation below is ordinary
@@ -151,29 +155,38 @@ const firingKey = (f: EventFiring) => `${f.event.index}_${f.ordinal}`;
 /** The events that START in `yearNumber`. None before year 1. */
 export function firingsStartingIn(instance: GameInstance, timing: ShockTiming, yearNumber: number): EventFiring[] {
   if (yearNumber < 1) return [];
-  const started: ShockEvent[] = [];
+  const started: { event: ShockEvent; region?: Region }[] = [];
   if (timing === 'catalogue') {
     // One draw per event per year, ALWAYS, in catalogue order — so whether
     // one event fires cannot move another's.
     const rng = deriveSubRng(instance.seed, yearNumber, 'nle_fire');
-    for (const e of SHOCK_EVENTS) if (rng.next() < e.probability) started.push(e);
+    for (const e of SHOCK_EVENTS) if (rng.next() < e.probability) started.push({ event: e });
   } else {
-    const ids = (instance.scheduledShocks ?? [])
+    // A stable sort, so two entries of one event keep their order — the order
+    // generateGameInstance resolved their regions in.
+    const entries = (instance.scheduledShocks ?? [])
       .filter(s => s.yearNumber === yearNumber)
-      .map(s => s.shockId)
-      .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-    for (const id of ids) {
-      const e = SHOCK_EVENTS.find(x => x.id === id);
-      if (!e) throw new Error(`shockLosses: scheduled shock '${id}' is not one of the twelve`);
-      started.push(e);
+      .sort((a, b) => Number(a.shockId.slice(1)) - Number(b.shockId.slice(1)));
+    for (const s of entries) {
+      const e = SHOCK_EVENTS.find(x => x.id === s.shockId);
+      if (!e) throw new Error(`shockLosses: scheduled shock '${s.shockId}' is not one of the twelve`);
+      started.push({ event: e, ...(s.region ? { region: s.region } : {}) });
     }
   }
   const seen = new Map<number, number>();
-  return started.map(event => {
+  return started.map(({ event, region: scheduled }) => {
     const ordinal = seen.get(event.index) ?? 0;
     seen.set(event.index, ordinal + 1);
     const rng = deriveSubRng(instance.seed, yearNumber, `nle_event_${event.index}_${ordinal}`);
-    const region = event.regional ? CAT_REGIONS[Math.min(2, Math.floor(rng.next() * 3))] : undefined;
+    // ⚠ THE WORLD'S OWN REGION DRAW IS STILL TAKEN, AND THEN SET ASIDE FOR THE
+    // SCHEDULE'S. A scheduled regional event strikes the region the schedule
+    // resolved once (generateGameInstance), in every world; consuming the draw
+    // anyway keeps every size draw below exactly where it was, so severity is
+    // still the world's own and nothing but the region moves. The drawn region
+    // stands only where there is no scheduled one: catalogue timing, and a save
+    // from before regions were scheduled.
+    const drawn = event.regional ? CAT_REGIONS[Math.min(2, Math.floor(rng.next() * 3))] : undefined;
+    const region = event.regional ? (scheduled ?? drawn) : undefined;
     const draws = {} as EventFiring['draws'];
     for (const line of LINES) draws[line] = { a: rng.next(), r: rng.next(), t: rng.next() };
     return { event, firedYear: yearNumber, ordinal, ...(region ? { region } : {}), draws };
@@ -437,9 +450,13 @@ export function drawLargeLosses(
 
 export { firingKey };
 
-/** The timing a game runs on. A session marks its setup; singleplayer does not. */
-export const shockTimingOf = (setup: { shockTiming?: 'host' }): ShockTiming =>
-  setup.shockTiming === 'host' ? 'host' : 'catalogue';
+/**
+ * The timing a game runs on. A session marks its setup 'host' and a solo game
+ * 'solo'; both fire the instance's schedule ('host' timing — the schedule, not
+ * who drew it). An unmarked setup is a harness's bare instance.
+ */
+export const shockTimingOf = (setup: { shockTiming?: 'host' | 'solo' }): ShockTiming =>
+  setup.shockTiming === 'host' || setup.shockTiming === 'solo' ? 'host' : 'catalogue';
 
 /**
  * MEMBER WITHDRAWAL: 25% of the line's exposure leaves at this renewal.

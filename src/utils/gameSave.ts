@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v12';
+export const SAVE_KEY = 'riskpool_gamestate_v14';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -165,7 +165,15 @@ export const SAVE_KEY = 'riskpool_gamestate_v12';
 // ⚠ v12 SINCE LOSS ENGINE COMMIT 4b — the game runs in worlds
 // (GameState.worlds), and its pool state and results are their average. A v11
 // save holds one world's figures and no worlds, so it is cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11'];
+// ⚠ v13 SINCE THE SOLO SHOCK SCHEDULE — a solo game draws its schedule once at
+// its start and keeps it on the instance (utils/soloGame). A v12 solo save has
+// none and fired its shocks per world, so it cannot continue under the rule and
+// is cleared the same way.
+// ⚠ v14 SINCE LOSS ADJUSTMENT EXPENSE IS BOOKED (543a61f). A v13 save opened
+// with no assets held for the loss expense reserve — its liability appears the
+// first year after reload — so its surplus would read short by that reserve,
+// and its results carry no LAE fields. Cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13'];
 
 /**
  * Fields dropped on the way out.

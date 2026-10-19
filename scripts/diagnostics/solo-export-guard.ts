@@ -217,7 +217,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { generateGameInstance } from '../../src/utils/instanceGenerator';
+import { openSoloInstance } from '../../src/utils/soloGame';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -678,16 +678,81 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     claims, $2,500,000", the averaged claim count to one place.
 //   - THE SHOCK EVENTS SHEET gains a Worlds column ("2 of 10"), lists events
 //     from every world, and states claim counts to two places.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v68.json');
+// v69: THE AVERAGED LEDGER AVERAGES ITS PAID SERIES. 4b averaged the worlds'
+// ultimates but kept world 1's paid and gross paid, and the pure premium reads
+// paid — so from year 2 every rate was struck partly on one world's history.
+// All 24 exports move, for that one cause. The control ran first: the 4b
+// merge (cc20263), in its own worktree, reproduced v68 24 of 24; then both
+// sides were diffed cell by cell. No row is added or removed; year 1 never
+// moves (the opening every world shares is its own average); in every export
+// the first year to move is year 2, where the rate moves, and every later
+// figure follows from the rate — e.g. ZZTEST99 three lines, GL's rate per $100
+// in year 4 3.75 -> 4.09, Property's 0.22 -> 0.24.
+// v70: THE SOLO SHOCK SCHEDULE. A solo game now draws its schedule once, at its
+// start, by the host's Randomise rule on its own stream, and every world fires
+// it; this guard builds its games as the app does (openSoloInstance). All 24
+// exports move, for that one cause. The control ran first: the averaging fix
+// (729a714), in its own worktree, reproduced v69 24 of 24; then both sides were
+// diffed cell by cell, the Shock Events sheet read for each year's events:
+//   - THE EVENTS are the drawn schedule's and only those, each "in 10 of 10
+//     worlds" — e.g. ZZTEST99, Winterstorm in year 3 and Economic Recession in
+//     year 4 — where each world had drawn its own by probability ("in 1 of 10
+//     worlds", several a year). A single line's export lists the scheduled
+//     events that touch its line; the three-line export lists them all.
+//   - EVERY EXPORT MOVES FROM YEAR 1, and no figure moves before its events do:
+//     the rule never schedules year 1, and the old timing had fired something
+//     in some world's year 1 in all 24 (Investment Loss on ZZTEST99 WC, which
+//     the WC events row does not list but the Shock Events sheet does).
+//   - PRICING DID NOT MOVE: all 696 year-1 rate, pure premium, expected-ceded and
+//     reinsurance cost cells are unchanged — pricing reads the catalogue's
+//     probabilities, never the schedule. Later years' rates move with the
+//     history the different events left.
+// No row is added or removed outside the Shock Events sheet, which lists fewer.
+// v71: BULK COHORTS OPEN AT THEIR OWN AGE — year 1 had paid them two years'
+// worth (see VALUE_IDENTITY_v65). All 24 exports move. The control ran first:
+// 1431cd7, in its own worktree, reproduced v70 24 of 24; then both sides were
+// diffed row by row. No row or sheet added or removed, and none of the 1,320
+// rate, premium, admin, reinsurance and exposure cells moved. The rows that
+// move are the payment and what follows it: Net Paid Losses; Beginning and
+// Ending Net Reserve, Expected Net Unpaid Loss, Indicated Net Reserve at
+// Confidence, Reserve Risk Margin Needed, Total Liabilities; Invested Assets,
+// Investments, Total Assets, Cash (16 sheets), Investment Income and Return
+// Rate; Prior-Year Development, Net Incurred Loss and the loss and combined
+// ratios; Net Income, Surplus and the capital ratios — and Excess Capital
+// Status on 2 sheets, where the ratio crossed a band.
+// v72: A REGIONAL EVENT'S REGION IS RESOLVED ONCE, WITH THE SCHEDULE, so every
+// world's earthquake strikes the same region; its size is still each world's.
+// 16 of 24 exports move — exactly the 16 a regional event touches: MAMC6EA4's
+// four (Earthquake, year 2, North — WC, GL and Property — and Winterstorm,
+// year 4, South), and the Property and three-line exports of 6KA6WGLJ and
+// ZZTEST99 (Winterstorm, year 3, Central); their WC and GL exports, which no
+// regional event touches, hold. The control ran first: 7544361 reproduced v71
+// 24 of 24; then both sides were diffed cell by cell. No row is added or
+// removed; nothing moves before the regional event's year; and every region an
+// export names — the Events row and the Shock Events sheet alike — is the
+// schedule's, where before the headline named one world's and the sheet
+// another's. What follows is the region's exposure share and the losses on it.
+// v73: LOSS ADJUSTMENT EXPENSE IS BOOKED (see VALUE_IDENTITY_v66). All 24
+// exports move. The control ran first: e8333a5 reproduced v72 24 of 24; then
+// both sides were diffed row by row, by label. FOUR ROWS ADDED on every sheet:
+// Loss Adjustment Expenses Incurred (ALAE + ULAE), Loss Adjustment Expenses
+// Paid, Loss Expense Reserves, Actual LAE Ratio; none removed. The rows that
+// move: the combined ratio, net income, total liabilities, total assets and
+// the investments and their income, surplus and the capital ratios (Excess
+// Capital Status on 12 sheets), cash on 32. Never moved: net incurred loss,
+// paid losses, reserves, development, pure premium, every rate, admin and
+// reinsurance row.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v73.json');
 
-function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
 function play(id: string, lines: CoverageLine[], years: number,
               decisions: (y: number, l: CoverageLine[]) => DecisionSet = y => defaultDecisionSet(y)): ResultSet[] {
-  const instance = generateGameInstance(id, seedOf(id));
-  const setup = { poolName: 'G', gameLength: years, startingYear: 2026, instanceId: id, activeLines: lines };
-  const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
+  // ⚠ BUILT AS THE APP BUILDS A SOLO GAME (utils/soloGame): the shock schedule
+  // drawn once at the start, on the instance, fired in every world.
+  const { setup, instance } = openSoloInstance(
+    { poolName: 'G', gameLength: years, startingYear: 2026, instanceId: id, activeLines: lines } as never);
+  const { poolState, priorHistory } = runPriorHistory(instance, setup);
   // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b, played as the app plays them: the
   // export a player downloads is the AVERAGE across the worlds, so that is what
   // this guards. Loans are declined, as before (none were ever authorized here).

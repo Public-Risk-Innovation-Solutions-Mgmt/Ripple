@@ -26,6 +26,7 @@ import {
 import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
 import { SHOCK_EVENTS } from './shockLosses';
+import { CAT_REGIONS } from './propertyCatastrophe';
 import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE } from '../data/pricingParameters';
 import { exposureFactor } from '../data/exposureTrend';
 
@@ -301,8 +302,32 @@ export function generateGameInstance(
   }
   const instance = baseInstance(instanceId, seed);
   return scheduledShocks.length > 0
-    ? { ...instance, scheduledShocks: scheduledShocks.map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })) }
+    ? { ...instance, scheduledShocks: withRegions(seed, scheduledShocks) }
     : instance;
+}
+
+// ⚠ A REGIONAL EVENT'S REGION IS PART OF THE SCHEDULE, RESOLVED HERE, ONCE.
+// It was drawn per world in the engine, from the world's own seed, so the
+// worlds disagreed about where one earthquake struck and the averaged row named
+// one world's region. Resolving it with the instance — from the GAME's seed,
+// before any world exists — gives every world the same region, whoever drew
+// the schedule: the solo start, the host's Randomise, or a hand-picked entry.
+// Every team builds the same instance from the same seed and list, so they
+// agree too, and the room record needs no new field. Each entry has its own
+// labelled stream (event, year, ordinal among the same event that year), so
+// one entry's region never moves another's. A region already given is kept.
+function withRegions(seed: number, schedule: readonly ScheduledShock[]): ScheduledShock[] {
+  const ordinals = new Map<string, number>();
+  return schedule.map(s => {
+    const key = `${s.shockId}_${s.yearNumber}`;
+    const ordinal = ordinals.get(key) ?? 0;
+    ordinals.set(key, ordinal + 1);
+    const base = { shockId: s.shockId, yearNumber: s.yearNumber };
+    if (!SHOCK_EVENTS.find(e => e.id === s.shockId)!.regional) return base;
+    if (s.region) return { ...base, region: s.region };
+    const rng = deriveSubRng(seed, s.yearNumber, `shock_region_${s.shockId}_${ordinal}`);
+    return { ...base, region: CAT_REGIONS[Math.min(2, Math.floor(rng.next() * 3))] };
+  });
 }
 
 function baseInstance(instanceId: string, seed: number): GameInstance {

@@ -60,7 +60,7 @@ async function tabText(page, tab) {
   ok((await viewer.textContent('[data-testid="watched-team"]')).trim() === TEAMS[0], 'viewer is bound to the team it watches');
 
   // ---- IT IS THE SAME SCREEN ----------------------------------------------
-  const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
+  const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
                 'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
                 // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows
                 // the pool in aggregate. The PAGE is intact in GameShell.

@@ -16,6 +16,9 @@ export interface IncomeStatement {
   bookingGiveBack: number;
   netUltimateLoss: number;
   netIncurredLoss: number;
+  alaeIncurred: number;
+  ulaeIncurred: number;
+  laeIncurred: number;
   operatingExpense: number;
   riskControlInvestment: number;
   reinsuranceCost: number;
@@ -163,6 +166,9 @@ export interface StatementLines {
   noncurrentInvestments: number;
   currentUnpaidPortion: number;
   noncurrentUnpaidPortion: number;
+  /** The loss expense reserve, split on the loss reserve's own next-year weighting. */
+  currentLaePortion: number;
+  noncurrentLaePortion: number;
 }
 
 export function statementLines(result: ResultSet | LineResultSet): StatementLines {
@@ -177,7 +183,7 @@ export function statementLines(result: ResultSet | LineResultSet): StatementLine
     result.reinsuranceCost + result.poolPremium + result.adminExpense + result.assessments
     + (result.retainedCoverMargin ?? 0);
   const totalOperatingExpenses =
-    result.reinsuranceCost + result.netIncurredLoss + result.operatingExpense
+    result.reinsuranceCost + result.netIncurredLoss + result.laeIncurred + result.operatingExpense
     + result.riskControlInvestment + result.dividends;
 
   // The cash-equivalents slice comes off the allocation the pool actually chose.
@@ -194,6 +200,11 @@ export function statementLines(result: ResultSet | LineResultSet): StatementLine
     ? (Object.keys(result.byLine) as CoverageLine[])
       .reduce((s, l) => s + result.byLine[l].endingNetReserve * result.byLine[l].nextYearPaydownRate, 0)
     : result.endingNetReserve * result.nextYearPaydownRate;
+  // LAE is paid as the losses are paid, so its current share follows theirs.
+  const currentLaePortion = isPoolRow(result)
+    ? (Object.keys(result.byLine) as CoverageLine[])
+      .reduce((s, l) => s + result.byLine[l].endingLaeReserve * result.byLine[l].nextYearPaydownRate, 0)
+    : result.endingLaeReserve * result.nextYearPaydownRate;
 
   return {
     totalOperatingRevenues,
@@ -207,6 +218,8 @@ export function statementLines(result: ResultSet | LineResultSet): StatementLine
     noncurrentInvestments: result.endingInvestments - cashSlice,
     currentUnpaidPortion,
     noncurrentUnpaidPortion: result.endingNetReserve - currentUnpaidPortion,
+    currentLaePortion,
+    noncurrentLaePortion: result.endingLaeReserve - currentLaePortion,
   };
 }
 
@@ -224,6 +237,9 @@ export function deriveAnnualStatement(result: ResultSet | LineResultSet): Annual
     bookingGiveBack: result.bookingGiveBack,
     netUltimateLoss: result.netUltimateLoss,
     netIncurredLoss: result.netIncurredLoss,
+    alaeIncurred: result.alaeIncurred,
+    ulaeIncurred: result.ulaeIncurred,
+    laeIncurred: result.laeIncurred,
     operatingExpense: result.operatingExpense,
     riskControlInvestment: result.riskControlInvestment,
     reinsuranceCost: result.reinsuranceCost,

@@ -333,7 +333,16 @@ export function bulkCohortsAsReserveCohorts(
     // engine would otherwise sum from claims is the ultimate itself.
     registerSum: b.netUltimate,
     horizon: 0,
-    age: b.ageYears,
+    // ⚠ STEPS TAKEN, NOT PATTERN AGE — ONE LESS. A cohort's `age` counts the
+    // steps it has taken and sits at pattern age `age + 1` (payoutPattern.ts's
+    // age convention; the pre-game's AY 0 opens at age 0, pattern age 1). This
+    // read `b.ageYears`, the PATTERN age its paid-to-date was struck at, so every
+    // bulk cohort opened a year older than its accident year: year 1 stepped it
+    // from pattern age a to a + 2, and the forward-booking true-up paid it up to
+    // cumulativePaid(a + 2) — two years' payments in one (WC $8.7M against $6.7M
+    // on pattern, GL $10.0M against $8.3M), then one year ahead of its pattern
+    // for the rest of its life.
+    age: b.ageYears - 1,
     stepMultiplier: 1,
     bookingBias: 0,
   }));

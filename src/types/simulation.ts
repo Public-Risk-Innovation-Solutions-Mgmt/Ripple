@@ -584,11 +584,13 @@ export interface GameSetupSettings {
   priorDevelopment?: Partial<Record<CoverageLine, number>>;
   /**
    * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
-   * 'host' — the room's schedule, and no probability is consulted. Absent in
-   * singleplayer, where each event fires at the catalogue's own probability.
-   * Read only by the new loss engine (MEMBER_LEVEL off).
+   * 'host' — the room's schedule. A solo game sets 'solo' — the schedule it drew
+   * once at its start (utils/soloGame). Either way the instance's
+   * scheduledShocks fire, in every world, and no probability is consulted.
+   * Absent only on a bare instance a harness builds, where each event fires at
+   * the catalogue's probability, per world. Read only by the new loss engine.
    */
-  shockTiming?: 'host';
+  shockTiming?: 'host' | 'solo';
 }
 
 // Per-line player decisions for a given year.
@@ -1430,6 +1432,10 @@ interface ResultRowFields {
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;
   writtenExposure: number;      // payroll exposure in $M
+  /** The book renewed this year, in written-exposure units — a book only. */
+  renewalExposure?: number;
+  /** The book newly written this year, in written-exposure units — a book only. */
+  newBusinessExposure?: number;
 
   // Premium
   poolPremium: number;                     // expected loss at selected CLF
@@ -1768,6 +1774,18 @@ interface ResultRowFields {
   netPaidLosses: number;
   endingNetReserve: number;
 
+  // LOSS ADJUSTMENT EXPENSE — booked as a share of the GROUND-UP loss, what the
+  // rate charges it on (lossExpense.ts): ALAE with the losses (none on GL, whose
+  // losses include it), ULAE as claims are handled. Incurred = paid + the change
+  // in the loss expense reserve, exactly; the reserve is a liability.
+  alaeIncurred: number;
+  ulaeIncurred: number;
+  laeIncurred: number;
+  laePaid: number;
+  beginningLaeReserve: number;
+  /** LOSS EXPENSE RESERVES — the LAE still to pay on the unpaid losses. */
+  endingLaeReserve: number;
+
   // ⚠ CASE AND IBNR — A DERIVED PRESENTATION, READ BY NOTHING ECONOMIC.
   // Claims book at full cost, so the engine has no unreported inventory; these
   // divide the reserve the way an actuarial exhibit does, from the recorded
@@ -1988,7 +2006,8 @@ interface ResultRowFields {
   // basis, so it may not be added to anything: a reported figure only.
   actualLossRatioRetainedPremium: number;
   actualExpenseRatio: number;            // MEMBER-CHARGE basis
-  actualCombinedRatio: number;           // member-charge basis on both terms
+  actualLaeRatio: number;                // LAE incurred over the member charge
+  actualCombinedRatio: number;           // member-charge basis: loss + LAE + expense
   combinedRatio: number;
   lossRatio: number;
   expenseRatio: number;

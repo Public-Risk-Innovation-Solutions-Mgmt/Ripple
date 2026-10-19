@@ -136,7 +136,9 @@ const FAST: string[] = [
   // re-solve a pin that no longer exists.
   'opening-partition-check',         //   6s   played and bulk accident years PARTITION the opening —
                                      //         no year held twice, no age held by nothing, nothing past
-                                     //         its own pattern. Written against a real double-count:
+                                     //         its own pattern; every cohort's paid-to-date is its age's,
+                                     //         and year 1 pays the bulk one step (control: the old
+                                     //         bulk ages paid 1.75-1.92x). Written against a real double-count:
                                      //         PRE_GAME_DEPTH was a fixed 10 silently coupled to
                                      //         PRIOR_HISTORY_YEARS, and dropping the latter to 5 put
                                      //         accident years 6-10 in BOTH sets. Carries its control.
@@ -250,6 +252,22 @@ const FAST: string[] = [
                                      //         averaged history, averaged dollars are the mean and
                                      //         ratios come from averaged parts, two identical teams
                                      //         match exactly — each check with a failing control
+  'results-statement-check',         //   8s   the Annual Statement holds together: reported = paid +
+                                     //         case, ultimate = reported + IBNR, net = gross − ceded,
+                                     //         the balance sheet balances with LAE reserves, the
+                                     //         combined ratio is worked from its parts, underwriting
+                                     //         ties to the engine, Total sums flows and takes the
+                                     //         latest year otherwise — each with a control
+  'lae-booking-check',               //  15s   LAE is booked: incurred, paid and reserved as the rate's
+                                     //         shares of the ground-up loss (ULAE alone on GL), the
+                                     //         reserve rolls, the balance sheet holds it, underwriting
+                                     //         spends it, the opening holds assets for it — each with a
+                                     //         control — and the pool's underwriting with shocks off
+  'solo-shock-schedule-check',       //  15s   a solo game draws its shock schedule once, by the
+                                     //         host's Randomise rule on its own stream: every world
+                                     //         fires the same events in the same years with its own
+                                     //         severity, the seed reproduces it, a save and reload
+                                     //         keeps it, pricing never reads it — each with a control
   'development-emergence-check',     //  20s   the host's development % emerges IN FULL and only in
                                      //         full: the cumulative matches the closed form the
                                      //         payment pacing implies, at every age of every

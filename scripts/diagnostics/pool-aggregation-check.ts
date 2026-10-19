@@ -86,6 +86,9 @@ const DOLLARS = new Set([
   'aggregatePremium', 'reinsuranceRecovery', 'netUltimateLoss', 'netIncurredLoss',
   'operatingExpense', 'riskControlInvestment', 'priorYearDevelopment',
   'beginningNetReserve', 'currentYearNetReserve', 'netPaidLosses', 'endingNetReserve',
+  // Loss adjustment expense — dollars of each line's own LAE and its reserve,
+  // so the pool's is their sum like the losses they are a share of.
+  'alaeIncurred', 'ulaeIncurred', 'laeIncurred', 'laePaid', 'beginningLaeReserve', 'endingLaeReserve',
   // ⚠ THE DERIVED CASE / IBNR SPLIT. Additive, and for the plainest reason on
   // this list: they are net dollars of unpaid reserve at one valuation, and
   // caseReservesNet + ibnrNet is endingNetReserve — which is directly above and
@@ -132,7 +135,7 @@ const DISTINCT_MEMBERS = new Set(['activeMembers', 'newMembers', 'withdrawnMembe
 const ENROLMENTS = new Set(['enrolmentCount']);
 
 // WC/GL payroll added to Property TIV. Retained for display; never unit-labelled.
-const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'writtenExposure']);
+const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'writtenExposure', 'renewalExposure', 'newBusinessExposure']);
 
 // Recomputed from summed components — never summed directly.
 // ⚠ RESERVE-WEIGHTED, LIKE investmentReturnRate. A rate summed across lines is
@@ -145,7 +148,7 @@ const RECOMPUTED_RATIOS = new Set([
   'nextYearPaydownRate',
   'marketShare', 'memberRetentionRate', 'memberSatisfaction', 'averageRiskQuality',
   'investmentReturnRate', 'expectedLossRatio', 'expectedLossRatioMemberBasis',
-  'expectedExpenseRatio', 'expectedCombinedRatio', 'actualLossRatio', 'actualExpenseRatio',
+  'expectedExpenseRatio', 'expectedCombinedRatio', 'actualLossRatio', 'actualExpenseRatio', 'actualLaeRatio',
   // ⚠ THESE TWO NEED THE RULE MORE THAN THE OTHERS, NOT LESS. Their
   // denominators EXCLUDE the reinsurance premium, and the ceded share differs
   // sharply by line (GL about half its charge, Property about two fifths), so
