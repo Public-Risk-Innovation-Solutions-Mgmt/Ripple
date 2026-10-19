@@ -14,6 +14,9 @@
 // Every gate runs in its own process, so nothing else sees the switch. The old
 // engine as a whole — its shocks included — is frozen on the legacy-engine
 // branch (b234c36).
+//
+// ⚠ INACTIVE AND NO LONGER MAINTAINED — see MEMBER_LEVEL's note. The gates that
+// import this are in DORMANT in scripts/gates.ts, outside every sweep.
 // ============================================================================
 import { MEMBER_LEVEL, RISK_CONTROL } from '../../../src/data/pricingParameters';
 

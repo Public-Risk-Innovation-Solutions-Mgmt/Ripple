@@ -742,7 +742,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Capital Status on 12 sheets), cash on 32. Never moved: net incurred loss,
 // paid losses, reserves, development, pure premium, every rate, admin and
 // reinsurance row.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v73.json');
+// v74: ROUTINE LARGE LOSSES ON (Prompt A commit 1; see VALUE_IDENTITY_v68).
+// All 24 exports move. The control ran first: 21e96e7 reproduced v73 24 of 24;
+// both sides diffed row by row, by label. No row added or removed; 60 rows
+// move, every one a loss, premium, reserve, ratio, capital or balance-sheet
+// line downstream of the routine claims: the losses and their LAE, reinsurance
+// cost and recovery (current year and prior-year development), the pure
+// premiums and rates, reserves and the margin, income, surplus and the ratios.
+// Never moved: admin expense, assessments, dividends, the rate level index and
+// written exposure.
+// v75: PROPERTY OPENS ON ITS FULL REQUIREMENT (Prompt A commit 3; see
+// VALUE_IDENTITY_v69). The control ran first: 4e44465 reproduced v74 24 of 24.
+// 12 of 24 exports move — exactly those that carry Property — and 16 rows in
+// them, none added or removed: surplus (beginning, ending, from income), cash,
+// invested assets and investments, investment income and its return rate, net
+// income, total assets, and the capital rows (excess surplus, ratio, status).
+// No loss, premium, rate, reserve or cession row moved.
+// v76: THE OPENING HOLDS TEN YEARS AT 2x, AND THE PRE-GAME HAS YEARS BEHIND IT
+// (Prompt A commit 2; see VALUE_IDENTITY_v70). The control ran first: 8a9db53
+// reproduced v75 24 of 24. All 24 exports move, no row added or removed: the
+// reserves and what they drive (beginning and ending net reserve, paid losses,
+// prior-year development, LAE and its reserve, the margin and indicated
+// reserve, net incurred and the loss, LAE and combined ratios), the surplus
+// and what it holds and earns (investments, cash, investment income, net
+// income, the capital rows). Never moved: every rate, pure premium, premium,
+// admin, reinsurance cost and expected-ceded row.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v76.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

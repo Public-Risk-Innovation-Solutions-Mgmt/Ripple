@@ -73,12 +73,6 @@ const FAST: string[] = [
   'actuarial-memo-check',            //   5s
   'audit-formula-check',             //  18s
   'cession-uplift-basis',            //  22s
-  'claims-memo-check',                //   8s   every displayed row names its member; 3 controls
-  'claims-system-check',             //   9s   the claims program: null arm against the ENGINE,
-                                     //         confinement, strictly-below, tower share 0.00%,
-                                     //         3 controls incl. an unbounded cut leaking 36%
-  'claims-workbook-check',           //  17s
-  'closure-draw-check',              //   3s
   'cohort-stock-check',              //   4s   (sixty years, four games)
   'composition-table-check',         //  17s   STAGE 1 — the magnitude law against 200/(age+1); GL only
   'development-cession-check',       //  14s
@@ -175,40 +169,32 @@ const FAST: string[] = [
   'funding-basis-check',             //  10s
   'funding-expected-check',          //   2s
   'gl-claim-check',                  //  12s   PROMOTED at this commit — it always asserted; it could not exit
-  'gl-cutover-check',
-  'gl-program-check',                //   6s   PROMOTED at this commit
-  'member-experience-basis-check',   //   5s   expectedAtManual is the expectation at NEUTRAL risk quality and
-                                     //         out-ranks expectedAtOwnRq in every measured game-year
-  'member-experience-mod-check',     //  11s   the mod is centred on the book it rates, cannot see the year it
-                                     //         is pricing, and reaches neither the total, the rate nor the roster
-  'member-loss-history-check',       //   2s
-  'member-value-check',              //  16s   the three pots are LAYERS and exhaustive, the member rows rebase to
-                                     //         1 on the book, the tower is DISCLOSED and not RATED, and the
-                                     //         REJECTED lower boundary is re-measured every run rather than
-                                     //         recorded in a comment. Carries the retainedAboveTower trap as an
-                                     //         assertion — the field reads 0 while GL keeps real dollars above
-                                     //         its tower — plus a priced-up control on value against the market
   'market-conditions-check',         //  15s   the CHANGE benchmark reproduces RATE_NEUTRAL_CHANGE_PCT exactly,
                                      //         every component is positive and mean 1, and it is QUIETER than the
                                      //         rate it judges — the assertion that disqualified the calendar
                                      //         component. Plus the LEVEL: the cushion is monotone in the funding
                                      //         stop and crosses zero inside the slider, which is the only place
                                      //         MARKET_TARGET_LOSS_RATIO does any work
-  'member-premium-check',            //  55s   members pay their own WC class rate; the pool total is untouched
-                                     //         and the allocation reaches nothing that decides who is enrolled
   'net-funding-fields-check',        //   6s
   'paid-headroom-check',             //   7s
   'paid-ledger-check',               //   4s
   'panel-engine-parity-check',       //   4s
-  'pool-aggregation-check',          //   2s
   'property-cat-check',              //  19s   the EXACT cat distribution against an INDEPENDENT event simulation
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
-  'property-mitigation-check',       //  33s   the mitigation DIAL: null arm against the ENGINE, the building
-                                     //         DOLLAR share on the attritional band, the full rate on a scheduled
-                                     //         winter storm (the first program to reach a shock), cat band and
-                                     //         the other two lines bit-identical at the dial's ceiling, 4 controls
+  // ⚠ THREE GATES FORKED BACK FROM DORMANT onto the new engine (book mode).
+  // Their member-path originals stay dormant as *-member-check; these cover
+  // what the new engine uses — pooled fields and the reinsurance tower — each
+  // with controls, and each confirmed red against a real break in the engine.
+  'pool-aggregation-check',          //   2s   every pooled field classified, the additive classes add, no
+                                     //         members on a book, cededByLayer cells line up, solo = its line
+  'reinsurance-tower-check',         //   4s   cession arithmetic, the tower's shape and price on a book, the
+                                     //         aggregate's response, CLF-flat price, live games: an unbought layer
+                                     //         cedes nothing while the full tower does, declined costs nothing
+  'tower-runtime-check',             //   5s   pricing purity (the memo key's successor), the seam IS
+                                     //         newEngineLayerMoments, the SD/E floor, above-tower bounds, cost
+                                     //         of a pricing pass, feedback gain
   'prose-identifier-check',          //   3s   every code-shaped name in PLAYER-FACING prose exists in src; positive
                                      //         control inside. --comments lists the same over developer comments
                                      //         as a report, never a failure (246 names, mostly deliberate history)
@@ -287,10 +273,8 @@ const FAST: string[] = [
                                      //         control in the file's own foot.
   'report-lag-derive',               //  33s   derives LINE_REPORTING_PATTERN and asserts it against the three recorded figures
   'cohort-ledger-check',             //  35s   three ledger identities, BOTH arms — green since the headroom fix
-  'reinsurance-tower-check',         //   2s   PROMOTED at this commit
   'revision-direction-check',        //  10s   STAGE 1 — the OBSERVABLE direction rate; asserts no sign chain
   'roster-catalog-check',            //   3s
-  'renewal-stability-check',         //  95s   declining the worst members does not ratchet; four controls
   'save-debounce-check',             //   1s   a drag is one write and never loses the last value; 3 controls
   'save-flush-wiring-check',         //   1s   static: the two lifecycle events reach flush(); 6 controls
   'save-round-trip-check',           //   3s
@@ -299,13 +283,10 @@ const FAST: string[] = [
   'solo-export-guard',               //   4s
   'surface-privacy-check',           //   1s   risk quality reaches no player-facing render or export path
   'terminal-severity-check',         //  30s   STAGE 1 — derives phi against the pool's settled log-SD
-  'tower-runtime-check',             //  13s
   'trend-memoization-check',
   'triangle-check',         //  27s
   'value-identity-check',            //   3s
   'wc-cap-check',                    //   4s
-  'wc-cutover-check',                //   6s   PROMOTED at this commit
-  'wc-program-check',                //  15s   the WC safety & RTW program reaches WC's draw and nothing else
   'wc-severity-rebuild-check',       //   3s
 ];
 
@@ -343,8 +324,6 @@ const FAST: string[] = [
 // ============================================================================
 const SLOW: string[] = [
   // --- were here already -------------------------------------------------
-  'martingale-equivalence-check',    // 339s — STAGE 1; sized so its own SE is a fifth of the tolerance
-  'property-tower-mc',               // 956s — Monte Carlo over the tower
   'gl-clf-grid-derive',              // 830s — derives GL's CLF grid; asserts monotonicity on it
   'wc-clf-grid-derive',              // 224s — the same, for WC, with the same exit semantics
 
@@ -367,6 +346,64 @@ const SLOW: string[] = [
   // 285s — GL's supplied-CLF path. Pricing, not display; an engine commit that
   // moves GL's CLF handling loses its commit-time cover.
   'gl-supplied-clf-check',           //  285s
+];
+
+// ============================================================================
+// DORMANT — THE OLD MEMBER ENGINE'S GATES. NOT RUN BY ANY SWEEP; RUNNABLE BY
+// NAME (`npx tsx scripts/gates.ts <name>`) OR ALL TOGETHER (`--dormant`).
+//
+// ⚠ THE OLD MEMBER ENGINE IS INACTIVE AND NO LONGER MAINTAINED. MEMBER_LEVEL
+// stays in the code, off, with everything behind it exactly as it was, but
+// later changes are NOT required to keep it working — so it may need repair
+// before it is switched on again, and these gates may be red when it is. A
+// working copy is preserved on the legacy-engine branch and in
+// advance-single-player. Members return in the new engine as BOOK UNITS, not
+// through this path.
+//
+// Every gate here imports engine-mode/member-level, which turns MEMBER_LEVEL on
+// for its whole process, so each runs ONLY on the member path. They were moved
+// out of FAST (18) and SLOW (9) together, each with its own notes. The member
+// path's probes stay in PROBES, which no sweep runs either. Three came back to
+// FAST as new-engine forks (pool-aggregation-check, reinsurance-tower-check,
+// tower-runtime-check); their member-path originals stay here as *-member-check.
+// ============================================================================
+const DORMANT: string[] = [
+  // --- from FAST -----------------------------------------------------------
+  'claims-memo-check',                //   8s   every displayed row names its member; 3 controls
+  'claims-system-check',             //   9s   the claims program: null arm against the ENGINE,
+                                     //         confinement, strictly-below, tower share 0.00%,
+                                     //         3 controls incl. an unbounded cut leaking 36%
+  'claims-workbook-check',           //  17s
+  'closure-draw-check',              //   3s
+  'gl-cutover-check',
+  'gl-program-check',                //   6s   PROMOTED at this commit
+  'member-experience-basis-check',   //   5s   expectedAtManual is the expectation at NEUTRAL risk quality and
+                                     //         out-ranks expectedAtOwnRq in every measured game-year
+  'member-experience-mod-check',     //  11s   the mod is centred on the book it rates, cannot see the year it
+                                     //         is pricing, and reaches neither the total, the rate nor the roster
+  'member-loss-history-check',       //   2s
+  'member-value-check',              //  16s   the three pots are LAYERS and exhaustive, the member rows rebase to
+                                     //         1 on the book, the tower is DISCLOSED and not RATED, and the
+                                     //         REJECTED lower boundary is re-measured every run rather than
+                                     //         recorded in a comment. Carries the retainedAboveTower trap as an
+                                     //         assertion — the field reads 0 while GL keeps real dollars above
+                                     //         its tower — plus a priced-up control on value against the market
+  'member-premium-check',            //  55s   members pay their own WC class rate; the pool total is untouched
+                                     //         and the allocation reaches nothing that decides who is enrolled
+  'pool-aggregation-member-check',   //   2s   (forked: pool-aggregation-check runs on the new engine, in FAST)
+  'property-mitigation-check',       //  33s   the mitigation DIAL: null arm against the ENGINE, the building
+                                     //         DOLLAR share on the attritional band, the full rate on a scheduled
+                                     //         winter storm (the first program to reach a shock), cat band and
+                                     //         the other two lines bit-identical at the dial's ceiling, 4 controls
+  'reinsurance-tower-member-check',  //   2s   (forked: reinsurance-tower-check runs on the new engine, in FAST)
+  'renewal-stability-check',         //  95s   declining the worst members does not ratchet; four controls
+  'tower-runtime-member-check',      //  13s   (forked: tower-runtime-check runs on the new engine, in FAST)
+  'wc-cutover-check',                //   6s   PROMOTED at this commit
+  'wc-program-check',                //  15s   the WC safety & RTW program reaches WC's draw and nothing else
+
+  // --- from SLOW -----------------------------------------------------------
+  'martingale-equivalence-check',    // 339s — STAGE 1; sized so its own SE is a fifth of the tolerance
+  'property-tower-mc',               // 956s — Monte Carlo over the tower
   // 230s — the IBNER null arm. Already EXPECTED_RED (its null is built from the
   // cohort law's constants and the per-claim law does not read them), so what
   // defers is the detection of a NEW failure inside a file already known red.
@@ -420,6 +457,263 @@ const SLOW: string[] = [
   'wc-program-verify',               //  69s   a SECOND instrument for wc-program-check's claims, plus BOTH programs at once — different
                                      //         seeds, deep Object.is; slow because it duplicates a FAST gate's coverage
 ];
+
+// THE DORMANT GATES' KNOWN REDS — their EXPECTED_RED entries, moved here
+// verbatim when the gates left the sweeps (the manifest holds every
+// EXPECTED_RED entry to a tier). A `--dormant` or by-name run reads them the same
+// way, so a known red still reads as known; nothing else does.
+const DORMANT_KNOWN_RED: Record<string, { code: number; why: string }> = {
+  // ⚠ THREE ENTRIES, ALL FROM THE PER-CLAIM FLIP, AND THEY ARE NOT THE SAME KIND
+  // OF RED. Two are gates whose SUBJECT was built out of the cohort mechanism's
+  // constants and no longer describes what runs; one is a gate added to make a
+  // PRE-EXISTING mis-calibration impossible to forget. Keeping them separate
+  // matters — the first two retire when their nulls are rebuilt, the third when
+  // the tables are re-derived, and those are different pieces of work.
+  //
+  // ⚠ AND THE MAP HAS BEEN EMPTIED TWICE BEFORE, WHICH IS THE MECHANISM WORKING.
+  // cohort-ledger-check was entered at 85252cc for the flag-on ledger crossing;
+  // triangle-check at e551e9a with exit 3, because S1's triangle came out flat —
+  // a mean-one law gives E[terminal] = E[initial] whatever the initial spread is
+  // contracted to. S2's drift turned it green and the entry came out in the same
+  // commit. An expectation cannot outlive the defect it describes, and the XPASS
+  // guard is what forces that.
+  'ibner-null-check': {
+    code: 1,
+    why: 'THE NULL IS BUILT FROM THE COHORT LAW\'S CONSTANTS. It zeroes the IBNER_* scales and '
+      + 'asserts development collapses to nothing. The per-claim law does not read those constants — it '
+      + 'has its own phi, its own age curve and a hash-derived settlement factor — so zeroing them is no '
+      + 'longer a null and the gate reports 10 problems (development $6.16M at the "null", a matured '
+      + 'cohort missing registerSum by 33%). Verified: GREEN with the flag off at this same commit, so '
+      + 'this is the null\'s construction and not a regression. FIX: rebuild the null for the per-claim '
+      + 'law — phi to zero, the drift to zero, and the settlement factor neutralised to 1.0 — which needs '
+      + 'a settlement override the law does not currently expose. Not S3; its own small commit.',
+  },
+  // ⚠ ratemaking-loop-check IS GONE FROM THIS MAP AND THAT IS THE HEADLINE OF
+  // ITS COMMIT. It was entered red on the day it was written, as the loop's own
+  // definition, and it now passes 4/4 on the flagged arm. Its three lives here
+  // are worth keeping because each was a different kind of wrong:
+  //
+  //   1st entry — "all four fail". FALSE. The gate short-circuited at NOT BUILT
+  //     and printed 0/4, which is four conditions NEVER REACHED. Reading it as
+  //     four failures aimed two commits at a mechanism blocker that did not
+  //     exist.
+  //   2nd entry — "1 of 4 evaluable, condition 3 passes". True when written.
+  //     Conditions 1, 2 and 4 were UNEVALUATED for want of a triangle.
+  //   removed — LinePoolState.pricingTriangle exists, projected from
+  //     reserveDevelopment and windowed to ten accident years.
+  //
+  // ⚠ AND GREEN IS NOT PERMISSION TO SHIP — BUT ONE FLAG NOW HAS SHIPPED.
+  // FORWARD_BOOKING went on at the maturation-book commit; PRICING_TRIANGLE has
+  // not, and its reason is a design question rather than a mechanism one. The
+  // gate still asserts conditions 3 and 4 with BOTH on, so condition 4's arm is
+  // a state nobody runs. If this gate goes red again, it is a regression in the
+  // loop and not a calibration drift.
+  // ⚠ maturity-anchor-check IS OUT OF THIS MAP — it went green at the commit that
+  // derived TRIANGLE_OPEN_SHARE. Gross climb against 1/c now reads WC -2.0%,
+  // GL -3.0%, Property +3.9%, from +3.3% / +26.4% / +35.1%. No constant was
+  // fitted: g is untouched and the fix is the open-share curve plus dropping the
+  // now-redundant horizon truncation. If it goes red again that is a regression
+  // in the booking mechanism, not calibration drift.
+  // ⚠ ratemaking-loop-check IS OUT OF THIS MAP AGAIN, and this time condition 3
+  // is PAIRED. It re-entered for one line: Property read 67.9% against a 75%
+  // absolute bar once the open-share curve removed the +35.1% overshoot that
+  // had been earning it 94%. The bar was not moved. The STATISTIC was replaced
+  // — flagged minus shipped on the same seeds and the same line-years,
+  // sign-tested against p=0.5, no tuned constant anywhere in it. Property now
+  // reads 88.2% positive at p 9.2e-9; WC 90.0% at 6.4e-16; GL 91.0% at 1.3e-16.
+  // Two null controls run every time and BOTH must stay silent: the arm paired
+  // with itself, and two runs of the null arm on disjoint seeds (57.8% / 50.0%
+  // / 41.3% positive, p 0.09 / 0.54 / 0.91). A control that fires fails the
+  // gate. See WORKING_PRACTICES on the paired lesson's fourth appearance — the
+  // first where paired is not cheaper but is the only estimator that works.
+  // ⚠ clf-label-backtest-check IS OUT OF THIS MAP AND THE MECHANISM FIXED IT.
+  // Its entry said the worst label error was +14.5pp with FORWARD_BOOKING off and
+  // +14.7pp with it on, that "the flip is NOT the cause", and that the fix was to
+  // re-derive all three CLF tables against the shipped mechanism. The first two
+  // were true. The third was wrong, and measurably: at the maturation-book commit
+  // the worst error is GL at the 50% stop, -3.2pp against a 5pp tolerance, on 960
+  // line-years per line. No table was re-derived and GL still reads GL_SUPPLIED.
+  //
+  // What changed is what the tables were being asked to describe. A three-year
+  // book under a mean-one law put realised confidence a long way from its label;
+  // ten accident years of runoff under forward booking put it back. So the
+  // provenance concern stands as a provenance concern and is no longer a defect
+  // anyone can measure — and the note that the funding slider's percentages were
+  // "labels on a distribution nobody is drawing from" is retired: they are labels
+  // on the distribution the pool is now actually drawing from.
+  //
+  // ⚠ AND IT CAME BACK ON GL, THEN TURNED OUT TO BE THE GATE'S OWN BASIS. The
+  // retraction above was measured on the gate's FIRST statistic, loss over a
+  // pooled mean. Its replacement divided by each year's own premium and reported
+  // -21.9pp on GL. That number was real arithmetic and the wrong comparison: it
+  // scored an ACCIDENT-YEAR curve against a CALENDAR-YEAR statistic. Measured on
+  // the same accident years, GL's accident-year ratio has CV 0.4168 against the
+  // supplied curve's implied 0.3979, and its calendar-year ratio 0.1936 — the
+  // calendar basis blends up to eight open accident years at different ages and
+  // halves the spread. The gate now measures settled accident-year ultimate and
+  // GL reads -0.5 to +1.7pp from the 70% stop up. Both earlier figures are kept
+  // above as what those statistics reported, not as measurements to rely on.
+  //
+  // ⚠ TWO ROUTES WERE MEASURED AND REJECTED ON THAT WRONG NUMBER, which is the
+  // reason this history is written out rather than trimmed. Putting GL_DERIVED
+  // in force scores -16.2pp pooled on the corrected basis against GL_SUPPLIED's
+  // -8.8pp, worst exactly where players fund for margin. Raising GL's frequency
+  // cannot work in principle: frequency only lowers CV and the gap needs it to
+  // rise. clfTables.ts still names the frequency route as "the real fix" and is
+  // corrected in the same commit as this entry.
+  'clf-label-backtest-check': {
+    code: 1,
+    why: '⚠ GL\'S RESIDUAL MOVED -9.4 -> -10.2pp WHEN GL\'S TRIANGLE CONTRACTION WAS RE-SOLVED, and '
+      + 'the direction is a real cost of that fix rather than a regression in it. '
+      + 'TRIANGLE_INITIAL_CONTRACTION.GL.A went 2.156982 -> 2.295852 to close a 6% mean-preservation '
+      + 'failure; that raises GL\'s booked ultimates, which widens its accident-year distribution '
+      + '(CV 0.4082 -> 0.4188) against a SUPPLIED curve that did not move. A curve fitted to someone '
+      + 'else\'s book gets slightly less accurate when this model\'s own book gets more accurate, and '
+      + 'that is the trade the supplied curve already carries. Worst per band, GL on its gated '
+      + 'accident-year basis: small -10.2, mid -9.1, large -7.1. WHAT RETIRES IT is unchanged — a GL '
+      + 'curve with a different low tail, not a re-derivation. PREVIOUS ENTRY FOLLOWS. '
+      + '⚠ WC\'S RESIDUAL IS NOW A SUPPLIED-CURVE RESIDUAL, WHICH IS A DIFFERENT THING FROM THE BAND '
+      + 'MISMATCH THIS ENTRY USED TO NAME, AND IT IS 2.7x GL\'S. WC prices off a supplied real-pool curve '
+      + 'as of the swap; WC_DERIVED is retained out of force. A band mismatch is a curve of the right '
+      + 'SHAPE fitted to the wrong book, and it is closed by re-deriving at the right band. This is a '
+      + 'curve of a different shape altogether: WC_SUPPLIED implies a CV of 0.3524 against WC\'s '
+      + 'calendar-year 0.1975 — 78% heavier — where the derived table it replaced described that same '
+      + 'distribution to within 6% (0.1862). No re-derivation closes it, because the curve is not '
+      + 'derived. WORST PER BAND ON WC\'S GATED CALENDAR BASIS, across the swap: small -3.1 -> -25.3pp, '
+      + 'mid +9.3 -> -18.7pp, large +18.4 -> +16.3pp. The gate prints -25.3pp at the 40% stop on the '
+      + 'small ~64 band, which is the SHIPPED DEFAULT\'S band. ⚠ THE COST IS CONCENTRATED AT THE LOW '
+      + 'STOPS AND THAT IS THE SAME KIND OF RESIDUAL GL CARRIES, ONLY BIGGER: a heavier curve sits '
+      + 'further below 1.000 at its low percentiles, so a player asking for deliberate under-funding at '
+      + '30-50% gets far less of it than the label promises. GL reads -9.4pp this way; WC now reads '
+      + '-25.3pp. ⚠ THE RULING EXPECTED 15-20% HEAVIER AND ASKED FOR THE NUMBER PLAINLY IF IT CAME OUT '
+      + 'FAR LARGER THAN GL\'S: it is 78% heavier and 2.7x GL\'s residual. WHAT RETIRES IT: reverting to '
+      + 'WC_DERIVED, or a supplied curve measured on a book whose volatility resembles this model\'s. '
+      + 'Not a re-derivation. ⚠ GL AND PROPERTY ARE BIT-IDENTICAL ACROSS THE SWAP (GL -9.4 / -9.0 / -8.0, '
+      + 'Property unchanged), so nothing leaked. PREVIOUS ENTRY FOLLOWS, and its WC clauses now describe '
+      + 'WC_DERIVED rather than the shipped table. '
+      + '⚠ FOUR RESIDUALS, AND TWO OF THEM ARE WC. WC was RE-DERIVED AT THE SMALL BAND so the label '
+      + 'is honest for the shipped default (frozen book ~62): its small-band error goes -8.7 -> -3.1pp. '
+      + 'THE PRICE IS PAID BY THE OTHER TWO BANDS AND WAS TAKEN DELIBERATELY. (1) WC +18.4pp at the 50% '
+      + 'stop on the LARGE band, calendar — was +13.0; this is the one the gate prints, being the worst. '
+      + '(2) WC +9.3pp on the MID band — was +4.3 and EXACT before the re-derivation, so WC has gone from '
+      + 'one band outside the 5pp tolerance to two. That was not anticipated by the ruling and is recorded '
+      + 'at WC_DERIVED with the full candidate matrix. (3) GL -9.4pp at the 30% stop, small band, '
+      + 'accident-year — GL_SUPPLIED carries a fatter low tail than this model produces; unchanged. '
+      + '(4) PROPERTY +10.8pp on the small band, calendar — now GATED rather than newly appeared: it was '
+      + '223 obs against MIN_BAND_N 250 until the fifth arm lifted it to 804. Property is derived at 88+ '
+      + 'against a default book of 66, a TWO-band mismatch, and over-delivers monotonically from the 85% '
+      + 'stop down. ⚠ POOLED WORST WENT +2.2 -> +9.9pp AND THAT IS NOT THE SCORECARD — the band weights '
+      + 'come from five sampled arms of which four are opt-in settings, so pooled measures the sampling '
+      + 'choice rather than how the game is played. WHAT RETIRES EACH: (1) and (2) a book-size axis, or '
+      + 'evidence that players routinely open the appetite bar, which would put WC back at mid; (3) a GL '
+      + 'curve with a different low tail; (4) re-deriving Property at small, a ruling not yet taken. '
+      + 'ORIGINAL ENTRY FOLLOWS. '
+      + '⚠ THREE RESIDUALS NOW, NAMED SEPARATELY, AND THE SAMPLE THEY ARE MEASURED ON CHANGED. '
+      + 'NO_NEW_BUSINESS — the shipped default appetite — was added as a FIFTH ARM to this gate AND to '
+      + 'clf-table-derive together, because the backtest judges each table against the population it was '
+      + 'fitted on and adding an arm to one file alone would score a table on a book it never saw. The '
+      + 'default freezes the book at its opening ~62 for a whole game and none of the other four arms '
+      + 'produces that. Every small band roughly TRIPLED and every estimate in it moved: WC small 308 -> '
+      + '739 obs and -4.0 -> -8.7pp, GL 323 -> 838 and -12.4 -> -9.4pp, Property 223 -> 804 and +20.7 -> '
+      + '+10.8pp. ⚠ THE OLD SMALL BAND WAS NOT THE DEFAULT — it was mostly EARLY YEARS OF STRICT-BAR '
+      + 'GAMES, a different population from a book frozen at 62 for fourteen years. THE THREE RESIDUALS: '
+      + '(1) WC +13.0pp at the 55% stop on the LARGE band, calendar — the book-size level effect, and the '
+      + 'deliberate cost of re-deriving WC at small. (2) GL -9.4pp at the 30% stop on the small band, '
+      + 'accident-year — GL_SUPPLIED carries a fatter low tail than this model produces, confined to the '
+      + 'deliberate-underfunding end; unchanged in kind. (3) PROPERTY +10.8pp on the small band, '
+      + 'calendar — NEW, and new because it is now GATED rather than because it appeared. It was 223 obs '
+      + 'against MIN_BAND_N 250 and therefore reported-but-not-asserted; the fifth arm lifted it to 804. '
+      + 'Property is derived at 88+ against a default book of 66, a TWO-band mismatch, and over-delivers '
+      + 'monotonically from the 85% stop down, so a player choosing deliberate under-funding gets more '
+      + 'safety than the label promises. WHAT RETIRES EACH: (1) a book-size axis, or accepting it as the '
+      + 'price of an honest default; (2) a GL curve with a different low tail; (3) re-deriving Property '
+      + 'at the small band, which is a ruling not yet taken. ORIGINAL ENTRY FOLLOWS. '
+      + '⚠ THE RESIDUAL THIS ENTRY DESCRIBED HAS MOVED, AND THE ENTRY IS CORRECTED RATHER THAN LEFT. '
+      + 'It named WC -7.2pp on the SMALL band; after the membership work (departures off, pre-game roster '
+      + 'frozen, No New Business default) WC reads -4.0pp there and the live failure is +13.0pp at the '
+      + '55% stop on the LARGE band. Same mechanism, opposite end: WC\'s single curve has a book-size '
+      + 'LEVEL effect and the book moved, so the error moved with it. Worst per band, each line on its '
+      + 'own gated basis — WC (calendar) -4.0 / +7.6 / +13.0, GL (accident) -12.4 / -10.1 / -8.0, '
+      + 'Property (calendar) +20.7 (thin, ungated) / -3.1 / +3.8. ⚠ DO NOT RE-DERIVE ON THE STRENGTH OF '
+      + 'THIS: the default book (~62) and an Open-appetite book (~113) now BRACKET the derivation band, '
+      + 'so every available re-derivation trades one player\'s accuracy for another\'s. clfTables.ts '
+      + 'carries the measurement and the declined re-derivation. GL\'s 30%-stop residual stands '
+      + 'unchanged. WHAT RETIRES THIS ENTRY: a book-size axis, or a ruling that one trajectory is the '
+      + 'one to serve. ORIGINAL ENTRY FOLLOWS. '
+      + 'TWO REAL RESIDUALS, ON THE BASIS EACH LINE IS ACTUALLY GATED AGAINST. This entry used to '
+      + 'describe reds that were DEFINITIONAL — every line was scored on accident-year ultimate while '
+      + 'two of the three tables are calendar-year percentiles, so WC and Property could not pass and '
+      + 'nobody read their reds. The gate now gates each line on the basis its own table was derived '
+      + 'on: GL accident-year, WC and Property calendar-year, both bases printed for all three. '
+      + 'WHAT IS LEFT IS ACTIONABLE, and it is these two: '
+      + '(1) GL -11.6pp at the 30% stop on the large band, accident-year. GL_SUPPLIED carries a '
+      + 'fatter LOW tail than this model produces, so the bottom of the slider promises more '
+      + 'under-funding than the book delivers. Confined to the deliberate-underfunding end — from the '
+      + '70% stop up GL reads -0.5 to +1.7pp, which is what carried the basis change. '
+      + '(2) WC -7.2pp on the SMALL band, calendar-year, and it is a BOOK-SIZE LEVEL EFFECT rather '
+      + 'than a mis-shaped curve. WC\'s calendar mean ratio runs 1.042 / 1.035 / 1.025 across small / '
+      + 'mid / large, and the worst error tracks it at -7.2 / -2.2 / -1.2. A small book runs a 1.7% '
+      + 'higher loss ratio, so its distribution sits higher and fewer of its years fall under the low '
+      + 'stops. A single curve with no book-size axis cannot carry that by construction — clfTables.ts '
+      + 'records that decision and its measured cost, and this is the same cost seen from the gate. '
+      + '⚠ SEPARATELY, AND NOT A DEFECT: WC and Property KEEP their calendar-basis tables. That is a '
+      + 'ruling taken at 73b0ab8 with the numbers in front of it — re-deriving WC onto accident-year '
+      + 'raises every off-Expected stop 3.2% to 6.0% for cost the player never sees land in five games '
+      + 'out of six (only 16.4% of WC accident years written in a ten-year game reach their own runoff '
+      + 'horizon), and Property\'s indicated curve moves only -2.6% to +4.0%. Do not re-derive either '
+      + 'on the strength of this entry. '
+      + '⚠ AND THE RULING HAS A VISIBLE COST THE GATE NOW PRINTS: GL\'s curve describes accident years '
+      + 'while WC\'s and Property\'s describe calendar years, so "75% confidence" does not mean quite '
+      + 'the same thing per line while the slider carries identical words on all three. '
+      + 'WHAT RETIRES THIS ENTRY: closing either residual. The GL one needs a curve with a different '
+      + 'low tail; the WC one needs a book-size axis, which was considered and rejected because it '
+      + 'makes the rate move as the book moves. Neither is a re-derivation anyone can just run.',
+  },
+  // ==========================================================================
+  // THE DORMANT MEMBER PATH'S FIVE SLOW REDS — recorded at loss engine commit
+  // 4a, unchanged since b234c36 (each exits 1 there, on 3b, and here). They run
+  // against MEMBER_LEVEL, which the shipped engine does not use, so they are
+  // excused rather than fixed. Exit 1 only: any other code is still a failure,
+  // and an XPASS still fails the sweep so the entry comes out.
+  // ==========================================================================
+  'property-tower-mc': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'martingale-equivalence-check': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'marketplace-generation-check': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'experience-pricing-check': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'maturity-anchor-check': {
+    code: 1,
+    why: 'pre-existing on the member path; not part of the shipped engine',
+  },
+  'member-satisfaction-check': {
+    code: 1,
+    why: 'THE SCOREBOARD SLIDES AT ALL-DEFAULTS, WHICH IS THE MODEL\'S NEUTRAL POINT, AND TURNING THE '
+      + 'NEW RATE ON MOVED IT WITHOUT FIXING IT. Measured either side of the flag, points of drift at '
+      + 'defaults (negative = the scoreboard falls by itself): WC 3yr -5.146 -> -0.811, WC 5yr -3.750 -> '
+      + '-2.068, WC 10yr -2.848 -> -3.286; GL 3yr -2.954 -> -0.174 (now the one cell that passes), GL 5yr '
+      + '-2.348 -> -0.380, GL 10yr -2.060 -> -1.161; Property 3yr -0.331 -> -0.651, Property 5yr -0.497 -> '
+      + '-1.708, Property 10yr -0.871 -> -2.812. SHORT games improved sharply and LONG games got worse, '
+      + 'which is the shape to expect: the rate now rises with experience, so the cash limb sees a bigger '
+      + 'charge every year and the slide compounds over ten. The count went 7 reds to 8 — GL 3yr turned '
+      + 'green, and two new ones appeared: the convex form\'s decision share is no larger than the linear '
+      + 'form\'s, and the surplus band saturates in one bucket on WC and GL. Both are the same '
+      + 'calibration: SATISFACTION\'s boundaries were solved at the median of default play under the OLD '
+      + 'rate, and default play has moved. ⚠ NOT RE-SOLVED HERE ON PURPOSE. The loss engine changes the '
+      + 'loss side of every one of these readings, so solving the boundaries against today\'s play means '
+      + 'solving them twice. DEFERRED: awaiting recalibration after the loss engine, with SOLVE=1.',
+  },
+};
 
 // ============================================================================
 // PROBES — measurement, not pass/fail. Every one of these has a reason to be
@@ -800,7 +1094,7 @@ function recordedTimings(): Record<string, number> {
 // outside the sweep — it fails this check, by name, on the next run.
 function checkManifest(): string[] {
   const onDisk = fs.readdirSync(DIAG).filter(f => f.endsWith('.ts')).map(f => f.replace(/\.ts$/, '')).sort();
-  const listed = [...FAST, ...SLOW, ...Object.keys(PROBES)];
+  const listed = [...FAST, ...SLOW, ...DORMANT, ...Object.keys(PROBES)];
   const errs: string[] = [];
 
   const seen = new Set<string>();
@@ -810,11 +1104,14 @@ function checkManifest(): string[] {
   }
   for (const n of onDisk) {
     if (!seen.has(n)) {
-      errs.push(`scripts/diagnostics/${n}.ts is in NO list — add it to FAST, SLOW or PROBES in scripts/gates.ts`);
+      errs.push(`scripts/diagnostics/${n}.ts is in NO list — add it to FAST, SLOW, DORMANT or PROBES in scripts/gates.ts`);
     }
   }
   for (const n of listed) {
     if (!onDisk.includes(n)) errs.push(`manifest names ${n}, which is not on disk`);
+  }
+  for (const name of Object.keys(DORMANT_KNOWN_RED)) {
+    if (!DORMANT.includes(name)) errs.push(`DORMANT_KNOWN_RED names '${name}', which is not in DORMANT`);
   }
   for (const name of Object.keys(EXPECTED_RED)) {
     if (!FAST.includes(name) && !SLOW.includes(name)) {
@@ -906,48 +1203,6 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
       + 'cession and development was zero when it was chosen. DEFERRED: re-derive the basis against '
       + 'a developing book — the measurement is a day\'s work and guessing a new limit is five '
       + 'minutes, which is the whole argument for deferring rather than tuning.',
-  },
-    'member-satisfaction-check': {
-    code: 1,
-    why: 'THE SCOREBOARD SLIDES AT ALL-DEFAULTS, WHICH IS THE MODEL\'S NEUTRAL POINT, AND TURNING THE '
-      + 'NEW RATE ON MOVED IT WITHOUT FIXING IT. Measured either side of the flag, points of drift at '
-      + 'defaults (negative = the scoreboard falls by itself): WC 3yr -5.146 -> -0.811, WC 5yr -3.750 -> '
-      + '-2.068, WC 10yr -2.848 -> -3.286; GL 3yr -2.954 -> -0.174 (now the one cell that passes), GL 5yr '
-      + '-2.348 -> -0.380, GL 10yr -2.060 -> -1.161; Property 3yr -0.331 -> -0.651, Property 5yr -0.497 -> '
-      + '-1.708, Property 10yr -0.871 -> -2.812. SHORT games improved sharply and LONG games got worse, '
-      + 'which is the shape to expect: the rate now rises with experience, so the cash limb sees a bigger '
-      + 'charge every year and the slide compounds over ten. The count went 7 reds to 8 — GL 3yr turned '
-      + 'green, and two new ones appeared: the convex form\'s decision share is no larger than the linear '
-      + 'form\'s, and the surplus band saturates in one bucket on WC and GL. Both are the same '
-      + 'calibration: SATISFACTION\'s boundaries were solved at the median of default play under the OLD '
-      + 'rate, and default play has moved. ⚠ NOT RE-SOLVED HERE ON PURPOSE. The loss engine changes the '
-      + 'loss side of every one of these readings, so solving the boundaries against today\'s play means '
-      + 'solving them twice. DEFERRED: awaiting recalibration after the loss engine, with SOLVE=1.',
-  },
-  // ⚠ THREE ENTRIES, ALL FROM THE PER-CLAIM FLIP, AND THEY ARE NOT THE SAME KIND
-  // OF RED. Two are gates whose SUBJECT was built out of the cohort mechanism's
-  // constants and no longer describes what runs; one is a gate added to make a
-  // PRE-EXISTING mis-calibration impossible to forget. Keeping them separate
-  // matters — the first two retire when their nulls are rebuilt, the third when
-  // the tables are re-derived, and those are different pieces of work.
-  //
-  // ⚠ AND THE MAP HAS BEEN EMPTIED TWICE BEFORE, WHICH IS THE MECHANISM WORKING.
-  // cohort-ledger-check was entered at 85252cc for the flag-on ledger crossing;
-  // triangle-check at e551e9a with exit 3, because S1's triangle came out flat —
-  // a mean-one law gives E[terminal] = E[initial] whatever the initial spread is
-  // contracted to. S2's drift turned it green and the entry came out in the same
-  // commit. An expectation cannot outlive the defect it describes, and the XPASS
-  // guard is what forces that.
-  'ibner-null-check': {
-    code: 1,
-    why: 'THE NULL IS BUILT FROM THE COHORT LAW\'S CONSTANTS. It zeroes the IBNER_* scales and '
-      + 'asserts development collapses to nothing. The per-claim law does not read those constants — it '
-      + 'has its own phi, its own age curve and a hash-derived settlement factor — so zeroing them is no '
-      + 'longer a null and the gate reports 10 problems (development $6.16M at the "null", a matured '
-      + 'cohort missing registerSum by 33%). Verified: GREEN with the flag off at this same commit, so '
-      + 'this is the null\'s construction and not a regression. FIX: rebuild the null for the per-claim '
-      + 'law — phi to zero, the drift to zero, and the settlement factor neutralised to 1.0 — which needs '
-      + 'a settlement override the law does not currently expose. Not S3; its own small commit.',
   },
   // ==========================================================================
   // ⚠ THE FIVE BELOW ARE ONE DEFECT, NOT FIVE, AND IT IS A RETIRED PREMISE.
@@ -1080,215 +1335,11 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
   // expectation that outlives its defect; nothing caught an expectation that
   // acquired a second one.
 
-  // ⚠ ratemaking-loop-check IS GONE FROM THIS MAP AND THAT IS THE HEADLINE OF
-  // ITS COMMIT. It was entered red on the day it was written, as the loop's own
-  // definition, and it now passes 4/4 on the flagged arm. Its three lives here
-  // are worth keeping because each was a different kind of wrong:
-  //
-  //   1st entry — "all four fail". FALSE. The gate short-circuited at NOT BUILT
-  //     and printed 0/4, which is four conditions NEVER REACHED. Reading it as
-  //     four failures aimed two commits at a mechanism blocker that did not
-  //     exist.
-  //   2nd entry — "1 of 4 evaluable, condition 3 passes". True when written.
-  //     Conditions 1, 2 and 4 were UNEVALUATED for want of a triangle.
-  //   removed — LinePoolState.pricingTriangle exists, projected from
-  //     reserveDevelopment and windowed to ten accident years.
-  //
-  // ⚠ AND GREEN IS NOT PERMISSION TO SHIP — BUT ONE FLAG NOW HAS SHIPPED.
-  // FORWARD_BOOKING went on at the maturation-book commit; PRICING_TRIANGLE has
-  // not, and its reason is a design question rather than a mechanism one. The
-  // gate still asserts conditions 3 and 4 with BOTH on, so condition 4's arm is
-  // a state nobody runs. If this gate goes red again, it is a regression in the
-  // loop and not a calibration drift.
-  // ⚠ maturity-anchor-check IS OUT OF THIS MAP — it went green at the commit that
-  // derived TRIANGLE_OPEN_SHARE. Gross climb against 1/c now reads WC -2.0%,
-  // GL -3.0%, Property +3.9%, from +3.3% / +26.4% / +35.1%. No constant was
-  // fitted: g is untouched and the fix is the open-share curve plus dropping the
-  // now-redundant horizon truncation. If it goes red again that is a regression
-  // in the booking mechanism, not calibration drift.
-  // ⚠ ratemaking-loop-check IS OUT OF THIS MAP AGAIN, and this time condition 3
-  // is PAIRED. It re-entered for one line: Property read 67.9% against a 75%
-  // absolute bar once the open-share curve removed the +35.1% overshoot that
-  // had been earning it 94%. The bar was not moved. The STATISTIC was replaced
-  // — flagged minus shipped on the same seeds and the same line-years,
-  // sign-tested against p=0.5, no tuned constant anywhere in it. Property now
-  // reads 88.2% positive at p 9.2e-9; WC 90.0% at 6.4e-16; GL 91.0% at 1.3e-16.
-  // Two null controls run every time and BOTH must stay silent: the arm paired
-  // with itself, and two runs of the null arm on disjoint seeds (57.8% / 50.0%
-  // / 41.3% positive, p 0.09 / 0.54 / 0.91). A control that fires fails the
-  // gate. See WORKING_PRACTICES on the paired lesson's fourth appearance — the
-  // first where paired is not cheaper but is the only estimator that works.
-  // ⚠ clf-label-backtest-check IS OUT OF THIS MAP AND THE MECHANISM FIXED IT.
-  // Its entry said the worst label error was +14.5pp with FORWARD_BOOKING off and
-  // +14.7pp with it on, that "the flip is NOT the cause", and that the fix was to
-  // re-derive all three CLF tables against the shipped mechanism. The first two
-  // were true. The third was wrong, and measurably: at the maturation-book commit
-  // the worst error is GL at the 50% stop, -3.2pp against a 5pp tolerance, on 960
-  // line-years per line. No table was re-derived and GL still reads GL_SUPPLIED.
-  //
-  // What changed is what the tables were being asked to describe. A three-year
-  // book under a mean-one law put realised confidence a long way from its label;
-  // ten accident years of runoff under forward booking put it back. So the
-  // provenance concern stands as a provenance concern and is no longer a defect
-  // anyone can measure — and the note that the funding slider's percentages were
-  // "labels on a distribution nobody is drawing from" is retired: they are labels
-  // on the distribution the pool is now actually drawing from.
-  //
-  // ⚠ AND IT CAME BACK ON GL, THEN TURNED OUT TO BE THE GATE'S OWN BASIS. The
-  // retraction above was measured on the gate's FIRST statistic, loss over a
-  // pooled mean. Its replacement divided by each year's own premium and reported
-  // -21.9pp on GL. That number was real arithmetic and the wrong comparison: it
-  // scored an ACCIDENT-YEAR curve against a CALENDAR-YEAR statistic. Measured on
-  // the same accident years, GL's accident-year ratio has CV 0.4168 against the
-  // supplied curve's implied 0.3979, and its calendar-year ratio 0.1936 — the
-  // calendar basis blends up to eight open accident years at different ages and
-  // halves the spread. The gate now measures settled accident-year ultimate and
-  // GL reads -0.5 to +1.7pp from the 70% stop up. Both earlier figures are kept
-  // above as what those statistics reported, not as measurements to rely on.
-  //
-  // ⚠ TWO ROUTES WERE MEASURED AND REJECTED ON THAT WRONG NUMBER, which is the
-  // reason this history is written out rather than trimmed. Putting GL_DERIVED
-  // in force scores -16.2pp pooled on the corrected basis against GL_SUPPLIED's
-  // -8.8pp, worst exactly where players fund for margin. Raising GL's frequency
-  // cannot work in principle: frequency only lowers CV and the gap needs it to
-  // rise. clfTables.ts still names the frequency route as "the real fix" and is
-  // corrected in the same commit as this entry.
-  'clf-label-backtest-check': {
-    code: 1,
-    why: '⚠ GL\'S RESIDUAL MOVED -9.4 -> -10.2pp WHEN GL\'S TRIANGLE CONTRACTION WAS RE-SOLVED, and '
-      + 'the direction is a real cost of that fix rather than a regression in it. '
-      + 'TRIANGLE_INITIAL_CONTRACTION.GL.A went 2.156982 -> 2.295852 to close a 6% mean-preservation '
-      + 'failure; that raises GL\'s booked ultimates, which widens its accident-year distribution '
-      + '(CV 0.4082 -> 0.4188) against a SUPPLIED curve that did not move. A curve fitted to someone '
-      + 'else\'s book gets slightly less accurate when this model\'s own book gets more accurate, and '
-      + 'that is the trade the supplied curve already carries. Worst per band, GL on its gated '
-      + 'accident-year basis: small -10.2, mid -9.1, large -7.1. WHAT RETIRES IT is unchanged — a GL '
-      + 'curve with a different low tail, not a re-derivation. PREVIOUS ENTRY FOLLOWS. '
-      + '⚠ WC\'S RESIDUAL IS NOW A SUPPLIED-CURVE RESIDUAL, WHICH IS A DIFFERENT THING FROM THE BAND '
-      + 'MISMATCH THIS ENTRY USED TO NAME, AND IT IS 2.7x GL\'S. WC prices off a supplied real-pool curve '
-      + 'as of the swap; WC_DERIVED is retained out of force. A band mismatch is a curve of the right '
-      + 'SHAPE fitted to the wrong book, and it is closed by re-deriving at the right band. This is a '
-      + 'curve of a different shape altogether: WC_SUPPLIED implies a CV of 0.3524 against WC\'s '
-      + 'calendar-year 0.1975 — 78% heavier — where the derived table it replaced described that same '
-      + 'distribution to within 6% (0.1862). No re-derivation closes it, because the curve is not '
-      + 'derived. WORST PER BAND ON WC\'S GATED CALENDAR BASIS, across the swap: small -3.1 -> -25.3pp, '
-      + 'mid +9.3 -> -18.7pp, large +18.4 -> +16.3pp. The gate prints -25.3pp at the 40% stop on the '
-      + 'small ~64 band, which is the SHIPPED DEFAULT\'S band. ⚠ THE COST IS CONCENTRATED AT THE LOW '
-      + 'STOPS AND THAT IS THE SAME KIND OF RESIDUAL GL CARRIES, ONLY BIGGER: a heavier curve sits '
-      + 'further below 1.000 at its low percentiles, so a player asking for deliberate under-funding at '
-      + '30-50% gets far less of it than the label promises. GL reads -9.4pp this way; WC now reads '
-      + '-25.3pp. ⚠ THE RULING EXPECTED 15-20% HEAVIER AND ASKED FOR THE NUMBER PLAINLY IF IT CAME OUT '
-      + 'FAR LARGER THAN GL\'S: it is 78% heavier and 2.7x GL\'s residual. WHAT RETIRES IT: reverting to '
-      + 'WC_DERIVED, or a supplied curve measured on a book whose volatility resembles this model\'s. '
-      + 'Not a re-derivation. ⚠ GL AND PROPERTY ARE BIT-IDENTICAL ACROSS THE SWAP (GL -9.4 / -9.0 / -8.0, '
-      + 'Property unchanged), so nothing leaked. PREVIOUS ENTRY FOLLOWS, and its WC clauses now describe '
-      + 'WC_DERIVED rather than the shipped table. '
-      + '⚠ FOUR RESIDUALS, AND TWO OF THEM ARE WC. WC was RE-DERIVED AT THE SMALL BAND so the label '
-      + 'is honest for the shipped default (frozen book ~62): its small-band error goes -8.7 -> -3.1pp. '
-      + 'THE PRICE IS PAID BY THE OTHER TWO BANDS AND WAS TAKEN DELIBERATELY. (1) WC +18.4pp at the 50% '
-      + 'stop on the LARGE band, calendar — was +13.0; this is the one the gate prints, being the worst. '
-      + '(2) WC +9.3pp on the MID band — was +4.3 and EXACT before the re-derivation, so WC has gone from '
-      + 'one band outside the 5pp tolerance to two. That was not anticipated by the ruling and is recorded '
-      + 'at WC_DERIVED with the full candidate matrix. (3) GL -9.4pp at the 30% stop, small band, '
-      + 'accident-year — GL_SUPPLIED carries a fatter low tail than this model produces; unchanged. '
-      + '(4) PROPERTY +10.8pp on the small band, calendar — now GATED rather than newly appeared: it was '
-      + '223 obs against MIN_BAND_N 250 until the fifth arm lifted it to 804. Property is derived at 88+ '
-      + 'against a default book of 66, a TWO-band mismatch, and over-delivers monotonically from the 85% '
-      + 'stop down. ⚠ POOLED WORST WENT +2.2 -> +9.9pp AND THAT IS NOT THE SCORECARD — the band weights '
-      + 'come from five sampled arms of which four are opt-in settings, so pooled measures the sampling '
-      + 'choice rather than how the game is played. WHAT RETIRES EACH: (1) and (2) a book-size axis, or '
-      + 'evidence that players routinely open the appetite bar, which would put WC back at mid; (3) a GL '
-      + 'curve with a different low tail; (4) re-deriving Property at small, a ruling not yet taken. '
-      + 'ORIGINAL ENTRY FOLLOWS. '
-      + '⚠ THREE RESIDUALS NOW, NAMED SEPARATELY, AND THE SAMPLE THEY ARE MEASURED ON CHANGED. '
-      + 'NO_NEW_BUSINESS — the shipped default appetite — was added as a FIFTH ARM to this gate AND to '
-      + 'clf-table-derive together, because the backtest judges each table against the population it was '
-      + 'fitted on and adding an arm to one file alone would score a table on a book it never saw. The '
-      + 'default freezes the book at its opening ~62 for a whole game and none of the other four arms '
-      + 'produces that. Every small band roughly TRIPLED and every estimate in it moved: WC small 308 -> '
-      + '739 obs and -4.0 -> -8.7pp, GL 323 -> 838 and -12.4 -> -9.4pp, Property 223 -> 804 and +20.7 -> '
-      + '+10.8pp. ⚠ THE OLD SMALL BAND WAS NOT THE DEFAULT — it was mostly EARLY YEARS OF STRICT-BAR '
-      + 'GAMES, a different population from a book frozen at 62 for fourteen years. THE THREE RESIDUALS: '
-      + '(1) WC +13.0pp at the 55% stop on the LARGE band, calendar — the book-size level effect, and the '
-      + 'deliberate cost of re-deriving WC at small. (2) GL -9.4pp at the 30% stop on the small band, '
-      + 'accident-year — GL_SUPPLIED carries a fatter low tail than this model produces, confined to the '
-      + 'deliberate-underfunding end; unchanged in kind. (3) PROPERTY +10.8pp on the small band, '
-      + 'calendar — NEW, and new because it is now GATED rather than because it appeared. It was 223 obs '
-      + 'against MIN_BAND_N 250 and therefore reported-but-not-asserted; the fifth arm lifted it to 804. '
-      + 'Property is derived at 88+ against a default book of 66, a TWO-band mismatch, and over-delivers '
-      + 'monotonically from the 85% stop down, so a player choosing deliberate under-funding gets more '
-      + 'safety than the label promises. WHAT RETIRES EACH: (1) a book-size axis, or accepting it as the '
-      + 'price of an honest default; (2) a GL curve with a different low tail; (3) re-deriving Property '
-      + 'at the small band, which is a ruling not yet taken. ORIGINAL ENTRY FOLLOWS. '
-      + '⚠ THE RESIDUAL THIS ENTRY DESCRIBED HAS MOVED, AND THE ENTRY IS CORRECTED RATHER THAN LEFT. '
-      + 'It named WC -7.2pp on the SMALL band; after the membership work (departures off, pre-game roster '
-      + 'frozen, No New Business default) WC reads -4.0pp there and the live failure is +13.0pp at the '
-      + '55% stop on the LARGE band. Same mechanism, opposite end: WC\'s single curve has a book-size '
-      + 'LEVEL effect and the book moved, so the error moved with it. Worst per band, each line on its '
-      + 'own gated basis — WC (calendar) -4.0 / +7.6 / +13.0, GL (accident) -12.4 / -10.1 / -8.0, '
-      + 'Property (calendar) +20.7 (thin, ungated) / -3.1 / +3.8. ⚠ DO NOT RE-DERIVE ON THE STRENGTH OF '
-      + 'THIS: the default book (~62) and an Open-appetite book (~113) now BRACKET the derivation band, '
-      + 'so every available re-derivation trades one player\'s accuracy for another\'s. clfTables.ts '
-      + 'carries the measurement and the declined re-derivation. GL\'s 30%-stop residual stands '
-      + 'unchanged. WHAT RETIRES THIS ENTRY: a book-size axis, or a ruling that one trajectory is the '
-      + 'one to serve. ORIGINAL ENTRY FOLLOWS. '
-      + 'TWO REAL RESIDUALS, ON THE BASIS EACH LINE IS ACTUALLY GATED AGAINST. This entry used to '
-      + 'describe reds that were DEFINITIONAL — every line was scored on accident-year ultimate while '
-      + 'two of the three tables are calendar-year percentiles, so WC and Property could not pass and '
-      + 'nobody read their reds. The gate now gates each line on the basis its own table was derived '
-      + 'on: GL accident-year, WC and Property calendar-year, both bases printed for all three. '
-      + 'WHAT IS LEFT IS ACTIONABLE, and it is these two: '
-      + '(1) GL -11.6pp at the 30% stop on the large band, accident-year. GL_SUPPLIED carries a '
-      + 'fatter LOW tail than this model produces, so the bottom of the slider promises more '
-      + 'under-funding than the book delivers. Confined to the deliberate-underfunding end — from the '
-      + '70% stop up GL reads -0.5 to +1.7pp, which is what carried the basis change. '
-      + '(2) WC -7.2pp on the SMALL band, calendar-year, and it is a BOOK-SIZE LEVEL EFFECT rather '
-      + 'than a mis-shaped curve. WC\'s calendar mean ratio runs 1.042 / 1.035 / 1.025 across small / '
-      + 'mid / large, and the worst error tracks it at -7.2 / -2.2 / -1.2. A small book runs a 1.7% '
-      + 'higher loss ratio, so its distribution sits higher and fewer of its years fall under the low '
-      + 'stops. A single curve with no book-size axis cannot carry that by construction — clfTables.ts '
-      + 'records that decision and its measured cost, and this is the same cost seen from the gate. '
-      + '⚠ SEPARATELY, AND NOT A DEFECT: WC and Property KEEP their calendar-basis tables. That is a '
-      + 'ruling taken at 73b0ab8 with the numbers in front of it — re-deriving WC onto accident-year '
-      + 'raises every off-Expected stop 3.2% to 6.0% for cost the player never sees land in five games '
-      + 'out of six (only 16.4% of WC accident years written in a ten-year game reach their own runoff '
-      + 'horizon), and Property\'s indicated curve moves only -2.6% to +4.0%. Do not re-derive either '
-      + 'on the strength of this entry. '
-      + '⚠ AND THE RULING HAS A VISIBLE COST THE GATE NOW PRINTS: GL\'s curve describes accident years '
-      + 'while WC\'s and Property\'s describe calendar years, so "75% confidence" does not mean quite '
-      + 'the same thing per line while the slider carries identical words on all three. '
-      + 'WHAT RETIRES THIS ENTRY: closing either residual. The GL one needs a curve with a different '
-      + 'low tail; the WC one needs a book-size axis, which was considered and rejected because it '
-      + 'makes the rate move as the book moves. Neither is a re-derivation anyone can just run.',
-  },
-  // ==========================================================================
-  // THE DORMANT MEMBER PATH'S FIVE SLOW REDS — recorded at loss engine commit
-  // 4a, unchanged since b234c36 (each exits 1 there, on 3b, and here). They run
-  // against MEMBER_LEVEL, which the shipped engine does not use, so they are
-  // excused rather than fixed. Exit 1 only: any other code is still a failure,
-  // and an XPASS still fails the sweep so the entry comes out.
-  // ==========================================================================
-  'property-tower-mc': {
-    code: 1,
-    why: 'pre-existing on the member path; not part of the shipped engine',
-  },
-  'martingale-equivalence-check': {
-    code: 1,
-    why: 'pre-existing on the member path; not part of the shipped engine',
-  },
-  'marketplace-generation-check': {
-    code: 1,
-    why: 'pre-existing on the member path; not part of the shipped engine',
-  },
-  'experience-pricing-check': {
-    code: 1,
-    why: 'pre-existing on the member path; not part of the shipped engine',
-  },
-  'maturity-anchor-check': {
-    code: 1,
-    why: 'pre-existing on the member path; not part of the shipped engine',
-  },
 };
+
+// What the runner reads. A dormant gate is only ever in a --dormant or by-name
+// run, so its known red cannot excuse anything in FAST or SLOW.
+const KNOWN_RED = { ...EXPECTED_RED, ...DORMANT_KNOWN_RED };
 
 // ---------------------------------------------------------------- runner
 interface Result { name: string; code: number | null; ms: number; timedOut: boolean; tail: string }
@@ -1325,7 +1376,7 @@ async function pool(names: string[], jobs: number): Promise<Result[]> {
       const r = await run(n);
       results.push(r);
       const secs = (r.ms / 1000).toFixed(0).padStart(4);
-      const xr = EXPECTED_RED[r.name];
+      const xr = KNOWN_RED[r.name];
       const verdict = r.timedOut ? 'TIMEOUT'
         : xr && r.code === xr.code ? 'xfail  '
           : xr && r.code === 0 ? 'XPASS  '
@@ -1349,6 +1400,8 @@ if (argv.includes('--list')) {
   for (const n of FAST) console.log(`  ${n}`);
   console.log(`\nSLOW (${SLOW.length})`);
   for (const n of SLOW) console.log(`  ${n}`);
+  console.log(`\nDORMANT — the inactive member engine's gates; no sweep runs them, run with --dormant or by name (${DORMANT.length})`);
+  for (const n of DORMANT) console.log(`  ${n}`);
   console.log(`\nPROBES — not gates, run with --probes (${Object.keys(PROBES).length})`);
   for (const [n, why] of Object.entries(PROBES)) console.log(`  ${n.padEnd(32)} ${why}`);
   for (const e of manifestErrors) console.log(`\nMANIFEST: ${e}`);
@@ -1357,7 +1410,17 @@ if (argv.includes('--list')) {
 
 let set: string[];
 let label: string;
-if (argv.includes('--probes')) { set = Object.keys(PROBES); label = 'PROBES'; }
+// Gates named on the command line — the way a DORMANT gate is run by name.
+const named = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--jobs');
+const known = [...FAST, ...SLOW, ...DORMANT, ...Object.keys(PROBES)];
+const unknown = named.filter(n => !known.includes(n));
+if (unknown.length) {
+  console.log(`not in the manifest: ${unknown.join(', ')}`);
+  process.exit(1);
+}
+if (named.length) { set = named; label = 'NAMED'; }
+else if (argv.includes('--dormant')) { set = DORMANT; label = 'DORMANT'; }
+else if (argv.includes('--probes')) { set = Object.keys(PROBES); label = 'PROBES'; }
 else if (argv.includes('--all')) { set = [...FAST, ...SLOW]; label = 'FAST + SLOW'; }
 else if (argv.includes('--slow')) { set = SLOW; label = 'SLOW'; }
 else { set = FAST; label = 'FAST'; }
@@ -1413,12 +1476,12 @@ if (argv.includes('--record-timings')) {
 // gate doing exactly what its EXPECTED_RED entry says; `XPASS` means the open
 // item is gone and the entry is now a lie, which has to be as loud as a break.
 const failed = results.filter(r => {
-  const xr = EXPECTED_RED[r.name];
+  const xr = KNOWN_RED[r.name];
   if (!xr) return r.code !== 0;
   return r.code !== xr.code;
 });
-const xfailed = results.filter(r => EXPECTED_RED[r.name] && r.code === EXPECTED_RED[r.name].code);
-const xpassed = results.filter(r => EXPECTED_RED[r.name] && r.code === 0);
+const xfailed = results.filter(r => KNOWN_RED[r.name] && r.code === KNOWN_RED[r.name].code);
+const xpassed = results.filter(r => KNOWN_RED[r.name] && r.code === 0);
 
 console.log('');
 if (manifestErrors.length > 0) {
@@ -1439,7 +1502,7 @@ if (failed.length > 0) {
 if (xpassed.length > 0) {
   console.log('--- UNEXPECTED PASS ---');
   for (const r of xpassed) {
-    console.log(`  ${r.name} passed, but EXPECTED_RED says it should exit ${EXPECTED_RED[r.name].code}.`);
+    console.log(`  ${r.name} passed, but EXPECTED_RED says it should exit ${KNOWN_RED[r.name].code}.`);
     console.log('  The open item it was built for appears to be FIXED. Remove its EXPECTED_RED entry.');
   }
   console.log('');
@@ -1453,7 +1516,7 @@ console.log(`${results.length - failed.length - xfailed.length}/${results.length
 // ⚠ PRINTED ON EVERY RUN, GREEN OR NOT. The point of the category is that the
 // redness stays in front of whoever runs the sweep.
 for (const r of xfailed) {
-  console.log(`EXPECTED RED: ${r.name} (exit ${r.code}) — ${EXPECTED_RED[r.name].why}`);
+  console.log(`EXPECTED RED: ${r.name} (exit ${r.code}) — ${KNOWN_RED[r.name].why}`);
 }
 if (failed.length > 0) console.log(`RED: ${failed.map(f => f.name).join(', ')}`);
 if (manifestErrors.length > 0) console.log(`MANIFEST INCOMPLETE: ${manifestErrors.length} problem(s)`);

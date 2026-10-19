@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v14';
+export const SAVE_KEY = 'riskpool_gamestate_v15';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -173,7 +173,14 @@ export const SAVE_KEY = 'riskpool_gamestate_v14';
 // with no assets held for the loss expense reserve — its liability appears the
 // first year after reload — so its surplus would read short by that reserve,
 // and its results carry no LAE fields. Cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13'];
+// ⚠ v15 SINCE PROMPT B COMMIT 2 — ONE BUMP FOR FOUR CHANGES. A v14 save was
+// written before routine large losses were on (every year's large claims and
+// the pre-game history pricing reads), before the opening held ten accident
+// years at 2x on a pre-game with years behind it, before Property opened on
+// its full requirement, and before worlds 2-10 dropped their claim lists from
+// the save. Its pre-game, its opening and its book are ones this engine no
+// longer builds, so it cannot continue faithfully and is cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14'];
 
 /**
  * Fields dropped on the way out.
@@ -321,12 +328,27 @@ export const SAVE_BUDGET_CHARS = 1_500_000;
  */
 export const WORLD_ROW_STRIPPED_KEYS: readonly string[] = ['reserveSplitByYear'];
 
-function slimRow<T extends object>(r: T): T {
+/**
+ * Keys dropped from the rows of every world BUT THE FIRST, once its year has
+ * settled (Prompt B commit 1): the individual claim and occurrence lists.
+ *
+ * ⚠ WORLD 1 KEEPS THEM: the claims download reads world 1's claims and no
+ * other's. Nothing reads another world's lists after the year settles — the
+ * averaged row carries no claims, the engine develops a claim from its
+ * cohort's register (developingClaims, which is pool state and is kept), and
+ * the screens read a world's summary figures (its ending surplus for the
+ * spread, its row figures for the audit), all of which stay. Measured at year
+ * ten: about 5% of the stored save.
+ */
+export const OTHER_WORLD_ROW_STRIPPED_KEYS: readonly string[] = ['claims', 'occurrences'];
+
+function slimRow<T extends object>(r: T, extra: readonly string[] = []): T {
   const out = { ...r } as Record<string, unknown>;
   for (const k of WORLD_ROW_STRIPPED_KEYS) delete out[k];
+  for (const k of extra) delete out[k];
   if (out.byLine && typeof out.byLine === 'object') {
     out.byLine = Object.fromEntries(Object.entries(out.byLine as Record<string, object>)
-      .map(([l, row]) => [l, slimRow(row)]));
+      .map(([l, row]) => [l, slimRow(row, extra)]));
   }
   return out as T;
 }
@@ -336,7 +358,13 @@ function slimWorlds(env: SaveEnvelope): SaveEnvelope {
   if (!gs?.worlds) return env;
   return {
     ...env,
-    gameState: { ...gs, worlds: gs.worlds.map(w => ({ ...w, lockedResults: w.lockedResults.map(slimRow) })) },
+    gameState: {
+      ...gs,
+      worlds: gs.worlds.map((w, i) => ({
+        ...w,
+        lockedResults: w.lockedResults.map(r => slimRow(r, i === 0 ? [] : OTHER_WORLD_ROW_STRIPPED_KEYS)),
+      })),
+    },
   };
 }
 

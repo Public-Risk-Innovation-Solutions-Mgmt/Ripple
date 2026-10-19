@@ -56,9 +56,9 @@ import {
 import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState } from './lineHelpers';
-import { bulkCohortsAsReserveCohorts, setOpeningSurplus } from './openingReserves';
+import { openingCatCapital, preGameBulkYears, setOpeningSurplus } from './openingReserves';
 import { lossExpenseReserve } from './lossExpense';
-import { MEMBER_LEVEL, PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
+import { MEMBER_LEVEL, OPENING_RESERVE_YEARS, PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
 import { exposureFactor } from '../data/exposureTrend';
 import { withLifetimeDevelopment } from './hostDevelopment';
 import { defaultDecisionSet } from './decisionDefaults';
@@ -240,21 +240,25 @@ export function simulateLineCandidate(
     [line],
     -(PRE_GAME_DEPTH - 1)
   );
-  // Relabel this line's seed reserve cohorts past the whole simulated depth so
-  // they don't collide with the played years' own new accident-year cohorts.
-  //
-  // ⚠ THIS LEAVES A ONE-YEAR HOLE IN THE AGE LADDER AND ALWAYS HAS. The seeds are
-  // created at ages 1..n and shifted by the depth, so nothing ever occupies the
-  // age exactly equal to the depth. Before this commit the played years covered
-  // ages 0-2 and the seeds landed at 4-8, so THE HOLE WAS AT AGE 3 — inside the
-  // part of the ladder that carries most of the reserve, and no gate looked
-  // there. It is now at age 10, past the far end of every line's IBNER horizon
-  // and past where any payout pattern still holds much: measured at game start,
-  // everything beyond the hole is 3.1% / 0.0% / 0.0% of opening net reserve.
-  // Ages 0-9 are contiguous, which is the part pricing reads.
-  bootstrap.lines[line].reserveCohorts = bootstrap.lines[line].reserveCohorts.map(
-    c => ({ ...c, yearNumber: c.yearNumber - PRE_GAME_DEPTH })
-  );
+  // ⚠ THE POOL STARTS WITH YEARS BEHIND IT (Prompt A commit 2). The
+  // bootstrap's drawn seed cohorts are replaced by the bulk accident years —
+  // the ones older than the pre-game inside the opening window — at their ages
+  // at the pre-game's start, with their ledger rows, so pricing's window is
+  // full from the first pre-game year and every pre-game balance sheet carries
+  // them. They pay down on the recorded patterns through the pre-game, and the
+  // opening keeps them as they stand. See preGameBulkYears.
+  {
+    const ls = bootstrap.lines[line];
+    const book = ls.bookExposure !== undefined
+      ? { exposure: ls.bookExposure * exposureFactor(line, 1) } : ls.members ?? [];
+    const bulk = preGameBulkYears(line, book, setup.startingYear, PRE_GAME_DEPTH);
+    bootstrap.lines[line] = {
+      ...ls,
+      reserveCohorts: bulk.cohorts,
+      reserveDevelopment: bulk.ledger,
+      netUnpaidReserve: bulk.cohorts.reduce((t, c) => t + c.netUnpaid, 0),
+    };
+  }
   // ⚠ THE STARTING SURPLUS IS THE ONLY CAPITAL EVENT IN THE PRE-GAME. From here
   // the line's surplus moves only by its income, dividends and assessments, year
   // by year, into the opening. invested is re-derived from the identity, loss
@@ -433,27 +437,35 @@ function runLinePreGame(
   // misses the opening that the rule sets on the state it leaves.
   const run = (startingSurplus?: number) => {
     const c = simulateLineCandidate(instance, setup, line, 0, startingSurplus);
-    const opened = finalizeLine(c, line, 0, setup.startingYear, developmentPct);
+    const opened = finalizeLine(c, line, 0, developmentPct);
     return {
       start: c.pooled[0].byLine[line].beginingSurplus,
       gap: c.poolState.lines[line].surplus - opened.lineState.surplus,
       opened,
     };
   };
-  // ⚠ THE MEMBER PATH IS FLOORED AT ZERO, AND KEEPS ITS OPENING RESET. The
-  // dormant member path (MEMBER_LEVEL, run only by the gates that import
-  // engine-mode/member-level) has no shocks, and its pre-game earns more than
-  // the opening on many seeds — measured over 40 host instances, 1 WC, 7 GL
-  // and 29 Property pre-games end above the opening even from a zero start.
-  // A pool cannot start its history insolvent, and the engine cannot either:
-  // at and below zero the first year's balance sheet stops tying and the
-  // year-end no longer depends on the start at all. So that path
-  // starts no lower than zero, and where even zero ends above the opening,
-  // applySetOpening's rule takes the difference out at the opening, as it did
-  // before the smooth pre-game. The shipped game (book mode) needs no floor —
-  // the same 40 instances solve at $36M or more on every line — and
-  // pregame-surplus-flow-check holds it to no reset anywhere.
-  return solvePreGameStart(run, line, MEMBER_LEVEL.enabled ? 0 : undefined).opened;
+  // ⚠ EVERY START IS FLOORED AT ZERO, AND A POOL THAT HITS THE FLOOR KEEPS AN
+  // OPENING RESET — THAT POOL ONLY. A pool cannot start its history insolvent,
+  // and the engine cannot either: at and below zero the first year's balance
+  // sheet stops tying and the year-end no longer depends on the start at all.
+  // So no start goes below zero, and where even a zero start ends the pre-game
+  // above the opening, applySetOpening's rule takes the difference out at the
+  // opening, as it did before the smooth pre-game.
+  //
+  // WHY ANY POOL NEEDS IT (Prompt A commit 2). Since the bulk years are on the
+  // books from the first pre-game year, the pre-game's rate is steady and
+  // adequate from 2021, and the prior board funds it at the 70% cushion
+  // (PRE_GAME_FUNDING_LEVEL, kept by ruling). So the pre-game EARNS — GL about
+  // $37M over five years on some seeds — and where it earns more than the
+  // opening the start that lands on it would be negative. Measured over 40
+  // solo instances once Property opens on its full requirement: WC 0, GL 1,
+  // Property 0 (see pregame-surplus-flow-check, which counts the floored pools
+  // and exempts only them from "no reset at the opening").
+  //
+  // The dormant member path (MEMBER_LEVEL, gates only) needed the floor first:
+  // with no shocks its pre-game ended above the opening from zero on 1 WC,
+  // 7 GL and 29 Property of 40 host instances.
+  return solvePreGameStart(run, line, 0).opened;
 }
 
 // ============================================================================
@@ -533,77 +545,50 @@ export function solvePreGameStart<T extends { start: number; gap: number }>(
 
 
 // ============================================================================
-// THE SET OPENING, APPLIED. Replaces the bootstrap's drawn seed cohorts with
-// bulk cohorts derived from the patterns, then sets surplus from the ruled
-// multiple of required capital.
+// THE SET OPENING, APPLIED. The pre-game's ending book IS the opening book:
+// the bulk years it started with and the years it played, as they stand.
+// Surplus is the ruled multiple of required capital on that reserve — and the
+// pre-game started from the surplus that lands its last year-end exactly there
+// (solvePreGameStart), so setting it moves nothing.
 //
-// ⚠ THE PLAYED COHORTS ARE LEFT EXACTLY AS SIMULATED. They are real accident
-// years with claims behind them and pricing reads their history. A seed cohort
-// is identified by `seeded` — the flag instanceGenerator already sets — so the
-// split needs no age arithmetic and cannot drift from what the bootstrap drew.
+// ⚠ NOTHING IS SWAPPED IN (Prompt A commit 2). Until then the bootstrap's drawn
+// seed cohorts ran through the pre-game and were replaced here by bulk cohorts
+// out to each pattern's end, so the reserve jumped at the boundary (WC $39M at
+// the end of 2025, $75M at the opening). The bulk years are now on the books
+// from the start of the pre-game, and accident years older than
+// OPENING_RESERVE_YEARS are closed — none should be open here, and the filter
+// says what the window is rather than finding anything.
 //
 // ⚠ invested IS RE-DERIVED FROM THE IDENTITY, not adjusted. surplus = cash +
 // invested - netReserve - LAE reserve, so invested = surplus + netReserve + LAE
-// reserve - cash. Writing
-// surplus without re-deriving invested would leave the balance sheet not
-// balancing, which every exhibit reads.
+// reserve - cash.
 // ============================================================================
 function applySetOpening(
   line: CoverageLine,
   ls: LinePoolState,
   lineCash: number,
-  startingYear: number,
   developmentPct: number,
 ): LinePoolState {
-  const played = (ls.reserveCohorts ?? []).filter(c => c.seeded !== true);
-  // A book sizes its bulk years on its own exposure, as a roster did on its
-  // members'. The bulk years sit at year 1's exposure basis either way.
-  const bulk = bulkCohortsAsReserveCohorts(
-    line, ls.bookExposure !== undefined ? { exposure: ls.bookExposure * exposureFactor(line, 1) } : ls.members ?? [],
-    startingYear,
-  );
-  // ⚠ EVERY COHORT THE POOL OPENS WITH IS BASED HERE, declared years and bulk
-  // years alike, on its outstanding AT GAME START. That is the brief's rule
-  // for prior years and it is one line because the bulk years are in the same
-  // list — they develop too, held net, because they carry no register for the
-  // tower to answer (see hostDevelopment.ts).
-  //
-  // ⚠ IT MUST BE AFTER THE BULK COHORTS ARE BUILT AND BEFORE THE FIRST PLAYED
-  // YEAR, which is what this function is. Based any earlier and the declared
-  // years would develop during the pre-game, which is not a thing that
-  // happened to this pool: the history the players inherit is already told.
-  // ⚠ THE FIELDS ARE CLEARED FIRST, SO THIS IS A BASE AND NOT A NO-OP.
-  // withLifetimeDevelopment refuses to re-base a cohort that already carries a
-  // total — that guard is what stops a cohort compounding by re-striking its
-  // percentage every year. The declared years come out of the pre-game
-  // carrying a total of zero (the pre-game develops nothing, see the
-  // developmentPct note in processYear), and zero IS a total, so without this
-  // clear they would open based at zero and never develop at all.
-  const reserveCohorts = [...played, ...bulk].map(c => withLifetimeDevelopment(
+  const oldest = 1 - OPENING_RESERVE_YEARS;
+  const open = (ls.reserveCohorts ?? []).filter(c => c.yearNumber >= oldest);
+  // ⚠ EVERY COHORT THE POOL OPENS WITH IS BASED HERE on its outstanding AT
+  // GAME START — the brief's rule for prior years. The fields are cleared
+  // first: withLifetimeDevelopment refuses to re-base a cohort that already
+  // carries a total, and the pre-game develops nothing, so without the clear
+  // they would open based at zero and never develop.
+  const reserveCohorts = open.map(c => withLifetimeDevelopment(
     { ...c, developmentBase: undefined, developmentTotal: undefined, developmentEmerged: undefined,
       developmentBaseOpenShare: undefined },
     line, developmentPct,
   ));
   const netUnpaidReserve = reserveCohorts.reduce((a, c) => a + c.netUnpaid, 0);
-  const surplus = setOpeningSurplus(line, netUnpaidReserve);
-  // ⚠ THE PRE-GAME LEDGER IS CUT BACK TO THE COHORTS THAT SURVIVE THE OPENING,
-  // AND IT HAS TO BE. The pre-game carries instanceGenerator's own seed cohorts
-  // through its years, and recordReserveDevelopment opens a ledger row for each
-  // of them keyed by accident year. The set opening DISCARDS those seeds and
-  // substitutes bulk cohorts, which occupy the same accident years — five of
-  // WC's twenty-seven collide. Left in place, a bulk cohort writes its own
-  // ultimate into the discarded seed's row at the first played valuation, and
-  // the row reads as an accident year that developed 4.6x at game year 1. That
-  // is what recorded-payout-check and actuarial-memo-check both saw; it is a
-  // ledger-identity collision, not a development, and nothing economic moved.
-  //
-  // Only the PLAYED years keep their history, because only they have one. Each
-  // bulk cohort then opens a fresh row at its own age through the `before` loop
-  // in recordReserveDevelopment, which is the same path instanceGenerator's
-  // seeds take and the honest record of what a bulk cohort is: a stated
-  // position at a known age with no development behind it.
-  const playedYears = new Set(played.map(c => c.yearNumber));
-  const reserveDevelopment = (ls.reserveDevelopment ?? []).filter(r => playedYears.has(r.yearNumber));
+  // The FULL requirement: Property's retained-catastrophe charge included, on
+  // the same book the bulk years were sized on. See setOpeningSurplus.
+  const bookForCapital = ls.bookExposure !== undefined
+    ? { exposure: ls.bookExposure * exposureFactor(line, 1) } : ls.members ?? [];
+  const surplus = setOpeningSurplus(line, netUnpaidReserve, openingCatCapital(line, bookForCapital));
+  const kept = new Set(open.map(c => c.yearNumber));
+  const reserveDevelopment = (ls.reserveDevelopment ?? []).filter(r => kept.has(r.yearNumber));
   return {
     ...ls,
     reserveCohorts,
@@ -620,7 +605,6 @@ function finalizeLine(
   c: ReturnType<typeof simulateLineCandidate>,
   line: CoverageLine,
   attempt: number,
-  startingYear: number,
   developmentPct: number,
 ): LinePreGame {
   // Stamp the accepted attempt onto each pre-game year's result so the
@@ -635,9 +619,7 @@ function finalizeLine(
     line,
     lineResults,
     earlyLineResults,
-    lineState: applySetOpening(
-      line, c.poolState.lines[line], c.poolState.cash, startingYear, developmentPct,
-    ),
+    lineState: applySetOpening(line, c.poolState.lines[line], c.poolState.cash, developmentPct),
     cash: c.poolState.cash,
     unearnedPremium: c.poolState.unearnedPremium,
     members: c.poolState.lines[line].members,

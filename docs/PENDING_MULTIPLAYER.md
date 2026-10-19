@@ -312,6 +312,37 @@ intake setting for new business. The new-business penalty stays as a parameter
 at zero, so the mechanism exists before the calibration does. **Done at
 commit 3a**, with the member code kept behind `MEMBER_LEVEL`.
 
+### The old member engine — inactive, its gates dormant
+
+**The old member engine is inactive and no longer maintained.** `MEMBER_LEVEL`
+stays in the code, off, and everything behind it stays exactly as it is. Later
+changes are **not required to keep it working**, so it may need repair before
+it is switched on again. A working copy is preserved on the `legacy-engine`
+branch and in `advance-single-player`. **Members return in the new engine as
+book units**, not through this path.
+
+Every gate that runs only on the member path (each imports
+`scripts/tools/engine-mode/member-level.ts`, which turns `MEMBER_LEVEL` on for
+its whole process) is moved out of the FAST and SLOW sweeps into **DORMANT** in
+`scripts/gates.ts`. No sweep runs DORMANT; `npx tsx scripts/gates.ts --dormant`
+runs all of it, and `npx tsx scripts/gates.ts <name>` runs one gate by name.
+The eight that were EXPECTED_RED keep their entries, verbatim, in
+`DORMANT_KNOWN_RED`. The member path's probes stay in PROBES, which no sweep
+runs either. The change is value-neutral: all three baselines are
+byte-identical to the previous commit.
+
+Moved from FAST (18): `claims-memo-check`, `claims-system-check`, `claims-workbook-check`, `closure-draw-check`, `gl-cutover-check`, `gl-program-check`, `member-experience-basis-check`, `member-experience-mod-check`, `member-loss-history-check`, `member-premium-check`, `member-value-check`, `pool-aggregation-check`, `property-mitigation-check`, `reinsurance-tower-check`, `renewal-stability-check`, `tower-runtime-check`, `wc-cutover-check`, `wc-program-check`.
+
+Moved from SLOW (9): `clf-label-backtest-check`, `experience-pricing-check`, `ibner-null-check`, `marketplace-generation-check`, `martingale-equivalence-check`, `maturity-anchor-check`, `member-satisfaction-check`, `property-tower-mc`, `wc-program-verify`.
+
+**Three came back, forked onto the new engine.** `pool-aggregation-check`,
+`reinsurance-tower-check` and `tower-runtime-check` cover what the new engine
+uses — pooled fields and the reinsurance tower — so each was forked to run in
+book mode and returned to FAST, with controls, and confirmed red against a real
+break in the engine. Their member-path originals stay in DORMANT as
+`pool-aggregation-member-check`, `reinsurance-tower-member-check` and
+`tower-runtime-member-check`.
+
 ### Shocks
 
 The twelve-event catalogue with its A / T / R effects.

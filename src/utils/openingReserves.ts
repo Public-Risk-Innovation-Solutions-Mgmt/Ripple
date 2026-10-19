@@ -60,13 +60,13 @@
 //     started and are already inside the net figure.
 // ============================================================================
 
-import type { CoverageLine, Member, ReserveCohort } from '../types/simulation';
+import type { CoverageLine, Member, ReserveCohort, ReserveDevelopmentRow } from '../types/simulation';
 import { PAID_DEVELOPMENT_PATTERN } from '../data/paidDevelopmentPatterns';
 import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { unpaidShare } from './payoutPattern';
 import { staticClf, type StaticClfLine } from '../data/clfTables';
 import {
-  EXPOSURE_GROWTH_PER_YEAR, newLossEngineRuns, OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
+  EXPOSURE_GROWTH_PER_YEAR, newLossEngineRuns, OPENING_RESERVE_YEARS, OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
   RESERVE_MARGIN_CONFIDENCE_PARAM, SEVERITY_TREND_PER_YEAR,
 } from '../data/pricingParameters';
 import { computeKLine, deriveNeutralPurePremiumPer100 } from './wcClaimEngine';
@@ -75,7 +75,9 @@ import { computeKPr, deriveNeutralPropertyPurePremiumPer100 } from './propertyCl
 import { allLayerRiskMoments, expectedCededAtBoundsScale } from './towerMoments';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
-import { expectedLossBreakdown, newEngineLayerMoments } from './shockExpectation';
+import { expectedLossBreakdown, newEngineCatCapital, newEngineLayerMoments } from './shockExpectation';
+import { catCapitalRetained } from './propertyCatastrophe';
+import { defaultReinsuranceOption, placementFor } from './reinsuranceOptions';
 import { REINSURANCE_TOWER } from '../data/reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
 
@@ -87,16 +89,18 @@ export function patternLengthYears(line: CoverageLine): number {
 
 /**
  * The ages, in years, of the accident years held as BULK cohorts at the
- * opening — everything older than the prior history, out to the pattern's end.
+ * opening — everything older than the prior history, inside the opening
+ * window of OPENING_RESERVE_YEARS (and never past the line's own pattern).
  *
- * ⚠ THE FULL PATTERN LENGTH, BY RULING: WC 37 years, GL 21, Property 11.
- * Truncating earlier would discard real reserve rather than a rounding: WC is
- * still 9.04% unpaid at its last age, and its newest 25 accident years hold
- * only 95% of its steady-state reserve.
+ * ⚠ THE WINDOW, SINCE PROMPT A COMMIT 2. Older accident years are treated as
+ * closed. It used to run to each pattern's end — WC 37 years, GL 21, Property
+ * 11 — which kept real reserve (WC is still 9.04% unpaid at 37) and made the
+ * opening a runoff no pre-game balance sheet had ever carried.
  */
 export function bulkAccidentYearAges(line: CoverageLine): number[] {
   const out: number[] = [];
-  for (let a = PRIOR_HISTORY_YEARS + 1; a <= patternLengthYears(line); a++) out.push(a);
+  const last = Math.min(OPENING_RESERVE_YEARS, patternLengthYears(line));
+  for (let a = PRIOR_HISTORY_YEARS + 1; a <= last; a++) out.push(a);
   return out;
 }
 
@@ -202,7 +206,9 @@ export function bulkCessionRatioAtAge(line: CoverageLine, members: Book, ageYear
   if (newLossEngineRuns()) {
     const exposure = bookExposureOf(members, line, 1);
     const year = 1 - ageYears;
-    const ceded = newEngineLayerMoments(line as TowerLine, exposure, year)
+    // exAnte = false: what the bulk year's losses ceded, not what its tower was
+    // priced at — no shock fired before year 1, so the routine claims only.
+    const ceded = newEngineLayerMoments(line as TowerLine, exposure, year, 1, false)
       .reduce((t, l, i) => t + (REINSURANCE_TOWER[line as TowerLine][i].purchasable ? l.expected : 0), 0);
     const gross = expectedLossBreakdown(line, exposure, year).total;
     return gross > 0 ? Math.min(0.95, ceded / gross) : 0;
@@ -348,12 +354,110 @@ export function bulkCohortsAsReserveCohorts(
   }));
 }
 
+// ============================================================================
+// THE BULK YEARS AT THE START OF THE PRE-GAME (Prompt A commit 2).
+//
+// The pool the pre-game starts is one that already has years behind it. The
+// bulk accident years — the ones older than the pre-game but inside the
+// opening window — are on the books when the first pre-game year begins, at
+// their ages THEN, and pay down on the recorded patterns through the pre-game.
+// So every pre-game balance sheet carries them, and the opening is just where
+// the pre-game ends: nothing is swapped in at the boundary.
+//
+// ⚠ THE SAME ACCIDENT YEARS AND THE SAME ULTIMATES AS THE OPENING'S BULK
+// COHORTS (bulkOpeningCohorts), struck at an age PRE_GAME_DEPTH years younger.
+// Paying down on the pattern they share takes each exactly to the paid share
+// the opening would have set — opening-partition-check holds it to that.
+//
+// ⚠ THEIR LEDGER ROWS COME WITH THEM, carrying each year's EXPOSURE and its
+// GROUND-UP paid. Pricing reads its five-year window off those rows; a row
+// the engine opened only at the first valuation would leave the window empty
+// in the first pre-game year and one barely developed year in the second,
+// which is the 42% rate drop this replaces. The cohort is held NET, as every
+// bulk cohort is (see this file's header), but its ground-up series is GROSS
+// — the reinsurance that accident year bought — so the loss cost pricing reads
+// from it is on the same basis as a played year's.
+// ============================================================================
+export interface PreGameBulkYears { cohorts: ReserveCohort[]; ledger: ReserveDevelopmentRow[] }
+
+export function preGameBulkYears(
+  line: CoverageLine, members: Book, startingYear: number, preGameDepth: number,
+): PreGameBulkYears {
+  const exposure = bookExposureOf(members, line, 1);
+  const firstPreGameYear = -(preGameDepth - 1);
+  const cohorts: ReserveCohort[] = [];
+  const ledger: ReserveDevelopmentRow[] = [];
+  for (const b of bulkOpeningCohorts(line, members)) {
+    // Pattern age at the start of the pre-game: one for the year just before it.
+    const ageAtStart = b.ageYears - preGameDepth;
+    if (ageAtStart < 1) continue;
+    const unpaid = unpaidShareAtAge(line, ageAtStart);
+    const grossUltimate = expectedGrossUltimateAtAge(line, b.ageYears, members);
+    const netUnpaid = b.netUltimate * unpaid;
+    const grossUnpaid = grossUltimate * unpaid;
+    const calendarYear = startingYear + b.yearNumber - 1;
+    cohorts.push({
+      yearNumber: b.yearNumber,
+      calendarYear,
+      netUltimate: b.netUltimate,
+      netPaid: b.netUltimate - netUnpaid,
+      netUnpaid,
+      grossPaid: grossUltimate - grossUnpaid,
+      grossUnpaid,
+      closed: false,
+      seeded: true,
+      registerSum: b.netUltimate,
+      horizon: 0,
+      // Steps taken, not pattern age — see bulkCohortsAsReserveCohorts.
+      age: ageAtStart - 1,
+      stepMultiplier: 1,
+      bookingBias: 0,
+    });
+    ledger.push({
+      yearNumber: b.yearNumber,
+      calendarYear,
+      exposure,
+      ultimateByValuation: [b.netUltimate],
+      paidByValuation: [b.netUltimate - netUnpaid],
+      grossPaidByValuation: [grossUltimate - grossUnpaid],
+      firstValuationYear: firstPreGameYear - 1,
+      ageAtFirstValuation: ageAtStart - 1,
+      horizon: 0,
+      seeded: true,
+    });
+  }
+  return { cohorts, ledger };
+}
+
 /** Required capital for a line: the RESERVE RISK MARGIN on its net unpaid. */
 export function requiredCapital(line: CoverageLine, netUnpaidReserve: number): number {
   return netUnpaidReserve * (staticClf(line as StaticClfLine, RESERVE_MARGIN_CONFIDENCE_PARAM) - 1);
 }
 
-/** Opening surplus for a line: the ruled multiple of its own required capital. */
-export function setOpeningSurplus(line: CoverageLine, netUnpaidReserve: number): number {
-  return OPENING_SURPLUS_MULTIPLE_OF_REQUIRED * requiredCapital(line, netUnpaidReserve);
+/**
+ * THE RETAINED-CATASTROPHE CHARGE THE LINE OPENS WITH — the second term of its
+ * full requirement, on the opening book, at year 1, behind the default
+ * package the prior board bought. The SAME expression the engine charges in
+ * every year (simulationEngine's catCapitalNeeded): zero on WC and GL, which
+ * have no catastrophe band.
+ */
+export function openingCatCapital(line: CoverageLine, members: Book): number {
+  const placed = placementFor(line, defaultReinsuranceOption(line));
+  return newLossEngineRuns()
+    ? newEngineCatCapital(line, bookExposureOf(members, line, 1), 1, placed)
+    : catCapitalRetained(line, [...rosterOf(members, 'openingCatCapital')], placed);
+}
+
+/**
+ * Opening surplus for a line: the ruled multiple of its own FULL required
+ * capital — the reserve risk margin PLUS the retained-catastrophe charge.
+ *
+ * ⚠ THE CHARGE IS IN IT SINCE PROMPT A COMMIT 3. The engine has always held
+ * Property to margin + charge (reserveRiskMarginNeeded) every year, but the
+ * opening was set on the margin alone — so Property opened below its own
+ * requirement and its first capital reading was Deficient. Every line now
+ * opens at the same multiple of the requirement the engine then grades it on.
+ */
+export function setOpeningSurplus(line: CoverageLine, netUnpaidReserve: number, catCapital = 0): number {
+  return OPENING_SURPLUS_MULTIPLE_OF_REQUIRED * (requiredCapital(line, netUnpaidReserve) + catCapital);
 }

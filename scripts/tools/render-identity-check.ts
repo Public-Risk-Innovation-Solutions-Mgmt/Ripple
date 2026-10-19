@@ -933,7 +933,40 @@ const BASELINE = process.env.RENDER_BASELINE
 // Property's 2026 dividend no longer shown "(blocked)" (2 — read off that
 // negative year-end; the engine never blocked it). The statement's note on the
 // two resets is reworded.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v52.json');
+// v53: ROUTINE LARGE LOSSES ON (Prompt A commit 1). The control ran first:
+// 21e96e7, served on 4174, reproduced v52 242 of 242. 232 of 242 moved, no key
+// added or removed, every one in its figures (losses, premium, rates, reserves,
+// income, surplus across the Dashboard, Results, Financial Statements, Annual
+// Statement, Calculation Audit, Decisions, Decision History, Departments, the
+// spreadsheet and the header). Diffed as text, every change of WORDING is the
+// tower paying where it did not: "Less: reinsurance recoveries — current year"
+// and the audit's "(ceded recoveries)" terms appear; the Results narrative reads
+// "the tower recovered $X" and "paid" where it read that no occurrence reached
+// the lowest layer placed and "did not pay"; a "Retained Above Tower" row and
+// its above-the-top note appear on GL; the Annual Statement's ceded Case and
+// Ultimates rows carry figures where they read 0; capital status reads Strong
+// where it read Adequate; the Actuarial memo's figures move.
+// v54: PROPERTY OPENS ON ITS FULL REQUIREMENT (Prompt A commit 3). The control
+// ran first: 4e44465, served on 4174, reproduced v53 242 of 242. 100 of 242
+// moved, no key added or removed — exactly the screens of the two
+// configurations that carry Property (PR, WC+GL+PR), WC- and GL-only games
+// untouched. Every one moved in its surplus, investment and capital figures;
+// diffed as text, the only change of WORDING is Property's capital status,
+// Strong where it read Deficient (and Adequate on the pool), with the Results
+// narrative's "Deficient, indicating a deficit relative to the required
+// reserve margin" now "Strong", and the audit's stored figures.
+// v55: THE OPENING HOLDS TEN YEARS AT 2x, AND THE PRE-GAME HAS YEARS BEHIND IT
+// (Prompt A commit 2). The control ran first: 8a9db53, served on 4174,
+// reproduced v54 242 of 242. 232 of 242 moved, no key added or removed, every
+// one in its figures: the opening surplus (the header's Surplus, the
+// Introduction's last-year surplus and premium-to-surplus), the reserves and
+// paid losses, investment income and capital, and on the Annual Statement the
+// pre-game's steady rates, its reserves in every year, paid-in capital (the
+// 2021 starting surplus) and earned surplus, and its ex-ante ceded premium.
+// Diffed as text, the only change of WORDING is the Annual Statement's note,
+// which now says the older accident years are on the books from the first
+// pre-game year and what paid-in and earned surplus are.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v55.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

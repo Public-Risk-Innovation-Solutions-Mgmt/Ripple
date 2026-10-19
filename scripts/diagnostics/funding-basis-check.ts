@@ -159,8 +159,22 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   // NOT the gross expected loss, either side of it, by a margin no rounding
   // could produce. WHAT IT IS is pinned exactly by the identity above; this
   // line only rules the gross figure out. Property is the tightest at 3.1%.
-  check(NEW_RATE_STACK.enabled ? Math.abs(mean(gross) - 1) > 0.02 : mean(gross) < 0.95,
-    `${l}: and it is NO LONGER the gross figure`, `gross ratio ${mean(gross).toFixed(4)}`);
+  //
+  // ⚠ AND UNDER THE NEW STACK IT RULES OUT THE GROSS PURE PREMIUM, NOT THE
+  // ENGINE'S GROSS EXPECTED LOSS. Ruling out the expected-loss figure was a
+  // statement about levels, and levels coincide: with routine large losses on
+  // (Prompt A commit 1) WC's retained-basis premium lands 0.48% from it with
+  // nothing wrong. What a regression to gross funding would actually produce is
+  // the SAME identity on the gross pure premium — poolPremium / (gross pure
+  // premium x exposure) == CLF / divisor — so that ratio must sit away from 1,
+  // by the ceded share, which no rounding produces.
+  const grossBasis = rows[l].map(r =>
+    (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1))
+    / (r.clf / expenseDivisor(r.rcIncentive)));
+  check(NEW_RATE_STACK.enabled ? Math.abs(mean(grossBasis) - 1) > 0.02 : mean(gross) < 0.95,
+    `${l}: and it is NO LONGER the gross figure`,
+    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasis).toFixed(4)} (gross expected loss ${mean(gross).toFixed(4)})`
+      : `gross ratio ${mean(gross).toFixed(4)}`);
 }
 
 console.log(`\n--- 2. ADMIN ${NEW_RATE_STACK.enabled
