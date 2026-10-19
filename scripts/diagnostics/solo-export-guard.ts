@@ -758,7 +758,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // invested assets and investments, investment income and its return rate, net
 // income, total assets, and the capital rows (excess surplus, ratio, status).
 // No loss, premium, rate, reserve or cession row moved.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v75.json');
+// v76: THE OPENING HOLDS TEN YEARS AT 2x, AND THE PRE-GAME HAS YEARS BEHIND IT
+// (Prompt A commit 2; see VALUE_IDENTITY_v70). The control ran first: 8a9db53
+// reproduced v75 24 of 24. All 24 exports move, no row added or removed: the
+// reserves and what they drive (beginning and ending net reserve, paid losses,
+// prior-year development, LAE and its reserve, the margin and indicated
+// reserve, net incurred and the loss, LAE and combined ratios), the surplus
+// and what it holds and earns (investments, cash, investment income, net
+// income, the capital rows). Never moved: every rate, pure premium, premium,
+// admin, reinsurance cost and expected-ceded row.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v76.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -955,7 +955,18 @@ const BASELINE = process.env.RENDER_BASELINE
 // Strong where it read Deficient (and Adequate on the pool), with the Results
 // narrative's "Deficient, indicating a deficit relative to the required
 // reserve margin" now "Strong", and the audit's stored figures.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v54.json');
+// v55: THE OPENING HOLDS TEN YEARS AT 2x, AND THE PRE-GAME HAS YEARS BEHIND IT
+// (Prompt A commit 2). The control ran first: 8a9db53, served on 4174,
+// reproduced v54 242 of 242. 232 of 242 moved, no key added or removed, every
+// one in its figures: the opening surplus (the header's Surplus, the
+// Introduction's last-year surplus and premium-to-surplus), the reserves and
+// paid losses, investment income and capital, and on the Annual Statement the
+// pre-game's steady rates, its reserves in every year, paid-in capital (the
+// 2021 starting surplus) and earned surplus, and its ex-ante ceded premium.
+// Diffed as text, the only change of WORDING is the Annual Statement's note,
+// which now says the older accident years are on the books from the first
+// pre-game year and what paid-in and earned surplus are.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v55.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

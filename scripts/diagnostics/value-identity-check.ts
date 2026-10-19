@@ -1179,7 +1179,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // loss, premium, rate, reserve or cession field moved, and no identity left
 // its value: the pre-game's losses do not read surplus, so a larger opening
 // changes what the pool holds and earns on, not what it pays.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v69.json');
+// v70: THE OPENING HOLDS TEN YEARS AT 2x, AND THE PRE-GAME HAS YEARS BEHIND IT
+// (Prompt A commit 2). The control ran first: 8a9db53 reproduced v69 exactly.
+// Shape unchanged; 14,325 instances moved across 54 fields, none an identity.
+// The opening reserve is the ten-year window the pre-game carried (WC's older
+// runoff is closed), so the reserves, their split, paid losses, prior-year
+// development and the LAE on them move, and net incurred and the loss ratios
+// with them; surplus opens at 2x (was 2.28x), so invested assets, investment
+// income, the funding gaps and the capital ratios move; the bulk years carry a
+// gross ledger, so ceded case and IBNR move; and the pre-game's own last
+// indication and rate (priorFirstIndicationPer100, priorFinalRatePer100) move
+// with its steadier history and its ex-ante reinsurance price. NOT moved: any
+// game year's rate, pure premium or premium — year 1 prices off the five
+// played pre-game years, whose losses are the same draws.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v70.json');
 
 function seedOf(id: string) {
   let h = 5381;
