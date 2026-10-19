@@ -69,7 +69,7 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
   // THE ROOM'S SCHEDULE, THROUGH THE CONSTRUCTOR. An empty one writes no field.
   const instance = generateGameInstance(r.seed, seedFromInstanceId(r.seed), r.shocks);
 
-  const { poolState, startingFinancials, priorHistory } = runPriorHistory(instance, settings);
+  const { poolState, startingFinancials, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, settings);
 
   // THE WORLDS (loss engine commit 4b): every world opens on the pre-game's
   // position, and every team in the room shares the same worlds' draws.
@@ -83,6 +83,7 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     lockedResults: [],
     currentDecisions: defaultDecisionSet(1),
     priorHistory,
+    earlyPreGameHistory,
   });
 
   const openingResult = priorHistory.find(res => res.yearNumber === 0) ?? null;

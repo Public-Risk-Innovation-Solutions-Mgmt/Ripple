@@ -35,7 +35,7 @@ function show(c: Cell, format: CellFormat): { text: string; className?: string }
   }
 }
 
-function SectionTable({ section, columns }: { section: StatementSection; columns: string[] }) {
+function SectionTable({ section }: { section: StatementSection }) {
   return (
     <div data-testid={`statement-${section.key}`} className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
       <div className="px-5 py-3 border-b border-gray-100 flex items-baseline gap-3">
@@ -46,7 +46,7 @@ function SectionTable({ section, columns }: { section: StatementSection; columns
         <thead>
           <tr className="border-b border-gray-100">
             <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[240px]"></th>
-            {columns.map(c => (
+            {section.columns.map(c => (
               <th key={c} className="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{c}</th>
             ))}
           </tr>
@@ -77,7 +77,7 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
         <h1 className="text-lg font-semibold text-gray-900">Annual Statement — {scope}</h1>
         <p className="text-xs text-gray-500 mt-1">Dollars in thousands. Exposure in $M; rates per $100 of exposure.</p>
       </div>
-      {st.sections.map(s => <SectionTable key={s.key} section={s} columns={st.columns} />)}
+      {st.sections.map(s => <SectionTable key={s.key} section={s} />)}
       <div className="bg-white rounded-lg border border-gray-200 px-5 py-4 text-xs text-gray-600 space-y-1.5">
         {st.notes.map(n => <p key={n}>{n}</p>)}
         {missing.length > 0 && (

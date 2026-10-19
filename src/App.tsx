@@ -211,7 +211,7 @@ export default function App() {
     const { setup, instance } = openSoloInstance(settings);
     // Stage 2.10: each active line simulates its own 3-year pre-game past
     // through the real engine; the ending state is the Year 1 opening position.
-    const { poolState, startingFinancials: sf, priorHistory } = runPriorHistory(instance, setup);
+    const { poolState, startingFinancials: sf, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
 
     // Every active line's roster, deduplicated — the same object the pool row's
     // memberList is, which is what replaces this at year 1. See openingRoster.
@@ -227,6 +227,7 @@ export default function App() {
       lockedResults: [],
       currentDecisions: defaultDecisionSet(1),
       priorHistory,
+      earlyPreGameHistory,
     };
     // THE WORLDS (loss engine commit 4b): every world opens on this position.
     const gs = openWorlds(opened);

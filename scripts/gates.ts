@@ -257,7 +257,9 @@ const FAST: string[] = [
                                      //         the balance sheet balances with LAE reserves, the
                                      //         combined ratio is worked from its parts, underwriting
                                      //         ties to the engine, Total sums flows and takes the
-                                     //         latest year otherwise — each with a control
+                                     //         latest year otherwise; the five-year window rolls,
+                                     //         Prior + the five reconcile to the full history, the
+                                     //         pre-game columns are the engine's — each with a control
   'lae-booking-check',               //  15s   LAE is booked: incurred, paid and reserved as the rate's
                                      //         shares of the ground-up loss (ULAE alone on GL), the
                                      //         reserve rolls, the balance sheet holds it, underwriting

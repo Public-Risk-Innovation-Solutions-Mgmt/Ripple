@@ -908,7 +908,17 @@ const BASELINE = process.env.RENDER_BASELINE
 // one place — the tab bar's "Pool History" now reads "Annual Statement". No
 // figure and no other word moved anywhere. Results, the Result Spreadsheet and
 // the Calculation Audit are unchanged.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v50.json');
+// v51: THE ANNUAL STATEMENT'S ROLLING FIVE-YEAR WINDOW, with the pre-game's
+// five years kept (GameState.earlyPreGameHistory). The control ran first:
+// a7fd84a, served on 4174, reproduced v50 242 of 242. 26 of 242 moved —
+// exactly the 26 Annual Statement screens; no key added or removed, no other
+// screen moved. Diffed as text: at y0 the calendar sections read "2021 2022
+// 2023 2024 2025 Total" where they read "Prior Total", with every pre-game
+// year's figures in its own column, and the program-year blocks read "Prior
+// (before 2021) 2021 … 2025"; at y2 "Prior (2021–22) 2023 … 2027" where they
+// read "Prior Year 1 / 2026 Year 2 / 2027", Total now over the five shown, and
+// the notes and the not-yet-available list follow.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v51.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -183,6 +183,13 @@ if (MATURATION_YEARS < 0) {
 
 export interface PriorHistoryResult {
   priorHistory: ResultSet[];      // the 3 accepted pre-game years, oldest first (pool aggregate)
+  /**
+   * THE PRE-GAME'S EARLIER YEARS — every played pre-game year before the three
+   * in priorHistory (yearNumbers -4, -3), oldest first, aggregated the same way.
+   * Kept for the Annual Statement, which shows all five; priorHistory is
+   * unchanged, so nothing else that reads it moves.
+   */
+  earlyPreGameHistory: ResultSet[];
   poolState: PoolState;           // ending state after year 0 = Year 1 opening
   startingFinancials: StartingFinancials;
   historyAttempt: number;         // max accepted per-line attempt (0 = all lines passed on base seed)
@@ -193,6 +200,8 @@ export interface PriorHistoryResult {
 interface LinePreGame {
   line: CoverageLine;
   lineResults: LineResultSet[];   // years -2, -1, 0 for this line
+  /** The pre-game's earlier years (-4, -3), kept for the Annual Statement. */
+  earlyLineResults: LineResultSet[];
   lineState: LinePoolState;       // ending state (Year 1 opening for this line)
   cash: number;                   // this line's own ending operating cash
   unearnedPremium: number;
@@ -562,9 +571,14 @@ function finalizeLine(
   // effective seed (instance.seed + attempt x 997) that produced it is
   // recoverable later from saved state, not just during this simulation run.
   const lineResults = c.lineResults.map(r => ({ ...r, pregameAttempt: attempt }));
+  // The same accepted attempt's earlier years — every pre-game year before the
+  // declared three, off the single-line pooled results it already returns.
+  const earlyLineResults = c.pooled.slice(0, -PRE_GAME_YEARS)
+    .map(r => ({ ...r.byLine[line], pregameAttempt: attempt }));
   return {
     line,
     lineResults,
+    earlyLineResults,
     lineState: applySetOpening(
       line, c.poolState.lines[line], c.poolState.cash, startingYear, developmentPct,
     ),
@@ -818,8 +832,17 @@ export function runPriorHistory(
     priorHistory.push(aggregateLineResults(lineResults, priorHistory[i - 1]));
   }
 
+  // The earlier pre-game years, aggregated exactly as the declared three are.
+  const earlyPreGameHistory: ResultSet[] = [];
+  const earlyCount = perLine[0]?.earlyLineResults.length ?? 0;
+  for (let i = 0; i < earlyCount; i++) {
+    const lineResults = perLine.map(p => ({ line: p.line, result: p.earlyLineResults[i] }));
+    earlyPreGameHistory.push(aggregateLineResults(lineResults, earlyPreGameHistory[i - 1]));
+  }
+
   return {
     priorHistory,
+    earlyPreGameHistory,
     poolState,
     startingFinancials: deriveStartingFinancials(poolState, priorHistory),
     historyAttempt: Math.max(0, ...perLine.map(p => p.attempt)),
