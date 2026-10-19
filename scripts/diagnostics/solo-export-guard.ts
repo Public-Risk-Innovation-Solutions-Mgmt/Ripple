@@ -678,7 +678,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     claims, $2,500,000", the averaged claim count to one place.
 //   - THE SHOCK EVENTS SHEET gains a Worlds column ("2 of 10"), lists events
 //     from every world, and states claim counts to two places.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v68.json');
+// v69: THE AVERAGED LEDGER AVERAGES ITS PAID SERIES. 4b averaged the worlds'
+// ultimates but kept world 1's paid and gross paid, and the pure premium reads
+// paid — so from year 2 every rate was struck partly on one world's history.
+// All 24 exports move, for that one cause. The control ran first: the 4b
+// merge (cc20263), in its own worktree, reproduced v68 24 of 24; then both
+// sides were diffed cell by cell. No row is added or removed; year 1 never
+// moves (the opening every world shares is its own average); in every export
+// the first year to move is year 2, where the rate moves, and every later
+// figure follows from the rate — e.g. ZZTEST99 three lines, GL's rate per $100
+// in year 4 3.75 -> 4.09, Property's 0.22 -> 0.24.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v69.json');
 
 function seedOf(id: string) { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; }
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

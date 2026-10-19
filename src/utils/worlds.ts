@@ -482,23 +482,43 @@ export function averagePoolStates(worlds: WorldState[], lines: CoverageLine[], y
   };
 }
 
-/** By accident year, valuation by valuation; a year whose row stopped growing carries its last valuation. */
+/**
+ * By accident year, valuation by valuation; a year whose row stopped growing
+ * carries its last valuation. The ultimate, the net paid and the gross paid
+ * series are each averaged.
+ *
+ * ⚠ THE PAID SERIES WERE WORLD 1'S UNTIL THE RESULTS PAGE (it spread `present[0]`
+ * and averaged only the ultimates), so an averaged ledger's paid-to-date was one
+ * world's. worlds-check now compares each series against the worlds' own mean.
+ */
 export function averageLedger(perWorld: ReserveDevelopmentRow[][]): ReserveDevelopmentRow[] {
   const n = perWorld.length;
   const ays = [...new Set(perWorld.flatMap(rows => rows.map(r => r.yearNumber)))].sort((a, b) => a - b);
+  type Series = 'ultimateByValuation' | 'paidByValuation' | 'grossPaidByValuation';
   return ays.map(ay => {
     const rows = perWorld.map(w => w.find(r => r.yearNumber === ay));
     const present = rows.filter((r): r is ReserveDevelopmentRow => r !== undefined);
-    const width = Math.max(...present.map(r => r.ultimateByValuation.length));
-    const at = (r: ReserveDevelopmentRow | undefined, k: number) =>
-      r ? r.ultimateByValuation[Math.min(k, r.ultimateByValuation.length - 1)] ?? 0 : 0;
+    const mean = (key: Series): number[] | undefined => {
+      if (present.some(r => r[key] === undefined)) return undefined;
+      const width = Math.max(...present.map(r => r[key]!.length));
+      const at = (r: ReserveDevelopmentRow | undefined, k: number) => {
+        const a = r?.[key];
+        return a && a.length > 0 ? a[Math.min(k, a.length - 1)] : 0;
+      };
+      return Array.from({ length: width }, (_, k) => rows.reduce((s, r) => s + at(r, k), 0) / n);
+    };
     const exposures = rows.map(r => r?.exposure);
-    return {
+    const paid = mean('paidByValuation');
+    const grossPaid = mean('grossPaidByValuation');
+    const out: ReserveDevelopmentRow = {
       ...present[0],
       ...(exposures.some(e => e !== undefined)
         ? { exposure: exposures.reduce<number>((s, e) => s + (e ?? 0), 0) / n } : {}),
-      ultimateByValuation: Array.from({ length: width }, (_, k) => rows.reduce((s, r) => s + at(r, k), 0) / n),
+      ultimateByValuation: mean('ultimateByValuation')!,
     };
+    if (paid) out.paidByValuation = paid; else delete out.paidByValuation;
+    if (grossPaid) out.grossPaidByValuation = grossPaid; else delete out.grossPaidByValuation;
+    return out;
   });
 }
 

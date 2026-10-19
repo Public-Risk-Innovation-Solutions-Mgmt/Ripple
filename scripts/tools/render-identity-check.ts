@@ -844,7 +844,19 @@ const BASELINE = process.env.RENDER_BASELINE
 //   - THE LOAN PROMPT: a line short in any world raises it; this tool now
 //     confirms it at its default (authorize), so the y2 screens include loan
 //     years the one-world game never reached.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v45.json');
+// v46: THE AVERAGED LEDGER AVERAGES ITS PAID SERIES — 4b kept world 1's paid
+// and gross paid, and the pure premium reads paid. 116 of 242 moved, the same
+// 116 y2 screens; no y0 screen and no key added or removed. The control ran
+// first: the 4b merge (cc20263), served on 4174, reproduced v45 242 of 242.
+// Every moved screen was diffed word by word: every change is a figure, and
+// the only words that move are the Results narrative that follows a figure's
+// sign ("paid for itself" / "did not pay", "generated net income …
+// strengthening" / "experienced a net loss … reducing"). One cause: the rate.
+// Losses are unchanged to the dollar — e.g. GL alone, year 2: the rate falls
+// 5.33 -> 4.56 per $100 (world 1 had taken a $24.4M year-1 loss against about
+// $11.5M in the others), premium 19.99M -> 17.09M on the same 14.83M incurred,
+// so the combined ratio reads 94.6% -> 110.6%.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v46.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -209,11 +209,24 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       bad.push(...rateIdentical(W.map(w => w.lockedResults[y - 1].byLine[l])).map(e => `Y${y} ${l} ${e}`));
       // The averaged ledger, built here from the worlds' own ledgers.
       const own = start.worlds!.map(w => w.poolState.lines[l].reserveDevelopment ?? []);
+      // ⚠ EVERY SERIES, NOT ONLY THE ULTIMATES. The pure premium reads paid-to-date
+      // too; this construction once averaged the ultimates alone — the same
+      // omission averageLedger had — so it agreed with a rate struck on world
+      // 1's paid history and caught nothing (up to 29.5% off, measured).
+      const avgSeries = (pick: (r: typeof own[0][0]) => number[] | undefined, i: number) => {
+        const first = pick(own[0][i]);
+        if (!first) return undefined;
+        return first.map((_, k) => own.reduce((s, w) => {
+          const a = pick(w[i])!;
+          return s + a[Math.min(k, a.length - 1)];
+        }, 0) / own.length);
+      };
       const ledger = own[0].map((row, i) => ({
         ...row,
         ...(row.exposure !== undefined ? { exposure: own.reduce((s, w) => s + (w[i].exposure ?? 0), 0) / own.length } : {}),
-        ultimateByValuation: row.ultimateByValuation.map((_, k) =>
-          own.reduce((s, w) => s + w[i].ultimateByValuation[Math.min(k, w[i].ultimateByValuation.length - 1)], 0) / own.length),
+        ultimateByValuation: avgSeries(r => r.ultimateByValuation, i)!,
+        ...(row.paidByValuation ? { paidByValuation: avgSeries(r => r.paidByValuation, i) } : {}),
+        ...(row.grossPaidByValuation ? { grossPaidByValuation: avgSeries(r => r.grossPaidByValuation, i) } : {}),
       }));
       const book = start.worlds!.reduce((s, w) => s + (w.poolState.lines[l].bookExposure ?? 0), 0) / start.worlds!.length;
       const mine = strikeBookRate(l, { ...start.poolState.lines[l], reserveDevelopment: ledger, bookExposure: book },
@@ -288,6 +301,20 @@ console.log('\n--- 3. averaged dollars are the mean of the worlds ---');
   const ledgerOk = LINES.every(l => JSON.stringify(gs.poolState.lines[l].reserveDevelopment)
     === JSON.stringify(averageLedger(W.map(w => w.poolState.lines[l].reserveDevelopment ?? []))));
   check(ledgerOk, 'the averaged state\'s ledger is the worlds\' ledgers averaged');
+  // Independently of averageLedger: each accident year's latest paid-to-date,
+  // net and gross, is the mean of the worlds' own — the paid series were world
+  // 1's until the results page found it.
+  const lastOf = (a?: number[]) => (a && a.length > 0 ? a[a.length - 1] : 0);
+  const paidBad: string[] = [];
+  for (const l of LINES) {
+    for (const row of gs.poolState.lines[l].reserveDevelopment ?? []) {
+      for (const key of ['paidByValuation', 'grossPaidByValuation'] as const) {
+        const m = W.reduce((acc, w) => acc + lastOf(w.poolState.lines[l].reserveDevelopment?.find(r => r.yearNumber === row.yearNumber)?.[key]), 0) / W.length;
+        if (Math.abs(lastOf(row[key]) - m) > 1e-6 * Math.max(1, Math.abs(m))) paidBad.push(`${l} AY${row.yearNumber} ${key}`);
+      }
+    }
+  }
+  check(paidBad.length === 0, 'and every accident year\'s paid-to-date, net and gross, is the worlds\' mean', paidBad[0] ?? '');
 }
 
 console.log('\n--- 4. ratios come from averaged parts, never averaged ---');
@@ -353,6 +380,14 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
     'control: a ratio formula that drifted from the engine\'s is caught');
   // Worlds that share their draws.
   check(!worldsDiffer(W.map(() => W[0].lockedResults[y])), 'control: worlds with identical draws are caught');
+  // A ledger's paid taken from one world rather than averaged.
+  {
+    const row = gs.poolState.lines.GL.reserveDevelopment!.find(r => r.yearNumber === 2)!;
+    const w0 = W[0].poolState.lines.GL.reserveDevelopment!.find(r => r.yearNumber === 2)!;
+    const m = W.reduce((acc, w) => acc + (w.poolState.lines.GL.reserveDevelopment!.find(r => r.yearNumber === 2)!.paidByValuation!.slice(-1)[0]), 0) / W.length;
+    check(Math.abs(w0.paidByValuation!.slice(-1)[0] - m) > 1e-6 && Math.abs(row.paidByValuation!.slice(-1)[0] - m) < 1e-6 * m,
+      'control: one world\'s paid-to-date in place of the mean is caught');
+  }
   // An opening a world wrote to.
   const touched = { ...A.starts[0].poolState, cash: A.starts[0].poolState.cash + 1 };
   check(JSON.stringify(touched) !== A.openingJson, 'control: an opening one world wrote to is caught');
