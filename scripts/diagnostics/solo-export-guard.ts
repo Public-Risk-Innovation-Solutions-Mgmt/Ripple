@@ -742,7 +742,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Capital Status on 12 sheets), cash on 32. Never moved: net incurred loss,
 // paid losses, reserves, development, pure premium, every rate, admin and
 // reinsurance row.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v73.json');
+// v74: ROUTINE LARGE LOSSES ON (Prompt A commit 1; see VALUE_IDENTITY_v68).
+// All 24 exports move. The control ran first: 21e96e7 reproduced v73 24 of 24;
+// both sides diffed row by row, by label. No row added or removed; 60 rows
+// move, every one a loss, premium, reserve, ratio, capital or balance-sheet
+// line downstream of the routine claims: the losses and their LAE, reinsurance
+// cost and recovery (current year and prior-year development), the pure
+// premiums and rates, reserves and the margin, income, surplus and the ratios.
+// Never moved: admin expense, assessments, dividends, the rate level index and
+// written exposure.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v74.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

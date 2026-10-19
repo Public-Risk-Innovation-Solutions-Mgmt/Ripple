@@ -36,7 +36,7 @@
 // ⚠ AND IT FAILS WHEN BROKEN — see THE CONTROL at the foot.
 // ============================================================================
 
-import { MEMBER_LEVEL, ORDINARY_LOSS_CV } from '../../src/data/pricingParameters';
+import { MEMBER_LEVEL, ORDINARY_LOSS_CV, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -177,12 +177,24 @@ try {
   // losses are ordinary — so the expected recovery the rate deducts and the
   // price is struck on must be zero there. Where large losses can arise,
   // shock-loss-check holds the deduction to the recovery.
-  const members = getPredefinedMarketMembers();
-  for (const line of LINES) {
-    const moms = allLayerRiskMoments(line as never, members, 0);
-    const exp = moms.reduce((s, m) => s + m.expected, 0);
-    check(exp === 0, `${line}: ordinary losses only, so expected recovery and its price are zero`,
-      `$${exp.toFixed(2)} across ${moms.length} layer(s), year 0`);
+  //
+  // ⚠ ROUTINE LARGE LOSSES ARE HELD OFF FOR THIS SECTION, because they are ON
+  // in the game since Prompt A commit 1 and they arrive in every year, the
+  // pre-game included — so with them on, year 0 is not a year of ordinary
+  // losses only and its recovery is rightly not zero. The rule this section
+  // states is about ordinary losses, so it is asked where they are alone.
+  const routineWas = ROUTINE_LARGE_LOSSES.enabled;
+  try {
+    ROUTINE_LARGE_LOSSES.enabled = false;
+    const members = getPredefinedMarketMembers();
+    for (const line of LINES) {
+      const moms = allLayerRiskMoments(line as never, members, 0);
+      const exp = moms.reduce((s, m) => s + m.expected, 0);
+      check(exp === 0, `${line}: ordinary losses only, so expected recovery and its price are zero`,
+        `$${exp.toFixed(2)} across ${moms.length} layer(s), year 0, routine large losses held off`);
+    }
+  } finally {
+    ROUTINE_LARGE_LOSSES.enabled = routineWas;
   }
 } finally {
   MEMBER_LEVEL.enabled = was;

@@ -933,7 +933,20 @@ const BASELINE = process.env.RENDER_BASELINE
 // Property's 2026 dividend no longer shown "(blocked)" (2 — read off that
 // negative year-end; the engine never blocked it). The statement's note on the
 // two resets is reworded.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v52.json');
+// v53: ROUTINE LARGE LOSSES ON (Prompt A commit 1). The control ran first:
+// 21e96e7, served on 4174, reproduced v52 242 of 242. 232 of 242 moved, no key
+// added or removed, every one in its figures (losses, premium, rates, reserves,
+// income, surplus across the Dashboard, Results, Financial Statements, Annual
+// Statement, Calculation Audit, Decisions, Decision History, Departments, the
+// spreadsheet and the header). Diffed as text, every change of WORDING is the
+// tower paying where it did not: "Less: reinsurance recoveries — current year"
+// and the audit's "(ceded recoveries)" terms appear; the Results narrative reads
+// "the tower recovered $X" and "paid" where it read that no occurrence reached
+// the lowest layer placed and "did not pay"; a "Retained Above Tower" row and
+// its above-the-top note appear on GL; the Annual Statement's ceded Case and
+// Ultimates rows carry figures where they read 0; capital status reads Strong
+// where it read Adequate; the Actuarial memo's figures move.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v53.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

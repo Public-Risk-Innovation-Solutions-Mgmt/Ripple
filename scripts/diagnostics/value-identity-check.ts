@@ -1156,7 +1156,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // exposure units, summing to writtenExposure. The control ran first: 6549695
 // reproduced v66 exactly. 600 field instances ADDED — those two, on every row —
 // none removed, and 0 changed: every field present in both is bit-identical.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v67.json');
+// v68: ROUTINE LARGE LOSSES ON (Prompt A commit 1). The control ran first:
+// 21e96e7 reproduced v67 exactly. Shape unchanged (38,760 fields, none added
+// or removed); 24,196 instances moved across 92 fields, every one downstream of
+// the switch: claims above the ordinary limit now arrive every year, pre-game
+// included, so losses, cessions and reserves rise, the experience rate reads
+// them (ratePer100, the indication fields, the pure premiums), and premium,
+// capital, the ratios and the balance sheet follow. claimCount reads the
+// routine claims; marketShare (34 instances) moves with the rate against the
+// market; investmentReturnRate (23) by an ulp through the asset weights.
+// ⚠ ONE IDENTITY LEFT ITS VALUE, AND IT IS INTENDED: priorYearDevelopmentCeded
+// was 0 on all 300 instances and now is not on 210 (worst $777K). Nothing
+// reached the tower in these games before; routine claims now pierce the
+// retention, and the tower answers their development as the accident year's
+// own cover — which is what the field exists to record.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v68.json');
 
 function seedOf(id: string) {
   let h = 5381;

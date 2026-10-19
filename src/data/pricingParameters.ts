@@ -506,7 +506,7 @@ export const EXPECTED_ORDINARY_LOSS_COST_PER_100: PerLine<number> = {
 // ============================================================================
 
 /**
- * ROUTINE LARGE LOSSES — A SWITCH, OFF, AND THE QUESTION FOR THE TEAM.
+ * ROUTINE LARGE LOSSES — A SWITCH, NOW ON; THE QUESTION AS IT WAS PUT TO THE TEAM.
  *
  * Ordinary losses stop at each line's ordinary limit, and the share of today's
  * expected loss above it — WC 25.8%, GL 49.4%, Property's 21.1% above $5M —
@@ -523,7 +523,12 @@ export const EXPECTED_ORDINARY_LOSS_COST_PER_100: PerLine<number> = {
  * Winterstorm and Wildfire are what bring catastrophe, so a routine cat band
  * would count it twice.
  */
-export const ROUTINE_LARGE_LOSSES = { enabled: false };
+//
+// ⚠ ON SINCE PROMPT A COMMIT 1. The answer chosen is ON: routine large claims
+// every year, the shocks on top as the tail, Property's catastrophe band with
+// the shocks. The pre-game reads this same switch, so the history pricing
+// reads includes them from the first pre-game year.
+export const ROUTINE_LARGE_LOSSES = { enabled: true };
 
 /**
  * CLAIMS ABOVE THE ORDINARY LIMIT, PER $1M OF EXPOSURE A YEAR — SOURCED.
@@ -1177,7 +1182,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     title: 'New loss engine',
     blurb: 'The new loss engine, ON and permanent since commit 3: one aggregate ordinary loss per line per '
       + 'year, the R model\'s twelve-event shock catalogue with large losses as individual claims, regions, '
-      + 'and a switch for routine large losses (off). Each line is ONE BOOK with no individual members. The '
+      + 'and routine large losses every year (on). Each line is ONE BOOK with no individual members. The '
       + 'old engine is frozen on the legacy-engine branch. See docs/PENDING_MULTIPLAYER.md section 3.',
     entries: [
       ['New loss engine', {
@@ -1221,7 +1226,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Whether claims above the ordinary limit arrive EVERY year, drawn from today\'s distributions, '
           + 'or only with the shocks.',
         basis: 'CHOSEN',
-        note: 'FOR THE TEAM: the question is where the large claims come from. OFF — shocks only: quiet years '
+        note: 'ON since Prompt A commit 1: claims above the ordinary limit arrive every year, the shocks add '
+          + 'their own large losses on top, and the pre-game draws them too, so the history pricing reads '
+          + 'includes them. Measured against off, year 1 expected loss: WC $11.4M -> $15.2M, GL $11.9M -> '
+          + '$20.7M, Property $37.5M -> $46.4M; underwriting income with shocks off stays roughly flat. '
+          + 'The question as it was put — FOR THE TEAM: the question is where the large claims come from. OFF — shocks only: quiet years '
           + 'are quiet, the rate is low and steady, and on WC and GL expected loss sits well under today\'s: '
           + 'ordinary losses leave out a quarter of WC and half of GL, and the catalogue brings back only a '
           + 'little of it (Property\'s catastrophe events bring back most of its third). ON — routine large '

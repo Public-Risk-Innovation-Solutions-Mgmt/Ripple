@@ -21,12 +21,17 @@
 //      ALGEBRA AGAINST THE DRAW is shock-loss-check's, in FAST: every event and
 //      routine large losses, drawn through the tower layer by layer, against
 //      the expected recovery. Not repeated here.
-//   3. THE FLOOR. Shocks are pool-wide and their losses scale with the book, so
-//      they do not diversify: each layer's SD/E settles, as the book grows, on a
-//      floor above zero and no higher than at the market's own size, where a
-//      book of independent risks would decay to nothing. (Not monotone on the
-//      way: Property's dips below its floor at twice the market, as the cat
-//      convolution and the attritional band trade places.)
+//   3. THE TWO PARTS OF A LAYER'S RISK. Shocks are pool-wide and their losses
+//      scale with the book, so they do not diversify: the shocks' own SD/E
+//      settles, as the book grows, on a floor above zero and no higher than at
+//      the market's size. Routine large losses are independent claims: their
+//      mean AND variance are exactly linear in the book, so they diversify.
+//      With routine large losses on (Prompt A commit 1) the second part
+//      dominates WC's and GL's layers, whose total SD/E now falls like
+//      1/sqrt(book) instead of settling — which is why the floor is asserted on
+//      the shocks' part and not on the total. (Not monotone on the way:
+//      Property's shock SD/E dips below its floor at twice the market, as the
+//      cat convolution and the attritional band trade places.)
 //   4. THE ABOVE-TOWER BAND, in live games: never negative, and on GL never more
 //      per occurrence than the pool's $25M limit less the $15M tower top.
 //   5. THE RUNTIME COST of a pricing pass against a game-year, both measured in
@@ -39,7 +44,7 @@
 // ============================================================================
 
 import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../../src/data/reinsuranceTower';
-import { MEMBER_LEVEL, POOL_LIMIT_PER_OCCURRENCE } from '../../src/data/pricingParameters';
+import { MEMBER_LEVEL, POOL_LIMIT_PER_OCCURRENCE, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { layerRiskMoments, resetTowerMomentCache } from '../../src/utils/towerMoments';
 import { newEngineLayerMoments } from '../../src/utils/shockExpectation';
 import { occurrenceProgramCost } from '../../src/utils/reinsuranceTower';
@@ -109,6 +114,15 @@ function floorHolds(sdOverE: number[]): { settles: boolean; positive: boolean; n
     notAboveMarket: floor <= sdOverE[SIZES.indexOf(1)] + 1e-9,
   };
 }
+/** A layer's moments with routine large losses held off — the shocks' part alone. */
+function shocksOnly(line: TowerLine, layer: number, exposure: number) {
+  const was = ROUTINE_LARGE_LOSSES.enabled;
+  try { ROUTINE_LARGE_LOSSES.enabled = false; return layerRiskMoments(line, layer, { exposure }, 1); }
+  finally { ROUTINE_LARGE_LOSSES.enabled = was; }
+}
+/** The routine part (total less shocks) at 1x and 10x: both its mean and its variance scale by exactly 10. */
+const linearInBook = (m1: number, m10: number, v1: number, v10: number) =>
+  Math.abs(m10 / m1 - 10) < 1e-6 && Math.abs(v10 / v1 - 10) < 1e-6;
 const aboveTowerOk = (line: CoverageLine, rows: { retainedAboveTower: number; occurrences?: unknown[] }[]) => {
   const limit = POOL_LIMIT_PER_OCCURRENCE[line];
   const band = limit === null ? null : Math.max(0, limit - TOWER_TOP[line as TowerLine]);
@@ -155,17 +169,30 @@ function seamGap(scale: number): number {
   console.log('  (the algebra against the draw: shock-loss-check, every event and routine large losses, layer by layer)');
 }
 
-console.log('\n--- 3. THE FLOOR: shocks scale with the book, so SD/E settles above zero ---');
+console.log('\n--- 3. THE TWO PARTS OF A LAYER\'S RISK: the shocks settle on a floor, routine claims diversify ---');
+let routineLayers = 0;
 {
   for (const line of LINES) {
     REINSURANCE_TOWER[line].forEach((l, i) => {
-      if (!(layerRiskMoments(line, i, { exposure: MARKET[line] }, 1).expected > 0)) return;
-      const series = SIZES.map(f => layerRiskMoments(line, i, { exposure: MARKET[line] * f }, 1).sdOverExpected);
-      const f = floorHolds(series);
-      check(f.settles && f.positive && f.notAboveMarket, `3. ${line} ${l.name}: SD/E settles on a floor above zero, no higher than at market size`,
-        series.map(v => v.toFixed(3)).join(' -> '));
+      if (shocksOnly(line, i, MARKET[line]).expected > 0) {
+        const series = SIZES.map(f => shocksOnly(line, i, MARKET[line] * f).sdOverExpected);
+        const f = floorHolds(series);
+        check(f.settles && f.positive && f.notAboveMarket, `3. ${line} ${l.name}: the shocks' SD/E settles on a floor above zero, no higher than at market size`,
+          series.map(v => v.toFixed(3)).join(' -> '));
+      }
+      if (!ROUTINE_LARGE_LOSSES.enabled) return;
+      const part = (f: number) => {
+        const t = layerRiskMoments(line, i, { exposure: MARKET[line] * f }, 1), s0 = shocksOnly(line, i, MARKET[line] * f);
+        return { m: t.expected - s0.expected, v: t.sd ** 2 - s0.sd ** 2 };
+      };
+      const a = part(1), b = part(10);
+      if (!(a.m > 0)) return;
+      routineLayers++;
+      check(linearInBook(a.m, b.m, a.v, b.v), `3. ${line} ${l.name}: the routine part's mean and variance are linear in the book`,
+        `x${(b.m / a.m).toFixed(6)} and x${(b.v / a.v).toFixed(6)} at 10x`);
     });
   }
+  if (ROUTINE_LARGE_LOSSES.enabled) check(routineLayers > 0, '3. routine large losses reach the tower (not vacuous)', `${routineLayers} layers`);
 }
 
 console.log('\n--- 4. THE ABOVE-TOWER BAND, IN LIVE GAMES ---');
@@ -222,6 +249,7 @@ console.log('\nCONTROLS — each must be caught');
   const diversifying = SIZES.map(f => 4 / Math.sqrt(f));
   const fl = floorHolds(diversifying);
   check(!(fl.settles && fl.positive && fl.notAboveMarket), 'control: an SD/E that diversifies away like independent risks is caught by 3');
+  check(!linearInBook(1, 9, 1, 10), 'control: a routine part that does not scale with the book is caught by 3');
   const rising = floorHolds(SIZES.map(f => 4 + Math.log10(f * 2)));
   check(!(rising.settles && rising.positive && rising.notAboveMarket), 'control: an SD/E that grows with the book is caught by 3');
   check(!aboveTowerOk('GL', [{ retainedAboveTower: -1, occurrences: [] }]), 'control: a negative above-tower year is caught by 4');

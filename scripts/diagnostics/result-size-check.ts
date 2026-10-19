@@ -16,7 +16,8 @@
 //                              AVERAGED row since commit 4b, which is the one
 //                              the pages read and the session posts from
 //   SAVE_10Y_STORED_BUDGET     the save at year ten as stored (packSave):
-//                              1,280 KB since commit 4b (was 256 KB)
+//                              1,464 KB since Prompt A commit 1 (1,280 KB
+//                              from commit 4b, 256 KB before)
 //
 // ⚠ THE SAVE BUDGET WAS RESTATED FOR TEN WORLDS (loss engine commit 4b), AND
 // THIS IS WHY. The brief keeps each world's results, and each world carries its
@@ -35,6 +36,18 @@
 // (the save at year ten measured 1,103,440 characters there, 21% of the
 // browser's quota). The result budget did not move: the averaged year is 59 KB.
 //
+// ⚠ AND RESTATED AGAIN FOR ROUTINE LARGE LOSSES (Prompt A commit 1), TO
+// 1,464 KB — WHICH IS save-size-check's OWN 1,500,000-CHARACTER THRESHOLD, SO
+// THERE IS NO ROOM LEFT FOR ORDINARY GROWTH. Routine claims above the ordinary
+// limit now arrive every year, each one an individual claim that every world
+// carries in its cohorts and its year's row. Measured at year ten over these
+// three games: 1,440 KB stored (was within 1,280), and save-size-check's game
+// 1,467,944 characters, 98% of its threshold and 28% of the browser's quota.
+// This is the loss model the brief asked for, not member detail coming back,
+// so the budget follows it — but a game longer than ten years now crosses
+// save-size-check's threshold, and the next growth has to slim the save
+// (the world rows' claim lists are the first candidate), not move this line.
+//
 // Means over three games, measured by result-size-report's own function so the
 // report and the gate cannot measure two different things. save-size-check
 // still guards the browser's quota; this guards the size the game is designed
@@ -46,7 +59,7 @@
 import { measureSizes } from '../tools/result-size-report';
 
 export const RESULT_BUDGET_BYTES = 64 * 1024;
-export const SAVE_10Y_STORED_BUDGET = 1280 * 1024;
+export const SAVE_10Y_STORED_BUDGET = 1464 * 1024;
 
 const m = measureSizes(3);
 const failed: string[] = [];
