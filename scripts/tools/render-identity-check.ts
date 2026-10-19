@@ -946,7 +946,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // its above-the-top note appear on GL; the Annual Statement's ceded Case and
 // Ultimates rows carry figures where they read 0; capital status reads Strong
 // where it read Adequate; the Actuarial memo's figures move.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v53.json');
+// v54: PROPERTY OPENS ON ITS FULL REQUIREMENT (Prompt A commit 3). The control
+// ran first: 4e44465, served on 4174, reproduced v53 242 of 242. 100 of 242
+// moved, no key added or removed — exactly the screens of the two
+// configurations that carry Property (PR, WC+GL+PR), WC- and GL-only games
+// untouched. Every one moved in its surplus, investment and capital figures;
+// diffed as text, the only change of WORDING is Property's capital status,
+// Strong where it read Deficient (and Adequate on the pool), with the Results
+// narrative's "Deficient, indicating a deficit relative to the required
+// reserve margin" now "Strong", and the audit's stored figures.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v54.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

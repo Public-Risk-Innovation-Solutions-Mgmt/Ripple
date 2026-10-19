@@ -751,7 +751,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // premiums and rates, reserves and the margin, income, surplus and the ratios.
 // Never moved: admin expense, assessments, dividends, the rate level index and
 // written exposure.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v74.json');
+// v75: PROPERTY OPENS ON ITS FULL REQUIREMENT (Prompt A commit 3; see
+// VALUE_IDENTITY_v69). The control ran first: 4e44465 reproduced v74 24 of 24.
+// 12 of 24 exports move — exactly those that carry Property — and 16 rows in
+// them, none added or removed: surplus (beginning, ending, from income), cash,
+// invested assets and investments, investment income and its return rate, net
+// income, total assets, and the capital rows (excess surplus, ratio, status).
+// No loss, premium, rate, reserve or cession row moved.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v75.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
