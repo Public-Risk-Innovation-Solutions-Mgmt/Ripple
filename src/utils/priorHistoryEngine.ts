@@ -440,7 +440,20 @@ function runLinePreGame(
       opened,
     };
   };
-  return solvePreGameStart(run, line).opened;
+  // ⚠ THE MEMBER PATH IS FLOORED AT ZERO, AND KEEPS ITS OPENING RESET. The
+  // dormant member path (MEMBER_LEVEL, run only by the gates that import
+  // engine-mode/member-level) has no shocks, and its pre-game earns more than
+  // the opening on many seeds — measured over 40 host instances, 1 WC, 7 GL
+  // and 29 Property pre-games end above the opening even from a zero start.
+  // A pool cannot start its history insolvent, and the engine cannot either:
+  // at and below zero the first year's balance sheet stops tying and the
+  // year-end no longer depends on the start at all. So that path
+  // starts no lower than zero, and where even zero ends above the opening,
+  // applySetOpening's rule takes the difference out at the opening, as it did
+  // before the smooth pre-game. The shipped game (book mode) needs no floor —
+  // the same 40 instances solve at $36M or more on every line — and
+  // pregame-surplus-flow-check holds it to no reset anywhere.
+  return solvePreGameStart(run, line, MEMBER_LEVEL.enabled ? 0 : undefined).opened;
 }
 
 // ============================================================================
@@ -457,31 +470,61 @@ function runLinePreGame(
 //
 // The losses, reserves and rates do not read surplus, so the year-end is affine
 // in the start (an extra dollar in earns its investment return each year) and
-// the second step lands. The loop keeps going while anything nonlinear —
-// dividends or assessments on a surplus basis, a rule that reads the year-end —
-// leaves a gap, and refuses to hand over a pre-game that does not close.
+// the second step lands (book mode: three runs, at most five, on 40 instances).
+// The loop keeps going while anything nonlinear — dividends or assessments on a
+// surplus basis, a rule that reads the year-end — leaves a gap, halves the
+// bracket where the secant cannot step, and refuses to hand over a pre-game
+// that does not close.
 // ============================================================================
 const PRE_GAME_START_TOLERANCE = 0.01; // dollars
-const PRE_GAME_START_MAX_STEPS = 8;
+// Ample for halving a bracket of hundreds of millions to a cent; the shipped
+// path lands in three runs.
+const PRE_GAME_START_MAX_STEPS = 60;
 
 export function solvePreGameStart<T extends { start: number; gap: number }>(
   run: (startingSurplus?: number) => T,
   line: CoverageLine,
+  // The lowest start allowed. If even the floor ends above the opening, the
+  // floor's run is returned with its gap open — see the member path above.
+  floor?: number,
 ): T {
+  const clamp = (x: number) => (floor !== undefined && x < floor ? floor : x);
+  const stuckAtFloor = (r: T) => floor !== undefined && r.start <= floor && r.gap > 0;
+  // The tightest starts seen either side of the opening — once both exist the
+  // root is between them, and a step that leaves them is replaced by halving.
+  let below: T | undefined, above: T | undefined;
+  const bracket = (r: T) => {
+    if (r.gap < 0 && (!below || r.start > below.start)) below = r;
+    if (r.gap > 0 && (!above || r.start < above.start)) above = r;
+  };
   let a = run();
   if (Math.abs(a.gap) <= PRE_GAME_START_TOLERANCE) return a;
+  bracket(a);
   // First step assumes a dollar in is a dollar out; the secant corrects it.
-  let b = run(a.start - a.gap);
+  let b = run(clamp(a.start - a.gap));
   for (let step = 0; step < PRE_GAME_START_MAX_STEPS && Math.abs(b.gap) > PRE_GAME_START_TOLERANCE; step++) {
+    // At the floor and still above the opening: nothing allowed closes it.
+    if (stuckAtFloor(b)) return b;
+    bracket(b);
     const slope = (b.gap - a.gap) / (b.start - a.start);
-    // A slope of zero means the year-end does not depend on the start — a reset
-    // somewhere inside the pre-game — and no start can close the gap.
-    if (!Number.isFinite(slope) || Math.abs(slope) < 1e-9) {
+    let next = b.start - b.gap / slope;
+    // ⚠ A FLAT STRETCH IS NOT THE END WHEN THE ROOT IS BRACKETED. Just above
+    // zero the first year's balance sheet stops tying and the year-end stops
+    // responding to the start (measured on the member path: $0 and $0.75M end
+    // identically). A secant through two points on that stretch has no slope,
+    // but a bracket still holds the root, so halve it.
+    const inside = below && above && next > below.start && next < above.start;
+    if (below && above && (!Number.isFinite(next) || !inside)) {
+      next = (below.start + above.start) / 2;
+    } else if (!Number.isFinite(slope) || Math.abs(slope) < 1e-9) {
+      // No slope and no bracket: the year-end does not depend on the start — a
+      // reset somewhere inside the pre-game — and no start can close the gap.
       throw new Error(`pre-game ${line}: year-end does not respond to the starting surplus (slope ${slope})`);
     }
     a = b;
-    b = run(b.start - b.gap / slope);
+    b = run(clamp(next));
   }
+  if (stuckAtFloor(b)) return b;
   if (Math.abs(b.gap) > PRE_GAME_START_TOLERANCE) {
     throw new Error(`pre-game ${line}: starting surplus did not converge (gap ${b.gap})`);
   }
