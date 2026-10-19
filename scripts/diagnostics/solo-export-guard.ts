@@ -708,7 +708,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     probabilities, never the schedule. Later years' rates move with the
 //     history the different events left.
 // No row is added or removed outside the Shock Events sheet, which lists fewer.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v70.json');
+// v71: BULK COHORTS OPEN AT THEIR OWN AGE — year 1 had paid them two years'
+// worth (see VALUE_IDENTITY_v65). All 24 exports move. The control ran first:
+// 1431cd7, in its own worktree, reproduced v70 24 of 24; then both sides were
+// diffed row by row. No row or sheet added or removed, and none of the 1,320
+// rate, premium, admin, reinsurance and exposure cells moved. The rows that
+// move are the payment and what follows it: Net Paid Losses; Beginning and
+// Ending Net Reserve, Expected Net Unpaid Loss, Indicated Net Reserve at
+// Confidence, Reserve Risk Margin Needed, Total Liabilities; Invested Assets,
+// Investments, Total Assets, Cash (16 sheets), Investment Income and Return
+// Rate; Prior-Year Development, Net Incurred Loss and the loss and combined
+// ratios; Net Income, Surplus and the capital ratios — and Excess Capital
+// Status on 2 sheets, where the ratio crossed a band.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v71.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

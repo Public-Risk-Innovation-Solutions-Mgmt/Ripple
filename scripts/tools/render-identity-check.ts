@@ -875,7 +875,13 @@ const BASELINE = process.env.RENDER_BASELINE
 //     longer binds and the audit's known variance goes with it; capital reads
 //     Adequate for Thin; surplus, ratios, the Actuarial development figures and
 //     the narrative that follows their signs.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v47.json');
+// v48: BULK COHORTS OPEN AT THEIR OWN AGE — year 1 had paid them two years'
+// worth (see VALUE_IDENTITY_v65). 107 of 242 moved, every one a y2 screen; no
+// y0 screen and no key. The control ran first: 1431cd7, served on 4174,
+// reproduced v47 242 of 242. Every moved screen was diffed word by word and
+// every change is a figure — paid losses, reserves, investments and their
+// income, development, surplus and the ratios that follow; not one word moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v48.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

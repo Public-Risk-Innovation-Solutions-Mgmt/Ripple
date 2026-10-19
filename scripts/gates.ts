@@ -136,7 +136,9 @@ const FAST: string[] = [
   // re-solve a pin that no longer exists.
   'opening-partition-check',         //   6s   played and bulk accident years PARTITION the opening —
                                      //         no year held twice, no age held by nothing, nothing past
-                                     //         its own pattern. Written against a real double-count:
+                                     //         its own pattern; every cohort's paid-to-date is its age's,
+                                     //         and year 1 pays the bulk one step (control: the old
+                                     //         bulk ages paid 1.75-1.92x). Written against a real double-count:
                                      //         PRE_GAME_DEPTH was a fixed 10 silently coupled to
                                      //         PRIOR_HISTORY_YEARS, and dropping the latter to 5 put
                                      //         accident years 6-10 in BOTH sets. Carries its control.

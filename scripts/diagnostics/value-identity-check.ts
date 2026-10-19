@@ -1108,7 +1108,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // processYear, and the struck-rate seam is inert without a struck rate — no
 // field moved, none was added. What ten worlds change is what the app SHOWS,
 // the average, and that is RENDER_IDENTITY_v45 and SOLO_EXPORT_GUARD_v68.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v64.json');
+//
+// v65: BULK COHORTS OPEN AT THEIR OWN AGE. They stored their PATTERN age as
+// `age`, a step older than the convention the engine steps by, so year 1 paid
+// them two years' worth and they ran a year ahead of their pattern after. The
+// control ran first: 1431cd7, in its own worktree, reproduced v64 exactly. 43
+// fields move, no field added or removed, and every one is the payment timing
+// or follows from it:
+//   - PAID: netPaidLosses (e.g. year 1 9,426,968 -> 7,543,683) — the bulk
+//     years now pay one step a year.
+//   - WHAT IS NOT PAID STAYS: endingNetReserve and everything struck on it
+//     (beginningNetReserve, case and IBNR, expectedNetUnpaidLoss, the reserve
+//     risk margin and funding targets, totalLiabilities, nextYearPaydownRate),
+//     the cash and investments it is held in, investment income on them, and
+//     totalAssets.
+//   - DEVELOPMENT on the larger unpaid balances: priorYearDevelopment, and so
+//     netIncurredLoss, the loss and combined ratios and underwriting income, by
+//     a few thousand dollars a line-year.
+//   - SURPLUS, net income and the capital ratios that follow.
+// No rate, premium or pricing field moved: pricing reads the five played and
+// prior years, never the bulk.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v65.json');
 
 function seedOf(id: string) {
   let h = 5381;
