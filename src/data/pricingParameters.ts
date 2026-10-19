@@ -413,10 +413,15 @@ export const newLossEngineRuns = (): boolean => !MEMBER_LEVEL.enabled;
  * every member identical). It runs with NO SHOCKS: commit 3b deleted the old
  * shock placeholders, and members get shocks only if they return. The gates
  * that test the member code switch this on inside their own process
- * (scripts/tools/engine-mode/member-level.ts), so it keeps compiling and stays
- * correct while the game runs without it. A future member design would likely
- * LAYER member-level risk over the new engine rather than reuse these
- * generators — to be decided if members return.
+ * (scripts/tools/engine-mode/member-level.ts).
+ *
+ * ⚠ THE OLD MEMBER ENGINE IS INACTIVE AND NO LONGER MAINTAINED. This switch
+ * stays, off, and the code behind it stays exactly as it is — but later
+ * changes are NOT required to keep it working, so it may need repair before it
+ * is switched on again. Its gates are in DORMANT (scripts/gates.ts), which no
+ * sweep runs; they can still be run by name. A working copy is preserved on
+ * the legacy-engine branch and in advance-single-player. Members return in the
+ * new engine as BOOK UNITS, not through this path.
  */
 export const MEMBER_LEVEL = { enabled: false };
 
