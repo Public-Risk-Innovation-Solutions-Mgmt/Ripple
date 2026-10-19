@@ -652,9 +652,27 @@ export const NEW_BUSINESS_PENALTY = 0;
  * opening lands where the search was aiming, so the change is the MECHANISM
  * and not a re-levelling hidden inside it.
  *
- * ⚠ NOT YET USED — commit (b) of the opening rebuild reads it.
+ * ⚠ 2, SINCE PROMPT A COMMIT 2. A round, stated multiple replaces the carried-
+ * over 2.28: the band it was the midpoint of is gone, so the figure no longer
+ * had anything to land on.
  */
-export const OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2.28;
+export const OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2;
+
+/**
+ * OPENING RESERVE YEARS — how many accident years the pool holds reserves for
+ * at the opening. Older accident years are treated as CLOSED.
+ *
+ * The opening window is the last OPENING_RESERVE_YEARS accident years: the
+ * PRIOR_HISTORY_YEARS the pre-game plays with claims behind them, and the
+ * years before those as bulk cohorts. The bulk years are on the books from
+ * the START of the pre-game, at their ages then, and pay down on the recorded
+ * patterns through it — so every pre-game balance sheet carries them, their
+ * losses are in the pricing history from the first pre-game year, and the
+ * opening is simply where the pre-game ends. (Before Prompt A commit 2 the
+ * runoff reached each pattern's end — WC 37 years, GL 21, Property 11 — and
+ * appeared all at once at the opening.)
+ */
+export const OPENING_RESERVE_YEARS = 10;
 
 /**
  * How many years of prior history the new pricing reads.
@@ -1071,8 +1089,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   },
   {
     title: 'The opening',
-    blurb: 'The SET opening — no acceptance band, no pin, no search. '
-      + 'NOT YET USED: commit (a) records them, commit (b) reads them.',
+    blurb: 'The SET opening — no acceptance band, no pin, no search, and no reset: the pre-game starts '
+      + 'from the surplus that lands its last year-end on the opening.',
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
@@ -1083,16 +1101,18 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Opening surplus multiple', {
         value: OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, unit: 'x the line\'s own required capital',
         what: 'Sets opening surplus directly, replacing the band and the pin.', basis: 'CHOSEN',
-        notYetUsed: true,
         note: 'REQUIRED CAPITAL IS expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1), the reserve risk '
-          + 'margin — not premium, not the reserve itself. 2.28 is today\'s band midpoint carried over, '
-          + 'so the set opening lands where the search was aiming.',
+          + 'margin — not premium, not the reserve itself. 2 since Prompt A commit 2 (was 2.28, the old '
+          + 'band\'s midpoint carried over). The pre-game starts from the surplus that lands its last '
+          + 'year-end here, so the opening is set without a reset.',
       }],
-      ['Bulk cohort horizon', {
-        value: 'each line\'s own recorded paid pattern', unit: 'accident years',
-        what: 'How far back the opening runoff reaches: WC 37 years, GL 21, Property 11.', basis: 'SOURCED',
-        note: 'The full pattern length. WC is still 9.04% unpaid at 37 years, and its newest 25 accident '
-          + 'years hold only 95% of its steady-state reserve, so truncating discards real reserve.',
+      ['Opening reserve years', {
+        value: OPENING_RESERVE_YEARS, unit: 'accident years',
+        what: 'How many accident years the opening holds reserves for; older years are treated as closed.',
+        basis: 'CHOSEN',
+        note: 'The prior history years played with claims, and the years before them as bulk cohorts on '
+          + 'the books from the start of the pre-game, paying down through it. Was each pattern\'s full '
+          + 'length (WC 37 years, GL 21, Property 11) before Prompt A commit 2.',
       }],
     ],
   },
