@@ -540,6 +540,11 @@ rather than a refinement. It can be changed.
 
 ### Reinsurance options a team may buy
 
+**RULE — players see each option's price, never its expected recovery or how
+it was priced** (UI tidy). Each package on the Decisions page shows its name
+and price only: no expected recovery, load, rate on line or pricing note, and
+no block restating the package, its cost or what is retained above it.
+
 **Wired in loss engine commit 4a**, as `REINSURANCE_OPTIONS` and
 `REINSURANCE_DEFAULT_OPTION` (see [docs/PARAMETERS.md](PARAMETERS.md)). A team
 makes ONE choice per line from a fixed set of packages, replacing

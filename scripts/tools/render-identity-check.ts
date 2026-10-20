@@ -1007,7 +1007,15 @@ const BASELINE = process.env.RENDER_BASELINE
 // three lines' first-year paid share — WC's and GL's now at 1.5x — and is
 // reworded from "recorded paid" to "paid at 1.5x". The 44 unmoved are the
 // Property-only game's other screens.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v61.json');
+// v62: THE DECISIONS PAGE TIDY. The control ran first: e50fc73, served on
+// 4174, reproduced v61 242 of 242. 16 of 242 moved — the line Decisions screens
+// — no key added or removed, values and exports byte-identical. Each lost the
+// risk-control notes, the underwriting forecast lines, the reinsurance load
+// clause, each package's expected recovery, the aggregate-cover note and the
+// package block; "Intake" reads "New business"; and the Indicated column's
+// vs-last-year cell is now measured against last year's final rate, the one
+// figure that moved (its percentage and the rate beneath it).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v62.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

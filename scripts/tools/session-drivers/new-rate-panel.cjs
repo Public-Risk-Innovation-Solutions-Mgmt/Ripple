@@ -114,6 +114,14 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
        `the ${label} percentage ${shown}% is what $${was} -> $${now} implies (${implied.toFixed(2)}%)`);
   }
 
+  // ⚠ BOTH COLUMNS AGAINST LAST YEAR'S ACTUAL RATE (UI tidy): the final rate
+  // members paid, so the two cells' footnotes are the same figure.
+  {
+    const base = async t => /from \$(\d+\.\d{4})/.exec((await page.textContent(`[data-testid="${t}"]`)).replace(/\s+/g, ' '))?.[1];
+    const a = await base('new-rate-vs-indicated'), b = await base('new-rate-vs-final');
+    ok(a !== undefined && a === b, `both columns compare against last year's final rate ($${a} and $${b})`);
+  }
+
   // ⚠ NO CLF NOTE BESIDE THE PURE PREMIUM — the brief removed it, and a
   // multiplier printed there invites the reading that the row is pre-CLF.
   ok(!/CLF|×\s*1\./.test(body), 'no CLF multiplier is printed beside the pure premium');
@@ -122,6 +130,16 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(/Expected to surplus/.test(surplus), 'the expected-to-surplus line renders');
   ok(/\$\d/.test(surplus) && /M/.test(surplus),
      `it is in DOLLARS, not a rate — "${surplus.trim()}"`);
+
+  // Players see each package's price, never its expected recovery or how it was
+  // priced (UI tidy) — and the block restating the package and its cost is gone.
+  {
+    const page_ = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+    for (const gone of ['expected recovery', ' load', 'Aggregate cover is not offered', 'Retained Above Package', 'Reinsurance Cost',
+      'The spend comes out of this line', 'Coming soon', 'is not renewed', 'of new exposure this year']) {
+      ok(!page_.includes(gone), `"${gone.trim()}" is not on the Decisions page`);
+    }
+  }
 
   // The retired readouts must be gone from this panel.
   for (const gone of ['Expected Combined Ratio', 'Marginal Cost', 'Reserve Margin Standard',
