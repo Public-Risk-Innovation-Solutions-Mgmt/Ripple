@@ -2,47 +2,38 @@ AWSTemplateFormatVersion: '2010-09-09'
 # Ripple's admin-accounts backend — a SEPARATE template from
 # ripple-backend.yaml, deliberately: ADMIN_ACCOUNTS_HANDOFF.md (Option B)
 # chose a separate table and Lambda so nobody who can touch game sessions can
-# touch admin accounts, and vice versa. See docs/admin/ and
-# src/admin/server/accounts.ts for what the Lambda actually does.
+# touch admin accounts, and vice versa. See src/admin/server/accounts.ts for
+# what the Lambda actually does.
 #
-# This stack adds routes to the EXISTING session API Gateway (ExistingApiId,
-# a parameter — not a cross-stack Export/Import) rather than creating a
-# second one: same domain, same CORS configuration, no reason to duplicate
-# either. It creates no Api and no Stage resource of its own.
+# ⚠ EVERY NAME IS SUFFIXED -${Env}, REVIEW INCLUDED — unlike
+# ripple-backend.yaml, where review's resources already existed by hand
+# before any template did. Nothing here pre-exists anywhere; review is
+# created fresh by this template exactly like prod is, so there is no bare-
+# name case to carve out.
+#
+# This stack adds routes to the EXISTING session API Gateway (ApiId, a plain
+# parameter — not a cross-stack Export/Import) rather than creating a second
+# one: same domain, same CORS configuration, no reason to duplicate either.
+# It creates no Api and no Stage resource of its own.
 #
 # EVERY RESOURCE IS DeletionPolicy/UpdateReplacePolicy: Retain, same posture
-# and the same cost as ripple-backend.yaml: deleting a throwaway test stack
-# leaves every resource behind. Delete the table (after turning off deletion
-# protection), the function, the role, the routes/integration/permission,
-# and the log group by hand.
+# as ripple-backend.yaml.
 Description: >-
   Ripple admin-accounts backend: DynamoDB table, ripple-admin Lambda and
-  role, and routes/integration on the existing session API. Reusable via Env.
+  role, and routes/integration on the existing session API. Per Env.
 Parameters:
   Env:
     Type: String
-    Description: >
-      Which environment this stack is. Unlike ripple-backend.yaml, nothing
-      here already exists under a bare name — review is being created fresh
-      by this template too — but the same suffix convention is used for
-      consistency with the session backend's resource names.
-    AllowedValues: [review, prod, test]
-    Default: test
+    Description: Which environment this stack is. Used in every resource name.
+    AllowedValues: [review, prod]
 
-  ExistingApiId:
+  ApiId:
     Type: String
-    Description: The session API Gateway's id (ripple-session-api) that these routes are added to.
-
-  OwnerTag:
-    Type: String
-    Default: Mike
-
-  ProjectTag:
-    Type: String
-    Default: ripple
+    Description: >-
+      The session API Gateway's id that the admin routes are added to —
+      review's is l1g9kw9swc, prod's is slb9jb7bt0.
 
 Conditions:
-  IsReview: !Equals [!Ref Env, review]
   IsProd: !Equals [!Ref Env, prod]
 
 Resources:
@@ -52,10 +43,11 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !If [IsReview, ripple-admins, !Sub "ripple-admins-${Env}"]
-      # ⚠ pk ONLY, NO SORT KEY. Two flat item shapes (ADMIN#<user>,
-      # SESSION#<tokenHash>), neither with a family of child items the way a
-      # room has — see src/admin/server/dynamo.ts.
+      TableName: !Sub "ripple-admins-${Env}"
+      # ⚠ pk ONLY, NO SORT KEY. Two flat item shapes:
+      #   ADMIN#<username, lowercased>   the account — no expiry, never swept
+      #   SESSION#<sha256(token)>        a login — DOES expire, see below
+      # See src/admin/server/dynamo.ts.
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -63,6 +55,14 @@ Resources:
         - AttributeName: pk
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
+      # ⚠ TTL IS ON, ON expiresAtSec — ACCOUNTS JUST NEVER CARRY THE
+      # ATTRIBUTE. Only SESSION# items set expiresAtSec (a 30-day login,
+      # src/admin/server/dynamo.ts's ADMIN_SESSION_TTL_SEC default); ADMIN#
+      # account items never do, so TTL never touches them. Leaving TTL off
+      # at the table level would not be a security problem — the handler
+      # independently refuses an expired token's logical check regardless —
+      # but expired sessions would then sit in the table forever instead of
+      # being swept, which is the one thing TTL is actually for here.
       TimeToLiveSpecification:
         Enabled: true
         AttributeName: expiresAtSec
@@ -73,9 +73,9 @@ Resources:
         SSEEnabled: false
       Tags:
         - Key: Owner
-          Value: !Ref OwnerTag
+          Value: Mike
         - Key: Project
-          Value: !Ref ProjectTag
+          Value: ripple
         - Key: Environment
           Value: !Ref Env
 
@@ -85,7 +85,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      RoleName: !If [IsReview, ripple-admin-lambda-role, !Sub "ripple-admin-lambda-role-${Env}"]
+      RoleName: !Sub "ripple-admin-lambda-role-${Env}"
       Path: /
       MaxSessionDuration: 3600
       Description: Allows Lambda functions to call AWS services on your behalf.
@@ -101,7 +101,8 @@ Resources:
       Policies:
         # ⚠ SCOPED ONLY TO AdminTable. ripple-session's role never appears
         # here and this role never appears there — that separation is the
-        # entire point of Option B.
+        # entire point of Option B. No secret/Secrets Manager permission is
+        # needed — see the "no signing key" note on AdminFunction below.
         - PolicyName: ripple-admins-table-access
           PolicyDocument:
             Version: '2012-10-17'
@@ -117,9 +118,9 @@ Resources:
                 Resource: !GetAtt AdminTable.Arn
       Tags:
         - Key: Owner
-          Value: !Ref OwnerTag
+          Value: Mike
         - Key: Project
-          Value: !Ref ProjectTag
+          Value: ripple
         - Key: Environment
           Value: !Ref Env
 
@@ -128,14 +129,14 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      LogGroupName: !If [IsReview, /aws/lambda/ripple-admin, !Sub "/aws/lambda/ripple-admin-${Env}"]
+      LogGroupName: !Sub "/aws/lambda/ripple-admin-${Env}"
       RetentionInDays: 30
       LogGroupClass: STANDARD
       Tags:
         - Key: Owner
-          Value: !Ref OwnerTag
+          Value: Mike
         - Key: Project
-          Value: !Ref ProjectTag
+          Value: ripple
         - Key: Environment
           Value: !Ref Env
 
@@ -144,7 +145,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      FunctionName: !If [IsReview, ripple-admin, !Sub "ripple-admin-${Env}"]
+      FunctionName: !Sub "ripple-admin-${Env}"
       Runtime: nodejs22.x
       Architectures: [arm64]
       Handler: index.handler
@@ -154,9 +155,9 @@ Resources:
       EphemeralStorage:
         Size: 512
       PackageType: Zip
-      # A placeholder only, same trick as ripple-backend.yaml's SessionFunction
-      # — the handler pipeline (.github/workflows/admin.yml) deploys the real
-      # build via aws lambda update-function-code.
+      # A placeholder only, same trick as ripple-backend.yaml's
+      # SessionFunction — the handler pipeline (.github/workflows/admin.yml)
+      # deploys the real build via aws lambda update-function-code.
       Code:
         ZipFile: |
           exports.handler = async () => ({
@@ -164,11 +165,22 @@ Resources:
             body: JSON.stringify({
               error: {
                 code: 'TRANSPORT_FAILURE',
-                message: 'Placeholder code from ripple-admin-backend.yaml — the handler pipeline has not deployed the real build yet.',
+                message: 'Placeholder code from ripple-admin.yaml — the handler pipeline has not deployed the real build yet.',
                 retryable: true,
               },
             }),
           });
+      # ⚠ NO SIGNING KEY, NO SECRET, NO SECRETS MANAGER PERMISSION NEEDED.
+      # Admin tokens are opaque random strings looked up by their SHA-256
+      # hash as a DynamoDB item (SESSION#<hash>) — the same pattern the game
+      # backend already uses for host/player/viewer tokens — not a signed
+      # token (JWT or similar) that would need a key to verify. Validity is
+      # "does this hashed lookup resolve to an unexpired item", not a
+      # signature check, so there is nothing to sign and nothing secret to
+      # provision. ADMIN_TABLE_NAME is the only required variable;
+      # ADMIN_SESSION_TTL_SEC is optional (defaults to 30 days in code) and
+      # deliberately not set here — change it by setting the variable, not
+      # by editing this template.
       Environment:
         Variables:
           ADMIN_TABLE_NAME: !Ref AdminTable
@@ -182,25 +194,27 @@ Resources:
       RecursiveLoop: Terminate
       Tags:
         - Key: Owner
-          Value: !Ref OwnerTag
+          Value: Mike
         - Key: Project
-          Value: !Ref ProjectTag
+          Value: ripple
         - Key: Environment
           Value: !Ref Env
 
   # ---------------------------------------------------------------- api
   #
-  # ⚠ NO AWS::ApiGatewayV2::Api AND NO Stage HERE. ExistingApiId names the
-  # session API (ripple-session-api), already created by ripple-backend.yaml
-  # and already serving its $default stage with AutoDeploy — adding a Route
-  # to that same Api is all a new route needs; there is nothing else to
-  # stand up.
+  # ⚠ NO AWS::ApiGatewayV2::Api AND NO Stage HERE. ApiId names the existing
+  # session API (ripple-session-api), already serving its $default stage
+  # with AutoDeploy — adding a Route to that same Api is all a new route
+  # needs; there is nothing else to stand up.
+  #
+  # The eight routes, one per endpoint in src/admin/server/handler.ts's
+  # ENDPOINTS list — all POST, all AWS_PROXY to the one Lambda below.
   AdminIntegration:
     Type: AWS::ApiGatewayV2::Integration
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       IntegrationType: AWS_PROXY
       IntegrationMethod: POST
       IntegrationUri: !GetAtt AdminFunction.Arn
@@ -213,7 +227,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       RouteKey: "POST /adminLogin"
       Target: !Sub "integrations/${AdminIntegration}"
       AuthorizationType: NONE
@@ -224,7 +238,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       RouteKey: "POST /adminLogout"
       Target: !Sub "integrations/${AdminIntegration}"
       AuthorizationType: NONE
@@ -235,7 +249,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       RouteKey: "POST /currentAdmin"
       Target: !Sub "integrations/${AdminIntegration}"
       AuthorizationType: NONE
@@ -246,7 +260,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       RouteKey: "POST /createAdminAccount"
       Target: !Sub "integrations/${AdminIntegration}"
       AuthorizationType: NONE
@@ -257,7 +271,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       RouteKey: "POST /listAdminAccounts"
       Target: !Sub "integrations/${AdminIntegration}"
       AuthorizationType: NONE
@@ -268,7 +282,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       RouteKey: "POST /setAdminDisabled"
       Target: !Sub "integrations/${AdminIntegration}"
       AuthorizationType: NONE
@@ -279,7 +293,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       RouteKey: "POST /deleteAdminAccount"
       Target: !Sub "integrations/${AdminIntegration}"
       AuthorizationType: NONE
@@ -290,7 +304,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ApiId: !Ref ExistingApiId
+      ApiId: !Ref ApiId
       RouteKey: "POST /resetAdminPassword"
       Target: !Sub "integrations/${AdminIntegration}"
       AuthorizationType: NONE
@@ -307,7 +321,7 @@ Resources:
       # Any stage, any method, any one of this API's (single-segment) admin
       # routes — one permission covering all eight, same collapsing
       # ripple-backend.yaml already does for the session routes.
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ExistingApiId}/*/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*/*/*"
 
 Outputs:
   FunctionName:

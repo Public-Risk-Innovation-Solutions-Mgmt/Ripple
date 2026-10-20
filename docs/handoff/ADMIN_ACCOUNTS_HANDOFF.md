@@ -76,39 +76,47 @@ what's below.
 
 ## What Mike needs to do now
 
-Everything buildable on our side is built and verified locally. The pipeline
-(`.github/workflows/admin.yml`) will deploy nothing until these exist — same as how
-`ripple-deploy-prod` sat unused until it was created for the session handler.
+Mike asked five things before settling on an approach; answers below, then his own proposal
+(a single template, `infra/ripple-admin.yaml`) — which is what got built.
 
-1. **`ripple-admins` / `ripple-admins-prod`** — a new DynamoDB table per environment. `pk`
-   only (no sort key), string. Enable TTL on `expiresAtSec` after creation, same console
-   step as `ripple-sessions`. No TTL is needed at the account level — only login sessions
-   expire — but the table-level TTL setting applies to whichever items carry that attribute,
-   so it's one setting either way.
-2. **`ripple-admin-lambda-role` / `-prod`** — scoped *only* to the new table (`GetItem`,
-   `PutItem`, `UpdateItem`, `DeleteItem`, `Scan`) — never `ripple-sessions`.
-3. **`ripple-admin` / `ripple-admin-prod`** — new Lambda functions, Node 22, handler
-   `index.handler`, same placeholder-code trick the session Lambda used before its first
-   real deploy.
-4. **`ripple-deploy-admin-review` / `ripple-deploy-admin-prod`** — new OIDC roles, same
-   trust-policy pattern as `ripple-deploy-review`/`-prod` (the one that hit the repo-name
-   mismatch earlier — check the org/repo name carefully this time too), scoped to
-   `UpdateFunctionCode`/`GetFunction`/`GetFunctionConfiguration`/`PublishVersion` on the new
-   functions only.
-5. **Eight new routes on the existing `ripple-session-api`** (not a new API Gateway — same
-   domain, same CORS config): `/adminLogin`, `/adminLogout`, `/currentAdmin`,
-   `/createAdminAccount`, `/listAdminAccounts`, `/setAdminDisabled`, `/deleteAdminAccount`,
-   `/resetAdminPassword`, each `AWS_PROXY` to the new Lambda.
+1. **The admin table's key design.** `pk` only, no sort key, two flat item shapes (see
+   `src/admin/server/dynamo.ts`): `ADMIN#<username, lowercased>` for an account (username,
+   salted/hashed password, disabled, createdAt), `SESSION#<sha256(token)>` for a login
+   (username, `expiresAtSec`).
+   ⚠ **Correction to "no TTL this time":** TTL should be **on**, on `expiresAtSec` — same
+   attribute name as `ripple-sessions`. Accounts never carry that attribute, so they're
+   never swept and effectively don't expire, exactly as asked — but login *sessions* do
+   carry it (a 30-day default, `ADMIN_SESSION_TTL_SEC`), and that's exactly the ephemeral
+   thing TTL exists for. Leaving TTL off wouldn't be a security hole (the handler checks
+   the expiry itself regardless of whether DynamoDB's sweep is on), it would just mean
+   expired sessions pile up in the table forever instead of being cleaned up.
+2. **The admin routes** — eight, all `POST`, all `AWS_PROXY` to the one Lambda: `/adminLogin`,
+   `/adminLogout`, `/currentAdmin`, `/createAdminAccount`, `/listAdminAccounts`,
+   `/setAdminDisabled`, `/deleteAdminAccount`, `/resetAdminPassword`.
+3. **Lambda settings** — Node.js 22, arm64, 512 MB, 10-second timeout, same as
+   `ripple-session`. One required environment variable, `ADMIN_TABLE_NAME`; one optional,
+   `ADMIN_SESSION_TTL_SEC` (defaults to 30 days in code — not set by the template; change it
+   by setting the variable, not by editing CloudFormation).
+4. **No secret needed.** Admin tokens are opaque random strings looked up by their SHA-256
+   hash as a DynamoDB item — the same pattern the game backend already uses for host/player/
+   viewer tokens — not a signed token (JWT or similar). There's nothing to sign and nothing
+   secret to provision; no Secrets Manager, no extra permission.
+5. **The first admin account** — `scripts/tools/seed-default-admin.ts`, run once per
+   environment with real AWS credentials: `ADMIN_TABLE_NAME=ripple-admins-review npx tsx
+   scripts/tools/seed-default-admin.ts`. Writes directly to the table (conditioned on the
+   username not already existing) and prints a generated password exactly once. There's no
+   API that creates the first account without already holding one, on purpose.
 
-**`infra/ripple-admin-backend.yaml` does all five**, parameterized by `Env`
-(`review`/`prod`/`test`) and `ExistingApiId` (the session API's id) — same `Env=test`
-throwaway-stack proof you already do for `ripple-backend.yaml`. It is a separate template
-from that one on purpose, matching Option B's own boundary.
-
-**Then, once per environment:** run `scripts/tools/seed-default-admin.ts` against the real
-table (`ADMIN_TABLE_NAME=ripple-admins npx tsx scripts/tools/seed-default-admin.ts`) to
-create the one bootstrap account — it prints a generated password exactly once. There is no
-API that creates the first admin account without already holding one, on purpose.
+**His own proposal, built as asked:** one template, `infra/ripple-admin.yaml`, two
+parameters — `Env` (`review`/`prod`, used in every name: `ripple-admins-review`,
+`ripple-admin-prod`, etc. — every name suffixed, review included, since nothing here
+pre-exists the way review's session resources did) and `ApiId` (the session API to add
+routes to — `l1g9kw9swc` for review, `slb9jb7bt0` for prod). Per environment it creates the
+table (deletion protection on, no TTL *at the account level* — see the correction above —
+point-in-time recovery in prod only), a role scoped to only that table, the Lambda with
+placeholder code, a 30-day log group, and the eight routes with their own integration and
+permission on the given API. Both environments can be built from it — nothing here needs
+creating by hand on either side.
 
 **Also needed on the Amplify side:** a new `VITE_ADMIN_API` environment variable (the same
 API's invoke URL `VITE_SESSION_API` already points at — these routes live on it too), once

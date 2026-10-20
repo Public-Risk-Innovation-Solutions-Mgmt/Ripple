@@ -82,10 +82,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download "admin-build-${GITHUB_SHA}" -R "$GITHUB_REPOSITORY" -p admin-handler.zip
-          aws lambda update-function-code --function-name ripple-admin \
+          aws lambda update-function-code --function-name ripple-admin-review \
             --zip-file fileb://admin-handler.zip
-          aws lambda wait function-updated-v2 --function-name ripple-admin
-          aws lambda publish-version --function-name ripple-admin \
+          aws lambda wait function-updated-v2 --function-name ripple-admin-review
+          aws lambda publish-version --function-name ripple-admin-review \
             --description "commit ${GITHUB_SHA}"
 
   # ---- a v* tag is pushed: promote the SAME zip review already ran ------
