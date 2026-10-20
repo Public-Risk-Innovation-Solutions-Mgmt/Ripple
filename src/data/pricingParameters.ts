@@ -172,6 +172,25 @@ export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.90;
  */
 export const DEVELOPMENT_SPEED: PerLine<number> = { WC: 1.5, GL: 1.5, Property: 1.0 };
 
+/**
+ * THE BASELINE CV, PER LINE — the shared year-to-year wobble in each line's
+ * ordinary losses: the coefficient of variation of the one year factor every
+ * unit of a line's book shares in a given year (the data scientist's
+ * BaselineCV).
+ *
+ * ⚠ ONE SETTING DRIVES TWO THINGS, SO THE TWO CAN NEVER DISAGREE. It will set
+ * BOTH the engine's ordinary loss draw (the shared year factor, today the
+ * single UNIT_ORDINARY_YEAR_CV for every line) AND which funding table the
+ * line uses (the tables on wip/clf-tables, one per BaselineCV). A line whose
+ * losses wobble at one CV and are funded off a table built at another would
+ * be priced for a risk it does not run.
+ *
+ * ⚠ CHOSEN, NOT SOURCED, AND NOT YET USED. WC 6%, Property 8%, GL 10%. Nothing
+ * reads it: it is wired in with the stable-years build and the funding tables
+ * from wip/clf-tables, as DEVELOPMENT_SPEED was recorded before it was wired.
+ */
+export const BASELINE_CV: PerLine<number> = { WC: 0.06, GL: 0.10, Property: 0.08 };
+
 /** The combined dividend / assessment control: negative is an assessment. */
 export const DIVIDEND_ASSESSMENT_RANGE = { min: -0.15, max: 0.15, step: 0.01, default: 0 };
 
@@ -1138,6 +1157,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'opening and its bulk years, the pre-game and the host\'s development all read the compressed patterns. '
           + 'Year-1 rates are unchanged; later rates move slightly because faster payment brings the host\'s adverse '
           + 'development into pricing sooner, and leaves less open balance for shock R development to act on.',
+      }],
+      ['Baseline CV', {
+        value: perLine(BASELINE_CV, 2), unit: 'coefficient of variation',
+        what: 'The shared year-to-year wobble in each line\'s ordinary losses: the CV of the year factor every '
+          + 'unit of the book shares.',
+        basis: 'CHOSEN', notYetUsed: true,
+        note: 'One setting for two things, so they can never disagree: it will drive both the engine\'s ordinary '
+          + 'loss draw and which funding table the line uses. Wired in with the stable-years build and the '
+          + 'funding tables from wip/clf-tables.',
       }],
       ['CLF tables', {
         value: 'per line, in clfTables.ts', unit: 'multiplier on expected loss',
