@@ -390,8 +390,8 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
  * against the declared year before it — the player is funding at expected
  * where the prior board funded with a cushion — and that drop is real rather
  * than a modelling artefact. It is the first thing the Decisions panel's
- * change column reports, and the welcome memo states the 14% so the drop is
- * explicable rather than surprising. The memo READS this constant.
+ * change column reports. No player-facing text names the 14%: the welcome
+ * memo carries no engine detail (docs/PENDING_MULTIPLAYER.md).
  */
 export const PRE_GAME_FUNDING_CUSHION = 0.14;
 
@@ -1307,7 +1307,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'that locks year 1 untouched prices BELOW the year before it — measured at -7.0% on WC, -4.9% '
           + 'on GL, -3.9% on Property, against +41.7% / +18.5% / +35.7% when the pre-game also funded at '
           + 'expected. The year-1 rate itself is identical either way; only the figure it is compared '
-          + 'against moves. The welcome memo reads this constant rather than naming a number.',
+          + 'against moves. No player-facing text names it.',
       }],
     ],
   },

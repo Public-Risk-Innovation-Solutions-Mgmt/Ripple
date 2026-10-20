@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import type { CoverageLine, GameState, ResultSet } from '../types/simulation';
-import { formatMillions, formatCurrency } from '../utils/formatters';
+import type { GameState } from '../types/simulation';
 import { LINE_FULL_NAME } from '../utils/lineDisplay';
 import { applyTemplate } from '../utils/renderMarkdown';
 import DocumentReader, { type DocumentEntry } from '../components/DocumentReader';
@@ -11,88 +10,38 @@ interface IntroductionPageProps {
   gameState: GameState;
 }
 
-// "A", "A and B", or "A, B, and C" — Intl.ListFormat needs a newer lib target
-// than this project's tsconfig carries, so joined by hand instead of pulling
-// that in for one call site.
-function formatConjunctionList(items: string[]): string {
+// "A", "A and B", or "A, B and C" — the memo's natural list, no serial comma.
+function naturalList(items: string[]): string {
   if (items.length <= 1) return items.join('');
-  if (items.length === 2) return `${items[0]} and ${items[1]}`;
-  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
-// The Welcome Memorandum is dated Year 1 and addressed to an incoming team —
-// it must always describe the Pool's OPENING position, not whatever year the
-// player has actually reached. priorHistory's last entry (year 0's ending
-// state) IS that opening position (see Stage 2.10 in App.tsx), so this reads
-// from priorHistory rather than lockedResults regardless of current year.
+// ============================================================================
+// THE WELCOME MEMORANDUM'S FIGURES — every one READ FROM THE GAME, never typed.
 //
-// ⚠ THE MEMO STATES EXPOSURE BY LINE, NOT A MEMBER COUNT. It used to open
-// "serves N of 200 eligible public entities", with payroll and TIV summed over
-// the roster. The game shows the pool in aggregate now, so {{EXPOSURE_BY_LINE}}
-// replaces those four tokens with one bullet per ACTIVE line, built in code the
-// way buildInvestmentMemo builds its asset-class table.
+// ⚠ IT DESCRIBES THE POOL AS THE TEAM TAKES IT OVER: the policy year it enters is
+// the game's first, and "closed last year" is the year before it — the last
+// pre-game year, priorHistory's final entry, frozen once written. So the memo
+// reads the same in year 9 as in year 1.
 //
-// ⚠ IT READS THE ENGINE'S OWN FIGURES AND RESTATES NEITHER. Each bullet takes
-// `activeExposure` and `totalMarketExposure` straight off that line's opening
-// row — the same two fields the Results card's market share divides — rather
-// than re-summing the roster, which is what the four tokens it replaces did.
-//
-// ⚠ A LINE THE GAME DOES NOT USE IS ABSENT, not zero. The list is built from
-// setup.activeLines and each entry is dropped again if the opening row is
-// missing, so a one-line game produces exactly one bullet and no empty sentence.
-//
-// ⚠ THE ROSTER FIELDS READ `opening.memberList`, NOT `poolState`, AND THAT IS
-// THE WHOLE POINT OF THIS FUNCTION. They used to come from
-// poolState.allMarketMembers — LIVE state — so the three of them tracked
-// attrition and joining while the six around them stayed pinned. A memo dated
-// Year 1 then told an incoming team the Pool "currently serves 133 of 200" when
-// 141 were enrolled at the opening: measured at 141 -> 133 members,
-// $849.87M -> $813.58M payroll and $39.91B -> $36.88B TIV over eight years.
-// priorHistory is frozen once written, so reading the roster from it makes the
-// memo read identically in year 9 as in year 1.
-//
-// ⚠ NOT `opening.activeMembers`, which is a DIFFERENT QUANTITY. That field sums
-// per-line enrolments, so a member carrying two lines counts twice — it read 191
-// against a 131-member roster on the seed this was checked on. `memberList` is
-// the distinct roster and is what the live computation it replaces agreed with.
-//
-// `totalMemberCount` stays on poolState because the marketplace is a fixed
-// 200-member roster whose length never changes — members change STATUS, none are
-// added or removed (verified constant at 200 across 12 years and three seeds).
-// There is no equivalent field on ResultSet to move it to.
-// WC and GL are written on payroll; Property on insured value. Naming the
-// measure per line matters — "$39.9B of exposure" reads as payroll unless it
-// says otherwise.
-const EXPOSURE_MEASURE: Record<CoverageLine, string> = {
-  WC: 'payroll',
-  GL: 'payroll',
-  Property: 'insured value',
-};
-
-function exposureByLine(opening: ResultSet, activeLines: CoverageLine[]): string {
-  return activeLines
-    .map(line => {
-      const row = opening.byLine[line];
-      // Absent, not zero — see the note above.
-      if (!row) return null;
-      return `- **${LINE_FULL_NAME[line]}** — ${formatMillions(row.activeExposure)} of `
-        + `${formatMillions(row.totalMarketExposure)} ${EXPOSURE_MEASURE[line]} in the marketplace`;
-    })
-    .filter((x): x is string => x !== null)
-    .join('\n');
-}
+// ⚠ AND IT CARRIES NO ENGINE DETAIL (see the rule at the head of
+// welcomeMemo.md): no funding level, cushion, market share or membership.
+// ============================================================================
+const MULTI_LINE_PARAGRAPH = 'Each coverage line behaves differently. Strength in one can hide weakness in another, '
+  + 'so review each line as well as the Pool as a whole.';
+const LOANS_PARAGRAPH = '**Loans between lines.** If a line ends a year with negative surplus, the Pool\'s other '
+  + 'lines may be able to cover it with a loan, which you then choose how quickly to repay.';
 
 function buildWelcomeMemoValues(gameState: GameState): Record<string, string> {
   const { setup, priorHistory } = gameState;
-  const opening = priorHistory[priorHistory.length - 1];
-
+  const closedLastYear = priorHistory[priorHistory.length - 1];
   return {
     poolName: setup.poolName,
-    startingYear: String(setup.startingYear),
-    EXPOSURE_BY_LINE: exposureByLine(opening, setup.activeLines),
-    latestEndingSurplus: formatCurrency(opening.endingSurplus, true),
-    premiumToSurplusRatio: (opening.totalMemberCharge / opening.endingSurplus).toFixed(2),
-    selectedCoverageLines: formatConjunctionList(setup.activeLines.map(l => LINE_FULL_NAME[l])),
+    year: String(setup.startingYear),
+    lines: naturalList(setup.activeLines.map(l => LINE_FULL_NAME[l])),
+    surplus: `${closedLastYear.endingSurplus < 0 ? '−' : ''}$${Math.abs(closedLastYear.endingSurplus / 1e6).toFixed(1)}M`,
+    // Only when the game has more than one line.
+    MULTI_LINE: setup.activeLines.length > 1 ? MULTI_LINE_PARAGRAPH : '',
   };
 }
 
@@ -100,6 +49,10 @@ export default function IntroductionPage({ gameState }: IntroductionPageProps) {
   const [selectedId, setSelectedId] = useState('welcome');
 
   const welcomeMemoContent = applyTemplate(welcomeMemoRaw, buildWelcomeMemoValues(gameState));
+  // How to Play: the loans paragraph only when the game has more than one line.
+  const howToPlayContent = applyTemplate(howToPlayRaw, {
+    LOANS_PARAGRAPH: gameState.setup.activeLines.length > 1 ? LOANS_PARAGRAPH : '',
+  });
 
   const documents: DocumentEntry[] = [
     {
@@ -111,8 +64,8 @@ export default function IntroductionPage({ gameState }: IntroductionPageProps) {
     {
       id: 'howToPlay',
       title: 'How to Play',
-      summary: 'The mechanical reference — decisions, reports, and the yearly cycle',
-      content: howToPlayRaw,
+      summary: 'The yearly cycle, your decisions, and the reports',
+      content: howToPlayContent,
     },
   ];
 
