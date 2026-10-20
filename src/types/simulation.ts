@@ -22,9 +22,12 @@ export type MemberType =
 
 export type SizeCategory = 'Small' | 'Medium' | 'Large' | 'Very Large';
 
-// Geographic region, an authored canonical-roster column since v2 (replacing a
-// synthetic 1-5 draw). Three regions, assigned 72 / 61 / 67 across the roster.
-export type Region = 'North' | 'Central' | 'South';
+// Geographic region. The GAME has four since book units: North, South, Central
+// and East at REGION_EXPOSURE_SHARE (pricingParameters). The dormant member
+// roster's authored column holds the first three only (72 / 61 / 67 across the
+// roster) and its catastrophe model keeps its own three-region list
+// (CAT_REGIONS); East never appears there.
+export type Region = 'North' | 'Central' | 'South' | 'East';
 
 export interface Member {
   id: string;
@@ -399,6 +402,11 @@ export interface Claim {
   // they show the event's name (see utils/yearEvents.ts), which reads the same
   // for a scheduled event and a drawn one.
   shockId?: string;
+  // THE BOOK UNIT the claim landed on (book units commit 5) — its index in the
+  // line's market (bookUnits.ts). Internal: NEVER SHOWN on any screen, export
+  // or workbook, which read the line. Absent on the member path and on
+  // claims from before book units.
+  unit?: number;
   // The rating GROUP the claim arose from (WC: county / schools / highSafety /
   // lowSafety). Was a rating CLASS before the severity rebuild.
   ratingClass?: string;
@@ -496,6 +504,13 @@ export interface HistoricalYear {
 export interface GameInstance {
   instanceId: string;
   seed: number;
+  /**
+   * THE GAME'S SEED, ON A COPY THAT RUNS ON ANOTHER — a world's instance, or a
+   * pre-game attempt's. The book of units' market is the GAME's (bookUnits.ts),
+   * so every world and every attempt regenerates the same units from this.
+   * Absent on the game's own instance, whose `seed` it is.
+   */
+  marketSeed?: number;
   lossEnvironment: {
     baseLossRatio: number;        // e.g. 0.68
     lossTrend: number;            // annual claim inflation e.g. 0.04
@@ -625,6 +640,13 @@ export interface LineDecisionSet {
   // only the fallback the slider lands on if the player later drags away from
   // Expected to a specific percentile stop).
   fundingAtExpected: boolean;
+  /**
+   * THE PRE-GAME'S FUNDING, NEVER A PLAYER'S. When set, the line funds at CLF
+   * exactly 1 + this over expected and reads no funding table — neither the
+   * flag above nor the confidence level is read for pricing. Only the pre-game's
+   * decisions set it (PRE_GAME_FUNDING_CUSHION); absent everywhere else.
+   */
+  fundingCushion?: number;
   dividendPct: number;            // 0.00 to 0.15 of premium
   assessmentPct: number;          // 0.00 to 0.25 of premium
   /**
@@ -2270,6 +2292,14 @@ export interface PoolState {
   // membershipHistory, and discarding a save over an additive field would be a
   // worse trade.
   memberLossHistory?: MemberLossHistory;
+  /**
+   * THE BOOK OF UNITS EACH LINE HOLDS — indices into the line's market
+   * (bookUnits.ts), which is regenerated from the game seed and never stored.
+   * ONCE PER GAME: on the game's own pool state, never on a world's or in a
+   * year's record — every world holds the same book. Absent with MEMBER_LEVEL
+   * on, and on saves from before book units. Never shown.
+   */
+  bookUnits?: Partial<Record<CoverageLine, number[]>>;
 }
 
 // Top-level game state

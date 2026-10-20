@@ -26,8 +26,8 @@ import {
 import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
 import { SHOCK_EVENTS } from './shockLosses';
-import { CAT_REGIONS } from './propertyCatastrophe';
-import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE } from '../data/pricingParameters';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, regionByShare } from '../data/pricingParameters';
+import { bookSizeOf, marketSeedOf, openingBookUnits } from './bookUnits';
 import { exposureFactor } from '../data/exposureTrend';
 
 // Each active line independently enrolls its own starting members. First it
@@ -326,7 +326,8 @@ function withRegions(seed: number, schedule: readonly ScheduledShock[]): Schedul
     if (!SHOCK_EVENTS.find(e => e.id === s.shockId)!.regional) return base;
     if (s.region) return { ...base, region: s.region };
     const rng = deriveSubRng(seed, s.yearNumber, `shock_region_${s.shockId}_${ordinal}`);
-    return { ...base, region: CAT_REGIONS[Math.min(2, Math.floor(rng.next() * 3))] };
+    // By exposure share (regionByShare), one uniform as before.
+    return { ...base, region: regionByShare(rng.next()) };
   });
 }
 
@@ -389,6 +390,11 @@ export function generateStartingPoolState(
   // skipping them moves nothing else.
   const bookMode = !MEMBER_LEVEL.enabled;
   const allMarketMembers = bookMode ? [] : getPredefinedMarketMembers();
+  // ⚠ A LINE OPENS ON ITS BOOK OF UNITS SINCE BOOK UNITS COMMIT 3: their sizes
+  // summed (about 30% of the market plus the last unit, different in every
+  // game), where it opened on OPENING_BOOK_EXPOSURE, one figure for all.
+  const openingExposure = (line: CoverageLine) =>
+    bookSizeOf(marketSeedOf(instance), line, openingBookUnits(marketSeedOf(instance), line));
 
   // Each active line draws its OWN starting roster (different but overlapping
   // sets) from its own derived stream — enrollment happens here, BEFORE the
@@ -430,7 +436,7 @@ export function generateStartingPoolState(
   const activeMembers = wcMembers.filter(m => m.status === 'active');
 
   let activeExposure = bookMode
-    ? OPENING_BOOK_EXPOSURE.WC * exposureFactor('WC', OPENING_EXPOSURE_YEAR)
+    ? openingExposure('WC') * exposureFactor('WC', OPENING_EXPOSURE_YEAR)
     : activeMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
   let totalMarketExposure = bookMode
     ? FULL_MARKET_EXPOSURE.WC * exposureFactor('WC', OPENING_EXPOSURE_YEAR)
@@ -532,7 +538,7 @@ export function generateStartingPoolState(
           riskControlEffectiveness: 0,
           reserveCohorts: glStartingReserveCohorts,
           members: lineMembers('GL'),
-          ...(bookMode ? { bookExposure: OPENING_BOOK_EXPOSURE.GL } : {}),
+          ...(bookMode ? { bookExposure: openingExposure('GL') } : {}),
           netUnpaidReserve: glNetUnpaidReserve,
           // Placeholder — the redistribution block below assigns every active
           // line its weighted share of the opening surplus and investments.
@@ -581,7 +587,7 @@ export function generateStartingPoolState(
           riskControlEffectiveness: 0,
           reserveCohorts: propertyStartingReserveCohorts,
           members: lineMembers('Property'),
-          ...(bookMode ? { bookExposure: OPENING_BOOK_EXPOSURE.Property } : {}),
+          ...(bookMode ? { bookExposure: openingExposure('Property') } : {}),
           netUnpaidReserve: propertyNetUnpaidReserve,
           // Placeholder — see the redistribution block below (same as GL).
           surplus: -propertyNetUnpaidReserve,
@@ -601,7 +607,7 @@ export function generateStartingPoolState(
     riskControlEffectiveness: 0,
     reserveCohorts: startingReserveCohorts,
     members: wcMembers,
-    ...(bookMode ? { bookExposure: OPENING_BOOK_EXPOSURE.WC } : {}),
+    ...(bookMode ? { bookExposure: openingExposure('WC') } : {}),
     netUnpaidReserve,
     surplus,
     investedAssets: 0, // assigned by the redistribution block below
@@ -671,6 +677,11 @@ export function generateStartingPoolState(
     // through processYear (see priorHistoryEngine), which is why members carry
     // history at Year 1 rather than starting blank.
     memberLossHistory: {},
+    // The opening book of units, from the game's seed (bookUnits.ts). On its
+    // own labelled streams: drawing it moves no other draw.
+    ...(bookMode ? {
+      bookUnits: Object.fromEntries(activeLines.map(l => [l, openingBookUnits(marketSeedOf(instance), l)])),
+    } : {}),
   };
 
   const startingFinancials: StartingFinancials = {

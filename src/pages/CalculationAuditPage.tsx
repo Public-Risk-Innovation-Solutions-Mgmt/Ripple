@@ -1744,7 +1744,11 @@ export function buildSupportingRows(
   // `line` is undefined on a pooled row — but only the first tells the compiler
   // that the per-line reads inside this branch are reachable.
   const clfProvenanceText = lineRow !== null && lineRow.line && hasStaticClf(lineRow.line)
-    ? (lineRow.decisions.fundingAtExpected
+    ? (lineRow.decisions.fundingCushion !== undefined
+        // The pre-game's board funded at a stated cushion and read no table.
+        ? `The prior board's cushion — ${formatPct(lineRow.decisions.fundingCushion, 0)} over expected, a multiplier of exactly `
+          + `${(1 + lineRow.decisions.fundingCushion).toFixed(3)}; no table is read (PRE_GAME_FUNDING_CUSHION)`
+        : lineRow.decisions.fundingAtExpected
         ? 'Expected funding — the table is bypassed entirely and the multiplier is exactly 1.000'
         : `STATIC_CLF_TABLE.${lineRow.line}[${formatPct(lineRow.selectedFundingConfidenceLevel, 0)}] — see clfTables.ts`)
     // ⚠ POOL SCOPE NAMED A TABLE NO LINE READS. result.line is undefined on the

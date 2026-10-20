@@ -966,7 +966,40 @@ const BASELINE = process.env.RENDER_BASELINE
 // Diffed as text, the only change of WORDING is the Annual Statement's note,
 // which now says the older accident years are on the books from the first
 // pre-game year and what paid-in and earned surplus are.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v55.json');
+// v56: FOUR REGIONS (book units commit 1). The control ran first: 8c370a9,
+// served on 4174, reproduced v55 242 of 242. 18 of 242 moved, no key added or
+// removed, every one in its figures only: the Calculation Audit and Result
+// Spreadsheet screens in each configuration, which show expected loss and the
+// pure premium unrounded. No wording changed.
+// v57: ORDINARY LOSSES FROM BOOK UNITS (book units commit 3). The control ran
+// first: b1142b1, served on 4174, reproduced v56 242 of 242. 232 of 242 moved,
+// no key added or removed, every one in its figures: exposure and the market
+// share in the header, premium, losses, reserves and surplus. Diffed as text,
+// the only wording that moves is wording a figure decides — the narrative's
+// "with margin to spare", and the Retained Above Tower row, shown only in a
+// year a claim pierces the tower.
+// v58: LARGE LOSSES ON BOOK UNITS (book units commit 5). The control ran
+// first: caea33d, served on 4174, reproduced v57 242 of 242. 171 of 242 moved,
+// no key added or removed, every one in its figures only: premium, losses,
+// reserves, surplus and the ratios, and the Decisions panel's quote, which now
+// prices the tower on the book's risk as the engine does. No wording changed.
+// v59: FUNDING TABLES ON THE NEW ENGINE. The control ran first: 33fdde8, served
+// on 4174, reproduced v58 242 of 242. 232 of 242 moved, no key added or removed,
+// in their figures — surplus, capital and what it earns, the pre-game's rates,
+// the slider's marker. Wording that changed, all of it intended: the package
+// note ("the expected recovery ... plus a 14% load", was "loaded at the line's
+// 70% CLF"), and the audit's CLF source for a pre-game year ("the prior board's
+// cushion — 14% over expected", was a table lookup at 70%).
+// v60: THE DISPLAY COMMIT. The control ran first: 1edb461, served on 4174,
+// reproduced v59 242 of 242. 34 of 242 moved, no key added or removed, every
+// one attributed: on the 26 Annual Statement screens, "not yet available" cells
+// show blank, the notes under the tables are gone (hidden from players, kept in
+// the source), the year selector appears, and a year-label row sits over the
+// columns ("Current" at game start; "Year 0 · Year 1 · Current" after year 2);
+// on the 8 line Decision History screens, three new columns — Renewal Declined,
+// New Business, Risk Control — reading 0.0% at default decisions. No figure
+// changed; values and exports are byte-identical.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v60.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

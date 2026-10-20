@@ -3,7 +3,7 @@
 //
 //   --set PROFIT_AND_CONTINGENCY_OF_RATE=0.07      a whole export
 //   --set SEVERITY_TREND_PER_YEAR.WC=0.09          one member of one
-//   --set REINSURANCE_LOAD_CLF_AT_70.Property=1.2
+//   --set REINSURANCE_LOAD=0.2
 //   --set PRICING_WINDOW_YEARS_NEW=7
 //   --set ADMIN_FIXED_PER_YEAR.GL=750000
 //   --set 'ALAE_OF_LOSS_COST={"WC":0.1,"GL":0.1,"Property":0.1}'

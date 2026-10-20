@@ -4,6 +4,8 @@ import { ScrollText, ArrowUpDown } from 'lucide-react';
 import type { LineResultSet, ResultSet, LineView , CoverageLine} from '../types/simulation';
 import { isPoolRow } from '../utils/lineHelpers';
 import { lineDisplayName } from '../utils/lineDisplay';
+import { cutShare, intakeShare } from '../utils/bookUnderwriting';
+import { RISK_CONTROL } from '../data/pricingParameters';
 
 interface DecisionHistoryPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
@@ -40,6 +42,10 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
     : [
         'Yr', 'Calendar', 'Funding Confidence', 'Dividend %', 'Assessment %',
         'Reinsurance Program',
+        // Underwriting and risk control, as percentages: the share of renewal
+        // exposure declined, the intake position as the share of exposure it
+        // writes (not its name), and risk control — 0% while it is disabled.
+        'Renewal Declined', 'New Business', 'Risk Control',
         ...(showLoanColumn ? ['Loan Repayment Aggressiveness'] : []),
       ];
 
@@ -109,6 +115,10 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
                         </td>
                         <td className="px-4 py-3">{pctDisplay(r.decisions.assessmentPct)}</td>
                         <td className="px-4 py-3">{placementSummary(lineView as CoverageLine, r.decisions)}</td>
+                        {/* Read through the engine's own readings of the recorded decisions. */}
+                        <td className="px-4 py-3">{pctDisplay(cutShare(r.decisions.renewalCut))}</td>
+                        <td className="px-4 py-3">{pctDisplay(intakeShare(r.decisions.intakeLevel))}</td>
+                        <td className="px-4 py-3">{pctDisplay(RISK_CONTROL.enabled ? r.decisions.riskControlPct : 0)}</td>
                         {showLoanColumn && (
                           <td className="px-4 py-3">
                             {(r.outstandingLoanBalance > 0 || r.loanOriginatedThisYear > 0)

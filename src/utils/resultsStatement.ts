@@ -12,6 +12,15 @@
 //   TOTAL   over the five years shown: the sum for flow rows; the latest year
 //           for balances, ratios and changes.
 //
+// AS OF A YEAR. The statement is built as it stood at a chosen year (the page's
+// year selector; the latest by default): the window is the five years ending
+// there, everything older in Prior, and the program-year blocks are valued at
+// that year — its own reserve split and the ledger's paid at its valuation.
+// Above the calendar labels, each window year carries a YEAR LABEL: "Year 0"
+// for the last pre-game year (the one the game starts from), "Year 1", "Year 2"
+// … after it, and "Current" on the game's actual latest year only; earlier
+// pre-game years, Prior and Total carry none.
+//
 // ⚠ EVERY FIGURE IS READ, NEVER RESTATED. Dollars are the ten-world averages
 // the game state holds (lockedResults, the averaged ledger and its reserve
 // split; the pre-game ran once, before the worlds); every ratio is recomputed
@@ -63,13 +72,55 @@ export interface StatementSection {
   hasPrior: boolean;
   /** The yearNumber of each window column. */
   windowYears: number[];
+  /** The header row above `columns`, aligned with it: "Current", "Year n", or ''. */
+  yearLabels: string[];
   rows: StatementRow[];
 }
 
 export interface AnnualStatement {
   scope: LineView;
+  /** The year the statement stands at — the last window column. */
+  asOf: number;
   sections: StatementSection[];
+  /**
+   * ⚠ HIDDEN FROM PLAYERS. The explanatory notes the page used to print under
+   * the tables. Kept so they can be restored, or shown in a testing view.
+   */
   notes: string[];
+}
+
+/** "Current" on the game's latest year, "Year n" from the last pre-game year on, else blank. */
+export function yearLabelOf(yearNumber: number, latest: number): string {
+  if (yearNumber === latest) return 'Current';
+  return yearNumber >= 0 ? `Year ${yearNumber}` : '';
+}
+
+/** A cell's text. A figure with no source shows BLANK — it is still 'na' in the statement. */
+export function cellText(c: Cell, format: CellFormat): string {
+  const thousands = (x: number) => {
+    const r = Math.round(x / 1000);
+    return `${r < 0 ? '−' : ''}${Math.abs(r).toLocaleString('en-US')}`;
+  };
+  switch (c.kind) {
+    case 'na': return '';
+    case 'none': return '—';
+    case 'byLine': return 'by line';
+    case 'range': return `${thousands(c.min)} · ${thousands(c.median)} · ${thousands(c.max)}`;
+    case 'value': {
+      const x = c.v;
+      return format === 'dollars' ? thousands(x)
+        : format === 'pct' ? `${(x * 100).toFixed(1)}%`.replace(/^-/, '−')
+        : format === 'ratio' ? x.toFixed(2).replace(/^-/, '−')
+        : format === 'exposure' ? `${Math.abs(x) < 0.05 ? '0.0' : x.toFixed(1)}`
+        : x.toFixed(3);
+    }
+  }
+}
+
+/** The years a statement can stand at — every pre-game and game year, oldest first. */
+export function statementYears(gs: GameState): { yearNumber: number; calendarYear: number }[] {
+  return [...(gs.earlyPreGameHistory ?? []), ...(gs.priorHistory ?? []), ...gs.lockedResults]
+    .map(r => ({ yearNumber: r.yearNumber, calendarYear: r.calendarYear }));
 }
 
 const v = (x: number | undefined | null): Cell =>
@@ -292,24 +343,40 @@ interface AyBlock { gross: AyLoss; ceded: AyLoss; net: AyLoss }
 const zero = (): AyLoss => ({ paid: 0, case_: 0, ibnr: 0 });
 const addLoss = (a: AyLoss, b: AyLoss): AyLoss => ({ paid: a.paid + b.paid, case_: a.case_ + b.case_, ibnr: a.ibnr + b.ibnr });
 
-/** One line's program years: AY -> its gross, ceded and net figures. */
-function programYearsOf(gs: GameState, line: CoverageLine): Map<number, AyBlock> {
+/**
+ * One line's program years, valued at `asOf`: AY -> its gross, ceded and net
+ * figures. At the latest year, the latest valuation; at an earlier year, that
+ * year's own reserve split and the ledger's paid at its valuation, over the
+ * accident years it had.
+ */
+function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet, isLatest: boolean): Map<number, AyBlock> {
   const s = laeShares(line).total;
   const out = new Map<number, AyBlock>();
   const latest = gs.lockedResults.at(-1)?.byLine[line];
   const ls = gs.poolState.lines[line];
-  const split: AccidentYearSplit[] = latest ? latest.reserveSplitByYear ?? [] : splitCohorts(line, ls.reserveCohorts ?? []);
+  // The opening — the last pre-game year — stands at the opening's own cohorts
+  // whenever it is the year shown: before year 1 it is the latest year; after,
+  // it is chosen from the selector.
+  const atOpening = asOf.yearNumber === 0 && (isLatest || !latest);
+  const split: AccidentYearSplit[] = atOpening ? splitCohorts(line, openingCohorts(gs, line))
+    : isLatest ? latest?.reserveSplitByYear ?? []
+    : asOf.byLine[line]?.reserveSplitByYear ?? [];
   const splitOf = new Map(split.map(x => [x.yearNumber, x]));
-  // Paid to date: the averaged ledger once a year is played; the opening's
-  // cohorts before (one opening, shared by every world).
+  // Paid to date: the averaged ledger, at the shown year's valuation; the
+  // opening's cohorts at the opening (one opening, shared by every world).
   const paid = new Map<number, { net: number; gross: number }>();
-  if (latest) {
-    for (const r of ls.reserveDevelopment ?? []) {
-      const net = r.paidByValuation?.at(-1) ?? 0;
-      paid.set(r.yearNumber, { net, gross: r.grossPaidByValuation?.at(-1) ?? net });
-    }
+  if (atOpening) {
+    for (const c of openingCohorts(gs, line)) paid.set(c.yearNumber, { net: c.netPaid, gross: c.grossPaid ?? c.netPaid });
   } else {
-    for (const c of ls.reserveCohorts ?? []) paid.set(c.yearNumber, { net: c.netPaid, gross: c.grossPaid ?? c.netPaid });
+    for (const r of ls.reserveDevelopment ?? []) {
+      if (r.yearNumber > asOf.yearNumber) continue;
+      const k = asOf.yearNumber - r.firstValuationYear;
+      if (k < 0) continue;
+      const pick = (xs?: number[]) => (xs && xs.length > 0 ? xs[Math.min(k, xs.length - 1)] : undefined);
+      const net = isLatest ? (r.paidByValuation?.at(-1) ?? 0) : (pick(r.paidByValuation) ?? 0);
+      const gross = isLatest ? (r.grossPaidByValuation?.at(-1) ?? net) : (pick(r.grossPaidByValuation) ?? net);
+      paid.set(r.yearNumber, { net, gross });
+    }
   }
   const ays = new Set([...paid.keys(), ...splitOf.keys()]);
   for (const ay of ays) {
@@ -361,15 +428,29 @@ function programRows(
   ];
 }
 
+/**
+ * The opening's reserve cohorts — what year 1 begins from — read only before
+ * year 1, while the pool state still IS the opening. Once a year is played the
+ * state has moved on, and the opening year is valued from its own result and
+ * the ledger like any other (see programYearsOf).
+ */
+const openingCohorts = (gs: GameState, line: CoverageLine) => gs.poolState.lines[line].reserveCohorts ?? [];
+
 // ---------------------------------------------------------------------------
 const yearsLabel = (first: number, last: number) =>
   (first === last ? `${first}` : `${first}–${String(last).slice(-2)}`);
 
-export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStatement {
+export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: number): AnnualStatement {
   const lines: CoverageLine[] = scope === 'pool' ? gs.setup.activeLines : [scope];
-  // THE TIMELINE: every pre-game year, then every game year, oldest first.
-  const preGame = [...(gs.earlyPreGameHistory ?? []), ...(gs.priorHistory ?? [])];
-  const timeline: ResultSet[] = [...preGame, ...gs.lockedResults];
+  // THE TIMELINE: every pre-game year, then every game year, oldest first —
+  // cut at the year the statement stands at (the latest, unless one is chosen).
+  const preGameAll = [...(gs.earlyPreGameHistory ?? []), ...(gs.priorHistory ?? [])];
+  const full: ResultSet[] = [...preGameAll, ...gs.lockedResults];
+  const latestYear = full.at(-1)?.yearNumber ?? 0;
+  const asOf = asOfYear !== undefined && full.some(r => r.yearNumber === asOfYear) ? asOfYear : latestYear;
+  const isLatest = asOf === latestYear;
+  const timeline: ResultSet[] = full.filter(r => r.yearNumber <= asOf);
+  const preGame = preGameAll.filter(r => r.yearNumber <= asOf);
   const first = Math.max(0, timeline.length - STATEMENT_WINDOW_YEARS);
   const window = timeline.slice(first), rolled = timeline.slice(0, first);
   const windowYears = window.map(r => r.yearNumber);
@@ -378,8 +459,9 @@ export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStat
     : rolled.length === preGame.length && rolled.every(r => r.yearNumber <= 0) ? 'Prior (all pre-game)'
     : `Prior (${yearsLabel(rolled[0].calendarYear, rolled[rolled.length - 1].calendarYear)})`;
   const calendarColumns = [...(hasCalendarPrior ? [priorLabel] : []), ...window.map(r => `${r.calendarYear}`), 'Total'];
+  const labelsFor = (hasPrior: boolean) => [...(hasPrior ? [''] : []), ...windowYears.map(y => yearLabelOf(y, latestYear)), ''];
   const calendar = (key: StatementSection['key'], title: string, basis: string, rows: StatementRow[]): StatementSection =>
-    ({ key, title, basis, columns: calendarColumns, hasPrior: hasCalendarPrior, windowYears, rows });
+    ({ key, title, basis, columns: calendarColumns, hasPrior: hasCalendarPrior, windowYears, yearLabels: labelsFor(hasCalendarPrior), rows });
 
   // Operating results.
   const operatingAll = timeline.map(r => operatingOf(at(r, scope)));
@@ -403,7 +485,8 @@ export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStat
 
   // Program years, summed over the scope's lines. The window is the same five
   // years, as program years; Prior holds every older one, bulk years included.
-  const perLine = lines.map(l => programYearsOf(gs, l));
+  const asOfResult = timeline[timeline.length - 1];
+  const perLine = lines.map(l => programYearsOf(gs, l, asOfResult, isLatest));
   const blockAt = (pick: (b: AyBlock) => AyLoss, ays: (ay: number) => boolean) =>
     perLine.reduce((acc, m) => [...m.entries()].filter(([ay]) => ays(ay)).reduce((a, [, b]) => addLoss(a, pick(b)), acc), zero());
   const firstAy = windowYears[0] ?? 1;
@@ -421,7 +504,10 @@ export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStat
       priorPrem, premAll.slice(first).map(p => p[key]), first > 0 ? premAll[first - 1][key] : undefined);
     // Drop the Prior cell where nothing predates the window (never, while bulk years exist).
     if (!programPrior) for (const r of rows) r.cells.shift();
-    return { key, title, basis: 'by program year, at the latest valuation', columns: programColumns, hasPrior: programPrior, windowYears, rows };
+    return {
+      key, title, basis: isLatest ? 'by program year, at the latest valuation' : `by program year, valued at ${asOfResult.calendarYear}`,
+      columns: programColumns, hasPrior: programPrior, windowYears, yearLabels: labelsFor(programPrior), rows,
+    };
   };
 
   const sections: StatementSection[] = [
@@ -431,6 +517,8 @@ export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStat
     block('net', 'Net', b => b.net),
   ];
 
+  // ⚠ HIDDEN FROM PLAYERS (the page no longer prints them). Kept here so they
+  // can be restored, or shown in a testing view.
   const notes = [
     'Dollars are the average of the ten worlds; every ratio is worked out from those averaged figures. The surplus range is the one per-world figure; the pre-game ran once, before the worlds.',
     `The most recent ${STATEMENT_WINDOW_YEARS} years are shown as their own columns; every older year collects in Prior — flows summed, balances at the end of the last year in it. Total covers the ${STATEMENT_WINDOW_YEARS} years shown: the sum for flows, the latest year for balances, ratios and changes.`,
@@ -438,7 +526,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView): AnnualStat
     'In the Gross, Ceded and Net blocks Prior holds every older program year, the bulk reserves from before the pre-game included. Those carry no premium, so Prior has no Loss and LAE Ratio.',
     'Loss adjustment expense is the rate\'s share of the ground-up loss: paid with the losses, its reserve held in IBNR. The reinsurer reimburses none of it, so it is in gross and net alike.',
   ];
-  return { scope, sections, notes };
+  return { scope, asOf, sections, notes };
 }
 
 /** Every row carrying a "not yet available" cell, as "Section — Row (column)". */

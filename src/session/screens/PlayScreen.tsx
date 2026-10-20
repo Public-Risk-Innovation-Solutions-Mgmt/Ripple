@@ -431,6 +431,8 @@ export default function PlayScreen({ code, role }: Props) {
       onDecisionsChange={isViewer ? () => {} : setDecisions}
       activeTab={activeTab}
       onSelectTab={setActiveTab}
+      // The multiplayer version: hides the tabs in GameShell's MULTIPLAYER_HIDDEN_TABS.
+      multiplayer
       lineView={lineView}
       onSelectLineView={setLineView}
       // A viewer passes no advance handler at all, so no button renders.

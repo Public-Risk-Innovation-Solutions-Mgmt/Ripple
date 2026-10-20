@@ -377,10 +377,99 @@ the parameters page as well, which is where it bites.
 **Multiplayer:** scheduled by the host, as today. **Singleplayer:** drawn by the
 catalogue's own probabilities. No probability is consulted in multiplayer.
 
+### Book units
+
+**The market and the book are drawn (book units commit 2); nothing reads them
+yet.** Each line's exposure is split across individual units — `BookUnit`,
+`src/utils/bookUnits.ts`, never called members and never shown on any screen,
+export or host view; every result stays at line level.
+
+- **Market:** 200 units a line from the game seed — size CV 40% (summing
+  exactly to the full market), true risk CV 30% (size-weighted mean exactly
+  1.0), regions by share, and a noise draw for underwriting's view of risk.
+- **Book:** the market in a seeded order until it first reaches 30% of the
+  market's exposure — 51-69 units, about 60.5 on average. Across seeds its
+  mean risk runs 0.94-1.06. With the planned 2% shared and 10% unit factors on
+  ordinary losses, its line-level CV is about 2.47% (it is 2.2% today).
+- **Stored once per game** as unit indices on the game's pool state
+  (`PoolState.bookUnits`); no world's state or year's record carries it. The
+  market is regenerated from the seed.
+- The book sums to slightly more than today's opening exposure (WC and GL
+  start at 30.1% and 28.8% of the market, Property 29.7%; the book is 30% plus
+  the last unit's overshoot). That reaches the game when the engine reads it.
+
+**Ordinary losses come from the units (book units commit 3).** Each unit's
+expected ordinary loss is its exposure x its true risk x the line's cost; each
+year it is that x a year factor every unit shares (CV 2%) x its own (CV 10%),
+and the line's ordinary loss is the sum — replacing one 2.2% draw at the line.
+The line's CV is the book's own, about 2.47%. Expected loss carries the book's
+size-weighted true risk. A line now opens on its book's exposure — its units'
+sizes summed — rather than one figure for all games: over 400 seeds WC opens
+0.6% larger on average, GL 5.1% and Property 1.8% (the book is 30% of the
+market plus its last unit; GL used to open at 28.8%)
+(book-units-ordinary-check).
+
+- **The funding tables do not need re-deriving for this.** Derived on the new
+  engine at the old one draw and at the units, the curves agree within their
+  confidence bands (funding at expected lands at WC 85.5% -> 85.2%, GL 63.4%
+  -> 63.4%, Property 80.6% -> 80.9%). But the shipped tables were never calibrated on the new
+  engine: WC's and GL's are supplied and Property's was derived on the member
+  engine, and on the new engine they sit well above the measured curve (at the
+  70% stop WC 1.140 shipped against 0.896 measured, GL 1.135 against 0.905,
+  Property 1.147 against 0.899).
+  That gap predates book units and is left for its own decision.
+
+
+**Underwriting moves units (book units commit 4).** Each unit's observed risk
+is its true risk x a noise drawn once from the seed; `UNIT_UW_VISIBILITY` (0.5)
+is the share of the observed log-risk's variance that is true risk — 0 selects
+at random, 1 perfectly.
+
+- **Renewal** declines the units that look riskiest, as close as whole units
+  come to the renewal cut's share of the book.
+- **Intake** takes the prospects (market units the book does not hold) that
+  look best, as close as whole units come to the intake position's share.
+- **Member Withdrawal** removes 25% of what is left, in a seeded order blind
+  to risk.
+- **One book in every world:** all of it reads the game's seed and the team's
+  one decision, so every world moves the same book; only loss draws differ.
+- At visibility 0.5, a 5% renewal cut declines units about 48% riskier than
+  the book, and 8% intake writes units about 37% safer than the prospects
+  (book-units-underwriting-check, 300 seeds).
+
+**Large losses land on units (book units commit 5).** Routine large claims
+and shock T losses land on the book's units, each unit weighted by its size x
+true risk; a regional T lands only on units in the struck region.
+
+- The routine claim count is λ x exposure x the book's size-weighted risk, and
+  the expected loss and the tower's layer prices carry the same factor, so a
+  riskier book sees more large claims and is priced for them; underwriting
+  moves both.
+- A claim carries its unit's index inside the engine only. The claims workbook
+  drops the Member ID, Member Name and Member Type columns on the new engine,
+  so no unit reaches a sheet.
+
+**The new-business penalty (book units commit 6).** `NEW_BUSINESS_PENALTY`
+is the R model's 20%: book units written this year cost 20% more on their
+actual ordinary losses, in their first year only; a unit renewed the next year
+carries none.
+
+- It is NOT in expected loss. Expected loss is the book's own exposure x risk
+  x cost; the rate learns the penalty only through the history, as new
+  business's losses reach the ledger. (It was 0, and it was in expected loss.)
+- At default decisions no unit is written, so it changes nothing there; it
+  bites when a team takes on intake.
+
 ### Regions
 
-The game's three. Each line's exposure is split across them, and **a regional A
-or T hits that region's share only**. **R shocks stay pool-wide**, because the
+**Four since book units** — North 25%, South 30%, Central 25%, East 20% of every
+line's exposure (`REGION_EXPOSURE_SHARE`, the R model's own; the three read from
+today's roster are retired). A regional event strikes one region, **drawn by
+exposure share**, and its A reaches that region's share of ordinary losses; its
+T lands whole in the struck region. Drawn by share, the expected share an event
+reaches is 0.255 (it was 0.334 over three near-equal regions drawn uniformly),
+so a regional event's expected A falls about 23.5%; nothing else was
+re-calibrated. The dormant member engine keeps its own three (`CAT_REGIONS`). **R shocks stay pool-wide**, because the
 reserve ledger has no regional split — the R model refuses a regional R for the
 same reason.
 
@@ -403,14 +492,40 @@ as `memberShareAboveLimit` and enters no pool total. WC and Property have no
 limit. See `POOL_LIMIT_PER_OCCURRENCE` and the **Coverage and the pre-game**
 section of [docs/PARAMETERS.md](PARAMETERS.md).
 
-### Pre-game funding level — 70%
+### Pre-game funding — a 14% cushion over expected
 
-**Landed, not pending.** The declared years were funded at the 70% confidence
-level, on each line's own CLF table; players still default to expected. The
-year-1 rate is unchanged by this — only the figure it is compared against
-moves, from +41.7% / +18.5% / +35.7% to -7.0% / -4.9% / -3.9% on WC / GL /
-Property. See `PRE_GAME_FUNDING_LEVEL` and the same page section; the welcome
-memo reads the constant rather than naming a number.
+**Landed, not pending.** The declared years are funded at CLF 1.14, a 14%
+cushion over expected (`PRE_GAME_FUNDING_CUSHION`), on every line; players
+still default to expected. It was the 70% confidence level on each line's own
+CLF table (WC 1.1400, GL 1.1350, Property 1.1471) and is stated as the cushion
+since the funding tables commit, so re-deriving the tables no longer moves the
+pre-game. The welcome memo reads the constant: "funded 14% above the expected
+cost of its claims".
+
+### Funding tables on the new engine (funding tables commit)
+
+**Landed.** The WC, GL and Property funding (CLF) tables are re-derived on the
+new engine, so the slider's levels are true. They are percentiles of a
+VOLATILITY-ONLY ratio, (net incurred loss + LAE) / (the engine's expected
+retained loss + LAE), and carry none of the experience pure premium's
+shortfall. See the head of `src/data/clfTables.ts` and
+`scripts/diagnostics/clf-newengine-derive.ts`; gated by `funding-table-check`.
+
+| | at expected covers | 70% stop | 90% stop (required capital) |
+|---|---|---|---|
+| WC | 78.2% | 0.9638 | 1.3275 (was 1.473) |
+| GL | 63.5% | 1.1678 | 1.7910 (was 1.502) |
+| Property | 84.0% | 0.7675 | 1.5247 (was 1.4414) |
+
+- **The reinsurance load is separate:** `REINSURANCE_LOAD`, 14% on every
+  layer's expected loss, every line. It was each line's table read at 70%.
+- **Required capital follows the new table** (unpaid reserve x (CLF90 - 1)), so
+  the opening surplus — a multiple of it — moves: WC -31%, GL +58%, Property
+  +2% (its requirement is mostly retained catastrophe).
+- **Pending, for pricing: the experience pure premium's shortfall**, measured
+  by the derivation and not fixed here. Property's five-year window misses
+  catastrophes in most years; GL's pricing does not anticipate prior-year
+  development, the host's 10% adverse among it; see the commit for figures.
 
 ### Development is a lifetime total
 
@@ -524,6 +639,16 @@ shape, plus `surplusRange` — the **minimum, median and maximum ending surplus*
 across the worlds, pool scope — on every played year. The host's Teams table
 shows the minimum beside the average. A contract change: the handler deploys
 first (docs/handoff/AWS_HANDLER_HANDOFF.md).
+
+**What a hosted session shows (the display commit).** Players and viewers do
+not see the Results, Financial Statements or Calculation Audit tabs;
+single-player keeps them, and the Result Spreadsheet stays in both, for
+testing. One switch: `MULTIPLAYER_HIDDEN_TABS` in `src/game/GameShell.tsx` —
+set it to `[]` to restore all three. The Annual Statement carries a year
+selector and a year-label row, shows blank where a figure has no source, and
+no longer prints its explanatory notes (kept in the source, hidden from
+players). Decision History adds, by line, the renewal share declined, the
+intake position's share of exposure and risk control.
 
 ### Performance
 
