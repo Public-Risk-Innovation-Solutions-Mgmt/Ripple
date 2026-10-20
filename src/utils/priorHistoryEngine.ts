@@ -57,7 +57,7 @@ import {
 import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState } from './lineHelpers';
-import { openingCatCapital, preGameBulkYears, setOpeningSurplus } from './openingReserves';
+import { preGameBulkYears, setOpeningSurplus } from './openingReserves';
 import { lossExpenseReserve } from './lossExpense';
 import { MEMBER_LEVEL, OPENING_RESERVE_YEARS, PRE_GAME_FUNDING_CUSHION, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
 import { confidenceAtClf, hasStaticClf } from '../data/clfTables';
@@ -589,11 +589,9 @@ function applySetOpening(
     line, developmentPct,
   ));
   const netUnpaidReserve = reserveCohorts.reduce((a, c) => a + c.netUnpaid, 0);
-  // The FULL requirement: Property's retained-catastrophe charge included, on
-  // the same book the bulk years were sized on. See setOpeningSurplus.
-  const bookForCapital = ls.bookExposure !== undefined
-    ? { exposure: ls.bookExposure * exposureFactor(line, 1) } : ls.members ?? [];
-  const surplus = setOpeningSurplus(line, netUnpaidReserve, openingCatCapital(line, bookForCapital));
+  // SET at OPENING_SURPLUS, not read off required capital (funding tables
+  // wiring). See setOpeningSurplus.
+  const surplus = setOpeningSurplus(line);
   const kept = new Set(open.map(c => c.yearNumber));
   const reserveDevelopment = (ls.reserveDevelopment ?? []).filter(r => kept.has(r.yearNumber));
   return {

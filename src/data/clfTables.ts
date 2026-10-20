@@ -4,10 +4,21 @@
 // retained loss and LAE come in at or under the funded amount p% of the time.
 //
 // ============================================================================
-// ⚠ RE-DERIVED ON THE NEW ENGINE (funding tables commit). THE TABLES IN FORCE
-// ARE WC_NEW_ENGINE, GL_NEW_ENGINE AND PROPERTY_NEW_ENGINE, BELOW; EVERYTHING
-// FROM "THE THREE LINES DO NOT COME FROM THE SAME PLACE" DOWN IS THE HISTORY OF
-// THE MEMBER-ENGINE TABLES THEY REPLACE, KEPT BECAUSE OTHER FILES QUOTE IT.
+// ⚠ THE TABLES IN FORCE ARE BASELINE_CV_TABLES, BY THE DATA SCIENTIST'S METHOD
+// (funding tables wiring). Each line reads the table built at its own
+// BASELINE_CV (pricingParameters.ts) — the same value the engine draws the
+// line's shared ordinary-loss year factor at — so the losses a line runs and
+// the table it is funded off cannot disagree. baseline-cv-table-check holds
+// the two together. See BASELINE_CV_TABLES, below, for the method.
+//
+// EVERYTHING ELSE IN THIS FILE IS HISTORY, NOT IN USE: the new-engine tables
+// (WC_NEW_ENGINE, GL_NEW_ENGINE, PROPERTY_NEW_ENGINE), whose note follows
+// directly, and the member-engine tables before them, from "THE THREE LINES
+// DO NOT COME FROM THE SAME PLACE" down. Kept because other files quote them.
+//
+// ============================================================================
+// THE NEW-ENGINE TABLES — NOT IN USE SINCE THE FUNDING TABLES WIRING. In force
+// from the funding tables commit until then.
 //
 // THE STATISTIC — VOLATILITY ONLY (scripts/tools/funding-ratio.ts):
 //
@@ -498,6 +509,7 @@
 // distribution moves the crossing further there than in GL's flat tail region.
 
 import type { CoverageLine } from '../types/simulation';
+import { BASELINE_CV } from './pricingParameters';
 
 export type StaticClfLine = 'WC' | 'GL' | 'Property';
 
@@ -511,6 +523,10 @@ export interface ClfTable {
   stops: number[];
   clf: number[];
   source: 'derived' | 'supplied';
+  // WHERE "EXPECTED" (CLF 1.000) SITS, as the table's own simulation measured
+  // it: the fraction of years at or below a ratio of 1.0. Only the
+  // BaselineCV tables carry it; for the rest crossingOf interpolates.
+  expected?: number;
 }
 
 // ============================================================================
@@ -1043,8 +1059,10 @@ export const PROPERTY_DERIVED: ClfTable = {
 };
 
 // ============================================================================
-// THE NEW-ENGINE TABLES — IN FORCE. Percentiles of the volatility-only ratio;
-// see the head of this file for the statistic, the sample and what moved.
+// THE NEW-ENGINE TABLES — NOT IN USE, HISTORY. Percentiles of the volatility-
+// only ratio; see the head of this file for the statistic, the sample and what
+// moved. In force until the funding tables wiring replaced them with
+// BASELINE_CV_TABLES, below.
 // 10,000 line-years each; 95% CI half-widths run about 0.001 at the low stops
 // and 0.02-0.04 through 90%, widening in the far tail (Property's 97.5th and
 // 99th rest on its rarest catastrophes).
@@ -1075,13 +1093,123 @@ export const PROPERTY_NEW_ENGINE: ClfTable = {
   ],
 };
 
-// WHAT THE ENGINE ACTUALLY READS. The member-engine tables above (WC_SUPPLIED,
-// GL_SUPPLIED, PROPERTY_DERIVED) were in force until the funding tables commit
-// and are exported as history and as the gate's control.
+// ============================================================================
+// THE BASELINE-CV TABLES — IN FORCE. The data scientist's CLF method
+// (Ripple_Game_CLF_100_Background_Simulations.R), by simulation on the game's
+// own opening book units: scripts/diagnostics/clf-ds-method-derive.ts, which
+// writes clf-ds-method-tables.json beside itself. These literals are that
+// file's tables, to the four decimal places it holds.
+//
+// THE METHOD: ordinary losses only, no shocks, no inflation. Each simulated
+// year a line's loss is the sum over its book of each unit's expected loss x a
+// year factor the whole book shares (lognormal, mean 1, CV = BaselineCV) x the
+// unit's own (lognormal, mean 1, CV 10% — UNIT_ORDINARY_OWN_CV). A cell is the
+// mean over 200 books (10,000 years each) of that book's percentile of total /
+// expected; `expected` is the fraction of years at or below 1.0. Against the
+// analytic lognormal the tables agree to about 0.001.
+//
+// ONE TABLE PER BASELINECV, AND THE LINES AGREE TO 0.001 WITHIN EACH: their
+// markets share the unit size and risk CVs and the unit count, and the ratio
+// is scale-free. They are kept per line anyway, as derived.
+//
+// ⚠ THE FACTOR MULTIPLIES THE WHOLE RETAINED PURE PREMIUM, and the table
+// describes ORDINARY losses only. The large losses and shocks the pure premium
+// also carries are not in it, so a stop's label is what the stop delivers on
+// the ordinary losses, not on the year's whole retained loss. That is the
+// wiring as specified: the factor on the whole retained pure premium, and no
+// shock dimension in the table.
+//
+// ⚠ REQUIRED CAPITAL READS THE SAME TABLE: unpaid reserve x (CLF90 - 1), with
+// CLF90 this line's 90% stop. That is much smaller than on the tables it
+// replaces (WC 0.0802 against 0.3275), which is why the opening is now SET at
+// OPENING_SURPLUS rather than as a multiple of the requirement.
+// ============================================================================
+const BASELINE_CV_STOPS = [30, 40, 50, 60, 70, 80, 90, 95, 99];
+export const BASELINE_CV_TABLES: Record<string, Record<StaticClfLine, ClfTable>> = {
+  "2%": {
+    WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5044,
+      clf: [0.9869, 0.9935, 0.9997, 1.0060, 1.0127, 1.0207, 1.0317, 1.0410, 1.0587] },
+    GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5051,
+      clf: [0.9869, 0.9935, 0.9997, 1.0059, 1.0127, 1.0206, 1.0318, 1.0411, 1.0587] },
+    Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5048,
+      clf: [0.9868, 0.9935, 0.9997, 1.0060, 1.0127, 1.0207, 1.0318, 1.0411, 1.0586] },
+  },
+  "4%": {
+    WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5079,
+      clf: [0.9771, 0.9884, 0.9992, 1.0100, 1.0217, 1.0355, 1.0550, 1.0714, 1.1028] },
+    GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5085,
+      clf: [0.9771, 0.9884, 0.9991, 1.0099, 1.0216, 1.0354, 1.0550, 1.0715, 1.1029] },
+    Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5086,
+      clf: [0.9771, 0.9884, 0.9991, 1.0099, 1.0216, 1.0355, 1.0550, 1.0714, 1.1027] },
+  },
+  "6%": {
+    WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5118,
+      clf: [0.9664, 0.9827, 0.9982, 1.0140, 1.0310, 1.0513, 1.0802, 1.1045, 1.1517] },
+    GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5124,
+      clf: [0.9664, 0.9826, 0.9981, 1.0138, 1.0308, 1.0512, 1.0801, 1.1046, 1.1520] },
+    Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5122,
+      clf: [0.9663, 0.9826, 0.9981, 1.0138, 1.0309, 1.0513, 1.0802, 1.1045, 1.1518] },
+  },
+  "8%": {
+    WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5156,
+      clf: [0.9553, 0.9766, 0.9968, 1.0176, 1.0402, 1.0673, 1.1060, 1.1389, 1.2033] },
+    GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5163,
+      clf: [0.9552, 0.9764, 0.9967, 1.0174, 1.0400, 1.0671, 1.1058, 1.1390, 1.2038] },
+    Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5160,
+      clf: [0.9552, 0.9764, 0.9967, 1.0174, 1.0400, 1.0672, 1.1060, 1.1389, 1.2035] },
+  },
+  "10%": {
+    WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5196,
+      clf: [0.9438, 0.9700, 0.9951, 1.0209, 1.0491, 1.0831, 1.1321, 1.1741, 1.2570] },
+    GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5201,
+      clf: [0.9438, 0.9699, 0.9950, 1.0207, 1.0488, 1.0829, 1.1320, 1.1741, 1.2578] },
+    Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5199,
+      clf: [0.9437, 0.9699, 0.9950, 1.0207, 1.0489, 1.0831, 1.1322, 1.1741, 1.2575] },
+  },
+  "12%": {
+    WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5235,
+      clf: [0.9321, 0.9631, 0.9930, 1.0238, 1.0577, 1.0988, 1.1585, 1.2100, 1.3129] },
+    GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5239,
+      clf: [0.9321, 0.9630, 0.9928, 1.0235, 1.0574, 1.0986, 1.1583, 1.2100, 1.3137] },
+    Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5238,
+      clf: [0.9320, 0.9630, 0.9928, 1.0235, 1.0574, 1.0988, 1.1585, 1.2100, 1.3135] },
+  },
+  "15%": {
+    WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5292,
+      clf: [0.9143, 0.9521, 0.9892, 1.0274, 1.0699, 1.1219, 1.1982, 1.2649, 1.4002] },
+    GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5298,
+      clf: [0.9142, 0.9520, 0.9888, 1.0271, 1.0696, 1.1216, 1.1980, 1.2649, 1.4013] },
+    Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5296,
+      clf: [0.9141, 0.9521, 0.9889, 1.0271, 1.0696, 1.1219, 1.1983, 1.2649, 1.4007] },
+  },
+};
+
+/** The key a BaselineCV's table is filed under — "6%" for 0.06. */
+export const baselineCvKey = (cv: number): string => `${Math.round(cv * 100)}%`;
+
+/**
+ * THE TABLE BUILT AT A GIVEN BASELINECV. Throws when there is none, rather than
+ * falling back to a neighbour: a line funded off a table built at a different
+ * CV from the one its losses are drawn at is the disagreement this exists to
+ * rule out.
+ */
+export function tableAtBaselineCv(line: StaticClfLine, cv: number): ClfTable {
+  const key = baselineCvKey(cv);
+  const set = BASELINE_CV_TABLES[key];
+  if (set === undefined || Math.abs(cv * 100 - Math.round(cv * 100)) > 1e-9) {
+    throw new Error(`no funding table at BaselineCV ${cv} for ${line}: tables exist at ${Object.keys(BASELINE_CV_TABLES).join(', ')}`);
+  }
+  return set[line];
+}
+
+// WHAT THE ENGINE ACTUALLY READS: each line's table at its own BASELINE_CV.
+// The new-engine tables above (WC_NEW_ENGINE, GL_NEW_ENGINE,
+// PROPERTY_NEW_ENGINE) and the member-engine tables before them are exported
+// as history, not in use.
 export const STATIC_CLF_TABLE: Record<StaticClfLine, ClfTable> = {
-  WC: WC_NEW_ENGINE,
-  GL: GL_NEW_ENGINE,
-  Property: PROPERTY_NEW_ENGINE,
+  WC: tableAtBaselineCv('WC', BASELINE_CV.WC),
+  GL: tableAtBaselineCv('GL', BASELINE_CV.GL),
+  Property: tableAtBaselineCv('Property', BASELINE_CV.Property),
 };
 
 // ⚠ ALL THREE LINES NOW HAVE A TABLE, so this is true universally and
@@ -1145,14 +1273,15 @@ export function confidenceAtClf(line: StaticClfLine, clf: number): number {
 
 // The percentile at which a table crosses 1.000 — what "Expected" delivers.
 //
-// DERIVED FROM THE TABLE, never stored alongside it, so the two cannot drift.
-// On the new-engine tables: WC 78.2%, GL 63.5%, Property 84.0% — and each is the
-// model's own, because every table in force is now derived from the engine.
-// (Until the funding tables commit two of the three were supplied real-pool
-// curves, and this figure was a statement about someone else's book.)
+// ⚠ READ OFF THE TABLE'S OWN `expected` WHERE IT HAS ONE (the BaselineCV
+// tables in force: WC 51.2%, GL 52.0%, Property 51.6%), which its simulation
+// measured beside the percentiles, so the two come from the same draws.
+// Otherwise interpolated from the table, as on the history tables (new engine:
+// WC 78.2%, GL 63.5%, Property 84.0%).
 //
 // Returns a 0-1 fraction, clamped to the table's stop range.
 export function crossingOf(table: ClfTable): number {
+  if (table.expected !== undefined) return table.expected;
   const { stops, clf } = table;
   for (let i = 0; i < clf.length - 1; i++) {
     if (clf[i] <= 1 && clf[i + 1] >= 1) {

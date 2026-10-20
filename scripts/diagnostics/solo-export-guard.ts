@@ -792,7 +792,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // da5a3e5 reproduced v80 24 of 24. 18 of 24 move — every WC-solo, GL-solo and
 // three-line export, no row added or removed — and all 6 PR-solo exports are
 // byte-identical, because Property stays at 1.0.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v81.json');
+// v82: THE FUNDING TABLES WIRED (see VALUE_IDENTITY_v76). The control ran
+// first: fecbb08 reproduced v81 24 of 24. All 24 move, no row added or
+// removed: every line's ordinary losses are drawn at its own BaselineCV and
+// every line opens at $35M, Property included.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v82.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -1235,7 +1235,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // and the pure premium and rates from year 2 on, by the two causes recorded
 // at DEVELOPMENT_SPEED (the host's development priced sooner; less open balance
 // for shock R development). Year-1 rates are unchanged.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v75.json');
+// v76: THE FUNDING TABLES WIRED — BASELINE_CV DRIVES THE ENGINE AND PICKS THE
+// TABLE; THE OPENING SET AT $35M. The control ran first: fecbb08 reproduced v75
+// exactly. Shape unchanged; 23,045 instances moved across 87 fields, none an
+// identity. What moved, and why: every loss, paid, reserve, LAE and ratio
+// figure, because the ordinary year factor is drawn at WC 6% / GL 10% /
+// Property 8% instead of 2% (same streams, wider factor) — in the pre-game
+// too, so the loss history, the pure premium and every rate struck from it
+// move from year 1; beginingSurplus is 35,000,000 on every line and with it
+// invested assets, investment income, net income and every surplus row;
+// required capital reads the BaselineCV tables' 90% stop (WC 1.0802, GL
+// 1.1320, Property 1.1060), so the reserve margin, funding gap and capital
+// ratios move; and the squeezed arm funds off the new 30% stop (WC 0.8515 ->
+// 0.9664), moving selectedFundingCLF and clfAdjustedExpectedLoss. Float noise
+// only: ibnrCeded, caseReservesCeded, priorYearDevelopmentCeded,
+// surplusTieOutDifference, expectedCombinedRatio, marketShare,
+// investmentReturnRate.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v76.json');
 
 function seedOf(id: string) {
   let h = 5381;

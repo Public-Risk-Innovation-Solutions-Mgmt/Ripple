@@ -4,7 +4,7 @@
 // ⚠ FROM BOOK UNITS SINCE BOOK UNITS COMMIT 3 (ordinaryLossFromUnits). Each
 // unit's expected loss is its exposure x its true risk x the line's cost, and
 // each year it is that x the year factor every unit shares x its own factor,
-// both mean-1 lognormals (UNIT_ORDINARY_YEAR_CV, UNIT_ORDINARY_OWN_CV). The
+// both mean-1 lognormals (the line's BASELINE_CV, UNIT_ORDINARY_OWN_CV). The
 // line's ordinary loss is the sum. The header below describes the one-draw
 // form it replaced, which ordinaryLossYear still draws for the member path.
 //
@@ -33,8 +33,8 @@
 // ============================================================================
 
 import {
-  EXPECTED_ORDINARY_LOSS_COST_PER_100, SEVERITY_TREND_PER_YEAR, UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV,
-  UNIT_ORDINARY_YEAR_CV, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV,
+  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, SEVERITY_TREND_PER_YEAR, UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV,
+  UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV,
 } from '../data/pricingParameters';
 import type { BookUnit } from './bookUnits';
 import { deriveSubRng, type SeededRandom } from './random';
@@ -49,6 +49,13 @@ export function ordinaryLossCostPer100(line: CoverageLine, yearNumber: number): 
   return EXPECTED_ORDINARY_LOSS_COST_PER_100[line]
     * Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
 }
+
+/**
+ * THE CV OF THE YEAR FACTOR A LINE'S UNITS SHARE — its BASELINE_CV, the same
+ * value its funding table is chosen by (clfTables' STATIC_CLF_TABLE). One
+ * definition, read by the draw and by baseline-cv-table-check.
+ */
+export const ordinaryYearCv = (line: CoverageLine): number => BASELINE_CV[line];
 
 /** The lognormal's parameters for a mean-1 year factor with the given CV. */
 export function ordinaryFactorParams(cv: number): { mu: number; sigma: number } {
@@ -74,25 +81,27 @@ export interface OrdinaryLossYear {
 }
 
 /**
- * THE LINE-LEVEL CV OF A TYPICAL BOOK'S ORDINARY LOSSES — sqrt((1+Y^2)(1+U^2 H) − 1)
+ * THE LINE-LEVEL CV OF A TYPICAL BOOK'S ORDINARY LOSSES — sqrt((1+Y^2)(1+U^2 H) − 1),
+ * Y the line's year CV
  * with H, the sum of the units' squared shares of expected loss, at its
  * expectation for a book of UNIT_POOL_SHARE x UNIT_MARKET_COUNT units of the
  * market's size and risk spread: (1 + size CV^2)(1 + risk CV^2) / n. About
- * 2.47%. For readers with no book in hand — the member path's records and
+ * 6.2% (WC), 8.1% (Property), 10.1% (GL); 2.47% on every line while the year
+ * CV was 2%. For readers with no book in hand — the member path's records and
  * the aggregate's retained SD. A book's own is bookOrdinaryCv.
  */
-export function typicalBookOrdinaryCv(): number {
+export function typicalBookOrdinaryCv(line: CoverageLine): number {
   const h = (1 + UNIT_SIZE_CV ** 2) * (1 + UNIT_RISK_CV ** 2) / (UNIT_POOL_SHARE * UNIT_MARKET_COUNT);
-  return Math.sqrt((1 + UNIT_ORDINARY_YEAR_CV ** 2) * (1 + UNIT_ORDINARY_OWN_CV ** 2 * h) - 1);
+  return Math.sqrt((1 + ordinaryYearCv(line) ** 2) * (1 + UNIT_ORDINARY_OWN_CV ** 2 * h) - 1);
 }
 
 /** A book's own line-level ordinary CV, from its units' shares of expected loss (exact for the two lognormals' product to first order). */
-export function bookOrdinaryCv(units: readonly Pick<BookUnit, 'size' | 'risk'>[]): number {
+export function bookOrdinaryCv(units: readonly Pick<BookUnit, 'size' | 'risk'>[], line: CoverageLine): number {
   const e = units.map(u => u.size * u.risk);
   const total = e.reduce((a, b) => a + b, 0);
   const h = total > 0 ? e.reduce((a, x) => a + (x / total) ** 2, 0) : 0;
   // Var(F x sum w f) / mean^2 for independent mean-1 factors, exactly.
-  const y2 = UNIT_ORDINARY_YEAR_CV ** 2, u2 = UNIT_ORDINARY_OWN_CV ** 2;
+  const y2 = ordinaryYearCv(line) ** 2, u2 = UNIT_ORDINARY_OWN_CV ** 2;
   return Math.sqrt((1 + y2) * (1 + u2 * h) - 1);
 }
 
@@ -108,7 +117,7 @@ export function ordinaryLossYear(
 ): OrdinaryLossYear {
   const exposure = bookExposureOf(book, line, yearNumber);
   const expected = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
-  const factor = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), typicalBookOrdinaryCv());
+  const factor = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), typicalBookOrdinaryCv(line));
   return { exposure, expected, realised: expected * factor, factor };
 }
 
@@ -141,7 +150,7 @@ export function ordinaryLossFromUnits(
   const size = units.reduce((a, u) => a + u.size, 0);
   const scale = size > 0 ? activeExposure / size : 0;
   const cost = 10_000 * ordinaryLossCostPer100(line, yearNumber);
-  const year = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), UNIT_ORDINARY_YEAR_CV);
+  const year = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ordinaryYearCv(line));
   const own = unitOrdinaryRng(seed, yearNumber, line);
   const ownFactors = Array.from({ length: UNIT_MARKET_COUNT }, () => drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV));
   const byUnit = units.map(u => {
@@ -194,8 +203,8 @@ export function ordinaryMemberRecords(
       expectedLoss: expected,
       expectedLossAtManual: expected,
       primaryLoss: realised * share,
-      coefficientOfVariation: typicalBookOrdinaryCv(),
-      standardDeviation: expected * typicalBookOrdinaryCv(),
+      coefficientOfVariation: typicalBookOrdinaryCv(line),
+      standardDeviation: expected * typicalBookOrdinaryCv(line),
       simulatedLoss: realised,
     };
   });
