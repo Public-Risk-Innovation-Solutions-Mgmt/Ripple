@@ -1183,10 +1183,13 @@ export function processLineYear(
     : null);
   // The book the year's losses are drawn on: after movement.
   const yearUnits = unitMove ? unitsOf(marketSeedOf(instance), line, unitMove.afterUnits) : ctx.bookUnits;
-  // THE NEW-BUSINESS PENALTY, on the ordinary losses of exposure written this
-  // year (a book only), read by the draw and by the expectation alike. At its
-  // zero parameter this is exactly 1.
-  const newBusinessPenaltyFactor = 1 + NEW_BUSINESS_PENALTY * (bookMovement?.newShare ?? 0);
+  // THE NEW-BUSINESS PENALTY. On a book of units it lands on the units written
+  // this year, inside their own ordinary draw (ordinaryLossFromUnits), so the
+  // line-wide factor is 1 there; a book with no units still takes it as a
+  // share of the line. ⚠ IN NEITHER CASE IS IT IN EXPECTED LOSS (book units
+  // commit 6): the rate learns it only through the history.
+  const newBusinessPenaltyFactor = unitMove ? 1 : 1 + NEW_BUSINESS_PENALTY * (bookMovement?.newShare ?? 0);
+  const newUnits = new Set(unitMove?.writtenUnits ?? []);
   const memberResult = bookMovement
     ? bookMovementResult(
       line, bookMovement, exposureFactor(line, yearNumber), lineState.memberSatisfaction, lineState.averageRiskQuality,
@@ -1395,7 +1398,6 @@ export function processLineYear(
     : undefined;
   const expectedLoss = newEngineExpected
     ? newEngineExpected.total
-      + (newBusinessPenaltyFactor - 1) * (newEngineExpected.ordinary + newEngineExpected.uplift)
     : activeExposure * pricedPurePremiumPer100 * 10_000;
 
   // The agreed treaty basis in dollars, on the SAME post-movement exposure
@@ -1817,7 +1819,8 @@ export function processLineYear(
     // FROM THE BOOK'S UNITS when it has them (book units commit 3): each unit's
     // exposure x risk x cost, times the shared year factor and its own.
     ordinaryYear = yearUnits
-      ? ordinaryLossFromUnits(line, yearUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed)
+      ? ordinaryLossFromUnits(line, yearUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed,
+        newUnits, NEW_BUSINESS_PENALTY)
       : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);

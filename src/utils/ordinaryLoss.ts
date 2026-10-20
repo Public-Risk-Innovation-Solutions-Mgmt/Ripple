@@ -133,6 +133,10 @@ export interface UnitOrdinaryYear extends OrdinaryLossYear {
  */
 export function ordinaryLossFromUnits(
   line: CoverageLine, units: readonly BookUnit[], activeExposure: number, yearNumber: number, seed: number,
+  // THE NEW-BUSINESS PENALTY (book units commit 6): the units written this
+  // year, whose ACTUAL loss carries 1 + `penalty` in this, their first year.
+  // Their EXPECTED loss does not — see NEW_BUSINESS_PENALTY.
+  newUnits: ReadonlySet<number> = new Set(), penalty = 0,
 ): UnitOrdinaryYear {
   const size = units.reduce((a, u) => a + u.size, 0);
   const scale = size > 0 ? activeExposure / size : 0;
@@ -142,7 +146,8 @@ export function ordinaryLossFromUnits(
   const ownFactors = Array.from({ length: UNIT_MARKET_COUNT }, () => drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV));
   const byUnit = units.map(u => {
     const expected = u.size * scale * u.risk * cost;
-    return { index: u.index, expected, realised: expected * year * ownFactors[u.index] };
+    const load = newUnits.has(u.index) ? 1 + penalty : 1;
+    return { index: u.index, expected, realised: expected * year * ownFactors[u.index] * load };
   });
   const expected = byUnit.reduce((a, u) => a + u.expected, 0);
   const realised = byUnit.reduce((a, u) => a + u.realised, 0);

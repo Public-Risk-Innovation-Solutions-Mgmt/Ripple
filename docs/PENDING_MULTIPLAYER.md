@@ -449,7 +449,16 @@ true risk; a regional T lands only on units in the struck region.
   drops the Member ID, Member Name and Member Type columns on the new engine,
   so no unit reaches a sheet.
 
-Still to come: the new-business penalty.
+**The new-business penalty (book units commit 6).** `NEW_BUSINESS_PENALTY`
+is the R model's 20%: book units written this year cost 20% more on their
+actual ordinary losses, in their first year only; a unit renewed the next year
+carries none.
+
+- It is NOT in expected loss. Expected loss is the book's own exposure x risk
+  x cost; the rate learns the penalty only through the history, as new
+  business's losses reach the ledger. (It was 0, and it was in expected loss.)
+- At default decisions no unit is written, so it changes nothing there; it
+  bites when a team takes on intake.
 
 ### Regions
 

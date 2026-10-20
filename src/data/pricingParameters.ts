@@ -679,11 +679,18 @@ export const UNIT_UW_VISIBILITY = 0.5;
 export const BOOK_INTAKE_SHARE: readonly number[] = [0, 0.02, 0.05, 0.08];
 
 /**
- * NEW-BUSINESS PENALTY — on the ordinary losses of exposure written this year,
- * in its first year. CHOSEN at ZERO: the R model's 20% is kept as the
- * mechanism, uncalibrated. At zero it changes nothing.
+ * NEW-BUSINESS PENALTY — CHOSEN, the R model's 20% (book units commit 6). The
+ * book units written this year cost this much more on their ACTUAL ordinary
+ * losses, in their first year only (ordinaryLossFromUnits); a unit renewed
+ * the next year carries none.
+ *
+ * ⚠ AND IT IS NOT IN EXPECTED LOSS. A pool does not know in advance that its
+ * new business will run worse; expected loss is the book's own exposure x
+ * risk x cost, and the rate learns the penalty only through the history, as
+ * new business's losses reach the ledger. It was 0 — the mechanism without a
+ * calibration — and it was IN expected loss.
  */
-export const NEW_BUSINESS_PENALTY = 0;
+export const NEW_BUSINESS_PENALTY = 0.20;
 
 /**
  * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.
@@ -1412,10 +1419,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'member intake joined about 2%, 4% and 7% of the book at the same three positions.',
       }],
       ['New-business penalty', {
-        value: NEW_BUSINESS_PENALTY, unit: 'on first-year ordinary losses of new exposure',
-        what: 'Exposure written this year costs this much more in its first year, on its ordinary losses.',
+        value: NEW_BUSINESS_PENALTY, unit: 'on first-year actual ordinary losses of new units',
+        what: 'Book units written this year cost this much more on their actual ordinary losses, in their first '
+          + 'year only. It is not in expected loss: the rate learns it only through the history.',
         basis: 'CHOSEN',
-        note: 'The R model\'s 20% kept as the mechanism, uncalibrated. At zero it changes nothing.',
+        note: 'The R model\'s 20%, adopted with book units (it was 0, the mechanism without a calibration, and '
+          + 'it was in expected loss).',
       }],
       ['Reinsurance packages', {
         value: `WC and GL ${REINSURANCE_OPTIONS.WC.map(o => o.id).join(' · ')}`,
@@ -1632,8 +1641,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: R_MODEL.newBusinessPenalty, unit: 'on first-year expected loss', basis: 'CHOSEN',
         status: 'ADAPTED',
         what: 'New business costs more in its first year than its price implies.',
-        note: 'Wired as NEW_BUSINESS_PENALTY on the new book, set to 0 for now, so the mechanism exists before '
-          + 'the calibration does.',
+        note: 'Adopted as NEW_BUSINESS_PENALTY with book units: 20% on new units\' first-year actual ordinary '
+          + 'losses, kept out of expected loss so the rate learns it through the history.',
       }],
 
       // ---- investment ----

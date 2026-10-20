@@ -183,6 +183,9 @@ const FAST: string[] = [
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
+  'book-units-penalty-check',        //   3s   the new-business penalty: actual ordinary losses load the units written
+                                     //         that year, first year and new units only; expected carries none;
+                                     //         three controls
   'book-units-large-loss-check',     //   3s   large losses on units: routine claims spread by size x risk, a regional
                                      //         T only in its region, the routine count carries the book's risk, no
                                      //         unit in the claims workbook; four controls
