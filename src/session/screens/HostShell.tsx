@@ -17,7 +17,9 @@
 // ============================================================================
 
 import React from 'react';
+import { Shield } from 'lucide-react';
 import { HOST_TABS, type HostTabId } from './hostTabs';
+import { navigate } from '../client/navigation';
 
 interface Props {
   activeTab: HostTabId;
@@ -34,15 +36,25 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-[960px] flex-wrap items-baseline gap-x-3 gap-y-1 px-6 pt-5">
-          <h1 className="text-lg font-semibold text-slate-800">
-            {eventName || 'Host a session'}
-          </h1>
-          {code && (
-            <span className="text-sm text-slate-400">
-              room <span className="font-mono font-medium text-slate-600">{code}</span>
-            </span>
-          )}
+        <div className="mx-auto flex max-w-[960px] items-baseline justify-between gap-x-3 gap-y-1 px-6 pt-5">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-lg font-semibold text-slate-800">
+              {eventName || 'Host a session'}
+            </h1>
+            {code && (
+              <span className="text-sm text-slate-400">
+                room <span className="font-mono font-medium text-slate-600">{code}</span>
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            data-testid="host-admin-link"
+            onClick={() => navigate('/admin')}
+            className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+          >
+            <Shield size={14} /> Admin
+          </button>
         </div>
         <nav className="mx-auto flex max-w-[960px] gap-1 px-6 pt-3">
           {HOST_TABS.map(t => {

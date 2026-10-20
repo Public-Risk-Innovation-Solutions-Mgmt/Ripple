@@ -8,22 +8,24 @@
 // the thing — but they should not differ, and a deliberate change here belongs
 // in the mockup too.
 //
-// ⚠ PLAY SOLO AND HOST AN EVENT ARE BOTH SHOWN, EACH BEHIND ONE SWITCH. They
-// landed hidden and were turned on by flipping the two constants below and
-// nothing else — no JSX to write, no import to add, no layout to rediscover,
-// which is what the switches were for. Turning either back off is the same one
-// line. They stay typed `: boolean` rather than becoming literal `true`
-// because a literal narrows and would make the other branch unreachable, which
-// is both a lint error and the wrong claim about code that is a switch away.
+// ⚠ PLAY SOLO AND HOST AN EVENT ARE BOTH SHOWN, EACH BEHIND ONE SWITCH — AND
+// BOTH NOW ALSO REQUIRE AN ADMIN SESSION. They landed hidden and were turned
+// on by flipping the two constants below and nothing else; turning either
+// back off is still the same one line. What changed is that even with a
+// switch on, neither card renders for a visitor who is not logged in as
+// admin — running a game (solo or hosted) is an admin action now, joining one
+// someone else is running is not.
 //
 // Play Solo goes to /solo; Host an Event goes to /host, which is also still
 // reachable directly as it was while the card was off.
 // ============================================================================
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Eye, Play, Plus } from 'lucide-react';
+import { CheckCircle2, Clock, Eye, LogOut, Play, Plus, Shield } from 'lucide-react';
 import { sessionTransport, isSessionError, type LobbyEvent, type SessionError } from '../index';
 import { navigate } from '../client/navigation';
+import { adminLogout, currentAdmin } from '../../admin/client/adminAuth';
+import AdminLoginModal from './AdminLoginModal';
 
 /** ⚠ ONE LINE EACH. See the header. Both are ON. */
 const SHOW_PLAY_SOLO: boolean = true;
@@ -48,6 +50,15 @@ function StatusBadge({ status }: { status: 'OPEN' | 'IN_PROGRESS' }) {
 export default function LobbyScreen() {
   const [events, setEvents] = useState<LobbyEvent[] | null>(null);
   const [error, setError] = useState<SessionError | null>(null);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  // undefined = not checked yet; null = checked, nobody logged in as admin.
+  const [admin, setAdmin] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    let live = true;
+    currentAdmin().then(a => { if (live) setAdmin(a); });
+    return () => { live = false; };
+  }, []);
 
   // ⚠ FETCHED ONCE, NOT POLLED. A lobby is a page somebody reads and then acts
   // on; a poll here would be a request per viewer per interval for a list that
@@ -68,23 +79,56 @@ export default function LobbyScreen() {
 
   const open = (events ?? []).filter(e => e.status === 'OPEN');
   const running = (events ?? []).filter(e => e.status === 'IN_PROGRESS');
+  const isAdmin = !!admin;
 
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center gap-3 px-6 py-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">R</div>
-          <span className="text-lg font-bold tracking-tight text-slate-900">RIPPLE</span>
-          <span className="text-slate-300">|</span>
-          <span className="text-sm text-slate-500">Public entity risk pool simulation</span>
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">R</div>
+            <span className="text-lg font-bold tracking-tight text-slate-900">RIPPLE</span>
+            <span className="text-slate-300">|</span>
+            <span className="text-sm text-slate-500">Public entity risk pool simulation</span>
+          </div>
+          {/* ⚠ LOGGED IN, THIS GOES TO /admin DIRECTLY — not the login modal
+              again. Logged out, it still opens the modal; a separate Log out
+              button only appears once there is a session to end. */}
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              data-testid="admin-login"
+              onClick={() => { if (isAdmin) navigate('/admin'); else setShowAdminLogin(true); }}
+              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+            >
+              <Shield size={14} /> Admin
+            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                data-testid="admin-logout"
+                onClick={() => { void adminLogout().then(() => setAdmin(null)); }}
+                className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+              >
+                <LogOut size={14} /> Log out
+              </button>
+            )}
+          </div>
         </div>
       </div>
+
+      {showAdminLogin && (
+        <AdminLoginModal
+          onClose={() => setShowAdminLogin(false)}
+          onSuccess={() => { setShowAdminLogin(false); navigate('/admin'); }}
+        />
+      )}
 
       <div className="mx-auto max-w-4xl px-6 py-8">
         <h1 className="text-2xl font-bold text-slate-900">Welcome</h1>
         <p className="mt-1 text-sm text-slate-500">Join an event your organisation is running.</p>
 
-        {(SHOW_PLAY_SOLO || SHOW_HOST_AN_EVENT) && (
+        {isAdmin && (SHOW_PLAY_SOLO || SHOW_HOST_AN_EVENT) && (
           <div className="mt-6 grid grid-cols-2 gap-4">
             {SHOW_PLAY_SOLO && (
               <button
@@ -148,13 +192,27 @@ export default function LobbyScreen() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-mono text-xs text-slate-400">{e.code}</span>
-                    <button
-                      data-testid={`join-${e.code}`}
-                      onClick={() => navigate(`/join/${e.code}`)}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
-                    >
-                      Join
-                    </button>
+                    {/* ⚠ AN ADMIN RUNS THE EVENT, NOT JOINS IT. Everyone else gets
+                        Join; an admin gets Host, straight to that event's host
+                        screen (HostScreen's own admin gate is already satisfied,
+                        so this never bounces through a second login). */}
+                    {isAdmin ? (
+                      <button
+                        data-testid={`host-link-${e.code}`}
+                        onClick={() => navigate(`/host/${e.code}`)}
+                        className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white"
+                      >
+                        Host
+                      </button>
+                    ) : (
+                      <button
+                        data-testid={`join-${e.code}`}
+                        onClick={() => navigate(`/join/${e.code}`)}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+                      >
+                        Join
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -186,13 +244,19 @@ export default function LobbyScreen() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="font-mono text-xs text-slate-400">{e.code}</span>
-                        <button
-                          data-testid={`watch-${e.code}`}
-                          onClick={() => navigate(`/view/${e.code}`)}
-                          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
-                        >
-                          <span className="inline-flex items-center gap-1.5"><Eye size={13} /> Watch</span>
-                        </button>
+                        {/* ⚠ NOT SHOWN TO AN ADMIN. Watching is a spectator's
+                            action; an admin running events has no use for it
+                            here, and nothing replaces it the way Host replaces
+                            Join above — there is simply nothing to click. */}
+                        {!isAdmin && (
+                          <button
+                            data-testid={`watch-${e.code}`}
+                            onClick={() => navigate(`/view/${e.code}`)}
+                            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                          >
+                            <span className="inline-flex items-center gap-1.5"><Eye size={13} /> Watch</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
