@@ -139,6 +139,7 @@ import {
   aggregateRecovery,
   cedeOccurrences,
   occurrenceDeductibles,
+  occurrenceEventClaims,
   occurrenceKinds,
   normalizeAggregateStopLevel,
   normalizeLayersPlaced,
@@ -2092,10 +2093,12 @@ export function processLineYear(
     const drawnSum = drawnTotals.reduce((a, b) => a + b, 0);
     const bookedSum = totals.reduce((a, b) => a + b, 0);
     if (FORWARD_BOOKING.enabled && drawnSum > 0) bookedGrossContraction = bookedSum / drawnSum;
-    // Each occurrence's peril deductible — an earthquake retains $10M, every
-    // other occurrence meets the layer's attachment (PROPERTY_PERIL_DEDUCTIBLE).
+    // Each occurrence's peril deductible (member path only — on the new engine
+    // it came off at the draw), and each Property event's claims: per-risk
+    // answers each claim, catastrophe the event's total net of per-risk.
     const cession = cedeOccurrences(
       towerLine, totals, placed, occurrenceDeductibles(towerLine, generatedOccurrences ?? []),
+      occurrenceEventClaims(towerLine, generatedClaims ?? [], generatedOccurrences ?? []),
     );
     cededByLayer = cession.cededByLayer;
     retainedAboveTower = cession.retainedAboveTower;
@@ -2182,6 +2185,8 @@ export function processLineYear(
           ? occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []).map(t => initialEstimate(line, t))
           : occurrenceTotals(generatedClaims ?? [], generatedOccurrences ?? []),
         FULL_OCCURRENCE_PLACEMENT[line as TowerLine],
+        undefined,
+        occurrenceEventClaims(line as TowerLine, generatedClaims ?? [], generatedOccurrences ?? []),
       )
     : null;
   const poolLayerLoss = Math.max(0, bookedGrossUltimate - (fullTowerCession?.totalCeded ?? 0));
@@ -2272,6 +2277,8 @@ export function processLineYear(
         occurrenceKinds(generatedOccurrences ?? []),
         // And the deductible, so development cedes on the inception terms.
         occurrenceDeductibles(line as TowerLine, generatedOccurrences ?? []),
+        // And each Property event's claims, for the same reason.
+        occurrenceEventClaims(line as TowerLine, generatedClaims ?? [], generatedOccurrences ?? []),
       )
     : { tracked: [], untrackedTotal: 0, bench: [] };
 

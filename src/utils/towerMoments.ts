@@ -428,8 +428,11 @@ export function allLayerRiskMoments(
   line: TowerLine,
   members: Book,
   yearNumber: number,
+  // Property's catastrophe layers are priced behind the per-risk cover placed
+  // here (newEngineLayerMoments); absent, behind the whole tower's.
+  placed: readonly boolean[] | null = null,
 ): LayerRiskMoments[] {
-  return layerRiskMomentsFor(line, members, yearNumber, null);
+  return layerRiskMomentsFor(line, members, yearNumber, null, true, 1, placed);
 }
 
 // `only` = null prices every layer; a layer index prices that one and leaves the
@@ -446,6 +449,7 @@ function layerRiskMomentsFor(
   only: number | null,
   catastrophe = true,
   boundsScale = 1,
+  placed: readonly boolean[] | null = null,
 ): LayerRiskMoments[] {
   const layers = REINSURANCE_TOWER[line];
   // ==========================================================================
@@ -473,7 +477,7 @@ function layerRiskMomentsFor(
   // With the flag off this branch is not taken and nothing below changes.
   // ==========================================================================
   if (newLossEngineRuns()) {
-    return newEngineLayerMoments(line, bookExposureOf(book, line, yearNumber), yearNumber, boundsScale);
+    return newEngineLayerMoments(line, bookExposureOf(book, line, yearNumber), yearNumber, boundsScale, true, placed);
   }
   const members = rosterOf(book, 'layerRiskMomentsFor (the old engine)');
   const n = layers.length;

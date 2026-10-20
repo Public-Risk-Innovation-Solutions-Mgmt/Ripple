@@ -873,6 +873,13 @@ export interface DevelopingClaim {
    *  every Property occurrence of an unlisted peril, so they serialise exactly
    *  as before. */
   deductible?: number;
+  /** A Property catastrophe EVENT's claims, in whole dollars as drawn
+   *  (occurrenceEventClaims). Property's per-risk layer answers each claim and
+   *  its catastrophe layer the event's total net of per-risk, so development
+   *  needs the split to cede a movement on the inception terms: each claim
+   *  moves in proportion to the event (cedeUnitByLayer). Absent on every
+   *  other record, so they serialise exactly as before. */
+  eventClaims?: number[];
 }
 
 // ============================================================================

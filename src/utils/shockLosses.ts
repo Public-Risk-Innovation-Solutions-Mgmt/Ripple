@@ -71,6 +71,7 @@ import {
   POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
   SEVERITY_TREND_PER_YEAR, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
+import { PROPERTY_PERIL_DEDUCTIBLE } from '../data/reinsuranceTower';
 import { CAT_REGIONS } from './propertyCatastrophe';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
@@ -284,6 +285,17 @@ export function tScale(line: CoverageLine, exposure: number, yearNumber: number)
 export const trendFactor = (line: CoverageLine, yearNumber: number) =>
   Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
 
+/**
+ * THE COVERAGE DEDUCTIBLE ON ONE EVENT — Property's earthquake, $10M
+ * (PROPERTY_PERIL_DEDUCTIBLE), on an event that is one occurrence; 0 for
+ * everything else. It is a term of the members' cover, not of the pool's
+ * reinsurance: it comes off the event's ground-up total FIRST, before any
+ * reinsurance, spread over the event's claims in proportion to their size.
+ * The pool never holds it.
+ */
+export const eventDeductible = (line: CoverageLine, eventName: string, oneOccurrence: boolean): number =>
+  oneOccurrence && line === 'Property' ? PROPERTY_PERIL_DEDUCTIBLE[eventName.toLowerCase()] ?? 0 : 0;
+
 /** What the POOL keeps of a ground-up claim — GL is limited per claim, the rest are not. */
 export const poolShare = (line: CoverageLine, x: number) => {
   const limit = POOL_LIMIT_PER_OCCURRENCE[line];
@@ -301,6 +313,8 @@ export interface LargeLossDraw {
   byMember: Map<string, number>;
   /** Above the GL pool limit — the member's, in no pool total. */
   memberShareAboveLimit: number;
+  /** Under an event's coverage deductible (eventDeductible) — the members', in no pool total. */
+  memberShareUnderDeductible: number;
   /** Per firing key: the pool's T losses and their count. */
   tByFiring: Map<string, { gross: number; claims: number }>;
   routine: { count: number; groundUp: number; excess: number };
@@ -353,7 +367,8 @@ export function drawLargeLosses(
 ): LargeLossDraw {
   const out: LargeLossDraw = {
     claims: [], occurrences: [], grossAdded: 0, byMember: new Map(),
-    memberShareAboveLimit: 0, tByFiring: new Map(), routine: { count: 0, groundUp: 0, excess: 0 },
+    memberShareAboveLimit: 0, memberShareUnderDeductible: 0, tByFiring: new Map(),
+    routine: { count: 0, groundUp: 0, excess: 0 },
   };
   const book = weighted(members, line, yearNumber);
   const credit = (memberId: string, amount: number) =>
@@ -380,14 +395,23 @@ export function drawLargeLosses(
     // Sizes are drawn whether or not anyone is there to take them, so the
     // stream's meaning does not depend on the book.
     const sizes = Array.from({ length: arrival.count }, () => sizeRng.lognormal(mu, sigma));
-    if (where.total > 0) {
+    // THE EVENT'S DEDUCTIBLE comes off its ground-up total first, pro rata:
+    // every claim keeps the share k of itself, so the event keeps exactly
+    // max(0, total − deductible). k is 1 for every event without one.
+    const ded = eventDeductible(line, f.event.name, arrival.oneOccurrence);
+    const groundUp = ded > 0 ? sizes.reduce((a, x) => a + poolShare(line, x), 0) : 0;
+    const k = ded > 0 ? Math.max(0, 1 - ded / groundUp) : 1;
+    // An event wholly under its deductible books nothing: the members keep it.
+    if (where.total > 0 && k === 0) out.memberShareUnderDeductible += groundUp;
+    if (where.total > 0 && k > 0) {
       const occId = `nle-occ-${line}-${yearNumber}-t${tag}`;
       const shared: string[] = [];
       const hit = new Set<string>();
       sizes.forEach((x, i) => {
         const m = pickMember(whoRng, where.pool, where.total);
-        const pool = poolShare(line, x);
-        out.memberShareAboveLimit += x - pool;
+        const pool = k * poolShare(line, x);
+        out.memberShareAboveLimit += x - poolShare(line, x);
+        out.memberShareUnderDeductible += poolShare(line, x) - pool;
         const id = `nle-${line}-${yearNumber}-t${tag}-${i}`;
         const occurrenceId = arrival.oneOccurrence ? occId : `nle-occ-${line}-${yearNumber}-t${tag}-${i}`;
         out.claims.push(claimOf(id, occurrenceId, m, 'shock', pool, f.event.id));

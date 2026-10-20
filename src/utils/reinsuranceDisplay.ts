@@ -86,6 +86,14 @@ export function placementSummary(
   }
   // Checked against the line's packages — a stale or misspelt id throws.
   placementFor(line, decisions.reinsuranceOption, decisions.catastropheOption);
+  if (line === 'Property') {
+    // Property buys two kinds: per-risk on each claim, catastrophe on each
+    // event's total after per-risk. Absent catastrophe reads as none.
+    const pr = decisions.reinsuranceOption, cat = decisions.catastropheOption ?? 'none';
+    if (pr === 'none' && cat === 'none') return 'Full retention — no reinsurance';
+    return [pr !== 'none' ? `${pr} per claim` : '', cat !== 'none' ? `${cat} per event` : '']
+      .filter(Boolean).join(' · ');
+  }
   return decisions.reinsuranceOption === 'none'
     ? 'Full retention — no reinsurance'
     : decisions.reinsuranceOption;
@@ -101,7 +109,10 @@ export function placementCode(
     throw new Error(`placementCode: ${line} has no tractable ceded reinsurance to encode`);
   }
   placementFor(line, decisions.reinsuranceOption, decisions.catastropheOption);
-  return decisions.reinsuranceOption === 'none' ? 'NONE' : decisions.reinsuranceOption;
+  const pr = decisions.reinsuranceOption === 'none' ? 'NONE' : decisions.reinsuranceOption;
+  if (line !== 'Property') return pr;
+  const cat = decisions.catastropheOption ?? 'none';
+  return `${pr} / CAT ${cat === 'none' ? 'NONE' : cat}`;
 }
 
 // The band above the top of the tower — GL's is the pool's largest single

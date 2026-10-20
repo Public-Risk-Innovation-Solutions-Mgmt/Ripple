@@ -165,7 +165,8 @@ const byLayerOf = (rows: ResultSet[], line: 'WC' | 'GL') => rows.reduce((acc, r)
 const defaults = GAMES.flatMap(id => play(id, 10));
 const fulls = GAMES.flatMap(id => play(id, 10, withOption(fullTowerOption)));
 const declined = GAMES.slice(0, 2).flatMap(id => play(`${id}-DECLINE`, 5, d => ({
-  ...d, byLine: { ...d.byLine, Property: { ...d.byLine.Property, reinsuranceOption: 'none' } },
+  // Both kinds declined: Property's per-risk package and its catastrophe layer.
+  ...d, byLine: { ...d.byLine, Property: { ...d.byLine.Property, reinsuranceOption: 'none', catastropheOption: 'none' } },
 })));
 {
   for (const line of ['WC', 'GL'] as const) {

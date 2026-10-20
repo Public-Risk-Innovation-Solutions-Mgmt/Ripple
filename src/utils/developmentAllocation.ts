@@ -151,7 +151,7 @@
 // ============================================================================
 
 import type { SeededRandom } from './random';
-import { cedeAbove } from './reinsuranceTower';
+import { cedeUnitByLayer } from './reinsuranceTower';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import type { BenchClaim, DevelopingClaim } from '../types/simulation';
 
@@ -356,6 +356,10 @@ export function retentionFor(line: TowerLine): number {
 // cedes on the same terms the inception cession used and nothing without one
 // changes shape. It does not decide what is tracked: an occurrence carrying a
 // deductible is a catastrophe today, and those are always tracked.
+//
+// `eventClaims[i]` is a Property event's claims (occurrenceEventClaims), stamped
+// the same way, so development cedes per-risk on each claim and catastrophe on
+// what is left. Only a catastrophe carries it, and those are always tracked.
 export function buildTrackedSet(
   line: TowerLine,
   occurrenceIds: string[],
@@ -367,6 +371,7 @@ export function buildTrackedSet(
   benchDepth: number = DEVELOPMENT_BENCH_DEPTH,
   catastrophe?: readonly boolean[],
   deductibles?: readonly number[],
+  eventClaims?: readonly (readonly number[] | undefined)[],
 ): TrackedSet {
   const n = totals.length;
   if (n === 0) return { tracked: [], untrackedTotal: 0, bench: [] };
@@ -375,6 +380,7 @@ export function buildTrackedSet(
   const kind = (i: number) => ({
     ...(isCat(i) ? { catastrophe: true as const } : {}),
     ...((deductibles?.[i] ?? 0) > 0 ? { deductible: deductibles![i] } : {}),
+    ...(eventClaims?.[i] ? { eventClaims: [...eventClaims[i]!] } : {}),
   });
 
   // The developing set.
@@ -979,6 +985,10 @@ export interface DevelopmentCession {
 // ⚠ TOWER EXHAUSTION IS CORRECT AND IS NOT COMPENSATED FOR. A claim developing
 // past TOWER_TOP cedes 100% of the movement, then less, then nothing. That is a
 // treaty behaving as written; the excess lands in retainedAboveTower.
+//
+// ⚠ ON PROPERTY THE UNIT DECIDES WHICH LAYERS ANSWER (cedeUnitByLayer): a
+// single claim reaches the per-risk layer only; an event reaches per-risk on
+// each of its claims and the catastrophe layer on what per-risk leaves.
 export function cedeDevelopment(
   line: TowerLine,
   tracked: DevelopingClaim[],
@@ -986,16 +996,18 @@ export function cedeDevelopment(
   untrackedDelta: number,
   placed: boolean[],
 ): DevelopmentCession {
-  const layers = REINSURANCE_TOWER[line];
   let ceded = 0;
   const moved = tracked.map((c, i) => {
     const next = Math.max(0, c.current + deltas[i]);
-    layers.forEach((l, li) => {
-      if (!placed[li] || !l.purchasable) return;
-      // The occurrence's own deductible, the one its inception cession used.
-      const d = c.deductible ?? 0;
-      ceded += cedeAbove(next, l, d) - cedeAbove(c.current, l, d);
-    });
+    // The occurrence's own terms, the ones its inception cession used.
+    const terms = {
+      ...(c.deductible !== undefined ? { deductible: c.deductible } : {}),
+      ...(c.eventClaims ? { eventClaims: c.eventClaims } : {}),
+    };
+    const after = cedeUnitByLayer(line, { total: next, ...terms }, placed);
+    const before = cedeUnitByLayer(line, { total: c.current, ...terms }, placed);
+    // Layer by layer, in the order the sum was always taken.
+    after.forEach((a, li) => { ceded += a - before[li]; });
     return { ...c, current: next };
   });
   const total = deltas.reduce((s, d) => s + d, 0) + untrackedDelta;

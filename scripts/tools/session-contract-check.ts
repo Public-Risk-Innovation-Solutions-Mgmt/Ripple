@@ -100,12 +100,15 @@ const developedTo = (year: number, factor: number): Record<string, number> =>
 // search the whole serialised view for, exactly as the opaque stream's
 // 'secret-a' marker is used. 0.37 is not a stop any default would produce.
 const DECISION_MARKER = 0.37;
-const lineDecisions = (): TeamLineDecisions => ({
+const lineDecisions = (line: CoverageLine): TeamLineDecisions => ({
   confidenceLevel: DECISION_MARKER,
   atExpected: false,
   // Not the default package, so a transport that substituted the default
   // would fail the read-back below.
   reinsuranceOption: '$5M xs $5M',
+  // Property's second choice (Property catastrophe cover), also not the
+  // default; the field is absent on every other line.
+  ...(line === 'Property' ? { catastropheOption: '$50M xs $25M' } : {}),
   renewalCut: 0.1,
   intakeLevel: 2,
   riskControlPct: 0.03,
@@ -131,7 +134,7 @@ const summaryFor = (
   },
   // Year 0 never carries decisions — see TeamYearSummary.decisions.
   ...(withDecisions && year > 0
-    ? { decisions: Object.fromEntries(lines.map(l => [l, lineDecisions()])) }
+    ? { decisions: Object.fromEntries(lines.map(l => [l, lineDecisions(l)])) }
     : {}),
   // The worlds' spread (loss engine commit 4b) rides with the decisions: a played
   // year carries it, the opening position does not. Off-centre on purpose, so a
@@ -674,7 +677,8 @@ async function main(): Promise<void> {
 
     // The host advances; the team then posts the played year, decisions and all.
     await t.advance({ code, token: hostToken, expectedYear: 1 });
-    await t.submit({ code, token: p0.teamToken, yearNumber: 1, result: summaryFor(1, 600, ['WC'], 1, true) });
+    // With a Property line too, so its two choices make the round trip.
+    await t.submit({ code, token: p0.teamToken, yearNumber: 1, result: summaryFor(1, 600, ['WC', 'Property'], 1, true) });
     await t.submit({ code, token: p1.teamToken, yearNumber: 1, result: summaryFor(1, 700, ['WC'], 1, true) });
 
     const after = await t.read({ code, token: hostToken });
@@ -684,6 +688,13 @@ async function main(): Promise<void> {
     eq(seen?.reinsuranceOption, '$5M xs $5M', 'and the reinsurance package the team bought');
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
+    // PROPERTY'S TWO CHOICES (Property catastrophe cover): the per-risk package
+    // and the catastrophe layer each come back exactly, and WC carries no
+    // catastrophe field.
+    const seenProperty = after.room.teams[0].resultsByYear?.['1']?.decisions?.Property;
+    eq(seenProperty?.reinsuranceOption, '$5M xs $5M', 'Property\'s per-risk choice comes back as posted');
+    eq(seenProperty?.catastropheOption, '$50M xs $25M', 'and its catastrophe choice');
+    ok(seen !== undefined && !('catastropheOption' in seen), 'and WC carries no catastrophe choice');
     eq(seen?.dividendPct, 0.05, 'and the dividend');
     // THE WORLDS' SPREAD (loss engine commit 4b): what the team posts beside the
     // average comes back exactly, for the host's minimum column.

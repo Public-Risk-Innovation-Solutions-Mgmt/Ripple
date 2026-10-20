@@ -666,6 +666,11 @@ export const NEW_BUSINESS_PENALTY = 0;
  * ⚠ AND THE REQUIREMENT IS THE LINE'S FULL ONE SINCE PROMPT A COMMIT 3: the
  * margin above PLUS the retained-catastrophe charge (Property only), the same
  * total the engine grades capital on every year. See setOpeningSurplus.
+ *
+ * ⚠ AND THE CHARGE IS NET OF THE COVER HELD SINCE PROPERTY CATASTROPHE COVER:
+ * what one event leaves the pool after the per-risk layer on each claim and
+ * the catastrophe layer on the remainder. Property opens on it behind the
+ * default cover.
  */
 export const OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2;
 
@@ -789,7 +794,8 @@ export const PROPERTY_CATASTROPHE_OPTIONS: readonly ReinsuranceOption[] = [NONE,
 
 /**
  * WHAT A TEAM HOLDS UNTIL IT CHOOSES — CHOSEN: the middle option, $9M xs $1M on
- * WC and GL and $20M xs $5M on Property. It is also the pre-game's prior board,
+ * WC and GL, and on Property $20M xs $5M per claim with the catastrophe cover
+ * below, PROPERTY_CATASTROPHE_DEFAULT_OPTION. It is also the pre-game's prior board,
  * which plays the default decisions, so the opening is built on it.
  */
 export const REINSURANCE_DEFAULT_OPTION: PerLine<string> = {
@@ -1130,8 +1136,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, unit: 'x the line\'s own required capital',
         what: 'Sets opening surplus directly, replacing the band and the pin.', basis: 'CHOSEN',
         note: 'Against each line\'s FULL required capital: the reserve risk margin, expectedNetUnpaidLoss x '
-          + '(staticClf(line, 0.90) - 1), PLUS the retained-catastrophe charge — on Property only; WC and GL '
-          + 'have none (since Prompt A commit 3). 2 since Prompt A commit 2 (was 2.28, the old band\'s '
+          + '(staticClf(line, 0.90) - 1), PLUS the retained-catastrophe charge — on Property only, net of the '
+          + 'per-risk and catastrophe cover held (the default cover at the opening); WC and GL have none (since '
+          + 'Prompt A commit 3). 2 since Prompt A commit 2 (was 2.28, the old band\'s '
           + 'midpoint carried over). The pre-game starts from the surplus that lands its last year-end here, '
           + 'so the opening is set without a reset.',
       }],
@@ -1389,13 +1396,27 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'What a team buys: one package per line from this fixed set, each one layer per occurrence, '
           + 'priced as the expected recovery on the new engine\'s large losses x the line\'s CLF at 70%.',
         basis: 'CHOSEN',
-        note: `Property: ${REINSURANCE_OPTIONS.Property.map(o => o.id).join(' · ')}. GL's $25M pool limit still `
-          + 'applies. The tower is cut at every package\'s edges, so each package is whole tower layers.',
+        note: `Property's per-risk cover, on each claim: ${REINSURANCE_OPTIONS.Property.map(o => o.id).join(' · ')}. GL's `
+          + '$25M pool limit still applies. The tower is cut at every package\'s edges, so each package is whole '
+          + 'tower layers.',
+      }],
+      ['Property catastrophe cover', {
+        value: PROPERTY_CATASTROPHE_OPTIONS.map(o => o.id).join(' · '),
+        unit: 'one choice, on each event\'s total after per-risk',
+        what: 'Property\'s second choice. It pays on a wildfire, earthquake or winterstorm\'s total after the '
+          + 'per-risk recoveries on its claims, and never on a routine large claim, which involves a single risk. '
+          + 'Priced as every layer, behind the per-risk cover bought.',
+        basis: 'CHOSEN',
+        note: 'Per-risk pays first, so the two together cannot recover more than the loss. The required capital '
+          + 'is net of both kinds held, so a pool that buys less cover needs more surplus. A measurement still '
+          + 'running may refine the list.',
       }],
       ['Default package', {
-        value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,
+        value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property `
+          + `${REINSURANCE_DEFAULT_OPTION.Property} per claim + ${PROPERTY_CATASTROPHE_DEFAULT_OPTION} per event`,
         unit: 'per line',
-        what: 'The middle option, held by every team until it chooses and by the pre-game\'s prior board.',
+        what: 'Held by every team until it chooses and by the pre-game\'s prior board: the middle option on WC '
+          + 'and GL, and on Property both kinds of cover.',
         basis: 'CHOSEN',
       }],
       ['Worlds', {

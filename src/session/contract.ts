@@ -330,6 +330,16 @@ export interface TeamLineDecisions {
    * first; see docs/handoff/AWS_HANDLER_HANDOFF.md.
    */
   reinsuranceOption: string;
+  /**
+   * PROPERTY'S CATASTROPHE COVER — one id from PROPERTY_CATASTROPHE_OPTIONS
+   * (e.g. '$100M xs $25M'), or 'none'. Property buys two kinds: on Property,
+   * `reinsuranceOption` is the PER-RISK cover, applied to each claim, and this
+   * is the catastrophe layer, applied to each event's total after per-risk.
+   * Present on Property only. ⚠ A CONTRACT CHANGE — deploy the handler first;
+   * see docs/handoff/AWS_HANDLER_HANDOFF.md. A row posted before it has no
+   * field, and the host renders the catastrophe choice as not recorded.
+   */
+  catastropheOption?: string;
   /** Share of the book NOT renewed, worst first. Absent on the engine side reads as 0. */
   renewalCut: number;
   /** The intake slider's position, 0 = No New Business. */

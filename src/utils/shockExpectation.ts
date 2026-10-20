@@ -19,20 +19,24 @@
 // over the years it could have had — year 1 carries no inherited A, year 3
 // carries up to two years of decay.
 //
-// ⚠ ONE APPROXIMATION, STATED. Earthquake and Wildfire are one occurrence
-// each, so the tower sees the SUM of their losses. That sum is priced as a
-// lognormal with the sum's own mean and CV (Fenton-Wilkinson). The draw sums
-// the individual lognormals exactly; shock-loss-check measures the gap.
+// ⚠ TWO APPROXIMATIONS, STATED. Earthquake, Wildfire and Winterstorm are one
+// event each, so the tower sees SUMS of their losses. A sum is priced as a
+// lognormal with its own mean and CV (Fenton-Wilkinson): the event's total,
+// and — for Property's catastrophe layer — what the per-risk layer leaves of
+// it. And an earthquake's deductible is taken off each claim at the share
+// it would keep of an event of exactly T (1 − d/T), where the draw takes it
+// at the share of the event it drew. The draw sums the individual lognormals
+// exactly; shock-loss-check and property-cat-cover-check measure the gaps.
 // ============================================================================
 
-import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
+import { REINSURANCE_TOWER, type TowerLayer, type TowerLine } from '../data/reinsuranceTower';
 import {
   ORDINARY_LOSS_CV, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
   SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
 import { pwlMoments, lognormalFromMean, routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ordinaryLossCostPer100 } from './ordinaryLoss';
-import { DECAY, SHOCK_EVENTS, eventLines, poolShare, tScale, trendFactor, type ShockLevel } from './shockLosses';
+import { DECAY, SHOCK_EVENTS, eventDeductible, eventLines, poolShare, tScale, trendFactor, type ShockLevel } from './shockLosses';
 import type { CoverageLine } from '../types/simulation';
 
 // --- quadrature over the uniform T ------------------------------------------
@@ -135,7 +139,7 @@ export function conditionalEventMoments(
   const scale = tScale(line, exposure, yearNumber);
   const n = SHOCK_LOSS_COUNT[eventName]?.[line] ?? 0;
   const one = SHOCK_ONE_OCCURRENCE.includes(eventName);
-  const ded = one && line === 'Property' ? PROPERTY_PERIL_DEDUCTIBLE[eventName.toLowerCase()] ?? 0 : 0;
+  const ded = eventDeductible(line, eventName, one);
   const [lo, hi] = R_MODEL.tShock[line][row.t as Exclude<ShockLevel, 'None'>];
   const k = kinks(ded);
   const perT = (tModel: number) => {
@@ -196,17 +200,26 @@ function largeLossMoments(
     }
   }
   if (routineOn && exposure > 0) {
-    const basis = routineLargeBasis(line);
-    const g = trendFactor(line, yearNumber);
-    const off = routineOffset ? g * basis.limit : 0;
-    const r = routineExpectation(basis, g, x => h(x, 0) - off, kinks(0));
-    const lambda = routineLargeCount(line, exposure);
-    routine = lambda * r.m1;
+    const r = routineMoments(line, exposure, yearNumber, x => h(x, 0), kinks(0), routineOffset);
+    routine = r.mean;
     mean += routine;
-    variance += lambda * r.m2;
-    occurrences += lambda;
+    variance += r.variance;
+    occurrences += r.lambda;
   }
   return { mean, variance, occurrences, byEvent, routine };
+}
+
+/** The routine large claims' part of largeLossMoments: E and Var of SUM h(claim), and the count. */
+function routineMoments(
+  line: CoverageLine, exposure: number, yearNumber: number,
+  h: (x: number) => number, kinks: readonly number[], routineOffset: boolean,
+): { mean: number; variance: number; lambda: number } {
+  const basis = routineLargeBasis(line);
+  const g = trendFactor(line, yearNumber);
+  const off = routineOffset ? g * basis.limit : 0;
+  const r = routineExpectation(basis, g, x => h(x) - off, kinks);
+  const lambda = routineLargeCount(line, exposure);
+  return { mean: lambda * r.m1, variance: lambda * r.m2, lambda };
 }
 
 // reinsuranceTower.ts's cedeAbove, restated rather than imported: that module
@@ -250,7 +263,13 @@ export function expectedLossBreakdown(
 ): ExpectedLossBreakdown {
   const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
   const u = upliftMoments(line, yearNumber);
-  const large = largeLossMoments(line, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line), true, routineOn);
+  // An event's deductible comes off its ground-up total first (eventDeductible);
+  // every other loss has none, and keeps exactly the pool share it always had.
+  const large = largeLossMoments(
+    line, exposure, yearNumber,
+    (x, d) => (d > 0 ? poolShare(line, Math.max(0, x - d)) : poolShare(line, x)),
+    d => (d > 0 ? [...poolKinks(line), d] : poolKinks(line)), true, routineOn,
+  );
   const byEvent = new Map<string, number>();
   for (const [k, v] of u.byEvent) byEvent.set(k, v * ordinary);
   for (const [k, v] of large.byEvent) byEvent.set(k, (byEvent.get(k) ?? 0) + v);
@@ -259,6 +278,148 @@ export function expectedLossBreakdown(
     ordinary, uplift, shockLarge: large.mean - large.routine, routineLarge: large.routine,
     total: ordinary + uplift + large.mean, byEvent,
   };
+}
+
+// --- Property's two kinds of cover ----------------------------------------
+//
+// PER-RISK answers each claim; CATASTROPHE answers an event's total net of
+// the per-risk recoveries on its claims, and never a routine claim alone. So
+// on Property a layer's expectation is not a function of one loss: the
+// catastrophe layer's depends on the per-risk cover in force in front of it.
+// Given an event of size T with n claims, each claim Y is lognormal around
+// k·T/n with CV SHOCK_LOSS_CV (k = 1 − d/T, the deductible's share, 1 without
+// one) and independent of the others, so
+//
+//   per-risk layer L     n·E[L(Y)], second moment n·E[L(Y)²] + n(n−1)·E[L(Y)]²
+//   what per-risk leaves N = Σ r(Y_i), r(y) = y − Σ placed per-risk L(y):
+//                        mean n·E[r], variance n·Var[r], fitted lognormal
+//   catastrophe layer C  E[C(N)] on that lognormal
+//   the pool keeps       N − Σ placed C(N), on the same lognormal
+//
+// and each is integrated over T uniform, at the event's probability.
+
+type Bounds = { attachment: number; limit: number };
+const cedeTo = (x: number, l: Bounds) => Math.max(0, Math.min(x - l.attachment, l.limit));
+const boundsKinks = (ls: readonly Bounds[]) => ls.flatMap(l => [l.attachment, l.attachment + l.limit]);
+
+/** E and E[^2] of one quantity, given an event arrives. */
+export interface EventMoment { c1: number; c2: number }
+
+/** Given an event arrives on Property: each per-risk layer, each catastrophe layer, and what the pool keeps. */
+export interface EventTiers {
+  perRisk: EventMoment[];
+  cat: EventMoment[];
+  retained: EventMoment;
+}
+
+/**
+ * GIVEN THAT A ONE-OCCURRENCE EVENT ARRIVES THIS YEAR ON A LINE WITH
+ * CATASTROPHE LAYERS — Property's Earthquake, Winterstorm or Wildfire — the
+ * moments of each per-risk layer's recovery (`perRisk`, all reported), of each
+ * catastrophe layer's recovery behind the per-risk layers in force
+ * (`perRiskInForce`), and of what the pool keeps after both kinds in force.
+ * null if the event's T does not reach the line or it is not one occurrence.
+ */
+export function conditionalEventTiers(
+  line: CoverageLine, eventName: string, exposure: number, yearNumber: number,
+  perRisk: readonly Bounds[], perRiskInForce: readonly boolean[],
+  cat: readonly Bounds[], catInForce: readonly boolean[],
+): EventTiers | null {
+  const row = eventLines(eventName).find(r => r.line === line && r.t !== 'None');
+  if (!row || !SHOCK_ONE_OCCURRENCE.includes(eventName)) return null;
+  const scale = tScale(line, exposure, yearNumber);
+  const n = SHOCK_LOSS_COUNT[eventName]?.[line] ?? 0;
+  const ded = eventDeductible(line, eventName, true);
+  const [lo, hi] = R_MODEL.tShock[line][row.t as Exclude<ShockLevel, 'None'>];
+  const prOn = perRisk.filter((_l, i) => perRiskInForce[i]);
+  const catOn = cat.filter((_l, i) => catInForce[i]);
+  const r = (y: number) => poolShare(line, y) - prOn.reduce((a, l) => a + cedeTo(poolShare(line, y), l), 0);
+  const zero = (): EventTiers => ({ perRisk: perRisk.map(() => ({ c1: 0, c2: 0 })), cat: cat.map(() => ({ c1: 0, c2: 0 })), retained: { c1: 0, c2: 0 } });
+  const perT = (tModel: number): EventTiers => {
+    const T = tModel * scale;
+    const k = ded > 0 ? Math.max(0, 1 - ded / T) : 1;
+    if (!(k > 0) || !(T > 0) || n <= 0) return zero();
+    const y = lognormalFromMean((k * T) / n, SHOCK_LOSS_CV);
+    const pk = poolKinks(line);
+    const sumOf = (m: { m1: number; m2: number }): EventMoment => ({ c1: n * m.m1, c2: n * m.m2 + n * (n - 1) * m.m1 * m.m1 });
+    const pr = perRisk.map(l => sumOf(pwlMoments(y.mu, y.sigma, 0, [...pk, ...boundsKinks([l])], x => cedeTo(poolShare(line, x), l))));
+    const rm = pwlMoments(y.mu, y.sigma, 0, [...pk, ...boundsKinks(prOn)], r);
+    const mean = n * rm.m1, variance = Math.max(0, n * (rm.m2 - rm.m1 * rm.m1));
+    if (!(mean > 0)) return { ...zero(), perRisk: pr };
+    const N = lognormalFromMean(mean, Math.sqrt(variance) / mean);
+    const on = (h: (x: number) => number, ks: number[]): EventMoment => {
+      const m = pwlMoments(N.mu, N.sigma, 0, ks, h);
+      return { c1: m.m1, c2: m.m2 };
+    };
+    return {
+      perRisk: pr,
+      cat: cat.map(l => on(x => cedeTo(x, l), boundsKinks([l]))),
+      retained: on(x => x - catOn.reduce((a, l) => a + cedeTo(x, l), 0), boundsKinks(catOn)),
+    };
+  };
+  const avg = (pick: (t: EventTiers) => EventMoment): EventMoment => ({
+    c1: overUniform(lo, hi, t => pick(perT(t)).c1),
+    c2: overUniform(lo, hi, t => pick(perT(t)).c2),
+  });
+  return {
+    perRisk: perRisk.map((_l, i) => avg(t => t.perRisk[i])),
+    cat: cat.map((_l, i) => avg(t => t.cat[i])),
+    retained: avg(t => t.retained),
+  };
+}
+
+/** The tower's layers split by kind, bounds scaled, with what is in force. */
+function tieredLayers(line: TowerLine, placed: readonly boolean[] | null, boundsScale = 1) {
+  const pick = (basis: TowerLayer['basis']) => REINSURANCE_TOWER[line]
+    .map((l, i) => ({ l, i })).filter(({ l }) => l.basis === basis)
+    .map(({ l, i }) => ({
+      i, bounds: { attachment: l.attachment * boundsScale, limit: l.limit * boundsScale },
+      inForce: placed === null ? l.purchasable : placed[i] === true && l.purchasable,
+    }));
+  return { perRisk: pick('claim'), cat: pick('event') };
+}
+
+/**
+ * EVERY PROPERTY LAYER'S EXPECTED ANNUAL RECOVERY, AND ITS SD — the events at
+ * their probabilities (conditionalEventTiers), and the routine claims, which
+ * reach the per-risk layer only. Each catastrophe layer is priced behind the
+ * per-risk cover in `placed` (null: the whole tower's purchasable layers),
+ * since what per-risk takes first the catastrophe layer never sees.
+ */
+function tieredLayerMoments(
+  line: TowerLine, exposure: number, yearNumber: number, boundsScale: number, exAnte: boolean,
+  placed: readonly boolean[] | null,
+): NewEngineLayerMoments[] {
+  const t = tieredLayers(line, placed, boundsScale);
+  const layers = REINSURANCE_TOWER[line];
+  const mean = layers.map(() => 0), variance = layers.map(() => 0), lambda = layers.map(() => 0);
+  if ((yearNumber >= 1 || exAnte) && exposure > 0) {
+    for (const e of SHOCK_EVENTS) {
+      const c = conditionalEventTiers(
+        line, e.name, exposure, yearNumber,
+        t.perRisk.map(x => x.bounds), t.perRisk.map(x => x.inForce),
+        t.cat.map(x => x.bounds), t.cat.map(() => true),
+      );
+      if (c === null) continue;
+      const p = e.probability;
+      const add = (i: number, m: EventMoment) => {
+        mean[i] += p * m.c1; variance[i] += p * m.c2 - p * p * m.c1 * m.c1; lambda[i] += p;
+      };
+      t.perRisk.forEach((x, j) => add(x.i, c.perRisk[j]));
+      t.cat.forEach((x, j) => add(x.i, c.cat[j]));
+    }
+  }
+  if (ROUTINE_LARGE_LOSSES.enabled && exposure > 0) {
+    for (const x of t.perRisk) {
+      const r = routineMoments(line, exposure, yearNumber, y => cedeTo(poolShare(line, y), x.bounds),
+        [...poolKinks(line), ...boundsKinks([x.bounds])], false);
+      mean[x.i] += r.mean; variance[x.i] += r.variance; lambda[x.i] += r.lambda;
+    }
+  }
+  return layers.map((_l, i) => {
+    const sd = Math.sqrt(Math.max(0, variance[i]));
+    return { expected: mean[i], sd, sdOverExpected: mean[i] > 0 ? sd / mean[i] : 0, lambda: lambda[i] };
+  });
 }
 
 // --- the tower ------------------------------------------------------------
@@ -283,7 +444,13 @@ export interface NewEngineLayerMoments { expected: number; sd: number; sdOverExp
  */
 export function newEngineLayerMoments(
   line: TowerLine, exposure: number, yearNumber: number, boundsScale = 1, exAnte = true,
+  // PROPERTY ONLY: the placement the catastrophe layers are priced behind —
+  // see tieredLayerMoments. Absent: every purchasable layer, the whole tower.
+  placed: readonly boolean[] | null = null,
 ): NewEngineLayerMoments[] {
+  if (REINSURANCE_TOWER[line].some(l => l.basis === 'event')) {
+    return tieredLayerMoments(line, exposure, yearNumber, boundsScale, exAnte, placed);
+  }
   return REINSURANCE_TOWER[line].map(l => {
     const layer = { attachment: l.attachment * boundsScale, limit: l.limit * boundsScale };
     const c = layerCession(line, layer);
@@ -307,6 +474,9 @@ export function retainedSd(
   const u = upliftMoments(line, yearNumber);
   const cv = ORDINARY_LOSS_CV[line];
   const ordinaryVar = ordinary * ordinary * ((1 + cv * cv) * (1 + 2 * u.mean + u.second) - Math.pow(1 + u.mean, 2));
+  if (REINSURANCE_TOWER[line].some(l => l.basis === 'event')) {
+    return Math.sqrt(Math.max(0, ordinaryVar + tieredRetained(line, placed, exposure, yearNumber).variance));
+  }
   const large = largeLossMoments(
     line, exposure, yearNumber,
     (x, d) => poolShare(line, x) - layers.reduce((s, l) => s + cedeAboveLocal(poolShare(line, x), l, d), 0),
@@ -334,16 +504,56 @@ export function newEngineCatCapital(
   line: CoverageLine, exposure: number, yearNumber: number, placed: readonly boolean[] | null,
 ): number {
   if (line !== 'Property' || !(exposure > 0)) return 0;
-  const layers = REINSURANCE_TOWER.Property.filter((l, i) => placed?.[i] === true && l.purchasable);
-  const h: PerLoss = (x, d) => poolShare(line, x) - layers.reduce((s, l) => s + cedeAboveLocal(poolShare(line, x), l, d), 0);
-  const kinks = (d: number) => layers.flatMap(l => [Math.max(l.attachment, d), l.attachment + l.limit]);
+  // ⚠ NET OF THE COVER HELD, BOTH KINDS (Property catastrophe cover). The
+  // per-risk layer in force answers each of the event's claims, the
+  // catastrophe layer in force the total it leaves, and the charge is what
+  // the pool keeps after both — so a pool that buys less cover needs more
+  // surplus. `placed` null holds none.
+  const t = tieredLayers('Property', placed ?? REINSURANCE_TOWER.Property.map(() => false));
   let weight = 0, retained = 0;
   for (const e of SHOCK_EVENTS) {
     if (!e.regional) continue;
-    const c = conditionalEventMoments(line, e.name, exposure, yearNumber, h, kinks);
+    const c = conditionalEventTiers(
+      line, e.name, exposure, yearNumber,
+      t.perRisk.map(x => x.bounds), t.perRisk.map(x => x.inForce),
+      t.cat.map(x => x.bounds), t.cat.map(x => x.inForce),
+    );
     if (c === null) continue;
     weight += e.probability;
-    retained += e.probability * c.c1;
+    retained += e.probability * c.retained.c1;
   }
   return weight > 0 ? retained / weight : 0;
+}
+
+/**
+ * What Property keeps of its large losses over a year after the layers in
+ * `placed`, E and Var: each event's retained at its probability, and each
+ * routine claim less the per-risk layer in force. For retainedSd.
+ */
+function tieredRetained(
+  line: TowerLine, placed: readonly boolean[], exposure: number, yearNumber: number,
+): { mean: number; variance: number } {
+  const t = tieredLayers(line, placed);
+  let mean = 0, variance = 0;
+  if (yearNumber >= 1 && exposure > 0) {
+    for (const e of SHOCK_EVENTS) {
+      const c = conditionalEventTiers(
+        line, e.name, exposure, yearNumber,
+        t.perRisk.map(x => x.bounds), t.perRisk.map(x => x.inForce),
+        t.cat.map(x => x.bounds), t.cat.map(x => x.inForce),
+      );
+      if (c === null) continue;
+      const p = e.probability;
+      mean += p * c.retained.c1;
+      variance += p * c.retained.c2 - p * p * c.retained.c1 * c.retained.c1;
+    }
+  }
+  if (ROUTINE_LARGE_LOSSES.enabled && exposure > 0) {
+    const on = t.perRisk.filter(x => x.inForce).map(x => x.bounds);
+    const r = routineMoments(line, exposure, yearNumber,
+      y => poolShare(line, y) - on.reduce((a, l) => a + cedeTo(poolShare(line, y), l), 0),
+      [...poolKinks(line), ...boundsKinks(on)], true);
+    mean += r.mean; variance += r.variance;
+  }
+  return { mean, variance };
 }

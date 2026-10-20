@@ -80,17 +80,112 @@ export function cedeAbove(total: number, layer: { attachment: number; limit: num
 // Property reads PROPERTY_PERIL_DEDUCTIBLE by the occurrence's peril; anything
 // unlisted, and every WC and GL occurrence, gets 0 — "no deductible beyond the
 // layers' own attachments", which cedeAbove treats as exactly the old cession.
+//
+// ⚠ ZERO ON THE NEW LOSS ENGINE. There the earthquake deductible is a COVERAGE
+// term: it comes off the event's ground-up total at the draw, spread over its
+// claims in proportion to size (drawLargeLosses), so the pool never holds it
+// and the tower must not take it a second time. Only the dormant member path
+// still retains it here.
 export function occurrenceDeductibles(line: TowerLine, occurrences: readonly Occurrence[]): number[] {
-  if (line !== 'Property') return occurrences.map(() => 0);
+  if (line !== 'Property' || newLossEngineRuns()) return occurrences.map(() => 0);
   return occurrences.map(o => (o.peril !== undefined ? PROPERTY_PERIL_DEDUCTIBLE[o.peril] ?? 0 : 0));
 }
 
-// The kind of each occurrence, index-aligned to occurrenceTotals' output. The
-// TOWER does not read it — every layer answers every occurrence — but booking
-// and development do: a catastrophe is booked at its drawn total and held there
-// (see bookedOccurrenceTotals in simulationEngine).
+// The kind of each occurrence, index-aligned to occurrenceTotals' output.
+// Booking and development read it — a catastrophe is booked at its drawn total
+// and held there (see bookedOccurrenceTotals in simulationEngine) — and so does
+// Property's tower, through occurrenceEventClaims: only an event reaches the
+// catastrophe layer.
 export const occurrenceKinds = (occurrences: Occurrence[]): boolean[] =>
   occurrences.map(o => o.isCatastrophe === true);
+
+/** True when the line's tower has Property's two kinds of cover. */
+export const towerHasEventLayers = (line: TowerLine): boolean =>
+  REINSURANCE_TOWER[line].some(l => l.basis === 'event');
+
+// THE CLAIMS OF EACH EVENT, index-aligned to the occurrences: a catastrophe
+// occurrence's claim amounts, in whole dollars, on a line whose tower has a
+// catastrophe layer; undefined for every other occurrence, which is one claim.
+// Whole dollars because the list is stored on the event's tracked record for
+// development (DevelopingClaim.eventClaims) and the save is near its budget;
+// the cession scales the list to the event's total, so rounding moves no
+// event's total and no claim by more than a fraction of a dollar.
+export function occurrenceEventClaims(
+  line: TowerLine, claims: readonly Claim[], occurrences: readonly Occurrence[],
+): (number[] | undefined)[] {
+  if (!towerHasEventLayers(line)) return occurrences.map(() => undefined);
+  const byId = new Map(claims.map(c => [c.id, c]));
+  return occurrences.map(o => (o.isCatastrophe
+    ? o.claimIds.map(id => { const c = byId.get(id); return c ? Math.round(claimContribution(c)) : 0; })
+    : undefined));
+}
+
+/** One unit the tower answers: an occurrence's total and, for an event, its claims. */
+export interface CessionUnit {
+  /** The unit's total now, gross. */
+  total: number;
+  /** An EVENT's claims, at any scale — they are scaled to `total`. Absent: the
+   *  unit is one claim, and no catastrophe layer answers it. */
+  eventClaims?: readonly number[];
+  /** A peril deductible above the layers' attachments (member path only). */
+  deductible?: number;
+}
+
+// ============================================================================
+// WHAT EACH LAYER CEDES ON ONE UNIT — PER-RISK FIRST, THEN CATASTROPHE.
+//
+// A layer with no basis (every WC and GL layer) answers the unit's total, as
+// it always has: exactly cedeAbove(total, layer, deductible).
+//
+// Property's PER-RISK layer ('claim') answers EACH CLAIM: an event's claims,
+// scaled to its total, or the unit itself when it is one claim. Its
+// CATASTROPHE layers ('event') answer an EVENT'S total less the per-risk
+// recoveries on its claims, and nothing else — a routine large claim involves
+// a single risk and is the per-risk cover's alone. Per-risk is taken only where
+// it is placed, so a pool without it puts the whole event to the catastrophe
+// layer. The catastrophe layer sees what per-risk left, so the two together
+// cannot recover more than the loss.
+//
+// Development cedes through the same function at the unit's new value
+// (cedeDevelopment), so the inception and the later movements are one treaty.
+// ============================================================================
+export function cedeUnitByLayer(line: TowerLine, unit: CessionUnit, placed: readonly boolean[]): number[] {
+  const layers = REINSURANCE_TOWER[line];
+  const total = Math.max(0, unit.total);
+  const d = unit.deductible ?? 0;
+  const out = layers.map(() => 0);
+  const ev = unit.eventClaims;
+  const evSum = ev ? ev.reduce((a, b) => a + b, 0) : 0;
+  const claims = ev ? (evSum > 0 ? ev.map(c => (c * total) / evSum) : []) : [total];
+  let perRisk = 0;
+  layers.forEach((l, i) => {
+    if (!placed[i] || !l.purchasable || l.basis !== 'claim') return;
+    out[i] = claims.reduce((s, c) => s + cedeToLayer(c, l.attachment, l.limit), 0);
+    perRisk += out[i];
+  });
+  layers.forEach((l, i) => {
+    if (!placed[i] || !l.purchasable || l.basis === 'claim') return;
+    if (l.basis === 'event') out[i] = ev ? cedeToLayer(total - perRisk, l.attachment, l.limit) : 0;
+    else out[i] = cedeAbove(total, l, d);
+  });
+  return out;
+}
+
+// WHAT NO PACKAGE COULD COVER ON ONE UNIT — the part above the tower's top.
+// WC and GL: the total above TOWER_TOP. Property: a single claim above the
+// per-risk layer's top; an event's total, net of the full per-risk layer,
+// above the catastrophe cover's top (TOWER_TOP). Read at full placement, so it
+// does not depend on what the pool bought.
+export function retainedAboveTowerOf(line: TowerLine, unit: CessionUnit): number {
+  const layers = REINSURANCE_TOWER[line];
+  const total = Math.max(0, unit.total);
+  if (!towerHasEventLayers(line)) return Math.max(0, total - TOWER_TOP[line]);
+  const claimLayers = layers.filter(l => l.basis === 'claim');
+  if (!unit.eventClaims) return Math.max(0, total - Math.max(...claimLayers.map(l => l.attachment + l.limit)));
+  const full = cedeUnitByLayer(line, unit, layers.map(() => true));
+  const perRisk = layers.reduce((s, l, i) => s + (l.basis === 'claim' ? full[i] : 0), 0);
+  return Math.max(0, total - perRisk - TOWER_TOP[line]);
+}
 
 export interface OccurrenceCession {
   cededByLayer: number[];   // index-aligned to REINSURANCE_TOWER[line]
@@ -100,30 +195,34 @@ export interface OccurrenceCession {
 }
 
 // Apply the tower to one year's occurrences. `placed[i]` false = that band is
-// retained. Every layer answers every occurrence, a Property catastrophe
-// included. `deductibles[j]`, when given, is occurrence j's peril deductible
-// (occurrenceDeductibles); absent or 0 is the layers' own attachments.
+// retained. On WC and GL every layer answers every occurrence; on Property each
+// unit goes through cedeUnitByLayer — per-risk on each claim, catastrophe on an
+// event's total net of per-risk. `deductibles[j]`, when given, is occurrence j's
+// peril deductible (occurrenceDeductibles); absent or 0 is the layers' own
+// attachments. `eventClaims[j]` is occurrence j's claims when it is an event
+// (occurrenceEventClaims); absent, every occurrence is one claim.
 export function cedeOccurrences(
   line: TowerLine,
   totals: number[],
   placed: boolean[],
   deductibles?: readonly number[],
+  eventClaims?: readonly (readonly number[] | undefined)[],
 ): OccurrenceCession {
   const layers = REINSURANCE_TOWER[line];
   const cededByLayer = layers.map(() => 0);
   let totalCeded = 0, gross = 0, retainedAboveTower = 0;
   totals.forEach((t, j) => {
     gross += t;
-    const d = deductibles?.[j] ?? 0;
-    layers.forEach((l, i) => {
-      // A layer that is not purchasable cannot be placed even if the flag says
-      // so — belt and braces against a stale save or a hand-edited decision.
-      if (!placed[i] || !l.purchasable) return;
-      const c = cedeAbove(t, l, d);
-      cededByLayer[i] += c;
-      totalCeded += c;
-    });
-    retainedAboveTower += Math.max(0, t - TOWER_TOP[line]);
+    // A layer that is not purchasable cannot be placed even if the flag says
+    // so — belt and braces against a stale save or a hand-edited decision.
+    // cedeUnitByLayer checks both.
+    const unit: CessionUnit = {
+      total: t,
+      ...(eventClaims?.[j] ? { eventClaims: eventClaims[j] } : {}),
+      ...((deductibles?.[j] ?? 0) > 0 ? { deductible: deductibles![j] } : {}),
+    };
+    cedeUnitByLayer(line, unit, placed).forEach((c, i) => { cededByLayer[i] += c; totalCeded += c; });
+    retainedAboveTower += retainedAboveTowerOf(line, unit);
   });
   return { cededByLayer, totalCeded, retained: gross - totalCeded, retainedAboveTower };
 }
@@ -203,7 +302,9 @@ export interface OccurrenceProgramQuote {
 export function occurrenceProgramCost(
   line: TowerLine, placed: boolean[], members: Book, yearNumber: number,
 ): OccurrenceProgramQuote {
-  const moments = allLayerRiskMoments(line, members, yearNumber);
+  // Behind the placement: Property's catastrophe layer is priced on what the
+  // per-risk cover bought here leaves (see newEngineLayerMoments).
+  const moments = allLayerRiskMoments(line, members, yearNumber, placed);
   let premium = 0, expectedCeded = 0;
   REINSURANCE_TOWER[line].forEach((l, i) => {
     if (!(placed[i] && l.purchasable)) return;
@@ -353,7 +454,7 @@ export function quoteAggregate(
   // total was ordinary losses alone, at 2.2% CV, and this rounded to nothing.
   if (newLossEngineRuns()) {
     const effective = placed.map((on, i) => on && REINSURANCE_TOWER[line][i].purchasable);
-    const layerMoms = allLayerRiskMoments(line, book, yearNumber);
+    const layerMoms = allLayerRiskMoments(line, book, yearNumber, effective);
     const cededByPlaced = REINSURANCE_TOWER[line].reduce((t, _l, i) => t + (effective[i] ? layerMoms[i].expected : 0), 0);
     const expectedRetained = Math.max(1, expectedGrossLoss - cededByPlaced);
     const exposure = bookExposureOf(book, line, yearNumber);

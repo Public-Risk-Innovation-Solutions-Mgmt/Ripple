@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v15';
+export const SAVE_KEY = 'riskpool_gamestate_v16';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -180,7 +180,14 @@ export const SAVE_KEY = 'riskpool_gamestate_v15';
 // its full requirement, and before worlds 2-10 dropped their claim lists from
 // the save. Its pre-game, its opening and its book are ones this engine no
 // longer builds, so it cannot continue faithfully and is cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14'];
+// ⚠ v16 SINCE PROPERTY CATASTROPHE COVER. Property's decision is two choices
+// (per-risk and catastrophe, LineDecisionSet.catastropheOption), its tower is
+// re-cut into a per-claim layer and two event layers, an earthquake's
+// deductible comes off the event before the pool books it, Winterstorm is one
+// event, and Property's opening is set on a requirement net of the new cover.
+// A v15 save's Property decisions, ceded results, open event records and
+// opening are on terms this engine no longer has, so it is cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15'];
 
 /**
  * Fields dropped on the way out.

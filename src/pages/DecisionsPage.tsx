@@ -14,7 +14,7 @@ import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTo
 import WorldsSurplusRange from '../components/WorldsSurplusRange';
 import type { SurplusRange } from '../utils/worlds';
 import { occurrenceProgramCost } from '../utils/reinsuranceTower';
-import { placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
+import { catastropheOptionsFor, placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
 import type { Book } from '../utils/lineHelpers';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
@@ -1234,16 +1234,20 @@ function DataRow({ label, value }: { label: string; value: string }) {
 }
 
 // ============================================================================
-// THE REINSURANCE PACKAGE — ONE CHOICE PER LINE (loss engine commit 4a).
+// THE REINSURANCE PACKAGE — ONE CHOICE PER LINE (loss engine commit 4a), TWO
+// ON PROPERTY (Property catastrophe cover).
 //
 // A team picks one package from REINSURANCE_OPTIONS instead of placing each
 // band. Every price here is the engine's own quote — occurrenceProgramCost on
 // the line's book, over the package's layers — so the panel cannot show a
 // figure the engine does not charge. The aggregate stop-loss is not offered.
 //
-// A peril with its own deductible is listed from PROPERTY_PERIL_DEDUCTIBLE, as
-// the per-band panel listed it: the cession applies it, so a package attaching
-// below it answers that peril only from the deductible up.
+// PROPERTY CHOOSES TWICE: its PER-RISK cover (REINSURANCE_OPTIONS.Property),
+// applied to each claim, and its CATASTROPHE cover
+// (PROPERTY_CATASTROPHE_OPTIONS), applied to each event's total after the
+// per-risk recoveries. A catastrophe option's price is the program's price
+// with it less the program's price without it, behind the per-risk cover
+// chosen — what it adds, which is what the engine charges for it.
 // ============================================================================
 function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
   line: CoverageLine;
@@ -1253,63 +1257,98 @@ function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
   book: Book;
   yearNumber: number;
 }) {
-  const quotes = reinsuranceOptionsFor(line).map(o => ({
-    o, q: occurrenceProgramCost(line as TowerLine, placementFor(line, o.id), book, yearNumber),
-  }));
+  const property = line === 'Property';
+  const cat = property ? d.catastropheOption ?? 'none' : undefined;
+  const cost = (pr: string, c?: string) =>
+    occurrenceProgramCost(line as TowerLine, placementFor(line, pr, c), book, yearNumber);
+  const quotes = reinsuranceOptionsFor(line).map(o => ({ o, q: cost(o.id) }));
+  const behind = cost(d.reinsuranceOption);
+  const catQuotes = property
+    ? catastropheOptionsFor(line).map(o => {
+      const withIt = cost(d.reinsuranceOption, o.id);
+      return { o, q: { premium: withIt.premium - behind.premium, expectedCeded: withIt.expectedCeded - behind.expectedCeded } };
+    })
+    : [];
   const chosenOption = reinsuranceOptionsFor(line).find(o => o.id === d.reinsuranceOption);
   const packageTop = chosenOption && chosenOption.limit > 0 ? chosenOption.attachment + chosenOption.limit : null;
-  const perilDeductibles = line === 'Property' ? Object.entries(PROPERTY_PERIL_DEDUCTIBLE) : [];
+  const chosenCat = catastropheOptionsFor(line).find(o => o.id === cat);
+  const catTop = chosenCat && chosenCat.limit > 0 ? chosenCat.attachment + chosenCat.limit : null;
+  const totalCost = cost(d.reinsuranceOption, cat).premium;
+  const group = (
+    testId: string, rows: { o: { id: string }; q: { premium: number; expectedCeded: number } }[],
+    chosenId: string | undefined, pick: (id: string) => void, noneLabel: string,
+  ) => (
+    <div className="space-y-1.5" data-testid={testId}>
+      {rows.map(({ o, q }) => {
+        const chosen = chosenId === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            data-testid={`${testId.replace('options', 'option')}-${o.id}`}
+            disabled={disabled}
+            onClick={() => !disabled && pick(o.id)}
+            className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left ${
+              chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
+            } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+          >
+            <span>{o.id === 'none' ? noneLabel : o.id}</span>
+            <span className="text-xs text-gray-600">
+              {o.id === 'none' ? '$0/yr' : `${formatCurrency(q.premium)}/yr · expected recovery ${formatCurrency(q.expectedCeded)}`}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-600 leading-relaxed">
-        Choose <strong>one package</strong> for this line. Each covers every occurrence above its attachment
-        up to its limit; the price is the expected recovery on large losses, loaded at the line&apos;s 70% CLF.
-      </p>
-      {perilDeductibles.length > 0 && (
-        <p className="text-xs text-gray-600 leading-relaxed" data-testid="reins-peril-deductibles">
-          {perilDeductibles.map(([peril, ded]) =>
-            `${peril.charAt(0).toUpperCase()}${peril.slice(1)} carries its own $${ded / 1e6}M retention per occurrence: `
-            + 'a package attaching below it answers that peril from there up.').join(' ')}
-        </p>
+      {property ? (
+        <>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            Property buys <strong>two kinds of cover</strong>. Each price is the expected recovery on large losses,
+            loaded at the line&apos;s 70% CLF.
+          </p>
+          <p className="text-xs font-semibold text-gray-700">Per-risk — each claim</p>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            Pays on every claim above its attachment: a routine large loss, and each claim of a wildfire,
+            earthquake or winterstorm.
+          </p>
+          {group(`reins-options-${line}`, quotes, d.reinsuranceOption, id => setMany({ reinsuranceOption: id }), 'None — retain every claim')}
+          <p className="text-xs font-semibold text-gray-700">Catastrophe — each event</p>
+          <p className="text-xs text-gray-600 leading-relaxed" data-testid="reins-cat-terms">
+            Pays on a wildfire, earthquake or winterstorm&apos;s total after the per-risk recoveries — never on a
+            routine large loss, which involves a single risk. Priced behind the per-risk cover chosen above. An
+            earthquake&apos;s first ${PROPERTY_PERIL_DEDUCTIBLE.earthquake / 1e6}M is the members&apos; deductible, taken
+            off the event before any cover.
+          </p>
+          {group(`reins-cat-options-${line}`, catQuotes, cat, id => setMany({ catastropheOption: id }), 'None — retain every event')}
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-gray-600 leading-relaxed">
+            Choose <strong>one package</strong> for this line. Each covers every occurrence above its attachment
+            up to its limit; the price is the expected recovery on large losses, loaded at the line&apos;s 70% CLF.
+          </p>
+          {group(`reins-options-${line}`, quotes, d.reinsuranceOption, id => setMany({ reinsuranceOption: id }), 'None — retain every loss')}
+        </>
       )}
-      <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
-        {quotes.map(({ o, q }) => {
-          const chosen = d.reinsuranceOption === o.id;
-          return (
-            <button
-              key={o.id}
-              type="button"
-              data-testid={`reins-option-${line}-${o.id}`}
-              disabled={disabled}
-              onClick={() => !disabled && setMany({ reinsuranceOption: o.id })}
-              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left ${
-                chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
-              } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
-            >
-              <span>{o.id === 'none' ? 'None — retain every loss' : o.id}</span>
-              <span className="text-xs text-gray-600">
-                {o.id === 'none' ? '$0/yr' : `${formatCurrency(q.premium)}/yr · expected recovery ${formatCurrency(q.expectedCeded)}`}
-              </span>
-            </button>
-          );
-        })}
-      </div>
       <p className="text-xs text-gray-500 italic leading-relaxed">
         Aggregate cover is not offered. It protects against a broad surge of small losses — a winterstorm&apos;s
-        many claims under the retention — which no per-occurrence package reaches, and it may return.
+        many claims under the retention — which no package here reaches, and it may return.
       </p>
       <div className="bg-blue-50 rounded-lg p-3 border border-blue-200 text-xs">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
           <DataRow label="Package" value={placementSummary(line, d)} />
-          <DataRow
-            label="Reinsurance Cost"
-            value={`${formatCurrency(quotes.find(x => x.o.id === d.reinsuranceOption)?.q.premium ?? 0)}/yr`}
-          />
+          <DataRow label="Reinsurance Cost" value={`${formatCurrency(totalCost)}/yr`} />
           <DataRow
             label="Retained Above Package"
-            value={packageTop === null
-              ? 'Every loss'
-              : line === 'GL' ? `Above $${packageTop / 1e6}M — to the $25M pool limit` : `Above $${packageTop / 1e6}M — unlimited`}
+            value={property
+              ? [packageTop === null ? 'Every claim' : `Each claim above $${packageTop / 1e6}M`,
+                catTop === null ? 'every event' : `each event's remainder above $${catTop / 1e6}M`].join('; ')
+              : packageTop === null
+                ? 'Every loss'
+                : line === 'GL' ? `Above $${packageTop / 1e6}M — to the $25M pool limit` : `Above $${packageTop / 1e6}M — unlimited`}
           />
         </div>
       </div>

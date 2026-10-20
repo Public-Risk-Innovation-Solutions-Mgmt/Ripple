@@ -322,7 +322,7 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   //                 involves a single risk and is the per-risk cover's
   //                 alone (the two-risk rule in catastrophe treaties).
   // Per-risk pays first, so the two can never recover more than the loss.
-  // The packages are PROPERTY_PER_RISK_OPTIONS (REINSURANCE_OPTIONS.Property)
+  // The packages are REINSURANCE_OPTIONS.Property (per-risk)
   // and PROPERTY_CATASTROPHE_OPTIONS in pricingParameters.
   Property: [
     layer(PROPERTY_LOSS_MODEL.perRiskRetention, 25e6 - PROPERTY_LOSS_MODEL.perRiskRetention, 'claim'),

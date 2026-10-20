@@ -100,11 +100,21 @@ function flagsFor(line: CoverageLine, d: TeamLineDecisions): Flag[] {
     });
   }
 
-  if (d.reinsuranceOption === 'none') {
+  // Property buys two kinds (Property catastrophe cover): declined means
+  // neither; a pool that kept only the catastrophe layer off is flagged on its
+  // own, since its surplus then holds every event net of per-risk.
+  const catDeclined = line === 'Property' && d.catastropheOption === 'none';
+  if (d.reinsuranceOption === 'none' && (line !== 'Property' || catDeclined)) {
     out.push({
       key: 'reinsurance',
       label: 'Reinsurance declined',
       title: `No package bought on ${line}: every loss is retained.`,
+    });
+  } else if (catDeclined) {
+    out.push({
+      key: 'catastrophe',
+      label: 'Catastrophe cover declined',
+      title: 'No catastrophe layer on Property: each event\'s total after per-risk is retained.',
     });
   }
 
@@ -134,9 +144,16 @@ function fundingLabel(d: TeamLineDecisions): string {
 // The package, as the team chose it (loss engine commit 4a). A row posted
 // before that change carries per-band fields instead and renders a dash —
 // "not recorded", the same reading as a row with no decisions at all.
-function reinsuranceLabel(d: TeamLineDecisions): string {
+//
+// Property posts two choices (Property catastrophe cover): per-risk and
+// catastrophe, both shown. A Property row posted before that change has no
+// catastrophe field and shows a dash for it — not recorded.
+function reinsuranceLabel(line: CoverageLine, d: TeamLineDecisions): string {
   if (typeof d.reinsuranceOption !== 'string') return '—';
-  return d.reinsuranceOption === 'none' ? 'None' : d.reinsuranceOption;
+  const pr = d.reinsuranceOption === 'none' ? 'None' : d.reinsuranceOption;
+  if (line !== 'Property') return pr;
+  const cat = typeof d.catastropheOption !== 'string' ? '—' : d.catastropheOption === 'none' ? 'None' : d.catastropheOption;
+  return `Per-risk ${pr} · Cat ${cat}`;
 }
 
 const SPAN_NOTE: Record<Exclude<CellState['kind'], 'reported'>, string> = {
@@ -277,9 +294,12 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
         </span>
       </td>
       <td className="px-3 py-2">
-        <span className={`px-1 ${mark('reinsurance')}`} title={titleOf('reinsurance')}>
-          {reinsuranceLabel(d)}
-          {flagged('reinsurance') && <AlertTriangle size={12} className="ml-1 inline align-[-1px]" />}
+        <span
+          className={`px-1 ${mark(flagged('catastrophe') ? 'catastrophe' : 'reinsurance')}`}
+          title={titleOf('reinsurance') ?? titleOf('catastrophe')}
+        >
+          {reinsuranceLabel(line, d)}
+          {(flagged('reinsurance') || flagged('catastrophe')) && <AlertTriangle size={12} className="ml-1 inline align-[-1px]" />}
         </span>
       </td>
       <td className="px-3 py-2 text-slate-600">{formatPct(d.renewalCut, 0)}</td>
@@ -347,7 +367,7 @@ function TeamDrilldown({ team, line, years }: { team: TeamView; line: CoverageLi
             <tr key={y} className="border-t border-slate-200/60">
               <td className="py-1 text-slate-600">{y}</td>
               <td className="py-1 text-slate-600">{d ? fundingLabel(d) : '—'}</td>
-              <td className="py-1 text-slate-600">{d ? reinsuranceLabel(d) : '—'}</td>
+              <td className="py-1 text-slate-600">{d ? reinsuranceLabel(line, d) : '—'}</td>
               <td className="py-1 text-slate-600">
                 {d ? (d.dividendPct > 0 || d.assessmentPct > 0
                   ? `${d.dividendPct > 0 ? formatPct(d.dividendPct, 1) : '—'} / ${d.assessmentPct > 0 ? formatPct(d.assessmentPct, 1) : '—'}`

@@ -143,6 +143,9 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
       confidenceLevel: d.fundingConfidenceLevel,
       atExpected: d.fundingAtExpected,
       reinsuranceOption: d.reinsuranceOption,
+      // Property's second choice; absent on every other line, so their rows
+      // post exactly as before.
+      ...(d.catastropheOption !== undefined ? { catastropheOption: d.catastropheOption } : {}),
       // Absent reads as 0 on the engine side; it is written as 0 here so the
       // host renders "renews everyone" rather than an empty cell.
       renewalCut: d.renewalCut ?? 0,

@@ -110,6 +110,29 @@ the host must read back exactly that package and neither retired field;
 confirmed to fail against the old shape. Run on every pass —
 `npm run contract:dynamo`, `npm run contract:built`, `npm run contract:races`.
 
+### Property's two kinds of cover — a contract change (Property catastrophe cover)
+
+**This deploys handler first, then the front end, on the same rule.** Property
+now buys two kinds of reinsurance. Inside the decisions section, Property's
+`reinsuranceOption` is its **per-risk** cover (`$20M xs $5M` or `none`), applied
+to each claim, and a new field **`catastropheOption`** is its **catastrophe**
+cover (`$50M xs $25M`, `$100M xs $25M` or `none`), applied to each event's
+total after the per-risk recoveries; see `TeamLineDecisions` in
+`src/session/contract.ts`. The field is present on Property only. The host
+Decisions tab shows both and flags "Catastrophe cover declined" when only the
+catastrophe layer is off.
+
+The handler carries no new code for it — `submit` stores `req.result` whole —
+so the order matters for the stored rows, not for routing. A new host screen
+reading a Property row posted before the change renders a dash for the
+catastrophe choice (not recorded). The saved game moves to
+`riskpool_gamestate_v16`.
+
+**Contract harness:** the decisions fixture posts a Property line with a
+non-default per-risk and catastrophe choice; the host must read back both
+exactly, and WC must carry no catastrophe field. Run on every pass —
+`npm run contract:dynamo`, `npm run contract:built`, `npm run contract:races`.
+
 ### Ten worlds — the surplus spread (loss engine commit 4b)
 
 **This also deploys handler first, then the front end.** Each team's year now
