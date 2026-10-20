@@ -90,25 +90,34 @@ async function nudge(page, label, presses) {
 const room = (page, code) => page.evaluate(c =>
   JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
 
-// The player's own Results page for one year, as text. Parameterised because
-// the year this driver cares about is now whatever the room says was drawn.
+// The player's own record of one year's events, as text: the Result
+// Spreadsheet's "Events This Year" cell in that year's column. Parameterised
+// because the year this driver cares about is whatever the room says was drawn.
+//
+// ⚠ REPOINTED FROM THE RESULTS PAGE, WHICH THE MULTIPLAYER VERSION HIDES
+// (GameShell's MULTIPLAYER_HIDDEN_TABS). The spreadsheet stays visible in both
+// versions, and its events row is the same yearEvents read the Results page
+// named the event from, so the check means what it meant: the drawn event is
+// on the player's own screen, in its own year and no other. The table is the
+// pool's, so no line view can hide a Property event behind a WC tab.
 async function resultsYearText(page, year) {
-  const rx = new RegExp(`Year ${year} `);
-  await page.getByRole('button', { name: 'Results', exact: true }).click();
+  await page.getByRole('button', { name: 'Result Spreadsheet', exact: true }).click();
   await page.waitForTimeout(600);
-  // ⚠ PIN THE LINE VIEW TO POOL, AND THIS IS NOT COSMETIC. The line view is
-  // shared state: the decision loop above selects a LINE tab, and that selection
-  // was still in force here, so this read landed on "Annual Results — Workers'
-  // Compensation". A Property event correctly does not appear on the WC view, so
-  // the page was right and the read was wrong. The old driver never met this
-  // because it only ever read AFTER a reload, where the view has reset to Pool —
-  // which means the pass was an accident of ordering, not a property of the test.
-  const pool = page.getByRole('button', { name: 'Pool', exact: true }).first();
-  if (await pool.count() > 0) { await pool.click(); await page.waitForTimeout(350); }
-  const sel = page.locator('select').filter({ has: page.locator('option', { hasText: rx }) }).first();
-  await sel.selectOption({ label: (await sel.locator('option', { hasText: rx }).first().textContent()).trim() });
-  await page.waitForTimeout(500);
-  return page.locator('main').innerText();
+  return page.evaluate(y => {
+    for (const table of document.querySelectorAll('main table')) {
+      // A year header is "Year n" with the calendar year in a span under it, so
+      // its own text is the header's less the span's.
+      const heads = [...table.querySelectorAll('thead th')].map(th =>
+        th.textContent.slice(0, th.textContent.length - (th.querySelector('span')?.textContent.length ?? 0)).trim());
+      const col = heads.indexOf(`Year ${y}`);
+      if (col < 0) continue;
+      for (const tr of table.querySelectorAll('tbody tr')) {
+        const tds = tr.querySelectorAll('td');
+        if (tds[1] && tds[1].textContent.trim() === 'Events This Year') return tds[col]?.textContent ?? '';
+      }
+    }
+    return '';
+  }, year);
 }
 
 (async () => {
@@ -275,11 +284,11 @@ async function resultsYearText(page, year) {
   const namedBefore = [];
   for (const s of carried) {
     const txt = await resultsYearText(player, s.yearNumber);
-    console.log(`  year ${s.yearNumber} before the reload: names ${JSON.stringify(eventName(s))} = ${txt.includes(eventName(s))}`);
+    console.log(`  year ${s.yearNumber} before the reload: names ${JSON.stringify(eventName(s))} = ${txt.includes(eventName(s))} — read ${JSON.stringify(txt.slice(0, 160))}`);
     namedBefore.push(txt.includes(eventName(s)));
   }
   ok(namedBefore.length > 0 && namedBefore.every(Boolean),
-    `BEFORE THE RELOAD each drawn event is named on its own year's Results (${carried.map(s => `${eventName(s)} y${s.yearNumber}`).join('; ')})`);
+    `BEFORE THE RELOAD each drawn event is named in its own year's results (${carried.map(s => `${eventName(s)} y${s.yearNumber}`).join('; ')})`);
 
   const playerSurplusBefore = (await player.locator('header').innerText()).match(/Surplus\s*\n?\s*(\S+)/)?.[1];
 
@@ -321,7 +330,7 @@ async function resultsYearText(page, year) {
   const namedAfter = [];
   for (const s of carried) namedAfter.push((await resultsYearText(player, s.yearNumber)).includes(eventName(s)));
   ok(namedAfter.length > 0 && namedAfter.every(Boolean),
-    `AFTER THE RELOAD the player's Results still name each drawn event in its own year — the rebuild did not drop the schedule`);
+    `AFTER THE RELOAD the player's results still name each drawn event in its own year — the rebuild did not drop the schedule`);
 
   // Year 1 is never drawn (shockDraw excludes it so every team makes one full
   // round of decisions first), so it is a negative control the drawer guarantees

@@ -990,7 +990,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // note ("the expected recovery ... plus a 14% load", was "loaded at the line's
 // 70% CLF"), and the audit's CLF source for a pre-game year ("the prior board's
 // cushion — 14% over expected", was a table lookup at 70%).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v59.json');
+// v60: THE DISPLAY COMMIT. The control ran first: 1edb461, served on 4174,
+// reproduced v59 242 of 242. 34 of 242 moved, no key added or removed, every
+// one attributed: on the 26 Annual Statement screens, "not yet available" cells
+// show blank, the notes under the tables are gone (hidden from players, kept in
+// the source), the year selector appears, and a year-label row sits over the
+// columns ("Current" at game start; "Year 0 · Year 1 · Current" after year 2);
+// on the 8 line Decision History screens, three new columns — Renewal Declined,
+// New Business, Risk Control — reading 0.0% at default decisions. No figure
+// changed; values and exports are byte-identical.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v60.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

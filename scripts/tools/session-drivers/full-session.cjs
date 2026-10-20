@@ -111,16 +111,21 @@ const roomRecord = (page, code) => page.evaluate(c =>
   // ---- IT IS THE REAL GAME -------------------------------------------------
   {
     const p = players[0];
+    // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool
+    // in aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial
+    // Statements and Calculation Audit (GameShell's MULTIPLAYER_HIDDEN_TABS);
+    // single-player keeps them, and solo-oracle holds that. The PAGES are intact.
     const tabs = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
-                  'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-                  // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows
-                // the pool in aggregate. The PAGE is intact in GameShell.
-                'Calculation Audit'];
+                  'Decision History', 'Result Spreadsheet'];
+    const hiddenTabs = ['Financial Statements', 'Results', 'Calculation Audit'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);
     }
-    ok(present.length === tabs.length, `all 10 solo tabs present (${present.length}/10)`);
+    ok(present.length === tabs.length, `all ${tabs.length} multiplayer tabs present (${present.length}/${tabs.length})`);
+    const shown = [];
+    for (const t of hiddenTabs) if (await p.getByRole('button', { name: t, exact: true }).count() > 0) shown.push(t);
+    ok(shown.length === 0, `the multiplayer version hides ${hiddenTabs.join(', ')} (${shown.length ? `shown: ${shown.join(', ')}` : 'none shown'})`);
 
     const setup = await p.getByRole('button', { name: 'Game Setup', exact: true }).count();
     ok(setup === 0, 'Game Setup tab is absent — the room owns the seed');
@@ -263,7 +268,9 @@ const roomRecord = (page, code) => page.evaluate(c =>
   // ---- the results pages render another year's real output ----------------
   {
     const p = players[0];
-    for (const tab of ['Results', 'Financial Statements', 'Calculation Audit']) {
+    // The three results pages are hidden in multiplayer; the Annual Statement and
+    // the Result Spreadsheet carry the year's output here.
+    for (const tab of ['Annual Statement', 'Result Spreadsheet']) {
       await p.getByRole('button', { name: tab, exact: true }).click();
       await p.waitForTimeout(500);
       const txt = await p.locator('main').innerText();

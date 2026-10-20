@@ -640,6 +640,16 @@ across the worlds, pool scope — on every played year. The host's Teams table
 shows the minimum beside the average. A contract change: the handler deploys
 first (docs/handoff/AWS_HANDLER_HANDOFF.md).
 
+**What a hosted session shows (the display commit).** Players and viewers do
+not see the Results, Financial Statements or Calculation Audit tabs;
+single-player keeps them, and the Result Spreadsheet stays in both, for
+testing. One switch: `MULTIPLAYER_HIDDEN_TABS` in `src/game/GameShell.tsx` —
+set it to `[]` to restore all three. The Annual Statement carries a year
+selector and a year-label row, shows blank where a figure has no source, and
+no longer prints its explanatory notes (kept in the source, hidden from
+players). Decision History adds, by line, the renewal share declined, the
+intake position's share of exposure and risk control.
+
 ### Performance
 
 Measured at commit 4b, three-line games at default decisions:

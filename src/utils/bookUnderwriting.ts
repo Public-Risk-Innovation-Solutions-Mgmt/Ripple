@@ -42,7 +42,7 @@ export interface BookMovement {
 }
 
 /** The renewal cut, read as the share of the book it declines. */
-const cutShare = (cut: number | undefined) => {
+export const cutShare = (cut: number | undefined) => {
   const c = cut ?? 0;
   if (!(c >= 0)) return 0;
   return Math.min(c, RENEWAL_CUT_STEPS[RENEWAL_CUT_STEPS.length - 1]);
