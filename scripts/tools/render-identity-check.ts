@@ -978,7 +978,12 @@ const BASELINE = process.env.RENDER_BASELINE
 // the only wording that moves is wording a figure decides — the narrative's
 // "with margin to spare", and the Retained Above Tower row, shown only in a
 // year a claim pierces the tower.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v57.json');
+// v58: LARGE LOSSES ON BOOK UNITS (book units commit 5). The control ran
+// first: caea33d, served on 4174, reproduced v57 242 of 242. 171 of 242 moved,
+// no key added or removed, every one in its figures only: premium, losses,
+// reserves, surplus and the ratios, and the Decisions panel's quote, which now
+// prices the tower on the book's risk as the engine does. No wording changed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v58.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -437,7 +437,19 @@ at random, 1 perfectly.
   the book, and 8% intake writes units about 37% safer than the prospects
   (book-units-underwriting-check, 300 seeds).
 
-Still to come: large losses on units, and the new-business penalty.
+**Large losses land on units (book units commit 5).** Routine large claims
+and shock T losses land on the book's units, each unit weighted by its size x
+true risk; a regional T lands only on units in the struck region.
+
+- The routine claim count is λ x exposure x the book's size-weighted risk, and
+  the expected loss and the tower's layer prices carry the same factor, so a
+  riskier book sees more large claims and is priced for them; underwriting
+  moves both.
+- A claim carries its unit's index inside the engine only. The claims workbook
+  drops the Member ID, Member Name and Member Type columns on the new engine,
+  so no unit reaches a sheet.
+
+Still to come: the new-business penalty.
 
 ### Regions
 

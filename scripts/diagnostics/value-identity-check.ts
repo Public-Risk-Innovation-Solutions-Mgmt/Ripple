@@ -1207,7 +1207,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // everything struck on exposure move (premium, rates, reinsurance cost);
 // ordinary losses are the units' draws and expected loss carries the book's
 // risk, so losses, reserves, surplus and the ratios move with them.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v72.json');
+// v73: LARGE LOSSES ON BOOK UNITS (book units commit 5). The control ran
+// first: caea33d reproduced v72 exactly. Shape unchanged; 15,986 instances
+// moved across 91 fields, none an identity. Routine large claims are counted
+// on the book's size-weighted risk and land on its units by size x risk, and
+// expected loss and the tower's layer prices carry that risk: expected loss,
+// the pure premium and rates struck from it, reinsurance cost, the large
+// losses drawn, and the reserves, surplus and ratios downstream move.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v73.json');
 
 function seedOf(id: string) {
   let h = 5381;

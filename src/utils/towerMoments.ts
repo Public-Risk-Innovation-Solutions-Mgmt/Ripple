@@ -91,7 +91,7 @@ import { ratingGroupOf, thetaWc, trendedMu, wcFrequencyTrend, wcSeverityCap } fr
 import type { Member } from '../types/simulation';
 import { newLossEngineRuns } from '../data/pricingParameters';
 import { newEngineLayerMoments } from './shockExpectation';
-import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
+import { bookExposureOf, bookRiskOf, rosterOf, type Book } from './lineHelpers';
 
 const GM = GL_LOSS_MODEL;
 const WM = WC_LOSS_MODEL;
@@ -473,7 +473,7 @@ function layerRiskMomentsFor(
   // With the flag off this branch is not taken and nothing below changes.
   // ==========================================================================
   if (newLossEngineRuns()) {
-    return newEngineLayerMoments(line, bookExposureOf(book, line, yearNumber), yearNumber, boundsScale);
+    return newEngineLayerMoments(line, bookExposureOf(book, line, yearNumber), yearNumber, boundsScale, true, bookRiskOf(book));
   }
   const members = rosterOf(book, 'layerRiskMomentsFor (the old engine)');
   const n = layers.length;

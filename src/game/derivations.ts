@@ -36,6 +36,7 @@ import { pricingExperienceBasis } from '../utils/pricingTriangle';
 import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEngine';
 import { bookExposureOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
+import { lineBookRisk } from '../utils/bookUnits';
 import type { LinePoolState } from '../types/simulation';
 
 /** A line's exposure this year — its book, or its active roster. */
@@ -211,8 +212,10 @@ export function useGameDerivations(
   const decisionLineBook: Book = React.useMemo(() => {
     if (!gameState) return [];
     const lineState = gameState.poolState.lines[decisionLine];
+    // With the book's own risk, which its tower's price carries (book units commit 5).
+    const risk = lineBookRisk(gameState.instance, decisionLine, gameState.poolState.bookUnits);
     return lineState.bookExposure !== undefined
-      ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber) }
+      ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}) }
       : decisionLineActiveMembers;
   }, [gameState, decisionLine, decisionLineActiveMembers]);
 

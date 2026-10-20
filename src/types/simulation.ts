@@ -402,6 +402,11 @@ export interface Claim {
   // they show the event's name (see utils/yearEvents.ts), which reads the same
   // for a scheduled event and a drawn one.
   shockId?: string;
+  // THE BOOK UNIT the claim landed on (book units commit 5) — its index in the
+  // line's market (bookUnits.ts). Internal: NEVER SHOWN on any screen, export
+  // or workbook, which read the line. Absent on the member path and on
+  // claims from before book units.
+  unit?: number;
   // The rating GROUP the claim arose from (WC: county / schools / highSafety /
   // lowSafety). Was a rating CLASS before the severity rebuild.
   ratingClass?: string;

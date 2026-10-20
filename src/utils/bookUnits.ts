@@ -33,6 +33,7 @@ import {
   FULL_MARKET_EXPOSURE, UNIT_MARKET_COUNT, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV, regionByShare,
 } from '../data/pricingParameters';
 import { deriveSubRng } from './random';
+import { bookOrdinaryRisk } from './ordinaryLoss';
 import type { CoverageLine, Region } from '../types/simulation';
 
 /** One unit of a line's market. Never shown. */
@@ -114,4 +115,19 @@ export const bookSizeOf = (seed: number, line: CoverageLine, indices: readonly n
 export const unitsOf = (seed: number, line: CoverageLine, indices: readonly number[]): BookUnit[] => {
   const market = marketUnits(seed, line);
   return indices.map(i => market[i]);
+};
+
+/**
+ * A line's book's size-weighted true risk (bookOrdinaryRisk) — what its
+ * expected loss and its tower's price carry — or undefined when the line holds
+ * no book of units. For pricing a book outside the engine: the engine reads it
+ * off the year's own units.
+ */
+export const lineBookRisk = (
+  instance: { seed: number; marketSeed?: number },
+  line: CoverageLine,
+  bookUnits: Partial<Record<CoverageLine, number[]>> | undefined,
+): number | undefined => {
+  const indices = bookUnits?.[line];
+  return indices ? bookOrdinaryRisk(unitsOf(marketSeedOf(instance), line, indices)) : undefined;
 };

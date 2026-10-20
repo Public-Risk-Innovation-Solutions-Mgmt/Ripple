@@ -34,6 +34,7 @@ import { WORLD_COUNT, newLossEngineRuns } from '../data/pricingParameters';
 import { CAPITAL_ADEQUACY_THRESHOLDS } from '../data/defaultAssumptions';
 import { exposureFactor } from '../data/exposureTrend';
 import { deriveSubRng } from './random';
+import { lineBookRisk } from './bookUnits';
 import {
   aggregateLineResults, applyLoanAuthorizations, fundedNetExpectedLoss, processYear,
   stampPricingTriangle, strikeBookRate,
@@ -114,7 +115,7 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
     const struck = strikeBookRate(line, gs.poolState.lines[line], decisions.byLine[line], gs.currentYearNumber, {
       allMarketMembers: gs.poolState.allMarketMembers,
       membershipHistory: gs.poolState.membershipHistory,
-    });
+    }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits));
     if (struck) out[line] = struck;
   }
   return out;

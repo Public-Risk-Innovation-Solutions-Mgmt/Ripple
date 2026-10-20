@@ -778,7 +778,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // All 24 exports move, no row added or removed: exposure and what is struck
 // on it, the losses drawn on the units, and the reserves, surplus and ratios
 // downstream.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v78.json');
+// v79: LARGE LOSSES ON BOOK UNITS (book units commit 5; see
+// VALUE_IDENTITY_v73). The control ran first: caea33d reproduced v78 24 of 24.
+// All 24 exports move, no row added or removed: expected loss and the rates
+// struck from it, the large losses drawn on the units, and the reserves,
+// surplus and ratios downstream.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v79.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

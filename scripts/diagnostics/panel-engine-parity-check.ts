@@ -70,6 +70,7 @@ import { hasStaticClf, staticClf } from '../../src/data/clfTables';
 
 import type { CoverageLine, GameState, LinePoolState, LineResultSet } from '../../src/types/simulation';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
+import { lineBookRisk } from '../../src/utils/bookUnits';
 
 // ============================================================================
 // ⚠ FORKED FOR THE ONE-BOOK ENGINE (loss engine commit 3). With MEMBER_LEVEL
@@ -81,11 +82,14 @@ import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsurance
 // runs unchanged.
 // ============================================================================
 const BOOK_MODE = !MEMBER_LEVEL.enabled;
-/** What the panel prices: the book as derivations.ts builds it, or the roster. */
-const panelBook = (ls: LinePoolState, line: CoverageLine, y: number): Book =>
-  ls.bookExposure !== undefined
-    ? { exposure: ls.bookExposure * exposureFactor(line, y) }
+/** What the panel prices: the book as derivations.ts builds it — with its risk — or the roster. */
+const panelBook = (gs: GameState, line: CoverageLine, y: number): Book => {
+  const ls: LinePoolState = gs.poolState.lines[line];
+  const risk = lineBookRisk(gs.instance, line, gs.poolState.bookUnits);
+  return ls.bookExposure !== undefined
+    ? { exposure: ls.bookExposure * exposureFactor(line, y), ...(risk !== undefined ? { risk } : {}) }
     : ls.members.filter(m => m.status === 'active');
+};
 /** The book's ground-up pure premium, as derivations.ts and the engine read it. */
 const bookGroundUp = (gs: GameState, line: CoverageLine, y: number, exposure: number) =>
   bookPurePremium(line, y, {
@@ -146,7 +150,7 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
     for (let y = 1; y <= YEARS; y++) {
       for (const line of LINES) {
         const lineState = gs.poolState.lines[line];
-        const members = panelBook(lineState, line, y);
+        const members = panelBook(gs, line, y);
         const exposure = bookExposureOf(members, line, y);
         const groundUp = BOOK_MODE ? bookGroundUp(gs, line, y, exposure) : undefined;
         const dec = defaultDecisionSet(y).byLine[line];
@@ -308,7 +312,7 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
       const pre: Record<string, { members: Book; ls: typeof gs.poolState.lines[CoverageLine]; groundUp?: number }> = {} as never;
       for (const line of LINES) {
         const ls = gs.poolState.lines[line];
-        const book = panelBook(ls, line, y);
+        const book = panelBook(gs, line, y);
         pre[line] = {
           members: book, ls,
           groundUp: BOOK_MODE ? bookGroundUp(gs, line, y, bookExposureOf(book, line, y)) : undefined,
@@ -335,7 +339,8 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
             // ⚠ A BOOK IS COVERED AS IT STANDS AFTER MOVEMENT: the engine's
             // towerMembers is `{ exposure: activeExposure }` in book mode, so
             // the stored tower fields are the post-movement book's.
-            members: BOOK_MODE ? { exposure } : pre[line].members,
+            // With the moved book's risk, as towerMembers carries it (book units commit 5).
+            members: BOOK_MODE ? { exposure, risk: lineBookRisk(inst, line, p.updatedPoolState.bookUnits) ?? 1 } : pre[line].members,
             exposure,
             layersPlaced: placementFor(line, dec.reinsuranceOption),
             aggregateStopLevel: AGGREGATE_NOT_OFFERED,
@@ -463,7 +468,7 @@ console.log('  the engine settles after it. Measured so the comment can state it
       const snapshot: Record<string, number> = {};
       for (const line of LINES) {
         const lineState = gs.poolState.lines[line];
-        const members = panelBook(lineState, line, y);
+        const members = panelBook(gs, line, y);
         const exposure = bookExposureOf(members, line, y);
         const dec = defaultDecisionSet(y).byLine[line];
         const panel = computeFundingConsequence(

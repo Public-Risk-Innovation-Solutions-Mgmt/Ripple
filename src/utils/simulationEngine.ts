@@ -728,6 +728,9 @@ export function strikeBookRate(
   lineDecisions: LineDecisionSet,
   yearNumber: number,
   basis: { allMarketMembers: Member[]; membershipHistory: MembershipHistory },
+  // The book's size-weighted true risk (lineBookRisk), which its tower's price
+  // carries as the engine's does; absent for a line with no book of units.
+  bookRisk?: number,
 ): StruckLineRate | null {
   if (MEMBER_LEVEL.enabled || !NEW_RATE_STACK.enabled) return null;
   const exposure = (lineState.bookExposure ?? 0) * exposureFactor(line, yearNumber);
@@ -739,7 +742,7 @@ export function strikeBookRate(
   const quote = quoteNewRateStack({
     line,
     yearNumber,
-    members: { exposure },
+    members: { exposure, ...(bookRisk !== undefined ? { risk: bookRisk } : {}) },
     exposure,
     groundUpPurePremiumPer100: newPp.purePremiumPer100,
     clf: selectedClfFor(line, lineDecisions),
@@ -970,7 +973,10 @@ export function processLineYear(
     ? (lineState.bookExposure ?? 0) * exposureFactor(line, yearNumber)
     : currentActiveMembers.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
   // The book the pre-movement quote prices — the roster, or its exposure.
-  const preMovementBook: Book = bookMode ? { exposure: estimatedExposure } : currentActiveMembers;
+  // With the book's own risk, which its routine large losses carry (book units commit 5).
+  const preMovementBook: Book = bookMode
+    ? { exposure: estimatedExposure, ...(ctx.bookUnits ? { risk: bookOrdinaryRisk(ctx.bookUnits) } : {}) }
+    : currentActiveMembers;
 
   // ⚠ THE AGGREGATE'S TERMS, AGREED ONCE FOR THE WHOLE LINE-YEAR, BEFORE ANY
   // RATE IS SOLVED. Undefined on the held path, where the rate is a constant and
@@ -1292,7 +1298,7 @@ export function processLineYear(
     : enrolledMembers.length === currentActiveMembers.length
       && enrolledMembers.every((m, i) => m.id === currentActiveMembers[i].id);
   const towerMembers: Book = bookMode
-    ? { exposure: activeExposure }
+    ? { exposure: activeExposure, ...(yearUnits ? { risk: bookOrdinaryRisk(yearUnits) } : {}) }
     : bookUnchanged ? currentActiveMembers : enrolledMembers;
   // ⚠ STRUCK, THE SIGNAL'S TOWER WAS QUOTED ON THE AVERAGED BOOK, NOT THIS
   // WORLD'S — so a struck year always quotes the tower on its own covered book.
@@ -1817,8 +1823,11 @@ export function processLineYear(
     const cost = ordinaryLossCostPer100(line, yearNumber);
     const penalty = newBusinessPenaltyFactor;
     const scaled = ordinaryYear.factor * (1 + lineShocks.uplift) * penalty;
+    // On the book's units when it has them (book units commit 5): by size x
+    // true risk, a regional T only in the struck region.
     const draw = drawLargeLosses(
       line, bookMode ? null : enrolledMembers, yearNumber, calendarYear, instance.seed, lineShocks, activeExposure,
+      bookMode ? yearUnits : undefined,
     );
     largeDraw = draw;
     generatedClaims = draw.claims;
