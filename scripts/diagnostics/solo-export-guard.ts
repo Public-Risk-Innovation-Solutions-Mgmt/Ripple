@@ -773,7 +773,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // it; and where a regional event fired, the region it strikes (the Shock
 // Events sheet: the same Winterstorm now strikes South, not Central), the
 // share its A reaches, and the losses, reserves and surplus downstream.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v77.json');
+// v78: ORDINARY LOSSES FROM BOOK UNITS (book units commit 3; see
+// VALUE_IDENTITY_v72). The control ran first: b1142b1 reproduced v77 24 of 24.
+// All 24 exports move, no row added or removed: exposure and what is struck
+// on it, the losses drawn on the units, and the reserves, surplus and ratios
+// downstream.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v78.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

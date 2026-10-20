@@ -499,6 +499,13 @@ export interface HistoricalYear {
 export interface GameInstance {
   instanceId: string;
   seed: number;
+  /**
+   * THE GAME'S SEED, ON A COPY THAT RUNS ON ANOTHER — a world's instance, or a
+   * pre-game attempt's. The book of units' market is the GAME's (bookUnits.ts),
+   * so every world and every attempt regenerates the same units from this.
+   * Absent on the game's own instance, whose `seed` it is.
+   */
+  marketSeed?: number;
   lossEnvironment: {
     baseLossRatio: number;        // e.g. 0.68
     lossTrend: number;            // annual claim inflation e.g. 0.04

@@ -971,7 +971,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // removed, every one in its figures only: the Calculation Audit and Result
 // Spreadsheet screens in each configuration, which show expected loss and the
 // pure premium unrounded. No wording changed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v56.json');
+// v57: ORDINARY LOSSES FROM BOOK UNITS (book units commit 3). The control ran
+// first: b1142b1, served on 4174, reproduced v56 242 of 242. 232 of 242 moved,
+// no key added or removed, every one in its figures: exposure and the market
+// share in the header, premium, losses, reserves and surplus. Diffed as text,
+// the only wording that moves is wording a figure decides — the narrative's
+// "with margin to spare", and the Retained Above Tower row, shown only in a
+// year a claim pierces the tower.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v57.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

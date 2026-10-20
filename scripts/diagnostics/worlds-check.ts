@@ -42,6 +42,7 @@ import {
   averageLedger, commitSettledYear, deriveLineRatios, LINE_RATIO_FIELDS, openWorlds, playWorldsYear,
   settleWorldsYear, strikeRates, worldInstance, worldCount,
 } from '../../src/utils/worlds';
+import { marketSeedOf } from '../../src/utils/bookUnits';
 import { WORLD_COUNT } from '../../src/data/pricingParameters';
 import { exposureFactor } from '../../src/data/exposureTrend';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
@@ -170,8 +171,11 @@ const W = gs.worlds!;
 console.log('\n--- 1. worlds differ only in their draws ---');
 {
   const insts = W.map((_, i) => worldInstance(gs.instance, i));
-  const sansSeed = insts.map(x => JSON.stringify({ ...x, seed: 0 }));
-  check(sansSeed.every(x => x === sansSeed[0]), 'every world\'s instance is the game\'s, but for its seed');
+  // ⚠ AND ITS MARKET SEED, which is the GAME's in every world (book units
+  // commit 3): world 1 reads it off its own seed, the others carry it.
+  const sansSeed = insts.map(x => JSON.stringify({ ...x, seed: 0, marketSeed: marketSeedOf(x) }));
+  check(sansSeed.every(x => x === sansSeed[0]) && insts.every(x => marketSeedOf(x) === gs.instance.seed),
+    'every world\'s instance is the game\'s, but for its seed — its book of units\' market is the game\'s');
   check(new Set(insts.map(x => x.seed)).size === insts.length && insts[0].seed === gs.instance.seed,
     'every world has its own seed, and world 1 is the game\'s own');
   let decisionsSame = true;

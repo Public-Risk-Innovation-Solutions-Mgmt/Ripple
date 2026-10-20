@@ -152,7 +152,11 @@ import { MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, 
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
 import { bookMovementResult, moveBook } from './bookUnderwriting';
-import { ordinaryLossCostPer100, ordinaryLossYear, ordinaryMemberRecords, type OrdinaryLossYear } from './ordinaryLoss';
+import {
+  bookOrdinaryRisk, ordinaryLossCostPer100, ordinaryLossFromUnits, ordinaryLossYear, ordinaryMemberRecords,
+  type OrdinaryLossYear,
+} from './ordinaryLoss';
+import { marketSeedOf, unitsOf, type BookUnit } from './bookUnits';
 import { drawLargeLosses, firingKey, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
@@ -166,7 +170,7 @@ import { computeKGl, deriveNeutralGlPurePremiumPer100, generateGlClaims, glCappe
 import { computeKPr, generatePropertyClaims, propertyCappedSeverityTrend } from './propertyClaimEngine';
 import { generateNarrative } from './narrativeEngine';
 import { grossUpRetainedPurePremium, quoteLineRates, type CessionBasis } from './linePricing';
-import { getMemberExposure, type Book } from './lineHelpers';
+import { bookExposureOf, getMemberExposure, type Book } from './lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 
@@ -577,6 +581,13 @@ interface LineYearContext {
   instance: GameInstance;
   yearNumber: number;
   calendarYear: number;
+  /**
+   * THE LINE'S BOOK OF UNITS FOR THE YEAR — the game's (PoolState.bookUnits),
+   * regenerated from the game's seed (marketSeedOf). On the new engine only;
+   * absent with MEMBER_LEVEL on and on a state with no book. Never shown: it
+   * shapes the line's losses, and every result stays at line level.
+   */
+  bookUnits?: readonly BookUnit[];
   /** DIAGNOSTIC SEAM — see processYear's `overrides` parameter. Undefined in
    *  every shipped path. */
   applicationRateOverride?: number;
@@ -1361,8 +1372,10 @@ export function processLineYear(
   // an expectation over exactly what the draw does, so actual over expected
   // averages 1 across games; it does not know a host's schedule, which is
   // what ex ante means.
+  // ⚠ CARRYING THE BOOK'S TRUE RISK since book units commit 3: its units'
+  // expected ordinary losses are exposure x risk x cost (bookOrdinaryRisk).
   const newEngineExpected = newLossEngineRuns()
-    ? expectedLossBreakdown(line, activeExposure, yearNumber)
+    ? expectedLossBreakdown(line, activeExposure, yearNumber, undefined, ctx.bookUnits ? bookOrdinaryRisk(ctx.bookUnits) : 1)
     : undefined;
   const expectedLoss = newEngineExpected
     ? newEngineExpected.total
@@ -1785,7 +1798,11 @@ export function processLineYear(
   let largeDraw: LargeLossDraw | undefined;
   let lineShocks: LineShockYear | undefined;
   if (newLossEngineRuns()) {
-    ordinaryYear = ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed);
+    // FROM THE BOOK'S UNITS when it has them (book units commit 3): each unit's
+    // exposure x risk x cost, times the shared year factor and its own.
+    ordinaryYear = ctx.bookUnits
+      ? ordinaryLossFromUnits(line, ctx.bookUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed)
+      : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
     const penalty = newBusinessPenaltyFactor;
@@ -3442,10 +3459,12 @@ export function processYear(
       marketReturns
     );
 
+    const lineBook = newLossEngineRuns() ? poolState.bookUnits?.[line] : undefined;
     const ctx: LineYearContext = {
       instance,
       yearNumber,
       calendarYear,
+      ...(lineBook ? { bookUnits: unitsOf(marketSeedOf(instance), line, lineBook) } : {}),
       applicationRateOverride: overrides?.applicationRate,
       freezeMembership: overrides?.freezeMembership === true,
       struckRate: overrides?.struckRates?.[line],
@@ -3669,6 +3688,9 @@ export function processYear(
     interLineLoans,
     membershipHistory,
     memberLossHistory,
+    // The book of units rides through the year unchanged until underwriting
+    // moves units (book units commit 4).
+    ...(poolState.bookUnits ? { bookUnits: poolState.bookUnits } : {}),
   };
 
   // Detect deficient lines that don't already carry a loan — these become

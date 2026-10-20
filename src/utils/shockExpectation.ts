@@ -27,11 +27,11 @@
 
 import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
-  ORDINARY_LOSS_CV, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
+  POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
   SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
 import { pwlMoments, lognormalFromMean, routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
-import { ordinaryLossCostPer100 } from './ordinaryLoss';
+import { ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
 import { DECAY, SHOCK_EVENTS, eventLines, poolShare, tScale, trendFactor, type ShockLevel } from './shockLosses';
 import type { CoverageLine } from '../types/simulation';
 
@@ -249,8 +249,13 @@ export interface ExpectedLossBreakdown {
  */
 export function expectedLossBreakdown(
   line: CoverageLine, exposure: number, yearNumber: number, routineOn = ROUTINE_LARGE_LOSSES.enabled,
+  // THE BOOK'S SIZE-WEIGHTED MEAN TRUE RISK (bookOrdinaryRisk), since book
+  // units commit 3: each unit's ordinary loss is its exposure x its risk x the
+  // line's cost, so the book's expected ordinary loss — and the uplift on it —
+  // carries its risk. 1 is the market's, and what a reader with no book means.
+  ordinaryRisk = 1,
 ): ExpectedLossBreakdown {
-  const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
+  const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber) * ordinaryRisk;
   const u = upliftMoments(line, yearNumber);
   const large = largeLossMoments(line, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line), true, routineOn);
   const byEvent = new Map<string, number>();
@@ -307,7 +312,8 @@ export function retainedSd(
   const layers = REINSURANCE_TOWER[line].filter((l, i) => placed[i] && l.purchasable);
   const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
   const u = upliftMoments(line, yearNumber);
-  const cv = ORDINARY_LOSS_CV[line];
+  // A typical book's line-level CV: the aggregate is priced with no book in hand.
+  const cv = typicalBookOrdinaryCv();
   const ordinaryVar = ordinary * ordinary * ((1 + cv * cv) * (1 + 2 * u.mean + u.second) - Math.pow(1 + u.mean, 2));
   const large = largeLossMoments(
     line, exposure, yearNumber,

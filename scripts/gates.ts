@@ -183,6 +183,9 @@ const FAST: string[] = [
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
+  'book-units-ordinary-check',       //   7s   ordinary losses from units: each unit and the line at their closed-form
+                                     //         mean and CV, expected = exposure x book risk x cost, every world on
+                                     //         one book; three controls
   'book-units-market-check',         //   3s   each line's market of units and the opening book: sizes to the full
                                      //         market, size and risk CVs, risk centred at 1.0, regions by share,
                                      //         the 30% book, determinism, kept once per game; six controls

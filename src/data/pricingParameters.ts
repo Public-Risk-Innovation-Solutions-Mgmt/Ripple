@@ -447,25 +447,26 @@ export const ORDINARY_LOSS_LIMIT: PerLine<number> = {
 };
 
 /**
- * THE YEAR-TO-YEAR CV OF ORDINARY LOSSES, PER LINE — the one stochastic
- * parameter of the ordinary engine.
+ * ORDINARY LOSSES FROM BOOK UNITS — CHOSEN, the R model's two factors (book
+ * units commit 3). Each unit's expected ordinary loss is its exposure x its
+ * true risk x the line's expected ordinary loss cost; each year it is
  *
- * 2.2% is what the R model's ordinary losses actually produce once its member
- * factor has averaged over 100 members — not either of its two input CVs (the
- * 2% year-wide factor and the 10% member factor), which compound to
- * sqrt(0.02^2 + 0.10^2/100) = 2.24%. Stated directly at the line, so nothing
- * has to invent a population of exposure units to get a variance.
+ *   expected x F x f,   F the year factor every unit shares (CV
+ *                       UNIT_ORDINARY_YEAR_CV), f the unit's own (CV
+ *                       UNIT_ORDINARY_OWN_CV)
  *
- * The draw is LOGNORMAL WITH MEAN EXACTLY 1: sigma^2 = ln(1 + CV^2) and
- * mu = -sigma^2/2. So the expected ordinary loss IS the mean of the draws by
- * construction, and there is no separate "held" figure that could drift from
- * them. ordinary-loss-check asserts both moments.
+ * and the line's ordinary loss is the sum. Both factors are LOGNORMAL WITH
+ * MEAN EXACTLY 1, so the expected loss IS the mean of the draws by
+ * construction.
+ *
+ * ⚠ THEY REPLACE ORDINARY_LOSS_CV, one 2.2% draw at the line — what these two
+ * compound to over 100 equal members, sqrt(0.02^2 + 0.10^2/100). Over a book
+ * of about 60 unequal units the line's CV is sqrt(0.02^2 + 0.10^2 x H), H the
+ * sum of each unit's squared share of the expected loss: about 2.47%
+ * (typicalBookOrdinaryCv). book-units-ordinary-check holds the draws to both.
  */
-export const ORDINARY_LOSS_CV: PerLine<number> = {
-  WC: 0.022,
-  GL: 0.022,
-  Property: 0.022,
-};
+export const UNIT_ORDINARY_YEAR_CV = 0.02;
+export const UNIT_ORDINARY_OWN_CV = 0.10;
 
 /**
  * EXPECTED ORDINARY LOSS COST PER $100 OF EXPOSURE, YEAR 1 — SOURCED.
@@ -1265,11 +1266,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Losses above arrive only with the shocks.',
         basis: 'CHOSEN',
       }],
-      ['Ordinary loss CV', {
-        value: perLine(ORDINARY_LOSS_CV, 3), unit: 'year-to-year',
-        what: 'The year factor\'s coefficient of variation — the one stochastic parameter of ordinary losses.',
+      ['Ordinary loss factors', {
+        value: `year ${(100 * UNIT_ORDINARY_YEAR_CV).toFixed(0)}% · unit ${(100 * UNIT_ORDINARY_OWN_CV).toFixed(0)}%`,
+        unit: 'CV, each a mean-1 lognormal',
+        what: 'Each book unit\'s ordinary loss is its expected loss (exposure x true risk x the line\'s cost) times a '
+          + 'year factor every unit shares and a factor of its own; the line\'s ordinary loss is the sum.',
         basis: 'CHOSEN',
-        note: 'What the R model\'s ordinary losses produce over 100 members: sqrt(0.02^2 + 0.10^2/100) = 2.24%.',
+        note: 'The R model\'s two factors. They replace one 2.2% draw at the line; over a book of about 60 '
+          + 'unequal units the line\'s CV is about 2.47%.',
       }],
       ['Expected ordinary loss cost', {
         value: perLine(EXPECTED_ORDINARY_LOSS_COST_PER_100), unit: 'per $100 of exposure, year 1',
@@ -1370,10 +1374,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Opening book', {
         value: perLine(OPENING_BOOK_EXPOSURE, 3), unit: '$M of exposure, base year',
-        what: 'What each line opens with. Every game opens on it.',
-        basis: 'SOURCED',
-        note: 'The mean of today\'s opening books over 40 seeds: 30.1%, 28.8% and 29.7% of the full market, '
-          + 'each varying about +/-10% between seeds.',
+        what: 'What each line opened with before book units — for the record.',
+        basis: 'SOURCED', status: 'SUPERSEDED',
+        note: 'The mean of today\'s opening books over 40 seeds: 30.1%, 28.8% and 29.7% of the full market. '
+          + 'Since book units commit 3 a line opens on its book of units: their sizes summed, about 30% of '
+          + 'the market plus the last unit, and different in every game.',
       }],
       ['Full-market exposure', {
         value: perLine(FULL_MARKET_EXPOSURE, 3), unit: '$M of exposure, base year',

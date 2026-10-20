@@ -102,6 +102,14 @@ export function openingBookUnits(seed: number, line: CoverageLine): number[] {
   return book.sort((a, b) => a - b);
 }
 
+/** The seed a game's market is drawn from, on any copy of its instance. */
+export const marketSeedOf = (instance: { seed: number; marketSeed?: number }): number =>
+  instance.marketSeed ?? instance.seed;
+
+/** A book's exposure: its units' sizes summed, base-year $M. */
+export const bookSizeOf = (seed: number, line: CoverageLine, indices: readonly number[]): number =>
+  indices.reduce((a, i) => a + marketUnits(seed, line)[i].size, 0);
+
 /** The units a book holds, from its indices. */
 export const unitsOf = (seed: number, line: CoverageLine, indices: readonly number[]): BookUnit[] => {
   const market = marketUnits(seed, line);

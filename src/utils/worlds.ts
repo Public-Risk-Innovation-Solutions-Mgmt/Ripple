@@ -58,7 +58,8 @@ export function worldSeed(baseSeed: number, i: number): number {
 
 /** World i's instance: the game's, with world i's seed. Everything else is shared. */
 export function worldInstance(instance: GameInstance, i: number): GameInstance {
-  return i === 0 ? instance : { ...instance, seed: worldSeed(instance.seed, i) };
+  // The world's own seed for its draws; the game's for its book of units.
+  return i === 0 ? instance : { ...instance, seed: worldSeed(instance.seed, i), marketSeed: instance.marketSeed ?? instance.seed };
 }
 
 /**
@@ -79,6 +80,9 @@ export function openWorlds(gs: GameState): GameState {
 // book (underwriting is shared; only loss draws differ), so it is kept once, on
 // the game's pool state (PoolState.bookUnits): a world's state never carries a
 // copy, and the averaged state takes the game's, not world 1's.
+function withBook(ps: PoolState, game: PoolState): PoolState {
+  return game.bookUnits === undefined ? ps : { ...ps, bookUnits: game.bookUnits };
+}
 function withoutBook(ps: PoolState): PoolState {
   if (ps.bookUnits === undefined) return ps;
   const { bookUnits: _book, ...rest } = ps;
@@ -123,8 +127,10 @@ export function playWorldsYear(gs: GameState, decisions: DecisionSet): WorldsYea
     return { perWorld: [p], loanOffers: p.loanOffers };
   }
   const struckRates = strikeRates(gs, decisions);
+  // The game's book reaches every world for the year (withBook); it is never
+  // stored on a world's state (settleWorldsYear strips it).
   const perWorld = gs.worlds.map((w, i) => processYear(
-    { ...gs, instance: worldInstance(gs.instance, i), poolState: w.poolState, lockedResults: w.lockedResults },
+    { ...gs, instance: worldInstance(gs.instance, i), poolState: withBook(w.poolState, gs.poolState), lockedResults: w.lockedResults },
     decisions,
     { struckRates },
   ));
@@ -163,7 +169,7 @@ export function settleWorldsYear(gs: GameState, played: WorldsYear, authorizedLi
   if (!gs.worlds) return { poolState: settled[0].updatedPoolState, result: settled[0].result };
 
   const worlds: WorldState[] = gs.worlds.map((w, i) => ({
-    poolState: settled[i].updatedPoolState,
+    poolState: withoutBook(settled[i].updatedPoolState),
     lockedResults: [...w.lockedResults, settled[i].result],
     closedCohorts: archiveClosedCohorts(w, settled[i].updatedPoolState, gs.setup.activeLines),
   }));

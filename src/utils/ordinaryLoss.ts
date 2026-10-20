@@ -1,5 +1,12 @@
 // ============================================================================
-// THE NEW LOSS ENGINE'S ORDINARY LOSSES — one aggregate per line per year.
+// THE NEW LOSS ENGINE'S ORDINARY LOSSES — the sum of the book's units.
+//
+// ⚠ FROM BOOK UNITS SINCE BOOK UNITS COMMIT 3 (ordinaryLossFromUnits). Each
+// unit's expected loss is its exposure x its true risk x the line's cost, and
+// each year it is that x the year factor every unit shares x its own factor,
+// both mean-1 lognormals (UNIT_ORDINARY_YEAR_CV, UNIT_ORDINARY_OWN_CV). The
+// line's ordinary loss is the sum. The header below describes the one-draw
+// form it replaced, which ordinaryLossYear still draws for the member path.
 //
 // Part of the new loss engine, which runs whenever MEMBER_LEVEL is off. See pricingParameters.ts for the parameters and
 // docs/PENDING_MULTIPLAYER.md section 3 for the plan.
@@ -26,8 +33,10 @@
 // ============================================================================
 
 import {
-  EXPECTED_ORDINARY_LOSS_COST_PER_100, ORDINARY_LOSS_CV, SEVERITY_TREND_PER_YEAR,
+  EXPECTED_ORDINARY_LOSS_COST_PER_100, SEVERITY_TREND_PER_YEAR, UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV,
+  UNIT_ORDINARY_YEAR_CV, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV,
 } from '../data/pricingParameters';
+import type { BookUnit } from './bookUnits';
 import { deriveSubRng, type SeededRandom } from './random';
 import { bookExposureOf, getMemberExposure, type Book } from './lineHelpers';
 import { primaryShare } from './memberExperienceMod';
@@ -64,14 +73,83 @@ export interface OrdinaryLossYear {
   factor: number;
 }
 
-/** Draw a line's ordinary loss for one accident year on a given book. */
+/**
+ * THE LINE-LEVEL CV OF A TYPICAL BOOK'S ORDINARY LOSSES — sqrt((1+Y^2)(1+U^2 H) − 1)
+ * with H, the sum of the units' squared shares of expected loss, at its
+ * expectation for a book of UNIT_POOL_SHARE x UNIT_MARKET_COUNT units of the
+ * market's size and risk spread: (1 + size CV^2)(1 + risk CV^2) / n. About
+ * 2.47%. For readers with no book in hand — the member path's records and
+ * the aggregate's retained SD. A book's own is bookOrdinaryCv.
+ */
+export function typicalBookOrdinaryCv(): number {
+  const h = (1 + UNIT_SIZE_CV ** 2) * (1 + UNIT_RISK_CV ** 2) / (UNIT_POOL_SHARE * UNIT_MARKET_COUNT);
+  return Math.sqrt((1 + UNIT_ORDINARY_YEAR_CV ** 2) * (1 + UNIT_ORDINARY_OWN_CV ** 2 * h) - 1);
+}
+
+/** A book's own line-level ordinary CV, from its units' shares of expected loss (exact for the two lognormals' product to first order). */
+export function bookOrdinaryCv(units: readonly Pick<BookUnit, 'size' | 'risk'>[]): number {
+  const e = units.map(u => u.size * u.risk);
+  const total = e.reduce((a, b) => a + b, 0);
+  const h = total > 0 ? e.reduce((a, x) => a + (x / total) ** 2, 0) : 0;
+  // Var(F x sum w f) / mean^2 for independent mean-1 factors, exactly.
+  const y2 = UNIT_ORDINARY_YEAR_CV ** 2, u2 = UNIT_ORDINARY_OWN_CV ** 2;
+  return Math.sqrt((1 + y2) * (1 + u2 * h) - 1);
+}
+
+/** The book's size-weighted mean true risk: what its expected ordinary loss carries over the line's cost. */
+export function bookOrdinaryRisk(units: readonly Pick<BookUnit, 'size' | 'risk'>[]): number {
+  const size = units.reduce((a, u) => a + u.size, 0);
+  return size > 0 ? units.reduce((a, u) => a + u.size * u.risk, 0) / size : 1;
+}
+
+/** Draw a line's ordinary loss for one accident year on a given book — one draw at the line (the member path). */
 export function ordinaryLossYear(
   line: CoverageLine, book: Book, yearNumber: number, seed: number,
 ): OrdinaryLossYear {
   const exposure = bookExposureOf(book, line, yearNumber);
   const expected = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
-  const factor = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ORDINARY_LOSS_CV[line]);
+  const factor = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), typicalBookOrdinaryCv());
   return { exposure, expected, realised: expected * factor, factor };
+}
+
+/** The year's own factor for every unit of the market, in index order, from its own stream. */
+export const unitOrdinaryRng = (seed: number, yearNumber: number, line: CoverageLine): SeededRandom =>
+  deriveSubRng(seed, yearNumber, `ordinary_unit_${line}`);
+
+export interface UnitOrdinaryYear extends OrdinaryLossYear {
+  /** The book's size-weighted mean true risk — expected over exposure x cost. */
+  risk: number;
+  /** Per unit of the book: its expected and realised ordinary loss, in book order. */
+  byUnit: { index: number; expected: number; realised: number }[];
+}
+
+/**
+ * THE LINE'S ORDINARY LOSS FROM ITS UNITS — the year factor every unit shares
+ * (the line's `ordinary_<line>` stream) times each unit's own (one draw per
+ * MARKET unit, in index order, so a unit's factor does not depend on which
+ * other units the book holds). Each unit's exposure is its size scaled to the
+ * line's active exposure this year, so exposure trend — and, until units move
+ * one by one, the book's scalar movement — reach every unit alike.
+ */
+export function ordinaryLossFromUnits(
+  line: CoverageLine, units: readonly BookUnit[], activeExposure: number, yearNumber: number, seed: number,
+): UnitOrdinaryYear {
+  const size = units.reduce((a, u) => a + u.size, 0);
+  const scale = size > 0 ? activeExposure / size : 0;
+  const cost = 10_000 * ordinaryLossCostPer100(line, yearNumber);
+  const year = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), UNIT_ORDINARY_YEAR_CV);
+  const own = unitOrdinaryRng(seed, yearNumber, line);
+  const ownFactors = Array.from({ length: UNIT_MARKET_COUNT }, () => drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV));
+  const byUnit = units.map(u => {
+    const expected = u.size * scale * u.risk * cost;
+    return { index: u.index, expected, realised: expected * year * ownFactors[u.index] };
+  });
+  const expected = byUnit.reduce((a, u) => a + u.expected, 0);
+  const realised = byUnit.reduce((a, u) => a + u.realised, 0);
+  return {
+    exposure: activeExposure, expected, realised, factor: expected > 0 ? realised / expected : 1,
+    risk: bookOrdinaryRisk(units), byUnit,
+  };
 }
 
 /**
@@ -111,8 +189,8 @@ export function ordinaryMemberRecords(
       expectedLoss: expected,
       expectedLossAtManual: expected,
       primaryLoss: realised * share,
-      coefficientOfVariation: ORDINARY_LOSS_CV[line],
-      standardDeviation: expected * ORDINARY_LOSS_CV[line],
+      coefficientOfVariation: typicalBookOrdinaryCv(),
+      standardDeviation: expected * typicalBookOrdinaryCv(),
       simulatedLoss: realised,
     };
   });

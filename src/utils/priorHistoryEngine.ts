@@ -47,7 +47,7 @@ import type {
   StartingFinancials,
 } from '../types/simulation';
 import { generateStartingPoolState } from './instanceGenerator';
-import { openingBookUnits } from './bookUnits';
+import { marketSeedOf, openingBookUnits } from './bookUnits';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { OPENING_SURPLUS_BAND } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults } from './simulationEngine';
@@ -232,7 +232,8 @@ export function simulateLineCandidate(
 ): { lineResults: LineResultSet[]; poolState: PoolState; pooled: ResultSet[] } {
   const candidateInstance: GameInstance = attempt === 0
     ? instance
-    : { ...instance, seed: (instance.seed + attempt * 997) >>> 0 };
+    // Its own draws; the game's book of units (marketSeed).
+    : { ...instance, seed: (instance.seed + attempt * 997) >>> 0, marketSeed: instance.marketSeed ?? instance.seed };
 
   const soloSetup: GameSetupSettings = { ...setup, activeLines: [line] };
   const { poolState: bootstrap } = generateStartingPoolState(
@@ -865,7 +866,7 @@ export function runPriorHistory(
     // The book of units, ONCE, from the GAME's seed — whatever attempt a line's
     // pre-game was accepted on (bookUnits.ts). Never shown.
     ...(MEMBER_LEVEL.enabled ? {} : {
-      bookUnits: Object.fromEntries(setup.activeLines.map(l => [l, openingBookUnits(instance.seed, l)])),
+      bookUnits: Object.fromEntries(setup.activeLines.map(l => [l, openingBookUnits(marketSeedOf(instance), l)])),
     }),
   };
 

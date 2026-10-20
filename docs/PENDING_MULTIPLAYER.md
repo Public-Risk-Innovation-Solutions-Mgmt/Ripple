@@ -398,8 +398,29 @@ export or host view; every result stays at line level.
   start at 30.1% and 28.8% of the market, Property 29.7%; the book is 30% plus
   the last unit's overshoot). That reaches the game when the engine reads it.
 
-Still to come: ordinary losses from units, underwriting on units, large
-losses on units, and the new-business penalty.
+**Ordinary losses come from the units (book units commit 3).** Each unit's
+expected ordinary loss is its exposure x its true risk x the line's cost; each
+year it is that x a year factor every unit shares (CV 2%) x its own (CV 10%),
+and the line's ordinary loss is the sum — replacing one 2.2% draw at the line.
+The line's CV is the book's own, about 2.47%. Expected loss carries the book's
+size-weighted true risk. A line now opens on its book's exposure — its units'
+sizes summed — rather than one figure for all games: over 400 seeds WC opens
+0.6% larger on average, GL 5.1% and Property 1.8% (the book is 30% of the
+market plus its last unit; GL used to open at 28.8%)
+(book-units-ordinary-check).
+
+- **The funding tables do not need re-deriving for this.** Derived on the new
+  engine at the old one draw and at the units, the curves agree within their
+  confidence bands (funding at expected lands at WC 85.5% -> 85.2%, GL 63.4%
+  -> 63.4%, Property 80.6% -> 80.9%). But the shipped tables were never calibrated on the new
+  engine: WC's and GL's are supplied and Property's was derived on the member
+  engine, and on the new engine they sit well above the measured curve (at the
+  70% stop WC 1.140 shipped against 0.896 measured, GL 1.135 against 0.905,
+  Property 1.147 against 0.899).
+  That gap predates book units and is left for its own decision.
+
+Still to come: underwriting on units, large losses on units, and the
+new-business penalty.
 
 ### Regions
 

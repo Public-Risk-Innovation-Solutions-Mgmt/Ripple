@@ -1200,7 +1200,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // from it move a little (Property year 1 -0.25%, WC and GL under $2K), and a
 // fired event's A lands on a different share — its ultimate, net incurred,
 // reserves, surplus and what they drive move with it.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v71.json');
+// v72: ORDINARY LOSSES FROM BOOK UNITS (book units commit 3). The control ran
+// first: b1142b1 reproduced v71 exactly. Shape unchanged; 26,104 instances
+// moved across 98 fields, none an identity. A line opens on its book's
+// exposure — its units' sizes summed — so exposure, the market share and
+// everything struck on exposure move (premium, rates, reinsurance cost);
+// ordinary losses are the units' draws and expected loss carries the book's
+// risk, so losses, reserves, surplus and the ratios move with them.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v72.json');
 
 function seedOf(id: string) {
   let h = 5381;
