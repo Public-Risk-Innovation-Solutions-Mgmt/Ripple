@@ -656,6 +656,21 @@ export const UNIT_RISK_CV = 0.30;
 export const UNIT_POOL_SHARE = 0.30;
 
 /**
+ * UNDERWRITING'S VIEW OF A UNIT'S RISK — CHOSEN, a starting point (book units
+ * commit 4). Each unit's OBSERVED risk is its true risk x a noise drawn once
+ * from the seed (BookUnit.noiseZ); VISIBILITY is the share of the observed
+ * log-risk's variance that is true risk:
+ *
+ *   log observed  ~  sqrt(v) x log(true risk) + sqrt(1 − v) x sigma x z
+ *
+ * with sigma the true risk's own log-scale spread, so the observed spread is
+ * the true one at every v. At 0 underwriting sees only noise and selects at
+ * random; at 1 it sees true risk and selects perfectly. Renewal declines the
+ * units that look riskiest; intake takes the prospects that look best.
+ */
+export const UNIT_UW_VISIBILITY = 0.5;
+
+/**
  * NEW BUSINESS A YEAR, AS A SHARE OF THE CURRENT BOOK, PER INTAKE POSITION —
  * CHOSEN, A STARTING POINT. No New Business, Strict, Moderate, Low. The R model
  * wrote about 5 prospects in 100 a year, which is Moderate; today's member
@@ -1421,6 +1436,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The R model\'s shapes. Read by nothing yet: the book is drawn and stored once per game, and the '
           + 'engine still runs on each line\'s one exposure.',
+      }],
+      ['Underwriting visibility', {
+        value: UNIT_UW_VISIBILITY, unit: 'share of the observed risk\'s variance that is true risk',
+        what: 'How well underwriting sees each book unit\'s true risk. Renewal declines the units that look '
+          + 'riskiest; intake takes the prospects that look best. 0 is random selection, 1 perfect.',
+        basis: 'CHOSEN',
+        note: 'A starting point. The noise is drawn once from the game seed, so a unit looks the same every '
+          + 'year and in every world.',
       }],
       ['Default package', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,

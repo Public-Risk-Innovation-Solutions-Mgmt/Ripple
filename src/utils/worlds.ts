@@ -177,7 +177,10 @@ export function settleWorldsYear(gs: GameState, played: WorldsYear, authorizedLi
   const result = averageResultSets(settled.map(s => s.result), gs.setup.activeLines, prior,
     gs.worlds.map(w => w.poolState));
   const averaged = averagePoolStates(worlds, gs.setup.activeLines, gs.currentYearNumber);
-  const poolState = gs.poolState.bookUnits ? { ...averaged, bookUnits: gs.poolState.bookUnits } : averaged;
+  // The book as underwriting left it — the same in every world (it reads only
+  // the game's seed and the team's decision), so world 1's is the game's.
+  const moved = settled[0].updatedPoolState.bookUnits ?? gs.poolState.bookUnits;
+  const poolState = moved ? { ...averaged, bookUnits: moved } : averaged;
   return { poolState, result, worlds };
 }
 

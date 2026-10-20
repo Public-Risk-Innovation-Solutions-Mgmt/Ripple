@@ -70,6 +70,7 @@ import {
   cedeAboveLocal, conditionalEventMoments, expectedLossBreakdown, layerCession, newEngineLayerMoments,
 } from '../../src/utils/shockExpectation';
 import { SeededRandom } from '../../src/utils/random';
+import { marketSeedOf, unitsOf } from '../../src/utils/bookUnits';
 import type { CoverageLine, GameInstance, GameState, Region, ResultSet, PoolState } from '../../src/types/simulation';
 import type { ScheduledShock } from '../../src/types/shocks';
 
@@ -117,6 +118,11 @@ function play(seed: number, years: number, schedule: ScheduledShock[] | null) {
     };
   }
   return { instance, results, before };
+}
+/** The largest unit's share of the line's book in force before year 3. */
+function largestUnitShare(g: ReturnType<typeof play>, line: CoverageLine): number {
+  const units = unitsOf(marketSeedOf(g.instance), line, g.before[2].bookUnits?.[line] ?? []);
+  return Math.max(...units.map(u => u.size)) / units.reduce((a, u) => a + u.size, 0);
 }
 
 /** A firing built by hand, for drawing one event's losses on demand. */
@@ -383,12 +389,14 @@ try {
       const stayed = recs[2].activeExposure;
       const share = w / (w + stayed);
       const others = recs.filter((_, i) => i !== 2).every(r => r.newLossEngine!.withdrawnExposure === 0);
-      // A book loses exactly a quarter; a roster loses whole members until it
-      // has lost at least a quarter, and not a member more.
+      // A book of units loses whole units, as near a quarter as whole units
+      // come — within half its largest unit (book units commit 4); a roster
+      // loses whole members until it has lost at least a quarter, and not a
+      // member more.
       const members = g.before[2].lines[line].members;
       const book = g.before[2].lines[line].bookExposure;
       const ok3 = book !== undefined
-        ? Math.abs(w / book - 0.25) < 1e-12
+        ? Math.abs(share - 0.25) <= 0.5 * largestUnitShare(g, line) + 1e-9
         : share >= 0.25 && share < 0.25 + Math.max(...members.map(m => getMemberExposure(m, line, 3))) / (w + stayed) + 1e-9;
       if (!(ok3 && others)) ok = false;
       detail.push(`${line} ${(100 * share).toFixed(1)}%`);

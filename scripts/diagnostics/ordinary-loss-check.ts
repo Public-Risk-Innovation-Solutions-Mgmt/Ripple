@@ -146,8 +146,9 @@ try {
         const ratio = n.ordinaryRealised / (n.ordinaryExpected * (1 + n.uplift));
         ae[line].push(ratio);
         // 4. the draw's own scale, recomputed from the same streams on the
-        // game's book — scale-free, so any exposure gives the factor
-        const units = unitsOf(marketSeedOf(instance), line, gs.poolState.bookUnits?.[line] ?? []);
+        // year's book, after the year's movement (withdrawal, renewal, intake)
+        // — scale-free, so any exposure gives the factor
+        const units = unitsOf(marketSeedOf(instance), line, p.updatedPoolState.bookUnits?.[line] ?? []);
         const factor = ordinaryLossFromUnits(line, units, 100, y, instance.seed).factor;
         worstScale = Math.max(worstScale, Math.abs(ratio / factor - 1), Math.abs(n.ordinaryFactor / factor - 1));
         // the record adds up to the line's gross: ordinary + T + routine excess

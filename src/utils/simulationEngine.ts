@@ -151,7 +151,7 @@ import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from '
 import { MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
-import { bookMovementResult, moveBook } from './bookUnderwriting';
+import { bookMovementResult, moveBook, moveBookUnits } from './bookUnderwriting';
 import {
   bookOrdinaryRisk, ordinaryLossCostPer100, ordinaryLossFromUnits, ordinaryLossYear, ordinaryMemberRecords,
   type OrdinaryLossYear,
@@ -763,7 +763,7 @@ export function processLineYear(
   lineState: LinePoolState,
   lineDecisions: LineDecisionSet,
   ctx: LineYearContext
-): { updatedLineState: LinePoolState; updatedShared: LineYearShared; result: LineResultSet } {
+): { updatedLineState: LinePoolState; updatedShared: LineYearShared; result: LineResultSet; bookUnitsAfter?: number[] } {
   const { instance, yearNumber, calendarYear, priorResult } = ctx;
 
   const priorYearLossRatio = priorResult
@@ -1164,9 +1164,19 @@ export function processLineYear(
   // the full market; frozen through the pre-game. See bookUnderwriting.ts. It
   // stands in for movement's result below, so the rest of the year reads one
   // shape either way.
-  const bookMovement = bookMode
-    ? moveBook(line, lineState.bookExposure ?? 0, lineDecisions, ctx.shockYear?.withdrawal === true, ctx.freezeMembership)
+  // ⚠ UNIT BY UNIT SINCE BOOK UNITS COMMIT 4 (moveBookUnits): renewal declines
+  // the units that look riskiest, intake takes the prospects that look best,
+  // withdrawal removes units in a seeded order. On the game's seed, so every
+  // world moves the same book. A state with no book moves its exposure as before.
+  const unitMove = bookMode && ctx.bookUnits
+    ? moveBookUnits(line, marketSeedOf(instance), ctx.bookUnits.map(u => u.index), lineDecisions,
+      ctx.shockYear?.withdrawal === true, ctx.freezeMembership, yearNumber)
     : null;
+  const bookMovement = unitMove ?? (bookMode
+    ? moveBook(line, lineState.bookExposure ?? 0, lineDecisions, ctx.shockYear?.withdrawal === true, ctx.freezeMembership)
+    : null);
+  // The book the year's losses are drawn on: after movement.
+  const yearUnits = unitMove ? unitsOf(marketSeedOf(instance), line, unitMove.afterUnits) : ctx.bookUnits;
   // THE NEW-BUSINESS PENALTY, on the ordinary losses of exposure written this
   // year (a book only), read by the draw and by the expectation alike. At its
   // zero parameter this is exactly 1.
@@ -1375,7 +1385,7 @@ export function processLineYear(
   // ⚠ CARRYING THE BOOK'S TRUE RISK since book units commit 3: its units'
   // expected ordinary losses are exposure x risk x cost (bookOrdinaryRisk).
   const newEngineExpected = newLossEngineRuns()
-    ? expectedLossBreakdown(line, activeExposure, yearNumber, undefined, ctx.bookUnits ? bookOrdinaryRisk(ctx.bookUnits) : 1)
+    ? expectedLossBreakdown(line, activeExposure, yearNumber, undefined, yearUnits ? bookOrdinaryRisk(yearUnits) : 1)
     : undefined;
   const expectedLoss = newEngineExpected
     ? newEngineExpected.total
@@ -1800,8 +1810,8 @@ export function processLineYear(
   if (newLossEngineRuns()) {
     // FROM THE BOOK'S UNITS when it has them (book units commit 3): each unit's
     // exposure x risk x cost, times the shared year factor and its own.
-    ordinaryYear = ctx.bookUnits
-      ? ordinaryLossFromUnits(line, ctx.bookUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed)
+    ordinaryYear = yearUnits
+      ? ordinaryLossFromUnits(line, yearUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed)
       : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
@@ -3193,7 +3203,7 @@ export function processLineYear(
     allMarketMembers: updatedAllMembers,
   };
 
-  return { updatedLineState, updatedShared, result };
+  return { updatedLineState, updatedShared, result, ...(unitMove ? { bookUnitsAfter: unitMove.afterUnits } : {}) };
 }
 
 // Each active line's share of the shared cash/other-assets pool. The weight is
@@ -3353,6 +3363,8 @@ export function processYear(
   let currentAllMarketMembers = poolState.allMarketMembers;
   const lineResults: Array<{ line: CoverageLine; result: LineResultSet }> = [];
   const updatedLineStates: Partial<Record<CoverageLine, LinePoolState>> = {};
+  // Each line's book after this year's underwriting (moveBookUnits), for the pool state.
+  const movedBook: Partial<Record<CoverageLine, number[]>> = {};
   let sharedCash = 0;
   let sharedUnearnedPremium = 0;
   // Loan repayments owed back to each lending line this year (principal +
@@ -3510,12 +3522,13 @@ export function processYear(
       priorResult: priorPoolResult?.byLine[line],
     };
 
-    const { updatedLineState, updatedShared, result } = processLineYear(
+    const { updatedLineState, updatedShared, result, bookUnitsAfter } = processLineYear(
       line,
       lineState,
       lineDecisions,
       ctx
     );
+    if (bookUnitsAfter) movedBook[line] = bookUnitsAfter;
 
     // Ledger maintenance by roster diff: compare this line's active roster
     // before and after the year. Joins open an interval (active from this
@@ -3688,9 +3701,8 @@ export function processYear(
     interLineLoans,
     membershipHistory,
     memberLossHistory,
-    // The book of units rides through the year unchanged until underwriting
-    // moves units (book units commit 4).
-    ...(poolState.bookUnits ? { bookUnits: poolState.bookUnits } : {}),
+    // The book of units, as underwriting left it this year (moveBookUnits).
+    ...(poolState.bookUnits ? { bookUnits: { ...poolState.bookUnits, ...movedBook } } : {}),
   };
 
   // Detect deficient lines that don't already carry a loan — these become

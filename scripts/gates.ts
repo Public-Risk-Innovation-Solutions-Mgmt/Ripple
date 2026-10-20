@@ -183,6 +183,9 @@ const FAST: string[] = [
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
+  'book-units-underwriting-check',   //   6s   underwriting on units: selection random at visibility 0, perfect at 1,
+                                     //         improving between; renewal and intake shares; withdrawal blind to
+                                     //         risk; one book in every world; four controls
   'book-units-ordinary-check',       //   7s   ordinary losses from units: each unit and the line at their closed-form
                                      //         mean and CV, expected = exposure x book risk x cost, every world on
                                      //         one book; three controls

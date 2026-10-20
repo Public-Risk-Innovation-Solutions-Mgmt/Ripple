@@ -419,8 +419,25 @@ market plus its last unit; GL used to open at 28.8%)
   Property 1.147 against 0.899).
   That gap predates book units and is left for its own decision.
 
-Still to come: underwriting on units, large losses on units, and the
-new-business penalty.
+
+**Underwriting moves units (book units commit 4).** Each unit's observed risk
+is its true risk x a noise drawn once from the seed; `UNIT_UW_VISIBILITY` (0.5)
+is the share of the observed log-risk's variance that is true risk — 0 selects
+at random, 1 perfectly.
+
+- **Renewal** declines the units that look riskiest, as close as whole units
+  come to the renewal cut's share of the book.
+- **Intake** takes the prospects (market units the book does not hold) that
+  look best, as close as whole units come to the intake position's share.
+- **Member Withdrawal** removes 25% of what is left, in a seeded order blind
+  to risk.
+- **One book in every world:** all of it reads the game's seed and the team's
+  one decision, so every world moves the same book; only loss draws differ.
+- At visibility 0.5, a 5% renewal cut declines units about 48% riskier than
+  the book, and 8% intake writes units about 37% safer than the prospects
+  (book-units-underwriting-check, 300 seeds).
+
+Still to come: large losses on units, and the new-business penalty.
 
 ### Regions
 
