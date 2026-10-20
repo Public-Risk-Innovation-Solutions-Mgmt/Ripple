@@ -3,14 +3,27 @@
 //
 //   npx tsx scripts/diagnostics/funding-table-check.ts
 //
-// The WC, GL and Property funding (CLF) tables are percentiles of the
-// volatility-only ratio (scripts/tools/funding-ratio.ts): net incurred loss +
-// LAE over the engine's expected retained loss + LAE. On every line:
+// The WC, GL and Property funding (CLF) tables in force are the BaselineCV
+// tables (clfTables.ts, BASELINE_CV_TABLES): percentiles of a line's ORDINARY
+// loss over its expected ordinary loss, by the data scientist's method. On
+// every line:
 //
-//   1. THE SLIDER'S LEVELS ARE TRUE, OUT OF SAMPLE: on games the derivation
-//      never drew, the table's CLF at each stop covers that share of
-//      line-years, within 5pp; and "at expected" (CLF 1.000) covers what the
-//      table's own crossing says.
+//   1. THE SLIDER'S LEVELS ARE TRUE ON ORDINARY LOSSES, OUT OF SAMPLE: on games
+//      the derivation never drew, the table's CLF at each stop covers that
+//      share of line-years' ordinary loss ratio — the engine's own
+//      ordinaryFactor, realised over expected, before any shock's uplift —
+//      within 5pp; and "at expected" (CLF 1.000) covers what the table's own
+//      `expected` says.
+//
+//   ⚠ ORDINARY LOSSES, NOT THE WHOLE RETAINED LOSS, AND THAT IS THE RULING.
+//   The tables cover ordinary losses only, by design: shocks and large losses
+//   are surplus's and reinsurance's job, not the funding factor's. Until the
+//   funding tables wiring this check scored the stops on the whole retained
+//   loss + LAE (scripts/tools/funding-ratio.ts), which was the right basis
+//   for the new-engine tables it was written for. Against the BaselineCV
+//   tables that basis reads WC +35.7pp at 30% and GL -24.1pp at 90% — the
+//   large losses and shocks the tables deliberately leave out, measured, not a
+//   defect in the tables.
 //   2. REQUIRED CAPITAL READS THE SAME TABLE: the reserve margin is expected
 //      net unpaid x (the table at RESERVE_MARGIN_CONFIDENCE - 1), exactly.
 //   3. THE REINSURANCE LOAD READS NO TABLE: every placed layer costs its
@@ -20,16 +33,22 @@
 //      year charges CLF exactly 1 + PRE_GAME_FUNDING_CUSHION, and the pre-game
 //      is unchanged with the tables swapped.
 //
-// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: the tables that shipped before
-// the re-derivation, a margin off a different stop, a load read off the 70%
-// stop, and a pre-game funded at the 70% stop.
+// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: the member-engine tables, each
+// line graded against the BaselineCV table four points from its own (WC and
+// Property up to 10% and 12%, GL down to 6%), a margin off a different stop, a
+// load read off the 70% stop, and a pre-game funded at the 70% stop.
+//
+// AND WITH THE ENGINE BROKEN BY HAND, MEASURED: ordinaryLossFromUnits drawing
+// its year factor at the old 0.02 instead of the line's BASELINE_CV — exit 1,
+// all three lines fail 1 (worst WC -21.3pp, GL -29.0pp, Property -27.3pp at
+// the 30% stop; GAMES=40).
 // ============================================================================
 
 import {
-  GL_SUPPLIED, PROPERTY_DERIVED, RESERVE_MARGIN_CONFIDENCE, STATIC_CLF_TABLE, WC_SUPPLIED, crossingOf, staticClf,
-  type ClfTable, type StaticClfLine,
+  BASELINE_CV_TABLES, GL_SUPPLIED, PROPERTY_DERIVED, RESERVE_MARGIN_CONFIDENCE, STATIC_CLF_TABLE, WC_SUPPLIED,
+  baselineCvKey, crossingOf, staticClf, type ClfTable, type StaticClfLine,
 } from '../../src/data/clfTables';
-import { PRE_GAME_FUNDING_CUSHION, REINSURANCE_LOAD } from '../../src/data/pricingParameters';
+import { BASELINE_CV, PRE_GAME_FUNDING_CUSHION, REINSURANCE_LOAD } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -37,7 +56,6 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { allLayerRiskMoments } from '../../src/utils/towerMoments';
 import { layerPremium } from '../../src/utils/reinsuranceTower';
-import { fundingRatio } from '../tools/funding-ratio';
 import type { GameSetupSettings, GameState, LineResultSet } from '../../src/types/simulation';
 
 const LINES: StaticClfLine[] = ['WC', 'GL', 'Property'];
@@ -80,8 +98,11 @@ function play(games: number): Played {
       for (let y = 1; y <= YEARS; y++) {
         const p = processYear(gs, defaultDecisionSet(y));
         const r = p.result.byLine[line] as LineResultSet;
+        // The ordinary loss ratio the tables describe — see the header.
+        const ordinary = r.newLossEngine?.ordinaryFactor;
+        if (ordinary === undefined) throw new Error(`${id} ${line} year ${y}: no new-engine record — the tables describe the new engine's ordinary losses`);
         years[line].push({
-          ratio: fundingRatio(line, r),
+          ratio: ordinary,
           marginFactor: (r.reserveRiskMarginNeeded - r.catCapitalNeeded) / r.expectedNetUnpaidLoss,
           clfNinety: staticClf(line, RESERVE_MARGIN_CONFIDENCE),
         });
@@ -100,7 +121,7 @@ function gradeLevels(played: Played, tables: Record<StaticClfLine, ClfTable>, ta
     const errs = STOPS.map(p => covered(withTables(tables, () => staticClf(line, p / 100))) - p);
     const crossingErr = covered(1) - 100 * crossingOf(tables[line]);
     const worst = [...errs, crossingErr].reduce((a, e) => (Math.abs(e) > Math.abs(a) ? e : a), 0);
-    check(Math.abs(worst) <= TOL, `${tag}1. ${line}: each stop covers its share of line-years, and "at expected" its crossing, out of sample`,
+    check(Math.abs(worst) <= TOL, `${tag}1. ${line}: each stop covers its share of line-years' ordinary losses, and "at expected" its crossing, out of sample`,
       `${STOPS.map((p, i) => `${p}% ${errs[i] >= 0 ? '+' : ''}${errs[i].toFixed(1)}`).join(', ')}; at expected `
       + `${covered(1).toFixed(1)}% vs ${(100 * crossingOf(tables[line])).toFixed(1)}% — worst ${worst.toFixed(1)}pp over ${xs.length} line-years`);
   }
@@ -171,7 +192,11 @@ const controlFails = (name: string, run: () => void, expect: string) => {
   const caught = failures.splice(before).filter(f => f.startsWith(expect));
   check(caught.length > 0, `control: ${name} is caught by ${expect}`);
 };
-controlFails('the tables in force before the re-derivation', () => gradeLevels(played, PREVIOUS, ''), '1.');
+controlFails('the member-engine tables', () => gradeLevels(played, PREVIOUS, ''), '1.');
+// Four points off each line's own BaselineCV: the wrong table for the losses drawn.
+const OFF_BY_FOUR = { WC: 0.04, GL: -0.04, Property: 0.04 } as Record<StaticClfLine, number>;
+const wrongCv = Object.fromEntries(LINES.map(l => [l, BASELINE_CV_TABLES[baselineCvKey(BASELINE_CV[l] + OFF_BY_FOUR[l])][l]])) as Record<StaticClfLine, ClfTable>;
+controlFails('each line graded against the table four points off its BaselineCV', () => gradeLevels(played, wrongCv, ''), '1.');
 controlFails('a margin read off the 95% stop', () => gradeMargin(played, 0.95, ''), '2.');
 controlFails('a load read off the table at 70%', () => gradeLoad((line, _k, e) => e * staticClf(line, 0.70), ''), '3.');
 controlFails('a pre-game funded at the 70% stop', () => gradePreGame(firstFour, swappedPreGame, l => staticClf(l, 0.70), ''), '4.');
@@ -181,4 +206,4 @@ if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — the slider\'s levels are true out of sample, required capital reads the same table, and neither the load nor the pre-game reads one.');
+console.log('PASS — the slider\'s levels are true on ordinary losses out of sample, required capital reads the same table, and neither the load nor the pre-game reads one.');

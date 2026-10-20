@@ -169,12 +169,6 @@ const FAST: string[] = [
   'funding-basis-check',             //  10s
   'funding-expected-check',          //   2s
   'gl-claim-check',                  //  12s   PROMOTED at this commit — it always asserted; it could not exit
-  'market-conditions-check',         //  15s   the CHANGE benchmark reproduces RATE_NEUTRAL_CHANGE_PCT exactly,
-                                     //         every component is positive and mean 1, and it is QUIETER than the
-                                     //         rate it judges — the assertion that disqualified the calendar
-                                     //         component. Plus the LEVEL: the cushion is monotone in the funding
-                                     //         stop and crosses zero inside the slider, which is the only place
-                                     //         MARKET_TARGET_LOSS_RATIO does any work
   'net-funding-fields-check',        //   6s
   'paid-headroom-check',             //   7s
   'paid-ledger-check',               //   4s
@@ -407,6 +401,24 @@ const DORMANT: string[] = [
   'member-experience-mod-check',     //  11s   the mod is centred on the book it rates, cannot see the year it
                                      //         is pricing, and reaches neither the total, the rate nor the roster
   'member-loss-history-check',       //   2s
+  // 15s — MOVED HERE AT THE FUNDING TABLES WIRING. It guards marketConditions.ts:
+  // the CHANGE benchmark (sections 1-6) and the LEVEL (section 7: the cushion
+  // is monotone in the funding stop and crosses zero inside the slider, the
+  // only place MARKET_TARGET_LOSS_RATIO does any work). Section 7 went red
+  // because the BaselineCV tables top out near 1.13, so no stop reaches the
+  // target — it was guarding the OLD slider range against a market target that
+  // is parked.
+  //
+  // ⚠ NOTHING LIVE READS EITHER, MEASURED. Both feed only member satisfaction
+  // (satisfactionMoves), which book mode scores over an empty roster
+  // (simulationEngine: currentActiveMembers is [] while MEMBER_LEVEL is off).
+  // With marketLevelGapPct forced to 0 and to +500%, and marketRateChangePct
+  // forced to +50%, value-identity-check held on all 38,760 fields and all 24
+  // exports stayed byte-identical. The target's one other reader, memberValue's
+  // pool and member value rows, is stripped on save and from worlds and shown
+  // on no screen. Bring it back to FAST when member satisfaction or the market
+  // target goes live again, and re-derive the level against the slider then.
+  'market-conditions-check',         //  15s
   'member-value-check',              //  16s   the three pots are LAYERS and exhaustive, the member rows rebase to
                                      //         1 on the book, the tower is DISCLOSED and not RATED, and the
                                      //         REJECTED lower boundary is re-measured every run rather than
@@ -488,6 +500,12 @@ const DORMANT: string[] = [
 // EXPECTED_RED entry to a tier). A `--dormant` or by-name run reads them the same
 // way, so a known red still reads as known; nothing else does.
 const DORMANT_KNOWN_RED: Record<string, { code: number; why: string }> = {
+  'market-conditions-check': {
+    code: 1,
+    why: 'SECTION 7 ONLY, AND THE TARGET IS PARKED. The BaselineCV funding tables top out near 1.13 (funding tables '
+      + 'wiring), so no slider stop reaches MARKET_TARGET_LOSS_RATIO and the level cushion never crosses zero. Nothing '
+      + 'live reads the level or the change benchmark — see its DORMANT entry for the measurement. Sections 1-6 hold.',
+  },
   // ⚠ THREE ENTRIES, ALL FROM THE PER-CLAIM FLIP, AND THEY ARE NOT THE SAME KIND
   // OF RED. Two are gates whose SUBJECT was built out of the cohort mechanism's
   // constants and no longer describes what runs; one is a gate added to make a
