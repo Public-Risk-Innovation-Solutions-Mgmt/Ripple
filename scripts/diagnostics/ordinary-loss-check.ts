@@ -11,7 +11,7 @@
 // WHAT IT ASSERTS, in order:
 //
 //   1. THE TWO FACTORS, DIRECTLY. Across 400,000 draws each, the mean is 1
-//      and the CV is UNIT_ORDINARY_YEAR_CV / UNIT_ORDINARY_OWN_CV, each within
+//      and the CV is each line's BASELINE_CV / UNIT_ORDINARY_OWN_CV, each within
 //      four standard errors (book units commit 3; it was one 2.2% factor).
 //      This is the distribution on its own, at a sample large enough to see a
 //      missing -sigma^2/2 (a 2.4e-4 bias, about seven standard errors here).
@@ -37,7 +37,7 @@
 // ⚠ AND IT FAILS WHEN BROKEN — see THE CONTROL at the foot.
 // ============================================================================
 
-import { MEMBER_LEVEL, ROUTINE_LARGE_LOSSES, UNIT_ORDINARY_OWN_CV, UNIT_ORDINARY_YEAR_CV } from '../../src/data/pricingParameters';
+import { BASELINE_CV, MEMBER_LEVEL, ROUTINE_LARGE_LOSSES, UNIT_ORDINARY_OWN_CV } from '../../src/data/pricingParameters';
 import { newEngineLayerMoments } from '../../src/utils/shockExpectation';
 import { bookExposureOf } from '../../src/utils/lineHelpers';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -90,8 +90,12 @@ try {
   // distributions; book-units-ordinary-check holds the line and each unit to
   // the closed form.
   console.log('\n--- 1. THE TWO FACTORS, 400,000 draws each ---');
-  for (const [name, cv] of [['year', UNIT_ORDINARY_YEAR_CV], ['unit', UNIT_ORDINARY_OWN_CV]] as const) {
-    const rng = new SeededRandom(9_100_000 + (name === 'year' ? 0 : 1));
+  // The year factor at each line's own BASELINE_CV (since the funding tables wiring).
+  const factors: [string, number][] = [
+    ...LINES.map((l): [string, number] => [`${l} year`, BASELINE_CV[l]]), ['unit', UNIT_ORDINARY_OWN_CV],
+  ];
+  for (const [name, cv] of factors) {
+    const rng = new SeededRandom(9_100_000 + (name === 'unit' ? 1 : 0));
     const xs = Array.from({ length: 400_000 }, () => drawOrdinaryFactor(rng, cv));
     const m = moments(xs);
     check(Math.abs(m.mean - 1) < Z * m.seMean, `${name} factor: mean is 1`,
@@ -106,7 +110,7 @@ try {
   // is that book's own (bookOrdinaryCv).
   for (const line of LINES) {
     const units = unitsOf(4_242_424, line, openingBookUnits(4_242_424, line));
-    const want = bookOrdinaryCv(units);
+    const want = bookOrdinaryCv(units, line);
     const ratios: number[] = [];
     for (let s = 0; s < 6_000; s++) {
       for (let y = 1; y <= 10; y++) {

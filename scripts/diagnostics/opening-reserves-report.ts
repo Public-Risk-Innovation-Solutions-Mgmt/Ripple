@@ -23,7 +23,7 @@ import {
   rateTrendPerYear, towerCessionRatio, unpaidShareAtAge,
 } from '../../src/utils/openingReserves';
 import {
-  OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
+  OPENING_SURPLUS, PRIOR_HISTORY_YEARS,
 } from '../../src/data/pricingParameters';
 import { staticClf } from '../../src/data/clfTables';
 import type { CoverageLine, LinePoolState, Member } from '../../src/types/simulation';
@@ -35,8 +35,8 @@ const mean = (x: number[]) => x.reduce((a, b) => a + b, 0) / Math.max(1, x.lengt
 
 console.log('=== THE SET OPENING, BESIDE TODAY\'S SEARCH ===\n');
 console.log(`  prior history ${PRIOR_HISTORY_YEARS} years with real claims; everything older is a BULK cohort.`);
-console.log(`  opening surplus = ${OPENING_SURPLUS_MULTIPLE_OF_REQUIRED} x required capital,`);
-console.log('  where required capital = expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1).\n');
+console.log(`  opening surplus SET at WC ${m$(OPENING_SURPLUS.WC)}, GL ${m$(OPENING_SURPLUS.GL)}, Property ${m$(OPENING_SURPLUS.Property)};`);
+console.log('  required capital = expectedNetUnpaidLoss x (staticClf(line, 0.90) - 1), shown beside it.\n');
 
 // --------------------------------------------------------------------------
 console.log('--- 1. THE SHAPE OF THE RUNOFF ---');
@@ -111,5 +111,5 @@ for (const line of LINES) {
   console.log(`  ${line.padEnd(9)} ${m$(r).padStart(9)} ${m$(u).padStart(9)} ${m$(req).padStart(10)} `
     + `${(u / Math.max(req, 1)).toFixed(3).padStart(18)} ${mean(coh).toFixed(1).padStart(9)}`);
 }
-console.log(`\n  surplus/required must read ${OPENING_SURPLUS_MULTIPLE_OF_REQUIRED} on every line — it is set, not searched.`);
+console.log('\n  surplus is OPENING_SURPLUS on every line — set, not searched, and no longer a multiple of required.');
 console.log('  ASSERTS NOTHING. The sweep and the baselines are what hold this.\n');

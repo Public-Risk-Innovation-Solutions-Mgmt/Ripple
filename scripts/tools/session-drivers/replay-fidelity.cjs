@@ -245,7 +245,13 @@ async function resultsYearText(page, year) {
       // and Property — so three steps UP reached the 95% cap in year 2 and year
       // 3 repeated it, and the set-size assertion below failed on the driver,
       // not the replay. Three steps down from there stays inside the range.
-      const v = await nudge(player, 'Funding Confidence Level', year > 1 ? -3 : 0);
+      //
+      // ⚠ AND STEPPED UP AGAIN, TWO AT A TIME, SINCE THE FUNDING TABLES WIRING.
+      // Expected now sits at about 51% and the stops are 30-90% in tens, so
+      // three steps down reached the 30% floor in year 2 and year 3 repeated
+      // it. Two steps up from Expected is 70%, and two more is 90%: three
+      // different levels, inside the range.
+      const v = await nudge(player, 'Funding Confidence Level', year > 1 ? 2 : 0);
       fcValues.push(v);
     }
     await player.getByRole('button', { name: /Lock Year/ }).first().click();

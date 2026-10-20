@@ -4,6 +4,7 @@
 import type { Region, CoverageLine } from '../types/simulation';
 import type { PayoutPattern } from '../utils/payoutPattern';
 import type { ClosureCurve } from '../utils/claimClosure';
+import { FUNDING_SLIDER_RANGE } from './pricingParameters';
 
 // Administrative expense is 15% of Pure Premium at CLF 1.000. It is added
 // after the selected CLF is applied and is not itself multiplied by the CLF.
@@ -2697,7 +2698,9 @@ export const SLIDER_RANGES = {
   // GL and Property only, post finding-38: WC reads WC_FUNDING_CONFIDENCE_RANGE
   // below instead, since its own derived curve covers a wider span at
   // non-uniform stops that this {min,max,step} shape cannot express.
-  fundingConfidenceLevel: { min: 0.30, max: 0.95, step: 0.05, default: 0.60 },
+  // ⚠ 30% TO 90% IN TENS SINCE THE FUNDING TABLES WIRING — the BaselineCV
+  // tables' own columns. Stated in pricingParameters (FUNDING_SLIDER_RANGE).
+  fundingConfidenceLevel: FUNDING_SLIDER_RANGE,
   dividendPct: { min: 0, max: 0.15, step: 0.005, default: 0 },
   assessmentPct: { min: 0, max: 0.25, step: 0.005, default: 0 },
   // The combined dividend/assessment control's own range: zero at centre,
