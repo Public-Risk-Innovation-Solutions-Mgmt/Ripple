@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 // ⚠ ESM, SO THERE IS NO __dirname. Derived the way every other tool in
 // scripts/ derives it; a bare __dirname throws at load here.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { PRICING_PARAMETER_SECTIONS, type ParameterEntry } from '../../src/data/pricingParameters';
+import { DEVELOPMENT_SPEED, PRICING_PARAMETER_SECTIONS, type ParameterEntry } from '../../src/data/pricingParameters';
 import {
   PAID_DEVELOPMENT_PATTERN, INCURRED_DEVELOPMENT_PATTERN, pctUnpaid,
 } from '../../src/data/paidDevelopmentPatterns';
@@ -93,6 +93,12 @@ function build(): string {
   out.push('Age-to-ultimate factors, ground-up, ages in months from the START of the accident');
   out.push('year. GL is at a **limited layer whose limit was not supplied and must be added**');
   out.push('before wiring. WC\'s paid rows from 276 months are a **projected** tail, not measured.');
+  out.push('');
+  out.push(`⚠ **These are the patterns the game reads: the recorded ones compressed in time by Development speed**`);
+  out.push(`(WC ${DEVELOPMENT_SPEED.WC}, GL ${DEVELOPMENT_SPEED.GL}, Property ${DEVELOPMENT_SPEED.Property}). The share paid and the share reported at age t`);
+  out.push('are the recorded shares at age speed x t, so the rows, ages and last age below are the compressed');
+  out.push('ones; the outstanding share at the last age is the recorded tail, kept. A row is marked projected');
+  out.push('or adjusted where a recorded row it reads was.');
   out.push('');
   // ⚠ THE LAST COLUMN MEANS A DIFFERENT THING ON EACH BASIS, so it is named
   // for the basis rather than given one label that is right for half the

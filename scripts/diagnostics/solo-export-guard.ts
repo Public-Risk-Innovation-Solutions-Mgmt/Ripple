@@ -788,7 +788,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // or removed: the opening surplus and capital set on the new 90% stop, what
 // surplus earns, the pre-game's rates at the 14% cushion, and the funding
 // confidence the pre-game years record (now what 1.14 amounts to on the table).
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v80.json');
+// v81: DEVELOPMENT SPEED (see VALUE_IDENTITY_v75). The control ran first:
+// da5a3e5 reproduced v80 24 of 24. 18 of 24 move — every WC-solo, GL-solo and
+// three-line export, no row added or removed — and all 6 PR-solo exports are
+// byte-identical, because Property stays at 1.0.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v81.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

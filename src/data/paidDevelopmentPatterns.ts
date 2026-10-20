@@ -97,6 +97,9 @@
 // ============================================================================
 
 import type { CoverageLine } from '../types/simulation';
+import { DEVELOPMENT_SPEED } from './pricingParameters';
+
+const AGE_STEP_MONTHS = 12;
 
 export interface DevelopmentRow {
   /** Months from the START of the accident year. 12 is the end of year one. */
@@ -407,22 +410,96 @@ export const RETIRED_GL_TOTAL_PAID_DEVELOPMENT: readonly DevelopmentRow[] = [
 ];
 
 // ============================================================================
+// DEVELOPMENT SPEED — THE PATTERNS THE GAME READS ARE THESE, COMPRESSED.
+//
+// Each line's recorded paid and incurred patterns are compressed in time by
+// DEVELOPMENT_SPEED[line], keeping their shape: the share paid (1 / paid LDF)
+// at age t is the recorded share at age speed x t, and the share reported
+// (1 / incurred LDF) likewise. Between recorded ages the share is linear, and
+// it is 0 at age 0. The compressed pattern ends at ceil(rows / speed) years
+// and holds the recorded LAST row's share there, so the tail the recorded
+// pattern leaves outstanding at its end — WC's 9.04% — is kept, not paid off.
+//
+// ⚠ ONE SET OF PATTERNS. PAID_DEVELOPMENT_PATTERN and INCURRED_DEVELOPMENT_
+// PATTERN below ARE the compressed patterns, and the recorded rows above are
+// private to this file. So every reader — payments (payoutPattern.ts tabulates
+// from the paid pattern), case and IBNR (reserveSplit.ts), the pricing LDFs
+// (newPurePremium.ts), the opening and its bulk years (openingReserves.ts),
+// the pre-game, and the host's development (hostDevelopment.ts) — reads the
+// same compressed pattern, and none can reach the uncompressed one.
+//
+// ⚠ BOTH BASES ON THE SAME GRID, so reported stays at or above paid at every
+// age: linear interpolation between ages where it holds preserves it. It is
+// asserted here at load, and a pattern that broke it would throw before any
+// game ran. At speed 1.0 a line's rows are returned as recorded, unchanged.
+// ============================================================================
 
-/** The PAID patterns, by line. NOT YET USED — see this file's header. */
-export const PAID_DEVELOPMENT_PATTERN: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>> = {
+const RECORDED_PAID: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>> = {
   WC: WC_PAID_DEVELOPMENT,
   GL: GL_PAID_DEVELOPMENT,
   Property: PROPERTY_PAID_DEVELOPMENT,
 };
 
-/** The INCURRED patterns, by line. NOT YET USED — see this file's header. */
-export const INCURRED_DEVELOPMENT_PATTERN: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>> = {
+const RECORDED_INCURRED: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>> = {
   WC: WC_INCURRED_DEVELOPMENT,
   GL: GL_INCURRED_DEVELOPMENT,
   Property: PROPERTY_INCURRED_DEVELOPMENT,
 };
 
-const AGE_STEP_MONTHS = 12;
+/**
+ * A recorded pattern compressed in time by `speed` (see above). A compressed
+ * row is marked projected or adjusted if either recorded row it reads was.
+ */
+export function compressPattern(rows: readonly DevelopmentRow[], speed: number): readonly DevelopmentRow[] {
+  if (!(speed >= 1)) throw new Error(`compressPattern: speed ${speed} — the patterns are only ever sped up`);
+  if (speed === 1) return rows;
+  rows.forEach((r, i) => {
+    if (r.ageMonths !== AGE_STEP_MONTHS * (i + 1)) {
+      throw new Error(`compressPattern: row ${i} is at ${r.ageMonths} months, not ${AGE_STEP_MONTHS * (i + 1)}`);
+    }
+  });
+  const n = rows.length;
+  const share = rows.map(r => 1 / r.ldf);
+  const length = Math.ceil(n / speed - 1e-9);
+  return Array.from({ length }, (_, i) => {
+    const t = Math.min(speed * (i + 1), n);
+    const k = Math.floor(t);
+    const f = t - k;
+    const lo = k === 0 ? 0 : share[k - 1];
+    const s = f === 0 ? lo : lo + f * (share[k] - lo);
+    const read = f === 0 ? [rows[k - 1]] : [rows[k - 1], rows[k]].filter(Boolean);
+    return {
+      ageMonths: AGE_STEP_MONTHS * (i + 1),
+      ldf: 1 / s,
+      ...(read.some(r => r?.projected) ? { projected: true as const } : {}),
+      ...(read.some(r => r?.adjusted) ? { adjusted: true as const } : {}),
+    };
+  });
+}
+
+const compressAll = (recorded: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>>) =>
+  ({
+    WC: compressPattern(recorded.WC, DEVELOPMENT_SPEED.WC),
+    GL: compressPattern(recorded.GL, DEVELOPMENT_SPEED.GL),
+    Property: compressPattern(recorded.Property, DEVELOPMENT_SPEED.Property),
+  });
+
+/** The PAID patterns the game reads, by line — compressed by DEVELOPMENT_SPEED. */
+export const PAID_DEVELOPMENT_PATTERN: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>> = compressAll(RECORDED_PAID);
+
+/** The INCURRED patterns the game reads, by line — compressed by DEVELOPMENT_SPEED. */
+export const INCURRED_DEVELOPMENT_PATTERN: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>> = compressAll(RECORDED_INCURRED);
+
+for (const line of ['WC', 'GL', 'Property'] as const) {
+  const paid = PAID_DEVELOPMENT_PATTERN[line];
+  const inc = INCURRED_DEVELOPMENT_PATTERN[line];
+  if (paid.length !== inc.length) throw new Error(`${line}: paid has ${paid.length} rows, incurred ${inc.length}`);
+  paid.forEach((p, i) => {
+    if (inc[i].ageMonths !== p.ageMonths || inc[i].ldf > p.ldf + 1e-12) {
+      throw new Error(`${line}: reported below paid at ${p.ageMonths} months (incurred ${inc[i].ldf}, paid ${p.ldf})`);
+    }
+  });
+}
 
 function ldfAt(
   rows: readonly DevelopmentRow[], line: CoverageLine, basis: string, ageMonths: number,

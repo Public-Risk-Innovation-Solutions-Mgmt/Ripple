@@ -43,6 +43,7 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 | --- | --- | --- | --- | --- |
 | Default funding confidence level | `0.6` | confidence | CHOSEN | Where the funding slider opens. The default decision is fundingAtExpected, which bypasses the level and prices at CLF exactly 1.000. |
 | Reserve margin confidence | `0.9` | confidence | CHOSEN | The fixed confidence the reserve margin is held at. |
+| Development speed | `WC 1.50 · GL 1.50 · Property 1.00` | x the recorded patterns' pace | CHOSEN | 1.0 is the recorded paid and incurred patterns as they are; above 1.0 compresses both in time by that factor, keeping their shape, so case reserves and IBNR stay consistent. WC and GL at 1.5 because the recorded patterns were judged too slow; Property at 1.0. Applied where the patterns are defined, so payments, case and IBNR, the pricing LDFs, the opening and its bulk years, the pre-game and the host's development all read the compressed patterns. Year-1 rates are unchanged; later rates move slightly because faster payment brings the host's adverse development into pricing sooner, and leaves less open balance for shock R development to act on. |
 | CLF tables | `per line, in clfTables.ts` | multiplier on expected loss | SOURCED | Confidence level factors by line and confidence stop. REGISTERED, NOT MOVED — each table is a fit whose method, controls and rejected alternatives are recorded beside it. |
 
 ## Player controls
@@ -192,12 +193,18 @@ Age-to-ultimate factors, ground-up, ages in months from the START of the acciden
 year. GL is at a **limited layer whose limit was not supplied and must be added**
 before wiring. WC's paid rows from 276 months are a **projected** tail, not measured.
 
+⚠ **These are the patterns the game reads: the recorded ones compressed in time by Development speed**
+(WC 1.5, GL 1.5, Property 1). The share paid and the share reported at age t
+are the recorded shares at age speed x t, so the rows, ages and last age below are the compressed
+ones; the outstanding share at the last age is the recorded tail, kept. A row is marked projected
+or adjusted where a recorded row it reads was.
+
 | Line | Basis | Rows | Ages | Ends at | Outstanding at the last age |
 | --- | --- | --- | --- | --- | --- |
-| WC | paid (15 projected) | 37 | 12–444 | 1.099413098 | 9.0% unpaid |
-| WC | incurred (15 projected) | 37 | 12–444 | 1.01382626 | 1.4% unreported |
-| GL | paid | 21 | 12–252 | 1.011 | 1.1% unpaid |
-| GL | incurred (6 adjusted) | 21 | 12–252 | 1.007 | 0.7% unreported |
+| WC | paid (11 projected) | 25 | 12–300 | 1.099413098 | 9.0% unpaid |
+| WC | incurred (11 projected) | 25 | 12–300 | 1.01382626 | 1.4% unreported |
+| GL | paid | 14 | 12–168 | 1.011 | 1.1% unpaid |
+| GL | incurred (5 adjusted) | 14 | 12–168 | 1.007 | 0.7% unreported |
 | Property | paid | 11 | 12–132 | 1 | 0.0% unpaid |
 | Property | incurred | 11 | 12–132 | 1 | 0.0% unreported |
 

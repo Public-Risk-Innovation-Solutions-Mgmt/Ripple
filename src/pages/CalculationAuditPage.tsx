@@ -49,7 +49,7 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
+import { DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
 import { placementFor } from '../utils/reinsuranceOptions';
 import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
@@ -1376,13 +1376,14 @@ function buildAssumptionRows(): AuditRow[] {
         .map(l => {
           const pat = LINE_PAYOUT_PATTERN[l];
           return pat.kind === 'recorded'
-            ? `${l} recorded paid, ${formatPct(1 - unpaidShare(pat, 1), 1)} by age 1`
+            ? `${l} paid at ${DEVELOPMENT_SPEED[l]}x, ${formatPct(1 - unpaidShare(pat, 1), 1)} by age 1`
             : pat.kind === 'weibull'
             ? `${l} k=${pat.k.toFixed(2)} b=${pat.b.toFixed(3)}`
             : `${l} geometric ${formatPct(pat.conditional, 0)}`;
         })
         .join('  |  '),
-      formula: 'Share of ultimate paid by age t is 1 / (paid LDF at 12t months), read off the pool\'s own recorded paid development.',
+      formula: 'Share of ultimate paid by age t is 1 / (paid LDF at 12t months), read off the pool\'s own recorded paid development '
+        + 'compressed in time by each line\'s development speed.',
       note:
         'The pool\'s measured paid patterns, which are also what pricing develops losses with — one set of factors, '
         + 'used in both places. They replace a fitted Weibull curve that paid far faster than the pool did, and the '

@@ -999,7 +999,15 @@ const BASELINE = process.env.RENDER_BASELINE
 // on the 8 line Decision History screens, three new columns — Renewal Declined,
 // New Business, Risk Control — reading 0.0% at default decisions. No figure
 // changed; values and exports are byte-identical.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v60.json');
+// v61: DEVELOPMENT SPEED (see VALUE_IDENTITY_v75). The control ran first:
+// da5a3e5 reproduced v60 242 of 242. 198 of 242 move: every screen of the WC,
+// GL, WC+GL and three-line games that shows a reserve, a payment, surplus,
+// investment income or a rate from year 2 (194); and in the Property-only game
+// only the four Calculation Audit screens, whose Payout Pattern row lists all
+// three lines' first-year paid share — WC's and GL's now at 1.5x — and is
+// reworded from "recorded paid" to "paid at 1.5x". The 44 unmoved are the
+// Property-only game's other screens.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v61.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
