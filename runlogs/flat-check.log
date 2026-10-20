@@ -1,0 +1,22 @@
+Measured at ada3bf7b9c4b111caa0187daec8e8920706a3d59; arm change; shock probabilities sum 0.432 -> 0.300 a year; expected loss on $1,000M of exposure, market risk
+WC: year  today   | shocks scaled, routine on | change (fold + scaled) | change / scaled-only | change / today | fold per $100
+       1   38.890 | 38.432 | 38.432 | 1.000000000000 | 0.9882 | 0.94227
+       2   41.487 | 40.807 | 40.807 | 1.000000000000 | 0.9836 | 0.97456
+       3   43.859 | 43.054 | 43.054 | 1.000000000000 | 0.9816 | 1.01669
+       5   48.355 | 47.467 | 47.467 | 1.000000000000 | 0.9816 | 1.12090
+      10   61.714 | 60.581 | 60.581 | 1.000000000000 | 0.9816 | 1.43059
+  worst |change/scaled-only - 1| over years 1-10: 4.44e-16; pre-game fold (year 0) 0.91907 per $100
+GL: year  today   | shocks scaled, routine on | change (fold + scaled) | change / scaled-only | change / today | fold per $100
+       1   54.540 | 53.711 | 53.711 | 1.000000000000 | 0.9848 | 2.28038
+       2   57.879 | 56.750 | 56.750 | 1.000000000000 | 0.9805 | 2.32547
+       3   61.010 | 59.675 | 59.675 | 1.000000000000 | 0.9781 | 2.39155
+       5   66.629 | 65.175 | 65.175 | 1.000000000000 | 0.9782 | 2.58282
+      10   82.902 | 81.100 | 81.100 | 1.000000000000 | 0.9783 | 3.11197
+  worst |change/scaled-only - 1| over years 1-10: 2.22e-16; pre-game fold (year 0) 2.26124 per $100
+Property: year  today   | shocks scaled, routine on | change (fold + scaled) | change / scaled-only | change / today | fold per $100
+       1   2.628 | 2.467 | 2.467 | 1.000000000000 | 0.9386 | 0.04959
+       2   2.773 | 2.599 | 2.599 | 1.000000000000 | 0.9374 | 0.05179
+       3   2.920 | 2.735 | 2.735 | 1.000000000000 | 0.9367 | 0.05420
+       5   3.220 | 3.016 | 3.016 | 1.000000000000 | 0.9367 | 0.05975
+      10   4.109 | 3.849 | 3.849 | 1.000000000000 | 0.9367 | 0.07626
+  worst |change/scaled-only - 1| over years 1-10: 2.22e-16; pre-game fold (year 0) 0.04806 per $100

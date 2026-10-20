@@ -1,0 +1,21 @@
+1: y6 Recession, y8 Economic Inflation, y9 Winterstorm
+2: y4 Recession, y6 Economic Inflation, y10 Wildfire
+3: y3 Investment Loss, y6 WC Reform, y8 Economic Inflation, y9 Recession
+4: y6 Legislation, y7 WC Reform, y8 Recession, y10 Economic Inflation
+5: y2 Recession, y9 Member Withdrawal
+6: y3 Economic Inflation, y9 Social Inflation
+7: y3 Investment Loss, y7 Economic Inflation, y8 Wildfire
+8: y3 Investment Loss, y4 Economic Inflation, y5 Recession, y7 Nuclear Verdict
+9: y3 Winterstorm, y6 Economic Inflation
+10: y3 WC Reform, y4 Recession, y8 Economic Inflation, y10 Winterstorm
+11: y5 WC Reform, y8 Pandemic, y10 Legislation
+12: y5 Economic Inflation, y9 Wildfire
+13: y2 Pandemic, y7 Recession, y9 Member Withdrawal, y10 Winterstorm
+14: y6 Investment Loss, y8 Social Inflation, y9 Winterstorm
+15: y3 Winterstorm, y5 Economic Inflation
+16: y4 Economic Inflation, y7 Recession, y8 Wildfire, y9 Pandemic
+17: y2 Recession, y5 Wildfire, y10 Economic Inflation
+18: y2 Investment Loss, y6 Wildfire, y9 WC Reform
+19: y4 Social Inflation, y5 Legislation
+20: y2 Economic Inflation, y3 Recession, y8 Nuclear Verdict
+mean shocks per game 3.00

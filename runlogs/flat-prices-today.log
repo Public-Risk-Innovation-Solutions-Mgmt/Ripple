@@ -1,0 +1,12 @@
+Measured at ada3bf7b9c4b111caa0187daec8e8920706a3d59; arm today; year 1; shocks a year 0.432; schedule fires 3.00 per game
+WC       $9M xs $1M     E[rec] $3224K  SD(layers) $4144K  price $3676K  1.14x E  40.84% of limit  pays (shock T) 1.00% of years, 7.8% of solo games
+WC       $5M xs $5M     E[rec] $579K  SD(layers) $1526K  price $660K  1.14x E  13.21% of limit  pays (shock T) 0.20% of years, 1.5% of solo games
+WC       $14M xs $1M    E[rec] $3445K  SD(layers) $5128K  price $3927K  1.14x E  28.05% of limit  pays (shock T) 1.00% of years, 7.8% of solo games
+WC       $10M xs $5M    E[rec] $800K  SD(layers) $2510K  price $912K  1.14x E  9.12% of limit  pays (shock T) 0.20% of years, 1.5% of solo games
+GL       $9M xs $1M     E[rec] $7600K  SD(layers) $7016K  price $8664K  1.14x E  96.27% of limit  pays (shock T) 7.81% of years, 49.2% of solo games
+GL       $5M xs $5M     E[rec] $2035K  SD(layers) $2962K  price $2320K  1.14x E  46.41% of limit  pays (shock T) 5.06% of years, 34.0% of solo games
+GL       $14M xs $1M    E[rec] $8657K  SD(layers) $9213K  price $9869K  1.14x E  70.49% of limit  pays (shock T) 7.81% of years, 49.2% of solo games
+GL       $10M xs $5M    E[rec] $3093K  SD(layers) $5159K  price $3525K  1.14x E  35.25% of limit  pays (shock T) 5.06% of years, 34.0% of solo games
+Property $20M xs $5M    E[rec] $8138K  SD(layers) $10181K  price $9277K  1.14x E  46.39% of limit  pays (shock T) 8.99% of years, 54.6% of solo games
+Property $45M xs $5M    E[rec] $10458K  SD(layers) $17235K  price $11922K  1.14x E  26.49% of limit  pays (shock T) 8.99% of years, 54.6% of solo games
+Property $25M xs $25M   E[rec] $2320K  SD(layers) $7054K  price $2645K  1.14x E  10.58% of limit  pays (shock T) 4.27% of years, 30.3% of solo games
