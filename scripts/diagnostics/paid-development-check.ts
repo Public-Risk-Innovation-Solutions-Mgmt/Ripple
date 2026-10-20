@@ -71,8 +71,9 @@
 
 import {
   PAID_DEVELOPMENT_PATTERN, INCURRED_DEVELOPMENT_PATTERN, RETIRED_GL_TOTAL_PAID_DEVELOPMENT,
-  paidLdfAt, incurredLdfAt, pctUnpaid, reserveSplitAt, type DevelopmentRow,
+  compressPattern, paidLdfAt, incurredLdfAt, pctUnpaid, reserveSplitAt, type DevelopmentRow,
 } from '../../src/data/paidDevelopmentPatterns';
+import { DEVELOPMENT_SPEED } from '../../src/data/pricingParameters';
 import type { CoverageLine } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -198,8 +199,12 @@ for (const line of LINES) {
 // ⚠ ASSERTION 5 MUST STILL CATCH THE PATTERN IT WAS WRITTEN FOR. If this
 // produces no violations, the comparison has gone tolerant and the gate says so
 // rather than reporting green on a rule that has stopped working.
+// ⚠ COMPRESSED BY GL'S DEVELOPMENT SPEED, as the incurred pattern it is held
+// against is: compared on the recorded grid it would meet the incurred pattern
+// at the wrong ages. Its eight recorded violations (108-192 months) land on
+// the compressed grid at 72-120 months at GL's 1.5.
 const control = incurredAbovePaidAges(
-  RETIRED_GL_TOTAL_PAID_DEVELOPMENT, INCURRED_DEVELOPMENT_PATTERN.GL,
+  compressPattern(RETIRED_GL_TOTAL_PAID_DEVELOPMENT, DEVELOPMENT_SPEED.GL), INCURRED_DEVELOPMENT_PATTERN.GL,
 );
 if (control.length === 0) {
   fail('POSITIVE CONTROL FAILED: the retired GL "Total" paid pattern produced NO '

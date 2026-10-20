@@ -31,8 +31,7 @@ import { REINSURANCE_TOWER, RISK_LOAD_LAMBDA } from '../../src/data/reinsuranceT
 import { NEW_RATE_STACK, RISK_CONTROL_INCENTIVE_RANGE } from '../../src/data/pricingParameters';
 import { adminRatePer100For, expenseDivisor } from '../../src/utils/linePricing';
 import { occurrenceProgramCost } from '../../src/utils/reinsuranceTower';
-import { REINSURANCE_LOAD_CLF_AT_70 } from '../../src/data/pricingParameters';
-import type { TowerLine } from '../../src/data/reinsuranceTower';
+import { REINSURANCE_LOAD } from '../../src/data/pricingParameters';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, GameState, Member } from '../../src/types/simulation';
 
@@ -281,11 +280,10 @@ console.log(`  Checked analytically on the full canonical roster at lambda ${RIS
     // the stale-assertion trap this project keeps meeting. It is FORKED rather
     // than loosened: the claim is still an exact identity, just a different
     // one, and a `netCost > 0` would have waved through any load at all.
-    const clf = REINSURANCE_LOAD_CLF_AT_70[l as TowerLine];
-    const impliedLoad = qAll.expectedCeded * (clf - 1);
+    const impliedLoad = qAll.expectedCeded * REINSURANCE_LOAD;
     check(Math.abs(netCost - impliedLoad) < Math.max(1, qAll.expectedCeded * 1e-9),
-      `${l}: net cost is exactly expected ceded x (CLF@70% - 1)`,
-      `$${(netCost / M).toFixed(3)}M against $${(impliedLoad / M).toFixed(3)}M at CLF ${clf}`);
+      `${l}: net cost is exactly expected ceded x REINSURANCE_LOAD`,
+      `$${(netCost / M).toFixed(3)}M against $${(impliedLoad / M).toFixed(3)}M at load ${REINSURANCE_LOAD}`);
     if (RISK_LOAD_LAMBDA > 0) {
       check(netCost > 0 && netCost < qAll.premium,
         `${l}: net cost is positive but below the gross premium`,

@@ -1192,7 +1192,50 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // with its steadier history and its ex-ante reinsurance price. NOT moved: any
 // game year's rate, pure premium or premium — year 1 prices off the five
 // played pre-game years, whose losses are the same draws.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v70.json');
+// v71: FOUR REGIONS (book units commit 1). The control ran first: 8c370a9
+// reproduced v70 exactly. Shape unchanged; 10,631 instances moved across 86
+// fields, none an identity. A regional event now strikes one of four regions
+// drawn by exposure share (25/30/25/20), so the expected share its A reaches
+// falls from 0.334 to 0.255: expected loss and the pure premium and rate struck
+// from it move a little (Property year 1 -0.25%, WC and GL under $2K), and a
+// fired event's A lands on a different share — its ultimate, net incurred,
+// reserves, surplus and what they drive move with it.
+// v72: ORDINARY LOSSES FROM BOOK UNITS (book units commit 3). The control ran
+// first: b1142b1 reproduced v71 exactly. Shape unchanged; 26,104 instances
+// moved across 98 fields, none an identity. A line opens on its book's
+// exposure — its units' sizes summed — so exposure, the market share and
+// everything struck on exposure move (premium, rates, reinsurance cost);
+// ordinary losses are the units' draws and expected loss carries the book's
+// risk, so losses, reserves, surplus and the ratios move with them.
+// v73: LARGE LOSSES ON BOOK UNITS (book units commit 5). The control ran
+// first: caea33d reproduced v72 exactly. Shape unchanged; 15,986 instances
+// moved across 91 fields, none an identity. Routine large claims are counted
+// on the book's size-weighted risk and land on its units by size x risk, and
+// expected loss and the tower's layer prices carry that risk: expected loss,
+// the pure premium and rates struck from it, reinsurance cost, the large
+// losses drawn, and the reserves, surplus and ratios downstream move.
+// v74: FUNDING TABLES ON THE NEW ENGINE. The control ran first: 33fdde8
+// reproduced v73 exactly. Shape unchanged; 12,320 instances moved across 53
+// fields, none an identity. Required capital reads the re-derived tables' 90%
+// stop (WC 1.473 -> 1.3275, GL 1.502 -> 1.7910, Property 1.4414 -> 1.5247), so
+// the opening surplus set on it, investments, investment income and every
+// capital row move; the squeezed arm funds off the new stops, so its rates,
+// premium and ratios move; the pre-game funds at a 14% cushion (GL and Property
+// were 1.135 and 1.1471). The reinsurance cost moves in its last bit only
+// (1 + 0.14 against 1.14), as do marketShare and investmentReturnRate.
+// v75: DEVELOPMENT SPEED — WC AND GL DEVELOP 1.5x FASTER. The control ran
+// first: da5a3e5 reproduced v74 exactly. Shape unchanged; 14,484 instances moved
+// across 78 fields, none an identity (expectedCombinedRatio still 1 on all 150;
+// surplusTieOutDifference moves by float noise only, e.g. 0 -> 7.5e-9). What
+// moved, and why: paid losses, paydown, case and IBNR (net, gross and ceded),
+// the net and LAE reserves, and the funding targets and reserve margin read
+// off them, because the compressed patterns pay faster and hold less unpaid;
+// opening and later surplus, invested assets and investment income, because a
+// smaller opening reserve sets a smaller required capital and opening surplus;
+// and the pure premium and rates from year 2 on, by the two causes recorded
+// at DEVELOPMENT_SPEED (the host's development priced sooner; less open balance
+// for shock R development). Year-1 rates are unchanged.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v75.json');
 
 function seedOf(id: string) {
   let h = 5381;

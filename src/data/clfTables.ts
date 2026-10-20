@@ -1,7 +1,58 @@
-// STATIC CLF TABLES for WC, GL and Property.
+// STATIC CLF TABLES for WC, GL and Property — THE FUNDING TABLES.
 //
-// CLF(p) is the multiplier applied to the pool premium so that the funded
-// amount covers the year's retained loss p% of the time.
+// CLF(p) is the multiplier on the retained pure premium at which the year's
+// retained loss and LAE come in at or under the funded amount p% of the time.
+//
+// ============================================================================
+// ⚠ RE-DERIVED ON THE NEW ENGINE (funding tables commit). THE TABLES IN FORCE
+// ARE WC_NEW_ENGINE, GL_NEW_ENGINE AND PROPERTY_NEW_ENGINE, BELOW; EVERYTHING
+// FROM "THE THREE LINES DO NOT COME FROM THE SAME PLACE" DOWN IS THE HISTORY OF
+// THE MEMBER-ENGINE TABLES THEY REPLACE, KEPT BECAUSE OTHER FILES QUOTE IT.
+//
+// THE STATISTIC — VOLATILITY ONLY (scripts/tools/funding-ratio.ts):
+//
+//     (net incurred loss + LAE incurred) / (the engine's expected retained loss + LAE)
+//
+// The denominator is built exactly as the pure premium is — expected loss cost
+// x (1 + ALAE + ULAE), less the tower's expected cession — with the engine's
+// expectation where the pure premium has its five-year experience. So a slider
+// position means "funds the year's retained loss and LAE p% of the time,
+// against a correct pure premium", and NOTHING of the experience pure premium's
+// own shortfall is in the table: the slider buys confidence, it does not repair
+// pricing. The shortfall is reported by the derivation and left for pricing.
+//
+// THE SAMPLE: 1,000 solo games x 10 years per line at default decisions, one
+// world, scripts/diagnostics/clf-newengine-derive.ts; CIs a block bootstrap
+// over whole games. No member bands: the new engine has a book of units, not a
+// roster, and the ratio carries no book-size level (expected scales with it).
+//
+// WHERE "AT EXPECTED" (CLF 1.000) SITS, AND THE 70% AND 90% STOPS:
+//
+//                 at expected     70% stop     90% stop (required capital)
+//     WC              78.2%         0.9638        1.3275    (was 1.473)
+//     GL              63.5%         1.1678        1.7910    (was 1.502)
+//     Property        84.0%         0.7675        1.5247    (was 1.4414)
+//
+// ⚠ THE DISTRIBUTIONS ARE RIGHT-SKEWED, SO EXPECTED COVERS MORE THAN HALF THE
+// YEARS AND THE LOW STOPS SIT BELOW 1. Large losses are lumpy — routine large
+// claims are 24% of WC's expected loss and 41% of GL's, catastrophes 18% of
+// Property's — so most years come in under expectation and a few far over it.
+// A slider set below "at expected" now genuinely funds below expectation.
+//
+// ⚠ GL'S RATIO AVERAGES 1.12, NOT 1: net incurred loss is a CALENDAR figure and
+// carries prior-year development the expectation does not — the host's 10%
+// adverse development (with it at 0 the mean is 1.06) and the reserves' own
+// development beyond it. That is volatility around the engine's ACCIDENT-YEAR
+// expectation as the P&L books it, so it stays in the table. WC's averages
+// 1.04 for the same reason at 3%; Property's 0.98.
+//
+// ⚠ NO CIRCULARITY. Neither side of the ratio reads a CLF; the pre-game funds
+// at a stated cushion (PRE_GAME_FUNDING_CUSHION) and the reinsurance load is a
+// stated 14% (REINSURANCE_LOAD), so neither reads these tables. The one reader
+// that feeds back is required capital at RESERVE_MARGIN_CONFIDENCE, which moves
+// the opening surplus — and surplus reaches neither side of the ratio on a solo
+// line. A second pass with the tables installed reproduced the first.
+// ============================================================================
 //
 // ============================================================================
 // ⚠ READ THIS FIRST: THE THREE LINES DO NOT COME FROM THE SAME PLACE.
@@ -712,7 +763,7 @@ export const WC_DERIVED: ClfTable = {
 // describes. crossingOf already carries this warning for GL; it now applies to
 // two lines out of three.
 // ============================================================================
-const WC_SUPPLIED: ClfTable = {
+export const WC_SUPPLIED: ClfTable = {
   source: 'supplied',
   stops: [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 97.5, 99],
   clf: [
@@ -848,7 +899,7 @@ const WC_SUPPLIED: ClfTable = {
 // basis, so that red is a genuine gap between this curve and the distribution it
 // describes rather than a basis artefact. Entered in EXPECTED_RED; closing it
 // needs a curve with a different low tail, not a re-derivation.
-const GL_SUPPLIED: ClfTable = {
+export const GL_SUPPLIED: ClfTable = {
   source: 'supplied',
   stops: [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95],
   clf: [
@@ -982,7 +1033,7 @@ export const GL_DERIVED: ClfTable = {
 // re-derivation: 71.0% of its accident years written in a ten-year game reach
 // their own horizon before it ends, against WC's 16.4%. If the ruling on WC is
 // ever revisited, Property is the cheap half of it.
-const PROPERTY_DERIVED: ClfTable = {
+export const PROPERTY_DERIVED: ClfTable = {
   source: 'derived',
   stops: [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 97.5, 99],
   clf: [
@@ -991,11 +1042,46 @@ const PROPERTY_DERIVED: ClfTable = {
   ],
 };
 
-// WHAT THE ENGINE ACTUALLY READS.
+// ============================================================================
+// THE NEW-ENGINE TABLES — IN FORCE. Percentiles of the volatility-only ratio;
+// see the head of this file for the statistic, the sample and what moved.
+// 10,000 line-years each; 95% CI half-widths run about 0.001 at the low stops
+// and 0.02-0.04 through 90%, widening in the far tail (Property's 97.5th and
+// 99th rest on its rarest catastrophes).
+// ============================================================================
+const NEW_ENGINE_STOPS = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 97.5, 99];
+export const WC_NEW_ENGINE: ClfTable = {
+  source: 'derived',
+  stops: NEW_ENGINE_STOPS,
+  clf: [
+    0.8515, 0.8602, 0.8679, 0.8747, 0.8807, 0.8872, 0.8946, 0.9020, 0.9107, 0.9204,
+    0.9323, 0.9468, 0.9638, 0.9828, 1.0099, 1.0712, 1.3275, 1.7382, 2.3064, 2.9044,
+  ],
+};
+export const GL_NEW_ENGINE: ClfTable = {
+  source: 'derived',
+  stops: NEW_ENGINE_STOPS,
+  clf: [
+    0.7949, 0.8060, 0.8164, 0.8248, 0.8351, 0.8450, 0.8569, 0.8705, 0.8872, 0.9113,
+    0.9486, 1.0327, 1.1678, 1.3012, 1.4834, 1.6396, 1.7910, 2.0484, 2.3238, 2.7052,
+  ],
+};
+export const PROPERTY_NEW_ENGINE: ClfTable = {
+  source: 'derived',
+  stops: NEW_ENGINE_STOPS,
+  clf: [
+    0.6706, 0.6793, 0.6867, 0.6921, 0.6976, 0.7029, 0.7081, 0.7134, 0.7200, 0.7279,
+    0.7373, 0.7508, 0.7675, 0.7909, 0.8349, 1.0739, 1.5247, 2.0223, 4.3285, 5.6128,
+  ],
+};
+
+// WHAT THE ENGINE ACTUALLY READS. The member-engine tables above (WC_SUPPLIED,
+// GL_SUPPLIED, PROPERTY_DERIVED) were in force until the funding tables commit
+// and are exported as history and as the gate's control.
 export const STATIC_CLF_TABLE: Record<StaticClfLine, ClfTable> = {
-  WC: WC_SUPPLIED,
-  GL: GL_SUPPLIED,
-  Property: PROPERTY_DERIVED,
+  WC: WC_NEW_ENGINE,
+  GL: GL_NEW_ENGINE,
+  Property: PROPERTY_NEW_ENGINE,
 };
 
 // ⚠ ALL THREE LINES NOW HAVE A TABLE, so this is true universally and
@@ -1037,23 +1123,33 @@ export function staticClf(line: StaticClfLine, confidenceLevel: number): number 
   return clfFromTable(STATIC_CLF_TABLE[line], confidenceLevel);
 }
 
+/**
+ * The confidence level a CLF amounts to on a line's table — the inverse of
+ * staticClf, linear between the line's own stops and clamped to its range.
+ * For DISPLAY only: the pre-game funds at a stated cushion, and this records
+ * what that cushion delivers on the table in force. Nothing prices off it.
+ */
+export function confidenceAtClf(line: StaticClfLine, clf: number): number {
+  const { stops, clf: values } = STATIC_CLF_TABLE[line];
+  const last = values.length - 1;
+  if (clf <= values[0]) return stops[0] / 100;
+  if (clf >= values[last]) return stops[last] / 100;
+  for (let i = 0; i < last; i++) {
+    if (clf >= values[i] && clf <= values[i + 1]) {
+      const w = values[i + 1] === values[i] ? 0 : (clf - values[i]) / (values[i + 1] - values[i]);
+      return (stops[i] + w * (stops[i + 1] - stops[i])) / 100;
+    }
+  }
+  return stops[last] / 100;
+}
+
 // The percentile at which a table crosses 1.000 — what "Expected" delivers.
 //
 // DERIVED FROM THE TABLE, never stored alongside it, so the two cannot drift.
-// Property 52.8%; GL 57.7% on the supplied curve against 65.6% on its derived
-// one; WC 55.8% on the supplied curve against 42.9% on its derived one.
-//
-// ⚠ ON GL AND NOW ON WC THIS IS A DISPLAY FIGURE FOR A CURVE THAT IS NOT THE
-// MODEL'S OWN. It correctly reports where the SUPPLIED table crosses, which is
-// what the pool is actually being charged against; it is NOT where that line's
-// real retained distribution crosses. GL differs by 8.0pp and WC by 12.9pp, and
-// both gaps are recorded at their tables above.
-//
-// ⚠ AND ONLY PROPERTY STILL HAS THE IDENTITY. On a derived table this figure is
-// the model's own crossing, because the table came from that sample; on a
-// supplied one it is a statement about someone else's book. Two lines out of
-// three now print a number that means the second thing while the UI says the
-// same words on all three.
+// On the new-engine tables: WC 78.2%, GL 63.5%, Property 84.0% — and each is the
+// model's own, because every table in force is now derived from the engine.
+// (Until the funding tables commit two of the three were supplied real-pool
+// curves, and this figure was a statement about someone else's book.)
 //
 // Returns a 0-1 fraction, clamped to the table's stop range.
 export function crossingOf(table: ClfTable): number {

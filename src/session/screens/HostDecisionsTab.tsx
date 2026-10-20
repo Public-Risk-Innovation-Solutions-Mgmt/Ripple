@@ -217,7 +217,7 @@ export default function HostDecisionsTab({ room }: Props) {
                 <th className="px-3 py-2 font-medium">Funding</th>
                 <th className="px-3 py-2 font-medium">Reinsurance</th>
                 <th className="px-3 py-2 font-medium">Renewal</th>
-                <th className="px-3 py-2 font-medium">Intake</th>
+                <th className="px-3 py-2 font-medium">New business</th>
                 <th className="px-3 py-2 font-medium">Risk control</th>
                 <th className="px-3 py-2 font-medium">Dividend / assessment</th>
                 <th className="px-3 py-2 font-medium">Investments</th>

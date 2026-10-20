@@ -33,7 +33,13 @@ export function getMemberExposure(member: Member, line: CoverageLine, yearNumber
  * every function that only ever summed its members' exposure takes the sum
  * itself. The exposure is the year's own, already through exposureFactor.
  */
-export type Book = readonly Member[] | { readonly exposure: number };
+// A book is a roster, or the line's exposure — with, since book units, the
+// book's size-weighted true risk (bookOrdinaryRisk), which its routine large
+// losses' count and their price carry. Absent reads as 1, the market's.
+export type Book = readonly Member[] | { readonly exposure: number; readonly risk?: number };
+
+/** A book's size-weighted true risk; 1 for a roster or a book that does not say. */
+export const bookRiskOf = (book: Book): number => (Array.isArray(book) ? 1 : (book as { risk?: number }).risk ?? 1);
 
 export const isRoster = (book: Book): book is readonly Member[] => Array.isArray(book);
 

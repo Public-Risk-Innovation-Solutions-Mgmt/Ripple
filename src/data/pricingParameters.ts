@@ -37,7 +37,7 @@
 // page lists them, read from their own modules — rather than relocated.
 // ============================================================================
 
-import { CoverageLine } from '../types/simulation';
+import { CoverageLine, Region } from '../types/simulation';
 
 export type ParameterBasis = 'SOURCED' | 'CHOSEN';
 
@@ -142,6 +142,36 @@ export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
 /** The reserve margin's fixed confidence level. */
 export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.90;
 
+/**
+ * DEVELOPMENT SPEED — per line: WC and GL 1.5, Property 1.0.
+ *
+ * 1.0 is the recorded paid and incurred patterns as they are. Above 1.0 both
+ * patterns are compressed in time by the factor, keeping their shape: the
+ * share paid at age t becomes the recorded share at age speed x t, and the
+ * same for the share reported, so case reserves (reported less paid) and IBNR
+ * (unreported) stay consistent with each other at every age. Applied where the
+ * patterns are defined (paidDevelopmentPatterns.ts), so every reader of a
+ * pattern reads the compressed one.
+ *
+ * ⚠ WC AND GL AT 1.5 BECAUSE THE RECORDED PATTERNS WERE JUDGED TOO SLOW.
+ * Property stays at 1.0.
+ *
+ * ⚠ THE RATE MOVES A LITTLE, AND FOR TWO REASONS, BOTH MEASURED AND ACCEPTED.
+ * Pricing develops paid to ultimate on the same compressed pattern, so in
+ * expectation it prices the same ultimate and every year-1 rate is unchanged
+ * bit for bit. Later years drift, and only through development:
+ *   - faster payment brings the host's adverse development into the pricing
+ *     window sooner, so rates catch up to it sooner. Over the same 100 solo
+ *     seeds, rates rose by up to +0.06% on WC and +0.2% to +0.9% on GL by year;
+ *   - faster payment leaves less open balance for a shock's R development to
+ *     act on, so a year with WC Reform, Legislation, Nuclear Verdict or Social
+ *     Inflation behind it develops less and prices slightly lower. With the
+ *     host's development at zero, every rate that still moved (45 game-years of
+ *     1,000 on WC, 184 on GL) came after such a shock, and none without one:
+ *     WC -0.04% and GL -0.41% by year 10.
+ */
+export const DEVELOPMENT_SPEED: PerLine<number> = { WC: 1.5, GL: 1.5, Property: 1.0 };
+
 /** The combined dividend / assessment control: negative is an assessment. */
 export const DIVIDEND_ASSESSMENT_RANGE = { min: -0.15, max: 0.15, step: 0.01, default: 0 };
 
@@ -221,28 +251,22 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
 export const PROFIT_AND_CONTINGENCY_OF_RATE = 0.05;
 
 /**
- * THE REINSURANCE LOAD — the line's CLF-table multiplier at 70%, applied to a
- * LAYER'S EXPECTED LOSS.
+ * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
+ * (1 + this), on every line, the occurrence layers and the aggregate alike.
  *
- * ⚠ IT IS NOT THE 70TH PERCENTILE OF THE LAYER'S OWN LOSSES, and the difference
- * is the reason this is a named parameter rather than a lookup at the call
- * site. A layer that is rarely hit has a loss distribution with a large atom at
- * zero, so its own 70th percentile is often ZERO — or, where it is not, below
- * its own mean. Pricing off that would charge nothing for the layers that most
- * need a margin. The pool-level CLF at 70% is a multiplier on an EXPECTED loss
- * and behaves properly at any hit rate.
+ * ⚠ A MARKET'S LOAD, NEVER READ FROM A CONFIDENCE PERCENTILE. It used to be each
+ * line's funding (CLF) table read at 70% — WC 1.1400, GL 1.1350, Property 1.1471
+ * — so re-deriving the funding tables re-priced the reinsurance under them. 14%
+ * is that figure, separated (funding tables commit): the funding tables now
+ * describe the pool's own volatility and nothing else, and the reinsurer's price
+ * does not move when they do.
  *
- * Values are each line's own static CLF table at 0.70, read at this commit:
- * WC 1.1400, GL 1.1350, Property 1.1471. The generic FUNDING_CLF_TABLE reads
- * 1.217 at the same stop and is NOT what these are.
- *
- * ⚠ NOT YET USED — read from commit 2 onward.
+ * ⚠ AND IT IS A LOAD ON AN EXPECTED LOSS, NOT A PERCENTILE OF THE LAYER'S OWN
+ * LOSSES. A layer that is rarely hit has a loss distribution with a large atom at
+ * zero, so its own 70th percentile is often ZERO; pricing off that would charge
+ * nothing for the layers that most need a margin.
  */
-export const REINSURANCE_LOAD_CLF_AT_70: PerLine<number> = {
-  WC: 1.1400,
-  GL: 1.1350,
-  Property: 1.1471,
-};
+export const REINSURANCE_LOAD = 0.14;
 
 /**
  * HOW MANY YEARS OF PRIOR HISTORY THE PRE-GAME SIMULATES, with real claims
@@ -339,8 +363,17 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
 };
 
 /**
- * WHAT THE BOARD FUNDED AT BEFORE THE PLAYERS ARRIVED — the 70% confidence
- * level, on each line's own CLF table.
+ * WHAT THE BOARD FUNDED AT BEFORE THE PLAYERS ARRIVED — a 14% CUSHION OVER
+ * EXPECTED: each line's retained pure premium x 1.14, every pre-game year.
+ *
+ * ⚠ A CUSHION, NOT A CONFIDENCE LEVEL (funding tables commit). It was the 70%
+ * level on each line's own CLF table — WC 1.1400, GL 1.1350, Property 1.1471 —
+ * so re-deriving the tables would have re-run the pre-game and moved the
+ * opening. Stated as the multiplier it amounted to, it no longer reads a table:
+ * the same effect as before (WC identical, GL +0.4%, Property -0.6% on the
+ * multiplier), and the tables are free to describe the pool's volatility. What
+ * confidence it amounts to is now a property of the tables, recorded on the
+ * pre-game years' results (fundingConfidenceLevel) and nowhere relied on.
  *
  * ⚠ IT IS THE PRE-GAME ONLY. Players still default to funding at EXPECTED
  * (CLF 1.000) and choose their own level from year 1, which is
@@ -357,10 +390,10 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
  * against the declared year before it — the player is funding at expected
  * where the prior board funded with a cushion — and that drop is real rather
  * than a modelling artefact. It is the first thing the Decisions panel's
- * change column reports, and the welcome memo states the 70% so the drop is
- * explicable rather than surprising. The memo READS this constant.
+ * change column reports. No player-facing text names the 14%: the welcome
+ * memo carries no engine detail (docs/PENDING_MULTIPLAYER.md).
  */
-export const PRE_GAME_FUNDING_LEVEL = 0.70;
+export const PRE_GAME_FUNDING_CUSHION = 0.14;
 
 export const NEW_RATE_STACK = { enabled: true };
 
@@ -447,25 +480,26 @@ export const ORDINARY_LOSS_LIMIT: PerLine<number> = {
 };
 
 /**
- * THE YEAR-TO-YEAR CV OF ORDINARY LOSSES, PER LINE — the one stochastic
- * parameter of the ordinary engine.
+ * ORDINARY LOSSES FROM BOOK UNITS — CHOSEN, the R model's two factors (book
+ * units commit 3). Each unit's expected ordinary loss is its exposure x its
+ * true risk x the line's expected ordinary loss cost; each year it is
  *
- * 2.2% is what the R model's ordinary losses actually produce once its member
- * factor has averaged over 100 members — not either of its two input CVs (the
- * 2% year-wide factor and the 10% member factor), which compound to
- * sqrt(0.02^2 + 0.10^2/100) = 2.24%. Stated directly at the line, so nothing
- * has to invent a population of exposure units to get a variance.
+ *   expected x F x f,   F the year factor every unit shares (CV
+ *                       UNIT_ORDINARY_YEAR_CV), f the unit's own (CV
+ *                       UNIT_ORDINARY_OWN_CV)
  *
- * The draw is LOGNORMAL WITH MEAN EXACTLY 1: sigma^2 = ln(1 + CV^2) and
- * mu = -sigma^2/2. So the expected ordinary loss IS the mean of the draws by
- * construction, and there is no separate "held" figure that could drift from
- * them. ordinary-loss-check asserts both moments.
+ * and the line's ordinary loss is the sum. Both factors are LOGNORMAL WITH
+ * MEAN EXACTLY 1, so the expected loss IS the mean of the draws by
+ * construction.
+ *
+ * ⚠ THEY REPLACE ORDINARY_LOSS_CV, one 2.2% draw at the line — what these two
+ * compound to over 100 equal members, sqrt(0.02^2 + 0.10^2/100). Over a book
+ * of about 60 unequal units the line's CV is sqrt(0.02^2 + 0.10^2 x H), H the
+ * sum of each unit's squared share of the expected loss: about 2.47%
+ * (typicalBookOrdinaryCv). book-units-ordinary-check holds the draws to both.
  */
-export const ORDINARY_LOSS_CV: PerLine<number> = {
-  WC: 0.022,
-  GL: 0.022,
-  Property: 0.022,
-};
+export const UNIT_ORDINARY_YEAR_CV = 0.02;
+export const UNIT_ORDINARY_OWN_CV = 0.10;
 
 /**
  * EXPECTED ORDINARY LOSS COST PER $100 OF EXPOSURE, YEAR 1 — SOURCED.
@@ -550,19 +584,33 @@ export const ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M: PerLine<number> = {
 };
 
 /**
- * EACH LINE'S EXPOSURE SPLIT ACROSS THE GAME'S THREE REGIONS — SOURCED.
+ * THE GAME'S FOUR REGIONS AND EACH ONE'S SHARE OF EXPOSURE — CHOSEN, the R
+ * model's own (R_MODEL.regions), the same on every line.
  *
- * Read once from today's 200-member roster by the derivation script. A
- * regional event's A applies to its region's share of the line's ordinary
- * losses, read from HERE rather than from the book a team happens to hold —
- * the engine is leaving members behind (commit 5), and exposure by region has
- * to be a property of the line when it does.
+ * ⚠ FOUR SINCE BOOK UNITS, AND NO LONGER SOURCED. The three regions were read
+ * from today's 200-member roster (North 35.2%, Central 34.4%, South 30.4%);
+ * that roster has no East, so re-running its derivation cannot give four.
+ * The R model's uplift ranges were set for these four, so adopting them
+ * restores its calibration.
+ *
+ * A REGIONAL EVENT STRIKES ONE REGION, DRAWN BY THIS SHARE (regionByShare), and
+ * its A reaches that region's share of the line's ordinary losses. Its T is
+ * not cut: it lands whole in the struck region. Drawn by share, the expected
+ * share an event reaches is the sum of the squares, 0.255, where three
+ * near-equal regions drawn uniformly gave 0.334 — so a regional event's
+ * expected A falls by about 23.5%. Nothing else moves.
  */
-export const REGION_EXPOSURE_SHARE: PerLine<Readonly<Record<'North' | 'Central' | 'South', number>>> = {
-  WC: { North: 0.352177, Central: 0.343909, South: 0.303914 },
-  GL: { North: 0.352177, Central: 0.343909, South: 0.303914 },
-  Property: { North: 0.352290, Central: 0.338421, South: 0.309289 },
+export const GAME_REGIONS: readonly Region[] = ['North', 'South', 'Central', 'East'];
+export const REGION_EXPOSURE_SHARE: Readonly<Record<Region, number>> = {
+  North: 0.25, South: 0.30, Central: 0.25, East: 0.20,
 };
+
+/** The region a share-weighted draw `u` in [0, 1) lands on: one uniform, cumulative by GAME_REGIONS. */
+export function regionByShare(u: number): Region {
+  let acc = 0;
+  for (const r of GAME_REGIONS) { acc += REGION_EXPOSURE_SHARE[r]; if (u < acc) return r; }
+  return GAME_REGIONS[GAME_REGIONS.length - 1];
+}
 
 /**
  * HOW MANY LARGE LOSSES EACH EVENT'S T ARRIVES AS — CHOSEN, A STARTING POINT.
@@ -619,6 +667,43 @@ export const FULL_MARKET_EXPOSURE: PerLine<number> = {
 };
 
 /**
+ * BOOK UNITS — each line's exposure split across individual units
+ * (src/utils/bookUnits.ts). NOT members: the dormant member engine has its own
+ * roster; units are never shown on any screen, export or host view. All
+ * CHOSEN, the R model's own shapes.
+ *
+ *   UNIT_MARKET_COUNT  units in each line's market, drawn from the game seed
+ *   UNIT_SIZE_CV       the spread of unit sizes; the market sums exactly to
+ *                      FULL_MARKET_EXPOSURE
+ *   UNIT_RISK_CV       the spread of true risk scores; the market's
+ *                      size-weighted mean is exactly 1.0
+ *   UNIT_POOL_SHARE    the opening book: units in a seeded order until it
+ *                      first reaches this share of the market — about 60
+ *
+ * ⚠ READ BY NOTHING YET (book units commit 2): the book is drawn and stored,
+ * and every loss, rate and movement still runs on the line's one exposure.
+ */
+export const UNIT_MARKET_COUNT = 200;
+export const UNIT_SIZE_CV = 0.40;
+export const UNIT_RISK_CV = 0.30;
+export const UNIT_POOL_SHARE = 0.30;
+
+/**
+ * UNDERWRITING'S VIEW OF A UNIT'S RISK — CHOSEN, a starting point (book units
+ * commit 4). Each unit's OBSERVED risk is its true risk x a noise drawn once
+ * from the seed (BookUnit.noiseZ); VISIBILITY is the share of the observed
+ * log-risk's variance that is true risk:
+ *
+ *   log observed  ~  sqrt(v) x log(true risk) + sqrt(1 − v) x sigma x z
+ *
+ * with sigma the true risk's own log-scale spread, so the observed spread is
+ * the true one at every v. At 0 underwriting sees only noise and selects at
+ * random; at 1 it sees true risk and selects perfectly. Renewal declines the
+ * units that look riskiest; intake takes the prospects that look best.
+ */
+export const UNIT_UW_VISIBILITY = 0.5;
+
+/**
  * NEW BUSINESS A YEAR, AS A SHARE OF THE CURRENT BOOK, PER INTAKE POSITION —
  * CHOSEN, A STARTING POINT. No New Business, Strict, Moderate, Low. The R model
  * wrote about 5 prospects in 100 a year, which is Moderate; today's member
@@ -627,11 +712,18 @@ export const FULL_MARKET_EXPOSURE: PerLine<number> = {
 export const BOOK_INTAKE_SHARE: readonly number[] = [0, 0.02, 0.05, 0.08];
 
 /**
- * NEW-BUSINESS PENALTY — on the ordinary losses of exposure written this year,
- * in its first year. CHOSEN at ZERO: the R model's 20% is kept as the
- * mechanism, uncalibrated. At zero it changes nothing.
+ * NEW-BUSINESS PENALTY — CHOSEN, the R model's 20% (book units commit 6). The
+ * book units written this year cost this much more on their ACTUAL ordinary
+ * losses, in their first year only (ordinaryLossFromUnits); a unit renewed
+ * the next year carries none.
+ *
+ * ⚠ AND IT IS NOT IN EXPECTED LOSS. A pool does not know in advance that its
+ * new business will run worse; expected loss is the book's own exposure x
+ * risk x cost, and the rate learns the penalty only through the history, as
+ * new business's losses reach the ledger. It was 0 — the mechanism without a
+ * calibration — and it was IN expected loss.
  */
-export const NEW_BUSINESS_PENALTY = 0;
+export const NEW_BUSINESS_PENALTY = 0.20;
 
 /**
  * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.
@@ -1036,6 +1128,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: RESERVE_MARGIN_CONFIDENCE_PARAM, unit: 'confidence',
         what: 'The fixed confidence the reserve margin is held at.', basis: 'CHOSEN',
       }],
+      ['Development speed', {
+        value: perLine(DEVELOPMENT_SPEED, 2), unit: 'x the recorded patterns\' pace',
+        what: '1.0 is the recorded paid and incurred patterns as they are; above 1.0 compresses both in time '
+          + 'by that factor, keeping their shape, so case reserves and IBNR stay consistent.',
+        basis: 'CHOSEN',
+        note: 'WC and GL at 1.5 because the recorded patterns were judged too slow; Property at 1.0. '
+          + 'Applied where the patterns are defined, so payments, case and IBNR, the pricing LDFs, the '
+          + 'opening and its bulk years, the pre-game and the host\'s development all read the compressed patterns. '
+          + 'Year-1 rates are unchanged; later rates move slightly because faster payment brings the host\'s adverse '
+          + 'development into pricing sooner, and leaves less open balance for shock R development to act on.',
+      }],
       ['CLF tables', {
         value: 'per line, in clfTables.ts', unit: 'multiplier on expected loss',
         what: 'Confidence level factors by line and confidence stop.', basis: 'SOURCED',
@@ -1153,9 +1256,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'May be set to 0.', basis: 'CHOSEN', notYetUsed: true,
       }],
       ['Reinsurance load', {
-        value: perLine(REINSURANCE_LOAD_CLF_AT_70, 4), unit: 'multiplier on a layer\'s EXPECTED loss',
-        what: 'The line\'s CLF-table multiplier at 70%.', basis: 'CHOSEN', notYetUsed: true,
-        note: 'NOT the 70th percentile of the layer\'s own losses — for a rarely hit layer that is often zero, or below its own mean.',
+        value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
+        what: 'Every layer — the occurrence layers and the aggregate — is priced at its expected loss x (1 + this).',
+        basis: 'CHOSEN',
+        note: 'Was each line\'s funding table read at 70% (WC 1.1400, GL 1.1350, Property 1.1471); separated '
+          + 'from the funding tables, so re-deriving them no longer re-prices the reinsurance. Never a percentile '
+          + 'of the layer\'s own losses — for a rarely hit layer that is often zero.',
       }],
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS_NEW, unit: 'years',
@@ -1191,15 +1297,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'single year $103.9M. Distinct from GL_SEVERITY_CAP ($84M), which is how large a claim can be '
           + 'rather than how much of one the Pool covers. Reinsurance is bought within the limit.',
       }],
-      ['Pre-game funding level', {
-        value: PRE_GAME_FUNDING_LEVEL, unit: 'confidence level',
-        what: 'What the previous board funded the declared years at, on each line\'s own CLF table.',
+      ['Pre-game funding cushion', {
+        value: PRE_GAME_FUNDING_CUSHION, unit: 'over expected (CLF 1 + this)',
+        what: 'What the previous board funded the declared years at: each line\'s retained pure premium x '
+          + '(1 + this). A cushion, not a confidence level — it reads no funding table.',
         basis: 'CHOSEN',
-        note: 'The PLAYER\'S default is unchanged: funding at EXPECTED, CLF 1.000, from year 1. So a team '
+        note: 'Was the 70% level on each line\'s own table (WC 1.1400, GL 1.1350, Property 1.1471). '
+          + 'The PLAYER\'S default is unchanged: funding at EXPECTED, CLF 1.000, from year 1. So a team '
           + 'that locks year 1 untouched prices BELOW the year before it — measured at -7.0% on WC, -4.9% '
           + 'on GL, -3.9% on Property, against +41.7% / +18.5% / +35.7% when the pre-game also funded at '
           + 'expected. The year-1 rate itself is identical either way; only the figure it is compared '
-          + 'against moves. The welcome memo reads this constant rather than naming a number.',
+          + 'against moves. No player-facing text names it.',
       }],
     ],
   },
@@ -1229,11 +1337,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Losses above arrive only with the shocks.',
         basis: 'CHOSEN',
       }],
-      ['Ordinary loss CV', {
-        value: perLine(ORDINARY_LOSS_CV, 3), unit: 'year-to-year',
-        what: 'The year factor\'s coefficient of variation — the one stochastic parameter of ordinary losses.',
+      ['Ordinary loss factors', {
+        value: `year ${(100 * UNIT_ORDINARY_YEAR_CV).toFixed(0)}% · unit ${(100 * UNIT_ORDINARY_OWN_CV).toFixed(0)}%`,
+        unit: 'CV, each a mean-1 lognormal',
+        what: 'Each book unit\'s ordinary loss is its expected loss (exposure x true risk x the line\'s cost) times a '
+          + 'year factor every unit shares and a factor of its own; the line\'s ordinary loss is the sum.',
         basis: 'CHOSEN',
-        note: 'What the R model\'s ordinary losses produce over 100 members: sqrt(0.02^2 + 0.10^2/100) = 2.24%.',
+        note: 'The R model\'s two factors. They replace one 2.2% draw at the line; over a book of about 60 '
+          + 'unequal units the line\'s CV is about 2.47%.',
       }],
       ['Expected ordinary loss cost', {
         value: perLine(EXPECTED_ORDINARY_LOSS_COST_PER_100), unit: 'per $100 of exposure, year 1',
@@ -1274,15 +1385,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'GL the pool keeps 2.352, the rest lying above its $25M limit.',
       }],
       ['Region exposure share', {
-        value: (['WC', 'GL', 'Property'] as const).map(l => `${l} `
-          + (['North', 'Central', 'South'] as const).map(r => `${r} ${(100 * REGION_EXPOSURE_SHARE[l][r]).toFixed(1)}%`).join(' / ')).join(' · '),
-        unit: 'share of the line\'s exposure',
-        what: 'Each line\'s exposure split across the game\'s three regions. A regional event\'s A reaches only '
-          + 'its region\'s share of ordinary losses.',
-        basis: 'SOURCED',
-        note: 'Read once from today\'s roster. A regional T is NOT cut to the share: it is the event\'s own '
-          + 'size and lands whole on members in the struck region, drawn by exposure. The region is drawn '
-          + 'uniformly per firing and is the same on every line the event reaches.',
+        value: GAME_REGIONS.map(r => `${r} ${(100 * REGION_EXPOSURE_SHARE[r]).toFixed(0)}%`).join(' · '),
+        unit: 'share of each line\'s exposure',
+        what: 'The game\'s four regions and each one\'s share of exposure, the same on every line. A regional '
+          + 'event strikes one region, drawn by this share, and its A reaches only that region\'s share of '
+          + 'ordinary losses.',
+        basis: 'CHOSEN',
+        note: 'The R model\'s four regions, adopted with book units; they replace three read from today\'s '
+          + 'roster (35.2 / 34.4 / 30.4%). Drawn by share, the expected share an event reaches is 0.255 '
+          + 'against 0.334 before, so a regional event\'s expected A falls about 23.5%. A regional T is NOT '
+          + 'cut to the share: it lands whole in the struck region. The region is the same on every line the '
+          + 'event reaches.',
       }],
       ['Large losses per event', {
         value: Object.entries(SHOCK_LOSS_COUNT).map(([e, by]) =>
@@ -1332,10 +1445,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Opening book', {
         value: perLine(OPENING_BOOK_EXPOSURE, 3), unit: '$M of exposure, base year',
-        what: 'What each line opens with. Every game opens on it.',
-        basis: 'SOURCED',
-        note: 'The mean of today\'s opening books over 40 seeds: 30.1%, 28.8% and 29.7% of the full market, '
-          + 'each varying about +/-10% between seeds.',
+        what: 'What each line opened with before book units — for the record.',
+        basis: 'SOURCED', status: 'SUPERSEDED',
+        note: 'The mean of today\'s opening books over 40 seeds: 30.1%, 28.8% and 29.7% of the full market. '
+          + 'Since book units commit 3 a line opens on its book of units: their sizes summed, about 30% of '
+          + 'the market plus the last unit, and different in every game.',
       }],
       ['Full-market exposure', {
         value: perLine(FULL_MARKET_EXPOSURE, 3), unit: '$M of exposure, base year',
@@ -1354,10 +1468,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'member intake joined about 2%, 4% and 7% of the book at the same three positions.',
       }],
       ['New-business penalty', {
-        value: NEW_BUSINESS_PENALTY, unit: 'on first-year ordinary losses of new exposure',
-        what: 'Exposure written this year costs this much more in its first year, on its ordinary losses.',
+        value: NEW_BUSINESS_PENALTY, unit: 'on first-year actual ordinary losses of new units',
+        what: 'Book units written this year cost this much more on their actual ordinary losses, in their first '
+          + 'year only. It is not in expected loss: the rate learns it only through the history.',
         basis: 'CHOSEN',
-        note: 'The R model\'s 20% kept as the mechanism, uncalibrated. At zero it changes nothing.',
+        note: 'The R model\'s 20%, adopted with book units (it was 0, the mechanism without a calibration, and '
+          + 'it was in expected loss).',
       }],
       ['Reinsurance packages', {
         value: `WC and GL ${REINSURANCE_OPTIONS.WC.map(o => o.id).join(' · ')}`,
@@ -1367,6 +1483,25 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: `Property: ${REINSURANCE_OPTIONS.Property.map(o => o.id).join(' · ')}. GL's $25M pool limit still `
           + 'applies. The tower is cut at every package\'s edges, so each package is whole tower layers.',
+      }],
+      ['Book units', {
+        value: `${UNIT_MARKET_COUNT} units a line; size CV ${(100 * UNIT_SIZE_CV).toFixed(0)}%, risk CV `
+          + `${(100 * UNIT_RISK_CV).toFixed(0)}%; the book ${(100 * UNIT_POOL_SHARE).toFixed(0)}% of the market`,
+        unit: 'per line',
+        what: 'Each line\'s market split into units drawn from the game seed: sizes summing to the full market, '
+          + 'true risk scores averaging 1.0 by size, regions by share. The opening book is the market in a '
+          + 'seeded order until it reaches the pool share — about 60 units. Never shown.',
+        basis: 'CHOSEN',
+        note: 'The R model\'s shapes. Read by nothing yet: the book is drawn and stored once per game, and the '
+          + 'engine still runs on each line\'s one exposure.',
+      }],
+      ['Underwriting visibility', {
+        value: UNIT_UW_VISIBILITY, unit: 'share of the observed risk\'s variance that is true risk',
+        what: 'How well underwriting sees each book unit\'s true risk. Renewal declines the units that look '
+          + 'riskiest; intake takes the prospects that look best. 0 is random selection, 1 perfect.',
+        basis: 'CHOSEN',
+        note: 'A starting point. The noise is drawn once from the game seed, so a unit looks the same every '
+          + 'year and in every world.',
       }],
       ['Default package', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,
@@ -1470,11 +1605,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'No individual members. Exposure is the unit, and underwriting moves it in and out.',
       }],
       ['Regions', {
-        value: R_MODEL.regions, unit: 'share of members', basis: 'CHOSEN', notYetUsed: true,
-        status: 'SUPERSEDED',
+        value: R_MODEL.regions, unit: 'share of members', basis: 'CHOSEN', status: 'ADOPTED',
         what: 'Four regions, with a membership share each, for regional shocks.',
-        note: 'The game has three — North, Central, South — already in the type system. Each line\'s split '
-          + 'across them is REGION_EXPOSURE_SHARE, read from today\'s roster.',
+        note: 'Adopted with book units as REGION_EXPOSURE_SHARE, as exposure shares; a regional event strikes '
+          + 'one region drawn by share.',
       }],
       ['Premium growth', {
         value: R_MODEL.premiumGrowthPerYear, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,
@@ -1556,8 +1690,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: R_MODEL.newBusinessPenalty, unit: 'on first-year expected loss', basis: 'CHOSEN',
         status: 'ADAPTED',
         what: 'New business costs more in its first year than its price implies.',
-        note: 'Wired as NEW_BUSINESS_PENALTY on the new book, set to 0 for now, so the mechanism exists before '
-          + 'the calibration does.',
+        note: 'Adopted as NEW_BUSINESS_PENALTY with book units: 20% on new units\' first-year actual ordinary '
+          + 'losses, kept out of expected loss so the rate learns it through the history.',
       }],
 
       // ---- investment ----

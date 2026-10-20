@@ -47,6 +47,7 @@ import type {
   StartingFinancials,
 } from '../types/simulation';
 import { generateStartingPoolState } from './instanceGenerator';
+import { marketSeedOf, openingBookUnits } from './bookUnits';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { OPENING_SURPLUS_BAND } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults } from './simulationEngine';
@@ -58,7 +59,8 @@ import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState } from './lineHelpers';
 import { openingCatCapital, preGameBulkYears, setOpeningSurplus } from './openingReserves';
 import { lossExpenseReserve } from './lossExpense';
-import { MEMBER_LEVEL, OPENING_RESERVE_YEARS, PRE_GAME_FUNDING_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
+import { MEMBER_LEVEL, OPENING_RESERVE_YEARS, PRE_GAME_FUNDING_CUSHION, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS } from '../data/pricingParameters';
+import { confidenceAtClf, hasStaticClf } from '../data/clfTables';
 import { exposureFactor } from '../data/exposureTrend';
 import { withLifetimeDevelopment } from './hostDevelopment';
 import { defaultDecisionSet } from './decisionDefaults';
@@ -231,7 +233,8 @@ export function simulateLineCandidate(
 ): { lineResults: LineResultSet[]; poolState: PoolState; pooled: ResultSet[] } {
   const candidateInstance: GameInstance = attempt === 0
     ? instance
-    : { ...instance, seed: (instance.seed + attempt * 997) >>> 0 };
+    // Its own draws; the game's book of units (marketSeed).
+    : { ...instance, seed: (instance.seed + attempt * 997) >>> 0, marketSeed: instance.marketSeed ?? instance.seed };
 
   const soloSetup: GameSetupSettings = { ...setup, activeLines: [line] };
   const { poolState: bootstrap } = generateStartingPoolState(
@@ -381,8 +384,8 @@ export function openingBandRatio(
 
 /**
  * THE DECLARED YEARS' DECISIONS — the player's defaults in every respect but
- * one: the board before them funded at PRE_GAME_FUNDING_LEVEL rather than at
- * expected.
+ * one: the board before them funded with a cushion over expected,
+ * PRE_GAME_FUNDING_CUSHION, rather than at expected.
  *
  * ⚠ IT IS THE ONLY DIFFERENCE, AND THAT IS THE POINT. Everything else about
  * the pre-game — renewals, intake, risk control, the tower, the aggregate —
@@ -396,14 +399,18 @@ export function openingBandRatio(
  * true from year 1. A team that locks year 1 without touching the slider is
  * funding at expected where the prior board funded with a cushion, so their
  * first rate comes in BELOW the declared year before it. That drop is real,
- * it is the first thing the Decisions panel's change column reports, and the
- * welcome memo states the 70% so it reads as inheritance rather than error.
+ * it is the first thing the Decisions panel's change column reports. The
+ * welcome memo does not name the cushion: it carries no engine detail.
  */
 function preGameDecisionSet(yearNumber: number): DecisionSet {
   const d = defaultDecisionSet(yearNumber);
   for (const line of Object.keys(d.byLine) as CoverageLine[]) {
+    // The cushion prices; no table is read for it. The confidence level is
+    // what that cushion amounts to on the line's own table, recorded on the
+    // pre-game years' results for display and read for nothing else.
     d.byLine[line].fundingAtExpected = false;
-    d.byLine[line].fundingConfidenceLevel = PRE_GAME_FUNDING_LEVEL;
+    d.byLine[line].fundingCushion = PRE_GAME_FUNDING_CUSHION;
+    if (hasStaticClf(line)) d.byLine[line].fundingConfidenceLevel = confidenceAtClf(line, 1 + PRE_GAME_FUNDING_CUSHION);
   }
   return d;
 }
@@ -455,7 +462,7 @@ function runLinePreGame(
   // WHY ANY POOL NEEDS IT (Prompt A commit 2). Since the bulk years are on the
   // books from the first pre-game year, the pre-game's rate is steady and
   // adequate from 2021, and the prior board funds it at the 70% cushion
-  // (PRE_GAME_FUNDING_LEVEL, kept by ruling). So the pre-game EARNS — GL about
+  // (PRE_GAME_FUNDING_CUSHION, a 14% cushion over expected). So the pre-game EARNS — GL about
   // $37M over five years on some seeds — and where it earns more than the
   // opening the start that lands on it would be negative. Measured over 40
   // solo instances once Property opens on its full requirement: WC 0, GL 1,
@@ -861,6 +868,11 @@ export function runPriorHistory(
     interLineLoans: [],
     membershipHistory,
     memberLossHistory,
+    // The book of units, ONCE, from the GAME's seed — whatever attempt a line's
+    // pre-game was accepted on (bookUnits.ts). Never shown.
+    ...(MEMBER_LEVEL.enabled ? {} : {
+      bookUnits: Object.fromEntries(setup.activeLines.map(l => [l, openingBookUnits(marketSeedOf(instance), l)])),
+    }),
   };
 
   // Pool-level pre-game history = per-year aggregate across the active lines.

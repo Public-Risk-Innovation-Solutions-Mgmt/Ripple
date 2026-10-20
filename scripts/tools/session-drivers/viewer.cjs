@@ -60,14 +60,19 @@ async function tabText(page, tab) {
   ok((await viewer.textContent('[data-testid="watched-team"]')).trim() === TEAMS[0], 'viewer is bound to the team it watches');
 
   // ---- IT IS THE SAME SCREEN ----------------------------------------------
+  // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool in
+  // aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial Statements
+  // and Calculation Audit from players and viewers alike (GameShell's
+  // MULTIPLAYER_HIDDEN_TABS). The PAGES are intact.
   const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
-                'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-                // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows
-                // the pool in aggregate. The PAGE is intact in GameShell.
-                'Calculation Audit'];
+                'Decision History', 'Result Spreadsheet'];
+  const HIDDEN = ['Financial Statements', 'Results', 'Calculation Audit'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
-  ok(present === TABS.length, `viewer has all 10 tabs (${present}/10)`);
+  ok(present === TABS.length, `viewer has all ${TABS.length} multiplayer tabs (${present}/${TABS.length})`);
+  let leaked = 0;
+  for (const t of HIDDEN) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) leaked++;
+  ok(leaked === 0, `the viewer sees none of ${HIDDEN.join(', ')} (${leaked} shown)`);
 
   // ---- IT CANNOT WRITE -----------------------------------------------------
   ok(await viewer.getByRole('button', { name: /Lock Year/ }).count() === 0, 'viewer has NO Lock Year button at all');
@@ -117,7 +122,7 @@ async function tabText(page, tab) {
   ok(true, 'viewer computed year 1 on its own, from the watched team\'s decisions');
 
   // Mid-turn (year 2 open, nobody locked): the viewer reads real results.
-  const vResults = await tabText(viewer, 'Results');
+  const vResults = await tabText(viewer, 'Annual Statement');
   ok(!/^\s*$/.test(vResults) && vResults.length > 200, `mid-turn the viewer reads real results, not a spinner (${vResults.length} chars)`);
 
   // ---- ITS NUMBERS ARE THE DRIVER'S NUMBERS -------------------------------
@@ -127,7 +132,7 @@ async function tabText(page, tab) {
     const pool = p.getByRole('button', { name: 'Pool', exact: true }).first();
     if (await pool.count() > 0) { await pool.click(); await p.waitForTimeout(400); }
   }
-  for (const tab of ['Results', 'Financial Statements', 'Dashboard']) {
+  for (const tab of ['Annual Statement', 'Decision History', 'Dashboard']) {
     const d = await tabText(driver, tab);
     const v = await tabText(viewer, tab);
     ok(h(d) === h(v), `${tab}: viewer output is identical to the driver's (driver ${h(d)} / viewer ${h(v)})`);

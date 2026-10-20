@@ -62,6 +62,16 @@ import { shockTimingOf } from '../utils/shockLosses';
 const AUDIT_TAB: TabId = 'audit';
 const SPREADSHEET_TAB: TabId = 'spreadsheet';
 
+// ============================================================================
+// ⚠ THE MULTIPLAYER VERSION HIDES THESE TABS — ONE SWITCH, AND THIS IS IT.
+// In a hosted session (players and viewers, PlayScreen passes `multiplayer`)
+// the Results, Financial Statements and Calculation Audit tabs are neither
+// listed nor rendered; single-player keeps them all. The Result Spreadsheet
+// stays visible in both, for testing. To restore the three in multiplayer,
+// set this list to [] — the pages, their routes and their data are untouched.
+// ============================================================================
+const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = ['results', 'financials', AUDIT_TAB];
+
 // Pages that support the Pool / per-line view toggle (Stage 2.1; 'history'
 // added in Stage 2.10 — each line now has its own real pre-game history —
 // and 'statement', the Annual Statement, in its place since it replaced it).
@@ -135,23 +145,28 @@ export interface GameShellProps {
   decisionsDisabled?: boolean;
   /** Rendered under the tab bar. The session's lock/waiting strip lives here. */
   statusStrip?: React.ReactNode;
+  /** A hosted session's screen — players and viewers. Hides MULTIPLAYER_HIDDEN_TABS. */
+  multiplayer?: boolean;
 }
 
 export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
   const activeLines = gameState?.setup.activeLines ?? [];
 
   const d = useGameDerivations(gameState, lineView, currentDecisions);
 
+  // A tab the multiplayer version hides is neither listed nor rendered.
+  const hidden = (t: TabId) => !!multiplayer && MULTIPLAYER_HIDDEN_TABS.includes(t);
   const tabs = React.useMemo(() => {
-    const list = setupPage !== undefined ? [SETUP_TAB, ...PLAY_TABS] : PLAY_TABS;
+    const list = (setupPage !== undefined ? [SETUP_TAB, ...PLAY_TABS] : PLAY_TABS)
+      .filter(t => !(multiplayer && MULTIPLAYER_HIDDEN_TABS.includes(t.id)));
     return list.map(t => ({ ...t, disabled: !isStarted && t.id !== 'setup' }));
-  }, [isStarted, setupPage]);
+  }, [isStarted, setupPage, multiplayer]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -235,7 +250,6 @@ export default function GameShell({
             decisions={currentDecisions}
             onChange={onDecisionsChange}
             yearNumber={gameState.currentYearNumber}
-            lastSurplusRange={d.surplusRangeByYear[gameState.currentYearNumber - 1]}
             disabled={gameState.isComplete || decisionsDisabled}
             lineView={lineView}
             lineLoanInfo={d.lineLoanInfo}
@@ -249,7 +263,7 @@ export default function GameShell({
           <DecisionHistoryPage lockedResults={d.viewResults} lineView={lineView} />
         )}
 
-        {activeTab === 'financials' && gameState && startingFinancials && (
+        {activeTab === 'financials' && !hidden('financials') && gameState && startingFinancials && (
           <FinancialsPage
             lockedResults={d.viewResults}
             priorResults={d.viewPriorResults}
@@ -257,7 +271,7 @@ export default function GameShell({
           />
         )}
 
-        {activeTab === 'results' && gameState && (
+        {activeTab === 'results' && !hidden('results') && gameState && (
           <ResultsPage lockedResults={d.viewResults} lineView={lineView} surplusRangeByYear={d.surplusRangeByYear} />
         )}
 
@@ -274,7 +288,7 @@ export default function GameShell({
           />
         )}
 
-        {activeTab === AUDIT_TAB && gameState && (
+        {activeTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && (
           <CalculationAuditPage
             lockedResults={gameState.lockedResults}
             priorHistory={gameState.priorHistory}

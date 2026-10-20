@@ -27,11 +27,11 @@
 
 import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
-  ORDINARY_LOSS_CV, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
+  POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
   SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
 import { pwlMoments, lognormalFromMean, routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
-import { ordinaryLossCostPer100 } from './ordinaryLoss';
+import { ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
 import { DECAY, SHOCK_EVENTS, eventLines, poolShare, tScale, trendFactor, type ShockLevel } from './shockLosses';
 import type { CoverageLine } from '../types/simulation';
 
@@ -76,9 +76,11 @@ export function upliftMoments(line: CoverageLine, yearNumber: number): {
   const byEvent = new Map<string, number>();
   let mean = 0, variance = 0;
   if (yearNumber < 1) return { mean: 0, second: 0, byEvent };
-  const shares = Object.values(REGION_EXPOSURE_SHARE[line]);
-  const sMean = shares.reduce((a, b) => a + b, 0) / shares.length;
-  const sSecond = shares.reduce((a, b) => a + b * b, 0) / shares.length;
+  // The struck region is drawn BY SHARE (regionByShare), so the share an event
+  // reaches has E[s] = sum of w·s and E[s²] = sum of w·s², with w = s.
+  const shares = Object.values(REGION_EXPOSURE_SHARE);
+  const sMean = shares.reduce((a, s) => a + s * s, 0);
+  const sSecond = shares.reduce((a, s) => a + s * s * s, 0);
   for (const e of SHOCK_EVENTS) {
     const rows: { m1: number; m2: number }[] = [];
     if (e.name === 'Economic Inflation') {
@@ -181,6 +183,10 @@ function largeLossMoments(
   // Count the catalogue's events in a year before year 1 too — what a PRICE
   // does (ex ante); what HAPPENED there does not, since nothing fires then.
   shocksInEveryYear = false,
+  // THE BOOK'S SIZE-WEIGHTED TRUE RISK (book units commit 5): a riskier book
+  // draws more routine large claims — its count is on exposure x risk. T is
+  // the event's own size and does not carry it.
+  routineRisk = 1,
 ): LargeMoments {
   const byEvent = new Map<string, number>();
   let mean = 0, variance = 0, occurrences = 0, routine = 0;
@@ -200,7 +206,7 @@ function largeLossMoments(
     const g = trendFactor(line, yearNumber);
     const off = routineOffset ? g * basis.limit : 0;
     const r = routineExpectation(basis, g, x => h(x, 0) - off, kinks(0));
-    const lambda = routineLargeCount(line, exposure);
+    const lambda = routineLargeCount(line, exposure * routineRisk);
     routine = lambda * r.m1;
     mean += routine;
     variance += lambda * r.m2;
@@ -247,10 +253,18 @@ export interface ExpectedLossBreakdown {
  */
 export function expectedLossBreakdown(
   line: CoverageLine, exposure: number, yearNumber: number, routineOn = ROUTINE_LARGE_LOSSES.enabled,
+  // THE BOOK'S SIZE-WEIGHTED MEAN TRUE RISK (bookOrdinaryRisk), since book
+  // units commit 3: each unit's ordinary loss is its exposure x its risk x the
+  // line's cost, so the book's expected ordinary loss — and the uplift on it —
+  // carries its risk. 1 is the market's, and what a reader with no book means.
+  // ⚠ AND ITS ROUTINE LARGE LOSSES SINCE BOOK UNITS COMMIT 5: they land on the
+  // units by size x risk, and their count is on exposure x risk.
+  bookRisk = 1,
 ): ExpectedLossBreakdown {
-  const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
+  const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber) * bookRisk;
   const u = upliftMoments(line, yearNumber);
-  const large = largeLossMoments(line, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line), true, routineOn);
+  const large = largeLossMoments(line, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line), true, routineOn,
+    false, bookRisk);
   const byEvent = new Map<string, number>();
   for (const [k, v] of u.byEvent) byEvent.set(k, v * ordinary);
   for (const [k, v] of large.byEvent) byEvent.set(k, (byEvent.get(k) ?? 0) + v);
@@ -283,11 +297,13 @@ export interface NewEngineLayerMoments { expected: number; sd: number; sdOverExp
  */
 export function newEngineLayerMoments(
   line: TowerLine, exposure: number, yearNumber: number, boundsScale = 1, exAnte = true,
+  // The book's size-weighted true risk, on the routine claims (see largeLossMoments).
+  routineRisk = 1,
 ): NewEngineLayerMoments[] {
   return REINSURANCE_TOWER[line].map(l => {
     const layer = { attachment: l.attachment * boundsScale, limit: l.limit * boundsScale };
     const c = layerCession(line, layer);
-    const m = largeLossMoments(line, exposure, yearNumber, c.h, c.kinks, false, ROUTINE_LARGE_LOSSES.enabled, exAnte);
+    const m = largeLossMoments(line, exposure, yearNumber, c.h, c.kinks, false, ROUTINE_LARGE_LOSSES.enabled, exAnte, routineRisk);
     const sd = Math.sqrt(Math.max(0, m.variance));
     return { expected: m.mean, sd, sdOverExpected: m.mean > 0 ? sd / m.mean : 0, lambda: m.occurrences };
   });
@@ -305,7 +321,8 @@ export function retainedSd(
   const layers = REINSURANCE_TOWER[line].filter((l, i) => placed[i] && l.purchasable);
   const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
   const u = upliftMoments(line, yearNumber);
-  const cv = ORDINARY_LOSS_CV[line];
+  // A typical book's line-level CV: the aggregate is priced with no book in hand.
+  const cv = typicalBookOrdinaryCv();
   const ordinaryVar = ordinary * ordinary * ((1 + cv * cv) * (1 + 2 * u.mean + u.second) - Math.pow(1 + u.mean, 2));
   const large = largeLossMoments(
     line, exposure, yearNumber,

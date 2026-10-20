@@ -114,6 +114,14 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
        `the ${label} percentage ${shown}% is what $${was} -> $${now} implies (${implied.toFixed(2)}%)`);
   }
 
+  // ⚠ BOTH COLUMNS AGAINST LAST YEAR'S ACTUAL RATE (UI tidy): the final rate
+  // members paid, so the two cells' footnotes are the same figure.
+  {
+    const base = async t => /from \$(\d+\.\d{4})/.exec((await page.textContent(`[data-testid="${t}"]`)).replace(/\s+/g, ' '))?.[1];
+    const a = await base('new-rate-vs-indicated'), b = await base('new-rate-vs-final');
+    ok(a !== undefined && a === b, `both columns compare against last year's final rate ($${a} and $${b})`);
+  }
+
   // ⚠ NO CLF NOTE BESIDE THE PURE PREMIUM — the brief removed it, and a
   // multiplier printed there invites the reading that the row is pre-CLF.
   ok(!/CLF|×\s*1\./.test(body), 'no CLF multiplier is printed beside the pure premium');
@@ -122,6 +130,16 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(/Expected to surplus/.test(surplus), 'the expected-to-surplus line renders');
   ok(/\$\d/.test(surplus) && /M/.test(surplus),
      `it is in DOLLARS, not a rate — "${surplus.trim()}"`);
+
+  // Players see each package's price, never its expected recovery or how it was
+  // priced (UI tidy) — and the block restating the package and its cost is gone.
+  {
+    const page_ = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+    for (const gone of ['expected recovery', ' load', 'Aggregate cover is not offered', 'Retained Above Package', 'Reinsurance Cost',
+      'The spend comes out of this line', 'Coming soon', 'is not renewed', 'of new exposure this year']) {
+      ok(!page_.includes(gone), `"${gone.trim()}" is not on the Decisions page`);
+    }
+  }
 
   // The retired readouts must be gone from this panel.
   for (const gone of ['Expected Combined Ratio', 'Marginal Cost', 'Reserve Margin Standard',
@@ -155,8 +173,9 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
 
   // ---- ten worlds (loss engine commit 4b) ----------------------------------
-  // Lock a year; the Results page and the Decisions page then show the minimum,
-  // median and maximum ending surplus across the worlds beside the average.
+  // Lock a year; the solo Results page then shows the minimum, median and
+  // maximum ending surplus across the worlds beside the average. The Decisions
+  // page does not — players are never told about the worlds.
   const moneyOf = t => { const m = t.replace(/[$,\s]/g, ''); const v = parseFloat(m); return /K$/.test(m) ? v * 1e3 : /M$/.test(m) ? v * 1e6 : /B$/.test(m) ? v * 1e9 : v; };
   const readRange = async () => ({
     min: moneyOf(await page.textContent('[data-testid="worlds-surplus-range-min"]')),
@@ -180,13 +199,17 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   }
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1000);
-  const onDecisions = await page.$('[data-testid="worlds-surplus-range"]') !== null;
-  ok(onDecisions, 'Decisions: last year\'s ending surplus across the worlds is shown');
-  if (onDecisions) {
-    const r = await readRange();
-    console.log(`  decisions     : ${r.text}`);
-    ok(r.min <= r.median && r.median <= r.max, 'Decisions: min <= median <= max');
-  }
+  // ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS (the documents commit): the
+  // Decisions page carries no surplus range and no mention of worlds. The range
+  // stays in the session's posted results, for the host (host-teams holds that).
+  ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Decisions: no surplus range across the worlds');
+  const decisionsText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok(!/\bworlds?\b/i.test(decisionsText), 'Decisions: the page never mentions the worlds');
+  // Nor does the Annual Statement: its surplus-range row came off.
+  await page.getByRole('button', { name: /^Annual Statement$/ }).first().click();
+  await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 20000 });
+  const statementText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok(!/\bworlds?\b/i.test(statementText), 'Annual Statement: the page never mentions the worlds');
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');

@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v15';
+export const SAVE_KEY = 'riskpool_gamestate_v18';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -180,7 +180,19 @@ export const SAVE_KEY = 'riskpool_gamestate_v15';
 // its full requirement, and before worlds 2-10 dropped their claim lists from
 // the save. Its pre-game, its opening and its book are ones this engine no
 // longer builds, so it cannot continue faithfully and is cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14'];
+// ⚠ v16 SINCE BOOK UNITS COMMIT 1 — FOUR REGIONS. A v15 save's scheduled
+// regional events were resolved over three regions, uniformly, and its regional
+// uplifts read the roster's three shares; this engine has four regions drawn by
+// share. Cleared the same way.
+// ⚠ v17 SINCE BOOK UNITS COMMIT 2. A v16 save has no book of units on its pool
+// state (PoolState.bookUnits), which the engine reads from the commits that
+// follow; it cannot be given one faithfully mid-game, so it is cleared the
+// same way.
+// ⚠ v18 SINCE DEVELOPMENT SPEED. WC and GL develop 1.5x faster than the
+// recorded patterns. A v17 save's cohorts were paid, split and opened on the
+// slower patterns, and its pre-game history pricing reads was paid on them, so
+// it cannot continue faithfully and is cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17'];
 
 /**
  * Fields dropped on the way out.

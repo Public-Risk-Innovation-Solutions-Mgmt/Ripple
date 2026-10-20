@@ -62,6 +62,7 @@ import { MATURATION_YEARS } from './priorHistoryEngine';
 import { glSeverityCap } from './glClaimEngine';
 import { regenerateLineYearClaims, ClaimRegenerationError } from './claimRegeneration';
 import { claimEventLabel } from './yearEvents';
+import { newLossEngineRuns } from '../data/pricingParameters';
 import type { GameInstance } from '../types/simulation';
 
 type Row = (string | number)[];
@@ -309,7 +310,15 @@ function devFormats(years: number[]): (NumFmt | undefined)[] {
 // Claim ID, Occurrence ID, Member ID, Member Name, Member Type are identifiers
 // and names — text, and they must stay text. Accident Year and Calendar Year are
 // years.
-const SHARED_FORMATS: (NumFmt | undefined)[] = [TEXT, TEXT, TEXT, TEXT, TEXT, YEAR, YEAR, TEXT];
+//
+// ⚠ NO HOLDER COLUMNS ON THE NEW ENGINE (book units commit 5). Its claims land
+// on book units, which are never shown: the Member ID, Member Name and Member
+// Type columns are gone from every claim sheet there, so no unit's id, name or
+// kind reaches the workbook. The dormant member path keeps them.
+const holderColumns = () => !newLossEngineRuns();
+const sharedFormats = (): (NumFmt | undefined)[] => (holderColumns()
+  ? [TEXT, TEXT, TEXT, TEXT, TEXT, YEAR, YEAR, TEXT]
+  : [TEXT, TEXT, YEAR, YEAR, TEXT]);
 
 const DEV_NOTE =
   'The development block at the right of this sheet is the claim\'s OCCURRENCE, joined on Occurrence ' +
@@ -722,16 +731,15 @@ function sortClaimRows(rows: LineClaimRow[]): LineClaimRow[] {
   );
 }
 
-const SHARED_HEADER = [
-  'Claim ID', 'Occurrence ID', 'Member ID', 'Member Name', 'Member Type',
-  'Accident Year', 'Calendar Year', 'Event',
-];
+const sharedHeader = (): string[] => (holderColumns()
+  ? ['Claim ID', 'Occurrence ID', 'Member ID', 'Member Name', 'Member Type', 'Accident Year', 'Calendar Year', 'Event']
+  : ['Claim ID', 'Occurrence ID', 'Accident Year', 'Calendar Year', 'Event']);
 function sharedCells(row: LineClaimRow): Row {
   const { claim, member } = row;
-  return [
-    claim.id, claim.occurrenceId, claim.memberId, safeStr(member?.name), safeStr(member?.type),
-    claim.accidentYear, claim.calendarYear, row.event,
-  ];
+  return holderColumns()
+    ? [claim.id, claim.occurrenceId, claim.memberId, safeStr(member?.name), safeStr(member?.type),
+      claim.accidentYear, claim.calendarYear, row.event]
+    : [claim.id, claim.occurrenceId, claim.accidentYear, claim.calendarYear, row.event];
 }
 
 // ⚠ THE THREE PAYOUT-COMPONENT COLUMNS (Medical / Indemnity / Impairment) WERE
@@ -761,7 +769,7 @@ const WC_COMPONENT_NOTE =
   'Measured across 65,817 claims on all three lines: 0 differ.';
 
 const WC_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
-  ...SHARED_FORMATS,
+  ...sharedFormats(),
   TEXT,      // Rating Group
   TEXT,      // Component
   TEXT,      // Status
@@ -775,7 +783,7 @@ const WC_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
 
 function buildWcSheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>, years: number[], view: PaidLedgerView, coverage: string): Row[] {
   const header = [
-    ...SHARED_HEADER, 'Rating Group', 'Component', 'Status', 'Gross Incurred',
+    ...sharedHeader(), 'Rating Group', 'Component', 'Status', 'Gross Incurred',
     'Gross Paid', 'Reported Year', 'Enrolled', 'Claim Description', ...devHeader(years),
   ];
   const body = sortClaimRows(rows).map(row => {
@@ -821,7 +829,7 @@ const GL_COMPONENT_NOTE =
   'Accident Year: GL carries no report lag.';
 
 const GL_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
-  ...SHARED_FORMATS,
+  ...sharedFormats(),
   TEXT,      // Component
   TEXT,      // Status
   DOLLARS,   // Gross Incurred
@@ -834,7 +842,7 @@ const GL_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
 
 function buildGlSheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>, years: number[], view: PaidLedgerView, coverage: string): Row[] {
   const header = [
-    ...SHARED_HEADER, 'Component', 'Status', 'Gross Incurred',
+    ...sharedHeader(), 'Component', 'Status', 'Gross Incurred',
     'Gross Paid', 'Reported Year', 'Enrolled', 'Claim Description', ...devHeader(years),
   ];
   const body = sortClaimRows(rows).map(row => {
@@ -851,7 +859,7 @@ function buildGlSheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>
 }
 
 const PROPERTY_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
-  ...SHARED_FORMATS,
+  ...sharedFormats(),
   TEXT,      // Band
   TEXT,      // Status
   DOLLARS,   // Gross Incurred
@@ -864,7 +872,7 @@ const PROPERTY_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
 
 function buildPropertySheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>, years: number[], view: PaidLedgerView, coverage: string): Row[] {
   const header = [
-    ...SHARED_HEADER, 'Band',
+    ...sharedHeader(), 'Band',
     // Damage Ratio and Location TIV are GONE with Property's rebuild. They were
     // components of the retired damageRatio x locationTiv severity and were
     // populated on no other line; the fitted mixture draws an amount directly,

@@ -41,6 +41,19 @@
 //      calendar sections — and present in the program-year blocks, which hold
 //      the older reserves.
 //
+// AND WHAT THE PLAYER SEES (the display commit):
+//
+//  14. THE YEAR LABELS: a header row above the year columns in every section —
+//      "Current" on the game's actual latest year only, "Year 0" on the last
+//      pre-game year and "Year n" on each played year after it, nothing on the
+//      earlier pre-game years, Prior or Total.
+//  15. NO SOURCE SHOWS BLANK: every "not yet available" cell renders as an
+//      empty cell, and no other cell does.
+//  16. THE YEAR SELECTOR: chosen at any year, the window is the five years
+//      ending there and everything older is in Prior; the default is the
+//      latest year. Checks 1-13 hold at EVERY year the selector offers, at
+//      every point in the game — the program-year blocks valued at that year.
+//
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over a statement, and
 // THE CONTROLS feed each one a statement broken the way it guards against.
 // ============================================================================
@@ -50,8 +63,8 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import {
-  buildAnnualStatement, notYetAvailable, num,
-  type AnnualStatement, type Cell, type StatementRow, type StatementSection,
+  buildAnnualStatement, cellText, notYetAvailable, num, statementYears,
+  type AnnualStatement, type Cell, type CellFormat, type StatementRow, type StatementSection,
 } from '../../src/utils/resultsStatement';
 import type { CoverageLine, GameSetupSettings, GameState, LineView, ResultSet } from '../../src/types/simulation';
 
@@ -82,7 +95,9 @@ function playSnapshots(id: string, years: number): GameState[] {
   return out;
 }
 
-const timelineOf = (gs: GameState): ResultSet[] => [...(gs.earlyPreGameHistory ?? []), ...gs.priorHistory, ...gs.lockedResults];
+/** Every pre-game and game year, oldest first — up to the year a statement stands at. */
+const timelineOf = (gs: GameState, asOf = Infinity): ResultSet[] =>
+  [...(gs.earlyPreGameHistory ?? []), ...gs.priorHistory, ...gs.lockedResults].filter(r => r.yearNumber <= asOf);
 const at = (r: ResultSet, scope: LineView) => (scope === 'pool' ? r : r.byLine[scope]);
 const sec = (st: AnnualStatement, key: string) => st.sections.find(s => s.key === key)!;
 const rowOf = (st: AnnualStatement, key: string, label: string, nth = 0) => sec(st, key).rows.filter(r => r.label === label)[nth];
@@ -149,7 +164,7 @@ function tiesToEngine(st: AnnualStatement, gs: GameState, scope: LineView): stri
   const out: string[] = [];
   const s = sec(st, 'operating');
   const c = (l: string) => cellsOf(st, 'operating', l);
-  const tl = timelineOf(gs);
+  const tl = timelineOf(gs, st.asOf);
   const first = tl.length - s.windowYears.length;
   const groups: { ix: number; years: ResultSet[] }[] = [
     ...(s.hasPrior ? [{ ix: 0, years: tl.slice(0, first) }] : []),
@@ -190,17 +205,25 @@ function blocksMeetBalanceSheet(st: AnnualStatement): string[] {
   return near(blocks, reserves) ? [] : [`net case + IBNR ${blocks.toFixed(0)} vs reserves ${reserves.toFixed(0)}`];
 }
 
-/** The cells with no source, by state: what is genuinely missing at each point. */
-function expectedNotAvailable(played: number, scope: LineView): string[] {
+/**
+ * The cells with no source, by state: what is genuinely missing at each point.
+ * `played` is the game years the SHOWN timeline holds — 0 for a statement
+ * standing at the opening or earlier.
+ */
+function expectedNotAvailable(played: number, scope: LineView, windowLength = WINDOW): string[] {
   // At pool scope the underwriting rows read "by line", not "not yet available".
   const uw = (xs: string[]) => (scope === 'pool' ? [] : xs);
   const blocks: [string, string][] = [['Gross', 'Premium'], ['Ceded (Reinsurance)', 'Reinsurance Premium'], ['Net', 'Premium']];
   if (played === 0) {
     // Nothing before the first pre-game year to change from; the bulk years
     // alone in Prior carry no premium.
+    // Standing at the first pre-game year, that year is the window's only one,
+    // so the change rows' Total — the latest year's — has no source either.
+    const cols = windowLength === 1 ? ['2021', 'Total'] : ['2021'];
     return [
-      ...uw(['Underwriting — Change from Prior (2021)', 'Underwriting — % Change Over Prior (2021)']),
-      ...blocks.flatMap(([t, p]) => [`${t} — ${p} (Prior (before 2021))`, `${t} — Change from Prior (2021)`, `${t} — % of Prior (2021)`, `${t} — Loss and LAE Ratio (Prior (before 2021))`]),
+      ...uw(cols.flatMap(c => [`Underwriting — Change from Prior (${c})`, `Underwriting — % Change Over Prior (${c})`])),
+      ...blocks.flatMap(([t, p]) => [`${t} — ${p} (Prior (before 2021))`, `${t} — Loss and LAE Ratio (Prior (before 2021))`,
+        ...cols.flatMap(c => [`${t} — Change from Prior (${c})`, `${t} — % of Prior (${c})`])]),
     ];
   }
   const prior = `Prior (${2021 + played - 1} and earlier)`;
@@ -210,7 +233,8 @@ function expectedNotAvailable(played: number, scope: LineView): string[] {
   ];
 }
 function notAvailable(st: AnnualStatement, played: number, scope: LineView): string[] {
-  const got = [...notYetAvailable(st)].sort(), want = [...expectedNotAvailable(played, scope)].sort();
+  const got = [...notYetAvailable(st)].sort();
+  const want = [...expectedNotAvailable(Math.max(0, Math.min(played, st.asOf)), scope, sec(st, 'operating').windowYears.length)].sort();
   return JSON.stringify(got) === JSON.stringify(want) ? [] : [`not-yet-available cells ${JSON.stringify(got)} — expected ${JSON.stringify(want)}`];
 }
 
@@ -222,8 +246,8 @@ function renewalPlusNew(st: AnnualStatement): string[] {
 
 // --- THE WINDOW ---------------------------------------------------------------
 /** 10. The calendar columns: the last five calendar years, Prior labelled by what it holds. */
-function expectedCalendarColumns(gs: GameState): string[] {
-  const tl = timelineOf(gs);
+function expectedCalendarColumns(gs: GameState, asOf = Infinity): string[] {
+  const tl = timelineOf(gs, asOf);
   const first = Math.max(0, tl.length - WINDOW);
   const rolled = tl.slice(0, first);
   const pre = tl.filter(r => r.yearNumber <= 0).length;
@@ -233,7 +257,7 @@ function expectedCalendarColumns(gs: GameState): string[] {
   return [...prior, ...tl.slice(first).map(r => `${r.calendarYear}`), 'Total'];
 }
 function windowRolls(st: AnnualStatement, gs: GameState): string[] {
-  const want = expectedCalendarColumns(gs);
+  const want = expectedCalendarColumns(gs, st.asOf);
   const out: string[] = [];
   for (const k of ['operating', 'balance', 'underwriting']) {
     if (JSON.stringify(sec(st, k).columns) !== JSON.stringify(want)) out.push(`${k} columns ${sec(st, k).columns.join(' · ')} — expected ${want.join(' · ')}`);
@@ -247,7 +271,7 @@ function windowRolls(st: AnnualStatement, gs: GameState): string[] {
 
 /** 11. Prior + the five = every year, for each operating flow and each block's premium. */
 function reconciles(st: AnnualStatement, gs: GameState, scope: LineView): string[] {
-  const tl = timelineOf(gs).map(r => at(r, scope));
+  const tl = timelineOf(gs, st.asOf).map(r => at(r, scope));
   const out: string[] = [];
   const sumOf = (s: StatementSection, cells: Cell[]) => [...(s.hasPrior ? [0] : []), ...windowIx(s)].reduce((a, i) => a + (num(cells[i]) ?? NaN), 0);
   const flows: [string, (r: typeof tl[number]) => number][] = [
@@ -297,7 +321,10 @@ function preGameTies(st: AnnualStatement, gs: GameState, scope: LineView): strin
     tie('Premium', x.totalMemberCharge, 'gross');
     // Each year-end is the year's own — the last pre-game year's is the opening.
     const lines: CoverageLine[] = scope === 'pool' ? gs.setup.activeLines : [scope];
-    const sur = r.yearNumber === 0 ? lines.reduce((a, l) => a + gs.poolState.lines[l].surplus, 0) : x.endingSurplus;
+    // The opening: the pool state's own before year 1; year 1's beginning after.
+    const sur = r.yearNumber !== 0 ? x.endingSurplus
+      : gs.lockedResults[0] ? at(gs.lockedResults[0], scope).beginingSurplus
+      : lines.reduce((a, l) => a + gs.poolState.lines[l].surplus, 0);
     const got = num(cellsOf(st, 'balance', 'Ending Surplus')[windowIx(bs)[i]]);
     if (got === undefined || !near(got, sur)) out.push(`${r.calendarYear} ending surplus ${got} vs ${sur}`);
   });
@@ -312,15 +339,60 @@ function priorAtStart(st: AnnualStatement): string[] {
   return out;
 }
 
+// --- WHAT THE PLAYER SEES -------------------------------------------------------
+/** 14. The header row: "Current" on the actual latest year only, "Year n" from Year 0 on, blank elsewhere. */
+function yearLabels(st: AnnualStatement, gs: GameState): string[] {
+  const latest = timelineOf(gs).at(-1)!.yearNumber;
+  const out: string[] = [];
+  for (const s of st.sections) {
+    const want = [...(s.hasPrior ? [''] : []), ...s.windowYears.map(y => (y === latest ? 'Current' : y >= 0 ? `Year ${y}` : '')), ''];
+    if (s.yearLabels.length !== s.columns.length) out.push(`${s.title}: ${s.yearLabels.length} labels for ${s.columns.length} columns`);
+    if (JSON.stringify(s.yearLabels) !== JSON.stringify(want)) out.push(`${s.title}: labels ${s.yearLabels.join(' · ')} — expected ${want.join(' · ')}`);
+  }
+  return out;
+}
+
+/** 15. A cell with no source renders blank, and nothing else does. */
+function blanks(st: AnnualStatement, text: (c: Cell, f: CellFormat) => string): string[] {
+  const out: string[] = [];
+  for (const s of st.sections) for (const r of s.rows) r.cells.forEach((c, i) => {
+    const t = text(c, r.format);
+    if ((c.kind === 'na') !== (t === '')) out.push(`${s.title} — ${r.label} (${s.columns[i]}): ${c.kind} shows "${t}"`);
+  });
+  return out;
+}
+
+/** 16. Chosen at `year`, the window is the five years ending there; older years are in Prior. */
+function selector(st: AnnualStatement, gs: GameState, year: number): string[] {
+  const tl = timelineOf(gs, year);
+  const want = tl.slice(Math.max(0, tl.length - WINDOW)).map(r => r.yearNumber);
+  const out: string[] = [];
+  if (st.asOf !== year) out.push(`asked for ${year}, stands at ${st.asOf}`);
+  for (const k of ['operating', 'balance', 'underwriting']) {
+    const s = sec(st, k);
+    if (JSON.stringify(s.windowYears) !== JSON.stringify(want)) out.push(`${k} window ${s.windowYears} — expected ${want}`);
+    if (s.hasPrior !== tl.length > WINDOW) out.push(`${k}: Prior ${s.hasPrior ? 'shown' : 'missing'} with ${tl.length} years up to ${year}`);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 console.log(`=== THE ANNUAL STATEMENT — a solo ten-world game, three lines, game start and every year to ${YEARS}, pool and every line ===`);
 const snaps = playSnapshots('STMT1', YEARS);
 const agg: Record<string, string[]> = {};
 const note = (k: string, xs: string[]) => { (agg[k] ??= []).push(...xs); };
+let statements = 0;
 snaps.forEach((gs, played) => {
+  const latest = timelineOf(gs).at(-1)!.yearNumber;
   for (const scope of SCOPES) {
-    const st = buildAnnualStatement(gs, scope);
-    const tag = (xs: string[]) => xs.map(x => `after ${played}, ${scope}: ${x}`);
+    // The default is the latest year, field for field.
+    if (JSON.stringify(buildAnnualStatement(gs, scope)) !== JSON.stringify(buildAnnualStatement(gs, scope, latest))) {
+      note('16', [`after ${played}, ${scope}: the default is not the latest year`]);
+    }
+   for (const { yearNumber: year } of statementYears(gs)) {
+    const st = buildAnnualStatement(gs, scope, year);
+    statements++;
+    const tag = (xs: string[]) => xs.map(x => `after ${played}, ${scope}, as of ${year}: ${x}`);
     note('1', tag(reportedAndUltimate(st)));
     note('2', tag(netIsGrossLessCeded(st)));
     note('3', tag(balances(st, gs, scope)));
@@ -328,11 +400,16 @@ snaps.forEach((gs, played) => {
     note('5', tag(tiesToEngine(st, gs, scope)));
     note('6', tag(totals(st)));
     note('7', tag(blocksMeetBalanceSheet(st)));
-    note('8', tag(notAvailable(st, played, scope)));
+    note('8', tag(notAvailable(st, year, scope)));
     if (scope !== 'pool') note('9', tag(renewalPlusNew(st)));
     note('10', tag(windowRolls(st, gs)));
     note('11', tag(reconciles(st, gs, scope)));
-    if (played === 0) { note('12', tag(preGameTies(st, gs, scope))); note('13', tag(priorAtStart(st))); }
+    // The opening's view: at game start, and chosen at Year 0 later on.
+    if (year === 0) { note('12', tag(preGameTies(st, gs, scope))); note('13', tag(priorAtStart(st))); }
+    note('14', tag(yearLabels(st, gs)));
+    note('15', tag(blanks(st, cellText)));
+    note('16', tag(selector(st, gs, year)));
+   }
   }
 });
 const labels: Record<string, string> = {
@@ -346,8 +423,11 @@ const labels: Record<string, string> = {
   11: 'Prior + the five reconcile to the full history — operating flows and every block\'s premium',
   12: 'at game start the five columns are the five pre-game years, tied to the engine\'s results',
   13: 'at game start Prior is absent from the calendar sections, present in the blocks for the older reserves',
+  14: 'the year labels: "Current" on the actual latest year only, "Year 0" on the last pre-game year, "Year n" after it, blank elsewhere',
+  15: 'a cell with no source shows blank, and no other cell does',
+  16: 'the year selector: the five years ending at the chosen year, older years in Prior; the default is the latest',
 };
-console.log(`\n--- ${snaps.length} points (game start and after 1 to ${YEARS}) x ${SCOPES.length} scopes ---`);
+console.log(`\n--- ${snaps.length} points (game start and after 1 to ${YEARS}) x ${SCOPES.length} scopes x every year the selector offers: ${statements} statements ---`);
 for (const k of Object.keys(labels)) check((agg[k] ?? []).length === 0, `${k}. ${labels[k]}`, (agg[k] ?? [])[0] ?? '');
 {
   const cols = (n: number) => sec(buildAnnualStatement(snaps[n], 'pool'), 'operating').columns.join(' · ');
@@ -388,13 +468,27 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const st9 = buildAnnualStatement(gs, 'WC'); bump(st9, 'underwriting', 'Renewal', 3, x => x + 1);
   check(renewalPlusNew(st9).length > 0, 'control: renewal and new business that miss the written exposure are caught');
   // The window.
-  check(windowRolls(buildAnnualStatement(snaps[played - 1], 'pool'), gs).length > 0, 'control: a window that did not roll is caught');
+  // Last year's statement shown as this year's: it claims the latest year and kept last year's window.
+  check(windowRolls({ ...buildAnnualStatement(snaps[played - 1], 'pool'), asOf: played }, gs).length > 0, 'control: a window that did not roll is caught');
   check(reconciles(bump(base(), 'operating', 'Premium', 0, x => x - 1e6), gs, 'pool').length > 0, 'control: a Prior that dropped a year is caught');
   const st12 = buildAnnualStatement(snaps[0], 'GL'); const pr = rowOf(st12, 'operating', 'Premium');
   [pr.cells[0], pr.cells[1]] = [pr.cells[1], pr.cells[0]];
   check(preGameTies(st12, snaps[0], 'GL').length > 0, 'control: pre-game columns in the wrong years are caught');
   const st13 = buildAnnualStatement(snaps[0], 'pool'); sec(st13, 'operating').hasPrior = true;
   check(priorAtStart(st13).length > 0, 'control: a Prior shown at game start with nothing in it is caught');
+  // What the player sees.
+  const st14 = buildAnnualStatement(gs, 'pool', 3); const op14 = sec(st14, 'operating');
+  op14.yearLabels[op14.windowYears.indexOf(3) + (op14.hasPrior ? 1 : 0)] = 'Current';
+  check(yearLabels(st14, gs).length > 0, 'control: "Current" on a chosen year that is not the latest is caught');
+  const st14b = buildAnnualStatement(snaps[0], 'pool'); const g14 = sec(st14b, 'gross'); g14.yearLabels = g14.yearLabels.map(() => '');
+  check(yearLabels(st14b, snaps[0]).length > 0, 'control: a program-year block without its header row is caught');
+  const shown = (c: Cell, f: CellFormat) => (c.kind === 'na' ? 'not yet available' : cellText(c, f));
+  check(blanks(base(), shown).length > 0, 'control: "not yet available" printed in place of a blank is caught');
+  check(selector(base(), gs, 3).length > 0, 'control: a selector that ignores the chosen year is caught');
+  // Valued at the latest year instead of the chosen one, the blocks miss the chosen year's reserves.
+  const st16 = buildAnnualStatement(gs, 'pool', 3); const latestNet = sec(base(), 'net');
+  const n16 = sec(st16, 'net'); n16.rows = latestNet.rows.map(r => ({ ...r, cells: [...r.cells] }));
+  check(blocksMeetBalanceSheet(st16).length > 0, 'control: blocks valued at the latest year under a chosen earlier year are caught');
 }
 
 console.log(failures.length === 0
