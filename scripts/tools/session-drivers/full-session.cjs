@@ -162,8 +162,8 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // sliders labelled Renewal and Intake; both old phrases now survive only in
     // code comments, so this assertion had been failing for a legitimate reason.
     // It checks BOTH sliders rather than either, which is stricter than the
-    // or-test it replaces.
-    ok(/Renewal/.test(main) && /Intake/.test(main), 'the renewal and intake sliders render');
+    // or-test it replaces. Intake is labelled "New business" to players (UI tidy).
+    ok(/Renewal/.test(main) && /New business/.test(main) && !/\bIntake\b/.test(main), 'the renewal and new business sliders render');
   }
 
   for (let year = 1; year <= YEARS; year++) {

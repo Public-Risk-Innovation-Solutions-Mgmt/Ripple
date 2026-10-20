@@ -6,10 +6,10 @@ import AllocationBar from '../components/AllocationBar';
 // ⚠ RiskControlCategoryBoxes IS NO LONGER IMPORTED. The Risk Control Programs
 // card it rendered is gone from the Pool tab — see the note where it stood.
 import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumptions';
-import { formatCurrency, formatPct } from '../utils/formatters';
+import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import { dividendAssessmentBasis } from '../utils/dividendAssessment';
-import { hasTractableCeded, placementSummary } from '../utils/reinsuranceDisplay';
+import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
 import WorldsSurplusRange from '../components/WorldsSurplusRange';
 import type { SurplusRange } from '../utils/worlds';
@@ -28,7 +28,7 @@ import {
 import { APPLICATION_RATE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import { applicantInclusion } from '../utils/membershipEngine';
-import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, REINSURANCE_LOAD, RISK_CONTROL } from '../data/pricingParameters';
+import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
 import { intakeShare } from '../utils/bookUnderwriting';
 
 export interface LineLoanInfo {
@@ -272,14 +272,11 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
               {/* ONE BOOK PER LINE: renewal and intake move the book's exposure,
                   not members. See bookUnderwriting.ts. */}
               <BookRenewal
-                exposure={lastLineResult?.activeExposure ?? 0}
                 value={d.renewalCut ?? 0}
                 onChange={v => set('renewalCut', v)}
                 disabled={disabled}
               />
               <BookIntake
-                line={selectedLine}
-                exposure={lastLineResult?.activeExposure ?? 0}
                 value={d.intakeLevel ?? INTAKE_NONE}
                 onChange={v => set('intakeLevel', v)}
                 disabled={disabled}
@@ -580,10 +577,11 @@ function NewRatePanel({ n, prior }: {
   // the only part they actually want — "my rate went up 7%" is the sentence,
   // not "last year it was $8.80". So the percentage is the cell and the rate it
   // was measured against sits beneath it in smaller text, and on the cell's
-  // title for a reader who hovers. The basis is matched LIKE FOR LIKE: the
-  // first indication against last year's first indication, the final rate
-  // against last year's final rate. Comparing a final rate to an indication
-  // would read as a rate change while being a change of what is in the number.
+  // title for a reader who hovers. ⚠ BOTH COLUMNS ARE MEASURED AGAINST LAST
+  // YEAR'S ACTUAL RATE — the final rate members paid (UI tidy). It used to match
+  // like for like, the indication against last year's indication; but last
+  // year's indication is a figure no member ever paid, and the question a
+  // player asks of either column is "against what we charged last year".
   //
   // ⚠ 4 DECIMAL PLACES ON THE FOOTNOTE, NOT 2. The rows above are rounded to
   // cents for reading; this one has to RECONSTRUCT the percentage beside it, and
@@ -647,7 +645,7 @@ function NewRatePanel({ n, prior }: {
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">vs last year</td>
             <td data-testid="new-rate-vs-indicated" className="py-1 text-right tabular-nums align-top">
-              {chg(n.firstIndicationPer100, prior?.firstIndicationPer100, 'first indication')}
+              {chg(n.firstIndicationPer100, prior?.finalRatePer100, 'final rate')}
             </td>
             <td data-testid="new-rate-vs-final" className="py-1 text-right tabular-nums align-top">
               {chg(n.finalRatePer100, prior?.finalRatePer100, 'final rate')}
@@ -862,8 +860,7 @@ function PropertyNoSignalNote() {
 // share of it not renewed, and the share of it written new each year. Both
 // read and act on exposure; no member is named or counted.
 // ============================================================================
-function BookRenewal({ exposure, value, onChange, disabled }: {
-  exposure: number;
+function BookRenewal({ value, onChange, disabled }: {
   value: number;
   onChange: (v: number) => void;
   disabled?: boolean;
@@ -884,29 +881,20 @@ function BookRenewal({ exposure, value, onChange, disabled }: {
         rightLabel={`${(top * 100).toFixed(0)}% of the book`}
         disabled={disabled}
       />
-      <p className="text-xs text-gray-600">
-        {value > 0
-          ? `About $${(exposure * value).toFixed(0)}M of exposure is not renewed — the book opens next year at about `
-            + `$${(exposure * (1 - value)).toFixed(0)}M before new business.`
-          : `The whole book is renewed — about $${exposure.toFixed(0)}M of exposure before new business.`}
-      </p>
+      {/* No forecast line under the slider (UI tidy): the dollars it named came off. */}
     </div>
   );
 }
 
-function BookIntake({ line, exposure, value, onChange, disabled }: {
-  line: CoverageLine;
-  exposure: number;
+function BookIntake({ value, onChange, disabled }: {
   value: number;
   onChange: (v: number) => void;
   disabled?: boolean;
 }) {
-  const share = intakeShare(value);
-  const market = FULL_MARKET_EXPOSURE[line];
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
       <SliderInput
-        label="Intake"
+        label="New business"
         value={value}
         min={INTAKE_NONE}
         max={INTAKE_LOW}
@@ -925,12 +913,7 @@ function BookIntake({ line, exposure, value, onChange, disabled }: {
           </span>
         ))}
       </div>
-      <p className="text-xs text-gray-600">
-        {share > 0
-          ? `Writes about $${(exposure * share).toFixed(0)}M of new exposure this year — ${(share * 100).toFixed(0)}% of the book, `
-            + `up to the whole market's $${market.toLocaleString('en-US')}M.`
-          : 'No new business is written.'}
-      </p>
+      {/* No forecast line under the slider (UI tidy): the dollars it named came off. */}
     </div>
   );
 }
@@ -1063,7 +1046,7 @@ function IntakeSlider({
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
       <SliderInput
-        label="Intake"
+        label="New business"
         value={value}
         min={INTAKE_NONE}
         max={INTAKE_LOW}
@@ -1132,7 +1115,7 @@ const RISK_CONTROL_PROGRAM_NAME: Record<CoverageLine, string> = {
   Property: 'Mitigation',
 };
 
-function RiskControlIncentives({ line, value, onChange, disabled, comingSoon = false }: {
+function RiskControlIncentives({ line, value, onChange, disabled }: {
   line: CoverageLine;
   value: number;
   onChange: (v: number) => void;
@@ -1155,18 +1138,12 @@ function RiskControlIncentives({ line, value, onChange, disabled, comingSoon = f
         rightLabel={`${Math.round(r.max * 100)}% of premium`}
         valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
         disabled={disabled}
-        helpText={`How much of ${lineDisplayName(line)}'s premium is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}. `
-          + 'The spend comes out of the premium already charged — it is not added to members\' bills.'}
+        helpText={`How much of ${lineDisplayName(line)}'s premium is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}.`}
       />
-      <p className="text-xs text-gray-600">
-        The spend comes out of this line&rsquo;s premium rather than being added to members&rsquo; bills.
-      </p>
-      <p className="flex items-start gap-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 leading-relaxed">
-        <Info size={12} className="mt-0.5 flex-shrink-0" />
-        <span>{comingSoon
-          ? 'Coming soon — risk control is being redesigned for the pool as a whole. It is held at 0% until then and costs nothing.'
-          : 'Not yet active — will feed the new rate indication. The figure is saved with the year\u2019s decisions, and no result moves with it.'}</span>
-      </p>
+      {/* ⚠ NO NOTES UNDER THE SLIDER (UI tidy). Both stood here — "The spend
+          comes out of this line's premium…" and the "Coming soon — risk control
+          is being redesigned…" box — and came off; the slider stays, disabled
+          at 0% while RISK_CONTROL is off. */}
     </div>
   );
 }
@@ -1256,14 +1233,12 @@ function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
   const quotes = reinsuranceOptionsFor(line).map(o => ({
     o, q: occurrenceProgramCost(line as TowerLine, placementFor(line, o.id), book, yearNumber),
   }));
-  const chosenOption = reinsuranceOptionsFor(line).find(o => o.id === d.reinsuranceOption);
-  const packageTop = chosenOption && chosenOption.limit > 0 ? chosenOption.attachment + chosenOption.limit : null;
   const perilDeductibles = line === 'Property' ? Object.entries(PROPERTY_PERIL_DEDUCTIBLE) : [];
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-600 leading-relaxed">
         Choose <strong>one package</strong> for this line. Each covers every occurrence above its attachment
-        up to its limit; the price is the expected recovery on large losses plus a {formatPct(REINSURANCE_LOAD, 0)} load.
+        up to its limit.
       </p>
       {perilDeductibles.length > 0 && (
         <p className="text-xs text-gray-600 leading-relaxed" data-testid="reins-peril-deductibles">
@@ -1288,31 +1263,17 @@ function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
             >
               <span>{o.id === 'none' ? 'None — retain every loss' : o.id}</span>
               <span className="text-xs text-gray-600">
-                {o.id === 'none' ? '$0/yr' : `${formatCurrency(q.premium)}/yr · expected recovery ${formatCurrency(q.expectedCeded)}`}
+                {/* ⚠ THE PRICE ONLY — never the expected recovery or how it was priced. */}
+                {o.id === 'none' ? '$0/yr' : `${formatCurrency(q.premium)}/yr`}
               </span>
             </button>
           );
         })}
       </div>
-      <p className="text-xs text-gray-500 italic leading-relaxed">
-        Aggregate cover is not offered. It protects against a broad surge of small losses — a winterstorm&apos;s
-        many claims under the retention — which no per-occurrence package reaches, and it may return.
-      </p>
-      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200 text-xs">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-          <DataRow label="Package" value={placementSummary(line, d)} />
-          <DataRow
-            label="Reinsurance Cost"
-            value={`${formatCurrency(quotes.find(x => x.o.id === d.reinsuranceOption)?.q.premium ?? 0)}/yr`}
-          />
-          <DataRow
-            label="Retained Above Package"
-            value={packageTop === null
-              ? 'Every loss'
-              : line === 'GL' ? `Above $${packageTop / 1e6}M — to the $25M pool limit` : `Above $${packageTop / 1e6}M — unlimited`}
-          />
-        </div>
-      </div>
+      {/* ⚠ PRICE ONLY (UI tidy). The note that aggregate cover is not offered and
+          the Package / Reinsurance Cost / Retained Above Package block came off:
+          players see each option's price, never its expected recovery or how it
+          was priced (docs/PENDING_MULTIPLAYER.md). */}
     </div>
   );
 }
