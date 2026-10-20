@@ -205,6 +205,11 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Decisions: no surplus range across the worlds');
   const decisionsText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
   ok(!/\bworlds?\b/i.test(decisionsText), 'Decisions: the page never mentions the worlds');
+  // Nor does the Annual Statement: its surplus-range row came off.
+  await page.getByRole('button', { name: /^Annual Statement$/ }).first().click();
+  await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 20000 });
+  const statementText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok(!/\bworlds?\b/i.test(statementText), 'Annual Statement: the page never mentions the worlds');
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');

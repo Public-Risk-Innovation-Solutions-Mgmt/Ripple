@@ -33,7 +33,6 @@
 
 import { laeShares, lossExpenseReserve } from './lossExpense';
 import { splitCohorts } from './reserveSplit';
-import { surplusRange } from './worlds';
 import { computeContributionShares } from './simulationEngine';
 import type {
   AccidentYearSplit, CoverageLine, GameState, LineResultSet, LineView, ResultSet,
@@ -253,7 +252,7 @@ const positionOf = (r: Scoped): Position => ({
 });
 
 function balanceRows(
-  gs: GameState, scope: LineView, paidIn: number | undefined,
+  paidIn: number | undefined,
   prior: { position: Position; premium?: number } | null,
   cols: { yearNumber: number; position: Position; premium?: number }[],
 ): StatementRow[] {
@@ -263,12 +262,6 @@ function balanceRows(
   const ratio = (label: string, num_: (p: Position, prem?: number) => number | undefined, den: (p: Position, prem?: number) => number | undefined) =>
     row(label, 'ratio', 'point', prior ? div(num_(prior.position, prior.premium), den(prior.position, prior.premium)) : null,
       cols.map(c => div(num_(c.position, c.premium), den(c.position, c.premium))), { indent: true });
-  // The worlds exist from year 1; the pre-game ran once, so it has no spread.
-  const ranges: Cell[] = cols.map(c => {
-    if (c.yearNumber < 1) return NONE;
-    const rg = surplusRange(gs, c.yearNumber, scope === 'pool' ? undefined : scope);
-    return rg ? { kind: 'range', min: rg.min, median: rg.median, max: rg.max } : NA;
-  });
   return [
     bal('Invested', p => p.invested, { indent: true }),
     bal('Cash', p => p.cash, { indent: true }),
@@ -278,7 +271,9 @@ function balanceRows(
     bal('Paid-in Capital', () => paidIn, { indent: true }),
     bal('Earned Surplus', p => sub(p.surplus, paidIn), { indent: true }),
     bal('Ending Surplus', p => p.surplus, { emphasis: true }),
-    row('Ending surplus across the worlds (min · median · max)', 'dollars', 'point', prior ? NONE : null, ranges, { indent: true }),
+    // ⚠ NO "ACROSS THE WORLDS" ROW: players are never told about the worlds
+    // (docs/PENDING_MULTIPLAYER.md). The surplus range stays in the session's
+    // posted results, for the host.
     ratio('Premium to Surplus', (_p, prem) => prem, p => p.surplus),
     ratio('Reserve to Surplus', reserves, p => p.surplus),
     ratio('Premium to Reserve', (_p, prem) => prem, reserves),
@@ -476,7 +471,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
   // the opening surplus, which read the pre-game's own earnings as negative.
   const paidIn = preGame.length > 0 ? at(preGame[0], scope)?.beginingSurplus : opening.surplus;
   const balance = calendar('balance', 'Balance Sheet at Year-End', 'each year at its year-end; the last pre-game year at the opening',
-    balanceRows(gs, scope, paidIn,
+    balanceRows(paidIn,
       hasCalendarPrior ? { position: positionAt(rolled[rolled.length - 1]), premium: operatingAll[first - 1].premium } : null,
       window.map((r, i) => ({ yearNumber: r.yearNumber, position: positionAt(r), premium: operatingAll[first + i].premium }))));
 
