@@ -142,6 +142,21 @@ export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
 /** The reserve margin's fixed confidence level. */
 export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.90;
 
+/**
+ * DEVELOPMENT SPEED — per line, 1.0 on every line, AND NOTHING READS IT YET.
+ *
+ * 1.0 is the recorded paid and incurred patterns as they are. Above 1.0 both
+ * patterns are compressed in time by the factor, keeping their shape: the
+ * share paid at age t becomes the recorded share at age speed x t, and the
+ * same for the share reported, so case reserves (reported less paid) and IBNR
+ * (unreported) stay consistent with each other at every age.
+ *
+ * ⚠ WC AND GL ARE JUDGED TOO SLOW and are to be sped up; the value is still to
+ * be chosen. Property stays at 1.0. Left at 1.0 everywhere so that nothing moves
+ * until a value is chosen and the patterns are wired to read it.
+ */
+export const DEVELOPMENT_SPEED: PerLine<number> = { WC: 1.0, GL: 1.0, Property: 1.0 };
+
 /** The combined dividend / assessment control: negative is an assessment. */
 export const DIVIDEND_ASSESSMENT_RANGE = { min: -0.15, max: 0.15, step: 0.01, default: 0 };
 
@@ -1097,6 +1112,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Reserve margin confidence', {
         value: RESERVE_MARGIN_CONFIDENCE_PARAM, unit: 'confidence',
         what: 'The fixed confidence the reserve margin is held at.', basis: 'CHOSEN',
+      }],
+      ['Development speed', {
+        value: perLine(DEVELOPMENT_SPEED, 2), unit: 'x the recorded patterns\' pace',
+        what: '1.0 is the recorded paid and incurred patterns as they are; above 1.0 compresses both in time '
+          + 'by that factor, keeping their shape, so case reserves and IBNR stay consistent.',
+        basis: 'CHOSEN', notYetUsed: true,
+        note: 'WC and GL are judged too slow and are to be sped up; the value is still to be chosen. '
+          + 'Property stays at 1.0. Left at 1.0 on every line so nothing moves.',
       }],
       ['CLF tables', {
         value: 'per line, in clfTables.ts', unit: 'multiplier on expected loss',

@@ -43,6 +43,7 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 | --- | --- | --- | --- | --- |
 | Default funding confidence level | `0.6` | confidence | CHOSEN | Where the funding slider opens. The default decision is fundingAtExpected, which bypasses the level and prices at CLF exactly 1.000. |
 | Reserve margin confidence | `0.9` | confidence | CHOSEN | The fixed confidence the reserve margin is held at. |
+| Development speed | `WC 1.00 · GL 1.00 · Property 1.00` | x the recorded patterns' pace | CHOSEN · not yet used | 1.0 is the recorded paid and incurred patterns as they are; above 1.0 compresses both in time by that factor, keeping their shape, so case reserves and IBNR stay consistent. WC and GL are judged too slow and are to be sped up; the value is still to be chosen. Property stays at 1.0. Left at 1.0 on every line so nothing moves. |
 | CLF tables | `per line, in clfTables.ts` | multiplier on expected loss | SOURCED | Confidence level factors by line and confidence stop. REGISTERED, NOT MOVED — each table is a fit whose method, controls and rejected alternatives are recorded beside it. |
 
 ## Player controls
