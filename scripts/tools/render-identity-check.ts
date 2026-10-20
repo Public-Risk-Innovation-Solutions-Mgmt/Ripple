@@ -983,7 +983,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // no key added or removed, every one in its figures only: premium, losses,
 // reserves, surplus and the ratios, and the Decisions panel's quote, which now
 // prices the tower on the book's risk as the engine does. No wording changed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v58.json');
+// v59: FUNDING TABLES ON THE NEW ENGINE. The control ran first: 33fdde8, served
+// on 4174, reproduced v58 242 of 242. 232 of 242 moved, no key added or removed,
+// in their figures — surplus, capital and what it earns, the pre-game's rates,
+// the slider's marker. Wording that changed, all of it intended: the package
+// note ("the expected recovery ... plus a 14% load", was "loaded at the line's
+// 70% CLF"), and the audit's CLF source for a pre-game year ("the prior board's
+// cushion — 14% over expected", was a table lookup at 70%).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v59.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

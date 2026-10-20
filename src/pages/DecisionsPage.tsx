@@ -6,7 +6,7 @@ import AllocationBar from '../components/AllocationBar';
 // ⚠ RiskControlCategoryBoxes IS NO LONGER IMPORTED. The Risk Control Programs
 // card it rendered is gone from the Pool tab — see the note where it stood.
 import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumptions';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, formatPct } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { hasTractableCeded, placementSummary } from '../utils/reinsuranceDisplay';
@@ -28,7 +28,7 @@ import {
 import { APPLICATION_RATE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import { applicantInclusion } from '../utils/membershipEngine';
-import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, REINSURANCE_LOAD, RISK_CONTROL } from '../data/pricingParameters';
 import { intakeShare } from '../utils/bookUnderwriting';
 
 export interface LineLoanInfo {
@@ -1263,7 +1263,7 @@ function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
     <div className="space-y-3">
       <p className="text-xs text-gray-600 leading-relaxed">
         Choose <strong>one package</strong> for this line. Each covers every occurrence above its attachment
-        up to its limit; the price is the expected recovery on large losses, loaded at the line&apos;s 70% CLF.
+        up to its limit; the price is the expected recovery on large losses plus a {formatPct(REINSURANCE_LOAD, 0)} load.
       </p>
       {perilDeductibles.length > 0 && (
         <p className="text-xs text-gray-600 leading-relaxed" data-testid="reins-peril-deductibles">

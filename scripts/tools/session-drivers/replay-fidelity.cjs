@@ -82,7 +82,8 @@ async function nudge(page, label, presses) {
   const input = el.asElement();
   if (!input) return null;
   await input.focus();
-  for (let i = 0; i < presses; i++) await page.keyboard.press('ArrowRight');
+  // Negative presses step DOWN. See the call site for why the driver steps down.
+  for (let i = 0; i < Math.abs(presses); i++) await page.keyboard.press(presses < 0 ? 'ArrowLeft' : 'ArrowRight');
   return input.evaluate(e => e.value);
 }
 
@@ -230,7 +231,12 @@ async function resultsYearText(page, year) {
       // its value without moving it.
       const lineBtn = player.getByRole('button', { name: /Workers' Compensation|General Liability|^Property$/ }).first();
       if (await lineBtn.count() > 0) { await lineBtn.click(); await player.waitForTimeout(350); }
-      const v = await nudge(player, 'Funding Confidence Level', year > 1 ? 3 : 0);
+      // ⚠ STEPPED DOWN, NOT UP, SINCE THE FUNDING TABLES COMMIT. The slider opens
+      // at "Expected", which now sits at the line's own crossing — 78-84% on WC
+      // and Property — so three steps UP reached the 95% cap in year 2 and year
+      // 3 repeated it, and the set-size assertion below failed on the driver,
+      // not the replay. Three steps down from there stays inside the range.
+      const v = await nudge(player, 'Funding Confidence Level', year > 1 ? -3 : 0);
       fcValues.push(v);
     }
     await player.getByRole('button', { name: /Lock Year/ }).first().click();

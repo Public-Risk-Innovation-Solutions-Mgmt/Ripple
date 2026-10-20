@@ -783,7 +783,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // All 24 exports move, no row added or removed: expected loss and the rates
 // struck from it, the large losses drawn on the units, and the reserves,
 // surplus and ratios downstream.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v79.json');
+// v80: FUNDING TABLES ON THE NEW ENGINE (see VALUE_IDENTITY_v74). The control
+// ran first: 33fdde8 reproduced v79 24 of 24. All 24 exports move, no row added
+// or removed: the opening surplus and capital set on the new 90% stop, what
+// surplus earns, the pre-game's rates at the 14% cushion, and the funding
+// confidence the pre-game years record (now what 1.14 amounts to on the table).
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v80.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

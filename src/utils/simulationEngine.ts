@@ -699,6 +699,8 @@ export interface StruckLineRate {
 
 /** The CLF a line's funding decision selects. One definition, for the engine and strikeBookRate. */
 function selectedClfFor(line: CoverageLine, d: LineDecisionSet): number {
+  // The pre-game's cushion over expected: a stated multiplier, no table read.
+  if (d.fundingCushion !== undefined) return 1 + d.fundingCushion;
   return hasStaticClf(line)
     ? (d.fundingAtExpected ? 1.0 : staticClf(line, d.fundingConfidenceLevel))
     : lookupCLF(d.fundingConfidenceLevel);

@@ -48,7 +48,7 @@
 // ============================================================================
 
 import {
-  GAME_REGIONS, MEMBER_LEVEL, ORDINARY_LOSS_LIMIT, R_MODEL, REGION_EXPOSURE_SHARE, REINSURANCE_LOAD_CLF_AT_70, ROUTINE_LARGE_LOSSES,
+  GAME_REGIONS, MEMBER_LEVEL, ORDINARY_LOSS_LIMIT, R_MODEL, REGION_EXPOSURE_SHARE, REINSURANCE_LOAD, ROUTINE_LARGE_LOSSES,
   ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
@@ -521,7 +521,7 @@ try {
           if (m) sum += e.probability * m.c1;
         }
         worstSeam = Math.max(worstSeam, rel(seam[k].expected, sum));
-        if (l.purchasable) worstPrice = Math.max(worstPrice, rel(layerPremium(tl, k, market, Y), seam[k].expected * REINSURANCE_LOAD_CLF_AT_70[tl]));
+        if (l.purchasable) worstPrice = Math.max(worstPrice, rel(layerPremium(tl, k, market, Y), seam[k].expected * (1 + REINSURANCE_LOAD)));
       });
     }
   }

@@ -1214,7 +1214,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // expected loss and the tower's layer prices carry that risk: expected loss,
 // the pure premium and rates struck from it, reinsurance cost, the large
 // losses drawn, and the reserves, surplus and ratios downstream move.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v73.json');
+// v74: FUNDING TABLES ON THE NEW ENGINE. The control ran first: 33fdde8
+// reproduced v73 exactly. Shape unchanged; 12,320 instances moved across 53
+// fields, none an identity. Required capital reads the re-derived tables' 90%
+// stop (WC 1.473 -> 1.3275, GL 1.502 -> 1.7910, Property 1.4414 -> 1.5247), so
+// the opening surplus set on it, investments, investment income and every
+// capital row move; the squeezed arm funds off the new stops, so its rates,
+// premium and ratios move; the pre-game funds at a 14% cushion (GL and Property
+// were 1.135 and 1.1471). The reinsurance cost moves in its last bit only
+// (1 + 0.14 against 1.14), as do marketShare and investmentReturnRate.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v74.json');
 
 function seedOf(id: string) {
   let h = 5381;

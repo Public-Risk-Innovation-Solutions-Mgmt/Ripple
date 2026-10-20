@@ -35,8 +35,7 @@ import {
 } from '../../src/utils/memberValue';
 import { MARKET_TARGET_LOSS_RATIO } from '../../src/utils/marketConditions';
 import { TOWER_TOP, RISK_LOAD_LAMBDA } from '../../src/data/reinsuranceTower';
-import { REINSURANCE_LOAD_CLF_AT_70 } from '../../src/data/pricingParameters';
-import type { TowerLine } from '../../src/data/reinsuranceTower';
+import { REINSURANCE_LOAD } from '../../src/data/pricingParameters';
 import { placementFor } from '../../src/utils/reinsuranceOptions';
 import { occurrenceTotals } from '../../src/utils/reinsuranceTower';
 import type {
@@ -265,7 +264,7 @@ const defaultsValue = new Map<CoverageLine, number>();
           + `quoted premium and the quote carries a positive risk load (lambda `
           + `${RISK_LOAD_LAMBDA}), so it cannot reach 1.`);
       }
-    } else if (!(Math.abs(benchmark - 1 / REINSURANCE_LOAD_CLF_AT_70[line as TowerLine]) < 1e-9)) {
+    } else if (!(Math.abs(benchmark - 1 / (1 + REINSURANCE_LOAD)) < 1e-9)) {
       // ⚠ FORKED AT COMMIT 4, AND THE OLD CLAIM IS KEPT IN WORDS BECAUSE IT WAS
       // TRUE. The tower was priced at E[ceded] + lambda x SD with lambda 0, so
       // every layer cost exactly its expected cession and the reinsurer's
@@ -277,8 +276,8 @@ const defaultsValue = new Map<CoverageLine, number>();
       // including a load that had silently died.
       failures.push(`${line}: the reinsurer's implied loss ratio reads `
         + `${benchmark.toFixed(6)}, but every layer is priced at expected cession x `
-        + `${REINSURANCE_LOAD_CLF_AT_70[line as TowerLine]} (the CLF at 70%), so it must be `
-        + `exactly ${(1 / REINSURANCE_LOAD_CLF_AT_70[line as TowerLine]).toFixed(6)}.`);
+        + `${1 + REINSURANCE_LOAD} (1 + REINSURANCE_LOAD), so it must be `
+        + `exactly ${(1 / (1 + REINSURANCE_LOAD)).toFixed(6)}.`);
     }
   }
 }

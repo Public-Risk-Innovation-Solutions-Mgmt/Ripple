@@ -26,7 +26,7 @@ import {
 import { lognormalPartialMoment } from './claimMath';
 import { quotePropertyAggregate } from './propertyAggregate';
 import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './towerMoments';
-import { newLossEngineRuns, REINSURANCE_LOAD_CLF_AT_70 } from '../data/pricingParameters';
+import { newLossEngineRuns, REINSURANCE_LOAD } from '../data/pricingParameters';
 import { retainedSd } from './shockExpectation';
 import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
 import type { Claim, Occurrence } from '../types/simulation';
@@ -148,7 +148,7 @@ export function cedeOccurrences(
 // directly from the book removes the mismatch by construction: there is no
 // longer a second, differently-trending quantity for the price to be stated in.
 // ============================================================================
-// THE PRICE: EXPECTED LAYER LOSS x THE LINE'S CLF MULTIPLIER AT 70%.
+// THE PRICE: EXPECTED LAYER LOSS x (1 + REINSURANCE_LOAD), 14% on every line.
 //
 // ⚠ IT REPLACES E[ceded] + lambda x SD[ceded], which is retired at commit 4.
 // The old form charged a margin proportional to the layer's own SD, which on a
@@ -159,20 +159,21 @@ export function cedeOccurrences(
 // That is the trap this parameter exists to avoid and it is worth restating at
 // the call site: a layer hit in fewer than 30% of years has a loss
 // distribution whose 70th percentile is ZERO, so pricing off it would charge
-// nothing for exactly the layers that most need a margin. REINSURANCE_LOAD_
-// CLF_AT_70 is the POOL-level CLF table read at 0.70 — a multiplier on an
-// EXPECTED loss, which behaves properly at any hit rate. See its own note.
+// nothing for exactly the layers that most need a margin. REINSURANCE_LOAD is
+// a load on an EXPECTED loss, which behaves properly at any hit rate — and it
+// is a market's load, never read from the pool's funding tables (it was their
+// 70% stop until the funding tables commit). See its own note.
 //
 // The expected loss is computed at runtime from the severity-trended
 // distributions, so this price does not inherit the stale held figure that
 // commit 3's trend test found under the old rate.
 // ============================================================================
-function layerPriceFrom(line: TowerLine, expected: number): number {
-  return expected * REINSURANCE_LOAD_CLF_AT_70[line];
+function layerPriceFrom(expected: number): number {
+  return expected * (1 + REINSURANCE_LOAD);
 }
 
 export function layerPremium(line: TowerLine, layerIndex: number, members: Book, yearNumber: number): number {
-  return layerPriceFrom(line, layerRiskMoments(line, layerIndex, members, yearNumber).expected);
+  return layerPriceFrom(layerRiskMoments(line, layerIndex, members, yearNumber).expected);
 }
 
 export function expectedCededForLayer(line: TowerLine, layerIndex: number, members: Book, yearNumber: number): number {
@@ -207,7 +208,7 @@ export function occurrenceProgramCost(
   let premium = 0, expectedCeded = 0;
   REINSURANCE_TOWER[line].forEach((l, i) => {
     if (!(placed[i] && l.purchasable)) return;
-    premium += layerPriceFrom(line, moments[i].expected);
+    premium += layerPriceFrom(moments[i].expected);
     expectedCeded += moments[i].expected;
   });
   return { premium, expectedCeded };
@@ -341,7 +342,7 @@ export function quoteAggregate(
   // ⚠ ON THE NEW LOSS ENGINE, PRICED ON THE NEW ENGINE'S OWN LOSSES — the same
   // rule as the occurrence layers (see layerRiskMomentsFor): the expected
   // recovery is computed on what the engine actually draws, and the price is
-  // that x the line's CLF at 70%.
+  // that x (1 + REINSURANCE_LOAD).
   //
   // The aggregate attaches on the ANNUAL TOTAL the pool retains after the
   // layers it placed: ordinary losses with their uplift, plus every large
@@ -366,7 +367,7 @@ export function quoteAggregate(
     const { expected } = layerMoments(expectedRetained, sdRetained / expectedRetained, attachment, attachment + limit);
     return {
       attachment, limit, expectedRetained, sdRetained,
-      expectedCeded: expected, premium: layerPriceFrom(line, expected),
+      expectedCeded: expected, premium: layerPriceFrom(expected),
     };
   }
 
@@ -410,9 +411,9 @@ export function quoteAggregate(
     expectedCeded: expected,
     // SAME load as the occurrence layers. One market view across the whole
     // program, not a second knob for the aggregate — which is why the
-    // aggregate moved to the CLF multiplier with them rather than keeping
+    // aggregate moved to the expected-loss load with them rather than keeping
     // lambda x SD to itself.
-    premium: layerPriceFrom(line, expected),
+    premium: layerPriceFrom(expected),
   };
 }
 

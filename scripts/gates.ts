@@ -183,6 +183,9 @@ const FAST: string[] = [
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
+  'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
+                                     //         sample, required capital reads the same table, the reinsurance load
+                                     //         and the pre-game cushion read none; four controls
   'book-units-penalty-check',        //   3s   the new-business penalty: actual ordinary losses load the units written
                                      //         that year, first year and new units only; expected carries none;
                                      //         three controls
@@ -358,9 +361,6 @@ const SLOW: string[] = [
   // its own — 30% of the old FAST tier — and it is the single reason FAST cost
   // what it did.
   'cession-path-independence',       // 1015s
-  // 285s — GL's supplied-CLF path. Pricing, not display; an engine commit that
-  // moves GL's CLF handling loses its commit-time cover.
-  'gl-supplied-clf-check',           //  285s
 ];
 
 // ============================================================================
@@ -383,6 +383,12 @@ const SLOW: string[] = [
 // tower-runtime-check); their member-path originals stay here as *-member-check.
 // ============================================================================
 const DORMANT: string[] = [
+  // --- from SLOW, at the funding tables commit -------------------------------
+  // 285s — guarded GL's (and WC's) SUPPLIED curves while they were in force. The
+  // tables in force are now derived on the new engine and guarded by
+  // funding-table-check in FAST; the supplied curves are history
+  // (clfTables.ts exports them as GL_SUPPLIED and WC_SUPPLIED).
+  'gl-supplied-clf-check',           //  285s
   // --- from FAST -----------------------------------------------------------
   'claims-memo-check',                //   8s   every displayed row names its member; 3 controls
   'claims-system-check',             //   9s   the claims program: null arm against the ENGINE,
@@ -766,7 +772,8 @@ const DORMANT_KNOWN_RED: Record<string, { code: number; why: string }> = {
 // eleven straddled the two and hid the five. Corrected there too.
 // ============================================================================
 const PROBES: Record<string, string> = {
-  'clf-table-derive': 'derives the static CLF tables — a generator, not a check [240s]',
+  'clf-table-derive': 'derives the static CLF tables ON THE MEMBER PATH — the history of the tables before the funding tables commit; a generator, not a check [240s]',
+  'clf-newengine-derive': 'derives the funding (CLF) tables in force, on the new engine: percentiles of (net incurred loss + LAE) / (expected retained loss + LAE), with the experience pure premium\'s shortfall reported beside them — a generator, not a check [300s]',
   'clf-surplus-effect-report': 'what a CLF re-derivation does to ending surplus, in two arms — '
     + 'it cannot hold two tables in one process, so it is run before and after and diffed by hand. '
     + 'No pass condition: "the game got harder" is a judgement [190s]',

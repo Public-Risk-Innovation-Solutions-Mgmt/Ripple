@@ -492,14 +492,40 @@ as `memberShareAboveLimit` and enters no pool total. WC and Property have no
 limit. See `POOL_LIMIT_PER_OCCURRENCE` and the **Coverage and the pre-game**
 section of [docs/PARAMETERS.md](PARAMETERS.md).
 
-### Pre-game funding level — 70%
+### Pre-game funding — a 14% cushion over expected
 
-**Landed, not pending.** The declared years were funded at the 70% confidence
-level, on each line's own CLF table; players still default to expected. The
-year-1 rate is unchanged by this — only the figure it is compared against
-moves, from +41.7% / +18.5% / +35.7% to -7.0% / -4.9% / -3.9% on WC / GL /
-Property. See `PRE_GAME_FUNDING_LEVEL` and the same page section; the welcome
-memo reads the constant rather than naming a number.
+**Landed, not pending.** The declared years are funded at CLF 1.14, a 14%
+cushion over expected (`PRE_GAME_FUNDING_CUSHION`), on every line; players
+still default to expected. It was the 70% confidence level on each line's own
+CLF table (WC 1.1400, GL 1.1350, Property 1.1471) and is stated as the cushion
+since the funding tables commit, so re-deriving the tables no longer moves the
+pre-game. The welcome memo reads the constant: "funded 14% above the expected
+cost of its claims".
+
+### Funding tables on the new engine (funding tables commit)
+
+**Landed.** The WC, GL and Property funding (CLF) tables are re-derived on the
+new engine, so the slider's levels are true. They are percentiles of a
+VOLATILITY-ONLY ratio, (net incurred loss + LAE) / (the engine's expected
+retained loss + LAE), and carry none of the experience pure premium's
+shortfall. See the head of `src/data/clfTables.ts` and
+`scripts/diagnostics/clf-newengine-derive.ts`; gated by `funding-table-check`.
+
+| | at expected covers | 70% stop | 90% stop (required capital) |
+|---|---|---|---|
+| WC | 78.2% | 0.9638 | 1.3275 (was 1.473) |
+| GL | 63.5% | 1.1678 | 1.7910 (was 1.502) |
+| Property | 84.0% | 0.7675 | 1.5247 (was 1.4414) |
+
+- **The reinsurance load is separate:** `REINSURANCE_LOAD`, 14% on every
+  layer's expected loss, every line. It was each line's table read at 70%.
+- **Required capital follows the new table** (unpaid reserve x (CLF90 - 1)), so
+  the opening surplus — a multiple of it — moves: WC -31%, GL +58%, Property
+  +2% (its requirement is mostly retained catastrophe).
+- **Pending, for pricing: the experience pure premium's shortfall**, measured
+  by the derivation and not fixed here. Property's five-year window misses
+  catastrophes in most years; GL's pricing does not anticipate prior-year
+  development, the host's 10% adverse among it; see the commit for figures.
 
 ### Development is a lifetime total
 

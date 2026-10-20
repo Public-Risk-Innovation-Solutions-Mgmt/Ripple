@@ -640,6 +640,13 @@ export interface LineDecisionSet {
   // only the fallback the slider lands on if the player later drags away from
   // Expected to a specific percentile stop).
   fundingAtExpected: boolean;
+  /**
+   * THE PRE-GAME'S FUNDING, NEVER A PLAYER'S. When set, the line funds at CLF
+   * exactly 1 + this over expected and reads no funding table — neither the
+   * flag above nor the confidence level is read for pricing. Only the pre-game's
+   * decisions set it (PRE_GAME_FUNDING_CUSHION); absent everywhere else.
+   */
+  fundingCushion?: number;
   dividendPct: number;            // 0.00 to 0.15 of premium
   assessmentPct: number;          // 0.00 to 0.25 of premium
   /**

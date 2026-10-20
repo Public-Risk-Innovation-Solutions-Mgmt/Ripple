@@ -70,7 +70,7 @@ import { layerPremium, expectedCededForLayer } from '../../src/utils/reinsurance
 import {
   ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
   NEW_RATE_STACK, PRICING_WINDOW_YEARS_NEW, PROFIT_AND_CONTINGENCY_OF_RATE,
-  REINSURANCE_LOAD_CLF_AT_70,
+  REINSURANCE_LOAD,
 } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, LineResultSet, Member } from '../../src/types/simulation';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
@@ -240,8 +240,8 @@ console.log(`  what the divisor adds to the final rate                ${r4(w.quo
 
 // ---------------------------------------------------------------------------
 console.log('\n--- 5. REINSURANCE, LAYER BY LAYER ---');
-console.log(`  Each placed layer is priced at its expected loss x the line's CLF at 70%, `
-  + `${REINSURANCE_LOAD_CLF_AT_70[LINE].toFixed(4)}.\n`);
+console.log(`  Each placed layer is priced at its expected loss x (1 + REINSURANCE_LOAD), `
+  + `${(1 + REINSURANCE_LOAD).toFixed(4)}.\n`);
 console.log('    layer                        placed       expected loss            price'
   + '      price/100');
 const tower = REINSURANCE_TOWER[LINE as TowerLine] ?? [];

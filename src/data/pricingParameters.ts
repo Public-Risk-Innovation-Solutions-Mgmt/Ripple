@@ -221,28 +221,22 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
 export const PROFIT_AND_CONTINGENCY_OF_RATE = 0.05;
 
 /**
- * THE REINSURANCE LOAD — the line's CLF-table multiplier at 70%, applied to a
- * LAYER'S EXPECTED LOSS.
+ * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
+ * (1 + this), on every line, the occurrence layers and the aggregate alike.
  *
- * ⚠ IT IS NOT THE 70TH PERCENTILE OF THE LAYER'S OWN LOSSES, and the difference
- * is the reason this is a named parameter rather than a lookup at the call
- * site. A layer that is rarely hit has a loss distribution with a large atom at
- * zero, so its own 70th percentile is often ZERO — or, where it is not, below
- * its own mean. Pricing off that would charge nothing for the layers that most
- * need a margin. The pool-level CLF at 70% is a multiplier on an EXPECTED loss
- * and behaves properly at any hit rate.
+ * ⚠ A MARKET'S LOAD, NEVER READ FROM A CONFIDENCE PERCENTILE. It used to be each
+ * line's funding (CLF) table read at 70% — WC 1.1400, GL 1.1350, Property 1.1471
+ * — so re-deriving the funding tables re-priced the reinsurance under them. 14%
+ * is that figure, separated (funding tables commit): the funding tables now
+ * describe the pool's own volatility and nothing else, and the reinsurer's price
+ * does not move when they do.
  *
- * Values are each line's own static CLF table at 0.70, read at this commit:
- * WC 1.1400, GL 1.1350, Property 1.1471. The generic FUNDING_CLF_TABLE reads
- * 1.217 at the same stop and is NOT what these are.
- *
- * ⚠ NOT YET USED — read from commit 2 onward.
+ * ⚠ AND IT IS A LOAD ON AN EXPECTED LOSS, NOT A PERCENTILE OF THE LAYER'S OWN
+ * LOSSES. A layer that is rarely hit has a loss distribution with a large atom at
+ * zero, so its own 70th percentile is often ZERO; pricing off that would charge
+ * nothing for the layers that most need a margin.
  */
-export const REINSURANCE_LOAD_CLF_AT_70: PerLine<number> = {
-  WC: 1.1400,
-  GL: 1.1350,
-  Property: 1.1471,
-};
+export const REINSURANCE_LOAD = 0.14;
 
 /**
  * HOW MANY YEARS OF PRIOR HISTORY THE PRE-GAME SIMULATES, with real claims
@@ -339,8 +333,17 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
 };
 
 /**
- * WHAT THE BOARD FUNDED AT BEFORE THE PLAYERS ARRIVED — the 70% confidence
- * level, on each line's own CLF table.
+ * WHAT THE BOARD FUNDED AT BEFORE THE PLAYERS ARRIVED — a 14% CUSHION OVER
+ * EXPECTED: each line's retained pure premium x 1.14, every pre-game year.
+ *
+ * ⚠ A CUSHION, NOT A CONFIDENCE LEVEL (funding tables commit). It was the 70%
+ * level on each line's own CLF table — WC 1.1400, GL 1.1350, Property 1.1471 —
+ * so re-deriving the tables would have re-run the pre-game and moved the
+ * opening. Stated as the multiplier it amounted to, it no longer reads a table:
+ * the same effect as before (WC identical, GL +0.4%, Property -0.6% on the
+ * multiplier), and the tables are free to describe the pool's volatility. What
+ * confidence it amounts to is now a property of the tables, recorded on the
+ * pre-game years' results (fundingConfidenceLevel) and nowhere relied on.
  *
  * ⚠ IT IS THE PRE-GAME ONLY. Players still default to funding at EXPECTED
  * (CLF 1.000) and choose their own level from year 1, which is
@@ -357,10 +360,10 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
  * against the declared year before it — the player is funding at expected
  * where the prior board funded with a cushion — and that drop is real rather
  * than a modelling artefact. It is the first thing the Decisions panel's
- * change column reports, and the welcome memo states the 70% so the drop is
+ * change column reports, and the welcome memo states the 14% so the drop is
  * explicable rather than surprising. The memo READS this constant.
  */
-export const PRE_GAME_FUNDING_LEVEL = 0.70;
+export const PRE_GAME_FUNDING_CUSHION = 0.14;
 
 export const NEW_RATE_STACK = { enabled: true };
 
@@ -1212,9 +1215,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'May be set to 0.', basis: 'CHOSEN', notYetUsed: true,
       }],
       ['Reinsurance load', {
-        value: perLine(REINSURANCE_LOAD_CLF_AT_70, 4), unit: 'multiplier on a layer\'s EXPECTED loss',
-        what: 'The line\'s CLF-table multiplier at 70%.', basis: 'CHOSEN', notYetUsed: true,
-        note: 'NOT the 70th percentile of the layer\'s own losses — for a rarely hit layer that is often zero, or below its own mean.',
+        value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
+        what: 'Every layer — the occurrence layers and the aggregate — is priced at its expected loss x (1 + this).',
+        basis: 'CHOSEN',
+        note: 'Was each line\'s funding table read at 70% (WC 1.1400, GL 1.1350, Property 1.1471); separated '
+          + 'from the funding tables, so re-deriving them no longer re-prices the reinsurance. Never a percentile '
+          + 'of the layer\'s own losses — for a rarely hit layer that is often zero.',
       }],
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS_NEW, unit: 'years',
@@ -1250,11 +1256,13 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'single year $103.9M. Distinct from GL_SEVERITY_CAP ($84M), which is how large a claim can be '
           + 'rather than how much of one the Pool covers. Reinsurance is bought within the limit.',
       }],
-      ['Pre-game funding level', {
-        value: PRE_GAME_FUNDING_LEVEL, unit: 'confidence level',
-        what: 'What the previous board funded the declared years at, on each line\'s own CLF table.',
+      ['Pre-game funding cushion', {
+        value: PRE_GAME_FUNDING_CUSHION, unit: 'over expected (CLF 1 + this)',
+        what: 'What the previous board funded the declared years at: each line\'s retained pure premium x '
+          + '(1 + this). A cushion, not a confidence level — it reads no funding table.',
         basis: 'CHOSEN',
-        note: 'The PLAYER\'S default is unchanged: funding at EXPECTED, CLF 1.000, from year 1. So a team '
+        note: 'Was the 70% level on each line\'s own table (WC 1.1400, GL 1.1350, Property 1.1471). '
+          + 'The PLAYER\'S default is unchanged: funding at EXPECTED, CLF 1.000, from year 1. So a team '
           + 'that locks year 1 untouched prices BELOW the year before it — measured at -7.0% on WC, -4.9% '
           + 'on GL, -3.9% on Property, against +41.7% / +18.5% / +35.7% when the pre-game also funded at '
           + 'expected. The year-1 rate itself is identical either way; only the figure it is compared '
