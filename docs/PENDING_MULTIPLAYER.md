@@ -440,6 +440,28 @@ place-or-decline on each band:
 **Bold is the default** — a parameter marked chosen — for players and for the
 pre-game's prior board.
 
+> **⚠ STATUS: HELD — NOT LANDED.** Everything in this section about Property's
+> two kinds of cover exists only on `wip/property-cat`; `multiplayer` still
+> runs the single per-occurrence layer.
+>
+> - **Built and gated:** per-risk on each claim, catastrophe on each event's
+>   remainder (never on a routine claim), the earthquake deductible taken off
+>   the event first, pricing behind the per-risk cover chosen, and required
+>   capital net of the cover held. property-cat-cover-check passes, with six
+>   controls, and fails against three real breaks in the engine.
+> - **Prices match the measurement:** per-risk $12.42M, $50M xs $25M $2.77M
+>   alone, $100M xs $25M $4.84M alone, the default pair $15.20M, and an
+>   opening of about $69M.
+> - **The open problem:** at a $69M opening about a third of worlds go below
+>   zero (36.8% on the default pair, 200 games x 10 worlds; the measurement
+>   had 0.3%). The leading cause is a single routine claim above $25M:
+>   Property's routine claims run to the $75M cap (more with trend),
+>   per-risk stops at $25M, and the catastrophe layer never answers one
+>   claim. **The likely fix is per-risk cover up to the claim cap.**
+> - **Not yet run on the branch:** the three baselines, the FAST sweep, the
+>   session drivers, the contract harness, docs/PARAMETERS.md and the
+>   manifest timing.
+
 **Property buys two kinds of cover since Property catastrophe cover.** Its one
 per-occurrence layer treated a whole wildfire as one loss, so its $20M paid a
 sliver of a $175M event and Property's required capital held almost all the
