@@ -162,7 +162,7 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
     const lowestPlaced = TOWER_LINES
       .filter(line => result.byLine?.[line])
       .map(line => {
-        const placed = placementFor(line, result.byLine[line].decisions.reinsuranceOption);
+        const placed = placementFor(line, result.byLine[line].decisions.reinsuranceOption, result.byLine[line].decisions.catastropheOption);
         const attachments = REINSURANCE_TOWER[line].filter((_, i) => placed[i]).map(l => l.attachment);
         return { line, attachment: attachments.length > 0 ? Math.min(...attachments) : null };
       })

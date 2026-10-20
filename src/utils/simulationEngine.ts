@@ -733,7 +733,7 @@ export function strikeBookRate(
     groundUpPurePremiumPer100: newPp.purePremiumPer100,
     clf: selectedClfFor(line, lineDecisions),
     riskControlPct: riskControlIncentiveFor(lineDecisions),
-    layersPlaced: placementFor(line, lineDecisions.reinsuranceOption),
+    layersPlaced: placementFor(line, lineDecisions.reinsuranceOption, lineDecisions.catastropheOption),
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
   });
   return { exposure, newPp, quote };
@@ -818,7 +818,7 @@ export function processLineYear(
   // per line (loss engine commit 4a); everything below prices and cedes in
   // tower placements, so the package becomes one here and nowhere else in the
   // engine. The aggregate stop-loss is not offered.
-  const layersPlaced = placementFor(line, lineDecisions.reinsuranceOption);
+  const layersPlaced = placementFor(line, lineDecisions.reinsuranceOption, lineDecisions.catastropheOption);
   const aggregateStopLevel = AGGREGATE_NOT_OFFERED;
   const selectedFundingConfidenceLevel = lineDecisions.fundingConfidenceLevel;
   // ⚠ RISK CONTROL IS PENDING DESIGN AND COSTS NOTHING WHILE IT IS. Its effects

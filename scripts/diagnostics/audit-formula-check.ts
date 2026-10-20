@@ -616,8 +616,8 @@ const PROSE_CLAIMS: ProseClaim[] = [
         : [scope as CoverageLine];
       return lines.reduce(
         (n, l) => {
-          const opt = poolResult.byLine[l]?.decisions?.reinsuranceOption;
-          return n + (opt ? placementFor(l, opt).filter(Boolean).length : 0);
+          const d = poolResult.byLine[l]?.decisions;
+          return n + (d?.reinsuranceOption ? placementFor(l, d.reinsuranceOption, d.catastropheOption).filter(Boolean).length : 0);
         }, 0);
     },
   },

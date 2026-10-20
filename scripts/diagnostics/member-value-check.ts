@@ -113,7 +113,7 @@ function run(games: number, years: number, decisions: (y: number) => DecisionSet
         rows.push({
           line: lr.line as CoverageLine, game: g, year: y,
           claims: r.claims ?? [], shares: r.memberPremiumShares ?? [],
-          placed: r.decisions ? placementFor(lr.line as CoverageLine, r.decisions.reinsuranceOption) : undefined,
+          placed: r.decisions ? placementFor(lr.line as CoverageLine, r.decisions.reinsuranceOption, r.decisions.catastropheOption) : undefined,
           expected: (r.memberLossResults ?? []).reduce((s, m) => s + m.expectedLoss, 0),
           result: r,
         });

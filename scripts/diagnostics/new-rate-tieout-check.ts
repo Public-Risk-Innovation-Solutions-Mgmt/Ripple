@@ -108,7 +108,7 @@ function play(): Row[] {
           members: (gs.poolState.lines[line] as LinePoolState).bookExposure !== undefined
             ? { exposure }
             : (gs.poolState.lines[line] as LinePoolState).members ?? [],
-          exposure, layersPlaced: placementFor(line, ld.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+          exposure, layersPlaced: placementFor(line, ld.reinsuranceOption, ld.catastropheOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
         });
         const retained = Math.max(0, groundUp - expectedCededPer100);
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);

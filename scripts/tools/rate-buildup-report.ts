@@ -156,7 +156,7 @@ for (let y = 1; y <= YEAR; y++) {
   if (pp !== null && result !== undefined && (y === YEAR || y === YEAR - 1)) {
     const d = decisions.byLine[LINE];
     const rc = d.riskControlIncentivePct ?? 0;
-    const placed = placementFor(LINE, d.reinsuranceOption);
+    const placed = placementFor(LINE, d.reinsuranceOption, d.catastropheOption);
     walks.set(y, {
       year: y, result, pp, members, exposure, rc, placed,
       clf: result.selectedFundingCLF,

@@ -146,7 +146,7 @@ for (let g = 0; g < GAMES; g++) {
       const lr = pg.byLine[line];
       if (!lr?.claims || !lr.occurrences) continue;
       const totals = occurrenceTotals(lr.claims, lr.occurrences);
-      const placed = lr.decisions ? placementFor(line, lr.decisions.reinsuranceOption) : REINSURANCE_TOWER[line].map(l => l.purchasable);
+      const placed = lr.decisions ? placementFor(line, lr.decisions.reinsuranceOption, lr.decisions.catastropheOption) : REINSURANCE_TOWER[line].map(l => l.purchasable);
       const deductibles = occurrenceDeductibles(line, lr.occurrences);
       register.set(key(line, pg.yearNumber), { totals, placed, deductibles });
       cededBefore += cedeOccurrences(line, totals, placed, deductibles).totalCeded;
@@ -165,7 +165,7 @@ for (let g = 0; g < GAMES; g++) {
       // This accident year's own register, for later valuations to develop.
       if (r.claims && r.occurrences) {
         const totals = occurrenceTotals(r.claims, r.occurrences);
-        const placed = r.decisions ? placementFor(line, r.decisions.reinsuranceOption) : REINSURANCE_TOWER[line].map(l => l.purchasable);
+        const placed = r.decisions ? placementFor(line, r.decisions.reinsuranceOption, r.decisions.catastropheOption) : REINSURANCE_TOWER[line].map(l => l.purchasable);
         const deductibles = occurrenceDeductibles(line, r.occurrences);
         register.set(key(line, y), { totals, placed, deductibles });
         cededBefore += cedeOccurrences(line, totals, placed, deductibles).totalCeded;

@@ -693,6 +693,13 @@ export interface LineDecisionSet {
   // (aggregateStopLevel), which is no longer offered. The engine reads the
   // tower placement through reinsuranceOptions.placementFor.
   reinsuranceOption: string;
+  // PROPERTY'S CATASTROPHE COVER — one id from PROPERTY_CATASTROPHE_OPTIONS,
+  // 'none' for nothing. Property buys two kinds of cover: reinsuranceOption is
+  // its PER-RISK choice, applied to each claim, and this is the catastrophe
+  // layer, applied to each shock event's total after per-risk recoveries.
+  // Present on Property only; absent (WC, GL, or a hand-built harness) reads
+  // as no catastrophe cover. placementFor joins the two into one placement.
+  catastropheOption?: string;
   assetAllocation: AssetAllocation;    // projected from DecisionSet.assetAllocation
   loanRepaymentAggressiveness: number; // 0.00 to 1.00 — share of positive net income used to
                                        // repay an outstanding inter-line loan first; only

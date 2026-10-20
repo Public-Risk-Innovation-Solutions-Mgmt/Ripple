@@ -77,7 +77,7 @@ import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
 import { expectedLossBreakdown, newEngineCatCapital, newEngineLayerMoments } from './shockExpectation';
 import { catCapitalRetained } from './propertyCatastrophe';
-import { defaultReinsuranceOption, placementFor } from './reinsuranceOptions';
+import { defaultCatastropheOption, defaultReinsuranceOption, placementFor } from './reinsuranceOptions';
 import { REINSURANCE_TOWER } from '../data/reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
 
@@ -442,7 +442,7 @@ export function requiredCapital(line: CoverageLine, netUnpaidReserve: number): n
  * have no catastrophe band.
  */
 export function openingCatCapital(line: CoverageLine, members: Book): number {
-  const placed = placementFor(line, defaultReinsuranceOption(line));
+  const placed = placementFor(line, defaultReinsuranceOption(line), defaultCatastropheOption(line));
   return newLossEngineRuns()
     ? newEngineCatCapital(line, bookExposureOf(members, line, 1), 1, placed)
     : catCapitalRetained(line, [...rosterOf(members, 'openingCatCapital')], placed);

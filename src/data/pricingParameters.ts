@@ -572,10 +572,13 @@ export const REGION_EXPOSURE_SHARE: PerLine<Readonly<Record<'North' | 'Central' 
  * around T / count with CV SHOCK_LOSS_CV, so the realised total varies and is
  * never rescaled to T. One for a verdict, many for a disaster.
  *
- * ⚠ EARTHQUAKE AND WILDFIRE ARE ONE OCCURRENCE (SHOCK_ONE_OCCURRENCE): their
- * losses are member claims under a single event, as today's catastrophe band
- * books them, so the tower answers the event total and an earthquake retains
- * PROPERTY_PERIL_DEDUCTIBLE first. Every other T loss is its own occurrence.
+ * ⚠ EARTHQUAKE, WILDFIRE AND WINTERSTORM ARE ONE EVENT EACH
+ * (SHOCK_ONE_OCCURRENCE): their losses are separate claims under a single
+ * event. An earthquake's deductible (PROPERTY_PERIL_DEDUCTIBLE) comes off the
+ * event's ground-up total first, spread over its claims in proportion to
+ * size; Property's per-risk layer then answers each claim, and its
+ * catastrophe layer the event's total left after per-risk. Every other T loss
+ * is its own occurrence, which the catastrophe layer never answers.
  */
 export const SHOCK_LOSS_COUNT: Readonly<Record<string, Partial<PerLine<number>>>> = {
   'Earthquake': { Property: 25 },
@@ -585,7 +588,11 @@ export const SHOCK_LOSS_COUNT: Readonly<Record<string, Partial<PerLine<number>>>
   'Social Inflation': { GL: 3 },
   'Pandemic': { GL: 5, WC: 20 },
 };
-export const SHOCK_ONE_OCCURRENCE: readonly string[] = ['Earthquake', 'Wildfire'];
+// ⚠ WINTERSTORM JOINED AT PROPERTY CATASTROPHE COVER. The catastrophe layer
+// applies to each event's total, so all three Property events are one
+// occurrence; each is booked at its drawn total and held there, as Earthquake
+// and Wildfire always were. Its claims were separate occurrences before.
+export const SHOCK_ONE_OCCURRENCE: readonly string[] = ['Earthquake', 'Wildfire', 'Winterstorm'];
 
 /** The CV of each T loss around T / count — CHOSEN. */
 export const SHOCK_LOSS_CV = 0.5;
@@ -763,8 +770,22 @@ const NONE: ReinsuranceOption = { id: 'none', attachment: 0, limit: 0 };
 export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
   WC: [NONE, xs(9, 1), xs(5, 5), xs(14, 1), xs(10, 5)],
   GL: [NONE, xs(9, 1), xs(5, 5), xs(14, 1), xs(10, 5)],
-  Property: [NONE, xs(20, 5), xs(45, 5), xs(25, 25)],
+  // ⚠ ON PROPERTY THIS IS THE PER-RISK CHOICE ONLY, since Property catastrophe
+  // cover: applied to each claim. The catastrophe cover is a second choice,
+  // PROPERTY_CATASTROPHE_OPTIONS below. ('$45M xs $5M' and '$25M xs $25M' per
+  // occurrence are gone with the single per-occurrence layer they were cut from.)
+  Property: [NONE, xs(20, 5)],
 };
+
+/**
+ * PROPERTY'S CATASTROPHE COVER — the second choice on Property, applied to
+ * each SHOCK EVENT's total (Earthquake, Winterstorm, Wildfire) after the
+ * per-risk recoveries on its claims, and never to a routine claim on its own.
+ * Every option is a parameter: a measurement still running may refine the list.
+ * Priced as every layer: the expected recovery on the catalogue's
+ * probabilities x Property's CLF at 70%, ex ante, in the pre-game as in play.
+ */
+export const PROPERTY_CATASTROPHE_OPTIONS: readonly ReinsuranceOption[] = [NONE, xs(50, 25), xs(100, 25)];
 
 /**
  * WHAT A TEAM HOLDS UNTIL IT CHOOSES — CHOSEN: the middle option, $9M xs $1M on
@@ -776,6 +797,9 @@ export const REINSURANCE_DEFAULT_OPTION: PerLine<string> = {
   GL: '$9M xs $1M',
   Property: '$20M xs $5M',
 };
+
+/** Property's catastrophe cover until a team chooses, and the prior board's. */
+export const PROPERTY_CATASTROPHE_DEFAULT_OPTION = '$100M xs $25M';
 
 /**
  * TEN WORLDS (loss engine commit 4b). Each team's year runs in this many
@@ -1291,10 +1315,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'How many individual losses each event\'s T arrives as, each lognormal around T / count. T is the '
           + 'expected aggregate; the realised total varies and is never rescaled.',
         basis: 'CHOSEN',
-        note: `A starting point. ${SHOCK_ONE_OCCURRENCE.join(' and ')} are ONE occurrence each, as today's `
-          + 'catastrophe band books them, so the tower answers the event total and an earthquake retains its '
-          + '$10M peril deductible first; every other loss is its own occurrence. On GL the pool keeps $25M '
-          + 'of any one loss.',
+        note: `A starting point. ${SHOCK_ONE_OCCURRENCE.join(', ')} are ONE event each: an earthquake's `
+          + '$10M deductible comes off the event total first, pro rata over its claims; Property\'s per-risk '
+          + 'layer answers each claim and its catastrophe layer the event\'s total after per-risk. Every other '
+          + 'loss is its own occurrence. On GL the pool keeps $25M of any one loss.',
       }],
       ['Large-loss CV', {
         value: SHOCK_LOSS_CV, unit: 'coefficient of variation',

@@ -1,4 +1,4 @@
-import { defaultReinsuranceOption } from './reinsuranceOptions';
+import { defaultCatastropheOption, defaultReinsuranceOption } from './reinsuranceOptions';
 import { INTAKE_NONE } from './intakeInspection';
 // Single source of truth for default decisions. Used by the App (new game /
 // next year), the Decisions page (per-line reset), and the Stage 2.10 pre-game
@@ -65,6 +65,9 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
     // (REINSURANCE_DEFAULT_OPTION). The pre-game's prior board plays these
     // decisions, so the opening is built on it too.
     reinsuranceOption: defaultReinsuranceOption(line),
+    // Property's catastrophe layer, its own parameter
+    // (PROPERTY_CATASTROPHE_DEFAULT_OPTION); the field is absent on WC and GL.
+    ...(line === 'Property' ? { catastropheOption: defaultCatastropheOption(line) } : {}),
     assetAllocation: { ...ASSET_ALLOCATION_DEFAULT },
     loanRepaymentAggressiveness: 0.5,
   };

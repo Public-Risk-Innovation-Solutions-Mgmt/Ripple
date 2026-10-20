@@ -139,6 +139,14 @@ export interface TowerLayer {
   limit: number;
   // Layers that exist but cannot currently be bought. See WC's top layer.
   purchasable: boolean;
+  /**
+   * WHAT THE LAYER APPLIES TO — absent means 'occurrence', every WC and GL
+   * layer. Property's cover is two kinds since Property catastrophe cover:
+   * 'claim' (PER-RISK) applies to each claim on its own; 'event'
+   * (CATASTROPHE) applies to each shock event's total, net of the per-risk
+   * recoveries on its claims, and never to a routine claim alone.
+   */
+  basis?: 'occurrence' | 'claim' | 'event';
 }
 
 // THE TOP OF PROPERTY'S TOWER, $1B PER OCCURRENCE — the real programme's limit,
@@ -213,8 +221,11 @@ export const PROPERTY_PERIL_DEDUCTIBLE: Readonly<Record<string, number>> = {
 // the numbers they describe ("$4M xs $1M" next to attachment 1e6, limit 4e6) —
 // the same restatement Property's entry already avoided by building its name.
 // A re-pinned attachment now renames the layer on every screen that shows it.
-function layer(attachment: number, limit: number): TowerLayer {
-  return { name: `$${limit / 1e6}M xs $${attachment / 1e6}M`, attachment, limit, purchasable: true };
+function layer(attachment: number, limit: number, basis?: 'claim' | 'event'): TowerLayer {
+  return {
+    name: `$${limit / 1e6}M xs $${attachment / 1e6}M`, attachment, limit, purchasable: true,
+    ...(basis ? { basis } : {}),
+  };
 }
 
 export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
@@ -298,10 +309,25 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   //
   // ⚠ ONE LAYER AGAIN, NOW RUNNING TO $1B RATHER THAN TO THE SEVERITY CAP — see
   // the header. It answers every occurrence, attritional or catastrophe.
+  //
+  // ⚠ TWO KINDS OF COVER SINCE PROPERTY CATASTROPHE COVER. One per-occurrence
+  // layer treated a whole wildfire as one loss, so its $20M paid a sliver of a
+  // $175M event and the pool's required capital held almost all of the rest.
+  // Property now buys PER-RISK cover, applied to each claim, and CATASTROPHE
+  // cover, applied to each shock event's total after the per-risk recoveries:
+  //   per-risk      $20M xs $5M on every claim — routine large losses and each
+  //                 claim of an Earthquake, Winterstorm or Wildfire
+  //   catastrophe   cut at $75M so $50M xs $25M and $100M xs $25M are each
+  //                 whole layers; applies to EVENTS only — a routine claim
+  //                 involves a single risk and is the per-risk cover's
+  //                 alone (the two-risk rule in catastrophe treaties).
+  // Per-risk pays first, so the two can never recover more than the loss.
+  // The packages are PROPERTY_PER_RISK_OPTIONS (REINSURANCE_OPTIONS.Property)
+  // and PROPERTY_CATASTROPHE_OPTIONS in pricingParameters.
   Property: [
-    // 4a: cut at $25M, the edge of the $20M xs $5M and $25M xs $25M packages.
-    layer(PROPERTY_LOSS_MODEL.perRiskRetention, 25e6 - PROPERTY_LOSS_MODEL.perRiskRetention),
-    layer(25e6, PROPERTY_TOWER_TOP - 25e6),
+    layer(PROPERTY_LOSS_MODEL.perRiskRetention, 25e6 - PROPERTY_LOSS_MODEL.perRiskRetention, 'claim'),
+    layer(25e6, 50e6, 'event'),
+    layer(75e6, 50e6, 'event'),
   ],
 };
 
@@ -312,7 +338,9 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
 // the same number. An attritional claim still cannot exceed $75M, so
 // above-tower dollars come only from a single occurrence larger than $1B.
 // The top of the largest package on each line (loss engine commit 4a).
-export const TOWER_TOP: Record<TowerLine, number> = { WC: 15e6, GL: 15e6, Property: PROPERTY_TOWER_TOP };
+// Property's is the top of its catastrophe cover, $125M on an event's net total
+// (a routine claim's own top is the per-risk layer's, $25M).
+export const TOWER_TOP: Record<TowerLine, number> = { WC: 15e6, GL: 15e6, Property: 125e6 };
 
 // ============================================================================
 // THE RISK LOAD — one market parameter, not four chosen multiples.

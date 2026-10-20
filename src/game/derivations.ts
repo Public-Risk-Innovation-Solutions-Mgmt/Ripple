@@ -234,7 +234,7 @@ export function useGameDerivations(
         members: decisionLineBook,
         exposure: bookExposureOf(decisionLineBook, decisionLine, gameState.currentYearNumber),
         // The chosen package, as the tower reads it — the engine's own call.
-        layersPlaced: placementFor(decisionLine, d.reinsuranceOption),
+        layersPlaced: placementFor(decisionLine, d.reinsuranceOption, d.catastropheOption),
         aggregateStopLevel: AGGREGATE_NOT_OFFERED,
         pricingAdjustment: lineState.rateLevel / 100,
         priorPurePremiumPer100: lineState.purePremiumPer100,

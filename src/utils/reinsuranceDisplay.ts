@@ -79,13 +79,13 @@ export const resultUsesTower = (r: { cededByLayer?: number[] }): boolean =>
 // "2 — Moderate".
 export function placementSummary(
   line: CoverageLine,
-  decisions: Pick<LineDecisionSet, 'reinsuranceOption'>,
+  decisions: Pick<LineDecisionSet, 'reinsuranceOption' | 'catastropheOption'>,
 ): string {
   if (!hasTractableCeded(line)) {
     throw new Error(`placementSummary: ${line} has no tractable ceded reinsurance to summarize`);
   }
   // Checked against the line's packages — a stale or misspelt id throws.
-  placementFor(line, decisions.reinsuranceOption);
+  placementFor(line, decisions.reinsuranceOption, decisions.catastropheOption);
   return decisions.reinsuranceOption === 'none'
     ? 'Full retention — no reinsurance'
     : decisions.reinsuranceOption;
@@ -95,12 +95,12 @@ export function placementSummary(
 // package id, NONE for none.
 export function placementCode(
   line: CoverageLine,
-  decisions: Pick<LineDecisionSet, 'reinsuranceOption'>,
+  decisions: Pick<LineDecisionSet, 'reinsuranceOption' | 'catastropheOption'>,
 ): string {
   if (!hasTractableCeded(line)) {
     throw new Error(`placementCode: ${line} has no tractable ceded reinsurance to encode`);
   }
-  placementFor(line, decisions.reinsuranceOption);
+  placementFor(line, decisions.reinsuranceOption, decisions.catastropheOption);
   return decisions.reinsuranceOption === 'none' ? 'NONE' : decisions.reinsuranceOption;
 }
 

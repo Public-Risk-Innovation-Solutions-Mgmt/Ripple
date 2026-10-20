@@ -277,7 +277,7 @@ function factorTerm(value: number, label?: string): FormulaTerm {
 function towerReinsCostFormula(x: LineResultSet, perLinePlaced?: { line: CoverageLine; placed: number }[]): FormulaSpec {
   const placed = perLinePlaced
     ? perLinePlaced.reduce((n, pl) => n + pl.placed, 0)
-    : (x.decisions && x.line ? placementFor(x.line, x.decisions.reinsuranceOption) : []).filter(Boolean).length;
+    : (x.decisions && x.line ? placementFor(x.line, x.decisions.reinsuranceOption, x.decisions.catastropheOption) : []).filter(Boolean).length;
   const breakdown = perLinePlaced && perLinePlaced.length > 1
     ? ` (${perLinePlaced.map(pl => `${pl.line} ${pl.placed}`).join(', ')})`
     : '';
@@ -1624,7 +1624,7 @@ export function buildSupportingRows(
         totalMemberCharge: poolResult.byLine[l].totalMemberCharge,
         marketShare: poolResult.byLine[l].marketShare,
         layersPaid: (poolResult.byLine[l].cededByLayer ?? []).filter(v => v > 0).length,
-        placed: (poolResult.byLine[l].decisions ? placementFor(l, poolResult.byLine[l].decisions.reinsuranceOption) : []).filter(Boolean).length,
+        placed: (poolResult.byLine[l].decisions ? placementFor(l, poolResult.byLine[l].decisions.reinsuranceOption, poolResult.byLine[l].decisions.catastropheOption) : []).filter(Boolean).length,
       }))
     : undefined;
   const payrollUnits = Math.max(result.activeExposure * 10_000, 1);

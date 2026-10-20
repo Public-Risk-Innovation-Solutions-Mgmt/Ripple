@@ -263,7 +263,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       const exposure = (ls.bookExposure ?? 0) * exposureFactor(l, y);
       const c = computeFundingConsequence(d.fundingConfidenceLevel, ls.ratePer100, l, d.fundingAtExpected, {
         yearNumber: y, members: { exposure }, exposure,
-        layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+        layersPlaced: placementFor(l, d.reinsuranceOption, d.catastropheOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
         pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
         lossTrend: start.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
         riskControlPct: d.riskControlPct,

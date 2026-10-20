@@ -161,7 +161,7 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
               yearNumber: y,
               members,
               exposure,
-              layersPlaced: placementFor(line, dec.reinsuranceOption),
+              layersPlaced: placementFor(line, dec.reinsuranceOption, dec.catastropheOption),
               aggregateStopLevel: AGGREGATE_NOT_OFFERED,
               pricingAdjustment: lineState.rateLevel / 100,
               priorPurePremiumPer100: lineState.purePremiumPer100,
@@ -196,7 +196,7 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
           const eng = quoteLineRates({
             line, yearNumber: y, members, exposure, purePremiumPer100: pp, clf,
             pricingAdjustment: lineState.rateLevel / 100,
-            layersPlaced: placementFor(line, dec.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+            layersPlaced: placementFor(line, dec.reinsuranceOption, dec.catastropheOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
           });
 
           const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(Math.abs(b), 1e-9);
@@ -337,7 +337,7 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
             // the stored tower fields are the post-movement book's.
             members: BOOK_MODE ? { exposure } : pre[line].members,
             exposure,
-            layersPlaced: placementFor(line, dec.reinsuranceOption),
+            layersPlaced: placementFor(line, dec.reinsuranceOption, dec.catastropheOption),
             aggregateStopLevel: AGGREGATE_NOT_OFFERED,
             pricingAdjustment: ls.rateLevel / 100,
             priorPurePremiumPer100: ls.purePremiumPer100,
@@ -469,7 +469,7 @@ console.log('  the engine settles after it. Measured so the comment can state it
         const panel = computeFundingConsequence(
           dec.fundingConfidenceLevel, lineState.ratePer100, line, dec.fundingAtExpected,
           {
-            yearNumber: y, members, exposure, layersPlaced: placementFor(line, dec.reinsuranceOption),
+            yearNumber: y, members, exposure, layersPlaced: placementFor(line, dec.reinsuranceOption, dec.catastropheOption),
             aggregateStopLevel: AGGREGATE_NOT_OFFERED, pricingAdjustment: lineState.rateLevel / 100,
             priorPurePremiumPer100: lineState.purePremiumPer100,
             lossTrend: inst.lossEnvironment.lossTrend,
