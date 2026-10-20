@@ -173,8 +173,9 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
 
   // ---- ten worlds (loss engine commit 4b) ----------------------------------
-  // Lock a year; the Results page and the Decisions page then show the minimum,
-  // median and maximum ending surplus across the worlds beside the average.
+  // Lock a year; the solo Results page then shows the minimum, median and
+  // maximum ending surplus across the worlds beside the average. The Decisions
+  // page does not — players are never told about the worlds.
   const moneyOf = t => { const m = t.replace(/[$,\s]/g, ''); const v = parseFloat(m); return /K$/.test(m) ? v * 1e3 : /M$/.test(m) ? v * 1e6 : /B$/.test(m) ? v * 1e9 : v; };
   const readRange = async () => ({
     min: moneyOf(await page.textContent('[data-testid="worlds-surplus-range-min"]')),
@@ -198,13 +199,17 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   }
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1000);
-  const onDecisions = await page.$('[data-testid="worlds-surplus-range"]') !== null;
-  ok(onDecisions, 'Decisions: last year\'s ending surplus across the worlds is shown');
-  if (onDecisions) {
-    const r = await readRange();
-    console.log(`  decisions     : ${r.text}`);
-    ok(r.min <= r.median && r.median <= r.max, 'Decisions: min <= median <= max');
-  }
+  // ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS (the documents commit): the
+  // Decisions page carries no surplus range and no mention of worlds. The range
+  // stays in the session's posted results, for the host (host-teams holds that).
+  ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Decisions: no surplus range across the worlds');
+  const decisionsText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok(!/\bworlds?\b/i.test(decisionsText), 'Decisions: the page never mentions the worlds');
+  // Nor does the Annual Statement: its surplus-range row came off.
+  await page.getByRole('button', { name: /^Annual Statement$/ }).first().click();
+  await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 20000 });
+  const statementText = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+  ok(!/\bworlds?\b/i.test(statementText), 'Annual Statement: the page never mentions the worlds');
 
   console.log('\n  page errors   :', errs.length ? errs : 'none');
   ok(errs.length === 0, 'no page errors');

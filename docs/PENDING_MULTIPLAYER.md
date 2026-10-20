@@ -11,6 +11,25 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## 0. Rules for the player-facing documents
+
+- **The welcome memo never mentions funding levels, cushions, confidence
+  levels, parameters, market share, membership or other engine detail.** Every
+  figure in it is read from the game, never typed (the Pool's name, the policy
+  year entered, its lines and last year's closing surplus).
+- **How to Play explains what each decision is for, never how the engine
+  calculates it** — no percentiles, curves, retentions, layer structures,
+  pricing methods, interest rules, parameters or other engine detail.
+
+- **Players are never told about the worlds.** The game runs several worlds and
+  shows their average; no player-facing text says so. The Decisions page's
+  surplus-range lines ("Ending surplus, year n across 10 worlds: min · median ·
+  max" and "The figures shown are the average of the worlds") are gone. The
+  range stays in the session's posted results, for the host.
+
+The first two rules also stand at the top of each document's source
+(`src/data/documents/welcomeMemo.md`, `src/data/documents/howToPlay.md`).
+
 ## 1. The pool-level Underwriting memo
 
 **Ships with:** pool-level underwriting.
@@ -499,8 +518,7 @@ cushion over expected (`PRE_GAME_FUNDING_CUSHION`), on every line; players
 still default to expected. It was the 70% confidence level on each line's own
 CLF table (WC 1.1400, GL 1.1350, Property 1.1471) and is stated as the cushion
 since the funding tables commit, so re-deriving the tables no longer moves the
-pre-game. The welcome memo reads the constant: "funded 14% above the expected
-cost of its claims".
+pre-game. No player-facing text names the cushion.
 
 ### Funding tables on the new engine (funding tables commit)
 

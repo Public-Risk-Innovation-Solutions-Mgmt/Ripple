@@ -399,8 +399,8 @@ export function openingBandRatio(
  * true from year 1. A team that locks year 1 without touching the slider is
  * funding at expected where the prior board funded with a cushion, so their
  * first rate comes in BELOW the declared year before it. That drop is real,
- * it is the first thing the Decisions panel's change column reports, and the
- * welcome memo states the 14% so it reads as inheritance rather than error.
+ * it is the first thing the Decisions panel's change column reports. The
+ * welcome memo does not name the cushion: it carries no engine detail.
  */
 function preGameDecisionSet(yearNumber: number): DecisionSet {
   const d = defaultDecisionSet(yearNumber);

@@ -11,8 +11,6 @@ import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
-import WorldsSurplusRange from '../components/WorldsSurplusRange';
-import type { SurplusRange } from '../utils/worlds';
 import { occurrenceProgramCost } from '../utils/reinsuranceTower';
 import { placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
 import type { Book } from '../utils/lineHelpers';
@@ -41,8 +39,6 @@ interface DecisionsPageProps {
   onChange: (d: DecisionSet) => void;
   yearNumber: number;
   disabled?: boolean;
-  /** Last played year's ending surplus across the worlds, at this view's scope (loss engine commit 4b). */
-  lastSurplusRange?: SurplusRange;
   // 'pool' hosts the two pool-wide decisions (investment allocation, risk
   // control); each coverage line's tab edits that line's own decisions.
   lineView: LineView;
@@ -110,11 +106,11 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine): Decisi
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lastSurplusRange, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
-    return <PoolDecisionsView decisions={decisions} onChange={onChange} yearNumber={yearNumber} disabled={disabled} lastSurplusRange={lastSurplusRange} />;
+    return <PoolDecisionsView decisions={decisions} onChange={onChange} yearNumber={yearNumber} disabled={disabled} />;
   }
 
   // Stage 2.7: every active line's remaining decisions are edited on its own
@@ -216,7 +212,10 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
           <FundingConsequencePanel c={fundingConsequence} lastLineResult={lastLineResult} line={selectedLine} />
           <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
           <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
-          <WorldsSurplusRange range={lastSurplusRange} label={`Ending surplus, year ${yearNumber - 1}`} />
+          {/* ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS. The surplus-range line ("…
+              across 10 worlds: min · median · max" and "The figures shown are the
+              average of the worlds") came off; the range stays in the session's
+              posted results, for the host (docs/PENDING_MULTIPLAYER.md). */}
           {selectedLoanInfo.dividendBlocked && (
             <p className="text-xs text-red-600 -mt-3">Dividend blocked: this line carried a negative surplus in from last year.</p>
           )}
@@ -328,12 +327,11 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
 // Pool tab: the two pool-wide decisions. Portfolios remain segregated per
 // line (Stage 2.9) — every line applies this one allocation policy to its own
 // invested assets, and the one risk-control intensity to its own premium.
-function PoolDecisionsView({ decisions, onChange, yearNumber, disabled, lastSurplusRange }: {
+function PoolDecisionsView({ decisions, onChange, yearNumber, disabled }: {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
   yearNumber: number;
   disabled: boolean;
-  lastSurplusRange?: SurplusRange;
 }) {
   // ⚠ RESET DOES NOT CANCEL A PROGRAM, AND THAT IS DELIBERATE. This button
   // returns the year's POLICIES to their defaults. A risk-control program is a
@@ -360,7 +358,7 @@ function PoolDecisionsView({ decisions, onChange, yearNumber, disabled, lastSurp
           </button>
         )}
       </div>
-      <WorldsSurplusRange range={lastSurplusRange} label={`Pool ending surplus, year ${yearNumber - 1}`} />
+      {/* No worlds line here either — players are never told about the worlds. */}
 
       {/* ⚠ THE RISK CONTROL SLIDER IS RETIRED HERE, PENDING THE BOXES BELOW, AND
           THE FIELD IS LIVE AND PINNED.

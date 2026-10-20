@@ -1015,7 +1015,21 @@ const BASELINE = process.env.RENDER_BASELINE
 // package block; "Intake" reads "New business"; and the Indicated column's
 // vs-last-year cell is now measured against last year's final rate, the one
 // figure that moved (its percentage and the rate beneath it).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v62.json');
+// v63: THE WELCOME MEMO AND HOW TO PLAY REWRITTEN; THE WORLDS OFF THE
+// DECISIONS PAGE. The control ran first: ada3bf7, served on 4174, reproduced v62
+// 242 of 242. 23 of 242 moved, no key added or removed, no figure changed;
+// values and exports byte-identical. The 10 Introduction screens carry the new
+// memo and How to Play's new summary line — the memo's figures read from the
+// game (name, policy year, lines, last year's surplus to $0.1M), its multi-line
+// paragraph only on the multi-line games. The 13 year-2 Decisions screens lose
+// only the line "Ending surplus, year 2 across 10 worlds: min · median · max"
+// and "The figures shown are the average of the worlds."
+// v64: THE WORLDS OFF THE ANNUAL STATEMENT. The control ran first: 4192e4c,
+// served on 4174, reproduced v63 242 of 242. 26 of 242 moved — every Annual
+// Statement screen — no key added or removed, values and exports byte-identical.
+// Each loses one row and nothing else: "Ending surplus across the worlds (min ·
+// median · max)". Players are never told about the worlds.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v64.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
