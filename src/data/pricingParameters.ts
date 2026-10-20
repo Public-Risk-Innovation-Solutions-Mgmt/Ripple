@@ -143,19 +143,34 @@ export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
 export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.90;
 
 /**
- * DEVELOPMENT SPEED — per line, 1.0 on every line, AND NOTHING READS IT YET.
+ * DEVELOPMENT SPEED — per line: WC and GL 1.5, Property 1.0.
  *
  * 1.0 is the recorded paid and incurred patterns as they are. Above 1.0 both
  * patterns are compressed in time by the factor, keeping their shape: the
  * share paid at age t becomes the recorded share at age speed x t, and the
  * same for the share reported, so case reserves (reported less paid) and IBNR
- * (unreported) stay consistent with each other at every age.
+ * (unreported) stay consistent with each other at every age. Applied where the
+ * patterns are defined (paidDevelopmentPatterns.ts), so every reader of a
+ * pattern reads the compressed one.
  *
- * ⚠ WC AND GL ARE JUDGED TOO SLOW and are to be sped up; the value is still to
- * be chosen. Property stays at 1.0. Left at 1.0 everywhere so that nothing moves
- * until a value is chosen and the patterns are wired to read it.
+ * ⚠ WC AND GL AT 1.5 BECAUSE THE RECORDED PATTERNS WERE JUDGED TOO SLOW.
+ * Property stays at 1.0.
+ *
+ * ⚠ THE RATE MOVES A LITTLE, AND FOR TWO REASONS, BOTH MEASURED AND ACCEPTED.
+ * Pricing develops paid to ultimate on the same compressed pattern, so in
+ * expectation it prices the same ultimate and every year-1 rate is unchanged
+ * bit for bit. Later years drift, and only through development:
+ *   - faster payment brings the host's adverse development into the pricing
+ *     window sooner, so rates catch up to it sooner. Over the same 100 solo
+ *     seeds, rates rose by up to +0.06% on WC and +0.2% to +0.9% on GL by year;
+ *   - faster payment leaves less open balance for a shock's R development to
+ *     act on, so a year with WC Reform, Legislation, Nuclear Verdict or Social
+ *     Inflation behind it develops less and prices slightly lower. With the
+ *     host's development at zero, every rate that still moved (45 game-years of
+ *     1,000 on WC, 184 on GL) came after such a shock, and none without one:
+ *     WC -0.04% and GL -0.41% by year 10.
  */
-export const DEVELOPMENT_SPEED: PerLine<number> = { WC: 1.0, GL: 1.0, Property: 1.0 };
+export const DEVELOPMENT_SPEED: PerLine<number> = { WC: 1.5, GL: 1.5, Property: 1.0 };
 
 /** The combined dividend / assessment control: negative is an assessment. */
 export const DIVIDEND_ASSESSMENT_RANGE = { min: -0.15, max: 0.15, step: 0.01, default: 0 };
@@ -1117,9 +1132,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: perLine(DEVELOPMENT_SPEED, 2), unit: 'x the recorded patterns\' pace',
         what: '1.0 is the recorded paid and incurred patterns as they are; above 1.0 compresses both in time '
           + 'by that factor, keeping their shape, so case reserves and IBNR stay consistent.',
-        basis: 'CHOSEN', notYetUsed: true,
-        note: 'WC and GL are judged too slow and are to be sped up; the value is still to be chosen. '
-          + 'Property stays at 1.0. Left at 1.0 on every line so nothing moves.',
+        basis: 'CHOSEN',
+        note: 'WC and GL at 1.5 because the recorded patterns were judged too slow; Property at 1.0. '
+          + 'Applied where the patterns are defined, so payments, case and IBNR, the pricing LDFs, the '
+          + 'opening and its bulk years, the pre-game and the host\'s development all read the compressed patterns. '
+          + 'Year-1 rates are unchanged; later rates move slightly because faster payment brings the host\'s adverse '
+          + 'development into pricing sooner, and leaves less open balance for shock R development to act on.',
       }],
       ['CLF tables', {
         value: 'per line, in clfTables.ts', unit: 'multiplier on expected loss',

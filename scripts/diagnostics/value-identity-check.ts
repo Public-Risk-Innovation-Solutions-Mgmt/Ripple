@@ -1223,7 +1223,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // premium and ratios move; the pre-game funds at a 14% cushion (GL and Property
 // were 1.135 and 1.1471). The reinsurance cost moves in its last bit only
 // (1 + 0.14 against 1.14), as do marketShare and investmentReturnRate.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v74.json');
+// v75: DEVELOPMENT SPEED — WC AND GL DEVELOP 1.5x FASTER. The control ran
+// first: da5a3e5 reproduced v74 exactly. Shape unchanged; 14,484 instances moved
+// across 78 fields, none an identity (expectedCombinedRatio still 1 on all 150;
+// surplusTieOutDifference moves by float noise only, e.g. 0 -> 7.5e-9). What
+// moved, and why: paid losses, paydown, case and IBNR (net, gross and ceded),
+// the net and LAE reserves, and the funding targets and reserve margin read
+// off them, because the compressed patterns pay faster and hold less unpaid;
+// opening and later surplus, invested assets and investment income, because a
+// smaller opening reserve sets a smaller required capital and opening surplus;
+// and the pure premium and rates from year 2 on, by the two causes recorded
+// at DEVELOPMENT_SPEED (the host's development priced sooner; less open balance
+// for shock R development). Year-1 rates are unchanged.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v75.json');
 
 function seedOf(id: string) {
   let h = 5381;
