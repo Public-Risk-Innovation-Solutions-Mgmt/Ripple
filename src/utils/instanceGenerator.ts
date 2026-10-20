@@ -27,6 +27,7 @@ import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
 import { SHOCK_EVENTS } from './shockLosses';
 import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE, regionByShare } from '../data/pricingParameters';
+import { openingBookUnits } from './bookUnits';
 import { exposureFactor } from '../data/exposureTrend';
 
 // Each active line independently enrolls its own starting members. First it
@@ -671,6 +672,11 @@ export function generateStartingPoolState(
     // through processYear (see priorHistoryEngine), which is why members carry
     // history at Year 1 rather than starting blank.
     memberLossHistory: {},
+    // The opening book of units, from the game's seed (bookUnits.ts). On its
+    // own labelled streams: drawing it moves no other draw.
+    ...(bookMode ? {
+      bookUnits: Object.fromEntries(activeLines.map(l => [l, openingBookUnits(instance.seed, l)])),
+    } : {}),
   };
 
   const startingFinancials: StartingFinancials = {

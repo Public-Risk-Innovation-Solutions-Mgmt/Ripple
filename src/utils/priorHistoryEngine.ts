@@ -47,6 +47,7 @@ import type {
   StartingFinancials,
 } from '../types/simulation';
 import { generateStartingPoolState } from './instanceGenerator';
+import { openingBookUnits } from './bookUnits';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { OPENING_SURPLUS_BAND } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults } from './simulationEngine';
@@ -861,6 +862,11 @@ export function runPriorHistory(
     interLineLoans: [],
     membershipHistory,
     memberLossHistory,
+    // The book of units, ONCE, from the GAME's seed — whatever attempt a line's
+    // pre-game was accepted on (bookUnits.ts). Never shown.
+    ...(MEMBER_LEVEL.enabled ? {} : {
+      bookUnits: Object.fromEntries(setup.activeLines.map(l => [l, openingBookUnits(instance.seed, l)])),
+    }),
   };
 
   // Pool-level pre-game history = per-year aggregate across the active lines.

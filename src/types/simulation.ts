@@ -2273,6 +2273,14 @@ export interface PoolState {
   // membershipHistory, and discarding a save over an additive field would be a
   // worse trade.
   memberLossHistory?: MemberLossHistory;
+  /**
+   * THE BOOK OF UNITS EACH LINE HOLDS — indices into the line's market
+   * (bookUnits.ts), which is regenerated from the game seed and never stored.
+   * ONCE PER GAME: on the game's own pool state, never on a world's or in a
+   * year's record — every world holds the same book. Absent with MEMBER_LEVEL
+   * on, and on saves from before book units. Never shown.
+   */
+  bookUnits?: Partial<Record<CoverageLine, number[]>>;
 }
 
 // Top-level game state

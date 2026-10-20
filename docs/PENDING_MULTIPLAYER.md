@@ -377,6 +377,30 @@ the parameters page as well, which is where it bites.
 **Multiplayer:** scheduled by the host, as today. **Singleplayer:** drawn by the
 catalogue's own probabilities. No probability is consulted in multiplayer.
 
+### Book units
+
+**The market and the book are drawn (book units commit 2); nothing reads them
+yet.** Each line's exposure is split across individual units — `BookUnit`,
+`src/utils/bookUnits.ts`, never called members and never shown on any screen,
+export or host view; every result stays at line level.
+
+- **Market:** 200 units a line from the game seed — size CV 40% (summing
+  exactly to the full market), true risk CV 30% (size-weighted mean exactly
+  1.0), regions by share, and a noise draw for underwriting's view of risk.
+- **Book:** the market in a seeded order until it first reaches 30% of the
+  market's exposure — 51-69 units, about 60.5 on average. Across seeds its
+  mean risk runs 0.94-1.06. With the planned 2% shared and 10% unit factors on
+  ordinary losses, its line-level CV is about 2.47% (it is 2.2% today).
+- **Stored once per game** as unit indices on the game's pool state
+  (`PoolState.bookUnits`); no world's state or year's record carries it. The
+  market is regenerated from the seed.
+- The book sums to slightly more than today's opening exposure (WC and GL
+  start at 30.1% and 28.8% of the market, Property 29.7%; the book is 30% plus
+  the last unit's overshoot). That reaches the game when the engine reads it.
+
+Still to come: ordinary losses from units, underwriting on units, large
+losses on units, and the new-business penalty.
+
 ### Regions
 
 **Four since book units** — North 25%, South 30%, Central 25%, East 20% of every

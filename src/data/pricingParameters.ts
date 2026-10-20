@@ -633,6 +633,28 @@ export const FULL_MARKET_EXPOSURE: PerLine<number> = {
 };
 
 /**
+ * BOOK UNITS — each line's exposure split across individual units
+ * (src/utils/bookUnits.ts). NOT members: the dormant member engine has its own
+ * roster; units are never shown on any screen, export or host view. All
+ * CHOSEN, the R model's own shapes.
+ *
+ *   UNIT_MARKET_COUNT  units in each line's market, drawn from the game seed
+ *   UNIT_SIZE_CV       the spread of unit sizes; the market sums exactly to
+ *                      FULL_MARKET_EXPOSURE
+ *   UNIT_RISK_CV       the spread of true risk scores; the market's
+ *                      size-weighted mean is exactly 1.0
+ *   UNIT_POOL_SHARE    the opening book: units in a seeded order until it
+ *                      first reaches this share of the market — about 60
+ *
+ * ⚠ READ BY NOTHING YET (book units commit 2): the book is drawn and stored,
+ * and every loss, rate and movement still runs on the line's one exposure.
+ */
+export const UNIT_MARKET_COUNT = 200;
+export const UNIT_SIZE_CV = 0.40;
+export const UNIT_RISK_CV = 0.30;
+export const UNIT_POOL_SHARE = 0.30;
+
+/**
  * NEW BUSINESS A YEAR, AS A SHARE OF THE CURRENT BOOK, PER INTAKE POSITION —
  * CHOSEN, A STARTING POINT. No New Business, Strict, Moderate, Low. The R model
  * wrote about 5 prospects in 100 a year, which is Moderate; today's member
@@ -1383,6 +1405,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: `Property: ${REINSURANCE_OPTIONS.Property.map(o => o.id).join(' · ')}. GL's $25M pool limit still `
           + 'applies. The tower is cut at every package\'s edges, so each package is whole tower layers.',
+      }],
+      ['Book units', {
+        value: `${UNIT_MARKET_COUNT} units a line; size CV ${(100 * UNIT_SIZE_CV).toFixed(0)}%, risk CV `
+          + `${(100 * UNIT_RISK_CV).toFixed(0)}%; the book ${(100 * UNIT_POOL_SHARE).toFixed(0)}% of the market`,
+        unit: 'per line',
+        what: 'Each line\'s market split into units drawn from the game seed: sizes summing to the full market, '
+          + 'true risk scores averaging 1.0 by size, regions by share. The opening book is the market in a '
+          + 'seeded order until it reaches the pool share — about 60 units. Never shown.',
+        basis: 'CHOSEN',
+        note: 'The R model\'s shapes. Read by nothing yet: the book is drawn and stored once per game, and the '
+          + 'engine still runs on each line\'s one exposure.',
       }],
       ['Default package', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,

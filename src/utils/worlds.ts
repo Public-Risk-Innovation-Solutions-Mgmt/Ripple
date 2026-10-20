@@ -68,10 +68,22 @@ export function worldInstance(instance: GameInstance, i: number): GameInstance {
 export function openWorlds(gs: GameState): GameState {
   const n = worldCount();
   if (n <= 1) return gs;
+  const opening = withoutBook(gs.poolState);
   return {
     ...gs,
-    worlds: Array.from({ length: n }, () => ({ poolState: gs.poolState, lockedResults: gs.lockedResults })),
+    worlds: Array.from({ length: n }, () => ({ poolState: opening, lockedResults: gs.lockedResults })),
   };
+}
+
+// ⚠ THE BOOK OF UNITS IS THE GAME'S, NOT A WORLD'S. Every world holds the same
+// book (underwriting is shared; only loss draws differ), so it is kept once, on
+// the game's pool state (PoolState.bookUnits): a world's state never carries a
+// copy, and the averaged state takes the game's, not world 1's.
+function withoutBook(ps: PoolState): PoolState {
+  if (ps.bookUnits === undefined) return ps;
+  const { bookUnits: _book, ...rest } = ps;
+  void _book;
+  return rest;
 }
 
 // ----------------------------------------------------------------------------
@@ -158,7 +170,8 @@ export function settleWorldsYear(gs: GameState, played: WorldsYear, authorizedLi
   const prior = gs.lockedResults[gs.lockedResults.length - 1] ?? gs.priorHistory[gs.priorHistory.length - 1];
   const result = averageResultSets(settled.map(s => s.result), gs.setup.activeLines, prior,
     gs.worlds.map(w => w.poolState));
-  const poolState = averagePoolStates(worlds, gs.setup.activeLines, gs.currentYearNumber);
+  const averaged = averagePoolStates(worlds, gs.setup.activeLines, gs.currentYearNumber);
+  const poolState = gs.poolState.bookUnits ? { ...averaged, bookUnits: gs.poolState.bookUnits } : averaged;
   return { poolState, result, worlds };
 }
 

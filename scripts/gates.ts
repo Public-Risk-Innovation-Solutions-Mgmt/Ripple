@@ -183,6 +183,9 @@ const FAST: string[] = [
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
+  'book-units-market-check',         //   3s   each line's market of units and the opening book: sizes to the full
+                                     //         market, size and risk CVs, risk centred at 1.0, regions by share,
+                                     //         the 30% book, determinism, kept once per game; six controls
   // ⚠ THREE GATES FORKED BACK FROM DORMANT onto the new engine (book mode).
   // Their member-path originals stay dormant as *-member-check; these cover
   // what the new engine uses — pooled fields and the reinsurance tower — each
