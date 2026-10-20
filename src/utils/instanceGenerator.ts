@@ -26,8 +26,7 @@ import {
 import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
 import { SHOCK_EVENTS } from './shockLosses';
-import { CAT_REGIONS } from './propertyCatastrophe';
-import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE } from '../data/pricingParameters';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE, regionByShare } from '../data/pricingParameters';
 import { exposureFactor } from '../data/exposureTrend';
 
 // Each active line independently enrolls its own starting members. First it
@@ -326,7 +325,8 @@ function withRegions(seed: number, schedule: readonly ScheduledShock[]): Schedul
     if (!SHOCK_EVENTS.find(e => e.id === s.shockId)!.regional) return base;
     if (s.region) return { ...base, region: s.region };
     const rng = deriveSubRng(seed, s.yearNumber, `shock_region_${s.shockId}_${ordinal}`);
-    return { ...base, region: CAT_REGIONS[Math.min(2, Math.floor(rng.next() * 3))] };
+    // By exposure share (regionByShare), one uniform as before.
+    return { ...base, region: regionByShare(rng.next()) };
   });
 }
 

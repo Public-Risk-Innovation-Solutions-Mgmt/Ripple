@@ -79,8 +79,9 @@ for (const [line, ordinary, unlimited] of rows) {
 // so this count times that conditional mean excess IS the "waits for shocks"
 // share above, by construction rather than by fit.
 //
-// REGION_EXPOSURE_SHARE: each line's exposure split across the game's three
-// regions on today's roster.
+// REGION EXPOSURE SHARE, today's roster — FOR THE RECORD ONLY since book
+// units. The game's REGION_EXPOSURE_SHARE is now the R model's four regions,
+// CHOSEN; this roster has three and cannot produce them.
 // ============================================================================
 console.log('\nROUTINE LARGE LOSSES — claims above the ordinary limit, full market, year 1\n');
 for (const line of ['WC', 'GL', 'Property'] as const) {

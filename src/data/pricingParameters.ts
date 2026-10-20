@@ -37,7 +37,7 @@
 // page lists them, read from their own modules — rather than relocated.
 // ============================================================================
 
-import { CoverageLine } from '../types/simulation';
+import { CoverageLine, Region } from '../types/simulation';
 
 export type ParameterBasis = 'SOURCED' | 'CHOSEN';
 
@@ -550,19 +550,33 @@ export const ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M: PerLine<number> = {
 };
 
 /**
- * EACH LINE'S EXPOSURE SPLIT ACROSS THE GAME'S THREE REGIONS — SOURCED.
+ * THE GAME'S FOUR REGIONS AND EACH ONE'S SHARE OF EXPOSURE — CHOSEN, the R
+ * model's own (R_MODEL.regions), the same on every line.
  *
- * Read once from today's 200-member roster by the derivation script. A
- * regional event's A applies to its region's share of the line's ordinary
- * losses, read from HERE rather than from the book a team happens to hold —
- * the engine is leaving members behind (commit 5), and exposure by region has
- * to be a property of the line when it does.
+ * ⚠ FOUR SINCE BOOK UNITS, AND NO LONGER SOURCED. The three regions were read
+ * from today's 200-member roster (North 35.2%, Central 34.4%, South 30.4%);
+ * that roster has no East, so re-running its derivation cannot give four.
+ * The R model's uplift ranges were set for these four, so adopting them
+ * restores its calibration.
+ *
+ * A REGIONAL EVENT STRIKES ONE REGION, DRAWN BY THIS SHARE (regionByShare), and
+ * its A reaches that region's share of the line's ordinary losses. Its T is
+ * not cut: it lands whole in the struck region. Drawn by share, the expected
+ * share an event reaches is the sum of the squares, 0.255, where three
+ * near-equal regions drawn uniformly gave 0.334 — so a regional event's
+ * expected A falls by about 23.5%. Nothing else moves.
  */
-export const REGION_EXPOSURE_SHARE: PerLine<Readonly<Record<'North' | 'Central' | 'South', number>>> = {
-  WC: { North: 0.352177, Central: 0.343909, South: 0.303914 },
-  GL: { North: 0.352177, Central: 0.343909, South: 0.303914 },
-  Property: { North: 0.352290, Central: 0.338421, South: 0.309289 },
+export const GAME_REGIONS: readonly Region[] = ['North', 'South', 'Central', 'East'];
+export const REGION_EXPOSURE_SHARE: Readonly<Record<Region, number>> = {
+  North: 0.25, South: 0.30, Central: 0.25, East: 0.20,
 };
+
+/** The region a share-weighted draw `u` in [0, 1) lands on: one uniform, cumulative by GAME_REGIONS. */
+export function regionByShare(u: number): Region {
+  let acc = 0;
+  for (const r of GAME_REGIONS) { acc += REGION_EXPOSURE_SHARE[r]; if (u < acc) return r; }
+  return GAME_REGIONS[GAME_REGIONS.length - 1];
+}
 
 /**
  * HOW MANY LARGE LOSSES EACH EVENT'S T ARRIVES AS — CHOSEN, A STARTING POINT.
@@ -1274,15 +1288,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'GL the pool keeps 2.352, the rest lying above its $25M limit.',
       }],
       ['Region exposure share', {
-        value: (['WC', 'GL', 'Property'] as const).map(l => `${l} `
-          + (['North', 'Central', 'South'] as const).map(r => `${r} ${(100 * REGION_EXPOSURE_SHARE[l][r]).toFixed(1)}%`).join(' / ')).join(' · '),
-        unit: 'share of the line\'s exposure',
-        what: 'Each line\'s exposure split across the game\'s three regions. A regional event\'s A reaches only '
-          + 'its region\'s share of ordinary losses.',
-        basis: 'SOURCED',
-        note: 'Read once from today\'s roster. A regional T is NOT cut to the share: it is the event\'s own '
-          + 'size and lands whole on members in the struck region, drawn by exposure. The region is drawn '
-          + 'uniformly per firing and is the same on every line the event reaches.',
+        value: GAME_REGIONS.map(r => `${r} ${(100 * REGION_EXPOSURE_SHARE[r]).toFixed(0)}%`).join(' · '),
+        unit: 'share of each line\'s exposure',
+        what: 'The game\'s four regions and each one\'s share of exposure, the same on every line. A regional '
+          + 'event strikes one region, drawn by this share, and its A reaches only that region\'s share of '
+          + 'ordinary losses.',
+        basis: 'CHOSEN',
+        note: 'The R model\'s four regions, adopted with book units; they replace three read from today\'s '
+          + 'roster (35.2 / 34.4 / 30.4%). Drawn by share, the expected share an event reaches is 0.255 '
+          + 'against 0.334 before, so a regional event\'s expected A falls about 23.5%. A regional T is NOT '
+          + 'cut to the share: it lands whole in the struck region. The region is the same on every line the '
+          + 'event reaches.',
       }],
       ['Large losses per event', {
         value: Object.entries(SHOCK_LOSS_COUNT).map(([e, by]) =>
@@ -1470,11 +1486,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'No individual members. Exposure is the unit, and underwriting moves it in and out.',
       }],
       ['Regions', {
-        value: R_MODEL.regions, unit: 'share of members', basis: 'CHOSEN', notYetUsed: true,
-        status: 'SUPERSEDED',
+        value: R_MODEL.regions, unit: 'share of members', basis: 'CHOSEN', status: 'ADOPTED',
         what: 'Four regions, with a membership share each, for regional shocks.',
-        note: 'The game has three — North, Central, South — already in the type system. Each line\'s split '
-          + 'across them is REGION_EXPOSURE_SHARE, read from today\'s roster.',
+        note: 'Adopted with book units as REGION_EXPOSURE_SHARE, as exposure shares; a regional event strikes '
+          + 'one region drawn by share.',
       }],
       ['Premium growth', {
         value: R_MODEL.premiumGrowthPerYear, unit: 'per year', basis: 'CHOSEN', notYetUsed: true,

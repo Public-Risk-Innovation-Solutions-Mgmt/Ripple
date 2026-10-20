@@ -76,9 +76,11 @@ export function upliftMoments(line: CoverageLine, yearNumber: number): {
   const byEvent = new Map<string, number>();
   let mean = 0, variance = 0;
   if (yearNumber < 1) return { mean: 0, second: 0, byEvent };
-  const shares = Object.values(REGION_EXPOSURE_SHARE[line]);
-  const sMean = shares.reduce((a, b) => a + b, 0) / shares.length;
-  const sSecond = shares.reduce((a, b) => a + b * b, 0) / shares.length;
+  // The struck region is drawn BY SHARE (regionByShare), so the share an event
+  // reaches has E[s] = sum of w·s and E[s²] = sum of w·s², with w = s.
+  const shares = Object.values(REGION_EXPOSURE_SHARE);
+  const sMean = shares.reduce((a, s) => a + s * s, 0);
+  const sSecond = shares.reduce((a, s) => a + s * s * s, 0);
   for (const e of SHOCK_EVENTS) {
     const rows: { m1: number; m2: number }[] = [];
     if (e.name === 'Economic Inflation') {

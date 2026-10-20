@@ -1192,7 +1192,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // with its steadier history and its ex-ante reinsurance price. NOT moved: any
 // game year's rate, pure premium or premium — year 1 prices off the five
 // played pre-game years, whose losses are the same draws.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v70.json');
+// v71: FOUR REGIONS (book units commit 1). The control ran first: 8c370a9
+// reproduced v70 exactly. Shape unchanged; 10,631 instances moved across 86
+// fields, none an identity. A regional event now strikes one of four regions
+// drawn by exposure share (25/30/25/20), so the expected share its A reaches
+// falls from 0.334 to 0.255: expected loss and the pure premium and rate struck
+// from it move a little (Property year 1 -0.25%, WC and GL under $2K), and a
+// fired event's A lands on a different share — its ultimate, net incurred,
+// reserves, surplus and what they drive move with it.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v71.json');
 
 function seedOf(id: string) {
   let h = 5381;

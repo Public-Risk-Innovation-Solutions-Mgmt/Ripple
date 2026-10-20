@@ -767,7 +767,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // and what it holds and earns (investments, cash, investment income, net
 // income, the capital rows). Never moved: every rate, pure premium, premium,
 // admin, reinsurance cost and expected-ceded row.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v76.json');
+// v77: FOUR REGIONS (book units commit 1; see VALUE_IDENTITY_v71). The control
+// ran first: 8c370a9 reproduced v76 24 of 24. All 24 exports move, no row
+// added or removed: expected loss and the pure premium and rates struck from
+// it; and where a regional event fired, the region it strikes (the Shock
+// Events sheet: the same Winterstorm now strikes South, not Central), the
+// share its A reaches, and the losses, reserves and surplus downstream.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v77.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

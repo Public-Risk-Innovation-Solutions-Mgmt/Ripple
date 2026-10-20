@@ -48,7 +48,7 @@
 // ============================================================================
 
 import {
-  MEMBER_LEVEL, ORDINARY_LOSS_LIMIT, R_MODEL, REGION_EXPOSURE_SHARE, REINSURANCE_LOAD_CLF_AT_70, ROUTINE_LARGE_LOSSES,
+  GAME_REGIONS, MEMBER_LEVEL, ORDINARY_LOSS_LIMIT, R_MODEL, REGION_EXPOSURE_SHARE, REINSURANCE_LOAD_CLF_AT_70, ROUTINE_LARGE_LOSSES,
   ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
@@ -70,7 +70,7 @@ import {
   cedeAboveLocal, conditionalEventMoments, expectedLossBreakdown, layerCession, newEngineLayerMoments,
 } from '../../src/utils/shockExpectation';
 import { SeededRandom } from '../../src/utils/random';
-import type { CoverageLine, GameInstance, GameState, ResultSet, PoolState } from '../../src/types/simulation';
+import type { CoverageLine, GameInstance, GameState, Region, ResultSet, PoolState } from '../../src/types/simulation';
 import type { ScheduledShock } from '../../src/types/shocks';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -120,7 +120,7 @@ function play(seed: number, years: number, schedule: ScheduledShock[] | null) {
 }
 
 /** A firing built by hand, for drawing one event's losses on demand. */
-function firing(eventName: string, year: number, t: number, region?: 'North' | 'Central' | 'South'): EventFiring {
+function firing(eventName: string, year: number, t: number, region?: Region): EventFiring {
   const event = SHOCK_EVENTS.find(e => e.name === eventName)!;
   const d = { a: 0.5, r: 0.5, t };
   return { event, firedYear: year, ordinal: 0, ...(region ? { region } : {}), draws: { WC: d, GL: d, Property: d } };
@@ -306,12 +306,39 @@ try {
       const f = sy.inForce[0].firing;
       for (const line of LINES) {
         const row = eventLines('Earthquake').find(r => r.line === line)!;
-        const want = within(R_MODEL.aShock[line][row.a as Exclude<ShockLevel, 'None'>], f.draws[line].a) * REGION_EXPOSURE_SHARE[line][f.region!];
+        const want = within(R_MODEL.aShock[line][row.a as Exclude<ShockLevel, 'None'>], f.draws[line].a) * REGION_EXPOSURE_SHARE[f.region!];
         worst = Math.max(worst, Math.abs(sy.byLine[line].uplift - want));
         n++;
       }
     }
     check(worst < 1e-15, 'a regional A is its draw x its region\'s exposure share', `${n} line-firings, worst ${worst.toExponential(2)}`);
+  }
+  {
+    // THE STRUCK REGION IS DRAWN BY EXPOSURE SHARE, over the game's four
+    // regions — in the schedule (generateGameInstance) and in the catalogue's
+    // own draw (firingsStartingIn) alike.
+    const N = 8_000;
+    const sched = new Map<string, number>(), cat = new Map<string, number>();
+    for (let s = 0; s < N; s++) {
+      const inst = generateGameInstance(`RGN${s}`, 70_000 + s * 7, [{ shockId: '#2', yearNumber: 1 }]);
+      const r = inst.scheduledShocks![0].region!;
+      sched.set(r, (sched.get(r) ?? 0) + 1);
+      const f = firingsStartingIn({ seed: 90_000 + s * 13 } as GameInstance, 'catalogue', 1).find(x => x.event.regional);
+      if (f?.region) cat.set(f.region, (cat.get(f.region) ?? 0) + 1);
+    }
+    const worstZ = (m: Map<string, number>) => {
+      const total = [...m.values()].reduce((a, b) => a + b, 0);
+      return Math.max(...GAME_REGIONS.map(r => {
+        const p = REGION_EXPOSURE_SHARE[r], f = (m.get(r) ?? 0) / total;
+        return Math.abs(f - p) / Math.sqrt(p * (1 - p) / total);
+      }), [...m.keys()].some(k => !GAME_REGIONS.includes(k as never)) ? Infinity : 0);
+    };
+    const show = (m: Map<string, number>) => GAME_REGIONS.map(r => `${r} ${(100 * (m.get(r) ?? 0) / [...m.values()].reduce((a, b) => a + b, 0)).toFixed(1)}%`).join(' ');
+    check(worstZ(sched) < Z && worstZ(cat) < Z, 'the struck region is drawn by exposure share, over four regions',
+      `schedule ${show(sched)} (worst ${worstZ(sched).toFixed(2)} SE); catalogue ${show(cat)} (worst ${worstZ(cat).toFixed(2)} SE)`);
+    // The control: a uniform draw over the four is caught.
+    const uniform = new Map(GAME_REGIONS.map(r => [r as string, N / 4]));
+    check(!(worstZ(uniform) < Z), 'control: a uniform draw over the four regions is caught', `worst ${worstZ(uniform).toFixed(2)} SE`);
   }
   {
     let off = 0, landed = 0;
@@ -328,6 +355,20 @@ try {
       }
     }
     check(off === 0 && landed > 0, 'every loss of a regional T lands in the struck region', `${landed} losses, ${off} outside`);
+  }
+  {
+    // On the book (no roster) — the game as it runs — over all four regions.
+    let off = 0, landed = 0;
+    for (const name of ['Earthquake', 'Winterstorm', 'Wildfire']) {
+      for (const region of GAME_REGIONS) {
+        for (let i = 0; i < 10; i++) {
+          const d = drawLargeLosses('Property', null, Y, 2028, 4_000 + i,
+            arrivalYear(name, 'Property', firing(name, Y, (i + 0.5) / 10, region)), exposureOf('Property', Y));
+          for (const o of d.occurrences) { landed++; if (o.region !== region) off++; }
+        }
+      }
+    }
+    check(off === 0 && landed > 0, 'on the book, every regional T lands in the struck region, all four', `${landed} occurrences, ${off} outside`);
   }
 
   // --------------------------------------------------------------------------

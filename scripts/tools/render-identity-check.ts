@@ -966,7 +966,12 @@ const BASELINE = process.env.RENDER_BASELINE
 // Diffed as text, the only change of WORDING is the Annual Statement's note,
 // which now says the older accident years are on the books from the first
 // pre-game year and what paid-in and earned surplus are.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v55.json');
+// v56: FOUR REGIONS (book units commit 1). The control ran first: 8c370a9,
+// served on 4174, reproduced v55 242 of 242. 18 of 242 moved, no key added or
+// removed, every one in its figures only: the Calculation Audit and Result
+// Spreadsheet screens in each configuration, which show expected loss and the
+// pure premium unrounded. No wording changed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v56.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

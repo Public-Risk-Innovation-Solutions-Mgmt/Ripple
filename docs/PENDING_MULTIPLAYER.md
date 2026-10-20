@@ -379,8 +379,14 @@ catalogue's own probabilities. No probability is consulted in multiplayer.
 
 ### Regions
 
-The game's three. Each line's exposure is split across them, and **a regional A
-or T hits that region's share only**. **R shocks stay pool-wide**, because the
+**Four since book units** — North 25%, South 30%, Central 25%, East 20% of every
+line's exposure (`REGION_EXPOSURE_SHARE`, the R model's own; the three read from
+today's roster are retired). A regional event strikes one region, **drawn by
+exposure share**, and its A reaches that region's share of ordinary losses; its
+T lands whole in the struck region. Drawn by share, the expected share an event
+reaches is 0.255 (it was 0.334 over three near-equal regions drawn uniformly),
+so a regional event's expected A falls about 23.5%; nothing else was
+re-calibrated. The dormant member engine keeps its own three (`CAT_REGIONS`). **R shocks stay pool-wide**, because the
 reserve ledger has no regional split — the R model refuses a regional R for the
 same reason.
 

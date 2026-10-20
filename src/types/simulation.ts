@@ -22,9 +22,12 @@ export type MemberType =
 
 export type SizeCategory = 'Small' | 'Medium' | 'Large' | 'Very Large';
 
-// Geographic region, an authored canonical-roster column since v2 (replacing a
-// synthetic 1-5 draw). Three regions, assigned 72 / 61 / 67 across the roster.
-export type Region = 'North' | 'Central' | 'South';
+// Geographic region. The GAME has four since book units: North, South, Central
+// and East at REGION_EXPOSURE_SHARE (pricingParameters). The dormant member
+// roster's authored column holds the first three only (72 / 61 / 67 across the
+// roster) and its catastrophe model keeps its own three-region list
+// (CAT_REGIONS); East never appears there.
+export type Region = 'North' | 'Central' | 'South' | 'East';
 
 export interface Member {
   id: string;

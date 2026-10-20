@@ -49,8 +49,9 @@
 // not cut to the region's share, because a disaster is sized by what happened
 // rather than by how the book is split — and every loss lands on a member in
 // the struck region, drawn in proportion to exposure. A region is drawn for
-// every regional firing, uniformly, from the firing's own stream; one event's
-// region is the same on every line it touches.
+// every regional firing BY ITS EXPOSURE SHARE (regionByShare, four regions
+// since book units; it was uniform over three), from the firing's own stream;
+// one event's region is the same on every line it touches.
 //
 // TIMING. Multiplayer: the host's schedule (setup.shockTiming === 'host').
 // Singleplayer: the schedule the game drew once at its start, by the same rule
@@ -68,10 +69,9 @@
 // ============================================================================
 
 import {
-  POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
+  GAME_REGIONS, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES, regionByShare,
   SEVERITY_TREND_PER_YEAR, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
-import { CAT_REGIONS } from './propertyCatastrophe';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
 import { ordinaryLossCostPer100 } from './ordinaryLoss';
@@ -185,7 +185,7 @@ export function firingsStartingIn(instance: GameInstance, timing: ShockTiming, y
     // still the world's own and nothing but the region moves. The drawn region
     // stands only where there is no scheduled one: catalogue timing, and a save
     // from before regions were scheduled.
-    const drawn = event.regional ? CAT_REGIONS[Math.min(2, Math.floor(rng.next() * 3))] : undefined;
+    const drawn = event.regional ? regionByShare(rng.next()) : undefined;
     const region = event.regional ? (scheduled ?? drawn) : undefined;
     const draws = {} as EventFiring['draws'];
     for (const line of LINES) draws[line] = { a: rng.next(), r: rng.next(), t: rng.next() };
@@ -246,7 +246,7 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
       for (const row of eventLines(e.name)) {
         const d = firing.draws[row.line];
         if (row.a !== 'None') {
-          const share = firing.region ? REGION_EXPOSURE_SHARE[row.line][firing.region] : 1;
+          const share = firing.region ? REGION_EXPOSURE_SHARE[firing.region] : 1;
           add(row.line, within(R_MODEL.aShock[row.line][row.a], d.a) * decay * share, 0);
         }
         if (row.r !== 'None') add(row.line, 0, within(R_MODEL.rShock[row.r], d.r) * decay);
@@ -324,14 +324,14 @@ function pickMember(rng: SeededRandom, pool: { m: Lander; w: number }[], total: 
 
 /**
  * The pool losses land on, weighted by exposure. With no roster it is the
- * book's three regions at REGION_EXPOSURE_SHARE — or just the struck region
+ * book's four regions at REGION_EXPOSURE_SHARE — or just the struck region
  * for a regional T, which lands whole there.
  */
 function weighted(members: readonly Member[] | null, line: CoverageLine, yearNumber: number, region?: Region) {
   const pool: { m: Lander; w: number }[] = members === null
-    ? CAT_REGIONS
+    ? GAME_REGIONS
       .filter(r => !region || r === region)
-      .map(r => ({ m: { id: BOOK_MEMBER_ID, region: r }, w: REGION_EXPOSURE_SHARE[line][r] }))
+      .map(r => ({ m: { id: BOOK_MEMBER_ID, region: r }, w: REGION_EXPOSURE_SHARE[r] }))
     : members
       .filter(m => !region || m.region === region)
       .map(m => ({ m: m as Lander, w: getMemberExposure(m, line, yearNumber) }))
