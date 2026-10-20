@@ -434,23 +434,52 @@ place-or-decline on each band:
 |---|---|
 | GL | none · **$9M xs $1M** · $5M xs $5M · $14M xs $1M · $10M xs $5M |
 | WC | the same as GL |
-| Property | none · **$20M xs $5M** · $45M xs $5M · $25M xs $25M |
+| Property, per-risk (each claim) | none · **$20M xs $5M** |
+| Property, catastrophe (each event's remainder) | none · $50M xs $25M · **$100M xs $25M** |
 
-**Bold is the default** — the middle option, a parameter marked chosen — for
-players and for the pre-game's prior board.
+**Bold is the default** — a parameter marked chosen — for players and for the
+pre-game's prior board.
+
+**Property buys two kinds of cover since Property catastrophe cover.** Its one
+per-occurrence layer treated a whole wildfire as one loss, so its $20M paid a
+sliver of a $175M event and Property's required capital held almost all the
+rest; it opened at about $182M. Now:
+
+- **Per-risk** ($20M xs $5M) applies to EACH CLAIM: a routine large loss, and
+  each claim of an Earthquake, Winterstorm or Wildfire.
+- **Catastrophe** ($50M xs $25M or $100M xs $25M) applies to each EVENT's
+  total after the per-risk recoveries on its claims — never to a routine
+  large claim alone, which involves a single risk (the two-risk rule). Per-risk
+  pays first, so the two cannot recover more than the loss.
+- **An earthquake's $10M deductible is a coverage term**: it comes off the
+  event's ground-up total first, spread over its claims in proportion to size,
+  before any reinsurance. The pool never holds it. (Before, the pool kept the
+  ground-up loss and the deductible only raised the layer's attachment.)
+- **Winterstorm is one event**, like Earthquake and Wildfire: booked at its
+  drawn total and held there.
+- **Required capital is net of the cover held**: the retained-catastrophe
+  charge is what one event leaves after both kinds in force, so a pool that
+  buys less needs more surplus. Property opens at 2x its full requirement net
+  of the default cover, about $69M.
+- **Pricing**: each part priced as every layer — expected recovery on the
+  catalogue's probabilities x the CLF at 70%, ex ante — the catastrophe layer
+  behind the per-risk cover chosen.
+- **What a team posts**: `catastropheOption` beside `reinsuranceOption` on
+  Property; the host Decisions tab shows both. Saves moved to v16.
+- property-cat-cover-check is the gate.
 
 - **A package is a set of whole tower layers.** The tower is re-cut at every
   package's edges — WC and GL $4M xs $1M, $5M xs $5M, $5M xs $10M (top
-  $15M); Property retention to $25M, then $25M xs $25M (top $50M) — so each
+  $15M); Property $20M xs $5M per claim, then $50M xs $25M and $50M xs $75M on
+  each event's remainder (top $125M) — so each
   package is a preset placement, and `reinsuranceOptions.ts` checks at load
   that every package tiles whole layers. Cession and price are therefore
   computed exactly as before: each placed layer's expected recovery on the
   new engine's large losses, at the line's CLF at 70%. GL's $25M pool limit
   still applies, so GL retains $15M-$25M on any package.
-- **Property's earthquake keeps its own $10M retention per occurrence**
-  (`PROPERTY_PERIL_DEDUCTIBLE`, unchanged), so a package attaching below it
-  answers an earthquake from $10M up: $20M xs $5M gives $15M of cover against
-  one. The Decisions page says so beside the packages.
+- **Property's earthquake kept its own $10M retention per occurrence** until
+  Property catastrophe cover, which made it a coverage deductible taken off
+  the event first (above).
 - **What a team posts changes:** `reinsuranceOption` (the package id, or
   `none`) replaces `layersPlaced` and `aggregateStopLevel` on the wire, and the
   host Decisions tab shows each line's package. The handler deploys first —

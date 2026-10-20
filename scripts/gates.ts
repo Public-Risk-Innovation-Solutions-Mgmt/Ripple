@@ -182,6 +182,10 @@ const FAST: string[] = [
   'property-cat-check',              //  19s   the EXACT cat distribution against an INDEPENDENT event simulation
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
+  'property-cat-cover-check',        //  20s   Property's two kinds of cover: per-risk on each claim, catastrophe on
+                                     //         each event's remainder and never a routine claim, never more than
+                                     //         the loss, every price expected recovery x CLF 70%, capital net of
+                                     //         the cover held; drawn units, live games, six controls
   'property-claim-check',            //   3s
   // ⚠ THREE GATES FORKED BACK FROM DORMANT onto the new engine (book mode).
   // Their member-path originals stay dormant as *-member-check; these cover

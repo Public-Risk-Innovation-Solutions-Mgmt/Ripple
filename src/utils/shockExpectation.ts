@@ -19,14 +19,21 @@
 // over the years it could have had — year 1 carries no inherited A, year 3
 // carries up to two years of decay.
 //
-// ⚠ TWO APPROXIMATIONS, STATED. Earthquake, Wildfire and Winterstorm are one
-// event each, so the tower sees SUMS of their losses. A sum is priced as a
-// lognormal with its own mean and CV (Fenton-Wilkinson): the event's total,
-// and — for Property's catastrophe layer — what the per-risk layer leaves of
-// it. And an earthquake's deductible is taken off each claim at the share
-// it would keep of an event of exactly T (1 − d/T), where the draw takes it
-// at the share of the event it drew. The draw sums the individual lognormals
-// exactly; shock-loss-check and property-cat-cover-check measure the gaps.
+// ⚠ APPROXIMATIONS, STATED. Earthquake, Wildfire and Winterstorm are one
+// event each, so the tower sees SUMS of their losses, and a sum is not
+// integrated exactly:
+//   - an event's total is priced as a lognormal with its own mean and CV
+//     (Fenton-Wilkinson);
+//   - what Property's per-risk layer leaves of an event, n·a − D + B, is
+//     priced with D (the claims' shortfall below the per-risk attachment) a
+//     fitted lognormal and B (their excess above its top) by how many claims
+//     exceed it — one exactly, more as a fitted lognormal — the two taken as
+//     independent (conditionalEventTiers);
+//   - an earthquake's deductible is taken off each claim at the share it
+//     would keep of an event of exactly T (1 − d/T), where the draw takes it
+//     at the share of the event it drew.
+// The draw sums the individual lognormals exactly; shock-loss-check and
+// property-cat-cover-check hold each layer's expectation to the draws.
 // ============================================================================
 
 import { REINSURANCE_TOWER, type TowerLayer, type TowerLine } from '../data/reinsuranceTower';
@@ -35,6 +42,7 @@ import {
   SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
 import { pwlMoments, lognormalFromMean, routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
+import { normalCdf } from './claimMath';
 import { ordinaryLossCostPer100 } from './ordinaryLoss';
 import { DECAY, SHOCK_EVENTS, eventDeductible, eventLines, poolShare, tScale, trendFactor, type ShockLevel } from './shockLosses';
 import type { CoverageLine } from '../types/simulation';
@@ -66,6 +74,25 @@ function overUniform(lo: number, hi: number, f: (t: number) => number): number {
   for (let i = 0; i < GL_N; i++) s += GL_WEIGHTS[i] * f((hi + lo) / 2 + ((hi - lo) / 2) * GL_NODES[i]);
   return s / 2;
 }
+/** P(K = j) for K ~ Binomial(n, p), in logs so a small p or a large n stays finite. */
+function binomialPmf(n: number, j: number, p: number): number {
+  if (p <= 0) return j === 0 ? 1 : 0;
+  if (p >= 1) return j === n ? 1 : 0;
+  let lc = 0;
+  for (let i = 1; i <= j; i++) lc += Math.log((n - j + i) / i);
+  return Math.exp(lc + j * Math.log(p) + (n - j) * Math.log(1 - p));
+}
+/** overUniform's nodes and weights, for a caller taking several expectations from each node. */
+function uniformNodes(lo: number, hi: number): [number, number][] {
+  if (!(hi > lo)) return [[lo, 1]];
+  return GL_NODES.map((x, i) => [(hi + lo) / 2 + ((hi - lo) / 2) * x, GL_WEIGHTS[i] / 2]);
+}
+/** E[f(Z)] for Z standard normal, as nodes and weights: the same rule on [−6, 6] against the density, renormalised. */
+const STD_NORMAL_NODES: [number, number][] = (() => {
+  const raw = GL_NODES.map((x, i) => [6 * x, 6 * GL_WEIGHTS[i] * Math.exp(-18 * x * x) / Math.sqrt(2 * Math.PI)] as [number, number]);
+  const total = raw.reduce((s, [, w]) => s + w, 0);
+  return raw.map(([z, w]) => [z, w / total]);
+})();
 
 // --- the uplift on ordinary losses -----------------------------------------
 
@@ -292,9 +319,10 @@ export function expectedLossBreakdown(
 //
 //   per-risk layer L     n·E[L(Y)], second moment n·E[L(Y)²] + n(n−1)·E[L(Y)]²
 //   what per-risk leaves N = Σ r(Y_i), r(y) = y − Σ placed per-risk L(y):
-//                        mean n·E[r], variance n·Var[r], fitted lognormal
-//   catastrophe layer C  E[C(N)] on that lognormal
-//   the pool keeps       N − Σ placed C(N), on the same lognormal
+//                        with the band [a, b) placed, n·a − D + B (see
+//                        conditionalEventTiers); with none, the event's total
+//   catastrophe layer C  E[C(N)]
+//   the pool keeps       E[N − Σ placed C(N)]
 //
 // and each is integrated over T uniform, at the event's probability.
 
@@ -331,42 +359,120 @@ export function conditionalEventTiers(
   const n = SHOCK_LOSS_COUNT[eventName]?.[line] ?? 0;
   const ded = eventDeductible(line, eventName, true);
   const [lo, hi] = R_MODEL.tShock[line][row.t as Exclude<ShockLevel, 'None'>];
+  // ⚠ MEMOISED ON EVERY NUMBER THE ANSWER READS — the event's scale, count,
+  // CV, range and deductible, the pool limit and each layer's bounds and
+  // whether it is in force — never on the year or the exposure as such, so a
+  // harness that changes a parameter gets a fresh answer, not a stale one. A
+  // Property price reads these for each event; worlds sharing a book, and the
+  // Decisions panel re-rendering, ask the same question many times.
+  const key = [line, eventName, scale, n, SHOCK_LOSS_CV, lo, hi, ded, poolKinks(line).join(','),
+    perRisk.map((l, i) => `${l.attachment}:${l.limit}:${perRiskInForce[i] ? 1 : 0}`).join(','),
+    cat.map((l, i) => `${l.attachment}:${l.limit}:${catInForce[i] ? 1 : 0}`).join(',')].join('|');
+  const hit = TIERS_CACHE.get(key);
+  if (hit) return hit;
   const prOn = perRisk.filter((_l, i) => perRiskInForce[i]);
   const catOn = cat.filter((_l, i) => catInForce[i]);
+  const pk = poolKinks(line);
   const r = (y: number) => poolShare(line, y) - prOn.reduce((a, l) => a + cedeTo(poolShare(line, y), l), 0);
+  // The per-risk cover in force as ONE band [a, b), when it is one — every
+  // option offered is. Then what per-risk leaves of a claim is
+  // a − (a − y)⁺ + (y − b)⁺, and of the event n·a − D + B.
+  const a = prOn.length ? Math.min(...prOn.map(l => l.attachment)) : 0;
+  const b = prOn.length ? Math.max(...prOn.map(l => l.attachment + l.limit)) : 0;
+  const oneBand = prOn.length > 0 && pk.length === 0 && Math.abs(prOn.reduce((s, l) => s + l.limit, 0) - (b - a)) < 1e-6;
   const zero = (): EventTiers => ({ perRisk: perRisk.map(() => ({ c1: 0, c2: 0 })), cat: cat.map(() => ({ c1: 0, c2: 0 })), retained: { c1: 0, c2: 0 } });
   const perT = (tModel: number): EventTiers => {
     const T = tModel * scale;
     const k = ded > 0 ? Math.max(0, 1 - ded / T) : 1;
     if (!(k > 0) || !(T > 0) || n <= 0) return zero();
     const y = lognormalFromMean((k * T) / n, SHOCK_LOSS_CV);
-    const pk = poolKinks(line);
     const sumOf = (m: { m1: number; m2: number }): EventMoment => ({ c1: n * m.m1, c2: n * m.m2 + n * (n - 1) * m.m1 * m.m1 });
     const pr = perRisk.map(l => sumOf(pwlMoments(y.mu, y.sigma, 0, [...pk, ...boundsKinks([l])], x => cedeTo(poolShare(line, x), l))));
-    const rm = pwlMoments(y.mu, y.sigma, 0, [...pk, ...boundsKinks(prOn)], r);
-    const mean = n * rm.m1, variance = Math.max(0, n * (rm.m2 - rm.m1 * rm.m1));
-    if (!(mean > 0)) return { ...zero(), perRisk: pr };
-    const N = lognormalFromMean(mean, Math.sqrt(variance) / mean);
-    const on = (h: (x: number) => number, ks: number[]): EventMoment => {
-      const m = pwlMoments(N.mu, N.sigma, 0, ks, h);
-      return { c1: m.m1, c2: m.m2 };
-    };
+    // E and E[^2] of g(N) for each g the catastrophe side needs.
+    let onN: (g: (x: number) => number, ks: number[]) => EventMoment;
+    if (oneBand) {
+      // N = n·a − D + B: D the event's shortfall below the per-risk
+      // attachment, B its excess above the per-risk top, each a sum of n
+      // independent parts (a lognormal fitted to N whole spreads it across
+      // the band's edges, where the sum bunches). D is a fitted lognormal; B
+      // is taken by its count, below. D and B are taken as independent: one
+      // claim adds to at most one of them, so their covariance is
+      // −n·E[d]·E[b], small.
+      const fit = (m: { m1: number; m2: number }) => {
+        const mean = n * m.m1, v = Math.max(0, n * (m.m2 - m.m1 * m.m1));
+        return mean > 1e-9 * a ? { mean, ...lognormalFromMean(mean, Math.sqrt(v) / mean) } : null;
+      };
+      const D = fit(pwlMoments(y.mu, y.sigma, 0, [a], x => Math.max(0, a - x)));
+      // B BY HOW MANY CLAIMS EXCEED b: most events have none, so B is zero
+      // with a large mass and a lognormal fits it badly. K ~ Binomial(n, p);
+      // one excess is exact (the claim's own lognormal above b); two or more
+      // are a fitted lognormal of their sum. Every count to n, skipping those
+      // too unlikely to move a dollar.
+      const pAbove = 1 - normalCdf((Math.log(b) - y.mu) / y.sigma);
+      const ex = pAbove > 0 ? pwlMoments(y.mu, y.sigma, b, [], x => x - b) : { m1: 0, m2: 0 };
+      const e1 = pAbove > 0 ? ex.m1 / pAbove : 0, e2 = pAbove > 0 ? ex.m2 / pAbove : 0;
+      const K_MAX = n;
+      const binom: number[] = [];
+      for (let j = 0; j <= n; j++) binom.push(binomialPmf(n, j, pAbove));
+      const base = n * a;
+      onN = (g, ks) => {
+        const inner = (delta: number) => {
+          const shift = base - delta;
+          const v0 = g(shift);
+          let m1 = binom[0] * v0, m2 = binom[0] * v0 * v0;
+          for (let j = 1; j <= K_MAX; j++) {
+            const pj = binom[j];
+            if (!(pj > 1e-12)) continue;
+            let r1: { m1: number; m2: number };
+            if (j === 1) {
+              const raw = pwlMoments(y.mu, y.sigma, b, ks.map(q => q - shift + b), x => g(shift + x - b));
+              r1 = { m1: raw.m1 / pAbove, m2: raw.m2 / pAbove };
+            } else {
+              const mean = j * e1, v = Math.max(0, j * (e2 - e1 * e1));
+              const S = lognormalFromMean(mean, Math.sqrt(v) / mean);
+              r1 = pwlMoments(S.mu, S.sigma, 0, ks.map(q => q - shift), x => g(shift + x));
+            }
+            m1 += pj * r1.m1; m2 += pj * r1.m2;
+          }
+          return { m1, m2 };
+        };
+        if (!D) { const m = inner(0); return { c1: m.m1, c2: m.m2 }; }
+        let c1 = 0, c2 = 0;
+        for (const [z, w] of STD_NORMAL_NODES) {
+          const m = inner(Math.exp(D.mu + D.sigma * z));
+          c1 += w * m.m1; c2 += w * m.m2;
+        }
+        return { c1, c2 };
+      };
+    } else {
+      // Otherwise N whole, fitted lognormal (Fenton-Wilkinson).
+      const rm = pwlMoments(y.mu, y.sigma, 0, [...pk, ...boundsKinks(prOn)], r);
+      const mean = n * rm.m1, variance = Math.max(0, n * (rm.m2 - rm.m1 * rm.m1));
+      if (!(mean > 0)) return { ...zero(), perRisk: pr };
+      const N = lognormalFromMean(mean, Math.sqrt(variance) / mean);
+      onN = (g, ks) => { const m = pwlMoments(N.mu, N.sigma, 0, ks, g); return { c1: m.m1, c2: m.m2 }; };
+    }
     return {
       perRisk: pr,
-      cat: cat.map(l => on(x => cedeTo(x, l), boundsKinks([l]))),
-      retained: on(x => x - catOn.reduce((a, l) => a + cedeTo(x, l), 0), boundsKinks(catOn)),
+      cat: cat.map(l => onN(x => cedeTo(x, l), boundsKinks([l]))),
+      retained: onN(x => x - catOn.reduce((s, l) => s + cedeTo(x, l), 0), boundsKinks(catOn)),
     };
   };
-  const avg = (pick: (t: EventTiers) => EventMoment): EventMoment => ({
-    c1: overUniform(lo, hi, t => pick(perT(t)).c1),
-    c2: overUniform(lo, hi, t => pick(perT(t)).c2),
-  });
-  return {
-    perRisk: perRisk.map((_l, i) => avg(t => t.perRisk[i])),
-    cat: cat.map((_l, i) => avg(t => t.cat[i])),
-    retained: avg(t => t.retained),
-  };
+  // Each T node once, every quantity accumulated from it.
+  const out = zero();
+  const add = (acc: EventMoment, m: EventMoment, w: number) => { acc.c1 += w * m.c1; acc.c2 += w * m.c2; };
+  for (const [t, w] of uniformNodes(lo, hi)) {
+    const at = perT(t);
+    at.perRisk.forEach((m, i) => add(out.perRisk[i], m, w));
+    at.cat.forEach((m, i) => add(out.cat[i], m, w));
+    add(out.retained, at.retained, w);
+  }
+  if (TIERS_CACHE.size >= TIERS_CACHE_LIMIT) TIERS_CACHE.clear();
+  TIERS_CACHE.set(key, out);
+  return out;
 }
+const TIERS_CACHE = new Map<string, EventTiers>();
+const TIERS_CACHE_LIMIT = 4096;
 
 /** The tower's layers split by kind, bounds scaled, with what is in force. */
 function tieredLayers(line: TowerLine, placed: readonly boolean[] | null, boundsScale = 1) {
