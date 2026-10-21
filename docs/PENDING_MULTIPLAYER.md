@@ -518,7 +518,8 @@ starts the pre-game with `STARTING_CAPITAL` ($5M) paid in, and the prior
 board funds all five pre-game years at ONE margin over expected, solved per
 scenario and line so that surplus ends exactly at the scenario's opening
 (year-1 premium at Expected / its premium-to-surplus ratio). It may solve
-below expected: on WC it does in 15 of the 20 scenarios. Players still default
+below expected: on WC it did in 15 of the 20 scenarios with profit and
+contingency at 5%, and does in 2 of 20 with it at 0. Players still default
 to expected.
 
 **The year-1 rate step.** A team that locks year 1 untouched funds at

@@ -249,8 +249,29 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
       fail(`${r.line} y${r.year}: reinsurance IS grossed up by the divisor`);
     }
   }
-  if (withReins === 0) fail('assertion 4b tested nothing — no row carried both reinsurance and a divisor');
-  console.log(`  reinsurance-outside-the-divisor tested on ${withReins} row(s); `
+  // ⚠ AND ON A DIRECT QUOTE, because the played rows may carry no divisor at
+  // all: with risk control off and profit and contingency at 0 (since the
+  // contingency went to 0), every played divisor is exactly 1 and the loop
+  // above skips them all. A quote with the risk-control slider at 10% and the
+  // Bad-year cover bought has both, on every line.
+  let direct = 0;
+  for (const line of LINES) {
+    const q = quoteNewRateStack({
+      line, yearNumber: 1, members: [], exposure: line === 'Property' ? 9000 : 900,
+      groundUpPurePremiumPer100: line === 'Property' ? 0.30 : 3.0, clf: 1,
+      riskControlPct: 0.10, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'bad-year',
+    });
+    if (!(q.reinsRatePer100 > 1e-6) || Math.abs(q.divisor - 1) < 1e-12) continue;
+    direct++;
+    const correct = (q.retainedPurePremiumPer100 * q.clf + q.adminRatePer100) / q.divisor + q.reinsRatePer100;
+    const grossed = (q.retainedPurePremiumPer100 * q.clf + q.adminRatePer100 + q.reinsRatePer100) / q.divisor;
+    worstGap = Math.min(worstGap, Math.abs(correct - grossed));
+    if (Math.abs(q.finalRatePer100 - correct) > 1e-12) fail(`${line} direct: the implemented rate is not the designed formula`);
+    if (Math.abs(q.finalRatePer100 - grossed) < EPS) fail(`${line} direct: reinsurance IS grossed up by the divisor`);
+  }
+  if (direct !== LINES.length) fail(`assertion 4b's direct quote carried reinsurance and a divisor on ${direct} of ${LINES.length} lines`);
+  if (withReins + direct === 0) fail('assertion 4b tested nothing — no row carried both reinsurance and a divisor');
+  console.log(`  reinsurance-outside-the-divisor tested on ${withReins} played row(s) and ${direct} direct quote(s); `
     + `smallest gap between the two forms ${worstGap.toFixed(4)} per $100`);
 }
 

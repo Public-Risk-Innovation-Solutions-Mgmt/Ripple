@@ -357,8 +357,13 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
 /**
  * PROFIT AND CONTINGENCY — a share of the rate. May be set to 0.
  * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor).
+ * ⚠ SET TO 0 ON EVERY LINE (stable-scenarios, before Pause C2's checks), from
+ * 5%: under default play with shocks off, pool surplus more than tripled over
+ * ten years ($61.6M -> $194M, the twenty-scenario mean), and the pool should
+ * not plan on a margin from pricing. Year-1 premium fell about 5.3%, so the
+ * exposure was re-scaled with it (EXPOSURE_SCALE).
  */
-export const PROFIT_AND_CONTINGENCY_OF_RATE = 0.05;
+export const PROFIT_AND_CONTINGENCY_OF_RATE = 0;
 
 /**
  * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
@@ -533,6 +538,10 @@ export const preGameLossMultiplier = (scenario: number): number =>
  * reserves earn the 3% too, so investment is 55-77% of its growth and its
  * margin solves below expected in 15 of 20 scenarios (-7.0% to +2.3%). The
  * price is a thin first pre-game year: premium to surplus about 4.4-5.5.
+ * ⚠ THAT TABLE WAS MEASURED WITH PROFIT AND CONTINGENCY AT 5%. At 0 the solved
+ * margins rise by about the 5% the rate no longer carries: at $5M, 58 of 60
+ * are at or above expected, WC below in 2 of 20 (-2.7% to +7.1%), investment
+ * 57-81% of WC's growth; first pre-game year premium to surplus 4.5-5.6.
  */
 export const STARTING_CAPITAL: PerLine<number> = { WC: 5_000_000, GL: 5_000_000, Property: 5_000_000 };
 
@@ -915,8 +924,11 @@ export const SHOCK_LOSS_CV = 0.5;
  * ⚠ AND AGAIN, from WC 2.236 / GL 1.604 / Property 0.534, once the cover's full
  * price was charged with nothing netted off the claims cost: the year-1 rate
  * rose 0.7% / 2.1% / 2.6%, and premium with it to $30.3M / $31.0M / $31.0M.
+ * ⚠ AND A THIRD TIME, from WC 2.211 / GL 1.549 / Property 0.515, once profit
+ * and contingency went to 0: premium on the same books fell to $28.38M /
+ * $28.44M / $28.47M.
  */
-export const EXPOSURE_SCALE: PerLine<number> = { WC: 2.211, GL: 1.549, Property: 0.515 };
+export const EXPOSURE_SCALE: PerLine<number> = { WC: 2.342, GL: 1.640, Property: 0.546 };
 
 const scaled = (base: PerLine<number>): PerLine<number> =>
   ({ WC: base.WC * EXPOSURE_SCALE.WC, GL: base.GL * EXPOSURE_SCALE.GL, Property: base.Property * EXPOSURE_SCALE.Property });
@@ -1766,6 +1778,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: PROFIT_AND_CONTINGENCY_OF_RATE, unit: 'share of rate',
         what: 'In the rate\'s divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance. May be set to 0.',
         basis: 'CHOSEN',
+        note: 'Set to 0 on every line, from 5%: under default play with shocks off, pool surplus more than tripled over '
+          + 'ten years ($61.6M to $194M, the twenty-scenario mean), and the pool should not plan on a margin from pricing. '
+          + 'Year-1 premium fell about 5%, so the exposure scale was re-set with it.',
       }],
       ['Reinsurance load', {
         value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
@@ -1819,7 +1834,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'above expected (45 of 60, against 19 at $10M and 1 at $15M) and the most growth from the margin (40 of 60; '
           + 'investment\'s median share 42%). WC stays the exception: its long reserves earn the 3% too, so investment '
           + 'is 55-77% of its growth and its margin solves below expected in 15 of 20 scenarios. The first pre-game year '
-          + 'is thin: premium to surplus about 4.4-5.5.',
+          + 'is thin: premium to surplus about 4.4-5.5. Those counts were with profit and contingency at 5%; at 0 the '
+          + 'margins rise by about that 5%: 58 of 60 at or above expected, WC below in 2 of 20 (-2.7% to +7.1%).',
       }],
       ['Prior board\'s margin', {
         value: 'solved, per scenario and line', unit: 'over expected (CLF 1 + this)',
@@ -2004,7 +2020,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the mean over seeds). It multiplies the whole market, so the book keeps about 30% of it.',
         basis: 'CHOSEN',
         note: 'Scales everything tied to exposure — ordinary losses, the shocks\' large losses, the stop\'s terms — '
-          + 'and nothing fixed in dollars: the fixed admin, the GL pool limit, the peril deductibles, the opening surplus.',
+          + 'and nothing fixed in dollars: the fixed admin, the GL pool limit, the peril deductibles, the opening surplus. '
+          + 'Last re-set from WC 2.211 / GL 1.549 / Property 0.515 when profit and contingency went to 0.',
       }],
       ['Full-market exposure', {
         value: perLine(FULL_MARKET_EXPOSURE, 3), unit: '$M of exposure, base year',
