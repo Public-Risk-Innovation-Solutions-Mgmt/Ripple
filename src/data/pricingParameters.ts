@@ -1292,6 +1292,30 @@ export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
  */
 export const SHOCK_SCHEDULE_SPREAD = 1;
 
+/**
+ * THE STEADY CATASTROPHE LOAD (stable-scenarios commit 7). ON: each accident
+ * year's shock dollars — the uplift on its ordinary losses and the shocks'
+ * large losses, as booked — are recorded on its ledger row and taken OUT of
+ * the experience pure premium's history, on the paid basis before development
+ * (the share of them paid by that age). In their place the rate carries a
+ * steady load: the shocks' expected cost per $100 at the catalogue's
+ * probabilities, trended at the line's booked cost level, charged in every
+ * year from the pre-game on (newPurePremium's catastropheLoadPer100). Shock R
+ * development stays in the history — it is development on open years, not a
+ * shock's own dollars.
+ *
+ * ⚠ WHY: a shock in the five-year window lifted the rate for five years and a
+ * quiet window under-priced the next one; the load charges the same expected
+ * cost every year instead.
+ */
+export const CATASTROPHE_LOAD = { enabled: true };
+/**
+ * The year the load is struck at, then trended to each year: the first in
+ * which every event's duration can be in force (the catalogue's longest is 3
+ * years), so the load is the steady state rather than year 1's partial one.
+ */
+export const CATASTROPHE_LOAD_STEADY_YEAR = Math.max(...R_MODEL.catalogue.map(([, , d]) => d as number));
+
 const rRange = (r: readonly [number, number] | readonly number[], pct = true) =>
   pct ? `${(r[0] * 100).toFixed(0)}%-${(r[1] * 100).toFixed(0)}%`
       : `$${(r[0] / 1e6).toFixed(0)}M-$${(r[1] / 1e6).toFixed(0)}M`;
@@ -1874,6 +1898,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'then −1, 0 or +1, equally likely, never fewer than one and at most one a year from year 2 — 2 to 4 in '
           + 'a ten-year game.', basis: 'CHOSEN',
         note: 'Was one event per three years, rounded. Year 1 stays shock-free.',
+      }],
+      ['Catastrophe load', {
+        value: CATASTROPHE_LOAD.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'Each accident year\'s shock dollars (the uplift on ordinary losses and the shocks\' large losses, as '
+          + 'booked) are taken out of the experience pure premium, on the paid basis before development, and priced '
+          + 'instead as a steady load: their expected cost per $100 at the catalogue\'s probabilities, struck at year '
+          + `${CATASTROPHE_LOAD_STEADY_YEAR} (every duration in force) and trended at the line's booked cost level, `
+          + 'charged from the pre-game on.',
+        basis: 'CHOSEN',
+        note: 'Shock R development stays in the history. Struck on the line\'s typical book. A shock in the window no '
+          + 'longer lifts the rate for five years, and a quiet window no longer under-prices the next.',
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',

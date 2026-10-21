@@ -799,7 +799,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // v83: STABLE-SCENARIOS BLOCK A (see VALUE_IDENTITY_v77). The control ran
 // first: 061b476 reproduced v82 24 of 24. All 24 move, no row added or
 // removed, and each moved at commits 1, 2 and 3 in turn; commit 4 moved none.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v83.json');
+// v84: STABLE-SCENARIOS BLOCK B (see VALUE_IDENTITY_v78). The control ran
+// first: ab87580 reproduced v83 24 of 24. All 24 move, no row added or
+// removed, and each moved at commits 5, 6 and 7 in turn.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v84.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

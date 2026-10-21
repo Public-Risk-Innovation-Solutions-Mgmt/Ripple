@@ -1264,7 +1264,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // trend per line, booked up to reporting): every loss, paid, reserve and rate
 // again, and Property's catCapitalNeeded. surplusTieOutDifference moves from 0
 // to -1.5e-8 at commit 2: float rounding.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v77.json');
+// v78: STABLE-SCENARIOS BLOCK B (commits 5-7). The control ran first: ab87580
+// reproduced v77. Shape unchanged; 19,753 instances moved across 92 fields,
+// none an identity, attributed by running the check at each commit in turn:
+// 46 fields moved at commits 5, 6 and 7; 22 at 5 and 6; 15 at 5 only; 6 at 5
+// and 7; 3 at 6 only. Commit 5 (shocks at 0.3 a year, the schedule's count):
+// every loss, LAE and reserve figure and the expected loss. Commit 6 (the
+// aggregate stop): the recoveries, ceded and net reserves, the reinsurance
+// cost and Property's catastrophe capital — aggregateRecovery,
+// reinsuranceRecovery and priorYearDevelopmentCeded at it alone. Commit 7 (the
+// catastrophe load): the pure premium and the first indication.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v78.json');
 
 function seedOf(id: string) {
   let h = 5381;

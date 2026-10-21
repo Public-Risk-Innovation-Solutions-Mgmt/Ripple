@@ -2406,6 +2406,12 @@ export function processLineYear(
   const grossUnpaidCurrentYear = grossRegisterBooked * openFraction;
   const grossPaidCurrentYear = grossRegisterBooked * (1 - openFraction);
 
+  // THE YEAR'S SHOCK DOLLARS, BOOKED GROSS (stable-scenarios commit 7): the
+  // year's gross less its ordinary losses — the uplift on them and the shocks'
+  // large losses — on the booked basis.
+  const shockGrossAtBooking = ordinaryYear
+    ? Math.max(0, bookedGrossContraction * (aggregateMemberLoss - ordinaryYear.realised * newBusinessPenaltyFactor))
+    : 0;
   const currentYearCohort: ReserveCohort = {
     yearNumber,
     calendarYear,
@@ -2427,6 +2433,9 @@ export function processLineYear(
     developmentBench: markdown.bench.length > 0 ? markdown.bench : undefined,
     cededDevelopmentToDate: markdown.giveBack,
     placedAtInception,
+    // The year's shock dollars, booked gross: the uplift on ordinary losses and
+    // the shocks' large losses (stable-scenarios commit 7).
+    ...(shockGrossAtBooking > 0 ? { shockGross: shockGrossAtBooking } : {}),
     // The stop's terms and what it has recovered so far, on this year's own
     // cover — recalculated each valuation as the year develops.
     ...(stopTermsAtInception && stopTermsAtInception.limit > 0
@@ -4511,6 +4520,7 @@ function recordReserveDevelopment(
       horizon: c.horizon,
       seeded: true,
       ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
+      ...(c.shockGross !== undefined ? { shockGross: c.shockGross } : {}),
     });
   }
 
@@ -4555,6 +4565,7 @@ function recordReserveDevelopment(
       horizon: incepted.horizon,
       seeded: false,
       ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
+      ...(incepted.shockGross !== undefined ? { shockGross: incepted.shockGross } : {}),
     });
   }
 

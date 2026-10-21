@@ -1043,7 +1043,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // commit 3 all 232, commit 4 none. Besides the figures, the Calculation Audit's
 // text reads 80%-confidence for 90% (commit 2) and the trend +4.00%/yr on WC
 // and +8.00%/yr on GL for +5.00% (commit 3).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v66.json');
+// v67: STABLE-SCENARIOS BLOCK B (see VALUE_IDENTITY_v78). The control ran
+// first: ab87580, served on 4174, reproduced v66 242 of 242. 177 of 242 moved,
+// no key added or removed. Run at each commit in turn: commit 5 moved 175,
+// commit 6 176, commit 7 173. Besides the figures: the Decisions screens offer
+// the aggregate stop's four covers, each by name with one sentence of what it
+// covers and its price, in place of the per-claim packages; Decision History
+// names the cover ("Bad-year cover"); the Calculation Audit describes the
+// recovery as the stop's; and the Results narrative reports the stop's
+// recovery (commit 6).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v67.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -193,6 +193,9 @@ const FAST: string[] = [
   'aggregate-stop-check',            //   3s   the stop's four options, Bad-year default, price E + 0.5 SD charged so,
                                      //         recovery at booking and recalculated as each year develops, what
                                      //         players see; five controls
+  'catastrophe-load-check',          //   3s   shock dollars on each ledger row, taken out on the paid basis before
+                                     //         development, priced as a steady trended load from the pre-game on;
+                                     //         four controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls

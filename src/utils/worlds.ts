@@ -543,6 +543,9 @@ export function averageLedger(perWorld: ReserveDevelopmentRow[][]): ReserveDevel
     };
     if (paid) out.paidByValuation = paid; else delete out.paidByValuation;
     if (grossPaid) out.grossPaidByValuation = grossPaid; else delete out.grossPaidByValuation;
+    // The worlds' mean shock dollars, a world with none counting 0 (commit 7).
+    const shock = rows.reduce((s, r) => s + (r?.shockGross ?? 0), 0) / n;
+    if (shock > 0) out.shockGross = shock; else delete out.shockGross;
     return out;
   });
 }

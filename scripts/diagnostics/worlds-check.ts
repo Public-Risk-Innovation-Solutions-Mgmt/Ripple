@@ -232,6 +232,8 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
         ultimateByValuation: avgSeries(r => r.ultimateByValuation, i)!,
         ...(row.paidByValuation ? { paidByValuation: avgSeries(r => r.paidByValuation, i) } : {}),
         ...(row.grossPaidByValuation ? { grossPaidByValuation: avgSeries(r => r.grossPaidByValuation, i) } : {}),
+        // The worlds' mean shock dollars, a world with none counting 0 (stable-scenarios commit 7).
+        shockGross: own.reduce((s, w) => s + (w[i].shockGross ?? 0), 0) / own.length,
       }));
       const book = start.worlds!.reduce((s, w) => s + (w.poolState.lines[l].bookExposure ?? 0), 0) / start.worlds!.length;
       const mine = strikeBookRate(l, { ...start.poolState.lines[l], reserveDevelopment: ledger, bookExposure: book },

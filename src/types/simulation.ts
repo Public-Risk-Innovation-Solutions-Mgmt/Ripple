@@ -962,6 +962,14 @@ export interface ReserveCohort {
    * gross; the change is a prior-year reinsurance adjustment. Absent when the
    * year bought none, and on bulk cohorts.
    */
+  /**
+   * THE ACCIDENT YEAR'S SHOCK DOLLARS, booked gross (stable-scenarios commit 7):
+   * the shocks' uplift on its ordinary losses plus their large losses, as
+   * written. Copied to its ledger row, where pricing takes them out of the
+   * experience and charges a steady catastrophe load instead. Absent where no
+   * shock reached the year.
+   */
+  shockGross?: number;
   aggregateStop?: { optionId: string; attachment: number; limit: number; recovered: number };
   netUltimate: number;
   netPaid: number;
@@ -1155,6 +1163,12 @@ export interface ReserveDevelopmentRow {
   // firstValuationYear + k. Ultimate, not reported/incurred: the exhibit is
   // about the gap between what is reported and what is estimated, so the
   // ambiguous word is wrong exactly where the distinction is the point.
+  /**
+   * THE ACCIDENT YEAR'S SHOCK DOLLARS, booked gross (stable-scenarios commit 7)
+   * — the cohort's `shockGross`. The experience pure premium removes them on
+   * the paid basis before development and prices them as a steady load.
+   */
+  shockGross?: number;
   ultimateByValuation: number[];
   // CUMULATIVE NET PAID at each of the same valuations, same indexing. A
   // RECORDING, not a computation — the figure processIbner already produced,
