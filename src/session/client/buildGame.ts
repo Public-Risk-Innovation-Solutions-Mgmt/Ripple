@@ -31,6 +31,7 @@ import { defaultDecisionSet } from '../../utils/decisionDefaults';
 import type { CoverageLine, GameSetupSettings, GameState, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
 import type { JsonValue, RoomView } from '../contract';
 import { decisionsForYear } from './decisions';
+import { gameShocksOn } from '../../utils/shockLosses';
 
 export type RoomBuildInputs = Pick<RoomView,
   'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'shocks' | 'priorDevelopment'>;
@@ -81,7 +82,7 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     isComplete: false,
     poolState,
     lockedResults: [],
-    currentDecisions: defaultDecisionSet(1),
+    currentDecisions: defaultDecisionSet(1, gameShocksOn(settings, instance)),
     priorHistory,
     earlyPreGameHistory,
   });
@@ -123,7 +124,7 @@ export function replayTeamYears(
     // the room stores a history: it runs on a reload, replaying every year from
     // the seed, and reading one slot for all of them produced results the team
     // never played.
-    const decisions = decisionsForYear(year, decisionsByYear);
+    const decisions = decisionsForYear(year, decisionsByYear, gameShocksOn(state.setup, state.instance));
     const played = playWorldsYear(state, decisions);
 
     // ⚠ AN UNRESOLVED LOAN OFFER IS DECLINED, AND THAT IS A REAL
@@ -144,7 +145,7 @@ export function replayTeamYears(
       currentYearNumber: nextYear,
       isComplete: nextYear > state.setup.gameLength,
       ...commitSettledYear(state, settled),
-      currentDecisions: defaultDecisionSet(nextYear),
+      currentDecisions: defaultDecisionSet(nextYear, gameShocksOn(state.setup, state.instance)),
     };
     produced.push({ result: settled.result, poolState: settled.poolState, surplusRange: surplusRange(state, year) });
   }

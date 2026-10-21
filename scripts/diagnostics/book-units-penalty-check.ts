@@ -24,6 +24,7 @@ import { exposureFactor } from '../../src/data/exposureTrend';
 import { marketSeedOf, unitsOf } from '../../src/utils/bookUnits';
 import { bookOrdinaryRisk, ordinaryLossFromUnits } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
+import { gameShocksOn } from '../../src/utils/shockLosses';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -42,6 +43,8 @@ interface Obs {
   line: CoverageLine; world: number; year: number;
   ordinary: number; expected: number;
   before: number[]; after: number[]; seed: number; marketSeed: number; exposure: number;
+  /** The game's shock switch (gameShocksOn): its expected loss is struck on it. */
+  shocks: boolean;
 }
 
 function play(id: string): Obs[] {
@@ -66,6 +69,7 @@ function play(id: string): Obs[] {
           line, world: w, year: y,
           ordinary: n.ordinaryRealised / (1 + n.uplift), expected: r.expectedLoss,
           before: before[line]!, after: after[line]!, seed: worldInstance(instance, w).seed,
+          shocks: gameShocksOn(setup, instance),
           marketSeed: marketSeedOf(instance),
           // The book's own exposure this year — its units' sizes x the year's
           // trend — exactly as the draw took it (the result's is rounded).
@@ -85,7 +89,7 @@ const truth: Rebuild = o => {
   const held = new Set(o.before);
   const fresh = new Set(o.after.filter(i => !held.has(i)));
   const draw = ordinaryLossFromUnits(o.line, units, o.exposure, o.year, o.seed, fresh, NEW_BUSINESS_PENALTY);
-  return { ordinary: draw.realised, expected: expectedLossBreakdown(o.line, o.exposure, o.year, undefined, bookOrdinaryRisk(units)).total };
+  return { ordinary: draw.realised, expected: expectedLossBreakdown(o.line, o.exposure, o.year, undefined, bookOrdinaryRisk(units), o.shocks).total };
 };
 
 function grade(obs: Obs[], rebuild: Rebuild, tag: string) {
@@ -127,7 +131,7 @@ controlFails('the penalty in expected loss', o => {
   const units = unitsOf(o.marketSeed, o.line, o.after);
   const freshSize = o.after.filter(i => !o.before.includes(i)).reduce((a, i) => a + units.find(u => u.index === i)!.size, 0);
   const share = freshSize / units.reduce((a, u) => a + u.size, 0);
-  const b = expectedLossBreakdown(o.line, o.exposure, o.year, undefined, bookOrdinaryRisk(units));
+  const b = expectedLossBreakdown(o.line, o.exposure, o.year, undefined, bookOrdinaryRisk(units), o.shocks);
   return { ...t, expected: t.expected + NEW_BUSINESS_PENALTY * share * (b.ordinary + b.uplift) };
 }, '2.');
 controlFails('the penalty on every unit', o => {

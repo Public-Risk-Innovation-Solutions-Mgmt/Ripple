@@ -31,6 +31,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { gameShocksOn } from '../../src/utils/shockLosses';
 import { fileURLToPath } from 'node:url';
 import {
   PRE_GAME_EXPERIENCE_BASE, PRE_GAME_EXPERIENCE_WEIGHT, PRE_GAME_INVESTMENT_RETURN, SCENARIO_PREMIUM_TO_SURPLUS,
@@ -119,7 +120,7 @@ interface Opened { n: number; line: CoverageLine; premium: number; surplus: numb
 function open(id: string, instance: GameInstance, setup: GameSetupSettings): { opened: Opened[]; gs: GameState } {
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   const gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory } as GameState);
-  const struck = strikeRates(gs, defaultDecisionSet(1));
+  const struck = strikeRates(gs, defaultDecisionSet(1, gameShocksOn(gs.setup, gs.instance)));
   const pre = [...(earlyPreGameHistory ?? []), ...priorHistory];
   return {
     gs,

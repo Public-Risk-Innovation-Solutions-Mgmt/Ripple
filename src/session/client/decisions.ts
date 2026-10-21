@@ -65,9 +65,13 @@ export function governingYear(yearNumber: number, history: DecisionHistory | und
  * engine reads DecisionSet.yearNumber, and handing it another year's number
  * would be a quietly wrong input rather than a loud one.
  */
-export function decisionsForYear(yearNumber: number, history: DecisionHistory | undefined): DecisionSet {
+export function decisionsForYear(
+  yearNumber: number, history: DecisionHistory | undefined,
+  /** The room's shock switch (shockLosses.gameShocksOn): the default cover is None while it is off. Absent is on. */
+  shocks = true,
+): DecisionSet {
   const governing = governingYear(yearNumber, history);
-  if (governing === null) return defaultDecisionSet(yearNumber);
+  if (governing === null) return defaultDecisionSet(yearNumber, shocks);
   const d = decisionsFromJson(history![String(governing)]);
   return { ...d, yearNumber };
 }

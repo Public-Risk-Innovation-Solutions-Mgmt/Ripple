@@ -158,7 +158,7 @@ import {
   type OrdinaryLossYear,
 } from './ordinaryLoss';
 import { marketSeedOf, unitsOf, type BookUnit } from './bookUnits';
-import { drawLargeLosses, firingKey, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { drawLargeLosses, firingKey, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
@@ -583,6 +583,13 @@ interface LineYearContext {
   yearNumber: number;
   calendarYear: number;
   /**
+   * THE GAME'S SHOCK SWITCH (shockLosses.gameShocksOn). Off, every expected
+   * loss this line year reads — the Expected Losses figure, the reserve basis
+   * built on it, the stop's attachment and the cover's price — is the ordinary
+   * expectation only. Absent is on.
+   */
+  shocks?: boolean;
+  /**
    * THE LINE'S BOOK OF UNITS FOR THE YEAR — the game's (PoolState.bookUnits),
    * regenerated from the game's seed (marketSeedOf). On the new engine only;
    * absent with MEMBER_LEVEL on and on a state with no book. Never shown: it
@@ -734,6 +741,8 @@ export function strikeBookRate(
   // The book's size-weighted true risk (lineBookRisk), which its tower's price
   // carries as the engine's does; absent for a line with no book of units.
   bookRisk?: number,
+  /** The game's shock switch (shockLosses.gameShocksOn); absent is on. */
+  shocks = true,
 ): StruckLineRate | null {
   if (MEMBER_LEVEL.enabled || !NEW_RATE_STACK.enabled) return null;
   const exposure = (lineState.bookExposure ?? 0) * exposureFactor(line, yearNumber);
@@ -753,6 +762,7 @@ export function strikeBookRate(
     layersPlaced: placementFor(line, lineDecisions.reinsuranceOption),
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: lineDecisions.reinsuranceOption,
+    shocks,
   });
   return { exposure, newPp, quote };
 }
@@ -772,6 +782,7 @@ export function processLineYear(
   ctx: LineYearContext
 ): { updatedLineState: LinePoolState; updatedShared: LineYearShared; result: LineResultSet; bookUnitsAfter?: number[] } {
   const { instance, yearNumber, calendarYear, priorResult } = ctx;
+  const shocks = ctx.shocks ?? true;
 
   const priorYearLossRatio = priorResult
     ? priorResult.grossUltimateLoss / Math.max(priorResult.grossPremium, 1)
@@ -1125,6 +1136,7 @@ export function processLineYear(
       layersPlaced,
       aggregateStopLevel,
       reinsuranceOption: lineDecisions.reinsuranceOption,
+      shocks,
     })
     : null;
 
@@ -1316,7 +1328,7 @@ export function processLineYear(
     : AGGREGATE_STOP.enabled
     // The stop, on the covered book (stable-scenarios commit 6).
     ? (q => ({ premium: q.premium, expectedCeded: q.expectedRecovery }))(
-      stopQuote(line, lineDecisions.reinsuranceOption, activeExposure, yearNumber, bookRiskOf(towerMembers)))
+      stopQuote(line, lineDecisions.reinsuranceOption, activeExposure, yearNumber, bookRiskOf(towerMembers), shocks))
     : occurrenceProgramCost(line as TowerLine, placedForCost, towerMembers, yearNumber);
 
   // ⚠ THE RATE IS RECOMPUTED ON THE POST-MOVEMENT BOOK, and with class rates it
@@ -1404,7 +1416,7 @@ export function processLineYear(
   // ⚠ CARRYING THE BOOK'S TRUE RISK since book units commit 3: its units'
   // expected ordinary losses are exposure x risk x cost (bookOrdinaryRisk).
   const newEngineExpected = newLossEngineRuns()
-    ? expectedLossBreakdown(line, activeExposure, yearNumber, undefined, yearUnits ? bookOrdinaryRisk(yearUnits) : 1)
+    ? expectedLossBreakdown(line, activeExposure, yearNumber, undefined, yearUnits ? bookOrdinaryRisk(yearUnits) : 1, shocks)
     : undefined;
   const expectedLoss = newEngineExpected
     ? newEngineExpected.total
@@ -1493,6 +1505,7 @@ export function processLineYear(
       layersPlaced,
       aggregateStopLevel,
       reinsuranceOption: lineDecisions.reinsuranceOption,
+      shocks,
     })
     : null;
 
@@ -3530,6 +3543,7 @@ export function processYear(
       instance,
       yearNumber,
       calendarYear,
+      shocks: gameShocksOn(setup, instance),
       ...(lineBook ? { bookUnits: unitsOf(marketSeedOf(instance), line, lineBook) } : {}),
       applicationRateOverride: overrides?.applicationRate,
       freezeMembership: overrides?.freezeMembership === true,

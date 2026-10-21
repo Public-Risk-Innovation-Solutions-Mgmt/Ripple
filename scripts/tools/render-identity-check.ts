@@ -1083,7 +1083,17 @@ const BASELINE = process.env.RENDER_BASELINE
 // "Combined Ratio", its Total the pre-game cumulative in place of "—" before
 // year 1 (13 pages); and the net-of-reinsurance Combined Ratio row is gone
 // from the 26 Annual Statement pages. Nothing else.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v70.json');
+// v71: THE EXPECTATION FOLLOWS THE GAME'S SHOCKS, AND THE COVERS WITH IT. The
+// control ran first: d9ccbc6 reproduced v70 242 of 242. 227 move, no key added
+// or removed, each at both commits in turn. bdf2ec7: figures only — the
+// expectation, the reserve basis and every cover's price on the ordinary year
+// (a higher cover's price falling to tens of thousands a year), and the small
+// recoveries the Working cover now pays. ad14ec7: a solo game's cover is None
+// — "Full retention — no reinsurance" for "Bad-year cover" in the decision
+// records, no ceded recoveries, the Bad-year and Catastrophe covers gone from
+// the Decisions page, and seven pages' capital status "Adequate" for "Strong"
+// without the cover — and the figures that follow from it.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v71.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

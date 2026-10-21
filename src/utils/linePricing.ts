@@ -107,6 +107,11 @@ export interface CessionBasis {
    */
   reinsuranceOption?: string;
   /**
+   * THE GAME'S SHOCK SWITCH (shockLosses.gameShocksOn) — the stop's terms and
+   * price follow it. Absent is on: a hosted game with a schedule, or a harness.
+   */
+  shocks?: boolean;
+  /**
    * THE RETAINED RATE THE AGGREGATE'S TERMS ARE AGREED AGAINST, per $100 —
    * undefined on the held path.
    *
@@ -152,7 +157,7 @@ export function expectedCededPer100For(
   grossPurePremiumPer100: number,
   cession: CessionBasis,
 ): CessionQuote {
-  const { members, exposure, layersPlaced, aggregateStopLevel, aggregateTermsRetainedPer100, reinsuranceOption } = cession;
+  const { members, exposure, layersPlaced, aggregateStopLevel, aggregateTermsRetainedPer100, reinsuranceOption, shocks = true } = cession;
 
   // THE AGGREGATE STOP (stable-scenarios commit 6): the cover's price and its
   // expected recovery, on this book and year, in the slot the tower's fill.
@@ -161,7 +166,7 @@ export function expectedCededPer100For(
   // cover mostly recovers on are out of it — and the cover's full price is the
   // reinsurance. The recovery stays on the quote, in dollars, for its readers.
   if (AGGREGATE_STOP.enabled && reinsuranceOption !== undefined) {
-    const q = stopQuote(line, reinsuranceOption, exposure, yearNumber, bookRiskOf(members));
+    const q = stopQuote(line, reinsuranceOption, exposure, yearNumber, bookRiskOf(members), shocks);
     return {
       towerQuote: { premium: q.premium, expectedCeded: q.expectedRecovery },
       aggregateQuote: null,
@@ -604,6 +609,8 @@ export interface NewStackInputs {
   aggregateStopLevel: number;
   /** The team's reinsurance option — the aggregate stop's, with AGGREGATE_STOP on. */
   reinsuranceOption?: string;
+  /** The game's shock switch (shockLosses.gameShocksOn); absent is on. See CessionBasis. */
+  shocks?: boolean;
 }
 
 export interface NewStackQuote {
@@ -631,7 +638,7 @@ export interface NewStackQuote {
 export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   const {
     line, yearNumber, members, exposure, groundUpPurePremiumPer100, clf,
-    riskControlPct, layersPlaced, aggregateStopLevel, reinsuranceOption,
+    riskControlPct, layersPlaced, aggregateStopLevel, reinsuranceOption, shocks,
   } = input;
 
   // ⚠ WITH THE STOP ON, A QUOTE WITHOUT THE OPTION WOULD PRICE NO COVER AT
@@ -647,7 +654,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   // The SAME cession function the old stack uses, on the ground-up figure.
   const { towerQuote, aggregateQuote, expectedCededPer100 } = expectedCededPer100For(
     line, yearNumber, groundUpPurePremiumPer100,
-    { members, exposure, layersPlaced, aggregateStopLevel, reinsuranceOption },
+    { members, exposure, layersPlaced, aggregateStopLevel, reinsuranceOption, shocks },
   );
   const retainedPurePremiumPer100 = Math.max(0, groundUpPurePremiumPer100 - expectedCededPer100);
 

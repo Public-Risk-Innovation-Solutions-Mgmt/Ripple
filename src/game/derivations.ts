@@ -50,6 +50,7 @@ function lineBookExposure(lineState: LinePoolState, line: CoverageLine, yearNumb
 import { effectiveRiskControlIncentivePct } from '../utils/linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../utils/reinsuranceOptions';
 import { surplusRange, type SurplusRange } from '../utils/worlds';
+import { gameShocksOn } from '../utils/shockLosses';
 
 export interface GameDerivations {
   decisionLine: CoverageLine;
@@ -240,6 +241,7 @@ export function useGameDerivations(
         layersPlaced: placementFor(decisionLine, d.reinsuranceOption),
         aggregateStopLevel: AGGREGATE_NOT_OFFERED,
         reinsuranceOption: d.reinsuranceOption,
+        shocks: gameShocksOn(gameState.setup, gameState.instance),
         pricingAdjustment: lineState.rateLevel / 100,
         priorPurePremiumPer100: lineState.purePremiumPer100,
         lossTrend: gameState.instance.lossEnvironment.lossTrend,

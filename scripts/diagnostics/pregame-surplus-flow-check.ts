@@ -29,6 +29,7 @@
 // declared years (the reset before 2023 — the seam jumps).
 // ============================================================================
 
+import { gameShocksOn } from '../../src/utils/shockLosses';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { PRE_GAME_DEPTH, runPriorHistory, simulateLineCandidate } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -122,7 +123,7 @@ for (const id of SEEDS) {
   const preGame: ResultSet[] = [...(earlyPreGameHistory ?? []), ...priorHistory];
   let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory });
   // The scenario's opening, struck as the game strikes year 1.
-  const struck = strikeRates(gs, defaultDecisionSet(1));
+  const struck = strikeRates(gs, defaultDecisionSet(1, gameShocksOn(gs.setup, gs.instance)));
   const ratio = SCENARIO_PREMIUM_TO_SURPLUS[scenarioOf(instance)];
   gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(1)), [])) };
   const worlds = gs.worlds ?? [];

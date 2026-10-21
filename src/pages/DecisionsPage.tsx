@@ -12,7 +12,7 @@ import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
 import { occurrenceProgramCost } from '../utils/reinsuranceTower';
-import { placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
+import { placementFor, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
 import { bookExposureOf, bookRiskOf, type Book } from '../utils/lineHelpers';
 import { stopQuote, stopWording } from '../utils/aggregateStop';
 import { lineDisplayName } from '../utils/lineDisplay';
@@ -69,6 +69,8 @@ interface DecisionsPageProps {
   // What the line's reinsurance is priced on: its one book, or with
   // MEMBER_LEVEL on its roster — derivations.ts builds it as the engine does.
   book: Book;
+  /** The game's shock switch (shockLosses.gameShocksOn) — the covers' prices follow it. Absent is on. */
+  shocks?: boolean;
 }
 
 // THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
@@ -82,17 +84,17 @@ const fundingStopLabel = (v: number) => `(${(v * 100).toFixed(0)}%)`;
 
 // Reset only the given line to defaults (Model A strict per-line: resetting on
 // one line's tab must not clobber the other lines' choices).
-function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine): DecisionSet {
+function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks: boolean): DecisionSet {
   return {
     ...decisions,
     byLine: {
       ...decisions.byLine,
-      [line]: defaultLineDecisionSet(line),
+      [line]: defaultLineDecisionSet(line, shocks),
     },
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory, shocks = true }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
@@ -177,7 +179,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
           <p className="text-gray-500 text-sm">Configure this line's strategy for the year</p>
         </div>
         {!disabled && (
-          <button onClick={() => onChange(resetLineToDefaults(decisions, selectedLine))} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100">
+          <button onClick={() => onChange(resetLineToDefaults(decisions, selectedLine, shocks))} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100">
             <RotateCcw size={14} /> Reset {lineDisplayName(selectedLine)} to Defaults
           </button>
         )}
@@ -301,6 +303,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
               disabled={disabled}
               book={book}
               yearNumber={yearNumber}
+              shocks={shocks}
             />
           ) : (() => { throw new Error(`DecisionsPage: ${selectedLine} has no tractable ceded reinsurance`); })()}
         </SectionCard>
@@ -1211,6 +1214,7 @@ function PackageControls(props: {
   disabled: boolean;
   book: Book;
   yearNumber: number;
+  shocks: boolean;
 }) {
   return AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />;
 }
@@ -1223,13 +1227,14 @@ function PackageControls(props: {
 // The price is the engine's own quote (aggregateStop.stopQuote) on the line's
 // book and year, so the panel cannot show a figure the engine does not charge.
 // ============================================================================
-function StopControls({ line, d, setMany, disabled, book, yearNumber }: {
+function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
   line: CoverageLine;
   d: LineDecisionSet;
   setMany: (patch: Partial<LineDecisionSet>) => void;
   disabled: boolean;
   book: Book;
   yearNumber: number;
+  shocks: boolean;
 }) {
   const exposure = bookExposureOf(book, line, yearNumber);
   return (
@@ -1239,9 +1244,12 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber }: {
         well above what was expected.
       </p>
       <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
-        {AGGREGATE_STOP_OPTIONS.map(o => {
+        {/* ⚠ WHILE THE GAME'S SHOCKS ARE OFF, ONLY NONE AND THE WORKING COVER
+            (reinsuranceOptionIds): the two higher-attaching covers cannot pay
+            on an ordinary year and are hidden. All four with the shocks on. */}
+        {AGGREGATE_STOP_OPTIONS.filter(o => reinsuranceOptionIds(line, shocks).includes(o.id)).map(o => {
           const chosen = d.reinsuranceOption === o.id;
-          const price = o.limit > 0 ? stopQuote(line, o.id, exposure, yearNumber, bookRiskOf(book)).premium : 0;
+          const price = o.limit > 0 ? stopQuote(line, o.id, exposure, yearNumber, bookRiskOf(book), shocks).premium : 0;
           return (
             <button
               key={o.id}
