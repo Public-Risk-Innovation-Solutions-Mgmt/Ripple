@@ -1336,6 +1336,16 @@ export const R_MODEL = {
  * in expectation; 0.3 is three.
  */
 export const SHOCKS_PER_YEAR = 0.3;
+
+/**
+ * SHOCKS IN SINGLE-PLAYER — OFF, PENDING THE DATA SCIENTIST. Off, a solo game
+ * draws no shock schedule (soloGame.openSoloInstance), so no event fires in
+ * any world. Hosted games keep their host-set schedules. The schedule's rule,
+ * stream and save handling are untouched and come back as they were when this
+ * is switched on. Pricing never read the schedule, so the rate is the same
+ * either way.
+ */
+export const SOLO_SHOCKS = { enabled: false };
 export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
   / R_MODEL.catalogue.reduce((a, [, p]) => a + (p as number), 0);
 
@@ -2030,6 +2040,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'The cover recovers mostly in shock years, and the shocks are out of the claims cost; subtracting the '
           + 'expected recovery took off a recovery on losses the rate never charged. Year-1 rate per $100 at Expected, '
           + 'with the shocks sized on claims (below): WC 3.407 → 3.432, GL 4.754 → 4.852, Property 0.314 → 0.322.',
+      }],
+      ['Shocks in single-player', {
+        value: SOLO_SHOCKS.enabled ? 'on' : 'off — pending the data scientist', unit: 'switch',
+        what: 'OFF: a single-player game draws no shock schedule, so no event fires. Hosted games keep the host\'s '
+          + 'schedule.',
+        basis: 'CHOSEN',
+        note: 'Pending the data scientist\'s review of the shocks\' sizes. On, single-player draws its schedule as '
+          + 'described under Shock timing.',
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',

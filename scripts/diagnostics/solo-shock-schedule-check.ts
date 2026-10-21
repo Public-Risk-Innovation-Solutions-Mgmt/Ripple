@@ -3,6 +3,12 @@
 //
 //   npx tsx scripts/diagnostics/solo-shock-schedule-check.ts
 //
+//   0. SHOCKS ARE OFF IN SINGLE-PLAYER (SOLO_SHOCKS off, pending the data
+//      scientist): the app's solo game carries no schedule and no event fires
+//      in any world in any year, while a hosted game still fires the host's
+//      list. The checks below then switch the solo schedule ON and test it as
+//      it will return.
+//
 // A solo game draws its shock schedule ONCE, at its start, by the host's
 // Randomise rule on its own labelled stream (utils/soloGame), keeps it on the
 // instance and so in the save, and every world reads it. Checked on a solo game
@@ -38,7 +44,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, worldInstance } from '../../src/utils/worlds';
 import { packSave, unpackSave } from '../../src/utils/gameSave';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { SHOCKS_OUT_OF_EXPERIENCE, WORLD_COUNT } from '../../src/data/pricingParameters';
+import { SHOCKS_OUT_OF_EXPERIENCE, SOLO_SHOCKS, WORLD_COUNT } from '../../src/data/pricingParameters';
 import type { ScheduledShock } from '../../src/types/shocks';
 import type { CoverageLine, GameInstance, GameSetupSettings, GameState } from '../../src/types/simulation';
 
@@ -142,6 +148,28 @@ function pricingOf(gs: GameState, y: number): string {
 
 // ---------------------------------------------------------------------------
 console.log(`=== SOLO SHOCK SCHEDULE — ${WORLD_COUNT} worlds, three lines, ${YEARS} years ===`);
+
+console.log('\n--- 0. shocks are off in single-player ---');
+/** Problems with a solo game that must fire nothing: a schedule, or any world's firing. */
+function firesNothing(gs: GameState): string[] {
+  const bad: string[] = [];
+  if ((gs.instance.scheduledShocks ?? []).length > 0) bad.push(`the instance carries ${gs.instance.scheduledShocks!.length} scheduled event(s)`);
+  for (const [i, w] of (gs.worlds ?? []).entries()) for (const r of w.lockedResults) {
+    const fired = (r.shockEvents ?? []).filter(e => e.yearFired === r.yearNumber);
+    if (fired.length > 0) bad.push(`world ${i + 1} year ${r.yearNumber}: ${fired.map(e => e.shockId).join(', ')} fired`);
+  }
+  return bad;
+}
+const offSolo = openSoloInstance(settingsFor('SSOFF1'));
+const OFF = playTo(open(offSolo.setup, offSolo.instance), 1, YEARS);
+check(!SOLO_SHOCKS.enabled && firesNothing(OFF).length === 0,
+  `a single-player game draws no schedule and fires nothing in any of ${WORLD_COUNT} worlds over ${YEARS} years`, firesNothing(OFF)[0] ?? '');
+SOLO_SHOCKS.enabled = true;
+const onSolo = openSoloInstance(settingsFor('SSOFF1'));
+SOLO_SHOCKS.enabled = false;
+
+// From here the solo schedule is switched ON and tested as it will return.
+SOLO_SHOCKS.enabled = true;
 const ID = 'SSCHK1';
 const solo = openSoloInstance(settingsFor(ID));
 const schedule = solo.instance.scheduledShocks ?? [];
@@ -202,6 +230,17 @@ const hostInst = generateGameInstance('SSHOST', seedFromInstanceId('SSHOST'), HO
 const H = playTo(open({ ...settingsFor('SSHOST'), shockTiming: 'host' }, hostInst), 1, 3);
 const hostRows = H.worlds!.map(w => w.lockedResults);
 const hostSched = hostInst.scheduledShocks ?? [];
+SOLO_SHOCKS.enabled = false;
+{
+  const Hoff = playTo(open({ ...settingsFor('SSHOST'), shockTiming: 'host' }, hostInst), 1, 3);
+  // The same event twice in a year is one record, so compare event-years.
+  const fired = [...new Set(Hoff.lockedResults.flatMap(r => (r.shockEvents ?? [])
+    .filter(e => e.yearFired === r.yearNumber).map(e => `${e.shockId}y${e.yearFired}`)))].sort();
+  const listed = [...new Set(HOST_LIST.map(h => `${h.shockId}y${h.yearNumber}`))].sort();
+  check(same(fired, listed),
+    `0. with single-player shocks off, a hosted game still fires the host's schedule`, fired.join(', '));
+}
+SOLO_SHOCKS.enabled = true;
 {
   const soloRegional = schedule.filter(s => REGIONAL.has(s.shockId));
   check(schedule.every(s => REGIONAL.has(s.shockId) === (s.region !== undefined)),
@@ -258,6 +297,9 @@ let quiet: GameState;
 // ============================================================================
 console.log('\n--- CONTROLS: every check fails when broken ---');
 {
+  // Shocks left on in single-player: the same game, drawn with the switch on.
+  check(firesNothing({ ...OFF, instance: onSolo.instance }).length > 0,
+    'control: a single-player game with a schedule is caught');
   // Timing drawn per world: the bare instance, fired by the catalogue in each world.
   const bareSetup = { ...settingsFor(ID) };
   const bare = playTo(open(bareSetup, generateGameInstance(ID, seedFromInstanceId(ID))), 1, YEARS);

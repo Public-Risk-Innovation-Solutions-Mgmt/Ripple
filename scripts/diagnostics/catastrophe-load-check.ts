@@ -33,6 +33,12 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
 import type { CoverageLine, GameSetupSettings, GameState, PoolState, ReserveDevelopmentRow, ResultSet } from '../../src/types/simulation';
+import { SOLO_SHOCKS } from '../../src/data/pricingParameters';
+// ⚠ SHOCKS ARE OFF IN SINGLE-PLAYER (SOLO_SHOCKS, pending the data scientist),
+// and this gate tests how fired shocks are handled — which hosted games still
+// do — through solo games. Their schedule is switched on here so it has
+// shocks to test, rather than passing on none.
+SOLO_SHOCKS.enabled = true;
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const failures: string[] = [];

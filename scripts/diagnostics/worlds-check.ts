@@ -52,6 +52,12 @@ import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsurance
 import type {
   CoverageLine, DecisionSet, GameState, LineResultSet, ResultSet,
 } from '../../src/types/simulation';
+import { SOLO_SHOCKS } from '../../src/data/pricingParameters';
+// ⚠ SHOCKS ARE OFF IN SINGLE-PLAYER (SOLO_SHOCKS, pending the data scientist),
+// and this gate tests how fired shocks are handled — which hosted games still
+// do — through solo games. Their schedule is switched on here so it has
+// shocks to test, rather than passing on none.
+SOLO_SHOCKS.enabled = true;
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const YEARS = Number(process.env.YEARS ?? 6);
