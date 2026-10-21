@@ -110,6 +110,7 @@ function play(): Row[] {
             ? { exposure, risk: lineBookRisk(gs.instance, line, gs.poolState.bookUnits) ?? 1 }
             : (gs.poolState.lines[line] as LinePoolState).members ?? [],
           exposure, layersPlaced: placementFor(line, ld.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+          reinsuranceOption: ld.reinsuranceOption,
         });
         const retained = Math.max(0, groundUp - expectedCededPer100);
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);
@@ -208,7 +209,7 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
     const q = quoteNewRateStack({
       line, yearNumber: 1, members: [], exposure: 100,
       groundUpPurePremiumPer100: groundUp, clf: CLF,
-      riskControlPct: 0.02, layersPlaced: [], aggregateStopLevel: -1,
+      riskControlPct: 0.02, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
     });
     const designed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100) / q.divisor + q.reinsRatePer100;
     const adminGrossed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100 * CLF) / q.divisor + q.reinsRatePer100;
@@ -265,7 +266,7 @@ console.log('\n--- 5. THE ADAPTER IS ADDITIVE ---');
     const q = quoteNewRateStack({
       line: r.line, yearNumber: r.year, members: [], exposure: 100,
       groundUpPurePremiumPer100: r.groundUp, clf: r.clf,
-      riskControlPct: 0, layersPlaced: [], aggregateStopLevel: -1,
+      riskControlPct: 0, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
     });
     const lrq = newStackAsLineRateQuote(q, 100);
     const sum = lrq.poolPremiumRatePer100 + lrq.adminRatePer100 + lrq.reinsRatePer100;

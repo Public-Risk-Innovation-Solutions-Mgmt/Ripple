@@ -49,8 +49,9 @@ import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine } from '../types/simulation';
-import type { Book } from './lineHelpers';
-import { RISK_CONTROL } from '../data/pricingParameters';
+import { bookRiskOf, type Book } from './lineHelpers';
+import { AGGREGATE_STOP, RISK_CONTROL } from '../data/pricingParameters';
+import { stopQuote } from './aggregateStop';
 
 export interface LineRateInputs {
   line: CoverageLine;
@@ -71,6 +72,8 @@ export interface LineRateInputs {
   pricingAdjustment: number;
   layersPlaced: boolean[];
   aggregateStopLevel: number;
+  /** The team's reinsurance option — the aggregate stop's, with AGGREGATE_STOP on. */
+  reinsuranceOption?: string;
   /** The agreed aggregate terms — see CessionBasis's field of the same name.
    *  Undefined on the held path. It has to be here as well as on the basis
    *  because the SUBTRACTION below builds its own basis, and a subtraction that
@@ -97,6 +100,12 @@ export interface CessionBasis {
   exposure: number;
   layersPlaced: boolean[];
   aggregateStopLevel: number;
+  /**
+   * The team's reinsurance option on this line. With AGGREGATE_STOP on
+   * (stable-scenarios commit 6) it names the stop, which is priced and ceded
+   * on the year's total instead of the occurrence layers.
+   */
+  reinsuranceOption?: string;
   /**
    * THE RETAINED RATE THE AGGREGATE'S TERMS ARE AGREED AGAINST, per $100 —
    * undefined on the held path.
@@ -143,7 +152,18 @@ export function expectedCededPer100For(
   grossPurePremiumPer100: number,
   cession: CessionBasis,
 ): CessionQuote {
-  const { members, exposure, layersPlaced, aggregateStopLevel, aggregateTermsRetainedPer100 } = cession;
+  const { members, exposure, layersPlaced, aggregateStopLevel, aggregateTermsRetainedPer100, reinsuranceOption } = cession;
+
+  // THE AGGREGATE STOP (stable-scenarios commit 6): the cover's price and its
+  // expected recovery, on this book and year, in the slot the tower's fill.
+  if (AGGREGATE_STOP.enabled && reinsuranceOption !== undefined) {
+    const q = stopQuote(line, reinsuranceOption, exposure, yearNumber, bookRiskOf(members));
+    return {
+      towerQuote: { premium: q.premium, expectedCeded: q.expectedRecovery },
+      aggregateQuote: null,
+      expectedCededPer100: q.expectedRecovery / Math.max(exposure * 10_000, 1),
+    };
+  }
 
   const isWcClaimLine = line === 'WC';
   const isPropertyClaimLine = line === 'Property';
@@ -396,7 +416,7 @@ export interface LineRateQuote {
 export function quoteLineRates(input: LineRateInputs): LineRateQuote {
   const {
     line, yearNumber, members, exposure, purePremiumPer100, clf,
-    pricingAdjustment, layersPlaced, aggregateStopLevel, aggregateTermsRetainedPer100,
+    pricingAdjustment, layersPlaced, aggregateStopLevel, aggregateTermsRetainedPer100, reinsuranceOption,
   } = input;
 
   // ADMIN STAYS ON THE GROSS PURE PREMIUM, matching the engine. The pool
@@ -411,7 +431,7 @@ export function quoteLineRates(input: LineRateInputs): LineRateQuote {
   // header for why one definition is the whole point.
   const { towerQuote, aggregateQuote, expectedCededPer100 } = expectedCededPer100For(
     line, yearNumber, purePremiumPer100,
-    { members, exposure, layersPlaced, aggregateStopLevel, aggregateTermsRetainedPer100 },
+    { members, exposure, layersPlaced, aggregateStopLevel, aggregateTermsRetainedPer100, reinsuranceOption },
   );
   const netPurePremiumPer100 =
     Math.max(0, purePremiumPer100 - expectedCededPer100);
@@ -577,6 +597,8 @@ export interface NewStackInputs {
   riskControlPct: number;
   layersPlaced: boolean[];
   aggregateStopLevel: number;
+  /** The team's reinsurance option — the aggregate stop's, with AGGREGATE_STOP on. */
+  reinsuranceOption?: string;
 }
 
 export interface NewStackQuote {
@@ -604,9 +626,14 @@ export interface NewStackQuote {
 export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   const {
     line, yearNumber, members, exposure, groundUpPurePremiumPer100, clf,
-    riskControlPct, layersPlaced, aggregateStopLevel,
+    riskControlPct, layersPlaced, aggregateStopLevel, reinsuranceOption,
   } = input;
 
+  // ⚠ WITH THE STOP ON, A QUOTE WITHOUT THE OPTION WOULD PRICE NO COVER AT
+  // ALL — a team silently uninsured on the panel or in the bill. Refused.
+  if (AGGREGATE_STOP.enabled && reinsuranceOption === undefined) {
+    throw new Error(`quoteNewRateStack: ${line} quoted without its reinsurance option while the aggregate stop is on`);
+  }
   const adminRatePer100 = adminRatePer100For(line, exposure);
   const divisor = expenseDivisor(riskControlPct);
 
@@ -615,7 +642,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   // The SAME cession function the old stack uses, on the ground-up figure.
   const { towerQuote, aggregateQuote, expectedCededPer100 } = expectedCededPer100For(
     line, yearNumber, groundUpPurePremiumPer100,
-    { members, exposure, layersPlaced, aggregateStopLevel },
+    { members, exposure, layersPlaced, aggregateStopLevel, reinsuranceOption },
   );
   const retainedPurePremiumPer100 = Math.max(0, groundUpPurePremiumPer100 - expectedCededPer100);
 

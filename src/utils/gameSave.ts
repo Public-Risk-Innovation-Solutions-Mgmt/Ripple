@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v20';
+export const SAVE_KEY = 'riskpool_gamestate_v21';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -201,7 +201,12 @@ export const SAVE_KEY = 'riskpool_gamestate_v20';
 // with a tail and trended at 5%; and its accident years were booked without the
 // trend up to reporting. Its pre-game, opening and ledger are ones this engine
 // no longer builds, so it is cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19'];
+// ⚠ v21 SINCE STABLE-SCENARIOS BLOCK B — ONE BUMP FOR THE BLOCK. A v20 save's
+// decisions name per-claim reinsurance packages, which the aggregate stop does
+// not offer (placementFor throws on them); its schedule was drawn at one event
+// per three years on the R model's rates; and its cohorts carry no stop.
+// Cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20'];
 
 /**
  * Fields dropped on the way out.

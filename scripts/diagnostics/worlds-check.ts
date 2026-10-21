@@ -61,10 +61,10 @@ const check = (ok: boolean, label: string, detail = '') => {
   console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 
-/** A game's decisions by year: defaults, with a non-default package and funding on GL. */
+/** A game's decisions by year: defaults, with a non-default cover and funding on GL. */
 function decisionsFor(y: number): DecisionSet {
   const d = defaultDecisionSet(y);
-  d.byLine.GL.reinsuranceOption = '$14M xs $1M';
+  d.byLine.GL.reinsuranceOption = 'catastrophe';
   d.byLine.GL.fundingAtExpected = false;
   d.byLine.GL.fundingConfidenceLevel = 0.75;
   return d;
@@ -269,7 +269,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       const exposure = (ls.bookExposure ?? 0) * exposureFactor(l, y);
       const c = computeFundingConsequence(d.fundingConfidenceLevel, ls.ratePer100, l, d.fundingAtExpected, {
         yearNumber: y, members: { exposure, risk: lineBookRisk(start.instance, l, start.poolState.bookUnits) ?? 1 }, exposure,
-        layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+        layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
         pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
         lossTrend: start.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
         riskControlPct: d.riskControlPct,
@@ -403,7 +403,7 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const exposure = (ls.bookExposure ?? 0) * exposureFactor('GL', 3);
   const wrong = computeFundingConsequence(0.75, ls.ratePer100, 'GL', false, {
     yearNumber: 3, members: { exposure, risk: lineBookRisk(gs.instance, 'GL', A.starts[2].poolState.bookUnits) ?? 1 }, exposure,
-    layersPlaced: placementFor('GL', 'none'), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+    layersPlaced: placementFor('GL', 'none'), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: 'none',
     pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
     lossTrend: gs.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
     riskControlPct: 0,

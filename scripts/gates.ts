@@ -190,6 +190,9 @@ const FAST: string[] = [
   'shock-rate-check',                //   2s   the catalogue scaled to 0.3 events a year, weights kept and priced so;
                                      //         the schedule's count round(0.3 x years) ± 1, at least one, never year
                                      //         1; four controls
+  'aggregate-stop-check',            //   3s   the stop's four options, Bad-year default, price E + 0.5 SD charged so,
+                                     //         recovery at booking and recalculated as each year develops, what
+                                     //         players see; five controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls

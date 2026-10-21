@@ -164,7 +164,7 @@ for (let y = 1; y <= YEAR; y++) {
         line: LINE, yearNumber: y, members, exposure,
         groundUpPurePremiumPer100: pp.purePremiumPer100,
         clf: result.selectedFundingCLF, riskControlPct: rc,
-        layersPlaced: placed, aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+        layersPlaced: placed, aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
       }),
     });
   }

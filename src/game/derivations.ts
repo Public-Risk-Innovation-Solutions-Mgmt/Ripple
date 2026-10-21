@@ -239,6 +239,7 @@ export function useGameDerivations(
         // The chosen package, as the tower reads it — the engine's own call.
         layersPlaced: placementFor(decisionLine, d.reinsuranceOption),
         aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+        reinsuranceOption: d.reinsuranceOption,
         pricingAdjustment: lineState.rateLevel / 100,
         priorPurePremiumPer100: lineState.purePremiumPer100,
         lossTrend: gameState.instance.lossEnvironment.lossTrend,

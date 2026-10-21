@@ -103,9 +103,9 @@ const DECISION_MARKER = 0.37;
 const lineDecisions = (): TeamLineDecisions => ({
   confidenceLevel: DECISION_MARKER,
   atExpected: false,
-  // Not the default package, so a transport that substituted the default
+  // Not the default cover, so a transport that substituted the default
   // would fail the read-back below.
-  reinsuranceOption: '$5M xs $5M',
+  reinsuranceOption: 'working',
   renewalCut: 0.1,
   intakeLevel: 2,
   riskControlPct: 0.03,
@@ -681,7 +681,7 @@ async function main(): Promise<void> {
     const seen = after.room.teams[0].resultsByYear?.['1']?.decisions?.WC;
     ok(seen !== undefined, 'the host sees a team\'s decisions once the year is advanced and posted');
     eq(seen?.confidenceLevel, DECISION_MARKER, 'and reads the funding level the team chose');
-    eq(seen?.reinsuranceOption, '$5M xs $5M', 'and the reinsurance package the team bought');
+    eq(seen?.reinsuranceOption, 'working', 'and the reinsurance cover the team bought');
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
     eq(seen?.dividendPct, 0.05, 'and the dividend');

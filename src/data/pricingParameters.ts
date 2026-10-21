@@ -1051,6 +1051,52 @@ export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
 };
 
 /**
+ * THE AGGREGATE STOP, PER LINE (stable-scenarios commit 6). ON: the reinsurance
+ * a team buys is a stop on each line's ACCIDENT-YEAR TOTAL — ordinary losses,
+ * the shocks' uplift and their large losses together — replacing the per-claim
+ * packages above, whose code stays dormant behind this switch (OFF restores
+ * them).
+ *
+ * Each option is a share of the year's EXPECTED losses (the engine's ex-ante
+ * expectation for the accident year, on the book written): the stop pays the
+ * year's losses above `attachment` x expected, up to `limit` x expected more.
+ * The terms are fixed when the year is written; the recovery is recalculated
+ * each year as the accident year develops, and the change is booked as a
+ * prior-year reinsurance adjustment.
+ *
+ * PRICE = the expected recovery + AGGREGATE_STOP_SD_LOAD x the SD of the
+ * annual recovery, no floor — from the accident year's distribution sampled
+ * once per line (aggregateStop.ts). Players see each option's name and price
+ * only.
+ */
+export const AGGREGATE_STOP = { enabled: true };
+
+export interface AggregateStopOption {
+  id: string;
+  name: string;
+  /** Attaches at this share of the year's expected losses. */
+  attachment: number;
+  /** Pays up to this share of the year's expected losses. */
+  limit: number;
+}
+export const AGGREGATE_STOP_OPTIONS: readonly AggregateStopOption[] = [
+  { id: 'none', name: 'None', attachment: 0, limit: 0 },
+  { id: 'working', name: 'Working cover', attachment: 1.00, limit: 0.50 },
+  { id: 'bad-year', name: 'Bad-year cover', attachment: 1.15, limit: 0.50 },
+  { id: 'catastrophe', name: 'Catastrophe cover', attachment: 1.30, limit: 1.00 },
+];
+/** Held by every team until it chooses, and by the pre-game's prior board. */
+export const AGGREGATE_STOP_DEFAULT = 'bad-year';
+/** The price's load on the SD of the annual recovery: price = E + this x SD. */
+export const AGGREGATE_STOP_SD_LOAD = 0.5;
+/**
+ * Accident years sampled per line to price the stop. Drawn once, on a fixed
+ * stream, in standard units, and rescaled to each book and year — so a price
+ * is deterministic and costs one pass over the samples.
+ */
+export const AGGREGATE_STOP_SAMPLES = 50_000;
+
+/**
  * WHAT A TEAM HOLDS UNTIL IT CHOOSES — CHOSEN: the middle option, $9M xs $1M on
  * WC and GL and $20M xs $5M on Property. It is also the pre-game's prior board,
  * which plays the default decisions, so the opening is built on it.
@@ -1777,6 +1823,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'A starting point. The noise is drawn once from the game seed, so a unit looks the same every '
           + 'year and in every world.',
+      }],
+      ['Aggregate stop', {
+        value: AGGREGATE_STOP.enabled
+          ? AGGREGATE_STOP_OPTIONS.filter(o => o.limit > 0)
+            .map(o => `${o.name} ${Math.round(o.attachment * 100)}% / ${Math.round(o.limit * 100)}%`).join(' · ')
+          : 'off — the per-claim packages', unit: 'attaches / limit, shares of the year\'s expected losses',
+        what: 'What a team buys on each line: a stop on the accident year\'s total — ordinary losses, the shocks\' '
+          + 'uplift and their large losses together — paying above the attachment up to the limit, both shares of '
+          + 'the year\'s expected losses, or None. Recalculated each year as the year develops; the change is a '
+          + 'prior-year reinsurance adjustment.',
+        basis: 'CHOSEN',
+        note: `Price = expected recovery + ${AGGREGATE_STOP_SD_LOAD} x the SD of the annual recovery, no floor, from `
+          + `${AGGREGATE_STOP_SAMPLES.toLocaleString('en-US')} sampled accident years per line. Default: `
+          + `${AGGREGATE_STOP_OPTIONS.find(o => o.id === AGGREGATE_STOP_DEFAULT)?.name}, for players and the prior `
+          + 'board. Replaces the per-claim packages, whose code stays dormant behind the switch.',
       }],
       ['Default package', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,

@@ -49,7 +49,7 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
+import { AGGREGATE_STOP, DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
 import { placementFor } from '../utils/reinsuranceOptions';
 import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
@@ -2232,7 +2232,9 @@ export function buildSupportingRows(
       formula: {
         kind: 'echo',
         value: result.reinsuranceRecovery,
-        text: `Per-occurrence tower: ${
+        text: AGGREGATE_STOP.enabled
+          ? 'Aggregate stop — on the accident year\'s total, above its attachment, up to its limit'
+          : `Per-occurrence tower: ${
           perLine ? perLine.reduce((n, pl) => n + pl.layersPaid, 0) : (result.cededByLayer ?? []).filter(v => v > 0).length
         } layer(s) paid${
           perLine && perLine.length > 1 ? ` (${perLine.map(pl => `${pl.line} ${pl.layersPaid}`).join(', ')})` : ''
@@ -2966,7 +2968,9 @@ export function buildRevExpRows(
           value: `(${formatCurrency(result.reinsuranceRecovery)})`,
           numericValue: result.reinsuranceRecovery,
           formula: lineRow === null ? PER_LINE_ONLY : scoped(
-            () => ({ kind: 'echo' as const, value: result.reinsuranceRecovery, text: 'Per-occurrence tower — sum of layer cessions' }),
+            () => ({ kind: 'echo' as const, value: result.reinsuranceRecovery, text: AGGREGATE_STOP.enabled
+              ? 'Aggregate stop — on the accident year\'s total, above its attachment, up to its limit'
+              : 'Per-occurrence tower — sum of layer cessions' }),
             x => x.reinsuranceRecovery
           ),
           indent: 2 as const,

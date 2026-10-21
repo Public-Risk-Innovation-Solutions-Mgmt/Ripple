@@ -323,11 +323,14 @@ export interface TeamLineDecisions {
   confidenceLevel: number;
   atExpected: boolean;
   /**
-   * THE REINSURANCE PACKAGE the team bought on this line — one id from
-   * REINSURANCE_OPTIONS[line] (e.g. '$9M xs $1M'), or 'none'. Loss engine
-   * commit 4a: it replaces `layersPlaced` (per band) and `aggregateStopLevel`,
-   * which are gone from the wire. ⚠ A CONTRACT CHANGE — deploy the handler
-   * first; see docs/handoff/AWS_HANDLER_HANDOFF.md.
+   * THE REINSURANCE the team bought on this line — with AGGREGATE_STOP on
+   * (stable-scenarios commit 6), one id from AGGREGATE_STOP_OPTIONS: 'none',
+   * 'working', 'bad-year' or 'catastrophe'; with it off, a package from
+   * REINSURANCE_OPTIONS[line] (e.g. '$9M xs $1M'). Loss engine commit 4a: it
+   * replaces `layersPlaced` (per band) and `aggregateStopLevel`, which are gone
+   * from the wire. ⚠ THE SHAPE IS UNCHANGED BY THE STOP — still one string the
+   * server stores without reading — so the handler, both transports and
+   * keys.ts need no change for it; only the values a client writes do.
    */
   reinsuranceOption: string;
   /** Share of the book NOT renewed, worst first. Absent on the engine side reads as 0. */

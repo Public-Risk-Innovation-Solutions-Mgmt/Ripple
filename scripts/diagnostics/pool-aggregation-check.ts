@@ -35,7 +35,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { MEMBER_LEVEL } from '../../src/data/pricingParameters';
+import { AGGREGATE_STOP, MEMBER_LEVEL } from '../../src/data/pricingParameters';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 import type { CoverageLine, DecisionSet, GameState, ResultSet } from '../../src/types/simulation';
 
@@ -206,6 +206,12 @@ const tri = [
   ...[0, 1, 2, 3].flatMap(g => play(`POOLAGG-TOWER${g}`, 5_150_100 + g, LINES, 10, fullTower)),
 ];
 const solos = LINES.map(line => ({ line, rows: play(`SOLO${line}`, 6_200_000, [line]) }));
+// ⚠ THE LAYER CELLS ARE THE PER-OCCURRENCE TOWER'S, dormant behind
+// AGGREGATE_STOP since stable-scenarios commit 6 (the stop cedes no layer), so
+// check 4 plays its own full-tower games with the stop off.
+AGGREGATE_STOP.enabled = false;
+const towerTri = [0, 1, 2, 3].flatMap(g => play(`POOLAGG-TOWER${g}`, 5_150_100 + g, LINES, 10, fullTower));
+AGGREGATE_STOP.enabled = true;
 
 console.log('\n=== 1. EVERY NUMERIC POOLED FIELD IS CLASSIFIED ===');
 {
@@ -229,13 +235,13 @@ console.log('\n=== 3. NO MEMBERS ARE FABRICATED ON A BOOK ===');
 
 console.log('\n=== 4. cededByLayer CELLS LINE UP ===');
 {
-  const total = (k: (r: Row) => number[]) => tri.reduce((acc, r) => { k(r).forEach((v, i) => { acc[i] = (acc[i] ?? 0) + v; }); return acc; }, [] as number[]);
+  const total = (k: (r: Row) => number[]) => towerTri.reduce((acc, r) => { k(r).forEach((v, i) => { acc[i] = (acc[i] ?? 0) + v; }); return acc; }, [] as number[]);
   const pooled = total(r => r.cededByLayer as number[]), prop = total(r => r.byLine.Property.cededByLayer as number[]);
   console.log(`  pooled, all years  [${pooled.map(v => (v / 1e6).toFixed(2)).join(', ')}]  $M`);
   console.log(`  Property (excluded) [${prop.map(v => (v / 1e6).toFixed(2)).join(', ')}]  $M`);
   // Not vacuous: both sides of the fold must have ceded something.
   check(pooled.some(v => v > 0) && prop.some(v => v > 0), '4. WC/GL and Property both ceded in these games');
-  const g = layerCellGap(tri);
+  const g = layerCellGap(towerTri);
   check(g < 1e-6, '4. pooled cededByLayer is WC + GL elementwise, Property left out', `worst $${g.toExponential(2)}`);
 }
 
@@ -259,7 +265,7 @@ console.log('\nCONTROLS — each must be caught');
   check(additiveMisses(mean, LINES).includes('writtenExposure'), 'control: an exposure averaged rather than summed is caught by 2');
   const roster = tri.map(r => ({ ...r, byLine: { ...r.byLine, GL: { ...r.byLine.GL, activeMembers: 12 } } }));
   check(fabricatedMembers(roster, LINES).includes('GL activeMembers'), 'control: a member count on a book is caught by 3');
-  const folded = tri.map(r => ({
+  const folded = towerTri.map(r => ({
     ...r, cededByLayer: (r.cededByLayer as number[]).map((v, i) => v + ((r.byLine.Property.cededByLayer as number[])[i] ?? 0)),
   }));
   check(layerCellGap(folded) >= 1, 'control: Property folded into the pooled cells is caught by 4');

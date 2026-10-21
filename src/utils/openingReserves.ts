@@ -443,7 +443,7 @@ export function requiredCapital(line: CoverageLine, netUnpaidReserve: number): n
 export function openingCatCapital(line: CoverageLine, members: Book): number {
   const placed = placementFor(line, defaultReinsuranceOption(line));
   return newLossEngineRuns()
-    ? newEngineCatCapital(line, bookExposureOf(members, line, 1), 1, placed)
+    ? newEngineCatCapital(line, bookExposureOf(members, line, 1), 1, placed, defaultReinsuranceOption(line))
     : catCapitalRetained(line, [...rosterOf(members, 'openingCatCapital')], placed);
 }
 

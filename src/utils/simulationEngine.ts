@@ -148,7 +148,8 @@ import {
 import { expectedMarketReturns, simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { FLAT_PRE_GAME, MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { AGGREGATE_STOP, FLAT_PRE_GAME, MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
 import { bookMovementResult, moveBook, moveBookUnits } from './bookUnderwriting';
@@ -170,7 +171,7 @@ import { computeKGl, deriveNeutralGlPurePremiumPer100, generateGlClaims, glCappe
 import { computeKPr, generatePropertyClaims, propertyCappedSeverityTrend } from './propertyClaimEngine';
 import { generateNarrative } from './narrativeEngine';
 import { grossUpRetainedPurePremium, quoteLineRates, type CessionBasis } from './linePricing';
-import { bookExposureOf, getMemberExposure, type Book } from './lineHelpers';
+import { bookExposureOf, bookRiskOf, getMemberExposure, type Book } from './lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 
@@ -751,6 +752,7 @@ export function strikeBookRate(
     riskControlPct: riskControlIncentiveFor(lineDecisions),
     layersPlaced: placementFor(line, lineDecisions.reinsuranceOption),
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+    reinsuranceOption: lineDecisions.reinsuranceOption,
   });
   return { exposure, newPp, quote };
 }
@@ -1122,6 +1124,7 @@ export function processLineYear(
       riskControlPct: riskControlIncentivePct,
       layersPlaced,
       aggregateStopLevel,
+      reinsuranceOption: lineDecisions.reinsuranceOption,
     })
     : null;
 
@@ -1140,6 +1143,7 @@ export function processLineYear(
     pricingAdjustment,
     layersPlaced,
     aggregateStopLevel,
+    reinsuranceOption: lineDecisions.reinsuranceOption,
   });
 
   // ⚠ THIS QUOTE IS THE PRICE SIGNAL, NOT THE BILL. It is struck on the book as
@@ -1309,6 +1313,10 @@ export function processLineYear(
   // WORLD'S — so a struck year always quotes the tower on its own covered book.
   const towerQuote = (bookUnchanged && !struck) || placedForCost === null
     ? estimatedQuote.towerQuote
+    : AGGREGATE_STOP.enabled
+    // The stop, on the covered book (stable-scenarios commit 6).
+    ? (q => ({ premium: q.premium, expectedCeded: q.expectedRecovery }))(
+      stopQuote(line, lineDecisions.reinsuranceOption, activeExposure, yearNumber, bookRiskOf(towerMembers)))
     : occurrenceProgramCost(line as TowerLine, placedForCost, towerMembers, yearNumber);
 
   // ⚠ THE RATE IS RECOMPUTED ON THE POST-MOVEMENT BOOK, and with class rates it
@@ -1484,6 +1492,7 @@ export function processLineYear(
       riskControlPct: riskControlIncentivePct,
       layersPlaced,
       aggregateStopLevel,
+      reinsuranceOption: lineDecisions.reinsuranceOption,
     })
     : null;
 
@@ -2113,6 +2122,7 @@ export function processLineYear(
   let cededByLayer: number[] = [];
   let retainedAboveTower = 0;
   let aggregateRecoveryAmount = 0;
+  let stopTermsAtInception: StopTerms | undefined;
   let aggregatePremium = 0;
   let aggregateAttachment = 0;
 
@@ -2163,6 +2173,15 @@ export function processLineYear(
       aggregatePremium = quote.premium;
       aggregateAttachment = quote.attachment;
       aggregateRecoveryAmount = aggregateRecovery(cession.retained, quote);
+    }
+
+    // THE AGGREGATE STOP (stable-scenarios commit 6): on the accident year's
+    // booked gross total, on terms set off the year's expected losses. It
+    // replaces the occurrence layers (none is placed with the switch on), and
+    // its recovery is recalculated as the year develops (processIbner).
+    if (AGGREGATE_STOP.enabled) {
+      stopTermsAtInception = stopTerms(lineDecisions.reinsuranceOption, expectedLoss);
+      aggregateRecoveryAmount += stopRecovery(bookedGrossContraction * grossUltimateLoss, stopTermsAtInception);
     }
 
     reinsuranceRecovery = cession.totalCeded + aggregateRecoveryAmount;
@@ -2408,6 +2427,11 @@ export function processLineYear(
     developmentBench: markdown.bench.length > 0 ? markdown.bench : undefined,
     cededDevelopmentToDate: markdown.giveBack,
     placedAtInception,
+    // The stop's terms and what it has recovered so far, on this year's own
+    // cover — recalculated each valuation as the year develops.
+    ...(stopTermsAtInception && stopTermsAtInception.limit > 0
+      ? { aggregateStop: { ...stopTermsAtInception, recovered: aggregateRecoveryAmount } }
+      : {}),
   };
 
   // ⚠ THE PLAYED YEAR'S BASE IS STRUCK HERE, at the end of its own first
@@ -2669,7 +2693,7 @@ export function processLineYear(
   // catastrophe model over the member roster; the new engine's catastrophes are
   // the catalogue's regional events. See newEngineCatCapital for the basis.
   const catCapitalNeeded = newLossEngineRuns()
-    ? newEngineCatCapital(line, estimatedExposure, yearNumber, placedForCost)
+    ? newEngineCatCapital(line, estimatedExposure, yearNumber, placedForCost, lineDecisions.reinsuranceOption)
     : catCapitalRetained(line, currentActiveMembers, placedForCost);
   const reserveRiskMarginNeeded = Math.max(
     0,
@@ -5344,6 +5368,27 @@ function processIbner(
         developmentAbovePoolLimit += emergedAbovePoolLimit;
       }
 
+      // ⚠ THE AGGREGATE STOP IS RECALCULATED ON THE YEAR'S DEVELOPED GROSS
+      // (stable-scenarios commit 6). The accident year's total moved by its
+      // development above; the stop now pays on the new total, under the terms
+      // the year was written on, and the change is this year's prior-year
+      // reinsurance adjustment — ceded, so the net reserve moves by the rest.
+      let aggregateStopOut = c.aggregateStop;
+      if (c.aggregateStop) {
+        const recovery = stopRecovery(newGrossPaid + newGrossUnpaid, c.aggregateStop);
+        let delta = recovery - c.aggregateStop.recovered;
+        // The net balance cannot go below zero; what the reserve cannot give
+        // up stays with the pool and is recovered later.
+        if (newUnpaid - delta < 0) delta = newUnpaid;
+        newUnpaid -= delta;
+        developmentCeded += delta;
+        // ⚠ NOT INTO cededToDate: that total floors the OCCURRENCE give-back
+        // at what the layers took, and a stop whose recovery has fallen since
+        // booking would drive it below zero and make that floor cede. The stop
+        // keeps its own `recovered`.
+        aggregateStopOut = { ...c.aggregateStop, recovered: c.aggregateStop.recovered + delta };
+      }
+
       const newUltimate = newPaid + newUnpaid;
       developmentImpact += c.netUltimate - newUltimate;
 
@@ -5515,6 +5560,7 @@ function processIbner(
         developmentBench: benchOut,
         cededDevelopmentToDate: cededToDate,
         developmentEmerged: emergedOut,
+        ...(aggregateStopOut ? { aggregateStop: aggregateStopOut } : {}),
       };
     });
 

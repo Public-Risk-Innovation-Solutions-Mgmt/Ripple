@@ -13,7 +13,8 @@ import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
 import { occurrenceProgramCost } from '../utils/reinsuranceTower';
 import { placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
-import type { Book } from '../utils/lineHelpers';
+import { bookExposureOf, bookRiskOf, type Book } from '../utils/lineHelpers';
+import { stopQuote, stopWording } from '../utils/aggregateStop';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -26,7 +27,7 @@ import {
 import { APPLICATION_RATE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import { applicantInclusion } from '../utils/membershipEngine';
-import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
+import { AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
 import { intakeShare } from '../utils/bookUnderwriting';
 
 export interface LineLoanInfo {
@@ -1220,7 +1221,70 @@ function DataRow({ label, value }: { label: string; value: string }) {
 // the per-band panel listed it: the cession applies it, so a package attaching
 // below it answers that peril only from the deductible up.
 // ============================================================================
-function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
+function PackageControls(props: {
+  line: CoverageLine;
+  d: LineDecisionSet;
+  setMany: (patch: Partial<LineDecisionSet>) => void;
+  disabled: boolean;
+  book: Book;
+  yearNumber: number;
+}) {
+  return AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />;
+}
+
+// ============================================================================
+// THE AGGREGATE STOP — ONE CHOICE PER LINE (stable-scenarios commit 6).
+//
+// ⚠ EACH OPTION'S NAME, WHAT IT COVERS IN ONE SENTENCE, AND ITS PRICE — NEVER
+// its expected recovery or how it was priced (docs/PENDING_MULTIPLAYER.md).
+// The price is the engine's own quote (aggregateStop.stopQuote) on the line's
+// book and year, so the panel cannot show a figure the engine does not charge.
+// ============================================================================
+function StopControls({ line, d, setMany, disabled, book, yearNumber }: {
+  line: CoverageLine;
+  d: LineDecisionSet;
+  setMany: (patch: Partial<LineDecisionSet>) => void;
+  disabled: boolean;
+  book: Book;
+  yearNumber: number;
+}) {
+  const exposure = bookExposureOf(book, line, yearNumber);
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-600 leading-relaxed">
+        Choose <strong>one cover</strong> for this line. Each protects the Pool against a year whose losses run
+        well above what was expected.
+      </p>
+      <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
+        {AGGREGATE_STOP_OPTIONS.map(o => {
+          const chosen = d.reinsuranceOption === o.id;
+          const price = o.limit > 0 ? stopQuote(line, o.id, exposure, yearNumber, bookRiskOf(book)).premium : 0;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              data-testid={`reins-option-${line}-${o.id}`}
+              disabled={disabled}
+              onClick={() => !disabled && setMany({ reinsuranceOption: o.id })}
+              className={`w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm text-left ${
+                chosen ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'
+              } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              <span>
+                <span className={chosen ? 'font-semibold' : ''}>{o.name}</span>
+                <span className="block text-xs text-gray-500">{stopWording(o.id)}</span>
+              </span>
+              <span className="text-xs text-gray-600 whitespace-nowrap">{formatCurrency(price)}/yr</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// The per-claim packages, dormant behind AGGREGATE_STOP.
+function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber }: {
   line: CoverageLine;
   d: LineDecisionSet;
   setMany: (patch: Partial<LineDecisionSet>) => void;

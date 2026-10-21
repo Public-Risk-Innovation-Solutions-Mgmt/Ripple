@@ -955,6 +955,14 @@ export interface ReserveCohort {
   // The cohort's CURRENT estimate of ultimate, net of reinsurance. This is what
   // develops: IBNER moves it each year until the cohort matures. `netUnpaid`
   // follows from it, and `netPaid` accumulates against it.
+  /**
+   * THE AGGREGATE STOP this accident year was written with (stable-scenarios
+   * commit 6): its terms in dollars, fixed at inception, and what it has
+   * recovered to date. Recalculated each valuation on the year's developed
+   * gross; the change is a prior-year reinsurance adjustment. Absent when the
+   * year bought none, and on bulk cohorts.
+   */
+  aggregateStop?: { optionId: string; attachment: number; limit: number; recovered: number };
   netUltimate: number;
   netPaid: number;
   netUnpaid: number;
