@@ -1274,7 +1274,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // cost and Property's catastrophe capital — aggregateRecovery,
 // reinsuranceRecovery and priorYearDevelopmentCeded at it alone. Commit 7 (the
 // catastrophe load): the pure premium and the first indication.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v78.json');
+// v79: STABLE-SCENARIOS BLOCK C (the small fix through commit 11, the
+// give-back fix and the contingency at 0). The control ran first: 330c525
+// reproduced v78. 300 fields added, none removed: expectedReinsuranceRecovery
+// (commit 11). 26,027 instances moved across 100 fields, none an identity,
+// attributed row by row from each commit's own dump: 77e3449 (exposure to
+// $30M) 25,217 rows; 0d65606 (catastrophe load removed) 13,549; ed7e89d
+// (year 1 on the pure premium) 23,955; 715fe14 (re-scale) 25,111; 58af20e
+// (the cover's full price, shocks sized on claims) 14,242; 665410f (re-scale)
+// 25,001; 3df8453 (twenty scenarios: the seed, the $5M start, the solved
+// margin, the 3% pre-game return) 20,122; fbecad4 (commit 11) 480 — the 300
+// new fields and commonLossFactor reading the year factor on 180; 7a369a7
+// (contingency 0, re-scale) 25,237. Moved nothing here, by construction: the
+// shocks-off switch (58cd3b9; this harness draws no solo schedule), the
+// hundred worlds (b3011df; it drives one world at a time) and the give-back
+// fix (e6e0e93, display only).
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v79.json');
 
 function seedOf(id: string) {
   let h = 5381;

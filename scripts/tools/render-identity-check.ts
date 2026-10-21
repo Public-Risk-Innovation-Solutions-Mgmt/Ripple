@@ -1052,7 +1052,19 @@ const BASELINE = process.env.RENDER_BASELINE
 // names the cover ("Bad-year cover"); the Calculation Audit describes the
 // recovery as the stop's; and the Results narrative reports the stop's
 // recovery (commit 6).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v67.json');
+// v68: STABLE-SCENARIOS BLOCK C (see VALUE_IDENTITY_v79). The control ran
+// first: 330c525, served on 4176, reproduced v67 242 of 242. 232 of 242 moved,
+// no key added or removed. Run at each commit in turn: 77e3449 moved 232,
+// 0d65606 175, ed7e89d 232, 715fe14 232, 58af20e 173, 665410f 232, 58cd3b9
+// 97, 3df8453 232, b3011df 116; commit 11 (fbecad4) could not be rendered —
+// its Results page threw at load on the removed give-back metric — so it is
+// measured with its fix, e6e0e93: 70, of them 46 in figures only (the
+// Statement's cumulative Totals; the audit counting one check fewer, its CLF
+// check removed) and the rest its labels: Expected Losses for Pure Premium,
+// the net-of-reinsurance row, Simulated Losses, the Loss Ratio beside the
+// Loss & LAE Ratio, the give-back rows gone. 7a369a7 (contingency 0) moved
+// 232, figures only.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v68.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
