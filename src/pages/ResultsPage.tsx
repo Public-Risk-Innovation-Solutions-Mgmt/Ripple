@@ -93,7 +93,6 @@ const COMPARISON_METRICS: ComparisonMetric[] = [
   { key: 'reserves', label: metricLabel('endingNetReserve'), kind: 'currency', polarity: 'neutral', getValue: r => r.endingNetReserve, showPctChange: true },
   { key: 'reinsRecovery', label: metricLabel('reinsuranceRecovery'), kind: 'currency', polarity: 'neutral', getValue: r => r.reinsuranceRecovery, showPctChange: false },
   { key: 'reinsRecoveryDev', label: metricLabel('priorYearDevelopmentCeded'), kind: 'currency', polarity: 'neutral', getValue: r => r.priorYearDevelopmentCeded, showPctChange: false },
-  { key: 'bookingGiveBack', label: metricLabel('bookingGiveBack'), kind: 'currency', polarity: 'neutral', getValue: r => r.bookingGiveBack, showPctChange: false },
   { key: 'investmentIncome', label: metricLabel('investmentIncome'), kind: 'currency', polarity: 'goodUp', getValue: r => r.investmentIncome, showPctChange: false },
   { key: 'netIncome', label: metricLabel('netIncome'), kind: 'currency', polarity: 'goodUp', getValue: r => r.netIncome, showPctChange: false },
   { key: 'endingSurplus', label: metricLabel('endingSurplus'), kind: 'currency', polarity: 'goodUp', getValue: r => r.endingSurplus, showPctChange: true },
