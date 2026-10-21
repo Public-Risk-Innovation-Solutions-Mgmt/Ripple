@@ -625,7 +625,8 @@ function NewRatePanel({ n, prior }: {
           <tr className="border-t border-gray-300 font-medium">
             <td className="py-1">= Rate</td>
             <td data-testid="new-rate-indicated" className="py-1 text-right tabular-nums">{d2(n.firstIndicationPer100)}</td>
-            <td data-testid="new-rate-final" className="py-1 text-right tabular-nums">{d2(n.finalRatePer100)}</td>
+            {/* data-value: the full figure, for the rate-indication driver; the text is unchanged. */}
+            <td data-testid="new-rate-final" data-value={n.finalRatePer100} className="py-1 text-right tabular-nums">{d2(n.finalRatePer100)}</td>
           </tr>
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">vs last year</td>

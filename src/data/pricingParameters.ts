@@ -188,6 +188,13 @@ export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
 export const FUNDING_SLIDER_RANGE = { min: 0.30, max: 0.90, step: 0.05, default: DEFAULT_FUNDING_CONFIDENCE_LEVEL };
 
 /**
+ * THE RATE INDICATION'S OTHER FUNDING LEVELS — shown beside Expected on the
+ * Actuarial department's Rate Indication. Display only: each is a slider stop,
+ * priced as the Decisions panel prices it.
+ */
+export const RATE_INDICATION_FUNDING_LEVELS = [0.70, 0.80, 0.90] as const;
+
+/**
  * THE RESERVE MARGIN'S FIXED CONFIDENCE LEVEL — 80% (stable-scenarios commit 2;
  * was 90%). Required capital = outstanding reserves x (the line's CLF at this
  * level - 1). The single source: clfTables' RESERVE_MARGIN_CONFIDENCE reads it.
@@ -1679,6 +1686,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'Back to fives: the funding tables wiring cut it to tens because its tables had columns only at 30, 40 … 90; '
           + 'they now carry the fives too, re-derived on the same draws (all existing cells identical). Every stop is a '
           + 'column of the BaselineCV tables, none interpolated.',
+      }],
+      ['Rate Indication funding levels', {
+        value: RATE_INDICATION_FUNDING_LEVELS.map(l => `${Math.round(l * 100)}%`).join(', '),
+        unit: 'confidence',
+        what: 'The funding levels the Rate Indication shows beside Expected, each with its indicated rate and change.',
+        basis: 'CHOSEN',
+        note: 'Display only. Each is a slider stop, priced by the Decisions panel\'s own pricing, so the indicated '
+          + 'rate plus a cover\'s price is the rate the panel charges there.',
       }],
     ],
   },
