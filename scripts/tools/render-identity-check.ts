@@ -1074,7 +1074,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // slider) moved the 26 Calculation Audit pages, whose slider ranges read
 // "Step 5.0%" for "Step 10.0%". The Decisions pages hold: they are captured at
 // Expected, whose label is unchanged.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v69.json');
+// v70: THE COMBINED RATIO, ONE FIGURE (display only; value v79 and export v85
+// byte-identical). The control ran first: 53df36b reproduced v68 242 of 242;
+// against it 222 of 242 move, no key added or removed. Run at each commit:
+// 3445aca 222 and 5087854 26, as v69 says; b7abcbc moved the same 222 again —
+// the header's two chips are one, "Combined Ratio", the cumulative since game
+// start (over the pre-game years before year 1); the statement's first row is
+// "Combined Ratio", its Total the pre-game cumulative in place of "—" before
+// year 1 (13 pages); and the net-of-reinsurance Combined Ratio row is gone
+// from the 26 Annual Statement pages. Nothing else.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v70.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
