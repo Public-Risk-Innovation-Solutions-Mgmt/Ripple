@@ -53,8 +53,39 @@ interface SessionItem {
   expiresAtSec: number;
 }
 
-/** A caller's token resolved to its account, or null — never throws. */
-async function resolveToken(dynamo: AdminDynamo, token: string): Promise<AccountItem | null> {
+// ⚠ EVERY FIELD IS CHECKED BEFORE IT IS USED, THE SAME PATTERN
+// session/server/rooms.ts ALREADY USES (isString/requireString there). A
+// request missing a field, or carrying the wrong type, must answer
+// INVALID_REQUEST — not crash into a raw JS TypeError that leaks internals,
+// claims retryable: true, and reads as a server outage to anything watching
+// for 500s. Found by Mike's own testing (an empty {} against adminLogin /
+// currentAdmin / listAdminAccounts), fixed here rather than per call site.
+function isString(v: unknown): v is string {
+  return typeof v === 'string';
+}
+
+function requireString(v: unknown, what: string): string {
+  if (!isString(v)) throw new AdminError('INVALID_REQUEST', `${what} must be a string.`, false);
+  return v;
+}
+
+function requireBoolean(v: unknown, what: string): boolean {
+  if (typeof v !== 'boolean') throw new AdminError('INVALID_REQUEST', `${what} must be a boolean.`, false);
+  return v;
+}
+
+/**
+ * A caller's token resolved to its account, or null — never throws, even for
+ * a missing or malformed token. That is deliberate here specifically: this
+ * is currentAdmin's whole contract ("never an error" — contract.ts), the
+ * same way the room layer's `read` treats a missing token as anonymous
+ * rather than refusing it. Every OTHER protected method validates its own
+ * token with requireString BEFORE reaching this function, so a malformed
+ * token never gets this far from them — this guard is for currentAdmin's
+ * benefit, and a safety net for everyone else's.
+ */
+async function resolveToken(dynamo: AdminDynamo, token: unknown): Promise<AccountItem | null> {
+  if (!isString(token) || token.length === 0) return null;
   const session = await dynamo.doc.send(new GetCommand({
     TableName: dynamo.table,
     Key: { pk: sessionPk(hashAdminToken(token)) },
@@ -91,13 +122,15 @@ export class DynamoAdminBackend implements AdminBackend {
   }
 
   async adminLogin(req: AdminLoginRequest): Promise<AdminLoginResponse> {
+    const username = requireString(req.username, 'username');
+    const password = requireString(req.password, 'password');
     const res = await this.dynamo.doc.send(new GetCommand({
       TableName: this.dynamo.table,
-      Key: { pk: adminPk(normalizeUsername(req.username)) },
+      Key: { pk: adminPk(normalizeUsername(username)) },
       ConsistentRead: true,
     }));
     const account = res.Item as AccountItem | undefined;
-    if (!account || !verifyPassword(req.password, account.passwordSalt, account.passwordHash)) {
+    if (!account || !verifyPassword(password, account.passwordSalt, account.passwordHash)) {
       throw new AdminError('BAD_CREDENTIALS', 'Incorrect username or password.');
     }
     if (account.disabled) {
@@ -113,9 +146,10 @@ export class DynamoAdminBackend implements AdminBackend {
   }
 
   async adminLogout(req: AdminLogoutRequest): Promise<void> {
+    const token = requireString(req.token, 'token');
     await this.dynamo.doc.send(new DeleteCommand({
       TableName: this.dynamo.table,
-      Key: { pk: sessionPk(hashAdminToken(req.token)) },
+      Key: { pk: sessionPk(hashAdminToken(token)) },
     }));
   }
 
@@ -125,11 +159,14 @@ export class DynamoAdminBackend implements AdminBackend {
   }
 
   async createAdminAccount(req: CreateAdminAccountRequest): Promise<void> {
-    await requireAdmin(this.dynamo, req.token);
-    const name = req.username.trim();
+    const token = requireString(req.token, 'token');
+    const username = requireString(req.username, 'username');
+    const password = requireString(req.password, 'password');
+    await requireAdmin(this.dynamo, token);
+    const name = username.trim();
     if (name.length === 0) throw new AdminError('INVALID_REQUEST', 'Choose a username.');
-    if (req.password.length < 4) throw new AdminError('INVALID_REQUEST', 'Password must be at least 4 characters.');
-    const { salt, hash } = hashPassword(req.password);
+    if (password.length < 4) throw new AdminError('INVALID_REQUEST', 'Password must be at least 4 characters.');
+    const { salt, hash } = hashPassword(password);
     try {
       await this.dynamo.doc.send(new PutCommand({
         TableName: this.dynamo.table,
@@ -155,7 +192,8 @@ export class DynamoAdminBackend implements AdminBackend {
   }
 
   async listAdminAccounts(req: ListAdminAccountsRequest): Promise<ListAdminAccountsResponse> {
-    await requireAdmin(this.dynamo, req.token);
+    const token = requireString(req.token, 'token');
+    await requireAdmin(this.dynamo, token);
     const accounts = await this.scanAccounts();
     const summaries: AdminAccountSummary[] = accounts
       .map(a => ({ username: a.username, disabled: a.disabled }))
@@ -164,29 +202,37 @@ export class DynamoAdminBackend implements AdminBackend {
   }
 
   async setAdminDisabled(req: SetAdminDisabledRequest): Promise<void> {
-    const caller = await requireAdmin(this.dynamo, req.token);
-    this.guardSelf(caller, req.username);
-    const target = await this.mustFind(req.username);
+    const token = requireString(req.token, 'token');
+    const username = requireString(req.username, 'username');
+    const disabled = requireBoolean(req.disabled, 'disabled');
+    const caller = await requireAdmin(this.dynamo, token);
+    this.guardSelf(caller, username);
+    const target = await this.mustFind(username);
     await this.dynamo.doc.send(new UpdateCommand({
       TableName: this.dynamo.table,
       Key: { pk: target.pk },
       UpdateExpression: 'SET disabled = :d',
-      ExpressionAttributeValues: { ':d': req.disabled },
+      ExpressionAttributeValues: { ':d': disabled },
     }));
   }
 
   async deleteAdminAccount(req: DeleteAdminAccountRequest): Promise<void> {
-    const caller = await requireAdmin(this.dynamo, req.token);
-    this.guardSelf(caller, req.username);
-    const target = await this.mustFind(req.username);
+    const token = requireString(req.token, 'token');
+    const username = requireString(req.username, 'username');
+    const caller = await requireAdmin(this.dynamo, token);
+    this.guardSelf(caller, username);
+    const target = await this.mustFind(username);
     await this.dynamo.doc.send(new DeleteCommand({ TableName: this.dynamo.table, Key: { pk: target.pk } }));
   }
 
   async resetAdminPassword(req: ResetAdminPasswordRequest): Promise<void> {
-    await requireAdmin(this.dynamo, req.token);
-    if (req.newPassword.length < 4) throw new AdminError('INVALID_REQUEST', 'Password must be at least 4 characters.');
-    const target = await this.mustFind(req.username);
-    const { salt, hash } = hashPassword(req.newPassword);
+    const token = requireString(req.token, 'token');
+    const username = requireString(req.username, 'username');
+    const newPassword = requireString(req.newPassword, 'newPassword');
+    await requireAdmin(this.dynamo, token);
+    if (newPassword.length < 4) throw new AdminError('INVALID_REQUEST', 'Password must be at least 4 characters.');
+    const target = await this.mustFind(username);
+    const { salt, hash } = hashPassword(newPassword);
     await this.dynamo.doc.send(new UpdateCommand({
       TableName: this.dynamo.table,
       Key: { pk: target.pk },

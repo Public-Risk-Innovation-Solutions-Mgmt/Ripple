@@ -104,6 +104,24 @@ async function main(bootstrapUsername: string, bootstrapPassword: string): Promi
   const garbage = await b.currentAdmin({ token: 'not-a-real-token' });
   eq(garbage.username, null, 'currentAdmin on a bad token resolves to null rather than throwing');
 
+  // ---- malformed requests: every field checked before it is used -----------
+  //
+  // ⚠ FOUND BY MIKE'S OWN TESTING, NOT BY THIS FILE. An empty {} against
+  // adminLogin / currentAdmin / listAdminAccounts used to crash with a raw
+  // TypeError (".trim() of undefined", "the \"data\" argument must be of
+  // type string") instead of answering INVALID_REQUEST — exposing internals,
+  // claiming retryable: true, and reading as a server outage. These
+  // assertions are what would have caught it.
+  await rejects(b.adminLogin({} as never), 'INVALID_REQUEST', 'adminLogin with no fields at all is refused cleanly, not a crash');
+  await rejects(b.adminLogin({ username: 'x' } as never), 'INVALID_REQUEST', 'adminLogin missing only password is refused cleanly');
+  const noToken = await b.currentAdmin({} as never);
+  eq(noToken.username, null, 'currentAdmin with no token field at all resolves to null, same as a bad token — never an error');
+  await rejects(b.listAdminAccounts({} as never), 'INVALID_REQUEST', 'listAdminAccounts with no token field is refused cleanly, not a crash');
+  await rejects(b.createAdminAccount({ token: boot.token } as never), 'INVALID_REQUEST', 'createAdminAccount missing username/password is refused cleanly');
+  await rejects(b.setAdminDisabled({ token: boot.token, username: name('second') } as never), 'INVALID_REQUEST', 'setAdminDisabled missing disabled is refused cleanly');
+  await rejects(b.deleteAdminAccount({ token: boot.token } as never), 'INVALID_REQUEST', 'deleteAdminAccount missing username is refused cleanly');
+  await rejects(b.resetAdminPassword({ token: boot.token, username: name('second') } as never), 'INVALID_REQUEST', 'resetAdminPassword missing newPassword is refused cleanly');
+
   // ---- create --------------------------------------------------------------
   await rejects(
     b.createAdminAccount({ token: 'nope', username: name('second'), password: 'whatever123' }),
