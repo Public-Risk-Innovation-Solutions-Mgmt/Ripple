@@ -111,10 +111,37 @@ export const REINSURANCE_RISK_LOAD_LAMBDA = 0;
 // ============================================================================
 
 /**
- * ACCIDENT-YEAR SEVERITY TREND — one rate per line, applied at the DRAW.
- * Each claim in accident year n costs (1 + rate)^(n-1) of its year-1 amount.
+ * ACCIDENT-YEAR SEVERITY TREND — one rate per line, applied at the DRAW and in
+ * pricing alike. Each accident year n costs (1 + rate)^(n-1) of year 1's.
+ *
+ * ⚠ PER LINE SINCE STABLE-SCENARIOS COMMIT 3: WC 4%, GL 8%, Property 5% —
+ * replacing one round 5% for all three. WC's sits nearer its measured 3.67%;
+ * GL's carries liability's faster claim-cost growth. The same rate books each
+ * accident year's inflation up to reporting up front (UP_FRONT_TREND).
  */
-export const SEVERITY_TREND_PER_YEAR: PerLine<number> = { WC: 0.05, GL: 0.05, Property: 0.05 };
+export const SEVERITY_TREND_PER_YEAR: PerLine<number> = { WC: 0.04, GL: 0.08, Property: 0.05 };
+
+/**
+ * THE TREND BOOKED UP FRONT (stable-scenarios commit 3). ON: each accident
+ * year's ultimate rises with trend only by as much as its REPORTED losses rise
+ * because of trend — inflation up to reporting, not up to final payment. The
+ * factor, per line, along the closed REPORTED pattern (paidDevelopmentPatterns'
+ * upFrontTrendFactor):
+ *
+ *     sum over development years k of  (share newly reported in year k) x (1 + trend)^(k - 1)
+ *
+ *     WC 1.0787   GL 1.1599   Property 1.0126
+ *
+ * It multiplies the pool's layered loss costs (WC, GL), Property's basis and
+ * the shock sizes alike (ordinaryLoss.ts's bookedCostLevel). Older years do not
+ * develop for trend afterwards: the booked ultimate already carries it, and
+ * pricing, which develops paid losses to that ultimate, sees it through the
+ * experience. OFF is the gate's control (factor 1).
+ *
+ * ⚠ THE FIGURES ABOVE ARE ALSO ON THE PARAMETERS PAGE ENTRY BELOW, and
+ * no-tail-trend-check fails if either disagrees with the computed factor.
+ */
+export const UP_FRONT_TREND = { enabled: true };
 
 /**
  * ACCIDENT-YEAR FREQUENCY TREND — ZERO on all three lines.
@@ -189,6 +216,21 @@ export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.80;
  *     WC -0.04% and GL -0.41% by year 10.
  */
 export const DEVELOPMENT_SPEED: PerLine<number> = { WC: 1.5, GL: 1.5, Property: 1.0 };
+
+/**
+ * NO DEVELOPMENT TAIL (stable-scenarios commit 3). CLOSED: every line's paid
+ * pattern pays 100% by its last row — the share paid at each age divided by the
+ * share paid at the end, keeping the shape — and the reported pattern closes on
+ * paid's last step (the larger of the recorded share reported and the closed
+ * share paid). Pricing develops each accident year to the end of the pattern
+ * with no tail factor; the engine pays the same.
+ *
+ * ⚠ WHY: no accident year in a game reaches the end of WC's pattern, where the
+ * recorded tail left 9.04% unpaid (GL 1.09%, Property none). Keeping it priced
+ * and reserved a balance no game ever pays. Read where the patterns are defined
+ * (paidDevelopmentPatterns.ts), so every reader of a pattern reads the closed one.
+ */
+export const DEVELOPMENT_TAIL = { closed: true } as const;
 
 /**
  * THE BASELINE CV, PER LINE — the shared year-to-year wobble in each line's
@@ -1205,9 +1247,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Severity trend', {
         value: perLine(SEVERITY_TREND_PER_YEAR, 3), unit: 'per year',
-        what: 'Accident-year severity growth. One rate, all three lines.', basis: 'CHOSEN',
-        note: 'Replaces WC 3.67% / GL 5.7026% / Property 0. A round figure above WC\'s measured 3.67%, '
-          + 'and the first number to tune if the rate moves too fast.',
+        what: 'Accident-year severity growth, per line, for losses and pricing alike.', basis: 'CHOSEN',
+        note: 'WC 4%, GL 8%, Property 5% since stable-scenarios commit 3, replacing one 5% for all three '
+          + '(and before that WC 3.67% / GL 5.7026% / Property 0). The first number to tune if the rate moves too fast.',
+      }],
+      ['Trend booked up front', {
+        value: UP_FRONT_TREND.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'Each accident year\'s ultimate rises with trend only by as much as its reported losses rise '
+          + 'because of trend — inflation up to reporting, not up to final payment. Factor = the sum over development '
+          + 'years k of the share newly reported in year k x (1 + trend)^(k - 1), along the closed reported pattern: '
+          + 'WC 1.0787, GL 1.1599, Property 1.0126. It multiplies the layered loss costs, Property\'s basis and the '
+          + 'shock sizes alike.', basis: 'CHOSEN',
+        note: 'Older years do not develop for trend afterwards — the booked ultimate already carries it. Was '
+          + 'computed along the paid pattern (WC 1.2440, GL 1.2478, Property 1.0460) before it was ruled that '
+          + 'inflation runs only to reporting.',
       }],
       ['Frequency trend', {
         value: perLine(FREQUENCY_TREND_PER_YEAR, 3), unit: 'per year',
@@ -1278,6 +1331,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'opening and its bulk years, the pre-game and the host\'s development all read the compressed patterns. '
           + 'Year-1 rates are unchanged; later rates move slightly because faster payment brings the host\'s adverse '
           + 'development into pricing sooner, and leaves less open balance for shock R development to act on.',
+      }],
+      ['Development tail', {
+        value: DEVELOPMENT_TAIL.closed ? 'none — closed at the last row' : 'recorded tail kept', unit: 'switch',
+        what: 'Each paid pattern pays 100% by its last row (share paid / share paid at the end, keeping its shape); '
+          + 'the reported pattern closes on paid\'s last step, so GL keeps its recorded IBNR at its late ages. Pricing '
+          + 'develops each accident year to the end of the pattern with no tail factor.',
+        basis: 'CHOSEN',
+        note: 'No accident year in a game reaches the end of WC\'s pattern, where the recorded tail left 9.04% unpaid '
+          + '(GL 1.09%, Property none).',
       }],
       ['Baseline CV', {
         value: perLine(BASELINE_CV, 2), unit: 'coefficient of variation',

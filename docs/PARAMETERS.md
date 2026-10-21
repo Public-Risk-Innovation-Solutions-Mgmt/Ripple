@@ -19,7 +19,8 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
-| Severity trend | `WC 0.050 · GL 0.050 · Property 0.050` | per year | CHOSEN | Accident-year severity growth. One rate, all three lines. Replaces WC 3.67% / GL 5.7026% / Property 0. A round figure above WC's measured 3.67%, and the first number to tune if the rate moves too fast. |
+| Severity trend | `WC 0.040 · GL 0.080 · Property 0.050` | per year | CHOSEN | Accident-year severity growth, per line, for losses and pricing alike. WC 4%, GL 8%, Property 5% since stable-scenarios commit 3, replacing one 5% for all three (and before that WC 3.67% / GL 5.7026% / Property 0). The first number to tune if the rate moves too fast. |
+| Trend booked up front | `on` | switch | CHOSEN | Each accident year's ultimate rises with trend only by as much as its reported losses rise because of trend — inflation up to reporting, not up to final payment. Factor = the sum over development years k of the share newly reported in year k x (1 + trend)^(k - 1), along the closed reported pattern: WC 1.0787, GL 1.1599, Property 1.0126. It multiplies the layered loss costs, Property's basis and the shock sizes alike. Older years do not develop for trend afterwards — the booked ultimate already carries it. Was computed along the paid pattern (WC 1.2440, GL 1.2478, Property 1.0460) before it was ruled that inflation runs only to reporting. |
 | Frequency trend | `WC 0.000 · GL 0.000 · Property 0.000` | per year | CHOSEN | Zero on all three lines. A named zero, not a deletion — WC carried -1.5%/yr and the mechanism still reads this. |
 | Exposure growth | `0` | per year | CHOSEN | Payroll and insured value are LEVEL; the base moves only through underwriting. Replaces wage inflation at 3.63% on WC and GL. Removing it alone would have made the rate climb at the full severity trend, which is why the severity rates were replaced with it. |
 | Settlement inflation | `per line, in defaultAssumptions.ts` | per year over a claim's life | SOURCED | The dollar-vintage convention applied between accident year and settlement. REGISTERED, NOT MOVED, AND NOT CHANGED IN THIS COMMIT. Distinct from the accident-year severity trend above; see PAYOUT_TREND_FACTOR for the double-count this separation prevents. |
@@ -44,6 +45,7 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 | Default funding confidence level | `0.6` | confidence | CHOSEN | Where the funding slider opens. The default decision is fundingAtExpected, which bypasses the level and prices at CLF exactly 1.000. |
 | Reserve margin confidence | `0.8` | confidence | CHOSEN | The confidence the reserve margin is held at: required capital = outstanding reserves x (the line's CLF at this level - 1). Was 90%. The pool's targets: overall confidence 80%; premium to surplus under 1.5 : 1; outstanding reserves to equity under 5 : 1 — not built yet, as it needs reserve discounting. |
 | Development speed | `WC 1.50 · GL 1.50 · Property 1.00` | x the recorded patterns' pace | CHOSEN | 1.0 is the recorded paid and incurred patterns as they are; above 1.0 compresses both in time by that factor, keeping their shape, so case reserves and IBNR stay consistent. WC and GL at 1.5 because the recorded patterns were judged too slow; Property at 1.0. Applied where the patterns are defined, so payments, case and IBNR, the pricing LDFs, the opening and its bulk years, the pre-game and the host's development all read the compressed patterns. Year-1 rates are unchanged; later rates move slightly because faster payment brings the host's adverse development into pricing sooner, and leaves less open balance for shock R development to act on. |
+| Development tail | `none — closed at the last row` | switch | CHOSEN | Each paid pattern pays 100% by its last row (share paid / share paid at the end, keeping its shape); the reported pattern closes on paid's last step, so GL keeps its recorded IBNR at its late ages. Pricing develops each accident year to the end of the pattern with no tail factor. No accident year in a game reaches the end of WC's pattern, where the recorded tail left 9.04% unpaid (GL 1.09%, Property none). |
 | Baseline CV | `WC 0.06 · GL 0.10 · Property 0.08` | coefficient of variation | CHOSEN | The shared year-to-year wobble in each line's ordinary losses: the CV of the year factor every unit of the book shares. One setting for two things, so they can never disagree: it drives both the engine's ordinary loss draw (replacing the 2% year factor every line shared) and which funding table the line reads. baseline-cv-table-check holds the two to the same value. |
 | CLF tables | `the BaselineCV tables, in clfTables.ts` | multiplier on the retained pure premium | SOURCED | Confidence level factors by line and stop: each line reads the table built at its own Baseline CV. Required capital is the unpaid reserve x (the same table's 90% factor - 1). The data scientist's method, by simulation on the game's opening book units, ordinary losses only (clf-ds-method-derive). The factor multiplies the whole retained pure premium. The new-engine and member-engine tables before them are kept in the file as history, not in use. |
 | Funding slider stops | `0.3 to 0.9, step 0.1, plus Expected` | confidence | CHOSEN | The positions a team can fund at. Expected is CLF exactly 1.000 and sits at the table's own measured position. Was 0.30 to 0.95 in fives. The stops are the BaselineCV tables' own columns. |
@@ -201,17 +203,30 @@ before wiring. WC's paid rows from 276 months are a **projected** tail, not meas
 ⚠ **These are the patterns the game reads: the recorded ones compressed in time by Development speed**
 (WC 1.5, GL 1.5, Property 1). The share paid and the share reported at age t
 are the recorded shares at age speed x t, so the rows, ages and last age below are the compressed
-ones; the outstanding share at the last age is the recorded tail, kept. A row is marked projected
-or adjusted where a recorded row it reads was.
+ones. A row is marked projected or adjusted where a recorded row it reads was.
+
+⚠ **No tail (Development tail).** Each paid pattern is then closed at its last row — the share paid at
+each age divided by the share paid at the end — so nothing is outstanding there; the reported pattern
+closes on paid's last step (the larger of the recorded share reported and the closed share paid).
 
 | Line | Basis | Rows | Ages | Ends at | Outstanding at the last age |
 | --- | --- | --- | --- | --- | --- |
-| WC | paid (11 projected) | 25 | 12–300 | 1.099413098 | 9.0% unpaid |
-| WC | incurred (11 projected) | 25 | 12–300 | 1.01382626 | 1.4% unreported |
-| GL | paid | 14 | 12–168 | 1.011 | 1.1% unpaid |
-| GL | incurred (5 adjusted) | 14 | 12–168 | 1.007 | 0.7% unreported |
+| WC | paid (11 projected) | 25 | 12–300 | 1 | 0.0% unpaid |
+| WC | incurred (11 projected) | 25 | 12–300 | 1 | 0.0% unreported |
+| GL | paid | 14 | 12–168 | 1 | 0.0% unpaid |
+| GL | incurred (5 adjusted) | 14 | 12–168 | 1 | 0.0% unreported |
 | Property | paid | 11 | 12–132 | 1 | 0.0% unpaid |
 | Property | incurred | 11 | 12–132 | 1 | 0.0% unreported |
+
+**The trend booked up front**, per line: the inflation an accident year suffers up to reporting,
+along the closed reported pattern — the sum over development years k of the share newly reported in
+year k x (1 + severity trend)^(k - 1). Each accident year's cost is booked with it.
+
+| Line | Severity trend | Up-front factor |
+| --- | --- | --- |
+| WC | 4% | 1.0787 |
+| GL | 8% | 1.1599 |
+| Property | 5% | 1.0126 |
 
 A pool-layer WC pattern also exists and is deliberately not used — the game's
 losses are ground-up. The GL "Total" paid pattern is retired for showing more paid

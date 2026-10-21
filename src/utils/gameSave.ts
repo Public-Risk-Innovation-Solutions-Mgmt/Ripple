@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v19';
+export const SAVE_KEY = 'riskpool_gamestate_v20';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -192,7 +192,16 @@ export const SAVE_KEY = 'riskpool_gamestate_v19';
 // recorded patterns. A v17 save's cohorts were paid, split and opened on the
 // slower patterns, and its pre-game history pricing reads was paid on them, so
 // it cannot continue faithfully and is cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17'];
+// ⚠ v19 SINCE THE FUNDING TABLES (e045ba7): BASELINE_CV drives the year factor
+// and the opening is set at $35M per line. v18 was not added to this list when
+// that key moved; it is retired here.
+// ⚠ v20 SINCE STABLE-SCENARIOS BLOCK A — ONE BUMP FOR THE BLOCK. A v19 save's
+// pre-game drew its factors, returns and routine large claims; its WC and GL
+// were priced on the old loss cost; its cohorts were paid and split on patterns
+// with a tail and trended at 5%; and its accident years were booked without the
+// trend up to reporting. Its pre-game, opening and ledger are ones this engine
+// no longer builds, so it is cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19'];
 
 /**
  * Fields dropped on the way out.

@@ -28,7 +28,7 @@
 import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
   POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
-  SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
+  SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE, UP_FRONT_TREND,
 } from '../data/pricingParameters';
 import { pwlMoments, lognormalFromMean, routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
@@ -253,7 +253,7 @@ export function routineFoldPer100(line: CoverageLine, yearNumber: number): numbe
   // already carries the $1M – $5M layer, and what lies above $5M arrives only
   // with the shocks. Property, still on its derived cost, keeps the fold.
   if (ROUTINE_LARGE_LOSSES.enabled || POOL_LOSS_COST_LAYERS[line]) return 0;
-  const key = `${line}|${yearNumber}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}`;
+  const key = `${line}|${yearNumber}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}|${UP_FRONT_TREND.enabled}`;
   const hit = foldMemo.get(key);
   if (hit !== undefined) return hit;
   const basis = routineLargeBasis(line);

@@ -182,6 +182,9 @@ const FAST: string[] = [
                                      //         unchanged; no routine claim drawn; a flat pre-game; four controls
   'pool-loss-cost-check',            //   3s   WC and GL priced on the pool's layered loss costs, the shocks off the
                                      //         $0 - $1M layer, required capital at 80%; four controls
+  'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
+                                     //         trend per line, booked up front; older years undeveloped for
+                                     //         trend; six controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls

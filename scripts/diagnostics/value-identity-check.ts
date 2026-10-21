@@ -1251,7 +1251,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // only: ibnrCeded, caseReservesCeded, priorYearDevelopmentCeded,
 // surplusTieOutDifference, expectedCombinedRatio, marketShare,
 // investmentReturnRate.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v76.json');
+// v77: STABLE-SCENARIOS BLOCK A (commits 1-4). The control ran first: 061b476
+// reproduced v76. Shape unchanged; 24,690 instances moved across 93 fields,
+// none an identity, attributed by running the check at each commit in turn:
+// 85 fields moved at commits 1, 2 and 3; 5 at commit 1 only; 1 at 1 and 3; 1
+// at 2 and 3; 1 at 3 only; commit 4 moved nothing. Commit 1 (routine large
+// losses folded, flat pre-game): the pre-game's losses and returns sit at
+// expected, so the loss history, every rate and reserve move, and with no
+// routine claim to cede, reinsuranceRecovery and every ceded reserve read 0.
+// Commit 2 (the pool's loss costs, required capital at 80%): WC and GL's
+// losses, lossPurePremiumPer100 and the reserve margin. Commit 3 (no tail,
+// trend per line, booked up to reporting): every loss, paid, reserve and rate
+// again, and Property's catCapitalNeeded. surplusTieOutDifference moves from 0
+// to -1.5e-8 at commit 2: float rounding.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v77.json');
 
 function seedOf(id: string) {
   let h = 5381;

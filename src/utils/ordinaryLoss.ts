@@ -40,6 +40,7 @@ import {
 // and the routine fold it computes is read here only inside functions, never
 // while either module is loading.
 import { routineFoldPer100 } from './shockExpectation';
+import { upFrontTrendFactor } from '../data/paidDevelopmentPatterns';
 import type { BookUnit } from './bookUnits';
 import { deriveSubRng, type SeededRandom } from './random';
 import { bookExposureOf, getMemberExposure, type Book } from './lineHelpers';
@@ -47,28 +48,39 @@ import { primaryShare } from './memberExperienceMod';
 import type { CoverageLine, Member, MemberLossResult } from '../types/simulation';
 
 /** Expected ordinary loss per $100 of exposure in accident year `yearNumber`,
- *  trended at the line's severity trend from year 1 (backwards for the
- *  pre-game's negative years). */
+ *  at its booked cost level: trended at the line's severity trend from year 1
+ *  (backwards for the pre-game's negative years), with the inflation before
+ *  payment booked up front. */
 export function ordinaryLossCostPer100(line: CoverageLine, yearNumber: number): number {
   // With ROUTINE_LARGE_LOSSES off, the routine claims' cost folded in,
   // cost-neutral (routineFoldPer100); zero with the switch on.
   return baseOrdinaryLossCostPer100(line, yearNumber) + routineFoldPer100(line, yearNumber);
 }
 
+/**
+ * THE COST LEVEL an accident year is booked at, relative to year 1's base: the
+ * line's severity trend to the accident year, times the inflation the year's
+ * losses suffer up to reporting, booked up front (upFrontTrendFactor —
+ * stable-scenarios commit 3). Ordinary losses, the shocks' uplift on them and
+ * their large losses all read it, so the whole accident year carries it.
+ */
+export function bookedCostLevel(line: CoverageLine, yearNumber: number): number {
+  return Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1) * upFrontTrendFactor(line);
+}
+
 /** The ordinary cost per $100 WITHOUT the routine fold. */
 export function baseOrdinaryLossCostPer100(line: CoverageLine, yearNumber: number): number {
-  return EXPECTED_ORDINARY_LOSS_COST_PER_100[line]
-    * Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
+  return EXPECTED_ORDINARY_LOSS_COST_PER_100[line] * bookedCostLevel(line, yearNumber);
 }
 
 /**
  * The cost per $100 the shocks' large losses (T) are scaled off (shockLosses'
- * tScale), trended like the ordinary cost: SHOCK_T_BASIS_PER_100 — the $0 – $1M
+ * tScale), at the same booked cost level as the ordinary cost: SHOCK_T_BASIS_PER_100 — the $0 – $1M
  * layer on WC and GL, Property's cost without the routine fold — so neither the
  * fold nor the $1M – $5M layer grows the shocks.
  */
 export function shockBasisCostPer100(line: CoverageLine, yearNumber: number): number {
-  return SHOCK_T_BASIS_PER_100[line] * Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
+  return SHOCK_T_BASIS_PER_100[line] * bookedCostLevel(line, yearNumber);
 }
 
 /** A flat pre-game year (FLAT_PRE_GAME): ordinary losses at exactly expected, no factor drawn. */

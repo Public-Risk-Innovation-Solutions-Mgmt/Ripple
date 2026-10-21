@@ -11,9 +11,9 @@
 // WHAT IT IS, per $100 of exposure, per line:
 //
 //   1. WINDOW       the most recent five accident years, EQUAL WEIGHTS
-//   2. DEVELOPMENT  each year to ultimate with the RECORDED PAID LDFs at its
-//                   age — the patterns the game records, not factors estimated
-//                   from the pool's own ledger
+//   2. DEVELOPMENT  each year to the end of the pattern with the PAID LDFs at
+//                   its age — the patterns the game reads, closed with no tail
+//                   (DEVELOPMENT_TAIL), not factors estimated from the ledger
 //   3. TREND        each year's loss cost to the year being priced, NET of
 //                   exposure growth
 //   4. ALAE + ULAE  each the parameter's share of loss cost
@@ -137,7 +137,8 @@ export interface NewPurePremiumBasis {
  * THE TREND APPLIED TO A LOSS COST, PER YEAR.
  *
  *   loss cost trend = (1 + frequency) x (1 + severity) / (1 + exposure growth)
- *                   = 1.000 x 1.050 / 1.000 = 1.05   ->  +5.000%/yr, every line
+ *                   = 1.000 x (1 + the line's severity trend) / 1.000
+ *                   -> WC +4%, GL +8%, Property +5% a year (stable-scenarios commit 3)
  *
  * ⚠ THE EXPOSURE DIVISOR IS STILL HERE AND IT IS 1. It used to be the whole
  * subtlety of this function: a loss cost is losses DIVIDED BY exposure, the
@@ -167,12 +168,12 @@ function recordedPaidLdf(line: CoverageLine, ageMonths: number): number {
   const exact = rows.find(r => r.ageMonths === ageMonths);
   if (exact) return exact.ldf;
   const last = rows[rows.length - 1];
-  // ⚠ PAST THE PATTERN, THE LAST FACTOR — NOT 1.0, AND NOT A THROW. A throw is
-  // right for `paidLdfAt`, whose caller is asking for a figure that does not
-  // exist. Here the caller is a five-year window on a game that can run longer
-  // than a pattern covers, and the honest reading of "older than the pattern"
-  // is "at least as developed as its last row". Using 1.0 would declare such a
-  // year fully paid, which on WC is wrong by 9% of ultimate.
+  // ⚠ PAST THE PATTERN, THE LAST FACTOR, NOT A THROW. A throw is right for
+  // `paidLdfAt`, whose caller is asking for a figure that does not exist. Here
+  // the caller is a five-year window on a game that can run longer than a
+  // pattern covers. With no tail (DEVELOPMENT_TAIL, stable-scenarios commit 3)
+  // the last factor is 1: a year is developed to the END OF THE PATTERN, with
+  // no tail factor beyond it.
   if (ageMonths > last.ageMonths) return last.ldf;
   // Younger than the first row cannot happen — the first row is 12 months and
   // a year is only priced once it has been valued — but a pattern that ever

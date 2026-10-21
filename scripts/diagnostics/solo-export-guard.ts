@@ -796,7 +796,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // first: fecbb08 reproduced v81 24 of 24. All 24 move, no row added or
 // removed: every line's ordinary losses are drawn at its own BaselineCV and
 // every line opens at $35M, Property included.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v82.json');
+// v83: STABLE-SCENARIOS BLOCK A (see VALUE_IDENTITY_v77). The control ran
+// first: 061b476 reproduced v82 24 of 24. All 24 move, no row added or
+// removed, and each moved at commits 1, 2 and 3 in turn; commit 4 moved none.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v83.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

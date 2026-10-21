@@ -1036,7 +1036,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // ~51% on WC) and the rates, the Actuarial memo the pre-game loss history, and
 // every other screen the losses, reserves, surplus or capital. The 10 unmoved
 // are the Investment memo in all five games, at y0 and y2.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v65.json');
+// v66: STABLE-SCENARIOS BLOCK A (see VALUE_IDENTITY_v77). The control ran
+// first: 061b476, served on 4174, reproduced v65 242 of 242. 232 of 242 moved,
+// no key added or removed; the 10 unmoved are again the Investment memo. Run
+// at each commit in turn: commit 1 moved all 232, commit 2 moved 205 of them,
+// commit 3 all 232, commit 4 none. Besides the figures, the Calculation Audit's
+// text reads 80%-confidence for 90% (commit 2) and the trend +4.00%/yr on WC
+// and +8.00%/yr on GL for +5.00% (commit 3).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v66.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

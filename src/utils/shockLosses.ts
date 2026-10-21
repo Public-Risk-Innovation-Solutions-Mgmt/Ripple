@@ -70,11 +70,11 @@
 
 import {
   GAME_REGIONS, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES, regionByShare,
-  SEVERITY_TREND_PER_YEAR, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
+  SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
-import { bookOrdinaryRisk, shockBasisCostPer100 } from './ordinaryLoss';
+import { bookOrdinaryRisk, bookedCostLevel, shockBasisCostPer100 } from './ordinaryLoss';
 import type { BookUnit } from './bookUnits';
 import { drawRoutineLargeSize, lognormalFromMean, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ratingGroupOf } from './wcClaimEngine';
@@ -283,9 +283,9 @@ export function tScale(line: CoverageLine, exposure: number, yearNumber: number)
   return (exposure * 10_000 * shockBasisCostPer100(line, yearNumber)) / rModelOrdinary(line);
 }
 
-/** The year's trend factor on year-1 sizes — the same 5% ordinary losses take. */
-export const trendFactor = (line: CoverageLine, yearNumber: number) =>
-  Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
+/** The year's factor on year-1 sizes — the booked cost level ordinary losses
+ *  take (the line's trend, and the inflation up to reporting booked up front). */
+export const trendFactor = (line: CoverageLine, yearNumber: number) => bookedCostLevel(line, yearNumber);
 
 /** What the POOL keeps of a ground-up claim — GL is limited per claim, the rest are not. */
 export const poolShare = (line: CoverageLine, x: number) => {

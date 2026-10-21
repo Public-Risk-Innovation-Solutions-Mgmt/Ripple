@@ -20,10 +20,10 @@
 // ============================================================================
 
 import {
-  POOL_LOSS_COST_LAYERS, RESERVE_MARGIN_CONFIDENCE_PARAM, SEVERITY_TREND_PER_YEAR, SHOCK_T_BASIS_PER_100,
+  POOL_LOSS_COST_LAYERS, RESERVE_MARGIN_CONFIDENCE_PARAM, SHOCK_T_BASIS_PER_100,
 } from '../../src/data/pricingParameters';
 import { RESERVE_MARGIN_CONFIDENCE, staticClf, type StaticClfLine } from '../../src/data/clfTables';
-import { ordinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
+import { bookedCostLevel, ordinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown, upliftMoments } from '../../src/utils/shockExpectation';
 import { rModelOrdinary, tScale } from '../../src/utils/shockLosses';
 import { requiredCapital } from '../../src/utils/openingReserves';
@@ -43,7 +43,9 @@ const check = (ok: boolean, label: string, detail = '') => {
   console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(1e-12, Math.abs(b));
-const trend = (l: CoverageLine, y: number) => Math.pow(1 + SEVERITY_TREND_PER_YEAR[l], y - 1);
+// The booked cost level: the trend to the year and, since commit 3, the
+// inflation before payment booked up front (trend-up-front-check holds it).
+const trend = (l: CoverageLine, y: number) => bookedCostLevel(l, y);
 
 // ---------------------------------------------------------------- 1 & 2
 type Layers = (l: CoverageLine) => number;
