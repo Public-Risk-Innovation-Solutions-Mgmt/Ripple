@@ -17,7 +17,7 @@
 // ============================================================================
 
 import React from 'react';
-import { Shield } from 'lucide-react';
+import { Home, Shield } from 'lucide-react';
 import { HOST_TABS, type HostTabId } from './hostTabs';
 import { navigate } from '../client/navigation';
 
@@ -47,14 +47,27 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
               </span>
             )}
           </div>
-          <button
-            type="button"
-            data-testid="host-admin-link"
-            onClick={() => navigate('/admin')}
-            className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
-          >
-            <Shield size={14} /> Admin
-          </button>
+          <div className="flex items-center gap-4">
+            {/* ⚠ MAIN PAGE, NOT LOG OUT. Just navigates to the lobby — the
+                admin session stays signed in, same distinction AdminScreen's
+                own "Main page" vs. "Log out" buttons make. */}
+            <button
+              type="button"
+              data-testid="host-main-page-link"
+              onClick={() => navigate('/')}
+              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+            >
+              <Home size={14} /> Main page
+            </button>
+            <button
+              type="button"
+              data-testid="host-admin-link"
+              onClick={() => navigate('/admin')}
+              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+            >
+              <Shield size={14} /> Admin
+            </button>
+          </div>
         </div>
         <nav className="mx-auto flex max-w-[960px] gap-1 px-6 pt-3">
           {HOST_TABS.map(t => {
