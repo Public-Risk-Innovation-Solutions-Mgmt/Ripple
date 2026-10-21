@@ -1,21 +1,22 @@
 // THE COMBINED RATIO AT THE TOP MATCHES THE STATEMENT'S — what a player sees.
 //
-// The header's "Combined ratio" and "Cumulative" chips are read off the Annual
-// Statement's first row (resultsStatement.topCombinedRatio), for the view on
-// screen. This drives a solo game on scenario 7, three lines, through the real
-// setup screen and, on the Annual Statement tab, for the pool and every line:
+// The header's one "Combined Ratio" chip is the Annual Statement's first row's
+// Total (resultsStatement.topCombinedRatio) — cumulative since game start, or
+// over the pre-game years before year 1 — for the view on screen. This drives
+// a solo game on scenario 7, three lines, through the real setup screen and, on
+// the Annual Statement tab, for the pool and every line, before year 1 and
+// after years 1 and 2:
 //
-//   - before year 1, the chip is the last pre-game year's cell and Cumulative
-//     is blank (the statement's Total reads "—");
-//   - after years 1 and 2, the chip is the latest year's cell and Cumulative is
-//     the row's Total;
-//   - the old "Loss Ratio (prem + admin)" chip is gone from the header.
+//   - the chip is the statement's combined ratio Total;
+//   - the header carries one ratio chip: no "Cumulative", no latest-year chip,
+//     no old "Loss Ratio (prem + admin)";
+//   - the statement carries one combined ratio, its first row.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/combined-ratio.cjs
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
-const ROW = 'Combined Ratio (all costs over member charge)';
+const ROW = 'Combined Ratio';
 const VIEWS = ['Pool', "Workers' Compensation", 'General Liability', 'Property'];
 const pct = t => { const m = (t || '').replace(/−/g, '-').trim(); return m === '' || m === '—' ? null : parseFloat(m); };
 
@@ -50,22 +51,20 @@ const ok = (cond, label, detail = '') => {
     await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 20000 });
     const head = await headerText();
     ok(!/Loss Ratio \(prem \+ admin\)/.test(head), `${phase}: the old loss-ratio chip is gone from the header`);
+    ok(!/Cumulative/.test(head) && (head.match(/Combined Ratio/g) || []).length === 1, `${phase}: the header carries one "Combined Ratio" and no "Cumulative"`);
     for (const view of VIEWS) {
       await page.getByRole('button', { name: view, exact: true }).first().click();
       await page.waitForTimeout(400);
       const chip = await page.textContent('[data-testid="header-combined-ratio"]');
-      const cum = await page.textContent('[data-testid="header-combined-cumulative"]');
-      const cells = await page.locator(`[data-testid="statement-operating"] tr[data-row-label="${ROW}"] td`).allInnerTexts();
-      if (cells.length < 3) { ok(false, `${phase}, ${view}: the statement's first row is the combined ratio`, `${cells.length} cells`); continue; }
+      const rows = await page.locator('[data-testid="annual-statement"] tr[data-row-label]').evaluateAll(els => els.map(e => e.getAttribute('data-row-label')));
+      const named = rows.filter(l => /combined ratio/i.test(l || ''));
+      ok(named.length === 1 && named[0] === ROW, `${phase}, ${view}: the statement has one combined ratio`, named.join(' | '));
       const first = await page.locator('[data-testid="statement-operating"] tbody tr').first().getAttribute('data-row-label');
-      ok(first === ROW, `${phase}, ${view}: the combined ratio is the statement's first row`, first ?? '');
-      const latest = cells[cells.length - 2], total = cells[cells.length - 1];
-      ok(pct(chip) !== null && pct(chip) === pct(latest), `${phase}, ${view}: the chip is the statement's latest year`, `chip ${chip} · statement ${latest}`);
-      if (playedYears === 0) {
-        ok(pct(cum) === null && (cum || '').trim() === '', `${phase}, ${view}: Cumulative is blank before year 1`, `"${cum}" · statement Total "${total}"`);
-      } else {
-        ok(pct(cum) !== null && pct(cum) === pct(total), `${phase}, ${view}: Cumulative is the statement's Total`, `chip ${cum} · statement ${total}`);
-      }
+      ok(first === ROW, `${phase}, ${view}: it is the statement's first row`, first ?? '');
+      const cells = await page.locator(`[data-testid="statement-operating"] tr[data-row-label="${ROW}"] td`).allInnerTexts();
+      const total = cells[cells.length - 1];
+      ok(pct(chip) !== null && pct(chip) === pct(total),
+        `${phase}, ${view}: the chip is the statement's cumulative Total${playedYears === 0 ? ' (over the pre-game years)' : ' (since game start)'}`, `chip ${chip} · statement ${total}`);
     }
   }
 

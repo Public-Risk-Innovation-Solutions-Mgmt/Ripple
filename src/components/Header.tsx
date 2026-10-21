@@ -30,26 +30,24 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
 
   const surplus = lastResult?.endingSurplus ?? startingFinancials?.surplus ?? 0;
   // ============================================================================
-  // THE COMBINED RATIO AND ITS CUMULATIVE, READ OFF THE ANNUAL STATEMENT.
+  // THE COMBINED RATIO, CUMULATIVE SINCE GAME START, READ OFF THE ANNUAL STATEMENT.
   //
   // Every cost — net losses, LAE, admin and the reinsurance cost — over what
-  // members were charged, for the latest year, and beside it the same summed
-  // over every played year since game start. Both are the statement's own first
-  // row (buildAnnualStatement → topCombinedRatio), for the view on screen: the
-  // pool's on the pool view, a line's on its own. So the top and the statement
-  // cannot disagree. Before any year is played the latest year is the last
-  // pre-game year and Cumulative is blank.
+  // members were charged, summed over every played year since game start; before
+  // any year is played, over the pre-game years. It is the statement's own first
+  // row's Total (buildAnnualStatement → topCombinedRatio), for the view on
+  // screen: the pool's on the pool view, a line's on its own. So the top and the
+  // statement cannot disagree.
   //
   // ⚠ IT REPLACED "Loss Ratio (prem + admin)" — actualLossRatioPricingBasis,
   // net incurred over pool premium + admin. That figure is not gone: it stays
   // on the result, the export, the Results detail and the audit page. The
-  // reason the old chip existed still holds for the new one: a member-charge
-  // LOSS ratio compressed the range, because the near-constant reinsurance and
-  // admin sat in the denominator only. Here every cost is in the numerator too,
-  // so a bad year reads as one.
+  // reason the old chip existed still holds for this one: a member-charge LOSS
+  // ratio compressed the range, because the near-constant reinsurance and admin
+  // sat in the denominator only. Here every cost is in the numerator too.
   // ============================================================================
   const combined = useMemo(
-    () => (gameState?.isStarted ? topCombinedRatio(buildAnnualStatement(gameState, lineView)) : null),
+    () => (gameState?.isStarted ? topCombinedRatio(buildAnnualStatement(gameState, lineView)) : undefined),
     [gameState, lineView],
   );
   const marketShare = lastResult?.marketShare ?? startingFinancials?.marketShare ?? 0;
@@ -100,21 +98,13 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
                   also a sentence boundary, so the chip says LESS than the
                   narrative and never something different. The band-to-sentence
                   map is at colorForRatio in formatters.ts; change neither alone. */}
-              {combined && (
-                <>
-                  <Chip
-                    label="Combined ratio"
-                    value={combined.latest !== undefined ? formatPct(combined.latest) : ''}
-                    valueClass={combined.latest !== undefined ? colorForRatioOnDark(combined.latest) : undefined}
-                    testId="header-combined-ratio"
-                  />
-                  <Chip
-                    label="Cumulative"
-                    value={combined.cumulative !== undefined ? formatPct(combined.cumulative) : ''}
-                    valueClass={combined.cumulative !== undefined ? colorForRatioOnDark(combined.cumulative) : undefined}
-                    testId="header-combined-cumulative"
-                  />
-                </>
+              {combined !== undefined && (
+                <Chip
+                  label="Combined Ratio"
+                  value={formatPct(combined)}
+                  valueClass={colorForRatioOnDark(combined)}
+                  testId="header-combined-ratio"
+                />
               )}
               <Chip
                 label="Market Share"
