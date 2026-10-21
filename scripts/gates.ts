@@ -196,6 +196,8 @@ const FAST: string[] = [
   'catastrophe-load-check',          //   3s   shock dollars on each ledger row, taken out on the paid basis before
                                      //         development, priced as a steady trended load from the pre-game on;
                                      //         four controls
+  'exposure-scale-check',            //   4s   one exposure multiplier per line on the whole market, a 30% book, and
+                                     //         about $30M of year-1 premium at Expected; three controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls

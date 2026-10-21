@@ -808,21 +808,37 @@ export const SHOCK_LOSS_CV = 0.5;
  * market, each varying about +/-10% between seeds. Without a roster there is
  * nothing to draw, so every game opens on the mean.
  */
-export const OPENING_BOOK_EXPOSURE: PerLine<number> = {
+/**
+ * THE EXPOSURE SCALE, PER LINE (stable-scenarios commit 8) — CHOSEN so each
+ * line's YEAR-1 PREMIUM AT EXPECTED IS ABOUT $30M (the default decisions, the
+ * Bad-year cover, the mean over seeds). It multiplies the whole market
+ * (FULL_MARKET_EXPOSURE), so the book, drawn as units up to UNIT_POOL_SHARE of
+ * it, keeps about 30% of the market. Everything that scales with exposure —
+ * ordinary losses, the shocks' large losses (their T scale is exposure x cost),
+ * the stop's terms — scales with it; what is fixed in dollars does not: the
+ * fixed admin, the GL pool limit, the peril deductibles, the opening surplus.
+ */
+export const EXPOSURE_SCALE: PerLine<number> = { WC: 1.797, GL: 1.258, Property: 0.430 };
+
+const scaled = (base: PerLine<number>): PerLine<number> =>
+  ({ WC: base.WC * EXPOSURE_SCALE.WC, GL: base.GL * EXPOSURE_SCALE.GL, Property: base.Property * EXPOSURE_SCALE.Property });
+
+export const OPENING_BOOK_EXPOSURE: PerLine<number> = scaled({
   WC: 391.167,
   GL: 374.949,
   Property: 17609.707,
-};
+});
 
 /**
- * THE MOST A LINE CAN WRITE, IN $M OF EXPOSURE — SOURCED: today's whole
- * 200-member market. Intake stops at it.
+ * THE MOST A LINE CAN WRITE, IN $M OF EXPOSURE — SOURCED: the 200-member
+ * market (WC 1,300, GL 1,300, Property 59,233.002), times EXPOSURE_SCALE since
+ * stable-scenarios commit 8. Intake stops at it.
  */
-export const FULL_MARKET_EXPOSURE: PerLine<number> = {
+export const FULL_MARKET_EXPOSURE: PerLine<number> = scaled({
   WC: 1300,
   GL: 1300,
   Property: 59233.002,
-};
+});
 
 /**
  * BOOK UNITS — each line's exposure split across individual units
@@ -1796,11 +1812,19 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Since book units commit 3 a line opens on its book of units: their sizes summed, about 30% of '
           + 'the market plus the last unit, and different in every game.',
       }],
+      ['Exposure scale', {
+        value: perLine(EXPOSURE_SCALE, 3), unit: 'x the 200-member market',
+        what: 'Chosen so each line\'s year-1 premium at Expected is about $30M (default decisions, Bad-year cover, '
+          + 'the mean over seeds). It multiplies the whole market, so the book keeps about 30% of it.',
+        basis: 'CHOSEN',
+        note: 'Scales everything tied to exposure — ordinary losses, the shocks\' large losses, the stop\'s terms — '
+          + 'and nothing fixed in dollars: the fixed admin, the GL pool limit, the peril deductibles, the opening surplus.',
+      }],
       ['Full-market exposure', {
         value: perLine(FULL_MARKET_EXPOSURE, 3), unit: '$M of exposure, base year',
         what: 'The most a line can write — the cap on the book. Intake stops at it.',
         basis: 'SOURCED',
-        note: 'Today\'s whole 200-member market.',
+        note: 'The 200-member market (WC 1,300, GL 1,300, Property 59,233.002) x the exposure scale.',
       }],
       ['Book intake', {
         value: BOOK_INTAKE_SHARE.map(v => `${(100 * v).toFixed(0)}%`).join(' · '),
