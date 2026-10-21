@@ -21,11 +21,25 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Eye, LogOut, Play, Plus, Shield } from 'lucide-react';
+import { CheckCircle2, Clock, Eye, LogOut, Play, Plus, Shield, Trash2 } from 'lucide-react';
 import { sessionTransport, isSessionError, type LobbyEvent, type SessionError } from '../index';
 import { navigate } from '../client/navigation';
+import { loadActive, loadHeld } from '../client/identity';
 import { adminLogout, currentAdmin } from '../../admin/client/adminAuth';
 import AdminLoginModal from './AdminLoginModal';
+
+// ⚠ SCOPED DOWN, DELIBERATELY. An admin can delete (hide) an event only when
+// THIS BROWSER holds that room's host token — the same token HostRoomScreen's
+// own hide toggle already requires. There is no way yet for an admin to act
+// on an event someone else hosted: setEventHidden's write is conditioned on
+// that specific room's hostTokenHash, and the admin backend and the session
+// backend share no credentials by design (ADMIN_ACCOUNTS_HANDOFF.md, Option
+// B). Closing that gap for real needs the session Lambda to verify an admin
+// token against the admin Lambda over the wire — a deliberate follow-up, not
+// done here.
+function hostTokenFor(code: string): string | null {
+  return loadActive(code).hostToken ?? loadHeld(code).hostToken ?? null;
+}
 
 /** ⚠ ONE LINE EACH. See the header. Both are ON. */
 const SHOW_PLAY_SOLO: boolean = true;
@@ -53,6 +67,9 @@ export default function LobbyScreen() {
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   // undefined = not checked yet; null = checked, nobody logged in as admin.
   const [admin, setAdmin] = useState<string | null | undefined>(undefined);
+  const [deleteTarget, setDeleteTarget] = useState<LobbyEvent | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -80,6 +97,23 @@ export default function LobbyScreen() {
   const open = (events ?? []).filter(e => e.status === 'OPEN');
   const running = (events ?? []).filter(e => e.status === 'IN_PROGRESS');
   const isAdmin = !!admin;
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const token = hostTokenFor(deleteTarget.code);
+    if (!token) { setDeleteError('This browser no longer holds the host token for this event.'); return; }
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await sessionTransport().setEventHidden({ code: deleteTarget.code, token, hidden: true });
+      setEvents(prev => (prev ?? []).filter(e => e.code !== deleteTarget.code));
+      setDeleteTarget(null);
+    } catch (e) {
+      setDeleteError(isSessionError(e) ? e.message : 'Could not delete this event.');
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -122,6 +156,37 @@ export default function LobbyScreen() {
           onClose={() => setShowAdminLogin(false)}
           onSuccess={() => { setShowAdminLogin(false); navigate('/admin'); }}
         />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-bold text-slate-900">Delete &ldquo;{deleteTarget.eventName}&rdquo;?</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              This removes it from the lobby list. It does not stop the game, and direct links
+              (join/view/host) keep working.
+            </p>
+            {deleteError && <p className="mt-2 text-sm text-red-600">{deleteError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => { void confirmDelete(); }}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="mx-auto max-w-4xl px-6 py-8">
@@ -197,13 +262,27 @@ export default function LobbyScreen() {
                         screen (HostScreen's own admin gate is already satisfied,
                         so this never bounces through a second login). */}
                     {isAdmin ? (
-                      <button
-                        data-testid={`host-link-${e.code}`}
-                        onClick={() => navigate(`/host/${e.code}`)}
-                        className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white"
-                      >
-                        Host
-                      </button>
+                      <>
+                        <button
+                          data-testid={`host-link-${e.code}`}
+                          onClick={() => navigate(`/host/${e.code}`)}
+                          className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white"
+                        >
+                          Host
+                        </button>
+                        {/* ⚠ ONLY WHEN THIS BROWSER HOLDS THE HOST TOKEN — see
+                            hostTokenFor's header. Not shown otherwise, rather
+                            than shown and failing with NOT_HOST. */}
+                        {hostTokenFor(e.code) && (
+                          <button
+                            data-testid={`delete-${e.code}`}
+                            onClick={() => { setDeleteError(null); setDeleteTarget(e); }}
+                            className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 size={14} /> Delete
+                          </button>
+                        )}
+                      </>
                     ) : (
                       <button
                         data-testid={`join-${e.code}`}
