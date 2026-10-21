@@ -16,7 +16,9 @@
 //                   (DEVELOPMENT_TAIL), not factors estimated from the ledger
 //   3. TREND        each year's loss cost to the year being priced, NET of
 //                   exposure growth
-//   4. ALAE + ULAE  each the parameter's share of loss cost
+//   4. ALAE + ULAE  each the parameter's share of loss cost (claims). On WC and
+//                   GL the claims are the supplied pure premium / (1 + ULAE),
+//                   so loss cost + ULAE is the pure premium; ALAE is on top
 //
 // Every parameter comes from src/data/pricingParameters.ts. Nothing here holds
 // a literal that belongs there.
@@ -64,29 +66,22 @@ import type {
 } from '../types/simulation';
 
 /**
- * ⚠ IS ALAE ALREADY IN THE LOSSES? ON GL, YES — MEASURED FROM THE CODE, NOT
- * ASSUMED, AND IT IS WHY THIS FLAG EXISTS RATHER THAN A FLAT 8.3%.
+ * IS ALAE ALREADY IN THE LOSSES? ON NO LINE, SINCE THE PURE-PREMIUM BASIS.
  *
- * GL's severity is a fitted 3-component lognormal mixture and the fit says so
- * twice in defaultAssumptions.ts: "no sub-coverage, no gate, ALAE included in
- * the amount", and "the fitted mixture includes ALAE and comes from a real
- * pool's real claim experience". Adding the parameter's share on top of GL
- * would therefore count defence costs twice, so it is NOT added on GL.
+ * WC's and GL's losses are the pool's supplied pure premium, which EXCLUDES
+ * ALAE (SUPPLIED_PURE_PREMIUM_INCLUDES_ULAE in pricingParameters.ts), and
+ * Property's are loss only — so ALAE is added on top on every line, at
+ * ALAE_OF_LOSS_COST.
  *
- * ⚠ WC AND PROPERTY ARE MARKED FALSE AND THAT IS THE WEAKER OF THE TWO
- * READINGS. Their generators carry no ALAE component — WC draws medical and
- * indemnity, which are benefit categories, and Property draws building damage —
- * so on the generators alone the parameter is not a double count. BUT the
- * engine's own published metric is labelled "Gross Ultimate Loss + LAE"
- * (resultMetrics.ts), which asserts that every line's loss figure is already
- * LAE-inclusive. The label and the generators disagree, and the code does not
- * settle it. Recorded rather than resolved: if the label is right, WC's and
- * Property's new pure premium here is 8.3% too high on the ALAE limb, and the
- * fix is this flag rather than a change to the parameter.
+ * ⚠ GL WAS TRUE UNTIL THEN, AND THAT RULE CAME FROM THE OLD PER-CLAIM GL MODEL:
+ * its fitted 3-component claim-size mixture included defence costs
+ * (defaultAssumptions.ts, GL_SEVERITY_COMPONENTS). The live engine no longer
+ * draws GL's losses from that mixture, so the rule no longer applied. The flag
+ * stays, false everywhere, so a line whose losses do carry ALAE can say so.
  */
 export const ALAE_ALREADY_IN_LOSSES: Readonly<Record<CoverageLine, boolean>> = {
   WC: false,
-  GL: true,
+  GL: false,
   Property: false,
 };
 
@@ -284,9 +279,9 @@ export function newPurePremiumPer100(
   const lossCost = points.reduce((s, p) => s + p.trendedLossCostPer100, 0) / points.length + catastropheLoad;
 
   // ⚠ ALAE IS NOT ADDED WHERE IT IS ALREADY IN THE LOSSES. See
-  // ALAE_ALREADY_IN_LOSSES — on GL the fitted severity mixture includes it, so
-  // the parameter would be a second helping. ULAE is unallocated by definition
-  // and is in no severity fit, so it is added on every line.
+  // ALAE_ALREADY_IN_LOSSES — no line, since the pure-premium basis. ULAE is at
+  // its share of the claims on every line: on WC and GL the claims are the pure
+  // premium / (1 + ULAE), so claims + ULAE give the pure premium back exactly.
   const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCost * ALAE_OF_LOSS_COST[line];
   const ulae = lossCost * ULAE_OF_LOSS_COST[line];
 

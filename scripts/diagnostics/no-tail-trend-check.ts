@@ -132,38 +132,43 @@ const reportedBasis: Basis = l => INCURRED_DEVELOPMENT_PATTERN[l];
 const factorFrom = (l: CoverageLine, trend: number, lagFrom: number, basis: Basis = reportedBasis) =>
   basis(l).reduce((a, r, k, rows) => a + (1 / r.ldf - (k === 0 ? 0 : 1 / rows[k - 1].ldf)) * Math.pow(1 + trend, k + lagFrom), 0);
 const pageEntry = PRICING_PARAMETER_SECTIONS.flatMap(x => x.entries).find(([n]) => n === 'Trend booked up front')?.[1];
-function gradeTrend(trend: Record<CoverageLine, number>, lagFrom: number, tag: string, basis: Basis = reportedBasis) {
+// ⚠ THE SHIPPED SETTING IS OFF (the pure-premium basis): the booked cost level
+// is the trend alone, once. The dormant factor is held by switching it on for
+// a moment and back off.
+function gradeTrend(trend: Record<CoverageLine, number>, lagFrom: number, tag: string, basis: Basis = reportedBasis, expectOn = false) {
   let worstGrowth = 0, worstFactor = 0, worstBooked = 0;
-  for (const l of LINES) {
+  UP_FRONT_TREND.enabled = true;
+  const dormant = LINES.map(l => ({ l, F: factorFrom(l, trend[l], lagFrom, basis), got: upFrontTrendFactor(l) }));
+  const stated = LINES.every(l => pageEntry?.what.includes(`${l} ${upFrontTrendFactor(l).toFixed(4)}`));
+  UP_FRONT_TREND.enabled = false;
+  for (const { l, F, got } of dormant) {
     const t = trend[l];
-    const F = factorFrom(l, t, lagFrom, basis);
-    worstFactor = Math.max(worstFactor, rel(upFrontTrendFactor(l), F));
+    worstFactor = Math.max(worstFactor, rel(got, F), Math.abs(upFrontTrendFactor(l) - 1));
     worstGrowth = Math.max(worstGrowth, rel(lossCostTrendPerYear(l), 1 + t));
     for (const y of YEARS) {
-      const level = Math.pow(1 + t, y - 1) * F;
+      const level = Math.pow(1 + t, y - 1) * (expectOn ? F : 1);
       worstBooked = Math.max(worstBooked,
         rel(baseOrdinaryLossCostPer100(l, y), EXPECTED_ORDINARY_LOSS_COST_PER_100[l] * level),
-        rel(tScale(l, 1000, y) / tScale(l, 1000, 1), level / F));
+        rel(tScale(l, 1000, y) / tScale(l, 1000, 1), level / (expectOn ? F : 1)));
     }
   }
   check(worstGrowth < 1e-12 && LINES.every(l => SEVERITY_TREND_PER_YEAR[l] === SHIPPED_TREND[l]),
     `${tag}4. trend per line — WC 4%, GL 8%, Property 5% — in losses, shocks and pricing alike`,
     `worst relative ${worstGrowth.toExponential(2)}`);
-  const stated = LINES.every(l => pageEntry?.what.includes(`${l} ${upFrontTrendFactor(l).toFixed(4)}`));
   check(worstFactor < 1e-12 && worstBooked < 1e-12 && stated,
-    `${tag}5. each accident year is booked with its inflation up to reporting, along the closed reported pattern`,
-    `${LINES.map(l => `${l} ${upFrontTrendFactor(l).toFixed(4)}`).join(', ')}; worst relative ${Math.max(worstFactor, worstBooked).toExponential(2)}`);
+    `${tag}5. trend enters once: no up-front factor in claims or pricing; dormant, it is the reported-pattern factor`,
+    `dormant ${dormant.map(d => `${d.l} ${d.got.toFixed(4)}`).join(', ')}; worst relative ${Math.max(worstFactor, worstBooked).toExponential(2)}`);
 }
 
 // ---------------------------------------------------------------- 6
 // WC alone: no per-claim limit, so every dollar it books scales with its cost
 // level and the ratio is exact.
 const ids = ['NTW1', 'NTW2', 'NTW3'];
+UP_FRONT_TREND.enabled = true;
 const withF = ids.map(id => play(id, 10, ['WC']));
+const F_WC = upFrontTrendFactor('WC');
 UP_FRONT_TREND.enabled = false;
 const withoutF = ids.map(id => play(id, 10, ['WC']));
-UP_FRONT_TREND.enabled = true;
-const F_WC = upFrontTrendFactor('WC');
 type Series = (st: PoolState) => { ay: number; paid: number[] }[];
 const grossSeries: Series = st => (st.lines.WC?.reserveDevelopment ?? [])
   .map(x => ({ ay: x.yearNumber, paid: x.grossPaidByValuation ?? [] }));
@@ -178,7 +183,7 @@ function gradeNoTrendDevelopment(series: Series, tag: string) {
       worst = Math.max(worst, rel(v / w, F_WC));
     }));
   }));
-  check(cells > 0 && worst < 1e-9, `${tag}6. older years do not develop for trend: ground-up paid is the factor x, at every age`,
+  check(cells > 0 && worst < 1e-9, `${tag}6. the dormant up-front factor, switched on: older years do not develop for trend`,
     `${cells} accident-year valuations in ${ids.length} WC games; worst relative ${worst.toExponential(2)}`);
 }
 
@@ -209,6 +214,7 @@ controlFails('pricing with a tail factor', () => gradePricing((l, m) => {
   return closedLdf(l, m) * raw[raw.length - 1].ldf;
 }, ''), '3.');
 controlFails('GL at 5%', () => gradeTrend({ ...SHIPPED_TREND, GL: 0.05 }, 0, ''), '4.');
+controlFails('the up-front factor left on', () => gradeTrend(SHIPPED_TREND, 0, '', reportedBasis, true), '5.');
 controlFails('payment lag counted from k', () => gradeTrend(SHIPPED_TREND, 1, ''), '5.');
 controlFails('the factor run along the paid pattern', () => gradeTrend(SHIPPED_TREND, 0, '', l => PAID_DEVELOPMENT_PATTERN[l]), '5.');
 controlFails('a year that develops for trend', () => gradeNoTrendDevelopment(r => grossSeries(r)

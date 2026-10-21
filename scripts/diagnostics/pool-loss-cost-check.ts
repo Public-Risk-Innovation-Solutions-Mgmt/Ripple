@@ -4,9 +4,10 @@
 //
 //   npx tsx scripts/diagnostics/pool-loss-cost-check.ts
 //
-//   1. WC AND GL ARE PRICED ON THE POOL'S LAYERS: each line's ordinary cost per
-//      $100 is the sum of its layers ($0 – $1M + $1M – $5M), trended by accident
-//      year, with no routine fold, years -10 to 15.
+//   1. WC AND GL ARE PRICED ON THE POOL'S LAYERS: each line's ordinary claims
+//      cost per $100 is the sum of its layers ($0 – $1M + $1M – $5M) — the
+//      pool's pure premium — less its ULAE share (/ 1.05, since the pure-premium
+//      basis), trended by accident year, with no routine fold, years -10 to 15.
 //   2. NOTHING ELSE IS ORDINARY: their expected loss is the ordinary cost x
 //      (1 + the A uplift) plus the shocks' large losses — no routine claims.
 //   3. THE SHOCKS SCALE OFF THE $0 – $1M LAYER on WC and GL, and off Property's
@@ -20,7 +21,7 @@
 // ============================================================================
 
 import {
-  POOL_LOSS_COST_LAYERS, RESERVE_MARGIN_CONFIDENCE_PARAM, SHOCK_T_BASIS_PER_100,
+  POOL_LOSS_COST_LAYERS, RESERVE_MARGIN_CONFIDENCE_PARAM, SHOCK_T_BASIS_PER_100, ULAE_OF_LOSS_COST,
 } from '../../src/data/pricingParameters';
 import { RESERVE_MARGIN_CONFIDENCE, staticClf, type StaticClfLine } from '../../src/data/clfTables';
 import { bookedCostLevel, ordinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
@@ -50,16 +51,19 @@ const trend = (l: CoverageLine, y: number) => bookedCostLevel(l, y);
 // ---------------------------------------------------------------- 1 & 2
 type Layers = (l: CoverageLine) => number;
 const shippedLayers: Layers = l => (POOL_LOSS_COST_LAYERS[l] ?? []).reduce((a, x) => a + x.per100, 0);
+// The claims the engine draws: the pure premium less its ULAE share.
+const claimsOf = (layers: Layers): Layers => l => layers(l) / (1 + ULAE_OF_LOSS_COST[l]);
 function gradeCosts(layers: Layers, cost: (l: CoverageLine, y: number) => number, tag: string) {
   let worstCost = 0, worstTotal = 0, routine = 0;
   for (const l of LAYERED) for (const y of YEARS) {
-    worstCost = Math.max(worstCost, rel(cost(l, y), layers(l) * trend(l, y)));
+    worstCost = Math.max(worstCost, rel(cost(l, y), claimsOf(layers)(l) * trend(l, y)));
     const b = expectedLossBreakdown(l, E, y);
     routine += b.routineLarge;
     worstTotal = Math.max(worstTotal, rel(b.total, E * 10_000 * cost(l, y) * (1 + upliftMoments(l, y).mean) + b.shockLarge));
   }
-  check(worstCost < 1e-12, `${tag}1. WC and GL's ordinary cost is the sum of the pool's layers, trended, no fold`,
-    `WC $${layers('WC').toFixed(3)}, GL $${layers('GL').toFixed(3)} per $100 in year 1; worst relative ${worstCost.toExponential(2)}`);
+  check(worstCost < 1e-12, `${tag}1. WC and GL's ordinary claims cost is the pool's layers less their ULAE share, trended, no fold`,
+    `pure premium WC $${layers('WC').toFixed(3)}, GL $${layers('GL').toFixed(3)}; claims WC $${claimsOf(layers)('WC').toFixed(4)}, `
+    + `GL $${claimsOf(layers)('GL').toFixed(4)} per $100 in year 1; worst relative ${worstCost.toExponential(2)}`);
   check(worstTotal < 1e-12 && routine === 0, `${tag}2. their expected loss is ordinary x (1 + uplift) + the shocks' large losses, no routine`,
     `worst relative ${worstTotal.toExponential(2)}; routine $${routine.toFixed(0)}`);
 }
@@ -111,6 +115,7 @@ const controlFails = (name: string, run: () => void, expect: string) => {
   check(caught.length > 0, `control: ${name} is caught by ${expect}`);
 };
 controlFails('the $1M – $5M layer left out', () => gradeCosts(l => POOL_LOSS_COST_LAYERS[l]![0].per100, ordinaryLossCostPer100, ''), '1.');
+controlFails('claims drawn at the full pure premium (ULAE on top)', () => gradeCosts(shippedLayers, (l, y) => ordinaryLossCostPer100(l, y) * (1 + ULAE_OF_LOSS_COST[l]), ''), '1.');
 controlFails('a fold left on WC', () => gradeCosts(shippedLayers, (l, y) => ordinaryLossCostPer100(l, y) + (l === 'WC' ? 0.4 : 0), ''), '1.');
 controlFails('T scaled off the full layer sum', () => gradeShockBasis(l => (l === 'Property' ? SHOCK_T_BASIS_PER_100[l] : shippedLayers(l)), ''), '3.');
 controlFails('a margin at 90%', () => gradeMargin(0.9, ''), '4.');

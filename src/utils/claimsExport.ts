@@ -823,7 +823,8 @@ const GL_COMPONENT_NOTE =
     ? ' in EVERY accident year — the ceiling does not trend, so no claim on this sheet exceeds it. '
     : ` in YEAR 1, raised in later accident years (year 20: $${glSeverityCap(20) / 1e6}M). `) +
   'With no sub-coverage, ' +
-  'gate, litigation stage, or indemnity/ALAE split (ALAE is included in the drawn amount). Component is ' +
+  'gate, litigation stage, or indemnity/ALAE split (the fit\'s amounts include ALAE; the pool\'s rate adds ALAE ' +
+  'on top of its pure premium). Component is ' +
   'the MIXTURE COMPONENT the claim was drawn from (component1 / component2 / component3) — these are ' +
   'NOT the retired general / epl / lawEnforcement / abuse sub-coverages. Reported Year always equals ' +
   'Accident Year: GL carries no report lag.';

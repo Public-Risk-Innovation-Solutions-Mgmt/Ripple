@@ -139,9 +139,16 @@ export const SEVERITY_TREND_PER_YEAR: PerLine<number> = { WC: 0.04, GL: 0.08, Pr
  * experience. OFF is the gate's control (factor 1).
  *
  * ⚠ THE FIGURES ABOVE ARE ALSO ON THE PARAMETERS PAGE ENTRY BELOW, and
- * no-tail-trend-check fails if either disagrees with the computed factor.
+ * no-tail-trend-check holds the dormant factor to them.
+ *
+ * ⚠ OFF SINCE THE PURE-PREMIUM BASIS (stable-scenarios, after commit 8), in the
+ * engine's claims and in pricing together. The pool's supplied loss costs are
+ * its PURE PREMIUM at the year-1 level — ultimate costs, inflation to
+ * settlement already in them — so booking inflation to reporting on top
+ * counted it twice. Trend now enters once: year over year, when older years
+ * are brought up to the priced year (SEVERITY_TREND_PER_YEAR).
  */
-export const UP_FRONT_TREND = { enabled: true };
+export const UP_FRONT_TREND = { enabled: false };
 
 /**
  * ACCIDENT-YEAR FREQUENCY TREND — ZERO on all three lines.
@@ -277,18 +284,30 @@ export const PRIOR_DEVELOPMENT_DEFAULTS: PerLine<number> = {
 // ============================================================================
 
 /**
- * ALAE — allocated loss adjustment expense, as a share of loss cost. Charged in
- * the rate (newPurePremium) and booked as a cost on the ground-up loss
- * (lossExpense.ts); neither on GL, whose losses already include it.
+ * ALAE — allocated loss adjustment expense, 5% of claims on every line. Charged
+ * in the rate on top of the loss cost (newPurePremium) and booked as a cost on
+ * the ground-up loss (lossExpense.ts). The pool's supplied pure premiums
+ * EXCLUDE it, so it is added on WC and GL as on Property.
+ *
+ * ⚠ REPLACES 8.3%, WHICH MISREAD THE POOL'S PRICING EXAMPLE, and the rule that
+ * GL took none: that came from the old per-claim GL model, whose fitted claim
+ * sizes included defence costs. GL's losses are the pool's pure premium now.
  */
-export const ALAE_OF_LOSS_COST: PerLine<number> = { WC: 0.083, GL: 0.083, Property: 0.083 };
+export const ALAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property: 0.05 };
 
 /**
  * ULAE — unallocated loss adjustment expense, as a share of loss cost. Charged
  * in the rate and booked as claims-handling cost, paid as losses are paid
  * (lossExpense.ts).
  */
-export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.083, GL: 0.083, Property: 0.083 };
+//
+// ⚠ 5% OF CLAIMS ON EVERY LINE, REPLACING 8.3% (which misread the pool's pricing
+// example). On WC and GL it is INSIDE the supplied pure premium: the engine
+// draws claims at the pure premium / (1 + this), and books ULAE at this share of
+// them, so claims + ULAE are the pure premium exactly
+// (SUPPLIED_PURE_PREMIUM_INCLUDES_ULAE). On Property, whose cost is loss only,
+// it is on top.
+export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property: 0.05 };
 
 /**
  * ADMIN, FIXED — dollars a year, per line.
@@ -645,13 +664,25 @@ export const POOL_LOSS_COST_LAYERS: Partial<Record<CoverageLine, readonly { from
 const layerSum = (line: CoverageLine) => (POOL_LOSS_COST_LAYERS[line] ?? []).reduce((a, l) => a + l.per100, 0);
 
 /**
- * EACH LINE'S ORDINARY COST PER $100, YEAR 1 — WC and GL the sum of the pool's
- * layers (POOL_LOSS_COST_LAYERS); Property its derived attritional cost above,
- * unchanged.
+ * ⚠ WHAT THE SUPPLIED LOSS COSTS ARE — THE POOL'S PURE PREMIUM, year-1 level:
+ * WC $2.50 + $0.118 = $2.618 and GL $2.50 + $0.95 = $3.45 per $100. ULTIMATE
+ * costs (inflation to settlement already in them, so UP_FRONT_TREND is off);
+ * they INCLUDE ULAE and EXCLUDE ALAE. So the claims the engine draws are the
+ * pure premium less its ULAE share — / (1 + ULAE_OF_LOSS_COST) — ULAE is
+ * booked at its share of those claims, and claims + ULAE are the pure premium
+ * exactly; ALAE is added on top. Property's cost is still the old engine's
+ * figure, loss only, so it takes ALAE and ULAE on top.
+ */
+export const SUPPLIED_PURE_PREMIUM_INCLUDES_ULAE: PerLine<boolean> = { WC: true, GL: true, Property: false };
+
+/**
+ * EACH LINE'S ORDINARY CLAIMS COST PER $100, YEAR 1 — WC and GL the pool's pure
+ * premium (the sum of POOL_LOSS_COST_LAYERS) less its ULAE share; Property its
+ * derived attritional cost above, unchanged.
  */
 export const EXPECTED_ORDINARY_LOSS_COST_PER_100: PerLine<number> = {
-  WC: layerSum('WC'),
-  GL: layerSum('GL'),
+  WC: layerSum('WC') / (1 + ULAE_OF_LOSS_COST.WC),
+  GL: layerSum('GL') / (1 + ULAE_OF_LOSS_COST.GL),
   Property: 0.159515,
 };
 
@@ -1385,7 +1416,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Trend booked up front', {
         value: UP_FRONT_TREND.enabled ? 'on' : 'off', unit: 'switch',
-        what: 'Each accident year\'s ultimate rises with trend only by as much as its reported losses rise '
+        what: 'OFF in claims and pricing together: the pool\'s supplied loss costs are its pure premium, ultimate '
+          + 'costs with inflation to settlement already in them, so trend enters once — year over year, bringing older '
+          + 'years up to the priced year. ON (dormant): each accident year\'s ultimate rises with trend only by as much '
+          + 'as its reported losses rise '
           + 'because of trend — inflation up to reporting, not up to final payment. Factor = the sum over development '
           + 'years k of the share newly reported in year k x (1 + trend)^(k - 1), along the closed reported pattern: '
           + 'WC 1.0787, GL 1.1599, Property 1.0126. It multiplies the layered loss costs, Property\'s basis and the '
@@ -1587,13 +1621,28 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Allocated loss adjustment expense. Charged in the rate on the ground-up loss cost and booked '
           + 'as a cost: incurred as this share of the ground-up loss incurred, paid on the loss pattern, the '
           + 'unpaid part held as the loss expense reserve.', basis: 'CHOSEN',
-        note: 'Not on GL, whose fitted severities already include ALAE — neither charged nor booked there.',
+        note: '5% on every line, replacing 8.3%, which misread the pool\'s pricing example. The supplied pure premiums '
+          + 'exclude ALAE, so it is added on WC and GL as on Property. GL once took none: that rule came from the old '
+          + 'per-claim GL model, whose fitted claim sizes included defence costs.',
       }],
       ['ULAE', {
         value: perLine(ULAE_OF_LOSS_COST, 3), unit: 'share of loss cost',
         what: 'Unallocated loss adjustment expense — claims handling. Charged in the rate on the ground-up '
           + 'loss cost and booked as a cost: paid as losses are paid, the unpaid part held as the loss '
           + 'expense reserve.', basis: 'CHOSEN',
+        note: '5% on every line, replacing 8.3%, which misread the pool\'s pricing example. On WC and GL it is inside '
+          + 'the supplied pure premium (claims are the pure premium / 1.05, so claims + ULAE equal it exactly); on '
+          + 'Property it is on top.',
+      }],
+      ['Supplied pure premium', {
+        value: `WC $${layerSum('WC').toFixed(3)} · GL $${layerSum('GL').toFixed(3)}`, unit: 'per $100, year-1 level',
+        what: 'The pool\'s own pure premium: WC $2.50 + $0.118, GL $2.50 + $0.95 (POOL_LOSS_COST_LAYERS). Ultimate '
+          + 'costs that INCLUDE ULAE and EXCLUDE ALAE. The engine draws claims at the pure premium / (1 + ULAE), books '
+          + 'ULAE at its share of them and ALAE on top.',
+        basis: 'SOURCED',
+        note: 'Ultimate, so no inflation to settlement is booked on top (Trend booked up front: off); trend enters once, '
+          + 'year over year. Property is not supplied: its cost is the old engine\'s figure, loss only, with ALAE and '
+          + 'ULAE on top.',
       }],
       ['Admin, fixed', {
         value: perLine(ADMIN_FIXED_PER_YEAR, 0), unit: 'dollars per year',
@@ -1707,13 +1756,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'The pool\'s own loss costs by per-claim layer, no deductible. Each line\'s ordinary expected loss is '
           + 'the sum of its layers; losses above $5M per claim stay with the pool and arrive only with shocks.',
         basis: 'SOURCED',
-        note: 'The pool\'s loss costs, supplied by the pool. GL keeps its $25M per-claim limit. Replaced the old '
-          + 'engine\'s derived ordinary cost (WC $2.774, GL $2.830 to $1M, plus the routine claims above it).',
+        note: 'The pool\'s loss costs, supplied by the pool: its PURE PREMIUM, including ULAE and excluding ALAE (see '
+          + 'Supplied pure premium). GL keeps its $25M per-claim limit. Replaced the old engine\'s derived ordinary '
+          + 'cost (WC $2.774, GL $2.830 to $1M, plus the routine claims above it).',
       }],
       ['Expected ordinary loss cost', {
         value: perLine(EXPECTED_ORDINARY_LOSS_COST_PER_100), unit: 'per $100 of exposure, year 1',
-        what: 'Each line\'s expected ordinary loss per $100: WC and GL the sum of the pool\'s layers; Property its '
-          + 'derived attritional cost, plus the routine fold.',
+        what: 'Each line\'s expected ordinary CLAIMS per $100: WC and GL the pool\'s pure premium (the sum of its '
+          + 'layers) less its ULAE share, / 1.05; Property its derived attritional cost, plus the routine fold.',
         basis: 'SOURCED',
         note: 'Property\'s figure was derived by scripts/tools/derive-ordinary-loss-cost.ts from today\'s '
           + 'distributions on the full market at neutral risk quality, year 1, its catastrophe band excluded; it '

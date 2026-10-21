@@ -196,6 +196,9 @@ const FAST: string[] = [
   'catastrophe-load-check',          //   3s   shock dollars on each ledger row, kept out of the experience on the
                                      //         paid basis before development; no catastrophe load charged (the
                                      //         supplied loss costs carry large events); four controls
+  'pure-premium-basis-check',        //  10s   claims + ULAE are the pool's supplied pure premium, ALAE 5% on top on
+                                     //         every line, trend once, year-1 pricing lands on it, claims track
+                                     //         expected over ten years; four controls
   'exposure-scale-check',            //   4s   one exposure multiplier per line on the whole market, a 30% book, and
                                      //         about $30M of year-1 premium at Expected; three controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
