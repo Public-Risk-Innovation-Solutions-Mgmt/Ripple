@@ -808,7 +808,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the value harness this guard plays solo games through the worlds, so the
 // shocks-off switch (58cd3b9) and the hundred worlds (b3011df) move it too;
 // commit 11 moves the claims workbook (Enrolled, Gross Paid) and the labels.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v85.json');
+// v86: THE EXPECTATION FOLLOWS THE GAME'S SHOCKS, AND THE COVERS WITH IT. The
+// control ran first: d9ccbc6 reproduced v85 24 of 24. All 24 move, and each
+// moved at both commits in turn: bdf2ec7 (a solo game's expectation, the
+// stop's attachment and every cover's price on the ordinary year) and ad14ec7
+// (while shocks are off, None the default for players and the prior board).
+// No file added or removed. VALUE_IDENTITY_v79 holds at both: its harness runs
+// bare instances, on the catalogue, where the shocks stay on.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v86.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
