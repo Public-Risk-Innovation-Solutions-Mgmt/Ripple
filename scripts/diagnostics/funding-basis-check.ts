@@ -170,9 +170,19 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   const grossBasis = rows[l].map(r =>
     (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1))
     / (r.clf / expenseDivisor(r.rcIncentive)));
-  check(NEW_RATE_STACK.enabled ? Math.abs(mean(grossBasis) - 1) > 0.02 : mean(gross) < 0.95,
+  // ⚠ THE BAR IS THE IDENTITY'S OWN PRECISION, NOT 2%, SINCE STABLE-SCENARIOS
+  // COMMIT 1. With routine large losses folded below every retention, the
+  // ceded share of the pure premium fell to 0.4% on WC and about 2% on GL and
+  // Property, so a fixed 2% gap no longer separates net funding from gross.
+  // What does: the ratio sits exactly at the retained share (net / gross pure
+  // premium), and away from 1 by more than ten times the 1e-4 the identity
+  // above carries — which a regression to gross funding (ratio 1) cannot meet.
+  const retainedShare = rows[l].map(r => r.netPurePremiumPer100 / Math.max(r.purePremiumPer100, 1e-12));
+  check(NEW_RATE_STACK.enabled
+    ? Math.abs(mean(grossBasis) - mean(retainedShare)) < 1e-4 && Math.abs(mean(grossBasis) - 1) > 1e-3
+    : mean(gross) < 0.95,
     `${l}: and it is NO LONGER the gross figure`,
-    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasis).toFixed(4)} (gross expected loss ${mean(gross).toFixed(4)})`
+    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasis).toFixed(4)}, the retained share ${mean(retainedShare).toFixed(4)} (gross expected loss ${mean(gross).toFixed(4)})`
       : `gross ratio ${mean(gross).toFixed(4)}`);
 }
 

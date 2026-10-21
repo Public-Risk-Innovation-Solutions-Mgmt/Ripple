@@ -230,6 +230,40 @@ const poolKinks = (line: CoverageLine) => {
   return l === null ? [] : [l];
 };
 
+// --- the routine fold ------------------------------------------------------
+
+/**
+ * THE ROUTINE FOLD, per $100 of exposure, for a line-year (stable-scenarios
+ * build, commit 1). With ROUTINE_LARGE_LOSSES off, the expected cost routine
+ * large claims carried — the pool's share above the ordinary limit, trended to
+ * the year — is added to the ordinary cost as
+ *
+ *     routine(y) / (1 + E[A uplift](y))
+ *
+ * so the uplift, which multiplies the ordinary losses, gives back exactly
+ * routine(y): the line's expected loss is unchanged, year by year. Zero with
+ * the switch ON, when the routine claims are drawn instead.
+ *
+ * Memoised per line-year; the key carries the switch and the catalogue's total
+ * probability, so a gate or probe that moves either reads a fresh value.
+ */
+const foldMemo = new Map<string, number>();
+export function routineFoldPer100(line: CoverageLine, yearNumber: number): number {
+  if (ROUTINE_LARGE_LOSSES.enabled) return 0;
+  const key = `${line}|${yearNumber}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}`;
+  const hit = foldMemo.get(key);
+  if (hit !== undefined) return hit;
+  const basis = routineLargeBasis(line);
+  const g = trendFactor(line, yearNumber);
+  // The pool's share of each claim's excess over the ordinary limit — the same
+  // h the routine expectation in expectedLossBreakdown uses (routineOffset).
+  const r = routineExpectation(basis, g, x => poolShare(line, x) - g * basis.limit, poolKinks(line));
+  const routinePer100 = routineLargeCount(line, 1) * r.m1 / 10_000;
+  const fold = routinePer100 / (1 + upliftMoments(line, yearNumber).mean);
+  foldMemo.set(key, fold);
+  return fold;
+}
+
 // --- the line's expected loss ----------------------------------------------
 
 export interface ExpectedLossBreakdown {

@@ -177,6 +177,9 @@ const FAST: string[] = [
                                      //         (own generator, fresh events), both placements, and the generator
                                      //         drawing what the price describes
   'property-claim-check',            //   3s
+  'routine-fold-check',              //   3s   stable regular years: routine large losses off and folded into the
+                                     //         ordinary cost, cost-neutral line-year by line-year; the shocks
+                                     //         unchanged; no routine claim drawn; a flat pre-game; four controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls

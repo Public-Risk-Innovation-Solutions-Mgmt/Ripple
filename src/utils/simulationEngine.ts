@@ -145,10 +145,10 @@ import {
   occurrenceTotals,
   quoteAggregate,
 } from './reinsuranceTower';
-import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
+import { expectedMarketReturns, simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { FLAT_PRE_GAME, MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
 import { bookMovementResult, moveBook, moveBookUnits } from './bookUnderwriting';
@@ -3397,9 +3397,11 @@ export function processYear(
   const shockYear = newLossEngineRuns()
     ? resolveShockYear(instance, shockTimingOf(setup), yearNumber)
     : undefined;
-  const drawnMarket = simulateMarketReturns(
-    deriveSubRng(instance.seed, yearNumber, 'invest')
-  );
+  // A flat pre-game year (FLAT_PRE_GAME) earns the market's expectation, net of
+  // fee — no draw; every played year draws as before.
+  const drawnMarket = FLAT_PRE_GAME.enabled && yearNumber <= 0
+    ? expectedMarketReturns()
+    : simulateMarketReturns(deriveSubRng(instance.seed, yearNumber, 'invest'));
   // Investment Loss: twenty points off the equity return in its year, after
   // the draw and its rails — the event is a shock to the market, not a
   // different market. Absent, this is the drawn market object itself.
