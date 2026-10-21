@@ -5,9 +5,10 @@
 //
 //   1. ONE MULTIPLIER, THE WHOLE MARKET: FULL_MARKET_EXPOSURE is the 200-member
 //      market times EXPOSURE_SCALE, line by line, and the multipliers are the
-//      ones calibrated on the pure-premium basis: WC 2.236, GL 1.604, Property
-//      0.534 (re-scaled from 1.797 / 1.258 / 0.430 once the catastrophe load was
-//      removed and the pure premium became the basis).
+//      ones calibrated with the cover's full price charged: WC 2.211, GL 1.549,
+//      Property 0.515 (re-scaled from 1.797 / 1.258 / 0.430 once the catastrophe
+//      load was removed and the pure premium became the basis, then from 2.236 /
+//      1.604 / 0.534 once nothing was netted off the claims cost).
 //   2. THE POOL KEEPS ABOUT 30% OF IT: every seed's opening book is 29% to 33%
 //      of its line's scaled market.
 //   3. ABOUT $30M AT EXPECTED: each line's year-1 premium at the default
@@ -27,7 +28,7 @@ import type { CoverageLine, GameSetupSettings, GameState } from '../../src/types
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const BASE: Record<CoverageLine, number> = { WC: 1300, GL: 1300, Property: 59233.002 };
-const CALIBRATED: Record<CoverageLine, number> = { WC: 2.236, GL: 1.604, Property: 0.534 };
+const CALIBRATED: Record<CoverageLine, number> = { WC: 2.211, GL: 1.549, Property: 0.515 };
 const TARGET = 30e6;
 const failures: string[] = [];
 const check = (ok: boolean, label: string, detail = '') => {
@@ -91,6 +92,8 @@ const controlFails = (name: string, run: () => void, expect: string) => {
 controlFails('a market left unscaled', () => gradeMarket(BASE, ''), '1.');
 controlFails('the multipliers before the re-scale', () => gradeMarket(
   { WC: 1300 * 1.797, GL: 1300 * 1.258, Property: 59233.002 * 0.430 }, '', { WC: 1.797, GL: 1.258, Property: 0.430 }), '1.');
+controlFails('the multipliers before the cover was charged in full', () => gradeMarket(
+  { WC: 1300 * 2.236, GL: 1300 * 1.604, Property: 59233.002 * 0.534 }, '', { WC: 2.236, GL: 1.604, Property: 0.534 }), '1.');
 controlFails('a book read off the unscaled market', () => gradeShare(books, BASE, ''), '2.');
 controlFails('premiums 10% off', () => gradePremium(
   Object.fromEntries(LINES.map(l => [l, premiums[l].map(p => p * 1.1)])) as Record<CoverageLine, number[]>, ''), '3.');

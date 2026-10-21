@@ -853,8 +853,11 @@ export const SHOCK_LOSS_CV = 0.5;
  * ⚠ RE-SCALED ONCE, from WC 1.797 / GL 1.258 / Property 0.430, after the
  * catastrophe load was removed and year-1 pricing moved onto the pool's pure
  * premium: both lowered the year-1 rate, so the same books came to about $24M.
+ * ⚠ AND AGAIN, from WC 2.236 / GL 1.604 / Property 0.534, once the cover's full
+ * price was charged with nothing netted off the claims cost: the year-1 rate
+ * rose 0.7% / 2.1% / 2.6%, and premium with it to $30.3M / $31.0M / $31.0M.
  */
-export const EXPOSURE_SCALE: PerLine<number> = { WC: 2.236, GL: 1.604, Property: 0.534 };
+export const EXPOSURE_SCALE: PerLine<number> = { WC: 2.211, GL: 1.549, Property: 0.515 };
 
 const scaled = (base: PerLine<number>): PerLine<number> =>
   ({ WC: base.WC * EXPOSURE_SCALE.WC, GL: base.GL * EXPOSURE_SCALE.GL, Property: base.Property * EXPOSURE_SCALE.Property });
