@@ -322,7 +322,7 @@ export function retainedSd(
   const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
   const u = upliftMoments(line, yearNumber);
   // A typical book's line-level CV: the aggregate is priced with no book in hand.
-  const cv = typicalBookOrdinaryCv();
+  const cv = typicalBookOrdinaryCv(line);
   const ordinaryVar = ordinary * ordinary * ((1 + cv * cv) * (1 + 2 * u.mean + u.second) - Math.pow(1 + u.mean, 2));
   const large = largeLossMoments(
     line, exposure, yearNumber,

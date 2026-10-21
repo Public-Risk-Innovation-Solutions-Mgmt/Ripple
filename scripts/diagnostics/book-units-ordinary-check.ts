@@ -5,7 +5,7 @@
 //
 // Each unit's expected ordinary loss is its exposure x its true risk x the
 // line's cost; each year it is that x the year factor every unit shares (CV
-// UNIT_ORDINARY_YEAR_CV) x its own (CV UNIT_ORDINARY_OWN_CV); the line's is
+// the line's BASELINE_CV) x its own (CV UNIT_ORDINARY_OWN_CV); the line's is
 // the sum (ordinaryLossFromUnits). Against the closed form:
 //
 //   1. PER UNIT: realised / expected averages 1, with CV
@@ -26,10 +26,10 @@
 // an expected that ignores risk.
 // ============================================================================
 
-import { UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV, UNIT_ORDINARY_YEAR_CV } from '../../src/data/pricingParameters';
+import { UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV } from '../../src/data/pricingParameters';
 import { marketSeedOf, openingBookUnits, unitsOf, type BookUnit } from '../../src/utils/bookUnits';
 import {
-  bookOrdinaryCv, bookOrdinaryRisk, drawOrdinaryFactor, ordinaryLossCostPer100, ordinaryLossFromUnits, ordinaryLossRng,
+  bookOrdinaryCv, bookOrdinaryRisk, drawOrdinaryFactor, ordinaryYearCv, ordinaryLossCostPer100, ordinaryLossFromUnits, ordinaryLossRng,
   unitOrdinaryRng,
 } from '../../src/utils/ordinaryLoss';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -66,14 +66,14 @@ const engineDraw: Draw = (line, units, year, seed) => ordinaryLossFromUnits(line
 const BOOK_SEEDS = [4_242_424, 5_151_515, 6_060_606];
 const STREAM_SEEDS = 3_000;
 function grade(draw: Draw, tag: string, expectedOf: (line: CoverageLine, units: readonly BookUnit[]) => number) {
-  const unitCv = Math.sqrt((1 + UNIT_ORDINARY_YEAR_CV ** 2) * (1 + UNIT_ORDINARY_OWN_CV ** 2) - 1);
   for (const line of LINES) {
+    const unitCv = Math.sqrt((1 + ordinaryYearCv(line) ** 2) * (1 + UNIT_ORDINARY_OWN_CV ** 2) - 1);
     const perUnit: number[] = [];
     let worstLineZ = 0, worstLineCvZ = 0, worstExpected = 0;
     const lineDetail: string[] = [];
     for (const bs of BOOK_SEEDS) {
       const units = unitsOf(bs, line, openingBookUnits(bs, line));
-      const want = bookOrdinaryCv(units);
+      const want = bookOrdinaryCv(units, line);
       const ratios: number[] = [];
       for (let s = 0; s < STREAM_SEEDS; s++) {
         const y = 1 + (s % 10);
@@ -150,7 +150,7 @@ const controlFails = (name: string, draw: Draw, expectedOf: (line: CoverageLine,
 const byHand = (sharedOwn: boolean, withYear: boolean, riskless: boolean): Draw => (line, units, year, seed) => {
   const size = units.reduce((a, u) => a + u.size, 0);
   const cost = 10_000 * ordinaryLossCostPer100(line, year);
-  const F = withYear ? drawOrdinaryFactor(ordinaryLossRng(seed, year, line), UNIT_ORDINARY_YEAR_CV) : 1;
+  const F = withYear ? drawOrdinaryFactor(ordinaryLossRng(seed, year, line), ordinaryYearCv(line)) : 1;
   const own = unitOrdinaryRng(seed, year, line);
   const fs = Array.from({ length: UNIT_MARKET_COUNT }, () => drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV));
   const byUnit = units.map(u => {

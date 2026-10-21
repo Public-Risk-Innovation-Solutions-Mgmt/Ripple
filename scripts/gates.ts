@@ -198,6 +198,10 @@ const FAST: string[] = [
   'book-units-ordinary-check',       //   7s   ordinary losses from units: each unit and the line at their closed-form
                                      //         mean and CV, expected = exposure x book risk x cost, every world on
                                      //         one book; three controls
+  'baseline-cv-table-check',         //   4s   one BASELINE_CV per line, read by both: the funding table in force is the
+                                     //         one filed under it and its stops are that CV's closed form, the engine's
+                                     //         year factor is the draw at it bit for bit, and the slider and required
+                                     //         capital read that table; two controls
   'book-units-market-check',         //   3s   each line's market of units and the opening book: sizes to the full
                                      //         market, size and risk CVs, risk centred at 1.0, regions by share,
                                      //         the 30% book, determinism, kept once per game; six controls
@@ -773,7 +777,8 @@ const DORMANT_KNOWN_RED: Record<string, { code: number; why: string }> = {
 // ============================================================================
 const PROBES: Record<string, string> = {
   'clf-table-derive': 'derives the static CLF tables ON THE MEMBER PATH — the history of the tables before the funding tables commit; a generator, not a check [240s]',
-  'clf-newengine-derive': 'derives the funding (CLF) tables in force, on the new engine: percentiles of (net incurred loss + LAE) / (expected retained loss + LAE), with the experience pure premium\'s shortfall reported beside them — a generator, not a check [300s]',
+  'clf-ds-method-derive': 'derives the funding tables IN FORCE by the data scientist\'s CLF method (Ripple_Game_CLF_100_Background_Simulations.R): ordinary loss x a shared year factor x each unit\'s own, on the game\'s opening book units, at seven BaselineCVs, with the analytic check beside them — writes clf-ds-method-tables.json, whose tables clfTables.ts carries as BASELINE_CV_TABLES; a generator, not a check [120s]',
+  'clf-newengine-derive': 'derives the new-engine funding (CLF) tables, NOT IN USE since the funding tables wiring (history): percentiles of (net incurred loss + LAE) / (expected retained loss + LAE), with the experience pure premium\'s shortfall reported beside them — a generator, not a check [300s]',
   'clf-surplus-effect-report': 'what a CLF re-derivation does to ending surplus, in two arms — '
     + 'it cannot hold two tables in one process, so it is run before and after and diffed by hand. '
     + 'No pass condition: "the game got harder" is a judgement [190s]',

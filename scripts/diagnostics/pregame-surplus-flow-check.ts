@@ -15,8 +15,8 @@
 //   3. NO RESET AT THE OPENING: the opening surplus, and year 1's start in
 //      every world, is the last pre-game year's year-end.
 //   4. AND THE OPENING IS THE SET ONE: the opening surplus is exactly what the
-//      opening rule sets — setOpeningSurplus on the opening net reserve and the
-//      line's retained-catastrophe charge, its full requirement.
+//      opening rule sets — setOpeningSurplus, the line's OPENING_SURPLUS since
+//      the funding tables wiring (it was 2 x the line's full requirement).
 //
 // ⚠ AND IT FAILS WITH EITHER RESET RESTORED. The checks are functions over a
 // chain of years, and THE CONTROLS feed them the engine's own output with each
@@ -28,8 +28,7 @@
 
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { PRE_GAME_DEPTH, runPriorHistory, simulateLineCandidate } from '../../src/utils/priorHistoryEngine';
-import { openingCatCapital, setOpeningSurplus } from '../../src/utils/openingReserves';
-import { exposureFactor } from '../../src/data/exposureTrend';
+import { setOpeningSurplus } from '../../src/utils/openingReserves';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import type { CoverageLine, GameSetupSettings, ResultSet } from '../../src/types/simulation';
@@ -123,8 +122,7 @@ for (const id of SEEDS) {
       preGame: preGame.map(r => yearOf(r.byLine[line])),
       year1: worlds.map(w => yearOf(w.lockedResults[0].byLine[line])),
       opening: ls.surplus,
-      setOpening: setOpeningSurplus(line, ls.netUnpaidReserve,
-        openingCatCapital(line, { exposure: (ls.bookExposure ?? 0) * exposureFactor(line, 1) })),
+      setOpening: setOpeningSurplus(line),
       floored: false,
     };
     c.floored = isFloored(c.preGame, c.opening);

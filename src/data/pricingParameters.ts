@@ -139,6 +139,14 @@ export const EXPOSURE_GROWTH_PER_YEAR = 0;
 /** The funding confidence level the slider opens on. */
 export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
 
+/**
+ * THE FUNDING SLIDER'S STOPS — 30% TO 90% IN TENS, PLUS "EXPECTED" (CLF exactly
+ * 1.000, the fundingAtExpected flag, which sits off the grid at the table's own
+ * `expected`). Was 30% to 95% in fives. Since the funding tables wiring the
+ * stops are the BaselineCV tables' own columns, so no stop is interpolated.
+ */
+export const FUNDING_SLIDER_RANGE = { min: 0.30, max: 0.90, step: 0.10, default: DEFAULT_FUNDING_CONFIDENCE_LEVEL };
+
 /** The reserve margin's fixed confidence level. */
 export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.90;
 
@@ -171,6 +179,29 @@ export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.90;
  *     WC -0.04% and GL -0.41% by year 10.
  */
 export const DEVELOPMENT_SPEED: PerLine<number> = { WC: 1.5, GL: 1.5, Property: 1.0 };
+
+/**
+ * THE BASELINE CV, PER LINE — the shared year-to-year wobble in each line's
+ * ordinary losses: the coefficient of variation of the one year factor every
+ * unit of a line's book shares in a given year (the data scientist's
+ * BaselineCV).
+ *
+ * ⚠ ONE SETTING DRIVES TWO THINGS, SO THE TWO CAN NEVER DISAGREE. It sets
+ * BOTH the engine's ordinary loss draw (the shared year factor in
+ * ordinaryLossFromUnits, which replaced the single UNIT_ORDINARY_YEAR_CV of 2%
+ * for every line) AND which funding table the line reads (BASELINE_CV_TABLES
+ * in clfTables.ts, one per BaselineCV, from wip/clf-tables). A line whose
+ * losses wobble at one CV and are funded off a table built at another would be
+ * priced for a risk it does not run; baseline-cv-table-check holds the two to
+ * the same value, and tableAtBaselineCv throws on a CV with no table (tables
+ * exist at 2, 4, 6, 8, 10, 12 and 15%).
+ *
+ * ⚠ CHOSEN, NOT SOURCED. WC 6%, Property 8%, GL 10%. In use since the funding
+ * tables wiring. Over a book of about 60 units the line's ordinary loss CV is
+ * sqrt((1+B^2)(1+0.10^2 H) - 1), H about 0.021: about 6.2% on WC, 8.1% on
+ * Property and 10.1% on GL, against 2.5% on every line before.
+ */
+export const BASELINE_CV: PerLine<number> = { WC: 0.06, GL: 0.10, Property: 0.08 };
 
 /** The combined dividend / assessment control: negative is an assessment. */
 export const DIVIDEND_ASSESSMENT_RANGE = { min: -0.15, max: 0.15, step: 0.01, default: 0 };
@@ -485,7 +516,7 @@ export const ORDINARY_LOSS_LIMIT: PerLine<number> = {
  * true risk x the line's expected ordinary loss cost; each year it is
  *
  *   expected x F x f,   F the year factor every unit shares (CV
- *                       UNIT_ORDINARY_YEAR_CV), f the unit's own (CV
+ *                       BASELINE_CV, the line's own), f the unit's own (CV
  *                       UNIT_ORDINARY_OWN_CV)
  *
  * and the line's ordinary loss is the sum. Both factors are LOGNORMAL WITH
@@ -497,8 +528,13 @@ export const ORDINARY_LOSS_LIMIT: PerLine<number> = {
  * of about 60 unequal units the line's CV is sqrt(0.02^2 + 0.10^2 x H), H the
  * sum of each unit's squared share of the expected loss: about 2.47%
  * (typicalBookOrdinaryCv). book-units-ordinary-check holds the draws to both.
+ *
+ * ⚠ THE YEAR FACTOR'S CV IS BASELINE_CV, PER LINE, SINCE THE FUNDING TABLES
+ * WIRING. It was UNIT_ORDINARY_YEAR_CV, 2% on every line, and that constant is
+ * gone: the year factor is now the one setting the funding table is chosen by.
+ * The sqrt(0.02^2 + ...) above is the history; the line's CV today is about
+ * 6.2% (WC), 8.1% (Property) and 10.1% (GL).
  */
-export const UNIT_ORDINARY_YEAR_CV = 0.02;
 export const UNIT_ORDINARY_OWN_CV = 0.10;
 
 /**
@@ -726,7 +762,28 @@ export const BOOK_INTAKE_SHARE: readonly number[] = [0, 0.02, 0.05, 0.08];
 export const NEW_BUSINESS_PENALTY = 0.20;
 
 /**
- * OPENING SURPLUS, as a multiple of each line's OWN REQUIRED CAPITAL.
+ * OPENING SURPLUS, PER LINE — $35M ON EVERY LINE, SET, NOT DERIVED FROM
+ * REQUIRED CAPITAL (funding tables wiring).
+ *
+ * ⚠ INTERIM, UNTIL THE TWENTY STARTING SCENARIOS REPLACE IT. Each scenario will
+ * carry its own opening; this one figure stands in for all of them.
+ *
+ * ⚠ WHY SET. Required capital is the unpaid reserve x (CLF90 - 1) off the
+ * line's own funding table, and the BaselineCV tables' 90% stop sits far
+ * lower than the tables they replaced (WC 1.0802 against 1.3275, GL 1.1321
+ * against 1.7910, Property 1.1060 against 1.5247). Two times that requirement
+ * would collapse the opening, so the opening is no longer read off it. The
+ * pre-game still starts from whatever surplus lands its last year-end exactly
+ * here (solvePreGameStart), so the five years flow into year 1 with no reset.
+ *
+ * Before: 2 x the line's full required capital — the history follows.
+ */
+export const OPENING_SURPLUS: PerLine<number> = { WC: 35_000_000, GL: 35_000_000, Property: 35_000_000 };
+
+/**
+ * ⚠ HISTORY, NOT IN USE SINCE THE FUNDING TABLES WIRING — OPENING_SURPLUS above
+ * replaced it. OPENING SURPLUS, as a multiple of each line's OWN REQUIRED
+ * CAPITAL.
  *
  * ⚠ THE DENOMINATOR, STATED EXPLICITLY, because "required capital" names three
  * different quantities elsewhere in this engine and the wrong one is a silent
@@ -752,7 +809,7 @@ export const NEW_BUSINESS_PENALTY = 0.20;
  * margin above PLUS the retained-catastrophe charge (Property only), the same
  * total the engine grades capital on every year. See setOpeningSurplus.
  */
-export const OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2;
+// (OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2, removed with the wiring.)
 
 /**
  * OPENING RESERVE YEARS — how many accident years the pool holds reserves for
@@ -1139,10 +1196,31 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Year-1 rates are unchanged; later rates move slightly because faster payment brings the host\'s adverse '
           + 'development into pricing sooner, and leaves less open balance for shock R development to act on.',
       }],
+      ['Baseline CV', {
+        value: perLine(BASELINE_CV, 2), unit: 'coefficient of variation',
+        what: 'The shared year-to-year wobble in each line\'s ordinary losses: the CV of the year factor every '
+          + 'unit of the book shares.',
+        basis: 'CHOSEN',
+        note: 'One setting for two things, so they can never disagree: it drives both the engine\'s ordinary '
+          + 'loss draw (replacing the 2% year factor every line shared) and which funding table the line reads. '
+          + 'baseline-cv-table-check holds the two to the same value.',
+      }],
       ['CLF tables', {
-        value: 'per line, in clfTables.ts', unit: 'multiplier on expected loss',
-        what: 'Confidence level factors by line and confidence stop.', basis: 'SOURCED',
-        note: 'REGISTERED, NOT MOVED — each table is a fit whose method, controls and rejected alternatives are recorded beside it.',
+        value: 'the BaselineCV tables, in clfTables.ts', unit: 'multiplier on the retained pure premium',
+        what: 'Confidence level factors by line and stop: each line reads the table built at its own Baseline CV. '
+          + 'Required capital is the unpaid reserve x (the same table\'s 90% factor - 1).',
+        basis: 'SOURCED',
+        note: 'The data scientist\'s method, by simulation on the game\'s opening book units, ordinary losses only '
+          + '(clf-ds-method-derive). The factor multiplies the whole retained pure premium. The new-engine and '
+          + 'member-engine tables before them are kept in the file as history, not in use.',
+      }],
+      ['Funding slider stops', {
+        value: `${FUNDING_SLIDER_RANGE.min} to ${FUNDING_SLIDER_RANGE.max}, step ${FUNDING_SLIDER_RANGE.step}, plus Expected`,
+        unit: 'confidence',
+        what: 'The positions a team can fund at. Expected is CLF exactly 1.000 and sits at the table\'s own '
+          + 'measured position.',
+        basis: 'CHOSEN',
+        note: 'Was 0.30 to 0.95 in fives. The stops are the BaselineCV tables\' own columns.',
       }],
     ],
   },
@@ -1205,14 +1283,13 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'Ten while the old ten-year experience path is live; drops to the new window of five at '
           + 'commit 3, and the two move together. Everything older opens as a bulk cohort.',
       }],
-      ['Opening surplus multiple', {
-        value: OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, unit: 'x the line\'s own required capital',
-        what: 'Sets opening surplus directly, replacing the band and the pin.', basis: 'CHOSEN',
-        note: 'Against each line\'s FULL required capital: the reserve risk margin, expectedNetUnpaidLoss x '
-          + '(staticClf(line, 0.90) - 1), PLUS the retained-catastrophe charge — on Property only; WC and GL '
-          + 'have none (since Prompt A commit 3). 2 since Prompt A commit 2 (was 2.28, the old band\'s '
-          + 'midpoint carried over). The pre-game starts from the surplus that lands its last year-end here, '
-          + 'so the opening is set without a reset.',
+      ['Opening surplus', {
+        value: `WC $${OPENING_SURPLUS.WC / 1e6}M · GL $${OPENING_SURPLUS.GL / 1e6}M · Property $${OPENING_SURPLUS.Property / 1e6}M`,
+        unit: 'surplus at the opening, each line',
+        what: 'Each line opens with this surplus, set rather than derived from required capital.', basis: 'CHOSEN',
+        note: 'INTERIM, until the twenty starting scenarios replace it. Was 2 x the line\'s full required capital; '
+          + 'the BaselineCV tables\' much smaller 90% factor would have collapsed that. The pre-game starts from '
+          + 'the surplus that lands its last year-end here, so the opening is set without a reset.',
       }],
       ['Opening reserve years', {
         value: OPENING_RESERVE_YEARS, unit: 'accident years',
@@ -1338,13 +1415,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
       }],
       ['Ordinary loss factors', {
-        value: `year ${(100 * UNIT_ORDINARY_YEAR_CV).toFixed(0)}% · unit ${(100 * UNIT_ORDINARY_OWN_CV).toFixed(0)}%`,
+        value: `year: Baseline CV (WC ${(100 * BASELINE_CV.WC).toFixed(0)}% · GL ${(100 * BASELINE_CV.GL).toFixed(0)}% · `
+          + `Property ${(100 * BASELINE_CV.Property).toFixed(0)}%) · unit ${(100 * UNIT_ORDINARY_OWN_CV).toFixed(0)}%`,
         unit: 'CV, each a mean-1 lognormal',
         what: 'Each book unit\'s ordinary loss is its expected loss (exposure x true risk x the line\'s cost) times a '
           + 'year factor every unit shares and a factor of its own; the line\'s ordinary loss is the sum.',
         basis: 'CHOSEN',
-        note: 'The R model\'s two factors. They replace one 2.2% draw at the line; over a book of about 60 '
-          + 'unequal units the line\'s CV is about 2.47%.',
+        note: 'The R model\'s two factors. The year factor\'s CV is the line\'s Baseline CV since the funding '
+          + 'tables wiring (it was 2% on every line); over a book of about 60 unequal units the line\'s CV is about '
+          + '6.2% (WC), 8.1% (Property) and 10.1% (GL).',
       }],
       ['Expected ordinary loss cost', {
         value: perLine(EXPECTED_ORDINARY_LOSS_COST_PER_100), unit: 'per $100 of exposure, year 1',

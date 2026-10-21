@@ -66,7 +66,7 @@ import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { unpaidShare } from './payoutPattern';
 import { staticClf, type StaticClfLine } from '../data/clfTables';
 import {
-  EXPOSURE_GROWTH_PER_YEAR, newLossEngineRuns, OPENING_RESERVE_YEARS, OPENING_SURPLUS_MULTIPLE_OF_REQUIRED, PRIOR_HISTORY_YEARS,
+  EXPOSURE_GROWTH_PER_YEAR, newLossEngineRuns, OPENING_RESERVE_YEARS, OPENING_SURPLUS, PRIOR_HISTORY_YEARS,
   RESERVE_MARGIN_CONFIDENCE_PARAM, SEVERITY_TREND_PER_YEAR,
 } from '../data/pricingParameters';
 import { computeKLine, deriveNeutralPurePremiumPer100 } from './wcClaimEngine';
@@ -314,12 +314,11 @@ export function bulkOpeningReserve(line: CoverageLine, members: Book): number {
 // to accept or reject. They are replaced by bulk cohorts derived from the
 // patterns.
 //
-// ⚠ SURPLUS IS SET, NOT SEARCHED, AND REQUIRED CAPITAL IS THE RESERVE RISK
-// MARGIN. See OPENING_SURPLUS_MULTIPLE_OF_REQUIRED for the denominator, which
-// is stated there rather than here because the parameter is what a reader
-// tunes. Setting it last means the pre-game's own profit does not reach the
-// opening: whatever the declared years earned, the pool opens where the
-// multiple says.
+// ⚠ SURPLUS IS SET, NOT SEARCHED — AT OPENING_SURPLUS, A STATED FIGURE PER
+// LINE, since the funding tables wiring (it was 2 x required capital; see
+// OPENING_SURPLUS for why it no longer reads the requirement). Setting it last
+// means the pre-game's own profit does not reach the opening: whatever the
+// declared years earned, the pool opens where the parameter says.
 // ============================================================================
 
 /** A bulk cohort in the engine's own shape. Seeded, claimless, net. */
@@ -429,7 +428,7 @@ export function preGameBulkYears(
   return { cohorts, ledger };
 }
 
-/** Required capital for a line: the RESERVE RISK MARGIN on its net unpaid. */
+/** Required capital for a line: the RESERVE RISK MARGIN on its net unpaid — x (CLF90 - 1) off the line's own BaselineCV table. */
 export function requiredCapital(line: CoverageLine, netUnpaidReserve: number): number {
   return netUnpaidReserve * (staticClf(line as StaticClfLine, RESERVE_MARGIN_CONFIDENCE_PARAM) - 1);
 }
@@ -449,8 +448,12 @@ export function openingCatCapital(line: CoverageLine, members: Book): number {
 }
 
 /**
- * Opening surplus for a line: the ruled multiple of its own FULL required
- * capital — the reserve risk margin PLUS the retained-catastrophe charge.
+ * Opening surplus for a line: OPENING_SURPLUS, set — $35M on every line, interim
+ * until the twenty starting scenarios replace it. Required capital no longer
+ * enters it (funding tables wiring).
+ *
+ * HISTORY: it was the ruled multiple of the line's own FULL required capital —
+ * the reserve risk margin PLUS the retained-catastrophe charge.
  *
  * ⚠ THE CHARGE IS IN IT SINCE PROMPT A COMMIT 3. The engine has always held
  * Property to margin + charge (reserveRiskMarginNeeded) every year, but the
@@ -458,6 +461,6 @@ export function openingCatCapital(line: CoverageLine, members: Book): number {
  * requirement and its first capital reading was Deficient. Every line now
  * opens at the same multiple of the requirement the engine then grades it on.
  */
-export function setOpeningSurplus(line: CoverageLine, netUnpaidReserve: number, catCapital = 0): number {
-  return OPENING_SURPLUS_MULTIPLE_OF_REQUIRED * (requiredCapital(line, netUnpaidReserve) + catCapital);
+export function setOpeningSurplus(line: CoverageLine): number {
+  return OPENING_SURPLUS[line];
 }

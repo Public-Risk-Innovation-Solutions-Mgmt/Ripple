@@ -1029,7 +1029,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // Statement screen — no key added or removed, values and exports byte-identical.
 // Each loses one row and nothing else: "Ending surplus across the worlds (min ·
 // median · max)". Players are never told about the worlds.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v64.json');
+// v65: THE FUNDING TABLES WIRED (see VALUE_IDENTITY_v76). The control ran
+// first: fecbb08, served on 4174, reproduced v64 242 of 242. 232 of 242 moved:
+// the header and Introduction carry the opening position ($35M surplus and the
+// figures built on it), the Decisions screens Expected's position (~78% ->
+// ~51% on WC) and the rates, the Actuarial memo the pre-game loss history, and
+// every other screen the losses, reserves, surplus or capital. The 10 unmoved
+// are the Investment memo in all five games, at y0 and y2.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v65.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
