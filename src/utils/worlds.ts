@@ -42,9 +42,13 @@ import {
 } from './simulationEngine';
 import type {
   AccidentYearSplit, CoverageLine, DecisionSet, GameInstance, GameState, InterLineLoan,
-  LinePoolState, LineResultSet, PoolState, ReserveCohort, ReserveDevelopmentRow, ResultSet, WorldState,
+  LinePoolState, LineResultSet, PlayedYear, PoolState, ReserveCohort, ReserveDevelopmentRow, ResultSet, WorldState,
 } from '../types/simulation';
 import type { ShockRecord } from '../types/shocks';
+import { rangeOf, summarizeWorlds, type SurplusRange } from './worldAudit';
+import { simulateMarketReturns, type MarketReturns } from './investmentEngine';
+import { resolveShockYear, shockTimingOf } from './shockLosses';
+export { rangeOf, type SurplusRange };
 
 /** Worlds per team-year for the engine in force: WORLD_COUNT on the new engine, one on the member path. */
 export function worldCount(): number {
@@ -106,6 +110,8 @@ export interface WorldsYear {
    * team's, and so is shared: it applies in every world that needs the loan.
    */
   loanOffers: LoanOffer[];
+  /** The decisions the year was played on — carried to the save's played years. */
+  decisions: DecisionSet;
 }
 
 /** The rate each active line charges this team-year, struck on the averaged state. */
@@ -125,17 +131,39 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
 export function playWorldsYear(gs: GameState, decisions: DecisionSet): WorldsYear {
   if (!gs.worlds) {
     const p = processYear(gs, decisions);
-    return { perWorld: [p], loanOffers: p.loanOffers };
+    return { perWorld: [p], loanOffers: p.loanOffers, decisions };
   }
   const struckRates = strikeRates(gs, decisions);
   // The game's book reaches every world for the year (withBook); it is never
   // stored on a world's state (settleWorldsYear strips it).
+  // ⚠ A WORLD'S PAST IS THE AVERAGED ROWS WITH ITS OWN LAST ONE (commit 10).
+  // The engine reads the previous row's figures — the world's own — and, from
+  // the rows before it, only the pool-wide decisions, which every world shares
+  // with the average. So a world need keep no row but its last.
   const perWorld = gs.worlds.map((w, i) => processYear(
-    { ...gs, instance: worldInstance(gs.instance, i), poolState: withBook(w.poolState, gs.poolState), lockedResults: w.lockedResults },
+    { ...gs, instance: worldInstance(gs.instance, i), poolState: withBook(w.poolState, gs.poolState),
+      lockedResults: worldPast(gs.lockedResults, w.lockedResults) },
     decisions,
     { struckRates },
   ));
-  return { perWorld, struckRates, loanOffers: mergeLoanOffers(perWorld) };
+  return { perWorld, struckRates, loanOffers: mergeLoanOffers(perWorld), decisions };
+}
+
+/**
+ * World i's market this year, as the engine drew it: its own seed's draw, with
+ * the year's Investment Loss taken off equities (simulationEngine).
+ */
+function worldMarket(gs: GameState, i: number): MarketReturns {
+  const inst = worldInstance(gs.instance, i);
+  const drawn = simulateMarketReturns(deriveSubRng(inst.seed, gs.currentYearNumber, 'invest'));
+  const shock = resolveShockYear(inst, shockTimingOf(gs.setup), gs.currentYearNumber).equityShock;
+  return shock !== 0 ? { ...drawn, equities: drawn.equities + shock } : drawn;
+}
+
+/** A world's played years as the engine reads them: the averaged rows, the last one the world's own. */
+function worldPast(averaged: ResultSet[], own: ResultSet[]): ResultSet[] {
+  const last = own[own.length - 1];
+  return last ? [...averaged.slice(0, -1), last] : averaged;
 }
 
 function mergeLoanOffers(perWorld: ProcessYearResult[]): LoanOffer[] {
@@ -156,41 +184,50 @@ export interface SettledYear {
   result: ResultSet;
   /** Each world's state after the year. Absent on a one-world game. */
   worlds?: WorldState[];
+  /** The year as played — its decisions and the lines authorized a loan. */
+  played: PlayedYear;
 }
 
 /**
  * Commit the year: settle each world's loans on the team's one decision, then
  * average. `authorizedLines` applies in every world whose line needs the loan.
  */
-export function settleWorldsYear(gs: GameState, played: WorldsYear, authorizedLines: CoverageLine[]): SettledYear {
-  const settled = played.perWorld.map(p => p.loanOffers.length > 0
+export function settleWorldsYear(gs: GameState, played_: WorldsYear, authorizedLines: CoverageLine[]): SettledYear {
+  const settled = played_.perWorld.map(p => p.loanOffers.length > 0
     ? applyLoanAuthorizations(p, gs.currentYearNumber,
       authorizedLines.filter(l => p.loanOffers.some(o => o.line === l)))
     : { updatedPoolState: p.updatedPoolState, result: p.result });
-  if (!gs.worlds) return { poolState: settled[0].updatedPoolState, result: settled[0].result };
+  const played: PlayedYear = { yearNumber: gs.currentYearNumber, decisions: played_.decisions, authorizedLines: [...authorizedLines] };
+  if (!gs.worlds) return { poolState: settled[0].updatedPoolState, result: settled[0].result, played };
 
+  // ⚠ EACH WORLD KEEPS ONLY THIS YEAR'S ROW; WORLD 1 KEEPS ALL OF ITS OWN, for
+  // its claims (the claims download). What the screens read of the worlds is
+  // struck below onto the averaged row, while every world's row is in hand.
   const worlds: WorldState[] = gs.worlds.map((w, i) => ({
     poolState: withoutBook(settled[i].updatedPoolState),
-    lockedResults: [...w.lockedResults, settled[i].result],
+    lockedResults: i === 0 ? [...w.lockedResults, settled[i].result] : [settled[i].result],
     closedCohorts: archiveClosedCohorts(w, settled[i].updatedPoolState, gs.setup.activeLines),
   }));
   const prior = gs.lockedResults[gs.lockedResults.length - 1] ?? gs.priorHistory[gs.priorHistory.length - 1];
-  const result = averageResultSets(settled.map(s => s.result), gs.setup.activeLines, prior,
-    gs.worlds.map(w => w.poolState));
+  const result = {
+    ...averageResultSets(settled.map(s => s.result), gs.setup.activeLines, prior, gs.worlds.map(w => w.poolState)),
+    worldSummary: summarizeWorlds(settled.map(s => s.result), gs.setup.activeLines, i => worldMarket(gs, i)),
+  };
   const averaged = averagePoolStates(worlds, gs.setup.activeLines, gs.currentYearNumber);
   // The book as underwriting left it — the same in every world (it reads only
   // the game's seed and the team's decision), so world 1's is the game's.
   const moved = settled[0].updatedPoolState.bookUnits ?? gs.poolState.bookUnits;
   const poolState = moved ? { ...averaged, bookUnits: moved } : averaged;
-  return { poolState, result, worlds };
+  return { poolState, result, worlds, played };
 }
 
 /** The game after a settled year: the averaged state, the worlds, the year appended. */
-export function commitSettledYear(gs: GameState, s: SettledYear): Pick<GameState, 'poolState' | 'lockedResults' | 'worlds'> {
+export function commitSettledYear(gs: GameState, s: SettledYear): Pick<GameState, 'poolState' | 'lockedResults' | 'worlds' | 'playedYears'> {
   return {
     poolState: s.poolState,
     lockedResults: [...gs.lockedResults, s.result],
     ...(s.worlds ? { worlds: s.worlds } : {}),
+    playedYears: [...(gs.playedYears ?? []), s.played],
   };
 }
 
@@ -198,28 +235,15 @@ export function commitSettledYear(gs: GameState, s: SettledYear): Pick<GameState
 // THE SPREAD — what the average hides, kept beside it
 // ----------------------------------------------------------------------------
 
-export interface SurplusRange { min: number; median: number; max: number; worlds: number }
-
 /**
  * Minimum, median and maximum ending surplus across the worlds for a played
- * year (pool scope, or one line). Null on a one-world game or an unplayed year.
+ * year (pool scope, or one line) — as the year's averaged row recorded it when
+ * it settled (ResultSet.worldSummary). Null on a one-world game or an unplayed
+ * year.
  */
 export function surplusRange(gs: GameState, yearNumber: number, line?: CoverageLine): SurplusRange | null {
-  if (!gs.worlds) return null;
-  const vals: number[] = [];
-  for (const w of gs.worlds) {
-    const r = w.lockedResults.find(x => x.yearNumber === yearNumber);
-    if (!r) return null;
-    vals.push(line ? (r.byLine[line]?.endingSurplus ?? 0) : r.endingSurplus);
-  }
-  return rangeOf(vals);
-}
-
-export function rangeOf(vals: number[]): SurplusRange {
-  const s = [...vals].sort((a, b) => a - b);
-  const n = s.length;
-  const median = n % 2 === 1 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
-  return { min: s[0], median, max: s[n - 1], worlds: n };
+  const r = gs.lockedResults.find(x => x.yearNumber === yearNumber);
+  return r?.worldSummary?.surplusRange[line ?? 'pool'] ?? null;
 }
 
 // ----------------------------------------------------------------------------

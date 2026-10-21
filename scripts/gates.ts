@@ -71,7 +71,6 @@ const DIAG = path.join(__dirname, 'diagnostics');
 // ============================================================================
 const FAST: string[] = [
   'actuarial-memo-check',            //   5s
-  'audit-formula-check',             //  18s
   'cession-uplift-basis',            //  22s
   'cohort-stock-check',              //   4s   (sixty years, four games)
   'composition-table-check',         //  17s   STAGE 1 — the magnitude law against 200/(age+1); GL only
@@ -387,6 +386,14 @@ const SLOW: string[] = [
   // its own — 30% of the old FAST tier — and it is the single reason FAST cost
   // what it did.
   'cession-path-independence',       // 1015s
+
+  // 205s — moved at stable-scenarios commit 10, when WORLD_COUNT went from ten
+  // to a hundred: it plays four configurations x four arms x four games in
+  // worlds, and every one of them is ten times the work. WHAT DEFERRING IT
+  // COSTS: the audit page's formula rows and reconciliations — the page that
+  // shows every figure's working — are now checked at merge, not at commit.
+  // Its subject did not change; only the number of worlds under it did.
+  'audit-formula-check',             // 205s
 ];
 
 // ============================================================================

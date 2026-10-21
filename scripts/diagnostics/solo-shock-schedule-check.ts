@@ -21,7 +21,7 @@
 //      world's own, and its loss differs across worlds.
 //   3. THE SAME SEED GIVES THE SAME SCHEDULE; another seed another.
 //   4. THE SCHEDULE SURVIVES A SAVE AND RELOAD: out through packSave, back
-//      through unpackSave at year 3, the reloaded game carries the same schedule
+//      through unpackSave and the replay at year 3, the reloaded game carries the same schedule
 //      and its timing, and plays on to exactly the game that never stopped.
 //   6. A REGIONAL EVENT STRIKES ONE REGION IN EVERY WORLD — the region the
 //      instance resolved once with the schedule — on a solo schedule and a
@@ -42,7 +42,8 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, worldInstance } from '../../src/utils/worlds';
-import { packSave, unpackSave } from '../../src/utils/gameSave';
+import { packSave, unpackSave, type SavedGame } from '../../src/utils/gameSave';
+import { restoreSavedGame } from '../../src/utils/saveRestore';
 import { seedFromInstanceId } from '../../src/seedHash';
 import { SHOCKS_OUT_OF_EXPERIENCE, SOLO_SHOCKS, WORLD_COUNT } from '../../src/data/pricingParameters';
 import type { ScheduledShock } from '../../src/types/shocks';
@@ -71,7 +72,12 @@ function open(setup: GameSetupSettings, instance: GameInstance): GameState {
 
 function advance(gs: GameState, y: number): GameState {
   const settled = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
-  return { ...gs, ...commitSettledYear(gs, settled), currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1) };
+  const next = { ...gs, ...commitSettledYear(gs, settled), currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1) };
+  // ⚠ EVERY WORLD'S ROWS, KEPT FOR THE CHECKS (stable-scenarios commit 10): a
+  // world keeps only its last row in the game (world 1 all of its own), and the
+  // engine reads no more; the checks below read every world's every year.
+  return { ...next, worlds: next.worlds?.map((w, i) => (i === 0 ? w
+    : { ...w, lockedResults: [...gs.worlds![i].lockedResults, w.lockedResults[w.lockedResults.length - 1]] })) };
 }
 
 function playTo(gs: GameState, from: number, to: number): GameState {
@@ -267,13 +273,17 @@ console.log('\n--- 4. the schedule survives a save and reload ---');
 let reloaded: GameState;
 {
   const atSave = playTo(open(solo.setup, solo.instance), 1, SAVE_AT);
-  const env = unpackSave(packSave({ gameState: atSave, startingFinancials: null, initialMembers: [], currentDecisions: defaultDecisionSet(SAVE_AT + 1) })) as { gameState: GameState };
-  reloaded = env.gameState;
-  check(same(reloaded.instance.scheduledShocks, schedule) && reloaded.setup.shockTiming === 'solo',
-    'the reloaded game carries the schedule and its timing');
+  // The save keeps the averages only; the reload replays the years (commit 10).
+  const env = unpackSave(packSave({ gameState: atSave, startingFinancials: null, initialMembers: [], currentDecisions: defaultDecisionSet(SAVE_AT + 1) })) as { gameState: SavedGame };
+  const restored = await restoreSavedGame(env.gameState, null, undefined, async () => {});
+  reloaded = restored.gameState;
+  check(same(reloaded.instance.scheduledShocks, schedule) && reloaded.setup.shockTiming === 'solo' && restored.matches,
+    'the reloaded game carries the schedule and its timing, and replays to the saved rows');
   const finished = playTo(reloaded, SAVE_AT + 1, YEARS);
+  // A reloaded world's rows begin again at the reload; world 1 keeps all.
+  const after = (rows: GameState['lockedResults']) => rows.filter(r => r.yearNumber > SAVE_AT);
   check(same(startedByYear(finished.lockedResults), startedByYear(A.lockedResults))
-    && same(finished.worlds!.map(w => startedByYear(w.lockedResults)), worldRows.map(startedByYear)),
+    && same(finished.worlds!.map(w => startedByYear(after(w.lockedResults))), worldRows.map(rows => startedByYear(after(rows)))),
     `played on from year ${SAVE_AT + 1}, it fires what the game that never stopped fires, in every world`);
   check(Math.abs(finished.lockedResults[YEARS - 1].endingSurplus - A.lockedResults[YEARS - 1].endingSurplus) < 1e-6,
     'and ends on the same surplus');

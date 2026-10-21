@@ -59,12 +59,16 @@ function play(id: string, years: number, shocks: 'on' | 'off'): Played {
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
   });
   const starts: GameState[] = [];
+  // Every world's rows, collected as each year settles: a world keeps only its
+  // last row in the game since stable-scenarios commit 10 (world 1 all its own).
+  const full: GameState['lockedResults'][] = (gs.worlds ?? []).map(() => []);
   for (let y = 1; y <= years; y++) {
     starts.push(gs);
     const s = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
     gs = { ...gs, ...commitSettledYear(gs, s), currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1) };
+    gs.worlds?.forEach((w, i) => full[i].push(w.lockedResults[w.lockedResults.length - 1]));
   }
-  return { gs, starts, opening: poolState };
+  return { gs: gs.worlds ? { ...gs, worlds: gs.worlds.map((w, i) => ({ ...w, lockedResults: full[i] })) } : gs, starts, opening: poolState };
 }
 
 // ---------------------------------------------------------------------------

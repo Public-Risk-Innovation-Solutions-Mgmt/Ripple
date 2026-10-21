@@ -92,14 +92,26 @@ function play(id: string, seed: number, opts: { shocks?: Array<{ shockId: string
     poolState, lockedResults: [], currentDecisions: decisionsFor(1), priorHistory,
   });
   const starts: GameState[] = [];
+  // ⚠ EVERY WORLD'S ROWS, COLLECTED AS EACH YEAR SETTLES (stable-scenarios
+  // commit 10): a world keeps only its last row in the game, world 1 all of
+  // its own. The checks below read every world's every year, so the gate
+  // keeps them, and hands back the game with the full rows on its worlds.
+  const full: ResultSet[][] = gs.worlds!.map(() => []);
+  let kept = true;
   for (let y = 1; y <= YEARS; y++) {
     starts.push(gs);
     const played = playWorldsYear(gs, decisionsFor(y));
     const s = settleWorldsYear(gs, played, []);
     gs = { ...gs, ...commitSettledYear(gs, s), currentYearNumber: y + 1 };
+    gs.worlds!.forEach((w, i) => {
+      full[i].push(w.lockedResults[w.lockedResults.length - 1]);
+      if (w.lockedResults.length !== (i === 0 ? y : 1)) kept = false;
+    });
   }
-  return { gs, starts, openingJson };
+  keptOnlyLast = keptOnlyLast && kept;
+  return { gs: { ...gs, worlds: gs.worlds!.map((w, i) => ({ ...w, lockedResults: full[i] })) }, starts, openingJson };
 }
+let keptOnlyLast = true;
 
 // ---------------------------------------------------------------------------
 // THE CHECKS — each takes data and returns what it found wrong.
@@ -171,6 +183,7 @@ function worldsDiffer(worldRows: (LineResultSet | ResultSet)[]): boolean {
 console.log(`=== TEN WORLDS — WORLD_COUNT ${WORLD_COUNT}, three-line solo games, ${YEARS} years ===`);
 check(worldCount() === WORLD_COUNT && WORLD_COUNT > 1, `the new engine runs ${WORLD_COUNT} worlds`);
 const A = play('WCHK1', 5_150_515);
+check(keptOnlyLast, 'each world keeps only its last year\'s row; world 1 keeps all of its own (the claims download)');
 const gs = A.gs;
 const W = gs.worlds!;
 

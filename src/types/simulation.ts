@@ -2154,6 +2154,42 @@ export interface ResultSet extends Omit<ResultRowFields, PoolAbsentKey> {
   byLine: Record<CoverageLine, LineResultSet>;
   /** The decisions that really are pool-wide. See PoolWideDecisions. */
   pool: PoolWideDecisions;
+  /**
+   * WHAT THIS AVERAGED ROW KEEPS OF ITS WORLDS (stable-scenarios commit 10),
+   * struck when the year settled: the surplus range and the audit's per-world
+   * figures. No world keeps its rows, so this is what the screens read.
+   * Absent on a one-world game and on a world's own row. See utils/worldAudit.ts.
+   */
+  worldSummary?: WorldSummary;
+}
+
+/** The worlds behind an averaged row, summarized — see ResultSet.worldSummary. */
+export interface WorldSummary {
+  /** Minimum, median and maximum ending surplus across the worlds, pool and per line. */
+  surplusRange: Partial<Record<'pool' | CoverageLine, { min: number; median: number; max: number; worlds: number }>>;
+  /** Per line: the cash sweep averaged over the worlds' own, and the dividend and assessment basis. */
+  audit: Partial<Record<CoverageLine, {
+    sweep: {
+      cash: number; investments: number; preSweepCash: number; operatingCashTarget: number;
+      investmentsBeforeSweep: number; sweepTransfer: number; liquidityFloorBound: boolean; investmentsFloorBound: boolean;
+    };
+    assessmentBasis: number;
+    dividendBasis: number;
+    /** Each world's investment income re-derived from its own market, averaged. */
+    investmentIncome: number;
+    worlds: number;
+  }>>;
+}
+
+/**
+ * ONE PLAYED YEAR, AS IT WAS PLAYED (stable-scenarios commit 10): the team's
+ * decisions and the lines it authorized a loan on. The save keeps these, and a
+ * reload replays them from the opening to rebuild every world exactly.
+ */
+export interface PlayedYear {
+  yearNumber: number;
+  decisions: DecisionSet;
+  authorizedLines: CoverageLine[];
 }
 
 /**
@@ -2362,11 +2398,19 @@ export interface GameState {
    * Absent on a one-world game, where the two fields above are the world.
    */
   worlds?: WorldState[];
+  /** Every played year's decisions and loan choices, in order — what a reload replays. */
+  playedYears?: PlayedYear[];
 }
 
 /** One world's own state and played years. See GameState.worlds. */
 export interface WorldState {
   poolState: PoolState;
+  /**
+   * ⚠ ONLY THE LAST YEAR'S ROW, EXCEPT ON WORLD 1 (stable-scenarios commit 10).
+   * The engine reads a world's previous row and nothing older; what the screens
+   * read of the worlds is kept on the averaged rows (ResultSet.worldSummary).
+   * World 1 keeps every row, for its claims (the claims download).
+   */
   lockedResults: ResultSet[];
   /**
    * Cohorts that have closed and left this world's state, at their final values

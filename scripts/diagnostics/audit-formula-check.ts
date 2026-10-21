@@ -705,9 +705,9 @@ for (const { lines, name } of CONFIGS) {
         if (result.loanRepaymentApplied !== 0) repaymentYears++;
         if (result.outstandingLoanBalance !== 0 || result.loanOriginatedThisYear !== 0
             || result.loanRepaymentApplied !== 0) loanBearingScopes++;
-        // Each world's row for the year, as the page receives them.
-        const worldRows = settled.worlds?.map(w => w.lockedResults[w.lockedResults.length - 1]);
-        const checks = computeAuditChecks(poolResult, scope, inst.seed, worldRows,
+        // The worlds' own figures ride on the averaged row (worldSummary), as the
+        // page reads them.
+        const checks = computeAuditChecks(poolResult, scope, inst.seed,
           { instance: inst, timing: 'catalogue' });
         // ⚠ THE PAGE'S OWN RECONCILIATIONS, NOT ONLY ITS FORMULA ROWS (loss engine
         // commit 4b). The render baseline found the page reading "DIFFERENCE —

@@ -1213,8 +1213,16 @@ export const REINSURANCE_DEFAULT_OPTION: PerLine<string> = {
  * from averaged parts. See src/utils/worlds.ts.
  *
  * The new engine only: the member path runs one world.
+ *
+ * ⚠ A HUNDRED SINCE STABLE-SCENARIOS COMMIT 10, AVERAGES ONLY. A world keeps
+ * only its last year's row (world 1 all of its own, for its claims); what the
+ * screens read of the worlds — the surplus range, the audit's figures — is
+ * struck onto the averaged row when the year settles; and the save keeps the
+ * averages, the decisions and world 1's claim rows, a reload replaying the
+ * years. Measured in Node: about 0.85 s a turn, three lines, against 0.1 s at
+ * ten; the full state at year 10 is 48.5 MB, which is why nothing saves it.
  */
-export const WORLD_COUNT = 10;
+export const WORLD_COUNT = 100;
 
 /**
  * GL'S ORDINARY LOSSES ARE THE $0-1M LAYER, and they are paid on the pattern
@@ -2061,7 +2069,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'Shared across worlds: the decisions, one rate per team-year struck from the averaged history, '
           + 'and host-scheduled shocks (severity drawn per world). Per world: the ordinary year factor, shock '
-          + 'severities, routine large losses and investment returns, and its own ledger and surplus.',
+          + 'severities, routine large losses and investment returns, and its own ledger and surplus. A hundred '
+          + 'since stable-scenarios commit 10, averages only: a world keeps only its last row, the averaged row '
+          + 'carries the surplus range and the audit\'s figures, and the save keeps the averages, the decisions and '
+          + 'world 1\'s claim rows — a reload replays the years.',
       }],
       ['Aggregate cover', {
         value: 'not offered', unit: '—',

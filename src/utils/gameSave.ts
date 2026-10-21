@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v21';
+export const SAVE_KEY = 'riskpool_gamestate_v22';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -206,7 +206,12 @@ export const SAVE_KEY = 'riskpool_gamestate_v21';
 // not offer (placementFor throws on them); its schedule was drawn at one event
 // per three years on the R model's rates; and its cohorts carry no stop.
 // Cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20'];
+// ⚠ v22 SINCE STABLE-SCENARIOS BLOCK C — ONE BUMP FOR THE BLOCK. A v21 save
+// holds the whole game, worlds and all, where this one holds the averages, the
+// decisions and world 1's claim rows and rebuilds the rest by replay; its game
+// was seeded by an eight-character code where a seed is now a scenario, 1 to
+// 20; and its pre-game opened on $35M with a 14% cushion. Cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21'];
 
 /**
  * Fields dropped on the way out.
@@ -340,58 +345,62 @@ export const MEASURED_QUOTA_CHARS = 5_242_613;
  */
 export const SAVE_BUDGET_CHARS = 1_500_000;
 
-/**
- * Keys dropped from EACH WORLD'S rows on the way out (loss engine commit 4b),
- * not from the averaged rows the pages read.
- *
- * ⚠ THE PER-ACCIDENT-YEAR RESERVE SPLIT, AND ONLY IT. Every world's every year
- * restates it for every accident year, at pool and line scope: measured, 3.0 MB
- * of a 7.3 MB raw ten-world save at year ten, and the save at 1.83 MB stored —
- * past SAVE_BUDGET_CHARS. Nothing reads a world row's split: the averaged row's
- * is struck from the worlds' when the year settles, in memory, before any save,
- * and the engine never reads a prior row's. Every other figure on a world's
- * rows is kept, which is what "keep each world's results" asks.
- */
-export const WORLD_ROW_STRIPPED_KEYS: readonly string[] = ['reserveSplitByYear'];
+// ============================================================================
+// ⚠ THE AVERAGES ONLY (stable-scenarios commit 10). With WORLD_COUNT at 100 the
+// worlds cannot be saved — measured, a ten-year three-line game's state is
+// 48.5 MB of JSON — and need not be: the game is a pure function of its
+// instance and the decisions played, so a reload REBUILDS it by replaying the
+// years (utils/saveRestore.ts). The save keeps:
+//
+//   - the setup and the instance — what the opening is rebuilt from;
+//   - every played year's decisions and loan choices (GameState.playedYears);
+//   - the averaged rows (lockedResults), each carrying what it kept of its
+//     worlds (worldSummary) — what the reload is checked against;
+//   - world 1's claim rows, per year and line — the claims download's;
+//   - the decisions being edited.
+//
+// Everything else — the pool state, the worlds, the pre-game history, the
+// opening position and roster — comes back from the replay. The world rows'
+// stripping rules that stood here (WORLD_ROW_STRIPPED_KEYS,
+// OTHER_WORLD_ROW_STRIPPED_KEYS) went with the world rows.
+// ============================================================================
 
-/**
- * Keys dropped from the rows of every world BUT THE FIRST, once its year has
- * settled (Prompt B commit 1): the individual claim and occurrence lists.
- *
- * ⚠ WORLD 1 KEEPS THEM: the claims download reads world 1's claims and no
- * other's. Nothing reads another world's lists after the year settles — the
- * averaged row carries no claims, the engine develops a claim from its
- * cohort's register (developingClaims, which is pool state and is kept), and
- * the screens read a world's summary figures (its ending surplus for the
- * spread, its row figures for the audit), all of which stay. Measured at year
- * ten: about 5% of the stored save.
- */
-export const OTHER_WORLD_ROW_STRIPPED_KEYS: readonly string[] = ['claims', 'occurrences'];
+/** World 1's claims and occurrences for one played year, by line — see the note above. */
+export type World1ClaimRows = Partial<Record<string, { claims?: unknown; occurrences?: unknown }>>;
 
-function slimRow<T extends object>(r: T, extra: readonly string[] = []): T {
-  const out = { ...r } as Record<string, unknown>;
-  for (const k of WORLD_ROW_STRIPPED_KEYS) delete out[k];
-  for (const k of extra) delete out[k];
-  if (out.byLine && typeof out.byLine === 'object') {
-    out.byLine = Object.fromEntries(Object.entries(out.byLine as Record<string, object>)
-      .map(([l, row]) => [l, slimRow(row, extra)]));
-  }
-  return out as T;
+/** The game as the save keeps it. */
+export interface SavedGame {
+  setup: unknown;
+  instance: unknown;
+  currentYearNumber: number;
+  isStarted: boolean;
+  isComplete: boolean;
+  currentDecisions: unknown;
+  lockedResults: unknown[];
+  playedYears: unknown[];
+  world1Claims: World1ClaimRows[];
 }
 
-function slimWorlds(env: SaveEnvelope): SaveEnvelope {
-  const gs = env.gameState as { worlds?: Array<{ lockedResults: object[] }> } | null;
-  if (!gs?.worlds) return env;
-  return {
-    ...env,
-    gameState: {
-      ...gs,
-      worlds: gs.worlds.map((w, i) => ({
-        ...w,
-        lockedResults: w.lockedResults.map(r => slimRow(r, i === 0 ? [] : OTHER_WORLD_ROW_STRIPPED_KEYS)),
-      })),
-    },
+function averagesOnly(env: SaveEnvelope): SaveEnvelope {
+  const gs = env.gameState as {
+    setup: unknown; instance: unknown; currentYearNumber: number; isStarted: boolean; isComplete: boolean;
+    currentDecisions: unknown; lockedResults: unknown[]; playedYears?: unknown[];
+    worlds?: Array<{ lockedResults: Array<{ byLine: Record<string, { claims?: unknown; occurrences?: unknown }> }> }>;
+  } | null;
+  if (!gs) return env;
+  const saved: SavedGame = {
+    setup: gs.setup,
+    instance: gs.instance,
+    currentYearNumber: gs.currentYearNumber,
+    isStarted: gs.isStarted,
+    isComplete: gs.isComplete,
+    currentDecisions: gs.currentDecisions,
+    lockedResults: gs.lockedResults,
+    playedYears: gs.playedYears ?? [],
+    world1Claims: (gs.worlds?.[0]?.lockedResults ?? []).map(r => Object.fromEntries(
+      Object.entries(r.byLine).map(([l, x]) => [l, { claims: x.claims, occurrences: x.occurrences }]))),
   };
+  return { gameState: saved, startingFinancials: null, initialMembers: null, currentDecisions: env.currentDecisions };
 }
 
 export interface SaveEnvelope {
@@ -411,7 +420,9 @@ export interface SaveEnvelope {
  */
 export function serialiseSave(env: SaveEnvelope): string {
   const stripped = saveStrippedKeys();
-  return JSON.stringify(slimWorlds(env), (key, value) =>
+  // The new engine keeps `claims` and `occurrences` (NEW_ENGINE_KEPT_KEYS), so
+  // world 1's claim rows survive the stripper; the averaged rows carry none.
+  return JSON.stringify(averagesOnly(env), (key, value) =>
     (stripped.includes(key) ? undefined : value));
 }
 

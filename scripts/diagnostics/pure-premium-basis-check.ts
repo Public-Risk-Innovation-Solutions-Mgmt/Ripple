@@ -93,7 +93,8 @@ for (let g = 0; g < SEEDS; g++) {
   for (let y = 1; y <= 10; y++) {
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), LINES)), currentYearNumber: y + 1 };
     for (const w of gs.worlds ?? []) for (const l of LINES) {
-      const x = w.lockedResults[y - 1].byLine[l]!, n = x.newLossEngine!;
+      // The year just settled: a world keeps only its last row (commit 10).
+      const x = w.lockedResults[w.lockedResults.length - 1].byLine[l]!, n = x.newLossEngine!;
       drawn[l].real += n.ordinaryRealised / (1 + n.uplift);
       drawn[l].exp += n.ordinaryExpected;
       totals[l].real += x.bookedGrossUltimate ?? x.grossUltimateLoss;

@@ -15,6 +15,7 @@ import {
 import type { CoverageLine, GameInstance, LineResultSet, LineView, ResultSet } from '../types/simulation';
 import { resolveShockYear, type ShockTiming } from '../utils/shockLosses';
 import { worldInstance } from '../utils/worlds';
+import { reconstructSweep } from '../utils/worldAudit';
 import { asLineRow } from '../utils/lineHelpers';
 import { statementLines } from '../utils/financialStatementEngine';
 import { lineDisplayName } from '../utils/lineDisplay';
@@ -65,8 +66,6 @@ interface CalculationAuditPageProps {
   // the engine's own stored echo of it.
   instanceSeed: number;
   lineView: LineView;
-  /** Each world's played years, in a multi-world game (loss engine commit 4b). */
-  worldResults?: ResultSet[][];
   /** The game's instance and shock timing — the investment check applies the year's Investment Loss. */
   instance?: GameInstance;
   shockTiming?: ShockTiming;
@@ -369,7 +368,7 @@ const CLAIMS_VARIANCE_CAP = 10_000;
 const CLAIMS_VARIANCE_REASON =
   'a prior-year reserve cohort closed and its residual balance was floored to zero in the rollforward rather than absorbed into the development figure';
 
-export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, worldResults, instance, shockTiming }: CalculationAuditPageProps) {
+export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming }: CalculationAuditPageProps) {
   // Chronological order: earliest pre-game year first, Year 0 (opening) last
   // among prior years, then live Year 1 onward — same convention as the
   // Financial Statements tab, so the audit reaches pre-game history too.
@@ -415,10 +414,9 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
   const lineRow = asLineRow(result);
   const isPoolView = lineRow === null;
   // A played multi-world year is an average: its per-world rules are checked
-  // against each world's own row. Pre-game years ran once and have none.
-  const worldRows = worldResults?.map(w => w.find(r => r.yearNumber === poolResult.yearNumber));
+  // against the worlds' own figures, which its row kept when it settled
+  // (worldSummary). Pre-game years ran once and have none.
   const checks = computeAuditChecks(poolResult, lineView, instanceSeed,
-    worldRows && worldRows.every((r): r is ResultSet => r !== undefined) ? worldRows : undefined,
     instance && shockTiming ? { instance, timing: shockTiming } : undefined);
 
   // Six supporting cards, built from one exported pure function (mirroring the
@@ -851,66 +849,13 @@ const POOL_SUM_METRICS: { key: Extract<keyof LineResultSet, keyof ResultSet>; la
   { key: 'endingSurplus', label: 'Ending Surplus' },
 ];
 
-// Reconstructs one line's year-end cash/investment sweep exactly as the engine
-// performs it: the year's flows accumulate to a pre-sweep cash total, then cash
-// above the operating-cash target is swept into investments, or a shortfall is
-// drawn back out of investments (limited to what is actually there). Both
-// floors are reported so a genuine liquidity or wipe-out event is
-// distinguishable from a reconciliation gap.
-function reconstructSweep(x: LineResultSet) {
-  const preSweepCash =
-    x.beginningCash + x.totalMemberCharge + x.assessments - x.netPaidLosses - x.laePaid -
-    x.operatingExpense - x.riskControlInvestment - x.reinsuranceCost - x.dividends;
-  const rawInvestments = x.beginningInvestments + x.investmentIncome;
-  const investmentsBeforeSweep = Math.max(0, rawInvestments);
-  const investmentsFloorBound = rawInvestments < -CHECK_TOLERANCE;
-  const operatingCashTarget = x.totalMemberCharge * OPERATING_CASH_PCT_OF_PREMIUM;
-
-  let cash: number;
-  let investments: number;
-  let liquidityFloorBound = false;
-  if (preSweepCash >= operatingCashTarget) {
-    cash = operatingCashTarget;
-    investments = investmentsBeforeSweep + (preSweepCash - operatingCashTarget);
-  } else {
-    const shortfall = operatingCashTarget - preSweepCash;
-    const drawn = Math.min(shortfall, investmentsBeforeSweep);
-    cash = preSweepCash + drawn;
-    investments = investmentsBeforeSweep - drawn;
-    liquidityFloorBound = drawn < shortfall - CHECK_TOLERANCE;
-  }
-  return {
-    cash,
-    investments,
-    preSweepCash,
-    operatingCashTarget,
-    investmentsBeforeSweep,
-    sweepTransfer: investments - investmentsBeforeSweep,
-    liquidityFloorBound,
-    investmentsFloorBound,
-  };
-}
-
-/** The worlds' own sweeps, averaged — a floor that bound in any world is reported. */
-function averageSweeps(parts: ReturnType<typeof reconstructSweep>[]): ReturnType<typeof reconstructSweep> {
-  const n = parts.length;
-  const m = (k: 'cash' | 'investments' | 'preSweepCash' | 'operatingCashTarget' | 'investmentsBeforeSweep' | 'sweepTransfer') =>
-    parts.reduce((a, p) => a + p[k], 0) / n;
-  return {
-    cash: m('cash'), investments: m('investments'), preSweepCash: m('preSweepCash'),
-    operatingCashTarget: m('operatingCashTarget'), investmentsBeforeSweep: m('investmentsBeforeSweep'),
-    sweepTransfer: m('sweepTransfer'),
-    liquidityFloorBound: parts.some(p => p.liquidityFloorBound),
-    investmentsFloorBound: parts.some(p => p.investmentsFloorBound),
-  };
-}
+// reconstructSweep and averageSweeps live in utils/worldAudit.ts (commit 10),
+// where a settling year strikes the worlds' own sweeps onto its averaged row.
 
 export function computeAuditChecks(
   poolResult: ResultSet,
   lineView: LineView,
   instanceSeed: number,
-  /** Each world's row for this year, when the year is a multi-world average (loss engine commit 4b). */
-  worldRows?: ResultSet[],
   /**
    * The game's instance and shock timing, so the investment check can apply the
    * year's Investment Loss — twenty points off equities — as the engine does.
@@ -1069,19 +1014,16 @@ export function computeAuditChecks(
   // cash is the average of each world's reconstruction — a floor that binds in
   // one world does not bind on the averaged parts.
   const scopeLines: CoverageLine[] = isPoolView ? lineKeys : [lineView as CoverageLine];
-  const sweepParts = worldRows
-    ? scopeLines.map(l => averageSweeps(worldRows.map(w => reconstructSweep(w.byLine[l]))))
+  // ⚠ THE WORLDS' OWN FIGURES COME OFF THE AVERAGED ROW (commit 10): struck
+  // when the year settled (utils/worldAudit.ts), since no world keeps its rows.
+  const worlds = poolResult.worldSummary?.audit;
+  const sweepParts = worlds
+    ? scopeLines.map(l => worlds[l]!.sweep)
     : (isPoolView ? lineKeys.map(l => poolResult.byLine[l]) : [rLine]).map(reconstructSweep);
-  const worldBasis = worldRows
-    ? Object.fromEntries(lineKeys.map(l => {
-      const rows = worldRows.map(w => w.byLine[l]);
-      const n = rows.length;
-      return [l, {
-        assessment: rows.reduce((a, x) => a + dividendAssessmentBasis(x.beginingSurplus), 0) / n,
-        dividend: rows.reduce((a, x) => a + (x.dividendBlocked ? 0 : dividendAssessmentBasis(x.beginingSurplus)), 0) / n,
-        worlds: n,
-      }];
-    })) as AuditCheckSet['worldBasis']
+  const worldBasis = worlds
+    ? Object.fromEntries(lineKeys.map(l => [l, {
+      assessment: worlds[l]!.assessmentBasis, dividend: worlds[l]!.dividendBasis, worlds: worlds[l]!.worlds,
+    }])) as AuditCheckSet['worldBasis']
     : undefined;
   const sweep = sweepParts.reduce(
     (a, b) => ({
@@ -1165,15 +1107,10 @@ export function computeAuditChecks(
     };
     // ⚠ A MULTI-WORLD YEAR IS THE AVERAGE OF EACH WORLD'S OWN MARKET on its own
     // assets (loss engine commit 4b) — no single draw produced the averaged row.
-    const derived = worldRows && isLiveYear
-      ? worldRows.reduce((sum, w, i) => {
-        const x = isPoolView ? w : w.byLine[lineView as CoverageLine];
-        if (isPoolView) {
-          return sum + lineKeys.reduce((a, l) => a + blendInvestmentReturn(
-            w.byLine[l].investedAssets, w.byLine[l].assetAllocation, marketFor(i)).income, 0);
-        }
-        return sum + blendInvestmentReturn(x.investedAssets, x.assetAllocation, marketFor(i)).income;
-      }, 0) / worldRows.length
+    // Struck when the year settled, from each world's own market (worldAudit).
+    const derived = worlds && isLiveYear
+      ? (isPoolView ? lineKeys.reduce((a, l) => a + worlds[l]!.investmentIncome, 0)
+        : worlds[lineView as CoverageLine]!.investmentIncome)
       : blendInvestmentReturn(r.investedAssets, r.assetAllocation, marketFor(0)).income;
     investmentIncome = mkCheck(derived, r.investmentIncome);
   }
