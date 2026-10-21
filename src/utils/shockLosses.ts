@@ -483,6 +483,27 @@ export const shockTimingOf = (setup: { shockTiming?: 'host' | 'solo' }): ShockTi
   setup.shockTiming === 'host' || setup.shockTiming === 'solo' ? 'host' : 'catalogue';
 
 /**
+ * ARE THIS GAME'S SHOCKS ON? — the switch every reader of expected loss follows.
+ *
+ * On when shocks can fire: a game on the schedule ('host' timing — a hosted
+ * room, or a solo game with SOLO_SHOCKS on) that has at least one event
+ * scheduled, or a harness's bare instance, which fires at the catalogue's
+ * probabilities. Off otherwise — a solo game with SOLO_SHOCKS off carries no
+ * schedule, and neither does a room whose host scheduled none.
+ *
+ * ⚠ WITH SHOCKS OFF, THE EXPECTATION IS THE ORDINARY LOSSES ONLY, EVERYWHERE:
+ * the Expected Losses rows, the reserve basis, the expected loss ratio, the
+ * aggregate stop's attachment and each cover's price and recovery distribution
+ * (expectedLossBreakdown and stopQuotes take this flag). An expectation that
+ * carried the catalogue's shocks in a game where none can fire read 4-6% above
+ * every simulated year, attached the covers that far above the real mean and
+ * priced them for recoveries that never came.
+ */
+export const gameShocksOn = (
+  setup: { shockTiming?: 'host' | 'solo' }, instance: { scheduledShocks?: readonly unknown[] },
+): boolean => shockTimingOf(setup) === 'catalogue' || (instance.scheduledShocks?.length ?? 0) > 0;
+
+/**
  * MEMBER WITHDRAWAL: 25% of the line's exposure leaves at this renewal.
  * Members leave in an order drawn from the year's stream until the share
  * leaving reaches the reduction; the last one leaves whole. Members are kept

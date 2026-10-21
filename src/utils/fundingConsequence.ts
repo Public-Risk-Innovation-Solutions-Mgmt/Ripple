@@ -191,6 +191,8 @@ export interface FundingConsequenceBook {
   groundUpPurePremiumPer100?: number;
   /** NEW_RATE_STACK only: the per-line risk control incentive slider. */
   newStackRiskControlPct?: number;
+  /** The game's shock switch (shockLosses.gameShocksOn) — the cover's price follows it. Absent is on. */
+  shocks?: boolean;
 }
 
 function ratesAt(
@@ -280,6 +282,7 @@ function ratesAt(
           layersPlaced: book.layersPlaced,
           aggregateStopLevel: book.aggregateStopLevel,
           reinsuranceOption: book.reinsuranceOption,
+          shocks: book.shocks,
         });
         return {
           purePremiumGroundUp: n.groundUpPurePremiumPer100,

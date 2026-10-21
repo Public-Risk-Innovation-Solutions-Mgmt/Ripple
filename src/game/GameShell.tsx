@@ -47,6 +47,7 @@ import { openingRosterForLine } from './openingRoster';
 import Header from '../components/Header';
 import TabNav, { type TabId } from '../components/TabNav';
 import DashboardPage from '../pages/DashboardPage';
+import { gameShocksOn } from '../utils/shockLosses';
 import DecisionsPage from '../pages/DecisionsPage';
 import DecisionHistoryPage from '../pages/DecisionHistoryPage';
 import FinancialsPage from '../pages/FinancialsPage';
@@ -254,6 +255,7 @@ export default function GameShell({
             disabled={gameState.isComplete || decisionsDisabled}
             lineView={lineView}
             lineLoanInfo={d.lineLoanInfo}
+            shocks={gameShocksOn(gameState.setup, gameState.instance)}
             lastLineResult={d.lastLineResult}
             fundingConsequence={d.fundingConsequence}
             book={d.decisionLineBook}

@@ -53,6 +53,7 @@ import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { OPENING_SURPLUS_BAND } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults, strikeBookRate } from './simulationEngine';
 import { scenarioOf } from './scenarios';
+import { gameShocksOn } from './shockLosses';
 import { lineBookRisk } from './bookUnits';
 import {
   satisfactionAnchor, memberLossStanding, surplusBandOf, SATISFACTION,
@@ -441,7 +442,7 @@ function runLinePreGame(
   // scenario's opening.
   const run = (margin: number) => {
     const c = simulateLineCandidate(instance, setup, line, 0, STARTING_CAPITAL[line], margin);
-    const opened = finalizeLine(c, line, 0, developmentPct, instance, ratio, margin);
+    const opened = finalizeLine(c, line, 0, developmentPct, instance, ratio, margin, gameShocksOn(setup, instance));
     return { start: margin, gap: c.poolState.lines[line].surplus - opened.lineState.surplus, opened };
   };
   return solvePreGameMargin(run, line).opened;
@@ -455,10 +456,13 @@ function runLinePreGame(
  */
 export function openingYear1Premium(
   instance: GameInstance, line: CoverageLine, lineState: LinePoolState, lastPreGame?: LineResultSet,
+  /** The game's shock switch (shockLosses.gameShocksOn) — year 1's cover is priced on it. Absent is on. */
+  shocks = true,
 ): number {
   const struck = strikeBookRate(line, lineState, defaultDecisionSet(1).byLine[line], 1,
     { allMarketMembers: [], membershipHistory: {} },
-    MEMBER_LEVEL.enabled ? undefined : lineBookRisk(instance, line, { [line]: openingBookUnits(marketSeedOf(instance), line) }));
+    MEMBER_LEVEL.enabled ? undefined : lineBookRisk(instance, line, { [line]: openingBookUnits(marketSeedOf(instance), line) }),
+    shocks);
   return struck ? struck.quote.finalRatePer100 * struck.exposure * 10_000 : lastPreGame?.totalMemberCharge ?? 0;
 }
 
@@ -568,6 +572,7 @@ function finalizeLine(
   instance: GameInstance,
   ratio: number,
   margin: number,
+  shocks = true,
 ): LinePreGame {
   // Stamp the accepted attempt onto each pre-game year's result so the
   // effective seed (instance.seed + attempt x 997) that produced it is
@@ -582,7 +587,7 @@ function finalizeLine(
     lineResults,
     earlyLineResults,
     lineState: applySetOpening(line, c.poolState.lines[line], c.poolState.cash, developmentPct,
-      opened => openingYear1Premium(instance, line, opened, lineResults[lineResults.length - 1]) / ratio),
+      opened => openingYear1Premium(instance, line, opened, lineResults[lineResults.length - 1], shocks) / ratio),
     solvedMargin: margin,
     cash: c.poolState.cash,
     unearnedPremium: c.poolState.unearnedPremium,

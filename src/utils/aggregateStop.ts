@@ -168,13 +168,21 @@ export interface StopQuote {
 /** The accident year's total in each sample, in dollars, for a book and year. */
 export function sampledYearTotals(
   line: CoverageLine, exposure: number, yearNumber: number, bookRisk = 1,
+  // The game's shock switch (shockLosses.gameShocksOn). Off, each sample is
+  // the ordinary year alone — the same draws, with no uplift and no shock
+  // large losses — which is all a game with its shocks off can produce.
+  shocks = true,
 ): Float64Array {
   const s = samplesFor(line);
   const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber) * bookRisk;
+  const out = new Float64Array(s.factor.length);
+  if (!shocks) {
+    for (let i = 0; i < out.length; i++) out[i] = ordinary * s.factor[i];
+    return out;
+  }
   const scale = tScale(line, exposure, yearNumber);
   const ages = Math.min(MAX_AGES, Math.max(1, yearNumber)) - 1;
   const u = s.uplift[ages];
-  const out = new Float64Array(s.factor.length);
   for (let i = 0; i < out.length; i++) {
     let large = 0;
     for (let k = s.start[i]; k < s.start[i + 1]; k++) large += poolShare(line, s.sizes[k] * scale);
@@ -188,12 +196,17 @@ const quoteCache = new Map<string, StopQuote[]>();
 /** Every option's quote for a book and year. */
 export function stopQuotes(
   line: CoverageLine, exposure: number, yearNumber: number, bookRisk = 1,
+  // ⚠ THE GAME'S SHOCK SWITCH — the terms (attachment and limit are shares of
+  // the expectation) and the distribution the price is struck on both follow
+  // it, so a game with its shocks off attaches at its own ordinary mean and
+  // pays for recoveries it can actually have.
+  shocks = true,
 ): StopQuote[] {
-  const key = `${line}|${yearNumber}|${exposure}|${bookRisk}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}`;
+  const key = `${line}|${yearNumber}|${exposure}|${bookRisk}|${shocks}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}`;
   const hit = quoteCache.get(key);
   if (hit) return hit;
-  const expectedLoss = expectedLossBreakdown(line, exposure, yearNumber, undefined, bookRisk).total;
-  const totals = sampledYearTotals(line, exposure, yearNumber, bookRisk);
+  const expectedLoss = expectedLossBreakdown(line, exposure, yearNumber, undefined, bookRisk, shocks).total;
+  const totals = sampledYearTotals(line, exposure, yearNumber, bookRisk, shocks);
   const quotes = AGGREGATE_STOP_OPTIONS.map(o => {
     const t = stopTerms(o.id, expectedLoss);
     let m1 = 0, m2 = 0, pays = 0;
@@ -220,8 +233,8 @@ export function stopQuotes(
 }
 
 export function stopQuote(
-  line: CoverageLine, optionId: string, exposure: number, yearNumber: number, bookRisk = 1,
+  line: CoverageLine, optionId: string, exposure: number, yearNumber: number, bookRisk = 1, shocks = true,
 ): StopQuote {
   stopOption(optionId);
-  return stopQuotes(line, exposure, yearNumber, bookRisk).find(q => q.optionId === optionId)!;
+  return stopQuotes(line, exposure, yearNumber, bookRisk, shocks).find(q => q.optionId === optionId)!;
 }

@@ -933,6 +933,10 @@ export const SHOCK_LOSS_CV = 0.5;
  * ⚠ AND A THIRD TIME, from WC 2.211 / GL 1.549 / Property 0.515, once profit
  * and contingency went to 0: premium on the same books fell to $28.38M /
  * $28.44M / $28.47M.
+ * ⚠ AND NO LONGER RE-SCALED WHEN PRICING CHANGES. Since the expectation
+ * followed the shock switch the multipliers stay as they are; a pricing change
+ * moves year-1 premium, and exposure-scale-check allows $27M to $33M on each
+ * line before anyone looks. Then: WC $29.1M, GL $28.5M, Property $27.9M.
  */
 export const EXPOSURE_SCALE: PerLine<number> = { WC: 2.342, GL: 1.640, Property: 0.546 };
 
@@ -1422,6 +1426,17 @@ export const SHOCKS_PER_YEAR = 0.3;
  * stream and save handling are untouched and come back as they were when this
  * is switched on. Pricing never read the schedule, so the rate is the same
  * either way.
+ *
+ * ⚠ THE EXPECTATION FOLLOWS THE GAME'S SHOCKS (shockLosses.gameShocksOn). A
+ * game whose shocks are off — single-player with this off, or a room whose
+ * host scheduled none — reads the ORDINARY-LOSS expectation only, everywhere:
+ * the Expected Losses rows and the reserve basis built on them, the expected
+ * loss ratio, the aggregate stop's attachment, and each cover's price and its
+ * recovery distribution. A hosted game with a schedule, and a harness on the
+ * catalogue, keep the shock-inclusive expectation. With the catalogue's shocks
+ * in a game where none could fire, Expected Losses read 4-6% above every
+ * simulated year, and the Working cover attached that far above the real mean,
+ * paid in about one world in five and recovered 8% of its price.
  */
 export const SOLO_SHOCKS = { enabled: false };
 export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
@@ -2029,7 +2044,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'Scales everything tied to exposure — ordinary losses, the shocks\' large losses, the stop\'s terms — '
           + 'and nothing fixed in dollars: the fixed admin, the GL pool limit, the peril deductibles, the opening surplus. '
-          + 'Last re-set from WC 2.211 / GL 1.549 / Property 0.515 when profit and contingency went to 0.',
+          + 'Last re-set from WC 2.211 / GL 1.549 / Property 0.515 when profit and contingency went to 0. NO LONGER '
+          + 'RE-SCALED WHEN PRICING CHANGES: the multipliers are pinned, and year-1 premium at Expected may sit '
+          + 'anywhere from $27M to $33M on each line (WC $29.1M, GL $28.5M, Property $27.9M once the covers were '
+          + 'priced on the ordinary year in single-player).',
       }],
       ['Full-market exposure', {
         value: perLine(FULL_MARKET_EXPOSURE, 3), unit: '$M of exposure, base year',
@@ -2171,6 +2189,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'Pending the data scientist\'s review of the shocks\' sizes. On, single-player draws its schedule as '
           + 'described under Shock timing.',
+      }],
+      ['Expected losses follow the shocks', {
+        value: 'ordinary only whenever a game\'s shocks are off', unit: 'rule',
+        what: 'A game whose shocks are off — single-player while the switch above is off, or a hosted room with '
+          + 'no shocks scheduled — reads the ordinary-loss expectation only, everywhere it reads expected loss: '
+          + 'the Expected Losses rows and the reserve basis on them, the expected loss ratio, the aggregate stop\'s '
+          + 'attachment, and each cover\'s price and recovery distribution. A hosted game with a shock schedule '
+          + 'keeps the shock-inclusive expectation, at the catalogue\'s probabilities.',
+        basis: 'CHOSEN',
+        note: 'With the catalogue\'s shocks in a game where none could fire, Expected Losses read 4-6% above every '
+          + 'simulated year (scenario 10, WC), and the Working cover attached that far above the real mean, paid in '
+          + 'about one world in five and recovered 8% of its price. On the ordinary expectation it costs about a '
+          + 'third less and pays in about half the worlds, recovering 55% of its price; the Bad-year and Catastrophe '
+          + 'covers, attaching at 115% and 130% of an ordinary year, now price at about nothing.',
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',

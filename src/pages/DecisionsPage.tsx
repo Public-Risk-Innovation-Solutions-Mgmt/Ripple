@@ -69,6 +69,8 @@ interface DecisionsPageProps {
   // What the line's reinsurance is priced on: its one book, or with
   // MEMBER_LEVEL on its roster — derivations.ts builds it as the engine does.
   book: Book;
+  /** The game's shock switch (shockLosses.gameShocksOn) — the covers' prices follow it. Absent is on. */
+  shocks?: boolean;
 }
 
 // THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
@@ -92,7 +94,7 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine): Decisi
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory, shocks = true }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
@@ -301,6 +303,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
               disabled={disabled}
               book={book}
               yearNumber={yearNumber}
+              shocks={shocks}
             />
           ) : (() => { throw new Error(`DecisionsPage: ${selectedLine} has no tractable ceded reinsurance`); })()}
         </SectionCard>
@@ -1211,6 +1214,7 @@ function PackageControls(props: {
   disabled: boolean;
   book: Book;
   yearNumber: number;
+  shocks: boolean;
 }) {
   return AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />;
 }
@@ -1223,13 +1227,14 @@ function PackageControls(props: {
 // The price is the engine's own quote (aggregateStop.stopQuote) on the line's
 // book and year, so the panel cannot show a figure the engine does not charge.
 // ============================================================================
-function StopControls({ line, d, setMany, disabled, book, yearNumber }: {
+function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
   line: CoverageLine;
   d: LineDecisionSet;
   setMany: (patch: Partial<LineDecisionSet>) => void;
   disabled: boolean;
   book: Book;
   yearNumber: number;
+  shocks: boolean;
 }) {
   const exposure = bookExposureOf(book, line, yearNumber);
   return (
@@ -1241,7 +1246,7 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber }: {
       <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
         {AGGREGATE_STOP_OPTIONS.map(o => {
           const chosen = d.reinsuranceOption === o.id;
-          const price = o.limit > 0 ? stopQuote(line, o.id, exposure, yearNumber, bookRiskOf(book)).premium : 0;
+          const price = o.limit > 0 ? stopQuote(line, o.id, exposure, yearNumber, bookRiskOf(book), shocks).premium : 0;
           return (
             <button
               key={o.id}

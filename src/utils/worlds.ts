@@ -47,7 +47,7 @@ import type {
 import type { ShockRecord } from '../types/shocks';
 import { rangeOf, summarizeWorlds, type SurplusRange } from './worldAudit';
 import { simulateMarketReturns, type MarketReturns } from './investmentEngine';
-import { resolveShockYear, shockTimingOf } from './shockLosses';
+import { gameShocksOn, resolveShockYear, shockTimingOf } from './shockLosses';
 export { rangeOf, type SurplusRange };
 
 /** Worlds per team-year for the engine in force: WORLD_COUNT on the new engine, one on the member path. */
@@ -121,7 +121,7 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
     const struck = strikeBookRate(line, gs.poolState.lines[line], decisions.byLine[line], gs.currentYearNumber, {
       allMarketMembers: gs.poolState.allMarketMembers,
       membershipHistory: gs.poolState.membershipHistory,
-    }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits));
+    }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits), gameShocksOn(gs.setup, gs.instance));
     if (struck) out[line] = struck;
   }
   return out;
