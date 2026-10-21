@@ -90,7 +90,7 @@ export function reinsuranceOptionsFor(line: CoverageLine): readonly ReinsuranceO
 /**
  * The ids a team is OFFERED on a line: the stop's options, or the per-claim
  * packages. While the game's shocks are off (shockLosses.gameShocksOn), only
- * AGGREGATE_STOP_OFFERED_SHOCKS_OFF — None and the Working cover.
+ * AGGREGATE_STOP_OFFERED_SHOCKS_OFF — None and the Low-attachment cover (id `working`).
  */
 export function reinsuranceOptionIds(line: CoverageLine, shocks = true): readonly string[] {
   if (!AGGREGATE_STOP.enabled) return REINSURANCE_OPTIONS[line as TowerLine].map(o => o.id);

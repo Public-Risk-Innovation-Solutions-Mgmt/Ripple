@@ -1206,9 +1206,12 @@ export interface AggregateStopOption {
 }
 export const AGGREGATE_STOP_OPTIONS: readonly AggregateStopOption[] = [
   { id: 'none', name: 'None', attachment: 0, limit: 0 },
-  { id: 'working', name: 'Working cover', attachment: 1.00, limit: 0.50 },
-  { id: 'bad-year', name: 'Bad-year cover', attachment: 1.15, limit: 0.50 },
-  { id: 'catastrophe', name: 'Catastrophe cover', attachment: 1.30, limit: 1.00 },
+  // ⚠ NAMES ARE LABELS ONLY: the ids ('working', 'bad-year', 'catastrophe') are
+  // what saves, decisions and the session contract carry, and stay as they are.
+  // Renamed from Working / Bad-year / Catastrophe cover, by where each attaches.
+  { id: 'working', name: 'Low attachment', attachment: 1.00, limit: 0.50 },
+  { id: 'bad-year', name: 'Medium attachment', attachment: 1.15, limit: 0.50 },
+  { id: 'catastrophe', name: 'High attachment', attachment: 1.30, limit: 1.00 },
 ];
 /**
  * Held by every team until it chooses, and by the pre-game's prior board — WHILE

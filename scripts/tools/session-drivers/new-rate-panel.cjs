@@ -162,15 +162,15 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   // the default (AGGREGATE_STOP_OFFERED_SHOCKS_OFF / _DEFAULT_SHOCKS_OFF).
   ok(await chosen('none'), 'WC opens on the default cover, None (a solo game\'s shocks are off)');
   ok(await page.$('[data-testid="reins-option-WC-working"]') !== null,
-     'the Working cover is offered');
+     'the Low-attachment cover is offered');
   ok(await page.$('[data-testid="reins-option-WC-bad-year"]') === null
      && await page.$('[data-testid="reins-option-WC-catastrophe"]') === null,
-     'the Bad-year and Catastrophe covers are hidden while the shocks are off');
+     'the Medium- and High-attachment covers are hidden while the shocks are off');
   const atDefault = await panelText();
   await page.click('[data-testid="reins-option-WC-working"]');
   await page.waitForTimeout(800);
   const atWorking = await panelText();
-  ok(await chosen('working') && !(await chosen('none')), 'clicking the Working cover selects it, and only it');
+  ok(await chosen('working') && !(await chosen('none')), 'clicking the Low-attachment cover selects it, and only it');
   ok(reinsLine(atWorking) !== reinsLine(atDefault),
      `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atWorking)}")`);
   await page.click('[data-testid="reins-option-WC-none"]');
