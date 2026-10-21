@@ -1064,7 +1064,17 @@ const BASELINE = process.env.RENDER_BASELINE
 // the net-of-reinsurance row, Simulated Losses, the Loss Ratio beside the
 // Loss & LAE Ratio, the give-back rows gone. 7a369a7 (contingency 0) moved
 // 232, figures only.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v68.json');
+// v69: THE COMBINED RATIO AND THE FUNDING SLIDER (display only; value v79 and
+// export v85 byte-identical). The control ran first: 53df36b, served on 4176,
+// reproduced v68 242 of 242. 222 of 242 moved, no key added or removed. Run at
+// each commit in turn: 3445aca (the combined ratio) moved 222 — on every page
+// the header's "Loss Ratio (prem + admin)" chip became "Combined ratio" and
+// "Cumulative" (each page's text carries the header), and on the 26 Annual
+// Statement pages the new first row, nothing else; 5087854 (the funding
+// slider) moved the 26 Calculation Audit pages, whose slider ranges read
+// "Step 5.0%" for "Step 10.0%". The Decisions pages hold: they are captured at
+// Expected, whose label is unchanged.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v69.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
