@@ -24,7 +24,8 @@
 //      labelled stream at BASELINE_CV — on many seeds and years, bit for bit.
 //   4. AND THE SLIDER AND REQUIRED CAPITAL READ THAT TABLE: staticClf at each
 //      stop is the table's own column, and requiredCapital is the unpaid
-//      reserve x (CLF90 − 1).
+//      reserve x (the CLF at RESERVE_MARGIN_CONFIDENCE − 1) — 80% since
+//      stable-scenarios commit 2.
 //
 // ⚠ AND IT FAILS WHEN BROKEN — the CONTROLS feed the same predicates a table
 // filed under the wrong CV (each line given its neighbour's) and an engine
@@ -39,7 +40,8 @@
 
 import { BASELINE_CV, UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV } from '../../src/data/pricingParameters';
 import {
-  BASELINE_CV_TABLES, baselineCvKey, crossingOf, staticClf, STATIC_CLF_TABLE, type ClfTable, type StaticClfLine,
+  BASELINE_CV_TABLES, baselineCvKey, crossingOf, RESERVE_MARGIN_CONFIDENCE, staticClf, STATIC_CLF_TABLE, type ClfTable,
+  type StaticClfLine,
 } from '../../src/data/clfTables';
 import {
   drawOrdinaryFactor, ordinaryLossFromUnits, ordinaryLossRng, ordinaryYearCv, unitOrdinaryRng,
@@ -124,10 +126,12 @@ function grade(tableOf: TableOf, yearFactorOf: YearFactorOf, tag: string): void 
     // 4. The slider and required capital read that table.
     const slider = STOPS.every(p => staticClf(line, p / 100) === t.clf[t.stops.indexOf(p)]);
     check(slider, `4. ${line}: the slider's stops 30-90% are the table's own columns`);
-    const clf90 = t.clf[t.stops.indexOf(90)];
+    // At the reserve margin's confidence — 80% since stable-scenarios commit 2.
+    const level = Math.round(RESERVE_MARGIN_CONFIDENCE * 100);
+    const clfM = t.clf[t.stops.indexOf(level)];
     const rc = requiredCapital(line, 100_000_000);
-    check(Math.abs(rc - 100_000_000 * (clf90 - 1)) < 1e-6, `4. ${line}: required capital is unpaid x (CLF90 - 1)`,
-      `$100M unpaid -> $${(rc / 1e6).toFixed(2)}M at CLF90 ${clf90.toFixed(4)}`);
+    check(Math.abs(rc - 100_000_000 * (clfM - 1)) < 1e-6, `4. ${line}: required capital is unpaid x (CLF${level} - 1)`,
+      `$100M unpaid -> $${(rc / 1e6).toFixed(2)}M at CLF${level} ${clfM.toFixed(4)}`);
   }
 }
 

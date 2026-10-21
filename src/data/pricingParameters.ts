@@ -147,8 +147,18 @@ export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
  */
 export const FUNDING_SLIDER_RANGE = { min: 0.30, max: 0.90, step: 0.10, default: DEFAULT_FUNDING_CONFIDENCE_LEVEL };
 
-/** The reserve margin's fixed confidence level. */
-export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.90;
+/**
+ * THE RESERVE MARGIN'S FIXED CONFIDENCE LEVEL — 80% (stable-scenarios commit 2;
+ * was 90%). Required capital = outstanding reserves x (the line's CLF at this
+ * level - 1). The single source: clfTables' RESERVE_MARGIN_CONFIDENCE reads it.
+ *
+ * THE POOL'S TARGETS, recorded here beside it:
+ *   - overall confidence level 80%  — this parameter;
+ *   - premium to surplus under 1.5 : 1;
+ *   - outstanding reserves to equity under 5 : 1 — NOT BUILT YET: it needs the
+ *     reserves discounted, which the engine does not do.
+ */
+export const RESERVE_MARGIN_CONFIDENCE_PARAM = 0.80;
 
 /**
  * DEVELOPMENT SPEED — per line: WC and GL 1.5, Property 1.0.
@@ -537,8 +547,10 @@ export const ORDINARY_LOSS_LIMIT: PerLine<number> = {
  */
 export const UNIT_ORDINARY_OWN_CV = 0.10;
 
-/**
- * EXPECTED ORDINARY LOSS COST PER $100 OF EXPOSURE, YEAR 1 — SOURCED.
+/*
+ * THE OLD ENGINE'S DERIVED ORDINARY LOSS COST, PER $100, YEAR 1 — SOURCED, AND
+ * SINCE STABLE-SCENARIOS COMMIT 2 READ FOR PROPERTY ONLY: WC and GL read the
+ * pool's own layered loss costs (POOL_LOSS_COST_LAYERS, below). Its history:
  *
  * Derived ONCE by scripts/tools/derive-ordinary-loss-cost.ts and typed here;
  * nothing recomputes it at runtime. How: today's own expectation functions —
@@ -564,9 +576,56 @@ export const UNIT_ORDINARY_OWN_CV = 0.10;
  * mixture's heavy component runs to $75M and a fifth of expected loss sits
  * above $5M. The derivation applies the limit, and 33.1% is the figure.
  */
+/**
+ * THE POOL'S LOSS COSTS — SUPPLIED BY THE POOL (stable-scenarios commit 2). Per
+ * $100 of payroll at today's level (year 1, trended by accident year at
+ * SEVERITY_TREND_PER_YEAR), by per-claim layer, with no deductible:
+ *
+ *               $0 – $1M     $1M – $5M     line's ordinary cost
+ *     WC          $2.50       $0.118          $2.618
+ *     GL          $2.50       $0.95           $3.45
+ *
+ * Each line's ordinary expected loss is the SUM OF ITS LAYERS. Losses above $5M
+ * per claim stay with the pool — self-funded, or covered by the aggregate
+ * reinsurance a team buys — and arrive ONLY WITH THE SHOCKS. GL keeps its $25M
+ * per-claim limit. Property is not here: it keeps its current basis
+ * (EXPECTED_ORDINARY_LOSS_COST_PER_100 and the routine fold) until its loss
+ * costs are supplied.
+ *
+ * They REPLACE the old engine's derived figures for WC and GL — ordinary to $1M
+ * of WC $2.774112 and GL $2.830161, plus the routine claims above $1M folded in
+ * (commit 1): WC $0.965 and GL $2.352 per $100 more in year 1.
+ */
+export const POOL_LOSS_COST_LAYERS: Partial<Record<CoverageLine, readonly { from: number; to: number; per100: number }[]>> = {
+  WC: [{ from: 0, to: 1_000_000, per100: 2.50 }, { from: 1_000_000, to: 5_000_000, per100: 0.118 }],
+  GL: [{ from: 0, to: 1_000_000, per100: 2.50 }, { from: 1_000_000, to: 5_000_000, per100: 0.95 }],
+};
+const layerSum = (line: CoverageLine) => (POOL_LOSS_COST_LAYERS[line] ?? []).reduce((a, l) => a + l.per100, 0);
+
+/**
+ * EACH LINE'S ORDINARY COST PER $100, YEAR 1 — WC and GL the sum of the pool's
+ * layers (POOL_LOSS_COST_LAYERS); Property its derived attritional cost above,
+ * unchanged.
+ */
 export const EXPECTED_ORDINARY_LOSS_COST_PER_100: PerLine<number> = {
-  WC: 2.774112,
-  GL: 2.830161,
+  WC: layerSum('WC'),
+  GL: layerSum('GL'),
+  Property: 0.159515,
+};
+
+/**
+ * WHAT THE SHOCKS' LARGE LOSSES (T) ARE SCALED OFF, per $100, year 1 — CHOSEN
+ * (stable-scenarios commit 2). T scales with the line's expected ordinary cost
+ * against the R model's (shockLosses' tScale). On WC and GL it reads the
+ * $0 – $1M layer, $2.50: the closest match to what "ordinary" meant when T was
+ * calibrated (claims to $1M, then WC $2.774 and GL $2.830), so WC's shocks are
+ * about 10% and GL's about 12% smaller than they were. Property reads its
+ * ordinary cost without the routine fold, as before. Whether shocks should be
+ * fixed in dollars instead is to be decided once exposure is scaled (block C).
+ */
+export const SHOCK_T_BASIS_PER_100: PerLine<number> = {
+  WC: POOL_LOSS_COST_LAYERS.WC![0].per100,
+  GL: POOL_LOSS_COST_LAYERS.GL![0].per100,
   Property: 0.159515,
 };
 
@@ -1204,7 +1263,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Reserve margin confidence', {
         value: RESERVE_MARGIN_CONFIDENCE_PARAM, unit: 'confidence',
-        what: 'The fixed confidence the reserve margin is held at.', basis: 'CHOSEN',
+        what: 'The confidence the reserve margin is held at: required capital = outstanding reserves x (the '
+          + 'line\'s CLF at this level - 1).', basis: 'CHOSEN',
+        note: 'Was 90%. The pool\'s targets: overall confidence 80%; premium to surplus under 1.5 : 1; outstanding '
+          + 'reserves to equity under 5 : 1 — not built yet, as it needs reserve discounting.',
       }],
       ['Development speed', {
         value: perLine(DEVELOPMENT_SPEED, 2), unit: 'x the recorded patterns\' pace',
@@ -1446,16 +1508,30 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'tables wiring (it was 2% on every line); over a book of about 60 unequal units the line\'s CV is about '
           + '6.2% (WC), 8.1% (Property) and 10.1% (GL).',
       }],
+      ['Pool loss costs', {
+        value: 'WC $2.50 + $0.118 · GL $2.50 + $0.95', unit: 'per $100 of payroll, year 1: $0–$1M + $1M–$5M',
+        what: 'The pool\'s own loss costs by per-claim layer, no deductible. Each line\'s ordinary expected loss is '
+          + 'the sum of its layers; losses above $5M per claim stay with the pool and arrive only with shocks.',
+        basis: 'SOURCED',
+        note: 'The pool\'s loss costs, supplied by the pool. GL keeps its $25M per-claim limit. Replaced the old '
+          + 'engine\'s derived ordinary cost (WC $2.774, GL $2.830 to $1M, plus the routine claims above it).',
+      }],
       ['Expected ordinary loss cost', {
         value: perLine(EXPECTED_ORDINARY_LOSS_COST_PER_100), unit: 'per $100 of exposure, year 1',
-        what: 'The expected ordinary loss per $100, derived ONCE and fixed. It is the mean of the draws by '
-          + 'construction; nothing holds a second figure.',
+        what: 'Each line\'s expected ordinary loss per $100: WC and GL the sum of the pool\'s layers; Property its '
+          + 'derived attritional cost, plus the routine fold.',
         basis: 'SOURCED',
-        note: 'Derived by scripts/tools/derive-ordinary-loss-cost.ts from today\'s distributions on the full '
-          + 'market at neutral risk quality, year 1, k = 1, each claim limited at the line\'s ordinary limit; '
-          + 'Property is the attritional band only, its catastrophe band excluded. Share of today\'s expected '
-          + 'loss now waiting for the shocks: WC 25.8%, GL 49.4%, Property 33.1% (12.0% the catastrophe band, '
-          + '21.1% attritional above $5M).',
+        note: 'Property\'s figure was derived by scripts/tools/derive-ordinary-loss-cost.ts from today\'s '
+          + 'distributions on the full market at neutral risk quality, year 1, its catastrophe band excluded; it '
+          + 'stays until Property\'s loss costs are supplied.',
+      }],
+      ['Shock scale basis', {
+        value: perLine(SHOCK_T_BASIS_PER_100), unit: 'per $100, year 1',
+        what: 'The ordinary cost the shocks\' large losses (T) are scaled off.',
+        basis: 'CHOSEN',
+        note: 'WC and GL read the $0–$1M layer, the closest match to what "ordinary" meant when T was calibrated '
+          + '(WC $2.774, GL $2.830): their shocks are about 10% and 12% smaller. Property reads its cost without '
+          + 'the routine fold. Whether shocks are fixed in dollars instead is decided once exposure is scaled.',
       }],
       ['Routine large losses', {
         value: ROUTINE_LARGE_LOSSES.enabled ? 'on' : 'off', unit: 'switch',

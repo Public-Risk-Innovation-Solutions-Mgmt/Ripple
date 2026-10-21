@@ -33,7 +33,7 @@
 // ============================================================================
 
 import {
-  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, FLAT_PRE_GAME, SEVERITY_TREND_PER_YEAR, UNIT_MARKET_COUNT,
+  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, FLAT_PRE_GAME, SEVERITY_TREND_PER_YEAR, SHOCK_T_BASIS_PER_100, UNIT_MARKET_COUNT,
   UNIT_ORDINARY_OWN_CV, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV,
 } from '../data/pricingParameters';
 // ⚠ A CALL-TIME CYCLE, AND SAFE AS ONE: shockExpectation imports this module,
@@ -55,14 +55,20 @@ export function ordinaryLossCostPer100(line: CoverageLine, yearNumber: number): 
   return baseOrdinaryLossCostPer100(line, yearNumber) + routineFoldPer100(line, yearNumber);
 }
 
-/**
- * The ordinary cost per $100 WITHOUT the routine fold — the basis the shocks'
- * large losses (T) are scaled off (shockLosses' tScale), so folding the routine
- * cost into the ordinary losses does not grow them.
- */
+/** The ordinary cost per $100 WITHOUT the routine fold. */
 export function baseOrdinaryLossCostPer100(line: CoverageLine, yearNumber: number): number {
   return EXPECTED_ORDINARY_LOSS_COST_PER_100[line]
     * Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
+}
+
+/**
+ * The cost per $100 the shocks' large losses (T) are scaled off (shockLosses'
+ * tScale), trended like the ordinary cost: SHOCK_T_BASIS_PER_100 — the $0 – $1M
+ * layer on WC and GL, Property's cost without the routine fold — so neither the
+ * fold nor the $1M – $5M layer grows the shocks.
+ */
+export function shockBasisCostPer100(line: CoverageLine, yearNumber: number): number {
+  return SHOCK_T_BASIS_PER_100[line] * Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
 }
 
 /** A flat pre-game year (FLAT_PRE_GAME): ordinary losses at exactly expected, no factor drawn. */

@@ -180,6 +180,8 @@ const FAST: string[] = [
   'routine-fold-check',              //   3s   stable regular years: routine large losses off and folded into the
                                      //         ordinary cost, cost-neutral line-year by line-year; the shocks
                                      //         unchanged; no routine claim drawn; a flat pre-game; four controls
+  'pool-loss-cost-check',            //   3s   WC and GL priced on the pool's layered loss costs, the shocks off the
+                                     //         $0 - $1M layer, required capital at 80%; four controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls

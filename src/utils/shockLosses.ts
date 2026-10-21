@@ -74,7 +74,7 @@ import {
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
-import { baseOrdinaryLossCostPer100, bookOrdinaryRisk } from './ordinaryLoss';
+import { bookOrdinaryRisk, shockBasisCostPer100 } from './ordinaryLoss';
 import type { BookUnit } from './bookUnits';
 import { drawRoutineLargeSize, lognormalFromMean, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ratingGroupOf } from './wcClaimEngine';
@@ -278,9 +278,9 @@ export const rModelOrdinary = (line: CoverageLine) => R_MODEL.basePremium[line] 
 
 /** T_SCALE: this line's expected ordinary loss this year over the R model's. See the header. */
 export function tScale(line: CoverageLine, exposure: number, yearNumber: number): number {
-  // Off the ordinary cost WITHOUT the routine fold (stable-scenarios commit 1),
-  // so folding the routine cost into the ordinary losses does not grow T.
-  return (exposure * 10_000 * baseOrdinaryLossCostPer100(line, yearNumber)) / rModelOrdinary(line);
+  // Off SHOCK_T_BASIS_PER_100 (stable-scenarios commits 1-2): the $0 – $1M layer
+  // on WC and GL, Property's cost without the routine fold.
+  return (exposure * 10_000 * shockBasisCostPer100(line, yearNumber)) / rModelOrdinary(line);
 }
 
 /** The year's trend factor on year-1 sizes — the same 5% ordinary losses take. */

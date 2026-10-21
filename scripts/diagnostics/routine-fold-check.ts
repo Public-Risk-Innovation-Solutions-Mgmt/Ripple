@@ -7,7 +7,10 @@
 //
 //   1. COST-NEUTRAL: every line-year's expected loss equals what it was with
 //      routine large claims ON and no fold — ordinary x (1 + uplift) + shock
-//      large + routine — to float precision, years -10 to 15.
+//      large + routine — to float precision, years -10 to 15. ON THE LINES
+//      STILL ON THEIR DERIVED COST (Property): since commit 2, WC and GL are
+//      priced on the pool's layered loss costs, and pool-loss-cost-check holds
+//      them.
 //   2. THE SHOCKS DO NOT GROW: the shocks' large losses (T) are the same with
 //      the fold as without it — scaled off the unfolded ordinary cost.
 //   3. NO ROUTINE CLAIM IS DRAWN: across played games, every large claim comes
@@ -21,7 +24,7 @@
 // pre-game year that draws its factor.
 // ============================================================================
 
-import { FLAT_PRE_GAME, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { ASSET_CLASS_ASSUMPTIONS } from '../../src/data/defaultAssumptions';
 import { baseOrdinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown, routineFoldPer100, upliftMoments } from '../../src/utils/shockExpectation';
@@ -32,6 +35,8 @@ import { processYear } from '../../src/utils/simulationEngine';
 import type { CoverageLine, GameSetupSettings, GameState, LineResultSet, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
+// The lines the fold applies to — those not priced on the pool's layers.
+const FOLDED: CoverageLine[] = LINES.filter(l => !POOL_LOSS_COST_LAYERS[l]);
 const YEARS = Array.from({ length: 26 }, (_, i) => i - 10);
 const E = 1000;
 const failures: string[] = [];
@@ -51,7 +56,7 @@ if (ROUTINE_LARGE_LOSSES.enabled || !FLAT_PRE_GAME.enabled) {
 interface Today { total: number; shockLarge: number }
 const today = new Map<string, Today>();
 ROUTINE_LARGE_LOSSES.enabled = true;
-for (const l of LINES) for (const y of YEARS) {
+for (const l of FOLDED) for (const y of YEARS) {
   const b = expectedLossBreakdown(l, E, y);
   today.set(`${l}|${y}`, { total: b.total, shockLarge: b.shockLarge });
 }
@@ -61,7 +66,7 @@ ROUTINE_LARGE_LOSSES.enabled = false;
 type Fold = (l: CoverageLine, y: number) => number;
 function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
   let worstTotal = 0, worstT = 0;
-  for (const l of LINES) for (const y of YEARS) {
+  for (const l of FOLDED) for (const y of YEARS) {
     const b = expectedLossBreakdown(l, E, y);
     // Rebuilt from its parts with the fold under test, so a wrong fold shows.
     const ordinary = E * 10_000 * (baseOrdinaryLossCostPer100(l, y) + fold(l, y));
@@ -74,7 +79,7 @@ function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
     worstTotal = Math.max(worstTotal, rel(total, t.total));
     worstT = Math.max(worstT, rel(shockLarge, t.shockLarge));
   }
-  check(worstTotal < 1e-12, `${tag}1. every line-year's expected loss is today's, years -10 to 15`, `worst relative ${worstTotal.toExponential(2)}`);
+  check(worstTotal < 1e-12, `${tag}1. every line-year's expected loss is today's, years -10 to 15 (${FOLDED.join(', ')})`, `worst relative ${worstTotal.toExponential(2)}`);
   check(worstT < 1e-12, `${tag}2. the shocks' large losses do not grow with the fold`, `worst relative ${worstT.toExponential(2)}`);
 }
 
