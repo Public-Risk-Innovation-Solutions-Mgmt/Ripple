@@ -20,6 +20,10 @@
 //   4. A SOLO GAME: each year's Expected Losses (averaged) is within 1% of its
 //      Simulated Losses, and the struck cover's price is the shocks-off quote.
 //   5. A HOSTED GAME WITH A SCHEDULE keeps the shocks in its expectation.
+//   6. THE OFFER: shocks off, only None and the Working cover are offered and
+//      the default is None; on, all four and the default is the Bad-year cover.
+//   7. THE PRIOR BOARD holds the default: None through a solo game's pre-game,
+//      the Bad-year cover through a scheduled room's.
 // Each with a control that must fail.
 // ============================================================================
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -34,6 +38,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { seedFromInstanceId } from '../../src/seedHash';
 import { lineBookRisk } from '../../src/utils/bookUnits';
 import { AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD } from '../../src/data/pricingParameters';
+import { defaultReinsuranceOption, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
 import type { GameInstance, GameSetupSettings, GameState } from '../../src/types/simulation';
 
 const failures: string[] = [];
@@ -125,6 +130,32 @@ function gradeHosted(rows: typeof hostedGame.rows, tag: string) {
 }
 gradeHosted(hostedGame.rows, '');
 
+// ---------------------------------------------------------------- 6
+function gradeOffer(ids: typeof reinsuranceOptionIds, dflt: (shocks: boolean) => string, tag: string) {
+  const off = (['WC', 'GL', 'Property'] as const).map(l => ids(l, false).join(','));
+  const on = (['WC', 'GL', 'Property'] as const).map(l => ids(l, true).join(','));
+  const decOff = defaultDecisionSet(1, false), decOn = defaultDecisionSet(1, true);
+  const ok = off.every(x => x === 'none,working') && on.every(x => x === 'none,working,bad-year,catastrophe')
+    && dflt(false) === 'none' && dflt(true) === 'bad-year'
+    && (['WC', 'GL', 'Property'] as const).every(l => decOff.byLine[l].reinsuranceOption === dflt(false) && decOn.byLine[l].reinsuranceOption === dflt(true));
+  check(ok, `${tag}6. shocks off: None and the Working cover offered, None the default; on: all four, the Bad-year cover the default`,
+    `off ${off[0]} / ${dflt(false)}; on ${on[0]} / ${dflt(true)}`);
+}
+gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), '');
+
+// ---------------------------------------------------------------- 7
+const preGameCovers = (setup: GameSetupSettings, instance: GameInstance) => {
+  const { priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
+  return [...new Set([...(earlyPreGameHistory ?? []), ...priorHistory].map(r => r.byLine.WC!.decisions.reinsuranceOption))];
+};
+const soloBoard = preGameCovers(solo.setup, solo.instance), roomBoard = preGameCovers(hostedWith.setup, hostedWith.instance);
+function gradeBoard(soloCovers: string[], roomCovers: string[], tag: string) {
+  check(soloCovers.join() === 'none' && roomCovers.join() === 'bad-year',
+    `${tag}7. the prior board holds the default: None in a solo game, the Bad-year cover in a scheduled room`,
+    `solo ${soloCovers.join('/')}; room ${roomCovers.join('/')}`);
+}
+gradeBoard(soloBoard, roomBoard, '');
+
 console.log('\nCONTROLS — each must FAIL');
 const controlFails = (name: string, run: () => void, expect: string) => {
   const before = failures.length;
@@ -145,6 +176,10 @@ controlFails('a solo game charged the shock-inclusive cover price',
   () => gradeSolo(soloGame.rows, soloGame.struckPrice.map((p, i) => p + 1e5 * (i + 1)), soloGame.quotedOff, ''), '4b.');
 controlFails('a hosted game whose expectation dropped its shocks',
   () => gradeHosted(hostedGame.rows.map(r => ({ ...r, expectedLoss: expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, false).total })), ''), '5.');
+
+controlFails('every option offered with the shocks off', () => gradeOffer(l => reinsuranceOptionIds(l, true), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
+controlFails('the Bad-year default with the shocks off', () => gradeOffer(reinsuranceOptionIds, () => 'bad-year', ''), '6.');
+controlFails('a solo prior board on the Bad-year cover', () => gradeBoard(['bad-year'], roomBoard, ''), '7.');
 
 console.log(failures.length === 0 ? '\nTHE EXPECTATION FOLLOWS THE SHOCK SWITCH: ALL CHECKS PASS.' : `\n${failures.length} FAILURE(S):\n  ${failures.join('\n  ')}`);
 process.exit(failures.length === 0 ? 0 : 1);

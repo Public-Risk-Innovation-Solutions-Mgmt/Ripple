@@ -157,19 +157,23 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     .includes('border-blue-500');
   const panelText = async () => (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
   const reinsLine = t => (t.match(/\+ Reinsurance[^+=]*/g) || []).join(' | ');
-  // The aggregate stop's four covers (stable-scenarios commit 6).
-  ok(await chosen('bad-year'), 'WC opens on the default cover, Bad-year');
-  ok(await page.$('[data-testid="reins-option-WC-working"]') !== null
-     && await page.$('[data-testid="reins-option-WC-catastrophe"]') !== null,
-     'all four WC covers are offered');
+  // The aggregate stop's covers (stable-scenarios commit 6). A solo game's
+  // shocks are off, so only None and the Working cover are offered and None is
+  // the default (AGGREGATE_STOP_OFFERED_SHOCKS_OFF / _DEFAULT_SHOCKS_OFF).
+  ok(await chosen('none'), 'WC opens on the default cover, None (a solo game\'s shocks are off)');
+  ok(await page.$('[data-testid="reins-option-WC-working"]') !== null,
+     'the Working cover is offered');
+  ok(await page.$('[data-testid="reins-option-WC-bad-year"]') === null
+     && await page.$('[data-testid="reins-option-WC-catastrophe"]') === null,
+     'the Bad-year and Catastrophe covers are hidden while the shocks are off');
   const atDefault = await panelText();
-  await page.click('[data-testid="reins-option-WC-none"]');
+  await page.click('[data-testid="reins-option-WC-working"]');
   await page.waitForTimeout(800);
-  const atNone = await panelText();
-  ok(await chosen('none') && !(await chosen('bad-year')), 'clicking None selects it, and only it');
-  ok(reinsLine(atNone) !== reinsLine(atDefault),
-     `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atNone)}")`);
-  await page.click('[data-testid="reins-option-WC-bad-year"]');
+  const atWorking = await panelText();
+  ok(await chosen('working') && !(await chosen('none')), 'clicking the Working cover selects it, and only it');
+  ok(reinsLine(atWorking) !== reinsLine(atDefault),
+     `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atWorking)}")`);
+  await page.click('[data-testid="reins-option-WC-none"]');
   await page.waitForTimeout(800);
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
 

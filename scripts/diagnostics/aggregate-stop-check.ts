@@ -56,14 +56,17 @@ const BRIEF: Record<string, [number, number]> = { none: [0, 0], working: [1.0, 0
 function gradeOptions(defaultOf: (l: CoverageLine) => string, preGame: ResultSet[], tag: string) {
   const shapes = AGGREGATE_STOP_OPTIONS.length === 4
     && AGGREGATE_STOP_OPTIONS.every(o => BRIEF[o.id] && BRIEF[o.id][0] === o.attachment && BRIEF[o.id][1] === o.limit);
+  // ⚠ THE DEFAULT FOLLOWS THE GAME'S SHOCKS (AGGREGATE_STOP_DEFAULT_SHOCKS_OFF):
+  // Bad-year with them on; None with them off — so a solo game's prior board,
+  // shocks off in single-player, holds None.
   const defaults = LINES.every(l => defaultOf(l) === 'bad-year')
-    && preGame.every(r => LINES.every(l => r.byLine[l]!.decisions.reinsuranceOption === 'bad-year'));
+    && preGame.every(r => LINES.every(l => r.byLine[l]!.decisions.reinsuranceOption === 'none'));
   const noLayers = LINES.every(l => AGGREGATE_STOP_OPTIONS.every(o => placementFor(l, o.id).every(p => !p)));
   AGGREGATE_STOP.enabled = false;
   const dormant = LINES.every(l => isReinsuranceOption(l, defaultReinsuranceOption(l)) && placementFor(l, defaultReinsuranceOption(l)).some(Boolean));
   AGGREGATE_STOP.enabled = true;
   check(AGGREGATE_STOP.enabled && shapes && defaults && noLayers && dormant,
-    `${tag}1. four options as briefed, Bad-year the default for players and the prior board, no occurrence layer; off, the packages`,
+    `${tag}1. four options as briefed, Bad-year the default with shocks on and None for a solo prior board (shocks off), no occurrence layer; off, the packages`,
     `${preGame.length} pre-game years checked`);
 }
 

@@ -1210,8 +1210,27 @@ export const AGGREGATE_STOP_OPTIONS: readonly AggregateStopOption[] = [
   { id: 'bad-year', name: 'Bad-year cover', attachment: 1.15, limit: 0.50 },
   { id: 'catastrophe', name: 'Catastrophe cover', attachment: 1.30, limit: 1.00 },
 ];
-/** Held by every team until it chooses, and by the pre-game's prior board. */
+/**
+ * Held by every team until it chooses, and by the pre-game's prior board — WHILE
+ * THE GAME'S SHOCKS ARE ON (shockLosses.gameShocksOn).
+ */
 export const AGGREGATE_STOP_DEFAULT = 'bad-year';
+
+/**
+ * WHILE A GAME'S SHOCKS ARE OFF: the options offered, and the default.
+ *
+ * Only None and the Working cover are offered; the Bad-year and Catastrophe
+ * covers are hidden. They attach at 115% and 130% of the year's expected
+ * losses, and with the shocks off a year is its ordinary losses alone — a
+ * lognormal around expected at the line's Baseline CV — which almost never
+ * reaches 115% and never 130%: priced on that year they cost about nothing and
+ * pay nothing. The default, for players and the pre-game's prior board, is
+ * None. When the game's shocks are on, all four options return and the default
+ * is AGGREGATE_STOP_DEFAULT. The engine still prices any option it is handed;
+ * this is what a team is offered and what it holds until it chooses.
+ */
+export const AGGREGATE_STOP_OFFERED_SHOCKS_OFF: readonly string[] = ['none', 'working'];
+export const AGGREGATE_STOP_DEFAULT_SHOCKS_OFF = 'none';
 /** The price's load on the SD of the annual recovery: price = E + this x SD. */
 export const AGGREGATE_STOP_SD_LOAD = 0.5;
 /**
@@ -2114,7 +2133,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: `Price = expected recovery + ${AGGREGATE_STOP_SD_LOAD} x the SD of the annual recovery, no floor, from `
           + `${AGGREGATE_STOP_SAMPLES.toLocaleString('en-US')} sampled accident years per line. Default: `
           + `${AGGREGATE_STOP_OPTIONS.find(o => o.id === AGGREGATE_STOP_DEFAULT)?.name}, for players and the prior `
-          + 'board. Replaces the per-claim packages, whose code stays dormant behind the switch.',
+          + 'board, while the game\'s shocks are on. Replaces the per-claim packages, whose code stays dormant behind '
+          + 'the switch.',
+      }],
+      ['Covers while shocks are off', {
+        value: `offered: ${AGGREGATE_STOP_OFFERED_SHOCKS_OFF.map(id => AGGREGATE_STOP_OPTIONS.find(o => o.id === id)?.name).join(' · ')}; `
+          + `default: ${AGGREGATE_STOP_OPTIONS.find(o => o.id === AGGREGATE_STOP_DEFAULT_SHOCKS_OFF)?.name}`,
+        unit: 'rule',
+        what: 'While a game\'s shocks are off (single-player while shocks are off there, or a hosted room with none '
+          + 'scheduled) only None and the lowest-attaching cover are offered, and None is the default for players and '
+          + 'the prior board. With the shocks on, all four options return and the default is the one above.',
+        basis: 'CHOSEN',
+        note: 'The two higher-attaching covers attach at 115% and 130% of the year\'s expected losses; with no shocks a '
+          + 'year is its ordinary losses alone, which almost never reach 115% and never 130%, so they would cost about '
+          + 'nothing and pay nothing.',
       }],
       ['Default package', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,

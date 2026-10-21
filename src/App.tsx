@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 
 import type { GameState, GameSetupSettings, DecisionSet, StartingFinancials, Member, CoverageLine, LineView } from './types/simulation';
 import { openSoloInstance } from './utils/soloGame';
+import { gameShocksOn } from './utils/shockLosses';
 import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear, type SettledYear, type WorldsYear } from './utils/worlds';
 import { runPriorHistory } from './utils/priorHistoryEngine';
 import { defaultDecisionSet } from './utils/decisionDefaults';
@@ -71,7 +72,7 @@ export default function App() {
               setGameState(r.gameState);
               setStartingFinancials(r.startingFinancials);
               setInitialMembers(r.initialMembers);
-              setCurrentDecisions(r.currentDecisions ?? defaultDecisionSet(r.gameState.currentYearNumber));
+              setCurrentDecisions(r.currentDecisions ?? defaultDecisionSet(r.gameState.currentYearNumber, gameShocksOn(r.gameState.setup, r.gameState.instance)));
               setActiveTab('dashboard');
               setRestoring(null);
             })
@@ -181,14 +182,15 @@ export default function App() {
       isComplete: false,
       poolState,
       lockedResults: [],
-      currentDecisions: defaultDecisionSet(1),
+      currentDecisions: defaultDecisionSet(1, gameShocksOn(setup, instance)),
       priorHistory,
       earlyPreGameHistory,
     };
     // THE WORLDS (loss engine commit 4b): every world opens on this position.
     const gs = openWorlds(opened);
 
-    const cd = defaultDecisionSet(1);
+    // The default cover follows the game's shock switch: None while it is off.
+    const cd = defaultDecisionSet(1, gameShocksOn(setup, instance));
 
     setGameState(gs);
     setStartingFinancials(sf);
@@ -234,7 +236,7 @@ export default function App() {
     // policy rather than a rule buried in the loss draw, and it is why the
     // pre-game (which runs on defaultDecisionSet) commits nothing.
     const nextDecisions: DecisionSet = {
-      ...defaultDecisionSet(nextYearNumber),
+      ...defaultDecisionSet(nextYearNumber, gameShocksOn(baseGs.setup, baseGs.instance)),
       // Pool-wide, so it comes off the pool row's own `pool` field now rather
       // than off a line's echo of it. Same list, named where it belongs.
       riskControlProgramIds: [...(result.pool?.riskControlProgramIds ?? [])],

@@ -8,7 +8,8 @@ import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumpti
 import type { CoverageLine, DecisionSet, LineDecisionSet } from '../types/simulation';
 
 // Fresh object per call (allocation is nested, so lines must not share a reference).
-export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
+/** `shocks`: the game's shock switch (shockLosses.gameShocksOn) — the default cover follows it. Absent is on. */
+export function defaultLineDecisionSet(line: CoverageLine, shocks = true): LineDecisionSet {
   return {
     fundingConfidenceLevel: SLIDER_RANGES.fundingConfidenceLevel.default,
     // Default TRUE for every line, and no longer inert on any of them: all
@@ -64,19 +65,21 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
     // The default reinsurance package — the middle option, a chosen parameter
     // (REINSURANCE_DEFAULT_OPTION). The pre-game's prior board plays these
     // decisions, so the opening is built on it too.
-    reinsuranceOption: defaultReinsuranceOption(line),
+    // ⚠ NONE WHILE THE GAME'S SHOCKS ARE OFF (AGGREGATE_STOP_DEFAULT_SHOCKS_OFF).
+    reinsuranceOption: defaultReinsuranceOption(line, shocks),
     assetAllocation: { ...ASSET_ALLOCATION_DEFAULT },
     loanRepaymentAggressiveness: 0.5,
   };
 }
 
-export function defaultDecisionSet(yearNumber: number): DecisionSet {
+/** `shocks`: the game's shock switch (shockLosses.gameShocksOn) — the default cover follows it. Absent is on. */
+export function defaultDecisionSet(yearNumber: number, shocks = true): DecisionSet {
   return {
     yearNumber,
     byLine: {
-      WC: defaultLineDecisionSet('WC'),
-      GL: defaultLineDecisionSet('GL'),
-      Property: defaultLineDecisionSet('Property'),
+      WC: defaultLineDecisionSet('WC', shocks),
+      GL: defaultLineDecisionSet('GL', shocks),
+      Property: defaultLineDecisionSet('Property', shocks),
     },
     // Pool-wide decisions (projected into every line at processYear entry).
     assetAllocation: { ...ASSET_ALLOCATION_DEFAULT },

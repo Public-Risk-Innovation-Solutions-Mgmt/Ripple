@@ -12,7 +12,7 @@ import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
 import { occurrenceProgramCost } from '../utils/reinsuranceTower';
-import { placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
+import { placementFor, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
 import { bookExposureOf, bookRiskOf, type Book } from '../utils/lineHelpers';
 import { stopQuote, stopWording } from '../utils/aggregateStop';
 import { lineDisplayName } from '../utils/lineDisplay';
@@ -84,12 +84,12 @@ const fundingStopLabel = (v: number) => `(${(v * 100).toFixed(0)}%)`;
 
 // Reset only the given line to defaults (Model A strict per-line: resetting on
 // one line's tab must not clobber the other lines' choices).
-function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine): DecisionSet {
+function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks: boolean): DecisionSet {
   return {
     ...decisions,
     byLine: {
       ...decisions.byLine,
-      [line]: defaultLineDecisionSet(line),
+      [line]: defaultLineDecisionSet(line, shocks),
     },
   };
 }
@@ -179,7 +179,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
           <p className="text-gray-500 text-sm">Configure this line's strategy for the year</p>
         </div>
         {!disabled && (
-          <button onClick={() => onChange(resetLineToDefaults(decisions, selectedLine))} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100">
+          <button onClick={() => onChange(resetLineToDefaults(decisions, selectedLine, shocks))} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100">
             <RotateCcw size={14} /> Reset {lineDisplayName(selectedLine)} to Defaults
           </button>
         )}
@@ -1244,7 +1244,10 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
         well above what was expected.
       </p>
       <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
-        {AGGREGATE_STOP_OPTIONS.map(o => {
+        {/* ⚠ WHILE THE GAME'S SHOCKS ARE OFF, ONLY NONE AND THE WORKING COVER
+            (reinsuranceOptionIds): the two higher-attaching covers cannot pay
+            on an ordinary year and are hidden. All four with the shocks on. */}
+        {AGGREGATE_STOP_OPTIONS.filter(o => reinsuranceOptionIds(line, shocks).includes(o.id)).map(o => {
           const chosen = d.reinsuranceOption === o.id;
           const price = o.limit > 0 ? stopQuote(line, o.id, exposure, yearNumber, bookRiskOf(book), shocks).premium : 0;
           return (
