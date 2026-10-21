@@ -12,9 +12,10 @@
 // collapsed to `true`, so a future line without a closed-form E[ceded] has
 // somewhere to say no.
 
-import { REINSURANCE_TOWER, AGG_ATTACHMENT_LEVELS, TOWER_TOP, type TowerLine } from '../data/reinsuranceTower';
+import { AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS } from '../data/pricingParameters';
+import { TOWER_TOP, type TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine, LineDecisionSet, LineView } from '../types/simulation';
-import { normalizeLayersPlaced } from './reinsuranceTower';
+import { placementFor } from './reinsuranceOptions';
 
 // ============================================================================
 // THE SEAM, STATED ONCE. Renamed from `usesTower`, which named the MECHANISM
@@ -57,10 +58,6 @@ import { normalizeLayersPlaced } from './reinsuranceTower';
 export const hasTractableCeded = (line: CoverageLine | LineView): line is TowerLine =>
   line === 'WC' || line === 'GL' || line === 'Property';
 
-// WC and Property are the only lines with an aggregate stop-loss.
-const hasAggregate = (line: CoverageLine | LineView): line is 'WC' | 'Property' =>
-  line === 'WC' || line === 'Property';
-
 // For readouts that have NO line in scope (narrativeEngine, resultMetrics,
 // deriveAnnualStatement all take a result, not a line). `cededByLayer` is
 // populated by the tower, so its width discriminates a tower result from a
@@ -78,37 +75,36 @@ const hasAggregate = (line: CoverageLine | LineView): line is 'WC' | 'Property' 
 export const resultUsesTower = (r: { cededByLayer?: number[] }): boolean =>
   (r.cededByLayer?.length ?? 0) > 0;
 
-// Short one-line summary of what was actually bought. Used wherever the old code
-// printed "2 — Moderate".
+// Short one-line summary of what was actually bought: the package, as the team
+// chose it (loss engine commit 4a). Used wherever the old code printed
+// "2 — Moderate".
 export function placementSummary(
   line: CoverageLine,
-  decisions: Pick<LineDecisionSet, 'layersPlaced' | 'aggregateStopLevel'>,
+  decisions: Pick<LineDecisionSet, 'reinsuranceOption'>,
 ): string {
   if (!hasTractableCeded(line)) {
     throw new Error(`placementSummary: ${line} has no tractable ceded reinsurance to summarize`);
   }
-  const layers = REINSURANCE_TOWER[line];
-  const placed = normalizeLayersPlaced(line, decisions.layersPlaced);
-  const bought = layers.filter((_, i) => placed[i]).map(l => l.name);
-  const agg = hasAggregate(line) && decisions.aggregateStopLevel >= 0
-    ? ` + agg @ ${(AGG_ATTACHMENT_LEVELS[line][decisions.aggregateStopLevel] * 100).toFixed(0)}%`
-    : '';
-  if (!bought.length) return `Full retention — no layers placed${agg}`;
-  return `${bought.join(' + ')}${agg}`;
+  // Checked against the line's packages — a stale or misspelt id throws.
+  placementFor(line, decisions.reinsuranceOption);
+  if (decisions.reinsuranceOption === 'none') return 'Full retention — no reinsurance';
+  // The aggregate stop's cover by name, as the team saw it (stable-scenarios commit 6).
+  return AGGREGATE_STOP.enabled
+    ? AGGREGATE_STOP_OPTIONS.find(o => o.id === decisions.reinsuranceOption)?.name ?? decisions.reinsuranceOption
+    : decisions.reinsuranceOption;
 }
 
-// Compact machine-friendly form for the spreadsheet export's csv column.
+// Compact machine-friendly form for the spreadsheet export's csv column: the
+// package id, NONE for none.
 export function placementCode(
   line: CoverageLine,
-  decisions: Pick<LineDecisionSet, 'layersPlaced' | 'aggregateStopLevel'>,
+  decisions: Pick<LineDecisionSet, 'reinsuranceOption'>,
 ): string {
   if (!hasTractableCeded(line)) {
     throw new Error(`placementCode: ${line} has no tractable ceded reinsurance to encode`);
   }
-  const placed = normalizeLayersPlaced(line, decisions.layersPlaced);
-  const bits = placed.map((on, i) => on ? `L${i + 1}` : '').filter(Boolean).join('+') || 'NONE';
-  const agg = hasAggregate(line) && decisions.aggregateStopLevel >= 0 ? `+AGG${decisions.aggregateStopLevel}` : '';
-  return bits + agg;
+  placementFor(line, decisions.reinsuranceOption);
+  return decisions.reinsuranceOption === 'none' ? 'NONE' : decisions.reinsuranceOption;
 }
 
 // The band above the top of the tower — GL's is the pool's largest single

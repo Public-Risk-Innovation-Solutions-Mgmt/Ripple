@@ -23,9 +23,19 @@ interface ResultSpreadsheetPageProps {
   // Current pool state, for the claims workbook's Development sheet. The
   // developing claims live on the reserve cohorts, not on a locked result.
   poolState: PoolState;
+  /** A multi-world game's world 1 — the claims workbook's source. Absent on one world. */
+  claimsWorld?: { lockedResults: ResultSet[]; poolState: PoolState };
+  worldCount?: number;
 }
 
-export default function ResultSpreadsheetPage({ lockedResults, priorHistory, instance, activeLines, instanceId, poolState }: ResultSpreadsheetPageProps) {
+// ⚠ ONE SWITCH FOR THE TWO MEMBER-LEVEL VIEWS ON THIS PAGE: the Active Member
+// Roster table and the members CSV download. The multiplayer game shows the pool
+// in aggregate, so both are hidden — the engine still holds every member and
+// buildMemberCsv still runs, so flipping this back restores them exactly.
+// Typed, not a literal, so it reads as a setting rather than dead code.
+const SHOW_MEMBER_VIEWS: boolean = false;
+
+export default function ResultSpreadsheetPage({ lockedResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld, worldCount }: ResultSpreadsheetPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
   );
@@ -111,7 +121,15 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
           <button
             type="button"
             onClick={() => {
-              const wb = buildResultsWorkbook(lockedResults, activeLines, resultMetrics);
+              // ⚠ RESULT_METRICS, NOT `resultMetrics`. This passed the POOLED list
+              // and that is what broke the Results download: buildResultsWorkbook
+              // builds BOTH scopes from this argument, and a pooled list is a
+              // LOSSY transform of the raw one — eleven rows are dropped outright
+              // (assetAllocation, and ten lineOnly metrics with no pool form), so
+              // the line tabs came out with 81 rows instead of 92 even once the
+              // accessors were made reversible. The pooled list above is for the
+              // on-screen pool table, which is the only thing it is correct for.
+              const wb = buildResultsWorkbook(lockedResults, activeLines, RESULT_METRICS);
               XLSX.writeFile(wb, exportFilename);
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
@@ -126,24 +144,34 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
               // A SEPARATE workbook, deliberately — see claimsExport.ts. The
               // results workbook above is a per-metric summary; claim-level
               // detail is thousands of rows and does not belong bolted onto it.
-              const wb = buildClaimsWorkbook(lockedResults, priorHistory, instance, activeLines, poolState, instanceId);
+              // ⚠ CLAIMS ARE A WORLD'S, NOT THE AVERAGE'S (loss engine commit 4b).
+              // An averaged year has no claims of its own, so in a multi-world
+              // game the workbook is world 1's — its own claims, its own
+              // development — and the button says so.
+              const src = claimsWorld ?? { lockedResults, poolState };
+              const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instanceId);
               XLSX.writeFile(wb, claimsExportFilename);
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
           >
             <Download size={16} />
-            Download Claims (.xlsx)
+            {claimsWorld ? `Download Claims — world 1 of ${worldCount} (.xlsx)` : 'Download Claims (.xlsx)'}
           </button>
 
-          <button
-            type="button"
-            onClick={() => downloadCsv(`source-game-members-year-${selectedYear}.csv`, memberCsv)}
-            disabled={!selectedResult || memberRows.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Download size={16} />
-            Download Members CSV
-          </button>
+          {/* ⚠ THE MEMBERS CSV DOWNLOAD IS HIDDEN, NOT DELETED. buildMemberCsv
+              and memberCsv above still run; nothing in the engine or the export
+              path changed. Uncomment to restore. */}
+          {SHOW_MEMBER_VIEWS && (
+            <button
+              type="button"
+              onClick={() => downloadCsv(`source-game-members-year-${selectedYear}.csv`, memberCsv)}
+              disabled={!selectedResult || memberRows.length === 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download size={16} />
+              Download Members CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -161,6 +189,12 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
         results={poolRowsAsMetricInput(lockedResults)}
       />
 
+      {/* ⚠ THE ACTIVE MEMBER ROSTER TABLE IS HIDDEN, NOT DELETED. The multiplayer
+          game shows the pool in aggregate; the engine still holds every member,
+          and buildMemberCsv / memberRows below are untouched. Restoring this is
+          uncommenting the block. The risk-quality note it carried still applies:
+          no member's score ever appeared here and must not. */}
+      {SHOW_MEMBER_VIEWS && (
       <SpreadsheetTable
         title={`Active Member Roster — Year ${selectedYear}`}
         icon={<Users size={16} />}
@@ -197,6 +231,7 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
         ])}
         emptyMessage="No member roster saved for this year."
       />
+      )}
     </div>
   );
 }

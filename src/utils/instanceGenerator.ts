@@ -2,6 +2,7 @@
 // Exposure = payroll in millions of dollars
 // Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
+import { scenarioOfId } from './scenarios';
 import type { GameInstance, Member, MembershipHistory, PoolState, LinePoolState, StartingFinancials, ReserveCohort } from '../types/simulation';
 import { SeededRandom, deriveSubRng } from './random';
 import { seedPaidRatio, seedWeight } from './payoutPattern';
@@ -25,8 +26,10 @@ import {
 } from '../data/defaultAssumptions';
 import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
-import { IMPLEMENTED_EFFECTS } from '../types/shocks';
-import { SHOCK_CATALOG } from '../data/shockCatalog';
+import { SHOCK_EVENTS } from './shockLosses';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, regionByShare } from '../data/pricingParameters';
+import { bookSizeOf, marketSeedOf, openingBookUnits } from './bookUnits';
+import { exposureFactor } from '../data/exposureTrend';
 
 // Each active line independently enrolls its own starting members. First it
 // draws its own seeded TARGET share within the STARTING_EXPOSURE_SHARE band
@@ -278,10 +281,10 @@ function generateStartingReserveCohorts(
 //
 // ⚠ THE LIST IS COPIED AND CHECKED, NOT TRUSTED. It is copied so a caller's
 // array cannot be mutated underneath the instance. It is checked because a
-// room's schedule arrives from another machine: an id the catalog does not
-// know, or one whose effects cannot run, would otherwise throw inside
-// resolveShocks in the year it fires — possibly years into a session, on every
-// team at once. Here it fails when the game is BUILT, before year 1.
+// room's schedule arrives from another machine: an id that is not one of the
+// R model's twelve would otherwise throw inside the new engine in the year it
+// fires — possibly years into a session, on every team at once. Here it fails
+// when the game is BUILT, before year 1. Any of the twelve may be scheduled.
 // No randomness is consumed: the schedule is data, drawn (if it was drawn at
 // all) once, by the host, before the room existed.
 // ============================================================================
@@ -291,19 +294,43 @@ export function generateGameInstance(
   scheduledShocks: readonly ScheduledShock[] = [],
 ): GameInstance {
   for (const s of scheduledShocks) {
-    const def = SHOCK_CATALOG[s.shockId];
-    if (!def) throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' is not in SHOCK_CATALOG`);
-    if (!def.effects.every(e => IMPLEMENTED_EFFECTS.has(e.kind))) {
-      throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' uses an effect that is not implemented`);
+    if (!SHOCK_EVENTS.some(e => e.id === s.shockId)) {
+      throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' is not one of the twelve`);
     }
     if (!Number.isInteger(s.yearNumber) || s.yearNumber < 1) {
       throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' has fire year ${s.yearNumber}; it must be a game year, 1 or later`);
     }
   }
-  const instance = baseInstance(instanceId, seed);
+  // The scenario rides on the instance, so every copy of it plays the same one.
+  const instance = { ...baseInstance(instanceId, seed), scenario: scenarioOfId(instanceId, seed) };
   return scheduledShocks.length > 0
-    ? { ...instance, scheduledShocks: scheduledShocks.map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })) }
+    ? { ...instance, scheduledShocks: withRegions(seed, scheduledShocks) }
     : instance;
+}
+
+// ⚠ A REGIONAL EVENT'S REGION IS PART OF THE SCHEDULE, RESOLVED HERE, ONCE.
+// It was drawn per world in the engine, from the world's own seed, so the
+// worlds disagreed about where one earthquake struck and the averaged row named
+// one world's region. Resolving it with the instance — from the GAME's seed,
+// before any world exists — gives every world the same region, whoever drew
+// the schedule: the solo start, the host's Randomise, or a hand-picked entry.
+// Every team builds the same instance from the same seed and list, so they
+// agree too, and the room record needs no new field. Each entry has its own
+// labelled stream (event, year, ordinal among the same event that year), so
+// one entry's region never moves another's. A region already given is kept.
+function withRegions(seed: number, schedule: readonly ScheduledShock[]): ScheduledShock[] {
+  const ordinals = new Map<string, number>();
+  return schedule.map(s => {
+    const key = `${s.shockId}_${s.yearNumber}`;
+    const ordinal = ordinals.get(key) ?? 0;
+    ordinals.set(key, ordinal + 1);
+    const base = { shockId: s.shockId, yearNumber: s.yearNumber };
+    if (!SHOCK_EVENTS.find(e => e.id === s.shockId)!.regional) return base;
+    if (s.region) return { ...base, region: s.region };
+    const rng = deriveSubRng(seed, s.yearNumber, `shock_region_${s.shockId}_${ordinal}`);
+    // By exposure share (regionByShare), one uniform as before.
+    return { ...base, region: regionByShare(rng.next()) };
+  });
 }
 
 function baseInstance(instanceId: string, seed: number): GameInstance {
@@ -358,13 +385,24 @@ export function generateStartingPoolState(
 ): { poolState: PoolState; startingFinancials: StartingFinancials } {
   const rng = new SeededRandom(instance.seed + 777);
 
-  const allMarketMembers = getPredefinedMarketMembers();
+  // ⚠ WITH MEMBER_LEVEL OFF THERE IS NO ROSTER TO DRAW. Each line opens as one
+  // book at OPENING_BOOK_EXPOSURE, the market carries no members and the
+  // membership ledger is empty. Every draw below on `rng` still happens, in
+  // the same order — the enrolment draws are on their own labelled streams, so
+  // skipping them moves nothing else.
+  const bookMode = !MEMBER_LEVEL.enabled;
+  const allMarketMembers = bookMode ? [] : getPredefinedMarketMembers();
+  // ⚠ A LINE OPENS ON ITS BOOK OF UNITS SINCE BOOK UNITS COMMIT 3: their sizes
+  // summed (about 30% of the market plus the last unit, different in every
+  // game), where it opened on OPENING_BOOK_EXPOSURE, one figure for all.
+  const openingExposure = (line: CoverageLine) =>
+    bookSizeOf(marketSeedOf(instance), line, openingBookUnits(marketSeedOf(instance), line));
 
   // Each active line draws its OWN starting roster (different but overlapping
   // sets) from its own derived stream — enrollment happens here, BEFORE the
   // pre-game years simulate on the enrolled books.
   const enrolledIdsByLine: Partial<Record<CoverageLine, Set<string>>> = {};
-  for (const line of activeLines) {
+  for (const line of bookMode ? [] : activeLines) {
     enrolledIdsByLine[line] = selectStartingLineMembers(
       allMarketMembers,
       line,
@@ -399,8 +437,12 @@ export function generateStartingPoolState(
   const wcMembers = lineMembers('WC');
   const activeMembers = wcMembers.filter(m => m.status === 'active');
 
-  let activeExposure = activeMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
-  let totalMarketExposure = allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
+  let activeExposure = bookMode
+    ? openingExposure('WC') * exposureFactor('WC', OPENING_EXPOSURE_YEAR)
+    : activeMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
+  let totalMarketExposure = bookMode
+    ? FULL_MARKET_EXPOSURE.WC * exposureFactor('WC', OPENING_EXPOSURE_YEAR)
+    : allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'WC', OPENING_EXPOSURE_YEAR), 0);
 
   const targetPremium = rng.range(STARTING_FINANCIALS.annualPremium.min, STARTING_FINANCIALS.annualPremium.max);
   const annualPremium = targetPremium;
@@ -478,7 +520,9 @@ export function generateStartingPoolState(
         // The drawn value is used only locally: seededNetReserve = grossDraw - recoverableDraw.
         const glRecoverableDraw = rng.range(GL_STARTING_FINANCIALS.reinsuranceRecoverable.min, GL_STARTING_FINANCIALS.reinsuranceRecoverable.max);
         const glNetUnpaidReserve = glGrossReserveDraw - glRecoverableDraw;
-        const glTotalMarketExposure = allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'GL', OPENING_EXPOSURE_YEAR), 0);
+        const glTotalMarketExposure = bookMode
+          ? FULL_MARKET_EXPOSURE.GL * exposureFactor('GL', OPENING_EXPOSURE_YEAR)
+          : allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'GL', OPENING_EXPOSURE_YEAR), 0);
         const glStartingReserveCohorts = generateStartingReserveCohorts(
           glNetUnpaidReserve,
           startingYear,
@@ -496,6 +540,7 @@ export function generateStartingPoolState(
           riskControlEffectiveness: 0,
           reserveCohorts: glStartingReserveCohorts,
           members: lineMembers('GL'),
+          ...(bookMode ? { bookExposure: openingExposure('GL') } : {}),
           netUnpaidReserve: glNetUnpaidReserve,
           // Placeholder — the redistribution block below assigns every active
           // line its weighted share of the opening surplus and investments.
@@ -524,7 +569,9 @@ export function generateStartingPoolState(
         // The drawn value is used only locally: seededNetReserve = grossDraw - recoverableDraw.
         const propertyRecoverableDraw = rng.range(PROPERTY_STARTING_FINANCIALS.reinsuranceRecoverable.min, PROPERTY_STARTING_FINANCIALS.reinsuranceRecoverable.max);
         const propertyNetUnpaidReserve = propertyGrossReserveDraw - propertyRecoverableDraw;
-        const propertyTotalMarketExposure = allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'Property', OPENING_EXPOSURE_YEAR), 0);
+        const propertyTotalMarketExposure = bookMode
+          ? FULL_MARKET_EXPOSURE.Property * exposureFactor('Property', OPENING_EXPOSURE_YEAR)
+          : allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'Property', OPENING_EXPOSURE_YEAR), 0);
         const propertyStartingReserveCohorts = generateStartingReserveCohorts(
           propertyNetUnpaidReserve,
           startingYear,
@@ -542,6 +589,7 @@ export function generateStartingPoolState(
           riskControlEffectiveness: 0,
           reserveCohorts: propertyStartingReserveCohorts,
           members: lineMembers('Property'),
+          ...(bookMode ? { bookExposure: openingExposure('Property') } : {}),
           netUnpaidReserve: propertyNetUnpaidReserve,
           // Placeholder — see the redistribution block below (same as GL).
           surplus: -propertyNetUnpaidReserve,
@@ -561,6 +609,7 @@ export function generateStartingPoolState(
     riskControlEffectiveness: 0,
     reserveCohorts: startingReserveCohorts,
     members: wcMembers,
+    ...(bookMode ? { bookExposure: openingExposure('WC') } : {}),
     netUnpaidReserve,
     surplus,
     investedAssets: 0, // assigned by the redistribution block below
@@ -588,9 +637,11 @@ export function generateStartingPoolState(
   let poolCash = 0;
   activeLines.forEach(line => {
     const ls = lineStateByLine[line];
-    const activeExp = ls.members
-      .filter(m => m.status === 'active')
-      .reduce((s, m) => s + getMemberExposure(m, line, OPENING_EXPOSURE_YEAR), 0);
+    const activeExp = ls.bookExposure !== undefined
+      ? ls.bookExposure * exposureFactor(line, OPENING_EXPOSURE_YEAR)
+      : ls.members
+        .filter(m => m.status === 'active')
+        .reduce((s, m) => s + getMemberExposure(m, line, OPENING_EXPOSURE_YEAR), 0);
     const linePremium = activeExp * ls.ratePer100 * 10_000;
     const targetSurplus = (STARTING_CAPITAL_TO_PREMIUM[line] ?? 1.0) * linePremium;
     const lineCash = OPERATING_CASH_PCT_OF_PREMIUM * linePremium;
@@ -628,6 +679,11 @@ export function generateStartingPoolState(
     // through processYear (see priorHistoryEngine), which is why members carry
     // history at Year 1 rather than starting blank.
     memberLossHistory: {},
+    // The opening book of units, from the game's seed (bookUnits.ts). On its
+    // own labelled streams: drawing it moves no other draw.
+    ...(bookMode ? {
+      bookUnits: Object.fromEntries(activeLines.map(l => [l, openingBookUnits(marketSeedOf(instance), l)])),
+    } : {}),
   };
 
   const startingFinancials: StartingFinancials = {

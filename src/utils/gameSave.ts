@@ -138,6 +138,7 @@
 // ============================================================================
 
 import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
+import { newLossEngineRuns } from '../data/pricingParameters';
 
 /**
  * The storage key. A persisted identifier, not a display string.
@@ -152,7 +153,65 @@ import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v10';
+export const SAVE_KEY = 'riskpool_gamestate_v22';
+
+/**
+ * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
+ * one reinsurance package per line (LineDecisionSet.reinsuranceOption), not a
+ * band-by-band placement, and the tower every past result was ceded through has
+ * been re-cut. A v10 save cannot be read faithfully, so it is not migrated: the
+ * loader clears it and the player starts a new game. This is the key it held.
+ */
+// ⚠ v12 SINCE LOSS ENGINE COMMIT 4b — the game runs in worlds
+// (GameState.worlds), and its pool state and results are their average. A v11
+// save holds one world's figures and no worlds, so it is cleared the same way.
+// ⚠ v13 SINCE THE SOLO SHOCK SCHEDULE — a solo game draws its schedule once at
+// its start and keeps it on the instance (utils/soloGame). A v12 solo save has
+// none and fired its shocks per world, so it cannot continue under the rule and
+// is cleared the same way.
+// ⚠ v14 SINCE LOSS ADJUSTMENT EXPENSE IS BOOKED (543a61f). A v13 save opened
+// with no assets held for the loss expense reserve — its liability appears the
+// first year after reload — so its surplus would read short by that reserve,
+// and its results carry no LAE fields. Cleared the same way.
+// ⚠ v15 SINCE PROMPT B COMMIT 2 — ONE BUMP FOR FOUR CHANGES. A v14 save was
+// written before routine large losses were on (every year's large claims and
+// the pre-game history pricing reads), before the opening held ten accident
+// years at 2x on a pre-game with years behind it, before Property opened on
+// its full requirement, and before worlds 2-10 dropped their claim lists from
+// the save. Its pre-game, its opening and its book are ones this engine no
+// longer builds, so it cannot continue faithfully and is cleared the same way.
+// ⚠ v16 SINCE BOOK UNITS COMMIT 1 — FOUR REGIONS. A v15 save's scheduled
+// regional events were resolved over three regions, uniformly, and its regional
+// uplifts read the roster's three shares; this engine has four regions drawn by
+// share. Cleared the same way.
+// ⚠ v17 SINCE BOOK UNITS COMMIT 2. A v16 save has no book of units on its pool
+// state (PoolState.bookUnits), which the engine reads from the commits that
+// follow; it cannot be given one faithfully mid-game, so it is cleared the
+// same way.
+// ⚠ v18 SINCE DEVELOPMENT SPEED. WC and GL develop 1.5x faster than the
+// recorded patterns. A v17 save's cohorts were paid, split and opened on the
+// slower patterns, and its pre-game history pricing reads was paid on them, so
+// it cannot continue faithfully and is cleared the same way.
+// ⚠ v19 SINCE THE FUNDING TABLES (e045ba7): BASELINE_CV drives the year factor
+// and the opening is set at $35M per line. v18 was not added to this list when
+// that key moved; it is retired here.
+// ⚠ v20 SINCE STABLE-SCENARIOS BLOCK A — ONE BUMP FOR THE BLOCK. A v19 save's
+// pre-game drew its factors, returns and routine large claims; its WC and GL
+// were priced on the old loss cost; its cohorts were paid and split on patterns
+// with a tail and trended at 5%; and its accident years were booked without the
+// trend up to reporting. Its pre-game, opening and ledger are ones this engine
+// no longer builds, so it is cleared the same way.
+// ⚠ v21 SINCE STABLE-SCENARIOS BLOCK B — ONE BUMP FOR THE BLOCK. A v20 save's
+// decisions name per-claim reinsurance packages, which the aggregate stop does
+// not offer (placementFor throws on them); its schedule was drawn at one event
+// per three years on the R model's rates; and its cohorts carry no stop.
+// Cleared the same way.
+// ⚠ v22 SINCE STABLE-SCENARIOS BLOCK C — ONE BUMP FOR THE BLOCK. A v21 save
+// holds the whole game, worlds and all, where this one holds the averages, the
+// decisions and world 1's claim rows and rebuilds the rest by replay; its game
+// was seeded by an eight-character code where a seed is now a scenario, 1 to
+// 20; and its pre-game opened on $35M with a 14% cushion. Cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21'];
 
 /**
  * Fields dropped on the way out.
@@ -253,6 +312,26 @@ export const SAVE_STRIPPED_KEYS: readonly string[] = [
   'memberValueRows', 'poolValue',
 ];
 
+/**
+ * The keys the NEW loss engine keeps, out of the list above.
+ *
+ * ⚠ ITS REGISTER IS SAVED, NOT REDRAWN. On the new loss engine a line-year's
+ * claims are its large losses alone — a handful a year, not hundreds — and the
+ * redraw in claimRegeneration runs the OLD per-member generators, which did not
+ * draw them. A redraw would also need the game's shock timing, which a result
+ * does not carry. So the register stays in the save and claimRegeneration
+ * refuses on the new engine rather than fabricating one. result-size-check
+ * holds the save inside its budget with these kept.
+ */
+export const NEW_ENGINE_KEPT_KEYS: readonly string[] = ['claims', 'occurrences'];
+
+/** The keys stripped on the way out, for the engine in force. */
+export function saveStrippedKeys(): readonly string[] {
+  return newLossEngineRuns()
+    ? SAVE_STRIPPED_KEYS.filter(k => !NEW_ENGINE_KEPT_KEYS.includes(k))
+    : SAVE_STRIPPED_KEYS;
+}
+
 /** Measured against a real Chromium — see the header. Not a spec figure. */
 export const MEASURED_QUOTA_CHARS = 5_242_613;
 
@@ -265,6 +344,64 @@ export const MEASURED_QUOTA_CHARS = 5_242_613;
  * measurement could not rule out.
  */
 export const SAVE_BUDGET_CHARS = 1_500_000;
+
+// ============================================================================
+// ⚠ THE AVERAGES ONLY (stable-scenarios commit 10). With WORLD_COUNT at 100 the
+// worlds cannot be saved — measured, a ten-year three-line game's state is
+// 48.5 MB of JSON — and need not be: the game is a pure function of its
+// instance and the decisions played, so a reload REBUILDS it by replaying the
+// years (utils/saveRestore.ts). The save keeps:
+//
+//   - the setup and the instance — what the opening is rebuilt from;
+//   - every played year's decisions and loan choices (GameState.playedYears);
+//   - the averaged rows (lockedResults), each carrying what it kept of its
+//     worlds (worldSummary) — what the reload is checked against;
+//   - world 1's claim rows, per year and line — the claims download's;
+//   - the decisions being edited.
+//
+// Everything else — the pool state, the worlds, the pre-game history, the
+// opening position and roster — comes back from the replay. The world rows'
+// stripping rules that stood here (WORLD_ROW_STRIPPED_KEYS,
+// OTHER_WORLD_ROW_STRIPPED_KEYS) went with the world rows.
+// ============================================================================
+
+/** World 1's claims and occurrences for one played year, by line — see the note above. */
+export type World1ClaimRows = Partial<Record<string, { claims?: unknown; occurrences?: unknown }>>;
+
+/** The game as the save keeps it. */
+export interface SavedGame {
+  setup: unknown;
+  instance: unknown;
+  currentYearNumber: number;
+  isStarted: boolean;
+  isComplete: boolean;
+  currentDecisions: unknown;
+  lockedResults: unknown[];
+  playedYears: unknown[];
+  world1Claims: World1ClaimRows[];
+}
+
+function averagesOnly(env: SaveEnvelope): SaveEnvelope {
+  const gs = env.gameState as {
+    setup: unknown; instance: unknown; currentYearNumber: number; isStarted: boolean; isComplete: boolean;
+    currentDecisions: unknown; lockedResults: unknown[]; playedYears?: unknown[];
+    worlds?: Array<{ lockedResults: Array<{ byLine: Record<string, { claims?: unknown; occurrences?: unknown }> }> }>;
+  } | null;
+  if (!gs) return env;
+  const saved: SavedGame = {
+    setup: gs.setup,
+    instance: gs.instance,
+    currentYearNumber: gs.currentYearNumber,
+    isStarted: gs.isStarted,
+    isComplete: gs.isComplete,
+    currentDecisions: gs.currentDecisions,
+    lockedResults: gs.lockedResults,
+    playedYears: gs.playedYears ?? [],
+    world1Claims: (gs.worlds?.[0]?.lockedResults ?? []).map(r => Object.fromEntries(
+      Object.entries(r.byLine).map(([l, x]) => [l, { claims: x.claims, occurrences: x.occurrences }]))),
+  };
+  return { gameState: saved, startingFinancials: null, initialMembers: null, currentDecisions: env.currentDecisions };
+}
 
 export interface SaveEnvelope {
   gameState: unknown;
@@ -282,8 +419,11 @@ export interface SaveEnvelope {
  * 2x-over-quota save shipped.
  */
 export function serialiseSave(env: SaveEnvelope): string {
-  return JSON.stringify(env, (key, value) =>
-    (SAVE_STRIPPED_KEYS.includes(key) ? undefined : value));
+  const stripped = saveStrippedKeys();
+  // The new engine keeps `claims` and `occurrences` (NEW_ENGINE_KEPT_KEYS), so
+  // world 1's claim rows survive the stripper; the averaged rows carry none.
+  return JSON.stringify(averagesOnly(env), (key, value) =>
+    (stripped.includes(key) ? undefined : value));
 }
 
 /**

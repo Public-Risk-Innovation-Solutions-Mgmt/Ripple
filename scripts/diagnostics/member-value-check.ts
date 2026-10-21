@@ -21,6 +21,9 @@
 //      matters. Asserted against what pure noise would give.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -31,7 +34,10 @@ import {
   memberValueRows, potBounds, potSplit, potTotals, potsAreExhaustive,
 } from '../../src/utils/memberValue';
 import { MARKET_TARGET_LOSS_RATIO } from '../../src/utils/marketConditions';
-import { TOWER_TOP } from '../../src/data/reinsuranceTower';
+import { TOWER_TOP, RISK_LOAD_LAMBDA } from '../../src/data/reinsuranceTower';
+import { REINSURANCE_LOAD } from '../../src/data/pricingParameters';
+import { placementFor } from '../../src/utils/reinsuranceOptions';
+import { occurrenceTotals } from '../../src/utils/reinsuranceTower';
 import type {
   Claim, CoverageLine, DecisionSet, GameState, LineResultSet, MemberPremiumShare,
 } from '../../src/types/simulation';
@@ -53,6 +59,7 @@ const ALLOWED: Record<string, string> = {
   'src/utils/memberValue.ts': 'the model itself',
   'src/utils/simulationEngine.ts': 'the post-claims value pass',
   'src/utils/gameSave.ts': 'memberValueRows and poolValue on SAVE_STRIPPED_KEYS',
+  'src/utils/worlds.ts': 'memberValueRows and poolValue DROPPED from an averaged row — per-world only (loss engine 4b)',
 };
 /**
  * How close the split-with-a-weight must sit to the unsplit pot before the
@@ -105,7 +112,7 @@ function run(games: number, years: number, decisions: (y: number) => DecisionSet
         rows.push({
           line: lr.line as CoverageLine, game: g, year: y,
           claims: r.claims ?? [], shares: r.memberPremiumShares ?? [],
-          placed: r.decisions?.layersPlaced,
+          placed: r.decisions ? placementFor(lr.line as CoverageLine, r.decisions.reinsuranceOption) : undefined,
           expected: (r.memberLossResults ?? []).reduce((s, m) => s + m.expectedLoss, 0),
           result: r,
         });
@@ -234,17 +241,43 @@ const defaultsValue = new Map<CoverageLine, number>();
       + `${m(x => x.reinsurerBenchmark).toFixed(3).padStart(14)}`
       + `${m(x => x.valueAgainstReinsurer).toFixed(3).padStart(14)}`
       + `${money(v.reduce((s, x) => s + x.aboveTowerDollars, 0)).padStart(13)}`);
-    if (!(Math.abs(v[0].marketBenchmark - MARKET_TARGET_LOSS_RATIO) < 1e-12)) {
-      failures.push(`${line}: the market benchmark is not MARKET_TARGET_LOSS_RATIO. The value term and `
+    if (!(Math.abs(v[0].marketBenchmark - MARKET_TARGET_LOSS_RATIO[line as CoverageLine]) < 1e-12)) {
+      failures.push(`${line}: the market benchmark is not this line's MARKET_TARGET_LOSS_RATIO. The value term and `
         + `the satisfaction level term must not hold two different opinions of what a carrier charges.`);
     }
     // The reinsurer's benchmark is E[ceded]/premium and the tower is priced at
-    // E + lambda.SD with lambda 0.60, so it MUST sit below 1 — a reinsurer that
-    // expected to pay out its whole premium would be running a charity.
-    if (!(m(x => x.reinsurerBenchmark) > 0 && m(x => x.reinsurerBenchmark) < 1)) {
+    // E + lambda.SD, so WHERE IT MUST SIT DEPENDS ON LAMBDA and the check reads
+    // the constant rather than assuming a value. At a positive load it must sit
+    // strictly below 1 — a reinsurer that expected to pay out its whole premium
+    // would be running a charity. At lambda 0 that charity is exactly what is
+    // being bought on purpose, so the ratio must be exactly 1.000.
+    //
+    // ⚠ NOT WIDENED TO (0, 1]. That would be worse than either branch: it would
+    // pass at zero load AND pass if the load mechanism silently died at a
+    // non-zero lambda, which is the one failure this assertion exists to catch.
+    // Same treatment as reinsurance-tower-check S3 and funding-basis-check S6.
+    const benchmark = m(x => x.reinsurerBenchmark);
+    if (RISK_LOAD_LAMBDA > 0) {
+      if (!(benchmark > 0 && benchmark < 1)) {
+        failures.push(`${line}: the reinsurer's implied loss ratio reads `
+          + `${benchmark.toFixed(3)}, outside (0, 1). It is expectedCeded over the `
+          + `quoted premium and the quote carries a positive risk load (lambda `
+          + `${RISK_LOAD_LAMBDA}), so it cannot reach 1.`);
+      }
+    } else if (!(Math.abs(benchmark - 1 / (1 + REINSURANCE_LOAD)) < 1e-9)) {
+      // ⚠ FORKED AT COMMIT 4, AND THE OLD CLAIM IS KEPT IN WORDS BECAUSE IT WAS
+      // TRUE. The tower was priced at E[ceded] + lambda x SD with lambda 0, so
+      // every layer cost exactly its expected cession and the reinsurer's
+      // implied loss ratio WAS exactly 1.000 — the charity this branch named.
+      // The price is now expected x the line's CLF multiplier at 70%, so the
+      // ratio is exactly 1 / CLF: 0.877193 on WC, 0.881057 on GL, 0.871764 on
+      // Property. Still an exact identity, still not widened to a range — a
+      // `benchmark < 1` here would pass whatever the load happened to be,
+      // including a load that had silently died.
       failures.push(`${line}: the reinsurer's implied loss ratio reads `
-        + `${m(x => x.reinsurerBenchmark).toFixed(3)}, outside (0, 1). It is expectedCeded over the `
-        + `quoted premium and the quote carries a positive risk load, so it cannot reach 1.`);
+        + `${benchmark.toFixed(6)}, but every layer is priced at expected cession x `
+        + `${1 + REINSURANCE_LOAD} (1 + REINSURANCE_LOAD), so it must be `
+        + `exactly ${(1 / (1 + REINSURANCE_LOAD)).toFixed(6)}.`);
     }
   }
 }
@@ -361,23 +394,59 @@ console.log('  line      corr(lo,hi)   w=0.25   w=0.50   w=0.75   worst');
   }
 }
 
-// --- 7. retainedAboveTower is not the source --------------------------------
-console.log('\n--- 7. retainedAboveTower IS NOT THE SOURCE, and here is why ---');
+// --- 7. retainedAboveTower now AGREES with the re-derivation -----------------
+console.log('\n--- 7. retainedAboveTower AGREES WITH THE DRAWN LOSS ABOVE THE TOP ---');
+// ⚠ THIS SECTION'S TRAP HAS SPRUNG AND CLOSED, AND THE REPLACEMENT IS A
+// STRONGER TEST THAN EITHER SIDE WAS ALONE.
+//
+// What stood here asserted that GL's engine field reads EXACTLY 0 while real
+// dollars sit above the tower, and said why: the field is set once, at
+// inception, from the BOOKED occurrence, and initialEstimate contracted a $40M
+// claim to about $7M, so the excess accrued later through cedeDevelopment into
+// undifferentiated retained loss. It ended "if the field has started reporting,
+// the engine changed and memberValue.ts should read it instead of re-deriving
+// the layer from claims."
+//
+// FULL_COST_BOOKING removed the contraction, so the tower attaches to the real
+// occurrence on day one and the field reports. Measured: GL reads $304.79M
+// against $304.79M of drawn loss above the top — the same number, not merely
+// the same order.
+//
+// ⚠ AND memberValue.ts STILL RE-DERIVES, DELIBERATELY, which is where this
+// parts company with what the old note suggested. The field is a LINE TOTAL on
+// the result row; memberValue needs the split PER MEMBER, which the field
+// cannot give. So the re-derivation stays and this asserts the two AGREE —
+// which catches a drift in either, where reading the field would have replaced
+// one source with another and checked neither.
 {
   for (const line of LINES) {
     const rs = rows.filter(r => r.line === line);
     const field = rs.reduce((s, r) => s + (r.result.retainedAboveTower ?? 0), 0);
     const real = rs.reduce((s, r) => s + layer(r.claims, TOWER_TOP[line as 'WC'], Infinity), 0);
+    // Per OCCURRENCE, as the tower attaches. See the note below on Property.
+    const byOcc = rs.reduce((s, r) => s + occurrenceTotals(r.claims, r.result.occurrences ?? [])
+      .reduce((t, o) => t + Math.max(0, o - TOWER_TOP[line as 'WC']), 0), 0);
     const nonZero = rs.filter(r => (r.result.retainedAboveTower ?? 0) > 0).length;
     console.log(`  ${line.padEnd(9)} engine field ${money(field).padStart(11)} (>0 in ${nonZero} of `
-      + `${rs.length} line-years)   drawn claims above the top ${money(real).padStart(11)}`);
-    if (line === 'GL' && !(real > 0 && field === 0)) {
-      failures.push(`GL's retainedAboveTower reads ${money(field)} against ${money(real)} of drawn loss `
-        + `above the tower. THIS ASSERTION RECORDS A TRAP: the field is set ONCE, at inception, from the `
-        + `BOOKED occurrence, and initialEstimate contracts a $40M claim to about $7M — so it reads 0 `
-        + `while the excess accrues later through cedeDevelopment into undifferentiated retained loss. `
-        + `If the field has started reporting, the engine changed and memberValue.ts should read it `
-        + `instead of re-deriving the layer from claims.`);
+      + `${rs.length} line-years)   drawn occurrences above the top ${money(byOcc).padStart(11)}`
+      + `   (per claim ${money(real)})`);
+    // ⚠ ASSERTED PER OCCURRENCE SINCE LOSS ENGINE COMMIT 4a, AND THE PER-CLAIM
+    // FIGURE IS NOW REPORTED, NOT ASSERTED. The packages cap Property's tower at
+    // $50M (it reached $1B), so a multi-claim catastrophe occurrence can pierce
+    // the top while none of its claims does alone. Measured: Property's field
+    // $411.48M equals the per-occurrence re-derivation exactly; the per-claim
+    // one reads $368.63M. WC and GL, one claim per occurrence, agree on all
+    // three. The per-claim gap is a MEMBER-PATH limitation — memberValue.ts
+    // splits the band per member by claim — recorded rather than fixed, because
+    // the member path is dormant.
+    // Relative where there is anything to be relative to, absolute at zero.
+    const agree = byOcc > 0 ? Math.abs(field / byOcc - 1) < 1e-6 : field === 0;
+    if (!agree) {
+      failures.push(`${line}: the engine's retainedAboveTower reads ${money(field)} against `
+        + `${money(byOcc)} of drawn occurrence loss above the top. The field is set at inception from the booked `
+        + `occurrence and memberValue.ts re-derives the layer from the claims; under full-cost booking `
+        + `those are the same quantity and must agree. A gap means the booking has started contracting `
+        + `again, or the two have drifted apart about where the top is.`);
     }
   }
 }

@@ -819,7 +819,477 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // The lines share one balance sheet, so a bigger Property book moves the cash
 // every line is funded out of; that coupling is the design, and its absence
 // from the underwriting fields is the evidence nothing leaked.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v50.json');
+// ⚠ v50 -> v51: THE INVESTMENT RETURN CUT, AND THE CAPTURE IS LARGER THAN THE
+// CHANGE. INVESTMENT_RETURN_SCALE takes every asset class's mean to two-thirds,
+// so investment income and everything downstream of it moves by construction —
+// that part is the point. What needs explaining is why CHARGES AND RATES MOVED
+// TOO, because the rate does not reach pricing and the capture looks as though
+// it does.
+//
+//   added   180  programSeverityApplied — INHERITED from aada492, not this
+//                change; it was already pending against v50.
+//   changed      82 field names, including totalMemberCharge (180 instances),
+//                poolPremium (180) and ratePer100 (100).
+//
+// ⚠ THE RATE REACHES THE PRE-GAME ACCEPTANCE SEARCH, NOT PRICING, AND THE
+// DIFFERENCE IS MEASURABLE RATHER THAN RHETORICAL. runLinePreGame accepts the
+// first candidate past whose ENDING SURPLUS / premium lands in
+// OPENING_SURPLUS_BAND; ending surplus contains investment income; a rejected
+// attempt re-seeds at (seed + attempt * 997). So a lower return can reject a
+// past the old rate accepted, and the whole history — including the opening
+// roster — is redrawn. Measured over 24 free-running games, 22 of 24 accepted a
+// DIFFERENT attempt on at least one line.
+//
+// THE ISOLATING TEST, because free-running games cannot answer this: the old
+// tree's {instance, setup, poolState, priorHistory} were serialised and replayed
+// through the NEW tree's engine. Given the SAME past,
+//
+//     charges, pool premium and membership   IDENTICAL in 24 of 24 games,
+//                                            all 5 years, to 6 decimal places
+//     investment income                      DIFFERENT in 24 of 24
+//
+// So pricing and membership are rate-independent, and every charge that moved in
+// this capture moved because the BOOK is different, not because the price of a
+// given book is. The 2 of 24 free-running games that happened to accept the same
+// attempt also came out bit-identical on charges, which is the same result
+// reached the weaker way.
+// ⚠ v51 -> v52: REQUIRED CAPITAL GAINS A CATASTROPHE TERM, AND THE OPENING MOVES
+// TO A COMMON MULTIPLE OF IT. Two changes, one capture, because the second is
+// calibrated against the first and splitting them would mean two captures with
+// the middle one attributable to nothing.
+//   reserveRiskMarginNeeded += catCapitalRetained — Property only; WC and GL
+//     have no catastrophe band, so their margin is unchanged to the dollar.
+//   OPENING_SURPLUS_BAND moves to a 'required' basis at 2.28x on all three, and
+//     STARTING_CAPITAL_TO_PREMIUM is re-solved with it.
+//   catCapitalNeeded is ADDED as a line result field, so the audit page can
+//     state this row's derivation from the engine's own figure rather than
+//     recompute it. audit-formula-check caught the row's formula still saying
+//     expectedNetUnpaidLoss x (CLF - 1) — 384 row-instances where the NUMBER
+//     was right and the stated derivation was not.
+// So every Property figure moves, and every line's opening book re-rolls
+// (the pre-game accepts against the band, and the band changed).
+//
+// ⚠ THE CORRECTION THIS CAPTURE CARRIES. b9d797e's message says the pool opened
+// below its required capital at -7.7%. That was WC ALONE, from a probe that read
+// the first line of a loop and labelled it the pool. The pool opened at +97.6%,
+// nearly DOUBLE its requirement. The same bug produced that message's -12.9% and
+// +41.3%; the pool figures are +97.6%, +159% and +159%.
+// ⚠ v52 -> v53: THE REINSURANCE RISK LOAD GOES TO ZERO, AND THE OPENING PIN
+// FOLLOWS IT. Every layer on every line is priced at 1x its expected cession, so
+// reinsuranceCost, totalMemberCharge, retainedCoverMargin and everything
+// downstream of them moves in every game. The pin moved too — cheaper cover is a
+// smaller member charge, so the pre-game accumulates less surplus and the
+// candidate distribution slid 60% of a band width off centre. The BAND did not
+// move; 2.28x of required capital is still the design.
+//
+// ⚠ WHAT THIS CAPTURE DOES NOT CONTAIN, STATED SO IT IS NOT INFERRED: declining
+// cover still WINS. Zero load halves its advantage and does not reverse it —
+// WC full $29.3M against none $71.8M, GL $38.3M against $144.5M, Property $45.0M
+// against $121.7M. The residue is not the load: at lambda 0 a fully covered pool
+// pays $44.62M and recovers $6.31M on WC (0.14), $128.64M and $16.04M on GL
+// (0.12). Layers are priced on the DRAWN severity and recover on the BOOKED
+// occurrence, which forward booking contracts below the attachment. That is the
+// converging-climb work on feature/fast-development, and it is additive to this.
+// ⚠ v53 -> v54: THE feature/uw-decisions MERGE. Numbered above BOTH parents —
+// the branches' numbering had collided, each having minted its own v52 on
+// different content, so this takes a number neither side used.
+//
+// Both sides move this capture, and they move it for unrelated reasons.
+// From risk-control: zero risk load, required capital with a catastrophe term,
+// the investment return cut, Property mitigation, the claims system's fixed
+// thresholds. From uw-decisions: the book-mix normaliser OUT OF THE DRAW (so
+// composition now reaches losses at all), the steepened risk-quality slope,
+// adverse selection on intake, the renewal and intake sliders, the quote fix.
+// Plus one quantity re-derived BY the merge: Property's market target back to
+// 0.65, because its 0.60 was derived from a catastrophe load that zero risk
+// load has set to zero. See marketConditions.ts.
+//
+// ⚠ THE OPENING PIN WAS RE-SOLVED AND DELIBERATELY HELD. Both branches changed
+// how pre-game pasts end, so a re-solve was run as a matter of course and came
+// back already centred — solver pass 0 at +0.0010 / -0.0316 / +0.0401 against
+// its own 0.053 tolerance. The pins are unchanged, so opening books re-roll
+// here only because the ENGINE moved, not because the pin did.
+// v56: THE SET OPENING. The pre-game search, the opening pin and its
+// acceptance band are retired. Prior history still plays PRIOR_HISTORY_YEARS
+// years from the seed, but everything older is now a BULK cohort held NET at
+// its expected ultimate times the unpaid share at its age, taken from the
+// game's own recorded patterns over each pattern's full length — WC 37 years,
+// GL 21, Property 11. Opening surplus is set, not searched: 2.28 x the line's
+// own required capital.
+//
+// 17714 cells across 83 fields, shape unchanged (0 added, 0 removed). The
+// direction is the larger WC book: WC's opening reserve goes 13.5 cohorts to
+// 37 and its invested assets rise with it, so every balance-sheet and
+// investment-income field downstream re-rolls. Nothing changed about how a
+// played year develops, which is why the field LIST is identical.
+// v57: CASE AND IBNR, AND NOTHING ELSE. A PURE ADDITION — 1800 field readings
+// added (six scalars x 300 instances: caseReservesNet, ibnrNet,
+// caseReservesGross, ibnrGross, caseReservesCeded, ibnrCeded), 0 removed, and
+// 0 CHANGED. Every field present in v56 is bit-identical here.
+//
+// That is the whole claim of pricing commit 5(c): the split is a PRESENTATION
+// derived from the recorded patterns, read by nothing economic. This capture is
+// one of the two places that claim is tested — reserve-split-check is the
+// other, and it makes the stronger version by inverting the split and
+// requiring the same bit-identity.
+//
+// Recaptured so the new fields are gated from here on rather than sitting
+// outside the baseline, which is how an addition rots.
+// v58: FIVE PRIOR YEARS, NOT TEN — ONE PARAMETER, AND NOTHING ELSE MOVED IT.
+// PRIOR_HISTORY_YEARS drops to 5 and the pre-game's depth is DERIVED from it
+// now, so the pre-game plays exactly the history the pricing reads and every
+// older accident year is a bulk reserve. 17160 cells across 67 fields, shape
+// unchanged (0 added, 0 removed).
+//
+// ⚠ THE NEW RATE STACK IS IN THIS COMMIT AND MOVED NONE OF IT. NEW_RATE_STACK
+// ships off, and the control that proves it is the one worth recording: with
+// PRIOR_HISTORY_YEARS alone put back to 10 and every other line of the commit
+// in place, this capture read 0 added, 0 removed, 0 CHANGED against v57. So
+// each of the 17160 cells belongs to the parameter and none to the new stack.
+//
+// The direction is a SMALLER opening: bulk years are held at EXPECTED ultimate
+// while played years hold their simulated one, and realised gross ultimate
+// runs above expected on this engine, so trading five played years for five
+// bulk years lowers the reserve. WC and GL fall about 8%, Property is flat.
+// v59: REINSURANCE PRICED AT EXPECTED LAYER LOSS x CLF AT 70%, AND THE
+// BULK-YEAR CESSION FIX. Two changes, both in the tower.
+//
+// The price was E[ceded] + lambda x SD with lambda 0 — the tower was
+// actuarially FREE. It is now expected x the line's CLF multiplier at 70%, so
+// every placed layer costs 14.0% more on WC, 13.5% on GL, 14.7% on Property,
+// and that load is a real cost to members for the first time.
+//
+// The bulk accident years no longer take year 1's cession ratio. Each is
+// priced at layer bounds scaled by (1.05)^age, so an older, cheaper year cedes
+// less through a fixed-dollar attachment and keeps more net reserve: bulk
+// reserve WC +17.9%, GL +7.7%, Property +0.4%.
+// v60: THE NEW RATE STACK, ON. ONE FLAG, AND IT MOVES EVERY PRICED FIGURE —
+// which is the point of the commit rather than a side effect of it.
+//
+// 12,845 readings changed across 47 fields, every one of them downstream of
+// the charge. In four groups, and nothing falls outside them:
+//
+//   THE CHARGE ITSELF (300 each)  poolPremium, adminExpense, the two sums,
+//     totalMemberCharge, grossPremium, operatingExpense; and per line-year
+//     (180 each) ratePer100, purePremiumPer100, purePremium,
+//     netPurePremiumPer100. WC's opening rate goes 2.859 -> 6.177.
+//   WHAT THE CHARGE BUYS  the balance sheet and the surplus path — invested
+//     assets, investment income, cash both ends, total assets, ending surplus,
+//     net income, underwriting income, the funding gap and the two capital
+//     ratios. Reserves and claims do NOT move: the loss side is untouched.
+//   RATIOS  fourteen of them, because premium is the denominator of all but
+//     one. expectedExpenseRatio 0.465 -> 0.264 is the clearest reading of what
+//     the new stack does — the same admin dollars over a much larger premium.
+//   SATISFACTION  285 instances, 7.1 -> 6.8, because members read the rate.
+//
+// AND THREE THAT ARE NOT VALUE MOVES, STATED SO THEY ARE NOT MISREAD AS ONE:
+// surplusTieOutDifference (247, 1.5e-8 -> -4.5e-8), expectedCombinedRatio
+// (179, 0.9999999999999998 -> 1) and investmentReturnRate (35, one ulp) are
+// float reassociation on quantities of a different magnitude, not movement.
+//
+// ⚠ marketShare MOVES ON 39 INSTANCES WITH NO ROSTER MOVEMENT, AND THAT IS NOT
+// A CONTRADICTION. newMembers, withdrawnMembers and declinedMembers are all
+// bit-exactly 0 across all 150 instances, and no per-line marketShare moved.
+// The 39 are POOL rows: the pool's share is the premium-weighted average of
+// the lines' shares, weighted by totalMemberCharge, and the new stack changes
+// the charge mix between lines (WC +116%, GL +57%, Property +40%). The weights
+// moved; the shares did not.
+//
+// 1,080 fields are ADDED and are not a value change: expectedToSurplus,
+// finalRatePer100, firstIndicationPer100, lossPurePremiumPer100 and the two
+// prior-year panel fields.
+// v61: THE GL POOL LIMIT AND THE PRE-GAME FUNDING LEVEL. Two changes, and the
+// INSTANCE COUNTS separate them cleanly — which is why they could be captured
+// together rather than one at a time.
+//
+//   300 instances (every line-year)  the pre-game funding level. Surplus,
+//     invested assets, investment income, the capital ratios and the cash both
+//     ends move on ALL THREE LINES by about 0.03%. The opening SURPLUS is
+//     unchanged — it is set from the reserve, which no funding level can move
+//     — but the opening CASH is a share of premium, so funding the declared
+//     years at 70% leaves a different cash/invested split, and the investment
+//     income on it compounds from there.
+//   72-88 instances (GL only)  the pool limit. Reserves, paid, case and IBNR
+//     both bases, expected loss, premium, the charge and seven ratios. GL's
+//     gross falls 7.83% and its rate 5.6%, because the pool no longer prices
+//     for a tail it never covered.
+//   285 instances  memberSatisfaction, 6.8 -> 6.9, because rates fell.
+//
+// 600 fields are ADDED and are not a value change: memberShareAboveLimit and
+// claimsAboveLimit. WC and Property see no loss, reserve or premium move at
+// all — their limit is null and the engine does not even re-sum their gross.
+// v62: THE HOST'S DEVELOPMENT % GOES LIVE, AND THE SIGN CONVENTION WITH IT.
+//
+// ⚠ AT 0% ON EVERY LINE THIS BASELINE IS BYTE-IDENTICAL TO v61 — checked, not
+// claimed, by running this file with PRIOR_DEVELOPMENT_DEFAULTS overridden to
+// zero against the previous capture: VALUE IDENTITY HOLDS. The mechanism
+// takes no draw and no branch at 0%, so the engine is inert; what moves below
+// is the defaults (WC 3% adverse, GL 10% adverse, Property 2% favourable)
+// doing what they say.
+//
+// Reserves, ultimates, paid and the surplus path move on all three lines, in
+// the direction of each line's sign. The two development rows on the results
+// sheet also change their PRINTED SIGN: they were favourable-positive and are
+// now adverse-positive, the one convention every display now uses. That is a
+// presentation change on a field the engine did not touch.
+// v63: LOSS ENGINE COMMIT 3a — THE NEW ENGINE, PERMANENT, ONE BOOK PER LINE.
+// 25,623 instances across 98 fields move; none added, none dropped. Every one
+// is attributed to one of five causes, field by field:
+//
+//   THE ENGINE (NEW_LOSS_ENGINE on). Losses are the aggregate ordinary cohort
+//     plus the shocks' large losses; nothing else arrives. So the gross and net
+//     ultimates, incurred, paid, reserves (case and IBNR, both bases), prior-
+//     year development, the loss ratios and every surplus, asset, cash and
+//     income figure downstream move. Ordinary losses sit below every
+//     attachment, so the ceded reserves, priorYearDevelopmentCeded, recovery
+//     (282 of 300 now 0), reinsuranceCost and expectedCededPer100 fall to
+//     about nothing; developmentAbovePoolLimit, memberShareAboveLimit and
+//     claimsAboveLimit to 0; claimCount to 0 (a quiet year has no large loss).
+//     expectedLoss is the engine's ex-ante expectation; catCapitalNeeded is
+//     newEngineCatCapital's (the basis is an open question to the owner — see
+//     PENDING_MULTIPLAYER). The expense ratios fall with the reinsurance cost.
+//   MEMBERS CUT (MEMBER_LEVEL off). activeMembers, enrolmentCount, applicants
+//     and intakeRoom go to 0; activeExposure, writtenExposure and marketShare
+//     become the opening book's mean (OPENING_BOOK_EXPOSURE), unmoved at
+//     default decisions. memberSatisfaction and averageRiskQuality are carried
+//     at their opening values, hidden and read by nothing — the 6.9 -> 7.4 and
+//     4.0999... -> 4.1 are the opening value, no longer moved by members.
+//   PRICING ON THE NEW LOSSES. ratePer100, the pure premiums, the indications,
+//     the prior-year indications, expectedToSurplus and newLossCostPer100 are
+//     the new stack's on the ledger the new engine writes.
+//   THE STORED LOSS RATE. lossPurePremiumPer100 is now read back off
+//     expectedLoss, which under the new engine is not exposure x a rate — the
+//     audit page's Pure Premium row needs the rate that produces it.
+//   REASSOCIATION. surplusTieOutDifference (+/-1.49e-8), expectedCombinedRatio
+//     (1 -> 1.0000000000000002) and investmentReturnRate (32 instances, last
+//     digit) are the same quantities reached on different figures.
+//
+// ⚠ THE OLD ENGINE STILL REPRODUCES v62 BYTE FOR BYTE: run this file with
+// --import ./scripts/tools/engine-mode/legacy-engine.ts against v62 and it
+// holds. Checked before the recapture, not claimed.
+// (Commit 3b removed legacy-engine.ts with the old shocks; the old engine is
+// reproducible now only from the legacy-engine branch. 3b itself is
+// value-neutral: this baseline holds unchanged across it.)
+//
+// v64: LOSS ENGINE COMMIT 4a — ONE REINSURANCE PACKAGE PER LINE, THE MIDDLE ONE
+// BY DEFAULT. 13,249 instances across 70 fields move; none added, none
+// dropped. The control ran first: 3b (88d1e6e), in its own worktree,
+// reproduced v63 exactly. Every move is the default package replacing the
+// full tower — $9M xs $1M on WC and GL (was to $50M / $25M), $20M xs $5M on
+// Property (was to $1B) — on the tower re-cut at the packages' edges:
+//
+//   WC   the $10M-$50M band is no longer bought. Its cost was tiny on this
+//        book, so only reinsuranceCost and expectedCededPer100 move by more
+//        than 1e-6 relative (netIncome and underwritingIncome on 1-2
+//        instances); everything else on WC moves in the last digits.
+//   GL   the $10M-$25M band is no longer bought: reinsuranceCost (673,345 ->
+//        402,266 in year 1), the net pure premium, the rate, premium, the
+//        ratios and every surplus, asset and income figure downstream.
+//   Property  the cover stops at $25M instead of $1B: reinsuranceCost
+//        (7,511,174 -> 1,031,666), the rate and everything downstream; the one
+//        catastrophe year on two instances recovers 15,000,000 instead of
+//        109,448,263 (the earthquake keeps its $10M retention, so the package
+//        answers it from $10M to $25M), retains 69,448,263 above the $50M top,
+//        and its net reserves, paid, incurred and liabilities rise with it;
+//        catCapitalNeeded, reserveRiskMarginNeeded and fundingMarginNeeded
+//        rise because the pool now retains the catastrophe above $25M.
+//   marketShare (tri pool) follows the rates.
+//   REASSOCIATION: surplusTieOutDifference (+/-1.49e-8 -> 0), expectedCombined
+//        Ratio (1.0000000000000002 -> 1), investmentReturnRate and prior-
+//        YearDevelopment (last digit only).
+//
+// ⚠ ONE IDENTITY BROKE, AND IT IS INTENDED: retainedAboveTower was 0 on all
+// 300 instances because Property's tower reached $1B. It now reads 69,448,263
+// on the two Property catastrophe-year instances (pool and line, both
+// configurations): the loss above the $50M top that every package retains.
+//
+// LOSS ENGINE COMMIT 4b (ten worlds) IS VALUE-NEUTRAL HERE, AND v64 HOLDS
+// UNCHANGED: this harness drives the engine one world at a time through
+// processYear, and the struck-rate seam is inert without a struck rate — no
+// field moved, none was added. What ten worlds change is what the app SHOWS,
+// the average, and that is RENDER_IDENTITY_v45 and SOLO_EXPORT_GUARD_v68.
+//
+// v65: BULK COHORTS OPEN AT THEIR OWN AGE. They stored their PATTERN age as
+// `age`, a step older than the convention the engine steps by, so year 1 paid
+// them two years' worth and they ran a year ahead of their pattern after. The
+// control ran first: 1431cd7, in its own worktree, reproduced v64 exactly. 43
+// fields move, no field added or removed, and every one is the payment timing
+// or follows from it:
+//   - PAID: netPaidLosses (e.g. year 1 9,426,968 -> 7,543,683) — the bulk
+//     years now pay one step a year.
+//   - WHAT IS NOT PAID STAYS: endingNetReserve and everything struck on it
+//     (beginningNetReserve, case and IBNR, expectedNetUnpaidLoss, the reserve
+//     risk margin and funding targets, totalLiabilities, nextYearPaydownRate),
+//     the cash and investments it is held in, investment income on them, and
+//     totalAssets.
+//   - DEVELOPMENT on the larger unpaid balances: priorYearDevelopment, and so
+//     netIncurredLoss, the loss and combined ratios and underwriting income, by
+//     a few thousand dollars a line-year.
+//   - SURPLUS, net income and the capital ratios that follow.
+// No rate, premium or pricing field moved: pricing reads the five played and
+// prior years, never the bulk.
+//
+// v66: LOSS ADJUSTMENT EXPENSE IS BOOKED (lossExpense.ts) — incurred, paid and
+// reserved as the rate's shares of the ground-up loss (ULAE alone on GL). The
+// control ran first: e8333a5 reproduced v65 exactly. SEVEN FIELDS ADDED on
+// every row — alaeIncurred, ulaeIncurred, laeIncurred, laePaid,
+// beginningLaeReserve, endingLaeReserve, actualLaeRatio — none removed. 24
+// fields move, each the LAE or what follows it:
+//   - UNDERWRITING spends it: underwritingIncome (e.g. 2,221,770 -> 414,000),
+//     netIncome, and actualCombinedRatio / combinedRatio, which now carry the
+//     LAE ratio (e.g. 0.856 -> 0.973).
+//   - THE BALANCE SHEET holds it: totalLiabilities rise by the loss expense
+//     reserve; the opening holds assets for it, so totalAssets, investments
+//     (beginning, ending, invested) and the income they earn rise with it.
+//   - SURPLUS and the capital ratios that follow (year 1's beginning surplus is
+//     the ruled opening and does not move — 240 of 300 beginning-surplus
+//     instances do, the later years).
+//   - surplusTieOutDifference reads 0 where it carried float noise; cash moves
+//     by one ulp on 87 instances.
+// NO loss, paid, reserve, development, rate or premium field moved.
+//
+// v67: THE ANNUAL STATEMENT'S TWO RESULT FIELDS. The engine computed the book's
+// movement and kept only the retention rate; the results page needs the split,
+// so every line row — and the pool row, in mixed units like writtenExposure —
+// now carries renewalExposure (the book kept after the renewal cut and any
+// withdrawal) and newBusinessExposure (the book newly written), in written-
+// exposure units, summing to writtenExposure. The control ran first: 6549695
+// reproduced v66 exactly. 600 field instances ADDED — those two, on every row —
+// none removed, and 0 changed: every field present in both is bit-identical.
+// v68: ROUTINE LARGE LOSSES ON (Prompt A commit 1). The control ran first:
+// 21e96e7 reproduced v67 exactly. Shape unchanged (38,760 fields, none added
+// or removed); 24,196 instances moved across 92 fields, every one downstream of
+// the switch: claims above the ordinary limit now arrive every year, pre-game
+// included, so losses, cessions and reserves rise, the experience rate reads
+// them (ratePer100, the indication fields, the pure premiums), and premium,
+// capital, the ratios and the balance sheet follow. claimCount reads the
+// routine claims; marketShare (34 instances) moves with the rate against the
+// market; investmentReturnRate (23) by an ulp through the asset weights.
+// ⚠ ONE IDENTITY LEFT ITS VALUE, AND IT IS INTENDED: priorYearDevelopmentCeded
+// was 0 on all 300 instances and now is not on 210 (worst $777K). Nothing
+// reached the tower in these games before; routine claims now pierce the
+// retention, and the tower answers their development as the accident year's
+// own cover — which is what the field exists to record.
+// v69: PROPERTY OPENS ON ITS FULL REQUIREMENT (Prompt A commit 3) — the
+// retained-catastrophe charge joins the reserve margin in the opening rule.
+// The control ran first: 4e44465 reproduced v68 exactly. Shape unchanged;
+// 2,479 instances moved across 20 fields, all of them surplus and what holds
+// or earns it — surplus, invested assets and cash, investment income and net
+// income, the funding gaps and capital ratios, the tie-out's float noise. NO
+// loss, premium, rate, reserve or cession field moved, and no identity left
+// its value: the pre-game's losses do not read surplus, so a larger opening
+// changes what the pool holds and earns on, not what it pays.
+// v70: THE OPENING HOLDS TEN YEARS AT 2x, AND THE PRE-GAME HAS YEARS BEHIND IT
+// (Prompt A commit 2). The control ran first: 8a9db53 reproduced v69 exactly.
+// Shape unchanged; 14,325 instances moved across 54 fields, none an identity.
+// The opening reserve is the ten-year window the pre-game carried (WC's older
+// runoff is closed), so the reserves, their split, paid losses, prior-year
+// development and the LAE on them move, and net incurred and the loss ratios
+// with them; surplus opens at 2x (was 2.28x), so invested assets, investment
+// income, the funding gaps and the capital ratios move; the bulk years carry a
+// gross ledger, so ceded case and IBNR move; and the pre-game's own last
+// indication and rate (priorFirstIndicationPer100, priorFinalRatePer100) move
+// with its steadier history and its ex-ante reinsurance price. NOT moved: any
+// game year's rate, pure premium or premium — year 1 prices off the five
+// played pre-game years, whose losses are the same draws.
+// v71: FOUR REGIONS (book units commit 1). The control ran first: 8c370a9
+// reproduced v70 exactly. Shape unchanged; 10,631 instances moved across 86
+// fields, none an identity. A regional event now strikes one of four regions
+// drawn by exposure share (25/30/25/20), so the expected share its A reaches
+// falls from 0.334 to 0.255: expected loss and the pure premium and rate struck
+// from it move a little (Property year 1 -0.25%, WC and GL under $2K), and a
+// fired event's A lands on a different share — its ultimate, net incurred,
+// reserves, surplus and what they drive move with it.
+// v72: ORDINARY LOSSES FROM BOOK UNITS (book units commit 3). The control ran
+// first: b1142b1 reproduced v71 exactly. Shape unchanged; 26,104 instances
+// moved across 98 fields, none an identity. A line opens on its book's
+// exposure — its units' sizes summed — so exposure, the market share and
+// everything struck on exposure move (premium, rates, reinsurance cost);
+// ordinary losses are the units' draws and expected loss carries the book's
+// risk, so losses, reserves, surplus and the ratios move with them.
+// v73: LARGE LOSSES ON BOOK UNITS (book units commit 5). The control ran
+// first: caea33d reproduced v72 exactly. Shape unchanged; 15,986 instances
+// moved across 91 fields, none an identity. Routine large claims are counted
+// on the book's size-weighted risk and land on its units by size x risk, and
+// expected loss and the tower's layer prices carry that risk: expected loss,
+// the pure premium and rates struck from it, reinsurance cost, the large
+// losses drawn, and the reserves, surplus and ratios downstream move.
+// v74: FUNDING TABLES ON THE NEW ENGINE. The control ran first: 33fdde8
+// reproduced v73 exactly. Shape unchanged; 12,320 instances moved across 53
+// fields, none an identity. Required capital reads the re-derived tables' 90%
+// stop (WC 1.473 -> 1.3275, GL 1.502 -> 1.7910, Property 1.4414 -> 1.5247), so
+// the opening surplus set on it, investments, investment income and every
+// capital row move; the squeezed arm funds off the new stops, so its rates,
+// premium and ratios move; the pre-game funds at a 14% cushion (GL and Property
+// were 1.135 and 1.1471). The reinsurance cost moves in its last bit only
+// (1 + 0.14 against 1.14), as do marketShare and investmentReturnRate.
+// v75: DEVELOPMENT SPEED — WC AND GL DEVELOP 1.5x FASTER. The control ran
+// first: da5a3e5 reproduced v74 exactly. Shape unchanged; 14,484 instances moved
+// across 78 fields, none an identity (expectedCombinedRatio still 1 on all 150;
+// surplusTieOutDifference moves by float noise only, e.g. 0 -> 7.5e-9). What
+// moved, and why: paid losses, paydown, case and IBNR (net, gross and ceded),
+// the net and LAE reserves, and the funding targets and reserve margin read
+// off them, because the compressed patterns pay faster and hold less unpaid;
+// opening and later surplus, invested assets and investment income, because a
+// smaller opening reserve sets a smaller required capital and opening surplus;
+// and the pure premium and rates from year 2 on, by the two causes recorded
+// at DEVELOPMENT_SPEED (the host's development priced sooner; less open balance
+// for shock R development). Year-1 rates are unchanged.
+// v76: THE FUNDING TABLES WIRED — BASELINE_CV DRIVES THE ENGINE AND PICKS THE
+// TABLE; THE OPENING SET AT $35M. The control ran first: fecbb08 reproduced v75
+// exactly. Shape unchanged; 23,045 instances moved across 87 fields, none an
+// identity. What moved, and why: every loss, paid, reserve, LAE and ratio
+// figure, because the ordinary year factor is drawn at WC 6% / GL 10% /
+// Property 8% instead of 2% (same streams, wider factor) — in the pre-game
+// too, so the loss history, the pure premium and every rate struck from it
+// move from year 1; beginingSurplus is 35,000,000 on every line and with it
+// invested assets, investment income, net income and every surplus row;
+// required capital reads the BaselineCV tables' 90% stop (WC 1.0802, GL
+// 1.1320, Property 1.1060), so the reserve margin, funding gap and capital
+// ratios move; and the squeezed arm funds off the new 30% stop (WC 0.8515 ->
+// 0.9664), moving selectedFundingCLF and clfAdjustedExpectedLoss. Float noise
+// only: ibnrCeded, caseReservesCeded, priorYearDevelopmentCeded,
+// surplusTieOutDifference, expectedCombinedRatio, marketShare,
+// investmentReturnRate.
+// v77: STABLE-SCENARIOS BLOCK A (commits 1-4). The control ran first: 061b476
+// reproduced v76. Shape unchanged; 24,690 instances moved across 93 fields,
+// none an identity, attributed by running the check at each commit in turn:
+// 85 fields moved at commits 1, 2 and 3; 5 at commit 1 only; 1 at 1 and 3; 1
+// at 2 and 3; 1 at 3 only; commit 4 moved nothing. Commit 1 (routine large
+// losses folded, flat pre-game): the pre-game's losses and returns sit at
+// expected, so the loss history, every rate and reserve move, and with no
+// routine claim to cede, reinsuranceRecovery and every ceded reserve read 0.
+// Commit 2 (the pool's loss costs, required capital at 80%): WC and GL's
+// losses, lossPurePremiumPer100 and the reserve margin. Commit 3 (no tail,
+// trend per line, booked up to reporting): every loss, paid, reserve and rate
+// again, and Property's catCapitalNeeded. surplusTieOutDifference moves from 0
+// to -1.5e-8 at commit 2: float rounding.
+// v78: STABLE-SCENARIOS BLOCK B (commits 5-7). The control ran first: ab87580
+// reproduced v77. Shape unchanged; 19,753 instances moved across 92 fields,
+// none an identity, attributed by running the check at each commit in turn:
+// 46 fields moved at commits 5, 6 and 7; 22 at 5 and 6; 15 at 5 only; 6 at 5
+// and 7; 3 at 6 only. Commit 5 (shocks at 0.3 a year, the schedule's count):
+// every loss, LAE and reserve figure and the expected loss. Commit 6 (the
+// aggregate stop): the recoveries, ceded and net reserves, the reinsurance
+// cost and Property's catastrophe capital — aggregateRecovery,
+// reinsuranceRecovery and priorYearDevelopmentCeded at it alone. Commit 7 (the
+// catastrophe load): the pure premium and the first indication.
+// v79: STABLE-SCENARIOS BLOCK C (the small fix through commit 11, the
+// give-back fix and the contingency at 0). The control ran first: 330c525
+// reproduced v78. 300 fields added, none removed: expectedReinsuranceRecovery
+// (commit 11). 26,027 instances moved across 100 fields, none an identity,
+// attributed row by row from each commit's own dump: 77e3449 (exposure to
+// $30M) 25,217 rows; 0d65606 (catastrophe load removed) 13,549; ed7e89d
+// (year 1 on the pure premium) 23,955; 715fe14 (re-scale) 25,111; 58af20e
+// (the cover's full price, shocks sized on claims) 14,242; 665410f (re-scale)
+// 25,001; 3df8453 (twenty scenarios: the seed, the $5M start, the solved
+// margin, the 3% pre-game return) 20,122; fbecad4 (commit 11) 480 — the 300
+// new fields and commonLossFactor reading the year factor on 180; 7a369a7
+// (contingency 0, re-scale) 25,237. Moved nothing here, by construction: the
+// shocks-off switch (58cd3b9; this harness draws no solo schedule), the
+// hundred worlds (b3011df; it drives one world at a time) and the give-back
+// fix (e6e0e93, display only).
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v79.json');
 
 function seedOf(id: string) {
   let h = 5381;

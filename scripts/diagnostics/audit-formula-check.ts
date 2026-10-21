@@ -63,9 +63,11 @@
 // enter twice when the same rounded field appears in two operands.
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
-import { applyLoanAuthorizations, processYear } from '../../src/utils/simulationEngine';
+import { processYear } from '../../src/utils/simulationEngine';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { placementFor } from '../../src/utils/reinsuranceOptions';
 import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
 import {
   evaluateFormula, renderFormula, computeAuditChecks, buildSupportingRows,
@@ -172,7 +174,7 @@ const ARMS: Arm[] = [
   // dimensions stay separable and a finding is attributable to one of them.
   {
     name: 'decisions',
-    why: 'dividends, assessments, risk control and the aggregate stop-loss all ON; funding at default',
+    why: 'dividends, assessments and risk control all ON; funding at default (the aggregate stop-loss is no longer offered)',
     decisions: (d, lines) => ({
       ...d,
       riskControlPct: 0.05,
@@ -181,9 +183,8 @@ const ARMS: Arm[] = [
         dividendPct: 0.10,
         assessmentPct: 0.10,
         riskControlPct: 0.05,
-        // Level 0 is the LOWEST attachment and so the one most likely to pay.
-        // GL has no aggregate; normalizeAggregateStopLevel returns it to -1.
-        aggregateStopLevel: 0,
+        // The aggregate stop-loss is no longer offered (loss engine commit 4a)
+        // and cannot be turned on from a decision; this arm keeps the rest.
       }])) as never,
     }),
   },
@@ -222,8 +223,7 @@ const ARMS: Arm[] = [
       ...d,
       byLine: Object.fromEntries(lines.map(l => [l, {
         ...d.byLine[l],
-        layersPlaced: d.byLine[l].layersPlaced.map(() => false),
-        aggregateStopLevel: -1,
+        reinsuranceOption: 'none',
         // Left at its default 0.5 rather than raised: repayment has to actually
         // fire in the years AFTER origination, and the default is what a player
         // gets. Raising it would test a path the shipped default does not take.
@@ -243,8 +243,7 @@ const ARMS: Arm[] = [
       ...d,
       byLine: Object.fromEntries(lines.map(l => [l, {
         ...d.byLine[l],
-        layersPlaced: d.byLine[l].layersPlaced.map(() => false),
-        aggregateStopLevel: -1,
+        reinsuranceOption: 'none',
       }])) as never,
     }),
   },
@@ -616,7 +615,10 @@ const PROSE_CLAIMS: ProseClaim[] = [
         ? (Object.keys(poolResult.byLine) as CoverageLine[])
         : [scope as CoverageLine];
       return lines.reduce(
-        (n, l) => n + ((poolResult.byLine[l]?.decisions?.layersPlaced ?? []).filter(Boolean).length), 0);
+        (n, l) => {
+          const opt = poolResult.byLine[l]?.decisions?.reinsuranceOption;
+          return n + (opt ? placementFor(l, opt).filter(Boolean).length : 0);
+        }, 0);
     },
   },
 ];
@@ -656,6 +658,7 @@ let loanYears = 0;
 let repaymentYears = 0;
 let loanBearingScopes = 0;
 const coverageFailures: string[] = [];
+const pageCheckFailures: string[] = [];
 
 console.log('=== AUDIT PAGE FORMULA RECONCILIATION ===\n');
 
@@ -666,24 +669,26 @@ for (const { lines, name } of CONFIGS) {
     const inst = generateGameInstance(id, 1_700_000 + g * 9173);
     const setup = { poolName: 'A', gameLength: arm.years ?? YEARS, startingYear: 2026, instanceId: id, activeLines: lines };
     const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
-    let gs: GameState = {
+    // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b: the page shows the AVERAGE across
+    // the worlds, so the rows audited are the averaged rows the app builds.
+    let gs: GameState = openWorlds({
       setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
       poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
-    };
+    });
     const armYears = arm.years ?? YEARS;
     for (let y = 1; y <= armYears; y++) {
-      const p = processYear(gs, arm.decisions(defaultDecisionSet(y), lines));
+      const played = playWorldsYear(gs, arm.decisions(defaultDecisionSet(y), lines));
+      const p = { loanOffers: played.loanOffers };
       // ⚠ AUTHORIZE BEFORE READING ANYTHING. applyLoanAuthorizations mutates the
       // line results in place and returns a RE-AGGREGATED pool result, so the
       // page must be built from what it returns, not from what processYear did.
       // Reading p.result after authorizing would audit a pool row that no longer
       // matches its own lines.
-      let poolState = p.updatedPoolState;
-      let poolResult = p.result as ResultSet;
+      const settled = settleWorldsYear(gs, played,
+        arm.authorizeLoans ? p.loanOffers.map(o => o.line) : []);
+      const poolState = settled.poolState;
+      const poolResult = settled.result;
       if (arm.authorizeLoans && p.loanOffers.length > 0) {
-        const applied = applyLoanAuthorizations(p, y, p.loanOffers.map(o => o.line));
-        poolState = applied.updatedPoolState;
-        poolResult = applied.result;
         loansAuthorized += p.loanOffers.length;
         loanDollars += p.loanOffers.reduce((a, o) => a + o.deficit, 0);
       }
@@ -700,7 +705,25 @@ for (const { lines, name } of CONFIGS) {
         if (result.loanRepaymentApplied !== 0) repaymentYears++;
         if (result.outstandingLoanBalance !== 0 || result.loanOriginatedThisYear !== 0
             || result.loanRepaymentApplied !== 0) loanBearingScopes++;
-        const checks = computeAuditChecks(poolResult, scope, inst.seed);
+        // The worlds' own figures ride on the averaged row (worldSummary), as the
+        // page reads them.
+        const checks = computeAuditChecks(poolResult, scope, inst.seed,
+          { instance: inst, timing: 'catalogue' });
+        // ⚠ THE PAGE'S OWN RECONCILIATIONS, NOT ONLY ITS FORMULA ROWS (loss engine
+        // commit 4b). The render baseline found the page reading "DIFFERENCE —
+        // unexpected" on investment income in an Investment Loss year and on the
+        // net-position and investments rollforwards in a loan year, and this gate
+        // never looked at a check's status. A check the page itself marks failed
+        // is a finding.
+        for (const [key, v] of Object.entries(checks as unknown as Record<string, unknown>)) {
+          const ch = v as { status?: string; derived?: number; statement?: number } | null;
+          if (ch && typeof ch === 'object' && ch.status === 'fail') {
+            pageCheckFailures.push(`${arm.name}/${name}/${id} Y${y} ${String(scope)} ${key}: derived ${ch.derived} statement ${ch.statement}`);
+          }
+        }
+        for (const ps of checks.poolSum) {
+          if (ps.check.status === 'fail') pageCheckFailures.push(`${arm.name}/${name}/${id} Y${y} pool-sum ${ps.metric}`);
+        }
 
         const sup = buildSupportingRows(poolResult, scope);
         auditRows('Exposure and Membership', sup.exposureRows, ctx);
@@ -730,7 +753,8 @@ for (const { lines, name } of CONFIGS) {
         proseAudit(revExp, ctx, poolResult, scope);
 
       }
-      gs = { ...gs, currentYearNumber: y + 1, poolState, lockedResults: [...gs.lockedResults, poolResult] };
+      gs = { ...gs, ...commitSettledYear(gs, settled), currentYearNumber: y + 1 };
+      void poolState;
     }
   }
 }
@@ -878,7 +902,17 @@ const EXPORT_IDENTITIES: {
     parts: ['netUltimateLoss', 'bookedGrossUltimate', 'reinsuranceRecovery'],
     bound: 3 * 0.5, why: '3 columns each rounded to whole dollars in the export',
     check: v => [v.bookedGrossUltimate - v.reinsuranceRecovery, v.netUltimateLoss] },
-  { label: 'endingNetReserve = beginningNetReserve + netUltimate - development - netPaid',
+  // ⚠ THE SIGN OF `development` FLIPPED IN THE EXPORT, AND THIS IDENTITY
+  // FOLLOWS IT. This file reads the WORKBOOK's columns, not the engine's
+  // fields, and the workbook's Prior-Year Development column is now on the one
+  // convention every display of development uses: ADVERSE-POSITIVE, with the
+  // column label saying so ("+ adverse"). The engine's own field is unchanged
+  // and still favourable-positive — see developmentDisplay.ts for why the two
+  // differ on purpose — so the identity reads `+ development` here where it
+  // reads `- priorYearDevelopment` against the engine. Checked against the
+  // engine fields directly at the same commit: residual $0.00 on every
+  // line-year, which is what says the flip is a sign and not a value.
+  { label: 'endingNetReserve = beginningNetReserve + netUltimate + development (+ adverse) - netPaid',
     parts: ['endingNetReserve', 'beginningNetReserve', 'netUltimateLoss', 'priorYearDevelopment', 'netPaidLosses'],
     // ⚠ THIS BOUND WAS $10,000 AND IS NOW THE ROUNDING FLOOR, BECAUSE THE
     // VARIANCE IT ALLOWED FOR NO LONGER EXISTS. It honoured the page's declared
@@ -896,7 +930,7 @@ const EXPORT_IDENTITIES: {
     // bound is now derived exactly as its three neighbours are — five columns,
     // each rounded to whole dollars by the export — and nothing else.
     bound: 5 * 0.5, why: '5 columns each rounded to whole dollars in the export; the identity itself is exact',
-    check: v => [v.beginningNetReserve + v.netUltimateLoss - v.priorYearDevelopment - v.netPaidLosses, v.endingNetReserve] },
+    check: v => [v.beginningNetReserve + v.netUltimateLoss + v.priorYearDevelopment - v.netPaidLosses, v.endingNetReserve] },
 ];
 
 console.log('\n--- DOES THIS REACH THE EXPORT? ---');
@@ -1133,7 +1167,12 @@ const tally: [string, number][] = [
   ['PROSE FINDINGS (registered claim does not match the data)', proseFindings.length],
   ['EXPORT IDENTITY FAILURES', failures],
   ['COVERAGE FAILURES (a check never got to run)', coverageFailures.length],
+  ['PAGE CHECK FAILURES (a reconciliation the page itself reads as unexpected)', pageCheckFailures.length],
 ];
+if (pageCheckFailures.length > 0) {
+  console.log(`\n--- PAGE CHECK FAILURES — ${pageCheckFailures.length} ---`);
+  for (const f of pageCheckFailures.slice(0, 12)) console.log(`  ${f}`);
+}
 const nonEmpty = tally.filter(([, n]) => n > 0);
 if (nonEmpty.length === 0) {
   console.log('\nALL FORMULA ROWS RECONCILE within their own derived bounds, in every arm;');
@@ -1155,4 +1194,5 @@ if (nonEmpty.length === 0) {
 // classify and this exits 0 or 1 like any other check.
 process.exitCode =
   (coverageFailures.length === 0
-    && defects.length === 0 && handFindings.length === 0 && proseFindings.length === 0 && failures === 0) ? 0 : 1;
+    && defects.length === 0 && handFindings.length === 0 && proseFindings.length === 0 && failures === 0
+    && pageCheckFailures.length === 0) ? 0 : 1;

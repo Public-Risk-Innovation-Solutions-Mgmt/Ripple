@@ -35,8 +35,10 @@ import { SLIDER_RANGES } from '../data/defaultAssumptions';
 import { lookupCLF, currentPurePremiumPer100, aggregateTermsRetainedPer100 } from './simulationEngine';
 import type { ExperienceBasis } from './experienceRating';
 import { hasStaticClf, staticClf, staticClfCrossing } from '../data/clfTables';
-import { quoteLineRates } from './linePricing';
+import { quoteLineRates, quoteNewRateStack } from './linePricing';
+import { NEW_RATE_STACK } from '../data/pricingParameters';
 import type { CoverageLine, Member } from '../types/simulation';
+import { isRoster, type Book } from './lineHelpers';
 
 // ⚠ THREADED, NOT GENERIC lookupCLF. This panel used to call lookupCLF
 // unconditionally for every line, while simulationEngine.ts priced WC (and now
@@ -109,7 +111,26 @@ export interface FundingConsequence {
   poolPremiumRatePer100: number;
   adminRatePer100: number;
   reinsRatePer100: number;
+  /** The declined layers' price, still charged and kept. 0 when the tower is
+   *  fully placed; see quoteLineRates. */
+  retainedCoverMarginRatePer100: number;
   totalMemberChargeRatePer100: number;
+  /**
+   * ⚠ THE NEW STACK'S OWN FIGURES — present only while NEW_RATE_STACK is on
+   * AND the caller supplied a ground-up pure premium. The rows above are the
+   * OLD panel's; these are the new two-column one's, and the two are never
+   * rendered together.
+   */
+  newStack?: {
+    purePremiumGroundUp: number;
+    purePremiumRetained: number;
+    adminRatePer100: number;
+    riskControlAndContingencyPer100: number;
+    reinsRatePer100: number;
+    firstIndicationPer100: number;
+    finalRatePer100: number;
+    expectedToSurplus: number;
+  };
   // charge / expected loss — "the load"
   load: number;
   expectedLossRatio: number;
@@ -138,10 +159,13 @@ export interface FundingConsequence {
 // genuinely present.
 export interface FundingConsequenceBook {
   yearNumber: number;
-  members: Member[];
+  /** The roster, or with MEMBER_LEVEL off the one book's exposure (see Book). */
+  members: Book;
   exposure: number;
   layersPlaced: boolean[];
   aggregateStopLevel: number;
+  /** The team's reinsurance option — the aggregate stop's, with AGGREGATE_STOP on. */
+  reinsuranceOption?: string;
   /** rateLevel / 100 — permanently 1 today, threaded so it cannot silently
    *  desync if the rate level moves again. */
   pricingAdjustment: number;
@@ -156,6 +180,19 @@ export interface FundingConsequenceBook {
    *  then price off the held rate — panel-engine-parity-check asserts the two
    *  agree, so a caller that omits it while the engine supplies it goes red. */
   experience?: ExperienceBasis;
+  /**
+   * ⚠ NEW_RATE_STACK ONLY. The GROUND-UP pure premium from newPurePremium.ts,
+   * supplied by the caller because the panel has no reserve ledger to derive
+   * it from. It does NOT depend on the funding slider — only the CLF and the
+   * reinsurance do — so computing it once outside and threading it in keeps
+   * the panel's recomputation honest as the slider moves. Omitted while the
+   * flag is off, and the new panel is not rendered then either.
+   */
+  groundUpPurePremiumPer100?: number;
+  /** NEW_RATE_STACK only: the per-line risk control incentive slider. */
+  newStackRiskControlPct?: number;
+  /** The game's shock switch (shockLosses.gameShocksOn) — the cover's price follows it. Absent is on. */
+  shocks?: boolean;
 }
 
 function ratesAt(
@@ -188,17 +225,23 @@ function ratesAt(
   // use that same treaty or the two stop being inverse — which on this path
   // would show up as the panel quoting a price the engine does not charge.
   // Resolved once, from the one function that decides it.
-  const aggregateTerms = aggregateTermsRetainedPer100(line, book.experience);
-  const purePremiumPer100 = currentPurePremiumPer100(
-    line, book.yearNumber, book.members, book.experience,
-    {
-      members: book.members,
-      exposure: book.exposure,
-      layersPlaced: book.layersPlaced,
-      aggregateStopLevel: book.aggregateStopLevel,
-      aggregateTermsRetainedPer100: aggregateTerms,
-    },
-  );
+  // ⚠ A BOOK PRICES AS THE ENGINE PRICES IT: no experience-path terms (it has
+  // no membership history to rebuild exposure from) and the new stack's ground-
+  // up figure as its pure premium. A roster takes the old path unchanged.
+  const roster = isRoster(book.members) ? book.members as Member[] : null;
+  const aggregateTerms = roster ? aggregateTermsRetainedPer100(line, book.experience) : undefined;
+  const purePremiumPer100 = roster
+    ? currentPurePremiumPer100(
+      line, book.yearNumber, roster, book.experience,
+      {
+        members: roster,
+        exposure: book.exposure,
+        layersPlaced: book.layersPlaced,
+        aggregateStopLevel: book.aggregateStopLevel,
+        aggregateTermsRetainedPer100: aggregateTerms,
+      },
+    )
+    : book.groundUpPurePremiumPer100 ?? 0;
   const clf = clfFor(line, confidenceLevel, atExpected);
   const q = quoteLineRates({
     line,
@@ -211,6 +254,7 @@ function ratesAt(
     layersPlaced: book.layersPlaced,
     aggregateStopLevel: book.aggregateStopLevel,
     aggregateTermsRetainedPer100: aggregateTerms,
+    reinsuranceOption: book.reinsuranceOption,
   });
   return {
     clf,
@@ -220,7 +264,38 @@ function ratesAt(
     poolPremiumRatePer100: q.poolPremiumRatePer100,
     adminRatePer100: q.adminRatePer100,
     reinsRatePer100: q.reinsRatePer100,
+    retainedCoverMarginRatePer100: q.retainedCoverMarginRatePer100,
     totalMemberChargeRatePer100: q.totalMemberChargeRatePer100,
+    // ⚠ PRICED AT THE SLIDER'S OWN CLF, which is the whole reason the panel
+    // recomputes rather than reading the last result. Null unless the flag is
+    // on and the caller supplied a ground-up figure.
+    newStack: NEW_RATE_STACK.enabled && book.groundUpPurePremiumPer100 !== undefined
+      ? (() => {
+        const n = quoteNewRateStack({
+          line,
+          yearNumber: book.yearNumber,
+          members: book.members,
+          exposure: book.exposure,
+          groundUpPurePremiumPer100: book.groundUpPurePremiumPer100!,
+          clf,
+          riskControlPct: book.newStackRiskControlPct ?? 0,
+          layersPlaced: book.layersPlaced,
+          aggregateStopLevel: book.aggregateStopLevel,
+          reinsuranceOption: book.reinsuranceOption,
+          shocks: book.shocks,
+        });
+        return {
+          purePremiumGroundUp: n.groundUpPurePremiumPer100,
+          purePremiumRetained: n.retainedPurePremiumPer100,
+          adminRatePer100: n.adminRatePer100,
+          riskControlAndContingencyPer100: n.riskControlAndContingencyPer100,
+          reinsRatePer100: n.reinsRatePer100,
+          firstIndicationPer100: n.firstIndicationPer100,
+          finalRatePer100: n.finalRatePer100,
+          expectedToSurplus: n.expectedToSurplus,
+        };
+      })()
+      : undefined,
   };
 }
 
@@ -233,7 +308,9 @@ export function computeFundingConsequence(
 ): FundingConsequence {
   const {
     clf, purePremiumPer100, netPurePremiumPer100, expectedCededPer100,
-    poolPremiumRatePer100, adminRatePer100, reinsRatePer100, totalMemberChargeRatePer100,
+    poolPremiumRatePer100, adminRatePer100, reinsRatePer100, retainedCoverMarginRatePer100,
+    totalMemberChargeRatePer100,
+    newStack,
   } = ratesAt(confidenceLevel, line, atExpected, book);
 
   // Computed UNCONDITIONALLY (not only while atExpected) — cheap, and useful
@@ -284,7 +361,9 @@ export function computeFundingConsequence(
     poolPremiumRatePer100,
     adminRatePer100,
     reinsRatePer100,
+    retainedCoverMarginRatePer100,
     totalMemberChargeRatePer100,
+    newStack,
     load,
     expectedLossRatio,
     expectedExpenseRatio,

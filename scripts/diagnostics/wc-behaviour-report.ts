@@ -21,11 +21,13 @@
 // rule is that those are reported with an interval, never gated. The gates live
 // in wc-severity-rebuild-check (counts, capped means, Little's Law).
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
 import type { CoverageLine, GameState, LineResultSet } from '../../src/types/simulation';
 
 const GAMES = 50;
@@ -46,8 +48,7 @@ function decisions(y: number) {
   const d = defaultDecisionSet(y);
   const wc = d.byLine.WC;
   wc.fundingConfidenceLevel = 0.60;          // FUNDING_CLF_TABLE key for CLF 1.000 (a FRACTION, not a percent)
-  wc.layersPlaced = REINSURANCE_TOWER.WC.map(() => false);
-  wc.aggregateStopLevel = -1;
+  wc.reinsuranceOption = 'none';
   return d;
 }
 
@@ -155,7 +156,7 @@ console.log('\n--- Q3. IS THE PRICE STILL FLAT? (the defect this run exists to c
 //
 // FOR THE RECORD, since this harness is where the figure came from: its last
 // run read IBNR/annual loss 0.529 at Y10. That was measured with NO
-// REINSURANCE (layersPlaced all false above) and IBNR is a NET reserve, so it
+// REINSURANCE (package 'none' above) and IBNR is a NET reserve, so it
 // is not comparable to the 0.409 measured at all-defaults with the full tower
 // placed. Both were correct; they described different books.
 

@@ -30,7 +30,8 @@ import {
 } from '../../src/data/defaultAssumptions';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
-import { WAGE_INFLATION_PER_YEAR } from '../../src/data/exposureTrend';
+import { EXPOSURE_GROWTH_PER_YEAR } from '../../src/data/exposureTrend';
+import { FREQUENCY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
 import {
   WC_SEVERITY_TREND_PER_YEAR,
   trendedMu,
@@ -40,6 +41,7 @@ import {
   expectedWcGrossLossForKLine,
   expectedWcGrossLossForPricing,
   generateWcClaims,
+  memberThetaWc,
   ratingGroupOf,
   tiltedWeights,
 } from '../../src/utils/wcClaimEngine';
@@ -313,6 +315,10 @@ const YEARS = 300;
   const counts = runs.map(r => r.claims.length);
   const drawn = runs.map(r => r.grossUltimateLoss);
 
+  // ⚠ THE COMPARATOR READS memberThetaWc, THE DRAW'S OWN FACTOR — the slope
+  // (RISK_QUALITY_SLOPE.WC) and the re-centring (RISK_QUALITY_CENTRE.WC) with it.
+  // Rebuilding it from rqFrequencyBeta alone would compare against the 1x curve.
+  //
   // ⚠ THE COMPARATOR MUST CARRY THE DRAW'S OWN CONDITIONS. The 1,825.6 headline
   // is the NEUTRAL-RQ, k_line = 1 figure; the draw applies each member's own
   // theta and the book's k_line, and theta does not average to 1 (exp is convex,
@@ -321,7 +327,7 @@ const YEARS = 300;
   let analyticCount = 0;
   for (const m of roster) {
     const spec = M.ratingGroups[ratingGroupOf(m)];
-    analyticCount += (m.exposureByLine.WC ?? 0) * spec.ratePer1M * Math.exp(-M.rqFrequencyBeta * (m.riskQuality - NEUTRAL_RQ)) * kFull;
+    analyticCount += (m.exposureByLine.WC ?? 0) * spec.ratePer1M * memberThetaWc(m.riskQuality) * kFull;
   }
   console.log(`  claims/yr drawn (FULL MARKET): ${mean(counts).toFixed(1)} over ${YEARS} seeds`);
   console.log(`    against the analytic AT THE DRAW'S CONDITIONS (actual RQ, k_line ${kFull.toFixed(4)}): ${analyticCount.toFixed(1)}  ` +
@@ -341,7 +347,7 @@ const YEARS = 300;
   for (const m of roster) {
     const group = ratingGroupOf(m);
     const spec = M.ratingGroups[group];
-    const lambda = (m.exposureByLine.WC ?? 0) * spec.ratePer1M * Math.exp(-M.rqFrequencyBeta * (m.riskQuality - NEUTRAL_RQ)) * kFull;
+    const lambda = (m.exposureByLine.WC ?? 0) * spec.ratePer1M * memberThetaWc(m.riskQuality) * kFull;
     const w = tiltedWeights(group, m.riskQuality);
     spec.mix.forEach(({ component }, i) => {
       const c = WC_SEVERITY_COMPONENTS[component];
@@ -399,23 +405,29 @@ console.log('\n--- 8. WAGE INFLATION: the trend-free lag, and what fixed attachm
   // deferral for a trend to be applied over, so the divergence it guarded
   // against (E[(1+r)^lag] over an unbounded lognormal) cannot arise.
   //
-  // SEVERITY AND PAYROLL TREND TOGETHER, so the rate barely moves. Asserted
-  // analytically because it is the whole design.
-  const rateTrend = (1 + M.frequencyTrendPerYear) * (1 + WC_SEVERITY_TREND_PER_YEAR) / (1 + WAGE_INFLATION_PER_YEAR);
-  console.log(`  rate trend = freq x sev / wage = ${rateTrend.toFixed(5)} -> ${((rateTrend - 1) * 100).toFixed(3)}%/yr  ` +
-    `${note(Math.abs(rateTrend - 0.98538) < 0.0002, `rate trend ${rateTrend.toFixed(5)} is not the expected 0.98538`)}`);
-  const premiumTrend = (1 + M.frequencyTrendPerYear) * (1 + WC_SEVERITY_TREND_PER_YEAR);
-  console.log(`  premium trend = freq x sev = ${((premiumTrend - 1) * 100).toFixed(3)}%/yr — INDEPENDENT of the wage rate  ` +
-    `${note(Math.abs(premiumTrend - 1.02115) < 0.0002, 'premium trend is not freq x sev — a wage factor is missing or doubled somewhere')}`);
+  // ⚠ SEVERITY AND PAYROLL NO LONGER TREND TOGETHER BECAUSE PAYROLL DOES NOT
+  // TREND. This asserted 0.98538 — freq -1.5% x sev +3.67% / wage +3.63%, the
+  // near-cancellation that WAS the design. The exposure base is level now and
+  // frequency is zero, so the rate trend is the severity trend exactly, and
+  // the assertion is rewritten to that rather than relaxed around the old one.
+  const rateTrend = (1 + FREQUENCY_TREND_PER_YEAR.WC) * (1 + WC_SEVERITY_TREND_PER_YEAR)
+    / (1 + EXPOSURE_GROWTH_PER_YEAR);
+  console.log(`  rate trend = freq x sev / exposure = ${rateTrend.toFixed(5)} -> ${((rateTrend - 1) * 100).toFixed(3)}%/yr  ` +
+    `${note(Math.abs(rateTrend - (1 + WC_SEVERITY_TREND_PER_YEAR)) < 1e-12, `rate trend ${rateTrend.toFixed(5)} is not 1 + the severity trend — a frequency or exposure factor has come back`)}`);
+  const premiumTrend = (1 + FREQUENCY_TREND_PER_YEAR.WC) * (1 + WC_SEVERITY_TREND_PER_YEAR);
+  console.log(`  premium trend = freq x sev = ${((premiumTrend - 1) * 100).toFixed(3)}%/yr  ` +
+    `${note(Math.abs(premiumTrend - rateTrend) < 1e-12, 'premium trend differs from rate trend — with a level base they are the same number')}`);
 
   // §5: FIXED REINSURANCE ATTACHMENTS AGAINST INFLATING SEVERITY. The layers
-  // attach at fixed DOLLARS while severity inflates 3.67%/yr, so each layer sees
-  // more — but the per-$100 denominator inflates too, and claim counts fall.
-  // REPORTED, because the near-cancellation is a coincidence of these three
-  // parameters and not a structural identity: if any of them moves, this drifts.
+  // attach at fixed DOLLARS while severity inflates 5%/yr, so each layer sees
+  // more — and now NOTHING OFFSETS IT. The per-$100 denominator used to inflate
+  // too and claim counts used to fall, and the three roughly cancelled; with a
+  // level base and no frequency trend both offsets are gone, so the ceded share
+  // climbs with the trend. REPORTED, not asserted, and this is the number to
+  // watch when the tower is re-priced.
   const HORIZON = 10;
-  const wage = Math.pow(1 + WAGE_INFLATION_PER_YEAR, HORIZON - 1);
-  const freq = Math.pow(1 + M.frequencyTrendPerYear, HORIZON - 1);
+  const wage = Math.pow(1 + EXPOSURE_GROWTH_PER_YEAR, HORIZON - 1);
+  const freq = Math.pow(1 + FREQUENCY_TREND_PER_YEAR.WC, HORIZON - 1);
   console.log(`  reinsurance layers, expected ceded per $100 — year 1 vs year ${HORIZON}:`);
   for (const l of REINSURANCE_TOWER.WC) {
     const cededAt = (yearNumber: number) => {
@@ -424,7 +436,7 @@ console.log('\n--- 8. WAGE INFLATION: the trend-free lag, and what fixed attachm
         const group = ratingGroupOf(m);
         const spec = M.ratingGroups[group];
         const w = tiltedWeights(group, m.riskQuality);
-        const lambda = (m.exposureByLine.WC ?? 0) * spec.ratePer1M * Math.exp(-M.rqFrequencyBeta * (m.riskQuality - 5));
+        const lambda = (m.exposureByLine.WC ?? 0) * spec.ratePer1M * memberThetaWc(m.riskQuality);
         spec.mix.forEach(({ component }, i) => {
           const c = WC_SEVERITY_COMPONENTS[component];
           const mu = trendedMu(c.mu, yearNumber);

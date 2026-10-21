@@ -7,7 +7,9 @@ import type { SpreadsheetMetric } from './resultsExport';
 import { formatCurrency, formatPct } from './formatters';
 import { eventLabel, yearEvents } from './yearEvents';
 import { placementCode, placementSummary } from './reinsuranceDisplay';
+import { developmentDisplay } from './developmentDisplay';
 import type { CoverageLine, LineDecisionSet, ResultSet } from '../types/simulation';
+import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
 
 // Which tower line a result row belongs to — WC or GL ONLY, never a guess.
 //
@@ -37,7 +39,7 @@ const towerLineOf = (r: { line?: CoverageLine }): CoverageLine | undefined =>
 // this function is declared against (LineResultSet) does not carry it.
 function poolReinsuranceLevelDetail(
   r: { line?: CoverageLine },
-  render: (line: CoverageLine, decisions: Pick<LineDecisionSet, 'layersPlaced' | 'aggregateStopLevel'>) => string,
+  render: (line: CoverageLine, decisions: Pick<LineDecisionSet, 'reinsuranceOption'>) => string,
 ): string {
   const byLine = (r as unknown as ResultSet).byLine;
   const active = (['WC', 'GL', 'Property'] as const).filter(l => byLine?.[l]);
@@ -98,19 +100,22 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatPct(r.decisions.assessmentPct, 1),
       csvValue: r => r.decisions.assessmentPct,
     },
-    {
-      key: 'riskControlPct',
-      // Pool-wide: one choice projected into every line. The LINE form reads the
-      // projected copy; the POOL form reads the pool's own field. Same number,
-      // named where it lives — so the Pool tab keeps the row.
-      lineOnly: true,
-      poolCell: r => formatPct(r.pool.riskControlPct, 1),
-      poolCsvCell: r => r.pool.riskControlPct,
-      category: 'Decisions',
-      label: 'Risk Control %',
-      value: r => formatPct(r.decisions.riskControlPct, 1),
-      csvValue: r => r.decisions.riskControlPct,
-    },
+    // Hidden while RISK_CONTROL is off — risk control is pending design and reads 0.
+    ...(RISK_CONTROL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'riskControlPct',
+        // Pool-wide: one choice projected into every line. The LINE form reads the
+        // projected copy; the POOL form reads the pool's own field. Same number,
+        // named where it lives — so the Pool tab keeps the row.
+        lineOnly: true,
+        poolCell: r => formatPct(r.pool.riskControlPct, 1),
+        poolCsvCell: r => r.pool.riskControlPct,
+        category: 'Decisions',
+        label: 'Risk Control %',
+        value: r => formatPct(r.decisions.riskControlPct, 1),
+        csvValue: r => r.decisions.riskControlPct,
+      },
+    ] : []),
     {
       // ONE PRODUCT NOW, and REINSURANCE_PROGRAMS is gone rather than merely
       // dead — all three lines run the per-occurrence tower.
@@ -158,51 +163,34 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     // from this export divides by Enrolments, not Members. Shipping only Members
     // would make both unreconstructable; shipping only Enrolments is what made
     // the export read 205 where the page read 141.
-    {
-      key: 'activeMembers',
-      category: 'Membership',
-      label: 'Members',
-      value: r => r.activeMembers,
-    },
-    {
-      key: 'enrolmentCount',
-      category: 'Membership',
-      label: 'Enrolments',
-      value: r => r.enrolmentCount,
-    },
-    {
-      key: 'newMembers',
-      category: 'Membership',
-      label: 'New Members',
-      value: r => r.newMembers,
-    },
-    {
-      key: 'withdrawnMembers',
-      category: 'Membership',
-      label: 'Withdrawn Members',
-      value: r => r.withdrawnMembers,
-    },
-    {
-      key: 'memberRetentionRate',
-      category: 'Membership',
-      label: 'Member Retention Rate',
-      value: r => formatPct(r.memberRetentionRate),
-      csvValue: r => r.memberRetentionRate,
-    },
-    {
-      key: 'memberSatisfaction',
-      category: 'Membership',
-      label: 'Member Satisfaction',
-      value: r => r.memberSatisfaction.toFixed(2),
-      csvValue: r => r.memberSatisfaction,
-    },
-    {
-      key: 'averageRiskQuality',
-      category: 'Membership',
-      label: 'Average Risk Quality',
-      value: r => r.averageRiskQuality.toFixed(2),
-      csvValue: r => r.averageRiskQuality,
-    },
+    // ⚠ THE MEMBER COUNTS ARE GONE FROM THE PUBLISHED LIST, AND THE ENGINE STILL
+    // HAS THEM. The multiplayer game drops individual members; the engine keeps
+    // them until a simplified model replaces it, so this HIDES rather than
+    // deletes. `activeMembers`, `enrolmentCount`, `newMembers`,
+    // `withdrawnMembers` and `memberRetentionRate` are all still real ResultSet
+    // fields, still computed, still saved — they are simply not published to a
+    // screen, a workbook or the host's table any more. Exposure is what a pool
+    // in aggregate is sized by, and it is immediately below.
+    //
+    // ⚠ AND 'averageRiskQuality' WENT WITH THEM, FOR A SECOND AND STRONGER
+    // REASON. Risk quality is UNOBSERVABLE by design — surface-privacy-check
+    // exists solely to keep a member's score away from the player — and the POOL
+    // AVERAGE of it was published here, on screens and in the workbook, the whole
+    // time. That was the hole in the hide, not a casualty of this change.
+    // surface-privacy-check now forbids this key by name so it cannot return.
+    //
+    // ⚠ WHAT STAYS: `memberSatisfaction`. It is the pool's own scoreboard, is
+    // asked for explicitly, and names no member.
+    // Hidden with MEMBER_LEVEL off: satisfaction feeds nothing and returns as a pool-level figure once designed.
+    ...(MEMBER_LEVEL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'memberSatisfaction',
+        category: 'Membership',
+        label: 'Member Satisfaction',
+        value: r => r.memberSatisfaction.toFixed(2),
+        csvValue: r => r.memberSatisfaction,
+      },
+    ] : []),
     {
       key: 'activeExposure',
       category: 'Membership',
@@ -238,7 +226,9 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       key: 'purePremiumRatePer100',
       lineOnly: true,
       category: 'Rate and Premium',
-      label: 'Pure Premium Rate per $100 Payroll',
+      // The rate's own estimate of the year's claims cost, from the experience
+      // (stable-scenarios commit 11) — distinct from Expected Losses below.
+      label: 'Pure Premium (from experience) per $100 Payroll',
       value: r => dollars(r.purePremiumPer100),
       csvValue: r => r.purePremiumPer100,
     },
@@ -333,38 +323,35 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     {
       key: 'expectedLoss',
       category: 'Losses',
-      label: 'Pure Premium',
+      // ⚠ "EXPECTED LOSSES", NOT "PURE PREMIUM" (stable-scenarios commit 11):
+      // this is the year's expected gross losses, the engine's own expectation.
+      // "Pure Premium" now names only the rate's estimate, from the experience.
+      label: 'Expected Losses',
       value: r => formatCurrency(r.expectedLoss),
       csvValue: r => roundDollars(r.expectedLoss),
     },
     {
-      // ⚠ WAS ALSO LABELLED "Pool Premium at Selected CLF" — the same string as
-      // the poolPremium row in Rate and Premium, on the same sheet, holding a
-      // different number. It IS gross expectedLoss x CLF, which stopped being
-      // the pool premium when funding moved to the net basis: it now runs 39%
-      // above the real poolPremium on WC and 77% on GL.
-      //
-      // RENAMED, NOT RETIRED, though retiring was the alternative and it has no
-      // engine consumer (grep: computed at simulationEngine.ts:1175, stored,
-      // pool-summed, read only here and by the audit page). The defect reported
-      // is the label collision, and renaming closes it completely; deleting a
-      // stored engine field is a different and larger change — it drops one of
-      // the audit page's integrity checks with it — and belongs in its own
-      // commit if the column is genuinely unwanted.
-      key: 'clfAdjustedExpectedLoss',
+      // REPLACES "CLF-Adjusted Gross Expected Loss" (stable-scenarios commit 11),
+      // gross expected loss x the funding CLF, which named no figure a reader
+      // could use. This is what the line expects to keep: expected losses less
+      // what its cover is expected to recover. The CLF product stays on the
+      // result for the audit page's integrity check.
+      key: 'expectedLossNet',
       category: 'Losses',
-      label: 'CLF-Adjusted Gross Expected Loss',
-      value: r => formatCurrency(r.clfAdjustedExpectedLoss),
-      csvValue: r => roundDollars(r.clfAdjustedExpectedLoss),
+      label: 'Expected Losses, net of reinsurance',
+      value: r => formatCurrency(r.expectedLoss - (r.expectedReinsuranceRecovery ?? 0)),
+      csvValue: r => roundDollars(r.expectedLoss - (r.expectedReinsuranceRecovery ?? 0)),
     },
     {
       key: 'aggregateMemberLoss',
       category: 'Losses',
-      label: 'Member-Level Simulated Loss incl. Shared Events',
+      label: 'Simulated Losses',
       value: r => formatCurrency(r.aggregateMemberLoss ?? r.grossUltimateLoss),
       csvValue: r => roundDollars(r.aggregateMemberLoss ?? r.grossUltimateLoss),
     },
     {
+      // The year factor every unit of the book shares — the new engine's draw
+      // (stable-scenarios commit 11); averaged over the worlds on an averaged row.
       key: 'commonLossFactor',
       lineOnly: true,
       category: 'Losses',
@@ -390,7 +377,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // arithmetic. It reads identical to Gross whenever there is no markdown.
       key: 'bookedGrossUltimate',
       category: 'Losses',
-      label: 'Booked Gross Ultimate (after optimistic booking)',
+      label: 'Booked Gross Ultimate',
       value: r => formatCurrency(r.bookedGrossUltimate ?? r.grossUltimateLoss),
       csvValue: r => roundDollars(r.bookedGrossUltimate ?? r.grossUltimateLoss),
     },
@@ -408,8 +395,13 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
         const evs = yearEvents(r);
         if (evs.length === 0) return 'None';
         return evs.map(ev => {
-          const label = eventLabel(ev.name, ev.region);
-          if (ev.claims > 0) return `${label}: ${ev.claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
+          // An averaged row (loss engine commit 4b) says in how many worlds it fired.
+          const label = eventLabel(ev.name, ev.region)
+            + (ev.worlds ? ` (in ${ev.worlds.fired} of ${ev.worlds.of} worlds)` : '');
+          const claims = Number.isInteger(ev.claims) ? String(ev.claims) : ev.claims.toFixed(1);
+          if (ev.claims > 0) return `${label}: ${claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
+          // An uplift on the year's ordinary losses: real dollars, no claim.
+          if (ev.grossLoss > 0) return `${label}: +${formatCurrency(ev.grossLoss)} losses`;
           return `${label}: +${formatCurrency(ev.expectedGrossLossAdded)} expected`;
         }).join('; ');
       },
@@ -425,18 +417,9 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.reinsuranceRecovery),
       csvValue: r => roundDollars(r.reinsuranceRecovery),
     },
-    {
-      // Recovery DEFERRED by booking this year's claim register low — a
-      // current-year item, sitting beside the current-year recovery it reduces.
-      // Negative. Deferred rather than forgone: it comes back through the
-      // prior-year development recovery below as the booking unwinds. Reads $0
-      // whenever the line is funded at or above break-even.
-      key: 'bookingGiveBack',
-      category: 'Losses',
-      label: 'Recovery deferred by optimistic booking',
-      value: r => formatCurrency(r.bookingGiveBack),
-      csvValue: r => roundDollars(r.bookingGiveBack),
-    },
+    // ⚠ "Recovery deferred by optimistic booking" IS GONE (stable-scenarios
+    // commit 11): measured, it read $0 on 432 of 432 line-years across funding
+    // from 30% to 95% — the new engine books at full cost.
     {
       key: 'netUltimateLoss',
       category: 'Losses',
@@ -478,6 +461,14 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.netIncurredLoss),
       csvValue: r => roundDollars(r.netIncurredLoss),
     },
+    {
+      // Booked as a share of the ground-up loss incurred — see lossExpense.ts.
+      key: 'laeIncurred',
+      category: 'Losses',
+      label: 'Loss Adjustment Expenses Incurred (ALAE + ULAE)',
+      value: r => formatCurrency(r.laeIncurred),
+      csvValue: r => roundDollars(r.laeIncurred),
+    },
 
     // Expenses and income
     {
@@ -487,13 +478,16 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.operatingExpense),
       csvValue: r => roundDollars(r.operatingExpense),
     },
-    {
-      key: 'riskControlInvestment',
-      category: 'Expenses and Income',
-      label: 'Risk Control Investment',
-      value: r => formatCurrency(r.riskControlInvestment),
-      csvValue: r => roundDollars(r.riskControlInvestment),
-    },
+    // Hidden while RISK_CONTROL is off — no spend is charged.
+    ...(RISK_CONTROL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'riskControlInvestment',
+        category: 'Expenses and Income',
+        label: 'Risk Control Investment',
+        value: r => formatCurrency(r.riskControlInvestment),
+        csvValue: r => roundDollars(r.riskControlInvestment),
+      },
+    ] : []),
     {
       /**
        * ⚠ ZERO ON EVERY DEFAULT GAME, AND IT IS STILL A ROW. The default places
@@ -561,14 +555,23 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // assemble. It cannot drift from its components: it is computed from them at
       // emit time.
       //
-      // SIGN: priorYearDevelopment is FAVOURABLE-POSITIVE and ceding makes an
-      // adverse year less adverse, so gross is net MINUS the recovery and reads
-      // more negative than the net below it.
+      // ⚠ SIGN: PRINTED ADVERSE-POSITIVE, AND THIS PAGE USED TO PRINT THE
+      // OPPOSITE. The engine's priorYearDevelopment is FAVOURABLE-POSITIVE —
+      // netIncurredLoss subtracts it — and these rows printed it raw, while
+      // the income statement negated it into "Prior year claims". Two opposite
+      // signs for one event on adjacent tabs. Both now go through
+      // developmentDisplay; the engine's field keeps its own sign and only the
+      // printing changed. See docs/PENDING_MULTIPLAYER.md section 2.
+      //
+      // Ceding makes an adverse year less adverse, so GROSS is more adverse
+      // than the net below it — which now reads as a LARGER positive rather
+      // than a more negative number.
       key: 'priorYearDevelopmentGross',
       category: 'Reserves',
-      label: 'Prior-Year Development (gross)',
-      value: r => formatCurrency(r.priorYearDevelopment - r.priorYearDevelopmentCeded),
-      csvValue: r => roundDollars(r.priorYearDevelopment - r.priorYearDevelopmentCeded),
+      label: 'Prior-Year Development, gross (+ adverse)',
+      value: r => developmentDisplay(
+        r.priorYearDevelopment - r.priorYearDevelopmentCeded, formatCurrency).text,
+      csvValue: r => roundDollars(-(r.priorYearDevelopment - r.priorYearDevelopmentCeded)),
     },
     {
       key: 'priorYearDevelopmentCeded',
@@ -583,9 +586,9 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // gross, which is the whole confusion.
       key: 'priorYearDevelopment',
       category: 'Reserves',
-      label: 'Prior-Year Development (net)',
-      value: r => formatCurrency(r.priorYearDevelopment),
-      csvValue: r => roundDollars(r.priorYearDevelopment),
+      label: 'Prior-Year Development, net (+ adverse)',
+      value: r => developmentDisplay(r.priorYearDevelopment, formatCurrency).text,
+      csvValue: r => roundDollars(-r.priorYearDevelopment),
     },
     {
       key: 'beginningNetReserve',
@@ -614,6 +617,20 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       label: 'Ending Net Reserve',
       value: r => formatCurrency(r.endingNetReserve),
       csvValue: r => roundDollars(r.endingNetReserve),
+    },
+    {
+      key: 'laePaid',
+      category: 'Reserves',
+      label: 'Loss Adjustment Expenses Paid',
+      value: r => formatCurrency(r.laePaid),
+      csvValue: r => roundDollars(r.laePaid),
+    },
+    {
+      key: 'endingLaeReserve',
+      category: 'Reserves',
+      label: 'Loss Expense Reserves',
+      value: r => formatCurrency(r.endingLaeReserve),
+      csvValue: r => roundDollars(r.endingLaeReserve),
     },
     {
       key: 'expectedNetUnpaidLoss',
@@ -850,6 +867,22 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       label: 'Actual Expense Ratio (member charge basis)',
       value: r => formatPct(r.actualExpenseRatio),
       csvValue: r => r.actualExpenseRatio,
+    },
+    {
+      key: 'actualLaeRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual LAE Ratio (member charge basis)',
+      value: r => formatPct(r.actualLaeRatio),
+      csvValue: r => r.actualLaeRatio,
+    },
+    {
+      // Beside the loss ratio (stable-scenarios commit 11): losses and LAE over
+      // the member charge, from their parts.
+      key: 'actualLossLaeRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual Loss & LAE Ratio (member charge basis)',
+      value: r => formatPct(r.actualLossRatio + (r.actualLaeRatio ?? 0)),
+      csvValue: r => r.actualLossRatio + (r.actualLaeRatio ?? 0),
     },
     {
       key: 'actualCombinedRatio',

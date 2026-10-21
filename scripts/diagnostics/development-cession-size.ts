@@ -47,6 +47,9 @@
 // spread between them IS the sensitivity result.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -56,6 +59,7 @@ import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../../src/data/rei
 import { WC_SEVERITY_CAP } from '../../src/data/defaultAssumptions';
 import { wcSeverityTrend } from '../../src/utils/wcClaimEngine';
 import type { CoverageLine, GameState, ReserveCohort } from '../../src/types/simulation';
+import { placementFor } from '../../src/utils/reinsuranceOptions';
 
 const GAMES = Number(process.env.GAMES ?? 60);
 const YEARS = Number(process.env.YEARS ?? 10);
@@ -142,7 +146,7 @@ for (let g = 0; g < GAMES; g++) {
       const lr = pg.byLine[line];
       if (!lr?.claims || !lr.occurrences) continue;
       const totals = occurrenceTotals(lr.claims, lr.occurrences);
-      const placed = [...(lr.decisions?.layersPlaced ?? REINSURANCE_TOWER[line].map(l => l.purchasable))];
+      const placed = lr.decisions ? placementFor(line, lr.decisions.reinsuranceOption) : REINSURANCE_TOWER[line].map(l => l.purchasable);
       const deductibles = occurrenceDeductibles(line, lr.occurrences);
       register.set(key(line, pg.yearNumber), { totals, placed, deductibles });
       cededBefore += cedeOccurrences(line, totals, placed, deductibles).totalCeded;
@@ -161,7 +165,7 @@ for (let g = 0; g < GAMES; g++) {
       // This accident year's own register, for later valuations to develop.
       if (r.claims && r.occurrences) {
         const totals = occurrenceTotals(r.claims, r.occurrences);
-        const placed = [...(r.decisions?.layersPlaced ?? REINSURANCE_TOWER[line].map(l => l.purchasable))];
+        const placed = r.decisions ? placementFor(line, r.decisions.reinsuranceOption) : REINSURANCE_TOWER[line].map(l => l.purchasable);
         const deductibles = occurrenceDeductibles(line, r.occurrences);
         register.set(key(line, y), { totals, placed, deductibles });
         cededBefore += cedeOccurrences(line, totals, placed, deductibles).totalCeded;

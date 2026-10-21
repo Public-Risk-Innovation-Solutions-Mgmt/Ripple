@@ -76,7 +76,7 @@
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
 import { computeKGl, expectedGlGrossLossForKLine, expectedGlGrossLossForPricing, generateGlClaims, glCappedSeverityTrend } from '../../src/utils/glClaimEngine';
 import { glAggregateCumulants } from '../../src/utils/glLossDistribution';
-import { wageFactor } from '../../src/data/exposureTrend';
+import { exposureFactor } from '../../src/data/exposureTrend';
 import { WC_LOSS_MODEL } from '../../src/data/defaultAssumptions';
 import { SeededRandom, deriveSubRng } from '../../src/utils/random';
 import type { Member } from '../../src/types/simulation';
@@ -275,7 +275,7 @@ console.log('\n--- DENOMINATOR IDENTITY: expectedGlGrossLossForKLine === held-ra
   let worstRelDiff = 0;
   for (const sel of selections) {
     const d = describeBook(sel.label, sel.members);
-    const heldPrice = heldRatePerDollarYr1 * glCappedSeverityTrend(YEAR) / wageFactor('GL', YEAR) * d.exposure * 10_000;
+    const heldPrice = heldRatePerDollarYr1 * glCappedSeverityTrend(YEAR) / exposureFactor('GL', YEAR) * d.exposure * 10_000;
     const relDiff = Math.abs(d.expectedLoss / heldPrice - 1);
     worstRelDiff = Math.max(worstRelDiff, relDiff);
   }

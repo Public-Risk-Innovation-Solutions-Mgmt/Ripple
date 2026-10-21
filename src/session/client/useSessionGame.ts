@@ -52,6 +52,11 @@ export interface SessionGame {
   processedYear: number | null;
   lastResult: ResultSet | null;
   error: string | null;
+  /**
+   * A replay of more than one year in progress — a reload, or a team catching
+   * up: the year being played and the last one owed (stable-scenarios commit 10).
+   */
+  progress: { year: number; of: number } | null;
 }
 
 export function useSessionGame(
@@ -64,6 +69,7 @@ export function useSessionGame(
   const [processedYear, setProcessedYear] = useState<number | null>(null);
   const [lastResult, setLastResult] = useState<ResultSet | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ year: number; of: number } | null>(null);
 
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [startingFinancials, setStartingFinancials] = useState<StartingFinancials | null>(null);
@@ -170,7 +176,20 @@ export function useSessionGame(
         // ⚠ THE REPLAY IS replayTeamYears', the same function the session proof
         // in shock-check runs — see buildGame.ts for the rules it carries: every
         // year produced, the year's own decisions, loan offers declined.
-        const { state, produced } = replayTeamYears(gs, room.currentYear, you.decisionsByYear);
+        // ⚠ A YEAR AT A TIME, YIELDING BETWEEN THEM (commit 10): a reload owes
+        // every year played so far, seconds of work at a hundred worlds, and the
+        // screen says which year it is on rather than freezing.
+        let state = gs;
+        const produced: ReturnType<typeof replayTeamYears>['produced'] = [];
+        const of = room.currentYear - 1;
+        while (state.currentYearNumber < room.currentYear && !state.isComplete) {
+          if (of - gs.currentYearNumber > 0) setProgress({ year: state.currentYearNumber, of });
+          await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+          const step = replayTeamYears(state, state.currentYearNumber + 1, you.decisionsByYear);
+          state = step.state;
+          produced.push(...step.produced);
+        }
+        setProgress(null);
 
         setGameState(state);
 
@@ -205,7 +224,7 @@ export function useSessionGame(
                 code,
                 token,
                 yearNumber: p.result.yearNumber,
-                result: summarize(p.result, state.setup.activeLines, p.poolState),
+                result: summarize(p.result, state.setup.activeLines, p.poolState, p.surplusRange),
               });
             }
           }
@@ -214,6 +233,7 @@ export function useSessionGame(
         setPhase('ready');
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
+        setProgress(null);
         setPhase('ready');
       } finally {
         busy.current = false;
@@ -221,5 +241,5 @@ export function useSessionGame(
     })();
   }, [phase, room, you, token, code, gameState]);
 
-  return { phase, gameState, startingFinancials, initialMembers, processedYear, lastResult, error };
+  return { phase, gameState, startingFinancials, initialMembers, processedYear, lastResult, error, progress };
 }

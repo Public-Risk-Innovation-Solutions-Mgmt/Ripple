@@ -51,7 +51,7 @@ import type { Claim, CoverageLine, Member, PoolState, ResultSet } from '../types
 import { FIXED_LINE_ORDER, LINE_ABBREV } from './resultsExport';
 import { claimPaidSplit, isClaimClosed } from './claimClosure';
 import {
-  grossPaidByAccidentYear, latestValuationYear, occurrenceDevelopment,
+  grossPaidByAccidentYear, grossUltimateByAccidentYear, latestValuationYear, occurrenceDevelopment,
   type OccDevelopment,
 } from './cohortViews';
 import { resolveClosureCurve } from '../data/defaultAssumptions';
@@ -62,6 +62,7 @@ import { MATURATION_YEARS } from './priorHistoryEngine';
 import { glSeverityCap } from './glClaimEngine';
 import { regenerateLineYearClaims, ClaimRegenerationError } from './claimRegeneration';
 import { claimEventLabel } from './yearEvents';
+import { newLossEngineRuns } from '../data/pricingParameters';
 import type { GameInstance } from '../types/simulation';
 
 type Row = (string | number)[];
@@ -69,10 +70,8 @@ type Row = (string | number)[];
 const CLAIM_LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 
 const ENROLLED_NOTE =
-  'Pool losses are the ENROLLED subset only. Claims here already belong to enrolled members — ' +
-  'claim-level detail for prospects is generated but discarded after year-end aggregation, so no ' +
-  'prospect rows exist to filter. The Enrolled column is a real per-row membership check, kept for ' +
-  'documentation and so this stays correct if that ever changes.';
+  'Pool losses are the ENROLLED subset only. Every claim here belongs to the pool\'s own book, so ' +
+  'Enrolled reads Yes; it is a real per-row membership check where the pool keeps a member roster.';
 
 // THE EVENT COLUMN. What a player needs to connect a Property loss and a WC loss
 // in the same year: the event they came from. Read through claimEventLabel, so a
@@ -84,8 +83,10 @@ const EVENT_NOTE =
   'Event and Accident Year came from the same event.';
 
 const PAID_NOTE =
-  'Gross Paid is this claim\'s share of its accident year\'s cumulative GROSS paid — a split of the ' +
-  'paydown the line\'s payout pattern already set, never a schedule the claim draws for itself. The ' +
+  'Gross Paid is this claim\'s share of its accident year\'s cumulative GROSS paid on the listed claims — ' +
+  'the year\'s gross paid-to-ultimate applied to the listed claims\' own size (the year\'s ordinary losses ' +
+  'have no claim rows and keep their paid), then split: a split of the paydown the line\'s payout pattern ' +
+  'already set, never a schedule the claim draws for itself. The ' +
   'split is in two tiers. When the year has paid at least what its CLOSED files are worth, each closed ' +
   'file takes its own gross incurred and the OPEN files share what is left pro rata. When it has not, ' +
   'the closed files share what was paid pro rata and every open file shows nothing paid yet — so a ' +
@@ -309,7 +310,15 @@ function devFormats(years: number[]): (NumFmt | undefined)[] {
 // Claim ID, Occurrence ID, Member ID, Member Name, Member Type are identifiers
 // and names — text, and they must stay text. Accident Year and Calendar Year are
 // years.
-const SHARED_FORMATS: (NumFmt | undefined)[] = [TEXT, TEXT, TEXT, TEXT, TEXT, YEAR, YEAR, TEXT];
+//
+// ⚠ NO HOLDER COLUMNS ON THE NEW ENGINE (book units commit 5). Its claims land
+// on book units, which are never shown: the Member ID, Member Name and Member
+// Type columns are gone from every claim sheet there, so no unit's id, name or
+// kind reaches the workbook. The dormant member path keeps them.
+const holderColumns = () => !newLossEngineRuns();
+const sharedFormats = (): (NumFmt | undefined)[] => (holderColumns()
+  ? [TEXT, TEXT, TEXT, TEXT, TEXT, YEAR, YEAR, TEXT]
+  : [TEXT, TEXT, YEAR, YEAR, TEXT]);
 
 const DEV_NOTE =
   'The development block at the right of this sheet is the claim\'s OCCURRENCE, joined on Occurrence ' +
@@ -421,12 +430,16 @@ function collectLineClaims(
     // Year` is real too — the pre-game years carry 2023/2024/2025 against a 2026
     // start, so the column is continuous across the boundary rather than blank
     // or invented. Nothing here is a placeholder.
+    // ⚠ ON THE NEW ENGINE THE BOOK HAS NO MEMBER RECORDS (book units), so a
+    // roster check found none and Enrolled read "No" on every claim (fixed at
+    // stable-scenarios commit 11): every claim drawn is on the pool's own book.
     const enrolledIds = new Set(lr.memberLossResults.map(m => m.memberId));
+    const onBook = newLossEngineRuns() && lr.memberLossResults.length === 0;
     const memberById = new Map(lr.memberList.map(m => [m.id, m]));
     const occById = new Map(reg.occurrences.map(o => [o.id, o]));
     for (const claim of reg.claims) {
       out.push({
-        claim, member: memberById.get(claim.memberId), enrolled: enrolledIds.has(claim.memberId),
+        claim, member: memberById.get(claim.memberId), enrolled: onBook || enrolledIds.has(claim.memberId),
         event: claimEventLabel(claim, occById.get(claim.occurrenceId)) ?? '',
       });
     }
@@ -650,6 +663,13 @@ function buildPaidLedgerView(
   // (WC at age 37 under the share-based rule), so no normal-length game reaches
   // it.
   const grossPaidByAy = grossPaidByAccidentYear(poolState, line);
+  // ⚠ THE CLAIMS' OWN SHARE OF THE YEAR'S PAID (stable-scenarios commit 11).
+  // On the new engine a year's register is its large losses only, while its
+  // cohort's gross paid holds the ordinary losses too — and splitting the whole
+  // of it across the register put ordinary paid onto the large claims. So the
+  // year's gross paid-to-ultimate is applied to the register's own size first.
+  // On the member path the register IS the year, and the share is 1.
+  const grossUltByAy = grossUltimateByAccidentYear(poolState, line);
 
   // ⚠ THE VALUATION IS THE LATEST LOCKED YEAR, AND A PRE-GAME-ONLY WORKBOOK
   // STRIKES AT ITS LAST PRE-GAME YEAR RATHER THAN AT 0. Before year 1 is played
@@ -671,8 +691,11 @@ function buildPaidLedgerView(
   }
   const paidByClaimId = new Map<string, number>();
   for (const [ay, ayRows] of byAy) {
-    const cohortPaid = grossPaidByAy.get(ay);
-    if (cohortPaid === undefined) continue;   // blank, not zero — see below
+    const yearPaid = grossPaidByAy.get(ay);
+    if (yearPaid === undefined) continue;   // blank, not zero — see below
+    const yearUlt = grossUltByAy.get(ay);
+    const registerUlt = ayRows.reduce((t, { claim }) => t + claim.grossUltimate, 0);
+    const cohortPaid = yearUlt && yearUlt > 0 ? yearPaid * Math.min(1, registerUlt / yearUlt) : yearPaid;
     const split = claimPaidSplit(
       ayRows.map(({ claim }) => ({
         grossUltimate: claim.grossUltimate,
@@ -722,16 +745,15 @@ function sortClaimRows(rows: LineClaimRow[]): LineClaimRow[] {
   );
 }
 
-const SHARED_HEADER = [
-  'Claim ID', 'Occurrence ID', 'Member ID', 'Member Name', 'Member Type',
-  'Accident Year', 'Calendar Year', 'Event',
-];
+const sharedHeader = (): string[] => (holderColumns()
+  ? ['Claim ID', 'Occurrence ID', 'Member ID', 'Member Name', 'Member Type', 'Accident Year', 'Calendar Year', 'Event']
+  : ['Claim ID', 'Occurrence ID', 'Accident Year', 'Calendar Year', 'Event']);
 function sharedCells(row: LineClaimRow): Row {
   const { claim, member } = row;
-  return [
-    claim.id, claim.occurrenceId, claim.memberId, safeStr(member?.name), safeStr(member?.type),
-    claim.accidentYear, claim.calendarYear, row.event,
-  ];
+  return holderColumns()
+    ? [claim.id, claim.occurrenceId, claim.memberId, safeStr(member?.name), safeStr(member?.type),
+      claim.accidentYear, claim.calendarYear, row.event]
+    : [claim.id, claim.occurrenceId, claim.accidentYear, claim.calendarYear, row.event];
 }
 
 // ⚠ THE THREE PAYOUT-COMPONENT COLUMNS (Medical / Indemnity / Impairment) WERE
@@ -761,7 +783,7 @@ const WC_COMPONENT_NOTE =
   'Measured across 65,817 claims on all three lines: 0 differ.';
 
 const WC_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
-  ...SHARED_FORMATS,
+  ...sharedFormats(),
   TEXT,      // Rating Group
   TEXT,      // Component
   TEXT,      // Status
@@ -775,7 +797,7 @@ const WC_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
 
 function buildWcSheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>, years: number[], view: PaidLedgerView, coverage: string): Row[] {
   const header = [
-    ...SHARED_HEADER, 'Rating Group', 'Component', 'Status', 'Gross Incurred',
+    ...sharedHeader(), 'Rating Group', 'Component', 'Status', 'Gross Incurred',
     'Gross Paid', 'Reported Year', 'Enrolled', 'Claim Description', ...devHeader(years),
   ];
   const body = sortClaimRows(rows).map(row => {
@@ -815,13 +837,14 @@ const GL_COMPONENT_NOTE =
     ? ' in EVERY accident year — the ceiling does not trend, so no claim on this sheet exceeds it. '
     : ` in YEAR 1, raised in later accident years (year 20: $${glSeverityCap(20) / 1e6}M). `) +
   'With no sub-coverage, ' +
-  'gate, litigation stage, or indemnity/ALAE split (ALAE is included in the drawn amount). Component is ' +
+  'gate, litigation stage, or indemnity/ALAE split (the fit\'s amounts include ALAE; the pool\'s rate adds ALAE ' +
+  'on top of its pure premium). Component is ' +
   'the MIXTURE COMPONENT the claim was drawn from (component1 / component2 / component3) — these are ' +
   'NOT the retired general / epl / lawEnforcement / abuse sub-coverages. Reported Year always equals ' +
   'Accident Year: GL carries no report lag.';
 
 const GL_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
-  ...SHARED_FORMATS,
+  ...sharedFormats(),
   TEXT,      // Component
   TEXT,      // Status
   DOLLARS,   // Gross Incurred
@@ -834,7 +857,7 @@ const GL_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
 
 function buildGlSheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>, years: number[], view: PaidLedgerView, coverage: string): Row[] {
   const header = [
-    ...SHARED_HEADER, 'Component', 'Status', 'Gross Incurred',
+    ...sharedHeader(), 'Component', 'Status', 'Gross Incurred',
     'Gross Paid', 'Reported Year', 'Enrolled', 'Claim Description', ...devHeader(years),
   ];
   const body = sortClaimRows(rows).map(row => {
@@ -851,7 +874,7 @@ function buildGlSheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>
 }
 
 const PROPERTY_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
-  ...SHARED_FORMATS,
+  ...sharedFormats(),
   TEXT,      // Band
   TEXT,      // Status
   DOLLARS,   // Gross Incurred
@@ -864,7 +887,7 @@ const PROPERTY_FORMATS = (years: number[]): (NumFmt | undefined)[] => [
 
 function buildPropertySheetRows(rows: LineClaimRow[], dev: Map<string, OccDevelopment>, years: number[], view: PaidLedgerView, coverage: string): Row[] {
   const header = [
-    ...SHARED_HEADER, 'Band',
+    ...sharedHeader(), 'Band',
     // Damage Ratio and Location TIV are GONE with Property's rebuild. They were
     // components of the retired damageRatio x locationTiv severity and were
     // populated on no other line; the fitted mixture draws an amount directly,

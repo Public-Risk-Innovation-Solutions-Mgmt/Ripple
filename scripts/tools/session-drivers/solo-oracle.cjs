@@ -5,7 +5,7 @@ const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 const crypto = require('crypto');
 const OUT = process.argv[2] || 'before';
 
-const TABS = ['Introduction', 'Departments', 'Pool History', 'Dashboard', 'Decisions',
+const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
                'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
                'Calculation Audit', 'Membership'];
 const LINE_VIEWS = ['Pool', "Workers' Compensation"];
@@ -22,11 +22,15 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
 
-  await page.goto('/');
-  await page.waitForSelector('text=Instance ID / Seed', { timeout: 20000 });
-  // Fixed seed so the whole walk is deterministic.
-  const seedInput = page.locator('input[placeholder="e.g. ABC12345"]');
-  await seedInput.fill('MAMC6EA4');
+  // ⚠ /solo, NOT /. The root is the LOBBY now; this driver drives the SOLO
+  // game, so it follows the game rather than the URL.
+  await page.goto('/solo');
+  // Fixed seed so the whole walk is deterministic: scenario 7.
+  // The scenario menu (stable-scenarios commit 9) or, on a tree from before it,
+  // the free seed field.
+  await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
+  if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption('7');
+  else await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
   await page.getByRole('button', { name: /Start/i }).last().click();
   await page.waitForSelector('text=Lock Year', { timeout: 30000 });
 

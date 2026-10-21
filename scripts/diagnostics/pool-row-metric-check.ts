@@ -50,7 +50,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { RESULT_METRICS } from '../../src/utils/resultMetrics';
-import { buildPoolMetrics } from '../../src/utils/resultsExport';
+import { buildPoolMetrics, buildLineMetrics, type SpreadsheetMetric } from '../../src/utils/resultsExport';
 import type { CoverageLine, GameState, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -157,6 +157,55 @@ if (stale.length) {
 }
 console.log(`  absent-list keys still present on the row: ${stale.length}`);
 
+// --- 4. POOLING IS A FIXED POINT -------------------------------------------
+// ⚠ THIS ASSERTION PASSED BEFORE THE BUG IT GUARDS WAS FIXED, AND SAYING SO IS
+// THE POINT. Pooling twice already equalled pooling once — the second pass saw
+// no flags and passed everything through — so idempotence was never the broken
+// property. It is asserted anyway because the FIX makes it structural: a pooled
+// metric is now returned untouched, so the identity holds by construction
+// rather than by the accident of a dropped flag. If someone restores the
+// one-way rewrite this stays green; part 5 is the one that would red.
+const pooledTwice = buildPoolMetrics(poolMetrics, LINES);
+const samePooling = pooledTwice.length === poolMetrics.length
+  && pooledTwice.every((m, i) => m.key === poolMetrics[i].key);
+if (!samePooling) {
+  failures.push('POOLING IS NOT A FIXED POINT: buildPoolMetrics(buildPoolMetrics(x)) differs from '
+    + 'buildPoolMetrics(x). The Pool tab a page renders and the one the workbook writes can disagree.');
+}
+console.log(`  pooling twice == pooling once: ${samePooling}`);
+
+// --- 5. THE MIRROR: every LINE metric against a real LINE row --------------
+// ⚠ THIS IS THE ARM THAT DID NOT EXIST, AND ITS ABSENCE IS THE WHOLE DEFECT.
+// Part 1 proves no POOL metric reaches for a field a pool row lacks. Nobody had
+// ever asserted the reverse, so a metric whose `value` had been rewritten to
+// read `r.pool` could be handed to a LINE tab and throw — which is exactly what
+// broke the Results download: the page pools its metric list for its own
+// on-screen table, passes that same list to buildResultsWorkbook, and the line
+// tabs got pool accessors. No gate could see it, because every gate called the
+// builder correctly and the builder was never wrong.
+//
+// BOTH LISTS ARE TESTED: the raw one, and the one that has been through
+// buildPoolMetrics. The second is the one that was failing.
+const lineRow = row.byLine[LINES[0]];
+let lineLeaks = 0;
+for (const [label, list] of [
+  ['RAW', RESULT_METRICS],
+  ['POOLED then line-built', buildPoolMetrics(RESULT_METRICS, LINES)],
+] as const) {
+  for (const m of buildLineMetrics(list as SpreadsheetMetric[], LINES[0])) {
+    for (const [what, fn] of [['value', m.value], ['csvValue', m.csvValue]] as const) {
+      if (!fn) continue;
+      try { fn(lineRow as never); } catch (e) {
+        lineLeaks++;
+        failures.push(`LINE TAB (${label}): metric '${m.key}' (${what}) threw on a real line row — `
+          + `${e instanceof Error ? e.message : String(e)}. A line metric must read only line fields; `
+          + 'if it was rewritten for the Pool tab, buildLineMetrics must restore its line form.');
+      }
+    }
+  }
+}
+console.log(`  line-tab metrics throwing on a real line row: ${lineLeaks}`);
+
 console.log(`\n${'='.repeat(78)}`);
 if (failures.length) {
   console.log(`${failures.length} FAILURE(S):`);
@@ -164,5 +213,6 @@ if (failures.length) {
   process.exitCode = 1;
 } else {
   console.log('OK — every Pool-tab metric reads only fields the pool row has, every lineOnly');
-  console.log('flag earns itself, and the absent list matches the shipped type.');
+  console.log('flag earns itself, the absent list matches the shipped type, pooling is a fixed');
+  console.log('point, and every LINE-tab metric survives a real line row from both list forms.');
 }

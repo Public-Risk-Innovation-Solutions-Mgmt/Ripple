@@ -16,13 +16,30 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Circle, Copy, KeyRound, Loader2 } from 'lucide-react';
+import { CheckCircle2, Circle, Clock, Copy, Eye, EyeOff, KeyRound, Loader2 } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { loadActive, loadHeld, rememberHostToken, saveActive } from '../client/identity';
 import { useRoom } from '../client/useRoom';
+import { eventStatusOf } from '../contract';
 
 interface Props {
   code: string;
+}
+
+// The EVENT's status — OPEN until the first advance, IN PROGRESS until the last,
+// then FINISHED. Not RoomStatus, which turns 'running' when the first team
+// joins; see contract.ts's eventStatusOf for why they are two questions.
+function EventStatusBadge({ currentYear, yearCount }: { currentYear: number; yearCount: number }) {
+  const status = eventStatusOf(currentYear, yearCount);
+  const tone = status === 'OPEN' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+    : status === 'IN_PROGRESS' ? 'bg-amber-50 text-amber-700 ring-amber-200'
+    : 'bg-slate-100 text-slate-600 ring-slate-200';
+  return (
+    <span data-testid={`event-status-${status}`} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tone}`}>
+      {status === 'OPEN' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+      {status === 'IN_PROGRESS' ? 'IN PROGRESS' : status}
+    </span>
+  );
 }
 
 export default function HostRoomScreen({ code }: Props) {
@@ -36,6 +53,7 @@ export default function HostRoomScreen({ code }: Props) {
   const [advancing, setAdvancing] = useState(false);
   const [actionError, setActionError] = useState<SessionError | null>(null);
   const [showToken, setShowToken] = useState(false);
+  const [hiding, setHiding] = useState(false);
 
   const { room, you, error, loading, refresh } = useRoom(code, hostToken);
 
@@ -143,6 +161,53 @@ export default function HostRoomScreen({ code }: Props) {
             <span>Watchers at <span className="font-mono text-slate-700">/view/{code}</span></span>
           </div>
         </div>
+
+        {/* ---- the lobby control, host only ----------------------------- */}
+        {/* ⚠ HIDING IS NOT CLOSING. The event leaves the LIST and nothing else:
+            the room keeps running, its teams are unaffected, and /join/CODE,
+            /view/CODE and this screen all behave exactly as before. It is about
+            who can FIND the event, not who may JOIN it — the late-join refusal
+            keys on STATUS and is unaffected either way, so hiding is not a way
+            to reopen a room and listing is not a way to extend one. */}
+        {isHost && room && (
+          <div data-testid="hide-from-lobby" className="mt-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 text-slate-400">{room.hidden ? <EyeOff size={16} /> : <Eye size={16} />}</div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-slate-800">Hide from lobby</p>
+                  <EventStatusBadge currentYear={room.currentYear} yearCount={room.yearCount} />
+                </div>
+                <p className="mt-0.5 text-xs text-slate-500" data-testid="hide-explainer">
+                  {room.hidden
+                    ? 'Hidden. It is not in the lobby list; anyone with the code can still join.'
+                    : 'Listed now. Hiding removes it from the lobby list; anyone with the code can still join.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={room.hidden ? 'true' : 'false'}
+              data-testid="hide-toggle"
+              disabled={hiding || !hostToken}
+              onClick={() => {
+                if (!hostToken) return;
+                setHiding(true);
+                setActionError(null);
+                sessionTransport().setEventHidden({ code, token: hostToken, hidden: !room.hidden })
+                  .then(() => refresh())
+                  .catch((e: unknown) => { if (isSessionError(e)) setActionError(e); })
+                  .finally(() => setHiding(false));
+              }}
+              className={`relative h-6 w-11 flex-shrink-0 rounded-full transition disabled:opacity-50 ${
+                room.hidden ? 'bg-blue-600' : 'bg-slate-200'}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                room.hidden ? 'left-[22px]' : 'left-0.5'}`} />
+            </button>
+          </div>
+        )}
 
         {/* ---- resume ---- */}
         {!isHost && (

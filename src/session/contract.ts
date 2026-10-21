@@ -1,4 +1,29 @@
 // ============================================================================
+
+// ============================================================================
+// ⚠ THE HANDLER AND THE FRONT END MUST BE DEPLOYED TOGETHER WHEN multiplayer
+// GOES LIVE. THIS IS NOT A STYLE NOTE.
+//
+// This file changed in a way that is NOT backward compatible in one direction:
+//   - a room now carries `lines` and `priorDevelopment`, set at creation;
+//   - `join` no longer sends `lines`, and LINES_LOCKED is gone.
+//
+// A NEW FRONT END against an OLD handler is the break: createRoom's `lines` is
+// dropped on the floor, the room is made without them, and every join is then
+// refused with INVALID_REQUEST ("a team must play at least one coverage line")
+// because the new client sends none. The room is unjoinable. The reverse — an
+// old client against a new handler — is survivable by design: the new server
+// IGNORES a stray `lines` on a join and hands back the room's set.
+//
+// The two ship through DIFFERENT PIPELINES (.github/workflows/handler.yml
+// builds and promotes the Lambda zip; the front end is built and served
+// separately), so nothing enforces this ordering for you. Deploy the handler
+// FIRST, then the front end — that order is safe in both directions.
+//
+// NOTHING ON `multiplayer` IS DEPLOYED TODAY, so there is no live break to fix;
+// this is recorded for whoever first takes this branch to an environment.
+// See docs/handoff/AWS_HANDLER_HANDOFF.md, which carries the same warning.
+// ============================================================================
 // THE SESSION CONTRACT — five endpoints, one interface, no implementation.
 //
 // ⚠ THIS FILE IS THE DELIVERABLE. localStorage is the FIRST implementation of
@@ -83,11 +108,20 @@ export type SessionErrorCode =
   | 'WRONG_YEAR'
   | 'GAME_COMPLETE'
   | 'INVALID_REQUEST'
-  // A rejoin asked for different coverage lines than the team already holds.
-  // Lines are that team's game setup, chosen once; changing them mid-game would
-  // restart its book, so the transport refuses rather than the screen merely
-  // hiding the control.
-  | 'LINES_LOCKED'
+  // ⚠ A NEW TEAM ARRIVED AFTER THE FIRST ADVANCE. Refused by the SERVER, not
+  // only greyed out on the lobby: the screen knowing the rule is a courtesy to
+  // the player, and a client that skips the lobby and posts straight to /join
+  // must meet the same answer. A REJOIN is not this — a team already in the
+  // room returns with its own token at any status. See mayCreateTeam.
+  | 'EVENT_IN_PROGRESS'
+  // ⚠ 'LINES_LOCKED' WAS HERE AND IS GONE, DELIBERATELY. It refused a rejoin that
+  // asked for different coverage lines than the team already held. A team cannot
+  // ask for lines at all any more — the HOST picks the room's lines at creation
+  // and every team plays them, so JoinRequest carries no `lines` field and there
+  // is nothing left to disagree with. The guard is not relaxed; the state it
+  // guarded against is unreachable. Removing it rather than leaving it reserved
+  // is the honest record: a code no server can emit is one a client will be
+  // written to handle for no reason.
   | 'TRANSPORT_FAILURE';
 
 // ⚠ ONE ERROR TYPE FOR EVERY IMPLEMENTATION, and `code` is what callers branch
@@ -143,6 +177,20 @@ export function newSessionToken(): string {
 /** What a token must look like for the transport to accept it from a caller. */
 export const SESSION_TOKEN_PATTERN = /^[a-z0-9]{32}$/;
 
+/**
+ * THE SEEDS A ROOM MAY BE CREATED WITH — the scenario numbers "1" to "20", as
+ * text (stable-scenarios commit 9). The scenario is the game's only seed, and
+ * solo setup offers the same twenty (utils/scenarios.ts reads them from here).
+ * Both transports refuse any other seed at createRoom.
+ *
+ * ⚠ THE ROOM'S SHAPE IS UNCHANGED — `seed` stays a string — so no stored room
+ * moves and keys.ts is untouched. The handler must still deploy FIRST: a front
+ * end that sends only these is accepted by the old handler, but a handler that
+ * refuses others must be live before anything relies on the refusal.
+ */
+export const ROOM_SEEDS: readonly string[] = Array.from({ length: 20 }, (_, i) => String(i + 1));
+export const isRoomSeed = (seed: unknown): boolean => typeof seed === 'string' && ROOM_SEEDS.includes(seed);
+
 export function isSessionError(e: unknown): e is SessionError {
   return e instanceof SessionError;
 }
@@ -160,7 +208,16 @@ export function isSessionError(e: unknown): e is SessionError {
  *   endingSurplus                  <- RESULT_METRICS 'endingSurplus'
  *   actualLossRatioPricingBasis    <- 'actualLossRatioPricingBasis'
  *   poolPremium                    <- 'poolPremium'
- *   activeMembers                  <- 'activeMembers'
+ *   activeExposure                 <- 'activeExposure' ("Active Payroll
+ *                                     Exposure ($M)"). ⚠ REPLACED
+ *                                     `activeMembers`, and the reason is the
+ *                                     same one that pruned the metric list: the
+ *                                     multiplayer game shows the pool in
+ *                                     aggregate, so a host table counting
+ *                                     MEMBERS was reading a figure the player
+ *                                     can no longer see. It is still a
+ *                                     RESULT_METRICS key, which is the rule
+ *                                     this field list exists to keep.
  *   selectedFundingConfidenceLevel <- 'fundingConfidenceLevel' (the metric reads
  *                                     this field; the key is named for the
  *                                     decision, the field for what was selected)
@@ -186,7 +243,15 @@ export interface TeamYearFigures {
   endingSurplus: number;
   actualLossRatioPricingBasis: number;
   poolPremium: number;
-  activeMembers: number;
+  /**
+   * ⚠ EXPOSURE, NOT A MEMBER COUNT, and the field was RENAMED rather than
+   * repurposed so no stored row can be misread. A row written before this
+   * carries `activeMembers` and no `activeExposure`; a reader gets undefined
+   * for the new field rather than a member count silently displayed as payroll.
+   * See the deploy-order warning at the head of this file — this is a second
+   * reason the handler and the front end ship together.
+   */
+  activeExposure: number;
   /**
    * ⚠ OPTIONAL, AND ITS ABSENCE IS INFORMATION. On a LINE's figures it is that
    * line's own choice and is always present. On the POOL's it is present only
@@ -202,12 +267,22 @@ export interface TeamYearFigures {
  * What a team posts at the end of a year, and the ONE payload in this contract
  * that is typed rather than opaque.
  *
- * ⚠ DECISIONS STAY OPAQUE; RESULTS DO NOT, AND THE SPLIT IS PRINCIPLED RATHER
- * THAN CONVENIENT. A team's decisions are read by exactly one client — the one
- * that wrote them — so this layer never needs to know their shape and is better
- * off not knowing. A result is read by a SECOND PARTY: the host renders it in a
- * table. A payload a second party renders has to have an agreed shape, or the
- * agreement lives in two places and drifts.
+ * ⚠ THE OPAQUE/TYPED SPLIT, AND THE RULE THAT DECIDES IT. A payload a SECOND
+ * PARTY renders has to have an agreed shape, or the agreement lives in two
+ * places and drifts; a payload read only by the client that wrote it is better
+ * left opaque, because this layer then cannot be broken by a change to it.
+ *
+ * ⚠ THIS NOTE USED TO READ "DECISIONS STAY OPAQUE; RESULTS DO NOT" AND THAT
+ * HALF IS NOW WRONG — the rule is unchanged, the FACT it was applied to moved.
+ * The live decision stream is still opaque: SubmitRequest.decisions is JSON
+ * this layer does not inspect, and CallerView.decisionsByYear hands it back to
+ * the one client that wrote it. What changed is that the host now renders each
+ * team's decisions for a COMPLETED year, which makes that reading a second
+ * party and so demands an agreed shape — supplied by TeamYearDecisions below,
+ * a chosen projection rather than LineDecisionSet itself.
+ *
+ * The two live side by side on purpose. Opaque where one client reads it,
+ * typed where two do.
  *
  * ⚠ byLine CARRIES ONLY THE LINES THE TEAM WRITES. A team that does not write GL
  * has no GL entry — not a zeroed one. That absence is what lets the host's table
@@ -231,6 +306,81 @@ export interface TeamYearFigures {
  * field, one derivation, two readers.
  */
 export type DevelopedUltimates = Record<string, number>;
+
+// ============================================================================
+// WHAT A TEAM CHOSE, AS THE HOST READS IT BACK AFTER THE YEAR IS ADVANCED.
+//
+// ⚠ THIS IS THE SHAPE'S ONE DEFINITION AND IT LIVES HERE, IN THE CONTRACT,
+// beside TeamYearFigures and for the same reason: a payload a SECOND PARTY
+// renders has to have an agreed shape, or the agreement lives in two places and
+// drifts. LineDecisionSet in types/simulation.ts stays exactly as it is — it is
+// the engine's input type, it carries fields no host screen shows
+// (loanRepaymentAggressiveness, riskControlProgramIds, riskControlIncentivePct)
+// and it will go on changing for engine reasons. This is a projection OF it,
+// chosen field by field, so an engine-side change cannot silently alter what
+// crosses the wire or what a stored row means.
+//
+// ⚠ NOT RESULT_METRICS ENTRIES, AND THAT IS A STATEMENT RATHER THAN AN
+// OVERSIGHT. RESULT_METRICS publishes values OF A ResultSet — what a played
+// year produced. These are INPUTS: what the team asked for before the year ran.
+// They do not live on a ResultSet at all, so there is no ResultSet field for a
+// metric key to name, and inventing one would put an input into the list of
+// outputs. Same reasoning DevelopedUltimates carries above.
+//
+// ⚠ "FUNDING LEVEL" IS TWO FIELDS AND MUST STAY TWO. `atExpected` true means
+// break-even, CLF exactly 1.000, which is a MODE and not a percentile — it
+// falls between stops and moves with the book. Flattening it to a number would
+// record a stop the team did not choose. When it is true, `confidenceLevel` is
+// only the stop the slider would land on if the team dragged off Expected; the
+// host screen shows "Expected", not the number. See LineDecisionSet.
+export interface TeamLineDecisions {
+  confidenceLevel: number;
+  atExpected: boolean;
+  /**
+   * THE REINSURANCE the team bought on this line — with AGGREGATE_STOP on
+   * (stable-scenarios commit 6), one id from AGGREGATE_STOP_OPTIONS: 'none',
+   * 'working', 'bad-year' or 'catastrophe'; with it off, a package from
+   * REINSURANCE_OPTIONS[line] (e.g. '$9M xs $1M'). Loss engine commit 4a: it
+   * replaces `layersPlaced` (per band) and `aggregateStopLevel`, which are gone
+   * from the wire. ⚠ THE SHAPE IS UNCHANGED BY THE STOP — still one string the
+   * server stores without reading — so the handler, both transports and
+   * keys.ts need no change for it; only the values a client writes do.
+   */
+  reinsuranceOption: string;
+  /** Share of the book NOT renewed, worst first. Absent on the engine side reads as 0. */
+  renewalCut: number;
+  /** The intake slider's position, 0 = No New Business. */
+  intakeLevel: number;
+  riskControlPct: number;
+  dividendPct: number;
+  assessmentPct: number;
+  /**
+   * ⚠ PERCENTAGE POINTS, 0-100 — NOT a fraction, unlike every other field on
+   * this interface. That is AssetAllocation's own convention and it is carried
+   * unchanged rather than normalised, so a stored row means the same thing as
+   * the engine's own value and no conversion can go missing in one direction
+   * only. Readers must print it directly; putting it through a percent
+   * formatter yields "1000%", which is how the first host render of it read.
+   */
+  allocation: { cashPct: number; bondsPct: number; equitiesPct: number };
+}
+
+/**
+ * ⚠ OPTIONAL, AND ITS ABSENCE IS INFORMATION TWICE OVER.
+ *
+ * Absent on YEAR 0, because year 0 is the opening position — it is posted the
+ * moment a team builds its game, before anybody has decided anything, and a
+ * decisions block there would be inventing choices nobody made.
+ *
+ * Absent on a row WRITTEN BEFORE THIS FIELD EXISTED. A host reading an old
+ * room gets no decisions for its years rather than a block of zeros, and the
+ * screen renders "not recorded" instead of a funding level of 0.00 that would
+ * read as a real and alarming choice. See the deploy-order warning at the head
+ * of this file: this is another reason the handler ships before the front end.
+ *
+ * Absent for a caller who is not the HOST. See TeamView.resultsByYear.
+ */
+export type TeamYearDecisions = Partial<Record<CoverageLine, TeamLineDecisions>>;
 
 export interface TeamYearSummary {
   /**
@@ -266,12 +416,134 @@ export interface TeamYearSummary {
     pool: DevelopedUltimates;
     byLine: Partial<Record<CoverageLine, DevelopedUltimates>>;
   };
+  /**
+   * ⚠ WHAT THE TEAM CHOSE FOR THIS YEAR — carried in the record the team
+   * ALREADY posts at year end, which is what makes the timing right for free.
+   * This record is written when a year is posted, so the host cannot read a
+   * year's decisions before that year is advanced: there is no row to read.
+   * No new endpoint, and no change to who may call what.
+   *
+   * ⚠ HOST ONLY. Both transports strip this for a non-host caller, so a viewer
+   * or another team sees nothing new. A team's own decisions reach it the way
+   * they always did, through CallerView.decisionsByYear.
+   */
+  decisions?: TeamYearDecisions;
+  /**
+   * THE SPREAD BEHIND THE AVERAGE (loss engine commit 4b). Every figure above is
+   * the AVERAGE across the team's worlds; this is the pool's ending surplus in
+   * the worst, middle and best of them. Absent for the opening position (one
+   * world, before any year is played) and on a one-world build. ⚠ A CONTRACT
+   * CHANGE — deploy the handler first; see docs/handoff/AWS_HANDLER_HANDOFF.md.
+   */
+  surplusRange?: { min: number; median: number; max: number };
 }
 
 // ---------------------------------------------------------------- views
 
 export type RoomStatus = 'lobby' | 'running' | 'complete';
 export type CallerRole = 'host' | 'player' | 'viewer' | 'anonymous';
+
+// ============================================================================
+// THE EVENT'S STATUS — THE LOBBY'S AXIS, AND IT IS NOT RoomStatus.
+//
+// ⚠ TWO STATUS TYPES, AND THE SECOND IS NOT A TIDY-UP OF THE FIRST. RoomStatus
+// above turns 'lobby' -> 'running' WHEN THE FIRST TEAM JOINS. The lobby needs a
+// different boundary: an event with six teams waiting for the host is still
+// OPEN — joining it is exactly what the lobby is for — and it stops being open
+// at the HOST'S FIRST ADVANCE, because that is the moment a new team would have
+// missed a played year.
+//
+//   OPEN         currentYear === 1           nothing has been advanced
+//   IN_PROGRESS  1 < currentYear <= yearCount
+//   FINISHED     currentYear > yearCount     the last year has been advanced
+//
+// Collapsing the two would have moved RoomStatus's meaning under every existing
+// reader of it (HostRoomScreen, PlayScreen, the harness), to make one word
+// serve two questions. They are different questions, so they are different
+// types, and neither is derived from the other.
+//
+// ⚠ ONE DERIVATION, EXPORTED, AND EVERY IMPLEMENTATION CALLS IT. The local
+// transport, the Lambda handler and the lobby index all have to agree about
+// when an event stops being joinable; a second copy of this arithmetic is how
+// the server and the screen come to disagree about who may join.
+export type EventStatus = 'OPEN' | 'IN_PROGRESS' | 'FINISHED';
+
+export function eventStatusOf(currentYear: number, yearCount: number): EventStatus {
+  if (currentYear > yearCount) return 'FINISHED';
+  if (currentYear > 1) return 'IN_PROGRESS';
+  return 'OPEN';
+}
+
+/**
+ * ⚠ THE ONE RULE BOTH THE SCREEN AND THE SERVER READ. A NEW team may be created
+ * only while the event is OPEN. The screen greys the Team Leader card with this;
+ * the server refuses with it. The screen is a courtesy — the server is the rule,
+ * which is why this lives in the contract and not in a component.
+ *
+ * It does NOT govern a REJOIN: a team already in the room comes back with its
+ * own token at any status, or a refreshed browser would lose its seat the moment
+ * the host advanced. Nor does it govern a viewer, who may always watch.
+ */
+export function mayCreateTeam(status: EventStatus): boolean {
+  return status === 'OPEN';
+}
+
+/**
+ * ONE ROW OF THE LOBBY. Deliberately small: the lobby lists events, it does not
+ * preview them, and every field here is one a player needs to choose a row.
+ *
+ * ⚠ NO TOKENS, NO ROSTER, NO SHOCKS. This payload is served to ANYONE — the
+ * lobby has no passcode — so it carries nothing a room's own `read` would
+ * redact. `teams` is a COUNT, not names: the names are in the room, behind a
+ * join, and a lobby that listed them would publish who is playing to the world.
+ */
+export interface LobbyEvent {
+  code: string;
+  eventName: string;
+  status: EventStatus;
+  /** How many teams have joined so far. A count, never the names. */
+  teams: number;
+  currentYear: number;
+  yearCount: number;
+}
+
+// ⚠ NO FILTER, NO CURSOR, NO PAGE. The list is short by construction — FINISHED
+// events drop off it and hidden ones never appear — so paging would be
+// machinery for a case that does not arise. If it ever does, a cursor is an
+// additive field here.
+export type ListEventsRequest = Record<string, never>;
+
+export interface ListEventsResponse {
+  /** OPEN first, then IN_PROGRESS; each newest first. Never FINISHED, never hidden. */
+  events: LobbyEvent[];
+}
+
+/**
+ * THE HOST TAKES AN EVENT OFF THE LOBBY, OR PUTS IT BACK.
+ *
+ * ⚠ HIDING IS NOT CLOSING, AND THE DISTINCTION IS THE WHOLE POINT. A hidden
+ * event keeps running, its teams are unaffected, and ITS DIRECT LINKS KEEP
+ * WORKING — /join/CODE, /view/CODE and the host's own screen all behave exactly
+ * as before. It leaves the LIST and nothing else.
+ *
+ * ⚠ AND THAT IS CONSISTENT WITH THE LATE-JOIN RULE RATHER THAN A HOLE IN IT.
+ * Hiding does not grant anything: a hidden OPEN event can still be joined by
+ * someone with the code, which is the same as an unlisted room has always been;
+ * a hidden IN_PROGRESS event refuses a new team exactly as a listed one does,
+ * because that refusal keys on STATUS, not on listing. So "hidden" is about who
+ * can FIND it, and "in progress" is about who may JOIN it — two independent
+ * questions, and neither is a way around the other.
+ */
+export interface SetEventHiddenRequest {
+  code: string;
+  /** Host token only. Enforced by the implementation, not by hiding the control. */
+  token: string;
+  hidden: boolean;
+}
+
+export interface SetEventHiddenResponse {
+  room: RoomView;
+}
 
 // What a team looks like to anyone allowed to see the table.
 //
@@ -282,10 +554,12 @@ export type CallerRole = 'host' | 'player' | 'viewer' | 'anonymous';
 // trusting the caller to look away.
 export interface TeamView {
   name: string;
-  // ⚠ THE TEAM'S OWN COVERAGE LINES, CHOSEN AT JOIN AND FIXED FOR THE SESSION.
-  // Teams in one room now play different books, so the host is reading a table
-  // of games rather than a table of seats — which is why this belongs in the
-  // view rather than being inferable from the room.
+  // ⚠ THE LINES THIS TEAM PLAYS, WHICH ARE NOW THE ROOM'S. It used to be the
+  // team's own choice at join, and the note here used to say teams in one room
+  // play different books. They do not any more: the host sets the room's lines
+  // and every team takes them, so this is a copy of RoomView.lines kept because
+  // the host's table and a viewer both read the team row rather than the room.
+  // It is written from the room at join and never from a request.
   lines: CoverageLine[];
   joined: boolean;
   // The last year this team locked decisions for, or null if it never has.
@@ -328,6 +602,33 @@ export interface TeamView {
   resultsByYear?: Record<string, TeamYearSummary>;
 }
 
+/**
+ * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE DOES NOT READ IT YET.
+ *
+ * A signed fraction of the opening reserve: POSITIVE IS ADVERSE (prior years
+ * develop upward, the pool owes more than it booked) and NEGATIVE IS FAVOURABLE.
+ * So 0.03 is "3% adverse" and -0.02 is "2% favourable", which is how the host
+ * screen phrases it.
+ *
+ * ⚠ STORED, NOT USED. Nothing in the engine reads this field today. It is
+ * carried on the room so that a future update can apply it to the opening
+ * reserves without a second contract change and without re-creating rooms made
+ * before it lands. The host screen says so on screen, in those words, because a
+ * number beside a line that quietly does nothing is worse than no number.
+ *
+ * A line absent from the record takes no development, which is also what an old
+ * room record — written before this field existed — reads as.
+ */
+export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
+
+/**
+ * The defaults the host screen offers. They are the SCREEN's defaults, not the
+ * engine's: the engine has no opinion here yet (see PriorDevelopment), so these
+ * are starting points a host is expected to edit, not calibrated constants.
+ */
+// ⚠ DEFINED IN src/data/pricingParameters.ts NOW, re-exported here. Same values.
+export { PRIOR_DEVELOPMENT_DEFAULTS as DEFAULT_PRIOR_DEVELOPMENT } from '../data/pricingParameters';
+
 export interface RoomView {
   code: string;
   status: RoomStatus;
@@ -348,6 +649,24 @@ export interface RoomView {
    * instead of five must not be stuck forever because of a guess.
    */
   expectedTeams: number;
+  /**
+   * ⚠ THE ROOM'S COVERAGE LINES, SET BY THE HOST AT CREATION AND FIXED. Every
+   * team plays exactly these. This replaced a per-team choice made at join: a
+   * session where each team ran a different book was a table of games rather
+   * than one game, and the host could not set the thing the session is about.
+   * At least one line; order is canonical (WC, GL, Property), not the order the
+   * host clicked them.
+   */
+  lines: CoverageLine[];
+  /** Per-line prior development, stored and not yet read. See PriorDevelopment. */
+  priorDevelopment: PriorDevelopment;
+  /**
+   * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding
+   * existed, which reads as false — not hidden, which is what those rooms were.
+   * See SetEventHiddenRequest for why this changes only whether the event is
+   * LISTED and nothing about who may join it.
+   */
+  hidden?: boolean;
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamView[];
@@ -413,12 +732,26 @@ export interface CallerView {
 // another; a server author reading it would have built the wrong thing.
 // The table shape for the index is in src/session/server/keys.ts.
 export interface CreateRoomRequest {
+  /** One of ROOM_SEEDS, "1" to "20": the scenario. Any other is refused. */
   seed: string;
   yearCount: number;
   startingYear: number;
   eventName: string;
   /** Non-binding — see RoomView.expectedTeams. */
   expectedTeams: number;
+  /**
+   * ⚠ THE LINES THE GAME USES. At least one, and every entry a real coverage
+   * line; an empty or unknown set is refused with BAD_REQUEST. The server
+   * normalises the order to canonical, so a host who clicks Property first does
+   * not create a room that differs from one who clicks WC first.
+   */
+  lines: CoverageLine[];
+  /**
+   * Per-line prior development, stored on the room and NOT read by the engine.
+   * See PriorDevelopment. Optional: omitted means no development recorded, and
+   * entries for lines the room does not play are dropped rather than refused.
+   */
+  priorDevelopment?: PriorDevelopment;
   shocks: ScheduledShockSpec[];
   /**
    * ⚠ THE HOST'S TOKEN, MINTED BY THE CLIENT, AND IT DOUBLES AS THE
@@ -470,18 +803,18 @@ export interface JoinRequest {
   teamName: string;
   role: 'player' | 'viewer';
   /**
-   * ⚠ THE TEAM'S COVERAGE LINES, REQUIRED FOR A PLAYER'S FIRST JOIN AND FIXED
-   * FROM THAT MOMENT. The set may not be empty and every entry must be a real
-   * coverage line, but there is no room-level MENU any more: all three are
-   * available in every room and the host does not constrain the choice. (A
-   * menu, if one is ever wanted, is a field on the room record and a filter
-   * here — it was removed because nothing was using it to say no.) On a REJOIN this may be omitted; if it is supplied and
-   * differs from what the team already holds, the call is refused with
-   * LINES_LOCKED rather than quietly honoured or quietly ignored. Changing them
-   * mid-game would restart that team's book — its pre-game, its roster and its
-   * whole claim history are a function of the lines it opened with.
+   * ⚠ THERE IS NO `lines` FIELD ANY MORE, AND ITS ABSENCE IS THE POINT.
+   * A player used to send its coverage lines here, required on a first join and
+   * refused with LINES_LOCKED if a rejoin disagreed. The HOST now picks the
+   * room's lines at creation and every team plays them, so a team has nothing to
+   * send and nothing to disagree about. JoinResponse.lines still answers "what
+   * do I play" — it is the room's set, returned so a client need not read the
+   * room separately to build its game.
+   *
+   * A server written against this contract must IGNORE a stray `lines` on the
+   * wire rather than refuse it, so a stale client that still sends one joins
+   * correctly and plays the room's lines instead of its own.
    */
-  lines?: CoverageLine[];
   /**
    * ⚠ REJOIN, NOT A SECOND CLAIM. The same browser returning to the same code
    * presents the token it already holds and gets its own seat back. Without
@@ -503,8 +836,10 @@ export interface JoinResponse {
   teamToken: string;
   teamName: string;
   role: 'player' | 'viewer';
-  /** What the team actually holds — authoritative, and on a rejoin this is the
-   *  set chosen originally rather than anything the caller asked for. */
+  /** What the team plays: THE ROOM'S LINES, authoritative. It is no longer "the
+   *  set chosen originally" because nothing is chosen at join — it is the set
+   *  the host fixed at creation, returned here so a client can build its game
+   *  from the join response alone. */
   lines: CoverageLine[];
   rejoined: boolean;
   room: RoomView;
@@ -600,6 +935,16 @@ export interface SessionTransport {
   submit(req: SubmitRequest): Promise<SubmitResponse>;
   advance(req: AdvanceRequest): Promise<AdvanceResponse>;
   read(req: ReadRequest): Promise<ReadResponse>;
+  // ---- the lobby ----------------------------------------------------------
+  // ⚠ TWO NEW METHODS, NOT ONE, AND THE SECOND IS NOT AN OVERSIGHT. The lobby
+  // needs a READ (listEvents) and the host's hide control needs a WRITE. There
+  // was nowhere to put the write: `advance` fires once a year and means
+  // something else, `read` is a read, and folding a mutation into either would
+  // make a method that sometimes writes — the kind of thing this contract's
+  // header spends its length arguing against. So hiding gets its own narrow,
+  // host-only endpoint rather than a flag smuggled onto a call that exists.
+  listEvents(req: ListEventsRequest): Promise<ListEventsResponse>;
+  setEventHidden(req: SetEventHiddenRequest): Promise<SetEventHiddenResponse>;
 }
 
 // ---------------------------------------------------------------- faults

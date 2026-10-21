@@ -45,7 +45,7 @@
 // ============================================================================
 
 import { PROPERTY_CAT_EARTHQUAKE, PROPERTY_CAT_MODEL } from '../data/defaultAssumptions';
-import { PROPERTY_PERIL_DEDUCTIBLE } from '../data/reinsuranceTower';
+import { PROPERTY_PERIL_DEDUCTIBLE, PROPERTY_TOWER_TOP, REINSURANCE_TOWER } from '../data/reinsuranceTower';
 import type { Member, Region } from '../types/simulation';
 
 const C = PROPERTY_CAT_MODEL;
@@ -323,3 +323,57 @@ export const propertyCatInternals = {
   resetCache: () => eventCache.clear(),
   cacheSize: () => eventCache.size,
 };
+
+// ============================================================================
+// THE CATASTROPHE CAPITAL A POOL ACTUALLY RETAINS — one occurrence, after the
+// placement it chose.
+//
+// ⚠ WHY A RESERVE MARGIN ALONE WAS NOT ENOUGH, MEASURED. reserveRiskMarginNeeded
+// is expectedNetUnpaidLoss x (clf - 1): a margin on the EXPECTED reserve. A
+// catastrophe is 0.084 events a year, so it barely touches an expectation, and
+// the reserve is dominated by attritional claims under the retention. Declining
+// Property's tower therefore raised required capital by 10.1% while raising the
+// retained exposure about fifteen-fold — and the declined pool READ BETTER,
+// +465% against +286%, because the reinsurance premium it no longer paid stayed
+// in surplus. The engine told a pool that had just taken on the whole
+// catastrophe that it was more strongly capitalised. This term is that defect.
+//
+// ⚠ "THE EVENT" IS NOT A CHOSEN NUMBER. It is E[retained loss of ONE event] read
+// off catEventRetained — the exact lattice distribution this file already
+// builds for pricing, mapped through the pool's OWN placement. Placed, the layer
+// caps each occurrence at its attachment and the mixture over
+// drawnPerilAttachments carries the earthquake deductible at its own share, so
+// the term is the retention a pool really keeps rather than a headline $5M.
+// Declined, `null` means no layer and the pool keeps the whole event. Nothing is
+// invented, nothing needs re-deriving when the roster or the tower moves, and a
+// Property-only pool and a three-line pool get their own books' answers.
+//
+// ⚠ ONE OCCURRENCE, NOT AN ANNUAL AGGREGATE, AND THAT IS THE CAPITAL QUESTION.
+// Capital is held against the event that happens, not against the average year;
+// the average year is what premium is for. An annual-aggregate term would also
+// double-count the attritional band, which the reserve margin already covers.
+//
+// ⚠ EXPECTED RETAINED, NOT A RETURN PERIOD, AND THIS IS THE CONSERVATIVE GAP TO
+// KNOW ABOUT. A 90% standard would argue for the 1-in-10 retained event rather
+// than its mean. The mean is used because catEventRetained returns it directly
+// and exactly; the pmf is right there if a percentile is ever wanted, and that
+// would make this term LARGER, never smaller. Stated so nobody reads the mean as
+// a considered sufficiency claim.
+//
+// ⚠ PROPERTY ONLY. WC and GL have no catastrophe band — nothing in their
+// generators emits a multi-claim occurrence — so the term is zero for them by
+// absence rather than by exemption.
+// ============================================================================
+export function catCapitalRetained(
+  line: string,
+  members: Member[],
+  placed: readonly boolean[] | null | undefined,
+): number {
+  if (line !== 'Property') return 0;
+  const layer = REINSURANCE_TOWER.Property[0];
+  const on = layer.purchasable && placed?.[0] === true;
+  return catEventRetained(
+    members,
+    on ? { attachment: layer.attachment, ceiling: PROPERTY_TOWER_TOP } : null,
+  ).m1Retained;
+}

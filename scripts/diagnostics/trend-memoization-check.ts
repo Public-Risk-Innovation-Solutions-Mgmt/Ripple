@@ -23,7 +23,8 @@
 // every floored function must return the SAME thing at -2, -1, 0 and 1, in
 // every call order.
 
-import { wageFactor } from '../../src/data/exposureTrend';
+import { EXPOSURE_GROWTH_PER_YEAR, exposureFactor } from '../../src/data/exposureTrend';
+import { FREQUENCY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
 import {
   wcFrequencyTrend, wcSeverityTrend, WC_SEVERITY_TREND_PER_YEAR,
 } from '../../src/utils/wcClaimEngine';
@@ -31,7 +32,6 @@ import {
   glSeverityTrend, glCappedSeverityTrend, GL_SEVERITY_TREND_PER_YEAR,
   HELD_PURE_PREMIUM_YEAR, untiltedGlWeights, expectedClaimSeverity,
 } from '../../src/utils/glClaimEngine';
-import { WC_LOSS_MODEL } from '../../src/data/defaultAssumptions';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -66,10 +66,9 @@ console.log('--- 1. EVERY MEMOIZED VALUE MATCHES A FRESH, INDEPENDENTLY REIMPLEM
   // Fresh reference formulas, duplicated from each function's PRE-MEMOIZATION
   // body rather than imported — the point is to have a computation that never
   // touches the Map, so a wrong key can't hide from it.
-  const freshWcFrequencyTrend = (y: number) => Math.pow(1 + WC_LOSS_MODEL.frequencyTrendPerYear, y - 1);
+  const freshWcFrequencyTrend = (y: number) => Math.pow(1 + FREQUENCY_TREND_PER_YEAR.WC, y - 1);
   const freshWcSeverityTrend = (y: number) => Math.pow(1 + WC_SEVERITY_TREND_PER_YEAR, Math.max(1, y) - 1);
   const freshGlSeverityTrend = (y: number) => Math.pow(1 + GL_SEVERITY_TREND_PER_YEAR, Math.max(1, y) - 1);
-  const freshWageFactor = (y: number) => Math.pow(1.0363, Math.max(1, y) - 1); // WAGE_INFLATION_PER_YEAR, restated so this check does not import the memoized module's own constant path
   // glCappedSeverityTrend's fresh reference calls the UNMEMOIZED
   // expectedClaimSeverity fresh every time, recomputing `base` from scratch on
   // every single call rather than hoisting it — the two must still agree,
@@ -88,8 +87,6 @@ console.log('--- 1. EVERY MEMOIZED VALUE MATCHES A FRESH, INDEPENDENTLY REIMPLEM
       ['wcSeverityTrend', wcSeverityTrend(y), freshWcSeverityTrend(y)],
       ['glSeverityTrend', glSeverityTrend(y), freshGlSeverityTrend(y)],
       ['glCappedSeverityTrend', glCappedSeverityTrend(y), freshGlCapped(y)],
-      ['wageFactor(WC)', wageFactor('WC', y), freshWageFactor(y)],
-      ['wageFactor(GL)', wageFactor('GL', y), freshWageFactor(y)],
     ];
     for (const [name, memoized, fresh] of rows) {
       if (memoized !== fresh) {
@@ -98,9 +95,18 @@ console.log('--- 1. EVERY MEMOIZED VALUE MATCHES A FRESH, INDEPENDENTLY REIMPLEM
       }
     }
   }
-  check(allMatch, `memoized === fresh across years [${YEARS.join(', ')}]`, 'wageFactor on both WC and GL');
-  check(wageFactor('Property', 10) === 1 && wageFactor('Property', -5) === 1,
-    'wageFactor(Property, *) stays exactly 1 — WAGE_INFLATION_APPLIES.Property is false');
+  check(allMatch, `memoized === fresh across years [${YEARS.join(', ')}]`, 'the four memoized trend factors');
+
+  // ⚠ exposureFactor LEFT THIS LIST BECAUSE IT LEFT THE MEMO. It was a
+  // per-line Map over Math.pow(1.0363, ...); with EXPOSURE_GROWTH_PER_YEAR at
+  // zero the body is a constant and a Map lookup would cost more than the
+  // arithmetic. It is still checked here — just as a VALUE rather than as a
+  // cache, because a base that silently stopped being level is the defect this
+  // file is positioned to catch.
+  const levelEverywhere = (['WC', 'GL', 'Property'] as const)
+    .every(l => [-5, 0, 1, 2, 10, 40].every(y => exposureFactor(l, y) === 1));
+  check(EXPOSURE_GROWTH_PER_YEAR === 0 && levelEverywhere,
+    'exposureFactor is exactly 1 on every line and year — the exposure base is level');
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +119,6 @@ console.log('\n--- 2. THE FLOOR IS AT THE CACHE KEY, NOT JUST THE VALUE ---');
     ['wcSeverityTrend', wcSeverityTrend],
     ['glSeverityTrend', glSeverityTrend],
     ['glCappedSeverityTrend', glCappedSeverityTrend],
-    ['wageFactor(WC)', (y: number) => wageFactor('WC', y)],
   ];
   for (const [name, fn] of floored) {
     const order = [0, -2, 1, -8, -1]; // year 1 is NOT queried first
@@ -123,11 +128,29 @@ console.log('\n--- 2. THE FLOOR IS AT THE CACHE KEY, NOT JUST THE VALUE ---');
       allSame ? `${seen[0]}` : seen.join(' / '));
   }
 
-  // The un-floored control: wcFrequencyTrend must NOT collapse -2 and 1,
-  // because it deliberately has no floor.
-  const distinct = wcFrequencyTrend(-2) !== wcFrequencyTrend(1);
-  check(distinct, 'wcFrequencyTrend(-2) !== wcFrequencyTrend(1) — this one has NO floor, by design',
-    `${wcFrequencyTrend(-2).toFixed(6)} vs ${wcFrequencyTrend(1).toFixed(6)}`);
+  // ⚠ THE UN-FLOORED CONTROL IS NOW INERT, AND IT SAYS SO RATHER THAN BEING
+  // DELETED OR QUIETLY PASSING.
+  //
+  // It read `wcFrequencyTrend(-2) !== wcFrequencyTrend(1)` — the pre-game is
+  // allowed to run frequency hotter, so this one function deliberately has no
+  // year-1 floor, unlike every other factor above. That test worked by
+  // observing a DIFFERENCE in value, which requires a non-zero rate. WC's
+  // frequency trend is a named zero now (FREQUENCY_TREND_PER_YEAR.WC), so the
+  // factor is 1 in every year and a floored and an unfloored implementation are
+  // indistinguishable from outside.
+  //
+  // What can still be checked is that the function IS the unfloored formula, so
+  // that is what is checked — against a fresh reimplementation, at the live
+  // rate, across negative years. It passes trivially today and regains its
+  // discriminating power the moment a frequency trend comes back. Stated as
+  // INERT so nobody reads a green here as evidence the floor is still absent.
+  const unflooredFresh = (y: number) => Math.pow(1 + FREQUENCY_TREND_PER_YEAR.WC, y - 1);
+  const years = [-8, -2, -1, 0, 1, 2, 10];
+  const matchesUnfloored = years.every(y => wcFrequencyTrend(y) === unflooredFresh(y));
+  check(matchesUnfloored,
+    'wcFrequencyTrend is the UNFLOORED formula at every year (INERT while the rate is 0 — '
+    + 'it cannot tell floored from unfloored until a frequency trend returns)',
+    years.map(y => wcFrequencyTrend(y).toFixed(6)).join(' / '));
 }
 
 // ---------------------------------------------------------------------------

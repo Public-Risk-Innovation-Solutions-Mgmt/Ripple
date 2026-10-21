@@ -34,8 +34,9 @@
 // ============================================================================
 
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
-import { GL_HEAVY_COMPONENT_INDEX, GL_LOSS_MODEL, GL_SEVERITY_CAP, GL_SEVERITY_COMPONENTS } from '../../src/data/defaultAssumptions';
-import { WAGE_INFLATION_PER_YEAR, wageFactor } from '../../src/data/exposureTrend';
+import { GL_HEAVY_COMPONENT_INDEX, GL_LOSS_MODEL, GL_SEVERITY_CAP, GL_SEVERITY_COMPONENTS, RISK_QUALITY_CENTRE, RISK_QUALITY_SLOPE } from '../../src/data/defaultAssumptions';
+import { EXPOSURE_GROWTH_PER_YEAR, exposureFactor } from '../../src/data/exposureTrend';
+import { SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
 import {
   computeKGl,
   deriveNeutralGlPurePremiumPer100,
@@ -47,6 +48,8 @@ import {
   glSeverityCap,
   glInternals,
   glSeverityTrend,
+  memberThetaGl,
+  thetaGl,
   GL_SEVERITY_TREND_PER_YEAR,
   tiltedGlWeights,
   trendedMuGl,
@@ -171,7 +174,16 @@ console.log('\n--- 2. the frequency anchor: DERIVED, and checked BY SIMULATION n
   const drawnCost = mean(capped) / (TOTAL_PAYROLL_M * 10_000);
   const ciCost = ci99(capped) / (TOTAL_PAYROLL_M * 10_000);
   console.log(`  [DRAWN, ${YEARS} yrs, uniform RQ 5, kGl=1] 0-$1M loss cost ${drawnCost.toFixed(5)} per $100, 99% CI +/-${ciCost.toFixed(5)} (+/-${(ciCost / drawnCost * 100).toFixed(3)}%)`);
-  console.log(`      vs the 2.83000 anchor: ${note(Math.abs(drawnCost - 2.83) <= ciCost, `the DRAWN capped loss cost ${drawnCost.toFixed(5)} is outside its 99% CI of the 2.83 anchor — the generator does not reproduce the anchor its rate was derived from`)}`);
+  // ⚠ A DRAWN RQ-5 BOOK NOW READS THE ANCHOR x RISK_QUALITY_CENTRE.GL, BY RULING.
+  // The slope was steepened and each line re-centred on its MARKETPLACE mean, so
+  // an average member stays average. A convex curve cannot also keep the RQ-5
+  // member where it was: the RQ-5 RATE CARD still reproduces 2.83 exactly (the
+  // derivation above, and the held pure premium), a member who really is RQ 5
+  // draws the centre's share of it, and the marketplace's average member draws
+  // 1.029x it, as before the slope moved. So the generator is checked against the
+  // anchor on the basis it now has. See RISK_QUALITY_CENTRE.
+  const anchorDrawn = 2.83 * RISK_QUALITY_CENTRE.GL;
+  console.log(`      vs the 2.83000 anchor x centre ${RISK_QUALITY_CENTRE.GL} = ${anchorDrawn.toFixed(5)}: ${note(Math.abs(drawnCost - anchorDrawn) <= ciCost, `the DRAWN capped loss cost ${drawnCost.toFixed(5)} is outside its 99% CI of the 2.83 anchor x RISK_QUALITY_CENTRE.GL (${anchorDrawn.toFixed(5)}) — the generator does not reproduce the anchor its rate was derived from`)}`);
 
   // Ground-up loss cost stays an ANALYTIC assertion: its drawn counterpart has a
   // ~3% CI at 4,000 years (CV 29.55), so nothing tight is assertable there.
@@ -215,17 +227,20 @@ console.log('\n--- 2b. k_GL NEUTRALISES BOTH RQ CHANNELS (the held-pure-premium 
   console.log(`  the two bases DO differ at RQ 1 (ratio ${spread.toFixed(4)}): ${note(Math.abs(spread - 1) > 0.05, 'the k_GL and pricing bases are identical away from neutral — the severity tilt is not in the k_GL basis, so k_GL is correcting nothing extra')}`);
 }
 
-console.log('\n--- 2c. THE TREND PAIR: severity and payroll growth, and the four invariants ---');
+console.log('\n--- 2c. THE TREND PAIR: severity and a LEVEL exposure base ---');
 {
-  const SEV = GL_SEVERITY_TREND_PER_YEAR, WAGE = WAGE_INFLATION_PER_YEAR;
-  console.log(`  [ANALYTIC] severity ${(SEV * 100).toFixed(4)}%/yr = wage ${(WAGE * 100).toFixed(2)}% x social 2.00% (multiplicative)`);
-  const composed = 1.0363 * 1.020 - 1;
-  console.log(`    composed check: 1.0363 x 1.020 - 1 = ${composed.toFixed(6)} vs stored ${SEV}  ${note(Math.abs(composed - SEV) < 1e-9, `GL_SEVERITY_TREND_PER_YEAR ${SEV} != 1.0363 x 1.020 - 1`)}`);
-  console.log(`    (SUMMING would give ${(0.0363 + 0.020).toFixed(4)} — the figures only reconcile as a product)`);
+  const SEV = GL_SEVERITY_TREND_PER_YEAR, WAGE = EXPOSURE_GROWTH_PER_YEAR;
+  console.log(`  [ANALYTIC] severity ${(SEV * 100).toFixed(4)}%/yr, exposure growth ${(WAGE * 100).toFixed(2)}%/yr`);
+  // ⚠ THE COMPOSITION CHECK IS RETIRED WITH THE RATE IT CHECKED. GL carried
+  // 5.7026% = 1.0363 x 1.020 (wage x long-run social inflation), and the check
+  // that it reconciled as a PRODUCT rather than a sum was load-bearing while
+  // the pair existed. Since stable-scenarios commit 3 each line has its own
+  // chosen rate (GL 8%), so what is checked is that GL's draw reads GL's own.
+  console.log(`    GL's draw reads GL's own rate: ${note(Math.abs(SEV - SEVERITY_TREND_PER_YEAR.GL) < 1e-12, `GL's draw trends at ${SEV}, not SEVERITY_TREND_PER_YEAR.GL ${SEVERITY_TREND_PER_YEAR.GL}`)}`);
 
-  // (i) RATE TREND = the social-inflation half, exactly.
+  // (i) RATE TREND = the severity trend, exactly, because the base is level.
   const rate = (1 + SEV) / (1 + WAGE);
-  console.log(`  [ANALYTIC] rate trend = sev / wage = ${rate.toFixed(6)} -> ${((rate - 1) * 100).toFixed(4)}%/yr  ${note(Math.abs(rate - 1.02) < 1e-9, `rate trend ${rate} != 1.02 — the severity/wage pair no longer leaves exactly the social-inflation half`)}`);
+  console.log(`  [ANALYTIC] rate trend = sev / exposure = ${rate.toFixed(6)} -> ${((rate - 1) * 100).toFixed(4)}%/yr  ${note(Math.abs(rate - (1 + SEV)) < 1e-12, `rate trend ${rate} != 1 + severity — the exposure base is not level`)}`);
   console.log(`    over 9 compounding periods: rate x${Math.pow(rate, 9).toFixed(4)}, member charge x${Math.pow(1 + SEV, 9).toFixed(4)}`);
 
   // (ii) PREMIUM TREND = SEVERITY TREND, INDEPENDENT OF THE WAGE RATE.
@@ -295,10 +310,15 @@ console.log('\n--- 2c. THE TREND PAIR: severity and payroll growth, and the four
   // the same s, so the truncation point moves with them) — that is no longer
   // what this line does, deliberately, and the drift measured below is what a
   // future re-tightening of this tolerance would need to explain away first.
+  //
+  // ⚠ AND THE BAR SCALES WITH THE SEVERITY SLOPE. The residual is the tilt
+  // meeting the flat cap, so a steeper tilt leaves a proportionally larger one.
+  // GL steepens frequency only (severity 1x), so the bar is the 1e-4 set at 1x.
+  const K_DRIFT_TOL = 1e-4 * RISK_QUALITY_SLOPE.GL.severity;
   const kAt1 = computeKGl(roster, 1), kAt10 = computeKGl(roster, 10), kAt20 = computeKGl(roster, 20);
   const kDrift = Math.max(Math.abs(kAt10 / kAt1 - 1), Math.abs(kAt20 / kAt1 - 1));
   console.log(`  [ANALYTIC] k_GL year 1 ${kAt1.toFixed(10)} / year 10 ${kAt10.toFixed(10)} / year 20 ${kAt20.toFixed(10)}`);
-  console.log(`    drift ${kDrift.toExponential(2)} relative — a flat ceiling reintroduces the drift  ${note(kDrift < 1e-4, `k_GL drifted ${kDrift.toExponential(2)} with the year, past the 1e-4 tolerance the fixed-ceiling era used`)}`);
+  console.log(`    drift ${kDrift.toExponential(2)} relative — a flat ceiling reintroduces the drift  ${note(kDrift < K_DRIFT_TOL, `k_GL drifted ${kDrift.toExponential(2)} with the year, past the ${K_DRIFT_TOL.toExponential(0)} tolerance (the fixed-ceiling era's 1e-4, scaled by the slope)`)}`);
 
   // (iv) THE UNCAPPED CV IS TREND-INVARIANT; THE CAPPED CV IS NOT.
   //
@@ -374,13 +394,19 @@ console.log('\n--- 2c. THE TREND PAIR: severity and payroll growth, and the four
       / expectedClaimSeverity(glInternals.untiltedGlWeights(), yearNumber);
   const n1 = countExpectationAt(1), n10 = countExpectationAt(10);
   console.log(`  [ANALYTIC] engine count expectation year 1 ${n1.toFixed(6)} vs year 10 ${n10.toFixed(6)}`);
-  console.log(`    ${note(Math.abs(n1 - n10) < 1e-9, `the engine's claim-count expectation moved from year 1 to year 10 (${n1} -> ${n10}) — frequency is reading NOMINAL payroll. It must read member.exposureByLine.GL raw; the wage factor is a rating/premium/display quantity only (lineHelpers.getMemberExposure).`)}  — while NOMINAL payroll grew x${Math.pow(1 + WAGE, 9).toFixed(4)}`);
-  const nominalGrew = Math.abs(wageFactor('GL', 10) - Math.pow(1 + WAGE, 9)) < 1e-12 && wageFactor('GL', 10) > 1.3;
-  console.log(`    and the wage switch really is ON for GL (wageFactor year 10 = ${wageFactor('GL', 10).toFixed(4)}): ${note(nominalGrew, 'WAGE_INFLATION_APPLIES.GL is off — the rating side is not inflating at all')}`);
+  console.log(`    ${note(Math.abs(n1 - n10) < 1e-9, `the engine's claim-count expectation moved from year 1 to year 10 (${n1} -> ${n10}) — frequency is reading NOMINAL payroll. It must read member.exposureByLine.GL raw; the wage factor is a rating/premium/display quantity only (lineHelpers.getMemberExposure).`)}  — while the exposure base stayed at x${Math.pow(1 + WAGE, 9).toFixed(4)}`);
+  // ⚠ THE SWITCH THIS USED TO ASSERT WAS ON IS NOW ASSERTED OFF. GL's exposure
+  // grew at 3.63% and the check existed because a silently-off switch would
+  // have left the rating side flat while severity climbed. The base is level by
+  // decision now, so the same reading is the correct one and the assertion is
+  // inverted rather than deleted — a factor drifting away from 1 is exactly as
+  // much of a defect as it used to be to sit at 1.
+  const baseLevel = exposureFactor('GL', 10) === 1 && exposureFactor('GL', 1) === 1;
+  console.log(`    and the exposure base really is LEVEL for GL (factor year 10 = ${exposureFactor('GL', 10).toFixed(4)}): ${note(baseLevel, 'EXPOSURE_GROWTH_PER_YEAR is not zero — the rating side is inflating under a severity trend that already reaches the rate in full')}`);
 
   // (vi) BOTH FACTORS FLOOR AT YEAR 1 — the pre-game is year-1 dollars.
-  const floors = [-2, -1, 0, 1].every(y => glSeverityTrend(y) === 1 && wageFactor('GL', y) === 1);
-  console.log(`  [ANALYTIC] both factors floor at year 1 (pre-game years -2..0): ${note(floors, 'glSeverityTrend or wageFactor does not floor at year 1 — the pre-game re-rates against year-1 dollar constants')}`);
+  const floors = [-2, -1, 0, 1].every(y => glSeverityTrend(y) === 1 && exposureFactor('GL', y) === 1);
+  console.log(`  [ANALYTIC] both factors floor at year 1 (pre-game years -2..0): ${note(floors, 'glSeverityTrend or exposureFactor does not floor at year 1 — the pre-game re-rates against year-1 dollar constants')}`);
 }
 
 console.log('\n--- 3. [ANALYTIC] full-market claims, gross, loss by band, occurrence counts ---');
@@ -429,7 +455,7 @@ console.log('\n--- 4. [ANALYTIC] RQ channels: frequency unchanged, severity tilt
 {
   const b = M.rqFrequencyBeta;
   console.log(`  rqFrequencyBeta = ${b} (unchanged from before the gate was deleted)  ${note(b === 0.055, `rqFrequencyBeta is ${b}, expected 0.055`)}`);
-  console.log(`  theta(RQ0)/theta(RQ5) = ${Math.exp(5 * b).toFixed(4)} vs exp(5x${b})=${Math.exp(5 * b).toFixed(4)}  OK by construction`);
+  console.log(`  theta(RQ0)/theta(RQ5) = ${(thetaGl(0) / thetaGl(5)).toFixed(4)} vs exp(5 x ${b} x slope ${RISK_QUALITY_SLOPE.GL.frequency}) = ${Math.exp(5 * b * RISK_QUALITY_SLOPE.GL.frequency).toFixed(4)}  ${note(Math.abs(thetaGl(0) / thetaGl(5) - Math.exp(5 * b * RISK_QUALITY_SLOPE.GL.frequency)) < 1e-12, 'thetaGl does not carry the slope')}`);
 
   // The tilt: heavy component's weight at RQ0/RQ5/RQ10, and the renormalised
   // others. At RQ5 (neutral) this must be the identity.
@@ -445,11 +471,21 @@ console.log('\n--- 4. [ANALYTIC] RQ channels: frequency unchanged, severity tilt
   const rawTotal = GL_SEVERITY_COMPONENTS.reduce((s, c) => s + c.weight, 0);
   const untilted = GL_SEVERITY_COMPONENTS.map(c => c.weight / rawTotal);
   console.log(`  RQ5 (neutral) tilt is the identity: ${note(w5.every((w, i) => Math.abs(w - untilted[i]) < 1e-15), 'RQ5 tilt is not the identity against the normalised base')}`);
-  const factor0 = Math.exp(-M.rqSeverityBeta * (0 - 5)), factor10 = Math.exp(-M.rqSeverityBeta * (10 - 5));
+  // The tilt carries RISK_QUALITY_SLOPE.GL.severity (1x: GL steepens frequency
+  // only), so the reference formula carries it.
+  const sb = M.rqSeverityBeta * RISK_QUALITY_SLOPE.GL.severity;
+  const factor0 = Math.exp(-sb * (0 - 5)), factor10 = Math.exp(-sb * (10 - 5));
   console.log(`  heavy component weight: RQ0 ${w0[GL_HEAVY_COMPONENT_INDEX].toFixed(4)} (x${factor0.toFixed(4)}) / RQ5 ${w5[GL_HEAVY_COMPONENT_INDEX].toFixed(4)} / RQ10 ${w10[GL_HEAVY_COMPONENT_INDEX].toFixed(4)} (x${factor10.toFixed(4)})`);
-  console.log(`  RQ0 heavy weight matches exp(-0.06x(0-5)): ${note(Math.abs(w0[GL_HEAVY_COMPONENT_INDEX] - untilted[GL_HEAVY_COMPONENT_INDEX] * factor0) < 1e-15, 'RQ0 heavy tilt does not match the formula')}`);
+  // RQ 0 is checked against the CLAMPED formula and RQ 10 against the formula
+  // itself, so the check holds whatever severity slope RISK_QUALITY_SLOPE sets.
+  // At GL's 1x severity slope the clamp does not bind at either.
+  console.log(`  RQ0 heavy weight matches min(base x exp(-${sb.toFixed(2)}x(0-5)), 0.999): ${note(Math.abs(w0[GL_HEAVY_COMPONENT_INDEX] - Math.min(untilted[GL_HEAVY_COMPONENT_INDEX] * factor0, 0.999)) < 1e-15, 'RQ0 heavy tilt does not match the clamped formula')}`);
+  console.log(`  RQ10 heavy weight matches base x exp(-${sb.toFixed(2)}x(10-5)): ${note(Math.abs(w10[GL_HEAVY_COMPONENT_INDEX] - untilted[GL_HEAVY_COMPONENT_INDEX] * factor10) < 1e-15, 'RQ10 heavy tilt does not match the formula')}`);
   console.log(`  weights still sum to 1 at every RQ: ${note([w0, w5, w10].every(w => Math.abs(w.reduce((s, x) => s + x, 0) - 1) < 1e-9), 'tilted weights do not sum to 1')}`);
-  console.log(`  clamp never binds in the roster's RQ range (max heavy weight ${Math.max(...[w0, w5, w10].map(w => w[GL_HEAVY_COMPONENT_INDEX])).toFixed(4)} << 0.999): ${note(Math.max(...[w0, w5, w10].map(w => w[GL_HEAVY_COMPONENT_INDEX])) < 0.999, 'clamp is binding')}`);
+  // The clamp must bind only below the marketplace's RQ 1-10 range (at 1x: never).
+  const bindsBelow = 5 - Math.log(0.999 / untilted[GL_HEAVY_COMPONENT_INDEX]) / sb;
+  const wAt = tiltedGlWeights(Math.ceil(bindsBelow * 100) / 100)[GL_HEAVY_COMPONENT_INDEX];
+  console.log(`  clamp binds only below RQ ${bindsBelow.toFixed(2)} (heavy weight just above it ${wAt.toFixed(4)} < 0.999): ${note(bindsBelow < 1 && wAt < 0.999, `the clamp binds up to RQ ${bindsBelow.toFixed(2)}, inside the marketplace's RQ 1-10 range`)}`);
 
   // INVARIANT 2: the tilt must NEVER reach the pricing expectation. RQ0 and
   // RQ10 severity means (via expectedGlGrossLossForPricing with an RQ override) must be
@@ -457,7 +493,8 @@ console.log('\n--- 4. [ANALYTIC] RQ channels: frequency unchanged, severity tilt
   const grossRQ0 = expectedGlGrossLossForPricing(roster, { yearNumber: 1, riskQualityOverride: 0, kGl: 1 });
   const grossRQ10 = expectedGlGrossLossForPricing(roster, { yearNumber: 1, riskQualityOverride: 10, kGl: 1 });
   const freqOnlyRatio = grossRQ0 / grossRQ10;
-  const expectedFreqOnlyRatio = Math.exp(-b * (0 - 5)) / Math.exp(-b * (10 - 5));
+  // The engine's own thetaGl, so the reference carries the slope the pricing basis does.
+  const expectedFreqOnlyRatio = thetaGl(0) / thetaGl(10);
   console.log(`  pricing expectation RQ0/RQ10 ratio ${freqOnlyRatio.toFixed(4)} vs FREQUENCY-ONLY ${expectedFreqOnlyRatio.toFixed(4)} (severity tilt absent from pricing): ${note(Math.abs(freqOnlyRatio - expectedFreqOnlyRatio) < 1e-6, 'pricing expectation carries the severity tilt — invariant 2 violated')}`);
 }
 
@@ -510,7 +547,8 @@ console.log('\n--- 5. [DRAWN] every section-3 target measured from the generator
   console.log(`  $1M-capped loss/yr: drawn ${fmt$(drawnCapped)} vs analytic ${fmt$(analyticCapped)} (${((drawnCapped / analyticCapped - 1) * 100).toFixed(2)}%, 99% CI +/-${(ciHalf(cappedPerYear) / analyticCapped * 100).toFixed(2)}%)   CI valid (bounded)  ${note(cappedInCI, `$1M-capped mean outside its 99% CI of the analytic — gross-error signal, investigate`)}`);
 
   const drawnCount = mean(claimCounts);
-  const analyticCount = roster.reduce((s, m) => s + (m.exposureByLine.GL ?? 0) * glInternals.thetaGl(m.riskQuality), 0) * M.ratePer1M * kGl;
+  // memberThetaGl: the draw's own factor at each member's actual quality, re-centred.
+  const analyticCount = roster.reduce((s, m) => s + (m.exposureByLine.GL ?? 0) * memberThetaGl(m.riskQuality), 0) * M.ratePer1M * kGl;
   const countCI = ciHalf(claimCounts);
   console.log(`  claims/yr:          drawn ${drawnCount.toFixed(2)} vs analytic ${analyticCount.toFixed(2)}, 99% CI +/-${countCI.toFixed(2)}   CI valid (count)  ${note(Math.abs(drawnCount - analyticCount) <= countCI, 'claim count outside its 99% CI')}`);
 
@@ -551,16 +589,19 @@ console.log('\n--- 5. [DRAWN] every section-3 target measured from the generator
       : (inCI ? 'within CI' : 'OUTSIDE CI') + ' — CI NOT TRUSTWORTHY, reported only';
     console.log(`    ${label.padEnd(24)} drawn ${d.toFixed(dp).padStart(12)}  99% CI +/-${ci.toFixed(dp).padStart(10)}  target ${target.toFixed(dp).padStart(12)}  ${((d / target - 1) * 100).toFixed(2).padStart(6)}%  ${verdict}`);
   };
-  console.log(`\n    (${NEUTRAL_YEARS} draw-years, uniform RQ 5, kGl=1 — the section-3 targets' own basis)`);
-  row('claims/yr', nCounts, M.ratePer1M * TOTAL_PAYROLL_M, true, 2);
-  row('occurrences > $1M /yr', over1, M.ratePer1M * TOTAL_PAYROLL_M * survivalAt(1e6), true);
-  row('occurrences > $5M /yr', over5, M.ratePer1M * TOTAL_PAYROLL_M * survivalAt(5e6), true);
-  row('occurrences > $25M /yr', over25, M.ratePer1M * TOTAL_PAYROLL_M * survivalAt(25e6), true);
+  // ⚠ A DRAWN RQ-5 BOOK CARRIES RISK_QUALITY_CENTRE.GL ON ITS FREQUENCY — see the
+  // anchor in section 2. Counts and the loss cost scale by it; severity does not.
+  const C = RISK_QUALITY_CENTRE.GL;
+  console.log(`\n    (${NEUTRAL_YEARS} draw-years, uniform RQ 5, kGl=1 — the section-3 targets' own basis, frequency x centre ${C})`);
+  row('claims/yr', nCounts, M.ratePer1M * TOTAL_PAYROLL_M * C, true, 2);
+  row('occurrences > $1M /yr', over1, M.ratePer1M * TOTAL_PAYROLL_M * survivalAt(1e6) * C, true);
+  row('occurrences > $5M /yr', over5, M.ratePer1M * TOTAL_PAYROLL_M * survivalAt(5e6) * C, true);
+  row('occurrences > $25M /yr', over25, M.ratePer1M * TOTAL_PAYROLL_M * survivalAt(25e6) * C, true);
   row('$1M-limited mean $', claimSample.map(x => Math.min(x, 1e6)), ANALYTIC_1M_LIMITED_MEAN, true, 2);
-  row('0-$1M cost /$100', nCapped.map(x => x / (TOTAL_PAYROLL_M * 10_000)), 2.8300, true, 5);
+  row('0-$1M cost /$100', nCapped.map(x => x / (TOTAL_PAYROLL_M * 10_000)), 2.8300 * C, true, 5);
   console.log('    --- below here the CI is NOT trustworthy: heavy-tailed ground-up quantities ---');
   row('mean claim $', claimSample, ANALYTIC_GROUND_MEAN, false, 2);
-  row('ground-up cost /$100', nGround.map(x => x / (TOTAL_PAYROLL_M * 10_000)), 5.5931, false, 4);
+  row('ground-up cost /$100', nGround.map(x => x / (TOTAL_PAYROLL_M * 10_000)), 5.5931 * C, false, 4);
   const bTot = mean(bBelow1) + mean(b1to25) + mean(bAbove25);
   console.log(`    band shares: below $1M ${(mean(bBelow1) / bTot * 100).toFixed(2)}% (target 50.60) | $1M-$25M ${(mean(b1to25) / bTot * 100).toFixed(2)}% (42.06) | above $25M ${(mean(bAbove25) / bTot * 100).toFixed(2)}% (7.34)`);
   console.log(`      REPORTED ONLY — a ratio of dollar sums, so the >$25M share inherits the full tail.`);

@@ -26,7 +26,11 @@ const YEARS = 4;
 // events to the catalog changed what a uniform draw returns — WINTER-STORM now —
 // and three assertions failed for a reason that was not a defect. Nothing below
 // names an event or a year any more; everything is read back from the room.
-const SEED = 'RFHZCGF2';
+// ⚠ NOW ONE OF THE SEED MENU'S TWENTY OPTIONS. The field became a dropdown of
+// 1-20, so an eight-character string is no longer selectable. Nothing below
+// names an event or a year, so which option this is does not matter — the point
+// above still holds.
+const SEED = '13';
 
 // id -> THE NAME A PLAYER SEES, which is `eventName`, NOT the catalog's `name`.
 //
@@ -52,10 +56,15 @@ function catalogNames() {
   return JSON.parse(out.trim().split('\n').pop());
 }
 
-// ONE EVENT PER THREE YEARS, rounded, never none — shockDrawCount in
-// session/shockDraw.ts. Restated as an expectation rather than imported so that
-// a change to the RULE is a visible failure here and not a silently tracked one.
-const expectedDrawCount = y => Math.max(1, Math.round(y / 3));
+// round(0.3 x years), then −1, 0 or +1, never none and at most one a year from
+// year 2 — shockDrawRange in session/shockDraw.ts (stable-scenarios commit 5).
+// Restated as an expectation rather than imported so that a change to the RULE
+// is a visible failure here and not a silently tracked one.
+const expectedDrawRange = y => {
+  const c = Math.round(0.3 * y), room = Math.max(1, y - 1);
+  const clamp = n => Math.min(room, Math.max(1, n));
+  return [clamp(c - 1), clamp(c + 1)];
+};
 
 const sameSchedule = (a, b) =>
   JSON.stringify((a || []).map(s => [s.shockId, s.yearNumber])) ===
@@ -78,32 +87,42 @@ async function nudge(page, label, presses) {
   const input = el.asElement();
   if (!input) return null;
   await input.focus();
-  for (let i = 0; i < presses; i++) await page.keyboard.press('ArrowRight');
+  // Negative presses step DOWN. See the call site for why the driver steps down.
+  for (let i = 0; i < Math.abs(presses); i++) await page.keyboard.press(presses < 0 ? 'ArrowLeft' : 'ArrowRight');
   return input.evaluate(e => e.value);
 }
 
 const room = (page, code) => page.evaluate(c =>
   JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
 
-// The player's own Results page for one year, as text. Parameterised because
-// the year this driver cares about is now whatever the room says was drawn.
+// The player's own record of one year's events, as text: the Result
+// Spreadsheet's "Events This Year" cell in that year's column. Parameterised
+// because the year this driver cares about is whatever the room says was drawn.
+//
+// ⚠ REPOINTED FROM THE RESULTS PAGE, WHICH THE MULTIPLAYER VERSION HIDES
+// (GameShell's MULTIPLAYER_HIDDEN_TABS). The spreadsheet stays visible in both
+// versions, and its events row is the same yearEvents read the Results page
+// named the event from, so the check means what it meant: the drawn event is
+// on the player's own screen, in its own year and no other. The table is the
+// pool's, so no line view can hide a Property event behind a WC tab.
 async function resultsYearText(page, year) {
-  const rx = new RegExp(`Year ${year} `);
-  await page.getByRole('button', { name: 'Results', exact: true }).click();
+  await page.getByRole('button', { name: 'Result Spreadsheet', exact: true }).click();
   await page.waitForTimeout(600);
-  // ⚠ PIN THE LINE VIEW TO POOL, AND THIS IS NOT COSMETIC. The line view is
-  // shared state: the decision loop above selects a LINE tab, and that selection
-  // was still in force here, so this read landed on "Annual Results — Workers'
-  // Compensation". A Property event correctly does not appear on the WC view, so
-  // the page was right and the read was wrong. The old driver never met this
-  // because it only ever read AFTER a reload, where the view has reset to Pool —
-  // which means the pass was an accident of ordering, not a property of the test.
-  const pool = page.getByRole('button', { name: 'Pool', exact: true }).first();
-  if (await pool.count() > 0) { await pool.click(); await page.waitForTimeout(350); }
-  const sel = page.locator('select').filter({ has: page.locator('option', { hasText: rx }) }).first();
-  await sel.selectOption({ label: (await sel.locator('option', { hasText: rx }).first().textContent()).trim() });
-  await page.waitForTimeout(500);
-  return page.locator('main').innerText();
+  return page.evaluate(y => {
+    for (const table of document.querySelectorAll('main table')) {
+      // A year header is "Year n" with the calendar year in a span under it, so
+      // its own text is the header's less the span's.
+      const heads = [...table.querySelectorAll('thead th')].map(th =>
+        th.textContent.slice(0, th.textContent.length - (th.querySelector('span')?.textContent.length ?? 0)).trim());
+      const col = heads.indexOf(`Year ${y}`);
+      if (col < 0) continue;
+      for (const tr of table.querySelectorAll('tbody tr')) {
+        const tds = tr.querySelectorAll('td');
+        if (tds[1] && tds[1].textContent.trim() === 'Events This Year') return tds[col]?.textContent ?? '';
+      }
+    }
+    return '';
+  }, year);
 }
 
 (async () => {
@@ -118,7 +137,10 @@ async function resultsYearText(page, year) {
   const NAMES = catalogNames();
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', SEED);
+  // ⚠ THE EVENT NAME IS REQUIRED NOW — a driver that types none gets a
+  // dead Create button. It used to default to 'Ripple Game'.
+  await host.fill('[data-testid="event-name"]', 'Driver Session');
+  await host.selectOption('[data-testid="seed"]', SEED);
   await host.fill('[data-testid="year-count"]', String(YEARS));
   await host.fill('[data-testid="expected-teams"]', '1');
 
@@ -129,15 +151,20 @@ async function resultsYearText(page, year) {
   await host.click('[data-testid="randomise-shocks"]');
   await host.waitForSelector('[data-testid="shock-list"]');
   const shown = await host.$$eval('[data-testid="shock-list"] li', lis => lis.map(li => li.textContent.replace(/\s+/g, ' ').trim()));
+  const shownAttrs = await host.$$eval('[data-testid="shock-list"] li',
+    lis => lis.map(li => ({ id: li.getAttribute('data-shock-id'), year: li.getAttribute('data-shock-year') })));
   console.log(`  host sees the draw: ${JSON.stringify(shown)}`);
   // ⚠ NON-EMPTY IS THE HALF THAT MATTERS, AND IT IS NOT ENOUGH ON ITS OWN. A
   // driver that only asked "is there a schedule" would pass on a game with no
   // schedule the moment the assertion was written wrongly, so the COUNT is
-  // pinned to the rule (one per three years) and the YEARS are pinned to the
+  // pinned to the rule's range (round(0.3 x years) ± 1) and the YEARS are pinned to the
   // range the drawer promises — never year 1, so every team makes one full round
   // of decisions before anything lands. Neither pins WHICH event.
-  ok(shown.length === expectedDrawCount(YEARS)
-     && shown.every(t => /year (\d+)/.test(t) && +t.match(/year (\d+)/)[1] >= 2 && +t.match(/year (\d+)/)[1] <= YEARS),
+  // The list reads "#2 Major Earthquake — Year 2" now, so the year is matched
+  // case-sensitively on the capitalised label. Still pins the COUNT and the
+  // YEAR RANGE and still names no event.
+  ok(shown.length >= expectedDrawRange(YEARS)[0] && shown.length <= expectedDrawRange(YEARS)[1]
+     && shown.every(t => /Year (\d+)/.test(t) && +t.match(/Year (\d+)/)[1] >= 2 && +t.match(/Year (\d+)/)[1] <= YEARS),
     `Randomise drew a non-empty schedule the host can see — ${shown.length} entry/entries for a ${YEARS}-year game, none in year 1`);
   ok(await host.locator('[data-testid="shock-drawn-note"]').count() === 1, 'the host is told what the schedule was drawn from');
 
@@ -150,9 +177,14 @@ async function resultsYearText(page, year) {
   // not a recipe a client re-runs. Checked against the host's own rendered list
   // rather than against a literal, so the two surfaces are tied to each other
   // and neither is tied to a particular catalog.
+  // ⚠ MATCHED ON THE LIST'S DATA ATTRIBUTES, NOT ITS TEXT. The entry used to
+  // read "#2 year 2" and now reads "#2 Major Earthquake — Year 2", and events
+  // without a number show the name alone — so the id is no longer always in the
+  // visible string. The attributes carry id and year exactly, and will survive
+  // the catalog's renumbering, which the text will not.
   ok((carried || []).length > 0
      && carried.length === shown.length
-     && carried.every(s => shown.some(t => t.includes(s.shockId) && t.includes(`year ${s.yearNumber}`))),
+     && carried.every(s => shownAttrs.some(a => a.id === s.shockId && a.year === String(s.yearNumber))),
     `the room record carries exactly what the host was shown, entry for entry (${JSON.stringify(carried)})`);
 
   // ⚠ PLAY FAR ENOUGH TO REACH THE EVENT. The old driver played three years of a
@@ -173,9 +205,6 @@ async function resultsYearText(page, year) {
   await player.fill('[data-testid="team-name"]', TEAM);
   // ⚠ ALL THREE LINES: the wildfire's property catastrophe lands on Property,
   // and a WC-only book would see only its secondary WC claims.
-  await player.click('[data-testid="pick-line-WC"]');
-  await player.click('[data-testid="pick-line-GL"]');
-  await player.click('[data-testid="pick-line-Property"]');
   await player.click('[data-testid="join-team"]');
   await player.waitForSelector('[data-testid="session-strip"]', { timeout: 120000 });
 
@@ -216,7 +245,18 @@ async function resultsYearText(page, year) {
       // its value without moving it.
       const lineBtn = player.getByRole('button', { name: /Workers' Compensation|General Liability|^Property$/ }).first();
       if (await lineBtn.count() > 0) { await lineBtn.click(); await player.waitForTimeout(350); }
-      const v = await nudge(player, 'Funding Confidence Level', year > 1 ? 3 : 0);
+      // ⚠ STEPPED DOWN, NOT UP, SINCE THE FUNDING TABLES COMMIT. The slider opens
+      // at "Expected", which now sits at the line's own crossing — 78-84% on WC
+      // and Property — so three steps UP reached the 95% cap in year 2 and year
+      // 3 repeated it, and the set-size assertion below failed on the driver,
+      // not the replay. Three steps down from there stays inside the range.
+      //
+      // ⚠ AND STEPPED UP AGAIN, TWO AT A TIME, SINCE THE FUNDING TABLES WIRING.
+      // Expected now sits at about 51% and the stops are 30-90% in tens, so
+      // three steps down reached the 30% floor in year 2 and year 3 repeated
+      // it. Two steps up from Expected is 70%, and two more is 90%: three
+      // different levels, inside the range.
+      const v = await nudge(player, 'Funding Confidence Level', year > 1 ? 2 : 0);
       fcValues.push(v);
     }
     await player.getByRole('button', { name: /Lock Year/ }).first().click();
@@ -255,11 +295,11 @@ async function resultsYearText(page, year) {
   const namedBefore = [];
   for (const s of carried) {
     const txt = await resultsYearText(player, s.yearNumber);
-    console.log(`  year ${s.yearNumber} before the reload: names ${JSON.stringify(eventName(s))} = ${txt.includes(eventName(s))}`);
+    console.log(`  year ${s.yearNumber} before the reload: names ${JSON.stringify(eventName(s))} = ${txt.includes(eventName(s))} — read ${JSON.stringify(txt.slice(0, 160))}`);
     namedBefore.push(txt.includes(eventName(s)));
   }
   ok(namedBefore.length > 0 && namedBefore.every(Boolean),
-    `BEFORE THE RELOAD each drawn event is named on its own year's Results (${carried.map(s => `${eventName(s)} y${s.yearNumber}`).join('; ')})`);
+    `BEFORE THE RELOAD each drawn event is named in its own year's results (${carried.map(s => `${eventName(s)} y${s.yearNumber}`).join('; ')})`);
 
   const playerSurplusBefore = (await player.locator('header').innerText()).match(/Surplus\s*\n?\s*(\S+)/)?.[1];
 
@@ -301,7 +341,7 @@ async function resultsYearText(page, year) {
   const namedAfter = [];
   for (const s of carried) namedAfter.push((await resultsYearText(player, s.yearNumber)).includes(eventName(s)));
   ok(namedAfter.length > 0 && namedAfter.every(Boolean),
-    `AFTER THE RELOAD the player's Results still name each drawn event in its own year — the rebuild did not drop the schedule`);
+    `AFTER THE RELOAD the player's results still name each drawn event in its own year — the rebuild did not drop the schedule`);
 
   // Year 1 is never drawn (shockDraw excludes it so every team makes one full
   // round of decisions first), so it is a negative control the drawer guarantees

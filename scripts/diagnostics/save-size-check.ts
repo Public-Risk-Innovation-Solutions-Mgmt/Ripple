@@ -64,7 +64,7 @@
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
-import { processYear } from '../../src/utils/simulationEngine';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import {
@@ -124,15 +124,17 @@ for (let g = 0; g < GAMES; g++) {
   const { poolState, priorHistory, startingFinancials } = runPriorHistory(inst, setup as never) as never as {
     poolState: GameState['poolState']; priorHistory: GameState['priorHistory']; startingFinancials: unknown;
   };
-  let gs: GameState = {
+  // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b: the game the app saves carries
+  // every world, so this plays the worlds exactly as App.tsx does.
+  let gs: GameState = openWorlds({
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
-  };
+  });
 
   for (let y = 1; y <= YEARS; y++) {
-    const p = processYear(gs, defaultDecisionSet(y));
+    const settled = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
     gs = {
-      ...gs, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result],
+      ...gs, ...commitSettledYear(gs, settled),
       currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1),
     };
     const env = {

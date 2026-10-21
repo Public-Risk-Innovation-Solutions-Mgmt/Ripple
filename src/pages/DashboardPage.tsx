@@ -6,6 +6,7 @@ import { lineDisplayName } from '../utils/lineDisplay';
 import EndingPositionPanel from '../components/EndingPositionPanel';
 import type { EndingPositionRow } from '../utils/endingPosition';
 import { MARKET_MEMBER_COUNT } from '../data/memberCatalog';
+import { MEMBER_LEVEL } from '../data/pricingParameters';
 
 interface DashboardPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
@@ -77,8 +78,10 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
   const displayLossRatioRetained = last?.actualLossRatioRetainedPremium;
   const displayUnderwritingIncome = last?.underwritingIncome;
   const displayInvestmentIncome = last?.investmentIncome;
-  const displayMembers = last?.activeMembers ?? openingYear?.activeMembers ?? startingFinancials.activeMembers;
+  // ⚠ EXPOSURE, NOT A MEMBER COUNT. Same fallback chain, different field; the
+  // member counts are still on every result and are simply not shown.
   const displayExposure = last?.activeExposure ?? openingYear?.activeExposure ?? startingFinancials.activeExposure;
+  const displayTotalMarketExposure = last?.totalMarketExposure ?? openingYear?.totalMarketExposure ?? startingFinancials.totalMarketExposure;
   const displayMarketShare = last?.marketShare ?? openingYear?.marketShare ?? startingFinancials.marketShare;
   const displaySatisfaction = last?.memberSatisfaction ?? startingFinancials.memberSatisfaction;
   const displayFunding = last?.capitalAdequacyStatus ?? openingYear?.capitalAdequacyStatus ?? 'Not yet calculated';
@@ -145,17 +148,21 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
           sub="Exposure-based"
         />
         <StatCard
-          label="Active Members"
-          value={String(displayMembers)}
+          label="Active Exposure"
+          value={`$${displayExposure.toFixed(1)}M`}
           icon={<Users size={16} />}
-          sub={`of ${MARKET_MEMBER_COUNT} market members`}
+          sub={MEMBER_LEVEL.enabled ? `of ${MARKET_MEMBER_COUNT} market members` : `of $${displayTotalMarketExposure.toFixed(0)}M in the market`}
         />
-        <StatCard
-          label="Member Satisfaction"
-          value={`${displaySatisfaction.toFixed(1)} / 10`}
-          icon={<Star size={16} />}
-          valueColor={displaySatisfaction >= 7 ? 'text-emerald-600' : displaySatisfaction >= 5 ? 'text-amber-600' : 'text-red-600'}
-        />
+        {/* Hidden with MEMBER_LEVEL off: satisfaction feeds nothing, and returns
+            as a pool-level figure once designed. */}
+        {MEMBER_LEVEL.enabled && (
+          <StatCard
+            label="Member Satisfaction"
+            value={`${displaySatisfaction.toFixed(1)} / 10`}
+            icon={<Star size={16} />}
+            valueColor={displaySatisfaction >= 7 ? 'text-emerald-600' : displaySatisfaction >= 5 ? 'text-amber-600' : 'text-red-600'}
+          />
+        )}
         <StatCard
           label="Excess Capital Status"
           value={displayFunding}
@@ -194,7 +201,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Yr', 'Calendar', 'Total Member Charge', 'Prem + Admin', 'Gross Loss', 'Net Loss', 'Loss Ratio (prem + admin)', 'Underwriting Income', 'Investment Income', 'Total Income', 'Ending Surplus', 'Members', 'Mkt Share'].map(h => (
+                  {['Yr', 'Calendar', 'Total Member Charge', 'Prem + Admin', 'Gross Loss', 'Net Loss', 'Loss Ratio (prem + admin)', 'Underwriting Income', 'Investment Income', 'Total Income', 'Ending Surplus', 'Exposure', 'Mkt Share'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -213,7 +220,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                     <td className="px-4 py-3">{formatCurrency(year.investmentIncome, true)}</td>
                     <td className={year.netIncome >= 0 ? 'px-4 py-3 font-semibold text-emerald-600/70' : 'px-4 py-3 font-semibold text-red-600/70'}>{formatCurrency(year.netIncome, true)}</td>
                     <td className="px-4 py-3 font-bold">{formatCurrency(year.endingSurplus, true)}</td>
-                    <td className="px-4 py-3">{year.activeMembers}</td>
+                    <td className="px-4 py-3">{`$${year.activeExposure.toFixed(1)}M`}</td>
                     <td className="px-4 py-3 text-sky-600/70 font-medium">{formatPct(year.marketShare)}</td>
                   </tr>
                 ))}
@@ -230,7 +237,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                     <td className="px-4 py-3 text-gray-700">{formatCurrency(openingYear.investmentIncome, true)}</td>
                     <td className={openingYear.netIncome >= 0 ? 'px-4 py-3 font-semibold text-emerald-600/70' : 'px-4 py-3 font-semibold text-red-600/70'}>{formatCurrency(openingYear.netIncome, true)}</td>
                     <td className={`px-4 py-3 font-bold ${colorForSurplus(openingYear.endingSurplus)}`}>{formatCurrency(openingYear.endingSurplus, true)}</td>
-                    <td className="px-4 py-3 text-gray-600">{openingYear.activeMembers}</td>
+                    <td className="px-4 py-3 text-gray-600">{`$${openingYear.activeExposure.toFixed(1)}M`}</td>
                     <td className="px-4 py-3 text-sky-600 font-medium">{formatPct(openingYear.marketShare)}</td>
                   </tr>
                 )}
@@ -253,7 +260,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                     <td className={`px-4 py-3 font-bold ${colorForSurplus(r.endingSurplus)}`}>
                       {formatCurrency(r.endingSurplus, true)}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{r.activeMembers}</td>
+                    <td className="px-4 py-3 text-gray-600">{`$${r.activeExposure.toFixed(1)}M`}</td>
                     <td className="px-4 py-3 text-sky-600 font-medium">{formatPct(r.marketShare)}</td>
                   </tr>
                 ))}

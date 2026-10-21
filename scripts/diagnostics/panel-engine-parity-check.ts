@@ -60,12 +60,43 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
-import { getMemberExposure } from '../../src/utils/lineHelpers';
+import { bookExposureOf, type Book } from '../../src/utils/lineHelpers';
+import { bookPurePremium } from '../../src/utils/newPurePremium';
+import { exposureFactor } from '../../src/data/exposureTrend';
+import { MEMBER_LEVEL } from '../../src/data/pricingParameters';
 import { quoteLineRates } from '../../src/utils/linePricing';
 import { currentPurePremiumPer100, lookupCLF } from '../../src/utils/simulationEngine';
 import { hasStaticClf, staticClf } from '../../src/data/clfTables';
 
-import type { CoverageLine, GameState, LineResultSet } from '../../src/types/simulation';
+import type { CoverageLine, GameState, LinePoolState, LineResultSet } from '../../src/types/simulation';
+import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
+import { lineBookRisk } from '../../src/utils/bookUnits';
+
+// ============================================================================
+// ⚠ FORKED FOR THE ONE-BOOK ENGINE (loss engine commit 3). With MEMBER_LEVEL
+// off there is no roster: the panel prices the line's ONE BOOK, exactly as
+// derivations.ts hands it — `{ exposure }`, the year's exposure — with the new
+// stack's ground-up pure premium off the ledger (bookPurePremium), the same
+// call the engine makes. Handing it the empty roster instead compares two
+// empty books and proves nothing. With MEMBER_LEVEL on, the roster path below
+// runs unchanged.
+// ============================================================================
+const BOOK_MODE = !MEMBER_LEVEL.enabled;
+/** What the panel prices: the book as derivations.ts builds it — with its risk — or the roster. */
+const panelBook = (gs: GameState, line: CoverageLine, y: number): Book => {
+  const ls: LinePoolState = gs.poolState.lines[line];
+  const risk = lineBookRisk(gs.instance, line, gs.poolState.bookUnits);
+  return ls.bookExposure !== undefined
+    ? { exposure: ls.bookExposure * exposureFactor(line, y), ...(risk !== undefined ? { risk } : {}) }
+    : ls.members.filter(m => m.status === 'active');
+};
+/** The book's ground-up pure premium, as derivations.ts and the engine read it. */
+const bookGroundUp = (gs: GameState, line: CoverageLine, y: number, exposure: number) =>
+  bookPurePremium(line, y, {
+    rows: gs.poolState.lines[line]?.reserveDevelopment ?? [],
+    allMarketMembers: gs.poolState.allMarketMembers,
+    membershipHistory: gs.poolState.membershipHistory,
+  }, exposure).purePremiumPer100;
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const GAMES = Number(process.env.GAMES ?? 8);
@@ -119,8 +150,9 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
     for (let y = 1; y <= YEARS; y++) {
       for (const line of LINES) {
         const lineState = gs.poolState.lines[line];
-        const members = lineState.members.filter(m => m.status === 'active');
-        const exposure = members.reduce((s, m) => s + getMemberExposure(m, line, y), 0);
+        const members = panelBook(gs, line, y);
+        const exposure = bookExposureOf(members, line, y);
+        const groundUp = BOOK_MODE ? bookGroundUp(gs, line, y, exposure) : undefined;
         const dec = defaultDecisionSet(y).byLine[line];
 
         for (const level of LEVELS) {
@@ -133,13 +165,14 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
               yearNumber: y,
               members,
               exposure,
-              layersPlaced: dec.layersPlaced,
-              aggregateStopLevel: dec.aggregateStopLevel,
+              layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption,
+              aggregateStopLevel: AGGREGATE_NOT_OFFERED,
               pricingAdjustment: lineState.rateLevel / 100,
               priorPurePremiumPer100: lineState.purePremiumPer100,
               lossTrend: inst.lossEnvironment.lossTrend,
               priorRcEffectiveness: lineState.riskControlEffectiveness,
               riskControlPct: dec.riskControlPct,
+              groundUpPurePremiumPer100: groundUp,
             },
           );
 
@@ -162,12 +195,12 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
           // panel against the engine at all — it was comparing the enrolled-book
           // blend against the whole-market blend, and calling the difference a
           // parity failure. 2.0% to 6.9% depending on the year.
-          const pp = currentPurePremiumPer100(line, y, members);
+          const pp = groundUp ?? currentPurePremiumPer100(line, y, members as never);
           const clf = hasStaticClf(line) ? staticClf(line, level) : lookupCLF(level);
           const eng = quoteLineRates({
             line, yearNumber: y, members, exposure, purePremiumPer100: pp, clf,
             pricingAdjustment: lineState.rateLevel / 100,
-            layersPlaced: dec.layersPlaced, aggregateStopLevel: dec.aggregateStopLevel,
+            layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption, aggregateStopLevel: AGGREGATE_NOT_OFFERED,
           });
 
           const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(Math.abs(b), 1e-9);
@@ -178,6 +211,7 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
             'pool premium rate /$100': rel(panel.poolPremiumRatePer100, eng.poolPremiumRatePer100),
             'admin rate /$100': rel(panel.adminRatePer100, eng.adminRatePer100),
             'reinsurance rate /$100': rel(panel.reinsRatePer100, eng.reinsRatePer100),
+            'retained cover margin /$100': rel(panel.retainedCoverMarginRatePer100, eng.retainedCoverMarginRatePer100),
             'total member charge /$100': rel(panel.totalMemberChargeRatePer100, eng.totalMemberChargeRatePer100),
           };
           for (const [k, v] of Object.entries(cmp)) {
@@ -275,10 +309,14 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
       poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
     };
     for (let y = 1; y <= YEARS; y++) {
-      const pre: Record<string, { members: ReturnType<typeof Array.prototype.filter>; ls: typeof gs.poolState.lines[CoverageLine] }> = {} as never;
+      const pre: Record<string, { members: Book; ls: typeof gs.poolState.lines[CoverageLine]; groundUp?: number }> = {} as never;
       for (const line of LINES) {
         const ls = gs.poolState.lines[line];
-        pre[line] = { members: ls.members.filter(m => m.status === 'active'), ls };
+        const book = panelBook(gs, line, y);
+        pre[line] = {
+          members: book, ls,
+          groundUp: BOOK_MODE ? bookGroundUp(gs, line, y, bookExposureOf(book, line, y)) : undefined,
+        };
       }
       const p = processYear(gs, defaultDecisionSet(y));
       for (const line of LINES) {
@@ -286,19 +324,32 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
         if (!r || r.activeExposure <= 0) continue;
         const dec = defaultDecisionSet(y).byLine[line];
         const ls = pre[line].ls;
+        // ⚠ A BOOK'S EXPOSURE IS READ UNROUNDED, off the updated state. The
+        // stored activeExposure is rounded to 2dp, and in book mode that figure
+        // would BE the book the tower is priced on — the aggregate cover then
+        // amplifies the rounding past the floor below (measured: WC
+        // reinsuranceCost at 3.16x). The updated state carries the exact
+        // post-movement book, so the panel gets what the engine priced.
+        const postBook = p.updatedPoolState.lines[line].bookExposure;
+        const exposure = BOOK_MODE && postBook !== undefined ? postBook * exposureFactor(line, y) : r.activeExposure;
         const panel = computeFundingConsequence(
           dec.fundingConfidenceLevel, ls.ratePer100, line, dec.fundingAtExpected,
           {
             yearNumber: y,
-            members: pre[line].members as never,
-            exposure: r.activeExposure,
-            layersPlaced: dec.layersPlaced,
-            aggregateStopLevel: dec.aggregateStopLevel,
+            // ⚠ A BOOK IS COVERED AS IT STANDS AFTER MOVEMENT: the engine's
+            // towerMembers is `{ exposure: activeExposure }` in book mode, so
+            // the stored tower fields are the post-movement book's.
+            // With the moved book's risk, as towerMembers carries it (book units commit 5).
+            members: BOOK_MODE ? { exposure, risk: lineBookRisk(inst, line, p.updatedPoolState.bookUnits) ?? 1 } : pre[line].members,
+            exposure,
+            layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption,
+            aggregateStopLevel: AGGREGATE_NOT_OFFERED,
             pricingAdjustment: ls.rateLevel / 100,
             priorPurePremiumPer100: ls.purePremiumPer100,
             lossTrend: inst.lossEnvironment.lossTrend,
             priorRcEffectiveness: ls.riskControlEffectiveness,
             riskControlPct: dec.riskControlPct,
+            groundUpPurePremiumPer100: pre[line].groundUp,
           },
         );
         // ⚠ TOLERANCE IS SET BY activeExposure's OWN STORAGE, not chosen. The
@@ -315,7 +366,7 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
         const cmp: Record<string, number> = {
           'expectedCededPer100 (stored)': rel(panel.expectedCededPer100, r.expectedCededPer100),
           'selectedFundingCLF (stored)': rel(panel.clf, r.selectedFundingCLF),
-          'reinsuranceCost (stored)': rel(panel.reinsRatePer100 * r.activeExposure * 10_000, r.reinsuranceCost),
+          'reinsuranceCost (stored)': rel(panel.reinsRatePer100 * exposure * 10_000, r.reinsuranceCost),
         };
         for (const [k, v] of Object.entries(cmp)) worst[line][k] = Math.max(worst[line][k] ?? 0, v);
         // The two the panel CANNOT reproduce, measured as a plain relative gap
@@ -328,7 +379,12 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
         const sgn = (a: number, b: number) => (a - b) / Math.max(Math.abs(b), 1e-9);
         residual[line].push({
           net: sgn(panel.netPurePremiumPer100, r.netPurePremiumPer100),
-          rate: sgn(panel.poolPremiumRatePer100, r.poolPremium / (r.activeExposure * 10_000)),
+          // A book is priced on the new stack, so its rate is compared like
+          // for like: the panel's final rate against the engine's stored one.
+          // A roster keeps the old comparison, the pool premium's rate.
+          rate: panel.newStack && r.finalRatePer100 !== undefined
+            ? sgn(panel.newStack.finalRatePer100, r.finalRatePer100)
+            : sgn(panel.poolPremiumRatePer100, r.poolPremium / (r.activeExposure * 10_000)),
         });
       }
       gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
@@ -412,27 +468,29 @@ console.log('  the engine settles after it. Measured so the comment can state it
       const snapshot: Record<string, number> = {};
       for (const line of LINES) {
         const lineState = gs.poolState.lines[line];
-        const members = lineState.members.filter(m => m.status === 'active');
-        const exposure = members.reduce((s, m) => s + getMemberExposure(m, line, y), 0);
+        const members = panelBook(gs, line, y);
+        const exposure = bookExposureOf(members, line, y);
         const dec = defaultDecisionSet(y).byLine[line];
         const panel = computeFundingConsequence(
           dec.fundingConfidenceLevel, lineState.ratePer100, line, dec.fundingAtExpected,
           {
-            yearNumber: y, members, exposure, layersPlaced: dec.layersPlaced,
-            aggregateStopLevel: dec.aggregateStopLevel, pricingAdjustment: lineState.rateLevel / 100,
+            yearNumber: y, members, exposure, layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption,
+            aggregateStopLevel: AGGREGATE_NOT_OFFERED, pricingAdjustment: lineState.rateLevel / 100,
             priorPurePremiumPer100: lineState.purePremiumPer100,
             lossTrend: inst.lossEnvironment.lossTrend,
             priorRcEffectiveness: lineState.riskControlEffectiveness,
             riskControlPct: dec.riskControlPct,
+            groundUpPurePremiumPer100: BOOK_MODE ? bookGroundUp(gs, line, y, exposure) : undefined,
           },
         );
-        snapshot[line] = panel.poolPremiumRatePer100;
+        snapshot[line] = panel.newStack?.finalRatePer100 ?? panel.poolPremiumRatePer100;
       }
       const p = processYear(gs, defaultDecisionSet(y));
       for (const line of LINES) {
         const r = (p.result as never as { byLine: Record<string, LineResultSet> }).byLine[line];
         if (!r || r.activeExposure <= 0) continue;
-        const actualRate = r.poolPremium / (r.activeExposure * 10_000);
+        const actualRate = BOOK_MODE && r.finalRatePer100 !== undefined
+          ? r.finalRatePer100 : r.poolPremium / (r.activeExposure * 10_000);
         gaps[line].push(Math.abs(snapshot[line] / actualRate - 1) * 100);
       }
       gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
@@ -448,6 +506,11 @@ console.log('  the engine settles after it. Measured so the comment can state it
   console.log('\n  This is member movement alone, and it is NOT a defect: the panel is asked the');
   console.log('  question before the answer exists. It is measured so the claim in');
   console.log('  fundingConsequence\'s header can state the residual instead of implying zero.');
+  if (BOOK_MODE) {
+    console.log('  One book (MEMBER_LEVEL off): the final rate, panel against engine. At default');
+    console.log('  decisions the book moves only when a Member Withdrawal takes 25% of it, so the');
+    console.log('  median is zero and the maximum is that year\'s re-priced cover.');
+  }
 }
 
 console.log(failures === 0 ? '\nALL PARITY CHECKS PASS.'

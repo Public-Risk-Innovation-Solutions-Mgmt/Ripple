@@ -1,6 +1,18 @@
 // PER-OCCURRENCE REINSURANCE TOWER — structure, measured expected-loss constants
 // and the aggregate stop-loss parameters.
 //
+// ============================================================================
+// ⚠ LOSS ENGINE COMMIT 4a CUT THE TOWER AT THE PACKAGES' EDGES. A team now buys
+// ONE PACKAGE per line (REINSURANCE_OPTIONS in pricingParameters.ts) instead of
+// placing or declining each band, and every package is a set of whole layers
+// below: WC and GL $4M xs $1M, $5M xs $5M and $5M xs $10M (the packages end at
+// $15M); Property $20M xs $5M and $25M xs $25M (they end at $50M). Above the
+// top is retained, as above any tower — GL to its $25M pool limit. The aggregate
+// stop-loss is no longer offered; its parameters below are kept, unwired.
+// Much of what follows records the tower before the cut and is kept for its
+// reasoning: read the layer figures in it as history.
+// ============================================================================
+//
 // Replaces the aggregate quota-share model (REINSURANCE_PROGRAMS) for WC, GL and
 // (as of the retention/aggregate commit) Property. REINSURANCE_PROGRAMS and
 // reinsuranceEngine.ts are gone — Property was the model's last consumer.
@@ -134,7 +146,9 @@ export interface TowerLayer {
 // cat ceiling, which was sized by sweeping exceedance on one enrolled book.
 // What a single occurrence draws above it lands in retainedAboveTower,
 // visibly.
-export const PROPERTY_TOWER_TOP = 1_000_000_000;
+// ⚠ $50M SINCE LOSS ENGINE COMMIT 4a — the top of the largest package. It
+// was $1B, one treaty to the real programme's limit; see the history above.
+export const PROPERTY_TOWER_TOP = 50_000_000;
 
 // PER-PERIL DEDUCTIBLES — a Property occurrence of a named peril retains this
 // much before the tower responds, instead of the layer's own $5M attachment.
@@ -251,7 +265,7 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
     // against an inflating distribution. The fixed ceiling was concealing half
     // of it by shrinking the modelled tail at the same rate the tower lost
     // ground. Do not restate this as a single number.
-    layer(10e6, 40e6),
+    layer(10e6, 5e6),   // 4a: $5M xs $10M — the packages end at $15M
   ],
   // GL KEEPS THREE LAYERS — re-confirmed at the runtime-pricing change against
   // the rebuilt severity model. The merge test WC failed is pierce frequency, and
@@ -261,7 +275,7 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   GL: [
     layer(1e6, 4e6),
     layer(5e6, 5e6),
-    layer(10e6, 15e6),
+    layer(10e6, 5e6),   // 4a: $5M xs $10M — the packages end at $15M
     // No fourth layer. Market capacity — see the header. The pool retains above
     // $25M and it is DISPLAYED as retainedAboveTower.
     //
@@ -285,12 +299,9 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   // ⚠ ONE LAYER AGAIN, NOW RUNNING TO $1B RATHER THAN TO THE SEVERITY CAP — see
   // the header. It answers every occurrence, attritional or catastrophe.
   Property: [
-    {
-      name: `$${(PROPERTY_TOWER_TOP - PROPERTY_LOSS_MODEL.perRiskRetention) / 1e6}M xs $${PROPERTY_LOSS_MODEL.perRiskRetention / 1e6}M`,
-      attachment: PROPERTY_LOSS_MODEL.perRiskRetention,
-      limit: PROPERTY_TOWER_TOP - PROPERTY_LOSS_MODEL.perRiskRetention,
-      purchasable: true,
-    },
+    // 4a: cut at $25M, the edge of the $20M xs $5M and $25M xs $25M packages.
+    layer(PROPERTY_LOSS_MODEL.perRiskRetention, 25e6 - PROPERTY_LOSS_MODEL.perRiskRetention),
+    layer(25e6, PROPERTY_TOWER_TOP - 25e6),
   ],
 };
 
@@ -300,7 +311,8 @@ export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
 // PROPERTY_LOSS_MODEL.severityCap ($75M), when occurrence == claim made the two
 // the same number. An attritional claim still cannot exceed $75M, so
 // above-tower dollars come only from a single occurrence larger than $1B.
-export const TOWER_TOP: Record<TowerLine, number> = { WC: 50e6, GL: 25e6, Property: PROPERTY_TOWER_TOP };
+// The top of the largest package on each line (loss engine commit 4a).
+export const TOWER_TOP: Record<TowerLine, number> = { WC: 15e6, GL: 15e6, Property: PROPERTY_TOWER_TOP };
 
 // ============================================================================
 // THE RISK LOAD — one market parameter, not four chosen multiples.
@@ -327,7 +339,64 @@ export const TOWER_TOP: Record<TowerLine, number> = { WC: 50e6, GL: 25e6, Proper
 // $100 against WC's 0.2874, despite a LOWER multiple (2.29x vs 3.32x), because
 // it is genuinely more exposed. A uniform loading would have been wrong in both
 // directions at once — too dear on WC's top layer and far too cheap on GL's.
-export const RISK_LOAD_LAMBDA = 0.60;
+// ============================================================================
+// ⚠ ZERO. EVERY LAYER IS PRICED AT 1x ITS EXPECTED CESSION, AND THE REASON IS A
+// MEASURED DEFECT RATHER THAN A VIEW ABOUT REINSURANCE PRICING.
+//
+// AT 0.60, DECLINING COVER WON ON BOTH MONEY AND SAFETY, WHICH MAKES THE WHOLE
+// DECISION A TRAP. Measured on WC solo over ten years: full cover ended at $23M
+// with a 12% chance a line went negative; NO cover ended at $118M with 1%. No
+// player should ever have bought a layer.
+//
+// THE MECHANISM IS THE DECLINED-COVER MARGIN, NOT THE LOAD ITSELF. A pool that
+// declines still CHARGES its members the tower price — see
+// retainedCoverMargin and DECLINED_COVER_MARGIN_ENABLED — and keeps it as
+// surplus. Most of that price was load, so declining pocketed the load for free
+// while the expected cession it gave up was, by construction, only the expected
+// cession. Buying cover meant paying the load; declining meant being paid it.
+//
+// AT ZERO, a declined pool keeps exactly the EXPECTED cession as its margin and
+// no more. It therefore keeps the same money in expectation and takes on all of
+// the volatility, which is the trade a reinsurance decision is supposed to be.
+// Members pay the tower either way, so cheaper cover also lowers their bill.
+//
+// ⚠ A STARTING POINT, NOT THE ANSWER, AND IT IS DELIBERATELY TOO GENEROUS. At
+// lambda 0 reinsurance is actuarially free: no reinsurer prices at its own
+// expected loss, and more cover is now weakly better at every attachment. If
+// cover proves too cheap in play, load comes back — and the thing to watch is
+// whether every placement beats declining, which is the signal that the price
+// carries no cost at all.
+//
+// ⚠ AND IT APPLIES TO EVERY LAYER ON EVERY LINE, not only the catastrophe
+// layer. The three readers are reinsuranceTower.ts (occurrence layers),
+// propertyAggregate.ts (the aggregate stop) and nothing else; all three read
+// this constant rather than restating it, so one edit moves all of them.
+//
+// ⚠ WHAT THIS DOES NOT FIX, AND IT MATTERS FOR READING THE RESULT. Large claims
+// are booked well below their eventual cost and develop slowly, so the
+// catastrophic years that should punish a declined pool arrive understated
+// inside a ten-year game. Zero load removes the free money; it does not make a
+// declined pool feel the tail it has taken on. That is the converging-climb work
+// on feature/fast-development, and the two are additive rather than
+// alternatives. NEITHER ALONE MAKES DECLINING LOSE — stated flatly so the next
+// reader does not assume this constant settled it.
+//
+// MEASURED, 10-year horizon, full cover against none, at lambda 0:
+//   WC        $29.3M vs $71.8M   (was -$99.3M of advantage, now -$42.5M)
+//   GL        $38.3M vs $144.5M  (was -$207.0M, now -$106.2M)
+//   Property  $45.0M vs $121.7M  (was -$321.6M, now -$76.7M)
+// Zero load HALVES declining's advantage and does not reverse it. The residue is
+// not the load. A fully covered pool pays and recovers, at lambda 0:
+//   WC  $44.62M paid / $6.31M recovered (0.14)
+//   GL  $128.64M / $16.04M (0.12)
+//   Property  $137.20M / $102.10M (0.74)
+// Layers are priced on the DRAWN severity and recover on the BOOKED occurrence,
+// and forward booking contracts the booked figure below the attachment. Property
+// fares far better only because catastrophes book at full severity. Ever-negative
+// surplus, full against none: WC 0%/0%, GL 0%/0%, Property 17%/25%.
+// ============================================================================
+// ⚠ DEFINED IN pricingParameters.ts NOW, re-exported here. Same value (0).
+export { REINSURANCE_RISK_LOAD_LAMBDA as RISK_LOAD_LAMBDA } from './pricingParameters';
 
 // ============================================================================
 // WC AGGREGATE STOP-LOSS — priced at runtime, deliberately.

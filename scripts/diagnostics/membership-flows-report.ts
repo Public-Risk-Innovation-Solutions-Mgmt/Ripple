@@ -32,11 +32,14 @@
 // the reading. A large gap means something else is acting on the book.
 // ============================================================================
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
-import { NEW_BUSINESS_TIERS } from '../../src/utils/newBusinessAppetite';
+import { INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT, intakeLabel } from '../../src/utils/intakeInspection';
 import {
   APPLICATION_RATE, MAX_NEW_MEMBER_SHARE, BASE_RETENTION,
 } from '../../src/data/defaultAssumptions';
@@ -48,7 +51,9 @@ const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const RATED: CoverageLine[] = ['WC', 'GL'];
 const GAMES = Number(process.env.GAMES ?? 8);
 const YEARS = Number(process.env.YEARS ?? 20);
-const ARMS: (number | null)[] = [null, ...NEW_BUSINESS_TIERS];
+// Intake-slider levels: Open and the bars 3 / 4 / 5 — the analogues of the
+// retired Accept All / 1.50 / 1.00 / 0.75 appetite tiers (see clf-table-derive).
+const ARMS: number[] = [INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT];
 
 interface Row {
   line: string; game: number; year: number;
@@ -56,7 +61,7 @@ interface Row {
   joined: number; withdrew: number; applicants: number; eligible: number; room: number;
 }
 
-function play(appetite: number | null): Row[] {
+function play(appetite: number): Row[] {
   const rows: Row[] = [];
   for (let g = 0; g < GAMES; g++) {
     const id = `FLOW${g}`;
@@ -69,7 +74,7 @@ function play(appetite: number | null): Row[] {
     };
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y) as DecisionSet;
-      for (const l of LINES) d.byLine[l].newBusinessAppetite = appetite;
+      for (const l of LINES) d.byLine[l].intakeLevel = appetite;
       const before: Record<string, number> = {};
       for (const l of LINES) before[l] = gs.poolState.lines[l].members.length;
       const p = processYear(gs, d);
@@ -104,7 +109,7 @@ console.log(`roster ${MARKET_MEMBER_COUNT}, application rate ${(100 * APPLICATIO
 console.log('NO TARGET, NO INTAKE COUNT CAP, NO WITHDRAWAL CAP.\n');
 
 for (const a of ARMS) {
-  const label = a === null ? 'Accept All' : `below ${a.toFixed(2)}`;
+  const label = intakeLabel(a);
   const rows = play(a);
   console.log(`--- ${label} ---`);
 

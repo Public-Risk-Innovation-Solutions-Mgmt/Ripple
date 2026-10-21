@@ -64,7 +64,7 @@ import {
 } from '../../src/utils/developmentAllocation';
 import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../../src/data/reinsuranceTower';
 import { SeededRandom } from '../../src/utils/random';
-import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE, WC_SEVERITY_CAP } from '../../src/data/defaultAssumptions';
+import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE, WC_SEVERITY_CAP, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
 import { wcSeverityTrend } from '../../src/utils/wcClaimEngine';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
 import { unpaidShare } from '../../src/utils/payoutPattern';
@@ -97,7 +97,7 @@ const ARMS: Arm[] = [
     decisions: (d, lines) => ({
       ...d,
       byLine: Object.fromEntries(lines.map(l =>
-        [l, { ...d.byLine[l], layersPlaced: REINSURANCE_TOWER[l as TowerLine].map(() => false), aggregateStopLevel: -1 }])) as never,
+        [l, { ...d.byLine[l], reinsuranceOption: 'none' }])) as never,
     }),
   },
 ];
@@ -632,7 +632,18 @@ for (const arm of ARMS) {
             // the set — it is booked at its drawn total and takes no development
             // (bookedOccurrenceTotals) — so an open cat outside a short set is the
             // rule working, not the set failing to fill.
-            if (a.age < a.horizon && nDeveloping < floor) {
+            // ⚠ UNDER FULL-COST BOOKING THE SET IS EMPTY BY DESIGN AND THE
+            // FLOOR DOES NOT APPLY. `developing` is false at every age, so
+            // reselectDevelopingSet is handed a cap of 0 and holds nothing.
+            // A set below its floor is then the contract, not a shortfall —
+            // and the opposite, a NON-EMPTY set, is the defect, asserted
+            // below. Measured before forking: 10,131 findings, every one of
+            // them this.
+            if (FULL_COST_BOOKING.enabled && nDeveloping > 0) {
+              fail(ctx, 'a developing subset exists under full-cost booking',
+                `AY ${b.yearNumber}: ${nDeveloping} developing, and nothing may develop`);
+            }
+            if (!FULL_COST_BOOKING.enabled && a.age < a.horizon && nDeveloping < floor) {
               const eligibleOutside = (d: { developing?: boolean; closed?: boolean; catastrophe?: true }) =>
                 !d.developing && d.closed !== true && d.catastrophe !== true;
               const openOutside = ac.some(eligibleOutside);
@@ -720,7 +731,36 @@ console.log('\n  ceded per arm:');
 for (const a of ARMS) console.log(`    ${a.name.padEnd(9)} ${money(perArmCeded[a.name]).padStart(12)}   ${a.why}`);
 
 const coverageErrors: string[] = [];
-if (cover.cededEvents === 0) coverageErrors.push('no cession occurred anywhere — the mechanism never fired');
+// ⚠ THE CESSION COVERAGE ASSERTION INVERTS, AND WHAT IT LOSES IS NAMED.
+// Development cession fires on a development movement; full-cost booking
+// leaves none, so the mechanism correctly never fires and "it never fired" is
+// the contract. The reverse is asserted instead.
+//
+// ⚠ NAMED COVERAGE GAP, because this is the file that would otherwise be
+// silently testing nothing: allocateDevelopment, cedeDevelopment and the whole
+// reselection path are LIVE CODE with no input that reaches them while the
+// flag is on. The ALLOCATOR CONTRACT section above still exercises them
+// DIRECTLY with fixtures, which is what keeps this file worth running; the
+// end-to-end arm does not. It closes when the host's prior development factors
+// become the source of development.
+// ⚠ THIS COVERAGE CLAIM IS NOW INVERTED, AND ITS OWN TEXT CALLED THE DATE.
+// The paragraph above ends "It closes when the host's prior development
+// factors become the source of development" — that is this commit. Full-cost
+// booking still leaves the STOCHASTIC walk switched off, but the host's
+// percentage develops every accident year over its lifetime, those movements
+// land on the register, and the tower answers them under the accident year's
+// own cover. So the end-to-end arm exercises the cession path again and the
+// assertion that it CANNOT is retired rather than loosened: what is asserted
+// instead is that it DOES, which is the statement that would catch the path
+// going quiet again.
+if (FULL_COST_BOOKING.enabled) {
+  if (cover.cededEvents === 0) coverageErrors.push('no cession event occurred on development. The host\'s development % reaches the register and the tower answers it, so the end-to-end arm must exercise this path — zero events means the development is not reaching the cession, which is the defect this file exists for');
+  console.log('\n  ⚠ NAMED COVERAGE GAP: the end-to-end development-cession path has no input');
+  console.log('    reaching it while FULL_COST_BOOKING is on. The direct allocator fixtures above');
+  console.log('    still exercise it; the played-game arm does not.');
+} else {
+  if (cover.cededEvents === 0) coverageErrors.push('no cession occurred anywhere — the mechanism never fired');
+}
 if (cover.cohortsWithoutClaims === 0) coverageErrors.push('no register-less cohort was ever seen — the fallback path is untested');
 // The no-tower arm still cedes on PRE-GAME accident years, which bought cover.
 // What it must not do is cede on a year that declined every layer, asserted

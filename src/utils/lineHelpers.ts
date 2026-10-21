@@ -1,29 +1,64 @@
 import type { CoverageLine, LinePoolState, LineResultSet, LineView, Member, ResultSet } from '../types/simulation';
-import { wageFactor } from '../data/exposureTrend';
+import { exposureFactor } from '../data/exposureTrend';
 
 // A member's exposure in THIS YEAR'S DOLLARS — the NOMINAL, rating-side figure.
 //
-// ⚠ THIS IS THE RATING/PREMIUM/DISPLAY READER. There is a second exposure basis
-// and confusing them is the whole design of the wage-inflation change:
+// ⚠ THE TWO BASES NOW COINCIDE, AND THE DISTINCTION IS KEPT ANYWAY. The
+// exposure base is LEVEL from this commit (EXPOSURE_GROWTH_PER_YEAR = 0), so
+// exposureFactor is 1 and this returns the raw roster figure. The split is
+// still worth stating, because it is what a future exposure trend would need:
 //
-//   NOMINAL (here)      frozen roster payroll x wageFactor(line, year).
+//   NOMINAL (here)      frozen roster payroll x exposureFactor(line, year).
 //                       Premium, member charge, market share, every display.
 //
 //   REAL (raw           `member.exposureByLine.WC` read directly, no factor.
 //    exposureByLine)    CLAIM FREQUENCY, and only claim frequency.
 //                       wcClaimEngine reads it raw.
 //
-// WHY FREQUENCY MUST NOT SEE THE FACTOR: the roster is frozen, so payroll growth
-// here is PURE WAGE INFLATION — same members, same workers, same injuries.
-// Letting claim counts rise 3.63%/yr would assert that paying people more
-// injures more of them, and it would move WC's rate trend from -1.46%/yr to
-// +2.12%/yr, growing premium 5.82%/yr instead of 2.115%.
+// WHY FREQUENCY MUST NOT SEE THE FACTOR, whenever there is one again: the
+// roster is frozen, so growth here is pure base inflation — same members, same
+// workers, same injuries. Letting claim counts rise with it would assert that
+// paying people more injures more of them.
 //
 // yearNumber is REQUIRED, with no default. A default would silently price some
 // call site at year 1 forever, which is exactly the class of defect the
 // frequency-trend fix corrected (finding 37).
 export function getMemberExposure(member: Member, line: CoverageLine, yearNumber: number): number {
-  return (member.exposureByLine[line] ?? 0) * wageFactor(line, yearNumber);
+  return (member.exposureByLine[line] ?? 0) * exposureFactor(line, yearNumber);
+}
+
+/**
+ * WHAT THE NEW LOSS ENGINE PRICES AND DRAWS ON — a roster, or one book's
+ * exposure. With MEMBER_LEVEL off a line is one book and has no roster, so
+ * every function that only ever summed its members' exposure takes the sum
+ * itself. The exposure is the year's own, already through exposureFactor.
+ */
+// A book is a roster, or the line's exposure — with, since book units, the
+// book's size-weighted true risk (bookOrdinaryRisk), which its routine large
+// losses' count and their price carry. Absent reads as 1, the market's.
+export type Book = readonly Member[] | { readonly exposure: number; readonly risk?: number };
+
+/** A book's size-weighted true risk; 1 for a roster or a book that does not say. */
+export const bookRiskOf = (book: Book): number => (Array.isArray(book) ? 1 : (book as { risk?: number }).risk ?? 1);
+
+export const isRoster = (book: Book): book is readonly Member[] => Array.isArray(book);
+
+/** The book's exposure in `yearNumber`, in $M. */
+export function bookExposureOf(book: Book, line: CoverageLine, yearNumber: number): number {
+  if (!isRoster(book)) return book.exposure;
+  let e = 0;
+  for (const m of book) e += getMemberExposure(m, line, yearNumber);
+  return e;
+}
+
+/**
+ * A roster for code that only a roster can serve — the old engine's paths.
+ * Reaching one with a book is a wiring defect, so it throws rather than
+ * pricing an empty roster at zero.
+ */
+export function rosterOf(book: Book, where: string): Member[] {
+  if (!isRoster(book)) throw new Error(`${where}: needs a member roster, and MEMBER_LEVEL is off`);
+  return book as Member[];
 }
 
 // Stage 2.1 view filter: 'pool' returns lockedResults unchanged (by reference —

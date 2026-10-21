@@ -40,6 +40,9 @@
 // (P99 ~8x mean) give the realized mean a +/-10pp CI of its own, so a +/-2pp
 // band around it is a coin flip. REPORT the realized draw against its own CI;
 // do not gate on it.
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -112,8 +115,23 @@ for (const id of SEEDS) {
       glClaimsPerYear.push(gl.claims.length);
       if (gl.claimCount === undefined) { countMismatch++; problems.push(`${id} Y${y}: GL result carries no claimCount`); }
       else if (gl.claimCount !== gl.claims.length) countMismatch++;
+      // ⚠ FORKED BY THE GL POOL LIMIT, AND THE NEW FORM IS STRICTER THAN THE
+      // ONE IT REPLACES. This used to read |sum(member losses) - aggregate| < 1c,
+      // because the two were the same number. They are not any more, and that
+      // is the limit working rather than an error: the POOL's aggregate is
+      // built from claims capped at $25M, while a MEMBER's recorded loss is
+      // their whole loss, because the member pays the excess. Asserting zero
+      // here would force one of those two to be wrong.
+      //
+      // So the gap is no longer bounded to zero — it is pinned to a NAMED
+      // quantity. sum(member losses) - aggregate must equal
+      // memberShareAboveLimit to the cent, which says both that the pool
+      // excluded exactly the right amount and that the member kept exactly it.
+      // A cap that dropped the excess on the floor, or counted it twice, fails
+      // here; the old assertion would have passed the first of those.
       const mSum = gl.memberLossResults.reduce((s, r) => s + r.simulatedLoss, 0);
-      memberSumErr = Math.max(memberSumErr, Math.abs(mSum - gl.aggregateMemberLoss));
+      memberSumErr = Math.max(memberSumErr,
+        Math.abs(mSum - gl.aggregateMemberLoss - (gl.memberShareAboveLimit ?? 0)));
     } else problems.push(`${id} Y${y}: GL result carries no claims array`);
     if (wc.claims) wcClaimSumErr = Math.max(wcClaimSumErr, Math.abs(wc.claims.reduce((s, c) => s + c.grossUltimate, 0) - wc.grossUltimateLoss));
     // Read off the claims: the retired shockLossIncurred flag meant exactly this on GL.
@@ -147,7 +165,8 @@ console.log('--- claim integrity through the engine ---');
 console.log(`  line-years processed: ${lineYears}   non-finite fields: ${nonFinite}  ${note(nonFinite === 0, 'non-finite result fields')}`);
 console.log(`  max |sum(GL claims) - grossUltimateLoss|: $${glClaimSumErr.toFixed(6)}  ${note(glClaimSumErr < 0.01, 'GL claims do not sum to grossUltimateLoss')}`);
 console.log(`  max |sum(WC claims) - grossUltimateLoss|: $${wcClaimSumErr.toFixed(6)}  ${note(wcClaimSumErr < 0.01, 'WC claims do not sum to grossUltimateLoss')}`);
-console.log(`  max |sum(GL memberLossResults) - aggregate|: $${memberSumErr.toFixed(6)}  ${note(memberSumErr < 0.01, 'GL member losses do not sum')}`);
+console.log(`  max |sum(GL member losses) - aggregate - memberShareAboveLimit|: $${memberSumErr.toFixed(6)}`
+  + `  ${note(memberSumErr < 0.01, 'the member share above the pool limit does not reconcile')}`);
 console.log(`  max |surplus tie-out|: ${maxTie.toExponential(2)}  ${note(maxTie < 1e-4, `tie-out ${maxTie}`)}`);
 console.log(`  WC commonLossFactor is exactly 1 (pool factor REMOVED from WC): ${lineYears - wcFactorNotOne}/${lineYears}  ${note(wcFactorNotOne === 0, 'WC does not report commonLossFactor 1 — the pool-year factor is still reaching WC')}`);
 console.log(`  GL commonLossFactor still varies (gPool draw retained for GL): ${lineYears - glFactorIsOne}/${lineYears}  ${note(glFactorIsOne === 0, 'GL commonLossFactor is exactly 1 — the shared pool-year draw has stopped')}`);

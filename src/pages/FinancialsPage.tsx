@@ -4,6 +4,7 @@ import type { LineResultSet, LineView, ResultSet } from '../types/simulation';
 import { deriveAnnualStatement, statementLines } from '../utils/financialStatementEngine';
 import { RETAINED_ABOVE_TOWER_CAVEAT } from '../utils/reinsuranceDisplay';
 import { formatCurrency, formatPct, colorForNetIncome } from '../utils/formatters';
+import { developmentDisplay } from '../utils/developmentDisplay';
 import { lineDisplayName } from '../utils/lineDisplay';
 
 interface FinancialsPageProps {
@@ -142,8 +143,27 @@ export default function FinancialsPage({ lockedResults, priorResults, lineView }
                         indent2
                       />
                     )}
-                    <ISLine label="Prior year claims" value={formatCurrency(priorYearClaims)} indent2 />
+                    {/* ⚠ ONE CONVENTION, SHARED. priorYearClaims is already
+                        adverse-positive (financialStatementEngine negates the
+                        engine's favourable-positive field), so the SIGN here
+                        was right while the Results page printed the opposite.
+                        What this line gains is the plus sign, the colour and
+                        the word, so the two tabs now read identically — see
+                        developmentDisplay.ts. */}
+                    {(() => {
+                      const d = developmentDisplay(-priorYearClaims, formatCurrency);
+                      return (
+                        <ISLine
+                          label="Prior year claims"
+                          value={d.text}
+                          valueColor={d.className}
+                          indent2
+                        />
+                      );
+                    })()}
                     <ISLine label="Provision for claims, net" value={formatCurrency(is.netIncurredLoss)} indent2 />
+                    {/* LAE, BOOKED: what the rate charges for claims handling, now spent. */}
+                    <ISLine label="Loss adjustment expenses" value={formatCurrency(is.laeIncurred)} indent />
                     <ISLine label="General administrative services" value={formatCurrency(is.operatingExpense)} indent />
                     <ISLine label="Loss prevention expenses" value={formatCurrency(is.riskControlInvestment)} indent />
                     <ISLine label="Member dividends & returned premium" value={formatCurrency(is.dividends)} indent />
@@ -189,8 +209,9 @@ export default function FinancialsPage({ lockedResults, priorResults, lineView }
                 // both pages walked byLine for this and did it identically.
                 const { currentUnpaidPortion, noncurrentUnpaidPortion } = bsLines;
 
-                const totalCurrentLiabilities = currentUnpaidPortion;
-                const totalNoncurrentLiabilities = noncurrentUnpaidPortion;
+                const { currentLaePortion, noncurrentLaePortion } = bsLines;
+                const totalCurrentLiabilities = currentUnpaidPortion + currentLaePortion;
+                const totalNoncurrentLiabilities = noncurrentUnpaidPortion + noncurrentLaePortion;
 
                 return (
                   <>
@@ -206,11 +227,13 @@ export default function FinancialsPage({ lockedResults, priorResults, lineView }
                     <BSLine label="Total assets" value={formatCurrency(bs.totalAssets)} bold highlight />
 
                     <SectionLabel text="Current liabilities" />
-                    <BSLine label="Unpaid loss and LAE reserve, net of reinsurance — current portion" value={formatCurrency(currentUnpaidPortion)} indent />
+                    <BSLine label="Unpaid loss reserve, net of reinsurance — current portion" value={formatCurrency(currentUnpaidPortion)} indent />
+                    <BSLine label="Loss expense reserve — current portion" value={formatCurrency(currentLaePortion)} indent />
                     <BSLine label="Total current liabilities" value={formatCurrency(totalCurrentLiabilities)} bold />
 
                     <SectionLabel text="Noncurrent liabilities" />
-                    <BSLine label="Unpaid loss and LAE reserve, net of reinsurance — noncurrent portion" value={formatCurrency(noncurrentUnpaidPortion)} indent />
+                    <BSLine label="Unpaid loss reserve, net of reinsurance — noncurrent portion" value={formatCurrency(noncurrentUnpaidPortion)} indent />
+                    <BSLine label="Loss expense reserve — noncurrent portion" value={formatCurrency(noncurrentLaePortion)} indent />
                     <BSLine label="Total noncurrent liabilities" value={formatCurrency(totalNoncurrentLiabilities)} bold />
 
                     <div className="border-t border-gray-200 my-2" />

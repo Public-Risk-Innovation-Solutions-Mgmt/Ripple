@@ -1,5 +1,5 @@
-import { DEFAULT_LAYERS_PLACED } from '../data/reinsuranceTower';
-import { NO_NEW_BUSINESS } from './newBusinessAppetite';
+import { defaultReinsuranceOption } from './reinsuranceOptions';
+import { INTAKE_NONE } from './intakeInspection';
 // Single source of truth for default decisions. Used by the App (new game /
 // next year), the Decisions page (per-line reset), and the Stage 2.10 pre-game
 // history simulation — so the "steadily managed before the player took over"
@@ -8,7 +8,8 @@ import { SLIDER_RANGES, ASSET_ALLOCATION_DEFAULT } from '../data/defaultAssumpti
 import type { CoverageLine, DecisionSet, LineDecisionSet } from '../types/simulation';
 
 // Fresh object per call (allocation is nested, so lines must not share a reference).
-export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
+/** `shocks`: the game's shock switch (shockLosses.gameShocksOn) — the default cover follows it. Absent is on. */
+export function defaultLineDecisionSet(line: CoverageLine, shocks = true): LineDecisionSet {
   return {
     fundingConfidenceLevel: SLIDER_RANGES.fundingConfidenceLevel.default,
     // Default TRUE for every line, and no longer inert on any of them: all
@@ -21,9 +22,9 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
     fundingAtExpected: true,
     // Renew everyone. A pool that declines by default would be making an
     // underwriting decision nobody took.
-    renewalThreshold: null,
+    renewalCut: 0,
     /**
-     * ⚠ WRITE NOBODY. AND THIS IS THE OPPOSITE RULING FROM renewalThreshold
+     * ⚠ WRITE NOBODY. AND THIS IS THE OPPOSITE RULING FROM renewalCut
      * DIRECTLY ABOVE, WHICH IS WHY IT IS ARGUED RATHER THAN JUST SET.
      *
      * Declining an EXISTING member by default would be an underwriting decision
@@ -35,7 +36,7 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
      * the game opened with — would arrive unattributed.
      *
      * The asymmetry is that renewal's default keeps the book AS IT IS and
-     * appetite's default now does too. Both defaults are "change nothing". They
+     * intake's default — the slider at 0 — does too. Both defaults are "change nothing". They
      * only look opposite because one control acts by omission and the other by
      * commission.
      *
@@ -53,28 +54,32 @@ export function defaultLineDecisionSet(line: CoverageLine): LineDecisionSet {
      * assumed: the year-1 book is unchanged member for member across this
      * change.
      */
-    newBusinessAppetite: NO_NEW_BUSINESS,
+    intakeLevel: INTAKE_NONE,
     dividendPct: SLIDER_RANGES.dividendPct.default,
     assessmentPct: SLIDER_RANGES.assessmentPct.default,
     riskControlPct: SLIDER_RANGES.riskControlPct.default,
-    // Default: every purchasable occurrence layer placed, no aggregate. Matches
-    // the default-on-load rule for saves that predate the tower. KEYED BY
-    // LINE — Property's one-layer tower must not receive WC's three-element
-    // array (or vice versa); see DEFAULT_LAYERS_PLACED's own header.
-    layersPlaced: [...DEFAULT_LAYERS_PLACED[line]],
-    aggregateStopLevel: -1,
+    // Spend nothing on incentives. The field is STORED AND UNREAD — see
+    // LineDecisionSet.riskControlIncentivePct — so this is what the slider
+    // opens on, not a value the engine consumes.
+    riskControlIncentivePct: SLIDER_RANGES.riskControlIncentivePct.default,
+    // The default reinsurance package — the middle option, a chosen parameter
+    // (REINSURANCE_DEFAULT_OPTION). The pre-game's prior board plays these
+    // decisions, so the opening is built on it too.
+    // ⚠ NONE WHILE THE GAME'S SHOCKS ARE OFF (AGGREGATE_STOP_DEFAULT_SHOCKS_OFF).
+    reinsuranceOption: defaultReinsuranceOption(line, shocks),
     assetAllocation: { ...ASSET_ALLOCATION_DEFAULT },
     loanRepaymentAggressiveness: 0.5,
   };
 }
 
-export function defaultDecisionSet(yearNumber: number): DecisionSet {
+/** `shocks`: the game's shock switch (shockLosses.gameShocksOn) — the default cover follows it. Absent is on. */
+export function defaultDecisionSet(yearNumber: number, shocks = true): DecisionSet {
   return {
     yearNumber,
     byLine: {
-      WC: defaultLineDecisionSet('WC'),
-      GL: defaultLineDecisionSet('GL'),
-      Property: defaultLineDecisionSet('Property'),
+      WC: defaultLineDecisionSet('WC', shocks),
+      GL: defaultLineDecisionSet('GL', shocks),
+      Property: defaultLineDecisionSet('Property', shocks),
     },
     // Pool-wide decisions (projected into every line at processYear entry).
     assetAllocation: { ...ASSET_ALLOCATION_DEFAULT },

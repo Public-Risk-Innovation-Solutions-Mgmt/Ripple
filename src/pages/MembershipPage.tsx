@@ -87,7 +87,8 @@ export default function MembershipPage({ lockedResults, startingFinancials, init
   const withdrawnThisYear = last ? last.withdrawnMembers : 0;
   const retentionRate = last?.memberRetentionRate ?? 1;
   const satisfaction = last?.memberSatisfaction ?? startingFinancials.memberSatisfaction;
-  const avgRiskQuality = last?.averageRiskQuality ?? startingFinancials.riskQuality;
+  // Kept, unread: the data path stays, only the tile went. See the note below.
+  void (last?.averageRiskQuality ?? startingFinancials.riskQuality);
   const activeExposure = last?.activeExposure ?? startingFinancials.activeExposure;
   const totalMarketExposure = last?.totalMarketExposure ?? startingFinancials.totalMarketExposure;
   const marketShare = last?.marketShare ?? startingFinancials.marketShare;
@@ -337,7 +338,12 @@ export default function MembershipPage({ lockedResults, startingFinancials, init
         {exposureBasis && (
           <Metric label={`Total Market ${exposureBasis} ($M)`} value={formatMillions(totalMarketExposure)} />
         )}
-        <Metric label="Avg. Risk Quality" value={`${avgRiskQuality.toFixed(1)} / 10`} />
+        {/* ⚠ THE AVERAGE-QUALITY TILE IS GONE, and this page's tab is hidden
+            besides. That attribute is unobservable by design; publishing the
+            pool mean was the one place the hide leaked, and
+            surface-privacy-check now REFUSES the expression rather than
+            allowing it. Do not restore this tile when the Membership tab comes
+            back. The underlying field is untouched — see above. */}
         <Metric label="Avg. Member Satisfaction" value={`${memberMeanSatisfaction.toFixed(2)} / 10`} />
         {!exposureBasis && (
           <p data-testid="exposure-mixed" className="col-span-2 self-center text-xs text-gray-400">

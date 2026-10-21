@@ -146,7 +146,9 @@ for (const line of LINES) {
   // material.
   let steady = 0;
   for (let t = 1; t <= 400; t++) steady += unpaidShare(pat, t);
-  const shape = pat.kind === 'weibull' ? `k ${pat.k.toFixed(2)} b ${pat.b.toFixed(3)}` : `geometric ${pat.conditional.toFixed(2)}`;
+  const shape = pat.kind === 'recorded' ? 'recorded paid'
+    : pat.kind === 'weibull' ? `k ${pat.k.toFixed(2)} b ${pat.b.toFixed(3)}`
+    : `geometric ${pat.conditional.toFixed(2)}`;
   console.log(`    ${line.padEnd(10)} ${shape.padEnd(18)} ->  steady-state reserve ${steady.toFixed(2)}x annual loss`);
 }
 console.log('\n  ⚠ WHERE THIS LANDS ON THE BAND, WHICH IS THE THING THE TAIL ACTUALLY REACHES. The');

@@ -1,254 +1,279 @@
 // POOL-SCOPE AGGREGATION CHECK — is every pooled field still the thing its name says?
+// ON THE NEW ENGINE (book mode, MEMBER_LEVEL off), as the game runs.
 //
 //   npx tsx scripts/diagnostics/pool-aggregation-check.ts
 //
 // ============================================================================
-// WHY THIS EXISTS, AND WHY A COMMENT WAS NOT ENOUGH.
+// FORKED FROM pool-aggregation-member-check, which is dormant with the old
+// member engine. The classification below is copied from it and is now the one
+// that is maintained: a field added to ResultSet is classified HERE.
 //
-// Seven pool-scope aggregation defects reached players, each found by tripping
-// over it rather than by looking. THREE of them were added directly underneath
-// a comment warning about exactly that class:
+// Why this exists (the member gate's header has the history): seven pool-scope
+// aggregation defects reached players, three of them added directly underneath
+// a comment warning about exactly that class. So aggregateLineResults has no
+// generic `sum` — every call names its class — and this gate asserts that every
+// numeric field on the pooled row is covered by one of the classes below.
 //
-//   activeExposure / totalMarketExposure   the warning itself (payroll + TIV)
-//   writtenExposure                        added later, same defect, NOT named
-//                                          by the warning three lines above it
-//   cededByLayer                           its justification said "only
-//                                          meaningful because WC and GL share
-//                                          attachments" — then Property got a
-//                                          tower and its $70M xs $5M layer
-//                                          landed in the $4M xs $1M cell
+// WHAT THE NEW ENGINE CHANGES. The member gate's sections 2 and 3 counted
+// distinct members, and a book has none. In their place:
 //
-// A warning naming three fields did not stop the fourth. That is the evidence
-// that prose does not hold this line: the failure is always "a field was added
-// (or a LINE was added) and nobody re-read the neighbouring comment".
+//   1. EVERY NUMERIC POOLED FIELD IS CLASSIFIED, in exactly one class.
+//   2. THE ADDITIVE CLASSES ACTUALLY ADD: every DOLLARS, exposure, claim-count
+//      and enrolment field on the pooled row is the sum of its lines. The member
+//      gate could only check that a choice was written down; on a book this
+//      checks the choice itself.
+//   3. NO MEMBERS ARE FABRICATED: the member counts are zero at every scope.
+//   4. cededByLayer CELLS LINE UP: the pooled cells are WC + GL elementwise,
+//      with Property (whose layers do not share their attachments) left out.
+//   5. A SOLO POOL IS ITS ONE LINE, EXACTLY.
 //
-// So aggregateLineResults now has NO generic `sum`. Every call names its class —
-// addDollars / addEnrolments / addMixedUnitExposure / noPoolMeaning — and this
-// script asserts that every numeric field on the pooled row is COVERED by one
-// of the four classifications below. A field added to ResultSet without being
-// classified here turns this red.
-//
-// ⚠ THIS CHECKS BOOKKEEPING, NOT TRUTH. It cannot tell you that a field is in
-// the wrong class — only that somebody made a choice and wrote it down. The
-// value is that adding a field now requires a deliberate act, where before it
-// required nothing.
+// ⚠ AND EACH FAILS WHEN BROKEN — every check is a function over pooled rows,
+// and THE CONTROLS feed each one rows broken the way it guards against.
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import type { CoverageLine, GameState, ResultSet } from '../../src/types/simulation';
+import { AGGREGATE_STOP, MEMBER_LEVEL } from '../../src/data/pricingParameters';
+import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
+import type { CoverageLine, DecisionSet, GameState, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
-let failures = 0;
-// ⚠ THE VERDICT NAMES WHAT FAILED. IT USED TO COUNT. A bare "N CHECK(S) FAILED"
-// at the end of a long report makes the reader scroll back for the FAIL lines,
-// and whatever prose they land on on the way gets read as the explanation. That
-// is not hypothetical: this project misdiagnosed a red gate exactly that way.
 const failed: string[] = [];
-// The verdict is fenced so no neighbouring paragraph can be read as covering it.
 const RULE = '='.repeat(72);
-const note = (ok: boolean, msg: string) => { if (!ok) { failures++; failed.push(msg); return `FAIL — ${msg}`; } return 'OK'; };
+const check = (ok: boolean, label: string, detail = '') => {
+  if (!ok) failed.push(label);
+  console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
+};
 
 // --- THE CLASSIFICATION -----------------------------------------------------
 // Every numeric field on the pooled row must appear in exactly one of these.
+// Copied from pool-aggregation-member-check, where each entry's reasoning is
+// written beside it; read it there before moving a field between classes.
 
 // Extensive money and other genuinely additive quantities.
 const DOLLARS = new Set([
   'poolPremium', 'adminExpense', 'poolPremiumAndAdminExpense', 'totalMemberCharge',
   'grossPremium', 'assessments', 'dividends', 'aggregateMemberLoss',
   'grossUltimateLoss', 'reinsuranceCost', 'retainedAboveTower', 'aggregateRecovery',
-  // Additive for the same reason its gross and net neighbours are: it is the
-  // same register at a different point in the booking, so the pool figure is
-  // the sum of the lines and nothing else. ⚠ BOTH OF THEM: the net twin was
-  // added to ResultSet in the same commit as the gross one and classified in
-  // neither set, which turned this red for two commits — precisely the "a field
-  // added without a class turns this red" case the section exists to catch,
-  // found late only because two briefs in a row skipped the sweep.
+  'memberShareAboveLimit', 'developmentAbovePoolLimit',
   'bookedGrossUltimate', 'bookedNetUltimate',
-  // The price of the layers the pool declined — a dollar charge like its
-  // reinsuranceCost neighbour, and additive for the same reason.
   'retainedCoverMargin',
-  // The two-part loss ratio's numerator. Additive: each line's own below-the-
-  // retention loss, and the pool's is their sum.
   'poolLayerLoss',
   'aggregatePremium', 'reinsuranceRecovery', 'netUltimateLoss', 'netIncurredLoss',
   'operatingExpense', 'riskControlInvestment', 'priorYearDevelopment',
   'beginningNetReserve', 'currentYearNetReserve', 'netPaidLosses', 'endingNetReserve',
+  'alaeIncurred', 'ulaeIncurred', 'laeIncurred', 'laePaid', 'beginningLaeReserve', 'endingLaeReserve',
+  'caseReservesNet', 'ibnrNet', 'caseReservesGross', 'ibnrGross',
+  'caseReservesCeded', 'ibnrCeded',
   'investedAssets', 'investmentIncome', 'outstandingLoanBalance', 'loanRepaymentApplied',
   'loanInterestAccrued', 'loanOriginatedThisYear',
-  // ⚠ THESE TWO SUM TO ZERO AT POOL SCOPE RATHER THAN TO A TOTAL, and they are
-  // still DOLLARS: every dollar one line receives from inter-line lending is a
-  // dollar another line paid, so the pool row is 0 by construction. Summing is
-  // the correct aggregation AND the check — a pool total that drifts off zero
-  // means the borrower side and the lender side disagree.
   'interLineTransfer', 'interLineCashTransfer',
-  'expectedLoss', 'clfAdjustedExpectedLoss',
+  'expectedLoss', 'clfAdjustedExpectedLoss', 'expectedReinsuranceRecovery',
   'expectedNetUnpaidLoss', 'priorYearDevelopmentCeded', 'bookingGiveBack',
   'netFundingTarget', 'indicatedNetReserveAtConfidenceLevel', 'reserveRiskMarginNeeded',
+  'catCapitalNeeded',
   'fundingMarginNeeded', 'availableFunding', 'availableSurplus', 'fundingGap',
   'capitalFundingGap', 'excessAvailableSurplus', 'underwritingIncome', 'netIncome',
   'beginningCash', 'endingCash', 'beginningInvestments', 'endingInvestments',
   'totalAssets', 'unearnedPremium', 'totalLiabilities', 'beginingSurplus', 'endingSurplus',
   'surplusFromIncome', 'surplusTieOutDifference',
 ]);
-
-// Distinct member counts — deduplicated by id, equal to the line value at line scope.
+// A count of claims, not of members — two lines' pierced claims simply add.
+const CLAIM_COUNTS = new Set(['claimsAboveLimit']);
+// Distinct member counts. Zero on a book (check 3); kept classified so the
+// member path's fields stay accounted for.
 const DISTINCT_MEMBERS = new Set(['activeMembers', 'newMembers', 'withdrawnMembers']);
-
 // Per-line enrolment counts. A weight, never a headcount.
 const ENROLMENTS = new Set(['enrolmentCount']);
-
 // WC/GL payroll added to Property TIV. Retained for display; never unit-labelled.
-const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'writtenExposure']);
-
+const MIXED_UNIT_EXPOSURE = new Set(['activeExposure', 'totalMarketExposure', 'writtenExposure', 'renewalExposure', 'newBusinessExposure']);
 // Recomputed from summed components — never summed directly.
-// ⚠ RESERVE-WEIGHTED, LIKE investmentReturnRate. A rate summed across lines is
-// nonsense; the pool's next-year paydown rate is the pool's own next-year
-// payment over the pool's own reserve.
 const RECOMPUTED_RATIOS = new Set([
-  // Both halves of the two-part ratio: sums over sums at pool scope, never a
-  // mean of the line ratios — their denominators are different quantities.
   'poolLayerLossRatio', 'totalLossRatioGross',
   'nextYearPaydownRate',
   'marketShare', 'memberRetentionRate', 'memberSatisfaction', 'averageRiskQuality',
   'investmentReturnRate', 'expectedLossRatio', 'expectedLossRatioMemberBasis',
-  'expectedExpenseRatio', 'expectedCombinedRatio', 'actualLossRatio', 'actualExpenseRatio',
-  // ⚠ THESE TWO NEED THE RULE MORE THAN THE OTHERS, NOT LESS. Their
-  // denominators EXCLUDE the reinsurance premium, and the ceded share differs
-  // sharply by line (GL about half its charge, Property about two fifths), so
-  // an average of the three line ratios would be weighted by a quantity that is
-  // not in any of them. Summed numerator over summed denominator, as here.
+  'expectedExpenseRatio', 'expectedCombinedRatio', 'actualLossRatio', 'actualExpenseRatio', 'actualLaeRatio',
   'actualLossRatioPricingBasis', 'actualLossRatioRetainedPremium',
   'actualCombinedRatio', 'combinedRatio', 'lossRatio', 'expenseRatio',
   'excessCapitalRatio', 'capitalAdequacyRatio',
 ]);
-
 // No pool-level referent. Carried as a placeholder; read byLine instead.
 const NO_POOL_MEANING = new Set(['aggregateAttachment', 'commonLossFactor']);
-
 // Line-ambiguous descriptive/rate fields showing the first active line's value.
-// Documented at the definition; not aggregations at all.
 const FIRST_LINE_PLACEHOLDER = new Set([
   'yearNumber', 'calendarYear', 'rateLevel', 'ratePer100', 'purePremiumPer100', 'purePremium',
   'expectedCededPer100', 'netPurePremiumPer100', 'selectedFundingConfidenceLevel',
   'selectedFundingCLF', 'fundingCLF',
   'historyAttempt',
 ]);
-
-const ALL = [DOLLARS, DISTINCT_MEMBERS, ENROLMENTS, MIXED_UNIT_EXPOSURE, RECOMPUTED_RATIOS,
+const CLASSES = [DOLLARS, CLAIM_COUNTS, DISTINCT_MEMBERS, ENROLMENTS, MIXED_UNIT_EXPOSURE, RECOMPUTED_RATIOS,
   NO_POOL_MEANING, FIRST_LINE_PLACEHOLDER];
+// The classes whose pooled value is the sum of the lines'.
+const ADDITIVE = [DOLLARS, CLAIM_COUNTS, ENROLMENTS, MIXED_UNIT_EXPOSURE];
 
-function play(id: string, seed: number, lines: CoverageLine[]): ResultSet[] {
+type Row = Record<string, unknown> & { byLine: Record<CoverageLine, Record<string, unknown>> };
+const numericFields = (r: Row) => Object.entries(r)
+  .filter(([, v]) => typeof v === 'number' && Number.isFinite(v)).map(([k]) => k);
+const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(1, Math.abs(a), Math.abs(b));
+
+// ---------------------------------------------------------------- the checks
+function classification(rows: Row[], classes: Set<string>[]) {
+  const seen = new Set<string>();
+  for (const r of rows) for (const k of numericFields(r)) seen.add(k);
+  return {
+    seen: seen.size,
+    unclassified: [...seen].filter(k => !classes.some(s => s.has(k))).sort(),
+    duplicated: [...seen].filter(k => classes.filter(s => s.has(k)).length > 1).sort(),
+  };
+}
+/** Additive fields whose pooled value is not the sum of the lines', with the worst gap. */
+function additiveMisses(rows: Row[], lines: CoverageLine[]): string[] {
+  const out = new Set<string>();
+  for (const r of rows) for (const k of numericFields(r)) {
+    if (!ADDITIVE.some(s => s.has(k))) continue;
+    const parts = lines.map(l => r.byLine[l][k]);
+    if (!parts.every(v => typeof v === 'number')) continue;
+    const sum = (parts as number[]).reduce((a, b) => a + b, 0);
+    if (rel(r[k] as number, sum) > 1e-9) out.add(k);
+  }
+  return [...out].sort();
+}
+/** Member counts that are not zero, at pool or line scope. */
+function fabricatedMembers(rows: Row[], lines: CoverageLine[]): string[] {
+  const out = new Set<string>();
+  for (const r of rows) for (const k of [...DISTINCT_MEMBERS, ...ENROLMENTS]) {
+    if ((r[k] ?? 0) !== 0) out.add(`pool ${k}`);
+    for (const l of lines) if ((r.byLine[l][k] ?? 0) !== 0) out.add(`${l} ${k}`);
+  }
+  return [...out].sort();
+}
+/** Worst gap between the pooled cededByLayer and WC + GL elementwise. */
+function layerCellGap(rows: Row[]): number {
+  let worst = 0;
+  for (const r of rows) {
+    const pooled = r.cededByLayer as number[];
+    const wcGl: number[] = [];
+    for (const l of ['WC', 'GL'] as CoverageLine[]) {
+      (r.byLine[l].cededByLayer as number[]).forEach((v, i) => { wcGl[i] = (wcGl[i] ?? 0) + v; });
+    }
+    if (pooled.length !== wcGl.length) return Infinity;
+    pooled.forEach((v, i) => { worst = Math.max(worst, Math.abs(v - wcGl[i])); });
+  }
+  return worst;
+}
+/** Worst relative gap between a solo pool's pooled row and its one line, and where. */
+function soloGap(rows: Row[], line: CoverageLine): { gap: number; at: string } {
+  let gap = 0, at = '';
+  for (const r of rows) for (const k of numericFields(r)) {
+    if (FIRST_LINE_PLACEHOLDER.has(k) || NO_POOL_MEANING.has(k)) continue;
+    const lv = r.byLine[line][k];
+    if (typeof lv !== 'number' || !Number.isFinite(lv)) continue;
+    const g = rel(r[k] as number, lv);
+    if (g > gap) { gap = g; at = k; }
+  }
+  return { gap, at };
+}
+
+// ---------------------------------------------------------------- the games
+// The full tower on every line: large losses then cede on WC and GL too, which
+// the default package's five years rarely show.
+const fullTower = (d: DecisionSet): DecisionSet => ({
+  ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], reinsuranceOption: fullTowerOption(l) }])) as DecisionSet['byLine'],
+});
+function play(id: string, seed: number, lines: CoverageLine[], years = 5, decide = (d: DecisionSet) => d): Row[] {
   const inst = generateGameInstance(id, seed);
-  const setup = { poolName: 'P', gameLength: 5, startingYear: 2026, instanceId: id, activeLines: lines };
+  const setup = { poolName: 'P', gameLength: years, startingYear: 2026, instanceId: id, activeLines: lines };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   let gs: GameState = {
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
   };
   const out: ResultSet[] = [];
-  for (let y = 1; y <= 5; y++) {
-    const p = processYear(gs, defaultDecisionSet(y));
+  for (let y = 1; y <= years; y++) {
+    const p = processYear(gs, decide(defaultDecisionSet(y)));
     out.push(p.result);
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
   }
-  return out;
+  return out as unknown as Row[];
 }
 
-const tri = play('POOLAGG', 5_150_000, LINES);
+check(!MEMBER_LEVEL.enabled, 'running on the new engine (MEMBER_LEVEL off)');
+const tri = [
+  ...play('POOLAGG', 5_150_000, LINES),
+  ...[0, 1, 2, 3].flatMap(g => play(`POOLAGG-TOWER${g}`, 5_150_100 + g, LINES, 10, fullTower)),
+];
+const solos = LINES.map(line => ({ line, rows: play(`SOLO${line}`, 6_200_000, [line]) }));
+// ⚠ THE LAYER CELLS ARE THE PER-OCCURRENCE TOWER'S, dormant behind
+// AGGREGATE_STOP since stable-scenarios commit 6 (the stop cedes no layer), so
+// check 4 plays its own full-tower games with the stop off.
+AGGREGATE_STOP.enabled = false;
+const towerTri = [0, 1, 2, 3].flatMap(g => play(`POOLAGG-TOWER${g}`, 5_150_100 + g, LINES, 10, fullTower));
+AGGREGATE_STOP.enabled = true;
 
-console.log('=== 1. EVERY NUMERIC POOLED FIELD IS CLASSIFIED ===');
-console.log('  A field added to ResultSet without a class turns this red — that is the point.\n');
+console.log('\n=== 1. EVERY NUMERIC POOLED FIELD IS CLASSIFIED ===');
 {
-  const seen = new Set<string>();
-  for (const r of tri) for (const [k, v] of Object.entries(r)) {
-    if (typeof v === 'number' && Number.isFinite(v)) seen.add(k);
-  }
-  const unclassified = [...seen].filter(k => !ALL.some(s => s.has(k))).sort();
-  const duplicated = [...seen].filter(k => ALL.filter(s => s.has(k)).length > 1).sort();
-  console.log(`  ${seen.size} numeric fields on the pooled row`);
-  console.log(`  unclassified ${unclassified.length}${unclassified.length ? `: ${unclassified.join(', ')}` : ''}  ` +
-    `${note(unclassified.length === 0, `unclassified pooled field(s): ${unclassified.join(', ')} — add each to exactly one set in this file`)}`);
-  console.log(`  in two classes ${duplicated.length}${duplicated.length ? `: ${duplicated.join(', ')}` : ''}  ` +
-    `${note(duplicated.length === 0, `field(s) in more than one class: ${duplicated.join(', ')}`)}`);
+  const c = classification(tri, CLASSES);
+  console.log(`  ${c.seen} numeric fields on the pooled row`);
+  check(c.unclassified.length === 0, '1. no unclassified pooled field', c.unclassified.join(', ') || 'none');
+  check(c.duplicated.length === 0, '1. no field in two classes', c.duplicated.join(', ') || 'none');
 }
 
-console.log('\n=== 2. DISTINCT MEMBER COUNTS ARE ACTUALLY DISTINCT ===');
-console.log('  activeMembers must equal the deduplicated roster, not the enrolment sum.\n');
+console.log('\n=== 2. THE ADDITIVE CLASSES ACTUALLY ADD ===');
 {
-  let worstGap = 0, worstEnrol = 0;
-  for (const r of tri) {
-    worstGap = Math.max(worstGap, Math.abs(r.activeMembers - r.memberList.length));
-    worstEnrol = Math.max(worstEnrol, r.enrolmentCount - r.activeMembers);
-  }
-  console.log(`  worst |activeMembers - memberList.length| ${worstGap}  ` +
-    `${note(worstGap === 0, 'activeMembers is not the distinct roster at pool scope')}`);
-  // The enrolment sum must still EXCEED the roster on a multi-line pool, or the
-  // weight has been silently deduplicated and satisfaction/quality are wrong.
-  console.log(`  enrolmentCount - activeMembers, worst ${worstEnrol}  ` +
-    `${note(worstEnrol > 0, 'enrolmentCount no longer exceeds the roster on a three-line pool — the WEIGHT has been deduplicated, which breaks memberSatisfaction and averageRiskQuality')}`);
-  const r = tri[tri.length - 1];
-  console.log(`  e.g. ${r.activeMembers} members carrying ${r.enrolmentCount} enrolments`);
+  const m = additiveMisses(tri, LINES);
+  check(m.length === 0, '2. every additive pooled field is the sum of its lines', m.join(', ') || `${tri.length} line-years, 3 lines`);
 }
 
-console.log('\n=== 3. JOINERS AND LEAVERS ARE DEDUPLICATED TOO ===');
-console.log('  A member entering WC and GL in one year is one joiner, not two.\n');
+console.log('\n=== 3. NO MEMBERS ARE FABRICATED ON A BOOK ===');
 {
-  let badNew = 0, badWd = 0;
-  for (const r of tri) {
-    const sumNew = LINES.reduce((s, l) => s + r.byLine[l].newMembers, 0);
-    const sumWd = LINES.reduce((s, l) => s + r.byLine[l].withdrawnMembers, 0);
-    if (r.newMembers > sumNew) badNew++;
-    if (r.withdrawnMembers > sumWd) badWd++;
-  }
-  console.log(`  years where pooled newMembers exceeded the per-line sum: ${badNew}  ` +
-    `${note(badNew === 0, 'pooled joiner count exceeds the sum of per-line joiners — impossible for a union')}`);
-  console.log(`  years where pooled withdrawnMembers exceeded the per-line sum: ${badWd}  ` +
-    `${note(badWd === 0, 'pooled leaver count exceeds the sum of per-line leavers — impossible for a union')}`);
-  const tot = tri.reduce((s, r) => s + LINES.reduce((a, l) => a + r.byLine[l].newMembers, 0), 0);
-  const dis = tri.reduce((s, r) => s + r.newMembers, 0);
-  console.log(`  over 5 years: ${tot} per-line joins collapse to ${dis} distinct joiners`);
+  const m = fabricatedMembers(tri, LINES);
+  check(m.length === 0, '3. member counts are zero at pool and line scope', m.join(', ') || 'all zero');
 }
 
 console.log('\n=== 4. cededByLayer CELLS LINE UP ===');
-console.log('  Elementwise sums require a shared attachment. Property does not share one.\n');
 {
-  const r = tri[0];
-  const wcGl = LINES.filter(l => l !== 'Property')
-    .reduce((acc, l) => { r.byLine[l].cededByLayer.forEach((v, i) => { acc[i] = (acc[i] ?? 0) + v; }); return acc; }, [] as number[]);
-  const matches = r.cededByLayer.length === wcGl.length
-    && r.cededByLayer.every((v, i) => Math.abs(v - wcGl[i]) < 1e-6);
-  console.log(`  pooled  [${r.cededByLayer.map(v => (v / 1e6).toFixed(2)).join(', ')}]`);
-  console.log(`  WC+GL   [${wcGl.map(v => (v / 1e6).toFixed(2)).join(', ')}]`);
-  console.log(`  Property (excluded, single $70M xs $5M layer) [${r.byLine.Property.cededByLayer.map(v => (v / 1e6).toFixed(2)).join(', ')}]`);
-  console.log(`  ${note(matches, 'pooled cededByLayer is not the WC+GL elementwise sum — Property has been folded back into cells whose attachment it does not share')}`);
+  const total = (k: (r: Row) => number[]) => towerTri.reduce((acc, r) => { k(r).forEach((v, i) => { acc[i] = (acc[i] ?? 0) + v; }); return acc; }, [] as number[]);
+  const pooled = total(r => r.cededByLayer as number[]), prop = total(r => r.byLine.Property.cededByLayer as number[]);
+  console.log(`  pooled, all years  [${pooled.map(v => (v / 1e6).toFixed(2)).join(', ')}]  $M`);
+  console.log(`  Property (excluded) [${prop.map(v => (v / 1e6).toFixed(2)).join(', ')}]  $M`);
+  // Not vacuous: both sides of the fold must have ceded something.
+  check(pooled.some(v => v > 0) && prop.some(v => v > 0), '4. WC/GL and Property both ceded in these games');
+  const g = layerCellGap(towerTri);
+  check(g < 1e-6, '4. pooled cededByLayer is WC + GL elementwise, Property left out', `worst $${g.toExponential(2)}`);
 }
 
 console.log('\n=== 5. A SOLO POOL IS ITS ONE LINE, EXACTLY ===');
-console.log('  With one active line every aggregation is the identity. Any drift here is a bug\n' +
-  '  in the aggregation itself rather than in the pooling, so it localises the fault.\n');
-{
-  for (const line of LINES) {
-    const solo = play(`SOLO${line}`, 6_200_000, [line]);
-    let worst = '', worstRel = 0;
-    for (const r of solo) {
-      for (const [k, v] of Object.entries(r)) {
-        if (typeof v !== 'number' || !Number.isFinite(v)) continue;
-        if (FIRST_LINE_PLACEHOLDER.has(k) || NO_POOL_MEANING.has(k)) continue;
-        const lv = (r.byLine[line] as unknown as Record<string, number>)[k];
-        if (typeof lv !== 'number' || !Number.isFinite(lv)) continue;
-        const scale = Math.max(Math.abs(v), Math.abs(lv), 1);
-        const rel = Math.abs(v - lv) / scale;
-        if (rel > worstRel) { worstRel = rel; worst = k; }
-      }
-    }
-    console.log(`  ${line.padEnd(9)} worst pooled-vs-line divergence ${worstRel.toExponential(2)}${worst ? ` (${worst})` : ''}  ` +
-      `${note(worstRel < 1e-12, `${line}-solo pooled row differs from its only line at ${worst}`)}`);
-  }
+for (const { line, rows } of solos) {
+  const s = soloGap(rows, line);
+  check(s.gap < 1e-12, `5. ${line}-solo pooled row is its only line`, `worst ${s.gap.toExponential(2)}${s.at ? ` (${s.at})` : ''}`);
 }
 
-console.log(failures === 0 ? '\nALL POOL AGGREGATION CHECKS PASS.'
-  : `\n${RULE}\n${failures} CHECK(S) FAILED:\n  ${failed.join('\n  ')}\n${RULE}`);
-process.exit(failures === 0 ? 0 : 1);
+// ---------------------------------------------------------------- controls
+console.log('\nCONTROLS — each must be caught');
+{
+  const withField = tri.map(r => ({ ...r, newlyAddedDollars: 1 }));
+  check(classification(withField, CLASSES).unclassified.includes('newlyAddedDollars'),
+    'control: a pooled field added without a class is caught by 1');
+  const twice = [...CLASSES, new Set(['poolPremium'])];
+  check(classification(tri, twice).duplicated.includes('poolPremium'), 'control: a field in two classes is caught by 1');
+  const offSum = tri.map((r, i) => (i === 2 ? { ...r, poolPremium: (r.poolPremium as number) + 1000 } : r));
+  check(additiveMisses(offSum, LINES).includes('poolPremium'), 'control: a pooled premium $1,000 off its lines is caught by 2');
+  const mean = tri.map(r => ({ ...r, writtenExposure: (r.writtenExposure as number) / LINES.length }));
+  check(additiveMisses(mean, LINES).includes('writtenExposure'), 'control: an exposure averaged rather than summed is caught by 2');
+  const roster = tri.map(r => ({ ...r, byLine: { ...r.byLine, GL: { ...r.byLine.GL, activeMembers: 12 } } }));
+  check(fabricatedMembers(roster, LINES).includes('GL activeMembers'), 'control: a member count on a book is caught by 3');
+  const folded = towerTri.map(r => ({
+    ...r, cededByLayer: (r.cededByLayer as number[]).map((v, i) => v + ((r.byLine.Property.cededByLayer as number[])[i] ?? 0)),
+  }));
+  check(layerCellGap(folded) >= 1, 'control: Property folded into the pooled cells is caught by 4');
+  const { line, rows } = solos[1];
+  const drift = rows.map((r, i) => (i === 3 ? { ...r, endingSurplus: (r.endingSurplus as number) * (1 + 1e-9) } : r));
+  check(soloGap(drift, line).at === 'endingSurplus', `control: a ${line}-solo pooled surplus off its line by 1e-9 is caught by 5`);
+}
+
+console.log(failed.length === 0 ? '\nALL POOL AGGREGATION CHECKS PASS, AND EVERY CONTROL IS CAUGHT.'
+  : `\n${RULE}\n${failed.length} CHECK(S) FAILED:\n  ${failed.join('\n  ')}\n${RULE}`);
+process.exit(failed.length === 0 ? 0 : 1);

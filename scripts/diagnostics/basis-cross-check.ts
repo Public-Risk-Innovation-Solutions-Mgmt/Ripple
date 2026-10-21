@@ -1,3 +1,6 @@
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { RESULT_METRICS } from '../../src/utils/resultMetrics';
 import { toHistoricalYear } from '../../src/utils/priorHistoryEngine';
 import { isClaimClosed } from '../../src/utils/claimClosure';

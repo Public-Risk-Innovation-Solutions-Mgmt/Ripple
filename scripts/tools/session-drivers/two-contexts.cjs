@@ -72,9 +72,17 @@ const anyKeys = page => page.evaluate(() =>
   const host = await hostCtx.newPage();
   await host.goto(`/host?api=${encodeURIComponent(API)}`);
   await host.waitForSelector('[data-testid="create-room"]');
-  await host.fill('[data-testid="seed"]', 'MAMC6EA4');
+  // ⚠ THE EVENT NAME IS REQUIRED NOW — a driver that types none gets a
+  // dead Create button. It used to default to 'Ripple Game'.
+  await host.fill('[data-testid="event-name"]', 'Driver Session');
+  await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', String(YEARS + 1));
   await host.fill('[data-testid="expected-teams"]', String(TEAMS.length));
+  // ⚠ THE HOST SETS THE LINES NOW. Every team in this room used to click WC
+  // for itself; the room declares it instead, and the picker is gone from the
+  // join screen. All three are ticked by default, so WC-only means unticking.
+  await host.uncheck('[data-testid="line-GL"]');
+  await host.uncheck('[data-testid="line-Property"]');
   await host.click('[data-testid="create-room"]');
   await host.waitForSelector('[data-testid="room-code"]', { timeout: 30000 });
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
@@ -92,7 +100,6 @@ const anyKeys = page => page.evaluate(() =>
     await p.goto(`/join/${code}?api=${encodeURIComponent(API)}`);
     await p.waitForSelector('[data-testid="team-picker"]', { timeout: 30000 });
     await p.fill('[data-testid="team-name"]', name);
-    await p.click('[data-testid="pick-line-WC"]');
     await p.click('[data-testid="join-team"]');
     await p.waitForSelector('[data-testid="session-strip"]', { timeout: 180000 });
     players.push(p);

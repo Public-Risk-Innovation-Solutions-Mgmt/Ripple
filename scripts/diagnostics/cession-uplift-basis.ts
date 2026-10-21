@@ -77,6 +77,12 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simulation';
+import { AGGREGATE_STOP } from '../../src/data/pricingParameters';
+
+// ⚠ THIS MEASURES THE PER-OCCURRENCE TOWER'S DEVELOPMENT CESSION, dormant behind
+// AGGREGATE_STOP since stable-scenarios commit 6: with the stop on, nothing is
+// ceded at inception and every ratio here is 0/0. Held with the stop off.
+AGGREGATE_STOP.enabled = false;
 
 // GATE THRESHOLDS, set above the measured value and below the defect.
 //   pool-wide, defaults:  0.3% now, 2.8% under the retired asymmetric routing.

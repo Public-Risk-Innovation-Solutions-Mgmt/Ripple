@@ -4,6 +4,10 @@
 // markers are parsed by WelcomeModal into <strong> spans.
 
 import { GAME_LENGTH_YEARS } from './defaultAssumptions';
+// ⚠ NO ENGINE DETAIL. The paragraph that stated the prior board's funding
+// cushion came off with the welcome memo's rewrite: neither the memo nor this
+// guide mentions funding levels, cushions, confidence levels, parameters,
+// market share, membership or other engine detail (docs/PENDING_MULTIPLAYER.md).
 
 export type WelcomeBlock =
   | { type: 'heading'; text: string }

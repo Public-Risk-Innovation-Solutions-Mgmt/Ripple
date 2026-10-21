@@ -21,16 +21,17 @@
 //   matured row, a Prior row, adverse development or a non-zero deficiency.
 //
 // THREE KINDS OF CHECK, mirroring that page:
-//   ARITHMETIC   the row identities, on the RENDERED strings
-//   PRINTING     empty-vs-zero discipline, and matured-vs-still-developing
-//   PROSE        registered derivable claims
+//   ARITHMETIC   the paid ratio and the Prior and pool ties, on the RENDERED strings
+//   PRINTING     empty-vs-zero discipline
+//   PROSE        removed passages must not render again (the memo states no
+//                figure in prose while development is zero)
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
+import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
 import {
   PRIOR_BOUNDARY, buildActuarialMemo, collapsePrior, exhibitRows, poolExhibitRows,
   unEmergedDeficiency, type ExhibitRow,
@@ -128,44 +129,101 @@ function checkTable(
   ctx: { arm: string; config: string; scope: string; year: number },
   rows: ParsedRow[],
 ) {
-  let sawSeeded = 0, sawAdverse = 0, sawFavourable = 0, sawEmptyTriplet = 0, sawPrior = 0;
+  let sawEmptyPrior = 0, sawPrior = 0;
 
   for (const r of rows) {
-    const [initial, prior, current, oneYear, total] = r.cells;
+    // ⚠ NO DEVELOPMENT COLUMNS. The exhibit dropped 1-yr and total development
+    // while development is zero (see actuarialMemo's header), and the two row
+    // identities that read them — initial + total === current, prior + 1yr ===
+    // current — went with them. The paid ratio replaces them as the arithmetic
+    // asserted on the printed cells, so this table is still checked by a sum a
+    // reader could do.
+    // ⚠ SEVEN SINCE PRICING COMMIT 5(c): Case and IBNR were added beside paid
+    // to date. They bring a SECOND row identity with them, asserted below —
+    // paid + case + IBNR === current ultimate, on the printed cells.
+    // ⚠ NINE COLUMNS NOW, NOT SEVEN. The 1-year and total development columns
+    // are back on the exhibit — they were dropped when full-cost booking left
+    // every accident year at its initial estimate and both read zero on every
+    // row, and the host's development % gives them something to say again.
+    // They sit between `current` and `paid`, which is the order the row reads
+    // in: where the estimate started, where it was, where it is, how far it
+    // moved this year and in total, then what has been paid of it.
+    const [initial, prior, current, oneYearDev, totalDev, paid, caseRes, ibnr, ratio] = r.cells;
     const where = `accident year ${r.label}`;
 
-    // --- ARITHMETIC: initial + total === current --------------------------
-    if (total !== EMPTY) {
-      const lhs = num(initial) + num(total);
-      if (Math.abs(lhs - num(current)) > 2 * PRINT_QUANTUM) {
-        fail(ctx, 'initial + total !== current', `${where}: ${initial} + ${total} = ${lhs.toFixed(2)}, printed current ${current}`);
+    if (r.cells.length !== 9) {
+      fail(ctx, 'column count', `${where}: ${r.cells.length} cells, the exhibit has nine after the label`);
+    }
+
+    // --- THE TWO DEVELOPMENT COLUMNS READ WHAT THE OTHERS IMPLY ------------
+    // ⚠ ADVERSE-POSITIVE, which is the one convention every display of
+    // development now uses (developmentDisplay.ts). 1-year is current minus
+    // prior and total is current minus initial, so the exhibit is
+    // subtractable across these two as well, and a sign error here would show
+    // as an exact double rather than as a near miss.
+    const devNum = (t: string) => (t === EMPTY ? NaN
+      : Number(t.replace(/\u2212/g, '-').replace(/[+]/g, '').replace(/\s*(adverse|favourable)\s*/g, '').trim()));
+    if (oneYearDev !== EMPTY && prior !== EMPTY && current !== EMPTY) {
+      const want = num(current) - num(prior);
+      if (Math.abs(devNum(oneYearDev) - want) > 3 * PRINT_QUANTUM) {
+        fail(ctx, '1-year development !== current - prior',
+          `${where}: prints ${oneYearDev}, current - prior = ${want.toFixed(2)}`);
+      }
+    }
+    if (totalDev !== EMPTY && initial !== EMPTY && current !== EMPTY) {
+      const want = num(current) - num(initial);
+      if (Math.abs(devNum(totalDev) - want) > 3 * PRINT_QUANTUM) {
+        fail(ctx, 'total development !== current - initial',
+          `${where}: prints ${totalDev}, current - initial = ${want.toFixed(2)}`);
       }
     }
 
-    // --- ARITHMETIC: prior + 1yr === current ------------------------------
-    if (prior !== EMPTY && oneYear !== EMPTY) {
-      const lhs = num(prior) + num(oneYear);
-      if (Math.abs(lhs - num(current)) > 2 * PRINT_QUANTUM) {
-        fail(ctx, 'prior + 1yr !== current', `${where}: ${prior} + ${oneYear} = ${lhs.toFixed(2)}, printed current ${current}`);
+    // --- ARITHMETIC: paid + case + IBNR === current ------------------------
+    // The exhibit's subtractability rule, extended to the split. Three printed
+    // figures at $0.01M each, so the bound is three quanta plus the one on
+    // `current` itself.
+    if (paid !== EMPTY && caseRes !== EMPTY && ibnr !== EMPTY && current !== EMPTY) {
+      const lhs = num(paid) + num(caseRes) + num(ibnr);
+      if (Math.abs(lhs - num(current)) > 4 * PRINT_QUANTUM) {
+        fail(ctx, 'paid + case + IBNR !== current ultimate',
+          `${where}: ${paid} + ${caseRes} + ${ibnr} = ${lhs.toFixed(2)} against ${current}`);
       }
     }
 
-    // --- PRINTING: only two blank patterns are legal ----------------------
-    // ⚠ BACK TO "0 or 3", WHICH IS WHERE IT STARTED. A third pattern was added
-    // when the memo began blanking the 1-year cell on a row past its horizon,
-    // and the assertion underneath it — that such a row must not have moved —
-    // fired 759 times because the premise was false. The memo no longer blanks
-    // for that reason, so there are two patterns again:
-    //     none        a row with an earlier valuation to subtract
-    //     all three   the newest year — no prior valuation to compare against
-    // Anything else is a cell that went blank for no stated reason.
-    const blanks = [prior, oneYear, total].map(c => c === EMPTY);
-    const emptyCount = blanks.filter(Boolean).length;
-    if (emptyCount !== 0 && emptyCount !== 3) {
-      fail(ctx, 'illegal blank pattern', `${where}: prior/1yr/total = ${prior}/${oneYear}/${total}`);
+    // --- ARITHMETIC: neither half of the split is negative ------------------
+    if (caseRes !== EMPTY && num(caseRes) < 0) {
+      fail(ctx, 'negative case reserve', `${where}: case = ${caseRes}`);
     }
-    if (emptyCount === 3) sawEmptyTriplet++;
+    if (ibnr !== EMPTY && num(ibnr) < 0) {
+      fail(ctx, 'negative IBNR', `${where}: IBNR = ${ibnr}`);
+    }
 
+    // --- PRINTING: the split is blank exactly when paid is -------------------
+    // Both halves divide the unpaid balance, which needs paid to exist.
+    if ((caseRes === EMPTY) !== (paid === EMPTY) || (ibnr === EMPTY) !== (paid === EMPTY)) {
+      fail(ctx, 'split blank without paid',
+        `${where}: paid=${paid} case=${caseRes} ibnr=${ibnr} — the three are blank together or not at all`);
+    }
+
+    // --- ARITHMETIC: paid / current === the printed ratio ------------------
+    // Both inputs are printed to $0.01M, so the bound is what that rounding can
+    // move a one-decimal percentage, plus the percentage's own rounding.
+    if (paid !== EMPTY && ratio !== EMPTY && num(current) > 0) {
+      const want = 100 * num(paid) / num(current);
+      const got = Number(ratio.replace('%', ''));
+      const slack = 0.05 + 100 * PRINT_QUANTUM * (1 / num(current) + num(paid) / (num(current) ** 2));
+      if (Math.abs(want - got) > slack) {
+        fail(ctx, 'paid / ultimate !== paid / current', `${where}: ${paid} / ${current} = ${want.toFixed(2)}%, printed ${ratio}`);
+      }
+    }
+
+    // --- PRINTING: one blank pattern is legal ------------------------------
+    // The prior column is empty on the newest accident year only: there is no
+    // earlier valuation to print. initial and current are never empty.
+    if (initial === EMPTY || current === EMPTY) {
+      fail(ctx, 'illegal blank', `${where}: initial/current = ${initial}/${current}`);
+    }
+    if (prior === EMPTY) sawEmptyPrior++;
 
     // --- PRINTING: the word "settled" must never reappear -------------------
     // It collapsed MATURITY into CLOSURE. Guarded by name so a future edit
@@ -175,100 +233,66 @@ function checkTable(
     }
 
     // --- PRINTING: negative zero is never emitted -------------------------
-    for (const [name, c] of [['initial', initial], ['prior', prior], ['current', current], ['1yr', oneYear], ['total', total]] as const) {
+    for (const [name, c] of [['initial', initial], ['prior', prior], ['current', current], ['paid', paid]] as const) {
       if (c === '-0.00') fail(ctx, 'negative zero printed', `${where}: ${name} printed -0.00, which implies a direction the precision cannot support`);
     }
 
-    if (r.label.includes('†')) sawSeeded++;
     if (r.label.includes('Prior')) sawPrior++;
-    // ⚠ THE DAGGER BELONGS TO PRIOR ALONE NOW. Every carried-in accident year is
-    // inside it, so a dagger on an individually-listed row means the boundary
-    // stopped tracing the register line it exists to trace.
-    if (r.label.includes('†') && !r.label.includes('Prior')) {
-      fail(ctx, 'dagger outside Prior', `${where}: an individually-listed year is marked as carried in at game start`);
-    }
-    if (oneYear !== EMPTY) {
-      if (num(oneYear) > 0) sawAdverse++;
-      if (num(oneYear) < 0) sawFavourable++;
+    // ⚠ THE DAGGER IS GONE WITH THE PARAGRAPH IT POINTED TO, so it must not
+    // render anywhere. Was: "the dagger belongs to Prior alone".
+    if (r.label.includes('†')) {
+      fail(ctx, 'dagger rendered', `${where}: the dagger's explanation was removed with the development columns`);
     }
   }
 
-  // Exactly one year — the newest — may carry the empty triplet.
-  if (sawEmptyTriplet > 1) {
-    fail(ctx, 'more than one year without a prior', `${sawEmptyTriplet} rows carry an empty prior/1yr/total; only the newest accident year can`);
+  // Exactly one year — the newest — may carry an empty prior.
+  if (sawEmptyPrior > 1) {
+    fail(ctx, 'more than one year without a prior', `${sawEmptyPrior} rows carry an empty prior; only the newest accident year can`);
   }
-  return { sawSeeded, sawAdverse, sawFavourable, sawPrior };
+  return { sawPrior };
 }
 
 // ============================================================================
-// PROSE CLAIMS — every derivable number the memo states in a sentence.
+// REMOVED TEXT MUST STAY REMOVED.
+//
+// ⚠ THE PROSE CLAIMS THIS FILE REGISTERED HAD NO SENTENCE LEFT TO GUARD. The
+// memo used to state counts in prose (rows on the exhibit, rows past and within
+// the IBNER horizon, years collapsed into Prior, occurrences that developed),
+// and each was checked against the data. Those sentences were removed with the
+// development columns, along with the sign paragraph, the horizon and empty-cell
+// paragraphs, the dagger and the pointer to the hidden Claims Department. A
+// claim with nothing to match would only ever report "did not render".
+//
+// So the guard is inverted: each removed passage is named, and the gate FAILS if
+// any of them renders again. That keeps the exhibit honest the same way: a
+// figure stated in prose beside the table is the defect the old claims caught.
 // ============================================================================
-interface ProseClaim {
-  what: string;
-  extract: RegExp;
-  truth: (rows: ExhibitRow[]) => number;
-}
-const PROSE_CLAIMS: ProseClaim[] = [
-  {
-    what: 'rows on the exhibit',
-    extract: /(\d+) row\(s\) on this exhibit/,
-    truth: rows => rows.length,
-  },
-  // ⚠ BOTH REWORDED WITH THE SENTENCE THEY GUARD. The memo used to say "N no
-  // longer developing and K still developing", which asserted the same false
-  // thing the 1-year blank did — a row past its IBNER horizon can still move.
-  // The sentence now reports position relative to the horizon and nothing more,
-  // and these claims track it. The regexes are deliberately anchored on the new
-  // wording: if the old sentence came back, they would stop matching and the
-  // "did not render" report below would say so rather than passing quietly.
-  {
-    what: 'rows past their IBNER horizon',
-    extract: /on this exhibit; (\d+) past their IBNER horizon/,
-    truth: rows => rows.filter(r => r.pastHorizon).length,
-  },
-  {
-    what: 'rows still within the horizon',
-    extract: /past their IBNER horizon and (\d+) still within it/,
-    truth: rows => rows.length - rows.filter(r => r.pastHorizon).length,
-  },
-  {
-    what: 'accident years collapsed into Prior',
-    extract: /(\d+) accident year\(s\) collapsed into Prior/,
-    // ⚠ DERIVED FROM THE RAW ROWS, NOT FROM THE COLLAPSED ONES. The claim is
-    // about what was folded away, so counting it from what remains would be a
-    // value minus itself — the tautology signature this project has already been
-    // caught by once.
-    truth: () => 0,   // replaced per call site; see proseAudit's `collapsed`
-  },
+const REMOVED_TEXT: { what: string; pattern: RegExp }[] = [
+  { what: 'the 1-yr development column', pattern: /1-yr development/ },
+  { what: 'the total development column', pattern: /Total development/ },
+  { what: 'a rows-on-the-exhibit count', pattern: /row\(s\) on this exhibit/ },
+  { what: 'the IBNER horizon', pattern: /IBNER horizon/ },
+  { what: 'a collapsed-into-Prior count', pattern: /collapsed into Prior/ },
+  { what: 'the developed-occurrence count', pattern: /occurrences across these lines/ },
+  { what: 'the pointer to the hidden Claims Department', pattern: /Claims Department/ },
+  { what: 'the sign-of-development paragraph', pattern: /positive development|estimate ROSE/i },
+  { what: 'the empty-development-cell paragraph', pattern: /empty development cell/i },
+  { what: 'the dagger', pattern: /†/ },
 ];
+let removedTextChecked = 0;
+
+function removedTextAudit(ctx: { arm: string; config: string; scope: string; year: number }, md: string) {
+  removedTextChecked++;
+  for (const { what, pattern } of REMOVED_TEXT) {
+    if (pattern.test(md)) fail(ctx, 'removed text is back', `${what} renders again`);
+  }
+}
 
 // ⚠ COUNTED FROM ExhibitRow, NOT FROM THE PRINTED TEXT, because the printed row
-// no longer says whether it is past its horizon — and that is the point of the
-// change: the exhibit now renders a post-horizon row exactly like any other.
-// The parsed-text loop therefore cannot see this, so it is counted here, where
-// the structured rows are.
+// no longer carries a development figure at all. Under full-cost booking no
+// accident year may move at any age, and that is still asserted below.
 let postHorizonShown = 0, postHorizonMoved = 0;
-
-let proseChecked = 0;
-const proseNoMatch: Record<string, number> = {};
-
-function proseAudit(
-  ctx: { arm: string; config: string; scope: string; year: number },
-  sentence: string,
-  rows: ExhibitRow[],
-  collapsed: number,
-) {
-  for (const claim of PROSE_CLAIMS) {
-    const m = sentence.match(claim.extract);
-    if (!m) { proseNoMatch[claim.what] = (proseNoMatch[claim.what] ?? 0) + 1; continue; }
-    proseChecked++;
-    const stated = Number(m[1]);
-    const truth = claim.what === 'accident years collapsed into Prior' ? collapsed : claim.truth(rows);
-    if (stated !== truth) {
-      fail(ctx, `prose: ${claim.what}`, `states ${stated}, data says ${truth}`);
-    }
-  }
-}
+let movedRows = 0;
 
 // ⚠ THE ACCIDENT-YEAR -3 CLAIM IS RETIRED, NOT SILENTLY DROPPED. The memo used to
 // state that -3 exists on no line ever, and this checked it. Collapsing everything
@@ -315,6 +339,7 @@ function checkPriorBoundary(
       postHorizonShown++;
       if (Math.abs(r.oneYear) > 0.005) postHorizonMoved++;
     }
+    if (r.oneYear !== null && Math.abs(r.oneYear) > 0.005) movedRows++;
     if (r.isPrior) continue;
     // The only boundary claim left about an individually-listed row, and it is
     // the one the memo makes: it is not older than the cut.
@@ -351,12 +376,12 @@ function checkPriorBoundary(
 console.log('=== ACTUARIAL MEMORANDUM CHECK ===');
 
 let memosBuilt = 0;
-const coverage = { seeded: 0, adverse: 0, favourable: 0, deficiencyNonZero: 0, finalSections: 0, prior: 0 };
-const perArmCoverage: Record<string, { adverse: number; deficiency: number; seeded: number }> = {};
+const coverage = { deficiencyNonZero: 0, finalSections: 0, prior: 0 };
+const perArmCoverage: Record<string, { moved: number; deficiency: number }> = {};
 let boundaryChecked = 0;
 
 for (const arm of ARMS) {
-  perArmCoverage[arm.name] = { adverse: 0, deficiency: 0, seeded: 0 };
+  perArmCoverage[arm.name] = { moved: 0, deficiency: 0 };
   for (const { lines, name } of CONFIGS) {
     for (let g = 0; g < GAMES; g++) {
       const id = `AMC${name}${g}`;
@@ -382,27 +407,22 @@ for (const arm of ARMS) {
       for (let asAt = 1; asAt <= YEARS; asAt++) {
         const md = buildActuarialMemo({ gameState: gs, asAtYear: asAt });
         memosBuilt++;
+        removedTextAudit({ arm: arm.name, config: name, scope: 'memo', year: asAt }, md);
+        const movedBefore = movedRows;
         const tables = parseTables(md);
-        const perLineRows = lines.map(l => exhibitRows(gs.poolState.lines[l]?.reserveDevelopment ?? [], asAt));
+        const perLineRows = lines.map(l => exhibitRows(l, gs.poolState.lines[l]?.reserveDevelopment ?? [], asAt));
 
         for (let i = 0; i < lines.length; i++) {
           const ctx = { arm: arm.name, config: name, scope: lines[i], year: asAt };
           const table = tables.find(t => t.heading === lines[i]);
           if (!table) { fail(ctx, 'missing section', `no table under heading "${lines[i]}"`); continue; }
           const seen = checkTable(ctx, table.rows);
-          coverage.seeded += seen.sawSeeded;
-          coverage.adverse += seen.sawAdverse; coverage.favourable += seen.sawFavourable;
           coverage.prior += seen.sawPrior;
-          perArmCoverage[arm.name].adverse += seen.sawAdverse;
-          perArmCoverage[arm.name].seeded += seen.sawSeeded;
 
           const shown = collapsePrior(perLineRows[i]);
           if (table.rows.length !== shown.length) {
             fail(ctx, 'row count', `table has ${table.rows.length} rows, collapsePrior says ${shown.length}`);
           }
-          const sentence = md.split(`## ${lines[i]}`)[1]?.split('##')[0] ?? '';
-          const collapsed = perLineRows[i].filter(r => r.yearNumber < PRIOR_BOUNDARY).length;
-          proseAudit(ctx, sentence, shown, collapsed);
           if (checkPriorBoundary(ctx, perLineRows[i], shown)) boundaryChecked++;
         }
 
@@ -435,9 +455,6 @@ for (const arm of ARMS) {
                 fail(ctx, 'pool current !== sum of lines', `${pr.label}: pool prints ${pr.cells[2]}, lines sum to ${expect.toFixed(2)}`);
               }
             }
-            const sentence = md.split('## Pool total')[1]?.split('###')[0] ?? '';
-            const collapsedPool = poolRows.filter(r => r.yearNumber < PRIOR_BOUNDARY).length;
-            proseAudit(ctx, sentence, shownPool, collapsedPool);
             if (checkPriorBoundary(ctx, poolRows, shownPool)) boundaryChecked++;
           }
         }
@@ -458,38 +475,11 @@ for (const arm of ARMS) {
           }
         }
 
-        // ⚠ THE DEVELOPED-OCCURRENCE COUNT MUST MOVE WITH THE SELECTED YEAR,
-        // AND IT DID NOT. Every other figure in the memo is struck at asAt;
-        // this one sentence counted live cohort state and so printed the LATEST
-        // year's figure at every selection — measured on a seven-year game, 778
-        // at all seven against true counts of 440 / 493 / 557 / 608 / 664 / 721
-        // / 778. This loop already ran every year; what it lacked was an
-        // assertion on this field, so the defect sat inside a green gate.
-        //
-        // Recomputed here from movementByStep rather than by calling
-        // countDevelopedOccurrences, so the gate is not testing that function
-        // against itself.
-        {
-          const printed = /([\d,]+) occurrences across these lines/.exec(md);
-          let expected = 0;
-          for (const line of lines) {
-            for (const c of gs.poolState.lines[line]?.reserveCohorts ?? []) {
-              for (const d of c.developingClaims ?? []) {
-                let cum = 0;
-                (d.movementByStep ?? []).forEach((mv, k) => {
-                  if (c.yearNumber + k + 1 <= asAt) cum += mv;
-                });
-                if (Math.abs(cum) >= 1000) expected++;
-              }
-            }
-          }
-          const shown = printed ? Number(printed[1].replace(/,/g, '')) : 0;
-          if (shown !== expected) {
-            fail({ arm: arm.name, config: name, scope: 'developed', year: asAt },
-              'developed-occurrence count is not as at the selected year',
-              `the memo prints ${shown} at year ${asAt}; the movement series gives ${expected}`);
-          }
-        }
+        // ⚠ THE DEVELOPED-OCCURRENCE COUNT IS NO LONGER PRINTED — its sentence and
+        // the pointer to the Claims Department went with the development columns,
+        // and removedTextAudit fails if either comes back. The as-at-the-selected-
+        // year defect it guarded can only recur by the sentence returning.
+        perArmCoverage[arm.name].moved += movedRows - movedBefore;
 
         // The final-position block, at game end only.
         const ctxF = { arm: arm.name, config: name, scope: 'final', year: asAt };
@@ -532,20 +522,19 @@ for (const arm of ARMS) console.log(`  ${arm.name.padEnd(9)} ${arm.why}`);
 console.log('\n--- COVERAGE: DID THE CHECK REACH THE INTERESTING STATES? ---');
 console.log('  A green run over rows that never passed their horizon, never developed adversely');
 console.log('  and never carried a deficiency would be a check passing while unable to fail.\n');
-console.log(`  post-horizon rows shown  ${postHorizonShown.toLocaleString()}  (1-year figure printed, not blanked)`);
-console.log(`  of those, moved          ${postHorizonMoved.toLocaleString()}  (the exhibit shows development past the horizon)`);
+console.log(`  post-horizon rows         ${postHorizonShown.toLocaleString()}  (counted on ExhibitRow; the exhibit no longer prints development)`);
+console.log(`  of those, moved          ${postHorizonMoved.toLocaleString()}`);
+console.log(`  rows that moved at all   ${movedRows.toLocaleString()}`);
 console.log(`  Prior rows seen          ${coverage.prior.toLocaleString()}`);
-console.log(`  daggered rows seen       ${coverage.seeded.toLocaleString()}  (should equal Prior — each Prior row CONTAINS carried-in years)`);
-console.log(`  adverse developments     ${coverage.adverse.toLocaleString()}`);
-console.log(`  favourable developments  ${coverage.favourable.toLocaleString()}`);
 console.log(`  final-position sections  ${coverage.finalSections.toLocaleString()}`);
 console.log(`  of those, deficiency > 0 ${coverage.deficiencyNonZero.toLocaleString()}`);
 console.log(`  Prior boundary claim     ${boundaryChecked.toLocaleString()} evaluations`);
+console.log(`  removed-text audits      ${removedTextChecked.toLocaleString()} memoranda, ${REMOVED_TEXT.length} passages each`);
 
 console.log('\n  per arm:');
 for (const arm of ARMS) {
   const c = perArmCoverage[arm.name];
-  console.log(`    ${arm.name.padEnd(9)} adverse ${String(c.adverse).padStart(5)}   daggered ${String(c.seeded).padStart(5)}   deficiency>0 ${c.deficiency}`);
+  console.log(`    ${arm.name.padEnd(9)} rows moved ${String(c.moved).padStart(5)}   deficiency>0 ${c.deficiency}`);
 }
 
 // ⚠ THE ARMS MUST DIFFER, AND THIS IS ASSERTED RATHER THAN EYEBALLED. The whole
@@ -553,54 +542,76 @@ for (const arm of ARMS) {
 // If the defaults arm ever produced a deficiency, or the squeezed arm produced
 // none, the arms are not doing what their names say and every conclusion drawn
 // from the split is void.
+// ⚠ UNDER FULL-COST BOOKING THE TWO ARMS CANNOT DIFFER, AND THE COVERAGE THIS
+// LOSES IS STATED RATHER THAN QUIETLY DROPPED.
+//
+// The squeezed arm exists because a funding level below break-even switches the
+// booking bias on, which produces a deficiency and adverse development for the
+// exhibit to render. Full-cost booking removes the bias AND the development, so
+// BOTH arms now produce zero of each — not because the arms stopped working but
+// because the quantity they were built to exercise no longer exists.
+//
+// ⚠ WHAT IS GENUINELY UNTESTED NOW: the exhibit's deficiency row, its adverse
+// development rendering, and the post-horizon movement column. Those paths are
+// live code with no input that reaches them, which is exactly the state the
+// coverage block was written to refuse — so it is recorded here as a NAMED GAP
+// rather than deleted. It closes when the host's prior development factors are
+// wired and development has a source again. The flag-off arm still asserts the
+// original contract in full.
 const armErrors: string[] = [];
-if (perArmCoverage['defaults'].deficiency !== 0) {
-  armErrors.push(`defaults arm produced a non-zero deficiency in ${perArmCoverage['defaults'].deficiency} game(s) — bookingBias should be identically 0 there`);
-}
-if (perArmCoverage['squeezed'].deficiency === 0) {
-  armErrors.push('squeezed arm produced NO deficiency anywhere — the arm is not squeezing, and the exhibit is untested where its subject exists');
-}
-for (const arm of ARMS) {
-  const c = perArmCoverage[arm.name];
-  if (c.adverse === 0) armErrors.push(`${arm.name} arm saw no adverse development at all`);
-  if (c.seeded === 0) armErrors.push(`${arm.name} arm saw no daggered row at all — the carried-in caveat never rendered`);
+if (FULL_COST_BOOKING.enabled) {
+  for (const arm of ARMS) {
+    const c = perArmCoverage[arm.name];
+    if (c.deficiency !== 0) armErrors.push(`${arm.name} arm produced a deficiency in ${c.deficiency} game(s) — under full-cost booking there is no booking bias on either arm`);
+    // ⚠ INVERTED, AND THIS LINE'S OWN PARAGRAPH CALLED THE DATE: "It closes
+    // when the host's prior development factors are wired and development has
+    // a source again." That is this commit. Accident years move now, by the
+    // host's percentage over their lifetime, and the exhibit's 1-year and
+    // total development columns are back to show it. So the assertion that
+    // NOTHING may move is retired and replaced by its opposite — which is the
+    // one that would catch the mechanism going quiet.
+    if (c.moved === 0) armErrors.push(`${arm.name} arm saw NO accident year move. The host's development % develops every accident year over its lifetime, so the exhibit must show movement — zero means the development is not reaching the memo`);
+  }
+  console.log('\n  ⚠ NAMED COVERAGE GAP: the deficiency row, the adverse-development rendering and');
+  console.log('    the post-horizon movement column have no input that reaches them while');
+  console.log('    FULL_COST_BOOKING is on. They are live and untested; the gap closes when the');
+  console.log('    host\'s prior development factors become the source of development.');
+} else {
+  if (perArmCoverage['defaults'].deficiency !== 0) {
+    armErrors.push(`defaults arm produced a non-zero deficiency in ${perArmCoverage['defaults'].deficiency} game(s) — bookingBias should be identically 0 there`);
+  }
+  if (perArmCoverage['squeezed'].deficiency === 0) {
+    armErrors.push('squeezed arm produced NO deficiency anywhere — the arm is not squeezing, and the exhibit is untested where its subject exists');
+  }
+  for (const arm of ARMS) {
+    const c = perArmCoverage[arm.name];
+    if (c.moved === 0) armErrors.push(`${arm.name} arm saw no accident year move at all`);
+  }
 }
 if (coverage.finalSections === 0) armErrors.push('the final-position section never rendered');
 if (coverage.prior === 0) armErrors.push('no Prior row was ever rendered — the collapse is untested');
-// ⚠ WHAT THIS NOW MEANS. Every Prior row collapses years older than
-// PRIOR_BOUNDARY, and the carried-in cohorts are the oldest years in the ledger,
-// so every Prior row contains some — and must carry the dagger. The old message
-// said "every carried-in year should be inside Prior and nowhere else", which is
-// a claim about the BOUNDARY tracing the register line; that stopped being true
-// at 556cef5 and is no longer what the exhibit promises. The dagger is a
-// CONTAINS marker now, and this is the assertion that matches it.
-if (coverage.prior !== coverage.seeded) {
-  armErrors.push(`${coverage.prior} Prior rows but ${coverage.seeded} daggered — every Prior row collapses the oldest ledger years, which are carried in, so each should carry the dagger`);
-}
 // The replacement for the retired "matured year moved" assertion. If this ever
 // reads zero the exhibit has stopped showing post-horizon development, which is
 // what this commit corrected it to show.
+// ⚠ THE SECOND HALF IS RETIRED FOR THE SAME REASON AS THE ARM COVERAGE ABOVE,
+// and the FIRST half now applies on both arms. "No row moves at any age" was
+// a statement about full-cost booking having switched the stochastic walk off;
+// it is still off, but the host's development % develops accident years over
+// their whole lifetime and the IBNER horizon does not govern it — development
+// is paced by PAYMENTS, and a cohort past its horizon is still paying. So a
+// post-horizon row moving is now the expected reading rather than a
+// contradiction, and what is worth asserting is that one is seen at all.
 if (postHorizonMoved === 0) {
-  armErrors.push(`no row past its IBNER horizon was seen to move (${postHorizonShown} post-horizon rows rendered a 1-year figure) — either the blanking is back or the sample no longer reaches one`);
+  armErrors.push(`no row past its IBNER horizon was seen to move (${postHorizonShown} post-horizon rows rendered a 1-year figure) — the host's development is paced by payments and a cohort past its horizon is still paying, so one must be seen; either the blanking is back or the sample no longer reaches one`);
 }
 if (boundaryChecked === 0) armErrors.push('the Prior boundary claim was never evaluated');
-if (proseChecked === 0) armErrors.push('no prose claim was ever evaluated');
-
-console.log('\n--- DOES THE PROSE STATE A TRUE FACT? ---');
-console.log(`  ${proseChecked.toLocaleString()} prose claim(s) evaluated across ${PROSE_CLAIMS.length + 1} registered claim(s).`);
-for (const [what, n] of Object.entries(proseNoMatch)) {
-  console.log(`  ⚠ "${what}" did not render in ${n} memoranda — a claim that stops appearing shows here, it is not silently passed.`);
-}
+if (removedTextChecked === 0) armErrors.push('the removed-text audit never ran');
 
 console.log('\n--- FINDINGS ---');
 if (findings.length === 0 && armErrors.length === 0) {
-  console.log('\nEVERY ROW IDENTITY RECONCILES from its printed cells, in both arms; blank cells are');
-  console.log('used only where the exhibit has nothing to report rather than a zero to report; the');
-  console.log('Prior row ties to the years it collapses and is daggered because it contains');
-  console.log('carried-in years; development past the IBNER horizon is shown rather than blanked;');
-  console.log('the pool total');
-  console.log('is the sum of its lines; every registered prose claim matches the data; and both arms');
-  console.log('reached the states that make those checks capable of failing.');
+  console.log('\nEVERY PAID RATIO RECONCILES from its printed cells, in both arms; a blank prior appears');
+  console.log('only on the newest year; the Prior row ties to the years it collapses; the pool total');
+  console.log('is the sum of its lines; no removed passage renders; and the two development columns\nread exactly what the ultimates either side of them imply.');
   process.exit(0);
 }
 for (const f of findings.slice(0, 40)) {

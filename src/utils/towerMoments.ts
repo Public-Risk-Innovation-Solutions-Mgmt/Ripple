@@ -85,10 +85,13 @@ import {
 import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../data/reinsuranceTower';
 import { normalCdf } from './claimMath';
 import { glSeverityCap, glSeverityTrend, thetaGl, untiltedGlWeights } from './glClaimEngine';
-import { propertyInternals } from './propertyClaimEngine';
-import { catLayerAnnualMoments } from './propertyCatastrophe';
+import { propertyInternals, propertySeverityTrend } from './propertyClaimEngine';
+import { catLayerAnnualMoments, PROPERTY_LATTICE_BIN } from './propertyCatastrophe';
 import { ratingGroupOf, thetaWc, trendedMu, wcFrequencyTrend, wcSeverityCap } from './wcClaimEngine';
 import type { Member } from '../types/simulation';
+import { newLossEngineRuns } from '../data/pricingParameters';
+import { newEngineLayerMoments } from './shockExpectation';
+import { bookExposureOf, bookRiskOf, rosterOf, type Book } from './lineHelpers';
 
 const GM = GL_LOSS_MODEL;
 const WM = WC_LOSS_MODEL;
@@ -141,17 +144,21 @@ export interface BandMoments {
 // call and rebuilds the same entries on the next.
 const glBandCache = new Map<number, BandMoments[]>();
 const wcBandCache = new Map<number, BandMoments[]>();
-// Property has exactly one slot, not a Map: nothing it depends on varies by
-// year (see propertyBandMomentsAll's header) or by any per-member dimension,
-// so there is no key to cache on.
-let propertyBandCache: BandMoments[] | null = null;
+// ⚠ PROPERTY IS A Map NOW, AND IT USED TO BE A SINGLE SLOT. Its severity trends
+// at the draw from this commit (PROPERTY_DRAW_SEVERITY_TREND_PER_YEAR), so the
+// mixture the tower integrates moves with the year exactly as WC's and GL's do.
+// A single unkeyed slot would have served year 1's moments to every later year
+// and quietly understated the cession by the whole trend — which is why
+// property-claim-check's year-invariance assertion was a tripwire rather than
+// decoration.
+const propertyBandCache = new Map<number, BandMoments[]>();
 
 // Exported for the harness, which must be able to force a cold cache to prove
 // warm and cold agree. Nothing in the engine calls this.
 export function resetTowerMomentCache(): void {
   glBandCache.clear();
   wcBandCache.clear();
-  propertyBandCache = null;
+  propertyBandCache.clear();
   edgeMomentCache.clear();
 }
 
@@ -250,9 +257,17 @@ function bandMomentsForEdges(
 // occurrence in year 1 and MORE thereafter — the ceiling trends, the $25M
 // tower top does not. GL_SEVERITY_CAP is therefore NOT in the tower's
 // invalidation list, but the YEAR is, and glBandCache is keyed on it.
-function glBandMomentsAll(yearNumber: number): BandMoments[] {
+// ⚠ `boundsScale` SCALES THE LAYER BOUNDS AND BYPASSES THE CACHE. It exists for
+// one caller — the bulk accident years' cession, which prices a year whose
+// claims sit at a LOWER cost level against today's fixed attachment points.
+// See expectedCededAtBoundsScale at the foot of this file for the identity and
+// for why the year axis cannot be used instead.
+//
+// The cache is keyed by year alone, so a scaled call must not read or write it;
+// at scale 1 the path and the key are exactly what they were.
+function glBandMomentsAll(yearNumber: number, boundsScale = 1): BandMoments[] {
   const yk = severityYearKey(yearNumber);
-  const hit = glBandCache.get(yk);
+  const hit = boundsScale === 1 ? glBandCache.get(yk) : undefined;
   if (hit) return hit;
   const weights = untiltedGlWeights();
   const shift = Math.log(glSeverityTrend(yk));
@@ -261,11 +276,11 @@ function glBandMomentsAll(yearNumber: number): BandMoments[] {
   }));
   const cap = glSeverityCap(yk);
   const bounds = REINSURANCE_TOWER.GL.map(l => ({
-    lo: Math.min(l.attachment, cap),
-    hi: Math.min(l.attachment + l.limit, cap),
+    lo: Math.min(l.attachment * boundsScale, cap),
+    hi: Math.min((l.attachment + l.limit) * boundsScale, cap),
   }));
   const out = bandMomentsForEdges(comps, bounds);
-  glBandCache.set(yk, out);
+  if (boundsScale === 1) glBandCache.set(yk, out);
   return out;
 }
 
@@ -280,10 +295,10 @@ function glBandMomentsAll(yearNumber: number): BandMoments[] {
 // lambda-SQUARED per cell, both of which are partition-independent (the sum of
 // individual squares does not care how members are bucketed), so the coarser
 // partition reproduces A1, A2 and B2 term for term.
-function wcBandMomentsAll(yearNumber: number, group: WcRatingGroup): BandMoments[] {
+function wcBandMomentsAll(yearNumber: number, group: WcRatingGroup, boundsScale = 1): BandMoments[] {
   const yk = severityYearKey(yearNumber);
   const key = GROUP_INDEX[group] + 16 * yk;
-  const hit = wcBandCache.get(key);
+  const hit = boundsScale === 1 ? wcBandCache.get(key) : undefined;
   if (hit) return hit;
   const spec = WM.ratingGroups[group];
   // UNTILTED group weights — the pricing basis (invariant 2). tiltedWeights is
@@ -294,26 +309,28 @@ function wcBandMomentsAll(yearNumber: number, group: WcRatingGroup): BandMoments
     // components across eleven pairs, so this is where the reuse is.
     return { mu: trendedMu(c.mu, yk), sigma: c.sigma, weight, cacheKey: `wc|${component}|${yk}` };
   });
-  const bounds = REINSURANCE_TOWER.WC.map(l => ({ lo: l.attachment, hi: l.attachment + l.limit }));
+  const bounds = REINSURANCE_TOWER.WC.map(l => ({
+    lo: l.attachment * boundsScale, hi: (l.attachment + l.limit) * boundsScale,
+  }));
   const out = bandMomentsForEdges(comps, bounds);
-  wcBandCache.set(key, out);
+  if (boundsScale === 1) wcBandCache.set(key, out);
   return out;
 }
 
 // PROPERTY: one flat mixture, NEUTRAL RQ (severityFactor(5) is identically 1,
-// so no shift term — unlike GL's trend shift or WC's region shift, there is
-// nothing to apply), and NO YEAR DEPENDENCE AT ALL. Property's
-// frequencyTrendPerYear is 0 and, unlike WC/GL, the live generator applies no
-// settlement-trend multiplier to severity either (propertyClaimEngine.ts's
-// PAYOUT_TREND_FACTOR = 1 note) — both trend knobs exist in
-// PROPERTY_LOSS_MODEL for a future accident-year parameterisation but neither
-// is wired into a draw today, so nothing here would have a year to key on even
-// if it wanted one. The `yearNumber` parameter on the exported accessor exists
-// only for call-site symmetry with the WC/GL versions.
-function propertyBandMomentsAll(): BandMoments[] {
-  if (propertyBandCache) return propertyBandCache;
+// so no RQ shift term), and — from this commit — A SEVERITY TREND, applied as a
+// shift of each component's mu exactly as GL's is. Property's frequency trend
+// is still 0 and the settlement-trend multiplier is still 1
+// (propertyClaimEngine.ts's PAYOUT_TREND_FACTOR note); the accident-year
+// severity trend is the one knob that is now wired, and it is enough to make
+// the year a real cache key rather than a symmetry argument.
+function propertyBandMomentsAll(yearNumber: number, boundsScale = 1): BandMoments[] {
+  const yk = severityYearKey(yearNumber);
+  const hit = propertyBandCache.get(yk);
+  if (hit) return hit;
+  const shift = Math.log(propertySeverityTrend(yk));
   const comps = PM.severityMixture.map((c, j) => ({
-    mu: c.mu, sigma: c.sigma, weight: c.weight, cacheKey: `pr|${j}`,
+    mu: c.mu + shift, sigma: c.sigma, weight: c.weight, cacheKey: `pr|${j}|${yk}`,
   }));
   // THE ATTRITIONAL HALF of each layer's cession: the fitted mixture integrated
   // over the layer, STOPPED AT THE SEVERITY CAP. Property's one layer runs to
@@ -323,10 +340,10 @@ function propertyBandMomentsAll(): BandMoments[] {
   // generator never draws. The CATASTROPHE half of the same layer is added in
   // layerRiskMomentsFor, from the exact event distribution.
   const out = bandMomentsForEdges(comps, REINSURANCE_TOWER.Property.map(l => ({
-    lo: Math.min(l.attachment, PM.severityCap),
-    hi: Math.min(l.attachment + l.limit, PM.severityCap),
+    lo: Math.min(l.attachment * boundsScale, PM.severityCap),
+    hi: Math.min((l.attachment + l.limit) * boundsScale, PM.severityCap),
   })));
-  propertyBandCache = out;
+  if (boundsScale === 1) propertyBandCache.set(yk, out);
   return out;
 }
 
@@ -409,7 +426,7 @@ function memberLambda(line: TowerLine, member: Member, yearNumber: number): numb
 // callers cannot drift from the program price.
 export function allLayerRiskMoments(
   line: TowerLine,
-  members: Member[],
+  members: Book,
   yearNumber: number,
 ): LayerRiskMoments[] {
   return layerRiskMomentsFor(line, members, yearNumber, null);
@@ -424,12 +441,41 @@ export function allLayerRiskMoments(
 // distribution it never reads.
 function layerRiskMomentsFor(
   line: TowerLine,
-  members: Member[],
+  book: Book,
   yearNumber: number,
   only: number | null,
   catastrophe = true,
+  boundsScale = 1,
 ): LayerRiskMoments[] {
   const layers = REINSURANCE_TOWER[line];
+  // ==========================================================================
+  // ⚠ ON THE NEW LOSS ENGINE THE EXPECTED RECOVERY IS THE NEW ENGINE'S OWN, AND
+  // THIS IS THE ONE PLACE THAT SAYS SO.
+  //
+  // THE RULE: the rate deducts what the reinsurance will ACTUALLY pay, and the
+  // reinsurance is priced on the same basis — both computed from the losses
+  // the engine in force generates, never from a distribution it does not draw.
+  // Every occurrence-layer figure in the game comes through here — each
+  // layer's price, the expected ceded the rate nets off, the bulk years'
+  // cession at the opening, the Decisions page's tower tile — so stating the
+  // rule here states it everywhere at once.
+  //
+  //   expected ceded     = the expected recovery on the new engine's LARGE
+  //                        losses: each event's T at the catalogue's
+  //                        probability, and routine large claims when that
+  //                        switch is on (shockExpectation.ts)
+  //   reinsurance price  = that x the line's CLF at 70% (layerPriceFrom)
+  //
+  // Ordinary losses add nothing: they sit below every attachment. Pricing is
+  // ex ante, so a host's schedule is not known here. Commit 1 returned zero
+  // on every layer, because ordinary losses were all there were.
+  //
+  // With the flag off this branch is not taken and nothing below changes.
+  // ==========================================================================
+  if (newLossEngineRuns()) {
+    return newEngineLayerMoments(line, bookExposureOf(book, line, yearNumber), yearNumber, boundsScale, true, bookRiskOf(book));
+  }
+  const members = rosterOf(book, 'layerRiskMomentsFor (the old engine)');
   const n = layers.length;
   const vg = line === 'GL' ? VG : line === 'WC' ? VG_WC : 0;
   const alphaFreq = line === 'GL' ? GL_ALPHA_FREQ : line === 'Property' ? PR_ALPHA_FREQ : WC_ALPHA_FREQ;
@@ -494,10 +540,10 @@ function layerRiskMomentsFor(
   for (let cell = 0; cell < CELLS; cell++) {
     if (sumLam[cell] === 0) continue;
     const bands = line === 'GL'
-      ? glBandMomentsAll(yearNumber)
+      ? glBandMomentsAll(yearNumber, boundsScale)
       : line === 'Property'
-        ? propertyBandMomentsAll()
-        : wcBandMomentsAll(yearNumber, WC_RATING_GROUPS[cell]);
+        ? propertyBandMomentsAll(yearNumber, boundsScale)
+        : wcBandMomentsAll(yearNumber, WC_RATING_GROUPS[cell], boundsScale);
     for (let i = 0; i < n; i++) {
       const { m1, m2 } = bands[i];
       A1[i] += sumLam[cell] * m1;
@@ -517,8 +563,22 @@ function layerRiskMomentsFor(
     // SD — and the layer is priced once on the sum. Same two distributions the
     // two-layer tower priced; one layer between them instead of two.
     if (line === 'Property' && catastrophe && (only === null || only === i)) {
+      // The catastrophe half scales with the same factor, for the same reason.
+      //
+      // ⚠ ROUNDED ONTO THE $25k LATTICE, AND IT HAS TO BE. The catastrophe
+      // convolution is computed on a fixed lattice and REFUSES bounds that are
+      // not lattice points — `catEventRetained` throws rather than silently
+      // interpolating. A scale of 1.05^a lands almost nowhere on it. Rounding
+      // moves an attachment by at most half a bin, $12,500 on bounds of $5M and
+      // up: under 0.25% at the lowest attachment in the tower, and two orders
+      // below the cession bias this scaling exists to correct. At scale 1 the
+      // rounding is a no-op, because the nominal bounds are lattice points by
+      // construction — so no priced path moves for its presence.
+      const onLattice = (v: number) =>
+        boundsScale === 1 ? v : Math.round(v / PROPERTY_LATTICE_BIN) * PROPERTY_LATTICE_BIN;
       const cat = catLayerAnnualMoments(members, {
-        attachment: layers[i].attachment, ceiling: layers[i].attachment + layers[i].limit,
+        attachment: onLattice(layers[i].attachment * boundsScale),
+        ceiling: onLattice((layers[i].attachment + layers[i].limit) * boundsScale),
       });
       const expected = A1[i] + cat.expected;
       const sd = Math.sqrt(Math.max(0, variance) + cat.sd * cat.sd);
@@ -534,7 +594,7 @@ function layerRiskMomentsFor(
 export function layerRiskMoments(
   line: TowerLine,
   layerIndex: number,
-  members: Member[],
+  members: Book,
   yearNumber: number,
 ): LayerRiskMoments {
   return layerRiskMomentsFor(line, members, yearNumber, layerIndex)[layerIndex];
@@ -548,7 +608,7 @@ export function layerRiskMoments(
 export function attritionalLayerRiskMoments(
   line: TowerLine,
   layerIndex: number,
-  members: Member[],
+  members: Book,
   yearNumber: number,
 ): LayerRiskMoments {
   return layerRiskMomentsFor(line, members, yearNumber, layerIndex, false)[layerIndex];
@@ -710,4 +770,51 @@ export function retainedRiskMoments(
   const variance = A2 + B2 * (1 + vg) + A1 * A1 * vg;
   const sd = Math.sqrt(Math.max(0, variance));
   return { expected: A1, sd, sdOverExpected: A1 > 0 ? sd / A1 : 0, lambda };
+}
+
+// ============================================================================
+// EXPECTED CEDED AT SCALED LAYER BOUNDS — for the BULK ACCIDENT YEARS.
+//
+// ⚠ WHY THE YEAR AXIS CANNOT DO THIS, which is the first thing to try and the
+// reason this function exists. `allLayerRiskMoments(line, members, y)` trends
+// severity by year, so an older accident year looks like a call with a smaller
+// y — except that `severityYearKey` is `Math.max(1, floor(y))`. It CLAMPS AT
+// YEAR 1. Every year before the game starts therefore prices at year 1's cost
+// level against year 1's attachments, which is exactly the bias this corrects:
+// the bulk years took year 1's cession ratio, overstating what a cheaper year
+// cedes through a fixed-dollar attachment and understating its net reserve.
+// Relaxing the clamp would change the live tower for every caller, so the
+// bounds move instead of the year.
+//
+// THE IDENTITY. An accident year `a` years before year 1 carries claims at
+// 1/t of today's cost level, t = (1 + severity trend)^a. A fixed attachment A
+// is therefore t times further up that year's severity distribution. Writing
+// X for a claim at today's level and X/t for the same claim at that year's:
+//
+//     ceded(X/t ; A, A+L)  =  (1/t) x ceded(X ; A·t, (A+L)·t)
+//
+// — scale the BOUNDS up by t, price on today's distributions, and divide by t.
+//
+// ⚠ AND THE 1/t CANCELS IN THE RATIO, which is why this returns a plain
+// expected cession and the caller divides by TODAY's expected gross:
+//
+//     cession ratio at age a  =  ceded(X ; A·t, (A+L)·t) / E[gross today]
+//
+// because the year's own expected gross is itself E[gross today] / t. A caller
+// that divided the scaled cession by the DEFLATED gross would apply the
+// deflation twice.
+//
+// ⚠ IT PRICES EVERY PURCHASABLE LAYER, not a placement. The bulk years are
+// held NET of the reinsurance their own year bought, and the game has no
+// record of what that was; the tower as it stands is the only available
+// reading. Stated because it is an assumption, not a derivation.
+export function expectedCededAtBoundsScale(
+  line: TowerLine, members: Book, yearNumber: number, boundsScale: number,
+): number {
+  const moments = layerRiskMomentsFor(line, members, yearNumber, null, true, boundsScale);
+  let ceded = 0;
+  REINSURANCE_TOWER[line].forEach((l, i) => {
+    if (l.purchasable) ceded += moments[i].expected;
+  });
+  return ceded;
 }

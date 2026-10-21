@@ -25,6 +25,9 @@
 //
 // REPORTS ONLY. Changes nothing.
 
+// THE MEMBER PATH — first, before anything reads a switch. It tests code the member
+// path keeps: see engine-mode/member-level.ts.
+import '../tools/engine-mode/member-level';
 import { PREDEFINED_MARKET_MEMBERS, MARKET_MEMBER_COUNT } from '../../src/data/memberCatalog';
 import { getMemberExposure } from '../../src/utils/lineHelpers';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
