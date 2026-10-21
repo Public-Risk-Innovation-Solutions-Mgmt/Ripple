@@ -443,6 +443,20 @@ function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet, isLa
   return out;
 }
 
+/**
+ * One line's NET ULTIMATES BY PROGRAM YEAR, loss + LAE, at the latest
+ * valuation — the Net block's Ultimates row, one program year at a time, by the
+ * same programYearsOf. A hosted team posts this as its developed column, so the
+ * host's views print the figure the team's own statement prints.
+ */
+export function netUltimatesByProgramYear(gs: GameState, line: CoverageLine): Map<number, number> {
+  const latest = [...(gs.earlyPreGameHistory ?? []), ...(gs.priorHistory ?? []), ...gs.lockedResults].at(-1);
+  const out = new Map<number, number>();
+  if (!latest) return out;
+  for (const [ay, b] of programYearsOf(gs, line, latest, true)) out.set(ay, b.net.paid + b.net.case_ + b.net.ibnr);
+  return out;
+}
+
 interface Premiums { gross?: number; ceded?: number; net?: number }
 const premiumsOf = (r: Scoped | undefined): Premiums => (r ? {
   gross: r.totalMemberCharge,

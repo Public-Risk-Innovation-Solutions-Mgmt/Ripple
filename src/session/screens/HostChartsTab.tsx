@@ -191,8 +191,11 @@ const METRICS: Metric[] = [
     // estimates alone shows none of it.
     id: 'developed',
     title: 'Losses — as developed',
-    note: 'reserveDevelopment · ultimateByValuation (NOT a RESULT_METRICS key)',
-    subtitle: 'The same accident years at their CURRENT valuation. Every point moves as prior years develop.',
+    // ⚠ THE TEAM'S ANNUAL STATEMENT'S FIGURE: net Ultimates by program year,
+    // loss + LAE, as currently valued (see DevelopedUltimates). The as-booked
+    // chart beside it is the year at its own close, excl. LAE.
+    note: 'Annual Statement · Net Ultimates by program year (NOT a RESULT_METRICS key)',
+    subtitle: 'The same accident years at their CURRENT valuation, loss + LAE, as the Annual Statement shows them. Every point moves as prior years develop.',
     xLabel: 'accident year',
     source: 'developed',
     pick: f => f.netUltimateLoss,   // unused on this source; the column is read directly

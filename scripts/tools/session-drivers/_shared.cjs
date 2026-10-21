@@ -20,10 +20,12 @@
 //
 //   solo-oracle       46  the SOLO game's UI, 11 tabs x 2 line views x 2 year
 //                         points, fingerprinted. ⚠ WC-ONLY — see the caveat below.
-//   host-charts       46  the Charts tab: four charts, three states, the fixed
+//   host-charts       45  the Charts tab: four charts, three states, the fixed
 //                         axis, the developed column, a tab three years behind.
 //   full-session      33  a whole game end to end, four tabs, one browser.
-//   viewer            19  /view as a read-only flag: same numbers, no writes.
+//   viewer            33  /view as a read-only flag: no writes, and after each of
+//                         three years the viewer's statement is the player's
+//                         and the host's developed column is its Net Ultimates.
 //   two-contexts      16  a full session across two browser CONTEXTS against the
 //                         stub server. Starts and stops the stub itself.
 //   four-tabs         15  four tabs sharing one localStorage — the arrangement
