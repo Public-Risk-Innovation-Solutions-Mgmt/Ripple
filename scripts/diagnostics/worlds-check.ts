@@ -52,6 +52,12 @@ import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsurance
 import type {
   CoverageLine, DecisionSet, GameState, LineResultSet, ResultSet,
 } from '../../src/types/simulation';
+import { SOLO_SHOCKS } from '../../src/data/pricingParameters';
+// ⚠ SHOCKS ARE OFF IN SINGLE-PLAYER (SOLO_SHOCKS, pending the data scientist),
+// and this gate tests how fired shocks are handled — which hosted games still
+// do — through solo games. Their schedule is switched on here so it has
+// shocks to test, rather than passing on none.
+SOLO_SHOCKS.enabled = true;
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const YEARS = Number(process.env.YEARS ?? 6);
@@ -61,10 +67,10 @@ const check = (ok: boolean, label: string, detail = '') => {
   console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 
-/** A game's decisions by year: defaults, with a non-default package and funding on GL. */
+/** A game's decisions by year: defaults, with a non-default cover and funding on GL. */
 function decisionsFor(y: number): DecisionSet {
   const d = defaultDecisionSet(y);
-  d.byLine.GL.reinsuranceOption = '$14M xs $1M';
+  d.byLine.GL.reinsuranceOption = 'catastrophe';
   d.byLine.GL.fundingAtExpected = false;
   d.byLine.GL.fundingConfidenceLevel = 0.75;
   return d;
@@ -86,14 +92,26 @@ function play(id: string, seed: number, opts: { shocks?: Array<{ shockId: string
     poolState, lockedResults: [], currentDecisions: decisionsFor(1), priorHistory,
   });
   const starts: GameState[] = [];
+  // ⚠ EVERY WORLD'S ROWS, COLLECTED AS EACH YEAR SETTLES (stable-scenarios
+  // commit 10): a world keeps only its last row in the game, world 1 all of
+  // its own. The checks below read every world's every year, so the gate
+  // keeps them, and hands back the game with the full rows on its worlds.
+  const full: ResultSet[][] = gs.worlds!.map(() => []);
+  let kept = true;
   for (let y = 1; y <= YEARS; y++) {
     starts.push(gs);
     const played = playWorldsYear(gs, decisionsFor(y));
     const s = settleWorldsYear(gs, played, []);
     gs = { ...gs, ...commitSettledYear(gs, s), currentYearNumber: y + 1 };
+    gs.worlds!.forEach((w, i) => {
+      full[i].push(w.lockedResults[w.lockedResults.length - 1]);
+      if (w.lockedResults.length !== (i === 0 ? y : 1)) kept = false;
+    });
   }
-  return { gs, starts, openingJson };
+  keptOnlyLast = keptOnlyLast && kept;
+  return { gs: { ...gs, worlds: gs.worlds!.map((w, i) => ({ ...w, lockedResults: full[i] })) }, starts, openingJson };
 }
+let keptOnlyLast = true;
 
 // ---------------------------------------------------------------------------
 // THE CHECKS — each takes data and returns what it found wrong.
@@ -165,6 +183,7 @@ function worldsDiffer(worldRows: (LineResultSet | ResultSet)[]): boolean {
 console.log(`=== TEN WORLDS — WORLD_COUNT ${WORLD_COUNT}, three-line solo games, ${YEARS} years ===`);
 check(worldCount() === WORLD_COUNT && WORLD_COUNT > 1, `the new engine runs ${WORLD_COUNT} worlds`);
 const A = play('WCHK1', 5_150_515);
+check(keptOnlyLast, 'each world keeps only its last year\'s row; world 1 keeps all of its own (the claims download)');
 const gs = A.gs;
 const W = gs.worlds!;
 
@@ -232,6 +251,8 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
         ultimateByValuation: avgSeries(r => r.ultimateByValuation, i)!,
         ...(row.paidByValuation ? { paidByValuation: avgSeries(r => r.paidByValuation, i) } : {}),
         ...(row.grossPaidByValuation ? { grossPaidByValuation: avgSeries(r => r.grossPaidByValuation, i) } : {}),
+        // The worlds' mean shock dollars, a world with none counting 0 (stable-scenarios commit 7).
+        shockGross: own.reduce((s, w) => s + (w[i].shockGross ?? 0), 0) / own.length,
       }));
       const book = start.worlds!.reduce((s, w) => s + (w.poolState.lines[l].bookExposure ?? 0), 0) / start.worlds!.length;
       const mine = strikeBookRate(l, { ...start.poolState.lines[l], reserveDevelopment: ledger, bookExposure: book },
@@ -269,7 +290,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       const exposure = (ls.bookExposure ?? 0) * exposureFactor(l, y);
       const c = computeFundingConsequence(d.fundingConfidenceLevel, ls.ratePer100, l, d.fundingAtExpected, {
         yearNumber: y, members: { exposure, risk: lineBookRisk(start.instance, l, start.poolState.bookUnits) ?? 1 }, exposure,
-        layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+        layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
         pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
         lossTrend: start.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
         riskControlPct: d.riskControlPct,
@@ -403,7 +424,7 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const exposure = (ls.bookExposure ?? 0) * exposureFactor('GL', 3);
   const wrong = computeFundingConsequence(0.75, ls.ratePer100, 'GL', false, {
     yearNumber: 3, members: { exposure, risk: lineBookRisk(gs.instance, 'GL', A.starts[2].poolState.bookUnits) ?? 1 }, exposure,
-    layersPlaced: placementFor('GL', 'none'), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+    layersPlaced: placementFor('GL', 'none'), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: 'none',
     pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
     lossTrend: gs.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
     riskControlPct: 0,

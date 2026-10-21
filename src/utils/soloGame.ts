@@ -9,13 +9,17 @@
 // world. Before this, a solo game drew its timing per world, per year, by the
 // catalogue's probabilities ('nle_fire'); the engine keeps that path for
 // harnesses that build a bare instance, and no game the app makes takes it.
+//
+// ⚠ WITH SOLO_SHOCKS OFF (pending the data scientist) NO SCHEDULE IS DRAWN: the
+// instance carries none, its timing is still 'solo', and so nothing fires.
+import { SOLO_SHOCKS } from '../data/pricingParameters';
 import { generateGameInstance } from './instanceGenerator';
 import { drawShockSchedule, SOLO_SHOCK_STREAM } from './shockSchedule';
 import { seedFromInstanceId } from '../seedHash';
 import type { GameInstance, GameSetupSettings } from '../types/simulation';
 
 export function openSoloInstance(settings: GameSetupSettings): { setup: GameSetupSettings; instance: GameInstance } {
-  const schedule = drawShockSchedule(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM);
+  const schedule = SOLO_SHOCKS.enabled ? drawShockSchedule(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
   return {
     setup: { ...settings, shockTiming: 'solo' },
     instance: generateGameInstance(settings.instanceId, seedFromInstanceId(settings.instanceId), schedule),

@@ -32,6 +32,10 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { exposureFactor } from '../../src/data/exposureTrend';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
+import { AGGREGATE_STOP } from '../../src/data/pricingParameters';
+
+// The per-occurrence tower, dormant behind AGGREGATE_STOP since stable-scenarios commit 6.
+AGGREGATE_STOP.enabled = false;
 
 const GAMES = 50, YEARS = 10;
 const LINES: CoverageLine[] = ['GL'];

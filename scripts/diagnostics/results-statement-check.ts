@@ -19,8 +19,9 @@
 //   5. UNDERWRITING TIES TO THE ENGINE: Net Underwriting Income + Assessments/
 //      Dividends is the engine's underwriting income in every column — Prior
 //      as the sum over the years in it — and + Investment Income its net income.
-//   6. TOTAL covers the five years shown: it sums the flow rows and takes the
-//      latest year for balances, ratios and changes.
+//   6. TOTAL covers the five years shown: it sums the flow rows, takes a ratio
+//      of premium from the summed figures (commit 11), and takes the latest
+//      year for balances and changes.
 //   7. THE BLOCKS MEET THE BALANCE SHEET: net case + IBNR over every program
 //      year is the loss reserves plus the loss expense reserves.
 //   8. NOTHING MISSING READS AS ZERO: the cells with no source are "not yet
@@ -156,8 +157,8 @@ function combinedRatio(st: AnnualStatement): string[] {
   const c = (l: string, n = 0) => cellsOf(st, 'operating', l, n);
   return eachColumn(s, [c('Total Incurred Loss & LAE'), c('General Admin Expense'), c('Additional Admin Expense (risk control)'), c('Premium'), c('Combined Ratio')],
     ([ll, ga, ra, p, cr]) => near(cr, (ll + ga + ra) / p), 'combined ratio ≠ (losses + LAE + expenses) / premium')
-    // Total takes the latest year's ratio, by the rule — check 6 holds it to that.
-    .filter(x => !x.includes('(Total)'));
+    // The Total column holds too: its ratio is the summed figures' (commit 11).
+    ;
 }
 
 function tiesToEngine(st: AnnualStatement, gs: GameState, scope: LineView): string[] {
@@ -181,11 +182,26 @@ function tiesToEngine(st: AnnualStatement, gs: GameState, scope: LineView): stri
   return out;
 }
 
+// ⚠ A RATIO OF PREMIUM TOTALS FROM SUMMED FIGURES (stable-scenarios commit 11):
+// its Total is the summed numerator over the summed premium — the premium-
+// weighted average of the years' ratios — not the latest year's. Balance-sheet
+// ratios and changes still take the latest year.
+const OF_PREMIUM = new Set(['operating', 'gross', 'ceded', 'net']);
 function totals(st: AnnualStatement): string[] {
   const out: string[] = [];
   for (const s of st.sections) for (const r of s.rows) {
     const game = windowIx(s).map(i => r.cells[i]), total = r.cells[r.cells.length - 1];
     if (game.length === 0) continue;
+    const premRow = s.rows.find(x => x.label === 'Premium' || x.label === 'Reinsurance Premium');
+    if (OF_PREMIUM.has(s.key) && r.format === 'pct' && r.label !== '% of Prior' && premRow) {
+      const prem = windowIx(s).map(i => num(premRow.cells[i]));
+      if (game.every(c => c.kind === 'value') && prem.every(x => x !== undefined)) {
+        const den = prem.reduce((a, x) => a + x!, 0);
+        const want = game.reduce((a, c, i) => a + num(c)! * prem[i]!, 0) / den;
+        if (num(total) === undefined || !near(num(total)!, want)) out.push(`${s.title} — ${r.label}: Total is not the summed figures' ratio`);
+      }
+      continue;
+    }
     if (r.rowClass === 'point') {
       if (JSON.stringify(total) !== JSON.stringify(game[game.length - 1])) out.push(`${s.title} — ${r.label}: Total is not the latest year`);
     } else if (game.every(c => c.kind === 'value')) {
@@ -416,7 +432,7 @@ const labels: Record<string, string> = {
   1: 'reported = paid + case; ultimate = reported + IBNR', 2: 'net = gross − ceded, every row',
   3: 'the balance sheet balances, loss expense reserves included, and each game year is the engine\'s',
   4: 'combined ratio = (losses + LAE + expenses) / premium', 5: 'underwriting and net operating income tie to the engine, Prior included',
-  6: 'Total covers the five shown: sums flows, latest year for balances, ratios and changes',
+  6: 'Total covers the five shown: sums flows, summed figures for ratios of premium, latest year for balances and changes',
   7: 'net case + IBNR over every program year = loss + loss expense reserves',
   8: '"not yet available" exactly where there is no source, at every point', 9: 'renewal + new business = written exposure, every line',
   10: 'the window rolls: the five most recent calendar years, older ones in Prior, labelled as specified',
@@ -462,6 +478,8 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   check(totals(st6b).length > 0, 'control: a balance summed across the years is caught');
   const st6c = base(); const p2 = rowOf(st6c, 'operating', 'Premium'); p2.cells[p2.cells.length - 1] = { kind: 'value', v: p2.cells.slice(0, -1).reduce((a, c) => a + (num(c) ?? 0), 0) };
   check(totals(st6c).length > 0, 'control: a Total that counts Prior as well as the five is caught');
+  const st6d = base(); const lr = rowOf(st6d, 'operating', 'Loss & LAE Ratio'); lr.cells[lr.cells.length - 1] = lr.cells[lr.cells.length - 2];
+  check(totals(st6d).length > 0, 'control: a ratio of premium totalled as its latest year is caught');
   check(blocksMeetBalanceSheet(bump(base(), 'net', 'IBNR Reserve', 0, x => x - 5e5)).length > 0, 'control: blocks that miss the balance sheet are caught');
   const st8 = base(); rowOf(st8, 'net', 'Loss and LAE Ratio').cells[0] = { kind: 'value', v: 0 };
   check(notAvailable(st8, played, 'pool').length > 0, 'control: a zero standing in for a figure with no source is caught');

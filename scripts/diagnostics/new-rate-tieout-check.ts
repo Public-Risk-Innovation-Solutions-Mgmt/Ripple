@@ -18,6 +18,10 @@
 //   1. THE FIRST INDICATION TIES: (ground-up + admin) / divisor, rebuilt here
 //      from the parameters, equals the engine's figure to the bit.
 //   2. THE FINAL RATE TIES: (retained x CLF + admin) / divisor + reinsurance.
+//      With the aggregate stop on, retained IS the ground-up claims cost: the
+//      cover's expected recovery is not taken off it
+//      (STOP_RECOVERY_OFF_CLAIMS_COST off) and its full price is the
+//      reinsurance.
 //   3. THE TWO ARE ORDERED AS THEIR DEFINITIONS REQUIRE. The final rate is
 //      below the first indication whenever the team funds at or below expected
 //      and cedes nothing — and the check states the condition rather than
@@ -42,7 +46,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { adminRatePer100For, expenseDivisor, expectedCededPer100For } from '../../src/utils/linePricing';
-import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
+import { AGGREGATE_STOP, NEW_RATE_STACK, STOP_RECOVERY_OFF_CLAIMS_COST } from '../../src/data/pricingParameters';
 import { quoteNewRateStack, newStackAsLineRateQuote } from '../../src/utils/linePricing';
 import type { CoverageLine, GameState, LinePoolState } from '../../src/types/simulation';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
@@ -110,8 +114,10 @@ function play(): Row[] {
             ? { exposure, risk: lineBookRisk(gs.instance, line, gs.poolState.bookUnits) ?? 1 }
             : (gs.poolState.lines[line] as LinePoolState).members ?? [],
           exposure, layersPlaced: placementFor(line, ld.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+          reinsuranceOption: ld.reinsuranceOption,
         });
-        const retained = Math.max(0, groundUp - expectedCededPer100);
+        const netted = AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled ? 0 : expectedCededPer100;
+        const retained = Math.max(0, groundUp - netted);
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);
         rows.push({
           line, year: y,
@@ -208,7 +214,7 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
     const q = quoteNewRateStack({
       line, yearNumber: 1, members: [], exposure: 100,
       groundUpPurePremiumPer100: groundUp, clf: CLF,
-      riskControlPct: 0.02, layersPlaced: [], aggregateStopLevel: -1,
+      riskControlPct: 0.02, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
     });
     const designed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100) / q.divisor + q.reinsRatePer100;
     const adminGrossed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100 * CLF) / q.divisor + q.reinsRatePer100;
@@ -243,8 +249,29 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
       fail(`${r.line} y${r.year}: reinsurance IS grossed up by the divisor`);
     }
   }
-  if (withReins === 0) fail('assertion 4b tested nothing — no row carried both reinsurance and a divisor');
-  console.log(`  reinsurance-outside-the-divisor tested on ${withReins} row(s); `
+  // ⚠ AND ON A DIRECT QUOTE, because the played rows may carry no divisor at
+  // all: with risk control off and profit and contingency at 0 (since the
+  // contingency went to 0), every played divisor is exactly 1 and the loop
+  // above skips them all. A quote with the risk-control slider at 10% and the
+  // Bad-year cover bought has both, on every line.
+  let direct = 0;
+  for (const line of LINES) {
+    const q = quoteNewRateStack({
+      line, yearNumber: 1, members: [], exposure: line === 'Property' ? 9000 : 900,
+      groundUpPurePremiumPer100: line === 'Property' ? 0.30 : 3.0, clf: 1,
+      riskControlPct: 0.10, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'bad-year',
+    });
+    if (!(q.reinsRatePer100 > 1e-6) || Math.abs(q.divisor - 1) < 1e-12) continue;
+    direct++;
+    const correct = (q.retainedPurePremiumPer100 * q.clf + q.adminRatePer100) / q.divisor + q.reinsRatePer100;
+    const grossed = (q.retainedPurePremiumPer100 * q.clf + q.adminRatePer100 + q.reinsRatePer100) / q.divisor;
+    worstGap = Math.min(worstGap, Math.abs(correct - grossed));
+    if (Math.abs(q.finalRatePer100 - correct) > 1e-12) fail(`${line} direct: the implemented rate is not the designed formula`);
+    if (Math.abs(q.finalRatePer100 - grossed) < EPS) fail(`${line} direct: reinsurance IS grossed up by the divisor`);
+  }
+  if (direct !== LINES.length) fail(`assertion 4b's direct quote carried reinsurance and a divisor on ${direct} of ${LINES.length} lines`);
+  if (withReins + direct === 0) fail('assertion 4b tested nothing — no row carried both reinsurance and a divisor');
+  console.log(`  reinsurance-outside-the-divisor tested on ${withReins} played row(s) and ${direct} direct quote(s); `
     + `smallest gap between the two forms ${worstGap.toFixed(4)} per $100`);
 }
 
@@ -265,7 +292,7 @@ console.log('\n--- 5. THE ADAPTER IS ADDITIVE ---');
     const q = quoteNewRateStack({
       line: r.line, yearNumber: r.year, members: [], exposure: 100,
       groundUpPurePremiumPer100: r.groundUp, clf: r.clf,
-      riskControlPct: 0, layersPlaced: [], aggregateStopLevel: -1,
+      riskControlPct: 0, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
     });
     const lrq = newStackAsLineRateQuote(q, 100);
     const sum = lrq.poolPremiumRatePer100 + lrq.adminRatePer100 + lrq.reinsRatePer100;

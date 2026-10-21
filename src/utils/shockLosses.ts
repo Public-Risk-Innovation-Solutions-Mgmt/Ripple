@@ -70,11 +70,11 @@
 
 import {
   GAME_REGIONS, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES, regionByShare,
-  SEVERITY_TREND_PER_YEAR, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
+  SHOCK_CATALOGUE_SCALE, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
-import { bookOrdinaryRisk, ordinaryLossCostPer100 } from './ordinaryLoss';
+import { bookOrdinaryRisk, bookedCostLevel, shockBasisCostPer100 } from './ordinaryLoss';
 import type { BookUnit } from './bookUnits';
 import { drawRoutineLargeSize, lognormalFromMean, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ratingGroupOf } from './wcClaimEngine';
@@ -95,10 +95,12 @@ export interface ShockEvent {
   regional: boolean;
 }
 
+// ⚠ EACH PROBABILITY SCALED BY SHOCK_CATALOGUE_SCALE (stable-scenarios commit
+// 5), so the twelve total SHOCKS_PER_YEAR and keep the R model's weights.
 export const SHOCK_EVENTS: readonly ShockEvent[] = R_MODEL.catalogue.map(
   ([name, probability, duration, regional], index) => ({
     index, id: `#${index + 1}`, name: name as string,
-    probability: probability as number, duration: duration as number, regional: regional as boolean,
+    probability: (probability as number) * SHOCK_CATALOGUE_SCALE, duration: duration as number, regional: regional as boolean,
   }),
 );
 /**
@@ -278,12 +280,14 @@ export const rModelOrdinary = (line: CoverageLine) => R_MODEL.basePremium[line] 
 
 /** T_SCALE: this line's expected ordinary loss this year over the R model's. See the header. */
 export function tScale(line: CoverageLine, exposure: number, yearNumber: number): number {
-  return (exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber)) / rModelOrdinary(line);
+  // Off SHOCK_T_BASIS_PER_100 (stable-scenarios commits 1-2): the $0 – $1M layer
+  // on WC and GL, Property's cost without the routine fold.
+  return (exposure * 10_000 * shockBasisCostPer100(line, yearNumber)) / rModelOrdinary(line);
 }
 
-/** The year's trend factor on year-1 sizes — the same 5% ordinary losses take. */
-export const trendFactor = (line: CoverageLine, yearNumber: number) =>
-  Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
+/** The year's factor on year-1 sizes — the booked cost level ordinary losses
+ *  take (the line's trend, and the inflation up to reporting booked up front). */
+export const trendFactor = (line: CoverageLine, yearNumber: number) => bookedCostLevel(line, yearNumber);
 
 /** What the POOL keeps of a ground-up claim — GL is limited per claim, the rest are not. */
 export const poolShare = (line: CoverageLine, x: number) => {

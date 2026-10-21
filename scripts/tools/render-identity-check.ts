@@ -1036,7 +1036,35 @@ const BASELINE = process.env.RENDER_BASELINE
 // ~51% on WC) and the rates, the Actuarial memo the pre-game loss history, and
 // every other screen the losses, reserves, surplus or capital. The 10 unmoved
 // are the Investment memo in all five games, at y0 and y2.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v65.json');
+// v66: STABLE-SCENARIOS BLOCK A (see VALUE_IDENTITY_v77). The control ran
+// first: 061b476, served on 4174, reproduced v65 242 of 242. 232 of 242 moved,
+// no key added or removed; the 10 unmoved are again the Investment memo. Run
+// at each commit in turn: commit 1 moved all 232, commit 2 moved 205 of them,
+// commit 3 all 232, commit 4 none. Besides the figures, the Calculation Audit's
+// text reads 80%-confidence for 90% (commit 2) and the trend +4.00%/yr on WC
+// and +8.00%/yr on GL for +5.00% (commit 3).
+// v67: STABLE-SCENARIOS BLOCK B (see VALUE_IDENTITY_v78). The control ran
+// first: ab87580, served on 4174, reproduced v66 242 of 242. 177 of 242 moved,
+// no key added or removed. Run at each commit in turn: commit 5 moved 175,
+// commit 6 176, commit 7 173. Besides the figures: the Decisions screens offer
+// the aggregate stop's four covers, each by name with one sentence of what it
+// covers and its price, in place of the per-claim packages; Decision History
+// names the cover ("Bad-year cover"); the Calculation Audit describes the
+// recovery as the stop's; and the Results narrative reports the stop's
+// recovery (commit 6).
+// v68: STABLE-SCENARIOS BLOCK C (see VALUE_IDENTITY_v79). The control ran
+// first: 330c525, served on 4176, reproduced v67 242 of 242. 232 of 242 moved,
+// no key added or removed. Run at each commit in turn: 77e3449 moved 232,
+// 0d65606 175, ed7e89d 232, 715fe14 232, 58af20e 173, 665410f 232, 58cd3b9
+// 97, 3df8453 232, b3011df 116; commit 11 (fbecad4) could not be rendered —
+// its Results page threw at load on the removed give-back metric — so it is
+// measured with its fix, e6e0e93: 70, of them 46 in figures only (the
+// Statement's cumulative Totals; the audit counting one check fewer, its CLF
+// check removed) and the rest its labels: Expected Losses for Pure Premium,
+// the net-of-reinsurance row, Simulated Losses, the Loss Ratio beside the
+// Loss & LAE Ratio, the give-back rows gone. 7a369a7 (contingency 0) moved
+// 232, figures only.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v68.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1048,6 +1076,7 @@ const EXECUTABLE = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
 // falls back to randomInstanceId() on an empty field, so an unset seed makes
 // every run a different game and every fingerprint noise. Typed in explicitly.
 const INSTANCE_ID = 'RENDERBASE1';
+const SCENARIO = '7';
 const POOL_NAME = 'Render Identity Pool';
 
 type Cfg = { key: string; lines: string[] };
@@ -1159,7 +1188,11 @@ async function startGame(page: Page, cfg: Cfg): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await settle(page);
   await page.getByPlaceholder('Enter a name for your pool...').fill(POOL_NAME);
-  await page.getByPlaceholder('e.g. ABC12345').fill(INSTANCE_ID);
+  // ⚠ THE SCENARIO MENU SINCE STABLE-SCENARIOS COMMIT 9: scenario 7 is the
+  // fixed game. A control tree from before it still has the free field, and
+  // takes INSTANCE_ID there.
+  if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption(SCENARIO);
+  else await page.getByPlaceholder('e.g. ABC12345').fill(INSTANCE_ID);
   // WC is preselected; toggle to exactly the configuration asked for.
   for (const label of Object.values(LINE_LABEL)) {
     const on = cfg.lines.includes(label);

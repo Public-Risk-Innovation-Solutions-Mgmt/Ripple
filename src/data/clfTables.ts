@@ -509,7 +509,7 @@
 // distribution moves the crossing further there than in GL's flat tail region.
 
 import type { CoverageLine } from '../types/simulation';
-import { BASELINE_CV } from './pricingParameters';
+import { BASELINE_CV, RESERVE_MARGIN_CONFIDENCE_PARAM } from './pricingParameters';
 
 export type StaticClfLine = 'WC' | 'GL' | 'Property';
 
@@ -1245,7 +1245,8 @@ export function clfFromTable(table: ClfTable, confidenceLevel: number): number {
 // page, and those sentences carried per-line factors (WC 1.3709, Property
 // 1.5923) that the tables had long since moved away from. Every reader routes
 // through this constant, and every sentence that names the factor asks for it.
-export const RESERVE_MARGIN_CONFIDENCE = 0.90;
+// Read from the one parameter (80% since stable-scenarios commit 2; was 90%).
+export const RESERVE_MARGIN_CONFIDENCE = RESERVE_MARGIN_CONFIDENCE_PARAM;
 
 export function staticClf(line: StaticClfLine, confidenceLevel: number): number {
   return clfFromTable(STATIC_CLF_TABLE[line], confidenceLevel);

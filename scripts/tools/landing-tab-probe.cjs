@@ -39,7 +39,9 @@ const settle = async page => {
   await settle(page);
 
   await page.getByPlaceholder('Enter a name for your pool...').fill(POOL);
-  await page.getByPlaceholder('e.g. ABC12345').fill(INSTANCE);
+  // The scenario menu (stable-scenarios commit 9), or the old free field.
+  if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption(process.env.PROBE_SEED || '7');
+  else await page.getByPlaceholder('e.g. ABC12345').fill(INSTANCE);
   await page.getByRole('button', { name: 'Start Simulation' }).click();
   await settle(page);
 

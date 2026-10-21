@@ -134,7 +134,7 @@ import type {
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
 } from '../contract';
-import { SessionError, SESSION_TOKEN_PATTERN, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
+import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
 import { Faults } from '../faults';
 import type { CoverageLine } from '../../types/simulation';
 import {
@@ -424,6 +424,10 @@ export class DynamoSessionTransport implements SessionTransport {
         throw new SessionError('INVALID_REQUEST', 'A room needs a valid host token.');
       }
       requireString(req.seed, 'seed');
+      // The seed is the scenario: "1" to "20" and nothing else (ROOM_SEEDS).
+      if (!isRoomSeed(req.seed)) {
+        throw new SessionError('INVALID_REQUEST', 'The seed must be a scenario from 1 to 20.');
+      }
       requireString(req.eventName, 'eventName');
       requireInteger(req.startingYear, 'startingYear');
       // ⚠ THE ONLY LINE-SET GATE IN THE SERVER NOW. It used to run per join;

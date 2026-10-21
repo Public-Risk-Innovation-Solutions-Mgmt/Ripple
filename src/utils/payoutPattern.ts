@@ -100,30 +100,13 @@ export type PayoutPattern =
 //
 //     unpaidShare(t) = 1 - 1 / paidLdfAt(line, 12 t)
 //
-// ⚠ AT THE TABLE'S LAST AGE THE COHORT IS FINISHED, AND THAT IS A TRUNCATION
-// WITH A MEASURED COST RATHER THAN A FACT ABOUT THE DATA. paidLdfAt THROWS past
-// its last row, correctly — it is asked for a number that does not exist. The
-// engine cannot throw, so this module decides instead, and the decision is that
-// the last recorded age is ultimate. What that writes off, as a share of
-// ultimate still unpaid at the last row:
-//
-//   WC        444 months (age 37)   LDF 1.099413   9.04% unpaid, PAID AT 37
-//   GL        252 months (age 21)   LDF 1.011      1.09% unpaid, PAID AT 21
-//   Property  132 months (age 11)   LDF 1.000      0.00% — the table genuinely ends
-//
-// WC's 9% is the one that matters and it is NOT dropped: the engine's close rule
-// pays a cohort's residual out when it closes, so the dollars are paid, in year
-// 37, rather than lost. The alternative — continuing the tail at its own last
-// conditional rate, 4.77% of the remaining balance a year — is more faithful to
-// the shape and was rejected on a measurement, not on taste: it puts WC's close
-// age at 97 and the cohort stock stops plateauing inside any horizon anyone
-// looks at, which is the exact invariant cohort-stock-check exists to hold.
-// Twelve years of projected tail already stand between the measured data and
-// this point.
-//
-// The honest fix is a longer WC paid table, not a cleverer rule here. Until
-// then the truncation is stated, bounded and dated: it cannot touch a figure
-// inside a game, which runs five to ten years.
+// ⚠ AT THE TABLE'S LAST AGE THE COHORT IS FINISHED. paidLdfAt THROWS past its
+// last row, correctly — it is asked for a number that does not exist. Since
+// stable-scenarios commit 3 there is nothing left to decide here: the patterns
+// are CLOSED at their last row (DEVELOPMENT_TAIL), so the share unpaid there
+// is 0 on every line and a cohort pays 100% by the end of its pattern. Before
+// that, WC still held 9.04% at its last row and the close rule paid it out in
+// one step.
 // ============================================================================
 
 const AGE_STEP_MONTHS = 12;
@@ -135,7 +118,7 @@ const AGE_STEP_MONTHS = 12;
 // report, 8 games x 8 years: 4x slower with the scan in the loop than with this
 // table. The table is INDEXED BY PATTERN AGE t, so `byAge[t]` is the unpaid
 // share at t, and index 0 is 1 by the convention unpaidShare already uses.
-// Lengths: WC 37, GL 21, Property 11 — past which the cohort is finished and
+// Lengths (compressed): WC 25, GL 14, Property 11 — past which the cohort is finished and
 // the share is 0.
 const RECORDED_UNPAID_BY_AGE: Readonly<Record<CoverageLine, readonly number[]>> =
   (['WC', 'GL', 'Property'] as const).reduce((acc, line) => {

@@ -31,6 +31,7 @@
 // in `flagsFor` and each flag says what it means on hover.
 // ============================================================================
 
+import { AGGREGATE_STOP_OPTIONS } from '../../data/pricingParameters';
 import { Fragment, useState } from 'react';
 import { HardHat, Scale, Building2, AlertTriangle } from 'lucide-react';
 import TabNav from '../../components/TabNav';
@@ -104,7 +105,7 @@ function flagsFor(line: CoverageLine, d: TeamLineDecisions): Flag[] {
     out.push({
       key: 'reinsurance',
       label: 'Reinsurance declined',
-      title: `No package bought on ${line}: every loss is retained.`,
+      title: `No reinsurance bought on ${line}: every loss is retained.`,
     });
   }
 
@@ -134,9 +135,12 @@ function fundingLabel(d: TeamLineDecisions): string {
 // The package, as the team chose it (loss engine commit 4a). A row posted
 // before that change carries per-band fields instead and renders a dash —
 // "not recorded", the same reading as a row with no decisions at all.
+// With the aggregate stop (stable-scenarios commit 6) the label is the cover's
+// name, as the team saw it.
 function reinsuranceLabel(d: TeamLineDecisions): string {
   if (typeof d.reinsuranceOption !== 'string') return '—';
-  return d.reinsuranceOption === 'none' ? 'None' : d.reinsuranceOption;
+  if (d.reinsuranceOption === 'none') return 'None';
+  return AGGREGATE_STOP_OPTIONS.find(o => o.id === d.reinsuranceOption)?.name ?? d.reinsuranceOption;
 }
 
 const SPAN_NOTE: Record<Exclude<CellState['kind'], 'reported'>, string> = {

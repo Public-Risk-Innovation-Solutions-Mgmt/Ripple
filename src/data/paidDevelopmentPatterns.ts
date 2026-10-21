@@ -1,18 +1,18 @@
 // ============================================================================
-// THE POOL'S OWN DEVELOPMENT PATTERNS — PAID AND INCURRED — RECORDED, NOT USED.
+// THE POOL'S OWN DEVELOPMENT PATTERNS — PAID AND INCURRED — AND THE ENGINE'S.
 //
-// ⚠ NOTHING READS THIS FILE. It is data put down ahead of the work that will
-// consume it. These patterns are intended to REPLACE the fitted Weibull payout
-// curves (FITTED_PAYOUT_PATTERN in defaultAssumptions.ts, mechanics in
-// payoutPattern.ts) when the simplified multiplayer model is built. Until that
-// commit, the engine pays claims off the Weibull fit exactly as before and
-// every value baseline is blind to this file by construction.
+// ⚠ THESE ARE LIVE (stable-scenarios commit 11 corrects a header that said
+// nothing read them). The new loss engine pays and reports every accident year
+// on them, closed at the last row (closePaidPattern / closeReportedPattern,
+// DEVELOPMENT_TAIL); pricing develops the experience window to the end of the
+// closed pattern; and upFrontTrendFactor is computed along the closed reported
+// pattern, dormant while UP_FRONT_TREND is off. The fitted Weibull payout
+// curves (FITTED_PAYOUT_PATTERN in defaultAssumptions.ts) remain for the
+// member path only.
 //
-// Recorded here rather than in defaultAssumptions.ts beside the Weibull
-// parameters BECAUSE both will exist at once for a while, and two payout
-// patterns sharing a file is how the next reader comes to wire the wrong one.
-// The pointer is at LINE_PAYOUT_PATTERN, where someone looking for payout data
-// will actually land.
+// Kept apart from defaultAssumptions.ts's Weibull parameters because both
+// exist at once, and two payout patterns sharing a file is how the next reader
+// comes to wire the wrong one.
 //
 // ============================================================================
 // CONVENTIONS — EVERY PATTERN IN THIS FILE, NO EXCEPTIONS.
@@ -97,7 +97,7 @@
 // ============================================================================
 
 import type { CoverageLine } from '../types/simulation';
-import { DEVELOPMENT_SPEED } from './pricingParameters';
+import { DEVELOPMENT_SPEED, DEVELOPMENT_TAIL, SEVERITY_TREND_PER_YEAR, UP_FRONT_TREND } from './pricingParameters';
 
 const AGE_STEP_MONTHS = 12;
 
@@ -417,11 +417,11 @@ export const RETIRED_GL_TOTAL_PAID_DEVELOPMENT: readonly DevelopmentRow[] = [
 // at age t is the recorded share at age speed x t, and the share reported
 // (1 / incurred LDF) likewise. Between recorded ages the share is linear, and
 // it is 0 at age 0. The compressed pattern ends at ceil(rows / speed) years
-// and holds the recorded LAST row's share there, so the tail the recorded
-// pattern leaves outstanding at its end — WC's 9.04% — is kept, not paid off.
+// and holds the recorded LAST row's share there — and is then CLOSED at that
+// row (see NO TAIL below), so nothing is left outstanding past it.
 //
 // ⚠ ONE SET OF PATTERNS. PAID_DEVELOPMENT_PATTERN and INCURRED_DEVELOPMENT_
-// PATTERN below ARE the compressed patterns, and the recorded rows above are
+// PATTERN below ARE the compressed patterns, closed, and the recorded rows above are
 // private to this file. So every reader — payments (payoutPattern.ts tabulates
 // from the paid pattern), case and IBNR (reserveSplit.ts), the pricing LDFs
 // (newPurePremium.ts), the opening and its bulk years (openingReserves.ts),
@@ -484,11 +484,88 @@ const compressAll = (recorded: Readonly<Record<CoverageLine, readonly Developmen
     Property: compressPattern(recorded.Property, DEVELOPMENT_SPEED.Property),
   });
 
-/** The PAID patterns the game reads, by line — compressed by DEVELOPMENT_SPEED. */
-export const PAID_DEVELOPMENT_PATTERN: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>> = compressAll(RECORDED_PAID);
+// ============================================================================
+// NO TAIL — THE PATTERNS CLOSE AT THEIR LAST ROW (stable-scenarios commit 3;
+// DEVELOPMENT_TAIL in pricingParameters.ts).
+//
+// No accident year in a game reaches the end of WC's pattern, so the tail the
+// recorded pattern leaves outstanding there (WC 9.04%, GL 1.09% after
+// compression) is removed from pricing and the engine alike:
+//
+//   PAID      the share paid at each age is divided by the share paid at the
+//             last row, so it reaches 100% there and keeps its shape. Pricing's
+//             LDF at an age is then the age-to-end factor (LDF / last LDF) with
+//             no tail factor, and the engine pays 100% by the end.
+//   REPORTED  the recorded share reported, closing on paid's last step: at each
+//             age the larger of the recorded share and the closed paid share,
+//             so reported never falls behind paid and reaches 100% exactly where
+//             paid does. GL keeps its recorded IBNR at its late ages.
+// ============================================================================
 
-/** The INCURRED patterns the game reads, by line — compressed by DEVELOPMENT_SPEED. */
-export const INCURRED_DEVELOPMENT_PATTERN: Readonly<Record<CoverageLine, readonly DevelopmentRow[]>> = compressAll(RECORDED_INCURRED);
+type Patterns = Readonly<Record<CoverageLine, readonly DevelopmentRow[]>>;
+const COMPRESSED_PAID: Patterns = compressAll(RECORDED_PAID);
+const COMPRESSED_INCURRED: Patterns = compressAll(RECORDED_INCURRED);
+
+/** A paid pattern closed at its last row: share paid / share paid at the end. */
+export function closePaidPattern(rows: readonly DevelopmentRow[]): readonly DevelopmentRow[] {
+  const end = rows[rows.length - 1].ldf;
+  return rows.map((r, i) => ({ ...r, ldf: i === rows.length - 1 ? 1 : r.ldf / end }));
+}
+
+/** A reported pattern closed on the closed paid pattern's last step. */
+export function closeReportedPattern(
+  incurred: readonly DevelopmentRow[], closedPaid: readonly DevelopmentRow[],
+): readonly DevelopmentRow[] {
+  return incurred.map((r, i) => ({ ...r, ldf: Math.min(r.ldf, closedPaid[i].ldf) }));
+}
+
+const closeAll = (): { paid: Patterns; incurred: Patterns } => {
+  const paid = {} as Record<CoverageLine, readonly DevelopmentRow[]>;
+  const incurred = {} as Record<CoverageLine, readonly DevelopmentRow[]>;
+  for (const line of ['WC', 'GL', 'Property'] as const) {
+    paid[line] = DEVELOPMENT_TAIL.closed ? closePaidPattern(COMPRESSED_PAID[line]) : COMPRESSED_PAID[line];
+    incurred[line] = DEVELOPMENT_TAIL.closed
+      ? closeReportedPattern(COMPRESSED_INCURRED[line], paid[line]) : COMPRESSED_INCURRED[line];
+  }
+  return { paid, incurred };
+};
+const CLOSED = closeAll();
+
+/** The compressed patterns BEFORE closing — for no-tail-trend-check only. */
+export const UNCLOSED_PATTERNS = { paid: COMPRESSED_PAID, incurred: COMPRESSED_INCURRED } as const;
+
+/** The PAID patterns the game reads, by line — compressed by DEVELOPMENT_SPEED, closed at the last row. */
+export const PAID_DEVELOPMENT_PATTERN: Patterns = CLOSED.paid;
+
+/** The INCURRED patterns the game reads, by line — compressed, closed on paid's last step. */
+export const INCURRED_DEVELOPMENT_PATTERN: Patterns = CLOSED.incurred;
+
+/**
+ * THE TREND BOOKED UP FRONT, per line (stable-scenarios commit 3): the inflation
+ * an accident year's losses suffer between the accident year and REPORTING,
+ * along the closed REPORTED pattern,
+ *
+ *     sum over development years k of  (share newly reported in year k) x (1 + trend)^(k - 1)
+ *
+ * — a loss reported in the accident year itself at the year's own level, one
+ * reported the year after at one year's trend, and so on. An accident year's
+ * ultimate rises with trend only by as much as its reported losses rise because
+ * of trend: inflation up to reporting, not up to final payment. Each accident
+ * year's cost is booked with it at the outset (ordinaryLoss.ts); older years do
+ * not develop for trend afterwards. 1 with UP_FRONT_TREND off.
+ */
+export function upFrontTrendFactor(line: CoverageLine): number {
+  if (!UP_FRONT_TREND.enabled) return 1;
+  const rows = INCURRED_DEVELOPMENT_PATTERN[line];
+  const g = 1 + SEVERITY_TREND_PER_YEAR[line];
+  let prior = 0, f = 0;
+  rows.forEach((r, k) => {
+    const reported = 1 / r.ldf;
+    f += (reported - prior) * Math.pow(g, k);
+    prior = reported;
+  });
+  return f;
+}
 
 for (const line of ['WC', 'GL', 'Property'] as const) {
   const paid = PAID_DEVELOPMENT_PATTERN[line];

@@ -1,12 +1,12 @@
 import React, { useState, useCallback } from 'react';
 
-import type { GameState, GameSetupSettings, DecisionSet, StartingFinancials, Member, LinePoolState, CoverageLine, LineView } from './types/simulation';
-import { getPredefinedMarketMembers } from './data/memberCatalog';
+import type { GameState, GameSetupSettings, DecisionSet, StartingFinancials, Member, CoverageLine, LineView } from './types/simulation';
 import { openSoloInstance } from './utils/soloGame';
 import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear, type SettledYear, type WorldsYear } from './utils/worlds';
 import { runPriorHistory } from './utils/priorHistoryEngine';
 import { defaultDecisionSet } from './utils/decisionDefaults';
-import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
+import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SavedGame, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
+import { restoreSavedGame } from './utils/saveRestore';
 import { createSaveScheduler, type SaveScheduler } from './utils/saveScheduler';
 import LoanPromptModal from './components/LoanPromptModal';
 import type { TabId } from './components/TabNav';
@@ -36,95 +36,50 @@ export default function App() {
   // see the note on persistState and gameSave.ts.
   const [saveFailure, setSaveFailure] = useState<Extract<SaveOutcome, { ok: false }> | null>(null);
 
+  // A reload in progress: the year being replayed and the last one to replay.
+  const [restoring, setRestoring] = useState<{ year: number; of: number } | null>(null);
+
   // Load persisted game from localStorage if available.
   //
-  // ⚠ THE KEY IS `SAVE_KEY` NOW, AND THE PARAGRAPH THAT STOOD HERE IS WHY. It
-  // said the key must not be renamed — true, and it now lives beside the
-  // constant in gameSave.ts — and then asked the reader to keep FOUR STRING
-  // LITERALS in step by hand: this load, its two removeItem paths, and the
-  // write. A comment requesting manual consistency across four sites is the
-  // keyed-lookup defect with extra steps. The constant is the fix.
+  // ⚠ THE KEY IS `SAVE_KEY`, A CONSTANT IN gameSave.ts, not a literal kept in
+  // step by hand across the load, its cleanup paths and the write.
   //
-  // ⚠ A RESTORED GAME HAS NO PER-CLAIM DETAIL. gameSave strips `claims`,
-  // `occurrences` and `marketMemberLossResults` on the way out — see its header
-  // for why, and save-round-trip-check for what that costs. Nothing here
-  // backfills them: they are absent, and every consumer already has to handle
-  // absence because the aggregate Property path never produced them either.
+  // ⚠ A RELOAD IS A REPLAY (stable-scenarios commit 10). The save keeps the
+  // averages only — the setup, the instance, every played year's decisions and
+  // loan choices, the averaged rows and world 1's claim rows — and the game is
+  // rebuilt from the opening, year by year (utils/saveRestore.ts), with the
+  // page saying which year it is on. The pool state, the worlds and the
+  // pre-game come back from the engine, so the old load-side backfills of
+  // membership history, the loss record and WC rating groups went with them.
   React.useEffect(() => {
+    let cancelled = false;
     try {
       // A save under a retired key is a schema this build cannot read
       // faithfully; it is cleared, and the player starts a new game.
       for (const key of RETIRED_SAVE_KEYS) localStorage.removeItem(key);
-      const saved = localStorage.getItem(SAVE_KEY);
-      if (saved) {
-        // ⚠ unpackSave THROWS ON A SAVE WRITTEN BEFORE COMPRESSION, AND THE
-        // catch BELOW CLEARING THE KEY IS THE DESIGNED OUTCOME RATHER THAN
-        // DAMAGE CONTROL. There is deliberately no format detection and no
-        // dual-path loader — see gameSave.ts. An old raw-JSON save is not
-        // base64, atob rejects it, and the player starts a new game.
-        const { gameState: gs, startingFinancials: sf, initialMembers: im, currentDecisions: cd } =
-          unpackSave(saved) as {
-            gameState: GameState; startingFinancials: StartingFinancials;
-            initialMembers: Member[]; currentDecisions: DecisionSet;
-          };
-
-        // Validate critical fields exist before restoring
-        if (gs && sf && Array.isArray(gs.priorHistory) && sf.totalMarketExposure !== undefined && sf.surplus !== undefined) {
-          // Saves from before the membership-history ledger lack the field;
-          // default to an empty ledger (cooldown then treats everyone as
-          // never-enrolled, which only affects stale dev saves).
-          if (gs.poolState && !gs.poolState.membershipHistory) {
-            gs.poolState.membershipHistory = {};
-          }
-          // Same for the rolling loss record (stage 3). Defaulted rather than
-          // bumping the save key: the field is purely additive, so an old save
-          // stays playable and simply starts accumulating history from the next
-          // processed year. The experience modifier reads a short window, so it
-          // recovers on its own within a few turns — whereas discarding the save
-          // would throw away the whole game to gain the same thing.
-          if (gs.poolState && !gs.poolState.memberLossHistory) {
-            gs.poolState.memberLossHistory = {};
-          }
-          // REINSURANCE: since loss engine commit 4a a decision carries one
-          // package per line (reinsuranceOption). A save from before it was
-          // written under SAVE_KEY v10 and is cleared below, not migrated — see
-          // RETIRED_SAVE_KEYS.
-          // WC SEVERITY REBUILD: wcRatingGroup re-stamped onto every member from
-          // the canonical catalog. It is roster data, not game state, so
-          // rebuilding it is exact rather than a guess — and wcClaimEngine THROWS
-          // on a member without one. Defaulted rather than bumping the save key,
-          // same precedent as membershipHistory and memberLossHistory.
-          //
-          // ⚠ THE unreportedClaims / wcAccidentYearReported BACKFILL THAT STOOD
-          // HERE IS GONE, and old saves are fine WITHOUT a migration. Both fields
-          // were removed with WC's report lag. A save written before this commit
-          // still carries them, and they are simply ignored: nothing reads them,
-          // TypeScript does not police excess properties on a parsed JSON object,
-          // and they cost a few KB of localStorage until the next save overwrites
-          // them. Deleting them on load would be busywork with a failure mode
-          // (mutating a save the user might open in an older build) and no
-          // benefit. The one thing that would break a save is a field the engine
-          // now REQUIRES and the save lacks; this change removes fields, so there
-          // is none.
-          {
-            const groupByName = new Map(
-              getPredefinedMarketMembers().map(m => [m.name, m.wcRatingGroup]),
-            );
-            const repair = (m: Member | undefined) => {
-              if (m && !m.wcRatingGroup) m.wcRatingGroup = groupByName.get(m.name);
-            };
-            (gs.poolState?.allMarketMembers ?? []).forEach(repair);
-            const lines = (gs.poolState?.lines ?? {}) as Record<string, LinePoolState | undefined>;
-            for (const ls of Object.values(lines)) {
-              (ls?.members ?? []).forEach(repair);
-            }
-            (im ?? []).forEach(repair);
-          }
-          setGameState(gs);
-          setStartingFinancials(sf);
-          setInitialMembers(im ?? []);
-          setCurrentDecisions(cd ?? defaultDecisionSet(gs.currentYearNumber));
-          setActiveTab('dashboard');
+      const stored = localStorage.getItem(SAVE_KEY);
+      if (stored) {
+        // ⚠ unpackSave THROWS ON A SAVE IT DID NOT WRITE, and the catch below
+        // clearing the key is the designed outcome — see gameSave.ts.
+        const { gameState: saved, currentDecisions: cd } = unpackSave(stored) as { gameState: SavedGame; currentDecisions: DecisionSet | null };
+        if (saved && saved.setup && saved.instance && Array.isArray(saved.playedYears) && Array.isArray(saved.lockedResults)) {
+          setRestoring({ year: 0, of: saved.playedYears.length });
+          void restoreSavedGame(saved, cd, (year, of) => { if (!cancelled) setRestoring({ year, of }); })
+            .then(r => {
+              if (cancelled) return;
+              if (!r.matches) console.error('[save] the replayed game does not match the saved rows; showing the replay');
+              setGameState(r.gameState);
+              setStartingFinancials(r.startingFinancials);
+              setInitialMembers(r.initialMembers);
+              setCurrentDecisions(r.currentDecisions ?? defaultDecisionSet(r.gameState.currentYearNumber));
+              setActiveTab('dashboard');
+              setRestoring(null);
+            })
+            .catch(() => {
+              if (cancelled) return;
+              localStorage.removeItem(SAVE_KEY);
+              setRestoring(null);
+            });
         } else {
           // Bad saved state - clear it
           localStorage.removeItem(SAVE_KEY);
@@ -134,6 +89,7 @@ export default function App() {
       // ignore parse errors - clear corrupted data
       localStorage.removeItem(SAVE_KEY);
     }
+    return () => { cancelled = true; };
   }, []);
 
   // ⚠ THE WRITE LIVES IN gameSave.ts NOW, AND THE FAILURE IS SURFACED.
@@ -355,6 +311,17 @@ export default function App() {
   const lineView: LineView = lineViewRaw === 'pool' || activeLines.includes(lineViewRaw as CoverageLine)
     ? lineViewRaw
     : 'pool';
+
+  // ⚠ A RELOAD SAYS WHERE IT IS: the replay rebuilds a year at a time.
+  if (restoring) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center text-slate-500">
+        <p data-testid="restoring" className="text-sm font-medium">
+          {restoring.year > 0 ? `Restoring year ${restoring.year} of ${restoring.of}…` : 'Restoring your game…'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <GameShell

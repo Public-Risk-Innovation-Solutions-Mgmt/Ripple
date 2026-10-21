@@ -226,7 +226,9 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       key: 'purePremiumRatePer100',
       lineOnly: true,
       category: 'Rate and Premium',
-      label: 'Pure Premium Rate per $100 Payroll',
+      // The rate's own estimate of the year's claims cost, from the experience
+      // (stable-scenarios commit 11) — distinct from Expected Losses below.
+      label: 'Pure Premium (from experience) per $100 Payroll',
       value: r => dollars(r.purePremiumPer100),
       csvValue: r => r.purePremiumPer100,
     },
@@ -321,38 +323,35 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     {
       key: 'expectedLoss',
       category: 'Losses',
-      label: 'Pure Premium',
+      // ⚠ "EXPECTED LOSSES", NOT "PURE PREMIUM" (stable-scenarios commit 11):
+      // this is the year's expected gross losses, the engine's own expectation.
+      // "Pure Premium" now names only the rate's estimate, from the experience.
+      label: 'Expected Losses',
       value: r => formatCurrency(r.expectedLoss),
       csvValue: r => roundDollars(r.expectedLoss),
     },
     {
-      // ⚠ WAS ALSO LABELLED "Pool Premium at Selected CLF" — the same string as
-      // the poolPremium row in Rate and Premium, on the same sheet, holding a
-      // different number. It IS gross expectedLoss x CLF, which stopped being
-      // the pool premium when funding moved to the net basis: it now runs 39%
-      // above the real poolPremium on WC and 77% on GL.
-      //
-      // RENAMED, NOT RETIRED, though retiring was the alternative and it has no
-      // engine consumer (grep: computed at simulationEngine.ts:1175, stored,
-      // pool-summed, read only here and by the audit page). The defect reported
-      // is the label collision, and renaming closes it completely; deleting a
-      // stored engine field is a different and larger change — it drops one of
-      // the audit page's integrity checks with it — and belongs in its own
-      // commit if the column is genuinely unwanted.
-      key: 'clfAdjustedExpectedLoss',
+      // REPLACES "CLF-Adjusted Gross Expected Loss" (stable-scenarios commit 11),
+      // gross expected loss x the funding CLF, which named no figure a reader
+      // could use. This is what the line expects to keep: expected losses less
+      // what its cover is expected to recover. The CLF product stays on the
+      // result for the audit page's integrity check.
+      key: 'expectedLossNet',
       category: 'Losses',
-      label: 'CLF-Adjusted Gross Expected Loss',
-      value: r => formatCurrency(r.clfAdjustedExpectedLoss),
-      csvValue: r => roundDollars(r.clfAdjustedExpectedLoss),
+      label: 'Expected Losses, net of reinsurance',
+      value: r => formatCurrency(r.expectedLoss - (r.expectedReinsuranceRecovery ?? 0)),
+      csvValue: r => roundDollars(r.expectedLoss - (r.expectedReinsuranceRecovery ?? 0)),
     },
     {
       key: 'aggregateMemberLoss',
       category: 'Losses',
-      label: 'Member-Level Simulated Loss incl. Shared Events',
+      label: 'Simulated Losses',
       value: r => formatCurrency(r.aggregateMemberLoss ?? r.grossUltimateLoss),
       csvValue: r => roundDollars(r.aggregateMemberLoss ?? r.grossUltimateLoss),
     },
     {
+      // The year factor every unit of the book shares — the new engine's draw
+      // (stable-scenarios commit 11); averaged over the worlds on an averaged row.
       key: 'commonLossFactor',
       lineOnly: true,
       category: 'Losses',
@@ -378,7 +377,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       // arithmetic. It reads identical to Gross whenever there is no markdown.
       key: 'bookedGrossUltimate',
       category: 'Losses',
-      label: 'Booked Gross Ultimate (after optimistic booking)',
+      label: 'Booked Gross Ultimate',
       value: r => formatCurrency(r.bookedGrossUltimate ?? r.grossUltimateLoss),
       csvValue: r => roundDollars(r.bookedGrossUltimate ?? r.grossUltimateLoss),
     },
@@ -418,18 +417,9 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.reinsuranceRecovery),
       csvValue: r => roundDollars(r.reinsuranceRecovery),
     },
-    {
-      // Recovery DEFERRED by booking this year's claim register low — a
-      // current-year item, sitting beside the current-year recovery it reduces.
-      // Negative. Deferred rather than forgone: it comes back through the
-      // prior-year development recovery below as the booking unwinds. Reads $0
-      // whenever the line is funded at or above break-even.
-      key: 'bookingGiveBack',
-      category: 'Losses',
-      label: 'Recovery deferred by optimistic booking',
-      value: r => formatCurrency(r.bookingGiveBack),
-      csvValue: r => roundDollars(r.bookingGiveBack),
-    },
+    // ⚠ "Recovery deferred by optimistic booking" IS GONE (stable-scenarios
+    // commit 11): measured, it read $0 on 432 of 432 line-years across funding
+    // from 30% to 95% — the new engine books at full cost.
     {
       key: 'netUltimateLoss',
       category: 'Losses',
@@ -884,6 +874,15 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       label: 'Actual LAE Ratio (member charge basis)',
       value: r => formatPct(r.actualLaeRatio),
       csvValue: r => r.actualLaeRatio,
+    },
+    {
+      // Beside the loss ratio (stable-scenarios commit 11): losses and LAE over
+      // the member charge, from their parts.
+      key: 'actualLossLaeRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual Loss & LAE Ratio (member charge basis)',
+      value: r => formatPct(r.actualLossRatio + (r.actualLaeRatio ?? 0)),
+      csvValue: r => r.actualLossRatio + (r.actualLaeRatio ?? 0),
     },
     {
       key: 'actualCombinedRatio',

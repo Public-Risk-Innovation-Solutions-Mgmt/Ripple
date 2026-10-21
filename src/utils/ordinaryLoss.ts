@@ -33,9 +33,14 @@
 // ============================================================================
 
 import {
-  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, SEVERITY_TREND_PER_YEAR, UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV,
-  UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV,
+  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, FLAT_PRE_GAME, preGameLossMultiplier, SEVERITY_TREND_PER_YEAR, SHOCK_T_BASIS_PER_100, UNIT_MARKET_COUNT,
+  UNIT_ORDINARY_OWN_CV, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV,
 } from '../data/pricingParameters';
+// ⚠ A CALL-TIME CYCLE, AND SAFE AS ONE: shockExpectation imports this module,
+// and the routine fold it computes is read here only inside functions, never
+// while either module is loading.
+import { routineFoldPer100 } from './shockExpectation';
+import { upFrontTrendFactor } from '../data/paidDevelopmentPatterns';
 import type { BookUnit } from './bookUnits';
 import { deriveSubRng, type SeededRandom } from './random';
 import { bookExposureOf, getMemberExposure, type Book } from './lineHelpers';
@@ -43,12 +48,52 @@ import { primaryShare } from './memberExperienceMod';
 import type { CoverageLine, Member, MemberLossResult } from '../types/simulation';
 
 /** Expected ordinary loss per $100 of exposure in accident year `yearNumber`,
- *  trended at the line's severity trend from year 1 (backwards for the
- *  pre-game's negative years). */
+ *  at its booked cost level: trended at the line's severity trend from year 1
+ *  (backwards for the pre-game's negative years), with the inflation before
+ *  payment booked up front. */
 export function ordinaryLossCostPer100(line: CoverageLine, yearNumber: number): number {
-  return EXPECTED_ORDINARY_LOSS_COST_PER_100[line]
-    * Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1);
+  // With ROUTINE_LARGE_LOSSES off, the routine claims' cost folded in,
+  // cost-neutral (routineFoldPer100); zero with the switch on.
+  return baseOrdinaryLossCostPer100(line, yearNumber) + routineFoldPer100(line, yearNumber);
 }
+
+/**
+ * THE COST LEVEL an accident year is booked at, relative to year 1's base: the
+ * line's severity trend to the accident year, times the inflation the year's
+ * losses suffer up to reporting, booked up front (upFrontTrendFactor —
+ * stable-scenarios commit 3). Ordinary losses, the shocks' uplift on them and
+ * their large losses all read it, so the whole accident year carries it.
+ */
+export function bookedCostLevel(line: CoverageLine, yearNumber: number): number {
+  return Math.pow(1 + SEVERITY_TREND_PER_YEAR[line], yearNumber - 1) * upFrontTrendFactor(line);
+}
+
+/** The ordinary cost per $100 WITHOUT the routine fold. */
+export function baseOrdinaryLossCostPer100(line: CoverageLine, yearNumber: number): number {
+  return EXPECTED_ORDINARY_LOSS_COST_PER_100[line] * bookedCostLevel(line, yearNumber);
+}
+
+/**
+ * The cost per $100 the shocks' large losses (T) are scaled off (shockLosses'
+ * tScale), at the same booked cost level as the ordinary cost: SHOCK_T_BASIS_PER_100 — the $0 – $1M
+ * layer on WC and GL, Property's cost without the routine fold — so neither the
+ * fold nor the $1M – $5M layer grows the shocks.
+ */
+export function shockBasisCostPer100(line: CoverageLine, yearNumber: number): number {
+  return SHOCK_T_BASIS_PER_100[line] * bookedCostLevel(line, yearNumber);
+}
+
+/** A flat pre-game year (FLAT_PRE_GAME): ordinary losses at exactly expected, no factor drawn. */
+export const flatPreGameYear = (yearNumber: number): boolean => FLAT_PRE_GAME.enabled && yearNumber <= 0;
+
+/**
+ * WHAT A FLAT PRE-GAME YEAR'S ORDINARY LOSSES COME IN AT, as a multiple of
+ * expected: the scenario's (preGameLossMultiplier, stable-scenarios commit 9)
+ * — a thin scenario inherits a worse record — and exactly 1 on an instance
+ * built without one (a harness's bare instance). Expected is untouched.
+ */
+export const preGameLossFactor = (instance: { scenario?: number }, yearNumber: number): number =>
+  flatPreGameYear(yearNumber) && instance.scenario !== undefined ? preGameLossMultiplier(instance.scenario) : 1;
 
 /**
  * THE CV OF THE YEAR FACTOR A LINE'S UNITS SHARE — its BASELINE_CV, the same
@@ -78,6 +123,8 @@ export interface OrdinaryLossYear {
   expected: number;
   realised: number;
   factor: number;
+  /** The year factor every unit shares — the line's draw before each unit's own. Absent on the one-draw member path. */
+  yearFactor?: number;
 }
 
 /**
@@ -114,10 +161,12 @@ export function bookOrdinaryRisk(units: readonly Pick<BookUnit, 'size' | 'risk'>
 /** Draw a line's ordinary loss for one accident year on a given book — one draw at the line (the member path). */
 export function ordinaryLossYear(
   line: CoverageLine, book: Book, yearNumber: number, seed: number,
+  // A flat pre-game year's multiple of expected — the scenario's (preGameLossFactor).
+  preGameLoss = 1,
 ): OrdinaryLossYear {
   const exposure = bookExposureOf(book, line, yearNumber);
   const expected = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
-  const factor = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), typicalBookOrdinaryCv(line));
+  const factor = flatPreGameYear(yearNumber) ? preGameLoss : drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), typicalBookOrdinaryCv(line));
   return { exposure, expected, realised: expected * factor, factor };
 }
 
@@ -146,13 +195,18 @@ export function ordinaryLossFromUnits(
   // year, whose ACTUAL loss carries 1 + `penalty` in this, their first year.
   // Their EXPECTED loss does not — see NEW_BUSINESS_PENALTY.
   newUnits: ReadonlySet<number> = new Set(), penalty = 0,
+  // A flat pre-game year's multiple of expected — the scenario's
+  // (preGameLossFactor), one figure on every unit.
+  preGameLoss = 1,
 ): UnitOrdinaryYear {
   const size = units.reduce((a, u) => a + u.size, 0);
   const scale = size > 0 ? activeExposure / size : 0;
   const cost = 10_000 * ordinaryLossCostPer100(line, yearNumber);
-  const year = drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ordinaryYearCv(line));
+  // A flat pre-game year draws neither factor: every unit at exactly expected.
+  const flat = flatPreGameYear(yearNumber);
+  const year = flat ? preGameLoss : drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ordinaryYearCv(line));
   const own = unitOrdinaryRng(seed, yearNumber, line);
-  const ownFactors = Array.from({ length: UNIT_MARKET_COUNT }, () => drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV));
+  const ownFactors = Array.from({ length: UNIT_MARKET_COUNT }, () => (flat ? 1 : drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV)));
   const byUnit = units.map(u => {
     const expected = u.size * scale * u.risk * cost;
     const load = newUnits.has(u.index) ? 1 + penalty : 1;
@@ -161,7 +215,7 @@ export function ordinaryLossFromUnits(
   const expected = byUnit.reduce((a, u) => a + u.expected, 0);
   const realised = byUnit.reduce((a, u) => a + u.realised, 0);
   return {
-    exposure: activeExposure, expected, realised, factor: expected > 0 ? realised / expected : 1,
+    exposure: activeExposure, expected, realised, factor: expected > 0 ? realised / expected : 1, yearFactor: year,
     risk: bookOrdinaryRisk(units), byUnit,
   };
 }

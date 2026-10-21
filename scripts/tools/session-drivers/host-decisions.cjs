@@ -122,10 +122,10 @@ async function join(ctx, code, name) {
      'every row is REPORTED — eight cells, not a collapsed "not reported" span');
   ok(rows.every(r => !/Decisions not recorded/.test(r.join(' '))),
      'and none reads "not recorded" — the posted rows carry their decisions block');
-  // Loss engine commit 4a: the Reinsurance column is each line's PACKAGE. Both
-  // teams locked on the defaults, so it reads the default package by name —
-  // not a placed-of-total count, which is what the per-band shape rendered.
-  ok(rows.every(r => r[2] === '$9M xs $1M'),
+  // The Reinsurance column is each line's cover, by name (stable-scenarios
+  // commit 6: the aggregate stop). Both teams locked on the defaults, so it
+  // reads the default cover's name.
+  ok(rows.every(r => r[2] === 'Bad-year cover'),
      `the Reinsurance column shows the package the team chose (${rows.map(r => r[2]).join(', ')})`);
 
   // ⚠ ADDED AFTER THIS DRIVER FOUND THE BUG. The allocation column rendered

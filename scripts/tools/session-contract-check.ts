@@ -103,9 +103,9 @@ const DECISION_MARKER = 0.37;
 const lineDecisions = (): TeamLineDecisions => ({
   confidenceLevel: DECISION_MARKER,
   atExpected: false,
-  // Not the default package, so a transport that substituted the default
+  // Not the default cover, so a transport that substituted the default
   // would fail the read-back below.
-  reinsuranceOption: '$5M xs $5M',
+  reinsuranceOption: 'working',
   renewalCut: 0.1,
   intakeLevel: 2,
   riskControlPct: 0.03,
@@ -213,7 +213,7 @@ async function step(t: SessionTransport, code: string, token: string) {
 async function freshRoom(t: SessionTransport) {
   return t.createRoom({
     hostToken: newSessionToken(),
-    seed: 'MAMC6EA4',
+    seed: '7',
     yearCount: 3,
     startingYear: 2026,
     eventName: 'Ripple Game',
@@ -264,13 +264,21 @@ async function main(): Promise<void> {
     ok(!JSON.stringify(created.room).includes(created.hostToken), 'the room view never discloses the host token');
 
     await rejects(
-      t.createRoom({ hostToken: newSessionToken(), seed: 's', yearCount: 0, startingYear: 2026, eventName: 'p', expectedTeams: 3, shocks: [], lines: WC }),
+      t.createRoom({ hostToken: newSessionToken(), seed: '1', yearCount: 0, startingYear: 2026, eventName: 'p', expectedTeams: 3, shocks: [], lines: WC }),
       'INVALID_REQUEST', 'a zero-year game is refused',
     );
     await rejects(
-      t.createRoom({ hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026, eventName: 'p', expectedTeams: 0, shocks: [], lines: WC }),
+      t.createRoom({ hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026, eventName: 'p', expectedTeams: 0, shocks: [], lines: WC }),
       'INVALID_REQUEST', 'a room expecting no teams is refused',
     );
+    // ⚠ THE SEED IS THE SCENARIO, "1" TO "20" (stable-scenarios commit 9):
+    // every other seed is refused, by the handler as by the local transport.
+    for (const seed of ['0', '21', '07', '7 ', '', 'MAMC6EA4']) {
+      await rejects(
+        t.createRoom({ hostToken: newSessionToken(), seed, yearCount: 3, startingYear: 2026, eventName: 'p', expectedTeams: 3, shocks: [], lines: WC }),
+        'INVALID_REQUEST', `a room seeded "${seed}", not a scenario from 1 to 20, is refused`,
+      );
+    }
     await rejects(t.read({ code: 'ZZZZZZ' }), 'ROOM_NOT_FOUND', 'an unknown code is not found');
   }
 
@@ -386,7 +394,7 @@ async function main(): Promise<void> {
     // Its own room: this block needs six years, and the shared fixture is three.
     const { code, hostToken } = await t.createRoom({
       hostToken: newSessionToken(),
-      seed: 'MAMC6EA4', yearCount: 6, startingYear: 2026,
+      seed: '7', yearCount: 6, startingYear: 2026,
       eventName: 'History', expectedTeams: 1, shocks: [], lines: WC,
     });
     const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
@@ -555,7 +563,7 @@ async function main(): Promise<void> {
     // Its own room again: four played years, and the shared fixture is three.
     const { code, hostToken } = await t.createRoom({
       hostToken: newSessionToken(),
-      seed: 'MAMC6EA4', yearCount: 6, startingYear: 2026,
+      seed: '7', yearCount: 6, startingYear: 2026,
       eventName: 'Results', expectedTeams: 1, shocks: [], lines: WC,
     });
     const p = await t.join({ code, teamName: TEAMS[0], role: 'player' });
@@ -681,7 +689,7 @@ async function main(): Promise<void> {
     const seen = after.room.teams[0].resultsByYear?.['1']?.decisions?.WC;
     ok(seen !== undefined, 'the host sees a team\'s decisions once the year is advanced and posted');
     eq(seen?.confidenceLevel, DECISION_MARKER, 'and reads the funding level the team chose');
-    eq(seen?.reinsuranceOption, '$5M xs $5M', 'and the reinsurance package the team bought');
+    eq(seen?.reinsuranceOption, 'working', 'and the reinsurance cover the team bought');
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
     eq(seen?.dividendPct, 0.05, 'and the dividend');
@@ -730,7 +738,7 @@ async function main(): Promise<void> {
     // so two hosts who pick the same lines create the same room.
     const room = await t.createRoom({
       hostToken: newSessionToken(),
-      seed: 's', yearCount: 3, startingYear: 2026, eventName: 'p',
+      seed: '1', yearCount: 3, startingYear: 2026, eventName: 'p',
       expectedTeams: 2, shocks: [],
       lines: ['Property', 'WC', 'GL'],
       priorDevelopment: { WC: 0.03, GL: 0.10, Property: -0.02 },
@@ -769,14 +777,14 @@ async function main(): Promise<void> {
     // ---- what the ROOM refuses, which is where the check moved to ----------
     await rejects(
       t.createRoom({
-        hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026,
+        hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026,
         eventName: 'p', expectedTeams: 2, shocks: [], lines: [],
       }),
       'INVALID_REQUEST', 'a room must use at least one coverage line',
     );
     await rejects(
       t.createRoom({
-        hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026,
+        hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026,
         eventName: 'p', expectedTeams: 2, shocks: [], lines: ['Marine'],
       } as never),
       'INVALID_REQUEST', 'a room cannot be created on something that is not a coverage line',
@@ -786,7 +794,7 @@ async function main(): Promise<void> {
     // host screen keeps a value per line as lines are toggled, so a leftover is
     // ordinary rather than a bad request.
     const wcOnly = await t.createRoom({
-      hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026,
+      hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026,
       eventName: 'p', expectedTeams: 1, shocks: [],
       lines: ['WC'], priorDevelopment: { WC: 0.03, GL: 0.10 },
     });
@@ -797,7 +805,7 @@ async function main(): Promise<void> {
 
     // ⚠ OMITTING priorDevelopment IS LEGAL and reads as no development.
     const bare = await t.createRoom({
-      hostToken: newSessionToken(), seed: 's', yearCount: 3, startingYear: 2026,
+      hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026,
       eventName: 'p', expectedTeams: 1, shocks: [], lines: ['GL'],
     });
     const bareRead = await t.read({ code: bare.code, token: bare.hostToken });
@@ -867,7 +875,7 @@ async function main(): Promise<void> {
     const t = transport();
     const token = newSessionToken();
     const mk = () => t.createRoom({
-      hostToken: token, seed: 'MAMC6EA4', yearCount: 3, startingYear: 2026,
+      hostToken: token, seed: '7', yearCount: 3, startingYear: 2026,
       eventName: 'Ripple Game', expectedTeams: 3, shocks: [], lines: WC,
     });
     const a = await mk();

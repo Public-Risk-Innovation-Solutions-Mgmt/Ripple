@@ -141,13 +141,15 @@ for (let g = 0; g < GAMES; g++) {
         const v = sheet[i][iCur];
         if (!dev.has(occ) || typeof v !== 'number') continue;
         checked++;
-        if (Number.isInteger(v)) integers++;
+        // A whole number the ENGINE also holds — a claim at its cap, say — is
+        // not evidence of rounding; only a cell rounded off a fractional value is.
+        if (Number.isInteger(v) && !Number.isInteger(dev.get(occ))) integers++;
         if (v !== dev.get(occ)) {
           fail(`claims Development ${occ}: cell holds ${v}, engine holds ${dev.get(occ)} — the value was rounded`);
         }
       }
-      if (checked > 0 && integers === checked) {
-        fail(`claims Development: all ${checked} Current Occurrence cells are whole numbers — rounding is still happening somewhere`);
+      if (integers > 0) {
+        fail(`claims Development: ${integers} of ${checked} Current Occurrence cells are whole numbers off fractional engine values — rounding is still happening somewhere`);
       }
     }
   }

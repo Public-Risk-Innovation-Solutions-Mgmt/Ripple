@@ -12,6 +12,7 @@
 // collapsed to `true`, so a future line without a closed-form E[ceded] has
 // somewhere to say no.
 
+import { AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS } from '../data/pricingParameters';
 import { TOWER_TOP, type TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine, LineDecisionSet, LineView } from '../types/simulation';
 import { placementFor } from './reinsuranceOptions';
@@ -86,8 +87,10 @@ export function placementSummary(
   }
   // Checked against the line's packages — a stale or misspelt id throws.
   placementFor(line, decisions.reinsuranceOption);
-  return decisions.reinsuranceOption === 'none'
-    ? 'Full retention — no reinsurance'
+  if (decisions.reinsuranceOption === 'none') return 'Full retention — no reinsurance';
+  // The aggregate stop's cover by name, as the team saw it (stable-scenarios commit 6).
+  return AGGREGATE_STOP.enabled
+    ? AGGREGATE_STOP_OPTIONS.find(o => o.id === decisions.reinsuranceOption)?.name ?? decisions.reinsuranceOption
     : decisions.reinsuranceOption;
 }
 

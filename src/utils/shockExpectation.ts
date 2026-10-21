@@ -27,8 +27,8 @@
 
 import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
-  POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
-  SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
+  POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
+  SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE, UP_FRONT_TREND, AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS,
 } from '../data/pricingParameters';
 import { pwlMoments, lognormalFromMean, routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
@@ -230,6 +230,43 @@ const poolKinks = (line: CoverageLine) => {
   return l === null ? [] : [l];
 };
 
+// --- the routine fold ------------------------------------------------------
+
+/**
+ * THE ROUTINE FOLD, per $100 of exposure, for a line-year (stable-scenarios
+ * build, commit 1). With ROUTINE_LARGE_LOSSES off, the expected cost routine
+ * large claims carried — the pool's share above the ordinary limit, trended to
+ * the year — is added to the ordinary cost as
+ *
+ *     routine(y) / (1 + E[A uplift](y))
+ *
+ * so the uplift, which multiplies the ordinary losses, gives back exactly
+ * routine(y): the line's expected loss is unchanged, year by year. Zero with
+ * the switch ON, when the routine claims are drawn instead.
+ *
+ * Memoised per line-year; the key carries the switch and the catalogue's total
+ * probability, so a gate or probe that moves either reads a fresh value.
+ */
+const foldMemo = new Map<string, number>();
+export function routineFoldPer100(line: CoverageLine, yearNumber: number): number {
+  // ⚠ NOT ON A LINE PRICED ON THE POOL'S LAYERS (commit 2): its ordinary cost
+  // already carries the $1M – $5M layer, and what lies above $5M arrives only
+  // with the shocks. Property, still on its derived cost, keeps the fold.
+  if (ROUTINE_LARGE_LOSSES.enabled || POOL_LOSS_COST_LAYERS[line]) return 0;
+  const key = `${line}|${yearNumber}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}|${UP_FRONT_TREND.enabled}`;
+  const hit = foldMemo.get(key);
+  if (hit !== undefined) return hit;
+  const basis = routineLargeBasis(line);
+  const g = trendFactor(line, yearNumber);
+  // The pool's share of each claim's excess over the ordinary limit — the same
+  // h the routine expectation in expectedLossBreakdown uses (routineOffset).
+  const r = routineExpectation(basis, g, x => poolShare(line, x) - g * basis.limit, poolKinks(line));
+  const routinePer100 = routineLargeCount(line, 1) * r.m1 / 10_000;
+  const fold = routinePer100 / (1 + upliftMoments(line, yearNumber).mean);
+  foldMemo.set(key, fold);
+  return fold;
+}
+
 // --- the line's expected loss ----------------------------------------------
 
 export interface ExpectedLossBreakdown {
@@ -349,8 +386,12 @@ export function expectedLargeLossCount(line: CoverageLine, exposure: number, yea
  */
 export function newEngineCatCapital(
   line: CoverageLine, exposure: number, yearNumber: number, placed: readonly boolean[] | null,
+  // The team's reinsurance option. With AGGREGATE_STOP on it names the stop,
+  // and the retained catastrophe is what the stop leaves (stopCatRetained).
+  stopOptionId?: string,
 ): number {
   if (line !== 'Property' || !(exposure > 0)) return 0;
+  if (AGGREGATE_STOP.enabled && stopOptionId !== undefined) return stopCatRetained(line, exposure, yearNumber, stopOptionId);
   const layers = REINSURANCE_TOWER.Property.filter((l, i) => placed?.[i] === true && l.purchasable);
   const h: PerLoss = (x, d) => poolShare(line, x) - layers.reduce((s, l) => s + cedeAboveLocal(poolShare(line, x), l, d), 0);
   const kinks = (d: number) => layers.flatMap(l => [Math.max(l.attachment, d), l.attachment + l.limit]);
@@ -361,6 +402,41 @@ export function newEngineCatCapital(
     if (c === null) continue;
     weight += e.probability;
     retained += e.probability * c.c1;
+  }
+  return weight > 0 ? retained / weight : 0;
+}
+
+/**
+ * PROPERTY'S CATASTROPHE CAPITAL BEHIND THE AGGREGATE STOP (stable-scenarios
+ * commit 6): what the pool retains, in expectation, from ONE regional
+ * catastrophe that happens, weighted by how often each occurs — the year's
+ * total taken as its expected losses plus the catastrophe, and the stop paying
+ * on that total under the terms the year is written on. Each catastrophe's
+ * losses are taken together, as one lognormal around its size (the one-
+ * occurrence form above), since the stop sees the year's sum, not each claim.
+ */
+function stopCatRetained(line: CoverageLine, exposure: number, yearNumber: number, optionId: string): number {
+  const o = AGGREGATE_STOP_OPTIONS.find(x => x.id === optionId);
+  if (!o) throw new Error(`newEngineCatCapital: '${optionId}' is not an aggregate stop option`);
+  const e = expectedLossBreakdown(line, exposure, yearNumber).total;
+  const attachment = o.attachment * e, limit = o.limit * e;
+  // Retained of a catastrophe x: x less what the stop pays on e + x.
+  const h = (x: number) => x - Math.min(Math.max(e + x - attachment, 0), limit);
+  const kinks = limit > 0 ? [attachment - e, attachment - e + limit].filter(k => k > 0) : [];
+  const scale = tScale(line, exposure, yearNumber);
+  let weight = 0, retained = 0;
+  for (const ev of SHOCK_EVENTS) {
+    if (!ev.regional) continue;
+    const row = eventLines(ev.name).find(r => r.line === line && r.t !== 'None');
+    if (!row) continue;
+    const n = SHOCK_LOSS_COUNT[ev.name]?.[line] ?? 1;
+    const [lo, hi] = R_MODEL.tShock[line][row.t as Exclude<ShockLevel, 'None'>];
+    const c1 = overUniform(lo, hi, t => {
+      const { mu, sigma } = lognormalFromMean(t * scale, SHOCK_LOSS_CV / Math.sqrt(n));
+      return pwlMoments(mu, sigma, 0, kinks, h).m1;
+    });
+    weight += ev.probability;
+    retained += ev.probability * c1;
   }
   return weight > 0 ? retained / weight : 0;
 }

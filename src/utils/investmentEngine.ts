@@ -54,6 +54,19 @@ function simulateAssetClassReturn(assumption: AssetClassAssumption, rng: SeededR
   return clamp(netReturn, assumption.minReturn, assumption.maxReturn);
 }
 
+/**
+ * The market at EXPECTATION: each asset class's expected return net of its fee,
+ * with no draw. What a flat pre-game year earns (FLAT_PRE_GAME).
+ */
+export function expectedMarketReturns(): MarketReturns {
+  const net = (a: AssetClassAssumption) => a.expectedReturn - a.feeRate;
+  return {
+    cash: net(ASSET_CLASS_ASSUMPTIONS.cash),
+    bonds: net(ASSET_CLASS_ASSUMPTIONS.bonds),
+    equities: net(ASSET_CLASS_ASSUMPTIONS.equities),
+  };
+}
+
 // Draw the shared market for one year: one realized return per asset class.
 // Fixed draw order (cash, then bonds, then equities) so results stay
 // reproducible per seed regardless of any line's allocation. Called ONCE per

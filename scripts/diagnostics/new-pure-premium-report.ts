@@ -160,8 +160,9 @@ for (const l of LINES) {
     + `adding it would ${ALAE_ALREADY_IN_LOSSES[l] ? 'HAVE ADDED' : 'add'} ${would.toFixed(4)} per $100 `
     + `(${(ALAE_OF_LOSS_COST[l] * 100).toFixed(1)}% of ${lc.toFixed(4)})`);
 }
-console.log('   GL\'s fitted severity mixture includes ALAE (defaultAssumptions.ts, twice), so it');
-console.log('   is NOT added there. The figure above is the double count that was avoided.');
+console.log('   No line\'s losses include ALAE since the pure-premium basis: the pool\'s supplied');
+console.log('   pure premiums exclude it, so it is added on every line (GL once took none, a rule');
+console.log('   from the old per-claim GL model, whose fitted claim sizes included it).');
 
 // 2. GL LAYER — develop GL on its own factors against WC's and Property's shape.
 console.log('\n2. GL LAYER — the recorded GL LDFs describe a LIMITED layer; the engine\'s GL');
