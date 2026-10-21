@@ -64,7 +64,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import {
-  buildAnnualStatement, cellText, notYetAvailable, num, statementYears,
+  buildAnnualStatement, cellText, COMBINED_RATIO_LABEL, notYetAvailable, num, statementYears, topCombinedRatio,
   type AnnualStatement, type Cell, type CellFormat, type StatementRow, type StatementSection,
 } from '../../src/utils/resultsStatement';
 import type { CoverageLine, GameSetupSettings, GameState, LineView, ResultSet } from '../../src/types/simulation';
@@ -192,6 +192,8 @@ function totals(st: AnnualStatement): string[] {
   for (const s of st.sections) for (const r of s.rows) {
     const game = windowIx(s).map(i => r.cells[i]), total = r.cells[r.cells.length - 1];
     if (game.length === 0) continue;
+    // The combined ratio at the top totals since game start, not over the five (check 17).
+    if (r.label === COMBINED_RATIO_LABEL) continue;
     const premRow = s.rows.find(x => x.label === 'Premium' || x.label === 'Reinsurance Premium');
     if (OF_PREMIUM.has(s.key) && r.format === 'pct' && r.label !== '% of Prior' && premRow) {
       const prem = windowIx(s).map(i => num(premRow.cells[i]));
@@ -209,6 +211,40 @@ function totals(st: AnnualStatement): string[] {
       if (num(total) === undefined || !near(num(total)!, sum)) out.push(`${s.title} — ${r.label}: Total is not the sum of the five`);
     }
   }
+  return out;
+}
+
+// ⚠ THE COMBINED RATIO AT THE TOP — the statement's first row, and the header's
+// two figures, which read it. Each year: every cost (net losses, LAE, admin,
+// risk control, the reinsurance cost) over the member charge, off the engine's
+// result. Total: the same summed over every PLAYED year since game start to the
+// year the statement stands at — not the five shown — and blank before year 1.
+// And topCombinedRatio, what the header shows, is that row's latest cell and Total.
+const costsOf = (r: ResultSet, scope: LineView) => {
+  const x = at(r, scope);
+  return { costs: x.netIncurredLoss + x.laeIncurred + x.operatingExpense + x.riskControlInvestment + x.reinsuranceCost, charge: x.totalMemberCharge };
+};
+function topCombined(st: AnnualStatement, gs: GameState, scope: LineView): string[] {
+  const out: string[] = [];
+  const s = sec(st, 'operating');
+  if (s.rows[0]?.label !== COMBINED_RATIO_LABEL) return ['the combined ratio is not the first row'];
+  const cells = s.rows[0].cells;
+  const tl = timelineOf(gs, st.asOf);
+  const first = tl.length - s.windowYears.length;
+  windowIx(s).forEach((ix, i) => {
+    const { costs, charge } = costsOf(tl[first + i], scope);
+    if (num(cells[ix]) === undefined || !near(num(cells[ix])!, costs / charge)) out.push(`${s.columns[ix]}: combined ratio is not every cost over the member charge`);
+  });
+  const played = tl.filter(r => r.yearNumber >= 1);
+  const total = cells[cells.length - 1];
+  if (played.length === 0) {
+    if (total.kind !== 'none') out.push('Total is not blank before year 1');
+  } else {
+    const sum = played.reduce((a, r) => { const c = costsOf(r, scope); return { costs: a.costs + c.costs, charge: a.charge + c.charge }; }, { costs: 0, charge: 0 });
+    if (num(total) === undefined || !near(num(total)!, sum.costs / sum.charge)) out.push('Total is not cumulative over every played year since game start');
+  }
+  const top = topCombinedRatio(st);
+  if (top.latest !== num(cells[cells.length - 2]) || top.cumulative !== num(total)) out.push('the header\'s figures are not the row\'s latest cell and Total');
   return out;
 }
 
@@ -425,6 +461,7 @@ snaps.forEach((gs, played) => {
     note('14', tag(yearLabels(st, gs)));
     note('15', tag(blanks(st, cellText)));
     note('16', tag(selector(st, gs, year)));
+    note('17', tag(topCombined(st, gs, scope)));
    }
   }
 });
@@ -442,6 +479,7 @@ const labels: Record<string, string> = {
   14: 'the year labels: "Current" on the actual latest year only, "Year 0" on the last pre-game year, "Year n" after it, blank elsewhere',
   15: 'a cell with no source shows blank, and no other cell does',
   16: 'the year selector: the five years ending at the chosen year, older years in Prior; the default is the latest',
+  17: 'the combined ratio is the first row: every cost over the member charge each year, Total cumulative since game start (blank before year 1), and the header reads exactly it',
 };
 console.log(`\n--- ${snaps.length} points (game start and after 1 to ${YEARS}) x ${SCOPES.length} scopes x every year the selector offers: ${statements} statements ---`);
 for (const k of Object.keys(labels)) check((agg[k] ?? []).length === 0, `${k}. ${labels[k]}`, (agg[k] ?? [])[0] ?? '');
@@ -507,6 +545,16 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const st16 = buildAnnualStatement(gs, 'pool', 3); const latestNet = sec(base(), 'net');
   const n16 = sec(st16, 'net'); n16.rows = latestNet.rows.map(r => ({ ...r, cells: [...r.cells] }));
   check(blocksMeetBalanceSheet(st16).length > 0, 'control: blocks valued at the latest year under a chosen earlier year are caught');
+  // The combined ratio at the top.
+  check(topCombined(bump(base(), 'operating', COMBINED_RATIO_LABEL, 2, x => x * 1.05), gs, 'pool').length > 0, 'control: a combined ratio off by 5% in one year is caught');
+  const st17b = base(); const c17b = rowOf(st17b, 'operating', COMBINED_RATIO_LABEL);
+  // Over the window instead of since game start: at year 6 the five shown are years 2-6, so year 1 drops out.
+  const winCosts = sec(st17b, 'operating').windowYears.map(y => costsOf(timelineOf(gs).find(r => r.yearNumber === y)!, 'pool'));
+  c17b.cells[c17b.cells.length - 1] = { kind: 'value', v: winCosts.reduce((a, x) => a + x.costs, 0) / winCosts.reduce((a, x) => a + x.charge, 0) };
+  check(topCombined(st17b, gs, 'pool').length > 0, 'control: a cumulative over the five shown instead of since game start is caught');
+  const st17c = buildAnnualStatement(snaps[0], 'WC'); const c17c = rowOf(st17c, 'operating', COMBINED_RATIO_LABEL);
+  c17c.cells[c17c.cells.length - 1] = c17c.cells[c17c.cells.length - 2];
+  check(topCombined(st17c, snaps[0], 'WC').length > 0, 'control: a Cumulative shown before year 1 is caught');
 }
 
 console.log(failures.length === 0

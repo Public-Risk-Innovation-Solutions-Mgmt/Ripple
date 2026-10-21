@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import { RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
-import type { GameState } from '../types/simulation';
+import type { GameState, LineView } from '../types/simulation';
+import { buildAnnualStatement, topCombinedRatio } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
 import { RippleMark } from '../assets/RippleLogo';
 
@@ -19,44 +21,37 @@ interface HeaderProps {
    *  session player who has already locked shows what it is waiting for
    *  instead. */
   advanceLabel?: string;
+  /** The view on screen — the combined ratio is the pool's or that line's. Defaults to the pool. */
+  lineView?: LineView;
 }
 
-export default function Header({ gameState, startingFinancials, onNewGame, onAdvanceYear, canAdvance, advanceLabel }: HeaderProps) {
+export default function Header({ gameState, startingFinancials, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool' }: HeaderProps) {
   const lastResult = gameState?.lockedResults?.[gameState.lockedResults.length - 1];
 
   const surplus = lastResult?.endingSurplus ?? startingFinancials?.surplus ?? 0;
   // ============================================================================
-  // ⚠ THE PRICING BASIS, AND THE LABEL SAYS SO. Read this before changing it.
+  // THE COMBINED RATIO AND ITS CUMULATIVE, READ OFF THE ANNUAL STATEMENT.
   //
-  // This chip rendered `actualLossRatio` — netIncurredLoss / totalMemberCharge,
-  // the MEMBER-CHARGE basis — under the label "Pool Loss Ratio". Two playtesters
-  // independently read the result as a calibration failure and it was not one.
+  // Every cost — net losses, LAE, admin and the reinsurance cost — over what
+  // members were charged, for the latest year, and beside it the same summed
+  // over every played year since game start. Both are the statement's own first
+  // row (buildAnnualStatement → topCombinedRatio), for the view on screen: the
+  // pool's on the pool view, a line's on its own. So the top and the statement
+  // cannot disagree. Before any year is played the latest year is the last
+  // pre-game year and Cumulative is blank.
   //
-  // WHY THAT DENOMINATOR CANNOT CARRY A HEADLINE. totalMemberCharge includes the
-  // reinsurance premium, which is 41-50% of the charge depending on line. So a
-  // pool whose retained book is running at 81% displays 44%, and "correctly
-  // priced" and "giving money away" look identical.
-  //
-  // ⚠ AND THE LEVEL WAS THE SMALLER HALF OF IT. The reinsurance premium and the
-  // admin charge are near-constant while losses are not, so the wide denominator
-  // COMPRESSES THE RANGE: measured on one WC line, a year at 117% of retained
-  // premium displayed 57% and a year at 63% displayed 31%. Every year reads
-  // "fine". A player cannot tell a bad year from a good one, which is worse than
-  // reading the wrong level, because the level is at least consistently wrong.
-  //
-  // WHY THE PRICING BASIS AND NOT PREMIUM ALONE. poolPremiumAndAdminExpense is
-  // expectedLossRatio's own denominator, so the headline actual and the pricing
-  // expectation are finally the same quantity and may be compared. That is
-  // finding 6's entire point and it had never been true in a figure a player
-  // looks at. Net loss over retained premium alone is the plainer statement and
-  // it IS shown — on the Results detail and in the export — but it has no
-  // expected counterpart to sit beside, so it is not the headline.
-  //
-  // THE MEMBER-CHARGE FIGURE IS NOT GONE. It is still on the result, still
-  // exported, and still displayed where its basis is written out in full:
-  // ResultsPage's detail rows, resultMetrics, and the audit page.
+  // ⚠ IT REPLACED "Loss Ratio (prem + admin)" — actualLossRatioPricingBasis,
+  // net incurred over pool premium + admin. That figure is not gone: it stays
+  // on the result, the export, the Results detail and the audit page. The
+  // reason the old chip existed still holds for the new one: a member-charge
+  // LOSS ratio compressed the range, because the near-constant reinsurance and
+  // admin sat in the denominator only. Here every cost is in the numerator too,
+  // so a bad year reads as one.
   // ============================================================================
-  const poolLossRatio = lastResult?.actualLossRatioPricingBasis;
+  const combined = useMemo(
+    () => (gameState?.isStarted ? topCombinedRatio(buildAnnualStatement(gameState, lineView)) : null),
+    [gameState, lineView],
+  );
   const marketShare = lastResult?.marketShare ?? startingFinancials?.marketShare ?? 0;
   const poolName = gameState?.setup?.poolName ?? 'Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';
@@ -105,12 +100,21 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
                   also a sentence boundary, so the chip says LESS than the
                   narrative and never something different. The band-to-sentence
                   map is at colorForRatio in formatters.ts; change neither alone. */}
-              {poolLossRatio !== undefined && (
-                <Chip
-                  label="Loss Ratio (prem + admin)"
-                  value={formatPct(poolLossRatio)}
-                  valueClass={colorForRatioOnDark(poolLossRatio)}
-                />
+              {combined && (
+                <>
+                  <Chip
+                    label="Combined ratio"
+                    value={combined.latest !== undefined ? formatPct(combined.latest) : ''}
+                    valueClass={combined.latest !== undefined ? colorForRatioOnDark(combined.latest) : undefined}
+                    testId="header-combined-ratio"
+                  />
+                  <Chip
+                    label="Cumulative"
+                    value={combined.cumulative !== undefined ? formatPct(combined.cumulative) : ''}
+                    valueClass={combined.cumulative !== undefined ? colorForRatioOnDark(combined.cumulative) : undefined}
+                    testId="header-combined-cumulative"
+                  />
+                </>
               )}
               <Chip
                 label="Market Share"
@@ -159,16 +163,18 @@ function Chip({
   value,
   valueClass = 'text-white',
   mono = false,
+  testId,
 }: {
   label: string;
   value: string;
   valueClass?: string;
   mono?: boolean;
+  testId?: string;
 }) {
   return (
     <div className="bg-slate-800 rounded-lg px-3 py-1.5 flex flex-col items-center min-w-[80px]">
       <span className="text-slate-400 text-xs">{label}</span>
-      <span className={`text-sm font-bold ${valueClass} ${mono ? 'font-mono' : ''}`}>{value}</span>
+      <span data-testid={testId} className={`text-sm font-bold min-h-[1.25rem] ${valueClass} ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );
 }
