@@ -3037,7 +3037,10 @@ export function processLineYear(
     claimCountsByClass: wcCountsByClass,
     claimCountsByTier: wcCountsByTier,
     claimCount: glClaimCount,
-    commonLossFactor,
+    // On the new engine, the year factor every unit shares (commit 11): what
+    // "Shared Annual Loss Factor" shows. The member path keeps its own.
+    commonLossFactor: ordinaryYear?.yearFactor ?? commonLossFactor,
+    expectedReinsuranceRecovery: expectedCededDollars,
     grossUltimateLoss,
     // ⚠ THE STEP BETWEEN GROSS AND NET, AND IT WAS COMPUTED AND THROWN AWAY.
     // netUltimateLoss has always been `bookedGrossUltimate - reinsuranceRecovery`
@@ -4390,6 +4393,7 @@ export function aggregateLineResults(
 
     expectedLoss: expectedLossSum,
     clfAdjustedExpectedLoss: addDollars('clfAdjustedExpectedLoss'),
+    expectedReinsuranceRecovery: results.reduce((t, r) => t + (r.expectedReinsuranceRecovery ?? 0), 0),
 
     expectedNetUnpaidLoss: addDollars('expectedNetUnpaidLoss'),
     netFundingTarget: addDollars('netFundingTarget'),

@@ -51,7 +51,7 @@ import type { Claim, CoverageLine, Member, PoolState, ResultSet } from '../types
 import { FIXED_LINE_ORDER, LINE_ABBREV } from './resultsExport';
 import { claimPaidSplit, isClaimClosed } from './claimClosure';
 import {
-  grossPaidByAccidentYear, latestValuationYear, occurrenceDevelopment,
+  grossPaidByAccidentYear, grossUltimateByAccidentYear, latestValuationYear, occurrenceDevelopment,
   type OccDevelopment,
 } from './cohortViews';
 import { resolveClosureCurve } from '../data/defaultAssumptions';
@@ -70,10 +70,8 @@ type Row = (string | number)[];
 const CLAIM_LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 
 const ENROLLED_NOTE =
-  'Pool losses are the ENROLLED subset only. Claims here already belong to enrolled members — ' +
-  'claim-level detail for prospects is generated but discarded after year-end aggregation, so no ' +
-  'prospect rows exist to filter. The Enrolled column is a real per-row membership check, kept for ' +
-  'documentation and so this stays correct if that ever changes.';
+  'Pool losses are the ENROLLED subset only. Every claim here belongs to the pool\'s own book, so ' +
+  'Enrolled reads Yes; it is a real per-row membership check where the pool keeps a member roster.';
 
 // THE EVENT COLUMN. What a player needs to connect a Property loss and a WC loss
 // in the same year: the event they came from. Read through claimEventLabel, so a
@@ -85,8 +83,10 @@ const EVENT_NOTE =
   'Event and Accident Year came from the same event.';
 
 const PAID_NOTE =
-  'Gross Paid is this claim\'s share of its accident year\'s cumulative GROSS paid — a split of the ' +
-  'paydown the line\'s payout pattern already set, never a schedule the claim draws for itself. The ' +
+  'Gross Paid is this claim\'s share of its accident year\'s cumulative GROSS paid on the listed claims — ' +
+  'the year\'s gross paid-to-ultimate applied to the listed claims\' own size (the year\'s ordinary losses ' +
+  'have no claim rows and keep their paid), then split: a split of the paydown the line\'s payout pattern ' +
+  'already set, never a schedule the claim draws for itself. The ' +
   'split is in two tiers. When the year has paid at least what its CLOSED files are worth, each closed ' +
   'file takes its own gross incurred and the OPEN files share what is left pro rata. When it has not, ' +
   'the closed files share what was paid pro rata and every open file shows nothing paid yet — so a ' +
@@ -430,12 +430,16 @@ function collectLineClaims(
     // Year` is real too — the pre-game years carry 2023/2024/2025 against a 2026
     // start, so the column is continuous across the boundary rather than blank
     // or invented. Nothing here is a placeholder.
+    // ⚠ ON THE NEW ENGINE THE BOOK HAS NO MEMBER RECORDS (book units), so a
+    // roster check found none and Enrolled read "No" on every claim (fixed at
+    // stable-scenarios commit 11): every claim drawn is on the pool's own book.
     const enrolledIds = new Set(lr.memberLossResults.map(m => m.memberId));
+    const onBook = newLossEngineRuns() && lr.memberLossResults.length === 0;
     const memberById = new Map(lr.memberList.map(m => [m.id, m]));
     const occById = new Map(reg.occurrences.map(o => [o.id, o]));
     for (const claim of reg.claims) {
       out.push({
-        claim, member: memberById.get(claim.memberId), enrolled: enrolledIds.has(claim.memberId),
+        claim, member: memberById.get(claim.memberId), enrolled: onBook || enrolledIds.has(claim.memberId),
         event: claimEventLabel(claim, occById.get(claim.occurrenceId)) ?? '',
       });
     }
@@ -659,6 +663,13 @@ function buildPaidLedgerView(
   // (WC at age 37 under the share-based rule), so no normal-length game reaches
   // it.
   const grossPaidByAy = grossPaidByAccidentYear(poolState, line);
+  // ⚠ THE CLAIMS' OWN SHARE OF THE YEAR'S PAID (stable-scenarios commit 11).
+  // On the new engine a year's register is its large losses only, while its
+  // cohort's gross paid holds the ordinary losses too — and splitting the whole
+  // of it across the register put ordinary paid onto the large claims. So the
+  // year's gross paid-to-ultimate is applied to the register's own size first.
+  // On the member path the register IS the year, and the share is 1.
+  const grossUltByAy = grossUltimateByAccidentYear(poolState, line);
 
   // ⚠ THE VALUATION IS THE LATEST LOCKED YEAR, AND A PRE-GAME-ONLY WORKBOOK
   // STRIKES AT ITS LAST PRE-GAME YEAR RATHER THAN AT 0. Before year 1 is played
@@ -680,8 +691,11 @@ function buildPaidLedgerView(
   }
   const paidByClaimId = new Map<string, number>();
   for (const [ay, ayRows] of byAy) {
-    const cohortPaid = grossPaidByAy.get(ay);
-    if (cohortPaid === undefined) continue;   // blank, not zero — see below
+    const yearPaid = grossPaidByAy.get(ay);
+    if (yearPaid === undefined) continue;   // blank, not zero — see below
+    const yearUlt = grossUltByAy.get(ay);
+    const registerUlt = ayRows.reduce((t, { claim }) => t + claim.grossUltimate, 0);
+    const cohortPaid = yearUlt && yearUlt > 0 ? yearPaid * Math.min(1, registerUlt / yearUlt) : yearPaid;
     const split = claimPaidSplit(
       ayRows.map(({ claim }) => ({
         grossUltimate: claim.grossUltimate,

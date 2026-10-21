@@ -1,18 +1,18 @@
 // ============================================================================
-// THE POOL'S OWN DEVELOPMENT PATTERNS — PAID AND INCURRED — RECORDED, NOT USED.
+// THE POOL'S OWN DEVELOPMENT PATTERNS — PAID AND INCURRED — AND THE ENGINE'S.
 //
-// ⚠ NOTHING READS THIS FILE. It is data put down ahead of the work that will
-// consume it. These patterns are intended to REPLACE the fitted Weibull payout
-// curves (FITTED_PAYOUT_PATTERN in defaultAssumptions.ts, mechanics in
-// payoutPattern.ts) when the simplified multiplayer model is built. Until that
-// commit, the engine pays claims off the Weibull fit exactly as before and
-// every value baseline is blind to this file by construction.
+// ⚠ THESE ARE LIVE (stable-scenarios commit 11 corrects a header that said
+// nothing read them). The new loss engine pays and reports every accident year
+// on them, closed at the last row (closePaidPattern / closeReportedPattern,
+// DEVELOPMENT_TAIL); pricing develops the experience window to the end of the
+// closed pattern; and upFrontTrendFactor is computed along the closed reported
+// pattern, dormant while UP_FRONT_TREND is off. The fitted Weibull payout
+// curves (FITTED_PAYOUT_PATTERN in defaultAssumptions.ts) remain for the
+// member path only.
 //
-// Recorded here rather than in defaultAssumptions.ts beside the Weibull
-// parameters BECAUSE both will exist at once for a while, and two payout
-// patterns sharing a file is how the next reader comes to wire the wrong one.
-// The pointer is at LINE_PAYOUT_PATTERN, where someone looking for payout data
-// will actually land.
+// Kept apart from defaultAssumptions.ts's Weibull parameters because both
+// exist at once, and two payout patterns sharing a file is how the next reader
+// comes to wire the wrong one.
 //
 // ============================================================================
 // CONVENTIONS — EVERY PATTERN IN THIS FILE, NO EXCEPTIONS.

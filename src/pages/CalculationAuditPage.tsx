@@ -1638,11 +1638,8 @@ export function buildSupportingRows(
     + 'and the exposure to two, so this is half a rounding unit on each — exposure × ½ rate-unit, plus '
     + 'rate × ½ exposure-unit. Both terms matter; the second is the larger one at these rates.';
 
-  // Per-line check. NaN at pool scope rather than 0 — it is consumed only by
-  // rows that are themselves absent there, and a 0 would read as a real figure.
-  const clfAdjustedExpectedLossCheck = lineRow === null ? NaN : result.expectedLoss * lineRow.selectedFundingCLF;
-  const clfAdjustedExpectedLossDifference =
-    result.clfAdjustedExpectedLoss - clfAdjustedExpectedLossCheck;
+  // (The CLF-adjusted gross expected loss's check went with its row at
+  // stable-scenarios commit 11 — see Expected Losses, net of reinsurance.)
 
   // ⚠ THE BOOKED GROSS, WHICH IS WHAT THE ENGINE NETS FROM. This read
   // grossUltimateLoss — the DRAWN register — so with FORWARD_BOOKING on the
@@ -1954,7 +1951,7 @@ export function buildSupportingRows(
   // carries none of them. They used to print the first active line's.
   const rateRows: AuditRow[] = lineRow === null ? [] : [
     {
-      metric: 'Pure Premium Rate per $100 Payroll',
+      metric: 'Pure Premium (from experience) per $100 Payroll',
       value: dollars(lineRow.purePremiumPer100),
       formula: {
         kind: 'text',
@@ -2076,7 +2073,10 @@ export function buildSupportingRows(
 
     const lossRows: AuditRow[] = [
     {
-      metric: 'Pure Premium',
+      // "Expected Losses", not "Pure Premium" (stable-scenarios commit 11): the
+      // year's expected gross losses. "Pure Premium" names only the rate's
+      // estimate, from the experience.
+      metric: 'Expected Losses',
       value: formatCurrency(result.expectedLoss),
       numericValue: result.expectedLoss,
       formula: isPoolView
@@ -2101,47 +2101,19 @@ export function buildSupportingRows(
       ...rateCheck(expectedLossDifference, lineRow === null ? 0 : lineRow.purePremiumPer100),
     },
     {
-      // NOT the pool premium — see the matching note in resultMetrics.ts. This
-      // is gross expected loss scaled by the CLF, which the net-funding change
-      // left 39% above the real poolPremium on WC and 77% on GL.
-      metric: 'CLF-Adjusted Gross Expected Loss',
-      value: formatCurrency(result.clfAdjustedExpectedLoss),
-      numericValue: result.clfAdjustedExpectedLoss,
-      // A SUM AT POOL SCOPE, for the same reason Reserve Risk Margin Needed is —
-      // see the block there. Each line applies its OWN CLF, so no single factor
-      // reproduces the total.
-      formula: isPoolView && perLine && perLine.length > 0
-        ? { kind: 'sum', terms: perLine.map(pl => ({
-            product: [curTerm(pl.expectedLoss, 'gross expected loss'), factorTerm(pl.clf, 'its own CLF')],
-            label: pl.line,
-          })) }
-        : lineRow === null ? PER_LINE_ONLY
-        : { kind: 'product', factors: [curTerm(result.expectedLoss, 'GROSS expected loss'), factorTerm(lineRow.selectedFundingCLF)] },
-      explain: isPoolView
-        ? 'Gross expected loss at the selected CLF, summed per line — each line applies its own CLF, so there is no single pool factor. This is NOT the pool premium: the premium funds NET expected loss.'
-        : 'Gross expected loss at the selected CLF. This is NOT the pool premium: the premium funds NET expected loss (see Pool Premium Rate above), so on WC and GL this figure sits well above it.',
-    },
-    {
-      metric: 'CLF-Adjusted Gross Expected Loss Check Difference',
-      value: isPoolView ? 'n/a' : formatCurrency(clfAdjustedExpectedLossDifference),
-      numericValue: clfAdjustedExpectedLossDifference,
-      formula: { kind: 'sum', terms: [curTerm(result.clfAdjustedExpectedLoss, 'stored'), curTerm(-clfAdjustedExpectedLossCheck, 'recalculated')] },
-      // ⚠ n/a AT POOL SCOPE, NOT A FAILURE. The recalculation multiplies by a
-      // line's selectedFundingCLF and the pool has none, so it is deliberately
-      // NaN — and legacyCheck(NaN) is false against any threshold, so the row
-      // printed "$NaN" and flagged Review on every pooled view while the prose
-      // beside it already explained that there is no pool factor. The page
-      // already had naNote for exactly this; this row was never routed through
-      // it.
-      ...(isPoolView
-        ? naNote('each line applies its own CLF, so there is no single pool factor to multiply by. '
-          + 'Select a line tab to check it.')
-        : legacyCheck(clfAdjustedExpectedLossDifference)),
+      // REPLACES "CLF-Adjusted Gross Expected Loss" and its check (stable-
+      // scenarios commit 11): the line's expected losses less what its cover is
+      // expected to recover, as priced. The CLF product stays on the result.
+      metric: 'Expected Losses, net of reinsurance',
+      value: formatCurrency(result.expectedLoss - (result.expectedReinsuranceRecovery ?? 0)),
+      numericValue: result.expectedLoss - (result.expectedReinsuranceRecovery ?? 0),
+      formula: { kind: 'sum', terms: [curTerm(result.expectedLoss, 'expected losses'), curTerm(-(result.expectedReinsuranceRecovery ?? 0), 'the cover\'s expected recovery')] },
+      explain: 'What the line expects to keep of the year\'s losses. The cover\'s expected recovery is not taken off the rate — the cover\'s full price is charged as reinsurance.',
     },
     {
       metric: 'Gross Ultimate Loss + LAE',
       value: formatCurrency(result.grossUltimateLoss),
-      formula: { kind: 'simulated', expected: result.expectedLoss, expectedLabel: 'expected (Pure Premium above)', where: 'this card' },
+      formula: { kind: 'simulated', expected: result.expectedLoss, expectedLabel: 'expected (Expected Losses above)', where: 'this card' },
     },
     {
       metric: 'Reinsurance Recovery',

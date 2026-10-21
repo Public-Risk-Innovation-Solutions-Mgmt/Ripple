@@ -1952,6 +1952,13 @@ interface ResultRowFields {
   // audit page's rate build-up. Nothing needed reconnecting.
   expectedLoss: number;                    // Current-year expected loss before CLF
   clfAdjustedExpectedLoss: number;          // expectedLoss × selectedFundingCLF
+  /**
+   * THE COVER'S EXPECTED RECOVERY ON THE YEAR, in dollars (stable-scenarios
+   * commit 11) — what the line's reinsurance is expected to pay, as priced.
+   * Expected Losses, net of reinsurance, is expectedLoss less this. Not netted
+   * off the rate (STOP_RECOVERY_OFF_CLAIMS_COST); shown beside it.
+   */
+  expectedReinsuranceRecovery?: number;
 
   // B. Accounting Reserve / Reserve Confidence View
   expectedNetUnpaidLoss: number;            // Expected unpaid losses (net of reinsurance)

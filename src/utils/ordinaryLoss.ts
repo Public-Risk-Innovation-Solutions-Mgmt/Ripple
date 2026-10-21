@@ -123,6 +123,8 @@ export interface OrdinaryLossYear {
   expected: number;
   realised: number;
   factor: number;
+  /** The year factor every unit shares — the line's draw before each unit's own. Absent on the one-draw member path. */
+  yearFactor?: number;
 }
 
 /**
@@ -213,7 +215,7 @@ export function ordinaryLossFromUnits(
   const expected = byUnit.reduce((a, u) => a + u.expected, 0);
   const realised = byUnit.reduce((a, u) => a + u.realised, 0);
   return {
-    exposure: activeExposure, expected, realised, factor: expected > 0 ? realised / expected : 1,
+    exposure: activeExposure, expected, realised, factor: expected > 0 ? realised / expected : 1, yearFactor: year,
     risk: bookOrdinaryRisk(units), byUnit,
   };
 }

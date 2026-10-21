@@ -104,19 +104,19 @@ The SET opening — no acceptance band, no pin, no search, and no reset: the pre
 
 ## The new pricing parameters
 
-NOT YET USED — read from commit 2 onward. Every one is CHOSEN and is a starting value to be tuned.
+Read by the new rate stack, except where an entry is marked not yet used. Every one is CHOSEN and is a starting value to be tuned.
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
 | ALAE | `WC 0.050 · GL 0.050 · Property 0.050` | share of loss cost | CHOSEN | Allocated loss adjustment expense. Charged in the rate on the ground-up loss cost and booked as a cost: incurred as this share of the ground-up loss incurred, paid on the loss pattern, the unpaid part held as the loss expense reserve. 5% on every line, replacing 8.3%, which misread the pool's pricing example. The supplied pure premiums exclude ALAE, so it is added on WC and GL as on Property. GL once took none: that rule came from the old per-claim GL model, whose fitted claim sizes included defence costs. |
 | ULAE | `WC 0.050 · GL 0.050 · Property 0.050` | share of loss cost | CHOSEN | Unallocated loss adjustment expense — claims handling. Charged in the rate on the ground-up loss cost and booked as a cost: paid as losses are paid, the unpaid part held as the loss expense reserve. 5% on every line, replacing 8.3%, which misread the pool's pricing example. On WC and GL it is inside the supplied pure premium (claims are the pure premium / 1.05, so claims + ULAE equal it exactly); on Property it is on top. |
 | Supplied pure premium | `WC $2.618 · GL $3.450` | per $100, year-1 level | SOURCED | The pool's own pure premium: WC $2.50 + $0.118, GL $2.50 + $0.95 (POOL_LOSS_COST_LAYERS). Ultimate costs that INCLUDE ULAE and EXCLUDE ALAE. The engine draws claims at the pure premium / (1 + ULAE), books ULAE at its share of them and ALAE on top. Ultimate, so no inflation to settlement is booked on top (Trend booked up front: off); trend enters once, year over year. Property is not supplied: its cost is the old engine's figure, loss only, with ALAE and ULAE on top. |
-| Admin, fixed | `WC 1078586 · GL 1751022 · Property 3398817` | dollars per year | CHOSEN · not yet used | The fixed half of administration. Calibrated so opening admin equals today's 15% load, half of it fixed. Measured over 12 games at year 1. |
-| Admin, per exposure | `WC 0.275138 · GL 0.459324 · Property 0.018236` | dollars per $100 of exposure | CHOSEN · not yet used | The variable half of administration. The same calibration: 0.5 x 0.15 x the opening pure premium per $100. |
-| Profit and contingency | `0.05` | share of rate | CHOSEN · not yet used | May be set to 0. |
+| Admin, fixed | `WC 1078586 · GL 1751022 · Property 3398817` | dollars per year | CHOSEN | The fixed half of administration. Live in the rate. Calibrated so opening admin equalled the old 15% load, half of it fixed, measured over 12 games at year 1 — before the stable-scenarios build, on the old loss costs and exposure, so it is STALE: it now runs 16-39% of the supplied cost. Left as it is until the pool's budget is sent. |
+| Admin, per exposure | `WC 0.275138 · GL 0.459324 · Property 0.018236` | dollars per $100 of exposure | CHOSEN | The variable half of administration. Live in the rate. The same calibration, and as stale: 0.5 x 0.15 x the old opening pure premium per $100. Left as it is until the pool's budget is sent. |
+| Profit and contingency | `0.05` | share of rate | CHOSEN | In the rate's divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance. May be set to 0. |
 | Reinsurance load | `0.14` | over a layer's EXPECTED loss, every line | CHOSEN | Every layer — the occurrence layers and the aggregate — is priced at its expected loss x (1 + this). Was each line's funding table read at 70% (WC 1.1400, GL 1.1350, Property 1.1471); separated from the funding tables, so re-deriving them no longer re-prices the reinsurance. Never a percentile of the layer's own losses — for a rarely hit layer that is often zero. |
 | Prior history years | `5` | years | CHOSEN · not yet used | How many years of prior history the new pricing reads. |
-| Pricing window (new) | `5 years, equal weights` | years | CHOSEN · not yet used | The new window and its weighting. |
+| Pricing window (new) | `5 years, equal weights` | years | CHOSEN | The new window and its weighting. Live: the experience pure premium reads it. |
 | Rate change cap | `none` | — | CHOSEN · not yet used | Limit on how far the rate may move in a year. |
 | Reserve basis | `expected` | — | CHOSEN · not yet used | The basis reserves are held on. |
 

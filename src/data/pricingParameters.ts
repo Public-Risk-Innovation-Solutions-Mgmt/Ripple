@@ -279,8 +279,10 @@ export const PRIOR_DEVELOPMENT_DEFAULTS: PerLine<number> = {
 };
 
 // ============================================================================
-// NEW — NOT YET USED. Read from commit 2 onward. Every one is CHOSEN and is a
-// STARTING VALUE TO BE TUNED.
+// THE NEW PRICING PARAMETERS — read by the new rate stack, except where an
+// entry says it is not. Every one is CHOSEN and is a STARTING VALUE TO BE TUNED.
+// (Was headed "NOT YET USED — read from commit 2 onward", which stopped being
+// true when the new stack went live; corrected at stable-scenarios commit 11.)
 // ============================================================================
 
 /**
@@ -319,7 +321,10 @@ export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property
  * exposure at a 3.6685 pure premium; GL $3,502,043 on $382.30M at 6.1243;
  * Property $6,797,634 on $18,639.78M at 0.2431.
  *
- * ⚠ NOT YET USED — read from commit 2 onward.
+ * ⚠ LIVE — read by the new rate stack (linePricing.adminRatePer100For).
+ * ⚠ AND ITS CALIBRATION IS STALE: it was set before the stable-scenarios
+ * build, on the old loss costs and exposure, and now runs 16-39% of the
+ * supplied cost. Left as it is until the pool's budget is sent.
  */
 export const ADMIN_FIXED_PER_YEAR: PerLine<number> = {
   WC: 1_078_586,
@@ -338,7 +343,10 @@ export const ADMIN_FIXED_PER_YEAR: PerLine<number> = {
  * admin — the residual is the spread of pure premium across the 12 games, not
  * an error in the split.
  *
- * ⚠ NOT YET USED — read from commit 2 onward.
+ * ⚠ LIVE — read by the new rate stack (linePricing.adminRatePer100For).
+ * ⚠ AND ITS CALIBRATION IS STALE: it was set before the stable-scenarios
+ * build, on the old loss costs and exposure, and now runs 16-39% of the
+ * supplied cost. Left as it is until the pool's budget is sent.
  */
 export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
   WC: 0.275138,
@@ -348,7 +356,7 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
 
 /**
  * PROFIT AND CONTINGENCY — a share of the rate. May be set to 0.
- * ⚠ NOT YET USED — read from commit 2 onward.
+ * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor).
  */
 export const PROFIT_AND_CONTINGENCY_OF_RATE = 0.05;
 
@@ -570,14 +578,14 @@ export const NEW_RATE_STACK = { enabled: true };
  * generators instead (see MEMBER_LEVEL). The old engine as a whole is frozen
  * on the legacy-engine branch.
  *
- * ⚠ THE REINSURANCE RULE. The rate deducts what the reinsurance will ACTUALLY
- * pay, and the reinsurance is priced on that same basis. Both are computed
- * from the losses THIS engine generates:
- *   expected ceded       = the expected recovery on the new engine's losses
- *   reinsurance price    = that expected recovery x the line's CLF at 70%
- * — each event at the catalogue's probability, ex ante — computed in
- * shockExpectation.ts over exactly the draw shockLosses.ts makes. The aggregate
- * stop is priced on the new engine's retained moments.
+ * ⚠ THE REINSURANCE RULE (corrected at stable-scenarios commit 11; it
+ * described the per-claim tower priced at the CLF's 70% stop). Each line buys
+ * an aggregate stop on its accident year (AGGREGATE_STOP), priced at its
+ * expected recovery + AGGREGATE_STOP_SD_LOAD x the recovery's SD, over sampled
+ * years of exactly the losses this engine draws — each event at the
+ * catalogue's probability, ex ante (aggregateStop.ts). The rate charges that
+ * price in full as reinsurance and takes NOTHING off the claims cost for the
+ * expected recovery (STOP_RECOVERY_OFF_CLAIMS_COST).
  */
 export const newLossEngineRuns = (): boolean => !MEMBER_LEVEL.enabled;
 
@@ -1052,7 +1060,7 @@ export const PRIOR_HISTORY_YEARS_NEW = 5;
 
 /**
  * The new pricing window: 5 years, EQUAL WEIGHTS.
- * ⚠ NOT YET USED — read from commit 2 onward.
+ * ⚠ LIVE — the new pure premium's window (newPurePremium.ts).
  */
 export const PRICING_WINDOW_YEARS_NEW = 5;
 export const PRICING_WINDOW_WEIGHTING_NEW = 'equal';
@@ -1238,12 +1246,16 @@ export const GL_ORDINARY_LOSS_BAND_PLANNED = { from: 0, to: 1_000_000 } as const
 
 
 // ============================================================================
-// THE R MODEL — THE DATA SCIENTIST'S PARAMETERS, RECORDED AND NOT READ.
+// THE R MODEL — THE DATA SCIENTIST'S PARAMETERS, AS RECORDED, AND WHAT THE GAME
+// DID WITH EACH.
 //
-// ⚠ NOTHING IN HERE IS WIRED TO ANYTHING. Every entry is marked `notYetUsed`
-// and the new loss engine is what will read the ones it keeps. It is recorded
-// now, before that engine exists, because the alternative is a build that
-// quietly diverges from its own source and nobody able to say where.
+// ⚠ THE NEW LOSS ENGINE READS THE ONES IT KEPT (corrected at stable-scenarios
+// commit 11; this header said nothing was wired). The shock catalogue — its
+// events, probabilities (x SHOCK_CATALOGUE_SCALE), durations and A/T/R
+// assumptions — is read by shockLosses.ts and shockExpectation.ts; the status
+// column on each entry says which were ADOPTED, SCALED, ADAPTED, SUPERSEDED or
+// NOT USED. It was recorded before that engine existed because the alternative
+// is a build that quietly diverges from its own source and nobody able to say where.
 //
 // ⚠ ONE FROZEN OBJECT, NOT SIXTY EXPORTED CONSTANTS, and the namespacing is
 // the point. These are an EXTERNAL MODEL'S inputs, not this game's: a loose
@@ -1706,7 +1718,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   },
   {
     title: 'The new pricing parameters',
-    blurb: 'NOT YET USED — read from commit 2 onward. Every one is CHOSEN and is a starting value to be tuned.',
+    blurb: 'Read by the new rate stack, except where an entry is marked not yet used. Every one is CHOSEN and is a '
+      + 'starting value to be tuned.',
     entries: [
       ['ALAE', {
         value: perLine(ALAE_OF_LOSS_COST, 3), unit: 'share of loss cost',
@@ -1738,17 +1751,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Admin, fixed', {
         value: perLine(ADMIN_FIXED_PER_YEAR, 0), unit: 'dollars per year',
-        what: 'The fixed half of administration.', basis: 'CHOSEN', notYetUsed: true,
-        note: 'Calibrated so opening admin equals today\'s 15% load, half of it fixed. Measured over 12 games at year 1.',
+        what: 'The fixed half of administration. Live in the rate.', basis: 'CHOSEN',
+        note: 'Calibrated so opening admin equalled the old 15% load, half of it fixed, measured over 12 games at year 1 — '
+          + 'before the stable-scenarios build, on the old loss costs and exposure, so it is STALE: it now runs 16-39% of '
+          + 'the supplied cost. Left as it is until the pool\'s budget is sent.',
       }],
       ['Admin, per exposure', {
         value: perLine(ADMIN_PER_EXPOSURE_PER_100), unit: 'dollars per $100 of exposure',
-        what: 'The variable half of administration.', basis: 'CHOSEN', notYetUsed: true,
-        note: 'The same calibration: 0.5 x 0.15 x the opening pure premium per $100.',
+        what: 'The variable half of administration. Live in the rate.', basis: 'CHOSEN',
+        note: 'The same calibration, and as stale: 0.5 x 0.15 x the old opening pure premium per $100. Left as it is '
+          + 'until the pool\'s budget is sent.',
       }],
       ['Profit and contingency', {
         value: PROFIT_AND_CONTINGENCY_OF_RATE, unit: 'share of rate',
-        what: 'May be set to 0.', basis: 'CHOSEN', notYetUsed: true,
+        what: 'In the rate\'s divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance. May be set to 0.',
+        basis: 'CHOSEN',
       }],
       ['Reinsurance load', {
         value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
@@ -1764,7 +1781,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Pricing window (new)', {
         value: `${PRICING_WINDOW_YEARS_NEW} years, ${PRICING_WINDOW_WEIGHTING_NEW} weights`, unit: 'years',
-        what: 'The new window and its weighting.', basis: 'CHOSEN', notYetUsed: true,
+        what: 'The new window and its weighting. Live: the experience pure premium reads it.', basis: 'CHOSEN',
       }],
       ['Rate change cap', {
         value: RATE_CHANGE_CAP_NEW === null ? 'none' : RATE_CHANGE_CAP_NEW, unit: '—',

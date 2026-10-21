@@ -70,7 +70,7 @@ const DOLLARS = new Set([
   'investedAssets', 'investmentIncome', 'outstandingLoanBalance', 'loanRepaymentApplied',
   'loanInterestAccrued', 'loanOriginatedThisYear',
   'interLineTransfer', 'interLineCashTransfer',
-  'expectedLoss', 'clfAdjustedExpectedLoss',
+  'expectedLoss', 'clfAdjustedExpectedLoss', 'expectedReinsuranceRecovery',
   'expectedNetUnpaidLoss', 'priorYearDevelopmentCeded', 'bookingGiveBack',
   'netFundingTarget', 'indicatedNetReserveAtConfidenceLevel', 'reserveRiskMarginNeeded',
   'catCapitalNeeded',

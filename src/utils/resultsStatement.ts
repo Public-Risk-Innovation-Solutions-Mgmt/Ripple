@@ -144,8 +144,20 @@ export function totalCell(rowClass: RowClass, gameCells: readonly Cell[]): Cell 
 
 /** A row: Prior (null where the section has none), the window, and its Total. */
 function row(label: string, format: CellFormat, rowClass: RowClass, prior: Cell | null, game: Cell[],
-  opts: { indent?: boolean; emphasis?: boolean } = {}): StatementRow {
-  return { label, format, rowClass, cells: [...(prior ? [prior] : []), ...game, totalCell(rowClass, game)], ...opts };
+  opts: { indent?: boolean; emphasis?: boolean; total?: Cell } = {}): StatementRow {
+  const { total, ...rest } = opts;
+  return { label, format, rowClass, cells: [...(prior ? [prior] : []), ...game, total ?? totalCell(rowClass, game)], ...rest };
+}
+
+/**
+ * A RATIO'S TOTAL, FROM SUMMED FIGURES (stable-scenarios commit 11): the
+ * window's numerators summed over its denominators summed — the cumulative
+ * ratio — never the latest year's, and never a mean of the years' ratios.
+ */
+function cumulativeRatio(nums: (number | undefined)[], dens: (number | undefined)[]): Cell {
+  if (nums.length === 0) return NONE;
+  if (nums.some(x => x === undefined) || dens.some(x => x === undefined)) return NA;
+  return div(nums.reduce((a, b) => a! + b!, 0), dens.reduce((a, b) => a! + b!, 0));
 }
 
 type Scoped = ResultSet | LineResultSet;
@@ -184,9 +196,11 @@ function sumOperating(ys: OperatingYear[]): OperatingYear {
 function operatingRows(prior: OperatingYear | null, cols: OperatingYear[]): StatementRow[] {
   const mk = (label: string, f: (o: OperatingYear) => number | undefined, opts: { indent?: boolean; emphasis?: boolean } = {}) =>
     row(label, 'dollars', 'flow', prior ? v(f(prior)) : null, cols.map(o => v(f(o))), opts);
-  // Prior's ratios come from Prior's own summed parts.
+  // Prior's ratios come from Prior's own summed parts, and Total's from the
+  // window's (cumulative — summed figures, commit 11).
   const pct = (label: string, f: (o: OperatingYear) => number | undefined) =>
-    row(label, 'pct', 'point', prior ? div(f(prior), prior.premium) : null, cols.map(o => div(f(o), o.premium)), { indent: true });
+    row(label, 'pct', 'point', prior ? div(f(prior), prior.premium) : null, cols.map(o => div(f(o), o.premium)),
+      { indent: true, total: cumulativeRatio(cols.map(f), cols.map(o => o.premium)) });
   const lossLae = (o: OperatingYear) => add(o.losses, o.lae);
   const expenses = (o: OperatingYear) => add(o.admin, o.riskControl);
   const nui = (o: OperatingYear) => sub(o.premium, add(o.losses, o.lae, o.admin, o.riskControl));
@@ -195,7 +209,9 @@ function operatingRows(prior: OperatingYear | null, cols: OperatingYear[]): Stat
     mk('Incurred Losses', o => o.losses),
     mk('Incurred Loss Adjustment Expense', o => o.lae),
     mk('Total Incurred Loss & LAE', lossLae, { emphasis: true }),
-    pct('% of Premium', lossLae),
+    // The loss ratio and the Loss & LAE ratio side by side (commit 11).
+    pct('Loss Ratio', o => o.losses),
+    pct('Loss & LAE Ratio', lossLae),
     mk('General Admin Expense', o => o.admin),
     mk('Additional Admin Expense (risk control)', o => o.riskControl),
     pct('% of Premium', expenses),
@@ -419,7 +435,8 @@ function programRows(
     L('Ultimates', ult, { emphasis: true }),
     // ⚠ PRIOR HAS NO COMPLETE PREMIUM: it always holds the bulk years, which
     // carry none, so a ratio over it would divide losses that have no premium.
-    row('Loss and LAE Ratio', 'pct', 'point', NA, gameLoss.map((l, i) => div(ult(l), gamePremium[i]))),
+    row('Loss and LAE Ratio', 'pct', 'point', NA, gameLoss.map((l, i) => div(ult(l), gamePremium[i])),
+      { total: cumulativeRatio(gameLoss.map(ult), gamePremium) }),
   ];
 }
 
@@ -517,7 +534,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
   // can be restored, or shown in a testing view.
   const notes = [
     'Dollars are the average of the ten worlds; every ratio is worked out from those averaged figures. The surplus range is the one per-world figure; the pre-game ran once, before the worlds.',
-    `The most recent ${STATEMENT_WINDOW_YEARS} years are shown as their own columns; every older year collects in Prior — flows summed, balances at the end of the last year in it. Total covers the ${STATEMENT_WINDOW_YEARS} years shown: the sum for flows, the latest year for balances, ratios and changes.`,
+    `The most recent ${STATEMENT_WINDOW_YEARS} years are shown as their own columns; every older year collects in Prior — flows summed, balances at the end of the last year in it. Total covers the ${STATEMENT_WINDOW_YEARS} years shown: the sum for flows; for a ratio of premium, the summed figures over summed premium; the latest year for balances and changes.`,
     `The ${preGame.length} pre-game years are the pool's played history. Surplus moves through them only by each year's income, assessments and dividends, from the paid-in capital the pool started with, the prior board's margin set so the last of them ends at the opening. That year's year-end is shown as the opening, which is what year 1 begins from. The accident years before the pre-game are on the books from its first year, so no reserve appears at the opening that the pre-game did not carry. Paid-in capital is the surplus the pool started the pre-game with; earned surplus is everything since.`,
     'In the Gross, Ceded and Net blocks Prior holds every older program year, the bulk reserves from before the pre-game included. Those carry no premium, so Prior has no Loss and LAE Ratio.',
     'Loss adjustment expense is the rate\'s share of the ground-up loss: paid with the losses, its reserve held in IBNR. The reinsurer reimburses none of it, so it is in gross and net alike.',
