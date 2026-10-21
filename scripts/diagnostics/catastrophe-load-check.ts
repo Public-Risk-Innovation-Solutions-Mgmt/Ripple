@@ -1,5 +1,6 @@
 // ============================================================================
-// THE STEADY CATASTROPHE LOAD — THE GATE (stable-scenarios commit 7).
+// SHOCKS OUT OF THE EXPERIENCE, AND NO CATASTROPHE LOAD — THE GATE
+// (stable-scenarios commit 7; the load removed after it, as double-counting).
 //
 //   npx tsx scripts/diagnostics/catastrophe-load-check.ts
 //
@@ -9,20 +10,21 @@
 //   2. TAKEN OUT ON THE PAID BASIS, BEFORE DEVELOPMENT: each window year's
 //      paid-to-date loses exactly its shock dollars / the LDF at its age, and
 //      is then developed — so a year's shocks leave its developed figure whole.
-//   3. THE LOAD: per $100, the shocks' expected cost at the catalogue's
-//      probabilities at year 3 (every duration in force), trended at the
-//      line's booked cost level — so year on year it grows at the line's
-//      trend — and it is charged in the pre-game's years as in play.
-//   4. THE PURE PREMIUM CARRIES IT: experience without shocks + the load,
-//      before ALAE and ULAE, from the ledgers of played games.
+//   3. NO LOAD IS CHARGED: catastropheLoadPer100 is 0 on every line in every
+//      year, the pre-game's included — the pool's supplied loss costs already
+//      carry its historical large events. Switched back on, the dormant load is
+//      still the shocks' expected cost at year 3, trended at the line's rate.
+//   4. THE PURE PREMIUM IS THE EXPERIENCE WITHOUT SHOCKS, before ALAE and
+//      ULAE, from the ledgers of played games; and a book with no usable
+//      history prices its ordinary expectation alone, no shock expectation.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a year whose shocks were not
-// recorded, shocks taken out after development (at ultimate, not paid), a
-// load struck at year 1, and a pure premium without the load.
+// recorded, shocks taken out after development (at ultimate, not paid), the
+// load left on, and a pure premium that still carries the load.
 // ============================================================================
 
-import { CATASTROPHE_LOAD_STEADY_YEAR, SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
-import { catastropheLoadPer100, newPurePremiumPer100 } from '../../src/utils/newPurePremium';
+import { CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
+import { bookPurePremium, catastropheLoadPer100, newPurePremiumPer100 } from '../../src/utils/newPurePremium';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
 import { bookedCostLevel } from '../../src/utils/ordinaryLoss';
 import { averageLedger } from '../../src/utils/worlds';
@@ -109,22 +111,22 @@ function gradeRemoval(taken: Taken, tag: string) {
 // ---------------------------------------------------------------- 3
 type Load = (l: CoverageLine, y: number, e: number) => number;
 function gradeLoad(load: Load, tag: string) {
-  let worstDef = 0, worstGrowth = 0, preGame = Infinity;
-  const shown: string[] = [];
+  let charged = 0, worstDormant = 0, worstGrowth = 0;
+  for (const l of LINES) for (let y = -4; y <= 12; y++) charged = Math.max(charged, Math.abs(load(l, y, 1000)));
+  // The dormant load, switched on for a moment, is still what it was built to be.
+  CATASTROPHE_LOAD.enabled = true;
   for (const l of LINES) {
-    const e = 1000;
-    const b = expectedLossBreakdown(l, e, CATASTROPHE_LOAD_STEADY_YEAR);
+    const b = expectedLossBreakdown(l, 1000, CATASTROPHE_LOAD_STEADY_YEAR);
     for (let y = -4; y <= 12; y++) {
-      const want = (b.uplift + b.shockLarge) / (e * 10_000) * bookedCostLevel(l, y) / bookedCostLevel(l, CATASTROPHE_LOAD_STEADY_YEAR);
-      worstDef = Math.max(worstDef, Math.abs(load(l, y, e) / want - 1));
-      if (y < 12) worstGrowth = Math.max(worstGrowth, Math.abs(load(l, y + 1, e) / load(l, y, e) - (1 + SEVERITY_TREND_PER_YEAR[l])));
-      if (y <= 0) preGame = Math.min(preGame, load(l, y, e));
+      const want = (b.uplift + b.shockLarge) / 1e7 * bookedCostLevel(l, y) / bookedCostLevel(l, CATASTROPHE_LOAD_STEADY_YEAR);
+      worstDormant = Math.max(worstDormant, Math.abs(catastropheLoadPer100(l, y, 1000) / want - 1));
+      if (y < 12) worstGrowth = Math.max(worstGrowth, Math.abs(catastropheLoadPer100(l, y + 1, 1000) / catastropheLoadPer100(l, y, 1000) - (1 + SEVERITY_TREND_PER_YEAR[l])));
     }
-    shown.push(`${l} $${load(l, 1, e).toFixed(4)}`);
   }
-  check(worstDef < 1e-12 && worstGrowth < 1e-12 && preGame > 0,
-    `${tag}3. the load is the shocks' expected cost at year ${CATASTROPHE_LOAD_STEADY_YEAR}, trended at the line's rate, charged from the pre-game on`,
-    `year 1 per $100: ${shown.join(', ')}`);
+  CATASTROPHE_LOAD.enabled = false;
+  check(charged === 0 && worstDormant < 1e-12 && worstGrowth < 1e-12,
+    `${tag}3. no catastrophe load is charged, any line, any year; the dormant load is still the year-${CATASTROPHE_LOAD_STEADY_YEAR} cost, trended`,
+    `largest charged ${charged}; dormant worst relative ${Math.max(worstDormant, worstGrowth).toExponential(2)}`);
 }
 
 // ---------------------------------------------------------------- 4
@@ -139,15 +141,21 @@ function gradeCarried(carried: Carried, tag: string) {
       n++;
       const exShock = pp.points.reduce((s, p) => s + p.trendedLossCostPer100, 0) / pp.points.length;
       const load = catastropheLoadPer100(l, i + 2, pp.points[pp.points.length - 1].exposure);
-      worst = Math.max(worst, rel(pp.lossCostPer100 * 1e6, carried(exShock, load) * 1e6),
-        rel(pp.catastropheLoadPer100 * 1e6, load * 1e6));
+      worst = Math.max(worst, rel(pp.lossCostPer100 * 1e6, carried(exShock, load) * 1e6));
     }
   });
-  check(worst < 1e-9, `${tag}4. the pure premium's loss cost is the experience without its shocks + the load`,
-    `${n} line-years priced; worst relative ${worst.toExponential(2)}`);
+  // With no history at all: the ordinary expectation, nothing for the shocks.
+  let worstFallback = 0;
+  for (const l of LINES) for (const y of [-4, 1, 5]) {
+    const pp = bookPurePremium(l, y, { rows: [], allMarketMembers: [], membershipHistory: {} as never }, 1000);
+    const b = expectedLossBreakdown(l, 1000, y);
+    worstFallback = Math.max(worstFallback, rel(pp.lossCostPer100 * 1e6, carried(b.ordinary / 1e7, catastropheLoadPer100(l, y, 1000)) * 1e6));
+  }
+  check(worst < 1e-9 && worstFallback < 1e-9, `${tag}4. the pure premium's loss cost is the experience without its shocks; with no history, the ordinary expectation`,
+    `${n} line-years priced; worst relative ${Math.max(worst, worstFallback).toExponential(2)}`);
 }
 
-console.log('THE STEADY CATASTROPHE LOAD');
+console.log('SHOCKS OUT OF THE EXPERIENCE, AND NO CATASTROPHE LOAD');
 gradeRecorded(shippedRowShock, '');
 gradeRemoval(shippedTaken, '');
 gradeLoad(catastropheLoadPer100, '');
@@ -164,15 +172,15 @@ const controlFails = (name: string, run: () => void, expect: string) => {
 };
 controlFails('a year whose shocks were not recorded', () => gradeRecorded(row => (row && row.yearNumber === 3 ? 0 : shippedRowShock(row)), ''), '1.');
 controlFails('shocks taken out at ultimate, after development', () => gradeRemoval(shock => shock, ''), '2.');
-controlFails('a load struck at year 1', () => gradeLoad((l, y, e) => {
-  const b = expectedLossBreakdown(l, e, 1);
-  return (b.uplift + b.shockLarge) / (e * 10_000) * bookedCostLevel(l, y) / bookedCostLevel(l, 1);
+controlFails('the load left on', () => gradeLoad((l, y, e) => {
+  const b = expectedLossBreakdown(l, e, CATASTROPHE_LOAD_STEADY_YEAR);
+  return (b.uplift + b.shockLarge) / (e * 10_000) * bookedCostLevel(l, y) / bookedCostLevel(l, CATASTROPHE_LOAD_STEADY_YEAR);
 }, ''), '3.');
-controlFails('a pure premium without the load', () => gradeCarried(x => x, ''), '4.');
+controlFails('a pure premium that still carries the load', () => gradeCarried((x, l) => x + l + 0.01, ''), '4.');
 
 console.log('');
 if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — shock dollars recorded, taken out on the paid basis, and priced as a steady trended load from the pre-game on.');
+console.log('PASS — shock dollars recorded and kept out of the experience on the paid basis, and no catastrophe load charged.');

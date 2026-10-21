@@ -1309,22 +1309,32 @@ export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
 export const SHOCK_SCHEDULE_SPREAD = 1;
 
 /**
- * THE STEADY CATASTROPHE LOAD (stable-scenarios commit 7). ON: each accident
+ * SHOCKS OUT OF THE EXPERIENCE (stable-scenarios commit 7). ON: each accident
  * year's shock dollars — the uplift on its ordinary losses and the shocks'
  * large losses, as booked — are recorded on its ledger row and taken OUT of
  * the experience pure premium's history, on the paid basis before development
- * (the share of them paid by that age). In their place the rate carries a
- * steady load: the shocks' expected cost per $100 at the catalogue's
- * probabilities, trended at the line's booked cost level, charged in every
- * year from the pre-game on (newPurePremium's catastropheLoadPer100). Shock R
- * development stays in the history — it is development on open years, not a
- * shock's own dollars.
+ * (the share of them paid by that age). Shock R development stays in the
+ * history — it is development on open years, not a shock's own dollars. With
+ * CATASTROPHE_LOAD on (below), a steady load stands in their place: the
+ * shocks' expected cost per $100 at the catalogue's probabilities, trended,
+ * charged from the pre-game on (newPurePremium's catastropheLoadPer100).
  *
- * ⚠ WHY: a shock in the five-year window lifted the rate for five years and a
- * quiet window under-priced the next one; the load charges the same expected
- * cost every year instead.
+ * ⚠ WHY THE HISTORY EXCLUDES THEM: a shock in the five-year window lifted the
+ * rate for five years and a quiet window under-priced the next one.
  */
-export const CATASTROPHE_LOAD = { enabled: true };
+export const SHOCKS_OUT_OF_EXPERIENCE = { enabled: true };
+
+/**
+ * ⚠ THE LOAD ITSELF IS OFF, SINCE IT DOUBLE-COUNTED. The pool's supplied loss
+ * costs (POOL_LOSS_COST_LAYERS) already include its historical large events, so
+ * charging the shocks' expected cost on top priced them twice. The rate now
+ * carries no catastrophe load on any line: shocks are UNPRICED SURPRISES, like
+ * the host's development — never anticipated by the rate, and kept out of the
+ * experience it is struck from (SHOCKS_OUT_OF_EXPERIENCE), so a shock does not
+ * lift the rate afterwards either. ON restores the steady load as commit 7
+ * built it.
+ */
+export const CATASTROPHE_LOAD = { enabled: false };
 /**
  * The year the load is struck at, then trended to each year: the first in
  * which every event's duration can be in force (the catalogue's longest is 3
@@ -1923,16 +1933,23 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'a ten-year game.', basis: 'CHOSEN',
         note: 'Was one event per three years, rounded. Year 1 stays shock-free.',
       }],
+      ['Shocks out of the experience', {
+        value: SHOCKS_OUT_OF_EXPERIENCE.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'Each accident year\'s shock dollars (the uplift on ordinary losses and the shocks\' large losses, as '
+          + 'booked) are taken out of the experience pure premium, on the paid basis before development. Shock R '
+          + 'development stays in the history.',
+        basis: 'CHOSEN',
+        note: 'A shock in the five-year window no longer lifts the rate for five years afterwards.',
+      }],
       ['Catastrophe load', {
         value: CATASTROPHE_LOAD.enabled ? 'on' : 'off', unit: 'switch',
-        what: 'Each accident year\'s shock dollars (the uplift on ordinary losses and the shocks\' large losses, as '
-          + 'booked) are taken out of the experience pure premium, on the paid basis before development, and priced '
-          + 'instead as a steady load: their expected cost per $100 at the catalogue\'s probabilities, struck at year '
-          + `${CATASTROPHE_LOAD_STEADY_YEAR} (every duration in force) and trended at the line's booked cost level, `
-          + 'charged from the pre-game on.',
+        what: 'OFF on every line: the rate carries no charge for shocks. They are unpriced surprises, like the host\'s '
+          + 'development — never anticipated by the rate, and kept out of the experience it is struck from.',
         basis: 'CHOSEN',
-        note: 'Shock R development stays in the history. Struck on the line\'s typical book. A shock in the window no '
-          + 'longer lifts the rate for five years, and a quiet window no longer under-prices the next.',
+        note: 'Removed because it double-counted: the pool\'s supplied loss costs already include its historical large '
+          + 'events, so a load for the shocks\' expected cost priced them twice. On, it would charge that cost (struck '
+          + `at year ${CATASTROPHE_LOAD_STEADY_YEAR} and trended) from the pre-game on — WC $0.167, GL $0.382, Property `
+          + '$0.040 per $100 in year 1.',
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',

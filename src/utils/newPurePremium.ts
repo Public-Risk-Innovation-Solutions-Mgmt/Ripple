@@ -52,7 +52,7 @@ import {
   PRICING_WINDOW_YEARS_NEW,
   ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
   FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, EXPOSURE_GROWTH_PER_YEAR,
-  CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR,
+  CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SHOCKS_OUT_OF_EXPERIENCE,
 } from '../data/pricingParameters';
 import { bookedCostLevel } from './ordinaryLoss';
 import { PAID_DEVELOPMENT_PATTERN } from '../data/paidDevelopmentPatterns';
@@ -260,7 +260,7 @@ export function newPurePremiumPer100(
     // (stable-scenarios commit 7): the share of them paid by this age is
     // their booked gross / the LDF, which is what leaves paid-to-date. Shock R
     // development stays in: it is development, not the shock's own dollars.
-    const shockPaid = CATASTROPHE_LOAD.enabled ? (r.shockGross ?? 0) / ldf : 0;
+    const shockPaid = SHOCKS_OUT_OF_EXPERIENCE.enabled ? (r.shockGross ?? 0) / ldf : 0;
     const groundUpPaid = Math.max(0, paidToDate - shockPaid);
     const developed = groundUpPaid * ldf;
     const lossCostPer100 = developed / (exposure * 10_000);
@@ -328,12 +328,13 @@ export function newPurePremiumFromLossCost(
 export function bookPurePremium(
   line: CoverageLine, pricingYear: number, basis: NewPurePremiumBasis, exposure: number,
 ): NewPurePremiumResult {
-  if (!CATASTROPHE_LOAD.enabled) {
+  if (!SHOCKS_OUT_OF_EXPERIENCE.enabled) {
     return newPurePremiumPer100(line, pricingYear, basis, exposure)
       ?? newPurePremiumFromLossCost(line,
         expectedLossBreakdown(line, exposure, pricingYear).total / Math.max(exposure * 10_000, 1));
   }
-  // With no usable history: the ordinary expectation plus the same steady load.
+  // With no usable history: the ordinary expectation, plus the steady load when
+  // it is on (0 off) — the shocks priced as the history prices them.
   const load = catastropheLoadPer100(line, pricingYear, exposure);
   return newPurePremiumPer100(line, pricingYear, basis, exposure)
     ?? newPurePremiumFromLossCost(line,
