@@ -10,14 +10,16 @@
 //      basis), trended by accident year, with no routine fold, years -10 to 15.
 //   2. NOTHING ELSE IS ORDINARY: their expected loss is the ordinary cost x
 //      (1 + the A uplift) plus the shocks' large losses — no routine claims.
-//   3. THE SHOCKS SCALE OFF THE $0 – $1M LAYER on WC and GL, and off Property's
-//      cost without the fold.
+//   3. THE SHOCKS SCALE OFF THE $0 – $1M LAYER ON THE CLAIMS BASIS on WC and GL
+//      — $2.50 less its ULAE share, $2.381 — and off Property's cost without
+//      the fold.
 //   4. REQUIRED CAPITAL AT 80%: both margin constants read 0.80, the opening's
 //      required capital is reserves x (CLF at 80% - 1), and so is every played
 //      year's reserve margin.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: the $1M – $5M layer left out,
-// a fold left on WC, T scaled off the full layer sum, and a margin at 90%.
+// a fold left on WC, T scaled off the full layer sum, T scaled off the layer
+// with its ULAE left in ($2.50), and a margin at 90%.
 // ============================================================================
 
 import {
@@ -74,9 +76,11 @@ function gradeShockBasis(basis: (l: CoverageLine) => number, tag: string) {
   for (const l of LINES) for (const y of YEARS) {
     worst = Math.max(worst, rel(tScale(l, E, y), E * 10_000 * basis(l) * trend(l, y) / rModelOrdinary(l)));
   }
-  check(worst < 1e-12 && SHOCK_T_BASIS_PER_100.WC === 2.5 && SHOCK_T_BASIS_PER_100.GL === 2.5,
-    `${tag}3. the shocks scale off the $0 – $1M layer on WC and GL ($2.50), and Property's unfolded cost`,
-    `worst relative ${worst.toExponential(2)}`);
+  const claimsLayer = (l: CoverageLine) => POOL_LOSS_COST_LAYERS[l]![0].per100 / (1 + ULAE_OF_LOSS_COST[l]);
+  const onClaims = LAYERED.every(l => rel(basis(l), claimsLayer(l)) < 1e-12 && Math.abs(basis(l) - 2.5 / 1.05) < 1e-12);
+  check(worst < 1e-12 && onClaims,
+    `${tag}3. the shocks scale off the $0 – $1M layer on the claims basis on WC and GL ($2.381), and Property's unfolded cost`,
+    `WC $${basis('WC').toFixed(4)}, GL $${basis('GL').toFixed(4)}; worst relative ${worst.toExponential(2)}`);
 }
 
 // ---------------------------------------------------------------- 4
@@ -117,6 +121,7 @@ const controlFails = (name: string, run: () => void, expect: string) => {
 controlFails('the $1M – $5M layer left out', () => gradeCosts(l => POOL_LOSS_COST_LAYERS[l]![0].per100, ordinaryLossCostPer100, ''), '1.');
 controlFails('claims drawn at the full pure premium (ULAE on top)', () => gradeCosts(shippedLayers, (l, y) => ordinaryLossCostPer100(l, y) * (1 + ULAE_OF_LOSS_COST[l]), ''), '1.');
 controlFails('a fold left on WC', () => gradeCosts(shippedLayers, (l, y) => ordinaryLossCostPer100(l, y) + (l === 'WC' ? 0.4 : 0), ''), '1.');
+controlFails('T scaled off the layer with its ULAE left in ($2.50)', () => gradeShockBasis(l => (l === 'Property' ? SHOCK_T_BASIS_PER_100[l] : POOL_LOSS_COST_LAYERS[l]![0].per100), ''), '3.');
 controlFails('T scaled off the full layer sum', () => gradeShockBasis(l => (l === 'Property' ? SHOCK_T_BASIS_PER_100[l] : shippedLayers(l)), ''), '3.');
 controlFails('a margin at 90%', () => gradeMargin(0.9, ''), '4.');
 

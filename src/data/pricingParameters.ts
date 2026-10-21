@@ -690,15 +690,16 @@ export const EXPECTED_ORDINARY_LOSS_COST_PER_100: PerLine<number> = {
  * WHAT THE SHOCKS' LARGE LOSSES (T) ARE SCALED OFF, per $100, year 1 — CHOSEN
  * (stable-scenarios commit 2). T scales with the line's expected ordinary cost
  * against the R model's (shockLosses' tScale). On WC and GL it reads the
- * $0 – $1M layer, $2.50: the closest match to what "ordinary" meant when T was
- * calibrated (claims to $1M, then WC $2.774 and GL $2.830), so WC's shocks are
- * about 10% and GL's about 12% smaller than they were. Property reads its
- * ordinary cost without the routine fold, as before. Whether shocks should be
- * fixed in dollars instead is to be decided once exposure is scaled (block C).
+ * $0 – $1M layer ON THE CLAIMS BASIS — $2.50 less its ULAE share, / 1.05 =
+ * $2.381 — so shocks are sized on claims like everything else: the supplied
+ * layers are pure premium including ULAE. The layer is the closest match to
+ * what "ordinary" meant when T was calibrated (claims to $1M, then WC $2.774
+ * and GL $2.830). Property's cost is loss only and reads its ordinary cost
+ * without the routine fold, as before.
  */
 export const SHOCK_T_BASIS_PER_100: PerLine<number> = {
-  WC: POOL_LOSS_COST_LAYERS.WC![0].per100,
-  GL: POOL_LOSS_COST_LAYERS.GL![0].per100,
+  WC: POOL_LOSS_COST_LAYERS.WC![0].per100 / (1 + ULAE_OF_LOSS_COST.WC),
+  GL: POOL_LOSS_COST_LAYERS.GL![0].per100 / (1 + ULAE_OF_LOSS_COST.GL),
   Property: 0.159515,
 };
 
@@ -1370,6 +1371,18 @@ export const SHOCKS_OUT_OF_EXPERIENCE = { enabled: true };
  * built it.
  */
 export const CATASTROPHE_LOAD = { enabled: false };
+
+/**
+ * ⚠ THE COVER'S EXPECTED RECOVERY IS NOT TAKEN OFF THE CLAIMS COST. With the
+ * shocks out of the experience (above) and out of the rate (CATASTROPHE_LOAD
+ * off), the claims cost the rate is struck on is the experience claims cost
+ * alone — and the aggregate stop's expected recovery comes mostly from the
+ * shock years that cost never held, so subtracting it took off a recovery on
+ * losses that were never charged. OFF: the rate carries the experience claims
+ * cost in full and the cover's full price as reinsurance (quoteNewRateStack).
+ * ON restores the netting: claims cost less the stop's expected recovery.
+ */
+export const STOP_RECOVERY_OFF_CLAIMS_COST = { enabled: false };
 /**
  * The year the load is struck at, then trended to each year: the first in
  * which every event's duration can be in force (the catalogue's longest is 3
@@ -1777,9 +1790,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: perLine(SHOCK_T_BASIS_PER_100), unit: 'per $100, year 1',
         what: 'The ordinary cost the shocks\' large losses (T) are scaled off.',
         basis: 'CHOSEN',
-        note: 'WC and GL read the $0–$1M layer, the closest match to what "ordinary" meant when T was calibrated '
-          + '(WC $2.774, GL $2.830): their shocks are about 10% and 12% smaller. Property reads its cost without '
-          + 'the routine fold. Whether shocks are fixed in dollars instead is decided once exposure is scaled.',
+        note: 'WC and GL read the $0–$1M layer on the claims basis — $2.50 less its ULAE share, / 1.05 = $2.381 — so '
+          + 'shocks are sized on claims like everything else (was $2.50, the pure premium including ULAE). The layer '
+          + 'is the closest match to what "ordinary" meant when T was calibrated (WC $2.774, GL $2.830). Property '
+          + 'reads its cost without the routine fold.',
       }],
       ['Routine large losses', {
         value: ROUTINE_LARGE_LOSSES.enabled ? 'on' : 'off', unit: 'switch',
@@ -2004,6 +2018,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'events, so a load for the shocks\' expected cost priced them twice. On, it would charge that cost (struck '
           + `at year ${CATASTROPHE_LOAD_STEADY_YEAR} and trended) from the pre-game on — WC $0.167, GL $0.382, Property `
           + '$0.040 per $100 in year 1.',
+      }],
+      ['Stop recovery off the claims cost', {
+        value: STOP_RECOVERY_OFF_CLAIMS_COST.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'OFF: the rate\'s claims cost is the experience claims cost alone, and the cover\'s full price is added '
+          + 'as reinsurance. Nothing is taken off the claims cost for what the cover is expected to recover.',
+        basis: 'CHOSEN',
+        note: 'The cover recovers mostly in shock years, and the shocks are out of the claims cost; subtracting the '
+          + 'expected recovery took off a recovery on losses the rate never charged. Year-1 rate per $100 at Expected, '
+          + 'with the shocks sized on claims (below): WC 3.407 → 3.432, GL 4.754 → 4.852, Property 0.314 → 0.322.',
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',

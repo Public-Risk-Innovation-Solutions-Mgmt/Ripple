@@ -18,6 +18,10 @@
 //   1. THE FIRST INDICATION TIES: (ground-up + admin) / divisor, rebuilt here
 //      from the parameters, equals the engine's figure to the bit.
 //   2. THE FINAL RATE TIES: (retained x CLF + admin) / divisor + reinsurance.
+//      With the aggregate stop on, retained IS the ground-up claims cost: the
+//      cover's expected recovery is not taken off it
+//      (STOP_RECOVERY_OFF_CLAIMS_COST off) and its full price is the
+//      reinsurance.
 //   3. THE TWO ARE ORDERED AS THEIR DEFINITIONS REQUIRE. The final rate is
 //      below the first indication whenever the team funds at or below expected
 //      and cedes nothing — and the check states the condition rather than
@@ -42,7 +46,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { adminRatePer100For, expenseDivisor, expectedCededPer100For } from '../../src/utils/linePricing';
-import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
+import { AGGREGATE_STOP, NEW_RATE_STACK, STOP_RECOVERY_OFF_CLAIMS_COST } from '../../src/data/pricingParameters';
 import { quoteNewRateStack, newStackAsLineRateQuote } from '../../src/utils/linePricing';
 import type { CoverageLine, GameState, LinePoolState } from '../../src/types/simulation';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
@@ -112,7 +116,8 @@ function play(): Row[] {
           exposure, layersPlaced: placementFor(line, ld.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
           reinsuranceOption: ld.reinsuranceOption,
         });
-        const retained = Math.max(0, groundUp - expectedCededPer100);
+        const netted = AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled ? 0 : expectedCededPer100;
+        const retained = Math.max(0, groundUp - netted);
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);
         rows.push({
           line, year: y,

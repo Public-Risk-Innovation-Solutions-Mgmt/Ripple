@@ -10,7 +10,8 @@
 //   2. THE PRICE: each option's premium is its expected recovery + 0.5 x the
 //      SD of the annual recovery, no floor, over sampled accident years whose
 //      average is the engine's own expected loss — and it is what the rate
-//      charges.
+//      charges, IN FULL, as reinsurance, with nothing taken off the claims cost
+//      for the cover's expected recovery (STOP_RECOVERY_OFF_CLAIMS_COST off).
 //   3. AT BOOKING: every played line-year's recovery is exactly the stop on its
 //      booked gross total, on terms set off its expected losses.
 //   4. AS IT DEVELOPS: every cohort's recovery is the stop on its developed
@@ -21,13 +22,14 @@
 //      to 50% more." — and nothing of how it was priced.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: Working made the default, a
-// price without the SD load, a recovery struck on expected rather than
+// price without the SD load, the expected recovery netted off the claims
+// cost, a recovery struck on expected rather than
 // actual, a recovery left where it was booked, and a wording that gives away
 // the expected recovery.
 // ============================================================================
 
 import {
-  AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD,
+  AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, STOP_RECOVERY_OFF_CLAIMS_COST,
 } from '../../src/data/pricingParameters';
 import {
   sampledYearTotals, stopQuotes, stopRecovery, stopTerms, stopWording, type StopQuote,
@@ -87,13 +89,14 @@ function gradePrice(price: Price, tag: string) {
         line: l, yearNumber: y, members: { exposure }, exposure, groundUpPurePremiumPer100: 5, clf: 1,
         riskControlPct: 0, layersPlaced: placementFor(l, q.optionId), aggregateStopLevel: -1, reinsuranceOption: q.optionId,
       });
+      // The full price as reinsurance; the claims cost (5 per $100) untouched.
       worstCharge = Math.max(worstCharge, rel(stack.reinsuranceCost, q.premium),
-        rel(stack.expectedCededPer100 * exposure * 10_000, q.expectedRecovery));
+        Math.abs(stack.retainedPurePremiumPer100 - 5) * exposure * 10_000, stack.expectedCededPer100 * exposure * 10_000);
       if (y === 1 && q.optionId === 'bad-year') shown.push(`${l} ${(q.premium / 1e6).toFixed(3)}M`);
     }
   }
   check(worstPrice < 1e-9 && worstMean < 0.01 && worstCharge < 1e-9,
-    `${tag}2. price = E[recovery] + ${AGGREGATE_STOP_SD_LOAD} x SD, over samples averaging the engine's expected loss, and charged so`,
+    `${tag}2. price = E[recovery] + ${AGGREGATE_STOP_SD_LOAD} x SD, over samples averaging the engine's expected loss, charged in full, nothing off the claims cost`,
     `Bad-year, year 1, $1,000M+ book: ${shown.join(', ')}; samples off expected by at most ${(worstMean * 100).toFixed(2)}%`);
 }
 
@@ -184,6 +187,9 @@ const controlFails = (name: string, run: () => void, expect: string) => {
 };
 controlFails('Working made the default', () => gradeOptions(() => 'working', games[0].pre, ''), '1.');
 controlFails('a price without the SD load', () => gradePrice((q, t) => shippedPrice(q, t) - AGGREGATE_STOP_SD_LOAD * q.sdRecovery, ''), '2.');
+STOP_RECOVERY_OFF_CLAIMS_COST.enabled = true;
+controlFails('the expected recovery netted off the claims cost', () => gradePrice(shippedPrice, ''), '2.');
+STOP_RECOVERY_OFF_CLAIMS_COST.enabled = false;
 controlFails('a recovery struck on expected, not actual', () => gradeBooking(r => stopRecovery(r.expectedLoss,
   stopTerms(r.decisions.reinsuranceOption, r.expectedLoss)) + (r.reinsuranceRecovery > 0 ? 1 : 0), ''), '3.');
 controlFails('a recovery left where it was booked', () => gradeDevelopment(c => shippedDeveloped(c) * 1.01 + 1e4, ''), '4.');

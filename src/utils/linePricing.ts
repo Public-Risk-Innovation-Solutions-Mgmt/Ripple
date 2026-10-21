@@ -50,7 +50,7 @@ import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCo
 import type { TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine } from '../types/simulation';
 import { bookRiskOf, type Book } from './lineHelpers';
-import { AGGREGATE_STOP, RISK_CONTROL } from '../data/pricingParameters';
+import { AGGREGATE_STOP, RISK_CONTROL, STOP_RECOVERY_OFF_CLAIMS_COST } from '../data/pricingParameters';
 import { stopQuote } from './aggregateStop';
 
 export interface LineRateInputs {
@@ -156,12 +156,17 @@ export function expectedCededPer100For(
 
   // THE AGGREGATE STOP (stable-scenarios commit 6): the cover's price and its
   // expected recovery, on this book and year, in the slot the tower's fill.
+  // ⚠ NOTHING IS NETTED OFF THE CLAIMS COST (STOP_RECOVERY_OFF_CLAIMS_COST
+  // off): the claims cost is the experience claims cost alone — the shocks the
+  // cover mostly recovers on are out of it — and the cover's full price is the
+  // reinsurance. The recovery stays on the quote, in dollars, for its readers.
   if (AGGREGATE_STOP.enabled && reinsuranceOption !== undefined) {
     const q = stopQuote(line, reinsuranceOption, exposure, yearNumber, bookRiskOf(members));
     return {
       towerQuote: { premium: q.premium, expectedCeded: q.expectedRecovery },
       aggregateQuote: null,
-      expectedCededPer100: q.expectedRecovery / Math.max(exposure * 10_000, 1),
+      expectedCededPer100: STOP_RECOVERY_OFF_CLAIMS_COST.enabled
+        ? q.expectedRecovery / Math.max(exposure * 10_000, 1) : 0,
     };
   }
 

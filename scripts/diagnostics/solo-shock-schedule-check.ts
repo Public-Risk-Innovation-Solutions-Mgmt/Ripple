@@ -38,7 +38,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, worldInstance } from '../../src/utils/worlds';
 import { packSave, unpackSave } from '../../src/utils/gameSave';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { WORLD_COUNT } from '../../src/data/pricingParameters';
+import { SHOCKS_OUT_OF_EXPERIENCE, WORLD_COUNT } from '../../src/data/pricingParameters';
 import type { ScheduledShock } from '../../src/types/shocks';
 import type { CoverageLine, GameInstance, GameSetupSettings, GameState } from '../../src/types/simulation';
 
@@ -280,11 +280,19 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const lostFinished = playTo(lost, SAVE_AT + 1, YEARS);
   check(!same(startedByYear(lostFinished.lockedResults), startedByYear(A.lockedResults)),
     'control: a reload on a different schedule is caught');
-  // Pricing that read the schedule: the year after the event, history differs and so does the rate.
+  // Pricing that read the shock: with the shocks LEFT IN the experience, the
+  // year after the event the history differs and so does the rate.
+  // ⚠ THIS USED TO COMPARE THE SHIPPED GAMES THE YEAR AFTER, AND HAS BEEN
+  // VACUOUS SINCE STABLE-SCENARIOS COMMIT 7: with the shocks out of the
+  // experience a landed shock never moves the next rate, by design, and the
+  // control passed on a last-digit float difference until commit 8 removed it.
   const after = first.yearNumber + 1;
-  const quietOn = playTo(quiet!, first.yearNumber + 1, after);
-  check(pricingOf(quietOn, after) !== pricingOf(A, after),
-    `control: the pricing comparison sees a difference when there is one (year ${after}, after ${first.shockId} landed)`);
+  SHOCKS_OUT_OF_EXPERIENCE.enabled = false;
+  const withShock = playTo(open(solo.setup, solo.instance), 1, after);
+  const withoutShock = playTo(open(solo.setup, generateGameInstance(ID, seedFromInstanceId(ID), schedule.filter(s => s !== first))), 1, after);
+  SHOCKS_OUT_OF_EXPERIENCE.enabled = true;
+  check(pricingOf(withoutShock, after) !== pricingOf(withShock, after),
+    `control: the pricing comparison sees a difference when there is one (year ${after}, ${first.shockId} landed, shocks left in the experience)`);
 }
 
 console.log(failures.length === 0
