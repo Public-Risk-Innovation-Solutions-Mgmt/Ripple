@@ -22,8 +22,8 @@
 // zero somebody could read as a result.
 // ============================================================================
 
-import type { CoverageLine, LineResultSet, PoolState, ResultSet } from '../../types/simulation';
-import { exhibitRows, poolExhibitRows, type ExhibitRow } from '../../utils/actuarialMemo';
+import type { CoverageLine, GameState, LineResultSet, ResultSet } from '../../types/simulation';
+import { netUltimatesByProgramYear } from '../../utils/resultsStatement';
 import type {
   DevelopedUltimates, TeamYearDecisions, TeamYearFigures, TeamYearSummary,
 } from '../contract';
@@ -73,47 +73,41 @@ function poolFiguresOf(r: ResultSet, lineFigures: TeamYearFigures[]): TeamYearFi
 }
 
 /**
- * ⚠ THE DEVELOPED COLUMN COMES OUT OF THE MEMORANDUM'S OWN READER, NOT OUT OF A
- * SECOND ONE. exhibitRows is what the Actuarial memorandum's development
- * exhibit is built from; it carries the clamping rule that a closed cohort's
- * last recorded figure IS its estimate at every later valuation, which a naive
- * `ultimateByValuation.at(-1)` gets right by accident and a naive index gets
- * wrong the first time a cohort closes. poolExhibitRows is the same function's
- * pool aggregation, with its own rule about partial sums. A host's chart and a
- * team's own memorandum therefore cannot disagree about what a year now costs.
+ * ⚠ THE DEVELOPED COLUMN IS THE TEAM'S OWN ANNUAL STATEMENT: each program
+ * year's NET ULTIMATE, loss + LAE, at this valuation — the Net block's
+ * Ultimates row, read by the statement's own netUltimatesByProgramYear. So the
+ * host's views print, for every year as currently valued, the figure the
+ * team's statement prints. It used to be the reserve ledger's net ultimate
+ * (actuarialMemo's exhibitRows), which carries no LAE, and so sat about 10%
+ * below the statement for the same year.
+ *
+ * ⚠ THE FROZEN FIGURES BESIDE IT STAY FROZEN. netUltimateLoss is the year as
+ * booked at its own close, excl. LAE; earlier posts are never rewritten. Only
+ * the newest post's column is current, and the host reads that one.
  *
  * ⚠ ACCIDENT YEARS BELOW 0 ARE DROPPED AFTER the pool sum, not before it: the
- * pre-game years and the seeded cohorts are off the session's axis, but they are
- * real rows and dropping them earlier would change nothing and risk implying
- * they are not part of the ledger. They are; they are just not plottable.
+ * pre-game years and the seeded cohorts are off the session's axis, but they
+ * are real rows of the ledger; they are just not plottable.
  */
-function developedAt(poolState: PoolState, lines: CoverageLine[], asAt: number): {
+function developedAt(gs: GameState, lines: CoverageLine[]): {
   pool: DevelopedUltimates;
   byLine: Partial<Record<CoverageLine, DevelopedUltimates>>;
 } {
-  const onAxis = (rows: ExhibitRow[]): DevelopedUltimates => {
+  const onAxis = (m: Map<number, number>): DevelopedUltimates => {
     const out: DevelopedUltimates = {};
-    for (const row of rows) if (row.yearNumber >= 0) out[String(row.yearNumber)] = row.current;
+    for (const [ay, v] of [...m.entries()].sort((a, b) => a[0] - b[0])) if (ay >= 0) out[String(ay)] = v;
     return out;
   };
-
-  const perLine: ExhibitRow[][] = [];
+  const pool = new Map<number, number>();
   const byLine: Partial<Record<CoverageLine, DevelopedUltimates>> = {};
   for (const line of lines) {
-    const rows = exhibitRows(line, poolState.lines[line]?.reserveDevelopment ?? [], asAt);
-    perLine.push(rows);
-    byLine[line] = onAxis(rows);
+    const m = netUltimatesByProgramYear(gs, line);
+    for (const [ay, v] of m) pool.set(ay, (pool.get(ay) ?? 0) + v);
+    byLine[line] = onAxis(m);
   }
-  return { pool: onAxis(poolExhibitRows(perLine)), byLine };
+  return { pool: onAxis(pool), byLine };
 }
 
-/**
- * ⚠ poolState IS THE VALUATION, AND IT IS WHY THIS TAKES A SECOND ARGUMENT. The
- * ResultSet describes the year that was just played; the reserve ledger lives on
- * the pool state and holds every PRIOR accident year restated as at that same
- * year. One is the year's own news, the other is what the news did to everything
- * before it, and the second cannot be read off the first.
- */
 /**
  * The decisions a played year ran on, projected into the contract's shape.
  *
@@ -160,11 +154,17 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * ⚠ gs IS THE VALUATION, AND IT IS WHY THIS TAKES A SECOND ARGUMENT: the game as
+ * it stands after the year `r` describes. The ResultSet is the year's own news;
+ * the statement over gs is what that news did to every earlier program year.
+ */
 export function summarize(
-  r: ResultSet, lines: CoverageLine[], poolState: PoolState,
+  r: ResultSet, gs: GameState,
   /** The worlds' ending-surplus spread for this year — see TeamYearSummary.surplusRange. */
   range?: { min: number; median: number; max: number } | null,
 ): TeamYearSummary {
+  const lines = gs.setup.activeLines;
   const byLine: Partial<Record<CoverageLine, TeamYearFigures>> = {};
   for (const line of lines) {
     const slice = r.byLine[line];
@@ -177,7 +177,7 @@ export function summarize(
     calendarYear: r.calendarYear,
     pool: poolFiguresOf(r, Object.values(byLine)),
     byLine,
-    developed: developedAt(poolState, lines, r.yearNumber),
+    developed: developedAt(gs, lines),
     decisions: decisionsOf(r, lines),
     ...(range ? { surplusRange: { min: range.min, median: range.median, max: range.max } } : {}),
   };

@@ -26,7 +26,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CoverageLine, GameState, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
+import type { CoverageLine, GameState, Member, ResultSet, StartingFinancials } from '../../types/simulation';
 import { sessionTransport, type CallerView, type RoomView } from '../index';
 import { summarize } from './results';
 import { buildTeamGame, replayTeamYears } from './buildGame';
@@ -80,7 +80,7 @@ export function useSessionGame(
   // not land — a transport blip, or a token that had not resolved at that
   // instant — nothing ever tries again and the team is permanently missing its
   // year-0 point while every later year arrives normally.
-  const opening = useRef<{ result: ResultSet; poolState: PoolState } | null>(null);
+  const opening = useRef<{ result: ResultSet; gameState: GameState } | null>(null);
 
   // ⚠ THE TEAM'S OWN LINES, NOT THE ROOM'S MENU. Teams in one room now play
   // different books: the room offers a set and each team chose a subset of it at
@@ -140,7 +140,7 @@ export function useSessionGame(
         // re-posts the identical entry over itself.
         if (built && token && you?.role === 'player') {
           void sessionTransport()
-            .submit({ code, token, yearNumber: 0, result: summarize(built.result, myLines!, built.poolState) })
+            .submit({ code, token, yearNumber: 0, result: summarize(built.result, built.gameState) })
             .catch(() => { /* the opening point is missing until the next build; the game is not */ });
         }
       } catch (e) {
@@ -212,7 +212,7 @@ export function useSessionGame(
             if (opening.current && !(you.postedYears ?? []).includes(0)) {
               await sessionTransport().submit({
                 code, token, yearNumber: 0,
-                result: summarize(opening.current.result, state.setup.activeLines, opening.current.poolState),
+                result: summarize(opening.current.result, opening.current.gameState),
               });
             }
             // Posting is best-effort: the years are played and held locally
@@ -224,7 +224,7 @@ export function useSessionGame(
                 code,
                 token,
                 yearNumber: p.result.yearNumber,
-                result: summarize(p.result, state.setup.activeLines, p.poolState, p.surplusRange),
+                result: summarize(p.result, p.gameState, p.surplusRange),
               });
             }
           }

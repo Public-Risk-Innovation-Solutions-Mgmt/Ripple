@@ -3,6 +3,7 @@ import type { DecisionSet, GameState } from '../types/simulation';
 import DocumentReader, { type DocumentEntry } from '../components/DocumentReader';
 import investmentMemoRaw from '../data/documents/investmentMemo.md?raw';
 import { buildActuarialMemo } from '../utils/actuarialMemo';
+import RateIndicationPanel from '../components/RateIndicationPanel';
 // ⚠ buildClaimsMemo IS NOT IMPORTED WHILE THE CLAIMS PANE IS HIDDEN — see the
 // commented entry in `documents` below. src/utils/claimsMemo.ts, its template
 // and claims-memo-check are all untouched; the import comes back with the pane.
@@ -18,9 +19,9 @@ import { RISK_CONTROL } from '../data/pricingParameters';
 interface DepartmentsPageProps {
   gameState: GameState;
   /** The decisions the player is editing NOW — not gameState.currentDecisions,
-   *  which resets to defaults the moment a year locks. See buildUnderwritingMemo.
-   *  Read only by the Underwriting memo, which is hidden; kept on the props so
-   *  restoring the pane does not touch the call site. */
+   *  which resets to defaults the moment a year locks. Read by the Rate
+   *  Indication (the Decisions panel's own input), and by the Underwriting memo
+   *  when its pane returns. */
   currentDecisions: DecisionSet;
 }
 
@@ -28,9 +29,7 @@ interface DepartmentsPageProps {
 // selector is built now even though Investment (this pass's only occupant) is
 // static and does not yet vary by year — retrofitting a selector once those
 // two exist would mean reworking this tab's shape, not just adding rows.
-// ⚠ currentDecisions IS NOT DESTRUCTURED WHILE THE UNDERWRITING PANE IS HIDDEN —
-// it is that memo's only reader. Restoring the pane puts it back here.
-export default function DepartmentsPage({ gameState }: DepartmentsPageProps) {
+export default function DepartmentsPage({ gameState, currentDecisions }: DepartmentsPageProps) {
   const [selectedYear, setSelectedYear] = useState(gameState.currentYearNumber);
   const [selectedId, setSelectedId] = useState('investment');
 
@@ -86,6 +85,9 @@ export default function DepartmentsPage({ gameState }: DepartmentsPageProps) {
       title: 'Actuarial',
       summary: 'Reserve development by accident year',
       content: actuarialMemo,
+      // THE RATE INDICATION, at the top: each line's rate for the coming year,
+      // on the decisions being edited — the same input the Decisions panel prices.
+      header: <RateIndicationPanel gameState={gameState} decisions={currentDecisions} />,
     },
     // ⚠ THE CLAIMS DEPARTMENT IS HIDDEN, NOT REMOVED — the same treatment the
     // Membership tab has in GameShell. The listing is per MEMBER and per claim,

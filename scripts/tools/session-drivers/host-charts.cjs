@@ -188,8 +188,12 @@ const activeView = page => page.$$eval('nav button', bs =>
   const booked1 = hRec.resultsByYear['1'].pool.netUltimateLoss;
   const dev1At1 = hRec.resultsByYear['1'].developed.pool['1'];
   const dev1At3 = hRec.resultsByYear['3'].developed.pool['1'];
-  ok(Math.abs(dev1At1 - booked1) < 1,
-     `at its own valuation, accident year 1 as developed IS its booked figure ($${Math.round(booked1)})`);
+  // ⚠ NOT EQUAL AT ITS OWN VALUATION ANY MORE, AND THAT IS THE BASIS, NOT
+  // DEVELOPMENT. As developed is the team's Annual Statement's Net Ultimates,
+  // loss + LAE; as booked is netUltimateLoss, excl. LAE. So at its own valuation
+  // a year's developed point sits above its booked one by its LAE.
+  ok(dev1At1 > booked1,
+     `at its own valuation, accident year 1 as developed carries its LAE: $${Math.round(dev1At1)} over $${Math.round(booked1)} as booked`);
   // ⚠ AGED YEARS MOVE NOW, AND THAT IS THE ASSERTION. This read "hold steady",
   // on the premise that full-cost booking left the engine with no development
   // to make. The host's development % is that development: every accident year
@@ -197,15 +201,14 @@ const activeView = page => page.$$eval('nav button', bs =>
   // an aged year MUST have moved. The default mix is adverse on WC and GL and
   // favourable on Property, so the pool figure is adverse on balance and the
   // direction is asserted with the movement.
+  // On ONE basis — the developed column at the year's own valuation against
+  // the same column later — so the movement is development and nothing else.
   const aged = ['1', '2'].map(y => ({
-    y, booked: hRec.resultsByYear[y].pool.netUltimateLoss, developed: hRec.resultsByYear['3'].developed.pool[y],
+    y, own: hRec.resultsByYear[y].developed.pool[y], developed: hRec.resultsByYear['3'].developed.pool[y],
   }));
-  ok(aged.every(a => a.developed > a.booked),
-     `two valuations later the aged years have developed ADVERSELY: ${aged.map(a => `year ${a.y} $${Math.round(a.booked)} -> $${Math.round(a.developed)}`).join(', ')}`);
+  ok(aged.every(a => a.developed > a.own),
+     `later valuations have developed the aged years ADVERSELY: ${aged.map(a => `year ${a.y} $${Math.round(a.own)} -> $${Math.round(a.developed)}`).join(', ')}`);
   void dev1At3;
-  const bookedLatest = hRec.resultsByYear['3'].pool.netUltimateLoss;
-  ok(Math.abs(hRec.resultsByYear['3'].developed.pool['3'] - bookedLatest) < 1,
-     'and the NEWEST accident year is identical on both charts — it has had no valuation yet');
 
   // One domain across the pair, or the growth is invisible.
   const tB = await yTicks(host, 'losses');
@@ -222,10 +225,10 @@ const activeView = page => page.$$eval('nav button', bs =>
   // already been "ABOVE" before that. With the host's development live the
   // pool develops adversely, so a developed point sits ABOVE its booked one;
   // on the chart's inverted y-axis that is a SMALLER cy.
-  // ⚠ THE AGED ONES ONLY, AND THE NEWEST IS EXCLUDED ON PURPOSE. A year at its
-  // OWN valuation has not developed yet — the assertion forty lines up says
-  // exactly that — so its developed point sits on its booked one and always
-  // will. Only the two that have aged can have moved.
+  // ⚠ THE AGED ONES ONLY. A year at its OWN valuation has not developed yet;
+  // its developed point sits above its booked one by its LAE alone (the
+  // developed column is the statement's loss + LAE), which says nothing about
+  // development. Only the two that have aged can have moved.
   //
   // ⚠ AND THE TEST IS "NEVER BELOW, AT LEAST ONE CLEARLY ABOVE", because a
   // year of development on this scale is worth a pixel or two and the chart

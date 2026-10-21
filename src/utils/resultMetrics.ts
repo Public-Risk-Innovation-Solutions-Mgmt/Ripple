@@ -421,9 +421,13 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
     // commit 11): measured, it read $0 on 432 of 432 line-years across funding
     // from 30% to 95% — the new engine books at full cost.
     {
+      // ⚠ AS BOOKED, AT THE YEAR'S OWN CLOSE, AND WITHOUT LAE — the label said
+      // "+ LAE", and the statement's Ultimates (which carry LAE and develop) sat
+      // about 10% above it. The frozen figure is kept: it is what makes the
+      // development visible.
       key: 'netUltimateLoss',
       category: 'Losses',
-      label: 'Net Ultimate Loss + LAE',
+      label: 'Net Ultimate Loss, as booked (excl. LAE)',
       value: r => formatCurrency(r.netUltimateLoss),
       csvValue: r => roundDollars(r.netUltimateLoss),
     },
