@@ -71,28 +71,13 @@ interface DecisionsPageProps {
   book: Book;
 }
 
-// 0.30-0.45 ADDED alongside the funding-confidence range's extension down from
-// 50%. 0.45 'Minimal' continues the existing descending scale; 0.40/0.35/0.30
-// are named to read as unmistakably underfunded, since that is the point of
-// making them selectable at all (see the consequence panel below).
-// ⚠ THE 0.60 = 'Expected' MAP IS GONE, AND PROPERTY WAS ITS LAST CONSUMER.
-// It labelled 60% as the anchor because that was where FUNDING_CLF_TABLE's
-// CLF hit exactly 1.000 — true only for a line reading the generic table.
-// Property has its own derived table now (crossing 52.8%), so every line
-// surfaces 'Expected' as the book's real break-even via fundingAtExpected
-// rather than as a fixed rung, and one ladder serves all three.
-//
-// ALL THREE LINES: a plain descending gradation, with 0.60 an ordinary point
-// in it, same as 0.65 or 0.55.
-const FUNDING_LEVEL_LABELS_LINE: Record<number, string> = {
-  0.95: 'Maximum', 0.90: 'Very High', 0.85: 'High', 0.80: 'Above Average', 0.75: 'Balanced', 0.70: 'Moderate', 0.65: 'Moderate-Low', 0.60: 'Below Average', 0.55: 'Low', 0.50: 'Very Low',
-  0.45: 'Minimal', 0.40: 'Deficient', 0.35: 'Severely Deficient', 0.30: 'Critical',
-};
-
-function getFundingLabel(v: number, labels: Record<number, string> = FUNDING_LEVEL_LABELS_LINE): string {
-  const rounded = Math.round(v * 20) / 20;
-  return labels[rounded] ?? v.toFixed(2);
-}
+// THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
+// ladder that stood here ('Above Average', 'Balanced', 'Critical' …) is gone:
+// it named a percentile as if it were a judgement, and the words drifted from
+// what each stop delivers whenever the tables moved. Expected keeps its word,
+// "Expected (~X%)", because it is a different kind of position — CLF exactly
+// 1.000, wherever that falls on the line — not a stop on the grid.
+const fundingStopLabel = (v: number) => `(${(v * 100).toFixed(0)}%)`;
 
 
 // Reset only the given line to defaults (Model A strict per-line: resetting on
@@ -461,9 +446,7 @@ function outstandingLoanSlider(
   );
 }
 
-// THE FUNDING CONFIDENCE LEVEL CONTROL. Property renders its ORIGINAL slider
-// unchanged (0.60 already reads 'Expected' correctly there — see
-// FUNDING_LEVEL_LABELS above). WC and GL get a second control: the native
+// THE FUNDING CONFIDENCE LEVEL CONTROL. Every line: the native
 // range input's thumb renders at whatever `value` it is given even when that
 // value is not a multiple of `step` (only manual dragging snaps to the step
 // grid), so while fundingAtExpected is true the slider's value is bound to
@@ -506,7 +489,7 @@ function FundingLevelControl({ d, fundingConsequence, setFundingLevel, setFundin
         value={sliderValue}
         min={SLIDER_RANGES.fundingConfidenceLevel.min} max={SLIDER_RANGES.fundingConfidenceLevel.max} step={SLIDER_RANGES.fundingConfidenceLevel.step}
         onChange={setFundingLevel}
-        formatValue={v => d.fundingAtExpected ? `Expected (~${Math.round(v * 100)}%)` : `${getFundingLabel(v, FUNDING_LEVEL_LABELS_LINE)} (${(v * 100).toFixed(0)}%)`}
+        formatValue={v => d.fundingAtExpected ? `Expected (~${Math.round(v * 100)}%)` : fundingStopLabel(v)}
         leftLabel="Underfunded" rightLabel="Higher Confidence"
         valueColor={isAdequate ? 'text-gray-700' : 'text-red-600'}
         disabled={disabled}

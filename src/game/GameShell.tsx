@@ -178,6 +178,7 @@ export default function GameShell({
         onAdvanceYear={onAdvanceYear}
         canAdvance={canAdvance}
         advanceLabel={advanceLabel}
+        lineView={lineView}
       />
 
       {isStarted && (

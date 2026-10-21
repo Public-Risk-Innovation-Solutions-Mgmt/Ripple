@@ -52,7 +52,7 @@ function SectionTable({ section }: { section: StatementSection }) {
         </thead>
         <tbody>
           {section.rows.map((r, i) => (
-            <tr key={`${r.label}-${i}`} className={`border-b border-gray-50 ${r.emphasis ? 'bg-gray-50 font-medium' : ''}`}>
+            <tr key={`${r.label}-${i}`} data-row-label={r.label} className={`border-b border-gray-50 ${r.emphasis ? 'bg-gray-50 font-medium' : ''}`}>
               <td className={`px-4 py-1.5 text-gray-700 ${r.indent ? 'pl-8' : ''}`}>{r.label}</td>
               {r.cells.map((c, j) => {
                 const s = show(c, r.format);

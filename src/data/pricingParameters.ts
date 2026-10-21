@@ -174,12 +174,18 @@ export const EXPOSURE_GROWTH_PER_YEAR = 0;
 export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
 
 /**
- * THE FUNDING SLIDER'S STOPS — 30% TO 90% IN TENS, PLUS "EXPECTED" (CLF exactly
+ * THE FUNDING SLIDER'S STOPS — 30% TO 90% IN FIVES, PLUS "EXPECTED" (CLF exactly
  * 1.000, the fundingAtExpected flag, which sits off the grid at the table's own
- * `expected`). Was 30% to 95% in fives. Since the funding tables wiring the
- * stops are the BaselineCV tables' own columns, so no stop is interpolated.
+ * `expected`). Every stop is a column of the BaselineCV tables, so no stop is
+ * interpolated.
+ *
+ * ⚠ BACK TO FIVES. The funding tables wiring (e045ba7) cut it to tens because
+ * the tables it wired had columns only at 30, 40 … 90, 95 and 99. The tables
+ * now carry the fives too (clf-ds-method-derive with the 5% percentiles added:
+ * the same draws, so all 210 existing cells re-derived identical), and the
+ * slider steps in fives again.
  */
-export const FUNDING_SLIDER_RANGE = { min: 0.30, max: 0.90, step: 0.10, default: DEFAULT_FUNDING_CONFIDENCE_LEVEL };
+export const FUNDING_SLIDER_RANGE = { min: 0.30, max: 0.90, step: 0.05, default: DEFAULT_FUNDING_CONFIDENCE_LEVEL };
 
 /**
  * THE RESERVE MARGIN'S FIXED CONFIDENCE LEVEL — 80% (stable-scenarios commit 2;
@@ -1633,7 +1639,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'The positions a team can fund at. Expected is CLF exactly 1.000 and sits at the table\'s own '
           + 'measured position.',
         basis: 'CHOSEN',
-        note: 'Was 0.30 to 0.95 in fives. The stops are the BaselineCV tables\' own columns.',
+        note: 'Back to fives: the funding tables wiring cut it to tens because its tables had columns only at 30, 40 … 90; '
+          + 'they now carry the fives too, re-derived on the same draws (all existing cells identical). Every stop is a '
+          + 'column of the BaselineCV tables, none interpolated.',
       }],
     ],
   },

@@ -64,7 +64,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import {
-  buildAnnualStatement, cellText, notYetAvailable, num, statementYears,
+  buildAnnualStatement, cellText, COMBINED_RATIO_LABEL, notYetAvailable, num, statementYears, topCombinedRatio,
   type AnnualStatement, type Cell, type CellFormat, type StatementRow, type StatementSection,
 } from '../../src/utils/resultsStatement';
 import type { CoverageLine, GameSetupSettings, GameState, LineView, ResultSet } from '../../src/types/simulation';
@@ -152,13 +152,12 @@ function balances(st: AnnualStatement, gs: GameState, scope: LineView): string[]
   return out;
 }
 
+// ONE COMBINED RATIO: the net-of-reinsurance one — (losses + LAE + expenses)
+// over the net Premium row — is gone from the statement; the only row of the
+// name is the first, all costs over the member charge (held by check 17).
 function combinedRatio(st: AnnualStatement): string[] {
-  const s = sec(st, 'operating');
-  const c = (l: string, n = 0) => cellsOf(st, 'operating', l, n);
-  return eachColumn(s, [c('Total Incurred Loss & LAE'), c('General Admin Expense'), c('Additional Admin Expense (risk control)'), c('Premium'), c('Combined Ratio')],
-    ([ll, ga, ra, p, cr]) => near(cr, (ll + ga + ra) / p), 'combined ratio ≠ (losses + LAE + expenses) / premium')
-    // The Total column holds too: its ratio is the summed figures' (commit 11).
-    ;
+  const rows = st.sections.flatMap(s => s.rows.filter(r => /combined ratio/i.test(r.label)).map(r => `${s.key}: ${r.label}`));
+  return rows.length === 1 && rows[0] === `operating: ${COMBINED_RATIO_LABEL}` ? [] : [`combined ratio rows: ${rows.join('; ') || 'none'}`];
 }
 
 function tiesToEngine(st: AnnualStatement, gs: GameState, scope: LineView): string[] {
@@ -192,6 +191,8 @@ function totals(st: AnnualStatement): string[] {
   for (const s of st.sections) for (const r of s.rows) {
     const game = windowIx(s).map(i => r.cells[i]), total = r.cells[r.cells.length - 1];
     if (game.length === 0) continue;
+    // The combined ratio at the top totals since game start, not over the five (check 17).
+    if (r.label === COMBINED_RATIO_LABEL) continue;
     const premRow = s.rows.find(x => x.label === 'Premium' || x.label === 'Reinsurance Premium');
     if (OF_PREMIUM.has(s.key) && r.format === 'pct' && r.label !== '% of Prior' && premRow) {
       const prem = windowIx(s).map(i => num(premRow.cells[i]));
@@ -209,6 +210,41 @@ function totals(st: AnnualStatement): string[] {
       if (num(total) === undefined || !near(num(total)!, sum)) out.push(`${s.title} — ${r.label}: Total is not the sum of the five`);
     }
   }
+  return out;
+}
+
+// ⚠ THE COMBINED RATIO — the statement's first row, and the header's figure,
+// which reads it. Each year: every cost (net losses, LAE, admin, risk control,
+// the reinsurance cost) over the member charge, off the engine's result — and
+// the engine's own actualCombinedRatio. Total: the same summed over every
+// PLAYED year since game start to the year the statement stands at — not the
+// five shown — or over the pre-game years before year 1. And topCombinedRatio,
+// what the header shows, is that Total.
+const costsOf = (r: ResultSet, scope: LineView) => {
+  const x = at(r, scope);
+  return { costs: x.netIncurredLoss + x.laeIncurred + x.operatingExpense + x.riskControlInvestment + x.reinsuranceCost, charge: x.totalMemberCharge };
+};
+function topCombined(st: AnnualStatement, gs: GameState, scope: LineView): string[] {
+  const out: string[] = [];
+  const s = sec(st, 'operating');
+  if (s.rows[0]?.label !== COMBINED_RATIO_LABEL) return ['the combined ratio is not the first row'];
+  const cells = s.rows[0].cells;
+  const tl = timelineOf(gs, st.asOf);
+  const first = tl.length - s.windowYears.length;
+  windowIx(s).forEach((ix, i) => {
+    const r = tl[first + i];
+    const { costs, charge } = costsOf(r, scope);
+    if (num(cells[ix]) === undefined || !near(num(cells[ix])!, costs / charge)) out.push(`${s.columns[ix]}: combined ratio is not every cost over the member charge`);
+    if (num(cells[ix]) !== undefined && !near(num(cells[ix])!, at(r, scope).actualCombinedRatio)) out.push(`${s.columns[ix]}: combined ratio is not the engine's actualCombinedRatio`);
+  });
+  const played = tl.filter(r => r.yearNumber >= 1);
+  const over = played.length > 0 ? played : tl;
+  const sum = over.reduce((a, r) => { const c = costsOf(r, scope); return { costs: a.costs + c.costs, charge: a.charge + c.charge }; }, { costs: 0, charge: 0 });
+  const total = cells[cells.length - 1];
+  if (num(total) === undefined || !near(num(total)!, sum.costs / sum.charge)) {
+    out.push(played.length > 0 ? 'Total is not cumulative over every played year since game start' : 'Total is not cumulative over the pre-game years');
+  }
+  if (topCombinedRatio(st) !== num(total)) out.push('the header\'s figure is not the row\'s Total');
   return out;
 }
 
@@ -425,13 +461,14 @@ snaps.forEach((gs, played) => {
     note('14', tag(yearLabels(st, gs)));
     note('15', tag(blanks(st, cellText)));
     note('16', tag(selector(st, gs, year)));
+    note('17', tag(topCombined(st, gs, scope)));
    }
   }
 });
 const labels: Record<string, string> = {
   1: 'reported = paid + case; ultimate = reported + IBNR', 2: 'net = gross − ceded, every row',
   3: 'the balance sheet balances, loss expense reserves included, and each game year is the engine\'s',
-  4: 'combined ratio = (losses + LAE + expenses) / premium', 5: 'underwriting and net operating income tie to the engine, Prior included',
+  4: 'one combined ratio on the statement: the net-of-reinsurance one is gone, the first row is the only one', 5: 'underwriting and net operating income tie to the engine, Prior included',
   6: 'Total covers the five shown: sums flows, summed figures for ratios of premium, latest year for balances and changes',
   7: 'net case + IBNR over every program year = loss + loss expense reserves',
   8: '"not yet available" exactly where there is no source, at every point', 9: 'renewal + new business = written exposure, every line',
@@ -442,6 +479,7 @@ const labels: Record<string, string> = {
   14: 'the year labels: "Current" on the actual latest year only, "Year 0" on the last pre-game year, "Year n" after it, blank elsewhere',
   15: 'a cell with no source shows blank, and no other cell does',
   16: 'the year selector: the five years ending at the chosen year, older years in Prior; the default is the latest',
+  17: 'the combined ratio is the first row: every cost over the member charge each year (the engine\'s actualCombinedRatio), Total cumulative since game start (over the pre-game years before year 1), and the header shows exactly that Total',
 };
 console.log(`\n--- ${snaps.length} points (game start and after 1 to ${YEARS}) x ${SCOPES.length} scopes x every year the selector offers: ${statements} statements ---`);
 for (const k of Object.keys(labels)) check((agg[k] ?? []).length === 0, `${k}. ${labels[k]}`, (agg[k] ?? [])[0] ?? '');
@@ -469,7 +507,8 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   check(reportedAndUltimate(bump(base(), 'net', 'Case', 3, x => x + 1e5)).length > 0, 'control: a case reserve that is not in reported is caught');
   check(netIsGrossLessCeded(bump(base(), 'net', 'Premium', 2, x => x + 1.7e6)).length > 0, 'control: net premium read as gross is caught');
   check(balances(bump(base(), 'balance', 'Loss Expense Reserves', 4, () => 0), gs, 'pool').length > 0, 'control: a balance sheet without its loss expense reserves is caught');
-  check(combinedRatio(bump(base(), 'operating', 'Combined Ratio', 2, () => 1)).length > 0, 'control: the engine\'s pinned 1.000 in place of the worked ratio is caught');
+  const st4 = base(); const op4 = sec(st4, 'operating'); op4.rows.splice(10, 0, { ...op4.rows[0], label: 'Combined Ratio (net of reinsurance)' });
+  check(combinedRatio(st4).length > 0, 'control: a second, net-of-reinsurance combined ratio on the statement is caught');
   const st5 = base(); const lae = num(cellsOf(st5, 'operating', 'Incurred Loss Adjustment Expense')[2])!;
   check(tiesToEngine(bump(st5, 'operating', 'Net Underwriting Income', 2, x => x + lae), gs, 'pool').length > 0, 'control: underwriting income that keeps the LAE is caught');
   const st6 = base(); const prem = rowOf(st6, 'operating', 'Premium'); prem.cells[prem.cells.length - 1] = prem.cells[prem.cells.length - 2];
@@ -507,6 +546,16 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const st16 = buildAnnualStatement(gs, 'pool', 3); const latestNet = sec(base(), 'net');
   const n16 = sec(st16, 'net'); n16.rows = latestNet.rows.map(r => ({ ...r, cells: [...r.cells] }));
   check(blocksMeetBalanceSheet(st16).length > 0, 'control: blocks valued at the latest year under a chosen earlier year are caught');
+  // The combined ratio at the top.
+  check(topCombined(bump(base(), 'operating', COMBINED_RATIO_LABEL, 2, x => x * 1.05), gs, 'pool').length > 0, 'control: a combined ratio off by 5% in one year is caught');
+  const st17b = base(); const c17b = rowOf(st17b, 'operating', COMBINED_RATIO_LABEL);
+  // Over the window instead of since game start: at year 6 the five shown are years 2-6, so year 1 drops out.
+  const winCosts = sec(st17b, 'operating').windowYears.map(y => costsOf(timelineOf(gs).find(r => r.yearNumber === y)!, 'pool'));
+  c17b.cells[c17b.cells.length - 1] = { kind: 'value', v: winCosts.reduce((a, x) => a + x.costs, 0) / winCosts.reduce((a, x) => a + x.charge, 0) };
+  check(topCombined(st17b, gs, 'pool').length > 0, 'control: a cumulative over the five shown instead of since game start is caught');
+  const st17c = buildAnnualStatement(snaps[0], 'WC'); const c17c = rowOf(st17c, 'operating', COMBINED_RATIO_LABEL);
+  c17c.cells[c17c.cells.length - 1] = c17c.cells[c17c.cells.length - 2];
+  check(topCombined(st17c, snaps[0], 'WC').length > 0, 'control: before year 1, the last pre-game year in place of the pre-game cumulative is caught');
 }
 
 console.log(failures.length === 0

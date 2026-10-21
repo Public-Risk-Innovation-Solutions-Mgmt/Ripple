@@ -51,7 +51,8 @@ import { openingBookUnits, unitsOf } from '../../src/utils/bookUnits';
 import { normalCdf, normalInvCdf } from '../../src/utils/claimMath';
 
 const LINES: StaticClfLine[] = ['WC', 'GL', 'Property'];
-const STOPS = [30, 40, 50, 60, 70, 80, 90];
+// Every slider stop, 30% to 90% in fives (FUNDING_SLIDER_RANGE) — each must be a column.
+const STOPS = [30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
 const STOP_TOL = 0.003;
 const EXPECTED_TOL = 0.01;
 
@@ -125,7 +126,7 @@ function grade(tableOf: TableOf, yearFactorOf: YearFactorOf, tag: string): void 
 
     // 4. The slider and required capital read that table.
     const slider = STOPS.every(p => staticClf(line, p / 100) === t.clf[t.stops.indexOf(p)]);
-    check(slider, `4. ${line}: the slider's stops 30-90% are the table's own columns`);
+    check(slider, `4. ${line}: the slider's stops 30-90% in fives are the table's own columns`);
     // At the reserve margin's confidence — 80% since stable-scenarios commit 2.
     const level = Math.round(RESERVE_MARGIN_CONFIDENCE * 100);
     const clfM = t.clf[t.stops.indexOf(level)];
