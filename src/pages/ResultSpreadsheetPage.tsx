@@ -1,606 +1,55 @@
 import React, { useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { Download, ClipboardList, Table, Users } from 'lucide-react';
-import type { ResultSet } from '../types/simulation';
+import type { CoverageLine, ResultSet, LineResultSet, PoolState, GameInstance } from '../types/simulation';
 import { formatCurrency, formatPct } from '../utils/formatters';
-import { REINSURANCE_PROGRAMS } from '../data/defaultAssumptions';
+import { getMemberExposure } from '../utils/lineHelpers';
+import { type SpreadsheetMetric, buildResultsWorkbook, buildExportFilename, buildPoolMetrics, poolRowsAsMetricInput } from '../utils/resultsExport';
+import { buildClaimsWorkbook, buildClaimsExportFilename } from '../utils/claimsExport';
+import { RESULT_METRICS } from '../utils/resultMetrics';
 
 interface ResultSpreadsheetPageProps {
   lockedResults: ResultSet[];
+  // The pre-game bootstrap's three years. Accident years -2, -1 and 0 have real
+  // claim registers and belong on the claims workbook's line sheets; without
+  // this they were absent from the sheets while their development sat on the
+  // Development sheet, and the workbook disagreed with itself.
+  priorHistory: ResultSet[];
+  // The seed and scheduled shocks — what lets a year the save dropped be redrawn
+  // exactly for the claims workbook (claimRegeneration.ts).
+  instance: GameInstance;
+  activeLines: CoverageLine[];
+  instanceId: string;
+  // Current pool state, for the claims workbook's Development sheet. The
+  // developing claims live on the reserve cohorts, not on a locked result.
+  poolState: PoolState;
+  /** A multi-world game's world 1 — the claims workbook's source. Absent on one world. */
+  claimsWorld?: { lockedResults: ResultSet[]; poolState: PoolState };
+  worldCount?: number;
 }
 
-interface SpreadsheetMetric {
-  key: string;
-  category: string;
-  label: string;
-  value: (result: ResultSet) => string | number;
-  csvValue?: (result: ResultSet) => string | number;
-}
+// ⚠ ONE SWITCH FOR THE TWO MEMBER-LEVEL VIEWS ON THIS PAGE: the Active Member
+// Roster table and the members CSV download. The multiplayer game shows the pool
+// in aggregate, so both are hidden — the engine still holds every member and
+// buildMemberCsv still runs, so flipping this back restores them exactly.
+// Typed, not a literal, so it reads as a setting rather than dead code.
+const SHOW_MEMBER_VIEWS: boolean = false;
 
-export default function ResultSpreadsheetPage({ lockedResults }: ResultSpreadsheetPageProps) {
+export default function ResultSpreadsheetPage({ lockedResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld, worldCount }: ResultSpreadsheetPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
   );
 
   const selectedResult = lockedResults.find(r => r.yearNumber === selectedYear);
 
-  const resultMetrics = useMemo<SpreadsheetMetric[]>(() => {
-    return [
-      {
-        key: 'yearNumber',
-        category: 'Year',
-        label: 'Year Number',
-        value: r => r.yearNumber,
-      },
-      {
-        key: 'calendarYear',
-        category: 'Year',
-        label: 'Calendar Year',
-        value: r => r.calendarYear,
-      },
-
-      // Decisions
-      {
-        key: 'rateChange',
-        category: 'Decisions',
-        label: 'Rate Change',
-        value: r => formatPct(r.decisions.rateChange, 1),
-        csvValue: r => r.decisions.rateChange,
-      },
-      {
-        key: 'fundingConfidenceLevel',
-        category: 'Decisions',
-        label: 'Funding Confidence Level',
-        value: r => formatPct(r.selectedFundingConfidenceLevel, 0),
-        csvValue: r => r.selectedFundingConfidenceLevel,
-      },
-      {
-        key: 'selectedFundingCLF',
-        category: 'Decisions',
-        label: 'Selected CLF',
-        value: r => r.selectedFundingCLF.toFixed(3),
-        csvValue: r => r.selectedFundingCLF,
-      },
-      {
-        key: 'dividendPct',
-        category: 'Decisions',
-        label: 'Dividend %',
-        value: r => formatPct(r.decisions.dividendPct, 1),
-        csvValue: r => r.decisions.dividendPct,
-      },
-      {
-        key: 'assessmentPct',
-        category: 'Decisions',
-        label: 'Assessment %',
-        value: r => formatPct(r.decisions.assessmentPct, 1),
-        csvValue: r => r.decisions.assessmentPct,
-      },
-      {
-        key: 'underwritingStrictness',
-        category: 'Decisions',
-        label: 'Underwriting Strictness',
-        value: r => r.decisions.underwritingStrictness,
-      },
-      {
-        key: 'riskControlPct',
-        category: 'Decisions',
-        label: 'Risk Control %',
-        value: r => formatPct(r.decisions.riskControlPct, 1),
-        csvValue: r => r.decisions.riskControlPct,
-      },
-      {
-        key: 'reinsuranceLevel',
-        category: 'Decisions',
-        label: 'Reinsurance Level',
-        value: r => `${r.decisions.reinsuranceLevel} - ${REINSURANCE_PROGRAMS[r.decisions.reinsuranceLevel]?.label ?? ''}`,
-        csvValue: r => r.decisions.reinsuranceLevel,
-      },
-      {
-        key: 'investmentRisk',
-        category: 'Decisions',
-        label: 'Investment Risk',
-        value: r => r.decisions.investmentRisk,
-      },
-
-      // Membership
-      {
-        key: 'activeMembers',
-        category: 'Membership',
-        label: 'Active Members',
-        value: r => r.activeMembers,
-      },
-      {
-        key: 'newMembers',
-        category: 'Membership',
-        label: 'New Members',
-        value: r => r.newMembers,
-      },
-      {
-        key: 'withdrawnMembers',
-        category: 'Membership',
-        label: 'Withdrawn Members',
-        value: r => r.withdrawnMembers,
-      },
-      {
-        key: 'memberRetentionRate',
-        category: 'Membership',
-        label: 'Member Retention Rate',
-        value: r => formatPct(r.memberRetentionRate),
-        csvValue: r => r.memberRetentionRate,
-      },
-      {
-        key: 'memberSatisfaction',
-        category: 'Membership',
-        label: 'Member Satisfaction',
-        value: r => r.memberSatisfaction.toFixed(2),
-        csvValue: r => r.memberSatisfaction,
-      },
-      {
-        key: 'averageRiskQuality',
-        category: 'Membership',
-        label: 'Average Risk Quality',
-        value: r => r.averageRiskQuality.toFixed(2),
-        csvValue: r => r.averageRiskQuality,
-      },
-      {
-        key: 'activeExposure',
-        category: 'Membership',
-        label: 'Active Payroll Exposure ($M)',
-        value: r => r.activeExposure.toFixed(2),
-        csvValue: r => r.activeExposure,
-      },
-      {
-        key: 'totalMarketExposure',
-        category: 'Membership',
-        label: 'Total Market Payroll ($M)',
-        value: r => r.totalMarketExposure.toFixed(2),
-        csvValue: r => r.totalMarketExposure,
-      },
-      {
-        key: 'marketShare',
-        category: 'Membership',
-        label: 'Market Share',
-        value: r => formatPct(r.marketShare),
-        csvValue: r => r.marketShare,
-      },
-
-      // Rate and premium
-      {
-        key: 'rateLevel',
-        category: 'Rate and Premium',
-        label: 'Rate Level Index',
-        value: r => r.rateLevel.toFixed(3),
-        csvValue: r => r.rateLevel,
-      },
-      {
-        key: 'purePremiumRatePer100',
-        category: 'Rate and Premium',
-        label: 'Pure Premium Rate per $100 Payroll',
-        value: r => dollars(r.purePremiumPer100),
-        csvValue: r => r.purePremiumPer100,
-      },
-      {
-        key: 'poolPremiumRateAtSelectedClf',
-        category: 'Rate and Premium',
-        label: 'Pool Premium Rate at Selected CLF',
-        value: r => dollars(r.poolPremium / Math.max(r.activeExposure * 10_000, 1)),
-        csvValue: r => r.poolPremium / Math.max(r.activeExposure * 10_000, 1),
-      },
-      {
-        key: 'totalMemberRatePer100',
-        category: 'Rate and Premium',
-        label: 'Gross Premium & Admin Expense Rate per $100',
-        value: r => dollars(r.ratePer100),
-        csvValue: r => r.ratePer100,
-      },
-      {
-        key: 'writtenExposure',
-        category: 'Rate and Premium',
-        label: 'Written Payroll ($M)',
-        value: r => r.writtenExposure.toFixed(2),
-        csvValue: r => r.writtenExposure,
-      },
-      {
-        key: 'purePremiumAtOne',
-        category: 'Rate and Premium',
-        label: 'Pure Premium',
-        value: r => formatCurrency(r.expectedLoss),
-        csvValue: r => roundDollars(r.expectedLoss),
-      },
-      {
-        key: 'poolPremium',
-        category: 'Rate and Premium',
-        label: 'Pool Premium at Selected CLF',
-        value: r => formatCurrency(r.poolPremium),
-        csvValue: r => roundDollars(r.poolPremium),
-      },
-      {
-        key: 'adminExpense',
-        category: 'Rate and Premium',
-        label: 'Admin Expense',
-        value: r => formatCurrency(r.adminExpense),
-        csvValue: r => roundDollars(r.adminExpense),
-      },
-      {
-        key: 'totalMemberCharge',
-        category: 'Rate and Premium',
-        label: 'Gross Premium & Admin Expense',
-        value: r => formatCurrency(r.totalMemberCharge),
-        csvValue: r => roundDollars(r.totalMemberCharge),
-      },
-      {
-        key: 'assessments',
-        category: 'Rate and Premium',
-        label: 'Assessments',
-        value: r => formatCurrency(r.assessments),
-        csvValue: r => roundDollars(r.assessments),
-      },
-      {
-        key: 'dividends',
-        category: 'Rate and Premium',
-        label: 'Dividends / Returned Pool Premium',
-        value: r => formatCurrency(r.dividends),
-        csvValue: r => roundDollars(r.dividends),
-      },
-
-      // Losses
-      {
-        key: 'expectedLoss',
-        category: 'Losses',
-        label: 'Pure Premium',
-        value: r => formatCurrency(r.expectedLoss),
-        csvValue: r => roundDollars(r.expectedLoss),
-      },
-      {
-        key: 'clfAdjustedExpectedLoss',
-        category: 'Losses',
-        label: 'Pool Premium at Selected CLF',
-        value: r => formatCurrency(r.clfAdjustedExpectedLoss),
-        csvValue: r => roundDollars(r.clfAdjustedExpectedLoss),
-      },
-      {
-        key: 'aggregateMemberLoss',
-        category: 'Losses',
-        label: 'Member-Level Simulated Loss incl. Shared Events',
-        value: r => formatCurrency(r.aggregateMemberLoss ?? r.grossUltimateLoss),
-        csvValue: r => roundDollars(r.aggregateMemberLoss ?? r.grossUltimateLoss),
-      },
-      {
-        key: 'commonLossFactor',
-        category: 'Losses',
-        label: 'Shared Annual Loss Factor',
-        value: r => (r.commonLossFactor ?? 1).toFixed(4),
-        csvValue: r => r.commonLossFactor ?? 1,
-      },
-      {
-        key: 'catastropheFactor',
-        category: 'Losses',
-        label: 'Catastrophe Factor',
-        value: r => (r.catastropheFactor ?? 1).toFixed(4),
-        csvValue: r => r.catastropheFactor ?? 1,
-      },
-      {
-        key: 'shockLossAmount',
-        category: 'Losses',
-        label: 'Shock Uplift (included in simulated loss)',
-        value: r => formatCurrency(r.shockLossAmount ?? 0),
-        csvValue: r => roundDollars(r.shockLossAmount ?? 0),
-      },
-      {
-        key: 'grossUltimateLoss',
-        category: 'Losses',
-        label: 'Gross Ultimate Loss + LAE',
-        value: r => formatCurrency(r.grossUltimateLoss),
-        csvValue: r => roundDollars(r.grossUltimateLoss),
-      },
-      {
-        key: 'shockLossIncurred',
-        category: 'Losses',
-        label: 'Shock Loss Incurred',
-        value: r => (r.shockLossIncurred ? 'Yes' : 'No'),
-      },
-      {
-        key: 'reinsuranceRecovery',
-        category: 'Losses',
-        label: 'Reinsurance Recovery',
-        value: r => formatCurrency(r.reinsuranceRecovery),
-        csvValue: r => roundDollars(r.reinsuranceRecovery),
-      },
-      {
-        key: 'netUltimateLoss',
-        category: 'Losses',
-        label: 'Net Ultimate Loss + LAE',
-        value: r => formatCurrency(r.netUltimateLoss),
-        csvValue: r => roundDollars(r.netUltimateLoss),
-      },
-
-      // Expenses and income
-      {
-        key: 'operatingExpense',
-        category: 'Expenses and Income',
-        label: 'Operating Expense',
-        value: r => formatCurrency(r.operatingExpense),
-        csvValue: r => roundDollars(r.operatingExpense),
-      },
-      {
-        key: 'riskControlInvestment',
-        category: 'Expenses and Income',
-        label: 'Risk Control Investment',
-        value: r => formatCurrency(r.riskControlInvestment),
-        csvValue: r => roundDollars(r.riskControlInvestment),
-      },
-      {
-        key: 'reinsuranceCost',
-        category: 'Expenses and Income',
-        label: 'Reinsurance Cost',
-        value: r => formatCurrency(r.reinsuranceCost),
-        csvValue: r => roundDollars(r.reinsuranceCost),
-      },
-      {
-        key: 'investedAssets',
-        category: 'Expenses and Income',
-        label: 'Invested Assets',
-        value: r => formatCurrency(r.investedAssets),
-        csvValue: r => roundDollars(r.investedAssets),
-      },
-      {
-        key: 'investmentReturnRate',
-        category: 'Expenses and Income',
-        label: 'Investment Return Rate',
-        value: r => formatPct(r.investmentReturnRate),
-        csvValue: r => r.investmentReturnRate,
-      },
-      {
-        key: 'investmentIncome',
-        category: 'Expenses and Income',
-        label: 'Investment Income',
-        value: r => formatCurrency(r.investmentIncome),
-        csvValue: r => roundDollars(r.investmentIncome),
-      },
-      {
-        key: 'netIncome',
-        category: 'Expenses and Income',
-        label: 'Net Income',
-        value: r => formatCurrency(r.netIncome),
-        csvValue: r => roundDollars(r.netIncome),
-      },
-
-      // Reserves
-      {
-        key: 'priorYearDevelopment',
-        category: 'Reserves',
-        label: 'Prior-Year Development',
-        value: r => formatCurrency(r.priorYearDevelopment),
-        csvValue: r => roundDollars(r.priorYearDevelopment),
-      },
-      {
-        key: 'beginningGrossReserve',
-        category: 'Reserves',
-        label: 'Beginning Gross Reserve',
-        value: r => formatCurrency(r.beginningGrossReserve),
-        csvValue: r => roundDollars(r.beginningGrossReserve),
-      },
-      {
-        key: 'currentYearGrossReserve',
-        category: 'Reserves',
-        label: 'Current-Year Gross Reserve',
-        value: r => formatCurrency(r.currentYearGrossReserve),
-        csvValue: r => roundDollars(r.currentYearGrossReserve),
-      },
-      {
-        key: 'grossPaidLosses',
-        category: 'Reserves',
-        label: 'Gross Paid Losses',
-        value: r => formatCurrency(r.grossPaidLosses),
-        csvValue: r => roundDollars(r.grossPaidLosses),
-      },
-      {
-        key: 'endingGrossReserve',
-        category: 'Reserves',
-        label: 'Ending Gross Reserve',
-        value: r => formatCurrency(r.endingGrossReserve),
-        csvValue: r => roundDollars(r.endingGrossReserve),
-      },
-      {
-        key: 'beginningReinsRecoverable',
-        category: 'Reserves',
-        label: 'Beginning RI Recoverable',
-        value: r => formatCurrency(r.beginningReinsRecoverable),
-        csvValue: r => roundDollars(r.beginningReinsRecoverable),
-      },
-      {
-        key: 'endingReinsRecoverable',
-        category: 'Reserves',
-        label: 'Ending RI Recoverable',
-        value: r => formatCurrency(r.endingReinsRecoverable),
-        csvValue: r => roundDollars(r.endingReinsRecoverable),
-      },
-      {
-        key: 'expectedNetUnpaidLoss',
-        category: 'Reserves',
-        label: 'Expected Net Unpaid Loss',
-        value: r => formatCurrency(r.expectedNetUnpaidLoss),
-        csvValue: r => roundDollars(r.expectedNetUnpaidLoss),
-      },
-      {
-        key: 'indicatedNetReserveAtConfidenceLevel',
-        category: 'Reserves',
-        label: 'Indicated Net Reserve at Confidence',
-        value: r => formatCurrency(r.indicatedNetReserveAtConfidenceLevel),
-        csvValue: r => roundDollars(r.indicatedNetReserveAtConfidenceLevel),
-      },
-      {
-        key: 'reserveRiskMarginNeeded',
-        category: 'Reserves',
-        label: 'Reserve Risk Margin Needed',
-        value: r => formatCurrency(r.reserveRiskMarginNeeded),
-        csvValue: r => roundDollars(r.reserveRiskMarginNeeded),
-      },
-
-      // Balance sheet and surplus
-      {
-        key: 'beginningCash',
-        category: 'Balance Sheet and Surplus',
-        label: 'Beginning Cash',
-        value: r => formatCurrency(r.beginningCash),
-        csvValue: r => roundDollars(r.beginningCash),
-      },
-      {
-        key: 'endingCash',
-        category: 'Balance Sheet and Surplus',
-        label: 'Ending Cash',
-        value: r => formatCurrency(r.endingCash),
-        csvValue: r => roundDollars(r.endingCash),
-      },
-      {
-        key: 'beginningInvestments',
-        category: 'Balance Sheet and Surplus',
-        label: 'Beginning Investments',
-        value: r => formatCurrency(r.beginningInvestments),
-        csvValue: r => roundDollars(r.beginningInvestments),
-      },
-      {
-        key: 'endingInvestments',
-        category: 'Balance Sheet and Surplus',
-        label: 'Ending Investments',
-        value: r => formatCurrency(r.endingInvestments),
-        csvValue: r => roundDollars(r.endingInvestments),
-      },
-      {
-        key: 'otherAssets',
-        category: 'Balance Sheet and Surplus',
-        label: 'Other Assets',
-        value: r => formatCurrency(r.otherAssets),
-        csvValue: r => roundDollars(r.otherAssets),
-      },
-      {
-        key: 'totalAssets',
-        category: 'Balance Sheet and Surplus',
-        label: 'Total Assets',
-        value: r => formatCurrency(r.totalAssets),
-        csvValue: r => roundDollars(r.totalAssets),
-      },
-      {
-        key: 'unearnedPremium',
-        category: 'Balance Sheet and Surplus',
-        label: 'Unearned Premium',
-        value: r => formatCurrency(r.unearnedPremium),
-        csvValue: r => roundDollars(r.unearnedPremium),
-      },
-      {
-        key: 'otherLiabilities',
-        category: 'Balance Sheet and Surplus',
-        label: 'Other Liabilities',
-        value: r => formatCurrency(r.otherLiabilities),
-        csvValue: r => roundDollars(r.otherLiabilities),
-      },
-      {
-        key: 'totalLiabilities',
-        category: 'Balance Sheet and Surplus',
-        label: 'Total Liabilities',
-        value: r => formatCurrency(r.totalLiabilities),
-        csvValue: r => roundDollars(r.totalLiabilities),
-      },
-      {
-        key: 'beginingSurplus',
-        category: 'Balance Sheet and Surplus',
-        label: 'Beginning Surplus',
-        value: r => formatCurrency(r.beginingSurplus),
-        csvValue: r => roundDollars(r.beginingSurplus),
-      },
-      {
-        key: 'surplusFromIncome',
-        category: 'Balance Sheet and Surplus',
-        label: 'Surplus from Income',
-        value: r => formatCurrency(r.surplusFromIncome),
-        csvValue: r => roundDollars(r.surplusFromIncome),
-      },
-      {
-        key: 'endingSurplus',
-        category: 'Balance Sheet and Surplus',
-        label: 'Ending Surplus',
-        value: r => formatCurrency(r.endingSurplus),
-        csvValue: r => roundDollars(r.endingSurplus),
-      },
-      {
-        key: 'surplusTieOutDifference',
-        category: 'Balance Sheet and Surplus',
-        label: 'Surplus Tie-Out Difference',
-        value: r => formatCurrency(r.surplusTieOutDifference),
-        csvValue: r => roundDollars(r.surplusTieOutDifference),
-      },
-
-      // Ratios and capital
-      {
-        key: 'expectedLossRatio',
-        category: 'Ratios and Capital',
-        label: 'Expected Loss Ratio',
-        value: r => formatPct(r.expectedLossRatio),
-        csvValue: r => r.expectedLossRatio,
-      },
-      {
-        key: 'expectedExpenseRatio',
-        category: 'Ratios and Capital',
-        label: 'Expected Expense Ratio',
-        value: r => formatPct(r.expectedExpenseRatio),
-        csvValue: r => r.expectedExpenseRatio,
-      },
-      {
-        key: 'expectedCombinedRatio',
-        category: 'Ratios and Capital',
-        label: 'Expected Combined Ratio',
-        value: r => formatPct(r.expectedCombinedRatio),
-        csvValue: r => r.expectedCombinedRatio,
-      },
-      {
-        key: 'actualLossRatio',
-        category: 'Ratios and Capital',
-        label: 'Actual Loss Ratio',
-        value: r => formatPct(r.actualLossRatio),
-        csvValue: r => r.actualLossRatio,
-      },
-      {
-        key: 'actualExpenseRatio',
-        category: 'Ratios and Capital',
-        label: 'Actual Expense Ratio',
-        value: r => formatPct(r.actualExpenseRatio),
-        csvValue: r => r.actualExpenseRatio,
-      },
-      {
-        key: 'actualCombinedRatio',
-        category: 'Ratios and Capital',
-        label: 'Actual Combined Ratio',
-        value: r => formatPct(r.actualCombinedRatio),
-        csvValue: r => r.actualCombinedRatio,
-      },
-      {
-        key: 'availableSurplus',
-        category: 'Ratios and Capital',
-        label: 'Surplus',
-        value: r => formatCurrency(r.availableSurplus),
-        csvValue: r => roundDollars(r.availableSurplus),
-      },
-      {
-        key: 'excessAvailableSurplus',
-        category: 'Ratios and Capital',
-        label: 'Excess Available Surplus',
-        value: r => formatCurrency(r.excessAvailableSurplus),
-        csvValue: r => roundDollars(r.excessAvailableSurplus),
-      },
-      {
-        key: 'excessCapitalRatio',
-        category: 'Ratios and Capital',
-        label: 'Excess Capital Ratio',
-        value: r => r.excessCapitalRatio === null ? 'N/A' : r.excessCapitalRatio.toFixed(3),
-        csvValue: r => r.excessCapitalRatio ?? '',
-      },
-      {
-        key: 'capitalAdequacyStatus',
-        category: 'Ratios and Capital',
-        label: 'Excess Capital Status',
-        value: r => r.capitalAdequacyStatus,
-      },
-    ];
-  }, []);
+  // ⚠ THE POOL FILTER, THE SAME ONE THE WORKBOOK USES. This table renders pool
+  // rows; RESULT_METRICS is the full LINE list and included six metrics reading
+  // fields that no longer exist on a pool row — rate level, both funding
+  // selections, the two per-$100 rates and the legacy common-loss factor. They
+  // printed the first active line's value under a pool heading here exactly as
+  // they did on the Pool tab. Sharing buildPoolMetrics is what stops the page
+  // and the export disagreeing about which rows a pool has.
+  const resultMetrics = buildPoolMetrics(RESULT_METRICS, activeLines);
 
   const memberRows = useMemo(() => {
     if (!selectedResult?.memberList) return [];
@@ -618,8 +67,9 @@ export default function ResultSpreadsheetPage({ lockedResults }: ResultSpreadshe
         name: safeCell(record.name),
         status: safeCell(record.status),
         size: safeCell(record.sizeCategory),
-        exposure: safeNumber(record.exposure),
-        riskQuality: safeNumber(record.riskQuality),
+        // NOMINAL, in the dollars of the year being viewed — matching that
+        // year's premium. Roster payroll is frozen in year-1 dollars.
+        exposure: safeNumber(getMemberExposure(member, 'WC', selectedResult.yearNumber)),
         satisfaction: safeNumber(record.satisfaction),
         expectedLoss: loss ? formatCurrency(loss.expectedLoss) : '',
         coefficientOfVariation: loss ? formatPct(loss.coefficientOfVariation) : '',
@@ -641,8 +91,9 @@ export default function ResultSpreadsheetPage({ lockedResults }: ResultSpreadshe
     );
   }
 
-  const resultCsv = buildVerticalResultCsv(lockedResults, resultMetrics);
   const memberCsv = buildMemberCsv(selectedResult);
+  const exportFilename = buildExportFilename(instanceId, activeLines, lockedResults);
+  const claimsExportFilename = buildClaimsExportFilename(instanceId, activeLines, lockedResults);
 
   return (
     <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
@@ -669,22 +120,58 @@ export default function ResultSpreadsheetPage({ lockedResults }: ResultSpreadshe
 
           <button
             type="button"
-            onClick={() => downloadCsv('source-game-year-results-vertical.csv', resultCsv)}
+            onClick={() => {
+              // ⚠ RESULT_METRICS, NOT `resultMetrics`. This passed the POOLED list
+              // and that is what broke the Results download: buildResultsWorkbook
+              // builds BOTH scopes from this argument, and a pooled list is a
+              // LOSSY transform of the raw one — eleven rows are dropped outright
+              // (assetAllocation, and ten lineOnly metrics with no pool form), so
+              // the line tabs came out with 81 rows instead of 92 even once the
+              // accessors were made reversible. The pooled list above is for the
+              // on-screen pool table, which is the only thing it is correct for.
+              const wb = buildResultsWorkbook(lockedResults, activeLines, RESULT_METRICS);
+              XLSX.writeFile(wb, exportFilename);
+            }}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
             <Download size={16} />
-            Download Results CSV
+            Download Results (.xlsx)
           </button>
 
           <button
             type="button"
-            onClick={() => downloadCsv(`source-game-members-year-${selectedYear}.csv`, memberCsv)}
-            disabled={!selectedResult || memberRows.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => {
+              // A SEPARATE workbook, deliberately — see claimsExport.ts. The
+              // results workbook above is a per-metric summary; claim-level
+              // detail is thousands of rows and does not belong bolted onto it.
+              // ⚠ CLAIMS ARE A WORLD'S, NOT THE AVERAGE'S (loss engine commit 4b).
+              // An averaged year has no claims of its own, so in a multi-world
+              // game the workbook is world 1's — its own claims, its own
+              // development — and the button says so.
+              const src = claimsWorld ?? { lockedResults, poolState };
+              const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instanceId);
+              XLSX.writeFile(wb, claimsExportFilename);
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
           >
             <Download size={16} />
-            Download Members CSV
+            {claimsWorld ? `Download Claims — world 1 of ${worldCount} (.xlsx)` : 'Download Claims (.xlsx)'}
           </button>
+
+          {/* ⚠ THE MEMBERS CSV DOWNLOAD IS HIDDEN, NOT DELETED. buildMemberCsv
+              and memberCsv above still run; nothing in the engine or the export
+              path changed. Uncomment to restore. */}
+          {SHOW_MEMBER_VIEWS && (
+            <button
+              type="button"
+              onClick={() => downloadCsv(`source-game-members-year-${selectedYear}.csv`, memberCsv)}
+              disabled={!selectedResult || memberRows.length === 0}
+              className="inline-flex items-center gap-2 rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download size={16} />
+              Download Members CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -699,19 +186,31 @@ export default function ResultSpreadsheetPage({ lockedResults }: ResultSpreadshe
         title="Year-by-Year Results"
         icon={<ClipboardList size={16} />}
         metrics={resultMetrics}
-        results={lockedResults}
+        results={poolRowsAsMetricInput(lockedResults)}
       />
 
+      {/* ⚠ THE ACTIVE MEMBER ROSTER TABLE IS HIDDEN, NOT DELETED. The multiplayer
+          game shows the pool in aggregate; the engine still holds every member,
+          and buildMemberCsv / memberRows below are untouched. Restoring this is
+          uncommenting the block. The risk-quality note it carried still applies:
+          no member's score ever appeared here and must not. */}
+      {SHOW_MEMBER_VIEWS && (
       <SpreadsheetTable
         title={`Active Member Roster — Year ${selectedYear}`}
         icon={<Users size={16} />}
+        /* ⚠ NO RISK QUALITY COLUMN, HERE OR IN THE CSV BELOW, AND ITS ABSENCE
+           IS DELIBERATE. This export gave the player every member's exact
+           risk quality to two decimals — the single largest leak of the
+           attribute anywhere in the app, and the one hardest to argue is
+           incidental. It is unobservable in a real pool: an administrator
+           sees claims, not a quality score. surface-privacy-check asserts it
+           stays out of every page and export. */
         columns={[
           'Member ID',
           'Name',
           'Status',
           'Size',
           'Payroll Exposure ($M)',
-          'Risk Quality',
           'Satisfaction',
           'Expected Loss',
           'Loss CV',
@@ -724,7 +223,6 @@ export default function ResultSpreadsheetPage({ lockedResults }: ResultSpreadshe
           member.status,
           member.size,
           member.exposure,
-          member.riskQuality,
           member.satisfaction,
           member.expectedLoss,
           member.coefficientOfVariation,
@@ -733,6 +231,7 @@ export default function ResultSpreadsheetPage({ lockedResults }: ResultSpreadshe
         ])}
         emptyMessage="No member roster saved for this year."
       />
+      )}
     </div>
   );
 }
@@ -746,7 +245,7 @@ function VerticalResultTable({
   title: string;
   icon: React.ReactNode;
   metrics: SpreadsheetMetric[];
-  results: ResultSet[];
+  results: LineResultSet[];
 }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -894,32 +393,9 @@ function SpreadsheetTable({
   );
 }
 
-function buildVerticalResultCsv(results: ResultSet[], metrics: SpreadsheetMetric[]): string {
-  const header = [
-    escapeCsv('Category'),
-    escapeCsv('Metric'),
-    ...results.map(result => escapeCsv(`Year ${result.yearNumber} / ${result.calendarYear}`)),
-  ].join(',');
-
-  const rows = metrics.map(metric => {
-    const cells = [
-      escapeCsv(metric.category),
-      escapeCsv(metric.label),
-      ...results.map(result => {
-        const value = metric.csvValue ? metric.csvValue(result) : metric.value(result);
-        return escapeCsv(value);
-      }),
-    ];
-
-    return cells.join(',');
-  });
-
-  return [header, ...rows].join('\n');
-}
-
 function buildMemberCsv(result: ResultSet | undefined): string {
   if (!result?.memberList || result.memberList.length === 0) {
-    return 'Member ID,Name,Status,Size,Payroll Exposure ($M),Risk Quality,Satisfaction,Expected Loss,Loss CV,Loss Standard Deviation,Simulated Actual Loss';
+    return 'Member ID,Name,Status,Size,Payroll Exposure ($M),Satisfaction,Expected Loss,Loss CV,Loss Standard Deviation,Simulated Actual Loss';
   }
 
   const lossByMember = new Map(
@@ -932,7 +408,6 @@ function buildMemberCsv(result: ResultSet | undefined): string {
     'Status',
     'Size',
     'Payroll Exposure ($M)',
-    'Risk Quality',
     'Satisfaction',
     'Expected Loss',
     'Loss CV',
@@ -949,8 +424,7 @@ function buildMemberCsv(result: ResultSet | undefined): string {
       safeCell(record.name),
       safeCell(record.status),
       safeCell(record.sizeCategory),
-      safeNumber(record.exposure),
-      safeNumber(record.riskQuality),
+      safeNumber(getMemberExposure(member, 'WC', result.yearNumber)),
       safeNumber(record.satisfaction),
       loss ? Math.round(loss.expectedLoss) : '',
       loss ? loss.coefficientOfVariation : '',
@@ -982,14 +456,6 @@ function escapeCsv(value: unknown): string {
   const text = String(value ?? '');
   const escaped = text.replace(/"/g, '""');
   return `"${escaped}"`;
-}
-
-function dollars(value: number): string {
-  return `$${value.toFixed(2)}`;
-}
-
-function roundDollars(value: number): number {
-  return Math.round(value);
 }
 
 function safeCell(value: unknown): string {

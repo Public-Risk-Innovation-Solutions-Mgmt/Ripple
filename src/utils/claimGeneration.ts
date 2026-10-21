@@ -1,0 +1,171 @@
+// ============================================================================
+// ONE MAPPING FROM A LINE-YEAR'S INPUTS TO ITS GENERATOR CALL.
+//
+// ⚠ THIS EXISTS SO THE ENGINE AND THE REGENERATOR CANNOT DRIFT. processYear
+// draws a year's claims live; claimRegeneration redraws a PAST year on demand
+// from what the result persisted. If each built its generator arguments
+// separately, the two would be two descriptions of one fact — the shape that
+// let the claims workbook's line sheets and its Development sheet disagree about
+// which years existed. So the argument-building is here, once, and both call it.
+// The engine is NOT calling the regenerator: it has its claims already, and a
+// second path producing the same objects is exactly the drift being avoided.
+// It is calling the same INPUT mapping the regenerator calls, then running the
+// generator itself — for the three ENROLLED draws. The marketplace-prospect
+// draws (k = 1, rc = 0, claims discarded) stay inline at their call sites: they
+// are not what regeneration reproduces, and rewriting them would be churn on a
+// path nothing redraws.
+//
+// ⚠ NOTHING HERE DRAWS. Every function is pure in its arguments. The randomness
+// is inside the three generators, keyed per member on (seed, year, memberId) —
+// enrolment-independence-check's guarantee — and in poolYearFactor below, keyed
+// on (seed, year). That is what makes a redraw exact rather than approximate.
+// ============================================================================
+
+import type { CoverageLine, Member, Claim, Occurrence } from '../types/simulation';
+import { deriveSubRng } from './random';
+import { applyPoolLimit } from './poolLimit';
+import { WC_LOSS_MODEL } from '../data/defaultAssumptions';
+import { generateWcClaims, type WcGenerationInputs } from './wcClaimEngine';
+import { generateGlClaims, type GlGenerationInputs } from './glClaimEngine';
+import { generatePropertyClaims, type PropertyGenerationInputs } from './propertyClaimEngine';
+
+// THE POOL-YEAR LOSS FACTOR — one draw per year, shared by every line, and a
+// PURE FUNCTION OF (seed, year). It lived inline in processYear until claim
+// regeneration needed the same number: a past year's GL register cannot be
+// redrawn without the gPool that year saw, and storing a value derivable from
+// two things already stored would be a second copy of one fact. So it is a
+// function, and processYear and claimRegeneration both call it.
+//
+// ⚠ ITS OWN PURPOSE LABEL, so it consumes nothing from any other stream. That
+// was true inline and stays true here — the derivation is byte-identical, which
+// value-identity-check asserts across the extraction.
+export function poolYearFactor(seed: number, yearNumber: number): number {
+  return deriveSubRng(seed, yearNumber, 'wc_gpool')
+    .gamma(WC_LOSS_MODEL.poolYearFactor.shape, WC_LOSS_MODEL.poolYearFactor.scale);
+}
+
+// WC'S OWN SHARED YEAR FACTOR — same shape of object as poolYearFactor above,
+// same purity, and a DIFFERENT DRAW. See WC_LOSS_MODEL.wcYearFactor for why it
+// is WC's own rather than the shared gPool.
+//
+// ⚠ IT LIVES IN wcClaimEngine AND IS RE-EXPORTED HERE, which is the opposite of
+// poolYearFactor's arrangement and is forced by the import direction: this
+// module imports the three generators, so a generator cannot import back from
+// it. Re-exporting keeps ONE definition while letting callers reach it from the
+// place they already reach poolYearFactor.
+export { wcYearFactor } from './wcClaimEngine';
+
+/** Everything a line-year's generator call needs, before the line is known. */
+export interface LineYearGenerationBase {
+  members: Member[];
+  yearNumber: number;
+  calendarYear: number;
+  instanceSeed: number;
+  /** k_line / k_GL / k_Pr — the enrolled book's mix correction, as applied. */
+  k: number;
+  riskControlEffectiveness: number;
+  /** GL's shared pool-year factor. Ignored by WC and Property, which run at 1. */
+  gPool: number;
+  /**
+   * This line's RISK CONTROL PROGRAM frequency multiplier, 1 when none applies.
+   *
+   * ⚠ NEVER PASSED TO THE MARKETPLACE DRAW — see riskControlPrograms.ts,
+   * which records the rule.
+   */
+  programFreqMultiplier: number;
+  /**
+   * This line's RETURN-TO-WORK conversion rate, 0 when none applies. WC only;
+   * the other two generators do not read it. Same separate-channel rule as the
+   * frequency multiplier above.
+   */
+  programRtwConversion: number;
+  /**
+   * This line's CLAIMS SYSTEM severity reduction, 0 when none applies. Applied
+   * only to claims below the claims system's fixed threshold — see claimsSystemAdjusted,
+   * which is the single place the rule is written.
+   *
+   * ⚠ A THIRD SEPARATE CHANNEL, for the same reason as the two above. It is
+   * also the first one that is POOL-scoped: the same rate reaches all three
+   * generators, where the frequency multiplier and the RTW conversion are each
+   * one line's. The threshold differs by line; the rate does not.
+   */
+  programSeverityReduction: number;
+}
+
+export interface LineYearGenerationOutput {
+  claims: Claim[];
+  occurrences: Occurrence[];
+  grossUltimateLoss: number;
+}
+
+/**
+ * The three generators take different input shapes. These three functions are
+ * the ONLY place that mapping is written; processYear passes their output to
+ * the generators for the live draw, and regenerateLineYearClaims passes it for
+ * the redraw. GL takes gPool; Property does not (its fitted mixture already
+ * contains what gPool would add — see the note at its engine call site).
+ *
+ * The member path runs with NO SHOCKS: the old shock placeholders and the
+ * channels that carried them into these generators were deleted at loss engine
+ * commit 3b.
+ *
+ * ⚠ THESE RETURN INPUTS, NOT RESULTS, and that is deliberate. The engine reads
+ * generator outputs the regenerator has no use for — WC's per-component counts
+ * and GL's maxOccurrenceGross — so a shared function
+ * that RAN the generator would have to return every line's full result type.
+ * Sharing the argument construction and letting each caller run the generator
+ * itself keeps one mapping without forcing one output shape.
+ */
+export function wcGenerationInputs(b: LineYearGenerationBase): WcGenerationInputs {
+  return {
+    members: b.members, yearNumber: b.yearNumber, calendarYear: b.calendarYear,
+    instanceSeed: b.instanceSeed, kLine: b.k, riskControlEffectiveness: b.riskControlEffectiveness,
+    programFreqMultiplier: b.programFreqMultiplier,
+    programRtwConversion: b.programRtwConversion,
+    programSeverityReduction: b.programSeverityReduction,
+  };
+}
+
+export function glGenerationInputs(b: LineYearGenerationBase): GlGenerationInputs {
+  return {
+    members: b.members, yearNumber: b.yearNumber, calendarYear: b.calendarYear,
+    instanceSeed: b.instanceSeed, kGl: b.k, gPool: b.gPool,
+    riskControlEffectiveness: b.riskControlEffectiveness,
+    programFreqMultiplier: b.programFreqMultiplier,
+    programSeverityReduction: b.programSeverityReduction,
+  };
+}
+
+export function propertyGenerationInputs(b: LineYearGenerationBase): PropertyGenerationInputs {
+  return {
+    members: b.members, yearNumber: b.yearNumber, calendarYear: b.calendarYear,
+    instanceSeed: b.instanceSeed, kPr: b.k, riskControlEffectiveness: b.riskControlEffectiveness,
+    programSeverityReduction: b.programSeverityReduction,
+  };
+}
+
+/**
+ * Draw one line-year through the shared mapping. Used by the regenerator.
+ *
+ * ⚠ THE POOL'S PER-OCCURRENCE LIMIT IS APPLIED HERE, because what this
+ * returns has to BE the engine's year and not a second opinion about it. The
+ * engine caps GL at $25M per claim before anything reads the register (see
+ * poolLimit.ts); a regenerator that skipped the cap handed back a claim the
+ * pool never had. Three gates said so at once — save-round-trip-check,
+ * property-mitigation-check and claims-memo-check — and all three named the
+ * same thing: "the regenerated object differs from the drawn one".
+ *
+ * There is ONE function that decides what the pool keeps, and both paths that
+ * build a line-year call it.
+ */
+export function generateLineYearClaims(line: CoverageLine, b: LineYearGenerationBase): LineYearGenerationOutput {
+  const limited = (r: { claims: Claim[]; occurrences: Occurrence[] }) => {
+    const { grossUltimateLoss } = applyPoolLimit(line, r.claims);
+    return { claims: r.claims, occurrences: r.occurrences, grossUltimateLoss };
+  };
+  switch (line) {
+    case 'WC': return limited(generateWcClaims(wcGenerationInputs(b)));
+    case 'GL': return limited(generateGlClaims(glGenerationInputs(b)));
+    case 'Property': return limited(generatePropertyClaims(propertyGenerationInputs(b)));
+  }
+}

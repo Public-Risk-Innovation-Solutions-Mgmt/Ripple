@@ -7,33 +7,140 @@ import {
   DollarSign,
   AlertTriangle,
   Target,
+  GitCompare,
 } from 'lucide-react';
-import type { ResultSet } from '../types/simulation';
+import type { CoverageLine, LineResultSet, ResultSet, LineView } from '../types/simulation';
+import { asLineRow } from '../utils/lineHelpers';
 import {
   formatCurrency,
+  formatMillions,
   formatPct,
+  colorForCombinedRatio,
   colorForRatio,
   colorForNetIncome,
   colorForSurplus,
 } from '../utils/formatters';
-import { REINSURANCE_PROGRAMS } from '../data/defaultAssumptions';
+import { metricLabel } from '../utils/resultMetrics';
+import { placementSummary, hasTractableCeded, towerTopLabel, RETAINED_ABOVE_TOWER_CAVEAT } from '../utils/reinsuranceDisplay';
+import { lineDisplayName } from '../utils/lineDisplay';
+import { eventLabel, yearEvents } from '../utils/yearEvents';
+import { MEMBER_LEVEL } from '../data/pricingParameters';
+import WorldsSurplusRange from '../components/WorldsSurplusRange';
+import type { SurplusRange } from '../utils/worlds';
 
 interface ResultsPageProps {
-  lockedResults: ResultSet[];
+  lockedResults: Array<ResultSet | LineResultSet>;
+  lineView: LineView;
+  /** Ending surplus across the worlds, by played year, at this view's scope (loss engine commit 4b). */
+  surplusRangeByYear?: Record<number, SurplusRange>;
 }
 
-export default function ResultsPage({ lockedResults }: ResultsPageProps) {
+// Stage 2.3 — Individual-Year Comparison. 'goodUp'/'goodDown' color the change
+// direction; 'neutral' metrics are never colored since their direction isn't
+// inherently good or bad (e.g. more premium could mean growth or a forced rate
+// hike; more reserves could mean a bigger book or adverse development; more
+// reinsurance recovery only correlates with having had bigger losses).
+type MetricPolarity = 'goodUp' | 'goodDown' | 'neutral';
+type MetricKind = 'currency' | 'ratio';
+
+/** What a per-line decision reads as at pool scope. */
+const VARIES = '— (varies by line)';
+
+interface ComparisonMetric {
+  key: string;
+  label: string;
+  kind: MetricKind;
+  polarity: MetricPolarity;
+  // Every one of these reads a field that exists on BOTH rows (dollar sums and
+  // ratios recomputed from them), so the union is honest rather than a widening
+  // to make an error go away. A metric reaching for a per-line field would stop
+  // compiling here, which is the guard working.
+  getValue: (r: ResultSet | LineResultSet) => number;
+  // Fixed per-metric rule (not a dynamic threshold, so a metric always behaves
+  // the same way): metrics with a small/volatile base exaggerate trivial
+  // moves as a % (e.g. a $10K rise in investment income reading as the
+  // largest % on the board). Those show an em-dash instead; the $ change
+  // column is unaffected. Loss ratio/combined ratio already show
+  // percentage-POINT deltas in the $ change column and are left as-is here.
+  showPctChange: boolean;
+}
+
+// ⚠ THE LABELS COME FROM RESULT_METRICS; EVERYTHING ELSE ON THE ROW IS THIS
+// TABLE'S OWN. `polarity` and `showPctChange` are comparison concerns that the
+// spreadsheet list has no notion of, and its `csvValue` is one this table has no
+// use for — so the two lists stay separate and share the one thing that was
+// actually broken, which is the NAME of each quantity. Five of these thirteen
+// rows had drifted from the workbook's name for the same field.
+const COMPARISON_METRICS: ComparisonMetric[] = [
+  { key: 'premium', label: metricLabel('poolPremium'), kind: 'currency', polarity: 'neutral', getValue: r => r.poolPremium, showPctChange: true },
+  { key: 'ultimateLosses', label: metricLabel('grossUltimateLoss'), kind: 'currency', polarity: 'goodDown', getValue: r => r.grossUltimateLoss, showPctChange: true },
+  { key: 'netLosses', label: metricLabel('netUltimateLoss'), kind: 'currency', polarity: 'goodDown', getValue: r => r.netUltimateLoss, showPctChange: true },
+  // ⚠ THE RATIO'S NUMERATOR, SHOWN NEXT TO THE ACCIDENT-YEAR LOSS ABOVE IT.
+  // Without this row the two ratios below cannot be checked against anything on
+  // the page: they divide netIncurredLoss, and the only loss row here was
+  // netUltimateLoss, which is a different quantity by the whole of prior-year
+  // development. Measured, the two never agreed — 0 of 60 pool-years, mean gap
+  // 35.3 percentage points. See the RESULT_METRICS entry.
+  { key: 'netIncurred', label: metricLabel('netIncurredLoss'), kind: 'currency', polarity: 'goodDown', getValue: r => r.netIncurredLoss, showPctChange: true },
+  // ⚠ PRICING BASIS, AND THE LABEL SAYS SO — see the display note at Header.tsx.
+  // The combined ratio below it stays on the MEMBER-CHARGE basis, because it is
+  // a sum of a loss and an expense ratio and those may only be added on a shared
+  // denominator. So these two adjacent rows are deliberately on different bases
+  // and both say which; do not "make them consistent" by moving either.
+  { key: 'lossRatio', label: metricLabel('actualLossRatioPricingBasis'), kind: 'ratio', polarity: 'goodDown', getValue: r => r.actualLossRatioPricingBasis, showPctChange: true },
+  { key: 'lossRatioRetained', label: metricLabel('actualLossRatioRetainedPremium'), kind: 'ratio', polarity: 'goodDown', getValue: r => r.actualLossRatioRetainedPremium, showPctChange: true },
+  { key: 'combinedRatio', label: metricLabel('actualCombinedRatio'), kind: 'ratio', polarity: 'goodDown', getValue: r => r.actualCombinedRatio, showPctChange: true },
+  { key: 'reserves', label: metricLabel('endingNetReserve'), kind: 'currency', polarity: 'neutral', getValue: r => r.endingNetReserve, showPctChange: true },
+  { key: 'reinsRecovery', label: metricLabel('reinsuranceRecovery'), kind: 'currency', polarity: 'neutral', getValue: r => r.reinsuranceRecovery, showPctChange: false },
+  { key: 'reinsRecoveryDev', label: metricLabel('priorYearDevelopmentCeded'), kind: 'currency', polarity: 'neutral', getValue: r => r.priorYearDevelopmentCeded, showPctChange: false },
+  { key: 'investmentIncome', label: metricLabel('investmentIncome'), kind: 'currency', polarity: 'goodUp', getValue: r => r.investmentIncome, showPctChange: false },
+  { key: 'netIncome', label: metricLabel('netIncome'), kind: 'currency', polarity: 'goodUp', getValue: r => r.netIncome, showPctChange: false },
+  { key: 'endingSurplus', label: metricLabel('endingSurplus'), kind: 'currency', polarity: 'goodUp', getValue: r => r.endingSurplus, showPctChange: true },
+];
+
+// Never Infinity/NaN: division only happens when prior !== 0.
+function formatPctChange(prior: number, current: number): string {
+  if (prior === 0 && current === 0) return '—';
+  if (prior === 0) return 'N/A';
+  const pct = ((current - prior) / Math.abs(prior)) * 100;
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+}
+
+function formatChange(kind: MetricKind, change: number): string {
+  if (kind === 'ratio') {
+    const pts = change * 100;
+    return `${pts >= 0 ? '+' : ''}${pts.toFixed(1)} pts`;
+  }
+  const sign = change >= 0 ? '+' : '-';
+  return `${sign}${formatCurrency(Math.abs(change))}`;
+}
+
+function changeColor(polarity: MetricPolarity, change: number): string {
+  if (polarity === 'neutral' || change === 0) return 'text-gray-600';
+  const isGoodDirection = polarity === 'goodUp' ? change > 0 : change < 0;
+  return isGoodDirection ? 'text-emerald-600' : 'text-red-600';
+}
+
+function formatMetricValue(kind: MetricKind, value: number): string {
+  return kind === 'ratio' ? formatPct(value) : formatCurrency(value);
+}
+
+export default function ResultsPage({ lockedResults, lineView, surplusRangeByYear }: ResultsPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
   );
 
   const result = lockedResults.find(r => r.yearNumber === selectedYear);
+  // null at pool scope. Every per-line read below goes through it, so the
+  // compiler refuses one that forgets to ask.
+  const lineRow = result ? asLineRow(result) : null;
+  const priorResult = lockedResults.find(r => r.yearNumber === selectedYear - 1);
 
   return (
     <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Annual Results</h2>
+          <h2 className="text-xl font-bold text-gray-900">Annual Results{lineView !== 'pool' ? ` — ${lineDisplayName(lineView)}` : ''}</h2>
           <p className="text-gray-500 text-sm">Detailed breakdown for each completed year</p>
         </div>
 
@@ -62,78 +169,234 @@ export default function ResultsPage({ lockedResults }: ResultsPageProps) {
 
       {result && (
         <div className="space-y-5">
-          {result.shockLossIncurred && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-              <AlertTriangle className="text-red-500 flex-shrink-0 mt-0.5" size={20} />
-              <div>
-                <p className="font-bold text-red-800">Shock Loss Event</p>
-                <p className="text-red-700 text-sm">
-                  A significant shock loss occurred this year, materially increasing gross losses above expected levels.
+          {/* THE YEAR'S EVENTS — scheduled and drawn alike, one row each.
+              Built by yearEvents(), which reads shockEvents and Property's
+              drawnCatastrophes the same way: a name a drawn event would also
+              carry, the region, and what each line took. No shock id, band or
+              catalog description — those are the host's, and showing them would
+              tell a player which events were scheduled. An event that struck no
+              enrolled member does not appear, whichever kind it was.
+
+              ⚠ THE PER-LINE SPLIT IS KEPT. The pool record sums an event across
+              the lines it hit (mergeShockRecords) and now carries what each line
+              contributed, so an earthquake shows its Property and WC halves as
+              one event rather than a total with nothing behind it. */}
+          {yearEvents(result).length > 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <Zap className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
+                <p className="font-bold text-amber-900">
+                  {yearEvents(result).length === 1 ? 'An event this year' : `${yearEvents(result).length} events this year`}
                 </p>
               </div>
+              {yearEvents(result).map(ev => (
+                <div key={ev.key} className="pl-8 text-sm">
+                  <p className="font-semibold text-amber-900">
+                    {eventLabel(ev.name, ev.region)}
+                    {ev.sinceYear !== undefined && (
+                      <span className="ml-2 font-normal text-amber-700">in force since year {ev.sinceYear}</span>
+                    )}
+                    {ev.worlds && (
+                      // An averaged row (loss engine commit 4b): the figures below
+                      // are averages over every world, counting zero where it did
+                      // not fire.
+                      <span data-testid="event-worlds" className="ml-2 font-normal text-amber-700">
+                        in {ev.worlds.fired} of {ev.worlds.of} worlds — averaged over all {ev.worlds.of}
+                      </span>
+                    )}
+                  </p>
+                  {ev.lines.map(l => (
+                    <p key={l.line} className="text-amber-700 font-mono text-xs mt-1">
+                      {lineDisplayName(l.line)}:{' '}
+                      {l.claims > 0 && `${Number.isInteger(l.claims) ? l.claims : l.claims.toFixed(1)} claim${l.claims === 1 ? '' : 's'}, ${formatCurrency(l.grossLoss)}`}
+                      {l.claims === 0 && l.grossLoss > 0 && `${formatCurrency(l.grossLoss)} added to losses`}
+                      {l.claims > 0 && l.expectedGrossLossAdded > 0 && '; '}
+                      {l.expectedGrossLossAdded > 0 && `${formatCurrency(l.expectedGrossLossAdded)} expected additional loss`}
+                    </p>
+                  ))}
+                </div>
+              ))}
             </div>
           )}
 
+          {/* ⚠ THE "Shock Loss Event" BANNER STOOD HERE AND IS GONE. It rendered on
+              shockLossIncurred, which is true whenever ANY claim reaches $1M — so it
+              fired on 100% of pool-years, 93% of WC line-years and 98% of GL's,
+              measured over 10 games x 10 years. A red warning that appears every
+              single year is not a warning; it is furniture, and it trains a reader
+              to skip the place where a real one would appear.
+
+              Its text was also false where it did fire: "a significant shock loss
+              occurred, materially increasing gross losses above expected levels"
+              describes a shock EVENT, and a $1M claim on a book this size is an
+              ordinary large loss. Nothing about it was attributable to the shock
+              system at all.
+
+              THE REAL SURFACING IS THE CARD DIRECTLY ABOVE, and it already existed:
+              one row per shock in force, with its band, horizon, affected lines,
+              injected claim count and attributable loss. Deleting this banner
+              removes a duplicate that was never telling the truth, not a signal. */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/60 flex items-center gap-2">
+              <GitCompare size={16} className="text-blue-600" />
+              <h3 className="font-bold text-gray-900 text-sm">Year-over-Year Comparison{lineView !== 'pool' ? ` — ${lineDisplayName(lineView)}` : ''}</h3>
+            </div>
+            <div className="p-5">
+              {!priorResult ? (
+                <p className="text-sm text-gray-500 italic">
+                  {selectedYear === 1
+                    ? 'This is Year 1 — no prior year to compare.'
+                    : 'No prior locked year available to compare against.'}
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Metric</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Prior Year</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Current Year</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Change</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">% Change</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {COMPARISON_METRICS.map(metric => {
+                        const priorValue = metric.getValue(priorResult);
+                        const currentValue = metric.getValue(result);
+                        const change = currentValue - priorValue;
+                        return (
+                          <tr key={metric.key} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-3 py-2 text-gray-600">{metric.label}</td>
+                            <td className="px-3 py-2 text-right font-mono text-gray-500">{formatMetricValue(metric.kind, priorValue)}</td>
+                            <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800">{formatMetricValue(metric.kind, currentValue)}</td>
+                            <td className={`px-3 py-2 text-right font-mono font-semibold ${changeColor(metric.polarity, change)}`}>{formatChange(metric.kind, change)}</td>
+                            <td className={`px-3 py-2 text-right font-mono ${changeColor(metric.polarity, change)}`}>{metric.showPctChange ? formatPctChange(priorValue, currentValue) : '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-xs text-gray-400 mt-4 border-t border-gray-100 pt-3">
+                Shock Events: not yet implemented — Phase 4 will show which specific event(s) fired this year.
+              </p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <ResultCard title="Decision Summary" icon={<ClipboardList size={16} />}>
+              {/* Rate Change REMOVED — CLF-only pricing; the decision field it
+                  displayed no longer exists. */}
+              {/* ⚠ FOUR ROWS, AND ONLY ONE OF THEM IS POOL-WIDE. The first three are
+                  per-line decisions and were printing the FIRST ACTIVE LINE'S under a
+                  pool heading; they now say so. Risk Control Investment really is one
+                  choice for the whole pool, so it keeps a figure — read off `pool`,
+                  which is where it lives, rather than off a line's copy of it. */}
+              <Row label="Funding Confidence Level"
+                value={lineRow ? formatPct(lineRow.decisions.fundingConfidenceLevel, 0) : VARIES} />
+              <Row label="Dividend / Return of Pool Premium"
+                value={lineRow ? formatPct(lineRow.decisions.dividendPct, 1) : VARIES} />
+              <Row label="Assessment"
+                value={lineRow ? formatPct(lineRow.decisions.assessmentPct, 1) : VARIES} />
+              <Row label="Risk Control Investment"
+                value={formatPct(lineRow ? lineRow.decisions.riskControlPct : (result as ResultSet).pool.riskControlPct, 1)} />
+              {/* TWO PRODUCTS ARE LIVE. WC/GL run the per-occurrence tower and have
+                  no "level"; Property still runs the aggregate quota share. At POOL
+                  scope three different programs are in force at once, so a single
+                  value would be a fiction — say so and point at the line tabs. */}
               <Row
-                label="Rate Change"
-                value={formatPct(result.decisions.rateChange, 1)}
-                valueColor={
-                  result.decisions.rateChange > 0
-                    ? 'text-amber-600'
-                    : result.decisions.rateChange < 0
-                      ? 'text-blue-600'
-                      : 'text-gray-700'
-                }
+                label={lineView === 'pool' ? 'Reinsurance' : hasTractableCeded(lineView) ? 'Reinsurance Program' : 'Reinsurance Level'}
+                value={lineView === 'pool'
+                  ? 'Varies by line — select a line tab'
+                  : lineRow ? placementSummary(lineView as CoverageLine, lineRow.decisions) : VARIES}
               />
-              <Row label="Funding Confidence Level" value={formatPct(result.decisions.fundingConfidenceLevel, 0)} />
-              <Row label="Dividend / Return of Pool Premium" value={formatPct(result.decisions.dividendPct, 1)} />
-              <Row label="Assessment" value={formatPct(result.decisions.assessmentPct, 1)} />
-              <Row label="Underwriting Strictness" value={`${result.decisions.underwritingStrictness} / 10`} />
-              <Row label="Risk Control Investment" value={formatPct(result.decisions.riskControlPct, 1)} />
-              <Row
-                label="Reinsurance Level"
-                value={`${result.decisions.reinsuranceLevel} — ${REINSURANCE_PROGRAMS[result.decisions.reinsuranceLevel]?.label ?? ''}`}
-              />
-              <Row label="Investment Risk" value={`${result.decisions.investmentRisk} / 10`} />
+              {/* THE POOL'S LARGEST SINGLE EXPOSURE, and until now invisible. On GL
+                  this band exceeds the top layer the pool actually buys and cannot be
+                  transferred at any price, so it is what surplus stands behind. */}
+              {(result.retainedAboveTower ?? 0) > 0 && (
+                <Row
+                  label={`Retained Above Tower (${towerTopLabel(lineView === 'pool' ? 'GL' : lineView)}+)`}
+                  value={formatCurrency(result.retainedAboveTower)}
+                  valueColor="text-red-600"
+                />
+              )}
+              {(result.retainedAboveTower ?? 0) > 0 && (
+                <p className="text-xs text-gray-500 italic leading-relaxed pt-1">{RETAINED_ABOVE_TOWER_CAVEAT}</p>
+              )}
+              <Row label="Asset Allocation (pool-wide)" value={`Cash ${result.assetAllocation.cashPct.toFixed(0)}% / Bonds ${result.assetAllocation.bondsPct.toFixed(0)}% / Equities ${result.assetAllocation.equitiesPct.toFixed(0)}%`} />
             </ResultCard>
 
             <ResultCard title="Membership" icon={<TrendingUp size={16} />}>
-              <Row label="Active Members" value={String(result.activeMembers)} />
-              <Row label="New Members This Year" value={`+${result.newMembers}`} valueColor="text-emerald-600" />
-              <Row
-                label="Members Withdrawn"
-                value={result.withdrawnMembers > 0 ? `-${result.withdrawnMembers}` : '0'}
-                valueColor={result.withdrawnMembers > 0 ? 'text-red-600' : 'text-gray-700'}
-              />
-              <Row label="Member Retention Rate" value={formatPct(result.memberRetentionRate)} />
-              <Row label="Member Satisfaction" value={`${result.memberSatisfaction.toFixed(1)} / 10`} />
-              <Row label="Avg. Risk Quality" value={`${result.averageRiskQuality.toFixed(1)} / 10`} />
-              <Row label="Payroll Exposure ($M)" value={`$${result.activeExposure.toFixed(2)}M`} />
-              <Row label="Total Market Payroll ($M)" value={`$${result.totalMarketExposure.toFixed(2)}M`} />
+              {/* ⚠ EXPOSURE REPLACES THE MEMBER COUNT, and the churn counts
+                  (New, Withdrawn, Retention) are hidden. The pool is shown in
+                  aggregate now; every one of those fields is still on the
+                  result and still computed. Satisfaction stays — it is the
+                  pool's own scoreboard and names no member. */}
+              {/* Hidden with MEMBER_LEVEL off — see DashboardPage. */}
+              {MEMBER_LEVEL.enabled && (
+                <Row label="Member Satisfaction" value={`${result.memberSatisfaction.toFixed(1)} / 10`} />
+              )}
+              {/* ⚠ COMBINED RATIO STANDS WHERE AVERAGE RISK QUALITY STOOD. Risk
+                  quality is unobservable by design — surface-privacy-check keeps
+                  a MEMBER's score from the player — and the pool AVERAGE of it
+                  was on this card the whole time. Actual loss ratio plus actual
+                  expense ratio, both on the member-charge basis. */}
+              <Row label="Combined Ratio" value={formatPct(result.actualCombinedRatio)} />
+              <Row label="Payroll Exposure ($M)" value={formatMillions(result.activeExposure)} />
+              <Row label="Total Market Payroll ($M)" value={formatMillions(result.totalMarketExposure)} />
               <Row label="Exposure-Based Market Share" value={formatPct(result.marketShare)} valueColor="text-sky-600" />
             </ResultCard>
 
             <ResultCard title="Premium & Losses" icon={<DollarSign size={16} />}>
-              <Row label="Rate Level Index" value={result.rateLevel.toFixed(2)} />
-              <Row label="Pure Premium Rate per $100 Payroll" value={`$${result.purePremiumPer100.toFixed(2)}`} />
+              {/* ⚠ THREE PER-$100 ROWS THAT DO NOT EXIST AT POOL SCALE, AND THEY ARE
+                  REMOVED THERE RATHER THAN BLANKED. Pool exposure is WC/GL payroll
+                  added to Property TIV, so a rate per $100 of it has no unit — the
+                  third row even divided by that sum directly, which the type change
+                  cannot catch because both of its operands are real at pool scope.
+                  A blank would invite someone to fill it in; an absent row says the
+                  quantity is not defined here. Select a line to see all three. */}
+              {lineRow && <>
+                <Row label="Rate Level Index" value={lineRow.rateLevel.toFixed(2)} />
+                <Row label="Pure Premium (from experience) per $100 Exposure" value={`$${lineRow.purePremiumPer100.toFixed(2)}`} />
+                <Row
+                  label={`Pool Premium Rate at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}% CLF`}
+                  value={`$${(lineRow.poolPremium / Math.max(lineRow.activeExposure * 10_000, 1)).toFixed(2)}`}
+                />
+              </>}
+              {/* Pool scope adds WC/GL payroll to Property TIV, so it carries no single
+                  unit and must not claim one. Naming both is the honest label. */}
               <Row
-                label={`Pool Premium Rate at ${(result.selectedFundingConfidenceLevel * 100).toFixed(0)}% CLF`}
-                value={`$${(result.poolPremium / Math.max(result.activeExposure * 10_000, 1)).toFixed(2)}`}
+                label={lineView === 'Property' ? 'Written TIV'
+                  : lineView === 'pool' ? 'Written Exposure (payroll + TIV, $M)'
+                  : 'Written Payroll ($M)'}
+                value={formatMillions(result.writtenExposure)}
               />
-              <Row label="Written Payroll ($M)" value={`$${result.writtenExposure.toFixed(2)}M`} />
               <Row label="Pool Premium" value={formatCurrency(result.poolPremium)} />
               <Row label="Admin Expense" value={formatCurrency(result.adminExpense)} />
               <Row label="Pool Premium & Admin Expense" value={formatCurrency(result.poolPremiumAndAdminExpense)} />
               <Row label="Reinsurance Cost" value={formatCurrency(result.reinsuranceCost)} />
+              {/* ⚠ WHY THE CHARGE DID NOT FALL. The price of any layer the pool
+                  declined, still charged and kept here instead of paid out.
+                  $0 whenever the tower is fully placed, which is the default —
+                  so a reader only ever sees it when it is the explanation. */}
+              <Row label="Retained Cover Margin (declined layers)" value={formatCurrency(result.retainedCoverMargin)} />
               <Row label="Gross Premium & Admin Expense" value={formatCurrency(result.totalMemberCharge)} bold />
               <Row label="Assessments" value={formatCurrency(result.assessments)} />
               <Row label="Dividends / Returned Pool Premium" value={formatCurrency(result.dividends)} valueColor="text-red-600" />
               <div className="border-t border-gray-100 my-1" />
               <Row label="Actual Ultimate Losses" value={formatCurrency(result.grossUltimateLoss)} valueColor="text-red-600" />
-              <Row label="Reinsurance Recovery" value={formatCurrency(result.reinsuranceRecovery)} valueColor="text-emerald-600" />
+              <Row label="Reinsurance Recovery (current year)" value={formatCurrency(result.reinsuranceRecovery)} valueColor="text-emerald-600" />
+              <Row label="Reinsurance Recovery (prior-year development)" value={formatCurrency(result.priorYearDevelopmentCeded)} valueColor="text-emerald-600" />
               <Row label="Net Ultimate Loss" value={formatCurrency(result.netUltimateLoss)} valueColor="text-red-600" />
+              {/* ⚠ THE NUMERATOR OF ALL THREE ACTUAL LOSS RATIOS BELOW. This card
+                  used to end at Net Ultimate Loss, and the Ratios card beneath it
+                  prints three actual loss ratios that every one divide
+                  netIncurredLoss — so none of the three could be checked against
+                  any figure on the page. The two losses differ by prior-year
+                  development, which is a row in the next card down. */}
+              <Row label={metricLabel('netIncurredLoss')} value={formatCurrency(result.netIncurredLoss)} valueColor="text-red-600" />
             </ResultCard>
 
             <ResultCard title="Accounting Reserves & Development" icon={<Shield size={16} />}>
@@ -141,17 +404,42 @@ export default function ResultsPage({ lockedResults }: ResultsPageProps) {
               <Row label="Risk Control Investment" value={formatCurrency(result.riskControlInvestment)} valueColor="text-amber-600" />
               <Row label="Reinsurance Cost" value={formatCurrency(result.reinsuranceCost)} valueColor="text-red-600" />
               <div className="border-t border-gray-100 my-1" />
+              {/* ⚠ GROSS, THEN THE RECOVERY, THEN NET — mirroring Premium & Losses
+                  above, which already reads correctly down the column. This row used
+                  to show the NET figure alone under the bare label "Prior-Year
+                  Development", while the recovery ON it sat on the other card. One
+                  observed year read -$215,030 here against $3,205,174 of recovery
+                  there: a small development beside a large recovery on it, with
+                  nothing to tell a reader they were the same event.
+
+                  SIGN: the field is favourable-positive, and ceding makes an adverse
+                  year LESS adverse — so gross is net MINUS the recovery, and prints
+                  more negative than the net beneath it. Verified against the cohort
+                  walk: net $547,634 adverse + $6,177,235 ceded = $6,724,869 gross.
+
+                  This is only arithmetic a reader can follow because 932246f made
+                  priorYearDevelopmentCeded mean one thing. While it still carried
+                  bookingGiveBack, this sum was short by the give-back. */}
               <Row
-                label="Prior-Year Development"
+                label="Prior-Year Development (gross)"
+                value={formatCurrency(result.priorYearDevelopment - result.priorYearDevelopmentCeded)}
+                valueColor={result.priorYearDevelopment - result.priorYearDevelopmentCeded >= 0 ? 'text-emerald-600' : 'text-red-600'}
+              />
+              <Row
+                label="Reinsurance Recovery (prior-year development)"
+                value={formatCurrency(result.priorYearDevelopmentCeded)}
+                valueColor="text-emerald-600"
+              />
+              <Row
+                label="Prior-Year Development (net)"
                 value={formatCurrency(result.priorYearDevelopment)}
                 valueColor={result.priorYearDevelopment >= 0 ? 'text-emerald-600' : 'text-red-600'}
+                bold
               />
-              <Row label="Beginning Gross Reserve" value={formatCurrency(result.beginningGrossReserve)} />
-              <Row label="Current-Year Gross Reserve" value={formatCurrency(result.currentYearGrossReserve)} />
-              <Row label="Gross Paid Losses" value={formatCurrency(result.grossPaidLosses)} />
-              <Row label="Ending Gross Accounting Reserve" value={formatCurrency(result.endingGrossReserve)} />
-              <Row label="Reinsurance Recoverable on Unpaid" value={formatCurrency(result.endingReinsRecoverable)} />
-              <Row label="Net Accounting Reserve" value={formatCurrency(result.expectedNetUnpaidLoss)} />
+              <Row label="Beginning Net Reserve" value={formatCurrency(result.beginningNetReserve)} />
+              <Row label="Current-Year Net Reserve" value={formatCurrency(result.currentYearNetReserve)} />
+              <Row label="Net Paid Losses" value={formatCurrency(result.netPaidLosses)} />
+              <Row label="Ending Net Accounting Reserve" value={formatCurrency(result.endingNetReserve)} />
               <p className="text-xs text-gray-500 mt-2 leading-relaxed">
                 Accounting reserves are expected unpaid claims from incurred losses. They are not multiplied by CLF.
               </p>
@@ -166,13 +454,30 @@ export default function ResultsPage({ lockedResults }: ResultsPageProps) {
               />
               <Row label="Investment Income" value={formatCurrency(result.investmentIncome)} valueColor={colorForNetIncome(result.investmentIncome)} />
               <div className="border-t border-gray-100 my-1" />
-              <Row label="Expected Loss Ratio" value={formatPct(result.expectedLossRatio)} />
-              <Row label="Expected Expense Ratio" value={formatPct(result.expectedExpenseRatio)} />
-              <Row label="Expected Combined Ratio" value={formatPct(result.expectedCombinedRatio)} />
+              {/* Denominators are named because two exist and adding across
+                  them is finding 6's recurring error. Pricing basis =
+                  poolPremium + admin; member charge basis adds reinsurance. */}
+              <Row label="Expected Loss Ratio (pricing basis)" value={formatPct(result.expectedLossRatio)} />
+              <Row label="Expected Loss Ratio (member charge)" value={formatPct(result.expectedLossRatioMemberBasis)} />
+              <Row label="Expected Expense Ratio (member charge)" value={formatPct(result.expectedExpenseRatio)} />
+              <Row label="Expected Combined Ratio (member charge)" value={formatPct(result.expectedCombinedRatio)} />
               <div className="border-t border-gray-100 my-1" />
-              <Row label="Actual Loss Ratio (Net)" value={formatPct(result.actualLossRatio)} />
-              <Row label="Actual Expense Ratio" value={formatPct(result.actualExpenseRatio)} />
-              <Row label="Actual Combined Ratio" value={formatPct(result.actualCombinedRatio)} valueColor={colorForRatio(result.actualCombinedRatio)} />
+              {/* ⚠ THE PAIR, AND THE GAP BETWEEN THEM IS THE EXHIBIT. Both near
+                  85% is an ordinary year; pool 70% against total 140% is one
+                  large claim doing the whole year; pool 110% against total 115%
+                  is attritional deterioration with nothing reaching the tower.
+                  They sit ABOVE the three member-charge ratios because they are
+                  on a different basis — this accident year's booked ultimate,
+                  not the whole ledger's movement — and a reader comparing them
+                  to the rows below needs to see the break. */}
+              <Row label={metricLabel('poolLayerLossRatio')} value={formatPct(result.poolLayerLossRatio)} valueColor={colorForRatio(result.poolLayerLossRatio)} />
+              <Row label={metricLabel('totalLossRatioGross')} value={formatPct(result.totalLossRatioGross)} valueColor={colorForRatio(result.totalLossRatioGross)} />
+              <Row label="Actual Loss Ratio (pricing basis)" value={formatPct(result.actualLossRatioPricingBasis)} />
+              <Row label="Actual Loss Ratio (retained premium)" value={formatPct(result.actualLossRatioRetainedPremium)} />
+              <Row label="Actual Loss Ratio (Net, member charge)" value={formatPct(result.actualLossRatio)} />
+              <Row label="Actual Loss & LAE Ratio (Net, member charge)" value={formatPct(result.actualLossRatio + (result.actualLaeRatio ?? 0))} />
+              <Row label="Actual Expense Ratio (member charge)" value={formatPct(result.actualExpenseRatio)} />
+              <Row label="Actual Combined Ratio (member charge)" value={formatPct(result.actualCombinedRatio)} valueColor={colorForCombinedRatio(result.actualCombinedRatio)} />
               <div className="border-t border-gray-100 my-1" />
               <Row label="Net Income" value={formatCurrency(result.netIncome)} valueColor={colorForNetIncome(result.netIncome)} />
             </ResultCard>
@@ -188,18 +493,27 @@ export default function ResultsPage({ lockedResults }: ResultsPageProps) {
                 valueColor={colorForSurplus(result.endingSurplus)}
                 bold
               />
+              <WorldsSurplusRange range={surplusRangeByYear?.[selectedYear]} label="Ending surplus" />
               <Row
                 label="Tie-Out Difference"
                 value={formatCurrency(result.surplusTieOutDifference)}
-                valueColor={Math.abs(result.surplusTieOutDifference) < 100 ? 'text-emerald-600' : 'text-amber-600'}
+                valueColor={Math.abs(result.surplusTieOutDifference - result.interLineTransfer) < 100 ? 'text-emerald-600' : 'text-amber-600'}
               />
               <p className="text-xs text-gray-400 mt-2">
                 Balance check: {formatCurrency(result.totalAssets)} Assets - {formatCurrency(result.totalLiabilities)} Liabilities ={' '}
                 {formatCurrency(result.endingSurplus)}
               </p>
-              {Math.abs(result.surplusTieOutDifference) < 100 ? (
+              {/* ⚠ A LOAN YEAR'S DIFFERENCE IS THE TRANSFER. An inter-line loan moves
+                  surplus between lines without passing through either income
+                  statement, so the rollforward ties AFTER it — the audit page's
+                  rule. Common since ten worlds (loss engine commit 4b): a loan
+                  authorized in any world shows here as its average. */}
+              {Math.abs(result.surplusTieOutDifference - result.interLineTransfer) < 100 ? (
                 <p className="text-xs text-emerald-600 mt-1">
-                  Surplus rollforward ties to the balance sheet.
+                  Surplus rollforward ties to the balance sheet
+                  {Math.abs(result.interLineTransfer) >= 100
+                    ? `, after this year's inter-line loan transfer of ${formatCurrency(result.interLineTransfer)}.`
+                    : '.'}
                 </p>
               ) : (
                 <p className="text-xs text-amber-600 mt-1">
@@ -209,24 +523,61 @@ export default function ResultsPage({ lockedResults }: ResultsPageProps) {
               )}
             </ResultCard>
 
+            {(result.outstandingLoanBalance > 0 || result.loanOriginatedThisYear > 0 || result.loanRepaymentApplied > 0 || result.dividendBlocked) && (
+              <ResultCard title="Inter-Line Loan" icon={<AlertTriangle size={16} />}>
+                {result.loanOriginatedThisYear > 0 && (
+                  <Row label="Loan Originated This Year" value={formatCurrency(result.loanOriginatedThisYear)} valueColor="text-amber-600" />
+                )}
+                {result.loanInterestAccrued > 0 && (
+                  <Row label="Interest Accrued" value={formatCurrency(result.loanInterestAccrued)} />
+                )}
+                {result.loanRepaymentApplied > 0 && (
+                  <Row label="Repayment Applied (from net income)" value={formatCurrency(result.loanRepaymentApplied)} valueColor="text-emerald-600" />
+                )}
+                <Row
+                  label="Outstanding Loan Balance"
+                  value={formatCurrency(result.outstandingLoanBalance)}
+                  valueColor={result.outstandingLoanBalance > 0 ? 'text-amber-600' : 'text-emerald-600'}
+                  bold
+                />
+                {result.dividendBlocked && (
+                  <p className="text-xs text-red-600 mt-2">
+                    A line carried a negative surplus into this year — its dividend was blocked.
+                  </p>
+                )}
+              </ResultCard>
+            )}
+
             <ResultCard title="Funding Rate Build-Up" icon={<Target size={16} />}>
-              {(() => {
-                const rateAtConfidenceLevel = result.poolPremium / Math.max(result.activeExposure * 10_000, 1);
+              {/* ⚠ THE WHOLE CARD IS A PER-LINE CONSTRUCTION AND SAYS SO AT POOL SCOPE.
+                  Every row of it — the pure premium rate, the confidence selection, the
+                  CLF and the loaded rate — is one line's, and the build-up only means
+                  anything as a chain on a single line. Blanking four rows and keeping
+                  the heading would have implied a pool build-up exists with its numbers
+                  missing. It does not exist. */}
+              {lineRow === null ? (
+                <p className="text-sm text-gray-500">
+                  A funding rate builds up per line: each line has its own pure premium
+                  rate, its own confidence selection and its own CLF. Select a line tab
+                  to see the chain.
+                </p>
+              ) : (() => {
+                const rateAtConfidenceLevel = lineRow.poolPremium / Math.max(lineRow.activeExposure * 10_000, 1);
 
                 return (
                   <>
-                    <Row label="Pure Premium Rate per $100 Payroll" value={`$${result.purePremiumPer100.toFixed(2)}`} />
+                    <Row label="Pure Premium (from experience) per $100 Exposure" value={`$${lineRow.purePremiumPer100.toFixed(2)}`} />
 
                     <Row
                       label="Selected Funding Confidence"
-                      value={formatPct(result.selectedFundingConfidenceLevel, 0)}
+                      value={formatPct(lineRow.selectedFundingConfidenceLevel, 0)}
                       valueColor="text-blue-600"
                     />
 
-                    <Row label="Selected CLF" value={result.selectedFundingCLF.toFixed(3)} />
+                    <Row label="Selected CLF" value={lineRow.selectedFundingCLF.toFixed(3)} />
 
                     <Row
-                      label={`Pool Premium Rate at ${(result.selectedFundingConfidenceLevel * 100).toFixed(0)}% CLF`}
+                      label={`Pool Premium Rate at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}% CLF`}
                       value={`$${rateAtConfidenceLevel.toFixed(2)}`}
                       valueColor="text-amber-600"
                     />
@@ -247,8 +598,6 @@ export default function ResultsPage({ lockedResults }: ResultsPageProps) {
             </ResultCard>
 
             <ResultCard title="Reserve View" icon={<Shield size={16} />}>
-              <Row label="Expected Gross Unpaid Loss" value={formatCurrency(result.expectedGrossUnpaidLoss)} />
-              <Row label="Expected Reinsurance Recoverable" value={formatCurrency(result.expectedReinsuranceRecoverable)} valueColor="text-emerald-600" />
               <Row label="Expected Net Unpaid Loss" value={formatCurrency(result.expectedNetUnpaidLoss)} />
               <div className="border-t border-gray-100 my-1" />
               <Row
@@ -289,7 +638,13 @@ export default function ResultsPage({ lockedResults }: ResultsPageProps) {
                 <h3 className="font-bold text-gray-900 text-sm">What Happened This Year</h3>
               </div>
               <div className="p-5">
-                <p className="text-gray-700 text-sm leading-relaxed">{result.narrativeExplanation}</p>
+                {result.narrativeExplanation ? (
+                  <p className="text-gray-700 text-sm leading-relaxed">{result.narrativeExplanation}</p>
+                ) : (
+                  <p className="text-gray-400 text-sm italic">
+                    No narrative for this line — narratives are generated pool-wide only. Switch to Pool view to read it.
+                  </p>
+                )}
               </div>
             </div>
           </div>

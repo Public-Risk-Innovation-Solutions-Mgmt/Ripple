@@ -1,0 +1,334 @@
+// WC's OWN loss-distribution shape, replacing the shared FUNDING_CLF_TABLE for
+// WC pricing (finding 38). GL and Property are untouched — see the header on
+// src/data/wcClfGrid.ts for why, and for the process-risk-only caveat that
+// governs this whole module (do not "correct" any of it toward
+// FUNDING_CLF_TABLE's numbers — the two measure different phenomena).
+//
+// TWO PARTS:
+//   1. wcAggregateCumulants — the analytic mean and CV of the aggregate
+//      annual gross loss, for a given enrolled book. VERIFIED against Monte
+//      Carlo at three book sizes (mean and CV both landed inside the MC 95%
+//      CI); this is what the grid interpolation below is indexed on.
+//   2. computeWcClf — the percentile lookup itself. A first attempt used a
+//      Cornish-Fisher expansion off this module's own skewness/kurtosis, and
+//      it failed: WC's skewness (18-42, driven by the deliberately
+//      heavy-tailed `large` severity component) is far outside where a
+//      cumulant-polynomial correction to the normal quantile is valid, and it
+//      produced NEGATIVE loss percentiles. computeWcClf now interpolates a
+//      Monte Carlo percentile GRID (src/data/wcClfGrid.ts) on the book's own
+//      CV instead — no closed form, no failure mode, and monotonic by
+//      construction (interpolating two monotonic curves at matched
+//      percentile stops stays monotonic).
+//
+// ⚠ MEMBERS ARE NO LONGER INDEPENDENT, AND THE DERIVATION BELOW IS NOW THE
+// CONDITIONAL ONE. It opened "the aggregate loss for a book of enrolled members
+// is a SUM OF INDEPENDENT MEMBER PROCESSES", which was true until
+// WC_LOSS_MODEL.wcYearFactor shipped: one shared Gamma draw now multiplies every
+// member's arrival rate, so members are independent GIVEN that factor and
+// correlated without it. Everything below is correct conditional on g, and
+// wcAggregateCumulants mixes over g at the end — read the two together. The
+// mixing touches the VARIANCE only; the mean is untouched because E[g] = 1.
+//
+// THE CUMULANT DERIVATION (mean/CV), for the record: conditional on the year
+// factor the aggregate loss for a book of enrolled members is a sum of
+// independent member processes, so its cumulants are the SUM of each member's
+// own cumulants (cumulants are additive under independent summation). Each
+// member's own process is a
+// Gamma-mixed compound Poisson: a Poisson count PER SEVERITY COMPONENT,
+// jointly thinned by memberFrequencyNoise (Gamma(shape=16, mean=1),
+// multiplying every component's rate for that member SIMULTANEOUSLY — a
+// bad-frequency-year member draws more of everything, not one component in
+// isolation), with severity drawn from that component's lognormal. Its
+// cumulant generating function is
+//   K(t) = -alpha * ln(1 - C(t)/alpha),  C(t) = Lambda_member * (M_severity(t) - 1)
+// where C(t)'s Taylor coefficients (c_1..c_4) are Lambda_member x the RAW
+// MOMENTS of severity (the standard compound-Poisson identity kappa_k =
+// lambda x E[X^k]). Expanding K(t) to O(t^4) and reading off kappa_k = k! x
+// [t^k] K(t) gives, in terms of that member's own c_1..c_4:
+//
+//   kappa_1 = c1
+//   kappa_2 = c2 + c1^2/alpha
+//   kappa_3 = c3 + 3 c1 c2/alpha + 2 c1^3/alpha^2
+//   kappa_4 = c4 + 4 c1 c3/alpha + 3 c2^2/alpha + 12 c1^2 c2/alpha^2 + 6 c1^4/alpha^3
+//
+// As alpha -> infinity this reduces to kappa_k = c_k exactly, the ordinary
+// compound-Poisson result. kappa_3/kappa_4 are still computed here (skewness,
+// excessKurtosis on WcAggregateCumulants) because they were part of the
+// verified derivation and cost nothing extra to expose — they are simply not
+// fed into a Cornish-Fisher expansion any more.
+
+import type { Member } from '../types/simulation';
+import { WC_LOSS_MODEL, WC_SEVERITY_COMPONENTS } from '../data/defaultAssumptions';
+import { WC_CLF_GRID, WC_CLF_PERCENTILE_STOPS } from '../data/wcClfGrid';
+import { normalCdf } from './claimMath';
+import {
+  ratingGroupOf,
+  memberThetaWc,
+  tiltedWeights,
+  trendedMu,
+  wcFrequencyTrend,
+  wcSeverityCap,
+} from './wcClaimEngine';
+
+const M = WC_LOSS_MODEL;
+// The Gamma shape parameter behind memberFrequencyNoise (mean 1, so scale =
+// 1/shape). Read from the model rather than restated, so a future change to
+// the noise's dispersion is picked up here automatically.
+const ALPHA = M.memberFrequencyNoise.shape;
+
+// k-th raw moment of a lognormal(mu, sigma) draw TRUNCATED AT `limit`:
+//
+//   E[min(X, L)^k] = exp(k mu + k^2 sigma^2 / 2) x Phi(d - k sigma) + L^k (1 - Phi(d))
+//   where d = (ln L - mu) / sigma
+//
+// ⚠ THE UNCAPPED FORM WAS exp(k mu + k^2 sigma^2 / 2) AND IT WAS WRONG THE
+// MOMENT WC GAINED A CEILING. These moments feed the compound-Poisson cumulants
+// the CLF grid is built from, and the HIGHER the order the more of the moment
+// sits in the tail the cap removes — on component `large` (sigma 2.00) the
+// uncapped 4th raw moment is dominated by mass above the year's ceiling that
+// the draw can no longer produce. Leaving it uncapped would have described a distribution with
+// a heavier tail than the generator has, which is the same matched-pair failure
+// the draw/analytic check guards, one level up.
+//
+// Phi is claimMath's normalCdf rather than a local erfc, deliberately: at k = 1
+// this expression then reduces TERM BY TERM to limitedExpectedValue, which is
+// what componentMean calls. The matched-pair check compares a draw against
+// componentMean and the CLF grid is built from these moments, so the two sides
+// sharing one normal CDF makes their agreement exact rather than approximate to
+// two different ~1.5e-7 approximations.
+function lognormalRawMoment(mu: number, sigma: number, k: number, limit: number): number {
+  // ⚠ THIS BRANCH IS CURRENTLY UNREACHABLE, and is kept deliberately rather than
+  // being live code. The function is module-private with exactly ONE caller,
+  // which always passes wcSeverityCap(year) — a finite number. So no path
+  // reaches it today, and it must not be read as handling a case that occurs.
+  //
+  // It is not deleted because removing it does not merely drop a dead line, it
+  // changes the failure MODE for a future caller: with limit = Infinity the
+  // expression below evaluates Math.pow(Infinity, k) * (1 - normalCdf(Infinity))
+  // = Infinity * 0 = NaN, which would propagate silently into the CLF grid's
+  // cumulants. One unreachable line buys the correct uncapped moment instead of
+  // a NaN. That is the whole argument for it; if the caller set ever changes so
+  // that this fires, this comment is the thing that is now wrong.
+  if (!Number.isFinite(limit)) return Math.exp(k * mu + (k * k * sigma * sigma) / 2);
+  const d = (Math.log(limit) - mu) / sigma;
+  return Math.exp(k * mu + (k * k * sigma * sigma) / 2) * normalCdf(d - k * sigma)
+    + Math.pow(limit, k) * (1 - normalCdf(d));
+}
+
+// One member's c_1..c_4 — Lambda_i x (raw moment) summed over that member's
+// mixture components, AT THEIR OWN risk quality (tilted weights, matching the
+// actual draw) and region. This is the "as if epsilon = 1" compound-Poisson
+// seed the Gamma correction below operates on.
+function memberRawCumulantSeeds(member: Member, kLine: number, yearNumber: number): [number, number, number, number] {
+  const payroll = member.exposureByLine.WC ?? 0;
+  const c: [number, number, number, number] = [0, 0, 0, 0];
+  if (payroll <= 0) return c;
+
+  const rq = member.riskQuality;
+  const group = ratingGroupOf(member);
+  const spec = M.ratingGroups[group];
+  const theta = memberThetaWc(rq);
+  const trend = wcFrequencyTrend(yearNumber);
+  const weights = tiltedWeights(group, rq);
+
+  for (let i = 0; i < spec.mix.length; i++) {
+    const lambdaI = payroll * spec.ratePer1M * theta * kLine * trend * weights[i];
+    if (lambdaI <= 0) continue;
+    const comp = WC_SEVERITY_COMPONENTS[spec.mix[i].component];
+    for (let k = 1; k <= 4; k++) {
+      // TRENDED, so the cumulants describe the same distribution the draw
+      // produces.
+      //
+      // THE SEVERITY TREND SCALES EVERY RAW MOMENT BY s^k, so kappa_1 -> s x
+      // kappa_1 and kappa_2 -> s^2 x kappa_2, leaving CV = sqrt(kappa_2)/kappa_1
+      // exactly unchanged.
+      //
+      // ⚠ THAT HOLDS ONLY BECAUSE THE CEILING TRENDS WITH THE DISTRIBUTION, and
+      // it is worth knowing it was briefly false. While WC_SEVERITY_CAP was a
+      // FIXED number of dollars this claim had to be withdrawn: scaling severity
+      // by s moved the distribution TOWARD a stationary ceiling instead of
+      // sliding it along a line with no end, so the capped moments did not
+      // scale. Measured then, on a fixed 61-member book, the aggregate CV
+      // drifted Y1 -> Y10 by +3.15% capped against +6.99% uncapped — the fixed
+      // cap contributing -3.84pp, enough to move CLF@0.80 from 1.23392 to
+      // 1.23808.
+      //
+      // wcSeverityCap(yearNumber) restores it. min(s X, s L) = s min(X, L), so
+      // E[min(s X, s L)^k] = s^k E[min(X, L)^k] EXACTLY — verified to 2.7e-15
+      // relative in wc-cap-check.ts rather than taken on the algebra. Do not
+      // pin the limit below back to a constant without also withdrawing this
+      // paragraph and wcClfGrid's matching one.
+      //
+      // ⚠ THE REGION SCALE IS GONE, and the asymmetry this paragraph described
+      // with it. It read: "regionMult varies BETWEEN members within one year
+      // while the ceiling does not follow it... the limit below is
+      // CAP_t/regionMult and a South member sits marginally nearer its
+      // effective ceiling: on the heavy `large` component the severity CV runs
+      // 6.2997 / 6.2655 / 6.2324 across the three regions, about +-0.5%."
+      // Region no longer scales chronic severity, so every member of a rating
+      // group now meets the same ceiling with the same distribution and the
+      // per-member CV spread is exactly zero. If a shock ever scales severity
+      // regionally, that paragraph is the one to restore.
+      c[k - 1] += lambdaI
+        * lognormalRawMoment(trendedMu(comp.mu, yearNumber), comp.sigma, k, wcSeverityCap(yearNumber));
+    }
+  }
+  return c;
+}
+
+// Gamma-mixed-Poisson correction: turns one member's "as if epsilon=1"
+// compound-Poisson seeds into their TRUE cumulants, per the derivation above.
+function memberCumulants(c: [number, number, number, number]): [number, number, number, number] {
+  const [c1, c2, c3, c4] = c;
+  const k1 = c1;
+  const k2 = c2 + (c1 * c1) / ALPHA;
+  const k3 = c3 + (3 * c1 * c2) / ALPHA + (2 * c1 ** 3) / (ALPHA * ALPHA);
+  const k4 =
+    c4 +
+    (4 * c1 * c3) / ALPHA +
+    (3 * c2 * c2) / ALPHA +
+    (12 * c1 * c1 * c2) / (ALPHA * ALPHA) +
+    (6 * c1 ** 4) / (ALPHA * ALPHA * ALPHA);
+  return [k1, k2, k3, k4];
+}
+
+export interface WcAggregateCumulants {
+  mean: number;      // kappa_1 — E[gross annual loss], draw basis (tilted, k_line-adjusted)
+  variance: number;  // kappa_2
+  kappa3: number;
+  kappa4: number;
+  cv: number;
+  skewness: number;         // kappa_3 / kappa_2^1.5 — VERIFIED, no longer used for percentiles
+  excessKurtosis: number;   // kappa_4 / kappa_2^2 — VERIFIED, no longer used for percentiles
+}
+
+// EXPORTED so the derivation/verification scripts (and any future audit) can
+// recompute this exactly. `cv` is what computeWcClf interpolates the grid on.
+export function wcAggregateCumulants(members: Member[], kLine: number, yearNumber: number): WcAggregateCumulants {
+  let k1 = 0, k2 = 0, k3 = 0, k4 = 0;
+  // A1 and B2 are accumulated alongside, for the shared-year-factor mixing
+  // below: A1 = sum_i c1_i (the book's expected loss) and B2 = sum_i c1_i^2/alpha
+  // (the part of variance that comes from per-member frequency noise rather than
+  // from severity). A2 is then k2 - B2.
+  let A1 = 0, B2 = 0;
+  for (const member of members) {
+    const seeds = memberRawCumulantSeeds(member, kLine, yearNumber);
+    const [mk1, mk2, mk3, mk4] = memberCumulants(seeds);
+    k1 += mk1; k2 += mk2; k3 += mk3; k4 += mk4;
+    A1 += seeds[0];
+    B2 += (seeds[0] * seeds[0]) / ALPHA;
+  }
+  // ⚠ THE BOOK IS NO LONGER A SUM OF INDEPENDENT MEMBER PROCESSES, AND THE
+  // DERIVATION ABOVE IS CORRECT ONLY CONDITIONAL ON THE YEAR FACTOR.
+  // WC_LOSS_MODEL.wcYearFactor multiplies EVERY member's arrival rate by one
+  // shared Gamma(shape, 1/shape) draw, so members are conditionally independent
+  // given g and correlated unconditionally. Conditioning and mixing, with
+  // A2 = sum_i c2_i, exactly as glLossDistribution derives for GL:
+  //
+  //   E[S]   = A1                              (E[g] = 1 — the mean is untouched)
+  //   Var(S) = A2 + B2 x (1 + Vg) + A1^2 x Vg
+  //
+  // The A1^2 x Vg term is the one that matters: it scales as exposure^2 against
+  // an exposure^2 denominator, so it does NOT diversify away as the book grows.
+  // That is the whole reason this channel was chosen over widening severity.
+  const VG_WC = 1 / WC_LOSS_MODEL.wcYearFactor.shape;
+  const A2 = k2 - B2;
+  k2 = A2 + B2 * (1 + VG_WC) + A1 * A1 * VG_WC;
+  // ⚠ kappa_3 AND kappa_4 ARE *NOT* MIXED, AND THAT IS A KNOWN GAP RATHER THAN
+  // AN OVERSIGHT. Mixing them means converting four cumulants to moments,
+  // integrating polynomials in g up to g^4 against the Gamma, and converting
+  // back — doable, and it would be the only correct thing to do IF either were
+  // used. Neither is: the fields are documented above as "VERIFIED, no longer
+  // used for percentiles", computeWcClf indexes the grid on `cv` alone, and
+  // wcClfGrid.ts records that the engine does not price off that grid either.
+  // They are now UNDERSTATEMENTS of the true third and fourth cumulants, since
+  // a shared multiplicative factor adds right skew. Anything that starts reading
+  // them must mix them first. wc-cutover-check asserts that the PRICING
+  // expectation cannot see this factor at all, which is the invariant that
+  // matters; nothing asserts kappa_3/kappa_4 because nothing reads them.
+  const sd = Math.sqrt(Math.max(0, k2));
+  return {
+    mean: k1,
+    variance: k2,
+    kappa3: k3,
+    kappa4: k4,
+    cv: k1 > 0 ? sd / k1 : 0,
+    skewness: k2 > 0 ? k3 / Math.pow(k2, 1.5) : 0,
+    excessKurtosis: k2 > 0 ? k4 / (k2 * k2) : 0,
+  };
+}
+
+// Nearest of WC_CLF_PERCENTILE_STOPS to the requested percent (0-100 scale).
+// Mirrors lookupCLF's own nearest-key behaviour, so a confidenceLevel that
+// does not land exactly on a stop (legacy saves, future UI values) degrades
+// the same way the old table did rather than throwing or interpolating
+// across percentiles (WC's slider only ever offers these 20 exact stops).
+function nearestStop(pct: number): number {
+  let best: number = WC_CLF_PERCENTILE_STOPS[0];
+  let bestDiff = Math.abs(pct - best);
+  for (const s of WC_CLF_PERCENTILE_STOPS) {
+    const diff = Math.abs(pct - s);
+    if (diff < bestDiff) { best = s; bestDiff = diff; }
+  }
+  return best;
+}
+
+// Linear interpolation of one percentile stop's ratio across WC_CLF_GRID,
+// indexed on CV (see wcClfGrid.ts for why CV was chosen over
+// 1/sqrt(exposure)). Clamped to the nearest grid endpoint outside
+// [minCv, maxCv] — the grid spans the enrollable range; extrapolating a
+// linear trend past measured bounds risks doing worse than clamping.
+function interpolateGridRatio(cv: number, stop: number): number {
+  const sorted = [...WC_CLF_GRID].sort((a, b) => a.cv - b.cv);
+  if (cv <= sorted[0].cv) return sorted[0].ratios[stop];
+  const last = sorted[sorted.length - 1];
+  if (cv >= last.cv) return last.ratios[stop];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i], b = sorted[i + 1];
+    if (cv >= a.cv && cv <= b.cv) {
+      const w = (cv - a.cv) / (b.cv - a.cv);
+      return a.ratios[stop] + w * (b.ratios[stop] - a.ratios[stop]);
+    }
+  }
+  return last.ratios[stop];
+}
+
+// THE REPLACEMENT FOR lookupCLF, FOR WC ONLY.
+//
+// CLF(p) = interpolated_percentile_ratio(p, currentBook's CV)
+//
+// Each grid entry's ratios are already normalized to THAT book's own
+// analytic expected loss, so the interpolated ratio is directly the
+// multiplier the engine needs — no separate reconciliation against the
+// current book's expectedLoss is required (the same dimensionless-multiplier
+// contract lookupCLF already has for GL/Property).
+export function computeWcClf(confidenceLevel: number, members: Member[], kLine: number, yearNumber: number): number {
+  const cv = wcAggregateCumulants(members, kLine, yearNumber).cv;
+  const stop = nearestStop(confidenceLevel * 100);
+  return interpolateGridRatio(cv, stop);
+}
+
+// THE "Expected" MARKER'S POSITION — where does this book's own grid curve
+// cross ratio = 1.000? Built on the SAME interpolateGridRatio the percentile
+// stops above use, at every stop, then linearly interpolated BETWEEN stops on
+// the (monotonic, by construction — see wcClfGrid.ts) ratio-vs-percentile
+// curve. Deliberately NOT a separate formula: computeWcClf and this function
+// must never be able to drift apart, since "Expected" is defined as "wherever
+// this line's own grid says CLF=1.000 falls," not as an independently
+// estimated number that happens to usually agree.
+//
+// Returns a 0-1 fraction (0.672 for "67.2%"), clamped to the grid's own stop
+// range if the book's CV puts break-even outside the measured curve (the same
+// clamp-past-the-ends contract interpolateGridRatio itself uses).
+export function wcClfCrossingPercentile(members: Member[], kLine: number, yearNumber: number): number {
+  const cv = wcAggregateCumulants(members, kLine, yearNumber).cv;
+  const stops = WC_CLF_PERCENTILE_STOPS;
+  const ratios = stops.map(s => interpolateGridRatio(cv, s));
+  for (let i = 0; i < ratios.length - 1; i++) {
+    if (ratios[i] <= 1 && ratios[i + 1] >= 1) {
+      const w = ratios[i + 1] === ratios[i] ? 0 : (1 - ratios[i]) / (ratios[i + 1] - ratios[i]);
+      return (stops[i] + w * (stops[i + 1] - stops[i])) / 100;
+    }
+  }
+  return (ratios[0] > 1 ? stops[0] : stops[stops.length - 1]) / 100;
+}

@@ -1,20 +1,55 @@
-import { Shield, RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
-import type { GameState } from '../types/simulation';
-import { formatCurrency, formatPct } from '../utils/formatters';
+import { useMemo } from 'react';
+import { RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
+import type { GameState, LineView } from '../types/simulation';
+import { buildAnnualStatement, topCombinedRatio } from '../utils/resultsStatement';
+import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
+import { RippleMark } from '../assets/RippleLogo';
 
 interface HeaderProps {
   gameState: GameState | null;
   startingFinancials?: { surplus: number; annualPremium: number; marketShare: number } | null;
-  onNewGame: () => void;
-  onAdvanceYear: () => void;
-  canAdvance: boolean;
+  /** Omitted by a session player: the room owns the game's lifecycle, and a
+   *  player who restarted would desync from a room that is still advancing. The
+   *  solo game always passes it, so its button is unchanged. */
+  onNewGame?: () => void;
+  /** Omitted by a VIEWER: there is no submit on a read-only screen, and a
+   *  disabled button would still invite the click. The solo game and a playing
+   *  session player both pass it, so their button is unchanged. */
+  onAdvanceYear?: () => void;
+  canAdvance?: boolean;
+  /** Overrides the advance button's text. Defaults to the solo wording. A
+   *  session player who has already locked shows what it is waiting for
+   *  instead. */
+  advanceLabel?: string;
+  /** The view on screen — the combined ratio is the pool's or that line's. Defaults to the pool. */
+  lineView?: LineView;
 }
 
-export default function Header({ gameState, startingFinancials, onNewGame, onAdvanceYear, canAdvance }: HeaderProps) {
+export default function Header({ gameState, startingFinancials, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool' }: HeaderProps) {
   const lastResult = gameState?.lockedResults?.[gameState.lockedResults.length - 1];
 
   const surplus = lastResult?.endingSurplus ?? startingFinancials?.surplus ?? 0;
-  const combinedRatio = lastResult?.combinedRatio;
+  // ============================================================================
+  // THE COMBINED RATIO, CUMULATIVE SINCE GAME START, READ OFF THE ANNUAL STATEMENT.
+  //
+  // Every cost — net losses, LAE, admin and the reinsurance cost — over what
+  // members were charged, summed over every played year since game start; before
+  // any year is played, over the pre-game years. It is the statement's own first
+  // row's Total (buildAnnualStatement → topCombinedRatio), for the view on
+  // screen: the pool's on the pool view, a line's on its own. So the top and the
+  // statement cannot disagree.
+  //
+  // ⚠ IT REPLACED "Loss Ratio (prem + admin)" — actualLossRatioPricingBasis,
+  // net incurred over pool premium + admin. That figure is not gone: it stays
+  // on the result, the export, the Results detail and the audit page. The
+  // reason the old chip existed still holds for this one: a member-charge LOSS
+  // ratio compressed the range, because the near-constant reinsurance and admin
+  // sat in the denominator only. Here every cost is in the numerator too.
+  // ============================================================================
+  const combined = useMemo(
+    () => (gameState?.isStarted ? topCombinedRatio(buildAnnualStatement(gameState, lineView)) : undefined),
+    [gameState, lineView],
+  );
   const marketShare = lastResult?.marketShare ?? startingFinancials?.marketShare ?? 0;
   const poolName = gameState?.setup?.poolName ?? 'Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';
@@ -31,15 +66,18 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
         <div className="flex items-center justify-between gap-4 flex-wrap">
           {/* Left: branding */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="bg-blue-600 rounded-lg p-2 flex-shrink-0">
-              <Shield size={20} />
-            </div>
-            <div className="min-w-0">
-              <div className="font-bold text-lg leading-tight truncate">Risk Pool Simulation</div>
-              {isStarted && (
-                <div className="text-slate-400 text-xs truncate">{poolName}</div>
-              )}
-            </div>
+            <RippleMark size={32} className="flex-shrink-0" />
+            <span className="font-bold text-lg leading-none text-white flex-shrink-0">RIPPLE</span>
+            <span className="text-slate-600 flex-shrink-0">|</span>
+            {/* Same slot, two occupants that never overlap: the tagline
+                before a game exists, the SIMULATED pool's own name once one
+                does. The pool-name branch is untouched — it names the game
+                in progress, not the product, and stays that way on rename. */}
+            {isStarted ? (
+              <span className="text-slate-300 text-sm truncate min-w-0">{poolName}</span>
+            ) : (
+              <span className="text-slate-400 text-sm truncate min-w-0">Every decision creates impact.</span>
+            )}
           </div>
 
           {/* Center: game state chips */}
@@ -47,20 +85,25 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
             <div className="flex items-center gap-3 flex-wrap">
               <Chip label="Year" value={`${yearNumber}`} />
               <Chip label="Calendar" value={`${calendarYear}`} />
-              <Chip label="Instance" value={instanceId} mono />
+              <Chip label="Scenario" value={instanceId} mono />
               <Chip
                 label="Surplus"
                 value={formatCurrency(surplus, true)}
                 valueClass={surplus >= 0 ? 'text-emerald-400' : 'text-red-400'}
               />
-              {combinedRatio !== undefined && (
+              {/* ⚠ FOUR COLOURS OVER THE NARRATIVE'S FIVE BANDS, AND THE MERGE IS
+                  DELIBERATE. The chip is a number and a colour with no room for
+                  words, so bands 0 and 1 — "most of the premium unspent" and
+                  "margin to spare" — share emerald. Every colour boundary is
+                  also a sentence boundary, so the chip says LESS than the
+                  narrative and never something different. The band-to-sentence
+                  map is at colorForRatio in formatters.ts; change neither alone. */}
+              {combined !== undefined && (
                 <Chip
-                  label="Actual Combined Ratio"
-                  value={formatPct(combinedRatio)}
-                  valueClass={
-                    combinedRatio < 1.0 ? 'text-emerald-400' :
-                    combinedRatio < 1.10 ? 'text-amber-400' : 'text-red-400'
-                  }
+                  label="Combined Ratio"
+                  value={formatPct(combined)}
+                  valueClass={colorForRatioOnDark(combined)}
+                  testId="header-combined-ratio"
                 />
               )}
               <Chip
@@ -73,20 +116,22 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
 
           {/* Right: actions */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={onNewGame}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium transition-colors"
-            >
-              <RefreshCw size={14} />
-              New Game
-            </button>
-            {isStarted && !isComplete && (
+            {onNewGame && (
+              <button
+                onClick={onNewGame}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium transition-colors"
+              >
+                <RefreshCw size={14} />
+                New Game
+              </button>
+            )}
+            {isStarted && !isComplete && onAdvanceYear && (
               <button
                 onClick={onAdvanceYear}
                 disabled={!canAdvance}
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold transition-colors"
               >
-                Lock Year {yearNumber}
+                {advanceLabel ?? `Lock Year ${yearNumber}`}
                 <ChevronRight size={14} />
               </button>
             )}
@@ -108,16 +153,18 @@ function Chip({
   value,
   valueClass = 'text-white',
   mono = false,
+  testId,
 }: {
   label: string;
   value: string;
   valueClass?: string;
   mono?: boolean;
+  testId?: string;
 }) {
   return (
     <div className="bg-slate-800 rounded-lg px-3 py-1.5 flex flex-col items-center min-w-[80px]">
       <span className="text-slate-400 text-xs">{label}</span>
-      <span className={`text-sm font-bold ${valueClass} ${mono ? 'font-mono' : ''}`}>{value}</span>
+      <span data-testid={testId} className={`text-sm font-bold min-h-[1.25rem] ${valueClass} ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );
 }

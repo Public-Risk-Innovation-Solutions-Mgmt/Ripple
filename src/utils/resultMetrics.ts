@@ -1,0 +1,946 @@
+// The full year-by-year result metric list — the SINGLE source of truth for
+// both the on-screen Result Spreadsheet table and the .xlsx export. Kept here
+// (not inline in the page component) so every consumer — including baseline
+// generation scripts — uses the same list and cannot silently drift from what
+// the app actually exports.
+import type { SpreadsheetMetric } from './resultsExport';
+import { formatCurrency, formatPct } from './formatters';
+import { eventLabel, yearEvents } from './yearEvents';
+import { placementCode, placementSummary } from './reinsuranceDisplay';
+import { developmentDisplay } from './developmentDisplay';
+import type { CoverageLine, LineDecisionSet, ResultSet } from '../types/simulation';
+import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
+
+// Which tower line a result row belongs to — WC or GL ONLY, never a guess.
+//
+// ⚠ THIS USED TO INFER IT FROM THE LAYER COUNT (`>= 4 ? 'WC' : 'GL'`), on the
+// grounds that "WC's tower has 4 layers, GL's has 3". THE MERGE OF WC's TOP TWO
+// LAYERS MADE BOTH THREE, so that test would have silently labelled every WC row
+// 'GL' — and it would still have compiled, still have rendered, and produced a
+// placement summary naming GL's layers on a WC result.
+//
+// ⚠ IT THEN FELL BACK TO 'GL' FOR ANY ROW WITHOUT AN EXPLICIT LINE, ON THE
+// CLAIMED GROUND THAT THE POOL ROW "NEVER REACHES HERE — resultUsesTower GATES
+// THE CALL." That was never true and was never tested: the pooled ResultSet
+// carries no `line` (it aggregates every active line) and sums cededByLayer
+// ELEMENTWISE, so resultUsesTower reads true whenever ANY tower line is
+// active — which, with DEFAULT_LAYERS_PLACED, is every default game. A
+// WC-solo pool row hit this fallback and printed GL's top band, $15M xs $10M,
+// on a pool whose real top band is WC's $40M xs $10M. Returns undefined now
+// rather than guess; poolReinsuranceLevelDetail below is what the pool row
+// actually reads.
+const towerLineOf = (r: { line?: CoverageLine }): CoverageLine | undefined =>
+  r.line === 'WC' || r.line === 'GL' || r.line === 'Property' ? r.line : undefined;
+
+// THE POOL ROW HAS NO SINGLE LINE, so instead of picking one it reports every
+// active tower line by name. Reads r.byLine, which is present and accurate on
+// every pool-scope row (populated in simulationEngine's pool aggregation from
+// the SAME per-line results this file reports elsewhere) even though the type
+// this function is declared against (LineResultSet) does not carry it.
+function poolReinsuranceLevelDetail(
+  r: { line?: CoverageLine },
+  render: (line: CoverageLine, decisions: Pick<LineDecisionSet, 'reinsuranceOption'>) => string,
+): string {
+  const byLine = (r as unknown as ResultSet).byLine;
+  const active = (['WC', 'GL', 'Property'] as const).filter(l => byLine?.[l]);
+  if (active.length === 0) return 'n/a';
+  return active.map(l => `${l}: ${render(l, byLine[l].decisions)}`).join(' | ');
+}
+
+const dollars = (value: number) => `$${value.toFixed(2)}`;
+const roundDollars = (value: number) => Math.round(value);
+
+export const RESULT_METRICS: SpreadsheetMetric[] = [
+    {
+      key: 'yearNumber',
+      category: 'Year',
+      label: 'Year Number',
+      value: r => r.yearNumber,
+    },
+    {
+      key: 'calendarYear',
+      category: 'Year',
+      label: 'Calendar Year',
+      value: r => r.calendarYear,
+    },
+
+    // Decisions
+    // 'rateChange' REMOVED — the decision field it exported is gone
+    // (CLF-only pricing). Removing an export field is a SHAPE change (the
+    // hash guard will move); it is not a value change on any remaining field.
+    {
+      key: 'fundingConfidenceLevel',
+      lineOnly: true,
+      category: 'Decisions',
+      label: 'Funding Confidence Level',
+      value: r => formatPct(r.selectedFundingConfidenceLevel, 0),
+      csvValue: r => r.selectedFundingConfidenceLevel,
+    },
+    {
+      key: 'selectedFundingCLF',
+      lineOnly: true,
+      category: 'Decisions',
+      label: 'Selected CLF',
+      value: r => r.selectedFundingCLF.toFixed(3),
+      csvValue: r => r.selectedFundingCLF,
+    },
+    {
+      key: 'dividendPct',
+      lineOnly: true,
+      category: 'Decisions',
+      label: 'Dividend %',
+      value: r => formatPct(r.decisions.dividendPct, 1),
+      csvValue: r => r.decisions.dividendPct,
+    },
+    {
+      key: 'assessmentPct',
+      lineOnly: true,
+      category: 'Decisions',
+      label: 'Assessment %',
+      value: r => formatPct(r.decisions.assessmentPct, 1),
+      csvValue: r => r.decisions.assessmentPct,
+    },
+    // Hidden while RISK_CONTROL is off — risk control is pending design and reads 0.
+    ...(RISK_CONTROL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'riskControlPct',
+        // Pool-wide: one choice projected into every line. The LINE form reads the
+        // projected copy; the POOL form reads the pool's own field. Same number,
+        // named where it lives — so the Pool tab keeps the row.
+        lineOnly: true,
+        poolCell: r => formatPct(r.pool.riskControlPct, 1),
+        poolCsvCell: r => r.pool.riskControlPct,
+        category: 'Decisions',
+        label: 'Risk Control %',
+        value: r => formatPct(r.decisions.riskControlPct, 1),
+        csvValue: r => r.decisions.riskControlPct,
+      },
+    ] : []),
+    {
+      // ONE PRODUCT NOW, and REINSURANCE_PROGRAMS is gone rather than merely
+      // dead — all three lines run the per-occurrence tower.
+      //
+      // csvValue is a STRING (a placement code like "L1+L2+L3+AGG1"), so
+      // value-identity — which is numeric-only — does not see a numeric field
+      // here. That is correct: a placement is not a magnitude, and pretending
+      // it is one is what the old column did.
+      key: 'reinsuranceLevel',
+      // ⚠ NOT lineOnly, AND IT WAS MARKED SO BY MISTAKE. It reads r.decisions
+      // only when towerLineOf(r) yields a line, which a pool row never does —
+      // the pool path (poolReinsuranceLevelDetail) was already written for this.
+      // Marking it would have dropped a row the Pool tab can honestly show.
+      // pool-row-metric-check caught it on its first run.
+      category: 'Decisions',
+      label: 'Reinsurance Program',
+      value: r => {
+        const line = towerLineOf(r);
+        return line ? placementSummary(line, r.decisions) : poolReinsuranceLevelDetail(r, placementSummary);
+      },
+      csvValue: r => {
+        const line = towerLineOf(r);
+        return line ? placementCode(line, r.decisions) : poolReinsuranceLevelDetail(r, placementCode);
+      },
+    },
+    {
+      key: 'assetAllocation',
+      category: 'Decisions',
+      label: 'Asset Allocation',
+      value: r => `Cash ${r.assetAllocation.cashPct.toFixed(0)}% / Bonds ${r.assetAllocation.bondsPct.toFixed(0)}% / Equities ${r.assetAllocation.equitiesPct.toFixed(0)}%`,
+    },
+
+    // Membership
+    //
+    // ⚠ TWO COLUMNS ON PURPOSE, AND THE SECOND IS NOT A DUPLICATE. At line scope
+    // they are equal. At pool scope Members is the distinct roster and
+    // Enrolments is that roster summed per line, so a member carrying WC and GL
+    // appears once in the first and twice in the second — measured 141 against
+    // 205 on a three-line book.
+    //
+    // Both ship because BOTH are needed. Members is what the pages show and what
+    // a player means by the word. Enrolments is the weight behind Member
+    // Satisfaction and Average Risk Quality below: those average each line's
+    // figure weighted by that line's enrolments, so anyone reconstructing either
+    // from this export divides by Enrolments, not Members. Shipping only Members
+    // would make both unreconstructable; shipping only Enrolments is what made
+    // the export read 205 where the page read 141.
+    // ⚠ THE MEMBER COUNTS ARE GONE FROM THE PUBLISHED LIST, AND THE ENGINE STILL
+    // HAS THEM. The multiplayer game drops individual members; the engine keeps
+    // them until a simplified model replaces it, so this HIDES rather than
+    // deletes. `activeMembers`, `enrolmentCount`, `newMembers`,
+    // `withdrawnMembers` and `memberRetentionRate` are all still real ResultSet
+    // fields, still computed, still saved — they are simply not published to a
+    // screen, a workbook or the host's table any more. Exposure is what a pool
+    // in aggregate is sized by, and it is immediately below.
+    //
+    // ⚠ AND 'averageRiskQuality' WENT WITH THEM, FOR A SECOND AND STRONGER
+    // REASON. Risk quality is UNOBSERVABLE by design — surface-privacy-check
+    // exists solely to keep a member's score away from the player — and the POOL
+    // AVERAGE of it was published here, on screens and in the workbook, the whole
+    // time. That was the hole in the hide, not a casualty of this change.
+    // surface-privacy-check now forbids this key by name so it cannot return.
+    //
+    // ⚠ WHAT STAYS: `memberSatisfaction`. It is the pool's own scoreboard, is
+    // asked for explicitly, and names no member.
+    // Hidden with MEMBER_LEVEL off: satisfaction feeds nothing and returns as a pool-level figure once designed.
+    ...(MEMBER_LEVEL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'memberSatisfaction',
+        category: 'Membership',
+        label: 'Member Satisfaction',
+        value: r => r.memberSatisfaction.toFixed(2),
+        csvValue: r => r.memberSatisfaction,
+      },
+    ] : []),
+    {
+      key: 'activeExposure',
+      category: 'Membership',
+      label: 'Active Payroll Exposure ($M)',
+      value: r => r.activeExposure.toFixed(2),
+      csvValue: r => r.activeExposure,
+    },
+    {
+      key: 'totalMarketExposure',
+      category: 'Membership',
+      label: 'Total Market Payroll ($M)',
+      value: r => r.totalMarketExposure.toFixed(2),
+      csvValue: r => r.totalMarketExposure,
+    },
+    {
+      key: 'marketShare',
+      category: 'Membership',
+      label: 'Market Share',
+      value: r => formatPct(r.marketShare),
+      csvValue: r => r.marketShare,
+    },
+
+    // Rate and premium
+    {
+      key: 'rateLevel',
+      lineOnly: true,
+      category: 'Rate and Premium',
+      label: 'Rate Level Index',
+      value: r => r.rateLevel.toFixed(3),
+      csvValue: r => r.rateLevel,
+    },
+    {
+      key: 'purePremiumRatePer100',
+      lineOnly: true,
+      category: 'Rate and Premium',
+      // The rate's own estimate of the year's claims cost, from the experience
+      // (stable-scenarios commit 11) — distinct from Expected Losses below.
+      label: 'Pure Premium (from experience) per $100 Payroll',
+      value: r => dollars(r.purePremiumPer100),
+      csvValue: r => r.purePremiumPer100,
+    },
+    {
+      // The term poolPremiumRateAtSelectedClf below could not previously be
+      // reconciled to purePremiumRatePer100 above: the pool premium funds NET
+      // expected loss (see simulationEngine.ts's net-funding note) while pure
+      // premium is GROSS, and the gap between them was two engine locals no
+      // export or audit-page row could reach — an export figure the reader
+      // could not reproduce from anything else on the sheet.
+      key: 'expectedCededPer100',
+      lineOnly: true,
+      category: 'Rate and Premium',
+      label: 'Expected Ceded per $100 Payroll',
+      value: r => dollars(r.expectedCededPer100),
+      csvValue: r => r.expectedCededPer100,
+    },
+    {
+      key: 'netPurePremiumRatePer100',
+      lineOnly: true,
+      category: 'Rate and Premium',
+      label: 'Net Pure Premium Rate per $100 Payroll',
+      value: r => dollars(r.netPurePremiumPer100),
+      csvValue: r => r.netPurePremiumPer100,
+    },
+    {
+      key: 'poolPremiumRateAtSelectedClf',
+      category: 'Rate and Premium',
+      label: 'Pool Premium Rate at Selected CLF',
+      value: r => dollars(r.poolPremium / Math.max(r.activeExposure * 10_000, 1)),
+      csvValue: r => r.poolPremium / Math.max(r.activeExposure * 10_000, 1),
+    },
+    {
+      key: 'totalMemberRatePer100',
+      lineOnly: true,
+      category: 'Rate and Premium',
+      label: 'Gross Premium & Admin Expense Rate per $100',
+      value: r => dollars(r.ratePer100),
+      csvValue: r => r.ratePer100,
+    },
+    {
+      key: 'writtenExposure',
+      category: 'Rate and Premium',
+      label: 'Written Payroll ($M)',
+      value: r => r.writtenExposure.toFixed(2),
+      csvValue: r => r.writtenExposure,
+    },
+    {
+      key: 'purePremiumAtOne',
+      category: 'Rate and Premium',
+      label: 'Pure Premium',
+      value: r => formatCurrency(r.expectedLoss),
+      csvValue: r => roundDollars(r.expectedLoss),
+    },
+    {
+      key: 'poolPremium',
+      category: 'Rate and Premium',
+      label: 'Pool Premium at Selected CLF',
+      value: r => formatCurrency(r.poolPremium),
+      csvValue: r => roundDollars(r.poolPremium),
+    },
+    {
+      key: 'adminExpense',
+      category: 'Rate and Premium',
+      label: 'Admin Expense',
+      value: r => formatCurrency(r.adminExpense),
+      csvValue: r => roundDollars(r.adminExpense),
+    },
+    {
+      key: 'totalMemberCharge',
+      category: 'Rate and Premium',
+      label: 'Gross Premium & Admin Expense',
+      value: r => formatCurrency(r.totalMemberCharge),
+      csvValue: r => roundDollars(r.totalMemberCharge),
+    },
+    {
+      key: 'assessments',
+      category: 'Rate and Premium',
+      label: 'Assessments',
+      value: r => formatCurrency(r.assessments),
+      csvValue: r => roundDollars(r.assessments),
+    },
+    {
+      key: 'dividends',
+      category: 'Rate and Premium',
+      label: 'Dividends / Returned Pool Premium',
+      value: r => formatCurrency(r.dividends),
+      csvValue: r => roundDollars(r.dividends),
+    },
+
+    // Losses
+    {
+      key: 'expectedLoss',
+      category: 'Losses',
+      // ⚠ "EXPECTED LOSSES", NOT "PURE PREMIUM" (stable-scenarios commit 11):
+      // this is the year's expected gross losses, the engine's own expectation.
+      // "Pure Premium" now names only the rate's estimate, from the experience.
+      label: 'Expected Losses',
+      value: r => formatCurrency(r.expectedLoss),
+      csvValue: r => roundDollars(r.expectedLoss),
+    },
+    {
+      // REPLACES "CLF-Adjusted Gross Expected Loss" (stable-scenarios commit 11),
+      // gross expected loss x the funding CLF, which named no figure a reader
+      // could use. This is what the line expects to keep: expected losses less
+      // what its cover is expected to recover. The CLF product stays on the
+      // result for the audit page's integrity check.
+      key: 'expectedLossNet',
+      category: 'Losses',
+      label: 'Expected Losses, net of reinsurance',
+      value: r => formatCurrency(r.expectedLoss - (r.expectedReinsuranceRecovery ?? 0)),
+      csvValue: r => roundDollars(r.expectedLoss - (r.expectedReinsuranceRecovery ?? 0)),
+    },
+    {
+      key: 'aggregateMemberLoss',
+      category: 'Losses',
+      label: 'Simulated Losses',
+      value: r => formatCurrency(r.aggregateMemberLoss ?? r.grossUltimateLoss),
+      csvValue: r => roundDollars(r.aggregateMemberLoss ?? r.grossUltimateLoss),
+    },
+    {
+      // The year factor every unit of the book shares — the new engine's draw
+      // (stable-scenarios commit 11); averaged over the worlds on an averaged row.
+      key: 'commonLossFactor',
+      lineOnly: true,
+      category: 'Losses',
+      label: 'Shared Annual Loss Factor',
+      value: r => (r.commonLossFactor ?? 1).toFixed(4),
+      csvValue: r => r.commonLossFactor ?? 1,
+    },
+    {
+      key: 'grossUltimateLoss',
+      category: 'Losses',
+      label: 'Gross Ultimate Loss + LAE',
+      value: r => formatCurrency(r.grossUltimateLoss),
+      csvValue: r => roundDollars(r.grossUltimateLoss),
+    },
+    {
+      // ⚠ THE MISSING STEP BETWEEN GROSS AND NET, AND ITS ABSENCE WAS THE DEFECT.
+      // Gross above is the DRAWN register — the right figure, and the one the
+      // tower attaches to. Net below is what the pool BOOKS. Between them sits
+      // the optimistic booking markdown, and with FORWARD_BOOKING on that is a
+      // factor of 3.54 at pool scope. The page printed both ends and nothing in
+      // between, so an actuary reading it down the column saw a 3.54x drop with
+      // no cause on the page — on the one exhibit whose entire job is showing the
+      // arithmetic. It reads identical to Gross whenever there is no markdown.
+      key: 'bookedGrossUltimate',
+      category: 'Losses',
+      label: 'Booked Gross Ultimate',
+      value: r => formatCurrency(r.bookedGrossUltimate ?? r.grossUltimateLoss),
+      csvValue: r => roundDollars(r.bookedGrossUltimate ?? r.grossUltimateLoss),
+    },
+    {
+      // ⚠ REPLACES TWO ROWS THAT SAID THE OPPOSITE OF WHAT HAPPENED. "Shock Loss
+      // Incurred" read Yes on WC and GL whenever a claim passed $1M — almost
+      // every year — and No on Property every year, hardcoded, a catastrophe year
+      // included. "Catastrophe Factor" read 1.0000 everywhere, the multiplier of
+      // a retired shared-factor model. This row names the year's events on this
+      // scope, scheduled and drawn alike, from what they actually produced.
+      key: 'yearEvents',
+      category: 'Losses',
+      label: 'Events This Year',
+      value: r => {
+        const evs = yearEvents(r);
+        if (evs.length === 0) return 'None';
+        return evs.map(ev => {
+          // An averaged row (loss engine commit 4b) says in how many worlds it fired.
+          const label = eventLabel(ev.name, ev.region)
+            + (ev.worlds ? ` (in ${ev.worlds.fired} of ${ev.worlds.of} worlds)` : '');
+          const claims = Number.isInteger(ev.claims) ? String(ev.claims) : ev.claims.toFixed(1);
+          if (ev.claims > 0) return `${label}: ${claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
+          // An uplift on the year's ordinary losses: real dollars, no claim.
+          if (ev.grossLoss > 0) return `${label}: +${formatCurrency(ev.grossLoss)} losses`;
+          return `${label}: +${formatCurrency(ev.expectedGrossLossAdded)} expected`;
+        }).join('; ');
+      },
+    },
+    {
+      // ⚠ "(current year)" IS NOT DECORATION. There are two reinsurance recovery
+      // lines now — this one on the year's own claims, and one on prior-year
+      // development in the Reserves block below. Leaving this one unqualified made
+      // the other read as a subdivision of it rather than a separate event.
+      key: 'reinsuranceRecovery',
+      category: 'Losses',
+      label: 'Reinsurance Recovery (current year)',
+      value: r => formatCurrency(r.reinsuranceRecovery),
+      csvValue: r => roundDollars(r.reinsuranceRecovery),
+    },
+    // ⚠ "Recovery deferred by optimistic booking" IS GONE (stable-scenarios
+    // commit 11): measured, it read $0 on 432 of 432 line-years across funding
+    // from 30% to 95% — the new engine books at full cost.
+    {
+      key: 'netUltimateLoss',
+      category: 'Losses',
+      label: 'Net Ultimate Loss + LAE',
+      value: r => formatCurrency(r.netUltimateLoss),
+      csvValue: r => roundDollars(r.netUltimateLoss),
+    },
+    {
+      /**
+       * ⚠ THE LOSS-RATIO NUMERATOR, AND ITS ABSENCE MEANT THE PAGE NEVER ADDED
+       * UP. Every actual loss ratio in the model divides netIncurredLoss —
+       * `actualLossRatio`, `actualLossRatioPricingBasis` and
+       * `actualLossRatioRetainedPremium` alike — and this list's only loss row
+       * was netUltimateLoss. So the loss a reader could see, over the
+       * denominator a reader could see, never reproduced the ratio printed
+       * beside it. Not approximately: measured over 6 games x 10 years, the two
+       * disagree on 60 of 60 pool-years and 180 of 180 line-years, by a mean of
+       * 35.3 percentage points at pool scope and a maximum of 115.3 at line
+       * scope. The worst pool-year shows a $34.38M loss where a reader computes
+       * 58.7% and the page prints 116.1% — the difference between a year that
+       * looks profitable and one that lost heavily.
+       *
+       * ⚠ IT IS NOT netUltimateLoss PLUS SOMETHING VISIBLE, WHICH IS WHY THE
+       * ROW IS NEEDED RATHER THAN A NOTE. netIncurredLoss is
+       * `netPaidLosses + endingNetReserve - beginningNetReserve`: this year's
+       * movement in the whole net ledger, prior accident years included.
+       * netUltimateLoss is THIS accident year's loss alone. A reader cannot get
+       * from one to the other with the rows in front of them, and the gap is
+       * prior-year development, which is a different row again.
+       *
+       * ⚠ AND IT SITS NEXT TO netUltimateLoss DELIBERATELY. Two loss rows
+       * adjacent, on two bases, is exactly the shape that lets a reader see
+       * WHICH one the ratio uses — the alternative, filing it under the ratios,
+       * would have hidden the comparison that makes it legible.
+       */
+      key: 'netIncurredLoss',
+      category: 'Losses',
+      label: 'Net Incurred Loss (the loss-ratio numerator)',
+      value: r => formatCurrency(r.netIncurredLoss),
+      csvValue: r => roundDollars(r.netIncurredLoss),
+    },
+    {
+      // Booked as a share of the ground-up loss incurred — see lossExpense.ts.
+      key: 'laeIncurred',
+      category: 'Losses',
+      label: 'Loss Adjustment Expenses Incurred (ALAE + ULAE)',
+      value: r => formatCurrency(r.laeIncurred),
+      csvValue: r => roundDollars(r.laeIncurred),
+    },
+
+    // Expenses and income
+    {
+      key: 'operatingExpense',
+      category: 'Expenses and Income',
+      label: 'Operating Expense',
+      value: r => formatCurrency(r.operatingExpense),
+      csvValue: r => roundDollars(r.operatingExpense),
+    },
+    // Hidden while RISK_CONTROL is off — no spend is charged.
+    ...(RISK_CONTROL.enabled ? <SpreadsheetMetric[]>[
+      {
+        key: 'riskControlInvestment',
+        category: 'Expenses and Income',
+        label: 'Risk Control Investment',
+        value: r => formatCurrency(r.riskControlInvestment),
+        csvValue: r => roundDollars(r.riskControlInvestment),
+      },
+    ] : []),
+    {
+      /**
+       * ⚠ ZERO ON EVERY DEFAULT GAME, AND IT IS STILL A ROW. The default places
+       * the whole tower, so this reads $0 unless a player declines something —
+       * which is exactly when a reader needs to find it, because it is the line
+       * that explains why their charge did not fall.
+       */
+      key: 'retainedCoverMargin',
+      category: 'Expenses and Income',
+      label: 'Retained Cover Margin (declined layers, kept as surplus)',
+      value: r => formatCurrency(r.retainedCoverMargin),
+      csvValue: r => roundDollars(r.retainedCoverMargin),
+    },
+    {
+      key: 'reinsuranceCost',
+      category: 'Expenses and Income',
+      label: 'Reinsurance Cost',
+      value: r => formatCurrency(r.reinsuranceCost),
+      csvValue: r => roundDollars(r.reinsuranceCost),
+    },
+    {
+      key: 'investedAssets',
+      category: 'Expenses and Income',
+      label: 'Invested Assets',
+      value: r => formatCurrency(r.investedAssets),
+      csvValue: r => roundDollars(r.investedAssets),
+    },
+    {
+      key: 'investmentReturnRate',
+      category: 'Expenses and Income',
+      label: 'Investment Return Rate',
+      value: r => formatPct(r.investmentReturnRate),
+      csvValue: r => r.investmentReturnRate,
+    },
+    {
+      key: 'investmentIncome',
+      category: 'Expenses and Income',
+      label: 'Investment Income',
+      value: r => formatCurrency(r.investmentIncome),
+      csvValue: r => roundDollars(r.investmentIncome),
+    },
+    {
+      key: 'netIncome',
+      category: 'Expenses and Income',
+      label: 'Net Income',
+      value: r => formatCurrency(r.netIncome),
+      csvValue: r => roundDollars(r.netIncome),
+    },
+
+    // Reserves
+    //
+    // ⚠ GROSS, RECOVERY, NET — the same three rows the Accounting Reserves card
+    // shows, in the same order. The workbook used to carry ONE column called
+    // "Prior-Year Development" whose value was NET, with nothing about the
+    // recovery taken on it: a reader saw -$215,030 of development and had no way
+    // to know $3,205,174 had been ceded on it. That is the defect 22d370b fixed on
+    // screen and left live here.
+    {
+      // ⚠ DERIVED, AND CARRIED AS ITS OWN COLUMN RATHER THAN LEFT TO THE READER.
+      // It is exactly net minus ceded, so a fourth column is redundant data in the
+      // strict sense — but the defect being fixed is a figure whose meaning lived
+      // somewhere else, and asking a spreadsheet reader to subtract two columns to
+      // recover the headline number reproduces that in a smaller form. gross /
+      // ceded / net is also the triple an actuary expects to be given, not to
+      // assemble. It cannot drift from its components: it is computed from them at
+      // emit time.
+      //
+      // ⚠ SIGN: PRINTED ADVERSE-POSITIVE, AND THIS PAGE USED TO PRINT THE
+      // OPPOSITE. The engine's priorYearDevelopment is FAVOURABLE-POSITIVE —
+      // netIncurredLoss subtracts it — and these rows printed it raw, while
+      // the income statement negated it into "Prior year claims". Two opposite
+      // signs for one event on adjacent tabs. Both now go through
+      // developmentDisplay; the engine's field keeps its own sign and only the
+      // printing changed. See docs/PENDING_MULTIPLAYER.md section 2.
+      //
+      // Ceding makes an adverse year less adverse, so GROSS is more adverse
+      // than the net below it — which now reads as a LARGER positive rather
+      // than a more negative number.
+      key: 'priorYearDevelopmentGross',
+      category: 'Reserves',
+      label: 'Prior-Year Development, gross (+ adverse)',
+      value: r => developmentDisplay(
+        r.priorYearDevelopment - r.priorYearDevelopmentCeded, formatCurrency).text,
+      csvValue: r => roundDollars(-(r.priorYearDevelopment - r.priorYearDevelopmentCeded)),
+    },
+    {
+      key: 'priorYearDevelopmentCeded',
+      category: 'Reserves',
+      label: 'Reinsurance Recovery (prior-year development)',
+      value: r => formatCurrency(r.priorYearDevelopmentCeded),
+      csvValue: r => roundDollars(r.priorYearDevelopmentCeded),
+    },
+    {
+      // RENAMED. The value did not move; the label was wrong. "Prior-Year
+      // Development" on a net figure invites a workbook reader to take it as
+      // gross, which is the whole confusion.
+      key: 'priorYearDevelopment',
+      category: 'Reserves',
+      label: 'Prior-Year Development, net (+ adverse)',
+      value: r => developmentDisplay(r.priorYearDevelopment, formatCurrency).text,
+      csvValue: r => roundDollars(-r.priorYearDevelopment),
+    },
+    {
+      key: 'beginningNetReserve',
+      category: 'Reserves',
+      label: 'Beginning Net Reserve',
+      value: r => formatCurrency(r.beginningNetReserve),
+      csvValue: r => roundDollars(r.beginningNetReserve),
+    },
+    {
+      key: 'currentYearNetReserve',
+      category: 'Reserves',
+      label: 'Current-Year Net Reserve',
+      value: r => formatCurrency(r.currentYearNetReserve),
+      csvValue: r => roundDollars(r.currentYearNetReserve),
+    },
+    {
+      key: 'netPaidLosses',
+      category: 'Reserves',
+      label: 'Net Paid Losses',
+      value: r => formatCurrency(r.netPaidLosses),
+      csvValue: r => roundDollars(r.netPaidLosses),
+    },
+    {
+      key: 'endingNetReserve',
+      category: 'Reserves',
+      label: 'Ending Net Reserve',
+      value: r => formatCurrency(r.endingNetReserve),
+      csvValue: r => roundDollars(r.endingNetReserve),
+    },
+    {
+      key: 'laePaid',
+      category: 'Reserves',
+      label: 'Loss Adjustment Expenses Paid',
+      value: r => formatCurrency(r.laePaid),
+      csvValue: r => roundDollars(r.laePaid),
+    },
+    {
+      key: 'endingLaeReserve',
+      category: 'Reserves',
+      label: 'Loss Expense Reserves',
+      value: r => formatCurrency(r.endingLaeReserve),
+      csvValue: r => roundDollars(r.endingLaeReserve),
+    },
+    {
+      key: 'expectedNetUnpaidLoss',
+      category: 'Reserves',
+      label: 'Expected Net Unpaid Loss',
+      value: r => formatCurrency(r.expectedNetUnpaidLoss),
+      csvValue: r => roundDollars(r.expectedNetUnpaidLoss),
+    },
+    {
+      key: 'indicatedNetReserveAtConfidenceLevel',
+      category: 'Reserves',
+      label: 'Indicated Net Reserve at Confidence',
+      value: r => formatCurrency(r.indicatedNetReserveAtConfidenceLevel),
+      csvValue: r => roundDollars(r.indicatedNetReserveAtConfidenceLevel),
+    },
+    {
+      key: 'reserveRiskMarginNeeded',
+      category: 'Reserves',
+      label: 'Reserve Risk Margin Needed',
+      value: r => formatCurrency(r.reserveRiskMarginNeeded),
+      csvValue: r => roundDollars(r.reserveRiskMarginNeeded),
+    },
+
+    // Balance sheet and surplus
+    {
+      key: 'beginningCash',
+      category: 'Balance Sheet and Surplus',
+      label: 'Beginning Cash',
+      value: r => formatCurrency(r.beginningCash),
+      csvValue: r => roundDollars(r.beginningCash),
+    },
+    {
+      key: 'endingCash',
+      category: 'Balance Sheet and Surplus',
+      label: 'Ending Cash',
+      value: r => formatCurrency(r.endingCash),
+      csvValue: r => roundDollars(r.endingCash),
+    },
+    {
+      key: 'beginningInvestments',
+      category: 'Balance Sheet and Surplus',
+      label: 'Beginning Investments',
+      value: r => formatCurrency(r.beginningInvestments),
+      csvValue: r => roundDollars(r.beginningInvestments),
+    },
+    {
+      key: 'endingInvestments',
+      category: 'Balance Sheet and Surplus',
+      label: 'Ending Investments',
+      value: r => formatCurrency(r.endingInvestments),
+      csvValue: r => roundDollars(r.endingInvestments),
+    },
+    {
+      key: 'totalAssets',
+      category: 'Balance Sheet and Surplus',
+      label: 'Total Assets',
+      value: r => formatCurrency(r.totalAssets),
+      csvValue: r => roundDollars(r.totalAssets),
+    },
+    {
+      key: 'unearnedPremium',
+      category: 'Balance Sheet and Surplus',
+      label: 'Unearned Premium',
+      value: r => formatCurrency(r.unearnedPremium),
+      csvValue: r => roundDollars(r.unearnedPremium),
+    },
+    {
+      key: 'totalLiabilities',
+      category: 'Balance Sheet and Surplus',
+      label: 'Total Liabilities',
+      value: r => formatCurrency(r.totalLiabilities),
+      csvValue: r => roundDollars(r.totalLiabilities),
+    },
+    {
+      key: 'beginingSurplus',
+      category: 'Balance Sheet and Surplus',
+      label: 'Beginning Surplus',
+      value: r => formatCurrency(r.beginingSurplus),
+      csvValue: r => roundDollars(r.beginingSurplus),
+    },
+    {
+      key: 'surplusFromIncome',
+      category: 'Balance Sheet and Surplus',
+      label: 'Surplus from Income',
+      value: r => formatCurrency(r.surplusFromIncome),
+      csvValue: r => roundDollars(r.surplusFromIncome),
+    },
+    {
+      key: 'endingSurplus',
+      category: 'Balance Sheet and Surplus',
+      label: 'Ending Surplus',
+      value: r => formatCurrency(r.endingSurplus),
+      csvValue: r => roundDollars(r.endingSurplus),
+    },
+    {
+      key: 'surplusTieOutDifference',
+      category: 'Balance Sheet and Surplus',
+      label: 'Surplus Tie-Out Difference',
+      value: r => formatCurrency(r.surplusTieOutDifference),
+      csvValue: r => roundDollars(r.surplusTieOutDifference),
+    },
+
+    // Inter-line loan
+    {
+      key: 'loanOriginatedThisYear',
+      category: 'Inter-Line Loan',
+      label: 'Loan Originated This Year',
+      value: r => formatCurrency(r.loanOriginatedThisYear),
+      csvValue: r => roundDollars(r.loanOriginatedThisYear),
+    },
+    {
+      key: 'loanInterestAccrued',
+      category: 'Inter-Line Loan',
+      label: 'Loan Interest Accrued',
+      value: r => formatCurrency(r.loanInterestAccrued),
+      csvValue: r => roundDollars(r.loanInterestAccrued),
+    },
+    {
+      key: 'loanRepaymentApplied',
+      category: 'Inter-Line Loan',
+      label: 'Loan Repayment Applied',
+      value: r => formatCurrency(r.loanRepaymentApplied),
+      csvValue: r => roundDollars(r.loanRepaymentApplied),
+    },
+    {
+      key: 'outstandingLoanBalance',
+      category: 'Inter-Line Loan',
+      label: 'Outstanding Loan Balance',
+      value: r => formatCurrency(r.outstandingLoanBalance),
+      csvValue: r => roundDollars(r.outstandingLoanBalance),
+    },
+
+    // Ratios and capital
+    {
+      key: 'expectedLossRatio',
+      category: 'Ratios and Capital',
+      // PRICING basis (poolPremium + admin). This is the finding-6
+      // reconciliation figure the WC/GL 6b harness checks assert against
+      // 66.8% — it is NOT a component of the combined ratio and must not be
+      // added to an expense ratio.
+      label: 'Expected Loss Ratio (pricing basis)',
+      value: r => formatPct(r.expectedLossRatio),
+      csvValue: r => r.expectedLossRatio,
+    },
+    {
+      key: 'expectedLossRatioMemberBasis',
+      category: 'Ratios and Capital',
+      // MEMBER-CHARGE basis (adds reinsurance cost to the denominator). This
+      // is the one that pairs with the expense ratio below.
+      label: 'Expected Loss Ratio (member charge basis)',
+      value: r => formatPct(r.expectedLossRatioMemberBasis),
+      csvValue: r => r.expectedLossRatioMemberBasis,
+    },
+    {
+      key: 'expectedExpenseRatio',
+      category: 'Ratios and Capital',
+      label: 'Expected Expense Ratio (member charge basis)',
+      value: r => formatPct(r.expectedExpenseRatio),
+      csvValue: r => r.expectedExpenseRatio,
+    },
+    {
+      key: 'expectedCombinedRatio',
+      category: 'Ratios and Capital',
+      // Both terms on the member-charge basis.
+      //
+      // ⚠ THIS COMMENT DESCRIBED A CONFIGURATION THE APP DOES NOT SHIP. It read
+      // "~82.7% at the default CLF 1.346, i.e. 17.3 points of intended
+      // underwriting margin; 100.0% at CLF 1.0". The default
+      // fundingConfidenceLevel is 0.60, which maps to CLF exactly 1.000, so the
+      // SHIPPED reading is 100.0% and the intended underwriting margin is ZERO
+      // — measured at 100.0% in every one of 800 line-years. 1.346 was the old
+      // 75%-confidence default. Corrected rather than deleted, because a stale
+      // figure sitting on the metric it describes is the number a reader
+      // quotes.
+      //
+      // Above CLF 1.000 the shortfall below 100% IS the funding margin. At the
+      // shipped default there is none, which is a pricing decision recorded at
+      // FUNDING_CLF_TABLE and SLIDER_RANGES, not a defect in this metric. It
+      // formerly read a hardcoded 1.000, which is a different old bug.
+      label: 'Expected Combined Ratio (member charge basis)',
+      value: r => formatPct(r.expectedCombinedRatio),
+      csvValue: r => r.expectedCombinedRatio,
+    },
+    {
+      // The headline. Shares expectedLossRatio's denominator above, so those
+      // two columns of the export may be compared directly and none of the
+      // others may be crossed with them.
+      key: 'actualLossRatioPricingBasis',
+      category: 'Ratios and Capital',
+      label: 'Actual Loss Ratio (pricing basis — premium + admin expense)',
+      value: r => formatPct(r.actualLossRatioPricingBasis),
+      csvValue: r => r.actualLossRatioPricingBasis,
+    },
+    {
+      /**
+       * ⚠ READ AS A PAIR WITH THE ROW BELOW; NEITHER HALF MEANS MUCH ALONE.
+       * Both near 85% is an ordinary year. Pool 70% against total 140% is one
+       * large claim doing the whole year. Pool 110% against total 115% is
+       * attritional deterioration with nothing reaching the tower. That
+       * distinction is what a board argues about and no single ratio shows it.
+       */
+      key: 'poolLayerLossRatio',
+      category: 'Ratios and Capital',
+      label: 'Loss Ratio — pool layer (below the retention)',
+      value: r => formatPct(r.poolLayerLossRatio, 1),
+      csvValue: r => r.poolLayerLossRatio,
+    },
+    {
+      /** GROSS, and identical whether the cover was bought or not — see the
+       *  type. The pool wrote every layer, so this measures every loss. */
+      key: 'totalLossRatioGross',
+      category: 'Ratios and Capital',
+      label: 'Loss Ratio — total (every loss, gross)',
+      value: r => formatPct(r.totalLossRatioGross, 1),
+      csvValue: r => r.totalLossRatioGross,
+    },
+    {
+      key: 'actualLossRatioRetainedPremium',
+      category: 'Ratios and Capital',
+      label: 'Actual Loss Ratio (retained premium)',
+      value: r => formatPct(r.actualLossRatioRetainedPremium),
+      csvValue: r => r.actualLossRatioRetainedPremium,
+    },
+    {
+      key: 'actualLossRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual Loss Ratio (member charge basis)',
+      value: r => formatPct(r.actualLossRatio),
+      csvValue: r => r.actualLossRatio,
+    },
+    {
+      key: 'actualExpenseRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual Expense Ratio (member charge basis)',
+      value: r => formatPct(r.actualExpenseRatio),
+      csvValue: r => r.actualExpenseRatio,
+    },
+    {
+      key: 'actualLaeRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual LAE Ratio (member charge basis)',
+      value: r => formatPct(r.actualLaeRatio),
+      csvValue: r => r.actualLaeRatio,
+    },
+    {
+      // Beside the loss ratio (stable-scenarios commit 11): losses and LAE over
+      // the member charge, from their parts.
+      key: 'actualLossLaeRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual Loss & LAE Ratio (member charge basis)',
+      value: r => formatPct(r.actualLossRatio + (r.actualLaeRatio ?? 0)),
+      csvValue: r => r.actualLossRatio + (r.actualLaeRatio ?? 0),
+    },
+    {
+      key: 'actualCombinedRatio',
+      category: 'Ratios and Capital',
+      label: 'Actual Combined Ratio (member charge basis)',
+      value: r => formatPct(r.actualCombinedRatio),
+      csvValue: r => r.actualCombinedRatio,
+    },
+    {
+      key: 'availableSurplus',
+      category: 'Ratios and Capital',
+      label: 'Surplus',
+      value: r => formatCurrency(r.availableSurplus),
+      csvValue: r => roundDollars(r.availableSurplus),
+    },
+    {
+      key: 'excessAvailableSurplus',
+      category: 'Ratios and Capital',
+      label: 'Excess Available Surplus',
+      value: r => formatCurrency(r.excessAvailableSurplus),
+      csvValue: r => roundDollars(r.excessAvailableSurplus),
+    },
+    {
+      key: 'excessCapitalRatio',
+      category: 'Ratios and Capital',
+      label: 'Excess Capital Ratio',
+      value: r => r.excessCapitalRatio === null ? 'N/A' : r.excessCapitalRatio.toFixed(3),
+      csvValue: r => r.excessCapitalRatio ?? '',
+    },
+    {
+      key: 'capitalAdequacyStatus',
+      category: 'Ratios and Capital',
+      label: 'Excess Capital Status',
+      value: r => r.capitalAdequacyStatus,
+    },
+];
+
+/**
+ * The shared label for one metric key.
+ *
+ * ⚠ THIS EXISTS BECAUSE FIVE LABELS HAD ALREADY DRIFTED. ResultsPage's
+ * comparison table named the same ResultSet fields itself, and by the time
+ * anyone compared the two lists they disagreed on five of the thirteen rows
+ * they share — "Ultimate Losses (Gross)" against "Gross Ultimate Loss + LAE",
+ * "Pool Premium" against "Pool Premium at Selected CLF", and so on. Dropping
+ * "+ LAE" or "at Selected CLF" is not a shortening; both phrases state a BASIS,
+ * and a reader comparing the screen against the downloaded workbook had to work
+ * out whether two differently-named rows were the same quantity.
+ *
+ * ⚠ IT SHARES THE LABEL AND NOTHING ELSE, WHICH IS THE WHOLE DESIGN. A
+ * comparison table needs a polarity (is up good?) and a per-row decision about
+ * showing a percentage change; a spreadsheet row needs a CSV form. Neither list
+ * has any business holding the other's concerns, and an attempt to merge them
+ * would end with one list carrying fields the other ignores. One name per
+ * quantity is the part that was actually broken.
+ */
+export function metricLabel(key: string): string {
+  const m = RESULT_METRICS.find(x => x.key === key);
+  if (!m) throw new Error(`metricLabel: no RESULT_METRICS entry keyed ${key}`);
+  return m.label;
+}

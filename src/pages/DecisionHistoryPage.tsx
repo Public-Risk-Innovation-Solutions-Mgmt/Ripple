@@ -1,0 +1,141 @@
+import { placementSummary } from '../utils/reinsuranceDisplay';
+import { useState } from 'react';
+import { ScrollText, ArrowUpDown } from 'lucide-react';
+import type { LineResultSet, ResultSet, LineView , CoverageLine} from '../types/simulation';
+import { isPoolRow } from '../utils/lineHelpers';
+import { lineDisplayName } from '../utils/lineDisplay';
+import { cutShare, intakeShare } from '../utils/bookUnderwriting';
+import { RISK_CONTROL } from '../data/pricingParameters';
+
+interface DecisionHistoryPageProps {
+  lockedResults: Array<ResultSet | LineResultSet>;
+  // 'pool' shows the pool-wide decisions per year (investment allocation,
+  // risk control); a coverage line shows that line's own decisions.
+  lineView: LineView;
+}
+
+function pctDisplay(v: number, decimals = 1): string {
+  return `${(v * 100).toFixed(decimals)}%`;
+}
+
+export default function DecisionHistoryPage({ lockedResults, lineView }: DecisionHistoryPageProps) {
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const isPool = lineView === 'pool';
+
+  const rows = [...lockedResults].sort((a, b) =>
+    sortDir === 'asc' ? a.yearNumber - b.yearNumber : b.yearNumber - a.yearNumber
+  );
+
+  // Only show the loan repayment column at all if this line ever had loan
+  // activity — avoids a permanently-empty column for the common no-loan case.
+  const showLoanColumn = !isPool && lockedResults.some(
+    r => r.outstandingLoanBalance > 0 || r.loanOriginatedThisYear > 0
+  );
+
+  // Pool view: the two pool-wide decisions per year. Every line's locked
+  // snapshot carries the identical projected values, so the pool aggregate's
+  // decisions slice is the pool decision record.
+  // 'Rate Change' column REMOVED — CLF-only pricing; the decision it showed no
+  // longer exists.
+  const headers = isPool
+    ? ['Yr', 'Calendar', 'Cash %', 'Bonds %', 'Equities %', 'Risk Control %']
+    : [
+        'Yr', 'Calendar', 'Funding Confidence', 'Dividend %', 'Assessment %',
+        'Reinsurance Program',
+        // Underwriting and risk control, as percentages: the share of renewal
+        // exposure declined, the intake position as the share of exposure it
+        // writes (not its name), and risk control — 0% while it is disabled.
+        'Renewal Declined', 'New Business', 'Risk Control',
+        ...(showLoanColumn ? ['Loan Repayment Aggressiveness'] : []),
+      ];
+
+  return (
+    <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Decision History — {lineDisplayName(lineView)}</h2>
+          <p className="text-gray-500 text-sm">
+            {isPool
+              ? "Every locked year's pool-wide decisions (each line applies them to its own base)."
+              : `Every locked year's decisions for the ${lineDisplayName(lineView)} line.`}
+          </p>
+        </div>
+        {rows.length > 1 && (
+          <button
+            onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-100 border border-gray-200"
+          >
+            <ArrowUpDown size={14} /> {sortDir === 'asc' ? 'Oldest First' : 'Newest First'}
+          </button>
+        )}
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="text-center py-20 text-gray-400">
+          <ScrollText size={48} className="mx-auto mb-4 opacity-30" />
+          <p className="font-medium text-lg">No decision history yet</p>
+          <p className="text-sm mt-1">Lock a year to start building the history for this view.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {headers.map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {/* ⚠ THIS PAGE ALREADY KNEW THE DISTINCTION AND WAS READING IT FROM THE
+                    WRONG PLACE. It branched on isPool and showed only the pool-wide
+                    decisions at pool scope — which was right — but took them off
+                    `decisions`, a LineDecisionSet, so it was reading the first active
+                    line's copy of them. The copies were identical, so the figures were
+                    correct; the source was not. `pool` is now where they live. */}
+                {rows.map(r => {
+                  return (
+                  <tr key={r.yearNumber} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 font-bold text-gray-900">{r.yearNumber}</td>
+                    <td className="px-4 py-3 text-gray-600">{r.calendarYear}</td>
+                    {isPoolRow(r) ? (
+                      <>
+                        <td className="px-4 py-3">{r.pool.assetAllocation.cashPct.toFixed(0)}%</td>
+                        <td className="px-4 py-3">{r.pool.assetAllocation.bondsPct.toFixed(0)}%</td>
+                        <td className="px-4 py-3">{r.pool.assetAllocation.equitiesPct.toFixed(0)}%</td>
+                        <td className="px-4 py-3">{pctDisplay(r.pool.riskControlPct)}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-4 py-3">{pctDisplay(r.decisions.fundingConfidenceLevel, 0)}</td>
+                        <td className="px-4 py-3">
+                          {pctDisplay(r.decisions.dividendPct)}
+                          {r.dividendBlocked && <span className="text-red-600 text-xs ml-1">(blocked)</span>}
+                        </td>
+                        <td className="px-4 py-3">{pctDisplay(r.decisions.assessmentPct)}</td>
+                        <td className="px-4 py-3">{placementSummary(lineView as CoverageLine, r.decisions)}</td>
+                        {/* Read through the engine's own readings of the recorded decisions. */}
+                        <td className="px-4 py-3">{pctDisplay(cutShare(r.decisions.renewalCut))}</td>
+                        <td className="px-4 py-3">{pctDisplay(intakeShare(r.decisions.intakeLevel))}</td>
+                        <td className="px-4 py-3">{pctDisplay(RISK_CONTROL.enabled ? r.decisions.riskControlPct : 0)}</td>
+                        {showLoanColumn && (
+                          <td className="px-4 py-3">
+                            {(r.outstandingLoanBalance > 0 || r.loanOriginatedThisYear > 0)
+                              ? pctDisplay(r.decisions.loanRepaymentAggressiveness, 0)
+                              : <span className="text-gray-400">—</span>}
+                          </td>
+                        )}
+                      </>
+                    )}
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

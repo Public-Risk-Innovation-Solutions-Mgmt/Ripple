@@ -1,26 +1,73 @@
 // Membership engine for Risk Pool Simulation v1
 // Uses count-based attraction to keep growth realistic
 
-import type { Member, DecisionSet } from '../types/simulation';
+import type { Member, LineDecisionSet, CoverageLine, MembershipHistory, MemberLossHistory } from '../types/simulation';
 import { SeededRandom } from './random';
+import { canReenroll } from './membershipHistory';
+import { intakeAdmit } from './intakeInspection';
+import { getMemberExposure } from './lineHelpers';
+import { OPENING_SATISFACTION } from '../data/memberCatalog';
+import { departureRisks } from './memberDeparture';
+import { NEUTRAL_RQ } from './wcClaimEngine';
 import {
   MEMBER_MOVEMENT_WEIGHTS,
   BASE_RETENTION,
-  BASE_NEW_MEMBERS_PER_YEAR,
-  MAX_NEW_MEMBERS_PER_YEAR,
-  MAX_WITHDRAWN_PER_YEAR,
+  VOLUNTARY_DEPARTURES_ENABLED,
+  APPLICATION_RATE,
+  APPLICANT_ADVERSE_SELECTION,
+  MAX_NEW_MEMBER_SHARE,
+  RATE_NEUTRAL_CHANGE_PCT,
+  RATE_NEUTRAL_LOAD,
+  RATE_RETENTION_SENSITIVITY,
+  RATE_SATISFACTION_SENSITIVITY,
 } from '../data/defaultAssumptions';
 
 export interface MemberMovementInputs {
+  /** The instance seed. The intake inspection draws each applicant's error from
+   *  its own labelled sub-stream of it — see intakeInspection.ts. */
+  instanceSeed: number;
   currentMembers: Member[];
   allMarketMembers: Member[];
-  decisions: DecisionSet;
+  // Authoritative per-line enrollment ledger — the ONLY legitimate source for
+  // recruitment eligibility (see the candidate-pool filter below).
+  membershipHistory: MembershipHistory;
+  // The rolling loss ledger, as it stood entering this year. Departure reads
+  // it for each member's experience modifier and its year-over-year change.
+  memberLossHistory: MemberLossHistory;
+  decisions: LineDecisionSet;
+  line: CoverageLine;
   currentMemberSatisfaction: number;
   currentRiskQuality: number;
   surplus: number;
   annualPremium: number;
   priorYearLossRatio?: number;
+  // % change in this line's TOTAL MEMBER CHARGE RATE per $100 vs last year.
+  // Null when there is no usable prior rate — see priceSignalFor.
+  rateChangePct?: number | null;
+  // This line's total member charge rate over its pure premium rate. Null when
+  // the pure premium is not positive.
+  rateLoad?: number | null;
   competitivePressure: number;
+  /**
+   * DIAGNOSTIC SEAM. Overrides APPLICATION_RATE for one call.
+   *
+   * ⚠ THE ENGINE NEVER SETS THIS AND THE UI CANNOT REACH IT. It exists so
+   * new-business-appetite-derive can sweep the rate over whole played games and
+   * report where short years actually begin, rather than computing the answer
+   * from acceptance shares and calling arithmetic a measurement. The rate is a
+   * single scalar with no other input, so a sweep is the only way to see its
+   * effect on a book that responds to it — and re-deriving the constant is
+   * exactly what this seam is for. Same precedent as the injected clock on
+   * createSaveScheduler.
+   */
+  applicationRateOverride?: number;
+  /**
+   * ⚠ THE PRE-GAME DOES NOT MOVE MEMBERSHIP. True for every pre-game year,
+   * false for every played year. See LineYearContext.freezeMembership for why
+   * it is a flag and not a decision setting, and the two sites below for what
+   * it gates.
+   */
+  freezeMembership?: boolean;
   memberSensitivity: number;
   yearNumber: number;
   calendarYear: number;
@@ -31,12 +78,68 @@ export interface MemberMovementResult {
   activeMembers: Member[];
   newMembers: Member[];
   withdrawnMembers: Member[];
+  // ⚠ THE THREE INTAKE COUNTS, RECORDED BECAUSE WITHOUT THEM "THE POOL CAME UP
+  // SHORT" IS NOT OBSERVABLE FROM OUTSIDE. newMembers.length is the only thing
+  // a result used to carry, and it is min(demand, cap, eligible) — three
+  // different constraints collapsed into one number, so a year limited by a
+  // strict bar looks exactly like a year nobody wanted to join. These separate
+  // them: `intakeRoom` is what the pool had space for after demand and both
+  // caps, `applicantCount` is how many applied, `eligibleCount` how many
+  // cleared the bar. Short ⟺ eligibleCount < intakeRoom. ⚠ With the intake
+  // positions' own caps (intakeInspection.ts), the binding limit is
+  // min(position cap, intakeRoom), and the position cap is never above
+  // intakeRoom — so the CAP bound a year iff eligibleCount > that position's cap,
+  // and the BAR bound it iff eligibleCount < it.
+  intakeRoom: number;
+  applicantCount: number;
+  eligibleCount: number;
   retentionRate: number;
   memberSatisfaction: number;
   averageRiskQuality: number;
   activeExposure: number;
   totalMarketExposure: number;
 }
+
+// --- the price signal, in the two forms the three sites need ----------------
+//
+// NULL HANDLING, one rule for both. A missing signal means NEUTRAL — deviation
+// exactly 0, no penalty and no bonus — never a default of "zero rate change",
+// which is a different and wrong thing on a line whose neutral is not zero.
+// Treating a null as a literal 0% change on a line whose neutral is not zero
+// would read as a rate CUT of the neutral's size and hand out a bonus for
+// missing data. GL is the live example now (neutral +1.26%); Property used to
+// be the striking one at +4.83% and then +4.10%, but its netting re-measured
+// it to -0.21% — essentially flat, which is what a line with no frequency
+// trend, no severity trend and a non-inflating exposure base should read.
+//
+// In practice null is nearly unreachable: runPriorHistory simulates three
+// pre-game years through this same engine, so lineState.ratePer100 is already
+// populated when year 1 runs — measured 30/30 line-instances with a prior rate
+// in year 1, on every line. The branch exists for a save restored mid-stream or
+// a line switched on late, not for the normal opening.
+function priceSignalFor(inputs: MemberMovementInputs): {
+  changeDeviationPct: number;
+  levelDeviationPct: number;
+} {
+  const neutralChange = RATE_NEUTRAL_CHANGE_PCT[inputs.line] ?? 0;
+  const neutralLoad = RATE_NEUTRAL_LOAD[inputs.line] ?? 0;
+
+  const changeDeviationPct = inputs.rateChangePct === null || inputs.rateChangePct === undefined
+    ? 0
+    : inputs.rateChangePct - neutralChange;
+
+  const levelDeviationPct = inputs.rateLoad === null || inputs.rateLoad === undefined || neutralLoad <= 0
+    ? 0
+    : (inputs.rateLoad / neutralLoad - 1) * 100;
+
+  return { changeDeviationPct, levelDeviationPct };
+}
+
+// The band a member's retention probability is clamped to, and the noise factor
+// the expected withdrawal count is multiplied by. Named so the Calculation Audit
+// page states them from here rather than restating them.
+export const RETENTION_PROBABILITY_BOUNDS = { min: 0.80, max: 0.99 } as const;
+export const WITHDRAWAL_NOISE_RANGE = { min: 0.4, max: 1.6 } as const;
 
 function calcRetentionProbability(inputs: MemberMovementInputs): number {
   const { decisions, currentMemberSatisfaction, surplus, annualPremium, priorYearLossRatio } = inputs;
@@ -46,7 +149,15 @@ function calcRetentionProbability(inputs: MemberMovementInputs): number {
   const financialImpact = Math.min(0.02, Math.max(-0.02, (surplusRatio - 0.6) / 30));
   const dividendImpact = decisions.dividendPct * 0.20;
   const assessmentPenalty = decisions.assessmentPct * 0.15;
-  const rateIncreasePenalty = Math.max(0, decisions.rateChange) * 0.12;
+  // rateIncreasePenalty RECONNECTED. Reads the derived rate change — this
+  // year's total member charge rate per $100 against last year's — measured
+  // as a DEVIATION from this line's own neutral, because at defaults the
+  // neutral is not zero and differs per line (see RATE_NEUTRAL_CHANGE_PCT).
+  //
+  // PENALTY ONLY: a cut below neutral earns nothing back here. Members notice
+  // increases; the goodwill from a cut runs through satisfaction instead.
+  const { changeDeviationPct } = priceSignalFor(inputs);
+  const rateIncreasePenalty = Math.max(0, changeDeviationPct) * RATE_RETENTION_SENSITIVITY;
   const poorResultPenalty = priorYearLossRatio
     ? Math.max(0, priorYearLossRatio - 0.85) * 0.05
     : 0;
@@ -60,126 +171,516 @@ function calcRetentionProbability(inputs: MemberMovementInputs): number {
     - W.rateIncreasePenalty * rateIncreasePenalty
     - poorResultPenalty;
 
-  return Math.max(0.80, Math.min(0.99, BASE_RETENTION + adjustment));
+  return Math.max(RETENTION_PROBABILITY_BOUNDS.min, Math.min(RETENTION_PROBABILITY_BOUNDS.max, BASE_RETENTION + adjustment));
 }
 
-function calcExpectedNewMembers(inputs: MemberMovementInputs): number {
-  const { decisions, currentMemberSatisfaction, surplus, annualPremium, competitivePressure } = inputs;
+// ============================================================================
+// ⚠ prospectCaptureRate AND baseNewMembers ARE DELETED. THE BOOK NO LONGER HAS
+// A TARGET.
+//
+// They solved a capture rate k from MEMBERSHIP_EQUILIBRIUM_ENROLLMENT by
+// requiring expected joins to equal expected departures at N* = 63:
+//
+//     k = (N* x d - adj) / (roster - N*)
+//
+// which made the book a quantity the model STEERED TOWARD rather than an
+// outcome. Every measurement taken against that system — that growth was
+// unreachable at any cap, that intake ran 2.6/yr against withdrawals of
+// 2.65-2.94 — was a measurement of the target, not of the mechanism.
+//
+// WHAT REPLACES IT: nothing on the demand side. Intake is now entirely supply:
+// a share of the unenrolled marketplace applies, the appetite bar filters them,
+// and everyone who clears is written up to the capacity guard. Departures stay
+// proportional to the book. The two flows cross where
+//
+//     APPLICATION_RATE x (roster - N)  =  N x (1 - retention)
+//
+// and that crossing is an OUTCOME of two independent rates rather than a
+// constant. A book that settles there is two flows meeting; a book that settles
+// at 63 would mean something is still steering, which is the discriminator
+// new-business-appetite-derive reports against.
+//
+// ============================================================================
+// ⚠ AND THE PRICE CHANNEL INTO RECRUITMENT IS DARK FROM THIS COMMIT. Ruled
+// deliberately, not overlooked.
+//
+// newMemberAdjustment below carried price, satisfaction, surplus, assessment
+// and risk-control into the join count. Its scale is in MEMBERS PER YEAR —
+// absolute, and netted against k so that all-defaults came out neutral — so it
+// cannot be reused as a multiplier on an application rate without being
+// re-measured from scratch. Re-measuring it against a system that is still
+// moving would mean measuring it twice.
+//
+// So it is retired here and returns with the market derivation, which
+// satisfaction needs anyway. AT DEFAULTS THE LOSS IS NEAR ZERO — the price term
+// reads levelDeviationPct, which is ~0 at defaults — but A PLAYER WHO PRICES
+// LOW NO LONGER ATTRACTS MEMBERS, and that is a live lever going dark for a
+// commit. Named here so it is restored rather than rediscovered.
+// ============================================================================
 
-  let expected = BASE_NEW_MEMBERS_PER_YEAR;
+// ⚠ newMemberAdjustment AND calcExpectedNewMembers ARE DELETED WITH THE TARGET.
+// See the block above for why the ladder cannot simply be re-pointed at the
+// application rate, and for what goes dark in the meantime.
+//
+// ⚠ AND THE DELETION TOOK TWO CONSTANTS WITH IT THAT THE PLAN DID NOT NAME.
+// MEMBER_MOVEMENT_WEIGHTS.attraction (six weights) and RATE_LEVEL_SENSITIVITY
+// had this ladder as their ONLY engine consumer. Both are now dormant: still
+// exported, still rendered on the Calculation Audit page, acting on nothing.
+// They are kept as data because they return with the market derivation, and
+// they are marked dormant at their definitions rather than left to read as
+// live. MEMBER_MOVEMENT_WEIGHTS.retention is untouched — departure still reads
+// it, and that is the half of the object that still does work.
 
-  if (decisions.rateChange < -0.10) expected += 1.2;
-  else if (decisions.rateChange < -0.05) expected += 0.7;
-  else if (decisions.rateChange < 0) expected += 0.3;
-  else if (decisions.rateChange > 0.15) expected -= 0.6;
-  else if (decisions.rateChange > 0.08) expected -= 0.3;
-
-  if (decisions.underwritingStrictness <= 2) expected += 0.8;
-  else if (decisions.underwritingStrictness <= 4) expected += 0.3;
-  else if (decisions.underwritingStrictness >= 8) expected -= 0.4;
-
-  if (currentMemberSatisfaction >= 8.5) expected += 0.5;
-  else if (currentMemberSatisfaction >= 7.5) expected += 0.2;
-  else if (currentMemberSatisfaction < 5.0) expected -= 0.5;
-
-  const surplusRatio = surplus / Math.max(annualPremium, 1);
-  if (surplusRatio >= 1.20) expected += 0.3;
-  else if (surplusRatio < 0.40) expected -= 0.3;
-
-  if (decisions.assessmentPct > 0.15) expected -= 0.8;
-  else if (decisions.assessmentPct > 0.05) expected -= 0.3;
-
-  if (decisions.riskControlPct >= 0.05) expected += 0.2;
-
-  expected += (1 - competitivePressure) * 0.5;
-
-  return Math.max(0, Math.min(MAX_NEW_MEMBERS_PER_YEAR, expected));
-}
-
-function updateSatisfaction(current: number, decisions: DecisionSet): number {
+// ============================================================================
+// ⚠ THIS STOCK IS QUANTISED ONTO A GRID THE SAME SIZE AS ITS OWN ANNUAL MOVE,
+// AND THAT IS A DEFECT. RECORDED HERE BECAUSE A LATER VOLUNTARY-DEPARTURE
+// MECHANISM WILL WANT TO READ THIS QUANTITY AND WOULD BE READING A STAIRCASE.
+//
+// The return rounds to ONE DECIMAL, and `current` is therefore always already
+// 1-dp. So a year's delta either clears 0.05 and moves the stock by a whole
+// 0.1, or clears nothing and is discarded entirely. Nothing accumulates: the
+// result is re-quantised every year, so a sub-step delta is not saved up, it is
+// lost.
+//
+// MEASURED, 8 games x 14 years at defaults, where delta is
+// -changeDeviationPct x RATE_SATISFACTION_SENSITIVITY:
+//
+//   line       mean |delta|   as a share of the 0.05 step   year-pairs that moved
+//   WC            0.0425                0.85x                   30 of 104
+//   GL            0.0332                0.66x                   22 of 104
+//   Property      0.0343                0.69x                   31 of 104
+//
+// ⚠ SO IT IS NOT INERT, AND "INERT BY CONSTRUCTION" IS THE WRONG DIAGNOSIS —
+// IT WAS THE OBVIOUS ONE AND THE MEASUREMENT DOES NOT SUPPORT IT. The stock
+// takes 17-20 distinct values over a run and drifts -0.22 (WC) across fourteen
+// years. The signal gets through about three years in ten.
+//
+// THE ACTUAL DEFECT IS ATTENUATION AND LUMPINESS, WHICH IS WORSE THAN INERTNESS
+// BECAUSE IT LOOKS LIKE IT IS WORKING. The response is nonlinear in the input:
+// a year at 0.04 transmits zero and a year at 0.06 transmits 0.1, so the stock
+// over-responds to the years that cross and ignores the rest. A player making a
+// small, sustained pricing change sees nothing for several years and then a
+// jump, and neither is proportional to what they did.
+//
+// ⚠ AND THE CODEBASE ALREADY KNOWS THE RIGHT GRID. The joiner's own opening
+// satisfaction, drawn ~200 lines below, is stored to TWO decimals with a note
+// saying one decimal "would quantise a joiner's opening onto a coarser grid
+// than the thing it feeds". That argument applies here verbatim and this site
+// did not get it.
+//
+// NOT FIXED IN THIS COMMIT, DELIBERATELY. Changing the rounding moves this
+// stock, which feeds calcRetentionProbability, which is the thing being
+// switched off — so it would be a behavioural change folded into a commit whose
+// point is that the behaviour is suspended. It belongs with the derived
+// voluntary mechanism, where the stock's grid can be chosen against what that
+// mechanism needs to read rather than against nothing.
+//
+// ⚠ ONE TRAP FOR WHOEVER PICKS THIS UP: THERE ARE TWO SATISFACTIONS AND ONLY
+// THIS ONE IS ON THE COARSE GRID. memberSatisfaction.ts's per-member stock moves
+// in hundredths and is stored to two decimals; this pool-level scalar is the one
+// calcRetentionProbability reads, and it is the one quantised. Measuring the
+// per-member module's drift and concluding this term is fine would be reading
+// the wrong quantity.
+// ============================================================================
+function updateSatisfaction(
+  current: number,
+  decisions: LineDecisionSet,
+  changeDeviationPct: number,
+): number {
   let delta = 0;
-  delta -= decisions.rateChange * 5.0;
+  // The rateChange satisfaction term RECONNECTED, reading the same derived rate
+  // change the retention term reads, as a deviation from this line's neutral.
+  //
+  // SYMMETRIC here, unlike retention: satisfaction is a slow-moving stock
+  // clamped to [1, 10], and a penalty-only form would ratchet it downward at
+  // defaults on rate noise alone. Letting it move both ways keeps it centred on
+  // its starting value when the pool prices at its neutral.
+  delta -= changeDeviationPct * RATE_SATISFACTION_SENSITIVITY;
   delta += decisions.dividendPct * 10.0;
   delta -= decisions.assessmentPct * 8.0;
-  delta += (decisions.fundingConfidenceLevel - 0.75) * 0.5;
+  // NEUTRALISED — coefficient set to 0, not sign-flipped. This term zeroed at
+  // the old fundingConfidenceLevel default (0.75); the new default is 0.60
+  // (CLF-only pricing), so it started contributing -0.075 satisfaction/yr at
+  // defaults (-0.225/yr at the 30% floor) — and backwards: charging members
+  // LESS was making them UNHAPPIER. Two reasons it goes to 0 rather than
+  // getting its sign corrected: the 0.75 reference point is now arbitrary
+  // since the default moved to 0.60, and this whole term is being replaced by
+  // bill-based satisfaction (Economics Step 1 / Stage 2.5). A term with an
+  // arbitrary anchor and an uncalibrated magnitude is better dormant than
+  // wrong.
+  delta += (decisions.fundingConfidenceLevel - 0.75) * 0;
   return Math.max(1.0, Math.min(10.0, parseFloat((current + delta).toFixed(1))));
 }
 
+// ⚠ THE STRICTNESS TERM IS DELETED, AND AT THE SHIPPED DEFAULT IT WAS ZERO.
+// This carried `(underwritingStrictness - 5) * 0.04`, a direct nudge to the
+// pool's average risk quality from a slider position. The slider defaulted to
+// 5, so the term was exactly 0 in every default game — which is why removing
+// it moves no baseline. It goes with the slider.
+//
+// What remains is the honest part: the average moves because WHO IS ENROLLED
+// changed, blended at half the new members' share of the book.
 function updateRiskQuality(
   current: number,
-  underwritingStrictness: number,
   newMembers: Member[],
   allActiveMembers: Member[],
 ): number {
-  const strictnessAdjustment = (underwritingStrictness - 5) * 0.04;
   const newMemberAvgQuality = newMembers.length > 0
     ? newMembers.reduce((s, m) => s + m.riskQuality, 0) / newMembers.length
     : current;
   const blendedQuality = current
-    + strictnessAdjustment
     + (newMemberAvgQuality - current) * (newMembers.length / Math.max(allActiveMembers.length, 1)) * 0.5;
   return Math.max(1.0, Math.min(10.0, parseFloat(blendedQuality.toFixed(1))));
 }
 
+/**
+ * How much more likely this non-member is to apply than a neutral one —
+ * exp(s . (NEUTRAL_RQ - riskQuality)). Exported so the Decisions page's intake
+ * forecast weights the applicant pool the way the draw does. ENGINE-SIDE ONLY:
+ * it reads the hidden attribute and returns a weight, never a quality.
+ */
+export function applicantWeight(m: Member): number {
+  return Math.exp(APPLICANT_ADVERSE_SELECTION * (NEUTRAL_RQ - m.riskQuality));
+}
+
+/**
+ * Each available member's PROBABILITY of being among `count` applicants under
+ * selectApplicants' weighted draw — for the Decisions page's intake forecast,
+ * which must not draw.
+ *
+ * ⚠ NOT PROPORTIONAL TO THE WEIGHT. Sampling without replacement saturates: the
+ * heaviest-weighted members are already nearly certain to apply and cannot be
+ * more so, so a forecast that takes inclusion as w / sum(w) x count over-reads
+ * them and under-reads everyone else — measured, it under-forecast the intake
+ * by up to a third of a member a year at the middle levels. Rosen's
+ * approximation for successive sampling: pi_i = 1 - exp(-c . w_i), with c
+ * solved so the pi sum to `count`. Exact when nobody saturates, and close when
+ * they do.
+ */
+export function applicantInclusion(available: readonly Member[], count: number): Map<string, number> {
+  const out = new Map<string, number>();
+  if (count <= 0 || available.length === 0) { for (const m of available) out.set(m.id, 0); return out; }
+  if (count >= available.length) { for (const m of available) out.set(m.id, 1); return out; }
+  const w = available.map(applicantWeight);
+  const total = (c: number) => w.reduce((s, wi) => s + (1 - Math.exp(-c * wi)), 0);
+  let lo = 0, hi = 1;
+  while (total(hi) < count) hi *= 2;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (total(mid) < count) lo = mid; else hi = mid;
+  }
+  available.forEach((m, i) => out.set(m.id, 1 - Math.exp(-hi * w[i])));
+  return out;
+}
+
+/**
+ * The year's applicants: `count` of the shuffled available pool, drawn with
+ * probability weighted by applicantWeight, WITHOUT ADDING A DRAW.
+ *
+ * Efraimidis-Spirakis: key = u^(1/w), take the largest. The uniform u is each
+ * member's position in the shuffle the engine has already made — rank i of n
+ * maps to 1 - (i + 0.5)/n, which is uniform because the shuffle is — so the
+ * membership stream is untouched and at s = 0 every key orders exactly as the
+ * shuffle does and the result IS the prefix. Computed in logs for stability.
+ *
+ * ⚠ THE CHOSEN APPLICANTS KEEP THEIR SHUFFLED ORDER. The skew decides WHO
+ * applies; it must not also decide who ARRIVES FIRST, because downstream the
+ * intake room takes a prefix of the eligible list and that prefix has to stay
+ * random among the eligible. Re-sorting by key would let the worst risks fill
+ * the room first — a second, unintended selection.
+ */
+export function selectApplicants(shuffledPool: readonly Member[], count: number): Member[] {
+  if (!(APPLICANT_ADVERSE_SELECTION > 0) || count >= shuffledPool.length) {
+    return shuffledPool.slice(0, count);
+  }
+  const n = shuffledPool.length;
+  const chosen = new Set(
+    shuffledPool
+      .map((m, i) => ({ m, key: Math.log(1 - (i + 0.5) / n) / applicantWeight(m) }))
+      .sort((a, b) => b.key - a.key)
+      .slice(0, count)
+      .map(x => x.m.id),
+  );
+  return shuffledPool.filter(m => chosen.has(m.id));
+}
+
 export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMovementResult {
-  const { currentMembers, allMarketMembers, yearNumber, calendarYear, rng } = inputs;
+  const { currentMembers, allMarketMembers, line, yearNumber, calendarYear, rng } = inputs;
 
-  const totalMarketExposure = allMarketMembers.reduce((s, m) => s + m.exposure, 0);
+  const totalMarketExposure = allMarketMembers.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
 
+  // ⚠ MAX_WITHDRAWN_PER_YEAR IS DELETED, AND IT WAS A GROWTH ACCELERATOR.
+  // Departures are PROPORTIONAL — book x (1 - retention) — and the cap was a
+  // FLAT COUNT of 4. At a 62-member book expected departures are 2.76 and the
+  // cap only clipped the noise tail; at 120 members they are 5.34 and the cap
+  // would have bound almost every year, suppressing ~1.3 departures annually.
+  // The brake weakened exactly as it was needed most, so the first growth arm
+  // measured would have run away and it would have looked like the intake model
+  // doing it.
+  //
+  // ⚠ NO SHARE CAP REPLACES IT, AND THAT IS A DECISION. A share cap on the
+  // outflow would be the right FORM if a cap were wanted, but there is nothing
+  // to cap: retention is already clamped to [0.80, 0.99] in
+  // calcRetentionProbability, so departures cannot exceed 20% of the book in
+  // any year however bad it gets. The noise multiplier is bounded at 1.6. A
+  // second bound on top of a bounded quantity would only mask the first.
+  //
+  // ⚠ THIS WHOLE BLOCK STILL RUNS WITH VOLUNTARY DEPARTURES OFF, AND EVERY LINE
+  // OF IT IS LOAD-BEARING FOR A REASON THAT IS NOT ITS RESULT. `rng.range(0.4,
+  // 1.6)` below is ONE DRAW FROM THE MEMBERSHIP STREAM. Guarding the draw
+  // instead of the slice would remove it, shift every subsequent draw in this
+  // stream by one, and re-roll the membership path of every seed — including
+  // the ten pre-game years, so the opening book would move too. Same reasoning
+  // the joiner-satisfaction draw below carries: changing what a draw MEANS is
+  // free, removing it is not.
+  //
+  // So the count is computed in full and discarded at the slice. See
+  // VOLUNTARY_DEPARTURES_ENABLED for why it is discarded, and for what has to
+  // happen before it is used again.
   const retentionProb = calcRetentionProbability(inputs);
   const expectedWithdrawals = currentMembers.length * (1 - retentionProb);
-  const rawWithdrawalCount = Math.round(expectedWithdrawals * rng.range(0.4, 1.6));
-  const cappedWithdrawalCount = Math.min(rawWithdrawalCount, MAX_WITHDRAWN_PER_YEAR);
-
-  const membersSortedByLeaveRisk = [...currentMembers].sort((a, b) =>
-    (a.satisfaction + a.riskQuality * 0.3) - (b.satisfaction + b.riskQuality * 0.3)
+  const cappedWithdrawalCount = Math.min(
+    currentMembers.length,
+    Math.round(expectedWithdrawals * rng.range(WITHDRAWAL_NOISE_RANGE.min, WITHDRAWAL_NOISE_RANGE.max)),
   );
+
+  // ============================================================================
+  // WHO LEAVES. The COUNT is above (calcRetentionProbability, which reads the
+  // pool-wide rate increase, dividends, assessments and surplus); this is the
+  // SELECTION, and it is the member's own decision rather than the pool's.
+  //
+  // Sorted DESCENDING — highest departure risk leaves — which is the opposite
+  // of the key this replaced. See memberDeparture.ts for the model, for the
+  // measurements that condemned the old one, and for why marketability's
+  // scale is derived from the clamp rather than chosen.
+  //
+  // ⚠ THE OLD KEY READ riskQuality DIRECTLY AND THIS ONE DOES NOT. Departure
+  // now runs on the experience modifier, which is something the member can
+  // actually see in their own claims and their own bill. Risk quality reaches
+  // this decision only through the losses it generates, which is the whole
+  // difference between an economic mechanism and a psychic one.
+  // ============================================================================
+  const risks = new Map(
+    departureRisks(
+      currentMembers, line, inputs.memberLossHistory,
+      priceSignalFor(inputs).changeDeviationPct, rng,
+    ).map(r => [r.memberId, r.risk]),
+  );
+  const membersSortedByLeaveRisk = [...currentMembers].sort(
+    (a, b) => (risks.get(b.id) ?? 0) - (risks.get(a.id) ?? 0)
+  );
+
+  // ⚠ THE ONE LINE THE RULING IS. departureRisks above has already run and has
+  // already taken ONE DRAW PER MEMBER, in roster order — that is the second of
+  // the two draw sites in this function and it is retained for the same reason
+  // as the first. The SELECTION is therefore still computed, still correct, and
+  // still the thing a later voluntary mechanism will read; it simply selects the
+  // first zero members.
+  //
+  // ⚠ AND IT IS GATED HERE RATHER THAN INSIDE departureRisks, WHICH WOULD HAVE
+  // BEEN THE TIDIER-LOOKING PLACE AND WOULD HAVE BEEN WRONG. That function owns
+  // the per-member draw; an early return in it would delete N draws a year
+  // instead of one and re-phase everything after.
+  const withdrawalCount = (VOLUNTARY_DEPARTURES_ENABLED && !inputs.freezeMembership)
+    ? cappedWithdrawalCount : 0;
 
   const withdrawnMembers: Member[] = membersSortedByLeaveRisk
-    .slice(0, cappedWithdrawalCount)
+    .slice(0, withdrawalCount)
     .map(m => ({ ...m, status: 'withdrawn' as const, yearWithdrawn: yearNumber }));
   const withdrawnIds = new Set(withdrawnMembers.map(m => m.id));
+  // ⚠ PER-MEMBER SATISFACTION IS NOT COMPUTED HERE AND THAT IS THE POINT.
+  // It lived in this function for one commit and moved out at the convex
+  // rebuild, to processLineYear, AFTER the charged rate exists. Two reasons,
+  // and the second is the one that forced it:
+  //
+  //   THE BASIS. This function is fed the PRE-MOVEMENT QUOTE, which is the
+  //     right signal for retention and departure — a member decides whether to
+  //     renew on what they were quoted. Satisfaction is about the bill they
+  //     actually PAID, and the two differ by a measured +0.9 to +1.1pp a year on
+  //     every line, because the book grows between the quote and the charge and
+  //     spreads the tower cost over more exposure.
+  //
+  //   A CONVEX REACTION CANNOT CARRY A SYSTEMATIC OFFSET. Under the linear form
+  //     a permanent +1pp read as a small constant drift. Squared, it shifts the
+  //     whole distribution into the amplified region and compounds.
+  //
+  // It also makes "feeds nothing" STRUCTURAL rather than asserted: movement
+  // cannot read a quantity that does not exist until after movement has run.
   const retainedMembers = currentMembers.filter(m => !withdrawnIds.has(m.id));
 
-  const expectedNew = calcExpectedNewMembers(inputs);
-  const rawNewCount = Math.round(expectedNew * rng.range(0.3, 1.7));
-  const actualNewCount = Math.min(rawNewCount, MAX_NEW_MEMBERS_PER_YEAR);
+  // ============================================================================
+  // INTAKE IS SUPPLY, NOT DEMAND. There is no expected-new-members term left.
+  //
+  // Everyone who applies and clears the appetite bar is written, up to the
+  // capacity guard. The book is then an OUTCOME of three independent flows —
+  // who applies, who clears, who leaves — rather than a number steered toward.
+  //
+  // ⚠ THE DEMAND NOISE DRAW IS GONE TOO, AND REMOVING A DRAW IS WHY THE
+  // BASELINES MOVE. `Math.round(expectedNew * rng.range(0.3, 1.7))` consumed one
+  // draw from the shared line stream every year; nothing multiplies now, so the
+  // draw goes rather than being spent and discarded. Intake variance comes from
+  // WHICH members apply — binomial through the bar — which is real variance
+  // rather than a multiplier on a point estimate.
+  //
+  // ⚠ AND THE CONFINEMENT IS STRUCTURAL, NOT HOPEFUL. The rng handed to this
+  // function is `deriveSubRng(seed, yearNumber, lineRngLabel('members', line))`
+  // — its own stream, hashed from a purpose label, with simulateMemberMovement
+  // as its only consumer (simulationEngine's single `rng: memberRng` call site).
+  // Adding or removing a draw here cannot re-phase any other stream, because no
+  // other stream is this one. Member-level claim draws are separately keyed on
+  // (seed, year, memberId), which enrolment-independence-check asserts.
+  //
+  // So the baselines move through exactly one channel: WHICH MEMBERS ARE
+  // ENROLLED. Not through re-phased claim draws, not through development, not
+  // through investment returns. Every moved figure should trace to a different
+  // book, and anything that does not would be the finding.
+  // ============================================================================
+  const intakeRoom = Math.floor(currentMembers.length * MAX_NEW_MEMBER_SHARE);
 
+  // Candidate-pool eligibility reads EXCLUSIVELY from membershipHistory,
+  // NEVER from Member.status. The shared status field is fold-corrupted
+  // across lines (one status per member, folded sequentially per line, so a
+  // member withdrawn from a later-processed line while active in an earlier
+  // one reads 'withdrawn' — CALIBRATION_FINDINGS 2/5) and cannot answer the
+  // per-line question "may this member (re-)enroll in THIS line?". The
+  // ledger is per-line by construction: canReenroll is true for a member
+  // never enrolled in this line, false while its interval is open (which
+  // also blocks same-year re-entry after a withdrawal — the ledger is
+  // updated in processYear AFTER this movement, so a just-withdrawn member
+  // still reads as enrolled here), and true again only once the 2-year
+  // per-line cooldown from the most recent withdrawal has elapsed.
   const activeIds = new Set(retainedMembers.map(m => m.id));
   const availableMembers = allMarketMembers.filter(
-    m => !activeIds.has(m.id) && m.status !== 'withdrawn'
+    m => !activeIds.has(m.id) && canReenroll(inputs.membershipHistory, m.id, line, yearNumber)
   );
 
-  let candidatePool = [...availableMembers];
-  if (inputs.decisions.underwritingStrictness > 6) {
-    candidatePool.sort((a, b) => b.riskQuality - a.riskQuality);
-    candidatePool = candidatePool.slice(0, Math.ceil(candidatePool.length * 0.6));
-  } else {
-    rng.shuffle(candidatePool);
-  }
+  // ⚠ THE UNDERWRITING-STRICTNESS SCREEN WAS HERE AND IS DELETED. Above
+  // strictness 6 this sorted the candidate pool by riskQuality DESCENDING and
+  // kept the top 60% — exact selection on the hidden truth, at zero
+  // information cost. Risk quality is no longer shown to the player anywhere
+  // per-member, and a lever that selects perfectly on an attribute the UI
+  // does not admit exists is worse than no lever: it is strictly better than
+  // the experience modifier meant to replace it, which ranks true risk
+  // quality at 0.332 rather than at 1.0. Hiding the attribute without
+  // retiring this branch would have made the modifier pointless.
+  //
+  // ⚠ AND THE SHUFFLE IS NOW UNCONDITIONAL, WHICH IS A KEEP-THE-DRAW
+  // STATEMENT. The old code shuffled ONLY on the else branch, so a game at
+  // strictness > 6 consumed no shuffle at all. Every default game already
+  // took the else branch (the slider defaulted to 5), so the stream is
+  // unchanged for them — which is why both baselines still hold across this
+  // deletion. A game saved at strictness > 6 would draw differently, and
+  // there is no such game: the field is gone from the decision set.
+  // ============================================================================
+  // THE INTAKE SLIDER — the bar, and it runs on the applicants AFTER the shuffle.
+  //
+  // RANDOM AMONG ELIGIBLE, NOT BEST-FIRST. Filter to who clears the inspection,
+  // keep their arrival order, take the room off the top. Best-first would
+  // collapse every level into the cap. See intakeInspection.ts.
+  //
+  // ⚠ THE INSPECTION DRAWS ON ITS OWN LABELLED SUB-STREAMS, so no level moves
+  // the membership stream: every level shuffles the same pool to the same order
+  // and draws the same applicants, and only who clears differs.
+  // ============================================================================
+  // ============================================================================
+  // WHO APPLIES, THEN WHO CLEARS THE BAR, THEN WHO GETS WRITTEN. Three steps,
+  // and the first one is new.
+  //
+  // ⚠ APPLICATIONS ARE A SHARE OF THE UNENROLLED POOL, NOT THE WHOLE OF IT.
+  // Every unenrolled member used to be treated as an applicant every year —
+  // ~140 of them for 4 slots — which is why New Business Appetite could only
+  // ever change WHICH members joined and never HOW MANY. See APPLICATION_RATE.
+  //
+  // ⚠ ONE SHUFFLE, AND IT IS OVER THE FULL AVAILABLE POOL, WHICH IS WHAT KEEPS
+  // THE DRAW STABLE. Shuffling `availableMembers` and then taking a prefix is
+  // the same draw the old code made, so at Accept All the members selected are
+  // IDENTICAL to before this commit — take the first 9 and then the first 3 of
+  // those, and you have the first 3. It also means the appetite tier no longer
+  // perturbs the RNG stream at all: every arm shuffles the same array to the
+  // same order, and only the filter downstream differs. Comparing two tiers is
+  // therefore comparing two decisions on one game rather than two games.
+  //
+  // ⚠ THE APPLICATION COUNT IS DETERMINISTIC AND THE VARIANCE IS IN WHO APPLIES.
+  // A noisy count would need its own draw and would move every downstream
+  // stream; it is not needed. With ~9 applicants and roughly a third clearing
+  // the strict bar, the number eligible is already binomial with a standard
+  // deviation near 1.4, which is where short years come from.
+  // ============================================================================
+  const shuffledPool = [...availableMembers];
+  rng.shuffle(shuffledPool);
 
-  const newMembers: Member[] = candidatePool.slice(0, Math.min(actualNewCount, candidatePool.length)).map(m => ({
+  const applicationCount = Math.min(
+    shuffledPool.length,
+    Math.round(shuffledPool.length * (inputs.applicationRateOverride ?? APPLICATION_RATE)),
+  );
+  // ⚠ WHO APPLIES IS SKEWED TOWARD WORSE RISKS — see APPLICANT_ADVERSE_SELECTION.
+  // At 0 this is exactly the shuffled prefix it always was.
+  const applicants = selectApplicants(shuffledPool, applicationCount);
+
+  // The position's bar, then its cap: everyone who passes joins if they fit,
+  // otherwise the best by inspected quality. The cap is a share of the same book
+  // intakeRoom is, and never above it (Low's cap IS MAX_NEW_MEMBER_SHARE), so the
+  // intakeRoom slice below is a guard that cannot bind. `passed` is kept so the
+  // result can say whether the bar or the cap limited the year.
+  const intake = intakeAdmit(
+    applicants, line, yearNumber, inputs.instanceSeed,
+    inputs.decisions.intakeLevel ?? 0, currentMembers.length,
+  );
+  const candidatePool = intake.admitted;
+
+  // ⚠ BUILT IN FULL AND THEN DISCARDED WHEN THE ROSTER IS FROZEN, BECAUSE THE
+  // SATISFACTION DRAW IS INSIDE THIS MAP — one per member WRITTEN. Returning []
+  // before it would delete those draws; taking them and dropping the result
+  // keeps the site live. See the withdrawal slice above for the same pattern.
+  //
+  // ⚠ AND THIS DOES NOT MAKE THE PRE-GAME STREAM IDENTICAL, WHICH IS WORTH
+  // SAYING PLAINLY BECAUSE THE COMMENT PATTERN ELSEWHERE IN THIS FILE PROMISES
+  // EXACTLY THAT. The draw COUNTS here are functions of the roster:
+  // availableMembers is the marketplace minus the enrolled, the shuffle runs
+  // over it, applicationCount is a share of it, and this map runs once per
+  // joiner. Freeze the roster and all four change. Keeping the sites live
+  // avoids a SECOND, gratuitous divergence; it cannot avoid the first, and the
+  // first is the change itself.
+  const wouldJoin: Member[] = candidatePool.slice(0, Math.min(intakeRoom, candidatePool.length)).map(m => ({
     ...m,
     status: 'active' as const,
     yearJoined: yearNumber,
     calendarYearJoined: calendarYear,
-    satisfaction: parseFloat(rng.range(6.0, 8.5).toFixed(1)),
+    // ⚠ SAME ONE DRAW, NARROWER RANGE — see OPENING_SATISFACTION. Changing the
+    // BOUNDS of an rng.range consumes exactly the same value from the stream
+    // and maps it differently, so the whole membership stream is untouched and
+    // both baselines hold. Removing the draw and using the catalog's
+    // deterministic disposition would have been tidier and would have re-phased
+    // every member draw after it.
+    //
+    // ⚠ AND TWO DECIMALS, MATCHING THE STOCK. The old one-decimal rounding here
+    // was fine for a frozen field; on a stock whose yearly moves are hundredths
+    // it would quantise a joiner's opening onto a coarser grid than the thing
+    // it feeds.
+    satisfaction: parseFloat(rng.range(OPENING_SATISFACTION.min, OPENING_SATISFACTION.max).toFixed(2)),
   }));
 
+  const newMembers: Member[] = inputs.freezeMembership ? [] : wouldJoin;
+
   const activeMembers: Member[] = [...retainedMembers, ...newMembers];
-  const activeExposure = activeMembers.reduce((s, m) => s + m.exposure, 0);
+  const activeExposure = activeMembers.reduce((s, m) => s + getMemberExposure(m, line, yearNumber), 0);
 
   const retentionRate = currentMembers.length > 0
     ? retainedMembers.length / currentMembers.length
     : 1;
 
-  const newSatisfaction = updateSatisfaction(inputs.currentMemberSatisfaction, inputs.decisions);
-  const newRiskQuality = updateRiskQuality(inputs.currentRiskQuality, inputs.decisions.underwritingStrictness, newMembers, activeMembers);
+  const newSatisfaction = updateSatisfaction(
+    inputs.currentMemberSatisfaction, inputs.decisions, priceSignalFor(inputs).changeDeviationPct,
+  );
+  const newRiskQuality = updateRiskQuality(inputs.currentRiskQuality, newMembers, activeMembers);
 
   return {
     activeMembers,
     newMembers,
     withdrawnMembers,
+    intakeRoom,
+    applicantCount: applicants.length,
+    eligibleCount: intake.passed.length,
     retentionRate,
     memberSatisfaction: newSatisfaction,
     averageRiskQuality: newRiskQuality,
