@@ -1,13 +1,11 @@
 import { Activity, DollarSign, Shield, Users } from 'lucide-react';
-import type { HistoricalYear, LineView } from '../types/simulation';
-import { colorForCombinedRatio, formatCurrency, formatMillions, formatPct } from '../utils/formatters';
-import { lineDisplayName } from '../utils/lineDisplay';
+import type { HistoricalYear } from '../types/simulation';
+import { colorForRatio, formatCurrency, formatPct } from '../utils/formatters';
 
 interface HistoryPageProps {
-  // Stage 2.10: real simulated pre-game years (already filtered to the current
-  // view — pool aggregate or a single line — and adapted for display).
   historicalYears: HistoricalYear[];
-  lineView: LineView;
+  scenarioId: string;
+  startingYear: number;
 }
 
 interface HistoryRow {
@@ -16,70 +14,47 @@ interface HistoryRow {
   className?: (year: HistoricalYear) => string;
 }
 
-export default function HistoryPage({ historicalYears, lineView }: HistoryPageProps) {
+export default function HistoryPage({ historicalYears, scenarioId, startingYear }: HistoryPageProps) {
   if (historicalYears.length === 0) return null;
 
   const first = historicalYears[0];
   const last = historicalYears[historicalYears.length - 1];
   const combinedChange = last.actualCombinedRatio - first.actualCombinedRatio;
   const surplusChange = last.endingSurplus - first.endingSurplus;
-  const exposureChange = last.activeExposure - first.activeExposure;
-  const exposureLabel = lineView === 'Property' ? 'TIV Exposure' : 'Payroll Exposure';
+  const memberChange = last.activeMembers - first.activeMembers;
 
   const operatingRows: HistoryRow[] = [
-    { label: 'Active Exposure', value: year => `$${year.activeExposure.toFixed(1)}M` },
-    { label: exposureLabel, value: year => formatMillions(year.activeExposure) },
-    { label: 'Market Share (% of Exposure)', value: year => formatPct(year.marketShare) },
-    // ⚠ BLANK AT POOL SCOPE, AND THE LABEL IS WHY. "per $100 Payroll" is a true
-    // description on WC and GL and a false one on Property, whose exposure is
-    // TIV; at pool scope the denominator is the two added together, so there is
-    // no rate and no unit to label it with. A dash says the pool has no such
-    // figure. Switch to a line to see it.
-    { label: 'Pool Premium Rate per $100 Exposure',
-      value: year => (year.poolPremiumRatePer100 === undefined
-        ? '—' : `$${year.poolPremiumRatePer100.toFixed(2)}`) },
+    { label: 'Active Members', value: year => String(year.activeMembers) },
+    { label: 'Payroll Exposure', value: year => `$${year.activeExposure.toFixed(2)}M` },
+    { label: 'Market Share', value: year => formatPct(year.marketShare) },
+    { label: 'Pure Premium Rate per $100 Payroll', value: year => `$${year.purePremiumPer100.toFixed(2)}` },
+    { label: 'Pool Premium Rate per $100 Payroll', value: year => `$${year.poolPremiumRatePer100.toFixed(2)}` },
   ];
 
   const performanceRows: HistoryRow[] = [
-    { label: 'Pool Premium', value: year => formatCurrency(year.poolPremium) },
-    { label: 'Admin Expense', value: year => formatCurrency(year.adminExpense) },
     { label: 'Pool Premium & Admin Expense', value: year => formatCurrency(year.poolPremiumAndAdminExpense) },
     { label: 'Reinsurance Cost', value: year => formatCurrency(year.reinsuranceCost) },
     { label: 'Gross Premium & Admin Expense', value: year => formatCurrency(year.totalMemberCharge) },
-    { label: 'Ultimate Losses', value: year => formatCurrency(year.grossUltimateLoss) },
-    // Pool Losses / Excess Losses / Quota Share Losses REMOVED. They split
-    // gross loss at a per-occurrence attachment ($1M for WC/GL) compared
-    // against an ANNUAL AGGREGATE loss, so Pool Losses pinned at exactly $1M
-    // in effectively every line-year and "Quota Share Losses" was not a quota
-    // share at all — every retained dollar above that $1M, including the gaps
-    // between purchased layers and the band above the tower. See
-    // CalculationAuditPage's TOWER_MEANINGLESS_POOL_SUM_KEYS header for the
-    // fuller measurement. Reinsurance Recovery (below) and Retained Above
-    // Tower (per-line tabs) are the real, correct figures this split was
-    // trying to approximate.
-    { label: 'Reinsurance Losses', value: year => formatCurrency(year.reinsuranceRecovery) },
-    { label: 'Reinsurance Recovery — prior-year development', value: year => formatCurrency(year.priorYearDevelopmentCeded ?? 0) },
+    { label: 'Actual Ultimate Losses', value: year => formatCurrency(year.grossUltimateLoss) },
+    { label: 'Reinsurance Recovery', value: year => formatCurrency(year.reinsuranceRecovery) },
     { label: 'Net Ultimate Loss', value: year => formatCurrency(year.netUltimateLoss) },
     {
       label: 'Actual Combined Ratio',
       value: year => formatPct(year.actualCombinedRatio),
-      className: year => colorForCombinedRatio(year.actualCombinedRatio),
-    },
-    {
-      label: 'Underwriting Income',
-      value: year => formatCurrency(year.underwritingIncome),
-      className: year => year.underwritingIncome >= 0 ? 'text-emerald-600' : 'text-red-600',
+      className: year => colorForRatio(year.actualCombinedRatio),
     },
     { label: 'Investment Income', value: year => formatCurrency(year.investmentIncome) },
     {
-      label: 'Total Income',
+      label: 'Net Income',
       value: year => formatCurrency(year.netIncome),
       className: year => year.netIncome >= 0 ? 'text-emerald-600' : 'text-red-600',
     },
   ];
 
   const capitalRows: HistoryRow[] = [
-    { label: 'Unpaid Claims Outstanding (net)', value: year => formatCurrency(year.endingNetReserve) },
+    { label: 'Ending Gross Unpaid Loss', value: year => formatCurrency(year.endingGrossReserve) },
+    { label: 'Expected Reinsurance Recoverable', value: year => formatCurrency(year.endingReinsuranceRecoverable) },
+    { label: 'Ending Net Unpaid Loss', value: year => formatCurrency(year.endingNetReserve) },
     { label: 'Required Reserve Margin', value: year => formatCurrency(year.requiredReserveMargin) },
     {
       label: 'Ending Surplus',
@@ -95,15 +70,26 @@ export default function HistoryPage({ historicalYears, lineView }: HistoryPagePr
 
   return (
     <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
-      <h2 className="text-xl font-bold text-gray-900">Three-Year {lineDisplayName(lineView)} History</h2>
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Four-Year Pool History</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Historical results for scenario <span className="font-mono font-semibold text-gray-700">{scenarioId}</span>.
+            {' '}The {startingYear - 1} closing position becomes Dashboard Year 0.
+          </p>
+        </div>
+        <div className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+          Same scenario code = same history and loss environment
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard
           icon={<Activity size={17} />}
           label="Latest Actual Combined Ratio"
           value={formatPct(last.actualCombinedRatio)}
-          detail={`${combinedChange >= 0 ? 'Up' : 'Down'} ${formatPct(Math.abs(combinedChange))} over the history`}
-          valueClass={colorForCombinedRatio(last.actualCombinedRatio)}
+          detail={`${combinedChange >= 0 ? 'Up' : 'Down'} ${formatPct(Math.abs(combinedChange))} over four years`}
+          valueClass={colorForRatio(last.actualCombinedRatio)}
         />
         <SummaryCard
           icon={<DollarSign size={17} />}
@@ -114,9 +100,9 @@ export default function HistoryPage({ historicalYears, lineView }: HistoryPagePr
         />
         <SummaryCard
           icon={<Users size={17} />}
-          label="Opening Exposure"
-          value={`$${last.activeExposure.toFixed(1)}M`}
-          detail={`${exposureChange >= 0 ? '+' : ''}$${exposureChange.toFixed(1)}M over history`}
+          label="Opening Membership"
+          value={String(last.activeMembers)}
+          detail={`${memberChange >= 0 ? '+' : ''}${memberChange} members over history`}
           valueClass="text-gray-900"
         />
         <SummaryCard
@@ -133,8 +119,7 @@ export default function HistoryPage({ historicalYears, lineView }: HistoryPagePr
       <HistoryTable title="Reserves & Capital" icon={<Shield size={17} />} years={historicalYears} rows={capitalRows} />
 
       <div className="bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-600">
-        This history is read-only, simulated through the real engine at default decisions before play begins
-        (each line runs its own past), and does not consume any of the player’s decision years.
+        This history is read-only and generated before play. It uses neutral historical management assumptions and does not consume any of the player’s ten decision years.
       </div>
     </div>
   );
@@ -161,7 +146,7 @@ function HistoryTable({
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[260px]"></th>
+              <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[260px]">Metric</th>
               {years.map((year, index) => (
                 <th key={year.calendarYear} className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[150px]">
                   {year.calendarYear}

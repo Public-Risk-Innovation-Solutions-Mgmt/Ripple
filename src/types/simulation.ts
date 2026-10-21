@@ -1,12 +1,4 @@
-import type { WcRatingGroup } from '../data/defaultAssumptions';
-// TYPE-ONLY, so the cycle with defaultAssumptions.ts (which imports Region from
-// here) is erased at compile time and never exists at runtime.
-
 // Core TypeScript types for Risk Pool Simulation v1
-
-// Type-only, and circular with shocks.ts (which imports CoverageLine and Region
-// from here). Erased at compile time, so the cycle never reaches the bundle.
-import type { ScheduledShock, ShockRecord } from './shocks';
 
 export type MemberStatus = 'active' | 'withdrawn' | 'prospect';
 export type MemberType =
@@ -22,421 +14,37 @@ export type MemberType =
 
 export type SizeCategory = 'Small' | 'Medium' | 'Large' | 'Very Large';
 
-// Geographic region. The GAME has four since book units: North, South, Central
-// and East at REGION_EXPOSURE_SHARE (pricingParameters). The dormant member
-// roster's authored column holds the first three only (72 / 61 / 67 across the
-// roster) and its catastrophe model keeps its own three-region list
-// (CAT_REGIONS); East never appears there.
-export type Region = 'North' | 'Central' | 'South' | 'East';
-
 export interface Member {
   id: string;
   name: string;
   type: MemberType;
   sizeCategory: SizeCategory;
-  // Geographic region — an authored column of the canonical roster (v2), never
-  // re-rolled per game seed. Feeds WC's regional severity multiplier and is
-  // scaffolding for future regional loss correlation (catastrophes striking a
-  // region), which is what Property's generator will want.
-  region: Region;
-  // Property's location schedule, both authored roster columns since v3.
-  // `locations` is the integer count of insured sites and is the attritional
-  // frequency base (1,866 pool-wide) — a physical fact about the member, NOT
-  // derived from insured value. `primaryAssetShare` is the fraction of the
-  // member's TIV sitting in its DESIGNATED PRIMARY ASSET — which is not
-  // necessarily its largest: for 9 v3 members the nominal primary is the
-  // smaller site. Together they chop member TIV into per-location values,
-  // which is what caps each claim's severity and keeps the per-risk
-  // reinsurance layer alive (it fires on within-member concentration, not on
-  // member-level TIV skew).
-  locations: number;
-  primaryAssetShare: number;
-  exposureByLine: Partial<Record<CoverageLine, number>>; // exposure units, per coverage line
-  // LOSSY display convenience, NOT an enrollment record. Opening enrollees are
-  // stamped yearJoined: 1 ("was here when the game started" — the display
-  // convention the members table wants) even though they actually enrolled at
-  // the start of the pre-game (ledger startYear: -2). Consequently at Y1 a
-  // genuine Y1 recruit and an opening member both read yearJoined: 1 and are
-  // indistinguishable by this scalar alone — only PoolState.membershipHistory
-  // can separate them. Do NOT "repair" this field to the true year (it would
-  // surface pre-game internals in the UI) and do NOT answer per-line/per-year
-  // enrollment questions from it — use the ledger.
+  exposure: number; // exposure units
   yearJoined: number; // yearNumber when joined
   calendarYearJoined: number;
   riskQuality: number; // 1-10
   satisfaction: number; // 1-10
   status: MemberStatus;
   yearWithdrawn?: number;
-  // WC rating group — a STORED attribute, assigned in memberCatalog.ts.
-  //
-  // ⚠ DELIBERATELY STORED WHERE THE RETIRED WC_CLASS_MIX/GL_RELATIVITIES
-  // LOOKUP TABLES WERE NOT. Both were exact functions of `type` (and both
-  // retired with the GL severity rebuild — see CALIBRATION_FINDINGS), so
-  // storing a type-derived value per member was duplication. This one
-  // CANNOT be derived from `type` alone: the old WC_CLASS_MIX gave every city
-  // a safety share of exactly 0.3500, so no threshold over it could separate
-  // the eight cities that run their own police and fire departments from the
-  // other 24. That is genuinely extra information — see
-  // WC_HIGH_SAFETY_CITIES in defaultAssumptions.ts.
-  //
-  // Optional only so that saves written before the WC severity rebuild still
-  // parse; App.tsx repairs it on load. wcClaimEngine THROWS on a member without
-  // one rather than defaulting, because a silent default would generate no
-  // claims and read as calibration drift months later.
-  wcRatingGroup?: WcRatingGroup;
+}
+
+export interface MemberSegment {
+  type: MemberType;
+  count: number;
+  totalExposure: number;
+  averageRiskQuality: number;
+  averageSatisfaction: number;
 }
 
 export interface MemberLossResult {
   memberId: string;
   memberName: string;
-  exposure: number; // exposure units for the line this loss was simulated on
+  exposure: number;
   riskQuality: number;
   expectedLoss: number;
-  /**
-   * The same expectation AT NEUTRAL RISK QUALITY — the manual.
-   *
-   * ⚠ IDENTICAL INPUTS TO `expectedLoss` IN EVERY RESPECT BUT ONE. Same k,
-   * same year, same class, same exposure; only risk quality is overridden to
-   * NEUTRAL_RQ. In particular k_line IS INCLUDED, for exactly the reason
-   * memberLossHistory.ts gives for including it in the other leg: the DRAW is
-   * scaled by k, so a leg without it biases every enrolled member's ratio by
-   * (1 - k) — about 2.2% at a typical 0.978, and it flips sign as the roster
-   * mix drifts.
-   *
-   * WHY IT EXISTS: an experience modifier divides actual by expected, and
-   * dividing by an expectation that already contains the member's own risk
-   * quality removes the very thing the modifier is there to discover.
-   *
-   * Measured, ranking power against true risk quality over a three-year
-   * window on WC: 0.208 on this basis against 0.120 on `expectedLoss` in the
-   * harness that first measured it, and 0.257 against 0.164 in
-   * member-experience-basis-check. ⚠ QUOTE THE GAP, NOT THE LEVEL. The two
-   * harnesses disagree on the level by about 0.045 — on every basis and at
-   * every window — and agree on the GAP to within 0.005 (0.088 against
-   * 0.0925). Both bases divide the same actuals, so pairing them cancels the
-   * game-to-game variance that dominates either level on its own. That is
-   * why the gate asserts the gap; see its header.
-   */
-  expectedLossAtManual: number;
-  /**
-   * The member's loss with every CLAIM limited to EXPERIENCE_SPLIT_POINT —
-   * sum of min(claim, D). The excess is `simulatedLoss - primaryLoss`.
-   *
-   * ⚠ NAMED `primaryLoss` HERE AND `primaryActual` ON MemberLossYear, FOR THE
-   * SAME REASON `expectedLoss` BECOMES `expectedAtOwnRq` ACROSS THAT BOUNDARY:
-   * a result row and a ledger entry are different grains and the convention in
-   * this file already distinguishes them. The practical consequence is that
-   * `primaryLoss` can be — and is — stripped from saves while the ledger's copy
-   * survives. One key name could not have done both, and the result row is the
-   * transient half: it is the generator's report of the split, recorded into
-   * the ledger by processYear and not needed again.
-   *
-   * ⚠ PER CLAIM, NOT ON THE YEAR'S TOTAL, and the difference is the whole
-   * point. Limiting the aggregate would grade hard by member size — measured,
-   * capped/uncapped runs 0.222 to 0.771 across WC exposure deciles — because
-   * a small member holds more of its loss above any multiple of its own
-   * expectation. Limiting each claim is size-neutral: E[min(X,D)]/E[X] is a
-   * property of the severity distribution, not of how many claims a member
-   * brings.
-   *
-   * WHY IT EXISTS: the primary layer is where the credibility is. Measured
-   * split-half reliability of the three-year ratio on WC — 0.052 on the whole
-   * loss against 0.155 on the primary layer at a $25k split. That is Mahler
-   * (1996) reproduced on this engine: dollars are less credible than counts,
-   * and limiting the dollars brings the credibility back.
-   */
-  primaryLoss: number;
   coefficientOfVariation: number;
   standardDeviation: number;
   simulatedLoss: number;
-}
-
-// One member's share of a line-year's pool premium, at their own class rate.
-// See src/utils/memberPremium.ts for the allocation and for why WC has four
-// rates while GL and Property have one.
-//
-// ⚠ A SEPARATE TYPE FROM MemberLossResult, NOT A FIELD ON IT, AND DELIBERATELY.
-// MemberLossResult is built by the claim engines, which run BEFORE the premium
-// is known and have no business knowing it — a premium field there could only
-// be back-filled by mutating engine output after the fact. Keeping the two
-// apart also keeps the loss path free of any premium term, which is what makes
-// the "member premium never feeds the draw" property checkable rather than
-// merely intended.
-export interface MemberPremiumShare {
-  memberId: string;
-  /** This line's exposure for the member, at this year's wage factor. */
-  exposure: number;
-  /** Their share of poolPremium. Sums to poolPremium to float tolerance. */
-  premium: number;
-  /**
-   * What they are charged per unit of exposure, against the book's mean.
-   *
-   * ⚠ THIS IS CLASS x EXPERIENCE MOD, NOT CLASS ALONE, AND IT WAS CLASS ALONE
-   * BEFORE THE MODIFIER SHIPPED. A member with a favourable mod IS cheaper
-   * per $100 and this column says so. On GL and Property, which have no class
-   * structure, it therefore reads exactly `experienceMod` — that identity is
-   * asserted in member-premium-check and is a direct test of the rebase, so
-   * do not "fix" this back to 1. On WC it is the class relativity (schools
-   * 0.353, highSafety 1.571 against the blend) moved by the mod.
-   */
-  relativity: number;
-  /**
-   * The member's experience modifier for this line-year, exactly 1 when they
-   * are unrated. Exposure-weighted mean over the book is 1 by construction —
-   * see memberExperienceMod.ts and its gate's rebase assertion.
-   */
-  experienceMod: number;
-}
-
-/**
- * One year's loss split across the three funding layers. See memberValue.ts.
- *
- * ⚠ LAYERS, NOT CLAIM-SIZE BANDS. A $3M WC claim puts $1M in `retained` and $2M
- * in `tower`; it is not "a tower claim". The three always sum to `gross`.
- */
-export interface PotTotals {
-  /** min(x, retention) summed — what poolPremium funds. */
-  retained: number;
-  /** min(x, towerTop) - min(x, retention) summed — what reinsuranceCost funds. */
-  tower: number;
-  /** max(x - towerTop, 0) summed — what surplus alone funds. */
-  aboveTower: number;
-  /** The three, summed. */
-  gross: number;
-}
-
-/**
- * What one member got back this year — see memberValue.ts for the rulings,
- * particularly why the tower is DISCLOSED and not RATED.
- */
-export interface MemberValueRow {
-  memberId: string;
-  /** Their share of poolPremium: the retained pot's funding. */
-  premium: number;
-  /** min(x, retention) over their own claims. */
-  retainedLoss: number;
-  /**
-   * (loss_i/premium_i) / (loss_pool/premium_pool) on the retained pot. The
-   * premium-weighted book reads 1 by construction.
-   *
-   * ⚠ NOT A PROPERTY OF THE MEMBER. Measured test-retest against the same
-   * member's preceding non-overlapping window is 0.007 / -0.016 / 0.024 by line.
-   * Anything acting ON a member reads the experience modifier, which is capped
-   * and credibility-weighted precisely because this number is not stable.
-   */
-  retainedValue: number;
-  /** DISCLOSED, NOT RATED. Dollars the tower paid on their behalf. */
-  towerRecovered: number;
-  /** Whether they reached the ceded layer at all this year. */
-  reachedTower: boolean;
-  /** DISCLOSED, NOT RATED. Dollars retained above the tower on their behalf. */
-  aboveTowerLoss: number;
-}
-
-/** One line-year's value from the pool's side. See memberValue.ts. */
-export interface PoolValueRow {
-  line: CoverageLine;
-  pots: PotTotals;
-  /** poolPremium + adminExpense + reinsuranceCost. */
-  totalMemberCharge: number;
-  /** grossLoss / totalMemberCharge — what came back per dollar billed. */
-  returnedPerDollar: number;
-  /** MARKET_TARGET_LOSS_RATIO for this row's line. */
-  marketBenchmark: number;
-  /** returnedPerDollar / marketBenchmark. Above 1: better than a carrier. */
-  valueAgainstMarket: number;
-  /** tower loss / reinsuranceCost. */
-  towerReturnedPerDollar: number;
-  /** expectedCeded / reinsuranceCost — the reinsurer's own implied loss ratio. */
-  reinsurerBenchmark: number;
-  /** towerReturnedPerDollar / reinsurerBenchmark. */
-  valueAgainstReinsurer: number;
-  /** Dollars kept above the tower. NO RATIO — surplus is not a denominator. */
-  aboveTowerDollars: number;
-}
-
-/**
- * One member's reaction to one year's bill. See memberSatisfaction.ts for the
- * model; this lives here rather than beside it because LineResultSet carries an
- * array of them and a result type importing a util would invert the dependency.
- * Same reason MemberPremiumShare is here.
- */
-export interface SatisfactionMove {
-  memberId: string;
-  /**
-   * What the member's bill actually did, in percentage points:
-   * (1 + r/100)(mod_t/mod_(t-1)) - 1, x100. REPORTED, NOT REACTED TO — see
-   * `excessPct` and memberSatisfaction.ts's split.
-   */
-  billChangePct: number;
-  /** Percentage points, from marketConditions. The same for every member. */
-  marketChangePct: number;
-  /**
-   * The member's own experience modifier's year-over-year change, in percentage
-   * points. The part of `billChangePct` that is theirs rather than the pool's.
-   */
-  ownChangePct: number;
-  /**
-   * What the bill WOULD have done at the member's PREVIOUS modifier — which is
-   * the pool's rate change exactly, since the class relativity is static and the
-   * held modifier cancels. This is the counterfactual the member is judged
-   * against, and it is identical for every member of a line-year because a
-   * pricing decision is one decision.
-   */
-  billAtPriorModPct: number;
-  /** billAtPriorModPct - marketChangePct. What satisfaction reacts to. */
-  excessPct: number;
-  /**
-   * Where the pool's price SITS against the modelled market, in percentage
-   * points. NEGATIVE is cheaper. The same for every member of a line-year, and
-   * it is a LEVEL: it applies every year it persists, unlike excessPct.
-   */
-  levelGapPct: number;
-  /**
-   * TERM 3 — the member's UNCAPPED loss ratio over the experience window,
-   * rebased so the book reads 1. Heavy-tailed on purpose: reported so a reader
-   * can see the quantity the bounded reaction was taken from. See
-   * memberSatisfaction.ts's lossSaturation for the measured spread.
-   */
-  lossRatio: number;
-  /** tanh((1 - lossRatio)/s) — the bounded reaction, in (-1, +0.528]. */
-  lossStanding: number;
-  /** The U-shaped level contribution, rebased so the book mean is 0. */
-  lossLevel: number;
-  /** Multiplier on the price reaction. Book mean is exactly 1. */
-  priceAmplifier: number;
-  /** TERM 4 — the band LAST year's surplus put the line in. */
-  surplusBand: 'Deficient' | 'Thin' | 'Adequate' | 'Strong' | 'Unknown';
-  /** Last year's excessCapitalRatio, or null when there is no prior year. */
-  surplusRatio: number | null;
-  /** TERM 5: cash moving as a share of the member's own bill. Positive is a
-   *  dividend received, negative an assessment paid. Struck pro-rata to
-   *  premium, so it is the same number for every member on the line. */
-  cashShare: number;
-  /** What term 5 contributed to `delta` this year, in satisfaction points. */
-  cashDelta: number;
-  /** The satisfaction level this year's price implies. See satisfactionAnchor. */
-  anchor: number;
-  /** The one-year CHANGE reaction, in satisfaction points. Negative is unhappier. */
-  delta: number;
-}
-
-// ---------------------------------------------------------------------------
-// Claim / Occurrence scaffolding for the loss-distribution work.
-//
-// TYPE SCAFFOLDING ONLY: nothing constructs, stores, or consumes these yet —
-// no generation logic, no processLineYear wiring, no reinsuranceEngine
-// involvement. They exist so the claim-level loss generator being designed
-// against the WC/GL distribution spec has a settled data shape to target.
-// ---------------------------------------------------------------------------
-
-// One loss event. Groups the claims it causes (WC and GL both emit 1:1 —
-// GL's multi-claimant abuse batches were deleted with the sub-coverage
-// rebuild; Property's weather/cat events are the multi-claim case now), and
-// is the unit the $1M retention waterfall nets against: the retention
-// applies to the OCCURRENCE total, i.e. the sum over claimIds.
-export interface Occurrence {
-  id: string;
-  line: CoverageLine;
-  // WHO THE EVENT HIT. memberIds is the authoritative list and is ALWAYS
-  // populated (length >= 1). memberId is a single-member convenience field,
-  // present only when the event hit exactly one member.
-  //
-  // DO NOT "SIMPLIFY" memberId BACK TO A REQUIRED string. Its optionality is
-  // load-bearing, not stylistic. tsconfig sets strict: true, so memberId reads
-  // as `string | undefined` and the COMPILER forces every consumer to handle
-  // the multi-member case explicitly rather than silently attributing a
-  // pool-wide event to one member. Weather is the only genuinely multi-member
-  // occurrence now that GL's multi-claimant abuse batches are gone.
-  memberId?: string;
-  memberIds: string[];
-  accidentYear: number;   // yearNumber the event happened (pre-game years negative)
-  calendarYear: number;
-  // For a single-member event, that member's region. For a multi-member
-  // hazard event, the ZONE the event struck — the correlation unit itself,
-  // not a property of any one member.
-  region: Region;
-  isCatastrophe: boolean; // part of a regional/pool-wide catastrophe event
-  claimIds: string[];     // every claim this event produced (WC and GL: exactly one)
-  // The hazard band this event belongs to, for lines that have more than one:
-  // Property emits 'property' (attritional) | 'weather' | 'cat' | 'earthquake'
-  // — a drawn catastrophe is 'earthquake' or 'cat', and a scheduled one names
-  // its own peril. PROPERTY_PERIL_DEDUCTIBLE is keyed on it. Absent on WC and GL,
-  // which have a single hazard band each — their sub-coverage vocabulary lives
-  // on Claim.tier and is a rating class, not a peril. Deliberately a string,
-  // for the same reason Claim.tier is.
-  peril?: string;
-  // The event's realized hazard intensity, where the band draws one (weather,
-  // cat). Unitless and band-specific: it is the driver that scales BOTH the
-  // event's footprint and its damage severity, so it is recorded to make that
-  // shared dependence externally checkable. Absent where no such draw exists.
-  intensity?: number;
-}
-
-export type ClaimStatus = 'open' | 'closed' | 'reopened';
-
-// One claim within an occurrence.
-export interface Claim {
-  id: string;
-  occurrenceId: string;
-  memberId: string;
-  line: CoverageLine;
-  accidentYear: number;   // yearNumber (pre-game years negative)
-  calendarYear: number;
-  // Severity class the claim falls under: a MIXTURE COMPONENT for both WC
-  // (small / medium / large / schoolsMedium, or 'injected' for a shock claim)
-  // and GL (component1 / component2 / component3), a peril label for
-  // Property. Deliberately a string, not a union — the vocabularies belong to
-  // the distribution work.
-  //
-  // GL's values CHANGED with the sub-coverage rebuild: they used to be a
-  // GL_RELATIVITIES sub-line (general / epl / lawEnforcement / abuse), one
-  // flat mixture replaced all four. Anything that pattern-matches the old GL
-  // sub-coverage strings needs revisiting, not just recompiling.
-  tier: string;
-  // THE SHOCK THAT MADE THIS CLAIM, set by every injection path — a WC or GL
-  // injection, a forced catastrophe, a scheduled weather event — and absent on
-  // every drawn claim, so the natural book serialises as it always did. It is
-  // what ties an event's claims together across lines: the Property and WC
-  // halves of one earthquake carry the same id. Player screens never show it;
-  // they show the event's name (see utils/yearEvents.ts), which reads the same
-  // for a scheduled event and a drawn one.
-  shockId?: string;
-  // THE BOOK UNIT the claim landed on (book units commit 5) — its index in the
-  // line's market (bookUnits.ts). Internal: NEVER SHOWN on any screen, export
-  // or workbook, which read the line. Absent on the member path and on
-  // claims from before book units.
-  unit?: number;
-  // The rating GROUP the claim arose from (WC: county / schools / highSafety /
-  // lowSafety). Was a rating CLASS before the severity rebuild.
-  ratingClass?: string;
-  status: ClaimStatus;
-  reportedYear: number;   // yearNumber the claim became known (>= accidentYear; supports IBNR vs case)
-  grossUltimate: number;  // current estimate of the claim's full gross cost
-  paidToDate: number;
-  caseReserve: number;    // unpaid estimate on this claim (grossUltimate - paidToDate once reported)
-  // Fractions of grossUltimate expected to be paid in years 1..n after the
-  // accident year. Data for Phase 3 reserving — nothing consumes it yet.
-  //
-  // NO LONGER POPULATED BY WC. The retired tier model carried a payout pattern
-  // per tier; the mixture model books one amount with no payout schedule, so
-  // WC claims leave this absent. GL and Property are unaffected.
-  paymentPattern?: number[];
-  /**
-   * Free text about the claim. ALWAYS ABSENT TODAY — nothing populates it.
-   *
-   * ⚠ THE FIELD EXISTS AHEAD OF ITS CONTENT DELIBERATELY, so the day something
-   * writes one there is no schema change, no save migration and no export
-   * rework — only a writer. The claims memo already reads it and renders its
-   * column ONLY when a displayed row has one, so an unpopulated field shows as
-   * nothing rather than as a blank column, which reads as a defect.
-   *
-   * ⚠ AND IT IS NOT A GENERATED LABEL. The memo's Description column, which is
-   * assembled from the member's own attributes, is a different thing and has a
-   * different name for that reason. This is for text ABOUT THE CLAIM, and there
-   * is nothing in the model that produces any.
-   */
-  description?: string;
 }
 
 // Seeded, read-only operating history shown before Year 1 begins.
@@ -447,51 +55,24 @@ export interface HistoricalYear {
   activeExposure: number;
   totalMarketExposure: number;
   marketShare: number;
-  /** Absent on a POOL row — no pool denominator exists. See poolToHistoricalYear. */
-  purePremiumPer100?: number;
-  /** Absent on a POOL row — divides by payroll+TIV. See poolToHistoricalYear. */
-  poolPremiumRatePer100?: number;
+  purePremiumPer100: number;
+  poolPremiumRatePer100: number;
   expectedLoss: number;
   poolPremium: number;
   adminExpense: number;
   poolPremiumAndAdminExpense: number;
   reinsuranceCost: number;
-  /** See the ResultRowFields declaration. OPTIONAL here because saves written
-   *  before the flat charge existed carry no such field, and defaulting it to 0
-   *  on load is the honest read: those games were charged the old way. */
-  retainedCoverMargin?: number;
   totalMemberCharge: number;
   grossUltimateLoss: number;
-  reinsuranceRecovery: number; // reinsurer's paid share of ceded loss
-  // Memo, same convention as above: what the tower absorbed of that year's
-  // PRIOR-YEAR development, and nothing else. Optional — pre-game years written
-  // before the mechanism existed carry no value and read as 0.
-  priorYearDevelopmentCeded?: number;
-  // Recovery DEFERRED by booking that year's register low. A current-year item;
-  // it used to be folded into the line above and was mislabelled there.
-  bookingGiveBack?: number;
-  // Per-occurrence tower outputs. OPTIONAL HERE ONLY: the pre-game bootstrap
-  // predates the tower decision, so seeded history carries no placement. The
-  // LIVE result types require these.
-  cededByLayer?: number[];
-  retainedAboveTower?: number;
-  aggregateRecovery?: number;
-  aggregatePremium?: number;
-  aggregateAttachment?: number;
+  reinsuranceRecovery: number;
   netUltimateLoss: number;
-  netPaidLosses: number;
+  grossPaidLosses: number;
+  endingGrossReserve: number;
+  endingReinsuranceRecoverable: number;
   endingNetReserve: number;
-  actualLossRatio: number;                 // MEMBER-CHARGE basis
-  // PRICING basis and RETAINED-PREMIUM basis, mirroring LineResultSet's.
-  // OPTIONAL because a save written before this existed carries neither, and
-  // the Dashboard's pre-game rows must keep rendering from an old save rather
-  // than showing NaN. Consumers fall back to recomputing from the dollar fields
-  // above, which are all present in every save.
-  actualLossRatioPricingBasis?: number;
-  actualLossRatioRetainedPremium?: number;
+  actualLossRatio: number;
   actualExpenseRatio: number;
   actualCombinedRatio: number;
-  underwritingIncome: number;
   investmentIncome: number;
   netIncome: number;
   endingSurplus: number;
@@ -504,21 +85,6 @@ export interface HistoricalYear {
 export interface GameInstance {
   instanceId: string;
   seed: number;
-  /**
-   * THE GAME'S SEED, ON A COPY THAT RUNS ON ANOTHER — a world's instance, or a
-   * pre-game attempt's. The book of units' market is the GAME's (bookUnits.ts),
-   * so every world and every attempt regenerates the same units from this.
-   * Absent on the game's own instance, whose `seed` it is.
-   */
-  marketSeed?: number;
-  /**
-   * THE SCENARIO, 1 TO 20, the game plays (stable-scenarios commit 9): its
-   * opening premium to surplus, its pre-game's experience and so its prior
-   * board's margin (pricingParameters' SCENARIO_PREMIUM_TO_SURPLUS). Set by
-   * generateGameInstance from the instance id (utils/scenarios.ts), and carried
-   * by every world's and every pre-game attempt's copy.
-   */
-  scenario?: number;
   lossEnvironment: {
     baseLossRatio: number;        // e.g. 0.68
     lossTrend: number;            // annual claim inflation e.g. 0.04
@@ -537,56 +103,6 @@ export interface GameInstance {
     competitivePressure: number;   // 0-1
     memberSensitivity: number;     // 0-1 how reactive members are to price
   };
-  // Shock events scheduled for this game, by catalog id and fire year. See
-  // src/data/shockCatalog.ts.
-  //
-  // OPTIONAL AND ABSENT BY DEFAULT, AND THAT IS LOAD-BEARING. generateGameInstance
-  // takes the list as an argument — solo passes an empty one, a session passes
-  // its room's — draws nothing to populate it, and writes the field only when
-  // the list is non-empty, so a game with no shocks is byte-identical to one
-  // from before shocks existed. A host's randomised schedule is drawn once, at
-  // room creation, and arrives here as concrete entries like any other.
-  //
-  // ⚠ IT RIDES THE SAVE WITH THE INSTANCE. The solo save serialises the whole
-  // instance and SAVE_STRIPPED_KEYS does not list this, so a reload keeps the
-  // schedule; a session player keeps no save and rebuilds from the room.
-  scheduledShocks?: ScheduledShock[];
-}
-
-// Coverage lines a pool can write. Selected once at game setup and locked for
-// the whole game. (Stage 1.1: type + setup selection only — not yet consumed by
-// the simulation engine.)
-export type CoverageLine = 'WC' | 'GL' | 'Property';
-
-/**
- * One line-year of the new loss engine, by component — what the gates and the
- * report read, so none of them has to reconstruct the year from the totals.
- * Every dollar figure is the POOL'S (GL net of its $25M limit).
- */
-export interface NewLossEngineRecord {
-  /** Exposure x the ordinary cost, trended — the draw's own scale. */
-  ordinaryExpected: number;
-  /** The lognormal year factor drawn on its labelled stream. */
-  ordinaryFactor: number;
-  /** The uplift on ordinary losses in force — every A and Economic Inflation. */
-  uplift: number;
-  /** Ordinary losses as booked: expected x factor x (1 + uplift). */
-  ordinaryRealised: number;
-  /** T losses arriving this year, the pool's share, and how many. */
-  shockLarge: number;
-  shockLargeClaims: number;
-  /** Routine large claims (switch on): count, and the excess booked. */
-  routineLargeClaims: number;
-  routineLarge: number;
-  /** The ex-ante expectation the year was priced and reported on. */
-  expected: { ordinary: number; uplift: number; shockLarge: number; routineLarge: number; total: number };
-  /** The R rate applied to prior years' outstanding this year, and the dollars it added. */
-  rRate: number;
-  rDevelopment: number;
-  /** Exposure that left with a Member Withdrawal at this renewal. */
-  withdrawnExposure: number;
-  /** Events in force on this line: catalogue id, name, the year it fired, region. */
-  events: { id: string; name: string; firedYear: number; region?: Region; uplift: number; rRate: number }[];
 }
 
 export interface GameSetupSettings {
@@ -594,794 +110,57 @@ export interface GameSetupSettings {
   gameLength: number;     // number of years
   startingYear: number;   // calendar year label only
   instanceId: string;
-  activeLines: CoverageLine[];  // coverage lines the pool writes (at least one)
-  /**
-   * THE HOST'S DEVELOPMENT %, PER LINE — signed, POSITIVE IS ADVERSE.
-   *
-   * Absent in singleplayer, which takes PRIOR_DEVELOPMENT_DEFAULTS. A session
-   * sets it from the room, so every team in a room develops alike. A line
-   * absent from the record takes the default, not zero: a host who edited WC
-   * and left GL alone meant GL's default, and an old room record written
-   * before this field existed means the defaults throughout.
-   */
-  priorDevelopment?: Partial<Record<CoverageLine, number>>;
-  /**
-   * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
-   * 'host' — the room's schedule. A solo game sets 'solo' — the schedule it drew
-   * once at its start (utils/soloGame). Either way the instance's
-   * scheduledShocks fire, in every world, and no probability is consulted.
-   * Absent only on a bare instance a harness builds, where each event fires at
-   * the catalogue's probability, per world. Read only by the new loss engine.
-   */
-  shockTiming?: 'host' | 'solo';
 }
 
-// Per-line player decisions for a given year.
-// riskControlPct and assetAllocation are POOL-WIDE decisions (set once on
-// DecisionSet below); the copies here are projected from the pool values at
-// processYear entry so the engine and each line's locked result snapshot keep
-// their existing per-line shape. The UI edits only the DecisionSet-level pair.
-export interface LineDecisionSet {
-  // rateChange REMOVED — CLF-only pricing. Funding confidence is now the sole
-  // pricing lever (see SLIDER_RANGES.fundingConfidenceLevel and the funding
-  // consequence panel on DecisionsPage). Three read sites removed it
-  // deliberately, each commented: membershipEngine.ts's updateSatisfaction,
-  // calcRetentionProbability and calcExpectedNewMembers.
-  fundingConfidenceLevel: number; // 0.30 to 0.95
-  // "EXPECTED" IS A MODE, NOT A NUMBER. WC's and GL's derived grids are
-  // percentile curves, so break-even (CLF exactly 1.000) falls BETWEEN
-  // percentile stops and moves with the enrolled book's own CV/lambda — WC
-  // from ~56.5% (full roster) to ~67.0% (smallest book), GL from ~60.8% to
-  // ~75.2%. It cannot be represented as a fixed number in
-  // fundingConfidenceLevel: that field would go stale the moment the book's
-  // composition shifted, silently drifting off CLF 1.000 while still reading
-  // as "the chosen value". ALL THREE LINES: true means the engine bypasses the
-  // table stop-lookup entirely and uses CLF = 1.000 exactly, at every book
-  // size, every year — not an interpolated value that happens to land close.
-  //
-  // ⚠ PROPERTY USED TO IGNORE THIS FIELD and no longer does. It read the
-  // generic FUNDING_CLF_TABLE, whose 60% entry is exactly 1.000, so its
-  // "Expected" and its 60% stop coincided and the flag was inert. Its own
-  // derived table crosses at 52.8%, so the two no longer coincide and the flag
-  // is what keeps "Expected" meaning break-even rather than a 60% stop.
-  // fundingConfidenceLevel is NOT read for pricing while this is true (it is
-  // only the fallback the slider lands on if the player later drags away from
-  // Expected to a specific percentile stop).
-  fundingAtExpected: boolean;
-  /**
-   * THE PRE-GAME'S FUNDING, NEVER A PLAYER'S. When set, the line funds at CLF
-   * exactly 1 + this over expected and reads no funding table — neither the
-   * flag above nor the confidence level is read for pricing. Only the pre-game's
-   * decisions set it (PRE_GAME_FUNDING_CUSHION); absent everywhere else.
-   */
-  fundingCushion?: number;
-  dividendPct: number;            // 0.00 to 0.15 of premium
-  assessmentPct: number;          // 0.00 to 0.25 of premium
-  /**
-   * The INTAKE SLIDER, a position 0..INTAKE_LOW: No New Business (0, and absent —
-   * the default), Strict, Moderate, Low. Each position sets a bar on a NOISY
-   * INSPECTION of risk quality and a cap on how many join that year; Low's cap
-   * is MAX_NEW_MEMBER_SHARE, the overall maximum. See intakeInspection.ts.
-   *
-   * ⚠ REPLACES newBusinessAppetite, which screened applicants on their own loss
-   * run. A save carrying newBusinessAppetite loads at No New Business; there is
-   * no save migration in this repo by design (gameSave.ts). A save written
-   * under the seven-level version of this slider carries a level up to 6, which
-   * reads as Low.
-   */
-  intakeLevel?: number;
-  /**
-   * The RENEWAL SLIDER: the share of this line's book NOT renewed this year,
-   * worst first on the member's own multi-year raw loss ratio. 0 (and absent)
-   * renews everyone, which is the default. One of RENEWAL_CUT_STEPS. See
-   * renewalUnderwriting.ts.
-   *
-   * ⚠ REPLACES renewalThreshold, which compared a ratio against a fixed bar. A
-   * save written before this carries renewalThreshold, which nothing reads any
-   * more, and no renewalCut — so it loads renewing everyone. There is no save
-   * migration in this repo by design (gameSave.ts).
-   */
-  renewalCut?: number;
-  // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
-  // candidates by riskQuality descending and kept the top 60% — exact
-  // selection on an attribute the player can no longer see. See
-  // membershipEngine.ts's note at the deleted screen. An older save may still
-  // carry the key; nothing reads it, so it is simply ignored on load.
-  riskControlPct: number;         // 0.00 to 0.08 of premium (projected from DecisionSet.riskControlPct)
-  // Risk-control programs committed for the year, PROJECTED from
-  // DecisionSet.riskControlProgramIds exactly as riskControlPct is. It lives
-  // here as well as at pool level because each locked result echoes a
-  // LineDecisionSet and nothing else, so this is the only place a played year's
-  // commitments are persisted — and programTenure reads them back from the
-  // played years rather than from a counter kept beside them.
-  //
-  // AN ARRAY OF STRINGS, so value-identity-check (numeric fields only) is blind
-  // to it by construction and no export hash moves for its presence alone.
-  riskControlProgramIds?: string[];
-  /**
-   * INVESTMENT IN RISK CONTROL INCENTIVES — 0 to 0.05 of this line's premium,
-   * in 1% steps, default 0. STORED AND NOT READ BY THE ENGINE, exactly as
-   * `priorDevelopment` is stored on the room and not read (see
-   * session/contract.ts's PriorDevelopment).
-   *
-   * ⚠ THE FIELD EXISTS SO THE WIRING IS A ONE-SITE CHANGE LATER, NOT BECAUSE
-   * ANYTHING CONSUMES IT NOW. The rate indication is being redesigned and this
-   * spend is meant to feed it; until that lands the engine must not read the
-   * field, and the screen says so under the slider. Nothing in
-   * simulationEngine.ts, the loss draw or the export touches it, so both value
-   * baselines hold for its presence alone.
-   *
-   * ⚠ OPTIONAL, for the reason riskControlProgramIds is: a save written before
-   * this field restores without it, and every diagnostic that builds a
-   * LineDecisionSet by hand keeps compiling. Absent reads as 0 — no spend —
-   * which is what those harnesses mean.
-   */
-  riskControlIncentivePct?: number;
-  // THE REINSURANCE PACKAGE this line buys — one id from REINSURANCE_OPTIONS
-  // [line], 'none' for nothing. Loss engine commit 4a: it replaces placing or
-  // declining each band (layersPlaced) and the aggregate stop-loss
-  // (aggregateStopLevel), which is no longer offered. The engine reads the
-  // tower placement through reinsuranceOptions.placementFor.
-  reinsuranceOption: string;
-  assetAllocation: AssetAllocation;    // projected from DecisionSet.assetAllocation
-  loanRepaymentAggressiveness: number; // 0.00 to 1.00 — share of positive net income used to
-                                       // repay an outstanding inter-line loan first; only
-                                       // relevant while that line carries a loan balance
-}
-
-// An inter-line loan from specific lending lines to a single line whose surplus
-// went negative. Tracked at the pool level (see PoolState.interLineLoans). At
-// most one outstanding loan per borrowing line at a time. Stage 2.9: the money
-// is a real transfer out of the lending lines' invested assets; repayments
-// (principal + interest) flow back to the same lenders in the same fixed shares.
-export interface InterLineLoan {
-  borrowingLine: CoverageLine;
-  principal: number;              // original amount borrowed (the deficit that was covered)
-  remainingBalance: number;       // outstanding principal + accrued interest, reduced by repayments
-  currentRate: number;            // the pool's asset-weighted blended investment return, RE-BLENDED
-                                  // every year this loan is outstanding (not fixed at origination —
-                                  // it tracks the lenders' current opportunity cost), floored at 0 so
-                                  // a bad market year can charge no interest but never pay the
-                                  // borrower. Named rateAtOrigination before it was made to float;
-                                  // renamed so the field doesn't lie about what it holds.
-  yearOriginated: number;
-  lenderShares: Partial<Record<CoverageLine, number>>; // each lending line's share of the loan
-                                                       // (sums to 1), fixed at origination
-}
-
-// Investment portfolio allocation across cash/bonds/equities — must sum to
-// 100. The ALLOCATION DECISION is pool-wide (one policy for every line), but
-// portfolios stay segregated per line (Stage 2.9): each line applies this
-// shared allocation to its own invested assets against the shared market draw.
-export interface AssetAllocation {
-  cashPct: number;
-  bondsPct: number;
-  equitiesPct: number;
-}
-
-// Player decisions for a given year: one LineDecisionSet per line, plus the
-// two POOL-WIDE decisions — investment allocation and risk-control intensity.
-// Pool-wide means one policy value; each line still applies it to its OWN
-// base (own invested assets / own premium), so effects stay line-sized.
+// Player decisions for a given year
 export interface DecisionSet {
   yearNumber: number;
-  byLine: Record<CoverageLine, LineDecisionSet>;
-  assetAllocation: AssetAllocation;  // pool-wide investment policy
-  riskControlPct: number;            // pool-wide risk-control intensity (0.00-0.08 of each line's own premium)
-  /**
-   * Risk-control programs committed for this year, by catalog id.
-   *
-   * ⚠ OPTIONAL ON PURPOSE, FOR TWO REASONS THAT ARE NOT STYLE. A game saved
-   * before this field existed restores without it, and `?? []` is what lets an
-   * old save load rather than throw. And every diagnostic that builds a
-   * DecisionSet by hand keeps compiling, so the field cannot silently acquire a
-   * wrong value in a harness nobody updated — absent reads as "no programs",
-   * which is what those harnesses mean.
-   *
-   * Only `gl-law-enforcement-analytics` reaches the engine; see
-   * riskControlPrograms.ts. Ids not in that list are inert.
-   */
-  riskControlProgramIds?: string[];
+  rateChange: number;             // -0.20 to +0.30 as decimal
+  fundingConfidenceLevel: number; // 0.50 to 0.95
+  dividendPct: number;            // 0.00 to 0.15 of premium
+  assessmentPct: number;          // 0.00 to 0.25 of premium
+  underwritingStrictness: number; // 0-10
+  riskControlPct: number;         // 0.00 to 0.08 of premium
+  reinsuranceLevel: number;       // 0-4
+  investmentRisk: number;         // 0-10
 }
 
-// ONE OCCURRENCE CARRYING AN ACCIDENT YEAR'S DEVELOPMENT.
-//
-// The subset is drawn at inception (see developmentAllocation.ts) and is
-// RESELECTED ONCE PER VALUATION AS CLAIMS CLOSE: a claim that has closed stops
-// carrying development and an open one takes its place. Between closures the
-// set does not move, so the same claims keep deteriorating rather than a fresh
-// subset appearing each valuation — which is both how a real book reads and
-// what makes "which claims developed" a coherent story in the register.
-//
-// ⚠ THE SET WAS FROZEN FOR ITS WHOLE LIFE UNTIL THE CLOSURE CURVES LANDED, and
-// what "frozen" was protecting was NOT that the set is fixed. It was that the
-// set cannot be REARRANGED — between the two directions of a valuation, or
-// between one valuation and the next for a reason other than closure. A set
-// that is reselected on closure alone, once, and then used for both directions
-// keeps every bit of that protection. See developmentAllocation.ts's
-// RESELECTION block and the three invariants development-cession-check now
-// asserts in place of the frozen-subset one.
-//
-// ⚠ ONLY THE SUBSET IS STORED, NOT THE WHOLE REGISTER, and that is what keeps
-// this inside Ruling 8's storage budget. Cession is per occurrence and
-// independent between occurrences, so the marginal cession of a development
-// depends ONLY on the occurrences that moved — the other ~500 in the accident
-// year cede exactly what they always did and do not need to be carried. Three
-// records per cohort rather than five hundred.
-export interface DevelopingClaim {
-  claimId: string;
-  occurrenceId: string;
-  /**
-   * As first REPORTED, GROSS of reinsurance: with FORWARD_BOOKING on, the
-   * contracted initialEstimate of the drawn occurrence (simulationEngine's
-   * buildTrackedSet call), BELOW what the generator drew. The drawn value is the
-   * register's Claim.grossUltimate, which this develops toward. Never moves.
-   *
-   * ⚠ IT WAS CALLED `drawn` AND IT IS NOT THE DRAW. The old name cost a real
-   * defect: the closure curve is size-banded, and the engine resolved the band
-   * by passing this field to resolveClosureCurve — which expects the DRAW — so
-   * 1.08% of claims carried a different status in the engine's register from
-   * the one the claims memorandum and the workbook computed for them. Every
-   * line of the doc comment above already said the field was contracted, and
-   * the name outvoted the comment. Renamed so the next reader cannot make the
-   * same substitution.
-   */
-  reported: number;
-  /** As first BOOKED — `drawn` less this cohort's optimistic markdown. Equal to
-   *  `drawn` when the line was funded at or above break-even. Never moves. */
-  original: number;
-  /** The occurrence total now, after every movement to date. GROSS. */
-  current: number;
-  /** True if this occurrence is currently in the developing subset. Both
-   *  directions of the stochastic step go to it — the name predates symmetric
-   *  routing and is kept because it is the word every gate and comment uses.
-   *
-   *  ⚠ THIS IS REDRAWN EVERY VALUATION. Cleared for every occurrence and then
-   *  set on whichever are drawn, so an open occurrence may develop one year and
-   *  not the next. What it never does is change between the two DIRECTIONS of a
-   *  single valuation — that is the free-lunch guard, and it is
-   *  within-valuation. */
-  developing: boolean;
-  /** True once this occurrence's claim has closed, as at the last valuation
-   *  that reselected. Closure is a pure function of (gameId, claimId, curve,
-   *  age) — see claimClosure.ts — so this is a CACHE of a derived fact, carried
-   *  so the register can be read without re-deriving it, never a source of
-   *  truth. Monotone: a closed occurrence never reopens.
-   *
-   *  ⚠ A CLOSED OCCURRENCE STILL TAKES THE PROPORTIONAL UNWIND, and that is
-   *  deliberate — see processIbner. It takes no development draw. */
-  closed?: boolean;
-  /** THIS OCCURRENCE'S MOVEMENT AT EACH VALUATION, oldest first. Index k is the
-   *  step taken from age k to age k+1, so it belongs to valuation year
-   *  `yearNumber + k + 1` of the cohort that holds it. The two movements a step
-   *  makes — the stochastic draw and the deterministic unwind — are summed into
-   *  ONE entry, because a valuation produces one revised estimate and the split
-   *  between them is a mechanism detail, not something a valuation reports.
-   *
-   *  ⚠ THE MARKDOWN IS NOT IN HERE. `drawn -> original` happens at inception, not
-   *  at a valuation, and is readable as the difference between those two fields.
-   *  Putting it in the series would make the first entry a booking decision
-   *  wearing a valuation's clothes.
-   *
-   *  ⚠ WHY THIS IS STORED RATHER THAN DERIVED. The same reason
-   *  ReserveDevelopmentRow exists: each step multiplies by a fresh lognormal draw
-   *  and then SPLITS it across occurrences by their then-current values, so
-   *  yesterday's value cannot be recovered from today's — neither the draw nor
-   *  the split survives. `current - original` is the only thing a derivation can
-   *  reach, and it nets a claim that doubled then halved to nothing.
-   *
-   *  ⚠ AND IT IS BOUNDED, which is what keeps it inside Ruling 8. Length is
-   *  capped by the cohort's horizon, not by game length: at most 12 entries (WC's
-   *  IBNER_HORIZON.max), 8 on GL, 4 on Property. It does NOT grow as the game runs
-   *  on — a year-30 save carries the same per-claim series a year-12 save does.
-   *  Measured over 3 games x 10 years x 3 lines in both funding arms
-   *  (scripts/diagnostics/claims-workbook-check.ts): 12.7-13.5 KB of a 389 KB
-   *  serialised poolState, 3.3-3.5% of it and ~0.27% of a 5MB quota. */
-  movementByStep?: number[];
-  /** Present, and true, only on a Property CATASTROPHE occurrence. The tower
-   *  does not read it — Property's one layer answers every occurrence — but it
-   *  decides how the occurrence is RESERVED: booked at its drawn total
-   *  rather than contracted, always tracked, never in the developing set, and
-   *  exempt from revision and from the settlement factor — known at inception,
-   *  paid out on the Property pattern, closed at the value it was booked at.
-   *  See bookedOccurrenceTotals in simulationEngine.
-   *  Absent everywhere else, so every WC and GL record serialises exactly as it
-   *  did before the cat band existed. */
-  catastrophe?: true;
-  /** The peril deductible this occurrence retains before the tower responds,
-   *  where it is above the layers' own attachments — a Property earthquake's
-   *  $10M (PROPERTY_PERIL_DEDUCTIBLE). cedeDevelopment reads it so every later
-   *  movement cedes on the terms the occurrence was ceded on at inception.
-   *  Absent means the layers' attachments, which is every WC and GL record and
-   *  every Property occurrence of an unlisted peril, so they serialise exactly
-   *  as before. */
-  deductible?: number;
+// Reinsurance structure derived from level selection
+export interface ReinsuranceStructure {
+  level: number;
+  label: string;
+  attachment: number;           // dollar amount
+  limit: number;                // dollar amount
+  recoveryPct: number;          // fraction recovered above attachment up to limit
+  costPctOfPremium: number;     // approximate annual cost as % of premium
 }
 
-// ============================================================================
-// A REPLACEMENT WAITING TO BE CALLED ON — an occurrence drawn size-weighted at
-// inception, sitting inside `untrackedTotal` until a developing claim closes.
-//
-// ⚠ IT IS NOT TRACKED AND IT CEDES NOTHING WHILE IT SITS HERE. That is the
-// whole point of keeping it in a separate array rather than in
-// `developingClaims` with developing: false. A benched occurrence is below the
-// retention by construction, and its dollars are still counted inside
-// `untrackedTotal`; promoting it into the tracked set moves the same dollars
-// from the scalar into the list and nothing else. If it were tracked from
-// inception it would begin to cede the moment the proportional unwind pushed
-// it over the retention — while an identical occurrence that happened not to be
-// drawn would not. Being on a storage shortlist is not a reason to cede.
-//
-// ⚠ `current` MIRRORS THE UNTRACKED MASS AND IS NOT INDEPENDENT STATE. The
-// untracked total only ever moves multiplicatively — every allocation path
-// gives it a share proportional to what it holds — so each benched occurrence's
-// value is its booked value scaled by the same factor the mass moved by.
-// processIbner applies that factor each valuation. It is carried rather than
-// recomputed because promotion removes dollars from the mass, which breaks the
-// single-ratio shortcut the moment it happens.
-// ============================================================================
-export interface BenchClaim {
-  claimId: string;
-  occurrenceId: string;
-  /** As first REPORTED, GROSS — the contracted initialEstimate when
-   *  FORWARD_BOOKING is on, exactly as DevelopingClaim.reported. Never moves.
-   *  ⚠ THE CLOSURE CURVE IS NOT RESOLVED ON THIS DIRECTLY — this is a contracted
-   *  value and the band is defined on the draw; see closureCurveForReported. */
-  reported: number;
-  /** As first BOOKED — `drawn` less this cohort's optimistic markdown. */
-  original: number;
-  /** Its share of the untracked mass now. Becomes the occurrence's `current` on
-   *  promotion, so no dollars are created or lost by promoting. */
-  current: number;
-  /** As DevelopingClaim.catastrophe — carried so a promotion keeps the kind. */
-  catastrophe?: true;
-}
-
-// Annual reserve cohort for simplified development. NET basis: losses enter
-// net of reinsurance recoveries (recovery cash arrives in lockstep with the
-// claim payments it offsets, so there is no separate recoverable receivable).
-// ⚠ THE PARAGRAPHS THAT STOOD HERE DESCRIBED A DIFFERENT TYPE AND ARE GONE FROM
-// THIS FILE. They opened "A claim DRAWN but NOT YET REPORTED — the IBNR
-// inventory" and went on about a localStorage exception, ~530 delayed-claim
-// records, ~80KB, and why the inventory could not be regenerated. That is the
-// header of the DELETED delayed-claim type, left behind above ReserveCohort when
-// the type went — a header describing something that no longer exists, sitting
-// above something it never described. Seventh sighting of the removed report
-// lag.
-//
-// It was worth keeping, because it is the only record of what the deleted design
-// cost, so it MOVED rather than being dropped: see LINE_REPORTING_PATTERN in
-// defaultAssumptions.ts, quoted in full beside the pattern that would
-// reintroduce such an inventory. Nothing about ReserveCohort is in it.
-//
-// ReserveCohort IS persisted, and its boundedness is a real argument with a real
-// gate behind it — cohort-stock-check — but that argument is about cohorts, not
-// about delayed claims, and it lives at that gate.
+// Annual reserve cohort for simplified development
 export interface ReserveCohort {
   yearNumber: number;
   calendarYear: number;
-  // The cohort's CURRENT estimate of ultimate, net of reinsurance. This is what
-  // develops: IBNER moves it each year until the cohort matures. `netUnpaid`
-  // follows from it, and `netPaid` accumulates against it.
-  /**
-   * THE AGGREGATE STOP this accident year was written with (stable-scenarios
-   * commit 6): its terms in dollars, fixed at inception, and what it has
-   * recovered to date. Recalculated each valuation on the year's developed
-   * gross; the change is a prior-year reinsurance adjustment. Absent when the
-   * year bought none, and on bulk cohorts.
-   */
-  /**
-   * THE ACCIDENT YEAR'S SHOCK DOLLARS, booked gross (stable-scenarios commit 7):
-   * the shocks' uplift on its ordinary losses plus their large losses, as
-   * written. Copied to its ledger row, where pricing takes them out of the
-   * experience and charges a steady catastrophe load instead. Absent where no
-   * shock reached the year.
-   */
-  shockGross?: number;
-  aggregateStop?: { optionId: string; attachment: number; limit: number; recovered: number };
-  netUltimate: number;
-  netPaid: number;
-  netUnpaid: number;
-
-  // --- THE GROSS PAID LEDGER (see processIbner's gross block) --------------
-  // ⚠ A PARALLEL LEDGER THAT NEVER FEEDS THE NET ENGINE, and that is the design
-  // rather than an implementation detail. These run alongside netPaid/netUnpaid
-  // at the SAME conditionalPaydown rate and absorb the SAME development, but
-  // nothing in the net path ever reads them. That is what keeps the null test
-  // available: every pre-existing field stays bit-identical, so value-identity
-  // can still tell an engine change from a recording.
-  //
-  // GROSS, because the claims are gross. Tying a gross per-claim column to a NET
-  // cohort figure would thread the cession split through every row; one basis end
-  // to end makes the tie-out arithmetic instead of a reconciliation.
-  //
-  // Optional only for cohorts deserialised from a save written before this
-  // existed; every cohort the engine creates carries both.
-  grossPaid?: number;
-  grossUnpaid?: number;
-  // ⚠ `paydownPct` IS GONE. It stored a per-cohort copy of a line-level
-  // constant, which was harmless while that constant was flat and a second
-  // description of one fact the moment payout patterns replaced it. The rate is
-  // now looked up from the line's pattern at the cohort's own age — see
-  // payoutPattern.ts — so `age` and the line are the whole state it needs.
+  grossUltimate: number;
+  grossPaid: number;
+  grossUnpaid: number;
+  reinsuranceRecoverable: number;
+  reinsuranceReceived: number;
+  paydownPct: number;           // portion paid each year
+  developmentFactor: number;    // seeded favorable/adverse dev
   closed: boolean;
-
-  // True on a cohort apportioned by generateStartingReserveCohorts rather than
-  // written by a simulated year. Absent (falsy) on every engine-born cohort.
-  //
-  // ⚠ THIS FIELD DID NOT EXIST AND SOMETHING WAS ALREADY FILTERING ON IT.
-  // maturity-anchor-check declares `seeded?: boolean` on its own local cohort
-  // type and skips rows where it is set — a filter that has never once fired,
-  // because the flag lived only on ReserveDevelopmentRow. The gate was silently
-  // measuring apportioned seeds alongside real cohorts, which is exactly the
-  // contamination the filter was written to prevent. Adding the field makes the
-  // filter do what it says; it does not add a new rule.
-  seeded?: boolean;
-
-  // --- IBNER (see defaultAssumptions.ts's IBNER_* block) -------------------
-  // ⚠ `developmentFactor` IS GONE. It was written at two sites and READ AT
-  // NONE — processReserveDevelopment drew its own factor fresh and ignored the
-  // stored one — while still spending an RNG draw to fill it. The fields below
-  // replace it with state that is actually consulted.
-
-  // Sum of the claims the generator drew for this accident year, NET of
-  // reinsurance, frozen at inception. The claim register keeps showing exactly
-  // this; it never develops. `netUltimate - registerSum` IS the IBNER provision.
-  registerSum: number;
-  // Runoff length in years, drawn per cohort. The cohort stops developing once
-  // it has taken this many steps.
-  horizon: number;
-  // Steps taken so far. Development stops at `age >= horizon`.
-  age: number;
-  // This cohort's draw from IBNER_STEP_MIXTURE — its "boring or eventful"
-  // character, fixed for the cohort's whole life.
-  stepMultiplier: number;
-  // The optimistic booking bias applied at inception, as a fraction. Unwinds at
-  // bias/horizon per year so E[netUltimate at maturity] = registerSum exactly.
-  // Zero whenever the line was funded at or above break-even.
-  bookingBias: number;
-
-  // --- claim-level development (see developmentAllocation.ts) --------------
-  // The occurrences this accident year's development lands on. EMPTY on a seed
-  // cohort, which has no claim register behind it — its development is retained
-  // entire, which is the honest default and is 0.4% of all adverse development.
-  // ⚠ TRACKED OCCURRENCES, NOT JUST THE CARRIERS. Everything at or above the
-  // retention plus the developing set — the only occurrences whose value can ever
-  // change a cession. EMPTY on a seed cohort, which has no register behind it
-  // and retains its development entire.
-  developingClaims?: DevelopingClaim[];
-  // Gross total of the occurrences NOT tracked. All below the retention, so
-  // they never cede; carried so a proportional movement gets the shares right
-  // without storing five hundred numbers per cohort.
-  untrackedTotal?: number;
-  // ⚠ THE REPLACEMENTS, DRAWN AT INCEPTION AND HELD UNTIL NEEDED. Reselection
-  // has to draw a replacement SIZE-WEIGHTED from the open register, and
-  // by valuation time the register is gone — everything not tracked has
-  // collapsed into the one scalar above, and there is no list left to draw from.
-  // So the draw happens at inception, when the register still exists, and its
-  // result waits here. See developmentAllocation.ts's RESELECTION block for why
-  // a bench and not a rule over the tracked set, and what it costs.
-  //
-  // Dropped the moment the cohort matures, because nothing reselects after
-  // that. Bounded by construction: only cohorts still inside their horizon
-  // carry one, so at most 12 WC + 8 GL + 4 Property cohorts hold a bench at any
-  // valuation however long the game runs.
-  developmentBench?: BenchClaim[];
-  // ⚠ CUMULATIVE DEVELOPMENT THE TOWER HAS TAKEN OFF THIS COHORT, and it RESTATES
-  // A STANDING IDENTITY. ibner-null-check asserted that a matured cohort's
-  // netUltimate equals registerSum exactly — the statement that the optimistic
-  // booking unwinds in full. That is no longer true and should not be: the
-  // unwind lands on claims like any other adverse movement, so a claim above the
-  // retention cedes part of it and the pool's NET ultimate ends BELOW its
-  // register sum by exactly what the reinsurer took. The identity becomes
-  //
-  //     netUltimate + cededDevelopmentToDate === registerSum   (at maturity)
-  //
-  // and it is still exact. Ceding development is precisely the pool ending up
-  // better off than its own register; an invariant saying otherwise was an
-  // invariant about the old mechanism.
-  cededDevelopmentToDate?: number;
-  // ⚠ THE LAYERS IN FORCE IN THE ACCIDENT YEAR, NOT THE VALUATION YEAR.
-  // Occurrence cover attaches to the accident year, so a development arriving
-  // in year 7 on accident year 3 is covered by what year 3 bought. Storing it
-  // on the cohort is what makes that true without having to look up a decision
-  // set that may no longer exist.
-  placedAtInception?: boolean[];
-  // --- THE HOST'S LIFETIME DEVELOPMENT (see hostDevelopment.ts) -----------
-  /** The outstanding the development was struck on, on this cohort's own
-   *  basis — gross where a register exists, net where one does not. */
-  developmentBase?: number;
-  /** The line's signed % of that base: everything this accident year will
-   *  develop by, in TOTAL, over its remaining lifetime. Positive is adverse. */
-  developmentTotal?: number;
-  /** How much of it has emerged so far. Reaches developmentTotal at run-off,
-   *  which development-emergence-check asserts to the cent. */
-  developmentEmerged?: number;
-  /** The unpaid share at the age the base was struck — the denominator that
-   *  makes each year's increment a share of the whole. */
-  developmentBaseOpenShare?: number;
-}
-
-// ONE ACCIDENT YEAR'S ESTIMATE, AT EVERY VALUATION IT HAS SEEN — the reserve
-// development exhibit's only source.
-//
-// ⚠ THIS EXISTS BECAUSE THE PATH IS NOT RECONSTRUCTIBLE, and that is worth
-// stating plainly before anyone tries to delete it as redundant with
-// ReserveCohort. A cohort stores its CURRENT estimate and nothing else. Each
-// development step multiplies the remaining reserve by a fresh lognormal draw
-// (processIbner), so yesterday's estimate cannot be recovered from today's by
-// dividing anything out: the draw is gone. And a cohort is filtered out of
-// `reserveCohorts` the year after it closes, so even its final estimate stops
-// being readable. A development triangle needs both. Hence an append-only
-// ledger that no engine arithmetic reads.
-//
-// ⚠ THIS SAID "NOTHING IN THE ENGINE CONSUMES THIS" AND THE WARNING BESIDE IT
-// HAS SINCE FIRED. It read: written by processLineYear, read only by the
-// Actuarial memorandum, no value moved and no RNG draw spent — "keep it that
-// way: if a priced or booked quantity ever starts reading this ledger, the
-// ledger has become engine state and needs the scrutiny that goes with it."
-//
-// A priced quantity now does. simulationEngine builds
-// experienceBasis.rows = windowRows(lineState.reserveDevelopment) and PRICES off
-// it; experienceRating.ts's own header opens by saying so ("THIS READS
-// reserveDevelopment, NOT claimTriangle.ts. That is the whole point of S3"). So
-// this ledger IS engine state, and the two properties that followed from it
-// being inert no longer follow: it is not free to change its contents, and a
-// change here moves priced values rather than only a memorandum.
-//
-// What is still true, and is what the display note was protecting: it is
-// APPEND-ONLY and never pruned, so a reader can rely on a row surviving its
-// cohort's closure. PRICING is windowed to ten accident years at the read site,
-// never by trimming the ledger.
-/**
- * One accident year's CASE / IBNR split, on all three bases.
- *
- * ⚠ A PRESENTATION. Derived in reserveSplit.ts from the recorded patterns at
- * the year's age and read by nothing economic — see that file's header and
- * reserve-split-check, which asserts the inertness directly.
- */
-export interface AccidentYearSplit {
-  yearNumber: number;
-  calendarYear: number;
-  ageMonths: number;
-  /** TRUE where ageMonths was clamped because the cohort outlived its pattern. */
-  beyondPattern: boolean;
-  caseNet: number;
-  ibnrNet: number;
-  unpaidNet: number;
-  caseGross: number;
-  ibnrGross: number;
-  unpaidGross: number;
-  caseCeded: number;
-  ibnrCeded: number;
-  unpaidCeded: number;
-}
-
-export interface ReserveDevelopmentRow {
-  yearNumber: number;          // the ACCIDENT year this row describes
-  calendarYear: number;
-  /**
-   * THE EXPOSURE THE ACCIDENT YEAR WAS WRITTEN ON, $M — written only with
-   * MEMBER_LEVEL off, where no roster or membership history exists to
-   * reconstruct it from. Pricing reads it as each year's denominator.
-   */
-  exposure?: number;
-  // The cohort's estimate of ULTIMATE as at the end of each successive
-  // valuation year, oldest first. Index k is valuation year
-  // firstValuationYear + k. Ultimate, not reported/incurred: the exhibit is
-  // about the gap between what is reported and what is estimated, so the
-  // ambiguous word is wrong exactly where the distinction is the point.
-  /**
-   * THE ACCIDENT YEAR'S SHOCK DOLLARS, booked gross (stable-scenarios commit 7)
-   * — the cohort's `shockGross`. The experience pure premium removes them on
-   * the paid basis before development and prices them as a steady load.
-   */
-  shockGross?: number;
-  ultimateByValuation: number[];
-  // CUMULATIVE NET PAID at each of the same valuations, same indexing. A
-  // RECORDING, not a computation — the figure processIbner already produced,
-  // written down so a paid triangle and a paid-to-incurred ratio exist without
-  // anything having to reconstruct them.
-  //
-  // ⚠ NET, MATCHING ultimateByValuation BESIDE IT, AND THE GROSS SERIES WAS
-  // MEASURED AND REJECTED. The paid ledger the engine runs is GROSS — that is
-  // what the claims workbook needs and what ReserveCohort.grossPaid carries —
-  // so the obvious thing was to record the gross series here too and give the
-  // exhibit a gross paid-to-incurred. It was built that way and it cost a SECOND
-  // array, because a gross ratio also needs a gross denominator per valuation.
-  // Two arrays took cohort-stock-check's poolState growth ratio from 0.65 to
-  // 0.76 against its 0.75 limit: real accumulation on a ledger that already
-  // grows a number per accident year per valuation forever. One array passes at
-  // 0.72.
-  //
-  // Given one, NET is the right one. The exhibit's other five columns are net,
-  // so a net paid column and a net paid-to-incurred make that document
-  // internally consistent and subtractable throughout — where a gross paid
-  // column sitting beside a net ultimate is precisely the mixed-basis reading
-  // this project keeps producing. The CLAIMS WORKBOOK stays gross end to end and
-  // reads ReserveCohort.grossPaid directly, so each document is coherent on its
-  // own basis. The two do not tie across documents and are not meant to; the
-  // difference is what the tower is carrying.
-  //
-  // Absent on rows written before the ledger existed, and on nothing else.
-  paidByValuation?: number[];
-  /**
-   * CUMULATIVE GROUND-UP PAID at the same valuations, same indexing as
-   * `paidByValuation` beside it.
-   *
-   * ⚠ A PARALLEL SERIES THAT THE CURRENT ENGINE NEVER READS, written the same
-   * way and for the same reason ReserveCohort.grossPaid is: the net path stays
-   * bit-identical, so value-identity can still tell an engine change from a
-   * recording. The new pure premium (newPurePremium.ts) is its only reader.
-   *
-   * ⚠ IT EXISTS BECAUSE THE FIRST INDICATION IS PRICED AS IF SELF-FUNDING, and
-   * therefore needs GROUND-UP losses. Everything else on this row is NET, so
-   * without this the new pricing would have had to either gross a net rate back
-   * up through the tower — reintroducing exactly the double-deduction the
-   * current path spends a secant solve avoiding — or price a retained basis and
-   * call it ground-up. The cohort already carries `grossPaid`; this records it
-   * per valuation so a triangle can be built from it.
-   *
-   * Optional only for rows written before this existed. A row without it is
-   * skipped by the new pure premium rather than falling back to the net series,
-   * which would be a silent basis switch.
-   */
-  grossPaidByValuation?: number[];
-  // The valuation year that ultimateByValuation[0] belongs to.
-  firstValuationYear: number;
-  // The cohort's age at that first valuation. Zero for an accident year the
-  // engine wrote; POSITIVE for a seed cohort, which is born already aged.
-  ageAtFirstValuation: number;
-  // Runoff length. Development stops once age exceeds it.
-  horizon: number;
-  // ⚠ SEEDED COHORTS HAVE NO REGISTER BEHIND THEM. They are apportioned from a
-  // drawn reserve total rather than summed from claims, so their first entry is
-  // their estimate AS AT GAME START, not at inception — there was no inception.
-  // The exhibit labels their column differently for that reason; presenting a
-  // game-start value as an original estimate would be the fiction that
-  // generateStartingReserveCohorts' header refuses to invent.
-  seeded: boolean;
-}
-
-// ============================================================================
-// THE PRICING TRIANGLE — the windowed view of the ledger above that PRICING
-// reads. Projected by pricingTriangle.ts at each valuation; see that file for
-// the window rule, the tail it truncates and why it seeds where it does.
-// ============================================================================
-
-/**
- * One cell. ⚠ `age` IS 1-BASED — an accident year at its first valuation is at
- * age 1, the twelve-month column, by actuarial convention. ReserveDevelopmentRow
- * is 0-BASED (ageAtFirstValuation is 0 for a year written this year). The two
- * clocks meet in projectPricingTriangle and nowhere else.
- */
-export interface PricingCell {
-  accidentYear: number;
-  age: number;
-  incurred: number;
-  paid: number;
-}
-
-export interface PricingTriangleState {
-  /** The window depth this triangle was cut to — TRIANGLE_HISTORY_YEARS. */
-  years: number;
-  cells: PricingCell[];
-  /** 0 on seeded accident years, whose exposure is not reconstructable. */
-  exposureByYear: Record<string, number>;
-  /**
-   * The prospective rate per $100 THIS window produces — the rate the next
-   * accident year is priced at.
-   *
-   * ⚠ STAMPED BY THE ENGINE WITH THE APPLIED FIGURE, not recomputed by a
-   * reader. Condition 4 of the acceptance test asks whether the next year is
-   * priced off the updated triangle, and a rate the harness derived for itself
-   * would answer a different question. Undefined when the window cannot price
-   * itself (no accident year with both a paid figure and a known exposure), in
-   * which case the engine falls back to the held rate.
-   */
-  ratePer100?: number;
 }
 
 // Full result for one completed simulation year
-// A drawn catastrophe as the year's result records it — enough to say what
-// happened, where, and to whom, after the claims themselves are gone.
-export interface DrawnCatastrophe {
-  occurrenceId: string;
-  peril: string;          // 'earthquake' or 'cat' — see PROPERTY_CAT_EARTHQUAKE
-  region: Region;
-  claims: number;
-  grossLoss: number;
-}
-
-// ⚠ NOT EXPORTED AND NOT USED DIRECTLY. This is the full set of fields a result
-// row can carry. `LineResultSet` is exactly this; `ResultSet` (the POOL row) is
-// this MINUS PoolAbsentKey, so the compiler refuses a pool-scope read of a
-// quantity that has no pool meaning. See PoolAbsentKey for why each one went.
-interface ResultRowFields {
+export interface ResultSet {
   yearNumber: number;
   calendarYear: number;
-  // WHICH LINE THIS ROW IS. Absent on the POOL row, which is an aggregate of all
-  // of them.
-  //
-  // ⚠ ADDED BECAUSE A COUNT WAS BEING USED AS AN IDENTITY. resultMetrics inferred
-  // the line from `cededByLayer.length >= 4 ? 'WC' : 'GL'`, which worked only
-  // while WC's tower had four layers and GL's had three. Merging WC's top two
-  // layers made both three, and that test would have silently labelled every WC
-  // row 'GL' — compiling, rendering, and printing GL's layer names on a WC
-  // result. A row carries its own identity now.
-  //
-  // A STRING, so value-identity-check (numeric fields only) is blind to it by
-  // construction, and it is not a spreadsheet metric so no export hash moves.
-  line?: CoverageLine;
 
   // Decisions echoed
-  decisions: LineDecisionSet;
-  assetAllocation: AssetAllocation; // this line's own allocation decision, echoed
-                                    // (pool-level aggregate shows the first line's as a placeholder)
+  decisions: DecisionSet;
 
   // Membership
-  //
-  // ⚠ MEMBERS AND ENROLMENTS ARE DIFFERENT NUMBERS AT POOL SCOPE, and conflating
-  // them is the defect class this block exists to prevent. A member carrying WC
-  // and GL is ONE member and TWO enrolments. At LINE scope the two coincide, so
-  // every field below is a plain headcount there and the distinction only bites
-  // on the pooled row.
-  //
-  // These three are DISTINCT MEMBER counts at both scopes. They are what a
-  // player means by "how many members do we have".
   activeMembers: number;
   newMembers: number;
   withdrawnMembers: number;
-  // The enrolment sum — activeMembers summed across lines without deduplication.
-  // Equal to activeMembers at line scope; ~47% higher at pool scope on a
-  // three-line book. It is NOT a headcount and must never be displayed as one.
-  //
-  // It is carried because it is the legitimate WEIGHT behind memberSatisfaction
-  // and averageRiskQuality: those average a per-line figure weighted by that
-  // line's enrolments, and a member with two lines genuinely has two enrolment
-  // experiences to average. Anyone reconstructing either figure from the export
-  // needs this column; dividing by activeMembers instead would inflate both.
-  enrolmentCount: number;
-  // Ids of the members who joined / left this line this year. Carried so the
-  // pooled row can count DISTINCT joiners and leavers rather than summing
-  // per-line events — a member taking WC and GL in the same year is one joiner,
-  // not two. Line scope: exactly `newMembers` / `withdrawnMembers` entries.
-  //
-  // ⚠ THESE EXIST BECAUSE `Member.yearJoined` CANNOT ANSWER THE QUESTION, and
-  // its own comment says so: every opening member carries yearJoined 1, so
-  // filtering the roster on it reports the entire year-1 book as joiners (140
-  // against a true 41 when this was tried). The per-line sets are the only
-  // record of who actually entered or left in a given year.
-  newMemberIds: string[];
-  withdrawnMemberIds: string[];
-  /**
-   * Members the pool DECLINED to renew this year (Renewal Underwriting).
-   * Distinct from withdrawnMembers, which is what members chose themselves —
-   * and deliberately absent from memberRetentionRate for the same reason.
-   */
-  declinedMembers?: number;
-  /**
-   * THE INTAKE, SEPARATED INTO ITS THREE CONSTRAINTS. `newMembers` is
-   * min(intakeRoom, eligibleApplicants) and collapses two very different years
-   * into one number: a year nobody applied in looks identical to a year the
-   * pool turned applicants away. These say which it was.
-   *
-   *   applicants          how many of the unenrolled pool applied (a share of
-   *                       it — see APPLICATION_RATE)
-   *   eligibleApplicants  how many of those cleared New Business Appetite
-   *   intakeRoom          how many the pool had space for, after demand and
-   *                       both caps
-   *
-   * SHORT YEAR ⟺ eligibleApplicants < intakeRoom: the pool had room and the bar
-   * left nobody to fill it with. That is the state that makes the appetite a
-   * decision rather than a relabelling, and it is not derivable from
-   * `newMembers` alone.
-   *
-   * Optional because saves written before the intake rebuild do not carry them.
-   */
-  applicants?: number;
-  eligibleApplicants?: number;
-  intakeRoom?: number;
   activeExposure: number;
   totalMarketExposure: number;
   marketShare: number;          // exposure-based
@@ -1395,99 +174,7 @@ interface ResultRowFields {
   ratePer100: number;           // rate per $100 payroll
   purePremiumPer100: number;    // expected loss per $100 payroll
   purePremium: number;          // kept for compat
-  // NET-FUNDING INTERMEDIATES — purePremiumPer100 is GROSS; poolPremium funds
-  // (purePremiumPer100 - expectedCededPer100) x CLF x rateLevel/100. Both were
-  // locals inside processLineYear until now, so nothing outside the engine
-  // could reproduce poolPremium, and the audit page's build-up card displayed
-  // a gross derivation beside a net value it could not reconcile to (38-73%
-  // apart on WC/GL). Added purely so that gap can be closed; see
-  // simulationEngine.ts's fundedNetExpectedLoss and the net-funding note above
-  // it for the fuller story.
-  //
-  // STORED UNROUNDED, unlike purePremiumPer100 above (which is toFixed(4) for
-  // display) — these two exist to satisfy an exact identity
-  // (poolPremium === activeExposure x netPurePremiumPer100 x CLF x
-  // rateLevel/100 x 10_000), and rounding either would break that to display
-  // precision instead of float precision.
-  //
-  // NOT COLLAPSIBLE TO ONE FIELD. netPurePremiumPer100 = Math.max(0,
-  // purePremiumPer100 - expectedCededPer100) — a floor that has never bound on
-  // the shipped path, but deriving one from the other via that formula would only
-  // reproduce the un-rounded purePremiumPer100 exactly, and the only copy of
-  // that on this type is rounded. Both are stored so the identity holds from
-  // stored fields alone.
-  //
-  // ⚠ NONZERO ON EVERY LINE NOW. This said "ZERO ON PROPERTY, exactly and by
-  // construction" until Property got its own occurrence layer and aggregate;
-  // netting follows from `hasTractableCeded`, so widening that widened this with it.
-  // Property's expectedCededPer100 is a measured quantity like WC's and GL's
-  // (~25% of gross pure premium at the default placement) and only reaches 0
-  // if the player declines the layer AND the aggregate.
-  //
-  // ⚠ THE FLOOR HAS BOUND, AND WHEN IT DOES THE LINE CHARGES NOTHING SILENTLY.
-  // Not on the shipped path — there the held rate is gross and the subtraction
-  // is one deduction from a rate that had cession in it. It bound on the
-  // PRICING_TRIANGLE arm before the double-cession fix, because the experience
-  // rate is RETAINED and cession was being removed from it a second time: GL's
-  // expected ceded overtook its whole priced rate in 104 of 600 line-years and
-  // the pool billed zero pure premium, funding the year out of surplus with no
-  // error anywhere. experience-pricing-check's arm 1 now counts floored
-  // line-years and fails on any of them, because a level test cannot catch this
-  // — it sees a small number where there is an absent one.
-  expectedCededPer100: number;
-  netPurePremiumPer100: number;
-  /**
-   * THE NEW PURE PREMIUM — SHADOW. Commit 2 of the pricing rebuild.
-   *
-   * ⚠ IT SETS NO RATE AND NOTHING PRICES OFF IT. Computed beside
-   * `purePremiumPer100` so the two can be compared on real games before the
-   * new stack replaces the old one in commit 3. Ground-up, five-year window,
-   * recorded paid LDFs, trended net of exposure growth, plus ALAE and ULAE.
-   * See newPurePremium.ts.
-   *
-   * Optional: absent where the window holds no usable accident year, and on
-   * every result written before this field existed.
-   */
-  newPurePremiumPer100?: number;
-  /** The shadow pure premium's loss-cost limb, before ALAE and ULAE. */
-  newLossCostPer100?: number;
-  /**
-   * THE ENGINE'S OWN LOSS RATE — what `expectedLoss` is built from.
-   *
-   * ⚠ IT SPLIT FROM `purePremiumPer100` WHEN THE NEW RATE STACK WENT LIVE.
-   * They were one number under the old stack; now the rate is priced from a
-   * ground-up experience figure while losses are still expected at the
-   * engine's own rate, and conflating them makes the Calculation Audit page
-   * state a derivation it cannot reproduce. Equal to purePremiumPer100
-   * whenever NEW_RATE_STACK is off.
-   */
-  lossPurePremiumPer100?: number;
-
-  // ============================================================================
-  // THE NEW RATE STACK'S TWO FIGURES — commit 3, behind NEW_RATE_STACK.
-  //
-  // ⚠ ABSENT WHEN THE FLAG IS OFF, which is every shipped build today. A
-  // reader must treat absence as "this build does not price this way", not as
-  // zero. See NEW_RATE_STACK in pricingParameters.ts for why it is off.
-  //
-  // `firstIndication` is at expected, self-funded, with no reinsurance — the
-  // pool's own cost of risk before any funding or transfer decision.
-  // `finalRate` is what members are actually charged. The `prior` pair is last
-  // year's SAME figure, so each is compared against its own basis.
-  // ============================================================================
-  firstIndicationPer100?: number;
-  finalRatePer100?: number;
-  priorFirstIndicationPer100?: number;
-  priorFinalRatePer100?: number;
-  /** Underwriting only: the CLF cushion plus the contingency provision, in dollars. */
-  expectedToSurplus?: number;
-  /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
-  ratedExposure?: number;
   writtenExposure: number;      // payroll exposure in $M
-  /** The book renewed this year, in written-exposure units — a book only. */
-  renewalExposure?: number;
-  /** The book newly written this year, in written-exposure units — a book only. */
-  newBusinessExposure?: number;
 
   // Premium
   poolPremium: number;                     // expected loss at selected CLF
@@ -1499,417 +186,34 @@ interface ResultRowFields {
   dividends: number;
 
   // Losses
-  // The roster/risk-quality-mix correction ACTUALLY APPLIED to this line's draw
-  // this year — k_line for WC, k_GL for GL. Absent on the aggregate (Property)
-  // path, which has no such correction.
-  //
-  // EXPOSED SO THE ENROLLED-BOOK RULE CAN BE ASSERTED RATHER THAN REVIEWED. It
-  // must equal computeKLine/computeKGl of the ENROLLED book. Marketplace-wide
-  // generation makes it easy to pass the 200-member roster here by accident,
-  // which would drive the correction to ~1 and silently disable it — and on the
-  // canonical roster the two values differ by only ~0.4% (0.9820 vs 0.9781),
-  // far too little to notice in any downstream figure. Asserted in
-  // scripts/diagnostics/marketplace-generation-check.ts.
-  kLineApplied?: number;
-  // The risk-control effectiveness APPLIED TO THIS YEAR'S DRAW — the value
-  // processLineYear projected for the year and handed to the generator.
-  //
-  // ⚠ DISTINCT FROM LinePoolState.riskControlEffectiveness, which is the rolling
-  // CURRENT value and is overwritten every year. Regenerating a past year's
-  // claims needs the value that year saw, and until this field existed only the
-  // latest year's was anywhere. It is the one of claim regeneration's inputs
-  // that was genuinely missing: roster (memberList) and k (kLineApplied) were
-  // already here, gPool and the shock effects are derivable. Optional only for
-  // results written before it existed; claimRegeneration THROWS on those rather
-  // than guess.
-  rcEffectivenessApplied?: number;
-  // The RISK CONTROL PROGRAM frequency multiplier this line-year was drawn with,
-  // 1 when no program applied. Same purpose as rcEffectivenessApplied: the value
-  // the generator saw, so a past year can be redrawn exactly.
-  //
-  // ⚠ AND ITS ABSENCE IS SAFE TO DEFAULT WHERE rcEffectivenessApplied'S IS NOT,
-  // which is why claimRegeneration reads this one with `?? 1` and throws on the
-  // other. A result written before programs existed was drawn with NO program,
-  // and 1 is not a guess about it — it is the only value it could have had.
-  // rcEffectiveness had a live slider behind it, so an absent value there could
-  // have been anything and defaulting would have fabricated a register.
-  programFreqApplied?: number;
-  // The RETURN-TO-WORK conversion rate this line-year was drawn with, 0 when no
-  // program applied. WC only. Absent defaults to 0 for programFreqApplied's
-  // reason: a result written before the WC program existed was drawn without
-  // it, and 0 is the only value it could have had.
-  programRtwApplied?: number;
-  // The CLAIMS SYSTEM severity reduction applied to this line-year's draw, or 0
-  // when none was. Same purpose as the two above: the regenerator must redraw
-  // the register the engine actually produced, and the program's level is a
-  // function of a decision history the claims workbook does not carry.
-  //
-  // ⚠ ABSENT DEFAULTS TO 0, WHICH IS SAFE FOR programFreqApplied'S REASON. A
-  // result written before this field existed was played with no claims system,
-  // because there was none to buy — so 0 is the value it HAD, not a guess.
-  programSeverityApplied?: number;
-  // ENROLLED MEMBERS ONLY. This is the pool-accounting list: aggregateMemberLoss,
-  // grossUltimateLoss, reserves and reinsurance all derive from it.
   memberLossResults: MemberLossResult[];
-  // ENROLLED MEMBERS ONLY, one row each, at their own class rate. Sums to
-  // poolPremium to float tolerance — see memberPremium.ts for why the total is
-  // allocated rather than recomputed.
-  //
-  // ⚠ STRIPPED ON SAVE AND FULLY DERIVABLE. Every input is already persisted
-  // (the roster, the enrolled list, the year, poolPremium), and
-  // `allocateMemberPremium` rebuilds it from them at any time. Storing it would
-  // put a second copy of a derived quantity in the save, which is the
-  // pricingTriangle argument and Ruling 8. Optional for that reason: a
-  // reloaded game reads `undefined` here for past years until something calls
-  // the allocator, and any consumer that needs it for a locked year must call
-  // the allocator rather than assume the field.
-  memberPremiumShares?: MemberPremiumShare[];
-  /**
-   * What each member on this line's book made of this year's bill, and why.
-   * One row per member ENTERING the year — including those who then left, since
-   * the bill is part of what they left over.
-   *
-   * ⚠ IN-MEMORY AND STRIPPED, AND IT IS HERE FOR A REASON THE OTHER STRIPPED
-   * KEYS DO NOT HAVE: IT IS THE ONLY EXACT RECORD OF THE SIGNAL THE ENGINE USED.
-   * A gate can recompute `satisfactionMoves` from the ledger and the roster, and
-   * the first version of member-satisfaction-check did — but it cannot recompute
-   * the rate change, because movement is fed the PRE-MOVEMENT quote
-   * (estimatedTotalMemberRatePer100 against last year's rate) and nothing carries
-   * it. Re-derived off the final charged rate, WC's drift read -0.0153 against an
-   * observed -0.0049 and GL's came out with the sign reversed. Carrying the rows
-   * makes the gate exact instead of caveated.
-   *
-   * ⚠ AND IT FEEDS NOTHING, LIKE THE FIELD IT EXPLAINS. Nothing in src/ reads it.
-   * member-satisfaction-check's static allow-list scans for `satisfaction` on a
-   * Member, which would NOT catch a consumer of this key, so the allow-list names
-   * this one separately.
-   */
-  memberSatisfactionMoves?: SatisfactionMove[];
-  /**
-   * WHAT THE MONEY BOUGHT, per member — see memberValue.ts.
-   *
-   * ⚠ IN-MEMORY ONLY, in SAVE_STRIPPED_KEYS, and that is a decision with a
-   * measured reason rather than a size saving. Persisting a multi-year value
-   * window needs a per-member per-pot field on MemberLossYear, whose own header
-   * has costed the remaining room at one number; and the three-year window's
-   * measured test-retest correlation is zero on every pot, so the slot would buy
-   * nothing. The rows are rebuilt every year from that year's claims.
-   */
-  memberValueRows?: MemberValueRow[];
-  /**
-   * The same year's value from the POOL's side — what came back per dollar
-   * billed, against a carrier, and what the tower returned against the
-   * reinsurer's own implied loss ratio. In-memory only for the same reason.
-   */
-  poolValue?: PoolValueRow;
-  // ALL 200 CANONICAL MEMBERS, enrolled and prospect alike — loss HISTORY only,
-  // never pool accounting. Claims are generated marketplace-wide so that a
-  // prospect arrives with a readable loss record instead of a blank one, which
-  // is what lets an underwriting screen read experience rather than a hidden
-  // risk-quality score.
-  //
-  // ⚠ DO NOT SUM THIS INTO ANY POOL FIGURE. Prospects pay no premium and cede
-  // nothing; their losses are not the pool's. The enrolled entries here are the
-  // same objects as memberLossResults above, so the two are consistent by
-  // construction rather than by a second computation.
-  //
-  // Optional for the same reason claims? is: the aggregate (Property) path does
-  // not produce it, and it is in-memory only.
-  marketMemberLossResults?: MemberLossResult[];
   aggregateMemberLoss: number;
   commonLossFactor: number;
-  // Claim-level detail, WC and GL (Property still draws an aggregate).
-  //
-  // IN-MEMORY FOR THE CURRENT SESSION ONLY. Dropped on the way to localStorage
-  // by gameSave.ts's `SAVE_STRIPPED_KEYS`, so a restored game has aggregates and
-  // no per-claim rows for years played before the reload. Optional for exactly
-  // that reason: any consumer must handle its absence, and after a reload every
-  // consumer will meet it.
-  //
-  // ⚠ WHAT STOOD HERE WAS FALSE IN BOTH HALVES, AND THE COST WAS REAL. It said
-  // this was "deliberately NOT persisted to localStorage (~800 claims/yr x years
-  // would blow the quota)" and that detail "is regenerated from seed x member x
-  // year on demand".
-  //
-  //   IT WAS PERSISTED. `persistState` was a bare JSON.stringify of the whole
-  //   GameState. Nothing stripped anything, because the stripping this sentence
-  //   described did not exist anywhere.
-  //
-  //   IT DID BLOW THE QUOTA. Three lines, ten years: 10.24 MiB against a
-  //   measured 5 MiB limit, first crossed at YEAR 4 — after which every save
-  //   threw QuotaExceededError into a bare catch {} and the game silently
-  //   stopped being recorded.
-  //
-  //   AND FOR A LONG TIME THERE WAS NO REGENERATION. The claim was repeated in
-  //   four comments and implemented in none, and it was not achievable as
-  //   stated: the register depends on the enrolled roster,
-  //   riskControlEffectiveness, k_line, gPool and any shock multipliers — the
-  //   decision PATH, not (seed, member, year). Measured: the same seed with one
-  //   pool-wide risk-control change moves GL's AY3 register from 261 claims /
-  //   $12.598M to 236 / $11.863M.
-  //
-  // ⚠ IT IS TRUE NOW, AND HERE IS WHAT MAKES IT TRUE. claimRegeneration.ts's
-  // regenerateLineYearClaims redraws a line-year from what this ResultSet
-  // carries — `memberList` (the roster the generator saw), `kLineApplied`,
-  // `rcEffectivenessApplied` (added for this; see its note), `calendarYear`,
-  // `yearNumber` — plus two values that are pure functions of persisted state:
-  // gPool from (seed, year) and the shock effects from (instance, year). One
-  // number per line-year was added and nothing else. The per-member
-  // RNG streams (enrolment-independence-check) make the redraw exact, and
-  // save-round-trip-check asserts it FIELD BY FIELD against a straight-through
-  // game, ids included. A ResultSet from before `kLineApplied` existed cannot be
-  // regenerated and the function THROWS rather than guessing k = 1.
-  //
-  // A comment describing behaviour nobody implemented read as a guarantee for
-  // the life of the project. It describes a real function now, and the function
-  // has a gate.
-  claims?: Claim[];
-  occurrences?: Occurrence[];
-  claimCountsByClass?: Record<string, number>;  // WC
-  claimCountsByTier?: Record<string, number>;   // WC
-  claimCount?: number;                          // GL — total claims generated this line-year, no sub-coverage breakdown anymore
+  catastropheFactor: number;
+  shockLossAmount: number;
   grossUltimateLoss: number;
-  // The register AFTER the optimistic booking markdown and BEFORE reinsurance —
-  // the step between grossUltimateLoss and netUltimateLoss, which is exactly
-  // `bookedGrossUltimate - reinsuranceRecovery`.
-  //
-  // ⚠ IT EQUALS grossUltimateLoss WHENEVER THERE IS NO MARKDOWN, which is the
-  // whole shipped path with FORWARD_BOOKING off, so recording it adds a field
-  // without moving one. Optional for saves written before it existed.
-  bookedGrossUltimate?: number;
-  /**
-   * THE NET ULTIMATE AS BOOKED — `netUltimateLoss x (1 - bookingBias) - bookingGiveBack`.
-   *
-   * ⚠ IT IS THE FIGURE THAT ACTUALLY ENTERS THE RESERVE, AND NOT STORING IT IS
-   * WHY THREE AUDIT CHECKS WERE RED. simulationEngine computes it as a local
-   * (`const bookedUltimate`) and uses it for both `currentYearNetReserve` and
-   * `netPaidCurrentYear` — so the balance-sheet identity
-   * `ending = beginning + bookedNetUltimate - priorYearDevelopment - netPaidLosses`
-   * is the engine's own construction. The audit page was asserting that identity
-   * with `netUltimateLoss` in its place, which is the PRE-bias figure, and the
-   * three checks failed by exactly the difference on every line that funded below
-   * break-even.
-   *
-   * ⚠ STORED RATHER THAN DERIVED, DELIBERATELY, AND THE REASON IS NOT
-   * CONVENIENCE. The derivation needs `ibnerBookingBias(selectedFundingCLF)`, and
-   * the POOL row has no CLF — each line picks its own stop, which is why
-   * selectedFundingCLF is in PoolAbsentKey. A shared derivation would therefore
-   * still have to walk byLine and re-apply a per-line bias, which is the
-   * reimplementation this field exists to delete. Stored per line, the pool value
-   * is a plain sum.
-   *
-   * ⚠ IT RECORDS AN EXISTING ENGINE VALUE. It is not a second definition that can
-   * drift from a first: it IS the local the engine already computed and threw
-   * away. Optional for saves written before it existed, like its gross twin.
-   */
-  bookedNetUltimate?: number;
-  // ⚠ `shockLossIncurred` STOOD HERE AND IS GONE. It meant a WC claim of $1M+,
-  // a GL occurrence over $1M, and on Property a hardcoded false — so it read Yes
-  // in almost every WC and GL year and No in a Property catastrophe year, and the
-  // narrative said "a shock loss event occurred" off it. A year's events are
-  // `shockEvents` (scheduled) and `drawnCatastrophes` (drawn), read together by
-  // utils/yearEvents.ts so the two look the same to a player.
-  //
-  // PROPERTY ONLY: each DRAWN catastrophe this year that hit an enrolled member,
-  // one entry per occurrence. Scheduled ones are on shockEvents. Stored rather
-  // than derived because claims and occurrences are stripped from saves, and a
-  // reloaded game must still say an event happened. Absent in a year without one.
-  drawnCatastrophes?: DrawnCatastrophe[];
-  // Configured shock events in force this year that touched THIS line. Absent
-  // when none are — an array field, so value-identity-check (which captures
-  // only numeric fields) is blind to it by construction.
-  shockEvents?: ShockRecord[];
+  shockLossIncurred: boolean;
   reinsuranceCost: number;
-  /** The price of the occurrence layers the pool DECLINED, charged to members
-   *  and kept in the pool as surplus rather than paid to a reinsurer. Zero when
-   *  the tower is fully placed, the whole tower price when it is fully
-   *  declined, the declined layers' share in between.
-   *
-   *  ⚠ REVENUE, NEVER AN EXPENSE. The member pays the same either way; what
-   *  changes is where the money goes. It reaches surplus through net income,
-   *  which is what funds the volatility the pool just took on. See
-   *  DECLINED_COVER_MARGIN_ENABLED for the 41% discount this closes, the
-   *  measured drift in a long game, and the ledger field that removes it. */
-  retainedCoverMargin: number;
-  reinsuranceRecovery: number; // reinsurer's paid share of ceded loss
-  // --- per-occurrence tower outputs, every line ---
-  // Ceded by layer, index-aligned to REINSURANCE_TOWER[line].
-  cededByLayer: number[];
-  // What the pool keeps ABOVE THE TOP OF THE TOWER. On GL this is the band no
-  // market will write and it EXCEEDS the top layer the pool buys, so it is
-  // displayed rather than left implicit. Mean is indicative only — the band is
-  // unbounded (GL severity is Pareto alpha 1.3) and has no valid CI.
-  retainedAboveTower: number;
-  /**
-   * What fell ABOVE the pool's per-occurrence limit and is therefore the
-   * MEMBER'S loss, not the pool's. Reported; counted in nothing. GL only
-   * today — see POOL_LIMIT_PER_OCCURRENCE. Zero on a line with no limit.
-   */
-  memberShareAboveLimit: number;
-  /** How many claims pierced that limit this year. */
-  claimsAboveLimit: number;
-  /**
-   * Adverse DEVELOPMENT that would have carried an occurrence above the pool's
-   * per-occurrence limit, and so went to the member instead. Separate from
-   * memberShareAboveLimit, which is the excess at INCEPTION: the two are
-   * different events years apart, and gl-cutover-check's reconciliation pins
-   * only the first.
-   */
-  developmentAbovePoolLimit: number;
-  /**
-   * THE NEW LOSS ENGINE'S OWN RECORD OF THE YEAR — present only when
-   * the new loss engine ran (MEMBER_LEVEL off), absent otherwise, so a member-path result serialises
-   * exactly as it did. See NewLossEngineRecord.
-   */
-  newLossEngine?: NewLossEngineRecord;
-  // WC aggregate stop-loss on total annual retained loss. 0 when not purchased.
-  aggregateRecovery: number;
-  aggregatePremium: number;
-  aggregateAttachment: number;
+  reinsuranceRecovery: number;
   netUltimateLoss: number;
-  netIncurredLoss: number;      // netUltimateLoss adjusted for prior-year reserve development
 
   // Expenses
   operatingExpense: number;
   riskControlInvestment: number;
 
-  // Reserve development (NET basis — reserves are net of reinsurance)
+  // Reserve development
   priorYearDevelopment: number; // positive = favorable, negative = adverse
-  // ⚠ WHAT THE TOWER ABSORBED OF THIS YEAR'S PRIOR-YEAR DEVELOPMENT, AND NOTHING
-  // ELSE. Positive = the reinsurer took it. Adverse development on a claim
-  // already above the retention cedes, so the pool's own reserve moves by the
-  // RETAINED part only.
-  //
-  // ⚠ IT USED TO ALSO CARRY bookingGiveBack AND THAT WAS A DEFECT. The two are
-  // unrelated events — one is cession on a PRIOR accident year's deterioration,
-  // the other is recovery deferred on THIS year's inception — and summing them
-  // gave a field that was only correct once a reader subtracted one back out.
-  // Measured on one WC year: the field read $3,531,155 while the actual
-  // development cession was $6,177,235 and the give-back was -$2,646,080. Any
-  // consumer computing "gross development = net + this field" was short by the
-  // give-back. One field doing two jobs, with a name that invites the wrong one.
-  //
-  // GROSS PRIOR-YEAR DEVELOPMENT IS priorYearDevelopment MINUS this, with nothing
-  // to correct. ⚠ THE SIGN WAS WRONG HERE AND READ "+ this". Both fields are
-  // favourable-positive on the net ultimate (developmentImpact accumulates
-  // `c.netUltimate - newUltimate`) while this one is positive when the reinsurer
-  // ABSORBS adverse movement, so the retained figure is the LESS adverse of the
-  // two and the gross is recovered by subtracting. The old wording is right in
-  // MAGNITUDE for an adverse year — |gross| = |net| + ceded — and wrong in sign,
-  // which is exactly the shape that survives a spot-check and misleads a reader
-  // computing the favourable side.
-  //
-  // ⚠ THIS IS A MEMO FIGURE AND MUST NOT BE ADDED TO INCOME AGAIN. It is the
-  // same convention as reinsuranceRecovery beside it: netUltimateLoss is
-  // already net of that recovery, and priorYearDevelopment is already net of
-  // this one. Both exist so a player can SEE the cover respond; neither is a
-  // second credit. Adding either to net income double-counts it.
-  priorYearDevelopmentCeded: number;
-  // ⚠ RECOVERY DEFERRED BY BOOKING THIS YEAR'S CLAIM REGISTER LOW. Negative, and
-  // STANDS ALONE — it is no longer folded into priorYearDevelopmentCeded.
-  //
-  // DEFERRED, NOT FORGONE, and the word matters. Marking the register down for an
-  // optimistic booking reduces the recoverable along with the claims, but the
-  // unwind restores both: every dollar deferred here comes back through
-  // priorYearDevelopmentCeded as the accident year develops. Calling it
-  // "forgone" would assert a permanent loss and there is not one.
-  //
-  // A CURRENT-YEAR ITEM, so it belongs beside the current-year recovery it
-  // reduces — not beside prior-year development, where it was mislabelled.
-  // Zero whenever the line was funded at or above break-even.
-  bookingGiveBack: number;
-  beginningNetReserve: number;
-  currentYearNetReserve: number; // case reserve for this accident year, net
-  // ibnrReserve / ibnrAccrual / emergedPriorYearLoss / unreportedClaimCount are
-  // gone with WC's report lag — see the note in simulationEngine where the
-  // provision used to be computed, and the IBNER replacement it records.
-  netPaidLosses: number;
-  endingNetReserve: number;
-
-  // LOSS ADJUSTMENT EXPENSE — booked as a share of the GROUND-UP loss, what the
-  // rate charges it on (lossExpense.ts): ALAE with the losses (none on GL, whose
-  // losses include it), ULAE as claims are handled. Incurred = paid + the change
-  // in the loss expense reserve, exactly; the reserve is a liability.
-  alaeIncurred: number;
-  ulaeIncurred: number;
-  laeIncurred: number;
-  laePaid: number;
-  beginningLaeReserve: number;
-  /** LOSS EXPENSE RESERVES — the LAE still to pay on the unpaid losses. */
-  endingLaeReserve: number;
-
-  // ⚠ CASE AND IBNR — A DERIVED PRESENTATION, READ BY NOTHING ECONOMIC.
-  // Claims book at full cost, so the engine has no unreported inventory; these
-  // divide the reserve the way an actuarial exhibit does, from the recorded
-  // patterns at each accident year's age. See reserveSplit.ts for the
-  // definition and reserve-split-check for the gate that keeps them inert.
-  // caseReservesNet + ibnrNet === endingNetReserve, exactly.
-  caseReservesNet: number;
-  ibnrNet: number;
-  caseReservesGross: number;
-  ibnrGross: number;
-  caseReservesCeded: number;
-  ibnrCeded: number;
-  /** Per accident year, newest first — what the results page reads. */
-  reserveSplitByYear: AccidentYearSplit[];
-  // (AccidentYearSplit is declared below, beside the other result shapes.)
+  beginningGrossReserve: number;
+  currentYearGrossReserve: number; // IBNR + case for this accident year
+  grossPaidLosses: number;
+  endingGrossReserve: number;
+  beginningReinsRecoverable: number;
+  endingReinsRecoverable: number;
 
   // Investment
   investmentReturnRate: number;
   investedAssets: number;
   investmentIncome: number;
-
-  // Inter-line loan (Stage 1.6). All zero/false for a line with no loan activity.
-  outstandingLoanBalance: number;   // this line's outstanding inter-line loan balance at year-end
-  loanRepaymentApplied: number;     // net income skimmed this year to repay the loan
-  loanInterestAccrued: number;      // interest added to the balance this year
-  loanOriginatedThisYear: number;   // principal of a loan originated this year (0 if none)
-
-  // ⚠ WHAT INTER-LINE LENDING DID TO THIS LINE'S BALANCE SHEET THIS YEAR, and it
-  // exists because THE LENDER SIDE HAD NO FIELD AT ALL. The four fields above are
-  // all BORROWER-side: a line that LENDS $26M sees its surplus and investments
-  // fall by $26M with every one of them still reading zero. Nothing downstream
-  // could tell a lender's balance sheet from an unexplained hole in it, and the
-  // audit page's cash/investment reconstruction — written before inter-line
-  // lending existed — silently omitted the term and reported a $26.40M gap as a
-  // formula failure.
-  //
-  // Sign is FROM THIS LINE'S POINT OF VIEW: positive when the line received
-  // (borrowed proceeds, or a repayment credited back to it as a lender),
-  // negative when it paid (its share of a loan it funded, or a repayment it
-  // made). Covers BOTH passes — the in-year repayment and the post-authorization
-  // transfer — so it is the complete post-sweep movement, not just origination.
-  //
-  // ⚠ IT SUMS TO ZERO ACROSS LINES, BY CONSTRUCTION. Every dollar one line
-  // receives another line paid, so the POOL row is always 0 and that is a real
-  // check rather than a definition — the two sides are written at different
-  // places in the engine and a pool total that drifts off zero means one of them
-  // is wrong.
-  // ⚠ THE SHARE OF THIS LINE'S ENDING NET RESERVE EXPECTED TO PAY WITHIN 12
-  // MONTHS, reserve-weighted across the cohorts it actually holds.
-  //
-  // It exists because the payout pattern made the old display wrong. The
-  // balance sheet's current/noncurrent split used to be `endingNetReserve x
-  // LINE_RESERVE_PAYDOWN_PCT[line]`, which worked only because that rate was the
-  // same for every cohort. Under a pattern the rate depends on each cohort's
-  // AGE — WC pays 25.5% of a one-year-old's balance and 13.9% of a nine-year-
-  // old's — so the correct current portion is a weighted blend that needs the
-  // cohorts, and the pages have only the result. The engine has both, so it
-  // emits the blend rather than the pages guessing at it.
-  //
-  // Zero when the line holds no reserve; a rate on nothing has no meaning and
-  // the alternative is a NaN on the balance sheet.
-  nextYearPaydownRate: number;
-
-  interLineTransfer: number;
-  // The part of `interLineTransfer` that moved through CASH rather than
-  // investments. Non-zero only when a repayment exhausted the line's portfolio
-  // and had to come out of operating cash; every other movement is investments.
-  // Carried separately because the sweep reconstruction has to split the term
-  // between the two accounts and cannot recover the split from anything else.
-  interLineCashTransfer: number;
-
-  dividendBlocked: boolean;         // true if this line's dividend was blocked (negative surplus carried in)
 
   // CLF / Funding Confidence
   //
@@ -1923,57 +227,30 @@ interface ResultRowFields {
   selectedFundingCLF: number;              // Backend actuarial factor from CLF table
 
   // A. Rate / Premium Funding Adequacy
-  //
-  // ⚠ THIS BLOCK IS NOW TWO FIELDS, AND EVERYTHING ELSE IN IT IS DELETED. It held
-  // twelve. Seven went here; five went at ebdb147 (premiumFundingRatio,
-  // premiumFundingAdequacyStatus and three aliases of them). Not one of the
-  // twelve was ever read by a page, a RESULT_METRICS entry, a narrative or a
-  // financial statement — the section was written as a funding-adequacy exhibit
-  // and the exhibit was never built.
-  //
-  // THE SEVEN REMOVED HERE, and how each was assigned:
-  //   requiredFundingPremium      = poolPremiumAndAdminExpense   (alias)
-  //   actualPremium               = poolPremiumAndAdminExpense   (alias, same one)
-  //   premiumFundingGap           = 0                            (literal)
-  //   indicatedFundingRatePer100  = poolPremiumRatePer100 + adminRatePer100
-  //   actualRatePer100            = indicatedFundingRatePer100    (alias)
-  //   rateFundingGapPer100        = 0                            (literal)
-  //   rateAdequacyRatio           = 1                            (literal)
-  //
-  // The gap was 0 and the ratio 1 BY CONSTRUCTION, because the two quantities
-  // they compared were the same value under two names. That is the tell the
-  // absolute identity check now looks for: five of these seven are bit-exact
-  // constants on every instance, which is what a quantity that was never
-  // computed twice looks like.
-  //
-  // THE CONCEPT SURVIVES UNDER ITS REAL NAME. "Premium over required premium"
-  // IS selectedFundingCLF, where 1.000 is break-even by construction, and the
-  // live code reads that directly — IBNER's booking bias, the funding panel, the
-  // audit page's rate build-up. Nothing needed reconnecting.
   expectedLoss: number;                    // Current-year expected loss before CLF
   clfAdjustedExpectedLoss: number;          // expectedLoss × selectedFundingCLF
-  /**
-   * THE COVER'S EXPECTED RECOVERY ON THE YEAR, in dollars (stable-scenarios
-   * commit 11) — what the line's reinsurance is expected to pay, as priced.
-   * Expected Losses, net of reinsurance, is expectedLoss less this. Not netted
-   * off the rate (STOP_RECOVERY_OFF_CLAIMS_COST); shown beside it.
-   */
-  expectedReinsuranceRecovery?: number;
+  requiredFundingPremium: number;           // CLF-adjusted loss + expense + RI + risk control
+  actualPremium: number;                    // Usually grossPremium
+  premiumFundingGap: number;                // actualPremium - requiredFundingPremium
+  premiumFundingRatio: number;              // actualPremium / requiredFundingPremium
+  premiumFundingAdequacyStatus: string;     // "Strong" | "Adequate" | "Thin" | "Deficient"
+
+  indicatedFundingRatePer100: number;       // requiredFundingPremium / payroll units
+  actualRatePer100: number;                 // selected/actual rate per $100 payroll
+  rateFundingGapPer100: number;             // actualRatePer100 - indicatedFundingRatePer100
+  rateAdequacyRatio: number;                // actualRatePer100 / indicatedFundingRatePer100
 
   // B. Accounting Reserve / Reserve Confidence View
-  expectedNetUnpaidLoss: number;            // Expected unpaid losses (net of reinsurance)
+  expectedGrossUnpaidLoss: number;          // Expected unpaid losses from all cohorts, gross
+  expectedReinsuranceRecoverable: number;   // Reinsurance recoverable on unpaid losses
+  expectedNetUnpaidLoss: number;            // Expected unpaid losses net of reinsurance
 
+  grossFundingTarget: number;               // expectedGrossUnpaidLoss × selectedFundingCLF
   netFundingTarget: number;                 // expectedNetUnpaidLoss × selectedFundingCLF
   indicatedNetReserveAtConfidenceLevel: number; // Confidence-level indication, not booked reserve
 
   fundingMarginNeeded: number;              // Legacy name for reserveRiskMarginNeeded
-  reserveRiskMarginNeeded: number;          // reserve margin + retained catastrophe
-  // The catastrophe the pool RETAINS under its own placement, in
-  // reserveRiskMarginNeeded above. Zero on WC and GL, which have no catastrophe
-  // band. Surfaced because the audit page states this row's derivation and a
-  // stated derivation that cannot reproduce its own value is the defect
-  // audit-formula-check exists to catch — see catCapitalRetained.
-  catCapitalNeeded: number;
+  reserveRiskMarginNeeded: number;          // netFundingTarget - expectedNetUnpaidLoss
 
   // C. Capital / Surplus Cushion
   availableFunding: number;                 // Legacy name; equals endingSurplus
@@ -1986,19 +263,24 @@ interface ResultRowFields {
   capitalAdequacyStatus: string;            // "Strong" | "Adequate" | "Thin" | "Deficient"
 
   // Legacy compatibility
+  // Going forward, fundingAdequacyRatio/status describe premium funding adequacy.
+  fundingAdequacyRatio: number;             // Alias for premiumFundingRatio
+  fundingAdequacyStatus: string;            // Alias for premiumFundingAdequacyStatus
   fundingCLF: number;                       // Alias for selectedFundingCLF
+  fundingAdequacyIndicator: string;         // Alias for premiumFundingAdequacyStatus
 
   // Income statement
-  underwritingIncome: number;   // totalMemberCharge + assessments − netIncurredLoss − operatingExpense − riskControlInvestment − reinsuranceCost − dividends
-  netIncome: number;            // underwritingIncome + investmentIncome
+  netIncome: number;
 
   // Balance sheet
   beginningCash: number;
   endingCash: number;
   beginningInvestments: number;
   endingInvestments: number;
+  otherAssets: number;
   totalAssets: number;
   unearnedPremium: number;
+  otherLiabilities: number;
   totalLiabilities: number;
   beginingSurplus: number;
   endingSurplus: number;
@@ -2007,220 +289,23 @@ interface ResultRowFields {
   surplusFromIncome: number;                // beginingSurplus + netIncome
   surplusTieOutDifference: number;          // endingSurplus - surplusFromIncome
 
-  // Ratios — EVERY ONE STATES ITS DENOMINATOR, because THREE now exist and
-  // mixing them is finding 6's recurring error.
-  //   pricing basis       = poolPremiumAndAdminExpense (poolPremium + admin)
-  //   member-charge basis = totalMemberCharge (the above + reinsurance cost)
-  //   retained premium    = poolPremium alone (no admin, no reinsurance)
-  // A loss ratio and an expense ratio may only be ADDED when they share a
-  // denominator, which is why the combined ratios use the member-charge basis
-  // on both terms.
-  //
-  // ⚠ NAMING THE FIELD WAS NOT ENOUGH, AND THAT IS WHAT THIS BLOCK GOT WRONG.
-  // Every field here has stated its basis since finding 6, and two playtesters
-  // still read the headline as a calibration failure — because the four places
-  // a player actually looks rendered `actualLossRatio` under the label "Pool
-  // Loss Ratio", which names a SCOPE and not a BASIS. The discipline has to
-  // reach the LABEL, not just the field. See the display note at Header.tsx.
-  expectedLossRatio: number;             // PRICING basis — the finding-6 reconciliation figure
-  expectedLossRatioMemberBasis: number;  // MEMBER-CHARGE basis — the combined-ratio component
-  expectedExpenseRatio: number;          // MEMBER-CHARGE basis
-  expectedCombinedRatio: number;         // member-charge basis on both terms
-  actualLossRatio: number;               // MEMBER-CHARGE basis
-  // PRICING basis. Shares expectedLossRatio's denominator, so these two are the
-  // only expected/actual pair in this type that may be compared directly — and
-  // that comparability is why the headline uses this one.
-  actualLossRatioPricingBasis: number;
-  /**
-   * ⚠ THE TWO-PART LOSS RATIO. Neither half reads right alone; the GAP is the
-   * exhibit.
-   *
-   *   both near 85%            an ordinary year
-   *   pool 70%, total 140%     one large claim doing the whole year
-   *   pool 110%, total 115%    attritional deterioration, nothing ceded
-   *
-   * POOL LAYER: what fell below the retention, against the premium for that
-   * layer (poolPremiumAndAdminExpense). The pool's own underwriting result.
-   */
-  /** The dollar numerator of poolLayerLossRatio: this accident year's booked
-   *  gross less what the FULL occurrence tower would have ceded. Carried as a
-   *  field so the pool row can sum numerators rather than average ratios. */
-  poolLayerLoss: number;
-  poolLayerLossRatio: number;
-  /**
-   * TOTAL: EVERY loss, ceded or not, against the whole charge. GROSS — think of
-   * the pool as the reinsurer, since it wrote every layer, so measure every
-   * loss.
-   *
-   * ⚠ BOTH ARE IDENTICAL WHETHER THE COVER WAS BOUGHT OR NOT. A loss ratio is
-   * an underwriting measure and reinsurance is financing; declining shows up in
-   * the SURPLUS PATH, not here. That only holds because the charge is flat —
-   * see DECLINED_COVER_MARGIN_ENABLED — and the two had to land together.
-   *
-   * ⚠ ACCIDENT-YEAR ULTIMATE, unlike actualLossRatioPricingBasis above, which
-   * divides the whole net ledger's movement including prior years.
-   */
-  totalLossRatioGross: number;
-  // RETAINED PREMIUM alone. No expected counterpart and no expense ratio on its
-  // basis, so it may not be added to anything: a reported figure only.
-  actualLossRatioRetainedPremium: number;
-  actualExpenseRatio: number;            // MEMBER-CHARGE basis
-  actualLaeRatio: number;                // LAE incurred over the member charge
-  actualCombinedRatio: number;           // member-charge basis: loss + LAE + expense
+  // Ratios
+  expectedLossRatio: number;
+  expectedExpenseRatio: number;
+  expectedCombinedRatio: number;
+  actualLossRatio: number;
+  actualExpenseRatio: number;
+  actualCombinedRatio: number;
   combinedRatio: number;
   lossRatio: number;
   expenseRatio: number;
 
   // Narrative
   narrativeExplanation: string;
-
-  // Provenance of the pre-game reject-and-redraw bootstrap (priorHistoryEngine).
-  // Set only on pre-game years (yearNumber <= 0), per line, so the exact
-  // effective seed that produced that line's history — instance.seed +
-  // pregameAttempt x 997 — is derivable from saved state. Undefined for live
-  // years and for the pool-level aggregate (each line can carry a different
-  // attempt, so there is no single pool-level value).
-  pregameAttempt?: number;
-
 }
 
-// A single line's own result for the year, before pool-level aggregation.
-//
-// ⚠ THIS IS THE COMPLETE SHAPE AND THE POOL ROW IS THE NARROWER ONE. The
-// relationship used to run the other way — `LineResultSet = Omit<ResultSet,
-// 'byLine'>` — which made the POOL row the complete one and left every per-line
-// quantity sitting on it as a placeholder holding the FIRST ACTIVE LINE'S value.
-export type LineResultSet = ResultRowFields;
-
-/**
- * THE QUANTITIES THAT DO NOT EXIST AT POOL SCALE, ABSENT FROM THE POOL ROW BY
- * TYPE RATHER THAN HELD AS A PLACEHOLDER.
- *
- * ⚠ EVERY ONE OF THESE WAS `first.<field>` — THE FIRST ACTIVE LINE'S VALUE,
- * SHOWN AS IF IT WERE THE POOL'S. The aggregator's own header admitted it
- * ("show the first active line's value as a placeholder until Stage 2.1 adds a
- * real per-line view") and the comment beside the per-100 block said "Do not
- * read these at pool scope". A comment cannot enforce that. The pooling-helper
- * header in simulationEngine records what happens when one tries: SEVEN
- * pool-scope defects reached players, THREE of them landed directly beside a
- * comment warning about that exact class. The compiler is the only reader that
- * cannot skip the warning.
- *
- * ⚠ WHY THESE AND NOT EVERY `first.` FIELD. Three of them are genuinely
- * pool-wide and copied identically into every line, so reading the first IS
- * correct and they stay: `assetAllocation`, and the pool-wide risk-control spend
- * and program ids — which now arrive on `pool` below, from the pool's own
- * decision set rather than from a line's echo of it. `yearNumber`,
- * `calendarYear` and `catastropheFactor` are identical on every line too (the
- * last is pinned at 1 everywhere) and stay for the same reason. Blanking all
- * sixteen would have broken three fields that were never wrong.
- *
- * THE PER-$100 RATES ARE THE CLEAREST CASE AND THE REASON THIS IS A TYPE CHANGE
- * RATHER THAN A DOCUMENTATION ONE. Pool exposure adds WC/GL payroll to Property
- * TIV — `addMixedUnitExposure`, a category error retained only for display — so
- * there is no denominator at pool scale and therefore no pool rate to compute.
- * Not a hard one; a non-existent one.
- */
-export type PoolAbsentKey =
-  // Per-$100 rates. No pool denominator exists — see above.
-  | 'rateLevel'
-  | 'ratePer100'
-  | 'purePremiumPer100'
-  | 'purePremium'
-  | 'expectedCededPer100'
-  | 'netPurePremiumPer100'
-  // Funding selections. Each line carries its own confidence level and its own
-  // CLF; once two lines price at different confidence there is no pool CLF, and
-  // fundedNetExpectedLoss already sums per line rather than dividing once for
-  // exactly this reason.
-  | 'selectedFundingConfidenceLevel'
-  | 'selectedFundingCLF'
-  | 'fundingCLF'
-  // The decision echo. A LineDecisionSet, so at pool scope it was one line's
-  // funding level, renewal bar and reinsurance structure wearing the pool's
-  // name. The pool-wide subset moves to `pool` below.
-  | 'decisions'
-  // Already carrying a `noPoolMeaning` placeholder before this change, which is
-  // the same defect one step further along: the value was documented as
-  // meaningless and still had a type that let a page print it.
-  | 'commonLossFactor'
-  | 'aggregateAttachment';
-
-/**
- * THE POOL ROW. Every field a line row has, except the ones that do not exist at
- * pool scale, plus the per-line breakdown and the pool-wide decisions.
- *
- * A page that reads `result.ratePer100` at pool scope no longer compiles. That
- * is the whole point of the change: the guard is the type checker rather than a
- * comment, a probe or a gate, none of which can see a display read.
- */
-export interface ResultSet extends Omit<ResultRowFields, PoolAbsentKey> {
-  // Per-line breakdown. Pool-level fields above are aggregates across active
-  // lines (dollar/count fields summed, ratios recomputed from the summed
-  // components); this map retains each line's own unaggregated result.
-  byLine: Record<CoverageLine, LineResultSet>;
-  /** The decisions that really are pool-wide. See PoolWideDecisions. */
-  pool: PoolWideDecisions;
-  /**
-   * WHAT THIS AVERAGED ROW KEEPS OF ITS WORLDS (stable-scenarios commit 10),
-   * struck when the year settled: the surplus range and the audit's per-world
-   * figures. No world keeps its rows, so this is what the screens read.
-   * Absent on a one-world game and on a world's own row. See utils/worldAudit.ts.
-   */
-  worldSummary?: WorldSummary;
-}
-
-/** The worlds behind an averaged row, summarized — see ResultSet.worldSummary. */
-export interface WorldSummary {
-  /** Minimum, median and maximum ending surplus across the worlds, pool and per line. */
-  surplusRange: Partial<Record<'pool' | CoverageLine, { min: number; median: number; max: number; worlds: number }>>;
-  /** Per line: the cash sweep averaged over the worlds' own, and the dividend and assessment basis. */
-  audit: Partial<Record<CoverageLine, {
-    sweep: {
-      cash: number; investments: number; preSweepCash: number; operatingCashTarget: number;
-      investmentsBeforeSweep: number; sweepTransfer: number; liquidityFloorBound: boolean; investmentsFloorBound: boolean;
-    };
-    assessmentBasis: number;
-    dividendBasis: number;
-    /** Each world's investment income re-derived from its own market, averaged. */
-    investmentIncome: number;
-    worlds: number;
-  }>>;
-}
-
-/**
- * ONE PLAYED YEAR, AS IT WAS PLAYED (stable-scenarios commit 10): the team's
- * decisions and the lines it authorized a loan on. The save keeps these, and a
- * reload replays them from the opening to rebuild every world exactly.
- */
-export interface PlayedYear {
-  yearNumber: number;
-  decisions: DecisionSet;
-  authorizedLines: CoverageLine[];
-}
-
-/**
- * THE POOL-WIDE DECISIONS, EXPLICITLY — the three that really are one choice for
- * the whole pool rather than three choices that happen to match.
- *
- * DecisionSet carries exactly these three beside `byLine`, which is what makes
- * them pool-wide: the player sets them once and the engine projects them into
- * every LineDecisionSet. Reading them off the first line was correct and this
- * field does not change a value — it changes where a reader is told to look, so
- * that `decisions` can leave the pool row without taking them with it.
- */
-export interface PoolWideDecisions {
-  assetAllocation: AssetAllocation;
-  riskControlPct: number;
-  riskControlProgramIds?: string[];
-}
-
-// UI display filter (Stage 2.1): 'pool' shows the combined/summed totals;
-// a specific line filters every figure on the page to that line's slice.
-export type LineView = 'pool' | CoverageLine;
-
-// Per-line pool state (rolled from year to year)
-export interface LinePoolState {
+// Pool ongoing state (rolled from year to year)
+export interface PoolState {
   rateLevel: number;           // cumulative rate index (starts at 100)
   ratePer100: number;          // rate per $100 of payroll (e.g. 7.50)
   purePremiumPer100: number;   // expected loss cost per $100 payroll
@@ -2230,149 +315,17 @@ export interface LinePoolState {
   averageRiskQuality: number;
   riskControlEffectiveness: number; // rolling score 0-1
   reserveCohorts: ReserveCohort[];
-  // Append-only development ledger, one row per accident year, never pruned —
-  // see ReserveDevelopmentRow. Optional because saves written before the
-  // Actuarial memorandum existed do not carry it; read it as `?? []` and the
-  // exhibit is simply empty on those, which is honest rather than invented.
-  reserveDevelopment?: ReserveDevelopmentRow[];
-  // The ten-year rolling window PRICING reads, projected from the ledger above
-  // at each valuation. ⚠ DERIVED AND NOT PERSISTED — it is in SAVE_STRIPPED_KEYS
-  // and processYear rebuilds it, the same treatment LineResultSet.claims gets,
-  // so this commit adds no field the save round trip must carry or assert. See
-  // pricingTriangle.ts for the window rule, the 1-based age convention, and why
-  // it seeds from reserveDevelopment rather than from claimTriangle.ts.
-  pricingTriangle?: PricingTriangleState;
-  // WC ONLY, empty on GL and Property. Claims drawn but not yet reported.
-  //
   members: Member[];
-  /**
-   * THE BOOK, IN $M OF BASE-YEAR EXPOSURE — present only with MEMBER_LEVEL off,
-   * where `members` is empty and this is the line. Renewal, intake and Member
-   * Withdrawal move it; the year's exposure is it x exposureFactor.
-   */
-  bookExposure?: number;
-  netUnpaidReserve: number;    // unpaid loss reserve, net of reinsurance
-  surplus: number;
-  investedAssets: number;      // this line's own segregated investment portfolio (Stage 2.9),
-                               // carried forward year to year like surplus
-  totalMarketExposure: number;
-
-  // ⚠ LAST YEAR'S TWO RATES, CARRIED SO EACH INDICATION IS COMPARED AGAINST
-  // ITS OWN BASIS. The first indication is compared with last year's FIRST
-  // indication and the final rate with last year's FINAL rate; comparing a
-  // self-funded indication against a reinsured rate would read the tower as a
-  // rate change. Written only while NEW_RATE_STACK is on, and absent before
-  // the first priced year — which is not the same as zero, so the panel shows
-  // no comparison rather than a 100% rise.
-  //
-  // The PRE-GAME years run through the same engine, so a game whose prior
-  // history was simulated with the flag on reaches year 1 with both already
-  // populated. That is what makes year 1's comparison a real one.
-  lastFirstIndicationPer100?: number;
-  lastFinalRatePer100?: number;
-}
-
-// One continuous stretch of enrollment in a single coverage line, in ACTIVE
-// yearNumbers, inclusive on both ends (pre-game years are negative). A member
-// withdrawn during year Y's movement was last active in Y-1, so its interval
-// closes with endYear = Y-1; endYear null = currently enrolled.
-export interface EnrollmentInterval {
-  startYear: number;
-  endYear: number | null;
-}
-
-// The authoritative per-member, per-line enrollment record, keyed by member
-// id then coverage line: every past and present active interval, supporting
-// "was member X active in line Y during year Z" for any combination,
-// including multiple past intervals per member per line. Member.yearJoined /
-// yearWithdrawn remain as DENORMALIZED convenience fields only — per-line
-// questions (e.g. the re-enrollment cooldown) must be answered from this
-// ledger, never from Member.status, which is fold-corrupted across lines
-// (see membershipHistory.ts).
-export type MembershipHistory = Record<string, Partial<Record<CoverageLine, EnrollmentInterval[]>>>;
-
-// One member-line-year of loss experience. See src/utils/memberLossHistory.ts
-// for what each leg includes and — importantly — what it deliberately does not.
-//
-// ⚠ THE TWO EXPECTED LEGS ARE NAMED BY BASIS AND NOT BY ADJECTIVE, AND THAT IS
-// THE WHOLE OF WHY THE FIELD WAS RENAMED. It was `expected`, and a modifier
-// that divides actual by "expected" reads correctly and is wrong: that leg
-// carries the member's OWN risk quality and therefore divides out the very
-// quality an experience modifier exists to discover. Measured, the manual leg
-// out-ranks the own-RQ leg against true risk quality by 0.09 on WC over a
-// three-year window, in every one of 112 measured game-years and on all three
-// lines. A reader choosing between `expected` and
-// `expectedNeutral` can pick wrong by accident; a reader choosing between
-// `expectedAtOwnRq` and `expectedAtManual` has to choose a basis to pick at
-// all. member-experience-basis-check holds the distinction.
-export interface MemberLossYear {
-  yearNumber: number;   // pre-game years negative, matching every other yearNumber here
-  actual: number;       // that year's drawn gross ultimate loss for this member
-  /** The expectation at the member's OWN risk quality, as it stood that year. */
-  expectedAtOwnRq: number;
-  /** The same expectation at NEUTRAL risk quality — the manual. Identical
-   *  inputs but for the risk-quality override, k_line included. This is the
-   *  leg an experience modifier divides by. */
-  expectedAtManual: number;
-  /**
-   * That year's actual with every CLAIM limited to EXPERIENCE_SPLIT_POINT.
-   * The excess is `actual - primaryActual` and is recorded by difference
-   * rather than stored — nothing is discarded, it is simply not rated.
-   *
-   * ⚠ THE FOURTH NUMBER, AND THE EXPECTED PRIMARY IS DELIBERATELY NOT A
-   * FIFTH. E[min(X,D)] / E[X] is a pure function of the member's rating
-   * group, the line and the year — it cancels k, exposure and lambda — so it
-   * is recomputed at read time from the same engine that priced the year
-   * rather than stored per member-year. That keeps the save at 95.6% of
-   * budget instead of 98.2%, and memberExperienceMod.ts's own gate asserts
-   * the recomputation against the engine.
-   */
-  primaryActual: number;
-}
-
-// Rolling per-member, per-line loss history, keyed memberId -> line -> years.
-//
-// KEYED PER (MEMBER, LINE) because enrolment is per line — a member can be in WC
-// and not GL, and their experience differs accordingly.
-//
-// PLAIN JSON-SERIALISABLE, AND THAT IS A HARD REQUIREMENT, NOT A PREFERENCE.
-// The whole GameState goes through JSON.stringify in App.tsx, where a Map
-// serialises to {} SILENTLY — no error, no warning, just an empty object on the
-// next load. Records and arrays only. Same constraint as MembershipHistory.
-export type MemberLossHistory = Record<string, Partial<Record<CoverageLine, MemberLossYear[]>>>;
-
-// Pool ongoing state: fields shared across all lines, plus one LinePoolState per
-// line. Investments are NOT here — each line holds its own portfolio (Stage 2.9);
-// cash remains shared and is split by contribution share.
-export interface PoolState {
   cash: number;
+  investments: number;
+  otherAssets: number;
+  grossUnpaidReserve: number;
+  reinsuranceRecoverable: number;
   unearnedPremium: number;
-  allMarketMembers: Member[];      // the full canonical marketplace (200 members)
-  lines: Record<CoverageLine, LinePoolState>;
-  interLineLoans: InterLineLoan[]; // pool-level ledger of outstanding inter-line loans
-  membershipHistory: MembershipHistory; // authoritative per-line enrollment intervals
-  // Rolling per-member, per-line actual/expected loss record — the input the
-  // experience modifier (stage 4) reads. Maintained marketplace-wide, so
-  // prospects carry history too.
-  //
-  // ON PoolState, NOT ON Member, deliberately. Member is a generated,
-  // seed-independent catalog entry (memberCatalog.ts) shared by every game;
-  // hanging per-game simulation state off it would make the catalog stateful and
-  // would mean two concurrent games mutate each other's members.
-  //
-  // OPTIONAL because saves predating stage 3 lack it. App.tsx defaults it to {}
-  // on load rather than bumping the save key — same precedent as
-  // membershipHistory, and discarding a save over an additive field would be a
-  // worse trade.
-  memberLossHistory?: MemberLossHistory;
-  /**
-   * THE BOOK OF UNITS EACH LINE HOLDS — indices into the line's market
-   * (bookUnits.ts), which is regenerated from the game seed and never stored.
-   * ONCE PER GAME: on the game's own pool state, never on a world's or in a
-   * year's record — every world holds the same book. Absent with MEMBER_LEVEL
-   * on, and on saves from before book units. Never shown.
-   */
-  bookUnits?: Partial<Record<CoverageLine, number[]>>;
+  otherLiabilities: number;
+  surplus: number;
+  totalMarketExposure: number;
+  allMarketMembers: Member[];      // all 100 fictional members
 }
 
 // Top-level game state
@@ -2385,55 +338,18 @@ export interface GameState {
   poolState: PoolState;
   lockedResults: ResultSet[];
   currentDecisions: DecisionSet;
-  // Stage 2.10: the 3 simulated pre-game years (yearNumbers -2, -1, 0), run
-  // through the real engine at default decisions. Year 0's ending state IS the
-  // Year 1 opening position; year 0's result is Year 1's priorResult.
-  priorHistory: ResultSet[];
-  /**
-   * THE PRE-GAME'S EARLIER YEARS (yearNumbers -4, -3), oldest first — every
-   * played pre-game year before priorHistory's three, kept so the Annual
-   * Statement can show all five. Shared by every world: the pre-game runs once.
-   * Absent on a save from before it was kept; the statement then shows the
-   * three it has.
-   */
-  earlyPreGameHistory?: ResultSet[];
-  /**
-   * THE WORLDS (loss engine commit 4b) — each world's own pool state and played
-   * years, present when the game runs more than one world (src/utils/worlds.ts).
-   * `poolState` and `lockedResults` above are then the AVERAGE across them:
-   * what every page shows, and what the next year's one rate is struck from.
-   * Absent on a one-world game, where the two fields above are the world.
-   */
-  worlds?: WorldState[];
-  /** Every played year's decisions and loan choices, in order — what a reload replays. */
-  playedYears?: PlayedYear[];
-}
-
-/** One world's own state and played years. See GameState.worlds. */
-export interface WorldState {
-  poolState: PoolState;
-  /**
-   * ⚠ ONLY THE LAST YEAR'S ROW, EXCEPT ON WORLD 1 (stable-scenarios commit 10).
-   * The engine reads a world's previous row and nothing older; what the screens
-   * read of the worlds is kept on the averaged rows (ResultSet.worldSummary).
-   * World 1 keeps every row, for its claims (the claims download).
-   */
-  lockedResults: ResultSet[];
-  /**
-   * Cohorts that have closed and left this world's state, at their final values
-   * without per-occurrence detail — so an averaged cohort still counts a world
-   * where its accident year has closed. See worlds.ts.
-   */
-  closedCohorts?: Partial<Record<CoverageLine, ReserveCohort[]>>;
 }
 
 // Starting financial position
 export interface StartingFinancials {
   cash: number;
   investments: number;
+  reinsuranceRecoverable: number;
+  otherAssets: number;
   totalAssets: number;
-  netUnpaidReserve: number;    // unpaid loss reserve, net of reinsurance
+  grossUnpaidReserve: number;
   unearnedPremium: number;
+  otherLiabilities: number;
   totalLiabilities: number;
   surplus: number;
   annualPremium: number;
@@ -2445,13 +361,10 @@ export interface StartingFinancials {
   activeExposure: number;      // payroll in $M
   totalMarketExposure: number; // payroll in $M
   marketShare: number;
-  // ⚠ FOUR PER-LINE RATE FIELDS WERE HERE AND ARE GONE. StartingFinancials is a
-  // POOL-SCOPE opening summary, and these were filled from the pool result row —
-  // which meant the first active line's rate level and per-$100 rates under a
-  // pool heading. NOTHING EVER READ THEM: searched across src/ and scripts/,
-  // there is no reader of .rateLevel, .ratePer100 or .purePremium on this type.
-  // They were written every game and displayed nowhere, so the honest repair is
-  // removal rather than a blank — a blank implies someone wanted the row.
+  rateLevel: number;
+  ratePer100: number;          // rate per $100 payroll
+  purePremiumPer100: number;   // expected loss per $100 payroll
+  purePremium: number;         // kept for compat
 }
 
 // V2: ChartDataPoint for future chart support
@@ -2469,15 +382,9 @@ export interface LossDistributionConfig {
   cv: number;
 }
 
-// ⚠ `ReserveDevelopmentState` IS GONE, and IBNER is why. It was a speculative
-// "V2" placeholder for a full accident-year triangle —
-// { accidentYear, developmentPattern, selectedFactors } — never referenced from
-// anywhere. It described a DIFFERENT reserving design from the one that now
-// exists: IBNER develops a per-cohort estimate through a horizon and a step
-// walk, with no triangle and no selected factors to hold. Keeping it would
-// advertise a direction the engine has already taken elsewhere.
-//
-// Its sibling `LossDistributionConfig` above is the same kind of placeholder and
-// is deliberately LEFT: nothing in the cap work or IBNER retired it, and
-// deleting it here would fold an unrelated cleanup into this commit. It is
-// reported as part of a wider orphan cluster instead.
+// V2: ReserveDevelopmentState for full accident-year triangle
+export interface ReserveDevelopmentState {
+  accidentYear: number;
+  developmentPattern: number[];
+  selectedFactors: number[];
+}

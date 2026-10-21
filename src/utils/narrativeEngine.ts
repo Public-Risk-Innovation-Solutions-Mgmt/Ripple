@@ -1,225 +1,71 @@
 // Rule-based narrative explanation engine for Risk Pool Simulation v1
 
 import type { ResultSet } from '../types/simulation';
-import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
-import { placementFor } from './reinsuranceOptions';
-import { ratioBand } from './formatters';
-import { LINE_FULL_NAME } from './lineDisplay';
-import { eventSentence, yearEvents } from './yearEvents';
-
-const TOWER_LINES: readonly TowerLine[] = ['WC', 'GL', 'Property'];
 
 export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): string {
   const parts: string[] = [];
 
-  const { assetAllocation, actualCombinedRatio, netIncome,
-    actualLossRatioPricingBasis, expectedLossRatio,
+  const { decisions, actualCombinedRatio, netIncome, grossUltimateLoss, totalMemberCharge,
     reinsuranceRecovery, investmentIncome,
-    newMembers, withdrawnMembers,
+    newMembers, withdrawnMembers, shockLossIncurred,
     priorYearDevelopment, endingSurplus } = result;
 
-  // --- Rate Change --- REMOVED. The Rate Change decision it narrated is gone
-  // (CLF-only pricing); a narrative describing the funding-confidence-level
-  // decision instead is a pending replacement, not invented here.
+  // --- Rate Change ---
+  if (decisions.rateChange > 0.10) {
+    parts.push(`You implemented a significant rate increase of ${pct(decisions.rateChange)}, which improved premium adequacy. However, this level of increase puts competitive pressure on member retention.`);
+  } else if (decisions.rateChange > 0.03) {
+    parts.push(`A moderate rate increase of ${pct(decisions.rateChange)} was applied, helping maintain premium adequacy.`);
+  } else if (decisions.rateChange < -0.05) {
+    parts.push(`You chose to decrease rates by ${pct(Math.abs(decisions.rateChange))}, improving competitiveness.`);
+  } else if (Math.abs(decisions.rateChange) <= 0.03) {
+    parts.push(`Rates were held roughly flat.`);
+  }
 
-  // --- Underwriting --- REMOVED WITH THE SLIDER IT NARRATED. Both branches
-  // described the pool in RISK-QUALITY terms ("improved average risk
-  // quality"), which is an attribute the player can no longer see per member
-  // and which the retired strictness screen selected on directly. A narrative
-  // for the experience modifier is a pending replacement, not invented here —
-  // the same treatment the Rate Change narrative got above.
+  // --- Underwriting ---
+  if (decisions.underwritingStrictness <= 2) {
+    parts.push(`With very flexible underwriting, the pool was highly accessible, supporting member growth. However, this creates adverse selection risk.`);
+  } else if (decisions.underwritingStrictness >= 8) {
+    parts.push(`Strict underwriting standards improved average risk quality, reducing expected losses and tail risk.`);
+  }
 
-  // --- Events ---
-  // FIRST, because it is what a player most needs from the year and the first
-  // thing they read. One sentence per event, written from what happened —
-  // where, which lines, how many claims, how much — by the same template for a
-  // scheduled event and a drawn catastrophe (yearEvents.ts), so the two read
-  // alike and the cause never shows.
-  //
-  // ⚠ THIS REPLACES "A shock loss event occurred this year, significantly
-  // increasing gross losses", which fired on `shockLossIncurred`: a WC or GL
-  // claim over $1M, so nearly every year, and never on a Property catastrophe.
-  for (const ev of yearEvents(result)) parts.push(eventSentence(ev));
+  // --- Shock Loss ---
+  if (shockLossIncurred) {
+    parts.push(`A shock loss event occurred this year, significantly increasing gross losses.`);
+  }
 
   // --- Loss Performance ---
-  // ⚠ THIS WAS A FOURTH BASIS AND IT CONTRADICTED THE SCREEN IT SAT ON.
-  // It read `grossUltimateLoss / totalMemberCharge` — a GROSS numerator over the
-  // MEMBER-CHARGE denominator, a combination used nowhere else in the app — and
-  // printed the result as "a loss ratio of X". With the headline on the pricing
-  // basis, the same year could show 73% in the chip and prose calling it "a
-  // favorable loss ratio of 52%". Two numbers, two bases, one screen.
-  //
-  // ⚠ AND IT WAS NOT INERT, CONTRARY TO A REPORT OF MINE. That report said the
-  // prose "sits permanently in the silent middle and never fires", reasoning
-  // from the 66.8% POOLED DOLLAR-WEIGHTED average to the per-year firing rate.
-  // Those are different statistics. Measured per year over 1,200 pooled
-  // observations it fired low on 38.8% and high on 16.7%, silent on 44.6% — so
-  // it fired on more than half of all years, on the wrong basis, in prose a
-  // player reads. The correction matters because it makes this a live defect
-  // rather than dead code.
-  //
-  // ⚠ THE THRESHOLDS ARE THE HEADER'S, SHARED FROM ONE PLACE, AND THEY ARE
-  // ABSOLUTE. They used to be 0.65 and 0.95, anchored on the PRICED expectation —
-  // which made the verdict relative to the player's own aggression. A pool
-  // funding at 40% and running 0.95 is burning surplus, and calling that
-  // favourable because it beat its own price rewards the underpricing. This game
-  // exists to show the consequences of aggressive pricing, not to grade a player
-  // against it. 1.00 is the line between making and losing money on underwriting;
-  // 0.65 and 0.95 marked nothing.
-  //
-  // ⚠ AND THE VERDICT WORDING HAD TO BECOME ABSOLUTE WITH THE CUTOFF, WHICH THE
-  // CUTOFF CHANGE ALONE WOULD HAVE MISSED. The old favourable sentence said
-  // "performance was STRONG at X%, against roughly Y% priced". Under the new band
-  // that fires below 1.00 against a priced expectation of ~80% at member funding,
-  // so it would have printed "strong at 89%, against roughly 80% priced" —
-  // praising a year that underperformed its own price. That is the same defect
-  // one step along. The sentence states what the ratio DID now; the priced figure
-  // stays as context, never as the standard.
-  //
-  // ⚠ ALL FIVE BANDS SPEAK NOW. Under the four-band scale the 0.90-1.00 band
-  // printed NOTHING — a year at 0.97 got no loss sentence at all, which read as
-  // an omission rather than a judgement. Every band says what the ratio did.
-  //
-  // ⚠ AND THE ABSOLUTE DISCIPLINE RUNS THROUGH ALL FIVE, which is the harder
-  // half of the five-band change. Every clause below is checkable against the
-  // printed number alone: "most of the premium unspent" is what below 0.50
-  // MEANS; "lost money this year" is what above 1.00 MEANS. None of them says
-  // better, worse, or as expected. ⚠ IN PARTICULAR BAND 1 IS NOT "BETTER THAN
-  // PRICED" IN WORDS even though 0.70 is where the price sits — naming the
-  // comparison in the sentence is how the relative standard would creep back
-  // in, one step along again. The edge is set by the price; the sentence is
-  // not. `priced` stays appended to all five as context.
-  //
-  // MEASURED at 70-85% funding, 24 games x 10 years, 720 line-years (and 240
-  // pool-years, which is the scope this actually renders at):
-  //   band      <0.50   0.50-0.70   0.70-1.00   1.00-1.10   >=1.10
-  //   line      11.9%     43.5%       36.1%        3.6%       4.9%
-  //   pool       2.1%     54.2%       40.8%        1.7%       1.3%
-  // The top band is rare at both scopes without being dead at either, and the
-  // largest band is 43.5% of line-years / 54.2% of pool-years.
-  //
-  // ⚠ THIS CHANGE SPLIT THE FAVOURABLE MASS AND RE-GRADED NO YEAR AS WORSE.
-  // 1.00 and 1.10 did not move, so the two critical bands hold exactly the
-  // years they held before — 8.5% of line-years, 3.0% of pool-years, the same
-  // ones. Every edge this change introduced is BELOW break-even. That is worth
-  // stating because a five-band scale sounds like a harsher one and is not.
-  //
-  // ⚠ THE EARLIER SWEEP REPORTED THESE A FEW TENTHS APART (12.2 / 43.8 / 34.3 /
-  // 3.8 / 6.0 at line scope) because it assigned funding across the band on a
-  // different schedule. Same seeds, same engine, different sample. The figures
-  // here and in formatters.ts come from ONE run of one harness, which is the
-  // only way the two files cannot drift apart.
-  const lossRatio = actualLossRatioPricingBasis;
-  const priced = `against roughly ${pct(expectedLossRatio)} priced`;
-  const band = ratioBand(lossRatio);
-  if (band === 4) {
-    parts.push(`Net losses ran to ${pct(lossRatio)} of premium and admin expense — well past the point where underwriting pays for itself, ${priced}.`);
-  } else if (band === 3) {
-    parts.push(`Net losses exceeded premium and admin expense at ${pct(lossRatio)}, so underwriting lost money this year, ${priced}.`);
-  } else if (band === 2) {
-    parts.push(`Net losses ran to ${pct(lossRatio)} of premium and admin expense, covering the year's underwriting, ${priced}.`);
-  } else if (band === 1) {
-    parts.push(`Net losses ran to ${pct(lossRatio)} of premium and admin expense, covering the year's underwriting with margin to spare, ${priced}.`);
-  } else {
-    parts.push(`Net losses ran to ${pct(lossRatio)} of premium and admin expense, covering the year's underwriting with most of the premium unspent, ${priced}.`);
+  const lossRatio = grossUltimateLoss / Math.max(totalMemberCharge, 1);
+  if (lossRatio > 0.90) {
+    parts.push(`Gross loss performance was unfavorable with a loss ratio of ${pct(lossRatio)}.`);
+  } else if (lossRatio < 0.55) {
+    parts.push(`Gross loss performance was strong with a favorable loss ratio of ${pct(lossRatio)}.`);
   }
 
   // --- Combined Ratio ---
-  // ⚠ IT SPEAKS TO UNDERWRITING ONLY. IT USED TO CLAIM A SURPLUS OUTCOME AND
-  // CONTRADICTED THE NET-INCOME SENTENCE BELOW ON 9.2% OF POOL-YEARS.
-  // The combined ratio excludes investment income; net income includes it. So a
-  // year could read "consumed surplus" here and "strengthening surplus to $X"
-  // four sentences later, both printed, both wrong to a reader trying to
-  // reconcile them. Measured over 240 pool-years at member funding: 22 said
-  // consumed-but-positive, 1 said supported-but-negative.
-  //
-  // Surplus is the net-income sentence's claim to make, because net income is
-  // what moves it. This one says what underwriting did, and names the exclusion
-  // so the two read as a sequence rather than a disagreement.
   if (actualCombinedRatio > 1.0) {
-    parts.push(`The actual combined ratio was ${pct(actualCombinedRatio)}, so underwriting did not pay for itself before investment income.`);
+    parts.push(`The actual combined ratio was ${pct(actualCombinedRatio)}, so the year was underfunded and consumed surplus.`);
   } else if (actualCombinedRatio < 1.0) {
-    parts.push(`The actual combined ratio was ${pct(actualCombinedRatio)}, so underwriting paid for itself before investment income.`);
+    parts.push(`The actual combined ratio was ${pct(actualCombinedRatio)}, leaving a funding margin that supports surplus.`);
   }
 
   // --- Reinsurance ---
-  // ONE PRODUCT NOW. Every line runs the per-occurrence tower, so
-  // resultUsesTower(result) is always true; the percentage-of-premium branch
-  // this used to fall back to (keyed on the now-removed `reinsuranceLevel`)
-  // is deleted rather than narrated, per the same reasoning as
-  // reinsuranceDisplay.ts: a narrative describing a quota share on a line
-  // with a tower would be worse than no narrative.
-  //
-  // ⚠ PER LINE, FROM EACH LINE'S OWN DECISIONS AND TOWER. This is the POOLED
-  // result, and it used to read `result.decisions` — which the pool copies from
-  // its FIRST line — and `result.cededByLayer`, which deliberately excludes
-  // Property. So a Property-only pool that bought its layer was told "No
-  // occurrence layers were placed", and every pool was told of "the $1M
-  // retention" although Property's lowest layer attaches at $5M and a player
-  // who declines a line's first layer retains up to the next one. Each line now
-  // names the attachment of its own lowest PLACED layer, from the tower itself.
-  {
-    const lowestPlaced = TOWER_LINES
-      .filter(line => result.byLine?.[line])
-      .map(line => {
-        const placed = placementFor(line, result.byLine[line].decisions.reinsuranceOption);
-        const attachments = REINSURANCE_TOWER[line].filter((_, i) => placed[i]).map(l => l.attachment);
-        return { line, attachment: attachments.length > 0 ? Math.min(...attachments) : null };
-      })
-      .filter((x): x is { line: TowerLine; attachment: number } => x.attachment !== null);
-    // ⚠ TWO PRODUCTS, TWO SENTENCES. This said "The reinsurance tower recovered
-    // $X" and passed `reinsuranceRecovery`, which simulationEngine builds as
-    // `cession.totalCeded + aggregateRecoveryAmount` — the per-occurrence tower
-    // PLUS the aggregate stop. So a year whose tower paid nothing and whose
-    // aggregate stop paid everything was told the tower recovered it, and the
-    // two products are bought separately, attach differently and are worth
-    // different things to a player deciding what to renew.
-    //
-    // The tower's own figure is the difference. Each is named only when it paid,
-    // so a pool with no aggregate stop reads exactly as before.
-    const aggRecovery = result.aggregateRecovery ?? 0;
-    const towerRecovery = reinsuranceRecovery - aggRecovery;
-    if (towerRecovery > 0 || aggRecovery > 0) {
-      if (towerRecovery > 0) {
-        parts.push(`The occurrence tower recovered $${fmt(towerRecovery)}, reducing net losses.`);
-      }
-      if (aggRecovery > 0) {
-        // "a further" only when the tower also paid — on its own it is the first
-        // recovery of the year, not an addition to one.
-        const further = towerRecovery > 0 ? 'a further ' : '';
-        parts.push(`The aggregate stop recovered ${further}$${fmt(aggRecovery)} once the year's retained losses passed its attachment.`);
-      }
-    } else if (lowestPlaced.length > 0) {
-      // ⚠ THE MERGE KEPT BOTH BRANCHES' FIXES HERE, AND THEY WERE DIFFERENT
-      // FIXES. The split above is this branch's: `reinsuranceRecovery` is the
-      // occurrence tower PLUS the aggregate stop, and naming the tower for
-      // both misreports two separately-bought products. The LOWEST PLACED
-      // attachment, the full line name and the noun `occurrence` are the
-      // other branch's: it read `the $1M retention` on every line including
-      // Property, which retains more, and the tower attaches PER OCCURRENCE —
-      // which is load-bearing now that one catastrophe is many claims on one
-      // occurrence. Lowest PLACED rather than the line's retention, because a
-      // pool that placed only an upper layer is not exposed at the retention.
-      const where = lowestPlaced.map(x => `${LINE_FULL_NAME[x.line]} at $${fmtM(x.attachment)}`).join(', ');
-      parts.push(`Occurrence layers were placed but no single occurrence reached the lowest one placed (${where}).`);
-    } else {
-      parts.push(`No occurrence layers were placed — the pool retained every loss in full.`);
-    }
-    const above = result.retainedAboveTower ?? 0;
-    if (above > 0) {
-      parts.push(`$${fmt(above)} fell ABOVE the top of the tower and could not be reinsured at any price.`);
-    }
+  if (decisions.reinsuranceLevel === 0) {
+    parts.push(`No reinsurance protection was in place.`);
+  } else if (reinsuranceRecovery > 0) {
+    parts.push(`Reinsurance generated $${fmt(reinsuranceRecovery)} in recoveries, reducing net losses.`);
+  } else if (decisions.reinsuranceLevel > 0) {
+    parts.push(`Reinsurance was in place but losses did not reach the attachment point.`);
   }
 
   // --- Investment ---
-  if (assetAllocation.equitiesPct >= 50) {
+  if (decisions.investmentRisk >= 7) {
     if (investmentIncome > 0) {
-      parts.push(`An equities-heavy allocation generated strong investment income of $${fmt(investmentIncome)}.`);
+      parts.push(`Aggressive investment positioning generated strong investment income of $${fmt(investmentIncome)}.`);
     } else {
-      parts.push(`An equities-heavy allocation resulted in an investment loss this year.`);
+      parts.push(`Aggressive investment positioning resulted in an investment loss.`);
     }
-  } else if (assetAllocation.equitiesPct <= 15) {
-    parts.push(`A cash/bonds-heavy allocation produced modest but stable investment income of $${fmt(investmentIncome)}.`);
+  } else if (decisions.investmentRisk <= 2) {
+    parts.push(`Conservative investment strategy produced modest but stable investment income of $${fmt(investmentIncome)}.`);
   }
 
   // --- Membership ---
@@ -262,10 +108,6 @@ export function generateNarrative(result: ResultSet, _priorResult?: ResultSet): 
 
 function pct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
-}
-
-function fmtM(n: number): string {
-  return `${+(n / 1e6).toFixed(2)}M`;
 }
 
 function fmt(n: number): string {

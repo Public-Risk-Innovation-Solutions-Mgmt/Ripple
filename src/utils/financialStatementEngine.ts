@@ -1,7 +1,6 @@
 // Financial Statement engine for Risk Pool Simulation v1
 
-import { isPoolRow } from './lineHelpers';
-import type { CoverageLine, LineResultSet, ResultSet } from '../types/simulation';
+import type { ResultSet, StartingFinancials } from '../types/simulation';
 
 export interface IncomeStatement {
   poolPremium: number;
@@ -10,21 +9,14 @@ export interface IncomeStatement {
   totalMemberCharge: number;
   grossPremium: number;
   assessments: number;
-  grossUltimateLoss: number;
-  reinsuranceRecovery: number;
-  priorYearDevelopmentCeded: number;
-  bookingGiveBack: number;
+  totalRevenue: number;
   netUltimateLoss: number;
-  netIncurredLoss: number;
-  alaeIncurred: number;
-  ulaeIncurred: number;
-  laeIncurred: number;
   operatingExpense: number;
   riskControlInvestment: number;
   reinsuranceCost: number;
-  dividends: number;
   priorYearDevelopment: number;
-  underwritingIncome: number;
+  totalUnderwritingExpense: number;
+  underwritingResult: number;
   investmentIncome: number;
   netIncome: number;
 }
@@ -32,9 +24,12 @@ export interface IncomeStatement {
 export interface BalanceSheet {
   cash: number;
   investments: number;
+  reinsuranceRecoverable: number;
+  otherAssets: number;
   totalAssets: number;
-  netUnpaidReserve: number;
+  grossUnpaidReserve: number;
   unearnedPremium: number;
+  otherLiabilities: number;
   totalLiabilities: number;
   surplus: number;
 }
@@ -49,181 +44,87 @@ export interface SurplusRollforward {
   tieOutDifference: number;          // endingSurplus - surplusFromIncome (should be ~0)
 }
 
+export interface ReinsuranceDetail {
+  level: number;
+  levelLabel: string;
+  attachment: number;
+  limit: number;
+  recoveryPct: number;
+  reinsuranceCost: number;
+  grossLoss: number;
+  reinsuranceRecovery: number;
+  netLoss: number;
+  cessionRatio: number;
+}
+
 export interface ReserveDetail {
-  beginningNetReserve: number;
+  beginningGrossReserve: number;
   currentYearUltimate: number;
-  netPaidLosses: number;
+  grossPaidLosses: number;
   priorYearDevelopment: number;
-  endingNetReserve: number;
+  endingGrossReserve: number;
+  beginningReinsRecoverable: number;
   currentYearReinsRecovery: number;
+  reinsReceived: number;
+  endingReinsRecoverable: number;
+  netUnpaidReserve: number;
 }
 
 // Funding Target & Adequacy detail
 // The CLF is used to calculate a funding target, NOT an accounting reserve.
 export interface FundingDetail {
-  /** ⚠ ABSENT ON A POOL ROW — each line picks its own stop. See the construction. */
-  selectedFundingConfidenceLevel?: number; // Player-facing selection (e.g., 75%)
-  /** ⚠ ABSENT ON A POOL ROW — follows the selection above. */
-  selectedFundingCLF?: number;             // Backend actuarial factor
-  expectedNetUnpaidLoss: number;           // Expected unpaid losses, net of reinsurance
+  selectedFundingConfidenceLevel: number;  // Player-facing selection (e.g., 75%)
+  selectedFundingCLF: number;              // Backend actuarial factor
+  expectedGrossUnpaidLoss: number;         // Expected unpaid losses (gross)
+  expectedReinsuranceRecoverable: number;  // Reinsurance on unpaid losses
+  expectedNetUnpaidLoss: number;           // Net of reinsurance
+  grossFundingTarget: number;             // expectedGross × CLF
   netFundingTarget: number;               // expectedNet × CLF
   fundingMarginNeeded: number;            // netFundingTarget - expectedNetUnpaid
   availableFunding: number;               // endingSurplus (capital available)
   fundingGap: number;                    // availableFunding - netFundingTarget
+  fundingAdequacyRatio: number;          // available / target
+  fundingAdequacyStatus: string;         // "Strong" | "Adequate" | "Thin" | "Deficient"
   requiredReserveMargin: number;
   excessAvailableSurplus: number;
   excessCapitalRatio: number | null;
   excessCapitalStatus: string;
 }
 
+export interface KeyRatios {
+  expectedLossRatio: number;
+  expectedExpenseRatio: number;
+  expectedCombinedRatio: number;
+  lossRatio: number;
+  netLossRatio: number;
+  expenseRatio: number;
+  combinedRatio: number;
+  investmentReturnRate: number;
+  operatingRatio: number;
+  surplusToPremiumRatio: number;
+  marketShare: number;
+  memberRetentionRate: number;
+  fundingAdequacyIndicator: string;
+  fundingAdequacyStatus: string;
+  fundingAdequacyRatio: number;
+  ratePer100: number;
+  purePremiumPer100: number;
+  activeExposure: number;
+}
+
 export interface AnnualFinancialStatement {
   yearNumber: number;
   calendarYear: number;
-  isHistorical: boolean;
   incomeStatement: IncomeStatement;
   balanceSheet: BalanceSheet;
   surplusRollforward: SurplusRollforward;
-  // ⚠ WAS a 12-field `reinsuranceDetail: ReinsuranceDetail` object. Eleven of
-  // those fields (level, levelLabel, attachment, limit, recoveryPct,
-  // reinsuranceCost, grossLoss, reinsuranceRecovery, netLoss, cessionRatio,
-  // hasTractableCeded) fed the Reinsurance Detail card and died with it at 1e7d3fb; they
-  // were computed every year and read by nothing for months.
-  //
-  // THE TWELFTH IS LIVE and is why the object was not deleted outright: the
-  // income statement discloses the band retained above the top of the tower.
-  // Collapsed to the one surviving number rather than kept as an object with a
-  // single field.
-  retainedAboveTower: number;
+  reinsuranceDetail: ReinsuranceDetail;
   reserveDetail: ReserveDetail;
-  fundingDetail: FundingDetail | null;  // null for historical years — no player-selected funding confidence exists pre-game
+  fundingDetail: FundingDetail;
+  keyRatios: KeyRatios;
 }
 
-/**
- * THE PRESENTATION SUBTOTALS, DERIVED ONCE.
- *
- * ⚠ EVERY FIGURE BELOW WAS BUILT TWICE — once in FinancialsPage and once in
- * CalculationAuditPage, from the same fields, with no shared helper. They agreed,
- * and nothing made them agree: a change to one surface moved that surface only,
- * which is the symptom this exists to end. Two of them were also WRONG in both
- * places, identically, which is what a single definition would have prevented.
- *
- * ⚠ WHY A SEPARATE FUNCTION AND NOT MORE FIELDS ON AnnualFinancialStatement.
- * deriveAnnualStatement is a pure field MAP — every line of it copies a stored
- * engine value under a presentation name, and that is worth keeping readable as
- * exactly that. These are DERIVATIONS: sums, splits and sign flips that exist
- * only because a statement has subtotals. Keeping the two apart means a reader
- * can tell at a glance which numbers the engine produced and which this file
- * computed, which is the distinction the audit page exists to expose.
- *
- * ⚠ AND IT RETURNS THE OPERANDS, NOT ONLY THE SUBTOTALS. The audit page renders
- * the build-up of each figure, so it needs the parts; if it took the subtotal and
- * re-derived the parts to display them, the duplication would be back in the
- * place that matters most. One call, every term.
- */
-export interface StatementLines {
-  /** Pass-throughs shown GROSS: reinsurance and admin are both revenue and expense. */
-  totalOperatingRevenues: number;
-  totalOperatingExpenses: number;
-  /**
-   * ⚠ BOOKED, NOT DRAWN, AND THIS IS THE ONE PLAYER-VISIBLE CHANGE. The provision
-   * subtotal must tie to netIncurredLoss, which the engine builds from the BOOKED
-   * register; `grossUltimateLoss` is the register as DRAWN, before forward
-   * booking contracts it. Showing the drawn figure against a booked subtotal is a
-   * basis mismatch, and it is why the audit page's provision check failed every
-   * year at every scope.
-   */
-  currentYearClaims: number;
-  /**
-   * ⚠ READ FROM priorYearDevelopment, NOT RECONSTRUCTED. Both pages computed
-   * `netIncurredLoss - netUltimateLoss`, which is the same quantity ONLY when the
-   * booked and pre-bias ultimates agree — that is, only at or above break-even.
-   * Below it the reconstruction absorbed the booking bias and the give-back, so
-   * the prior-year line silently carried a current-year item. The engine already
-   * emits the figure; the sign is flipped because the engine signs development
-   * positive-is-favourable and the statement presents it as an expense.
-   */
-  priorYearClaims: number;
-  /**
-   * THE IBNER BOOKING MARKDOWN — negative, and the line the statement was missing.
-   *
-   * ⚠ THE PROVISION SUBTOTAL ONLY EVER TIED BECAUSE TWO ERRORS CANCELLED. The
-   * statement shows the give-back (`Recovery deferred by optimistic booking`) but
-   * never showed the bias markdown beside it, even though both are parts of the
-   * same optimistic booking. The chain was therefore short by this term — and the
-   * old prior-year line, reconstructed as `netIncurredLoss - netUltimateLoss`,
-   * was absorbing exactly it. Correcting the prior-year line on its own exposed
-   * the hole rather than creating it.
-   *
-   * Measured at confidence 0.30, residual 0.000000 on every line-year:
-   * `bookedNetUltimate - netUltimateLoss = -netUltimateLoss x bias - giveBack`.
-   *
-   * ⚠ DERIVED FROM STORED FIELDS, NOT FROM THE BIAS FUNCTION, so it is computable
-   * at POOL scope. `ibnerBookingBias(selectedFundingCLF)` needs a CLF the pool row
-   * does not have; this rearrangement needs only figures both scopes carry.
-   */
-  bookingBiasMarkdown: number;
-  cashAndEquivalents: number;
-  noncurrentInvestments: number;
-  currentUnpaidPortion: number;
-  noncurrentUnpaidPortion: number;
-  /** The loss expense reserve, split on the loss reserve's own next-year weighting. */
-  currentLaePortion: number;
-  noncurrentLaePortion: number;
-}
-
-export function statementLines(result: ResultSet | LineResultSet): StatementLines {
-  // ⚠ THE RETAINED MARGIN IS REVENUE AND SITS HERE. It is charged to members
-  // exactly as the other four are; what distinguishes it is that it is not paid
-  // out again, so it has no matching entry in operating EXPENSES below and
-  // falls straight through to net income and surplus. That is the whole
-  // mechanism — see DECLINED_COVER_MARGIN_ENABLED. Omitting it here would break
-  // the identity `totalMemberCharge = poolPremium + admin + reinsuranceCost +
-  // retainedCoverMargin`, which the audit page checks.
-  const totalOperatingRevenues =
-    result.reinsuranceCost + result.poolPremium + result.adminExpense + result.assessments
-    + (result.retainedCoverMargin ?? 0);
-  const totalOperatingExpenses =
-    result.reinsuranceCost + result.netIncurredLoss + result.laeIncurred + result.operatingExpense
-    + result.riskControlInvestment + result.dividends;
-
-  // The cash-equivalents slice comes off the allocation the pool actually chose.
-  // assetAllocation is pool-wide and projected identically into every line, so it
-  // reads the same at either scope.
-  const cashSlice = result.endingInvestments * (result.assetAllocation.cashPct / 100);
-
-  // ⚠ THE CURRENT PORTION IS RESERVE-WEIGHTED PER LINE AND CANNOT BE A SINGLE
-  // MULTIPLICATION AT POOL SCOPE. Each line's nextYearPaydownRate is the engine's
-  // own weighting over the cohorts that line holds, and under a payout pattern
-  // the rate depends on each cohort's age. Both pages already walked byLine to do
-  // this, identically; that walk lives here now.
-  const currentUnpaidPortion = isPoolRow(result)
-    ? (Object.keys(result.byLine) as CoverageLine[])
-      .reduce((s, l) => s + result.byLine[l].endingNetReserve * result.byLine[l].nextYearPaydownRate, 0)
-    : result.endingNetReserve * result.nextYearPaydownRate;
-  // LAE is paid as the losses are paid, so its current share follows theirs.
-  const currentLaePortion = isPoolRow(result)
-    ? (Object.keys(result.byLine) as CoverageLine[])
-      .reduce((s, l) => s + result.byLine[l].endingLaeReserve * result.byLine[l].nextYearPaydownRate, 0)
-    : result.endingLaeReserve * result.nextYearPaydownRate;
-
-  return {
-    totalOperatingRevenues,
-    totalOperatingExpenses,
-    currentYearClaims: result.bookedGrossUltimate ?? result.grossUltimateLoss,
-    priorYearClaims: -result.priorYearDevelopment,
-    bookingBiasMarkdown:
-      (result.bookedNetUltimate ?? result.netUltimateLoss) - result.netUltimateLoss
-      + (result.bookingGiveBack ?? 0),
-    cashAndEquivalents: result.endingCash + cashSlice,
-    noncurrentInvestments: result.endingInvestments - cashSlice,
-    currentUnpaidPortion,
-    noncurrentUnpaidPortion: result.endingNetReserve - currentUnpaidPortion,
-    currentLaePortion,
-    noncurrentLaePortion: result.endingLaeReserve - currentLaePortion,
-  };
-}
-
-export function deriveAnnualStatement(result: ResultSet | LineResultSet): AnnualFinancialStatement {
+export function deriveAnnualStatement(result: ResultSet): AnnualFinancialStatement {
   const incomeStatement: IncomeStatement = {
     poolPremium: result.poolPremium,
     adminExpense: result.adminExpense,
@@ -231,21 +132,14 @@ export function deriveAnnualStatement(result: ResultSet | LineResultSet): Annual
     totalMemberCharge: result.totalMemberCharge,
     grossPremium: result.grossPremium,
     assessments: result.assessments,
-    grossUltimateLoss: result.grossUltimateLoss,
-    reinsuranceRecovery: result.reinsuranceRecovery,
-    priorYearDevelopmentCeded: result.priorYearDevelopmentCeded,
-    bookingGiveBack: result.bookingGiveBack,
+    totalRevenue: result.grossPremium + result.assessments + result.investmentIncome,
     netUltimateLoss: result.netUltimateLoss,
-    netIncurredLoss: result.netIncurredLoss,
-    alaeIncurred: result.alaeIncurred,
-    ulaeIncurred: result.ulaeIncurred,
-    laeIncurred: result.laeIncurred,
     operatingExpense: result.operatingExpense,
     riskControlInvestment: result.riskControlInvestment,
     reinsuranceCost: result.reinsuranceCost,
-    dividends: result.dividends,
     priorYearDevelopment: result.priorYearDevelopment,
-    underwritingIncome: result.underwritingIncome,
+    totalUnderwritingExpense: result.netUltimateLoss + result.operatingExpense + result.riskControlInvestment + result.reinsuranceCost,
+    underwritingResult: result.grossPremium - result.netUltimateLoss - result.operatingExpense - result.riskControlInvestment - result.reinsuranceCost,
     investmentIncome: result.investmentIncome,
     netIncome: result.netIncome,
   };
@@ -253,9 +147,12 @@ export function deriveAnnualStatement(result: ResultSet | LineResultSet): Annual
   const balanceSheet: BalanceSheet = {
     cash: result.endingCash,
     investments: result.endingInvestments,
+    reinsuranceRecoverable: result.endingReinsRecoverable,
+    otherAssets: result.otherAssets,
     totalAssets: result.totalAssets,
-    netUnpaidReserve: result.endingNetReserve,
+    grossUnpaidReserve: result.endingGrossReserve,
     unearnedPremium: result.unearnedPremium,
+    otherLiabilities: result.otherLiabilities,
     totalLiabilities: result.totalLiabilities,
     surplus: result.endingSurplus,
   };
@@ -270,53 +167,115 @@ export function deriveAnnualStatement(result: ResultSet | LineResultSet): Annual
     tieOutDifference: result.surplusTieOutDifference,
   };
 
+  const reinsLabels = ['None', 'Low', 'Moderate', 'High', 'Full Transfer'];
+  const reinsLevel = result.decisions.reinsuranceLevel;
+
+  const reinsuranceDetail: ReinsuranceDetail = {
+    level: reinsLevel,
+    levelLabel: reinsLabels[reinsLevel] ?? 'Unknown',
+    attachment: 0,
+    limit: 0,
+    recoveryPct: 0,
+    reinsuranceCost: result.reinsuranceCost,
+    grossLoss: result.grossUltimateLoss,
+    reinsuranceRecovery: result.reinsuranceRecovery,
+    netLoss: result.netUltimateLoss,
+    cessionRatio: result.reinsuranceRecovery / Math.max(result.grossUltimateLoss, 1),
+  };
+
   const reserveDetail: ReserveDetail = {
-    beginningNetReserve: result.beginningNetReserve,
+    beginningGrossReserve: result.beginningGrossReserve,
     currentYearUltimate: result.grossUltimateLoss,
-    netPaidLosses: result.netPaidLosses,
+    grossPaidLosses: result.grossPaidLosses,
     priorYearDevelopment: result.priorYearDevelopment,
-    endingNetReserve: result.endingNetReserve,
+    endingGrossReserve: result.endingGrossReserve,
+    beginningReinsRecoverable: result.beginningReinsRecoverable,
     currentYearReinsRecovery: result.reinsuranceRecovery,
+    reinsReceived: result.reinsuranceRecovery * 0.40,
+    endingReinsRecoverable: result.endingReinsRecoverable,
+    netUnpaidReserve: result.endingGrossReserve - result.endingReinsRecoverable,
   };
 
   // Funding detail - CLF is used for funding target, NOT accounting reserve
-  //
-  // ⚠ THE TWO SELECTION FIELDS ARE OMITTED ON A POOL ROW, AND THE REST OF THE
-  // CARD IS NOT. The dollar figures below — expected net unpaid loss, funding
-  // target, margin, gap — are genuine sums and are right at pool scale. The
-  // confidence level and the CLF are not: each line picks its own stop, so the
-  // pool row never had one and used to display the first active line's. Nulling
-  // the whole card would have thrown away four true numbers to suppress two
-  // false ones.
-  const selections = isPoolRow(result)
-    ? {}
-    : {
-      selectedFundingConfidenceLevel: result.selectedFundingConfidenceLevel,
-      selectedFundingCLF: result.selectedFundingCLF,
-    };
   const fundingDetail: FundingDetail = {
-    ...selections,
+    selectedFundingConfidenceLevel: result.selectedFundingConfidenceLevel,
+    selectedFundingCLF: result.selectedFundingCLF,
+    expectedGrossUnpaidLoss: result.expectedGrossUnpaidLoss,
+    expectedReinsuranceRecoverable: result.expectedReinsuranceRecoverable,
     expectedNetUnpaidLoss: result.expectedNetUnpaidLoss,
+    grossFundingTarget: result.grossFundingTarget,
     netFundingTarget: result.netFundingTarget,
     fundingMarginNeeded: result.fundingMarginNeeded,
     availableFunding: result.availableFunding,
     fundingGap: result.fundingGap,
+    fundingAdequacyRatio: result.fundingAdequacyRatio,
+    fundingAdequacyStatus: result.fundingAdequacyStatus,
     requiredReserveMargin: result.reserveRiskMarginNeeded,
     excessAvailableSurplus: result.excessAvailableSurplus,
     excessCapitalRatio: result.excessCapitalRatio,
     excessCapitalStatus: result.capitalAdequacyStatus,
   };
 
+  const keyRatios: KeyRatios = {
+    expectedLossRatio: result.expectedLossRatio,
+    expectedExpenseRatio: result.expectedExpenseRatio,
+    expectedCombinedRatio: result.expectedCombinedRatio,
+    lossRatio: result.grossUltimateLoss / Math.max(result.totalMemberCharge, 1),
+    netLossRatio: result.lossRatio,
+    expenseRatio: result.expenseRatio,
+    combinedRatio: result.combinedRatio,
+    investmentReturnRate: result.investmentReturnRate,
+    operatingRatio: result.combinedRatio - result.investmentReturnRate,
+    surplusToPremiumRatio: result.endingSurplus / Math.max(result.grossPremium, 1),
+    marketShare: result.marketShare,
+    memberRetentionRate: result.memberRetentionRate,
+    fundingAdequacyIndicator: result.fundingAdequacyIndicator,
+    fundingAdequacyStatus: result.fundingAdequacyStatus,
+    fundingAdequacyRatio: result.fundingAdequacyRatio,
+    ratePer100: result.ratePer100,
+    purePremiumPer100: result.purePremiumPer100,
+    activeExposure: result.activeExposure,
+  };
+
   return {
     yearNumber: result.yearNumber,
     calendarYear: result.calendarYear,
-    isHistorical: false,
     incomeStatement,
     balanceSheet,
     surplusRollforward,
-    // Disclosed, never deducted — see the income statement's own comment.
-    retainedAboveTower: result.retainedAboveTower ?? 0,
+    reinsuranceDetail,
     reserveDetail,
     fundingDetail,
+    keyRatios,
+  };
+}
+
+export function deriveStartingStatement(sf: StartingFinancials): BalanceSheet & { operatingMetrics: { activeMembers: number; activeExposure: number; totalMarketExposure: number; marketShare: number; rateLevel: number; ratePer100: number; purePremiumPer100: number; purePremium: number; memberSatisfaction: number; riskQuality: number; surplusToPremiumRatio: number; annualPremium: number; expectedLossRatio: number } } {
+  return {
+    cash: sf.cash,
+    investments: sf.investments,
+    reinsuranceRecoverable: sf.reinsuranceRecoverable,
+    otherAssets: sf.otherAssets,
+    totalAssets: sf.totalAssets,
+    grossUnpaidReserve: sf.grossUnpaidReserve,
+    unearnedPremium: sf.unearnedPremium,
+    otherLiabilities: sf.otherLiabilities,
+    totalLiabilities: sf.totalLiabilities,
+    surplus: sf.surplus,
+    operatingMetrics: {
+      activeMembers: sf.activeMembers,
+      activeExposure: sf.activeExposure,
+      totalMarketExposure: sf.totalMarketExposure,
+      marketShare: sf.marketShare,
+      rateLevel: sf.rateLevel,
+      ratePer100: sf.ratePer100,
+      purePremiumPer100: sf.purePremiumPer100,
+      purePremium: sf.purePremium,
+      memberSatisfaction: sf.memberSatisfaction,
+      riskQuality: sf.riskQuality,
+      surplusToPremiumRatio: sf.surplusToPremiumRatio,
+      annualPremium: sf.annualPremium,
+      expectedLossRatio: sf.expectedLossRatio,
+    },
   };
 }

@@ -2,37 +2,31 @@ import React from 'react';
 
 export type TabId =
   | 'setup'
-  | 'introduction'
-  | 'departments'
   | 'history'
-  | 'statement'
   | 'dashboard'
   | 'decisions'
-  | 'decisionHistory'
   | 'financials'
   | 'results'
   | 'spreadsheet'
   | 'audit'
   | 'membership';
 
-export interface Tab<T extends string> {
-  id: T;
+interface Tab {
+  id: TabId;
   label: string;
   icon: React.ReactNode;
   disabled?: boolean;
 }
 
-interface TabNavProps<T extends string> {
-  tabs: Tab<T>[];
-  activeTab: T;
-  onSelect: (tab: T) => void;
-  stickyTop?: number; // px offset from viewport top when stacking multiple nav bars
-  zIndex?: number;
+interface TabNavProps {
+  tabs: Tab[];
+  activeTab: TabId;
+  onSelect: (tab: TabId) => void;
 }
 
-export default function TabNav<T extends string>({ tabs, activeTab, onSelect, stickyTop = 60, zIndex = 30 }: TabNavProps<T>) {
+export default function TabNav({ tabs, activeTab, onSelect }: TabNavProps) {
   return (
-    <nav className="bg-white border-b border-gray-200 sticky shadow-sm" style={{ top: stickyTop, zIndex }}>
+    <nav className="bg-white border-b border-gray-200 sticky top-[60px] z-30 shadow-sm">
       <div className="max-w-screen-2xl mx-auto px-4">
         <div className="flex gap-0 overflow-x-auto">
           {tabs.map(tab => (
