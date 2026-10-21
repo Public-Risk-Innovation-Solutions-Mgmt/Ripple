@@ -1005,6 +1005,19 @@ export const RESERVE_BASIS_NEW = 'expected';
  * pool books, not a measurement, and the loss engine is where it lands.
  */
 export const DEVELOPMENT_IS_LIFETIME_TOTAL = true;
+
+/**
+ * ⚠ PLACEHOLDER — NOT YET USED. NOTHING READS THIS (stable-scenarios commit 4).
+ *
+ * YEARLY ADVERSE DEVELOPMENT, per line, at 0%. It will REPLACE the host's
+ * lifetime development (hostDevelopment.ts, DEVELOPMENT_IS_LIFETIME_TOTAL):
+ * each year, a yearly rate on each open accident year's unpaid reserve,
+ * applied BEFORE that year's payments, booked as prior-year development, and
+ * NOT anticipated by pricing — pricing sees it only as it emerges in the
+ * experience. Recorded now so the design is written down beside the value; the
+ * wiring is a later commit, and placeholder-check holds that nothing reads it.
+ */
+export const YEARLY_ADVERSE_RATE: PerLine<number> = { WC: 0, GL: 0, Property: 0 };
 // ⚠ NO LONGER "NOT YET WIRED". The host's development % reads this convention
 // and hostDevelopment.ts implements it; the entry above is live. The constant
 // stays as the written-down statement of WHICH convention is in force.
@@ -1789,6 +1802,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly '
           + '+54% on GL and +171% on WC in total at today\'s settings — a different model, not a refinement.',
+      }],
+      ['Yearly adverse development', {
+        value: perLine(YEARLY_ADVERSE_RATE, 3), unit: 'per year, of each open year\'s unpaid reserve',
+        what: 'PLACEHOLDER — NOT YET USED. Will replace the host\'s lifetime development: a yearly rate on each open '
+          + 'accident year\'s unpaid reserve, applied before payments, booked as prior-year development, and not '
+          + 'anticipated by pricing.',
+        basis: 'CHOSEN', notYetUsed: true,
+        note: 'Zero on every line and read by nothing; recorded so the design sits beside the value until it is wired.',
       }],
       ['GL ordinary losses', {
         value: `$${GL_ORDINARY_LOSS_BAND_PLANNED.from.toLocaleString('en-US')}`

@@ -141,6 +141,7 @@ Decisions already taken about the new loss engine, recorded before it is built. 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
 | Development basis | `lifetime total` | — | CHOSEN | Development is a TOTAL over each accident year's remaining lifetime, emerging with the payments — a year that is 60% paid has seen about 60% of its development. Not a yearly rate. It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly +54% on GL and +171% on WC in total at today's settings — a different model, not a refinement. |
+| Yearly adverse development | `WC 0.000 · GL 0.000 · Property 0.000` | per year, of each open year's unpaid reserve | CHOSEN · not yet used | PLACEHOLDER — NOT YET USED. Will replace the host's lifetime development: a yearly rate on each open accident year's unpaid reserve, applied before payments, booked as prior-year development, and not anticipated by pricing. Zero on every line and read by nothing; recorded so the design sits beside the value until it is wired. |
 | GL ordinary losses | `$0-$1,000,000` | the layer they occupy | CHOSEN · not yet used | GL's ordinary losses are the $0-1M layer, paid on that limited layer's own payout pattern. The matched pattern is the point: the whole-account pattern is dominated by the large claims above this band and would pay these out too slowly. |
 
 ## R model (data scientist)

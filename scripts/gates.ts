@@ -185,6 +185,8 @@ const FAST: string[] = [
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
                                      //         trend per line, booked up front; older years undeveloped for
                                      //         trend; six controls
+  'adverse-rate-placeholder-check',  //   2s   YEARLY_ADVERSE_RATE is 0, read by nothing under src/, value-neutral
+                                     //         at 50%, marked a placeholder; four controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls
