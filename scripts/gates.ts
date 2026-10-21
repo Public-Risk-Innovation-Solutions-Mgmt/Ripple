@@ -201,6 +201,10 @@ const FAST: string[] = [
                                      //         expected over ten years; four controls
   'exposure-scale-check',            //   4s   one exposure multiplier per line on the whole market, a 30% book, and
                                      //         about $30M of year-1 premium at Expected; three controls
+  'scenarios-check',                 //   5s   the twenty scenarios: setup offers 1-20, the handler refuses others, one
+                                     //         seed solo and hosted, the ratio table, every opening at year-1 premium /
+                                     //         its ratio from the starting capital, the pre-game's experience and 3%
+                                     //         return; eight controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls

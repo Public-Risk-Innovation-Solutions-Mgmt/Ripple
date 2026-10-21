@@ -66,7 +66,7 @@ import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { unpaidShare } from './payoutPattern';
 import { staticClf, type StaticClfLine } from '../data/clfTables';
 import {
-  EXPOSURE_GROWTH_PER_YEAR, newLossEngineRuns, OPENING_RESERVE_YEARS, OPENING_SURPLUS, PRIOR_HISTORY_YEARS,
+  EXPOSURE_GROWTH_PER_YEAR, newLossEngineRuns, OPENING_RESERVE_YEARS, PRIOR_HISTORY_YEARS,
   RESERVE_MARGIN_CONFIDENCE_PARAM, SEVERITY_TREND_PER_YEAR,
 } from '../data/pricingParameters';
 import { computeKLine, deriveNeutralPurePremiumPer100 } from './wcClaimEngine';
@@ -447,20 +447,7 @@ export function openingCatCapital(line: CoverageLine, members: Book): number {
     : catCapitalRetained(line, [...rosterOf(members, 'openingCatCapital')], placed);
 }
 
-/**
- * Opening surplus for a line: OPENING_SURPLUS, set — $35M on every line, interim
- * until the twenty starting scenarios replace it. Required capital no longer
- * enters it (funding tables wiring).
- *
- * HISTORY: it was the ruled multiple of the line's own FULL required capital —
- * the reserve risk margin PLUS the retained-catastrophe charge.
- *
- * ⚠ THE CHARGE IS IN IT SINCE PROMPT A COMMIT 3. The engine has always held
- * Property to margin + charge (reserveRiskMarginNeeded) every year, but the
- * opening was set on the margin alone — so Property opened below its own
- * requirement and its first capital reading was Deficient. Every line now
- * opens at the same multiple of the requirement the engine then grades it on.
- */
-export function setOpeningSurplus(line: CoverageLine): number {
-  return OPENING_SURPLUS[line];
-}
+// ⚠ setOpeningSurplus IS GONE (stable-scenarios commit 9). It returned
+// OPENING_SURPLUS, $35M on every line; the opening is now the scenario's — the
+// line's year-1 premium at Expected / its premium-to-surplus ratio — set in
+// priorHistoryEngine's applySetOpening.

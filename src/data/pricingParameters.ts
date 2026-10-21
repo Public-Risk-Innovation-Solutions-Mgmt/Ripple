@@ -464,38 +464,89 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
   Property: null,
 };
 
+// ============================================================================
+// THE TWENTY SCENARIOS (stable-scenarios commit 9).
+//
+// The scenario number, 1 to 20, is the game's ONLY seed: the market, the book,
+// the pre-game and the worlds, solo and hosted, all derive from it
+// (scenarioInstance). Each carries a target premium-to-surplus ratio, and that
+// one figure sets three things:
+//
+//   1. THE OPENING: each line opens with surplus = its year-1 premium at
+//      Expected / the ratio.
+//   2. THE PRE-GAME'S EXPERIENCE: its ordinary losses run at expected x
+//      (1 + (1 - f) x PRE_GAME_EXPERIENCE_WEIGHT), f = PRE_GAME_EXPERIENCE_BASE /
+//      ratio — a thin scenario inherits a worse record as well as less surplus.
+//   3. THE PRIOR BOARD'S MARGIN: solved, one funding level per line across the
+//      five pre-game years, so that from STARTING_CAPITAL surplus ends exactly at
+//      the opening (priorHistoryEngine's solvePreGameMargin). It replaces the
+//      fixed 14% cushion (PRE_GAME_FUNDING_CUSHION, retired).
+// ============================================================================
+
+export const SCENARIO_COUNT = 20;
+
+/** The scenarios from THINNEST (highest premium to surplus) to RICHEST. */
+export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 15, 11, 20, 6, 9, 5, 4, 1, 18, 7, 17, 2, 13, 16];
+
+/** The thinnest and richest target premium-to-surplus ratios; the twenty are evenly spaced between. */
+export const SCENARIO_RATIO_RANGE = { thinnest: 1.7, richest: 1.2 } as const;
+
+/** Each scenario's target premium-to-surplus ratio, by scenario number. */
+export const SCENARIO_PREMIUM_TO_SURPLUS: Readonly<Record<number, number>> = Object.fromEntries(
+  SCENARIOS_THIN_TO_RICH.map((n, k) => [n,
+    SCENARIO_RATIO_RANGE.thinnest
+      - k * (SCENARIO_RATIO_RANGE.thinnest - SCENARIO_RATIO_RANGE.richest) / (SCENARIO_COUNT - 1)]),
+);
+
+/** The pre-game's experience factor is this / the scenario's ratio: 1 at a ratio of 1.5. */
+export const PRE_GAME_EXPERIENCE_BASE = 1.5;
+/** How far the experience factor moves the pre-game's ordinary losses: x (1 + (1 - factor) x this). */
+export const PRE_GAME_EXPERIENCE_WEIGHT = 0.3;
+
+/** The pre-game's ordinary losses, as a multiple of expected, in a scenario. */
+export const preGameLossMultiplier = (scenario: number): number =>
+  1 + (1 - PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
+
 /**
- * WHAT THE BOARD FUNDED AT BEFORE THE PLAYERS ARRIVED — a 14% CUSHION OVER
- * EXPECTED: each line's retained pure premium x 1.14, every pre-game year.
+ * STARTING CAPITAL — $5M PER LINE, paid in, with no earned surplus, at the
+ * start of the pre-game. The Annual Statement's paid-in capital is this; earned
+ * surplus is everything the pre-game adds.
  *
- * ⚠ A CUSHION, NOT A CONFIDENCE LEVEL (funding tables commit). It was the 70%
- * level on each line's own CLF table — WC 1.1400, GL 1.1350, Property 1.1471 —
- * so re-deriving the tables would have re-run the pre-game and moved the
- * opening. Stated as the multiplier it amounted to, it no longer reads a table:
- * the same effect as before (WC identical, GL +0.4%, Property -0.6% on the
- * multiplier), and the tables are free to describe the pool's volatility. What
- * confidence it amounts to is now a property of the tables, recorded on the
- * pre-game years' results (fundingConfidenceLevel) and nowhere relied on.
+ * ⚠ WHY $5M, NOT $15M OR $10M — tried at all three across the twenty scenarios
+ * by line, with the prior board's margin solved to land on each opening:
  *
- * ⚠ IT IS THE PRE-GAME ONLY. Players still default to funding at EXPECTED
- * (CLF 1.000) and choose their own level from year 1, which is
- * DEFAULT_FUNDING_CONFIDENCE_LEVEL and the `fundingAtExpected` flag on each
- * line's decisions. This parameter governs the declared years the pool was run
- * by someone else.
+ *   start   margins >= 0   margin supplies most growth   investment's share (median)
+ *   $15M        1 / 60            0 / 60                          > 1
+ *   $10M       19 / 60           21 / 60                         0.67
+ *   $5M        45 / 60           40 / 60                         0.42
  *
- * WHY IT IS NOT "expected": a pool handed over with no cushion is a pool whose
- * previous board was funding to break even every year, which is not how a
- * going concern is run and not the position the game means to start from. 70%
- * is a conservative-but-ordinary stop.
- *
- * ⚠ WHAT A PLAYER SEES BECAUSE OF IT. Year 1 at the default shows a rate DROP
- * against the declared year before it — the player is funding at expected
- * where the prior board funded with a cushion — and that drop is real rather
- * than a modelling artefact. It is the first thing the Decisions panel's
- * change column reports. No player-facing text names the 14%: the welcome
- * memo carries no engine detail (docs/PENDING_MULTIPLAYER.md).
+ * $5M is the one where the most solved margins are zero or positive and most
+ * growth comes from the margin. WC is the exception on every start: its long
+ * reserves earn the 3% too, so investment is 55-77% of its growth and its
+ * margin solves below expected in 15 of 20 scenarios (-7.0% to +2.3%). The
+ * price is a thin first pre-game year: premium to surplus about 4.4-5.5.
  */
-export const PRE_GAME_FUNDING_CUSHION = 0.14;
+export const STARTING_CAPITAL: PerLine<number> = { WC: 5_000_000, GL: 5_000_000, Property: 5_000_000 };
+
+/**
+ * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
+ * asset class alike, no draw: a realistic return for a public pool's
+ * bond-heavy portfolio. Most of the pre-game's growth comes from the prior
+ * board's margin, not from this. The played years draw their market as before.
+ */
+export const PRE_GAME_INVESTMENT_RETURN = 0.03;
+
+/**
+ * ⚠ RETIRED: PRE_GAME_FUNDING_CUSHION, the prior board's fixed 14% cushion
+ * over expected (WC 1.1400, GL 1.1350, Property 1.1471 on the old 70% stops).
+ * The board's funding level is now solved per scenario and line so the
+ * pre-game lands exactly on the opening, and it can sit below expected.
+ *
+ * ⚠ WHAT A PLAYER SEES BECAUSE OF IT. A team that locks year 1 untouched funds
+ * at EXPECTED, so year 1's rate on WC and GL may step UP or DOWN from the
+ * declared year before it, depending on whether the scenario's solved margin
+ * sat above or below expected. No player-facing text names the margin.
+ */
 
 export const NEW_RATE_STACK = { enabled: true };
 
@@ -939,23 +990,12 @@ export const BOOK_INTAKE_SHARE: readonly number[] = [0, 0.02, 0.05, 0.08];
 export const NEW_BUSINESS_PENALTY = 0.20;
 
 /**
- * OPENING SURPLUS, PER LINE — $35M ON EVERY LINE, SET, NOT DERIVED FROM
- * REQUIRED CAPITAL (funding tables wiring).
- *
- * ⚠ INTERIM, UNTIL THE TWENTY STARTING SCENARIOS REPLACE IT. Each scenario will
- * carry its own opening; this one figure stands in for all of them.
- *
- * ⚠ WHY SET. Required capital is the unpaid reserve x (CLF90 - 1) off the
- * line's own funding table, and the BaselineCV tables' 90% stop sits far
- * lower than the tables they replaced (WC 1.0802 against 1.3275, GL 1.1321
- * against 1.7910, Property 1.1060 against 1.5247). Two times that requirement
- * would collapse the opening, so the opening is no longer read off it. The
- * pre-game still starts from whatever surplus lands its last year-end exactly
- * here (solvePreGameStart), so the five years flow into year 1 with no reset.
- *
- * Before: 2 x the line's full required capital — the history follows.
+ * ⚠ RETIRED: OPENING_SURPLUS, $35M on every line — the interim opening the
+ * twenty scenarios replace (commit 9). Each line now opens with its year-1
+ * premium at Expected / the scenario's premium-to-surplus ratio
+ * (SCENARIO_PREMIUM_TO_SURPLUS). Before the $35M, 2 x the line's full required
+ * capital — the history follows.
  */
-export const OPENING_SURPLUS: PerLine<number> = { WC: 35_000_000, GL: 35_000_000, Property: 35_000_000 };
 
 /**
  * ⚠ HISTORY, NOT IN USE SINCE THE FUNDING TABLES WIRING — OPENING_SURPLUS above
@@ -1614,9 +1654,24 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     ],
   },
   {
+    title: 'The twenty scenarios',
+    blurb: 'The scenario number is the game\'s only seed — market, book, pre-game and worlds, solo and hosted. Each '
+      + 'sets the opening premium to surplus, the pre-game\'s experience and, through the solved margin, how the '
+      + `prior board ran the pool. Evenly spaced from ${SCENARIO_RATIO_RANGE.thinnest} (thinnest) to `
+      + `${SCENARIO_RATIO_RANGE.richest} (richest). Experience factor = ${PRE_GAME_EXPERIENCE_BASE} / ratio; the `
+      + `pre-game's ordinary losses = expected x (1 + (1 - factor) x ${PRE_GAME_EXPERIENCE_WEIGHT}).`,
+    entries: Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1).map(n => [`Scenario ${n}`, {
+      value: SCENARIO_PREMIUM_TO_SURPLUS[n].toFixed(4), unit: 'premium to surplus at the opening',
+      what: `${SCENARIOS_THIN_TO_RICH.indexOf(n) + 1} of ${SCENARIO_COUNT}, thinnest first. Experience factor `
+        + `${(PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[n]).toFixed(4)}; pre-game ordinary losses x `
+        + `${preGameLossMultiplier(n).toFixed(4)} of expected.`,
+      basis: 'CHOSEN',
+    }] as const),
+  },
+  {
     title: 'The opening',
     blurb: 'The SET opening — no acceptance band, no pin, no search, and no reset: the pre-game starts '
-      + 'from the surplus that lands its last year-end on the opening.',
+      + 'from its starting capital, and the prior board\'s margin is solved so its last year-end lands on the opening.',
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
@@ -1625,12 +1680,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'commit 3, and the two move together. Everything older opens as a bulk cohort.',
       }],
       ['Opening surplus', {
-        value: `WC $${OPENING_SURPLUS.WC / 1e6}M · GL $${OPENING_SURPLUS.GL / 1e6}M · Property $${OPENING_SURPLUS.Property / 1e6}M`,
-        unit: 'surplus at the opening, each line',
-        what: 'Each line opens with this surplus, set rather than derived from required capital.', basis: 'CHOSEN',
-        note: 'INTERIM, until the twenty starting scenarios replace it. Was 2 x the line\'s full required capital; '
-          + 'the BaselineCV tables\' much smaller 90% factor would have collapsed that. The pre-game starts from '
-          + 'the surplus that lands its last year-end here, so the opening is set without a reset.',
+        value: 'year-1 premium at Expected / the scenario\'s premium to surplus', unit: 'surplus at the opening, each line',
+        what: 'Each line opens with its year-1 premium at Expected (the default decisions, struck on the opening book) '
+          + 'divided by its scenario\'s target ratio — see The twenty scenarios.', basis: 'CHOSEN',
+        note: 'Was $35M on every line, interim until the scenarios. The pre-game starts from the starting capital and '
+          + 'the prior board\'s margin is solved so its last year-end lands here, so the opening is set without a reset.',
       }],
       ['Opening reserve years', {
         value: OPENING_RESERVE_YEARS, unit: 'accident years',
@@ -1730,17 +1784,33 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'single year $103.9M. Distinct from GL_SEVERITY_CAP ($84M), which is how large a claim can be '
           + 'rather than how much of one the Pool covers. Reinsurance is bought within the limit.',
       }],
-      ['Pre-game funding cushion', {
-        value: PRE_GAME_FUNDING_CUSHION, unit: 'over expected (CLF 1 + this)',
-        what: 'What the previous board funded the declared years at: each line\'s retained pure premium x '
-          + '(1 + this). A cushion, not a confidence level — it reads no funding table.',
+      ['Starting capital', {
+        value: `WC $${STARTING_CAPITAL.WC / 1e6}M · GL $${STARTING_CAPITAL.GL / 1e6}M · Property $${STARTING_CAPITAL.Property / 1e6}M`,
+        unit: 'paid in, start of the pre-game',
+        what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
+          + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'Was the 70% level on each line\'s own table (WC 1.1400, GL 1.1350, Property 1.1471). '
-          + 'The PLAYER\'S default is unchanged: funding at EXPECTED, CLF 1.000, from year 1. So a team '
-          + 'that locks year 1 untouched prices BELOW the year before it — measured at -7.0% on WC, -4.9% '
-          + 'on GL, -3.9% on Property, against +41.7% / +18.5% / +35.7% when the pre-game also funded at '
-          + 'expected. The year-1 rate itself is identical either way; only the figure it is compared '
-          + 'against moves. No player-facing text names it.',
+        note: 'Tried at $15M, $10M and $5M across the twenty scenarios by line. $5M gives the most solved margins at or '
+          + 'above expected (45 of 60, against 19 at $10M and 1 at $15M) and the most growth from the margin (40 of 60; '
+          + 'investment\'s median share 42%). WC stays the exception: its long reserves earn the 3% too, so investment '
+          + 'is 55-77% of its growth and its margin solves below expected in 15 of 20 scenarios. The first pre-game year '
+          + 'is thin: premium to surplus about 4.4-5.5.',
+      }],
+      ['Prior board\'s margin', {
+        value: 'solved, per scenario and line', unit: 'over expected (CLF 1 + this)',
+        what: 'One funding level across the five pre-game years, per line, solved so surplus ends exactly at the '
+          + 'scenario\'s opening from the starting capital. It may sit below expected.',
+        basis: 'CHOSEN',
+        note: 'Replaces the fixed 14% cushion. A team that locks year 1 untouched funds at Expected, so year 1\'s rate '
+          + 'on WC and GL may step up or down from last year\'s, depending on the scenario\'s solved margin. No '
+          + 'player-facing text names it.',
+      }],
+      ['Pre-game investment return', {
+        value: PRE_GAME_INVESTMENT_RETURN, unit: 'a year, on invested assets',
+        what: 'What the pre-game\'s invested assets earn each year, every asset class alike, no draw.',
+        basis: 'CHOSEN',
+        note: 'A realistic return for a public pool\'s bond-heavy portfolio; most of the pre-game\'s growth comes '
+          + 'from the prior board\'s margin. The played years draw their market as before.',
       }],
     ],
   },

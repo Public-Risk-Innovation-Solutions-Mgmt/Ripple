@@ -4,6 +4,7 @@ import type { GameSetupSettings, CoverageLine } from '../types/simulation';
 import RippleLogo from '../assets/RippleLogo';
 import { GAME_LENGTH_YEARS } from '../data/defaultAssumptions';
 import WelcomeModal from '../components/WelcomeModal';
+import { SCENARIO_OPTIONS, randomScenarioId } from '../utils/scenarios';
 
 interface SetupPageProps {
   onStart: (settings: GameSetupSettings) => void;
@@ -25,20 +26,12 @@ const MANAGED_ITEMS: { label: string; definition: string }[] = [
   { label: 'Member retention and growth', definition: 'How many members stay in or join the pool, driven by pricing, satisfaction, and the pool’s financial performance.' },
 ];
 
-function randomInstanceId(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id = '';
-  for (let i = 0; i < 8; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id;
-}
-
 export default function SetupPage({ onStart }: SetupPageProps) {
   const [poolName, setPoolName] = useState('Clearwater Public Entity Pool');
   const [gameLength, setGameLength] = useState(5);
   const [startingYear, setStartingYear] = useState(2026);
-  const [instanceId, setInstanceId] = useState(() => randomInstanceId());
+  // The scenario, 1 to 20, is the game's only seed (utils/scenarios.ts).
+  const [instanceId, setInstanceId] = useState(() => randomScenarioId());
   const [activeLines, setActiveLines] = useState<CoverageLine[]>(['WC']);
   const [showWelcome, setShowWelcome] = useState(false);
 
@@ -52,7 +45,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
     if (!poolName.trim() || activeLines.length === 0) return;
     // Preserve canonical WC/GL/Property order regardless of click sequence.
     const orderedLines = COVERAGE_LINES.map(l => l.value).filter(l => activeLines.includes(l));
-    onStart({ poolName: poolName.trim(), gameLength, startingYear, instanceId: instanceId.trim() || randomInstanceId(), activeLines: orderedLines });
+    onStart({ poolName: poolName.trim(), gameLength, startingYear, instanceId, activeLines: orderedLines });
   }
 
   return (
@@ -137,27 +130,28 @@ export default function SetupPage({ onStart }: SetupPageProps) {
               </div>
             </div>
 
-            {/* Instance ID */}
+            {/* Scenario — the game's only seed, one of twenty */}
             <div>
-              <label className="block text-base font-semibold text-gray-700 mb-2">Instance ID / Seed</label>
+              <label className="block text-base font-semibold text-gray-700 mb-2">Scenario</label>
               <div className="flex gap-2.5">
-                <input
-                  type="text"
+                <select
+                  data-testid="scenario"
                   value={instanceId}
-                  onChange={e => setInstanceId(e.target.value.toUpperCase().slice(0, 12))}
-                  className="flex-1 border border-gray-300 rounded-lg px-5 py-3 text-base font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition tracking-wider"
-                  placeholder="e.g. ABC12345"
-                />
+                  onChange={e => setInstanceId(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded-lg px-5 py-3 text-base font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                >
+                  {SCENARIO_OPTIONS.map(n => <option key={n} value={n}>Scenario {n}</option>)}
+                </select>
                 <button
                   type="button"
-                  onClick={() => setInstanceId(randomInstanceId())}
+                  onClick={() => setInstanceId(randomScenarioId())}
                   className="px-5 py-3 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg text-gray-600 transition flex items-center gap-2 text-base font-medium"
                 >
                   <Shuffle size={16} />
-                  Randomize
+                  Random
                 </button>
               </div>
-              <p className="text-sm text-gray-400 mt-1.5">Same ID + same decisions = same results. Share this ID to compare strategies.</p>
+              <p className="text-sm text-gray-400 mt-1.5">Same scenario + same decisions = same results. Share the number to compare strategies.</p>
             </div>
 
             {/* Coverage lines */}

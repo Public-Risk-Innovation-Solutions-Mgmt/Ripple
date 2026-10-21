@@ -15,7 +15,9 @@
 //      no line's losses are read as already holding ALAE.
 //   3. TREND ONCE: no inflation to settlement on top (UP_FRONT_TREND off), so
 //      year-1 pricing lands on the pure premium: the rate's loss cost + ULAE
-//      is the pure premium x the book's own risk, within 1%.
+//      is the pure premium x the book's own risk x the scenario's pre-game
+//      experience (preGameLossMultiplier, stable-scenarios commit 9 — every
+//      year in the window ran at it), within 1%.
 //   4. ACTUAL TRACKS EXPECTED: over twelve ten-year games, each line's ordinary
 //      claims drawn — before the shocks' uplift, which the record's
 //      ordinaryRealised includes — are within 2% of its expected ordinary claims.
@@ -28,8 +30,9 @@
 // ============================================================================
 
 import {
-  ALAE_OF_LOSS_COST, POOL_LOSS_COST_LAYERS, ULAE_OF_LOSS_COST, UP_FRONT_TREND,
+  ALAE_OF_LOSS_COST, POOL_LOSS_COST_LAYERS, preGameLossMultiplier, ULAE_OF_LOSS_COST, UP_FRONT_TREND,
 } from '../../src/data/pricingParameters';
+import { scenarioOf } from '../../src/utils/scenarios';
 import { ALAE_ALREADY_IN_LOSSES } from '../../src/utils/newPurePremium';
 import { laeShares } from '../../src/utils/lossExpense';
 import { ordinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
@@ -74,7 +77,7 @@ function gradeLae(shares: Shares, tag: string) {
 
 // ---------------------------------------------------------------- games
 const SEEDS = 12;
-interface Seen { pp: number; ulae: number; risk: number }
+interface Seen { pp: number; ulae: number; risk: number; experience: number }
 const atYear1: Record<CoverageLine, Seen[]> = { WC: [], GL: [], Property: [] };
 const drawn: Record<CoverageLine, { real: number; exp: number }> = { WC: { real: 0, exp: 0 }, GL: { real: 0, exp: 0 }, Property: { real: 0, exp: 0 } };
 const totals: Record<CoverageLine, { real: number; exp: number }> = { WC: { real: 0, exp: 0 }, GL: { real: 0, exp: 0 }, Property: { real: 0, exp: 0 } };
@@ -85,7 +88,7 @@ for (let g = 0; g < SEEDS; g++) {
   const struck = strikeRates(gs, defaultDecisionSet(1));
   for (const l of LINES) {
     const s = struck[l]!;
-    atYear1[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits) ?? 1 });
+    atYear1[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits) ?? 1, experience: preGameLossMultiplier(scenarioOf(instance)) });
   }
   for (let y = 1; y <= 10; y++) {
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), LINES)), currentYearNumber: y + 1 };
@@ -105,12 +108,12 @@ function gradeLanding(seen: Record<CoverageLine, Seen[]>, upFront: (l: CoverageL
   let worst = 0;
   const shown: string[] = [];
   for (const l of ['WC', 'GL'] as CoverageLine[]) {
-    const landed = mean(seen[l].map(s => (s.pp + s.ulae) / s.risk)) * upFront(l);
+    const landed = mean(seen[l].map(s => (s.pp + s.ulae) / s.risk / s.experience)) * upFront(l);
     worst = Math.max(worst, rel(landed, SUPPLIED[l]!));
     shown.push(`${l} $${landed.toFixed(4)}`);
   }
   check(worst < 0.01 && !UP_FRONT_TREND.enabled,
-    `${tag}3. trend once: year-1 pricing's loss cost + ULAE lands on the pure premium (per unit of book risk)`,
+    `${tag}3. trend once: year-1 pricing's loss cost + ULAE lands on the pure premium (per unit of book risk and of the scenario's pre-game experience)`,
     `${shown.join(', ')} against $2.618 and $3.45; worst ${(worst * 100).toFixed(2)}%`);
 }
 

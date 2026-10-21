@@ -145,16 +145,16 @@ import {
   occurrenceTotals,
   quoteAggregate,
 } from './reinsuranceTower';
-import { expectedMarketReturns, simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
+import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { AGGREGATE_STOP, FLAT_PRE_GAME, MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
 import { bookMovementResult, moveBook, moveBookUnits } from './bookUnderwriting';
 import {
-  bookOrdinaryRisk, ordinaryLossCostPer100, ordinaryLossFromUnits, ordinaryLossYear, ordinaryMemberRecords,
+  bookOrdinaryRisk, ordinaryLossCostPer100, ordinaryLossFromUnits, ordinaryLossYear, ordinaryMemberRecords, preGameLossFactor,
   type OrdinaryLossYear,
 } from './ordinaryLoss';
 import { marketSeedOf, unitsOf, type BookUnit } from './bookUnits';
@@ -1831,8 +1831,8 @@ export function processLineYear(
     // exposure x risk x cost, times the shared year factor and its own.
     ordinaryYear = yearUnits
       ? ordinaryLossFromUnits(line, yearUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed,
-        newUnits, NEW_BUSINESS_PENALTY)
-      : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed);
+        newUnits, NEW_BUSINESS_PENALTY, preGameLossFactor(instance, yearNumber))
+      : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed, preGameLossFactor(instance, yearNumber));
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
     const penalty = newBusinessPenaltyFactor;
@@ -3430,10 +3430,12 @@ export function processYear(
   const shockYear = newLossEngineRuns()
     ? resolveShockYear(instance, shockTimingOf(setup), yearNumber)
     : undefined;
-  // A flat pre-game year (FLAT_PRE_GAME) earns the market's expectation, net of
-  // fee — no draw; every played year draws as before.
+  // A flat pre-game year (FLAT_PRE_GAME) earns PRE_GAME_INVESTMENT_RETURN on
+  // every asset class — so any allocation earns it — with no draw (commit 9;
+  // it was the market's expectation, net of fee). Every played year draws as
+  // before.
   const drawnMarket = FLAT_PRE_GAME.enabled && yearNumber <= 0
-    ? expectedMarketReturns()
+    ? { cash: PRE_GAME_INVESTMENT_RETURN, bonds: PRE_GAME_INVESTMENT_RETURN, equities: PRE_GAME_INVESTMENT_RETURN }
     : simulateMarketReturns(deriveSubRng(instance.seed, yearNumber, 'invest'));
   // Investment Loss: twenty points off the equity return in its year, after
   // the draw and its rails — the event is a shock to the market, not a

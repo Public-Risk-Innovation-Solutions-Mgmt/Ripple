@@ -1746,9 +1746,9 @@ export function buildSupportingRows(
   // that the per-line reads inside this branch are reachable.
   const clfProvenanceText = lineRow !== null && lineRow.line && hasStaticClf(lineRow.line)
     ? (lineRow.decisions.fundingCushion !== undefined
-        // The pre-game's board funded at a stated cushion and read no table.
-        ? `The prior board's cushion — ${formatPct(lineRow.decisions.fundingCushion, 0)} over expected, a multiplier of exactly `
-          + `${(1 + lineRow.decisions.fundingCushion).toFixed(3)}; no table is read (PRE_GAME_FUNDING_CUSHION)`
+        // The pre-game's board funded at its solved margin and read no table.
+        ? `The prior board's margin — ${formatPct(lineRow.decisions.fundingCushion, 1)} over expected, a multiplier of exactly `
+          + `${(1 + lineRow.decisions.fundingCushion).toFixed(3)}; no table is read (solved so the pre-game lands on the scenario's opening)`
         : lineRow.decisions.fundingAtExpected
         ? 'Expected funding — the table is bypassed entirely and the multiplier is exactly 1.000'
         : `STATIC_CLF_TABLE.${lineRow.line}[${formatPct(lineRow.selectedFundingConfidenceLevel, 0)}] — see clfTables.ts`)

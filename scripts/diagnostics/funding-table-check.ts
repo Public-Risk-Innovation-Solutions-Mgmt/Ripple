@@ -29,9 +29,11 @@
 //   3. THE REINSURANCE LOAD READS NO TABLE: every placed layer costs its
 //      expected cession x (1 + REINSURANCE_LOAD), and does with the tables
 //      swapped for others.
-//   4. THE PRE-GAME FUNDS AT ITS CUSHION AND READS NO TABLE: every pre-game
-//      year charges CLF exactly 1 + PRE_GAME_FUNDING_CUSHION, and the pre-game
-//      is unchanged with the tables swapped.
+//   4. THE PRE-GAME FUNDS AT ITS SOLVED MARGIN AND READS NO TABLE: every
+//      pre-game year charges CLF exactly 1 + the prior board's margin, one
+//      margin across a game's pre-game years (solved per scenario and line,
+//      stable-scenarios commit 9; it was the fixed 14% cushion), and the
+//      pre-game is unchanged with the tables swapped.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: the member-engine tables, each
 // line graded against the BaselineCV table four points from its own (WC and
@@ -48,7 +50,7 @@ import {
   BASELINE_CV_TABLES, GL_SUPPLIED, PROPERTY_DERIVED, RESERVE_MARGIN_CONFIDENCE, STATIC_CLF_TABLE, WC_SUPPLIED,
   baselineCvKey, crossingOf, staticClf, type ClfTable, type StaticClfLine,
 } from '../../src/data/clfTables';
-import { BASELINE_CV, PRE_GAME_FUNDING_CUSHION, REINSURANCE_LOAD } from '../../src/data/pricingParameters';
+import { BASELINE_CV, REINSURANCE_LOAD } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -78,7 +80,8 @@ const withTables = <T>(tables: Record<StaticClfLine, ClfTable>, run: () => T): T
 };
 
 interface LineYear { ratio: number; marginFactor: number; clfNinety: number }
-interface Played { years: Record<StaticClfLine, LineYear[]>; preGame: Record<StaticClfLine, { clf: number; premium: number }[]> }
+interface PreGameYear { clf: number; premium: number; margin: number; game: number }
+interface Played { years: Record<StaticClfLine, LineYear[]>; preGame: Record<StaticClfLine, PreGameYear[]> }
 
 /** Solo games of each line at defaults, on seeds the derivation never drew. */
 function play(games: number): Played {
@@ -92,7 +95,7 @@ function play(games: number): Played {
       const { poolState, priorHistory } = runPriorHistory(inst, setup);
       for (const h of priorHistory) {
         const r = h.byLine[line] as LineResultSet | undefined;
-        if (r) preGame[line].push({ clf: r.selectedFundingCLF, premium: r.poolPremium });
+        if (r) preGame[line].push({ clf: r.selectedFundingCLF, premium: r.poolPremium, margin: r.decisions.fundingCushion ?? NaN, game: g });
       }
       let gs = { setup, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory } as GameState;
       for (let y = 1; y <= YEARS; y++) {
@@ -158,18 +161,23 @@ function gradeLoad(price: Price, tag: string) {
 }
 
 // ---------------------------------------------------------------- 4
-function gradePreGame(played: Played, swapped: Played, want: (line: StaticClfLine) => number, tag: string) {
-  let worstClf = 0, worstSwap = 0, n = 0;
+function gradePreGame(played: Played, swapped: Played, want: (line: StaticClfLine, p: PreGameYear) => number, tag: string) {
+  let worstClf = 0, worstSwap = 0, n = 0, spread = 0;
+  const margins: number[] = [];
   for (const line of LINES) {
     played.preGame[line].forEach((p, i) => {
       n++;
-      worstClf = Math.max(worstClf, Math.abs(p.clf - want(line)));
+      worstClf = Math.max(worstClf, Math.abs(p.clf - want(line, p)));
       worstSwap = Math.max(worstSwap, Math.abs(swapped.preGame[line][i].premium / p.premium - 1));
+      const first = played.preGame[line].find(q => q.game === p.game)!;
+      spread = Math.max(spread, Math.abs(p.margin - first.margin));
+      margins.push(p.margin);
     });
   }
-  check(worstClf < 1e-12 && worstSwap === 0 && n > 0,
-    `${tag}4. every pre-game year funds at CLF ${(1 + PRE_GAME_FUNDING_CUSHION).toFixed(2)} exactly, and swapping the tables moves no pre-game premium`,
-    `${n} pre-game line-years; worst CLF off ${worstClf.toExponential(2)}, worst premium moved ${worstSwap.toExponential(2)}`);
+  check(worstClf < 1e-12 && spread === 0 && worstSwap === 0 && n > 0,
+    `${tag}4. every pre-game year funds at CLF 1 + the prior board's one solved margin, and swapping the tables moves no pre-game premium`,
+    `${n} pre-game line-years, margins ${(Math.min(...margins) * 100).toFixed(1)}% to ${(Math.max(...margins) * 100).toFixed(1)}%; `
+    + `worst CLF off ${worstClf.toExponential(2)}, worst premium moved ${worstSwap.toExponential(2)}`);
 }
 
 console.log(`THE FUNDING TABLES — ${GAMES} solo games x ${YEARS} years per line, seeds the derivation never drew`);
@@ -180,7 +188,7 @@ gradeLevels(played, SHIPPED as Record<StaticClfLine, ClfTable>, '');
 gradeMargin(played, RESERVE_MARGIN_CONFIDENCE, '');
 const loadPrice: Price = (_line, _k, expected) => expected * (1 + REINSURANCE_LOAD);
 gradeLoad(loadPrice, '');
-gradePreGame(firstFour, swappedPreGame, () => 1 + PRE_GAME_FUNDING_CUSHION, '');
+gradePreGame(firstFour, swappedPreGame, (_l, p) => 1 + p.margin, '');
 
 // ---------------------------------------------------------------- controls
 console.log('\nCONTROLS — each must FAIL');

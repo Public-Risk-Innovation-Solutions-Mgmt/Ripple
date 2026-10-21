@@ -511,6 +511,14 @@ export interface GameInstance {
    * Absent on the game's own instance, whose `seed` it is.
    */
   marketSeed?: number;
+  /**
+   * THE SCENARIO, 1 TO 20, the game plays (stable-scenarios commit 9): its
+   * opening premium to surplus, its pre-game's experience and so its prior
+   * board's margin (pricingParameters' SCENARIO_PREMIUM_TO_SURPLUS). Set by
+   * generateGameInstance from the instance id (utils/scenarios.ts), and carried
+   * by every world's and every pre-game attempt's copy.
+   */
+  scenario?: number;
   lossEnvironment: {
     baseLossRatio: number;        // e.g. 0.68
     lossTrend: number;            // annual claim inflation e.g. 0.04

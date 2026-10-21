@@ -60,8 +60,11 @@ const BUTTONS = [
   // ⚠ /solo, NOT /. The root is the LOBBY now; this driver drives the SOLO
   // game, so it follows the game rather than the URL.
   await page.goto('/solo');
-  await page.waitForSelector('text=Instance ID / Seed', { timeout: 20000 });
-  await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
+  // The scenario menu (stable-scenarios commit 9) or, on a tree from before it,
+  // the free seed field.
+  await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
+  if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption('7');
+  else await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
   await page.getByRole('button', { name: /Start/i }).last().click();
   await page.waitForSelector('text=Lock Year', { timeout: 30000 });
 

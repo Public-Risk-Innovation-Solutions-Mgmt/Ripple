@@ -92,7 +92,7 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
             <div className="flex items-center gap-3 flex-wrap">
               <Chip label="Year" value={`${yearNumber}`} />
               <Chip label="Calendar" value={`${calendarYear}`} />
-              <Chip label="Instance" value={instanceId} mono />
+              <Chip label="Scenario" value={instanceId} mono />
               <Chip
                 label="Surplus"
                 value={formatCurrency(surplus, true)}

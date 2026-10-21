@@ -1064,6 +1064,7 @@ const EXECUTABLE = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
 // falls back to randomInstanceId() on an empty field, so an unset seed makes
 // every run a different game and every fingerprint noise. Typed in explicitly.
 const INSTANCE_ID = 'RENDERBASE1';
+const SCENARIO = '7';
 const POOL_NAME = 'Render Identity Pool';
 
 type Cfg = { key: string; lines: string[] };
@@ -1175,7 +1176,11 @@ async function startGame(page: Page, cfg: Cfg): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await settle(page);
   await page.getByPlaceholder('Enter a name for your pool...').fill(POOL_NAME);
-  await page.getByPlaceholder('e.g. ABC12345').fill(INSTANCE_ID);
+  // ⚠ THE SCENARIO MENU SINCE STABLE-SCENARIOS COMMIT 9: scenario 7 is the
+  // fixed game. A control tree from before it still has the free field, and
+  // takes INSTANCE_ID there.
+  if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption(SCENARIO);
+  else await page.getByPlaceholder('e.g. ABC12345').fill(INSTANCE_ID);
   // WC is preselected; toggle to exactly the configuration asked for.
   for (const label of Object.values(LINE_LABEL)) {
     const on = cfg.lines.includes(label);

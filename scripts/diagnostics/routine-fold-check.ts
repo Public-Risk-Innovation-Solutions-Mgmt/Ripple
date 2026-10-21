@@ -15,8 +15,10 @@
 //      the fold as without it — scaled off the unfolded ordinary cost.
 //   3. NO ROUTINE CLAIM IS DRAWN: across played games, every large claim comes
 //      from a shock.
-//   4. A FLAT PRE-GAME: every pre-game year's ordinary losses are exactly their
-//      expected, its investment return is the market's expectation net of fee,
+//   4. A FLAT PRE-GAME: every pre-game year's ordinary losses are exactly the
+//      scenario's multiple of expected (no factor drawn — preGameLossMultiplier,
+//      stable-scenarios commit 9; it was exactly expected), it earns
+//      PRE_GAME_INVESTMENT_RETURN (it was the market's expectation net of fee),
 //      and no shock fires.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold without the uplift
@@ -24,8 +26,8 @@
 // pre-game year that draws its factor.
 // ============================================================================
 
-import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
-import { ASSET_CLASS_ASSUMPTIONS } from '../../src/data/defaultAssumptions';
+import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, PRE_GAME_INVESTMENT_RETURN, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { scenarioOf } from '../../src/utils/scenarios';
 import { baseOrdinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown, routineFoldPer100, upliftMoments } from '../../src/utils/shockExpectation';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -90,7 +92,7 @@ function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
 }
 
 // ---------------------------------------------------------------- 3 & 4
-interface Played { pre: ResultSet[]; game: ResultSet[]; seed: number }
+interface Played { pre: ResultSet[]; game: ResultSet[]; seed: number; scenario: number }
 function play(id: string, years: number): Played {
   const { setup, instance } = openSoloInstance({ poolName: 'F', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES } as GameSetupSettings);
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
@@ -101,15 +103,9 @@ function play(id: string, years: number): Played {
     game.push(p.result);
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
   }
-  return { pre: [...(earlyPreGameHistory ?? []), ...priorHistory], game, seed: instance.seed };
+  return { pre: [...(earlyPreGameHistory ?? []), ...priorHistory], game, seed: instance.seed, scenario: scenarioOf(instance) };
 }
 const games = ['RFC1', 'RFC2', 'RFC3', 'RFC4'].map(id => play(id, 10));
-const expectedRate = (r: LineResultSet) => {
-  const a = r.decisions.assetAllocation, net = (k: 'cash' | 'bonds' | 'equities') => ASSET_CLASS_ASSUMPTIONS[k].expectedReturn - ASSET_CLASS_ASSUMPTIONS[k].feeRate;
-  const t = a.cashPct + a.bondsPct + a.equitiesPct;
-  return (a.cashPct * net('cash') + a.bondsPct * net('bonds') + a.equitiesPct * net('equities')) / t;
-};
-
 type Claims = (r: LineResultSet) => { shock: boolean }[];
 const claimsOf: Claims = r => (r.claims ?? []).map(c => ({ shock: c.shockId !== undefined }));
 function gradeGames(claims: Claims, factorOf: (r: LineResultSet) => number, tag: string) {
@@ -121,13 +117,13 @@ function gradeGames(claims: Claims, factorOf: (r: LineResultSet) => number, tag:
     const x = r.byLine[l]!;
     const n = x.newLossEngine!;
     years++;
-    worstFactor = Math.max(worstFactor, Math.abs(factorOf(x) - 1));
-    worstReturn = Math.max(worstReturn, Math.abs(x.investmentReturnRate - expectedRate(x)));
+    worstFactor = Math.max(worstFactor, Math.abs(factorOf(x) - preGameLossMultiplier(g.scenario)));
+    worstReturn = Math.max(worstReturn, Math.abs(x.investmentReturnRate - PRE_GAME_INVESTMENT_RETURN));
     shocks += n.shockLargeClaims + (n.uplift !== 0 ? 1 : 0);
   }
   check(worstFactor < 1e-12 && worstReturn < 1e-12 && shocks === 0,
-    `${tag}4. a flat pre-game: ordinary losses at exactly expected, the market's expected return, no shock`,
-    `${years} pre-game line-years; worst factor off 1 ${worstFactor.toExponential(2)}, worst return off expected ${worstReturn.toExponential(2)}, ${shocks} shocks`);
+    `${tag}4. a flat pre-game: ordinary losses at exactly the scenario's multiple of expected, a 3% return, no shock`,
+    `${years} pre-game line-years; worst factor off the scenario's ${worstFactor.toExponential(2)}, worst return off 3% ${worstReturn.toExponential(2)}, ${shocks} shocks`);
 }
 
 console.log('STABLE REGULAR YEARS AND A FLAT PRE-GAME');

@@ -65,14 +65,41 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 | Prior development defaults | `WC 0.03 · GL 0.10 · Property -0.02` | share of the base outstanding, in TOTAL | CHOSEN | LIVE. Each accident year develops by this share of a base outstanding, in TOTAL over its remaining lifetime, arriving in step with the payments. Positive is adverse. Singleplayer takes these defaults; a session takes the host's setting, per line. THE BASE is the accident year's outstanding at the first valuation it meets — game start for prior and bulk years, the end of its own first year for a played one. EACH YEAR'S SHARE is that year's increment in paid share over the share still unpaid at the base, so by run-off exactly this percentage has emerged — asserted per accident year by development-emergence-check. ⚠ NOT A YEARLY RATE: read as one these same percentages compound to about +54% on GL and +171% on WC. Bulk years develop held NET; played years develop GROSS and their reinsurance recoveries are recalculated on each occurrence's revised cost under that accident year's own cover, so adverse development makes reinsurance worth more. The GL $25M pool limit still applies. |
 | Opening surplus bands | `per line, in defaultAssumptions.ts` | band on a per-line basis | SOURCED | The band each line's opening surplus is drawn inside. REGISTERED, NOT MOVED — the bands carry their own re-translation rule and a standing prohibition on re-deriving them casually. |
 
+## The twenty scenarios
+
+The scenario number is the game's only seed — market, book, pre-game and worlds, solo and hosted. Each sets the opening premium to surplus, the pre-game's experience and, through the solved margin, how the prior board ran the pool. Evenly spaced from 1.7 (thinnest) to 1.2 (richest). Experience factor = 1.5 / ratio; the pre-game's ordinary losses = expected x (1 + (1 - factor) x 0.3).
+
+| Parameter | Value | Unit | Basis | What it does |
+| --- | --- | --- | --- | --- |
+| Scenario 1 | `1.3579` | premium to surplus at the opening | CHOSEN | 14 of 20, thinnest first. Experience factor 1.1047; pre-game ordinary losses x 0.9686 of expected. |
+| Scenario 2 | `1.2526` | premium to surplus at the opening | CHOSEN | 18 of 20, thinnest first. Experience factor 1.1975; pre-game ordinary losses x 0.9408 of expected. |
+| Scenario 3 | `1.5947` | premium to surplus at the opening | CHOSEN | 5 of 20, thinnest first. Experience factor 0.9406; pre-game ordinary losses x 1.0178 of expected. |
+| Scenario 4 | `1.3842` | premium to surplus at the opening | CHOSEN | 13 of 20, thinnest first. Experience factor 1.0837; pre-game ordinary losses x 0.9749 of expected. |
+| Scenario 5 | `1.4105` | premium to surplus at the opening | CHOSEN | 12 of 20, thinnest first. Experience factor 1.0634; pre-game ordinary losses x 0.9810 of expected. |
+| Scenario 6 | `1.4632` | premium to surplus at the opening | CHOSEN | 10 of 20, thinnest first. Experience factor 1.0252; pre-game ordinary losses x 0.9924 of expected. |
+| Scenario 7 | `1.3053` | premium to surplus at the opening | CHOSEN | 16 of 20, thinnest first. Experience factor 1.1492; pre-game ordinary losses x 0.9552 of expected. |
+| Scenario 8 | `1.5684` | premium to surplus at the opening | CHOSEN | 6 of 20, thinnest first. Experience factor 0.9564; pre-game ordinary losses x 1.0131 of expected. |
+| Scenario 9 | `1.4368` | premium to surplus at the opening | CHOSEN | 11 of 20, thinnest first. Experience factor 1.0440; pre-game ordinary losses x 0.9868 of expected. |
+| Scenario 10 | `1.6474` | premium to surplus at the opening | CHOSEN | 3 of 20, thinnest first. Experience factor 0.9105; pre-game ordinary losses x 1.0268 of expected. |
+| Scenario 11 | `1.5158` | premium to surplus at the opening | CHOSEN | 8 of 20, thinnest first. Experience factor 0.9896; pre-game ordinary losses x 1.0031 of expected. |
+| Scenario 12 | `1.7000` | premium to surplus at the opening | CHOSEN | 1 of 20, thinnest first. Experience factor 0.8824; pre-game ordinary losses x 1.0353 of expected. |
+| Scenario 13 | `1.2263` | premium to surplus at the opening | CHOSEN | 19 of 20, thinnest first. Experience factor 1.2232; pre-game ordinary losses x 0.9330 of expected. |
+| Scenario 14 | `1.6211` | premium to surplus at the opening | CHOSEN | 4 of 20, thinnest first. Experience factor 0.9253; pre-game ordinary losses x 1.0224 of expected. |
+| Scenario 15 | `1.5421` | premium to surplus at the opening | CHOSEN | 7 of 20, thinnest first. Experience factor 0.9727; pre-game ordinary losses x 1.0082 of expected. |
+| Scenario 16 | `1.2000` | premium to surplus at the opening | CHOSEN | 20 of 20, thinnest first. Experience factor 1.2500; pre-game ordinary losses x 0.9250 of expected. |
+| Scenario 17 | `1.2789` | premium to surplus at the opening | CHOSEN | 17 of 20, thinnest first. Experience factor 1.1728; pre-game ordinary losses x 0.9481 of expected. |
+| Scenario 18 | `1.3316` | premium to surplus at the opening | CHOSEN | 15 of 20, thinnest first. Experience factor 1.1265; pre-game ordinary losses x 0.9621 of expected. |
+| Scenario 19 | `1.6737` | premium to surplus at the opening | CHOSEN | 2 of 20, thinnest first. Experience factor 0.8962; pre-game ordinary losses x 1.0311 of expected. |
+| Scenario 20 | `1.4895` | premium to surplus at the opening | CHOSEN | 9 of 20, thinnest first. Experience factor 1.0071; pre-game ordinary losses x 0.9979 of expected. |
+
 ## The opening
 
-The SET opening — no acceptance band, no pin, no search, and no reset: the pre-game starts from the surplus that lands its last year-end on the opening.
+The SET opening — no acceptance band, no pin, no search, and no reset: the pre-game starts from its starting capital, and the prior board's margin is solved so its last year-end lands on the opening.
 
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
 | Prior history years | `5` | accident years | CHOSEN | How many pre-game years are simulated with real claims behind them. Ten while the old ten-year experience path is live; drops to the new window of five at commit 3, and the two move together. Everything older opens as a bulk cohort. |
-| Opening surplus | `WC $35M · GL $35M · Property $35M` | surplus at the opening, each line | CHOSEN | Each line opens with this surplus, set rather than derived from required capital. INTERIM, until the twenty starting scenarios replace it. Was 2 x the line's full required capital; the BaselineCV tables' much smaller 90% factor would have collapsed that. The pre-game starts from the surplus that lands its last year-end here, so the opening is set without a reset. |
+| Opening surplus | `year-1 premium at Expected / the scenario's premium to surplus` | surplus at the opening, each line | CHOSEN | Each line opens with its year-1 premium at Expected (the default decisions, struck on the opening book) divided by its scenario's target ratio — see The twenty scenarios. Was $35M on every line, interim until the scenarios. The pre-game starts from the starting capital and the prior board's margin is solved so its last year-end lands here, so the opening is set without a reset. |
 | Opening reserve years | `10` | accident years | CHOSEN | How many accident years the opening holds reserves for; older years are treated as closed. The prior history years played with claims, and the years before them as bulk cohorts on the books from the start of the pre-game, paying down through it. Was each pattern's full length (WC 37 years, GL 21, Property 11) before Prompt A commit 2. |
 
 ## The new pricing parameters
@@ -100,7 +127,9 @@ What the pool covers, and how the board before the players funded it. Both are L
 | Parameter | Value | Unit | Basis | What it does |
 | --- | --- | --- | --- | --- |
 | GL pool limit | `$25,000,000 per claim` | per occurrence, GL only | CHOSEN | The most the Pool pays on any one GL claim. Above it the loss falls to the MEMBER — reported each year as the member's share, and counted in none of the Pool's losses, premium, reserves or pricing. WC and Property have no limit. This corrects an error: loss above $25M used to be counted as the Pool's own retention — $655.5M over 30 games x 10 years, 7.83% of GL's gross, worst single year $103.9M. Distinct from GL_SEVERITY_CAP ($84M), which is how large a claim can be rather than how much of one the Pool covers. Reinsurance is bought within the limit. |
-| Pre-game funding cushion | `0.14` | over expected (CLF 1 + this) | CHOSEN | What the previous board funded the declared years at: each line's retained pure premium x (1 + this). A cushion, not a confidence level — it reads no funding table. Was the 70% level on each line's own table (WC 1.1400, GL 1.1350, Property 1.1471). The PLAYER'S default is unchanged: funding at EXPECTED, CLF 1.000, from year 1. So a team that locks year 1 untouched prices BELOW the year before it — measured at -7.0% on WC, -4.9% on GL, -3.9% on Property, against +41.7% / +18.5% / +35.7% when the pre-game also funded at expected. The year-1 rate itself is identical either way; only the figure it is compared against moves. No player-facing text names it. |
+| Starting capital | `WC $5M · GL $5M · Property $5M` | paid in, start of the pre-game | CHOSEN | Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement's paid-in capital is this; earned surplus is everything the pre-game adds. Tried at $15M, $10M and $5M across the twenty scenarios by line. $5M gives the most solved margins at or above expected (45 of 60, against 19 at $10M and 1 at $15M) and the most growth from the margin (40 of 60; investment's median share 42%). WC stays the exception: its long reserves earn the 3% too, so investment is 55-77% of its growth and its margin solves below expected in 15 of 20 scenarios. The first pre-game year is thin: premium to surplus about 4.4-5.5. |
+| Prior board's margin | `solved, per scenario and line` | over expected (CLF 1 + this) | CHOSEN | One funding level across the five pre-game years, per line, solved so surplus ends exactly at the scenario's opening from the starting capital. It may sit below expected. Replaces the fixed 14% cushion. A team that locks year 1 untouched funds at Expected, so year 1's rate on WC and GL may step up or down from last year's, depending on the scenario's solved margin. No player-facing text names it. |
+| Pre-game investment return | `0.03` | a year, on invested assets | CHOSEN | What the pre-game's invested assets earn each year, every asset class alike, no draw. A realistic return for a public pool's bond-heavy portfolio; most of the pre-game's growth comes from the prior board's margin. The played years draw their market as before. |
 
 ## New loss engine
 

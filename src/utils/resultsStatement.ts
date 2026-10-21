@@ -467,8 +467,9 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
   const opening = openingPosition(gs, scope);
   const positionAt = (r: ResultSet): Position => (r.yearNumber === 0 ? opening : positionOf(at(r, scope)!));
   // ⚠ PAID-IN CAPITAL IS THE SURPLUS THE POOL STARTED THE PRE-GAME WITH (Prompt
-  // A commit 2), so earned surplus builds from zero through the pre-game. It was
-  // the opening surplus, which read the pre-game's own earnings as negative.
+  // A commit 2) — STARTING_CAPITAL since stable-scenarios commit 9 — so earned
+  // surplus builds from zero through the pre-game. It was the opening surplus,
+  // which read the pre-game's own earnings as negative.
   const paidIn = preGame.length > 0 ? at(preGame[0], scope)?.beginingSurplus : opening.surplus;
   const balance = calendar('balance', 'Balance Sheet at Year-End', 'each year at its year-end; the last pre-game year at the opening',
     balanceRows(paidIn,
@@ -517,7 +518,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
   const notes = [
     'Dollars are the average of the ten worlds; every ratio is worked out from those averaged figures. The surplus range is the one per-world figure; the pre-game ran once, before the worlds.',
     `The most recent ${STATEMENT_WINDOW_YEARS} years are shown as their own columns; every older year collects in Prior — flows summed, balances at the end of the last year in it. Total covers the ${STATEMENT_WINDOW_YEARS} years shown: the sum for flows, the latest year for balances, ratios and changes.`,
-    `The ${preGame.length} pre-game years are the pool's played history. Surplus moves through them only by each year's income, assessments and dividends, from a starting surplus chosen so the last of them ends at the set opening. That year's year-end is shown as the opening, which is what year 1 begins from. The accident years before the pre-game are on the books from its first year, so no reserve appears at the opening that the pre-game did not carry. Paid-in capital is the surplus the pool started the pre-game with; earned surplus is everything since.`,
+    `The ${preGame.length} pre-game years are the pool's played history. Surplus moves through them only by each year's income, assessments and dividends, from the paid-in capital the pool started with, the prior board's margin set so the last of them ends at the opening. That year's year-end is shown as the opening, which is what year 1 begins from. The accident years before the pre-game are on the books from its first year, so no reserve appears at the opening that the pre-game did not carry. Paid-in capital is the surplus the pool started the pre-game with; earned surplus is everything since.`,
     'In the Gross, Ceded and Net blocks Prior holds every older program year, the bulk reserves from before the pre-game included. Those carry no premium, so Prior has no Loss and LAE Ratio.',
     'Loss adjustment expense is the rate\'s share of the ground-up loss: paid with the losses, its reserve held in IBNR. The reinsurer reimburses none of it, so it is in gross and net alike.',
   ];

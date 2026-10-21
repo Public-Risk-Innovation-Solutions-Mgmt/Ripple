@@ -19,6 +19,7 @@
 // many to expect — and it BINDS NOTHING (see the transport).
 // ============================================================================
 
+import { SCENARIO_OPTIONS, randomScenarioId } from '../../utils/scenarios';
 import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
 import { Shuffle, Trash2, Zap } from 'lucide-react';
@@ -36,10 +37,11 @@ import { navigate } from '../client/navigation';
 // draws from (session/shockDraw.ts), so the two cannot offer different events.
 const SCHEDULABLE = drawableShocks();
 
-// ⚠ THE SEED IS A SHORT MENU NOW, AND IT IS STILL A STRING. The contract's
-// `seed: string` is untouched — these are the strings '1' to '20' rather than an
-// eight-character draw, so nothing about what a room stores changes shape.
-const SEED_OPTIONS = Array.from({ length: 20 }, (_, i) => String(i + 1));
+// ⚠ THE SEED IS THE SCENARIO, 1 TO 20, AND IT IS STILL A STRING. The contract's
+// `seed: string` is untouched — these are the strings '1' to '20', the same
+// options solo setup offers (utils/scenarios.ts), and the handler refuses any
+// other. Nothing about what a room stores changes shape.
+const SEED_OPTIONS = SCENARIO_OPTIONS;
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -64,7 +66,7 @@ function shockLabel(id: string): string {
 }
 
 function randomSeed(): string {
-  return SEED_OPTIONS[Math.floor(Math.random() * SEED_OPTIONS.length)];
+  return randomScenarioId();
 }
 
 export default function HostCreateScreen() {

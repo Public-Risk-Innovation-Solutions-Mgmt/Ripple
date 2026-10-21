@@ -73,7 +73,7 @@ try {
   const dynamo = dynamoFromEnv({ tableName: 'probe-table', client });
   const fresh = () => new DynamoSessionTransport({ dynamo });
   const mkRoom = (t: SessionTransport, yearCount = 3, hostToken = newSessionToken()) =>
-    t.createRoom({ hostToken, seed: 's', yearCount, startingYear: 2026, eventName: 'p', expectedTeams: 2, shocks: [], lines: ['WC'] });
+    t.createRoom({ hostToken, seed: '1', yearCount, startingYear: 2026, eventName: 'p', expectedTeams: 2, shocks: [], lines: ['WC'] });
   type Settled<T> = { ok: true; v: T } | { ok: false; code: string };
   const settle = async <T>(p: Promise<T>): Promise<Settled<T>> => {
     try { return { ok: true, v: await p }; } catch (e) { return { ok: false, code: isSessionError(e) ? e.code : String(e) }; }
