@@ -360,7 +360,7 @@ export default function HostCreateScreen() {
                 onClick={handleRandomise}
                 disabled={yearCount < 1}
                 className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 disabled:text-slate-300"
-                title="Replace the list with a draw from the catalog: one event per three years, never year 1, milder events more likely"
+                title="Replace the list with a draw from the catalog: about three events per ten years, never year 1, milder events more likely"
               >
                 <Shuffle size={13} />
                 Randomise

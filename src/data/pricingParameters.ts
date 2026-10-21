@@ -1223,6 +1223,29 @@ export const R_MODEL = {
   routineDevelopmentSD: 0.07,
 } as const;
 
+/**
+ * SHOCKS PER YEAR — the catalogue's expected events a year (stable-scenarios
+ * commit 5). Every one of the twelve probabilities is scaled by the same
+ * factor, SHOCKS_PER_YEAR / their total (0.3 / 0.432 = 0.694), so the relative
+ * weights stay exactly as the R model gave them and only the rate falls. Read
+ * by pricing (each event's expected cost), the catalogue timing harnesses use,
+ * and the schedule's count below.
+ *
+ * ⚠ WHY: at the R model's 0.432 a year a ten-year game met four or five events
+ * in expectation; 0.3 is three.
+ */
+export const SHOCKS_PER_YEAR = 0.3;
+export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
+  / R_MODEL.catalogue.reduce((a, [, p]) => a + (p as number), 0);
+
+/**
+ * THE SCHEDULE'S SPREAD (stable-scenarios commit 5). Randomise and the
+ * singleplayer schedule draw round(SHOCKS_PER_YEAR x years) events, then −1, 0
+ * or +1 of that, each equally likely, and never fewer than one: 2 to 4 in a
+ * ten-year game. Year 1 stays shock-free; one event a year at most.
+ */
+export const SHOCK_SCHEDULE_SPREAD = 1;
+
 const rRange = (r: readonly [number, number] | readonly number[], pct = true) =>
   pct ? `${(r[0] * 100).toFixed(0)}%-${(r[1] * 100).toFixed(0)}%`
       : `$${(r[0] / 1e6).toFixed(0)}M-$${(r[1] / 1e6).toFixed(0)}M`;
@@ -1777,10 +1800,24 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'IT MAY RETURN. Aggregate cover is what protects against a broad surge of small losses — a '
           + 'winterstorm\'s many claims under the retention — which no per-occurrence package reaches.',
       }],
+      ['Shocks per year', {
+        value: SHOCKS_PER_YEAR, unit: 'expected events a year',
+        what: 'The catalogue\'s twelve probabilities, each scaled by the same factor so they total this, keeping '
+          + 'their relative weights.', basis: 'CHOSEN',
+        note: `Scale ${SHOCK_CATALOGUE_SCALE.toFixed(4)} on the R model's 0.432 a year — three events in a ten-year game `
+          + 'in expectation, rather than four or five.',
+      }],
+      ['Shock schedule count', {
+        value: `round(${SHOCKS_PER_YEAR} x years) ± ${SHOCK_SCHEDULE_SPREAD}, at least 1`, unit: 'events per game',
+        what: 'How many events Randomise and the singleplayer schedule draw: round(Shocks per year x years), '
+          + 'then −1, 0 or +1, equally likely, never fewer than one and at most one a year from year 2 — 2 to 4 in '
+          + 'a ten-year game.', basis: 'CHOSEN',
+        note: 'Was one event per three years, rounded. Year 1 stays shock-free.',
+      }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',
         what: 'Multiplayer fires only what the host scheduled. Singleplayer draws its schedule once, at the '
-          + 'game\'s start, by the same rule as the host\'s Randomise (one event per three years, from year 2, '
+          + 'game\'s start, by the same rule as the host\'s Randomise (Shock schedule count, from year 2, '
           + 'weighted by the catalogue\'s probabilities) on its own stream, and keeps it in the save. Either way '
           + 'every world fires the same events in the same years — a regional event in the same region, '
           + 'resolved once when the game is built — and only each firing\'s size is drawn per world, from a '
@@ -2058,13 +2095,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       // ---- catalogue and map ----
       ['Shock catalogue', {
         value: `${R_MODEL.catalogue.length} events`, unit: 'probability, duration, regional',
-        basis: 'CHOSEN', status: 'ADOPTED',
-        what: 'Earthquake 0.2%/1y regional · Winterstorm 6%/1y regional · Wildfire 3.5%/1y regional · '
+        basis: 'CHOSEN', status: 'ADOPTED, SCALED',
+        what: 'As given: Earthquake 0.2%/1y regional · Winterstorm 6%/1y regional · Wildfire 3.5%/1y regional · '
           + 'Legislation 1.5%/3y · WC Reform 2%/3y · Recession 6%/2y · Nuclear Verdict 2.5%/1y · '
           + 'Social Inflation 4.5%/3y · Pandemic 1%/2y · Economic Inflation 10%/3y · '
-          + 'Investment Loss 4%/1y · Member Withdrawal 2%/2y.',
-        note: 'Probabilities are ADOPTED for SINGLEPLAYER draws only — in multiplayer the host schedules '
-          + 'events and no probability is consulted. Durations and regional flags adopted throughout.',
+          + 'Investment Loss 4%/1y · Member Withdrawal 2%/2y — 0.432 events a year in all.',
+        note: `Probabilities SCALED by ${SHOCK_CATALOGUE_SCALE.toFixed(4)} (Shocks per year), keeping their relative `
+          + 'weights. They price each event\'s expected cost and weight the schedule\'s draw; the schedule, not '
+          + 'a probability, decides what fires in a game. Durations and regional flags adopted throughout.',
       }],
       ['Shock map', {
         value: `${R_MODEL.shockMap.length} event-line pairs`, unit: 'A / T / R level', basis: 'CHOSEN',

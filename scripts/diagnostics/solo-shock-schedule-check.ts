@@ -30,7 +30,7 @@
 // ============================================================================
 
 import { openSoloInstance } from '../../src/utils/soloGame';
-import { drawShockSchedule, shockDrawCount, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
+import { drawShockSchedule, shockDrawRange, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
 import { firingsStartingIn, SHOCK_EVENTS } from '../../src/utils/shockLosses';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -80,7 +80,8 @@ function playTo(gs: GameState, from: number, to: number): GameState {
 /** 1. The Randomise rule's shape. */
 function scheduleShape(s: readonly ScheduledShock[], years: number): string[] {
   const out: string[] = [];
-  if (s.length !== shockDrawCount(years)) out.push(`${s.length} events, the rule draws ${shockDrawCount(years)}`);
+  const { min, max } = shockDrawRange(years);
+  if (s.length < min || s.length > max) out.push(`${s.length} events, the rule draws ${min} to ${max}`);
   const ys = s.map(e => e.yearNumber);
   if (new Set(ys).size !== ys.length) out.push(`a year holds two events (${ys.join(',')})`);
   if (ys.some(y => y < 2 || y > years)) out.push(`a year outside 2..${years} (${ys.join(',')})`);
@@ -151,7 +152,7 @@ console.log(`  schedule: ${schedule.map(s => `${s.shockId} in year ${s.yearNumbe
 
 console.log('\n--- 1. the schedule is the Randomise rule\'s, drawn once ---');
 check(solo.setup.shockTiming === 'solo', 'the solo setup is marked to fire its schedule');
-check(scheduleShape(schedule, YEARS).length === 0, `${shockDrawCount(YEARS)} events, distinct years from 2, no event twice`, scheduleShape(schedule, YEARS)[0] ?? '');
+check(scheduleShape(schedule, YEARS).length === 0, `${shockDrawRange(YEARS).min}-${shockDrawRange(YEARS).max} events, distinct years from 2, no event twice`, scheduleShape(schedule, YEARS)[0] ?? '');
 const idYear = (s: readonly ScheduledShock[]) => s.map(e => ({ shockId: e.shockId, yearNumber: e.yearNumber }));
 check(same(idYear(schedule), drawShockSchedule(ID, YEARS, SOLO_SHOCK_STREAM)), 're-derived from the seed alone, on the solo stream');
 check(worldInstances.every(i => same(i.scheduledShocks, schedule)) && new Set(worldInstances.map(i => i.seed)).size === WORLD_COUNT,

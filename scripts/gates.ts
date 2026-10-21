@@ -187,6 +187,9 @@ const FAST: string[] = [
                                      //         trend; six controls
   'adverse-rate-placeholder-check',  //   2s   YEARLY_ADVERSE_RATE is 0, read by nothing under src/, value-neutral
                                      //         at 50%, marked a placeholder; four controls
+  'shock-rate-check',                //   2s   the catalogue scaled to 0.3 events a year, weights kept and priced so;
+                                     //         the schedule's count round(0.3 x years) ± 1, at least one, never year
+                                     //         1; four controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls

@@ -70,7 +70,7 @@
 
 import {
   GAME_REGIONS, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES, regionByShare,
-  SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
+  SHOCK_CATALOGUE_SCALE, SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
@@ -95,10 +95,12 @@ export interface ShockEvent {
   regional: boolean;
 }
 
+// ⚠ EACH PROBABILITY SCALED BY SHOCK_CATALOGUE_SCALE (stable-scenarios commit
+// 5), so the twelve total SHOCKS_PER_YEAR and keep the R model's weights.
 export const SHOCK_EVENTS: readonly ShockEvent[] = R_MODEL.catalogue.map(
   ([name, probability, duration, regional], index) => ({
     index, id: `#${index + 1}`, name: name as string,
-    probability: probability as number, duration: duration as number, regional: regional as boolean,
+    probability: (probability as number) * SHOCK_CATALOGUE_SCALE, duration: duration as number, regional: regional as boolean,
   }),
 );
 /**

@@ -56,10 +56,15 @@ function catalogNames() {
   return JSON.parse(out.trim().split('\n').pop());
 }
 
-// ONE EVENT PER THREE YEARS, rounded, never none — shockDrawCount in
-// session/shockDraw.ts. Restated as an expectation rather than imported so that
-// a change to the RULE is a visible failure here and not a silently tracked one.
-const expectedDrawCount = y => Math.max(1, Math.round(y / 3));
+// round(0.3 x years), then −1, 0 or +1, never none and at most one a year from
+// year 2 — shockDrawRange in session/shockDraw.ts (stable-scenarios commit 5).
+// Restated as an expectation rather than imported so that a change to the RULE
+// is a visible failure here and not a silently tracked one.
+const expectedDrawRange = y => {
+  const c = Math.round(0.3 * y), room = Math.max(1, y - 1);
+  const clamp = n => Math.min(room, Math.max(1, n));
+  return [clamp(c - 1), clamp(c + 1)];
+};
 
 const sameSchedule = (a, b) =>
   JSON.stringify((a || []).map(s => [s.shockId, s.yearNumber])) ===
@@ -152,13 +157,13 @@ async function resultsYearText(page, year) {
   // ⚠ NON-EMPTY IS THE HALF THAT MATTERS, AND IT IS NOT ENOUGH ON ITS OWN. A
   // driver that only asked "is there a schedule" would pass on a game with no
   // schedule the moment the assertion was written wrongly, so the COUNT is
-  // pinned to the rule (one per three years) and the YEARS are pinned to the
+  // pinned to the rule's range (round(0.3 x years) ± 1) and the YEARS are pinned to the
   // range the drawer promises — never year 1, so every team makes one full round
   // of decisions before anything lands. Neither pins WHICH event.
   // The list reads "#2 Major Earthquake — Year 2" now, so the year is matched
   // case-sensitively on the capitalised label. Still pins the COUNT and the
   // YEAR RANGE and still names no event.
-  ok(shown.length === expectedDrawCount(YEARS)
+  ok(shown.length >= expectedDrawRange(YEARS)[0] && shown.length <= expectedDrawRange(YEARS)[1]
      && shown.every(t => /Year (\d+)/.test(t) && +t.match(/Year (\d+)/)[1] >= 2 && +t.match(/Year (\d+)/)[1] <= YEARS),
     `Randomise drew a non-empty schedule the host can see — ${shown.length} entry/entries for a ${YEARS}-year game, none in year 1`);
   ok(await host.locator('[data-testid="shock-drawn-note"]').count() === 1, 'the host is told what the schedule was drawn from');
