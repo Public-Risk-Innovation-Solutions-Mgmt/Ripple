@@ -1093,7 +1093,13 @@ const BASELINE = process.env.RENDER_BASELINE
 // records, no ceded recoveries, the Bad-year and Catastrophe covers gone from
 // the Decisions page, and seven pages' capital status "Adequate" for "Strong"
 // without the cover — and the figures that follow from it.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v71.json');
+// v72: THE RATE INDICATION (display only; value v79 and export v86
+// byte-identical). The control ran first: 8f367f4 moved 16 of 242 against v71,
+// all Decisions pages, and only "Low attachment" for "Working cover" — the
+// rename, landed without a sweep. Against the control 10 more move, no key
+// added or removed, all Departments pages on the Actuarial department: the
+// Rate Indication cards added above the document, nothing else changed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v72.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
