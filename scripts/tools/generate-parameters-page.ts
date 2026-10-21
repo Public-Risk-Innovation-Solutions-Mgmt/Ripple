@@ -26,9 +26,9 @@ import { fileURLToPath } from 'node:url';
 // ⚠ ESM, SO THERE IS NO __dirname. Derived the way every other tool in
 // scripts/ derives it; a bare __dirname throws at load here.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { DEVELOPMENT_SPEED, PRICING_PARAMETER_SECTIONS, type ParameterEntry } from '../../src/data/pricingParameters';
+import { DEVELOPMENT_SPEED, PRICING_PARAMETER_SECTIONS, SEVERITY_TREND_PER_YEAR, type ParameterEntry } from '../../src/data/pricingParameters';
 import {
-  PAID_DEVELOPMENT_PATTERN, INCURRED_DEVELOPMENT_PATTERN, pctUnpaid,
+  PAID_DEVELOPMENT_PATTERN, INCURRED_DEVELOPMENT_PATTERN, pctUnpaid, upFrontTrendFactor,
 } from '../../src/data/paidDevelopmentPatterns';
 import type { CoverageLine } from '../../src/types/simulation';
 
@@ -97,8 +97,11 @@ function build(): string {
   out.push(`⚠ **These are the patterns the game reads: the recorded ones compressed in time by Development speed**`);
   out.push(`(WC ${DEVELOPMENT_SPEED.WC}, GL ${DEVELOPMENT_SPEED.GL}, Property ${DEVELOPMENT_SPEED.Property}). The share paid and the share reported at age t`);
   out.push('are the recorded shares at age speed x t, so the rows, ages and last age below are the compressed');
-  out.push('ones; the outstanding share at the last age is the recorded tail, kept. A row is marked projected');
-  out.push('or adjusted where a recorded row it reads was.');
+  out.push('ones. A row is marked projected or adjusted where a recorded row it reads was.');
+  out.push('');
+  out.push('⚠ **No tail (Development tail).** Each paid pattern is then closed at its last row — the share paid at');
+  out.push('each age divided by the share paid at the end — so nothing is outstanding there; the reported pattern');
+  out.push('closes on paid\'s last step (the larger of the recorded share reported and the closed share paid).');
   out.push('');
   // ⚠ THE LAST COLUMN MEANS A DIFFERENT THING ON EACH BASIS, so it is named
   // for the basis rather than given one label that is right for half the
@@ -124,6 +127,16 @@ function build(): string {
       + `| ${paid[0].ageMonths}–${pLast.ageMonths} | ${pLast.ldf} | ${(pctUnpaid(pLast.ldf) * 100).toFixed(1)}% unpaid |`);
     out.push(`| ${l} | incurred${incLabel ? ` (${incLabel})` : ''} | ${inc.length} `
       + `| ${inc[0].ageMonths}–${iLast.ageMonths} | ${iLast.ldf} | ${(pctUnpaid(iLast.ldf) * 100).toFixed(1)}% unreported |`);
+  }
+  out.push('');
+  out.push('**The trend booked up front**, per line: the inflation an accident year suffers up to reporting,');
+  out.push('along the closed reported pattern — the sum over development years k of the share newly reported in');
+  out.push('year k x (1 + severity trend)^(k - 1). Each accident year\'s cost is booked with it.');
+  out.push('');
+  out.push('| Line | Severity trend | Up-front factor |');
+  out.push('| --- | --- | --- |');
+  for (const l of LINES) {
+    out.push(`| ${l} | ${(SEVERITY_TREND_PER_YEAR[l] * 100).toFixed(0)}% | ${upFrontTrendFactor(l).toFixed(4)} |`);
   }
   out.push('');
   out.push('A pool-layer WC pattern also exists and is deliberately not used — the game\'s');

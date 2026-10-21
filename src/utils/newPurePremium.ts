@@ -11,12 +11,14 @@
 // WHAT IT IS, per $100 of exposure, per line:
 //
 //   1. WINDOW       the most recent five accident years, EQUAL WEIGHTS
-//   2. DEVELOPMENT  each year to ultimate with the RECORDED PAID LDFs at its
-//                   age — the patterns the game records, not factors estimated
-//                   from the pool's own ledger
+//   2. DEVELOPMENT  each year to the end of the pattern with the PAID LDFs at
+//                   its age — the patterns the game reads, closed with no tail
+//                   (DEVELOPMENT_TAIL), not factors estimated from the ledger
 //   3. TREND        each year's loss cost to the year being priced, NET of
 //                   exposure growth
-//   4. ALAE + ULAE  each the parameter's share of loss cost
+//   4. ALAE + ULAE  each the parameter's share of loss cost (claims). On WC and
+//                   GL the claims are the supplied pure premium / (1 + ULAE),
+//                   so loss cost + ULAE is the pure premium; ALAE is on top
 //
 // Every parameter comes from src/data/pricingParameters.ts. Nothing here holds
 // a literal that belongs there.
@@ -52,7 +54,9 @@ import {
   PRICING_WINDOW_YEARS_NEW,
   ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
   FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, EXPOSURE_GROWTH_PER_YEAR,
+  CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SHOCKS_OUT_OF_EXPERIENCE,
 } from '../data/pricingParameters';
+import { bookedCostLevel } from './ordinaryLoss';
 import { PAID_DEVELOPMENT_PATTERN } from '../data/paidDevelopmentPatterns';
 import { expectedLossBreakdown } from './shockExpectation';
 import { getMemberExposure } from './lineHelpers';
@@ -62,29 +66,22 @@ import type {
 } from '../types/simulation';
 
 /**
- * ⚠ IS ALAE ALREADY IN THE LOSSES? ON GL, YES — MEASURED FROM THE CODE, NOT
- * ASSUMED, AND IT IS WHY THIS FLAG EXISTS RATHER THAN A FLAT 8.3%.
+ * IS ALAE ALREADY IN THE LOSSES? ON NO LINE, SINCE THE PURE-PREMIUM BASIS.
  *
- * GL's severity is a fitted 3-component lognormal mixture and the fit says so
- * twice in defaultAssumptions.ts: "no sub-coverage, no gate, ALAE included in
- * the amount", and "the fitted mixture includes ALAE and comes from a real
- * pool's real claim experience". Adding the parameter's share on top of GL
- * would therefore count defence costs twice, so it is NOT added on GL.
+ * WC's and GL's losses are the pool's supplied pure premium, which EXCLUDES
+ * ALAE (SUPPLIED_PURE_PREMIUM_INCLUDES_ULAE in pricingParameters.ts), and
+ * Property's are loss only — so ALAE is added on top on every line, at
+ * ALAE_OF_LOSS_COST.
  *
- * ⚠ WC AND PROPERTY ARE MARKED FALSE AND THAT IS THE WEAKER OF THE TWO
- * READINGS. Their generators carry no ALAE component — WC draws medical and
- * indemnity, which are benefit categories, and Property draws building damage —
- * so on the generators alone the parameter is not a double count. BUT the
- * engine's own published metric is labelled "Gross Ultimate Loss + LAE"
- * (resultMetrics.ts), which asserts that every line's loss figure is already
- * LAE-inclusive. The label and the generators disagree, and the code does not
- * settle it. Recorded rather than resolved: if the label is right, WC's and
- * Property's new pure premium here is 8.3% too high on the ALAE limb, and the
- * fix is this flag rather than a change to the parameter.
+ * ⚠ GL WAS TRUE UNTIL THEN, AND THAT RULE CAME FROM THE OLD PER-CLAIM GL MODEL:
+ * its fitted 3-component claim-size mixture included defence costs
+ * (defaultAssumptions.ts, GL_SEVERITY_COMPONENTS). The live engine no longer
+ * draws GL's losses from that mixture, so the rule no longer applied. The flag
+ * stays, false everywhere, so a line whose losses do carry ALAE can say so.
  */
 export const ALAE_ALREADY_IN_LOSSES: Readonly<Record<CoverageLine, boolean>> = {
   WC: false,
-  GL: true,
+  GL: false,
   Property: false,
 };
 
@@ -106,7 +103,10 @@ export interface NewPurePremiumPoint {
   accidentYear: number;
   /** Ledger age at the latest valuation; months = (age + 1) x 12. */
   ageMonths: number;
+  /** Ground-up paid to date, with the year's shock dollars taken out on the paid basis. */
   groundUpPaid: number;
+  /** The shock dollars' paid to date that came out: the year's shock gross / the LDF. */
+  shockPaid: number;
   ldf: number;
   developed: number;
   exposure: number;
@@ -116,8 +116,10 @@ export interface NewPurePremiumPoint {
 }
 
 export interface NewPurePremiumResult {
-  /** Loss cost only, trended, before ALAE and ULAE. */
+  /** Loss cost only, trended, before ALAE and ULAE — the experience's, plus the catastrophe load. */
   lossCostPer100: number;
+  /** The steady catastrophe load in it (catastropheLoadPer100); 0 with CATASTROPHE_LOAD off. */
+  catastropheLoadPer100: number;
   alaePer100: number;
   ulaePer100: number;
   /** loss cost + ALAE + ULAE, at expected. The headline. */
@@ -137,7 +139,8 @@ export interface NewPurePremiumBasis {
  * THE TREND APPLIED TO A LOSS COST, PER YEAR.
  *
  *   loss cost trend = (1 + frequency) x (1 + severity) / (1 + exposure growth)
- *                   = 1.000 x 1.050 / 1.000 = 1.05   ->  +5.000%/yr, every line
+ *                   = 1.000 x (1 + the line's severity trend) / 1.000
+ *                   -> WC +4%, GL +8%, Property +5% a year (stable-scenarios commit 3)
  *
  * ⚠ THE EXPOSURE DIVISOR IS STILL HERE AND IT IS 1. It used to be the whole
  * subtlety of this function: a loss cost is losses DIVIDED BY exposure, the
@@ -161,18 +164,35 @@ export function lossCostTrendPerYear(line: CoverageLine): number {
     / (1 + EXPOSURE_GROWTH_PER_YEAR);
 }
 
+/**
+ * THE STEADY CATASTROPHE LOAD, per $100, for the year being priced
+ * (stable-scenarios commit 7): the shocks' expected cost — the uplift on
+ * ordinary losses and their large losses — at the catalogue's probabilities,
+ * once every event's duration is in force (CATASTROPHE_LOAD_STEADY_YEAR), and
+ * trended to the year at the line's booked cost level. Charged in every year,
+ * the pre-game's included, in place of the shock dollars the experience no
+ * longer carries. On the line's typical book (risk 1), on `exposure`.
+ */
+export function catastropheLoadPer100(line: CoverageLine, pricingYear: number, exposure: number): number {
+  if (!CATASTROPHE_LOAD.enabled || !(exposure > 0)) return 0;
+  const steady = CATASTROPHE_LOAD_STEADY_YEAR;
+  const b = expectedLossBreakdown(line, exposure, steady);
+  return ((b.uplift + b.shockLarge) / (exposure * 10_000))
+    * bookedCostLevel(line, pricingYear) / bookedCostLevel(line, steady);
+}
+
 /** The recorded PAID age-to-ultimate factor for a line at an age in months. */
 function recordedPaidLdf(line: CoverageLine, ageMonths: number): number {
   const rows = PAID_DEVELOPMENT_PATTERN[line];
   const exact = rows.find(r => r.ageMonths === ageMonths);
   if (exact) return exact.ldf;
   const last = rows[rows.length - 1];
-  // ⚠ PAST THE PATTERN, THE LAST FACTOR — NOT 1.0, AND NOT A THROW. A throw is
-  // right for `paidLdfAt`, whose caller is asking for a figure that does not
-  // exist. Here the caller is a five-year window on a game that can run longer
-  // than a pattern covers, and the honest reading of "older than the pattern"
-  // is "at least as developed as its last row". Using 1.0 would declare such a
-  // year fully paid, which on WC is wrong by 9% of ultimate.
+  // ⚠ PAST THE PATTERN, THE LAST FACTOR, NOT A THROW. A throw is right for
+  // `paidLdfAt`, whose caller is asking for a figure that does not exist. Here
+  // the caller is a five-year window on a game that can run longer than a
+  // pattern covers. With no tail (DEVELOPMENT_TAIL, stable-scenarios commit 3)
+  // the last factor is 1: a year is developed to the END OF THE PATTERN, with
+  // no tail factor beyond it.
   if (ageMonths > last.ageMonths) return last.ldf;
   // Younger than the first row cannot happen — the first row is 12 months and
   // a year is only priced once it has been valued — but a pattern that ever
@@ -203,6 +223,9 @@ function exposureFor(basis: NewPurePremiumBasis, line: CoverageLine, ay: number)
  */
 export function newPurePremiumPer100(
   line: CoverageLine, pricingYear: number, basis: NewPurePremiumBasis,
+  // The exposure the catastrophe load is struck on — the book being priced.
+  // Absent, the newest window year's own.
+  loadExposure?: number,
 ): NewPurePremiumResult | null {
   // THE WINDOW: the most recent five accident years. Taken from the rows the
   // caller supplies, newest last, so a caller that already windowed is not
@@ -217,8 +240,8 @@ export function newPurePremiumPer100(
   for (const r of windowed) {
     const gross = r.grossPaidByValuation ?? [];
     if (gross.length === 0) { skipped++; continue; }
-    const groundUpPaid = gross[gross.length - 1];
-    if (!(groundUpPaid > 0)) { skipped++; continue; }
+    const paidToDate = gross[gross.length - 1];
+    if (!(paidToDate > 0)) { skipped++; continue; }
     const exposure = exposureFor(basis, line, r.yearNumber);
     if (!(exposure > 0)) { skipped++; continue; }
 
@@ -228,6 +251,12 @@ export function newPurePremiumPer100(
     const ledgerAge = (r.ageAtFirstValuation ?? 0) + gross.length - 1;
     const ageMonths = (ledgerAge + 1) * 12;
     const ldf = recordedPaidLdf(line, ageMonths);
+    // ⚠ THE SHOCK DOLLARS COME OUT ON THE PAID BASIS, BEFORE DEVELOPMENT
+    // (stable-scenarios commit 7): the share of them paid by this age is
+    // their booked gross / the LDF, which is what leaves paid-to-date. Shock R
+    // development stays in: it is development, not the shock's own dollars.
+    const shockPaid = SHOCKS_OUT_OF_EXPERIENCE.enabled ? (r.shockGross ?? 0) / ldf : 0;
+    const groundUpPaid = Math.max(0, paidToDate - shockPaid);
     const developed = groundUpPaid * ldf;
     const lossCostPer100 = developed / (exposure * 10_000);
 
@@ -236,7 +265,7 @@ export function newPurePremiumPer100(
     const trendFactor = Math.pow(trendPerYear, years);
 
     points.push({
-      accidentYear: r.yearNumber, ageMonths, groundUpPaid, ldf, developed, exposure,
+      accidentYear: r.yearNumber, ageMonths, groundUpPaid, shockPaid, ldf, developed, exposure,
       lossCostPer100, trendFactor, trendedLossCostPer100: lossCostPer100 * trendFactor,
     });
   }
@@ -245,17 +274,20 @@ export function newPurePremiumPer100(
 
   // EQUAL WEIGHTS — the parameter, and it is deliberate rather than a
   // simplification left for later. See PRICING_WINDOW_WEIGHTING_NEW.
-  const lossCost = points.reduce((s, p) => s + p.trendedLossCostPer100, 0) / points.length;
+  // The experience, without its shocks, plus the steady catastrophe load.
+  const catastropheLoad = catastropheLoadPer100(line, pricingYear, loadExposure ?? points[points.length - 1].exposure);
+  const lossCost = points.reduce((s, p) => s + p.trendedLossCostPer100, 0) / points.length + catastropheLoad;
 
   // ⚠ ALAE IS NOT ADDED WHERE IT IS ALREADY IN THE LOSSES. See
-  // ALAE_ALREADY_IN_LOSSES — on GL the fitted severity mixture includes it, so
-  // the parameter would be a second helping. ULAE is unallocated by definition
-  // and is in no severity fit, so it is added on every line.
+  // ALAE_ALREADY_IN_LOSSES — no line, since the pure-premium basis. ULAE is at
+  // its share of the claims on every line: on WC and GL the claims are the pure
+  // premium / (1 + ULAE), so claims + ULAE give the pure premium back exactly.
   const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCost * ALAE_OF_LOSS_COST[line];
   const ulae = lossCost * ULAE_OF_LOSS_COST[line];
 
   return {
     lossCostPer100: lossCost,
+    catastropheLoadPer100: catastropheLoad,
     alaePer100: alae,
     ulaePer100: ulae,
     purePremiumPer100: lossCost + alae + ulae,
@@ -271,11 +303,13 @@ export function newPurePremiumPer100(
  * expectation, and ALAE and ULAE are added on exactly the rule above, so the
  * figure the rate is struck on has one shape whichever source it came from.
  */
-export function newPurePremiumFromLossCost(line: CoverageLine, lossCostPer100: number): NewPurePremiumResult {
+export function newPurePremiumFromLossCost(
+  line: CoverageLine, lossCostPer100: number, catastropheLoad = 0,
+): NewPurePremiumResult {
   const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCostPer100 * ALAE_OF_LOSS_COST[line];
   const ulae = lossCostPer100 * ULAE_OF_LOSS_COST[line];
   return {
-    lossCostPer100, alaePer100: alae, ulaePer100: ulae,
+    lossCostPer100, catastropheLoadPer100: catastropheLoad, alaePer100: alae, ulaePer100: ulae,
     purePremiumPer100: lossCostPer100 + alae + ulae, points: [], skipped: 0,
   };
 }
@@ -289,7 +323,15 @@ export function newPurePremiumFromLossCost(line: CoverageLine, lossCostPer100: n
 export function bookPurePremium(
   line: CoverageLine, pricingYear: number, basis: NewPurePremiumBasis, exposure: number,
 ): NewPurePremiumResult {
-  return newPurePremiumPer100(line, pricingYear, basis)
+  if (!SHOCKS_OUT_OF_EXPERIENCE.enabled) {
+    return newPurePremiumPer100(line, pricingYear, basis, exposure)
+      ?? newPurePremiumFromLossCost(line,
+        expectedLossBreakdown(line, exposure, pricingYear).total / Math.max(exposure * 10_000, 1));
+  }
+  // With no usable history: the ordinary expectation, plus the steady load when
+  // it is on (0 off) — the shocks priced as the history prices them.
+  const load = catastropheLoadPer100(line, pricingYear, exposure);
+  return newPurePremiumPer100(line, pricingYear, basis, exposure)
     ?? newPurePremiumFromLossCost(line,
-      expectedLossBreakdown(line, exposure, pricingYear).total / Math.max(exposure * 10_000, 1));
+      expectedLossBreakdown(line, exposure, pricingYear).ordinary / Math.max(exposure * 10_000, 1) + load, load);
 }

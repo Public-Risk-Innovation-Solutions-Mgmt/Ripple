@@ -30,7 +30,7 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
 
   // The same route solo-oracle takes — /solo, start, then the Decisions tab.
   await page.goto('/solo');
-  await page.waitForSelector('text=Instance ID / Seed', { timeout: 20000 });
+  await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
   await page.getByRole('button', { name: /Start/i }).last().click();
   await page.waitForSelector('text=Lock Year', { timeout: 60000 });
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
@@ -157,18 +157,19 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     .includes('border-blue-500');
   const panelText = async () => (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
   const reinsLine = t => (t.match(/\+ Reinsurance[^+=]*/g) || []).join(' | ');
-  ok(await chosen('$9M xs $1M'), 'WC opens on the default package, $9M xs $1M');
-  ok(await page.$('[data-testid="reins-option-WC-$14M xs $1M"]') !== null
-     && await page.$('[data-testid="reins-option-WC-$10M xs $5M"]') !== null,
-     'all five WC packages are offered');
+  // The aggregate stop's four covers (stable-scenarios commit 6).
+  ok(await chosen('bad-year'), 'WC opens on the default cover, Bad-year');
+  ok(await page.$('[data-testid="reins-option-WC-working"]') !== null
+     && await page.$('[data-testid="reins-option-WC-catastrophe"]') !== null,
+     'all four WC covers are offered');
   const atDefault = await panelText();
   await page.click('[data-testid="reins-option-WC-none"]');
   await page.waitForTimeout(800);
   const atNone = await panelText();
-  ok(await chosen('none') && !(await chosen('$9M xs $1M')), 'clicking None selects it, and only it');
+  ok(await chosen('none') && !(await chosen('bad-year')), 'clicking None selects it, and only it');
   ok(reinsLine(atNone) !== reinsLine(atDefault),
      `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atNone)}")`);
-  await page.click('[data-testid="reins-option-WC-$9M xs $1M"]');
+  await page.click('[data-testid="reins-option-WC-bad-year"]');
   await page.waitForTimeout(800);
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
 
@@ -195,7 +196,7 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     const r = await readRange();
     console.log(`  results range : ${r.text}`);
     ok(r.min <= r.median && r.median <= r.max && r.min < r.max, 'Results: min <= median <= max, and the worlds differ');
-    ok(/across 10 worlds/.test(r.text), 'Results: it says how many worlds');
+    ok(/across 100 worlds/.test(r.text), 'Results: it says how many worlds');  // WORLD_COUNT, 100 since stable-scenarios commit 10
   }
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1000);

@@ -177,6 +177,20 @@ export function newSessionToken(): string {
 /** What a token must look like for the transport to accept it from a caller. */
 export const SESSION_TOKEN_PATTERN = /^[a-z0-9]{32}$/;
 
+/**
+ * THE SEEDS A ROOM MAY BE CREATED WITH — the scenario numbers "1" to "20", as
+ * text (stable-scenarios commit 9). The scenario is the game's only seed, and
+ * solo setup offers the same twenty (utils/scenarios.ts reads them from here).
+ * Both transports refuse any other seed at createRoom.
+ *
+ * ⚠ THE ROOM'S SHAPE IS UNCHANGED — `seed` stays a string — so no stored room
+ * moves and keys.ts is untouched. The handler must still deploy FIRST: a front
+ * end that sends only these is accepted by the old handler, but a handler that
+ * refuses others must be live before anything relies on the refusal.
+ */
+export const ROOM_SEEDS: readonly string[] = Array.from({ length: 20 }, (_, i) => String(i + 1));
+export const isRoomSeed = (seed: unknown): boolean => typeof seed === 'string' && ROOM_SEEDS.includes(seed);
+
 export function isSessionError(e: unknown): e is SessionError {
   return e instanceof SessionError;
 }
@@ -323,11 +337,14 @@ export interface TeamLineDecisions {
   confidenceLevel: number;
   atExpected: boolean;
   /**
-   * THE REINSURANCE PACKAGE the team bought on this line — one id from
-   * REINSURANCE_OPTIONS[line] (e.g. '$9M xs $1M'), or 'none'. Loss engine
-   * commit 4a: it replaces `layersPlaced` (per band) and `aggregateStopLevel`,
-   * which are gone from the wire. ⚠ A CONTRACT CHANGE — deploy the handler
-   * first; see docs/handoff/AWS_HANDLER_HANDOFF.md.
+   * THE REINSURANCE the team bought on this line — with AGGREGATE_STOP on
+   * (stable-scenarios commit 6), one id from AGGREGATE_STOP_OPTIONS: 'none',
+   * 'working', 'bad-year' or 'catastrophe'; with it off, a package from
+   * REINSURANCE_OPTIONS[line] (e.g. '$9M xs $1M'). Loss engine commit 4a: it
+   * replaces `layersPlaced` (per band) and `aggregateStopLevel`, which are gone
+   * from the wire. ⚠ THE SHAPE IS UNCHANGED BY THE STOP — still one string the
+   * server stores without reading — so the handler, both transports and
+   * keys.ts need no change for it; only the values a client writes do.
    */
   reinsuranceOption: string;
   /** Share of the book NOT renewed, worst first. Absent on the engine side reads as 0. */
@@ -715,6 +732,7 @@ export interface CallerView {
 // another; a server author reading it would have built the wrong thing.
 // The table shape for the index is in src/session/server/keys.ts.
 export interface CreateRoomRequest {
+  /** One of ROOM_SEEDS, "1" to "20": the scenario. Any other is refused. */
   seed: string;
   yearCount: number;
   startingYear: number;

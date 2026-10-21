@@ -93,7 +93,6 @@ const COMPARISON_METRICS: ComparisonMetric[] = [
   { key: 'reserves', label: metricLabel('endingNetReserve'), kind: 'currency', polarity: 'neutral', getValue: r => r.endingNetReserve, showPctChange: true },
   { key: 'reinsRecovery', label: metricLabel('reinsuranceRecovery'), kind: 'currency', polarity: 'neutral', getValue: r => r.reinsuranceRecovery, showPctChange: false },
   { key: 'reinsRecoveryDev', label: metricLabel('priorYearDevelopmentCeded'), kind: 'currency', polarity: 'neutral', getValue: r => r.priorYearDevelopmentCeded, showPctChange: false },
-  { key: 'bookingGiveBack', label: metricLabel('bookingGiveBack'), kind: 'currency', polarity: 'neutral', getValue: r => r.bookingGiveBack, showPctChange: false },
   { key: 'investmentIncome', label: metricLabel('investmentIncome'), kind: 'currency', polarity: 'goodUp', getValue: r => r.investmentIncome, showPctChange: false },
   { key: 'netIncome', label: metricLabel('netIncome'), kind: 'currency', polarity: 'goodUp', getValue: r => r.netIncome, showPctChange: false },
   { key: 'endingSurplus', label: metricLabel('endingSurplus'), kind: 'currency', polarity: 'goodUp', getValue: r => r.endingSurplus, showPctChange: true },
@@ -360,7 +359,7 @@ export default function ResultsPage({ lockedResults, lineView, surplusRangeByYea
                   quantity is not defined here. Select a line to see all three. */}
               {lineRow && <>
                 <Row label="Rate Level Index" value={lineRow.rateLevel.toFixed(2)} />
-                <Row label="Pure Premium Rate per $100 Exposure" value={`$${lineRow.purePremiumPer100.toFixed(2)}`} />
+                <Row label="Pure Premium (from experience) per $100 Exposure" value={`$${lineRow.purePremiumPer100.toFixed(2)}`} />
                 <Row
                   label={`Pool Premium Rate at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}% CLF`}
                   value={`$${(lineRow.poolPremium / Math.max(lineRow.activeExposure * 10_000, 1)).toFixed(2)}`}
@@ -390,7 +389,6 @@ export default function ResultsPage({ lockedResults, lineView, surplusRangeByYea
               <Row label="Actual Ultimate Losses" value={formatCurrency(result.grossUltimateLoss)} valueColor="text-red-600" />
               <Row label="Reinsurance Recovery (current year)" value={formatCurrency(result.reinsuranceRecovery)} valueColor="text-emerald-600" />
               <Row label="Reinsurance Recovery (prior-year development)" value={formatCurrency(result.priorYearDevelopmentCeded)} valueColor="text-emerald-600" />
-              <Row label="Recovery deferred by optimistic booking" value={formatCurrency(result.bookingGiveBack)} />
               <Row label="Net Ultimate Loss" value={formatCurrency(result.netUltimateLoss)} valueColor="text-red-600" />
               {/* ⚠ THE NUMERATOR OF ALL THREE ACTUAL LOSS RATIOS BELOW. This card
                   used to end at Net Ultimate Loss, and the Ratios card beneath it
@@ -477,6 +475,7 @@ export default function ResultsPage({ lockedResults, lineView, surplusRangeByYea
               <Row label="Actual Loss Ratio (pricing basis)" value={formatPct(result.actualLossRatioPricingBasis)} />
               <Row label="Actual Loss Ratio (retained premium)" value={formatPct(result.actualLossRatioRetainedPremium)} />
               <Row label="Actual Loss Ratio (Net, member charge)" value={formatPct(result.actualLossRatio)} />
+              <Row label="Actual Loss & LAE Ratio (Net, member charge)" value={formatPct(result.actualLossRatio + (result.actualLaeRatio ?? 0))} />
               <Row label="Actual Expense Ratio (member charge)" value={formatPct(result.actualExpenseRatio)} />
               <Row label="Actual Combined Ratio (member charge)" value={formatPct(result.actualCombinedRatio)} valueColor={colorForCombinedRatio(result.actualCombinedRatio)} />
               <div className="border-t border-gray-100 my-1" />
@@ -567,7 +566,7 @@ export default function ResultsPage({ lockedResults, lineView, surplusRangeByYea
 
                 return (
                   <>
-                    <Row label="Pure Premium Rate per $100 Exposure" value={`$${lineRow.purePremiumPer100.toFixed(2)}`} />
+                    <Row label="Pure Premium (from experience) per $100 Exposure" value={`$${lineRow.purePremiumPer100.toFixed(2)}`} />
 
                     <Row
                       label="Selected Funding Confidence"

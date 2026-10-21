@@ -479,7 +479,8 @@ export default function PlayScreen({ code, role }: Props) {
               </span>
             ) : processing ? (
               <span data-testid="game-processing" className="flex items-center gap-1.5 text-slate-500">
-                <Loader2 size={13} className="animate-spin" /> Running year {game.gameState.currentYearNumber}…
+                <Loader2 size={13} className="animate-spin" />
+                {game.progress ? `Restoring year ${game.progress.year} of ${game.progress.of}…` : `Running year ${game.gameState.currentYearNumber}…`}
               </span>
             ) : locked ? (
               <span data-testid={isViewer ? 'viewer-locked' : 'waiting'} className="flex items-center gap-1.5 text-emerald-700">

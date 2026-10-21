@@ -14,7 +14,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { NEW_RATE_STACK, RISK_CONTROL_INCENTIVE_RANGE } from '../../src/data/pricingParameters';
+import { AGGREGATE_STOP, NEW_RATE_STACK, RISK_CONTROL_INCENTIVE_RANGE, STOP_RECOVERY_OFF_CLAIMS_COST } from '../../src/data/pricingParameters';
 import { expenseDivisor } from '../../src/utils/linePricing';
 import type { CoverageLine, GameState, LineResultSet } from '../../src/types/simulation';
 
@@ -46,7 +46,7 @@ console.log('=== NET-FUNDING FIELDS: expectedCededPer100 / netPurePremiumPer100 
 const worstReconstruct: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
 const worstReconstructVsBound: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
 const worstIdentity: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
-let propertyZero = 0;
+let propertyZero = 0, nettedLineYears = 0;
 let floorBound = 0;
 let n = 0;
 const cededShare: Record<string, number[]> = { WC: [], GL: [], Property: [] };
@@ -99,6 +99,7 @@ for (let g = 0; g < GAMES; g++) {
       worstIdentity[l] = Math.max(worstIdentity[l], identityGap);
 
       if (l === 'Property' && r.expectedCededPer100 === 0) propertyZero++;
+      if (r.expectedCededPer100 !== 0) nettedLineYears++;
 
       const floored = r.netPurePremiumPer100 === 0 && r.expectedCededPer100 > 0;
       if (floored) floorBound++;
@@ -137,8 +138,15 @@ for (const l of LINES) {
   check(worstIdentity[l] < 5e-5, `${l}: worst |sum - grossPurePremium|`, worstIdentity[l].toExponential(2));
 }
 
-console.log('\n--- 3. PROPERTY NETS TOO, as of its own occurrence layer and aggregate ---');
-check(propertyZero === 0, 'expectedCededPer100 is nonzero on every Property line-year (the default: layer placed)', `${propertyZero} counterexample(s)`);
+console.log('\n--- 3. WHAT NETS: Property by its own layer and aggregate; nothing under the stop ---');
+// ⚠ UNDER THE AGGREGATE STOP NOTHING NETS (STOP_RECOVERY_OFF_CLAIMS_COST off):
+// the claims cost is the experience's alone and the cover's full price is the
+// reinsurance, so expected ceded is ZERO on every line-year rather than nonzero.
+if (AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled) {
+  check(nettedLineYears === 0, 'under the aggregate stop, expectedCededPer100 is zero on every line-year: nothing nets off the claims cost', `${nettedLineYears} counterexample(s)`);
+} else {
+  check(propertyZero === 0, 'expectedCededPer100 is nonzero on every Property line-year (the default: layer placed)', `${propertyZero} counterexample(s)`);
+}
 
 console.log('\n--- 4. DOES THE max(0, ...) FLOOR EVER BIND? ---');
 console.log('  If it never does, netPurePremiumPer100 is a pure subtraction with no information');

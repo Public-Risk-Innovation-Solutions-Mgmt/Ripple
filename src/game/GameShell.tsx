@@ -178,6 +178,7 @@ export default function GameShell({
         onAdvanceYear={onAdvanceYear}
         canAdvance={canAdvance}
         advanceLabel={advanceLabel}
+        lineView={lineView}
       />
 
       {isStarted && (
@@ -294,7 +295,6 @@ export default function GameShell({
             priorHistory={gameState.priorHistory}
             instanceSeed={gameState.instance.seed}
             lineView={lineView}
-            worldResults={gameState.worlds?.map(w => w.lockedResults)}
             instance={gameState.instance}
             shockTiming={shockTimingOf(gameState.setup)}
           />

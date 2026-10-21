@@ -39,7 +39,11 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
-import { MEMBER_LEVEL } from '../../src/data/pricingParameters';
+import { AGGREGATE_STOP, MEMBER_LEVEL } from '../../src/data/pricingParameters';
+
+// ⚠ THE PER-OCCURRENCE TOWER IS DORMANT BEHIND AGGREGATE_STOP since
+// stable-scenarios commit 6; this gate keeps holding it, with the stop off.
+AGGREGATE_STOP.enabled = false;
 import type { Claim, CoverageLine, DecisionSet, GameState, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];

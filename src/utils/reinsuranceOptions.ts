@@ -12,11 +12,20 @@
 // began or ended inside a layer could not be expressed, and this module throws
 // the moment the two disagree rather than quietly placing a neighbour.
 //
-// The aggregate stop-loss is not a package and is not offered: its level is
-// always AGGREGATE_NOT_OFFERED (-1, "none"), and its code is kept unwired.
+// The old aggregate stop-loss is not a package and is not offered: its level
+// is always AGGREGATE_NOT_OFFERED (-1, "none"), and its code is kept unwired.
+//
+// ⚠ WITH AGGREGATE_STOP ON (stable-scenarios commit 6) THE OPTIONS ARE THE
+// STOP'S, NOT THESE PACKAGES. A team's `reinsuranceOption` is then one of
+// AGGREGATE_STOP_OPTIONS ('none', 'working', 'bad-year', 'catastrophe'), it
+// places no occurrence layer, and the stop is priced and ceded by
+// aggregateStop.ts. The packages below stay built and checked, dormant.
 // ============================================================================
 
-import { REINSURANCE_DEFAULT_OPTION, REINSURANCE_OPTIONS, type ReinsuranceOption } from '../data/pricingParameters';
+import {
+  AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_OPTIONS, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OPTIONS,
+  type ReinsuranceOption,
+} from '../data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine } from '../types/simulation';
 
@@ -67,22 +76,29 @@ for (const line of LINES) {
   FULL_TOWER[line] = full.id;
 }
 
-/** The package that places every layer of the line's tower. */
+/** The widest cover a team can buy: the package placing the whole tower, or the stop's largest. */
 export function fullTowerOption(line: CoverageLine): string {
-  return FULL_TOWER[line as TowerLine];
+  return AGGREGATE_STOP.enabled ? 'catastrophe' : FULL_TOWER[line as TowerLine];
 }
 
-/** The packages a line offers, in display order. */
+/** The per-claim packages a line offers, in display order (dormant with AGGREGATE_STOP on). */
 export function reinsuranceOptionsFor(line: CoverageLine): readonly ReinsuranceOption[] {
   return REINSURANCE_OPTIONS[line as TowerLine];
 }
 
+/** The ids a team can choose on a line: the stop's options, or the per-claim packages. */
+export function reinsuranceOptionIds(line: CoverageLine): readonly string[] {
+  return AGGREGATE_STOP.enabled ? AGGREGATE_STOP_OPTIONS.map(o => o.id) : REINSURANCE_OPTIONS[line as TowerLine].map(o => o.id);
+}
+
 export function isReinsuranceOption(line: CoverageLine, id: unknown): id is string {
-  return typeof id === 'string' && PLACEMENT[line as TowerLine].has(id);
+  return typeof id === 'string' && (AGGREGATE_STOP.enabled
+    ? AGGREGATE_STOP_OPTIONS.some(o => o.id === id)
+    : PLACEMENT[line as TowerLine].has(id));
 }
 
 export function defaultReinsuranceOption(line: CoverageLine): string {
-  return REINSURANCE_DEFAULT_OPTION[line as TowerLine];
+  return AGGREGATE_STOP.enabled ? AGGREGATE_STOP_DEFAULT : REINSURANCE_DEFAULT_OPTION[line as TowerLine];
 }
 
 /**
@@ -91,6 +107,13 @@ export function defaultReinsuranceOption(line: CoverageLine): string {
  * misspelt id defaulting to "none" would be a team silently uninsured.
  */
 export function placementFor(line: CoverageLine, optionId: string): boolean[] {
+  // The stop places no occurrence layer: it is ceded on the year's total.
+  if (AGGREGATE_STOP.enabled) {
+    if (!AGGREGATE_STOP_OPTIONS.some(o => o.id === optionId)) {
+      throw new Error(`reinsuranceOptions: '${optionId}' is not an aggregate stop option`);
+    }
+    return REINSURANCE_TOWER[line as TowerLine].map(() => false);
+  }
   const placed = PLACEMENT[line as TowerLine].get(optionId);
   if (!placed) throw new Error(`reinsuranceOptions: '${optionId}' is not a ${line} package`);
   return [...placed];

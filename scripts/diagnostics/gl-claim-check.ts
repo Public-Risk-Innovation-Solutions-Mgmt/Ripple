@@ -234,10 +234,9 @@ console.log('\n--- 2c. THE TREND PAIR: severity and a LEVEL exposure base ---');
   // ⚠ THE COMPOSITION CHECK IS RETIRED WITH THE RATE IT CHECKED. GL carried
   // 5.7026% = 1.0363 x 1.020 (wage x long-run social inflation), and the check
   // that it reconciled as a PRODUCT rather than a sum was load-bearing while
-  // the pair existed. GL now shares one chosen rate with the other two lines
-  // and there is no composition left to verify — asserting the old identity
-  // would be asserting the retired arrangement.
-  console.log(`    one rate for all three lines: ${note(Math.abs(SEV - SEVERITY_TREND_PER_YEAR.WC) < 1e-12 && Math.abs(SEV - SEVERITY_TREND_PER_YEAR.Property) < 1e-12, `GL severity ${SEV} differs from WC/Property — the lines are meant to share one rate now`)}`);
+  // the pair existed. Since stable-scenarios commit 3 each line has its own
+  // chosen rate (GL 8%), so what is checked is that GL's draw reads GL's own.
+  console.log(`    GL's draw reads GL's own rate: ${note(Math.abs(SEV - SEVERITY_TREND_PER_YEAR.GL) < 1e-12, `GL's draw trends at ${SEV}, not SEVERITY_TREND_PER_YEAR.GL ${SEVERITY_TREND_PER_YEAR.GL}`)}`);
 
   // (i) RATE TREND = the severity trend, exactly, because the base is level.
   const rate = (1 + SEV) / (1 + WAGE);

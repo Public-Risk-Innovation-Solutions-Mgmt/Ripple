@@ -40,7 +40,7 @@ const BUTTONS = [
   { name: 'Download Results (.xlsx)', min: 10_000 },
   // ⚠ NAMES ITS WORLD SINCE LOSS ENGINE COMMIT 4b: an averaged year has no claims
   // of its own, so the workbook is world 1's and the button says so.
-  { name: 'Download Claims — world 1 of 10 (.xlsx)', min: 10_000 },
+  { name: 'Download Claims — world 1 of 100 (.xlsx)', min: 10_000 },  // WORLD_COUNT, 100 since stable-scenarios commit 10
   // ⚠ 'Download Members CSV' CAME OFF. The button is hidden with the other
   // member-level views (SHOW_MEMBER_VIEWS in ResultSpreadsheetPage); buildMemberCsv
   // still runs, so restoring the flag restores the download and this row.
@@ -60,8 +60,11 @@ const BUTTONS = [
   // ⚠ /solo, NOT /. The root is the LOBBY now; this driver drives the SOLO
   // game, so it follows the game rather than the URL.
   await page.goto('/solo');
-  await page.waitForSelector('text=Instance ID / Seed', { timeout: 20000 });
-  await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
+  // The scenario menu (stable-scenarios commit 9) or, on a tree from before it,
+  // the free seed field.
+  await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
+  if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption('7');
+  else await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
   await page.getByRole('button', { name: /Start/i }).last().click();
   await page.waitForSelector('text=Lock Year', { timeout: 30000 });
 

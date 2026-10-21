@@ -511,14 +511,27 @@ as `memberShareAboveLimit` and enters no pool total. WC and Property have no
 limit. See `POOL_LIMIT_PER_OCCURRENCE` and the **Coverage and the pre-game**
 section of [docs/PARAMETERS.md](PARAMETERS.md).
 
-### Pre-game funding — a 14% cushion over expected
+### Pre-game funding — the prior board's margin, solved per scenario
 
-**Landed, not pending.** The declared years are funded at CLF 1.14, a 14%
-cushion over expected (`PRE_GAME_FUNDING_CUSHION`), on every line; players
-still default to expected. It was the 70% confidence level on each line's own
-CLF table (WC 1.1400, GL 1.1350, Property 1.1471) and is stated as the cushion
-since the funding tables commit, so re-deriving the tables no longer moves the
-pre-game. No player-facing text names the cushion.
+**Landed (stable-scenarios commit 9), replacing the 14% cushion.** Each line
+starts the pre-game with `STARTING_CAPITAL` ($5M) paid in, and the prior
+board funds all five pre-game years at ONE margin over expected, solved per
+scenario and line so that surplus ends exactly at the scenario's opening
+(year-1 premium at Expected / its premium-to-surplus ratio). It may solve
+below expected: on WC it did in 15 of the 20 scenarios with profit and
+contingency at 5%, and does in 2 of 20 with it at 0. Players still default
+to expected.
+
+**The year-1 rate step.** A team that locks year 1 untouched funds at
+Expected, so year 1's rate on WC and GL may step UP or DOWN from the declared
+year before it, by whether the scenario's solved margin sat below or above
+expected. That step is real, not a modelling artefact, and it is the first
+thing the Decisions panel's change column reports. No player-facing text names
+the margin.
+
+(Before: CLF 1.14, a 14% cushion over expected — the 70% stop on each line's
+old table, WC 1.1400, GL 1.1350, Property 1.1471 — so year 1 always stepped
+down.)
 
 ### Funding tables on the new engine (funding tables commit)
 

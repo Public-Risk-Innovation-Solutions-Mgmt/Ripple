@@ -164,6 +164,8 @@ export interface FundingConsequenceBook {
   exposure: number;
   layersPlaced: boolean[];
   aggregateStopLevel: number;
+  /** The team's reinsurance option — the aggregate stop's, with AGGREGATE_STOP on. */
+  reinsuranceOption?: string;
   /** rateLevel / 100 — permanently 1 today, threaded so it cannot silently
    *  desync if the rate level moves again. */
   pricingAdjustment: number;
@@ -250,6 +252,7 @@ function ratesAt(
     layersPlaced: book.layersPlaced,
     aggregateStopLevel: book.aggregateStopLevel,
     aggregateTermsRetainedPer100: aggregateTerms,
+    reinsuranceOption: book.reinsuranceOption,
   });
   return {
     clf,
@@ -276,6 +279,7 @@ function ratesAt(
           riskControlPct: book.newStackRiskControlPct ?? 0,
           layersPlaced: book.layersPlaced,
           aggregateStopLevel: book.aggregateStopLevel,
+          reinsuranceOption: book.reinsuranceOption,
         });
         return {
           purePremiumGroundUp: n.groundUpPurePremiumPer100,

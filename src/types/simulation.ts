@@ -511,6 +511,14 @@ export interface GameInstance {
    * Absent on the game's own instance, whose `seed` it is.
    */
   marketSeed?: number;
+  /**
+   * THE SCENARIO, 1 TO 20, the game plays (stable-scenarios commit 9): its
+   * opening premium to surplus, its pre-game's experience and so its prior
+   * board's margin (pricingParameters' SCENARIO_PREMIUM_TO_SURPLUS). Set by
+   * generateGameInstance from the instance id (utils/scenarios.ts), and carried
+   * by every world's and every pre-game attempt's copy.
+   */
+  scenario?: number;
   lossEnvironment: {
     baseLossRatio: number;        // e.g. 0.68
     lossTrend: number;            // annual claim inflation e.g. 0.04
@@ -955,6 +963,22 @@ export interface ReserveCohort {
   // The cohort's CURRENT estimate of ultimate, net of reinsurance. This is what
   // develops: IBNER moves it each year until the cohort matures. `netUnpaid`
   // follows from it, and `netPaid` accumulates against it.
+  /**
+   * THE AGGREGATE STOP this accident year was written with (stable-scenarios
+   * commit 6): its terms in dollars, fixed at inception, and what it has
+   * recovered to date. Recalculated each valuation on the year's developed
+   * gross; the change is a prior-year reinsurance adjustment. Absent when the
+   * year bought none, and on bulk cohorts.
+   */
+  /**
+   * THE ACCIDENT YEAR'S SHOCK DOLLARS, booked gross (stable-scenarios commit 7):
+   * the shocks' uplift on its ordinary losses plus their large losses, as
+   * written. Copied to its ledger row, where pricing takes them out of the
+   * experience and charges a steady catastrophe load instead. Absent where no
+   * shock reached the year.
+   */
+  shockGross?: number;
+  aggregateStop?: { optionId: string; attachment: number; limit: number; recovered: number };
   netUltimate: number;
   netPaid: number;
   netUnpaid: number;
@@ -1147,6 +1171,12 @@ export interface ReserveDevelopmentRow {
   // firstValuationYear + k. Ultimate, not reported/incurred: the exhibit is
   // about the gap between what is reported and what is estimated, so the
   // ambiguous word is wrong exactly where the distinction is the point.
+  /**
+   * THE ACCIDENT YEAR'S SHOCK DOLLARS, booked gross (stable-scenarios commit 7)
+   * — the cohort's `shockGross`. The experience pure premium removes them on
+   * the paid basis before development and prices them as a steady load.
+   */
+  shockGross?: number;
   ultimateByValuation: number[];
   // CUMULATIVE NET PAID at each of the same valuations, same indexing. A
   // RECORDING, not a computation — the figure processIbner already produced,
@@ -1922,6 +1952,13 @@ interface ResultRowFields {
   // audit page's rate build-up. Nothing needed reconnecting.
   expectedLoss: number;                    // Current-year expected loss before CLF
   clfAdjustedExpectedLoss: number;          // expectedLoss × selectedFundingCLF
+  /**
+   * THE COVER'S EXPECTED RECOVERY ON THE YEAR, in dollars (stable-scenarios
+   * commit 11) — what the line's reinsurance is expected to pay, as priced.
+   * Expected Losses, net of reinsurance, is expectedLoss less this. Not netted
+   * off the rate (STOP_RECOVERY_OFF_CLAIMS_COST); shown beside it.
+   */
+  expectedReinsuranceRecovery?: number;
 
   // B. Accounting Reserve / Reserve Confidence View
   expectedNetUnpaidLoss: number;            // Expected unpaid losses (net of reinsurance)
@@ -2124,6 +2161,42 @@ export interface ResultSet extends Omit<ResultRowFields, PoolAbsentKey> {
   byLine: Record<CoverageLine, LineResultSet>;
   /** The decisions that really are pool-wide. See PoolWideDecisions. */
   pool: PoolWideDecisions;
+  /**
+   * WHAT THIS AVERAGED ROW KEEPS OF ITS WORLDS (stable-scenarios commit 10),
+   * struck when the year settled: the surplus range and the audit's per-world
+   * figures. No world keeps its rows, so this is what the screens read.
+   * Absent on a one-world game and on a world's own row. See utils/worldAudit.ts.
+   */
+  worldSummary?: WorldSummary;
+}
+
+/** The worlds behind an averaged row, summarized — see ResultSet.worldSummary. */
+export interface WorldSummary {
+  /** Minimum, median and maximum ending surplus across the worlds, pool and per line. */
+  surplusRange: Partial<Record<'pool' | CoverageLine, { min: number; median: number; max: number; worlds: number }>>;
+  /** Per line: the cash sweep averaged over the worlds' own, and the dividend and assessment basis. */
+  audit: Partial<Record<CoverageLine, {
+    sweep: {
+      cash: number; investments: number; preSweepCash: number; operatingCashTarget: number;
+      investmentsBeforeSweep: number; sweepTransfer: number; liquidityFloorBound: boolean; investmentsFloorBound: boolean;
+    };
+    assessmentBasis: number;
+    dividendBasis: number;
+    /** Each world's investment income re-derived from its own market, averaged. */
+    investmentIncome: number;
+    worlds: number;
+  }>>;
+}
+
+/**
+ * ONE PLAYED YEAR, AS IT WAS PLAYED (stable-scenarios commit 10): the team's
+ * decisions and the lines it authorized a loan on. The save keeps these, and a
+ * reload replays them from the opening to rebuild every world exactly.
+ */
+export interface PlayedYear {
+  yearNumber: number;
+  decisions: DecisionSet;
+  authorizedLines: CoverageLine[];
 }
 
 /**
@@ -2332,11 +2405,19 @@ export interface GameState {
    * Absent on a one-world game, where the two fields above are the world.
    */
   worlds?: WorldState[];
+  /** Every played year's decisions and loan choices, in order — what a reload replays. */
+  playedYears?: PlayedYear[];
 }
 
 /** One world's own state and played years. See GameState.worlds. */
 export interface WorldState {
   poolState: PoolState;
+  /**
+   * ⚠ ONLY THE LAST YEAR'S ROW, EXCEPT ON WORLD 1 (stable-scenarios commit 10).
+   * The engine reads a world's previous row and nothing older; what the screens
+   * read of the worlds is kept on the averaged rows (ResultSet.worldSummary).
+   * World 1 keeps every row, for its claims (the claims download).
+   */
   lockedResults: ResultSet[];
   /**
    * Cohorts that have closed and left this world's state, at their final values

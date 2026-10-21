@@ -16,7 +16,7 @@
 import { drawShockSchedule as drawOnStream, HOST_SHOCK_STREAM } from '../utils/shockSchedule';
 import type { ScheduledShockSpec } from './contract';
 
-export { drawableShocks, shockDrawCount, type DrawableShock } from '../utils/shockSchedule';
+export { drawableShocks, shockDrawCount, shockDrawRange, type DrawableShock } from '../utils/shockSchedule';
 
 export function drawShockSchedule(roomSeed: string, yearCount: number): ScheduledShockSpec[] {
   return drawOnStream(roomSeed, yearCount, HOST_SHOCK_STREAM);

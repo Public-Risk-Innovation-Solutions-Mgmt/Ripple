@@ -24,6 +24,7 @@
 // ============================================================================
 
 import { SHOCK_EVENTS, SHOCK_EVENT_LABELS } from './shockLosses';
+import { SHOCK_SCHEDULE_SPREAD, SHOCKS_PER_YEAR } from '../data/pricingParameters';
 import { deriveSubRng } from './random';
 import { seedFromInstanceId } from '../seedHash';
 import type { ScheduledShock } from '../types/shocks';
@@ -61,11 +62,26 @@ function idNumber(id: string): number {
   return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
 }
 
-// ONE EVENT PER THREE YEARS, rounded, and never none: 3 years -> 1, 5 -> 2,
-// 10 -> 3, 20 -> 7. A randomise that could return an empty schedule would read
-// to a host as a button that did nothing.
-export function shockDrawCount(yearCount: number): number {
-  return yearCount >= 1 ? Math.max(1, Math.round(yearCount / 3)) : 0;
+// THE COUNT (stable-scenarios commit 5): round(SHOCKS_PER_YEAR x years), then
+// −1, 0 or +1 (SHOCK_SCHEDULE_SPREAD), equally likely, and never none — 2 to 4
+// in a ten-year game. A randomise that could return an empty schedule would read
+// to a host as a button that did nothing. The range is capped at one event a
+// year from year 2.
+export function shockDrawRange(yearCount: number): { min: number; max: number } {
+  if (yearCount < 1) return { min: 0, max: 0 };
+  const centre = Math.round(SHOCKS_PER_YEAR * yearCount);
+  const room = Math.max(1, yearCount - 1);
+  const clamp = (n: number) => Math.min(room, Math.max(1, n));
+  return { min: clamp(centre - SHOCK_SCHEDULE_SPREAD), max: clamp(centre + SHOCK_SCHEDULE_SPREAD) };
+}
+
+/** The count for one draw: the centre plus an offset from −spread to +spread, read off `u` in [0, 1). */
+export function shockDrawCount(yearCount: number, u: number): number {
+  if (yearCount < 1) return 0;
+  const centre = Math.round(SHOCKS_PER_YEAR * yearCount);
+  const offset = Math.floor(u * (2 * SHOCK_SCHEDULE_SPREAD + 1)) - SHOCK_SCHEDULE_SPREAD;
+  const { min, max } = shockDrawRange(yearCount);
+  return Math.min(max, Math.max(min, centre + offset));
 }
 
 /** The purpose labels: one stream per caller. */
@@ -82,7 +98,9 @@ export function drawShockSchedule(seed: string, yearCount: number, stream: strin
     ? Array.from({ length: yearCount - 1 }, (_, i) => i + 2)
     : yearCount === 1 ? [1] : [];
   const events = drawableShocks();
-  const count = Math.min(shockDrawCount(yearCount), years.length, events.length);
+  // The count's offset is the stream's FIRST draw, so the years and events
+  // below follow it on the same stream.
+  const count = Math.min(shockDrawCount(yearCount, rng.next()), years.length, events.length);
 
   // Partial Fisher-Yates on the years.
   for (let i = 0; i < count; i++) {
@@ -94,7 +112,8 @@ export function drawShockSchedule(seed: string, yearCount: number, stream: strin
   // EVENTS: weighted by probability, WITHOUT replacement — no event twice in
   // one schedule. A repeat of the same named event inside a short game reads as
   // a bug to a room, and with twelve events and at most seven draws (a 20-year
-  // game) there is always a fresh one to take.
+  // game) there is always a fresh one to take. The weights are the scaled
+  // probabilities; scaling all twelve alike leaves the draw's odds unchanged.
   const pool = events.map(def => ({ def, w: def.probability }));
   const chosen: DrawableShock[] = [];
   for (let i = 0; i < count; i++) {

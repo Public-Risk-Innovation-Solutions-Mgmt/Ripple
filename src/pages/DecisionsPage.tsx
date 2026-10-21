@@ -13,7 +13,8 @@ import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
 import { occurrenceProgramCost } from '../utils/reinsuranceTower';
 import { placementFor, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
-import type { Book } from '../utils/lineHelpers';
+import { bookExposureOf, bookRiskOf, type Book } from '../utils/lineHelpers';
+import { stopQuote, stopWording } from '../utils/aggregateStop';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -26,7 +27,7 @@ import {
 import { APPLICATION_RATE } from '../data/defaultAssumptions';
 import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import { applicantInclusion } from '../utils/membershipEngine';
-import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
+import { AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
 import { intakeShare } from '../utils/bookUnderwriting';
 
 export interface LineLoanInfo {
@@ -70,28 +71,13 @@ interface DecisionsPageProps {
   book: Book;
 }
 
-// 0.30-0.45 ADDED alongside the funding-confidence range's extension down from
-// 50%. 0.45 'Minimal' continues the existing descending scale; 0.40/0.35/0.30
-// are named to read as unmistakably underfunded, since that is the point of
-// making them selectable at all (see the consequence panel below).
-// ⚠ THE 0.60 = 'Expected' MAP IS GONE, AND PROPERTY WAS ITS LAST CONSUMER.
-// It labelled 60% as the anchor because that was where FUNDING_CLF_TABLE's
-// CLF hit exactly 1.000 — true only for a line reading the generic table.
-// Property has its own derived table now (crossing 52.8%), so every line
-// surfaces 'Expected' as the book's real break-even via fundingAtExpected
-// rather than as a fixed rung, and one ladder serves all three.
-//
-// ALL THREE LINES: a plain descending gradation, with 0.60 an ordinary point
-// in it, same as 0.65 or 0.55.
-const FUNDING_LEVEL_LABELS_LINE: Record<number, string> = {
-  0.95: 'Maximum', 0.90: 'Very High', 0.85: 'High', 0.80: 'Above Average', 0.75: 'Balanced', 0.70: 'Moderate', 0.65: 'Moderate-Low', 0.60: 'Below Average', 0.55: 'Low', 0.50: 'Very Low',
-  0.45: 'Minimal', 0.40: 'Deficient', 0.35: 'Severely Deficient', 0.30: 'Critical',
-};
-
-function getFundingLabel(v: number, labels: Record<number, string> = FUNDING_LEVEL_LABELS_LINE): string {
-  const rounded = Math.round(v * 20) / 20;
-  return labels[rounded] ?? v.toFixed(2);
-}
+// THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
+// ladder that stood here ('Above Average', 'Balanced', 'Critical' …) is gone:
+// it named a percentile as if it were a judgement, and the words drifted from
+// what each stop delivers whenever the tables moved. Expected keeps its word,
+// "Expected (~X%)", because it is a different kind of position — CLF exactly
+// 1.000, wherever that falls on the line — not a stop on the grid.
+const fundingStopLabel = (v: number) => `(${(v * 100).toFixed(0)}%)`;
 
 
 // Reset only the given line to defaults (Model A strict per-line: resetting on
@@ -460,9 +446,7 @@ function outstandingLoanSlider(
   );
 }
 
-// THE FUNDING CONFIDENCE LEVEL CONTROL. Property renders its ORIGINAL slider
-// unchanged (0.60 already reads 'Expected' correctly there — see
-// FUNDING_LEVEL_LABELS above). WC and GL get a second control: the native
+// THE FUNDING CONFIDENCE LEVEL CONTROL. Every line: the native
 // range input's thumb renders at whatever `value` it is given even when that
 // value is not a multiple of `step` (only manual dragging snaps to the step
 // grid), so while fundingAtExpected is true the slider's value is bound to
@@ -505,7 +489,7 @@ function FundingLevelControl({ d, fundingConsequence, setFundingLevel, setFundin
         value={sliderValue}
         min={SLIDER_RANGES.fundingConfidenceLevel.min} max={SLIDER_RANGES.fundingConfidenceLevel.max} step={SLIDER_RANGES.fundingConfidenceLevel.step}
         onChange={setFundingLevel}
-        formatValue={v => d.fundingAtExpected ? `Expected (~${Math.round(v * 100)}%)` : `${getFundingLabel(v, FUNDING_LEVEL_LABELS_LINE)} (${(v * 100).toFixed(0)}%)`}
+        formatValue={v => d.fundingAtExpected ? `Expected (~${Math.round(v * 100)}%)` : fundingStopLabel(v)}
         leftLabel="Underfunded" rightLabel="Higher Confidence"
         valueColor={isAdequate ? 'text-gray-700' : 'text-red-600'}
         disabled={disabled}
@@ -1220,7 +1204,70 @@ function DataRow({ label, value }: { label: string; value: string }) {
 // the per-band panel listed it: the cession applies it, so a package attaching
 // below it answers that peril only from the deductible up.
 // ============================================================================
-function PackageControls({ line, d, setMany, disabled, book, yearNumber }: {
+function PackageControls(props: {
+  line: CoverageLine;
+  d: LineDecisionSet;
+  setMany: (patch: Partial<LineDecisionSet>) => void;
+  disabled: boolean;
+  book: Book;
+  yearNumber: number;
+}) {
+  return AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />;
+}
+
+// ============================================================================
+// THE AGGREGATE STOP — ONE CHOICE PER LINE (stable-scenarios commit 6).
+//
+// ⚠ EACH OPTION'S NAME, WHAT IT COVERS IN ONE SENTENCE, AND ITS PRICE — NEVER
+// its expected recovery or how it was priced (docs/PENDING_MULTIPLAYER.md).
+// The price is the engine's own quote (aggregateStop.stopQuote) on the line's
+// book and year, so the panel cannot show a figure the engine does not charge.
+// ============================================================================
+function StopControls({ line, d, setMany, disabled, book, yearNumber }: {
+  line: CoverageLine;
+  d: LineDecisionSet;
+  setMany: (patch: Partial<LineDecisionSet>) => void;
+  disabled: boolean;
+  book: Book;
+  yearNumber: number;
+}) {
+  const exposure = bookExposureOf(book, line, yearNumber);
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-600 leading-relaxed">
+        Choose <strong>one cover</strong> for this line. Each protects the Pool against a year whose losses run
+        well above what was expected.
+      </p>
+      <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
+        {AGGREGATE_STOP_OPTIONS.map(o => {
+          const chosen = d.reinsuranceOption === o.id;
+          const price = o.limit > 0 ? stopQuote(line, o.id, exposure, yearNumber, bookRiskOf(book)).premium : 0;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              data-testid={`reins-option-${line}-${o.id}`}
+              disabled={disabled}
+              onClick={() => !disabled && setMany({ reinsuranceOption: o.id })}
+              className={`w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm text-left ${
+                chosen ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'
+              } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              <span>
+                <span className={chosen ? 'font-semibold' : ''}>{o.name}</span>
+                <span className="block text-xs text-gray-500">{stopWording(o.id)}</span>
+              </span>
+              <span className="text-xs text-gray-600 whitespace-nowrap">{formatCurrency(price)}/yr</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// The per-claim packages, dormant behind AGGREGATE_STOP.
+function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber }: {
   line: CoverageLine;
   d: LineDecisionSet;
   setMany: (patch: Partial<LineDecisionSet>) => void;

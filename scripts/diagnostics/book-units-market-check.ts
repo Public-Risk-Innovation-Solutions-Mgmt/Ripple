@@ -33,7 +33,8 @@ import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
-import { packSave, unpackSave } from '../../src/utils/gameSave';
+import { packSave, unpackSave, type SavedGame } from '../../src/utils/gameSave';
+import { restoreSavedGame } from '../../src/utils/saveRestore';
 import type { CoverageLine, GameSetupSettings, GameState } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -126,8 +127,11 @@ let played: GameState;
   played = gs;
   const fromSeed = LINES.every(l => JSON.stringify(gs.poolState.bookUnits?.[l]) === JSON.stringify(openingBookUnits(instance.seed, l)));
   const env = { gameState: gs, startingFinancials: null, initialMembers: [], currentDecisions: defaultDecisionSet(2) };
-  const back = unpackSave(packSave(env)) as { gameState: GameState };
-  const survives = JSON.stringify(back.gameState.poolState.bookUnits) === JSON.stringify(gs.poolState.bookUnits);
+  // The save keeps the averages only and a reload replays (commit 10): the
+  // book must come back from the replay as it was.
+  const back = unpackSave(packSave(env)) as { gameState: SavedGame };
+  const reloaded = (await restoreSavedGame(back.gameState, null, undefined, async () => {})).gameState;
+  const survives = JSON.stringify(reloaded.poolState.bookUnits) === JSON.stringify(gs.poolState.bookUnits);
   check(onceOnly(gs) && fromSeed && survives, '6. the book is on the game\'s pool state only, from the game seed, and survives a save',
     `${(gs.worlds ?? []).length} worlds without it; ${JSON.stringify(gs).split('"bookUnits"').length - 1} copy in the state`);
 }

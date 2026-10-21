@@ -58,7 +58,7 @@ import type {
   SubmitRequest, SubmitResponse,
   TeamView,
 } from './contract';
-import { SessionError, SESSION_TOKEN_PATTERN, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
+import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
 import { Faults } from './faults';
 import type { CoverageLine } from '../types/simulation';
 
@@ -504,6 +504,11 @@ export class LocalSessionTransport implements SessionTransport {
 
       if (!SESSION_TOKEN_PATTERN.test(req.hostToken)) {
         throw new SessionError('INVALID_REQUEST', 'A room needs a valid host token.');
+      }
+      // The seed is the scenario: "1" to "20" and nothing else (ROOM_SEEDS),
+      // refused here exactly as the handler refuses it.
+      if (!isRoomSeed(req.seed)) {
+        throw new SessionError('INVALID_REQUEST', 'The seed must be a scenario from 1 to 20.');
       }
 
       // ⚠ THE LINE SET IS CHECKED HERE AND NOWHERE ELSE NOW. It used to be

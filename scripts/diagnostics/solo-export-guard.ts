@@ -796,7 +796,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // first: fecbb08 reproduced v81 24 of 24. All 24 move, no row added or
 // removed: every line's ordinary losses are drawn at its own BaselineCV and
 // every line opens at $35M, Property included.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v82.json');
+// v83: STABLE-SCENARIOS BLOCK A (see VALUE_IDENTITY_v77). The control ran
+// first: 061b476 reproduced v82 24 of 24. All 24 move, no row added or
+// removed, and each moved at commits 1, 2 and 3 in turn; commit 4 moved none.
+// v84: STABLE-SCENARIOS BLOCK B (see VALUE_IDENTITY_v78). The control ran
+// first: ab87580 reproduced v83 24 of 24. All 24 move, no row added or
+// removed, and each moved at commits 5, 6 and 7 in turn.
+// v85: STABLE-SCENARIOS BLOCK C (see VALUE_IDENTITY_v79). The control ran
+// first: 330c525 reproduced v84 24 of 24. All 24 move, and each moved at every
+// commit in turn except the give-back fix (e6e0e93), which moved none. Unlike
+// the value harness this guard plays solo games through the worlds, so the
+// shocks-off switch (58cd3b9) and the hundred worlds (b3011df) move it too;
+// commit 11 moves the claims workbook (Enrolled, Gross Paid) and the labels.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v85.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

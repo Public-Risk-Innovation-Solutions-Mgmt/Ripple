@@ -580,6 +580,10 @@ export const WC_LOSS_MODEL = {
 
 // One component of the fitted 3-component lognormal mixture every GL claim
 // draws from — no sub-coverage, no gate, ALAE included in the amount.
+// ⚠ THE LIVE RATE NO LONGER RELIES ON THIS: GL's losses are the pool's supplied
+// pure premium, which excludes ALAE, and ALAE is added on top
+// (ALAE_ALREADY_IN_LOSSES is false on GL). This mixture is the dormant
+// per-claim model's.
 export interface GlSeverityComponent {
   key: string;
   weight: number;

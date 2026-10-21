@@ -1,79 +1,49 @@
 // ============================================================================
-// SAVE, RESTORE, CONTINUE — and get the same game.
+// SAVE, RELOAD, CONTINUE — and get the same game.
 //
 // Run:  npx tsx scripts/diagnostics/save-round-trip-check.ts
 //       YEARS=10 SAVE_AT=4 GAMES=5 npx tsx scripts/diagnostics/save-round-trip-check.ts
 //
-// ⚠ THIS IS THE GATE THAT WOULD HAVE CAUGHT THE SILENT SAVE FAILURE, AND THE
-// REASON IT DID NOT EXIST IS THE REASON THE DEFECT SURVIVED. Every other script
-// in this directory runs straight through in a single process and never touches
-// storage. The reload path — the one thing a player does that a gate never did —
-// had no coverage at all, so a save that had been 2x over quota since year 4
-// went unnoticed for the life of the project.
+// ⚠ THE SAVE KEEPS THE AVERAGES ONLY, AND A RELOAD IS A REPLAY (stable-scenarios
+// commit 10). The save holds the setup, the instance, every played year's
+// decisions and loan choices, the averaged rows and world 1's claim rows — not
+// the worlds, not the pool state, not the pre-game. A reload rebuilds the
+// opening and replays the years (utils/saveRestore.ts). So:
 //
-// WHAT IT DOES
-//   Arm A plays N years straight through.
-//   Arm B plays SAVE_AT years, goes out through packSave (strip, serialise,
-//          DEFLATE, base64) and back through unpackSave, and continues from the
-//          restored object to year N.
-//   The two end states must agree.
+//   1. THE RELOAD SHOWS EXACTLY WHAT THE GAME SHOWED: every figure a screen
+//      reads — the averaged rows, the pre-game, the pool state, the spread at
+//      every year and scope, the Annual Statement at every scope, world 1 whole
+//      (the claims download) and every world's own state — is the same after
+//      the reload as before it, and the replay says it matched the saved rows.
+//   2. THE SAVE HOLDS THE AVERAGES ONLY: no worlds, no pool state, no pre-game.
+//   3. AND THE GAME GOES ON THE SAME: continued from the reload to year N, it
+//      agrees year by year with the game played straight through — the
+//      averaged state, the rows, the pre-game and every world.
 //
-// ⚠ THE CODEC IS LIVE IN BOTH ARMS' ROUND TRIP, NOT STUBBED. Arm B compresses
-// and decompresses for real, so if compression moved a single simulation value
-// the year-by-year comparison below fails and THAT is the finding. Testing the
-// serialiser and skipping the codec would prove nothing about the thing that
-// changed.
+// The games vary their decisions by year, so a replay on the wrong year's
+// decisions shows. ⚠ AND IT FAILS WHEN BROKEN — THE CONTROLS: a replay on the
+// default decisions, a save whose world 1 claims were lost, and the codec's own
+// (a flipped character, an uncompressed save).
 //
-// ⚠ THE POINT IS THE YEARS AFTER THE RELOAD, NOT THE RESTORED SNAPSHOT. Checking
-// that the parsed object equals the one written is a JSON tautology. What
-// matters is whether the ENGINE behaves the same afterwards — if anything the
-// simulation reads is dropped by the strip, or is a type JSON cannot carry, the
-// divergence appears in years SAVE_AT+1..N and nowhere earlier. So arm B is
-// driven through the real processYear from the restored state.
-//
-// ⚠ AND IT IS THE GATE FOR CLAIM REGENERATION, WHICH IS THE WHOLE OF THAT
-// COMMIT'S RISK. A restored game has no claims on the years before the reload;
-// claimRegeneration redraws them from the roster, k, rc and year the result
-// kept. A redraw that is not EXACT is worse than none, because every consumer
-// would read plausible claims that were never drawn — silently. So the third
-// section below regenerates EVERY line-year of the restored arm and compares it
-// to the straight-through arm's in-memory register CLAIM BY CLAIM ON EVERY
-// FIELD — ids, amounts, components, occurrence grouping — never on totals, which
-// this project has seen agree while the register underneath differed. It then
-// perturbs one input and requires the redraw to DIFFER, so the comparison is
-// known to have teeth rather than assumed to.
-//
-// WHAT IT CANNOT SEE, STATED SO IT IS NOT ASSUMED AWAY:
-//   - App.tsx's LOAD-SIDE MIGRATIONS. The effect that reads the save also
-//     backfills membershipHistory, memberLossHistory and wcRatingGroup, and
-//     deletes the retired reinsuranceLevel. (The placement backfill went with
-//     loss engine commit 4a: the save key moved to v11 and a v10 save, which
-//     carries per-band placements, is cleared rather than migrated.) That logic lives inside a React effect and is not
-//     callable from here. It only fires for saves written by OLDER builds, so a
-//     fresh round trip does not exercise it — which means old-save migration
-//     remains untested. Naming it because untested is not the same as absent.
-//   - Anything the BROWSER does. Quota is save-size-check's job, against a
-//     measured figure; this runs in node with no storage at all.
+// WHAT IT CANNOT SEE: anything the browser does — quota is save-size-check's
+// job; the reload's progress and timing in Chromium are commit 10's report.
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
-import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
-import { OTHER_WORLD_ROW_STRIPPED_KEYS, WORLD_ROW_STRIPPED_KEYS } from '../../src/utils/gameSave';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, surplusRange } from '../../src/utils/worlds';
 import { buildAnnualStatement } from '../../src/utils/resultsStatement';
-import { surplusRange } from '../../src/utils/worlds';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import {
-  serialiseSave, packSave, unpackSave, decodeSave, saveStrippedKeys,
-} from '../../src/utils/gameSave';
+import { serialiseSave, packSave, unpackSave, decodeSave, saveStrippedKeys, type SavedGame } from '../../src/utils/gameSave';
+import { restoreSavedGame } from '../../src/utils/saveRestore';
 import { regenerateLineYearClaims, ClaimRegenerationError } from '../../src/utils/claimRegeneration';
-import { newLossEngineRuns } from '../../src/data/pricingParameters';
-import type { CoverageLine, GameState } from '../../src/types/simulation';
+import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const YEARS = Number(process.env.YEARS ?? 10);
 const SAVE_AT = Number(process.env.SAVE_AT ?? 4);   // the year the old save first failed
-const GAMES = Number(process.env.GAMES ?? 4);
+// Two games by default since the hundred worlds (commit 10): about 50 s; GAMES=4 for more.
+const GAMES = Number(process.env.GAMES ?? 2);
 
 const STRIPPED = saveStrippedKeys();
 const failed: string[] = [];
@@ -83,16 +53,23 @@ const RULE = '='.repeat(72);
 function start(id: string, seed: number): GameState {
   const inst = generateGameInstance(id, seed);
   const setup = { poolName: 'R', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
-  const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
-  // ⚠ TEN WORLDS SINCE LOSS ENGINE COMMIT 4b — the game as the app plays and saves it.
+  const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(inst, setup as never);
   return openWorlds({
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
-    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
+    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory,
   });
 }
 
-function advance(gs: GameState, y: number): GameState {
-  const settled = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
+/** The year's decisions: the defaults, varied by year so a replay on the wrong ones shows. */
+function decide(y: number): DecisionSet {
+  const d = defaultDecisionSet(y);
+  if (y % 2 === 0) { d.byLine.WC.fundingAtExpected = false; d.byLine.WC.fundingConfidenceLevel = 0.9; }
+  if (y % 3 === 0) d.byLine.GL.reinsuranceOption = 'catastrophe';
+  return d;
+}
+
+function advance(gs: GameState, y: number, d: (y: number) => DecisionSet = decide): GameState {
+  const settled = settleWorldsYear(gs, playWorldsYear(gs, d(y)), []);
   return {
     ...gs, ...commitSettledYear(gs, settled),
     currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1),
@@ -100,38 +77,19 @@ function advance(gs: GameState, y: number): GameState {
 }
 
 /**
- * The worlds without the keys the save drops from them: WORLD_ROW_STRIPPED_KEYS
- * from every world's rows, and OTHER_WORLD_ROW_STRIPPED_KEYS (the claim and
- * occurrence lists, Prompt B commit 1) from the rows of every world but the
- * first. Cohort registers are pool state and are compared in full.
- */
-function slimWorlds(ws: GameState['worlds']): unknown[] {
-  const strip = (x: unknown, keys: readonly string[]) =>
-    JSON.parse(JSON.stringify(x ?? null, (k, v) => (keys.includes(k) ? undefined : v)));
-  return (ws ?? []).map((w, i) => ({
-    ...w,
-    lockedResults: strip(w.lockedResults, i === 0 ? WORLD_ROW_STRIPPED_KEYS : [...WORLD_ROW_STRIPPED_KEYS, ...OTHER_WORLD_ROW_STRIPPED_KEYS]),
-    poolState: strip(w.poolState, []),
-  }));
-}
-
-/**
- * WHAT A PLAYER SEES, AT THE MOMENT OF SAVING, BEFORE AND AFTER THE RELOAD —
- * every figure a screen reads: the averaged rows, the pre-game, the pool
- * state, the spread across the worlds at every year and scope, the Annual
- * Statement at every scope, and world 1 whole (the claims download reads its
- * registers). The worlds' other rows are compared too, less the claim lists
- * the save drops from them, which nothing reads.
+ * WHAT A PLAYER SEES, AND WHAT THE NEXT YEAR READS — every figure a screen
+ * reads: the averaged rows, the pre-game, the pool state, the spread at every
+ * year and scope, the Annual Statement at every scope, world 1 whole (the
+ * claims download reads its registers), and every world's own state and rows.
  */
 function playerView(gs: GameState): unknown {
   const scopes = ['pool', ...LINES] as const;
   return JSON.parse(JSON.stringify({
     lockedResults: gs.lockedResults, priorHistory: gs.priorHistory, earlyPreGameHistory: gs.earlyPreGameHistory,
-    poolState: gs.poolState, world1: gs.worlds?.[0],
-    otherWorlds: slimWorlds(gs.worlds).slice(1),
+    poolState: gs.poolState, worlds: gs.worlds, playedYears: gs.playedYears,
     spread: gs.lockedResults.flatMap(r => scopes.map(s => surplusRange(gs, r.yearNumber, s === 'pool' ? undefined : s))),
     statements: scopes.map(s => buildAnnualStatement(gs, s)),
-  }, (k, v) => (WORLD_ROW_STRIPPED_KEYS.includes(k) ? undefined : v)));
+  }));
 }
 
 /**
@@ -182,14 +140,17 @@ function diff(a: unknown, b: unknown, path: string, out: string[], depth = 0): v
   }
 }
 
-console.log('=== SAVE ROUND TRIP ===');
-console.log(`${GAMES} games, ${YEARS} years, save+restore after year ${SAVE_AT}, all three lines.\n`);
+(async () => {
+console.log('=== SAVE ROUND TRIP — A RELOAD BY REPLAY ===');
+console.log(`${GAMES} games, ${YEARS} years, saved after year ${SAVE_AT} and reloaded by replay, all three lines.\n`);
 
-let compared = 0;
-let viewsSame = 0;
-let viewControlCaught = false;
-let strippedPresentA = 0;
-let strippedPresentB = 0;
+let compared = 0, viewsSame = 0, averagesOnly = 0, claimRows = 0;
+let defaultsCaught = false, claimsCaught = false;
+const reload = async (gs: GameState) => {
+  const saved = (unpackSave(packSave({ gameState: gs, startingFinancials: null, initialMembers: null, currentDecisions: gs.currentDecisions })) as
+    { gameState: SavedGame }).gameState;
+  return { saved, restored: await restoreSavedGame(saved, null, undefined, async () => {}) };
+};
 
 for (let g = 0; g < GAMES; g++) {
   const id = `RT${g}`;
@@ -199,313 +160,59 @@ for (let g = 0; g < GAMES; g++) {
   let a = start(id, seed);
   for (let y = 1; y <= YEARS; y++) a = advance(a, y);
 
-  // --- ARM B: save at SAVE_AT, restore, continue --------------------------
+  // --- ARM B: save at SAVE_AT, reload by replay, continue -----------------
   let b = start(id, seed);
   for (let y = 1; y <= SAVE_AT; y++) b = advance(b, y);
+  const { saved, restored } = await reload(b);
 
-  // ⚠ packSave / unpackSave, NOT serialiseSave / JSON.parse. The codec is the
-  // thing that changed, and a gate that tests the serialiser and skips the
-  // compression step proves nothing about it — the reportedYear standard: a
-  // value written and not compared says nothing about itself.
-  const payload = packSave({
-    gameState: b, startingFinancials: {}, initialMembers: [], currentDecisions: b.currentDecisions,
-  });
-  const restored = (unpackSave(payload) as { gameState: GameState }).gameState;
+  // --- 2. the averages only ------------------------------------------------
+  const keys = Object.keys(saved);
+  if (keys.some(k => ['worlds', 'poolState', 'priorHistory', 'earlyPreGameHistory'].includes(k))) {
+    fail(`g${g}: the save holds more than the averages — ${keys.join(', ')}`);
+  } else averagesOnly++;
+  claimRows += saved.world1Claims.reduce((t, r) => t + LINES.reduce((u, l) => u + ((r[l]?.claims as unknown[] | undefined)?.length ?? 0), 0), 0);
 
-  // ⚠ THE RESTORED OBJECT IS USED AS-IS. No repair, no re-hydration, no
-  // reaching back into `b`. If the engine needs something JSON cannot carry —
-  // a Set, a Map, a Date, an undefined that mattered — it has to fail here.
-  // --- what the player sees, before and after the reload ------------------
+  // --- 1. what the player sees, before and after the reload ----------------
   {
     const view: string[] = [];
-    diff(playerView(b), playerView(restored), `g${g}.view`, view);
-    if (view.length > 0) fail(`g${g}: the reloaded save does not show what the game showed — ${view[0]}`);
+    diff(playerView(b), playerView(restored.gameState), `g${g}.view`, view);
+    if (view.length > 0 || !restored.matches) fail(`g${g}: the reloaded game does not show what the game showed — ${view[0] ?? 'the replay did not match the saved rows'}`);
     else viewsSame++;
-    // The strip itself: world 1 keeps its claim lists, the others carry none.
-    const lists = (gs: GameState, i: number) => (gs.worlds?.[i]?.lockedResults ?? [])
-      .reduce((t, r) => t + LINES.reduce((u, l) => u + (r.byLine[l]?.claims ? 1 : 0), 0), 0);
-    if (lists(restored, 0) !== lists(b, 0)) fail(`g${g}: world 1 lost claim lists in the save`);
-    const others = (b.worlds ?? []).slice(1).reduce((t, _w, i) => t + lists(restored, i + 1), 0);
-    if (others !== 0) fail(`g${g}: ${others} claim lists of worlds 2-${b.worlds?.length} survived the save`);
-    // THE CONTROL: a restored save missing world 1's claims must be caught.
     if (g === 0) {
-      const broken = { ...restored, worlds: restored.worlds?.map((w, i) => (i !== 0 ? w : {
-        ...w, lockedResults: w.lockedResults.map(r => ({ ...r, byLine: Object.fromEntries(Object.entries(r.byLine)
-          .map(([l, lr]) => [l, { ...lr, claims: undefined }])) as typeof r.byLine })),
-      })) };
+      // THE CONTROLS: a replay on the default decisions, and a save whose
+      // world 1 claims were lost, must each be caught.
+      const onDefaults = await restoreSavedGame({ ...saved, playedYears: (saved.playedYears as { decisions: DecisionSet; yearNumber: number }[])
+        .map(p => ({ ...p, decisions: defaultDecisionSet(p.yearNumber) })) }, null, undefined, async () => {});
       const ctl: string[] = [];
-      diff(playerView(b), playerView(broken), 'control', ctl);
-      viewControlCaught = ctl.length > 0;
+      diff(playerView(b), playerView(onDefaults.gameState), 'control', ctl);
+      defaultsCaught = ctl.length > 0 && !onDefaults.matches;
+      const lost = await restoreSavedGame({ ...saved, world1Claims: saved.world1Claims.map(() => ({})) }, null, undefined, async () => {});
+      claimsCaught = !lost.matches;
     }
   }
 
-  let c = restored;
+  // --- 3. and the game goes on the same ------------------------------------
+  let c = restored.gameState;
   for (let y = SAVE_AT + 1; y <= YEARS; y++) c = advance(c, y);
-
-  // --- did the strip do what it says? -------------------------------------
-  // The same year on both arms, so a kept register can be counted against it.
-  // ⚠ A WORLD'S ROWS, NOT THE AVERAGE'S (loss engine commit 4b): an averaged
-  // row carries no claim register — the registers are each world's.
-  const rowsOf = (gs: GameState) => gs.worlds?.[0].lockedResults ?? gs.lockedResults;
-  for (const lr of Object.values(rowsOf(a)[SAVE_AT - 1].byLine)) {
-    if ((lr as { claims?: unknown[] }).claims) strippedPresentA++;
-  }
-  for (const lr of Object.values(rowsOf(restored)[SAVE_AT - 1].byLine)) {
-    if ((lr as { claims?: unknown[] }).claims) strippedPresentB++;
-  }
-
-  // --- the comparison ------------------------------------------------------
   const out: string[] = [];
   diff(a.poolState, c.poolState, `g${g}.poolState`, out);
   diff(a.lockedResults, c.lockedResults, `g${g}.lockedResults`, out);
-  // ⚠ priorHistory IS COMPARED TOO, and it was not before. The pre-game years
-  // are ResultSets like any other and carry their own claim registers, so the
-  // strip empties them exactly as it empties the game years — which matters now
-  // that the claims workbook reads them. This asserts the ENGINE still does not
-  // care: everything on those three years except the per-claim flow survives.
   diff(a.priorHistory, c.priorHistory, `g${g}.priorHistory`, out);
-  // EVERY WORLD, restored and continued, against the same world straight through
-  // — the averaged state above is only as right as the worlds under it.
-  diff(slimWorlds(a.worlds), slimWorlds(c.worlds), `g${g}.worlds`, out);
-  if (a.currentYearNumber !== c.currentYearNumber) {
-    out.push(`g${g}.currentYearNumber: ${a.currentYearNumber} !== ${c.currentYearNumber}`);
-  }
+  diff(a.worlds, c.worlds, `g${g}.worlds`, out);
+  if (a.currentYearNumber !== c.currentYearNumber) out.push(`g${g}.currentYearNumber: ${a.currentYearNumber} !== ${c.currentYearNumber}`);
   compared++;
   for (const d of out) fail(d);
   console.log(`  game ${g}  ${out.length === 0 ? 'MATCH' : `${out.length} DIFFERENCE(S)`}`);
 }
 
-// ============================================================================
-// REGENERATION — every line-year of the RESTORED arm, redrawn and compared to
-// the straight-through arm's original objects, field by field.
-// ============================================================================
-let regenClaims = 0, regenOccs = 0, regenYears = 0;
-const regenFail: string[] = [];
-const canon = (o: unknown) => JSON.stringify(o, (_k, v) => (typeof v === 'number' ? Number(v.toPrecision(15)) : v));
-const sortById = <T extends { id: string }>(xs: T[]) => [...xs].sort((x, y) => x.id.localeCompare(y.id));
-
-// ============================================================================
-// ⚠ ON THE NEW LOSS ENGINE THERE IS NOTHING TO REDRAW. Its register — the large
-// losses, a handful a line-year — is KEPT in the save (gameSave.
-// NEW_ENGINE_KEPT_KEYS), so the year-by-year comparison above has already
-// compared every restored claim and occurrence field by field: they are no
-// longer skipped. What this section adds on that engine:
-//   - the register is not empty, so that comparison had something to compare;
-//   - regeneration REFUSES, so no consumer gets the old generators' register;
-//   - THE POSITIVE CONTROL: one claim dropped from a restored register must
-//     show as a difference to the comparison above.
-// ============================================================================
-if (newLossEngineRuns()) {
-  // With ROUTINE_LARGE_LOSSES off, large losses come only from shocks, so most
-  // games' saved years carry none. Seeds are searched, in order, for the first
-  // whose saved years do — bounded, and named in the output.
-  // Every world's rows: the registers are the worlds' (an averaged row has none).
-  // ⚠ WORLD 1'S ROWS SINCE PROMPT B COMMIT 1: the save keeps the registers of
-  // world 1 only (the claims download reads it), and drops the others'.
-  const all = (gs: GameState) => [...gs.priorHistory, ...(gs.worlds?.[0].lockedResults ?? gs.lockedResults)];
-  const has = (gs: GameState) => all(gs).some(r => LINES.some(l => (r.byLine[l]?.claims?.length ?? 0) > 0));
-  let a = start('RT0', 3_300_000), searched = 0;
-  for (let g = 0; g < 40; g++) {
-    a = start(`RT${g}`, 3_300_000 + g * 6421);
-    for (let y = 1; y <= SAVE_AT; y++) a = advance(a, y);
-    searched = g + 1;
-    if (has(a)) break;
-  }
-  console.log(`  new engine: game RT${searched - 1} is the first of ${searched} searched whose saved years carry large losses`);
-  const restored = (unpackSave(packSave({
-    gameState: a, startingFinancials: {}, initialMembers: [], currentDecisions: a.currentDecisions,
-  })) as { gameState: GameState }).gameState;
-  let withClaims: { y: number; line: CoverageLine } | null = null;
-  const back = all(restored);
-  all(a).forEach((r, i) => {
-    for (const line of LINES) {
-      const ca = r.byLine[line]?.claims, cb = back[i].byLine[line]?.claims;
-      if (!ca) continue;
-      regenYears++;
-      if (!cb) { regenFail.push(`y${r.yearNumber} ${line}: register lost in the save`); continue; }
-      if (canon(ca) !== canon(cb)) regenFail.push(`y${r.yearNumber} ${line}: restored register differs`);
-      regenClaims += ca.length;
-      regenOccs += r.byLine[line]?.occurrences?.length ?? 0;
-      if (ca.length > 0 && !withClaims) withClaims = { y: i, line };
-    }
-  });
-  if (regenClaims === 0) regenFail.push('no large losses in the saved years — the register comparison compared nothing');
+// Regeneration refuses on the new engine: world 1's register comes back by
+// replay, never redrawn by the old generators.
+{
+  const a = start('RT0', 3_300_000);
   let refused = false;
-  try { regenerateLineYearClaims(restored.instance, back[0], 'GL'); } catch (e) { refused = e instanceof ClaimRegenerationError; }
-  if (!refused) regenFail.push('regeneration redrew a new-engine register instead of refusing');
-  let controlFired = false;
-  if (withClaims) {
-    const { y, line } = withClaims as { y: number; line: CoverageLine };
-    const cut = JSON.parse(JSON.stringify(back)) as typeof back;
-    cut[y].byLine[line]!.claims = cut[y].byLine[line]!.claims!.slice(1);
-    const out: string[] = [];
-    diff(all(a), cut, 'control', out);
-    controlFired = out.length > 0;
-    if (!controlFired) regenFail.push('POSITIVE CONTROL FAILED: a claim dropped from a restored register was not seen by the comparison');
-  }
-  console.log(`  new engine: register kept, regeneration ${refused ? 'refuses' : 'DID NOT REFUSE'}, `
-    + `positive control (one claim dropped) ${controlFired ? 'DIFFERS' : 'same!'}`);
-} else for (let g = 0; g < GAMES; g++) {
-  const id = `RT${g}`;
-  const seed = 3_300_000 + g * 6421;
-  let a = start(id, seed);
-  for (let y = 1; y <= YEARS; y++) a = advance(a, y);
-  let b = start(id, seed);
-  for (let y = 1; y <= SAVE_AT; y++) b = advance(b, y);
-  const restored = (unpackSave(packSave({
-    gameState: b, startingFinancials: {}, initialMembers: [], currentDecisions: b.currentDecisions,
-  })) as { gameState: GameState }).gameState;
-  // --- what the player sees, before and after the reload ------------------
-  {
-    const view: string[] = [];
-    diff(playerView(b), playerView(restored), `g${g}.view`, view);
-    if (view.length > 0) fail(`g${g}: the reloaded save does not show what the game showed — ${view[0]}`);
-    else viewsSame++;
-    // The strip itself: world 1 keeps its claim lists, the others carry none.
-    const lists = (gs: GameState, i: number) => (gs.worlds?.[i]?.lockedResults ?? [])
-      .reduce((t, r) => t + LINES.reduce((u, l) => u + (r.byLine[l]?.claims ? 1 : 0), 0), 0);
-    if (lists(restored, 0) !== lists(b, 0)) fail(`g${g}: world 1 lost claim lists in the save`);
-    const others = (b.worlds ?? []).slice(1).reduce((t, _w, i) => t + lists(restored, i + 1), 0);
-    if (others !== 0) fail(`g${g}: ${others} claim lists of worlds 2-${b.worlds?.length} survived the save`);
-    // THE CONTROL: a restored save missing world 1's claims must be caught.
-    if (g === 0) {
-      const broken = { ...restored, worlds: restored.worlds?.map((w, i) => (i !== 0 ? w : {
-        ...w, lockedResults: w.lockedResults.map(r => ({ ...r, byLine: Object.fromEntries(Object.entries(r.byLine)
-          .map(([l, lr]) => [l, { ...lr, claims: undefined }])) as typeof r.byLine })),
-      })) };
-      const ctl: string[] = [];
-      diff(playerView(b), playerView(broken), 'control', ctl);
-      viewControlCaught = ctl.length > 0;
-    }
-  }
-
-  let c = restored;
-  for (let y = SAVE_AT + 1; y <= YEARS; y++) c = advance(c, y);
-
-  // Pre-game and game years alike, indexed by yearNumber on both arms.
-  const originals = new Map([...a.priorHistory, ...a.lockedResults].map(r => [r.yearNumber, r]));
-  for (const r of [...c.priorHistory, ...c.lockedResults]) {
-    const orig = originals.get(r.yearNumber);
-    if (!orig) { regenFail.push(`g${g} y${r.yearNumber}: no straight-through result to compare against`); continue; }
-    for (const line of LINES) {
-      const lrA = orig.byLine[line];
-      if (!lrA?.claims) continue;
-      let regen;
-      try { regen = regenerateLineYearClaims(c.instance, r, line); }
-      catch (e) { regenFail.push(`g${g} y${r.yearNumber} ${line}: regeneration THREW — ${(e as Error).message}`); continue; }
-      regenYears++;
-      const ca = sortById(lrA.claims), cb = sortById(regen.claims);
-      if (ca.length !== cb.length) {
-        regenFail.push(`g${g} y${r.yearNumber} ${line}: ${cb.length} regenerated claims vs ${ca.length} drawn`);
-        continue;
-      }
-      for (let i = 0; i < ca.length; i++) {
-        regenClaims++;
-        if (canon(ca[i]) !== canon(cb[i])) {
-          regenFail.push(`g${g} y${r.yearNumber} ${line} claim ${ca[i].id}: regenerated object differs from the drawn one`);
-          break;
-        }
-      }
-      const oa = sortById(lrA.occurrences ?? []), ob = sortById(regen.occurrences);
-      if (canon(oa) !== canon(ob)) {
-        regenFail.push(`g${g} y${r.yearNumber} ${line}: occurrence grouping differs (${oa.length} vs ${ob.length})`);
-      } else regenOccs += oa.length;
-    }
-  }
-
-  // ⚠ THE POSITIVE CONTROL. Perturb ONE stored input at a time and require the
-  // redraw to differ from the original. If any of these still matches, the
-  // comparison above cannot detect a changed input and everything it "proved"
-  // is a JSON tautology. Three inputs, three separate perturbations.
-  //
-  // ============================================================================
-  // ⚠ TWO OF THE THREE PERTURBATIONS WERE LUCK-DEPENDENT AND THE LUCK RAN OUT.
-  // They went red when the pre-game roster was frozen, which took GL's year-1
-  // book from ~72 members to ~59 — and NEITHER FAILURE WAS A REGRESSION.
-  // Measured at this gate's own seed (RT0, 3,300,000), 59 members and 287
-  // claims:
-  //
-  //   ROSTER. The control removed memberList[0] unconditionally. At this seed
-  //   that is member-003, which drew ZERO GL claims. Removing a member who
-  //   generated nothing cannot change the register, so the control was asking
-  //   the engine to prove something untrue. 10 of the 59 members are claimless;
-  //   whether index 0 was one of them was always a coin toss, and a bigger book
-  //   had simply been winning it.
-  //
-  //   k. The control scaled kLineApplied by 1.01. k multiplies a Poisson mean,
-  //   so a 1% change moves the EXPECTATION by ~0.05 claims across the book and
-  //   frequently flips no integer count at all. Swept at this seed: x1.001 no,
-  //   x1.010 no, x1.020 YES, and every larger factor YES. The input is read —
-  //   the perturbation was inside the rounding.
-  //
-  // BOTH ARE NOW DETERMINISTIC RATHER THAN LARGER-AND-HOPING. The roster control
-  // removes a member the STORED REGISTER SHOWS HAS CLAIMS, and fails loudly if
-  // no such member exists. The k control SEARCHES UPWARD for the smallest factor
-  // that moves the register and fails only if none does inside a bounded range —
-  // which both proves the input is read and RECORDS how sensitively, instead of
-  // hiding that behind one hard-coded number that may or may not bite.
-  //
-  // ⚠ DO NOT "FIX" A FUTURE RED HERE BY ENLARGING THE PERTURBATION. If the
-  // search below runs out of range, the input has genuinely stopped being read.
-  // ============================================================================
-  if (g === 0) {
-    const r = c.lockedResults[0];
-    const orig = originals.get(r.yearNumber)!;
-    const control = (label: string, mutate: (lr: (typeof r.byLine)['GL']) => (typeof r.byLine)['GL']) => {
-      const pr = { ...r, byLine: { ...r.byLine, GL: mutate(r.byLine.GL) } } as typeof r;
-      const regen = regenerateLineYearClaims(c.instance, pr, 'GL');
-      const same = canon(sortById(regen.claims)) === canon(sortById(orig.byLine.GL.claims ?? []));
-      if (same) regenFail.push(`POSITIVE CONTROL FAILED: perturbing ${label} did not change the regenerated GL register — the comparison has no teeth`);
-      return !same;
-    };
-    const c1 = control('rcEffectivenessApplied (+0.01)', lr => ({ ...lr, rcEffectivenessApplied: (lr.rcEffectivenessApplied ?? 0) + 0.01 }));
-
-    // k: the SMALLEST factor that moves the register, searched rather than
-    // assumed. Reported so the sensitivity is a number in the output instead of
-    // a hard-coded constant nobody re-checks.
-    const K_FACTORS = [1.001, 1.002, 1.005, 1.01, 1.02, 1.05, 1.10, 1.25, 1.50, 2.00];
-    let kFired: number | null = null;
-    for (const f of K_FACTORS) {
-      const pr = { ...r, byLine: { ...r.byLine, GL: { ...r.byLine.GL, kLineApplied: (r.byLine.GL.kLineApplied ?? 1) * f } } } as typeof r;
-      const regen = regenerateLineYearClaims(c.instance, pr, 'GL');
-      if (canon(sortById(regen.claims)) !== canon(sortById(orig.byLine.GL.claims ?? []))) { kFired = f; break; }
-    }
-    if (kFired === null) {
-      regenFail.push('POSITIVE CONTROL FAILED: NO kLineApplied factor up to x2.00 changed the regenerated '
-        + 'GL register. k is not being read by the redraw — this is not a perturbation that is too small, '
-        + 'it is the input being ignored. Do not enlarge the range; check claimRegeneration reads '
-        + 'kLineApplied off the stored result.');
-    }
-
-    // roster: drop a member the STORED REGISTER SHOWS HAS CLAIMS. Dropping a
-    // claimless member proves nothing and is what made this control fail.
-    const claimed = new Set((orig.byLine.GL.claims ?? []).map(cl => (cl as { memberId: string }).memberId));
-    const dropIdx = r.byLine.GL.memberList.findIndex(m => claimed.has(m.id));
-    let c3 = false;
-    if (dropIdx < 0) {
-      regenFail.push(`POSITIVE CONTROL FAILED: no member of GL's year-${r.yearNumber} roster appears in its own `
-        + 'stored claim register, so there is no roster perturbation that could change the redraw. Either '
-        + 'the register is empty or memberList and the claims disagree about member ids.');
-    } else {
-      c3 = control(`roster (member ${r.byLine.GL.memberList[dropIdx].id}, which has claims, removed)`,
-        lr => ({ ...lr, memberList: lr.memberList.filter((_, i) => i !== dropIdx) }));
-    }
-    console.log(`  positive controls: rc ${c1 ? 'DIFFERS' : 'same!'}, `
-      + `k fires at x${kFired === null ? 'NEVER' : kFired.toFixed(3)}, `
-      + `roster ${dropIdx < 0 ? 'NO CLAIMED MEMBER!' : (c3 ? 'DIFFERS' : 'same!')} `
-      + `(${claimed.size} of ${r.byLine.GL.memberList.length} GL members carry claims)`);
-    // And the loud path: a result with no k must THROW, not redraw at k = 1.
-    try {
-      regenerateLineYearClaims(c.instance, { ...r, byLine: { ...r.byLine, GL: { ...r.byLine.GL, kLineApplied: undefined } } } as typeof r, 'GL');
-      regenFail.push('a result without kLineApplied was regenerated instead of throwing');
-    } catch { /* expected */ }
-  }
+  try { regenerateLineYearClaims(a.instance, a.priorHistory[0], 'GL'); } catch (e) { refused = e instanceof ClaimRegenerationError; }
+  if (!refused) fail('regeneration redrew a new-engine register instead of refusing');
 }
-for (const f of regenFail) fail(f);
-console.log('');
-console.log('REGENERATION, FIELD BY FIELD:');
-console.log(`  line-years redrawn ${regenYears}, claims compared ${regenClaims}, occurrences compared ${regenOccs}`);
-console.log(`  ${regenFail.length === 0 ? 'every regenerated claim and occurrence is identical to the one originally drawn' : `${regenFail.length} difference(s) — see FAILED`}`);
 
 // ============================================================================
 // THE CODEC, ON ITS OWN TERMS.
@@ -520,7 +227,7 @@ console.log(`  ${regenFail.length === 0 ? 'every regenerated claim and occurrenc
   let a = start('CODEC', 7_711_003);
   for (let y = 1; y <= SAVE_AT; y++) a = advance(a, y);
   const env = {
-    gameState: a, startingFinancials: {}, initialMembers: [], currentDecisions: a.currentDecisions,
+    gameState: a, startingFinancials: null, initialMembers: null, currentDecisions: a.currentDecisions,
   };
   const raw = serialiseSave(env);
   const packed = packSave(env);
@@ -573,47 +280,15 @@ console.log(`  ${regenFail.length === 0 ? 'every regenerated claim and occurrenc
     + `uncompressed save rejected: ${legacyRejected ? 'yes' : 'NO'}`);
 }
 
-// ============================================================================
 console.log('');
 console.log('WHAT A PLAYER SEES, BEFORE AND AFTER THE RELOAD:');
-console.log(`  games whose reloaded save shows exactly what the game showed: ${viewsSame} of ${GAMES}`);
-console.log(`  control — world 1's claims dropped from the reload: ${viewControlCaught ? 'caught' : 'MISSED'}`);
-if (!viewControlCaught) fail('control: a reload missing world 1\'s claims was not caught');
-
-console.log('');
-console.log('THE STRIP, CONFIRMED RATHER THAN TRUSTED:');
-console.log(`  line-results carrying claims, straight through : ${strippedPresentA}  (expected > 0)`);
-if (newLossEngineRuns()) {
-  // The new engine keeps its register: every line-result that carried one
-  // must carry it after the restore.
-  console.log(`  line-results carrying claims, after restore    : ${strippedPresentB}  (expected ${strippedPresentA}, kept)`);
-  if (strippedPresentB !== strippedPresentA) fail(`${strippedPresentA - strippedPresentB} restored line-results lost their register`);
-} else {
-  console.log(`  line-results carrying claims, after restore    : ${strippedPresentB}  (expected 0)`);
-  if (strippedPresentB !== 0) fail(`${strippedPresentB} restored line-results still carry claims — the strip did not fire`);
-}
-if (strippedPresentA === 0) fail('the straight-through arm has no claims either — the strip is not what is being measured');
-
-console.log('');
-if (newLossEngineRuns()) {
-  console.log('WHAT A RESTORED GAME LOSES NOW: NOTHING A READER CAN SEE.');
-  console.log('  On the new loss engine the claims register is the year\'s large losses and is');
-  console.log('  KEPT in the save; it comes back verbatim and nothing is redrawn. The rest of the');
-  console.log('  strip is unchanged. The legacy text follows for the old engine.');
-} else {
-console.log('WHAT A RESTORED GAME LOSES NOW: NOTHING A READER CAN SEE.');
-console.log('  claims / occurrences / marketMemberLossResults are still absent from the save for');
-console.log('  every year played before the reload — the strip is unchanged. The save grew by one');
-console.log('  number per line-year (rcEffectivenessApplied, ~3.4 KB at year 10) and nothing else.');
-console.log('  The claims workbook redraws those years through claimRegeneration and comes');
-console.log('  back with the same accident years and row counts as a game played straight through');
-console.log('  (claims-workbook-check asserts this). The reload marker that 5c3d9cc added is now');
-console.log('  reserved for a result that CANNOT be redrawn — a save from before kLineApplied was');
-console.log('  recorded — and names the reason when it fires.');
-console.log('  marketMemberLossResults is the one thing not rebuilt: the prospect view is a');
-console.log('  second generator call over the 200-member roster whose claims the engine discards,');
-console.log('  and nothing exported reads it.');
-}
+console.log(`  games whose reload shows exactly what the game showed: ${viewsSame} of ${GAMES}`);
+console.log(`  saves holding the averages only: ${averagesOnly} of ${GAMES}; world 1 claim rows kept: ${claimRows}`);
+console.log(`  control — a replay on the default decisions: ${defaultsCaught ? 'caught' : 'MISSED'}`);
+console.log(`  control — a save whose world 1 claims were lost: ${claimsCaught ? 'caught' : 'MISSED'}`);
+if (!defaultsCaught) fail('control: a replay on the default decisions was not caught');
+if (!claimsCaught) fail('control: a save whose world 1 claims were lost was not caught');
+if (claimRows === 0) fail('no world 1 claim rows in any save — the claims comparison compared nothing');
 
 console.log('');
 console.log(RULE);
@@ -623,7 +298,8 @@ if (failed.length > 0) {
   console.log(RULE);
   process.exitCode = 1;
 } else {
-  console.log(`PASS — ${compared} games agree year-for-year after a save/restore at year ${SAVE_AT}.`);
-  console.log('       The engine reads nothing the strip removes.');
+  console.log(`PASS — ${compared} games reload by replay to exactly what they showed after year ${SAVE_AT},`);
+  console.log('       and agree year for year afterwards with the game that never stopped.');
   console.log(RULE);
 }
+})();

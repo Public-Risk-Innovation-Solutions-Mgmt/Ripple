@@ -509,7 +509,7 @@
 // distribution moves the crossing further there than in GL's flat tail region.
 
 import type { CoverageLine } from '../types/simulation';
-import { BASELINE_CV } from './pricingParameters';
+import { BASELINE_CV, RESERVE_MARGIN_CONFIDENCE_PARAM } from './pricingParameters';
 
 export type StaticClfLine = 'WC' | 'GL' | 'Property';
 
@@ -1124,63 +1124,63 @@ export const PROPERTY_NEW_ENGINE: ClfTable = {
 // replaces (WC 0.0802 against 0.3275), which is why the opening is now SET at
 // OPENING_SURPLUS rather than as a multiple of the requirement.
 // ============================================================================
-const BASELINE_CV_STOPS = [30, 40, 50, 60, 70, 80, 90, 95, 99];
+const BASELINE_CV_STOPS = [30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 99];
 export const BASELINE_CV_TABLES: Record<string, Record<StaticClfLine, ClfTable>> = {
   "2%": {
     WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5044,
-      clf: [0.9869, 0.9935, 0.9997, 1.0060, 1.0127, 1.0207, 1.0317, 1.0410, 1.0587] },
+      clf: [0.9869, 0.9903, 0.9935, 0.9966, 0.9997, 1.0028, 1.0060, 1.0093, 1.0127, 1.0165, 1.0207, 1.0256, 1.0317, 1.0410, 1.0587] },
     GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5051,
-      clf: [0.9869, 0.9935, 0.9997, 1.0059, 1.0127, 1.0206, 1.0318, 1.0411, 1.0587] },
+      clf: [0.9869, 0.9902, 0.9935, 0.9966, 0.9997, 1.0028, 1.0059, 1.0092, 1.0127, 1.0164, 1.0206, 1.0256, 1.0318, 1.0411, 1.0587] },
     Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5048,
-      clf: [0.9868, 0.9935, 0.9997, 1.0060, 1.0127, 1.0207, 1.0318, 1.0411, 1.0586] },
+      clf: [0.9868, 0.9902, 0.9935, 0.9966, 0.9997, 1.0028, 1.0060, 1.0093, 1.0127, 1.0165, 1.0207, 1.0256, 1.0318, 1.0411, 1.0586] },
   },
   "4%": {
     WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5079,
-      clf: [0.9771, 0.9884, 0.9992, 1.0100, 1.0217, 1.0355, 1.0550, 1.0714, 1.1028] },
+      clf: [0.9771, 0.9829, 0.9884, 0.9938, 0.9992, 1.0045, 1.0100, 1.0157, 1.0217, 1.0282, 1.0355, 1.0441, 1.0550, 1.0714, 1.1028] },
     GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5085,
-      clf: [0.9771, 0.9884, 0.9991, 1.0099, 1.0216, 1.0354, 1.0550, 1.0715, 1.1029] },
+      clf: [0.9771, 0.9829, 0.9884, 0.9938, 0.9991, 1.0044, 1.0099, 1.0156, 1.0216, 1.0281, 1.0354, 1.0440, 1.0550, 1.0715, 1.1029] },
     Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5086,
-      clf: [0.9771, 0.9884, 0.9991, 1.0099, 1.0216, 1.0355, 1.0550, 1.0714, 1.1027] },
+      clf: [0.9771, 0.9829, 0.9884, 0.9938, 0.9991, 1.0045, 1.0099, 1.0156, 1.0216, 1.0282, 1.0355, 1.0441, 1.0550, 1.0714, 1.1027] },
   },
   "6%": {
     WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5118,
-      clf: [0.9664, 0.9827, 0.9982, 1.0140, 1.0310, 1.0513, 1.0802, 1.1045, 1.1517] },
+      clf: [0.9664, 0.9747, 0.9827, 0.9905, 0.9982, 1.0060, 1.0140, 1.0222, 1.0310, 1.0406, 1.0513, 1.0640, 1.0802, 1.1045, 1.1517] },
     GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5124,
-      clf: [0.9664, 0.9826, 0.9981, 1.0138, 1.0308, 1.0512, 1.0801, 1.1046, 1.1520] },
+      clf: [0.9664, 0.9747, 0.9826, 0.9904, 0.9981, 1.0059, 1.0138, 1.0221, 1.0308, 1.0404, 1.0512, 1.0639, 1.0801, 1.1046, 1.1520] },
     Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5122,
-      clf: [0.9663, 0.9826, 0.9981, 1.0138, 1.0309, 1.0513, 1.0802, 1.1045, 1.1518] },
+      clf: [0.9663, 0.9747, 0.9826, 0.9904, 0.9981, 1.0059, 1.0138, 1.0221, 1.0309, 1.0405, 1.0513, 1.0641, 1.0802, 1.1045, 1.1518] },
   },
   "8%": {
     WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5156,
-      clf: [0.9553, 0.9766, 0.9968, 1.0176, 1.0402, 1.0673, 1.1060, 1.1389, 1.2033] },
+      clf: [0.9553, 0.9661, 0.9766, 0.9867, 0.9968, 1.0071, 1.0176, 1.0286, 1.0402, 1.0529, 1.0673, 1.0842, 1.1060, 1.1389, 1.2033] },
     GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5163,
-      clf: [0.9552, 0.9764, 0.9967, 1.0174, 1.0400, 1.0671, 1.1058, 1.1390, 1.2038] },
+      clf: [0.9552, 0.9660, 0.9764, 0.9866, 0.9967, 1.0070, 1.0174, 1.0284, 1.0400, 1.0527, 1.0671, 1.0841, 1.1058, 1.1390, 1.2038] },
     Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5160,
-      clf: [0.9552, 0.9764, 0.9967, 1.0174, 1.0400, 1.0672, 1.1060, 1.1389, 1.2035] },
+      clf: [0.9552, 0.9660, 0.9764, 0.9866, 0.9967, 1.0069, 1.0174, 1.0284, 1.0400, 1.0528, 1.0672, 1.0843, 1.1060, 1.1389, 1.2035] },
   },
   "10%": {
     WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5196,
-      clf: [0.9438, 0.9700, 0.9951, 1.0209, 1.0491, 1.0831, 1.1321, 1.1741, 1.2570] },
+      clf: [0.9438, 0.9572, 0.9700, 0.9826, 0.9951, 1.0078, 1.0209, 1.0345, 1.0491, 1.0651, 1.0831, 1.1045, 1.1321, 1.1741, 1.2570] },
     GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5201,
-      clf: [0.9438, 0.9699, 0.9950, 1.0207, 1.0488, 1.0829, 1.1320, 1.1741, 1.2578] },
+      clf: [0.9438, 0.9570, 0.9699, 0.9824, 0.9950, 1.0076, 1.0207, 1.0343, 1.0488, 1.0649, 1.0829, 1.1044, 1.1320, 1.1741, 1.2578] },
     Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5199,
-      clf: [0.9437, 0.9699, 0.9950, 1.0207, 1.0489, 1.0831, 1.1322, 1.1741, 1.2575] },
+      clf: [0.9437, 0.9571, 0.9699, 0.9825, 0.9950, 1.0077, 1.0207, 1.0343, 1.0489, 1.0649, 1.0831, 1.1046, 1.1322, 1.1741, 1.2575] },
   },
   "12%": {
     WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5235,
-      clf: [0.9321, 0.9631, 0.9930, 1.0238, 1.0577, 1.0988, 1.1585, 1.2100, 1.3129] },
+      clf: [0.9321, 0.9479, 0.9631, 0.9780, 0.9930, 1.0081, 1.0238, 1.0402, 1.0577, 1.0770, 1.0988, 1.1248, 1.1585, 1.2100, 1.3129] },
     GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5239,
-      clf: [0.9321, 0.9630, 0.9928, 1.0235, 1.0574, 1.0986, 1.1583, 1.2100, 1.3137] },
+      clf: [0.9321, 0.9477, 0.9630, 0.9779, 0.9928, 1.0079, 1.0235, 1.0399, 1.0574, 1.0767, 1.0986, 1.1246, 1.1583, 1.2100, 1.3137] },
     Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5238,
-      clf: [0.9320, 0.9630, 0.9928, 1.0235, 1.0574, 1.0988, 1.1585, 1.2100, 1.3135] },
+      clf: [0.9320, 0.9478, 0.9630, 0.9779, 0.9928, 1.0080, 1.0235, 1.0399, 1.0574, 1.0768, 1.0988, 1.1249, 1.1585, 1.2100, 1.3135] },
   },
   "15%": {
     WC: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5292,
-      clf: [0.9143, 0.9521, 0.9892, 1.0274, 1.0699, 1.1219, 1.1982, 1.2649, 1.4002] },
+      clf: [0.9143, 0.9336, 0.9521, 0.9706, 0.9892, 1.0079, 1.0274, 1.0480, 1.0699, 1.0942, 1.1219, 1.1551, 1.1982, 1.2649, 1.4002] },
     GL: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5298,
-      clf: [0.9142, 0.9520, 0.9888, 1.0271, 1.0696, 1.1216, 1.1980, 1.2649, 1.4013] },
+      clf: [0.9142, 0.9334, 0.9520, 0.9704, 0.9888, 1.0077, 1.0271, 1.0476, 1.0696, 1.0939, 1.1216, 1.1548, 1.1980, 1.2649, 1.4013] },
     Property: { source: 'derived', stops: BASELINE_CV_STOPS, expected: 0.5296,
-      clf: [0.9141, 0.9521, 0.9889, 1.0271, 1.0696, 1.1219, 1.1983, 1.2649, 1.4007] },
+      clf: [0.9141, 0.9334, 0.9521, 0.9704, 0.9889, 1.0077, 1.0271, 1.0476, 1.0696, 1.0940, 1.1219, 1.1550, 1.1983, 1.2649, 1.4007] },
   },
 };
 
@@ -1245,7 +1245,8 @@ export function clfFromTable(table: ClfTable, confidenceLevel: number): number {
 // page, and those sentences carried per-line factors (WC 1.3709, Property
 // 1.5923) that the tables had long since moved away from. Every reader routes
 // through this constant, and every sentence that names the factor asks for it.
-export const RESERVE_MARGIN_CONFIDENCE = 0.90;
+// Read from the one parameter (80% since stable-scenarios commit 2; was 90%).
+export const RESERVE_MARGIN_CONFIDENCE = RESERVE_MARGIN_CONFIDENCE_PARAM;
 
 export function staticClf(line: StaticClfLine, confidenceLevel: number): number {
   return clfFromTable(STATIC_CLF_TABLE[line], confidenceLevel);

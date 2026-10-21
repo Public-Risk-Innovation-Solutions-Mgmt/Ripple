@@ -3,6 +3,12 @@
 //
 //   npx tsx scripts/diagnostics/solo-shock-schedule-check.ts
 //
+//   0. SHOCKS ARE OFF IN SINGLE-PLAYER (SOLO_SHOCKS off, pending the data
+//      scientist): the app's solo game carries no schedule and no event fires
+//      in any world in any year, while a hosted game still fires the host's
+//      list. The checks below then switch the solo schedule ON and test it as
+//      it will return.
+//
 // A solo game draws its shock schedule ONCE, at its start, by the host's
 // Randomise rule on its own labelled stream (utils/soloGame), keeps it on the
 // instance and so in the save, and every world reads it. Checked on a solo game
@@ -15,7 +21,7 @@
 //      world's own, and its loss differs across worlds.
 //   3. THE SAME SEED GIVES THE SAME SCHEDULE; another seed another.
 //   4. THE SCHEDULE SURVIVES A SAVE AND RELOAD: out through packSave, back
-//      through unpackSave at year 3, the reloaded game carries the same schedule
+//      through unpackSave and the replay at year 3, the reloaded game carries the same schedule
 //      and its timing, and plays on to exactly the game that never stopped.
 //   6. A REGIONAL EVENT STRIKES ONE REGION IN EVERY WORLD — the region the
 //      instance resolved once with the schedule — on a solo schedule and a
@@ -30,15 +36,16 @@
 // ============================================================================
 
 import { openSoloInstance } from '../../src/utils/soloGame';
-import { drawShockSchedule, shockDrawCount, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
+import { drawShockSchedule, shockDrawRange, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
 import { firingsStartingIn, SHOCK_EVENTS } from '../../src/utils/shockLosses';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, worldInstance } from '../../src/utils/worlds';
-import { packSave, unpackSave } from '../../src/utils/gameSave';
+import { packSave, unpackSave, type SavedGame } from '../../src/utils/gameSave';
+import { restoreSavedGame } from '../../src/utils/saveRestore';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { WORLD_COUNT } from '../../src/data/pricingParameters';
+import { SHOCKS_OUT_OF_EXPERIENCE, SOLO_SHOCKS, WORLD_COUNT } from '../../src/data/pricingParameters';
 import type { ScheduledShock } from '../../src/types/shocks';
 import type { CoverageLine, GameInstance, GameSetupSettings, GameState } from '../../src/types/simulation';
 
@@ -65,7 +72,12 @@ function open(setup: GameSetupSettings, instance: GameInstance): GameState {
 
 function advance(gs: GameState, y: number): GameState {
   const settled = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
-  return { ...gs, ...commitSettledYear(gs, settled), currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1) };
+  const next = { ...gs, ...commitSettledYear(gs, settled), currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1) };
+  // ⚠ EVERY WORLD'S ROWS, KEPT FOR THE CHECKS (stable-scenarios commit 10): a
+  // world keeps only its last row in the game (world 1 all of its own), and the
+  // engine reads no more; the checks below read every world's every year.
+  return { ...next, worlds: next.worlds?.map((w, i) => (i === 0 ? w
+    : { ...w, lockedResults: [...gs.worlds![i].lockedResults, w.lockedResults[w.lockedResults.length - 1]] })) };
 }
 
 function playTo(gs: GameState, from: number, to: number): GameState {
@@ -80,7 +92,8 @@ function playTo(gs: GameState, from: number, to: number): GameState {
 /** 1. The Randomise rule's shape. */
 function scheduleShape(s: readonly ScheduledShock[], years: number): string[] {
   const out: string[] = [];
-  if (s.length !== shockDrawCount(years)) out.push(`${s.length} events, the rule draws ${shockDrawCount(years)}`);
+  const { min, max } = shockDrawRange(years);
+  if (s.length < min || s.length > max) out.push(`${s.length} events, the rule draws ${min} to ${max}`);
   const ys = s.map(e => e.yearNumber);
   if (new Set(ys).size !== ys.length) out.push(`a year holds two events (${ys.join(',')})`);
   if (ys.some(y => y < 2 || y > years)) out.push(`a year outside 2..${years} (${ys.join(',')})`);
@@ -141,6 +154,28 @@ function pricingOf(gs: GameState, y: number): string {
 
 // ---------------------------------------------------------------------------
 console.log(`=== SOLO SHOCK SCHEDULE — ${WORLD_COUNT} worlds, three lines, ${YEARS} years ===`);
+
+console.log('\n--- 0. shocks are off in single-player ---');
+/** Problems with a solo game that must fire nothing: a schedule, or any world's firing. */
+function firesNothing(gs: GameState): string[] {
+  const bad: string[] = [];
+  if ((gs.instance.scheduledShocks ?? []).length > 0) bad.push(`the instance carries ${gs.instance.scheduledShocks!.length} scheduled event(s)`);
+  for (const [i, w] of (gs.worlds ?? []).entries()) for (const r of w.lockedResults) {
+    const fired = (r.shockEvents ?? []).filter(e => e.yearFired === r.yearNumber);
+    if (fired.length > 0) bad.push(`world ${i + 1} year ${r.yearNumber}: ${fired.map(e => e.shockId).join(', ')} fired`);
+  }
+  return bad;
+}
+const offSolo = openSoloInstance(settingsFor('SSOFF1'));
+const OFF = playTo(open(offSolo.setup, offSolo.instance), 1, YEARS);
+check(!SOLO_SHOCKS.enabled && firesNothing(OFF).length === 0,
+  `a single-player game draws no schedule and fires nothing in any of ${WORLD_COUNT} worlds over ${YEARS} years`, firesNothing(OFF)[0] ?? '');
+SOLO_SHOCKS.enabled = true;
+const onSolo = openSoloInstance(settingsFor('SSOFF1'));
+SOLO_SHOCKS.enabled = false;
+
+// From here the solo schedule is switched ON and tested as it will return.
+SOLO_SHOCKS.enabled = true;
 const ID = 'SSCHK1';
 const solo = openSoloInstance(settingsFor(ID));
 const schedule = solo.instance.scheduledShocks ?? [];
@@ -151,7 +186,7 @@ console.log(`  schedule: ${schedule.map(s => `${s.shockId} in year ${s.yearNumbe
 
 console.log('\n--- 1. the schedule is the Randomise rule\'s, drawn once ---');
 check(solo.setup.shockTiming === 'solo', 'the solo setup is marked to fire its schedule');
-check(scheduleShape(schedule, YEARS).length === 0, `${shockDrawCount(YEARS)} events, distinct years from 2, no event twice`, scheduleShape(schedule, YEARS)[0] ?? '');
+check(scheduleShape(schedule, YEARS).length === 0, `${shockDrawRange(YEARS).min}-${shockDrawRange(YEARS).max} events, distinct years from 2, no event twice`, scheduleShape(schedule, YEARS)[0] ?? '');
 const idYear = (s: readonly ScheduledShock[]) => s.map(e => ({ shockId: e.shockId, yearNumber: e.yearNumber }));
 check(same(idYear(schedule), drawShockSchedule(ID, YEARS, SOLO_SHOCK_STREAM)), 're-derived from the seed alone, on the solo stream');
 check(worldInstances.every(i => same(i.scheduledShocks, schedule)) && new Set(worldInstances.map(i => i.seed)).size === WORLD_COUNT,
@@ -201,6 +236,17 @@ const hostInst = generateGameInstance('SSHOST', seedFromInstanceId('SSHOST'), HO
 const H = playTo(open({ ...settingsFor('SSHOST'), shockTiming: 'host' }, hostInst), 1, 3);
 const hostRows = H.worlds!.map(w => w.lockedResults);
 const hostSched = hostInst.scheduledShocks ?? [];
+SOLO_SHOCKS.enabled = false;
+{
+  const Hoff = playTo(open({ ...settingsFor('SSHOST'), shockTiming: 'host' }, hostInst), 1, 3);
+  // The same event twice in a year is one record, so compare event-years.
+  const fired = [...new Set(Hoff.lockedResults.flatMap(r => (r.shockEvents ?? [])
+    .filter(e => e.yearFired === r.yearNumber).map(e => `${e.shockId}y${e.yearFired}`)))].sort();
+  const listed = [...new Set(HOST_LIST.map(h => `${h.shockId}y${h.yearNumber}`))].sort();
+  check(same(fired, listed),
+    `0. with single-player shocks off, a hosted game still fires the host's schedule`, fired.join(', '));
+}
+SOLO_SHOCKS.enabled = true;
 {
   const soloRegional = schedule.filter(s => REGIONAL.has(s.shockId));
   check(schedule.every(s => REGIONAL.has(s.shockId) === (s.region !== undefined)),
@@ -227,13 +273,17 @@ console.log('\n--- 4. the schedule survives a save and reload ---');
 let reloaded: GameState;
 {
   const atSave = playTo(open(solo.setup, solo.instance), 1, SAVE_AT);
-  const env = unpackSave(packSave({ gameState: atSave, startingFinancials: null, initialMembers: [], currentDecisions: defaultDecisionSet(SAVE_AT + 1) })) as { gameState: GameState };
-  reloaded = env.gameState;
-  check(same(reloaded.instance.scheduledShocks, schedule) && reloaded.setup.shockTiming === 'solo',
-    'the reloaded game carries the schedule and its timing');
+  // The save keeps the averages only; the reload replays the years (commit 10).
+  const env = unpackSave(packSave({ gameState: atSave, startingFinancials: null, initialMembers: [], currentDecisions: defaultDecisionSet(SAVE_AT + 1) })) as { gameState: SavedGame };
+  const restored = await restoreSavedGame(env.gameState, null, undefined, async () => {});
+  reloaded = restored.gameState;
+  check(same(reloaded.instance.scheduledShocks, schedule) && reloaded.setup.shockTiming === 'solo' && restored.matches,
+    'the reloaded game carries the schedule and its timing, and replays to the saved rows');
   const finished = playTo(reloaded, SAVE_AT + 1, YEARS);
+  // A reloaded world's rows begin again at the reload; world 1 keeps all.
+  const after = (rows: GameState['lockedResults']) => rows.filter(r => r.yearNumber > SAVE_AT);
   check(same(startedByYear(finished.lockedResults), startedByYear(A.lockedResults))
-    && same(finished.worlds!.map(w => startedByYear(w.lockedResults)), worldRows.map(startedByYear)),
+    && same(finished.worlds!.map(w => startedByYear(after(w.lockedResults))), worldRows.map(rows => startedByYear(after(rows)))),
     `played on from year ${SAVE_AT + 1}, it fires what the game that never stopped fires, in every world`);
   check(Math.abs(finished.lockedResults[YEARS - 1].endingSurplus - A.lockedResults[YEARS - 1].endingSurplus) < 1e-6,
     'and ends on the same surplus');
@@ -257,6 +307,9 @@ let quiet: GameState;
 // ============================================================================
 console.log('\n--- CONTROLS: every check fails when broken ---');
 {
+  // Shocks left on in single-player: the same game, drawn with the switch on.
+  check(firesNothing({ ...OFF, instance: onSolo.instance }).length > 0,
+    'control: a single-player game with a schedule is caught');
   // Timing drawn per world: the bare instance, fired by the catalogue in each world.
   const bareSetup = { ...settingsFor(ID) };
   const bare = playTo(open(bareSetup, generateGameInstance(ID, seedFromInstanceId(ID))), 1, YEARS);
@@ -279,11 +332,19 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const lostFinished = playTo(lost, SAVE_AT + 1, YEARS);
   check(!same(startedByYear(lostFinished.lockedResults), startedByYear(A.lockedResults)),
     'control: a reload on a different schedule is caught');
-  // Pricing that read the schedule: the year after the event, history differs and so does the rate.
+  // Pricing that read the shock: with the shocks LEFT IN the experience, the
+  // year after the event the history differs and so does the rate.
+  // ⚠ THIS USED TO COMPARE THE SHIPPED GAMES THE YEAR AFTER, AND HAS BEEN
+  // VACUOUS SINCE STABLE-SCENARIOS COMMIT 7: with the shocks out of the
+  // experience a landed shock never moves the next rate, by design, and the
+  // control passed on a last-digit float difference until commit 8 removed it.
   const after = first.yearNumber + 1;
-  const quietOn = playTo(quiet!, first.yearNumber + 1, after);
-  check(pricingOf(quietOn, after) !== pricingOf(A, after),
-    `control: the pricing comparison sees a difference when there is one (year ${after}, after ${first.shockId} landed)`);
+  SHOCKS_OUT_OF_EXPERIENCE.enabled = false;
+  const withShock = playTo(open(solo.setup, solo.instance), 1, after);
+  const withoutShock = playTo(open(solo.setup, generateGameInstance(ID, seedFromInstanceId(ID), schedule.filter(s => s !== first))), 1, after);
+  SHOCKS_OUT_OF_EXPERIENCE.enabled = true;
+  check(pricingOf(withoutShock, after) !== pricingOf(withShock, after),
+    `control: the pricing comparison sees a difference when there is one (year ${after}, ${first.shockId} landed, shocks left in the experience)`);
 }
 
 console.log(failures.length === 0

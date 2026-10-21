@@ -1251,7 +1251,45 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // only: ibnrCeded, caseReservesCeded, priorYearDevelopmentCeded,
 // surplusTieOutDifference, expectedCombinedRatio, marketShare,
 // investmentReturnRate.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v76.json');
+// v77: STABLE-SCENARIOS BLOCK A (commits 1-4). The control ran first: 061b476
+// reproduced v76. Shape unchanged; 24,690 instances moved across 93 fields,
+// none an identity, attributed by running the check at each commit in turn:
+// 85 fields moved at commits 1, 2 and 3; 5 at commit 1 only; 1 at 1 and 3; 1
+// at 2 and 3; 1 at 3 only; commit 4 moved nothing. Commit 1 (routine large
+// losses folded, flat pre-game): the pre-game's losses and returns sit at
+// expected, so the loss history, every rate and reserve move, and with no
+// routine claim to cede, reinsuranceRecovery and every ceded reserve read 0.
+// Commit 2 (the pool's loss costs, required capital at 80%): WC and GL's
+// losses, lossPurePremiumPer100 and the reserve margin. Commit 3 (no tail,
+// trend per line, booked up to reporting): every loss, paid, reserve and rate
+// again, and Property's catCapitalNeeded. surplusTieOutDifference moves from 0
+// to -1.5e-8 at commit 2: float rounding.
+// v78: STABLE-SCENARIOS BLOCK B (commits 5-7). The control ran first: ab87580
+// reproduced v77. Shape unchanged; 19,753 instances moved across 92 fields,
+// none an identity, attributed by running the check at each commit in turn:
+// 46 fields moved at commits 5, 6 and 7; 22 at 5 and 6; 15 at 5 only; 6 at 5
+// and 7; 3 at 6 only. Commit 5 (shocks at 0.3 a year, the schedule's count):
+// every loss, LAE and reserve figure and the expected loss. Commit 6 (the
+// aggregate stop): the recoveries, ceded and net reserves, the reinsurance
+// cost and Property's catastrophe capital — aggregateRecovery,
+// reinsuranceRecovery and priorYearDevelopmentCeded at it alone. Commit 7 (the
+// catastrophe load): the pure premium and the first indication.
+// v79: STABLE-SCENARIOS BLOCK C (the small fix through commit 11, the
+// give-back fix and the contingency at 0). The control ran first: 330c525
+// reproduced v78. 300 fields added, none removed: expectedReinsuranceRecovery
+// (commit 11). 26,027 instances moved across 100 fields, none an identity,
+// attributed row by row from each commit's own dump: 77e3449 (exposure to
+// $30M) 25,217 rows; 0d65606 (catastrophe load removed) 13,549; ed7e89d
+// (year 1 on the pure premium) 23,955; 715fe14 (re-scale) 25,111; 58af20e
+// (the cover's full price, shocks sized on claims) 14,242; 665410f (re-scale)
+// 25,001; 3df8453 (twenty scenarios: the seed, the $5M start, the solved
+// margin, the 3% pre-game return) 20,122; fbecad4 (commit 11) 480 — the 300
+// new fields and commonLossFactor reading the year factor on 180; 7a369a7
+// (contingency 0, re-scale) 25,237. Moved nothing here, by construction: the
+// shocks-off switch (58cd3b9; this harness draws no solo schedule), the
+// hundred worlds (b3011df; it drives one world at a time) and the give-back
+// fix (e6e0e93, display only).
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v79.json');
 
 function seedOf(id: string) {
   let h = 5381;

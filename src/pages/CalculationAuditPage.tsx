@@ -15,6 +15,7 @@ import {
 import type { CoverageLine, GameInstance, LineResultSet, LineView, ResultSet } from '../types/simulation';
 import { resolveShockYear, type ShockTiming } from '../utils/shockLosses';
 import { worldInstance } from '../utils/worlds';
+import { reconstructSweep } from '../utils/worldAudit';
 import { asLineRow } from '../utils/lineHelpers';
 import { statementLines } from '../utils/financialStatementEngine';
 import { lineDisplayName } from '../utils/lineDisplay';
@@ -49,7 +50,7 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
+import { AGGREGATE_STOP, DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
 import { placementFor } from '../utils/reinsuranceOptions';
 import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
@@ -65,8 +66,6 @@ interface CalculationAuditPageProps {
   // the engine's own stored echo of it.
   instanceSeed: number;
   lineView: LineView;
-  /** Each world's played years, in a multi-world game (loss engine commit 4b). */
-  worldResults?: ResultSet[][];
   /** The game's instance and shock timing — the investment check applies the year's Investment Loss. */
   instance?: GameInstance;
   shockTiming?: ShockTiming;
@@ -369,7 +368,7 @@ const CLAIMS_VARIANCE_CAP = 10_000;
 const CLAIMS_VARIANCE_REASON =
   'a prior-year reserve cohort closed and its residual balance was floored to zero in the rollforward rather than absorbed into the development figure';
 
-export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, worldResults, instance, shockTiming }: CalculationAuditPageProps) {
+export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming }: CalculationAuditPageProps) {
   // Chronological order: earliest pre-game year first, Year 0 (opening) last
   // among prior years, then live Year 1 onward — same convention as the
   // Financial Statements tab, so the audit reaches pre-game history too.
@@ -415,10 +414,9 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
   const lineRow = asLineRow(result);
   const isPoolView = lineRow === null;
   // A played multi-world year is an average: its per-world rules are checked
-  // against each world's own row. Pre-game years ran once and have none.
-  const worldRows = worldResults?.map(w => w.find(r => r.yearNumber === poolResult.yearNumber));
+  // against the worlds' own figures, which its row kept when it settled
+  // (worldSummary). Pre-game years ran once and have none.
   const checks = computeAuditChecks(poolResult, lineView, instanceSeed,
-    worldRows && worldRows.every((r): r is ResultSet => r !== undefined) ? worldRows : undefined,
     instance && shockTiming ? { instance, timing: shockTiming } : undefined);
 
   // Six supporting cards, built from one exported pure function (mirroring the
@@ -851,66 +849,13 @@ const POOL_SUM_METRICS: { key: Extract<keyof LineResultSet, keyof ResultSet>; la
   { key: 'endingSurplus', label: 'Ending Surplus' },
 ];
 
-// Reconstructs one line's year-end cash/investment sweep exactly as the engine
-// performs it: the year's flows accumulate to a pre-sweep cash total, then cash
-// above the operating-cash target is swept into investments, or a shortfall is
-// drawn back out of investments (limited to what is actually there). Both
-// floors are reported so a genuine liquidity or wipe-out event is
-// distinguishable from a reconciliation gap.
-function reconstructSweep(x: LineResultSet) {
-  const preSweepCash =
-    x.beginningCash + x.totalMemberCharge + x.assessments - x.netPaidLosses - x.laePaid -
-    x.operatingExpense - x.riskControlInvestment - x.reinsuranceCost - x.dividends;
-  const rawInvestments = x.beginningInvestments + x.investmentIncome;
-  const investmentsBeforeSweep = Math.max(0, rawInvestments);
-  const investmentsFloorBound = rawInvestments < -CHECK_TOLERANCE;
-  const operatingCashTarget = x.totalMemberCharge * OPERATING_CASH_PCT_OF_PREMIUM;
-
-  let cash: number;
-  let investments: number;
-  let liquidityFloorBound = false;
-  if (preSweepCash >= operatingCashTarget) {
-    cash = operatingCashTarget;
-    investments = investmentsBeforeSweep + (preSweepCash - operatingCashTarget);
-  } else {
-    const shortfall = operatingCashTarget - preSweepCash;
-    const drawn = Math.min(shortfall, investmentsBeforeSweep);
-    cash = preSweepCash + drawn;
-    investments = investmentsBeforeSweep - drawn;
-    liquidityFloorBound = drawn < shortfall - CHECK_TOLERANCE;
-  }
-  return {
-    cash,
-    investments,
-    preSweepCash,
-    operatingCashTarget,
-    investmentsBeforeSweep,
-    sweepTransfer: investments - investmentsBeforeSweep,
-    liquidityFloorBound,
-    investmentsFloorBound,
-  };
-}
-
-/** The worlds' own sweeps, averaged — a floor that bound in any world is reported. */
-function averageSweeps(parts: ReturnType<typeof reconstructSweep>[]): ReturnType<typeof reconstructSweep> {
-  const n = parts.length;
-  const m = (k: 'cash' | 'investments' | 'preSweepCash' | 'operatingCashTarget' | 'investmentsBeforeSweep' | 'sweepTransfer') =>
-    parts.reduce((a, p) => a + p[k], 0) / n;
-  return {
-    cash: m('cash'), investments: m('investments'), preSweepCash: m('preSweepCash'),
-    operatingCashTarget: m('operatingCashTarget'), investmentsBeforeSweep: m('investmentsBeforeSweep'),
-    sweepTransfer: m('sweepTransfer'),
-    liquidityFloorBound: parts.some(p => p.liquidityFloorBound),
-    investmentsFloorBound: parts.some(p => p.investmentsFloorBound),
-  };
-}
+// reconstructSweep and averageSweeps live in utils/worldAudit.ts (commit 10),
+// where a settling year strikes the worlds' own sweeps onto its averaged row.
 
 export function computeAuditChecks(
   poolResult: ResultSet,
   lineView: LineView,
   instanceSeed: number,
-  /** Each world's row for this year, when the year is a multi-world average (loss engine commit 4b). */
-  worldRows?: ResultSet[],
   /**
    * The game's instance and shock timing, so the investment check can apply the
    * year's Investment Loss — twenty points off equities — as the engine does.
@@ -1069,19 +1014,16 @@ export function computeAuditChecks(
   // cash is the average of each world's reconstruction — a floor that binds in
   // one world does not bind on the averaged parts.
   const scopeLines: CoverageLine[] = isPoolView ? lineKeys : [lineView as CoverageLine];
-  const sweepParts = worldRows
-    ? scopeLines.map(l => averageSweeps(worldRows.map(w => reconstructSweep(w.byLine[l]))))
+  // ⚠ THE WORLDS' OWN FIGURES COME OFF THE AVERAGED ROW (commit 10): struck
+  // when the year settled (utils/worldAudit.ts), since no world keeps its rows.
+  const worlds = poolResult.worldSummary?.audit;
+  const sweepParts = worlds
+    ? scopeLines.map(l => worlds[l]!.sweep)
     : (isPoolView ? lineKeys.map(l => poolResult.byLine[l]) : [rLine]).map(reconstructSweep);
-  const worldBasis = worldRows
-    ? Object.fromEntries(lineKeys.map(l => {
-      const rows = worldRows.map(w => w.byLine[l]);
-      const n = rows.length;
-      return [l, {
-        assessment: rows.reduce((a, x) => a + dividendAssessmentBasis(x.beginingSurplus), 0) / n,
-        dividend: rows.reduce((a, x) => a + (x.dividendBlocked ? 0 : dividendAssessmentBasis(x.beginingSurplus)), 0) / n,
-        worlds: n,
-      }];
-    })) as AuditCheckSet['worldBasis']
+  const worldBasis = worlds
+    ? Object.fromEntries(lineKeys.map(l => [l, {
+      assessment: worlds[l]!.assessmentBasis, dividend: worlds[l]!.dividendBasis, worlds: worlds[l]!.worlds,
+    }])) as AuditCheckSet['worldBasis']
     : undefined;
   const sweep = sweepParts.reduce(
     (a, b) => ({
@@ -1165,15 +1107,10 @@ export function computeAuditChecks(
     };
     // ⚠ A MULTI-WORLD YEAR IS THE AVERAGE OF EACH WORLD'S OWN MARKET on its own
     // assets (loss engine commit 4b) — no single draw produced the averaged row.
-    const derived = worldRows && isLiveYear
-      ? worldRows.reduce((sum, w, i) => {
-        const x = isPoolView ? w : w.byLine[lineView as CoverageLine];
-        if (isPoolView) {
-          return sum + lineKeys.reduce((a, l) => a + blendInvestmentReturn(
-            w.byLine[l].investedAssets, w.byLine[l].assetAllocation, marketFor(i)).income, 0);
-        }
-        return sum + blendInvestmentReturn(x.investedAssets, x.assetAllocation, marketFor(i)).income;
-      }, 0) / worldRows.length
+    // Struck when the year settled, from each world's own market (worldAudit).
+    const derived = worlds && isLiveYear
+      ? (isPoolView ? lineKeys.reduce((a, l) => a + worlds[l]!.investmentIncome, 0)
+        : worlds[lineView as CoverageLine]!.investmentIncome)
       : blendInvestmentReturn(r.investedAssets, r.assetAllocation, marketFor(0)).income;
     investmentIncome = mkCheck(derived, r.investmentIncome);
   }
@@ -1701,11 +1638,8 @@ export function buildSupportingRows(
     + 'and the exposure to two, so this is half a rounding unit on each — exposure × ½ rate-unit, plus '
     + 'rate × ½ exposure-unit. Both terms matter; the second is the larger one at these rates.';
 
-  // Per-line check. NaN at pool scope rather than 0 — it is consumed only by
-  // rows that are themselves absent there, and a 0 would read as a real figure.
-  const clfAdjustedExpectedLossCheck = lineRow === null ? NaN : result.expectedLoss * lineRow.selectedFundingCLF;
-  const clfAdjustedExpectedLossDifference =
-    result.clfAdjustedExpectedLoss - clfAdjustedExpectedLossCheck;
+  // (The CLF-adjusted gross expected loss's check went with its row at
+  // stable-scenarios commit 11 — see Expected Losses, net of reinsurance.)
 
   // ⚠ THE BOOKED GROSS, WHICH IS WHAT THE ENGINE NETS FROM. This read
   // grossUltimateLoss — the DRAWN register — so with FORWARD_BOOKING on the
@@ -1746,9 +1680,9 @@ export function buildSupportingRows(
   // that the per-line reads inside this branch are reachable.
   const clfProvenanceText = lineRow !== null && lineRow.line && hasStaticClf(lineRow.line)
     ? (lineRow.decisions.fundingCushion !== undefined
-        // The pre-game's board funded at a stated cushion and read no table.
-        ? `The prior board's cushion — ${formatPct(lineRow.decisions.fundingCushion, 0)} over expected, a multiplier of exactly `
-          + `${(1 + lineRow.decisions.fundingCushion).toFixed(3)}; no table is read (PRE_GAME_FUNDING_CUSHION)`
+        // The pre-game's board funded at its solved margin and read no table.
+        ? `The prior board's margin — ${formatPct(lineRow.decisions.fundingCushion, 1)} over expected, a multiplier of exactly `
+          + `${(1 + lineRow.decisions.fundingCushion).toFixed(3)}; no table is read (solved so the pre-game lands on the scenario's opening)`
         : lineRow.decisions.fundingAtExpected
         ? 'Expected funding — the table is bypassed entirely and the multiplier is exactly 1.000'
         : `STATIC_CLF_TABLE.${lineRow.line}[${formatPct(lineRow.selectedFundingConfidenceLevel, 0)}] — see clfTables.ts`)
@@ -2017,7 +1951,7 @@ export function buildSupportingRows(
   // carries none of them. They used to print the first active line's.
   const rateRows: AuditRow[] = lineRow === null ? [] : [
     {
-      metric: 'Pure Premium Rate per $100 Payroll',
+      metric: 'Pure Premium (from experience) per $100 Payroll',
       value: dollars(lineRow.purePremiumPer100),
       formula: {
         kind: 'text',
@@ -2139,7 +2073,10 @@ export function buildSupportingRows(
 
     const lossRows: AuditRow[] = [
     {
-      metric: 'Pure Premium',
+      // "Expected Losses", not "Pure Premium" (stable-scenarios commit 11): the
+      // year's expected gross losses. "Pure Premium" names only the rate's
+      // estimate, from the experience.
+      metric: 'Expected Losses',
       value: formatCurrency(result.expectedLoss),
       numericValue: result.expectedLoss,
       formula: isPoolView
@@ -2164,47 +2101,19 @@ export function buildSupportingRows(
       ...rateCheck(expectedLossDifference, lineRow === null ? 0 : lineRow.purePremiumPer100),
     },
     {
-      // NOT the pool premium — see the matching note in resultMetrics.ts. This
-      // is gross expected loss scaled by the CLF, which the net-funding change
-      // left 39% above the real poolPremium on WC and 77% on GL.
-      metric: 'CLF-Adjusted Gross Expected Loss',
-      value: formatCurrency(result.clfAdjustedExpectedLoss),
-      numericValue: result.clfAdjustedExpectedLoss,
-      // A SUM AT POOL SCOPE, for the same reason Reserve Risk Margin Needed is —
-      // see the block there. Each line applies its OWN CLF, so no single factor
-      // reproduces the total.
-      formula: isPoolView && perLine && perLine.length > 0
-        ? { kind: 'sum', terms: perLine.map(pl => ({
-            product: [curTerm(pl.expectedLoss, 'gross expected loss'), factorTerm(pl.clf, 'its own CLF')],
-            label: pl.line,
-          })) }
-        : lineRow === null ? PER_LINE_ONLY
-        : { kind: 'product', factors: [curTerm(result.expectedLoss, 'GROSS expected loss'), factorTerm(lineRow.selectedFundingCLF)] },
-      explain: isPoolView
-        ? 'Gross expected loss at the selected CLF, summed per line — each line applies its own CLF, so there is no single pool factor. This is NOT the pool premium: the premium funds NET expected loss.'
-        : 'Gross expected loss at the selected CLF. This is NOT the pool premium: the premium funds NET expected loss (see Pool Premium Rate above), so on WC and GL this figure sits well above it.',
-    },
-    {
-      metric: 'CLF-Adjusted Gross Expected Loss Check Difference',
-      value: isPoolView ? 'n/a' : formatCurrency(clfAdjustedExpectedLossDifference),
-      numericValue: clfAdjustedExpectedLossDifference,
-      formula: { kind: 'sum', terms: [curTerm(result.clfAdjustedExpectedLoss, 'stored'), curTerm(-clfAdjustedExpectedLossCheck, 'recalculated')] },
-      // ⚠ n/a AT POOL SCOPE, NOT A FAILURE. The recalculation multiplies by a
-      // line's selectedFundingCLF and the pool has none, so it is deliberately
-      // NaN — and legacyCheck(NaN) is false against any threshold, so the row
-      // printed "$NaN" and flagged Review on every pooled view while the prose
-      // beside it already explained that there is no pool factor. The page
-      // already had naNote for exactly this; this row was never routed through
-      // it.
-      ...(isPoolView
-        ? naNote('each line applies its own CLF, so there is no single pool factor to multiply by. '
-          + 'Select a line tab to check it.')
-        : legacyCheck(clfAdjustedExpectedLossDifference)),
+      // REPLACES "CLF-Adjusted Gross Expected Loss" and its check (stable-
+      // scenarios commit 11): the line's expected losses less what its cover is
+      // expected to recover, as priced. The CLF product stays on the result.
+      metric: 'Expected Losses, net of reinsurance',
+      value: formatCurrency(result.expectedLoss - (result.expectedReinsuranceRecovery ?? 0)),
+      numericValue: result.expectedLoss - (result.expectedReinsuranceRecovery ?? 0),
+      formula: { kind: 'sum', terms: [curTerm(result.expectedLoss, 'expected losses'), curTerm(-(result.expectedReinsuranceRecovery ?? 0), 'the cover\'s expected recovery')] },
+      explain: 'What the line expects to keep of the year\'s losses. The cover\'s expected recovery is not taken off the rate — the cover\'s full price is charged as reinsurance.',
     },
     {
       metric: 'Gross Ultimate Loss + LAE',
       value: formatCurrency(result.grossUltimateLoss),
-      formula: { kind: 'simulated', expected: result.expectedLoss, expectedLabel: 'expected (Pure Premium above)', where: 'this card' },
+      formula: { kind: 'simulated', expected: result.expectedLoss, expectedLabel: 'expected (Expected Losses above)', where: 'this card' },
     },
     {
       metric: 'Reinsurance Recovery',
@@ -2232,7 +2141,9 @@ export function buildSupportingRows(
       formula: {
         kind: 'echo',
         value: result.reinsuranceRecovery,
-        text: `Per-occurrence tower: ${
+        text: AGGREGATE_STOP.enabled
+          ? 'Aggregate stop — on the accident year\'s total, above its attachment, up to its limit'
+          : `Per-occurrence tower: ${
           perLine ? perLine.reduce((n, pl) => n + pl.layersPaid, 0) : (result.cededByLayer ?? []).filter(v => v > 0).length
         } layer(s) paid${
           perLine && perLine.length > 1 ? ` (${perLine.map(pl => `${pl.line} ${pl.layersPaid}`).join(', ')})` : ''
@@ -2966,7 +2877,9 @@ export function buildRevExpRows(
           value: `(${formatCurrency(result.reinsuranceRecovery)})`,
           numericValue: result.reinsuranceRecovery,
           formula: lineRow === null ? PER_LINE_ONLY : scoped(
-            () => ({ kind: 'echo' as const, value: result.reinsuranceRecovery, text: 'Per-occurrence tower — sum of layer cessions' }),
+            () => ({ kind: 'echo' as const, value: result.reinsuranceRecovery, text: AGGREGATE_STOP.enabled
+              ? 'Aggregate stop — on the accident year\'s total, above its attachment, up to its limit'
+              : 'Per-occurrence tower — sum of layer cessions' }),
             x => x.reinsuranceRecovery
           ),
           indent: 2 as const,

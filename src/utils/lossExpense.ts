@@ -2,8 +2,9 @@
 // LOSS ADJUSTMENT EXPENSE — BOOKED AS A REAL COST.
 //
 // The rate charges ALAE and ULAE on the ground-up loss cost (newPurePremium:
-// loss cost x (1 + ALAE + ULAE), GL ULAE only because its fitted severities
-// already include ALAE). Until this module nothing spent either, so every
+// loss cost x (1 + ALAE + ULAE), 5% each on every line since the pure-premium
+// basis; on WC and GL the ULAE is inside the supplied pure premium, the claims
+// being the pure premium / 1.05). Until this module nothing spent either, so every
 // dollar of it fell to underwriting income — $9.3M a year at the pool, the
 // largest single margin the measurement found. Now the engine books both:
 //

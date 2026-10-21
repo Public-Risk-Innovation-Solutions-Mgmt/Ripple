@@ -8,8 +8,9 @@
 // app plays them, every world's every line-year, against figures this gate
 // rebuilds from the world's own cohorts before and after the year:
 //
-//   1. THE SHARES are the rate's: ALAE + ULAE on WC and Property, ULAE alone on
-//      GL, whose losses already include ALAE.
+//   1. THE SHARES are the rate's: ALAE + ULAE on every line, 5% each, since the
+//      pure-premium basis (GL once booked ULAE alone, a rule from the old
+//      per-claim GL model, whose claim sizes included ALAE).
 //   2. INCURRED, PAID AND RESERVE are those shares of the ground-up loss
 //      incurred, paid and still unpaid — the cohorts' gross ledger.
 //   3. THE LAE RESERVE ROLLS FORWARD: beginning + incurred − paid = ending,
@@ -58,12 +59,16 @@ function play(id: string, years: number, shocks: 'on' | 'off'): Played {
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
   });
   const starts: GameState[] = [];
+  // Every world's rows, collected as each year settles: a world keeps only its
+  // last row in the game since stable-scenarios commit 10 (world 1 all its own).
+  const full: GameState['lockedResults'][] = (gs.worlds ?? []).map(() => []);
   for (let y = 1; y <= years; y++) {
     starts.push(gs);
     const s = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
     gs = { ...gs, ...commitSettledYear(gs, s), currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1) };
+    gs.worlds?.forEach((w, i) => full[i].push(w.lockedResults[w.lockedResults.length - 1]));
   }
-  return { gs, starts, opening: poolState };
+  return { gs: gs.worlds ? { ...gs, worlds: gs.worlds.map((w, i) => ({ ...w, lockedResults: full[i] })) } : gs, starts, opening: poolState };
 }
 
 // ---------------------------------------------------------------------------
@@ -135,8 +140,8 @@ console.log('=== LOSS ADJUSTMENT EXPENSE, BOOKED — solo ten-world games, three
 console.log('\n--- 1. the shares are the rate\'s ---');
 for (const l of LINES) {
   const s = laeShares(l);
-  const want = l === 'GL' ? ULAE_OF_LOSS_COST.GL : ALAE_OF_LOSS_COST[l] + ULAE_OF_LOSS_COST[l];
-  check(near(s.total, want) && (l !== 'GL' || s.alae === 0), `${l}: ALAE ${s.alae} + ULAE ${s.ulae}${l === 'GL' ? ' — ULAE only, its losses include ALAE' : ''}`);
+  const want = ALAE_OF_LOSS_COST[l] + ULAE_OF_LOSS_COST[l];
+  check(near(s.total, want) && s.alae === ALAE_OF_LOSS_COST[l] && s.alae > 0, `${l}: ALAE ${s.alae} + ULAE ${s.ulae}`);
 }
 
 const games = [play('LAE1', 6, 'on'), play('LAE2', 6, 'on')];
@@ -204,10 +209,10 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   })));
   check(cededYears > 0 && caughtNet === cededYears, 'control: LAE on the net loss rather than the ground-up is caught',
     `${caughtNet} of ${cededYears} line-years whose gross and net differ`);
-  // GL charged ALAE a second time.
-  check(laeAgainstLosses(ALAE_OF_LOSS_COST.GL + ULAE_OF_LOSS_COST.GL,
+  // GL booking ULAE alone, as under the old rule.
+  check(laeAgainstLosses(ULAE_OF_LOSS_COST.GL,
     g.starts[2].worlds![0].poolState.lines.GL.reserveCohorts ?? [], g.starts[3].worlds![0].poolState.lines.GL.reserveCohorts ?? [], glRow).length > 0,
-  'control: GL booking ALAE its losses already include is caught');
+  'control: GL booking ULAE alone, without its ALAE, is caught');
   // A reserve that does not roll: LAE paid dropped.
   const wcRows = g.gs.worlds![0].lockedResults.map(x => x.byLine.WC);
   check(laeRollforward(wcRows.map((x, i) => (i === 2 ? { ...x, laePaid: 0 } : x))).length > 0, 'control: a loss expense reserve that does not roll is caught');
