@@ -40,7 +40,7 @@ const BUTTONS = [
   { name: 'Download Results (.xlsx)', min: 10_000 },
   // ⚠ NAMES ITS WORLD SINCE LOSS ENGINE COMMIT 4b: an averaged year has no claims
   // of its own, so the workbook is world 1's and the button says so.
-  { name: 'Download Claims — world 1 of 10 (.xlsx)', min: 10_000 },
+  { name: 'Download Claims — world 1 of 100 (.xlsx)', min: 10_000 },  // WORLD_COUNT, 100 since stable-scenarios commit 10
   // ⚠ 'Download Members CSV' CAME OFF. The button is hidden with the other
   // member-level views (SHOW_MEMBER_VIEWS in ResultSpreadsheetPage); buildMemberCsv
   // still runs, so restoring the flag restores the download and this row.

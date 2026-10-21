@@ -196,7 +196,7 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     const r = await readRange();
     console.log(`  results range : ${r.text}`);
     ok(r.min <= r.median && r.median <= r.max && r.min < r.max, 'Results: min <= median <= max, and the worlds differ');
-    ok(/across 10 worlds/.test(r.text), 'Results: it says how many worlds');
+    ok(/across 100 worlds/.test(r.text), 'Results: it says how many worlds');  // WORLD_COUNT, 100 since stable-scenarios commit 10
   }
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1000);
