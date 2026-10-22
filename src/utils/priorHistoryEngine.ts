@@ -203,15 +203,21 @@ export function simulateLineCandidate(
   // the line's surplus moves only by its income, dividends and assessments, year
   // by year, into the opening. invested is re-derived from the identity, loss
   // expense reserve included, so the first year opens balanced.
+  //
+  // ⚠ AND OPERATING CASH IS CAPPED AT WHAT THE BALANCE SHEET HOLDS. With no
+  // reserves the line's assets are its paid-in capital and nothing else, and
+  // the bootstrap's operating-cash target (a share of its drawn premium) can
+  // exceed it — measured, GL's did. Invested would then be negative, the engine
+  // floors a year's investments at zero, and the floor creates assets: GL's
+  // first pre-game year missed its income by $9.8M. So cash is the target or
+  // the whole balance, whichever is less, and invested is the rest (never
+  // below zero). The first year's sweep restores the target from premium.
   {
     const ls = bootstrap.lines[line];
     const surplus = startingSurplus ?? ls.surplus;
-    bootstrap.lines[line] = {
-      ...ls,
-      surplus,
-      investedAssets: surplus + ls.netUnpaidReserve
-        + lossExpenseReserve(line, ls.reserveCohorts ?? []) - bootstrap.cash,
-    };
+    const assets = surplus + ls.netUnpaidReserve + lossExpenseReserve(line, ls.reserveCohorts ?? []);
+    bootstrap.cash = Math.min(bootstrap.cash, Math.max(0, assets));
+    bootstrap.lines[line] = { ...ls, surplus, investedAssets: assets - bootstrap.cash };
   }
 
   let gs: GameState = {

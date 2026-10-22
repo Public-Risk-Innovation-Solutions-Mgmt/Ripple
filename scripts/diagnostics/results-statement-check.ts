@@ -38,9 +38,9 @@
 //  12. THE PRE-GAME COLUMNS ARE THE ENGINE'S PRE-GAME RESULTS: at game start the
 //      five columns are the five pre-game years, each tied to its own result —
 //      the last year's year-end tied to the opening.
-//  13. PRIOR IS ABSENT AT GAME START where nothing predates the window — the
-//      calendar sections — and present in the program-year blocks, which hold
-//      the older reserves.
+//  13. PRIOR IS ABSENT AT GAME START in every section: the pool's history
+//      begins in 2021, so nothing predates the window (the program-year blocks
+//      used to hold the bulk reserves there).
 //
 // AND WHAT THE PLAYER SEES (the display commit):
 //
@@ -267,15 +267,14 @@ function expectedNotAvailable(played: number, scope: LineView, windowLength = WI
   const uw = (xs: string[]) => (scope === 'pool' ? [] : xs);
   const blocks: [string, string][] = [['Gross', 'Premium'], ['Ceded (Reinsurance)', 'Reinsurance Premium'], ['Net', 'Premium']];
   if (played === 0) {
-    // Nothing before the first pre-game year to change from; the bulk years
-    // alone in Prior carry no premium.
+    // Nothing before the first pre-game year to change from, and no Prior: the
+    // pool's history begins in 2021.
     // Standing at the first pre-game year, that year is the window's only one,
     // so the change rows' Total — the latest year's — has no source either.
     const cols = windowLength === 1 ? ['2021', 'Total'] : ['2021'];
     return [
       ...uw(cols.flatMap(c => [`Underwriting — Change from Prior (${c})`, `Underwriting — % Change Over Prior (${c})`])),
-      ...blocks.flatMap(([t, p]) => [`${t} — ${p} (Prior (before 2021))`, `${t} — Loss and LAE Ratio (Prior (before 2021))`,
-        ...cols.flatMap(c => [`${t} — Change from Prior (${c})`, `${t} — % of Prior (${c})`])]),
+      ...blocks.flatMap(([t]) => cols.flatMap(c => [`${t} — Change from Prior (${c})`, `${t} — % of Prior (${c})`])),
     ];
   }
   const prior = `Prior (${2021 + played - 1} and earlier)`;
@@ -383,11 +382,16 @@ function preGameTies(st: AnnualStatement, gs: GameState, scope: LineView): strin
   return out;
 }
 
-/** 13. At game start Prior is absent from the calendar sections and present in the blocks. */
+/**
+ * 13. At game start Prior is absent from every section: the pool's history
+ * begins in 2021, so nothing predates the window. (The program-year blocks
+ * used to carry a "Prior (before 2021)" for the bulk reserves, now retired.)
+ */
 function priorAtStart(st: AnnualStatement): string[] {
   const out: string[] = [];
-  for (const k of ['operating', 'balance', 'underwriting']) if (sec(st, k).hasPrior || sec(st, k).columns[0].startsWith('Prior')) out.push(`${k} shows a Prior at game start`);
-  for (const k of ['gross', 'ceded', 'net']) if (!sec(st, k).hasPrior || sec(st, k).columns[0] !== 'Prior (before 2021)') out.push(`${k} has no Prior for the older reserves`);
+  for (const k of ['operating', 'balance', 'underwriting', 'gross', 'ceded', 'net']) {
+    if (sec(st, k).hasPrior || sec(st, k).columns[0].startsWith('Prior')) out.push(`${k} shows a Prior at game start`);
+  }
   return out;
 }
 
@@ -475,7 +479,7 @@ const labels: Record<string, string> = {
   10: 'the window rolls: the five most recent calendar years, older ones in Prior, labelled as specified',
   11: 'Prior + the five reconcile to the full history — operating flows and every block\'s premium',
   12: 'at game start the five columns are the five pre-game years, tied to the engine\'s results',
-  13: 'at game start Prior is absent from the calendar sections, present in the blocks for the older reserves',
+  13: 'at game start Prior is absent from every section — nothing predates 2021',
   14: 'the year labels: "Current" on the actual latest year only, "Year 0" on the last pre-game year, "Year n" after it, blank elsewhere',
   15: 'a cell with no source shows blank, and no other cell does',
   16: 'the year selector: the five years ending at the chosen year, older years in Prior; the default is the latest',
