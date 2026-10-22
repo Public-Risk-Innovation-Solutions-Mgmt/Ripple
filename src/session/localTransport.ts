@@ -176,6 +176,8 @@ interface TeamRecord {
   joined: boolean;
   lockedYear: number | null;
   // Year number (as a string key, per JSON) -> that year's submitted decisions.
+  // Stored whole and never read here (uw-hybrid's two sliders changed only
+  // contract.ts's shape, not this store).
   decisionsByYear: Record<string, JsonValue>;
   // Year number (as a string key, per JSON) -> that year's posted summary.
   resultsByYear: Record<string, TeamYearSummary>;

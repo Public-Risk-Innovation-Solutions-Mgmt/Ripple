@@ -3,10 +3,12 @@
 //
 //   npx tsx scripts/diagnostics/book-units-penalty-check.ts
 //
-// Book units written this year cost NEW_BUSINESS_PENALTY more on their ACTUAL
-// ordinary losses, in their first year only; expected loss does not carry it,
-// so the rate learns it only through the history. In ten-world games with
-// intake at 8%, every line and world:
+// Book units written this year cost more on their ACTUAL ordinary losses, in
+// their first year only — the data scientist's factor on the year's rejection
+// rate (newBusinessPenaltyFactor; 1.10 at the 5% played here); expected loss
+// does not carry it, so the rate learns it only through the history. In
+// hundred-world games at the default applications and 5% rejection, every
+// line and world:
 //
 //   1. ACTUAL INCLUDES IT: each year's ordinary loss is the units' draw with
 //      the units written that year loaded by the penalty — exactly.
@@ -19,9 +21,9 @@
 // with the penalty in expected, on every unit, and lingering a second year.
 // ============================================================================
 
-import { NEW_BUSINESS_PENALTY } from '../../src/data/pricingParameters';
 import { exposureFactor } from '../../src/data/exposureTrend';
-import { marketSeedOf, unitsOf } from '../../src/utils/bookUnits';
+import { marketSeedOf } from '../../src/utils/bookUnits';
+import { heldUnits, newBusinessPenaltyFactor } from '../../src/utils/bookUnderwriting';
 import { bookOrdinaryRisk, ordinaryLossFromUnits } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
 import { gameShocksOn } from '../../src/utils/shockLosses';
@@ -29,7 +31,10 @@ import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, worldInstance } from '../../src/utils/worlds';
-import type { CoverageLine, DecisionSet, GameSetupSettings, GameState } from '../../src/types/simulation';
+import type { BookLedger, CoverageLine, DecisionSet, GameSetupSettings, GameState } from '../../src/types/simulation';
+
+const REJECTION = 0.05;
+const PENALTY = newBusinessPenaltyFactor(REJECTION) - 1;
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const failures: string[] = [];
@@ -42,7 +47,7 @@ const check = (ok: boolean, label: string, detail = '') => {
 interface Obs {
   line: CoverageLine; world: number; year: number;
   ordinary: number; expected: number;
-  before: number[]; after: number[]; seed: number; marketSeed: number; exposure: number;
+  before: number[]; after: number[]; ledger: BookLedger; seed: number; marketSeed: number; exposure: number;
   /** The game's shock switch (gameShocksOn): its expected loss is struck on it. */
   shocks: boolean;
 }
@@ -52,7 +57,7 @@ function play(id: string): Obs[] {
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   const decide = (y: number): DecisionSet => {
     const d = defaultDecisionSet(y);
-    return { ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], intakeLevel: 3 }])) as DecisionSet['byLine'] };
+    return { ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], newBusinessRejection: REJECTION }])) as DecisionSet['byLine'] };
   };
   let gs: GameState = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: decide(1), priorHistory, earlyPreGameHistory });
   const out: Obs[] = [];
@@ -68,12 +73,12 @@ function play(id: string): Obs[] {
         out.push({
           line, world: w, year: y,
           ordinary: n.ordinaryRealised / (1 + n.uplift), expected: r.expectedLoss,
-          before: before[line]!, after: after[line]!, seed: worldInstance(instance, w).seed,
+          before: before[line]!, after: after[line]!, ledger: gs.poolState.bookLedger![line]!, seed: worldInstance(instance, w).seed,
           shocks: gameShocksOn(setup, instance),
           marketSeed: marketSeedOf(instance),
           // The book's own exposure this year — its units' sizes x the year's
           // trend — exactly as the draw took it (the result's is rounded).
-          exposure: unitsOf(marketSeedOf(instance), line, after[line]!).reduce((a, u) => a + u.size, 0) * exposureFactor(line, y),
+          exposure: heldUnits(marketSeedOf(instance), line, after[line]!, gs.poolState.bookLedger![line]).reduce((a, u) => a + u.size, 0) * exposureFactor(line, y),
         });
       }
     });
@@ -85,10 +90,10 @@ type Rebuild = (o: Obs) => { ordinary: number; expected: number };
 // The figures the books say: the year's draw on the book after movement, the
 // units it did not hold before loaded; and expected on its risk, unloaded.
 const truth: Rebuild = o => {
-  const units = unitsOf(o.marketSeed, o.line, o.after);
+  const units = heldUnits(o.marketSeed, o.line, o.after, o.ledger);
   const held = new Set(o.before);
   const fresh = new Set(o.after.filter(i => !held.has(i)));
-  const draw = ordinaryLossFromUnits(o.line, units, o.exposure, o.year, o.seed, fresh, NEW_BUSINESS_PENALTY);
+  const draw = ordinaryLossFromUnits(o.line, units, o.exposure, o.year, o.seed, fresh, PENALTY);
   return { ordinary: draw.realised, expected: expectedLossBreakdown(o.line, o.exposure, o.year, undefined, bookOrdinaryRisk(units), o.shocks).total };
 };
 
@@ -102,7 +107,7 @@ function grade(obs: Obs[], rebuild: Rebuild, tag: string) {
     const fresh = o.after.filter(i => !o.before.includes(i));
     if (fresh.length) {
       withNew++;
-      const plain = ordinaryLossFromUnits(o.line, unitsOf(o.marketSeed, o.line, o.after), o.exposure, o.year, o.seed).realised;
+      const plain = ordinaryLossFromUnits(o.line, heldUnits(o.marketSeed, o.line, o.after, o.ledger), o.exposure, o.year, o.seed).realised;
       if (o.ordinary > plain) loaded++;
     }
   }
@@ -112,7 +117,7 @@ function grade(obs: Obs[], rebuild: Rebuild, tag: string) {
   check(worstExpected < 1e-12, `${tag}2. expected loss carries no penalty`, `worst ${worstExpected.toExponential(2)}`);
 }
 
-console.log(`THE NEW-BUSINESS PENALTY — ${NEW_BUSINESS_PENALTY * 100}% on new units' first-year actual ordinary losses`);
+console.log(`THE NEW-BUSINESS PENALTY — ${(PENALTY * 100).toFixed(1)}% at ${REJECTION * 100}% rejection, on new units' first-year actual ordinary losses`);
 const obs = [...play('BUPEN1'), ...play('BUPEN2')];
 grade(obs, truth, '');
 
@@ -128,22 +133,22 @@ const controlFails = (name: string, rebuild: Rebuild, expect: string) => {
 };
 controlFails('the penalty in expected loss', o => {
   const t = truth(o);
-  const units = unitsOf(o.marketSeed, o.line, o.after);
+  const units = heldUnits(o.marketSeed, o.line, o.after, o.ledger);
   const freshSize = o.after.filter(i => !o.before.includes(i)).reduce((a, i) => a + units.find(u => u.index === i)!.size, 0);
   const share = freshSize / units.reduce((a, u) => a + u.size, 0);
   const b = expectedLossBreakdown(o.line, o.exposure, o.year, undefined, bookOrdinaryRisk(units), o.shocks);
-  return { ...t, expected: t.expected + NEW_BUSINESS_PENALTY * share * (b.ordinary + b.uplift) };
+  return { ...t, expected: t.expected + PENALTY * share * (b.ordinary + b.uplift) };
 }, '2.');
 controlFails('the penalty on every unit', o => {
-  const units = unitsOf(o.marketSeed, o.line, o.after);
-  return { ...truth(o), ordinary: ordinaryLossFromUnits(o.line, units, o.exposure, o.year, o.seed, new Set(o.after), NEW_BUSINESS_PENALTY).realised };
+  const units = heldUnits(o.marketSeed, o.line, o.after, o.ledger);
+  return { ...truth(o), ordinary: ordinaryLossFromUnits(o.line, units, o.exposure, o.year, o.seed, new Set(o.after), PENALTY).realised };
 }, '1.');
 controlFails('the penalty lingering a second year', o => {
   // Loads the units written last year as well: every unit not in the opening book.
-  const units = unitsOf(o.marketSeed, o.line, o.after);
+  const units = heldUnits(o.marketSeed, o.line, o.after, o.ledger);
   const opening = new Set(obs.find(x => x.line === o.line && x.year === 1 && x.world === o.world)!.before);
   const fresh = new Set(o.after.filter(i => !opening.has(i)));
-  return { ...truth(o), ordinary: ordinaryLossFromUnits(o.line, units, o.exposure, o.year, o.seed, fresh, NEW_BUSINESS_PENALTY).realised };
+  return { ...truth(o), ordinary: ordinaryLossFromUnits(o.line, units, o.exposure, o.year, o.seed, fresh, PENALTY).realised };
 }, '1.');
 
 console.log('');

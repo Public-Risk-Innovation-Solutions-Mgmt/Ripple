@@ -334,7 +334,9 @@ function collectAcrossArms(line: CoverageLine): BandRow[] {
         // appetite is a per-line control but a player setting a strict bar sets
         // it across the pool, and in POOLED mode leaving the other two on Accept
         // All would put this line's small book next to two growing ones.
-        for (const l of active) d.byLine[l].intakeLevel = appetite;
+        // ⚠ uw-hybrid: the intake positions are retired, so every arm plays the default
+        // sliders. Re-derive on the rejection rate before trusting this.
+        void appetite; void active;
         const pr = processYear(gs, d);
         const r = (pr.result as never as { byLine: Record<string, Record<string, number>> }).byLine[line];
         if (r && r.poolPremium > 0) {

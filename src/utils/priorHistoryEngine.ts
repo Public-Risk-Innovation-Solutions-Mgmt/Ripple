@@ -32,6 +32,7 @@
 // -> same history, every config. The accepted history is real and ties out.
 
 import type {
+  BookLedger,
   CoverageLine,
   DecisionSet,
   GameInstance,
@@ -212,6 +213,8 @@ interface LinePreGame {
   members: Member[];              // this line's ending roster
   membershipHistory: MembershipHistory; // this line's pre-game enrollment ledger
   memberLossHistory: MemberLossHistory; // this line's pre-game marketplace loss record
+  /** This line's underwriting ledger after the pre-game — its units' loss history (bookUnderwriting.ts). */
+  bookLedger?: BookLedger;
   attempt: number;
   /** The prior board's solved margin over expected (solvePreGameMargin). */
   solvedMargin: number;
@@ -595,6 +598,7 @@ function finalizeLine(
     members: c.poolState.lines[line].members,
     membershipHistory: c.poolState.membershipHistory,
     memberLossHistory: c.poolState.memberLossHistory ?? {},
+    ...(c.poolState.bookLedger?.[line] ? { bookLedger: c.poolState.bookLedger[line] } : {}),
     attempt,
   };
 }
@@ -835,6 +839,9 @@ export function runPriorHistory(
     // pre-game was accepted on (bookUnits.ts). Never shown.
     ...(MEMBER_LEVEL.enabled ? {} : {
       bookUnits: Object.fromEntries(setup.activeLines.map(l => [l, openingBookUnits(marketSeedOf(instance), l)])),
+      // ⚠ AND THE PRE-GAME'S LOSS HISTORY BY UNIT, so year 1's renewals read
+      // the years the players inherit — the accepted attempt's, whatever it was.
+      bookLedger: Object.fromEntries(perLine.flatMap(p => (p.bookLedger ? [[p.line, p.bookLedger]] : []))),
     }),
   };
 

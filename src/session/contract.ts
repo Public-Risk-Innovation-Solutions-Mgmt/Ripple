@@ -349,10 +349,19 @@ export interface TeamLineDecisions {
    * keys.ts need no change for it; only the values a client writes do.
    */
   reinsuranceOption: string;
-  /** Share of the book NOT renewed, worst first. Absent on the engine side reads as 0. */
-  renewalCut: number;
-  /** The intake slider's position, 0 = No New Business. */
-  intakeLevel: number;
+  /**
+   * "Renewals declined": the share of renewing exposure declined, a FRACTION
+   * 0–0.10. Absent on the engine side reads as 0.
+   *
+   * ⚠ uw-hybrid: this and newBusinessRejection REPLACE `renewalCut` and
+   * `intakeLevel`, which are gone from the wire. The shape is still scalars the
+   * server stores without reading, so the handler, both transports and keys.ts
+   * change only in their notes; a row written before carries the old names and
+   * the host reads 0% for both.
+   */
+  renewalsDeclined: number;
+  /** "New Business, rejection rate": the share of applicants turned away, a FRACTION 0–0.15. */
+  newBusinessRejection: number;
   riskControlPct: number;
   dividendPct: number;
   assessmentPct: number;

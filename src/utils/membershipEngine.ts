@@ -624,7 +624,10 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
   // result can say whether the bar or the cap limited the year.
   const intake = intakeAdmit(
     applicants, line, yearNumber, inputs.instanceSeed,
-    inputs.decisions.intakeLevel ?? 0, currentMembers.length,
+    // ⚠ THE INTAKE POSITIONS ARE RETIRED (uw-hybrid): no decision sets one, so
+    // the dormant member path writes nobody. The book's new business is
+    // bookUnderwriting.ts's.
+    0, currentMembers.length,
   );
   const candidatePool = intake.admitted;
 

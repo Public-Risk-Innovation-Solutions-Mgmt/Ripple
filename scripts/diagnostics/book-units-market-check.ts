@@ -125,13 +125,18 @@ let played: GameState;
   let gs: GameState = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory });
   gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(1)), [])), currentYearNumber: 2 };
   played = gs;
-  const fromSeed = LINES.every(l => JSON.stringify(gs.poolState.bookUnits?.[l]) === JSON.stringify(openingBookUnits(instance.seed, l)));
+  // ⚠ uw-hybrid: the defaults now write new business (applicants at
+  // NEW_BUSINESS_APPLICATIONS, none rejected), so the book after year 1 is the
+  // seed's opening PLUS what joined — every opening unit still in it, wholly.
+  const fromSeed = LINES.every(l => JSON.stringify(poolState.bookUnits?.[l]) === JSON.stringify(openingBookUnits(instance.seed, l))
+    && openingBookUnits(instance.seed, l).every(i => gs.poolState.bookUnits?.[l]?.includes(i) && gs.poolState.bookLedger?.[l]?.share[String(i)] === undefined));
   const env = { gameState: gs, startingFinancials: null, initialMembers: [], currentDecisions: defaultDecisionSet(2) };
   // The save keeps the averages only and a reload replays (commit 10): the
   // book must come back from the replay as it was.
   const back = unpackSave(packSave(env)) as { gameState: SavedGame };
   const reloaded = (await restoreSavedGame(back.gameState, null, undefined, async () => {})).gameState;
-  const survives = JSON.stringify(reloaded.poolState.bookUnits) === JSON.stringify(gs.poolState.bookUnits);
+  const survives = JSON.stringify(reloaded.poolState.bookUnits) === JSON.stringify(gs.poolState.bookUnits)
+    && JSON.stringify(reloaded.poolState.bookLedger) === JSON.stringify(gs.poolState.bookLedger);
   check(onceOnly(gs) && fromSeed && survives, '6. the book is on the game\'s pool state only, from the game seed, and survives a save',
     `${(gs.worlds ?? []).length} worlds without it; ${JSON.stringify(gs).split('"bookUnits"').length - 1} copy in the state`);
 }

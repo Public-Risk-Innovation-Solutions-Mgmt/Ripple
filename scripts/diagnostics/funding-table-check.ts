@@ -50,7 +50,7 @@ import {
   BASELINE_CV_TABLES, GL_SUPPLIED, PROPERTY_DERIVED, RESERVE_MARGIN_CONFIDENCE, STATIC_CLF_TABLE, WC_SUPPLIED,
   baselineCvKey, crossingOf, staticClf, type ClfTable, type StaticClfLine,
 } from '../../src/data/clfTables';
-import { BASELINE_CV, REINSURANCE_LOAD } from '../../src/data/pricingParameters';
+import { BASELINE_CV, FULL_SAVINGS_AT, REINSURANCE_LOAD } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER } from '../../src/data/reinsuranceTower';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -97,9 +97,19 @@ function play(games: number): Played {
         const r = h.byLine[line] as LineResultSet | undefined;
         if (r) preGame[line].push({ clf: r.selectedFundingCLF, premium: r.poolPremium, margin: r.decisions.fundingCushion ?? NaN, game: g });
       }
-      let gs = { setup, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory } as GameState;
+      // ⚠ AT FULL SAVINGS ON NEW BUSINESS (rejection FULL_SAVINGS_AT). The
+      // default writes new business at the 20% first-year penalty, which by
+      // design is not in expected loss, so its ordinary ratio sits about
+      // newShare x 20% (~1%) above 1 — a known first-year bias, not the
+      // distribution these tables describe. At full savings the penalty is 1.
+      const decide = (y: number) => {
+        const d = defaultDecisionSet(y);
+        d.byLine[line].newBusinessRejection = FULL_SAVINGS_AT;
+        return d;
+      };
+      let gs = { setup, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: decide(1), priorHistory } as GameState;
       for (let y = 1; y <= YEARS; y++) {
-        const p = processYear(gs, defaultDecisionSet(y));
+        const p = processYear(gs, decide(y));
         const r = p.result.byLine[line] as LineResultSet;
         // The ordinary loss ratio the tables describe — see the header.
         const ordinary = r.newLossEngine?.ordinaryFactor;

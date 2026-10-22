@@ -165,7 +165,11 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // code comments, so this assertion had been failing for a legitimate reason.
     // It checks BOTH sliders rather than either, which is stricter than the
     // or-test it replaces. Intake is labelled "New business" to players (UI tidy).
-    ok(/Renewal/.test(main) && /New business/.test(main) && !/\bIntake\b/.test(main), 'the renewal and new business sliders render');
+    // uw-hybrid: the two sliders by their names and values only — "Renewals
+    // declined" and "New Business, rejection rate", each at 0% — and nothing of
+    // the retired intake positions.
+    ok(/Renewals declined\s*0%/.test(main) && /New Business, rejection rate\s*0%/.test(main)
+       && !/\bIntake\b|No New Business|Renew all/.test(main), 'the two underwriting sliders render, by name and value');
   }
 
   for (let year = 1; year <= YEARS; year++) {

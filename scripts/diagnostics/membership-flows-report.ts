@@ -74,7 +74,9 @@ function play(appetite: number): Row[] {
     };
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y) as DecisionSet;
-      for (const l of LINES) d.byLine[l].intakeLevel = appetite;
+      // ⚠ uw-hybrid: the intake positions are retired, so every arm plays the default
+        // sliders. Re-derive on the rejection rate before trusting this.
+        void appetite;
       const before: Record<string, number> = {};
       for (const l of LINES) before[l] = gs.poolState.lines[l].members.length;
       const p = processYear(gs, d);

@@ -355,7 +355,9 @@ function shippedRun(): Collected {
       };
       for (let y = 1; y <= YEARS; y++) {
         const d = defaultDecisionSet(y);
-        for (const line of LINES) d.byLine[line].intakeLevel = arm;
+        // ⚠ uw-hybrid: the intake positions are retired, so every arm plays the default
+        // sliders. Re-derive on the rejection rate before trusting this.
+        void arm;
         const p = processYear(gs, d);
         for (const line of LINES) {
           const lr = (p.result as never as { byLine: Record<string, Record<string, number>> }).byLine[line];

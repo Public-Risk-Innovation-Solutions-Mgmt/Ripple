@@ -21,14 +21,10 @@ import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfT
 import type { FundingConsequence } from '../utils/fundingConsequence';
 import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
+import { REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import {
-  INTAKE_LOW, INTAKE_NONE, INTAKE_POSITIONS, intakeCap, intakeForecast, intakeLabel, intakePassProbability,
-} from '../utils/intakeInspection';
-import { APPLICATION_RATE } from '../data/defaultAssumptions';
-import { canReenroll, REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
-import { applicantInclusion } from '../utils/membershipEngine';
-import { AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
-import { intakeShare } from '../utils/bookUnderwriting';
+  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_BUSINESS_REJECTION_SLIDER, RENEWALS_DECLINED_SLIDER, RISK_CONTROL,
+} from '../data/pricingParameters';
 
 export interface LineLoanInfo {
   balance: number;
@@ -94,7 +90,7 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks:
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, allMarketMembers, membershipHistory, shocks = true }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
@@ -233,39 +229,33 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
               GL retention note below survives it because an uncapped exposure
               is a live financial fact. This one did not. */}
           {MEMBER_LEVEL.enabled ? (
-            <>
-              <RenewalUnderwriting
-                line={selectedLine}
-                members={lastLineResult?.memberList ?? []}
-                history={memberLossHistory}
-                yearNumber={yearNumber}
-                value={d.renewalCut ?? 0}
-                onChange={v => set('renewalCut', v)}
-                disabled={disabled}
-              />
-              <IntakeSlider
-                line={selectedLine}
-                members={lastLineResult?.memberList ?? []}
-                allMarketMembers={allMarketMembers}
-                membershipHistory={membershipHistory}
-                yearNumber={yearNumber}
-                value={d.intakeLevel ?? INTAKE_NONE}
-                onChange={v => set('intakeLevel', v)}
-                disabled={disabled}
-              />
-            </>
+            // The dormant member path: renewal on the member's own loss run.
+            // Its intake positions are retired (uw-hybrid); it writes nobody.
+            <RenewalUnderwriting
+              line={selectedLine}
+              members={lastLineResult?.memberList ?? []}
+              history={memberLossHistory}
+              yearNumber={yearNumber}
+              value={d.renewalsDeclined ?? 0}
+              onChange={v => set('renewalsDeclined', v)}
+              disabled={disabled}
+            />
           ) : (
             <>
-              {/* ONE BOOK PER LINE: renewal and intake move the book's exposure,
-                  not members. See bookUnderwriting.ts. */}
-              <BookRenewal
-                value={d.renewalCut ?? 0}
-                onChange={v => set('renewalCut', v)}
+              {/* ONE BOOK PER LINE: the two sliders move the book's units. See
+                  bookUnderwriting.ts. */}
+              <UnderwritingSlider
+                label="Renewals declined"
+                range={RENEWALS_DECLINED_SLIDER}
+                value={d.renewalsDeclined ?? RENEWALS_DECLINED_SLIDER.default}
+                onChange={v => set('renewalsDeclined', v)}
                 disabled={disabled}
               />
-              <BookIntake
-                value={d.intakeLevel ?? INTAKE_NONE}
-                onChange={v => set('intakeLevel', v)}
+              <UnderwritingSlider
+                label="New Business, rejection rate"
+                range={NEW_BUSINESS_REJECTION_SLIDER}
+                value={d.newBusinessRejection ?? NEW_BUSINESS_REJECTION_SLIDER.default}
+                onChange={v => set('newBusinessRejection', v)}
                 disabled={disabled}
               />
             </>
@@ -846,33 +836,12 @@ function PropertyNoSignalNote() {
 // share of it not renewed, and the share of it written new each year. Both
 // read and act on exposure; no member is named or counted.
 // ============================================================================
-function BookRenewal({ value, onChange, disabled }: {
-  value: number;
-  onChange: (v: number) => void;
-  disabled?: boolean;
-}) {
-  const top = RENEWAL_CUT_STEPS[RENEWAL_CUT_STEPS.length - 1];
-  const step = RENEWAL_CUT_STEPS[1] - RENEWAL_CUT_STEPS[0];
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-      <SliderInput
-        label="Renewal"
-        value={value}
-        min={0}
-        max={top}
-        step={step}
-        onChange={onChange}
-        formatValue={v => (v > 0 ? `Non-renew ${(v * 100).toFixed(0)}% of the book` : 'Renew all')}
-        leftLabel="Renew all"
-        rightLabel={`${(top * 100).toFixed(0)}% of the book`}
-        disabled={disabled}
-      />
-      {/* No forecast line under the slider (UI tidy): the dollars it named came off. */}
-    </div>
-  );
-}
-
-function BookIntake({ value, onChange, disabled }: {
+// ⚠ PLAYERS SEE EACH SLIDER'S NAME AND VALUE ONLY — no help text, no end
+// labels, no forecast. The ranges, steps and defaults are the parameters
+// file's (RENEWALS_DECLINED_SLIDER, NEW_BUSINESS_REJECTION_SLIDER).
+function UnderwritingSlider({ label, range, value, onChange, disabled }: {
+  label: string;
+  range: { min: number; max: number; step: number };
   value: number;
   onChange: (v: number) => void;
   disabled?: boolean;
@@ -880,26 +849,15 @@ function BookIntake({ value, onChange, disabled }: {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
       <SliderInput
-        label="New business"
+        label={label}
         value={value}
-        min={INTAKE_NONE}
-        max={INTAKE_LOW}
-        step={1}
+        min={range.min}
+        max={range.max}
+        step={range.step}
         onChange={onChange}
-        formatValue={intakeLabel}
+        formatValue={v => `${(v * 100).toFixed(0)}%`}
         disabled={disabled}
       />
-      <div className="grid grid-cols-4 text-[11px] text-gray-400 -mt-1">
-        {INTAKE_POSITIONS.map((p, i) => (
-          <span
-            key={p.name}
-            className={`${i === 0 ? 'text-left' : i === INTAKE_POSITIONS.length - 1 ? 'text-right' : 'text-center'} ${i === value ? 'font-semibold text-gray-700' : ''}`}
-          >
-            {p.name} {(intakeShare(i) * 100).toFixed(0)}%
-          </span>
-        ))}
-      </div>
-      {/* No forecast line under the slider (UI tidy): the dollars it named came off. */}
     </div>
   );
 }
@@ -994,107 +952,6 @@ function RenewalUnderwriting({
 // above computable. Reopening it means arguing those two costs down. (The same
 // reasoning covers per-member renewal overrides.)
 // ============================================================================
-function IntakeSlider({
-  line, members, allMarketMembers, membershipHistory, yearNumber, value, onChange, disabled,
-}: {
-  line: CoverageLine;
-  members: Member[];
-  allMarketMembers: Member[];
-  membershipHistory: MembershipHistory;
-  yearNumber: number;
-  value: number;
-  onChange: (v: number) => void;
-  disabled?: boolean;
-}) {
-  // The applicant pool as the engine builds it: marketplace minus enrolled,
-  // minus anyone inside their two-year cooldown — same source as
-  // simulateMemberMovement so the counts cannot drift from the draw.
-  const forecast = React.useMemo(() => {
-    const enrolled = new Set(members.map(m => m.id));
-    const available = allMarketMembers.filter(
-      m => !enrolled.has(m.id) && canReenroll(membershipHistory, m.id, line, yearNumber),
-    );
-    const applications = Math.min(available.length, Math.round(available.length * APPLICATION_RATE));
-    // The position's cap, on the same book the engine reads.
-    const cap = intakeCap(value, members.length);
-    // Expected applicants clearing the bar: each member's chance of applying
-    // (applicantInclusion, the draw's own law) times their chance of passing.
-    const inclusion = applicantInclusion(available, applications);
-    let passing = 0;
-    for (const m of available) passing += (inclusion.get(m.id) ?? 0) * intakePassProbability(m, value);
-    const f = intakeForecast(applications, passing, cap);
-    return {
-      applications, cap, passing,
-      joins: Math.round(f.expectedJoins),
-      capLimits: passing > cap,
-    };
-  }, [members, allMarketMembers, membershipHistory, line, yearNumber, value]);
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-      <SliderInput
-        label="New business"
-        value={value}
-        min={INTAKE_NONE}
-        max={INTAKE_LOW}
-        step={1}
-        onChange={onChange}
-        formatValue={intakeLabel}
-        disabled={disabled}
-      />
-      {/* THE NAMES ON THE SLIDER, one under each stop, the current one in bold. */}
-      <div className="grid grid-cols-4 text-[11px] text-gray-400 -mt-1">
-        {INTAKE_POSITIONS.map((p, i) => (
-          <span
-            key={p.name}
-            className={`${i === 0 ? 'text-left' : i === INTAKE_POSITIONS.length - 1 ? 'text-right' : 'text-center'} ${i === value ? 'font-semibold text-gray-700' : ''}`}
-          >
-            {p.name}
-          </span>
-        ))}
-      </div>
-      <p className="text-xs text-gray-600">
-        {value <= INTAKE_NONE
-          ? `Nobody is written. About ${forecast.applications} entities will apply this year.`
-          : `About ${forecast.joins} join this year — of about ${forecast.applications} applicants, about `
-            + `${Math.round(forecast.passing)} expected to pass inspection, with room for ${forecast.cap} at this setting.`
-            + (forecast.capLimits
-              ? ' More are expected to pass than there is room for, so the room — not the standard — limits intake, and the best-inspected are taken.'
-              : ' The standard, not the room, is what limits intake.')}
-      </p>
-      <p className="flex items-start gap-1 text-[11px] text-gray-500 leading-relaxed">
-        <Info size={12} className="mt-0.5 flex-shrink-0" />
-        <span>
-          Applicants are inspected before they are written, and the inspection is imperfect — some good
-          risks fail it and some poor ones pass. A stricter setting writes fewer members and better ones on
-          average; a lower one writes more, including riskier ones. The entities keenest to join are often
-          the ones the market has priced up.
-        </span>
-      </p>
-    </div>
-  );
-}
-
-// ============================================================================
-// INVESTMENT IN RISK CONTROL INCENTIVES — ONE SLIDER PER LINE, SCREEN ONLY.
-//
-// Replaces the five-tile Risk Control Programs card that stood on the Pool tab
-// (see the note where it was removed). The programme a line runs is now a
-// property of the LINE, named here, and the only choice is how much of that
-// line's premium goes into it: 0 to 5%, in 1% steps, default 0.
-//
-// ⚠ THE VALUE IS STORED AND NOT READ. The rate indication this spend is meant
-// to feed is being redesigned, so wiring it now would mean wiring it twice.
-// `LineDecisionSet.riskControlIncentivePct` persists with the rest of the
-// line's decisions and reaches the server inside the opaque decisions blob, so
-// it is ready for the one read site the new indication will need. The screen
-// says this in as many words rather than leaving a live-looking control that
-// quietly does nothing — a lever that moves and changes no figure is the kind
-// of thing a player spends a game trying to explain.
-//
-// ⚠ AND THE SPEND COMES OUT OF THE LINE'S PREMIUM. It is not a surcharge added
-// to members' bills: the same dollars that would have paid losses and expenses
-// pay for the programme instead. That is the sentence under the slider, and it
-// is the whole economic claim the control makes while it is unwired.
 const RISK_CONTROL_PROGRAM_NAME: Record<CoverageLine, string> = {
   WC: 'Safety & Return-to-Work',
   GL: 'Training and Analytics',
