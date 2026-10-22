@@ -65,10 +65,11 @@ async function tabText(page, tab) {
   // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool in
   // aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial Statements
   // and Calculation Audit from players and viewers alike (GameShell's
-  // MULTIPLAYER_HIDDEN_TABS). The PAGES are intact.
-  const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
+  // MULTIPLAYER_HIDDEN_TABS). The PAGES are intact. Dashboard and Departments
+  // are hidden in both (src/game/tabs.tsx); Investments and Rate Indication joined.
+  const TABS = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions',
                 'Decision History', 'Result Spreadsheet'];
-  const HIDDEN = ['Financial Statements', 'Results', 'Calculation Audit'];
+  const HIDDEN = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
   ok(present === TABS.length, `viewer has all ${TABS.length} multiplayer tabs (${present}/${TABS.length})`);
@@ -152,7 +153,7 @@ async function tabText(page, tab) {
       const pool = p.getByRole('button', { name: 'Pool', exact: true }).first();
       if (await pool.count() > 0) { await pool.click(); await p.waitForTimeout(400); }
     }
-    for (const tab of ['Annual Statement', 'Decision History', 'Dashboard']) {
+    for (const tab of ['Annual Statement', 'Decision History', 'Rate Indication']) {
       const d = await tabText(driver, tab);
       const v = await tabText(viewer, tab);
       ok(h(d) === h(v), `year ${y}, ${tab}: the viewer's is identical to the player's (${h(d)} / ${h(v)})`);

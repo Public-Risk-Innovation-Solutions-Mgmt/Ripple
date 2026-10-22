@@ -1,141 +1,233 @@
 // ============================================================================
-// THE RATE INDICATION — each line's rate for the coming year, laid out the way
-// an actuary indicates it: the experience, the expenses as shares of the rate,
-// the indication at Expected and at other funding levels, and each cover's
-// price. Display only.
+// THE RATE INDICATION — each line's rate for a program year, laid out the way
+// an actuary indicates it: the pure premium, the expenses as shares of the
+// rate, and the indication at Expected and at other funding levels, with each
+// cover's price below. Display only.
 //
-// ⚠ EVERY FIGURE IS THE ENGINE'S OWN PRICING, NEVER A SECOND CALCULATION. The
-// rates come from computeFundingConsequence on the Decisions panel's own input
-// (fundingConsequenceInput), and the experience from the same pure premium
-// result that input carries. So the indicated rate at Expected plus a cover's
-// price is the rate the panel charges, at every funding position; the
-// rate-indication driver holds that on every line.
+// ⚠ EVERY FIGURE IS THE ENGINE'S OWN PRICING, NEVER A SECOND CALCULATION.
+//   The coming year   computeFundingConsequence on the Decisions panel's own
+//                     input (fundingConsequenceInput), so each indicated rate
+//                     is the rate the panel charges at that level.
+//   A played year     quoteNewRateStack — the call strikeBookRate makes — on
+//                     what that year was struck on: its pure premium and book
+//                     (newPurePremiumPer100, ratedExposure), its decisions as
+//                     echoed on the row, and its rateBasis (the book's risk and
+//                     the window), stored when the year settled. So the
+//                     indicated rate at the level chosen plus the cover bought
+//                     is the rate charged that year.
+//   The rate-indication driver holds both, on every line, solo and hosted.
 //
-// ⚠ THE PERMISSIBLE LOSS RATIO IS PER FUNDING POSITION. Admin is charged in
-// dollars, not as a share of the rate — fixed per year plus per $100 of
-// exposure — and the CLF does not scale it: the rate is (pure premium x CLF +
-// admin) / (1 - risk control - contingency). So admin's share of the rate, and
-// the permissible loss ratio with it, is that position's own; with it, rate =
-// pure premium x CLF / permissible loss ratio exactly, at every position.
+// ⚠ TRENDED AVERAGE LOSSES ARE THE AVERAGE EXPOSURE x THE AVERAGE TRENDED LOSS
+// COST (Loss & LAE per $100, each window year trended to the latest one).
+// Pricing averages each year's loss cost with equal weight, so this is what
+// reproduces it exactly whether or not the book has moved; the plain average
+// of the dollars would miss it by up to ~0.1% once a renewal cut moves the
+// book. With the window ending the year before the one priced, the average
+// trended to the latest year is the projected pure premium over one year's
+// trend. (The catastrophe load is off; were it on, it would sit in this figure.)
+//
+// ⚠ THE PERMISSIBLE LOSS RATIO IS AT EXPECTED. Admin is charged in dollars and
+// the CLF does not scale it, so each funding level has its own share; every
+// indicated rate is the quote's own, not pure premium / one permissible ratio.
+//
+// ⚠ NOTHING HERE IS SHOWN AS METHOD. The page prints labels and figures only
+// (docs/PENDING_MULTIPLAYER.md: players never see how the engine works).
 // ============================================================================
 import {
   ADMIN_FIXED_PER_YEAR, AGGREGATE_STOP_OPTIONS, PROFIT_AND_CONTINGENCY_OF_RATE, RATE_INDICATION_FUNDING_LEVELS,
 } from '../data/pricingParameters';
 import { computeFundingConsequence } from './fundingConsequence';
-import { effectiveRiskControlIncentivePct } from './linePricing';
+import { effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
 import { lossCostTrendPerYear } from './newPurePremium';
-import { reinsuranceOptionIds } from './reinsuranceOptions';
+import { AGGREGATE_NOT_OFFERED, placementFor, reinsuranceOptionIds } from './reinsuranceOptions';
 import { gameShocksOn } from './shockLosses';
+import { selectedClfFor } from './simulationEngine';
 import { fundingConsequenceInput } from '../game/derivations';
-import type { CoverageLine, DecisionSet, GameState, LineResultSet } from '../types/simulation';
+import type { CoverageLine, DecisionSet, GameState, LineDecisionSet, LineResultSet } from '../types/simulation';
+
+/** A funding position: Expected, or a confidence level. */
+export type FundingPosition = 'expected' | number;
+
+/** What a year's pricing gives at one position and cover. */
+interface Priced { finalRatePer100: number; adminRatePer100: number; reinsRatePer100: number }
 
 export interface RateIndication {
   line: CoverageLine;
-  /** The year being priced, and its calendar year. */
   yearNumber: number;
   calendarYear: number;
-  /** The five-year average of the program years in the pricing window; null before the ledger has one. */
-  experience: {
-    years: number;
-    /** Developed to ultimate as pricing develops it, with ALAE and ULAE — the window's average, dollars. */
-    lossAndLae: number;
-    /** The window's average, $M. */
+  pure: {
+    /** Window years; fewer than five labels the row with the count. 0: none (no figures). */
+    windowYears: number;
+    trendedAverageLosses: number;
+    /** $M. */
     exposure: number;
-    /** Loss & LAE / exposure, per $100. */
     purePremiumPer100: number;
-    /** The loss-cost trend a year (1.04 is +4%). */
+    /** 1.04 is +4%. */
     annualTrend: number;
-    /** Projected / pure premium: the trend to the coming year, as pricing applies it year by year. */
-    trendFactor: number;
-    /** Pricing's own figure — the rate's pure premium. */
     projectedPer100: number;
-  } | null;
-  /** The pure premium the rate is struck on (before reinsurance), per $100. */
-  purePremiumPer100: number;
+  };
+  /** Shares of the rate at Expected. */
   expenses: {
     fixedAdmin: number; perExposureAdmin: number; riskControl: number; contingency: number;
     totalAdmin: number; permissibleLossRatio: number;
   };
-  atExpected: { indicatedPer100: number; currentPer100: number | null; change: number | null };
-  positions: { level: number; clf: number; permissibleLossRatio: number; indicatedPer100: number; change: number | null }[];
+  currentPer100: number | null;
+  positions: { position: FundingPosition; ratePer100: number; change: number | null }[];
   reinsurance: { id: string; name: string; pricePer100: number }[];
 }
 
-/** Last year's struck rate before its cover's price — the rate in force, before reinsurance. */
-function currentRateBeforeReinsurance(gs: GameState, line: CoverageLine): number | null {
-  const last: LineResultSet | undefined = gs.lockedResults.length > 0
-    ? gs.lockedResults[gs.lockedResults.length - 1].byLine[line]
-    : gs.priorHistory[gs.priorHistory.length - 1]?.byLine[line];
-  if (!last || last.finalRatePer100 === undefined || !(last.activeExposure > 0)) return null;
-  // The cover is struck at one rate per $100 for the team-year, so the averaged
-  // cost over the averaged exposure is that rate.
-  return last.finalRatePer100 - last.reinsuranceCost / (last.activeExposure * 10_000);
+export interface IndicationYear { yearNumber: number; calendarYear: number }
+
+const calendarOf = (gs: GameState, y: number) => gs.setup.startingYear + y - 1;
+
+/** A played year can be rebuilt when every active line stored its basis. */
+function rebuildable(gs: GameState, y: number): boolean {
+  const r = gs.lockedResults.find(x => x.yearNumber === y);
+  return !!r && gs.setup.activeLines.every(l => {
+    const lr = r.byLine[l];
+    return !!lr?.rateBasis && lr.ratedExposure !== undefined && lr.newPurePremiumPer100 !== undefined;
+  });
 }
 
-export function buildRateIndication(gs: GameState, line: CoverageLine, decisions: DecisionSet): RateIndication | null {
-  const d = decisions.byLine[line];
-  const prior = gs.poolState.lines[line].ratePer100;
-  const at = (level: number, atExpected: boolean, option: string) =>
-    computeFundingConsequence(level, prior, line, atExpected, fundingConsequenceInput(gs, line, decisions, option).book);
-  const { book, purePremium } = fundingConsequenceInput(gs, line, decisions, 'none');
-  const expected = at(d.fundingConfidenceLevel, true, 'none').newStack;
-  if (!expected || !purePremium) return null;
+/** The dropdown: every played year from year 1, then the coming year. */
+export function rateIndicationYears(gs: GameState): IndicationYear[] {
+  const out: IndicationYear[] = [];
+  for (const r of gs.lockedResults) {
+    if (r.yearNumber >= 1 && rebuildable(gs, r.yearNumber)) out.push({ yearNumber: r.yearNumber, calendarYear: calendarOf(gs, r.yearNumber) });
+  }
+  if (!gs.isComplete) out.push({ yearNumber: gs.currentYearNumber, calendarYear: calendarOf(gs, gs.currentYearNumber) });
+  return out;
+}
+
+const asDecision = (d: LineDecisionSet, p: FundingPosition): LineDecisionSet => ({
+  ...d,
+  fundingCushion: undefined,
+  fundingAtExpected: p === 'expected',
+  fundingConfidenceLevel: p === 'expected' ? d.fundingConfidenceLevel : p,
+});
+
+/** A played year's pricing, rebuilt: the engine's quote on what the year was struck on. */
+function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
+  const lr = gs.lockedResults.find(x => x.yearNumber === yearNumber)?.byLine[line];
+  if (!lr?.rateBasis || lr.ratedExposure === undefined || lr.newPurePremiumPer100 === undefined) return null;
+  const { rateBasis, ratedExposure, newPurePremiumPer100, decisions: d } = lr;
+  const shocks = gameShocksOn(gs.setup, gs.instance);
+  const price = (p: FundingPosition, option: string): Priced => quoteNewRateStack({
+    line,
+    yearNumber,
+    members: { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) },
+    exposure: ratedExposure,
+    groundUpPurePremiumPer100: newPurePremiumPer100,
+    clf: selectedClfFor(line, asDecision(d, p)),
+    riskControlPct: effectiveRiskControlIncentivePct(d),
+    layersPlaced: placementFor(line, option),
+    aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+    reinsuranceOption: option,
+    shocks,
+  });
+  const chosen: FundingPosition = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
+  return { lr, rateBasis, ratedExposure, newPurePremiumPer100, d, price, chosen };
+}
+
+/**
+ * The rate in force for `yearNumber` before reinsurance: last year's rate, at
+ * the level chosen then, without its cover — rebuilt exactly when last year was
+ * played; for year 1, the last pre-game year's struck rate less its cover's
+ * cost over the exposure it was charged on (one book, one world).
+ */
+function currentRate(gs: GameState, line: CoverageLine, yearNumber: number): number | null {
+  const past = yearNumber - 1 >= 1 ? pastPricer(gs, line, yearNumber - 1) : null;
+  if (past) return past.price(past.chosen, 'none').finalRatePer100;
+  const r: LineResultSet | undefined = [...gs.priorHistory, ...gs.lockedResults].find(x => x.yearNumber === yearNumber - 1)?.byLine[line];
+  if (!r || r.finalRatePer100 === undefined || !(r.activeExposure > 0)) return null;
+  return r.finalRatePer100 - r.reinsuranceCost / (r.activeExposure * 10_000);
+}
+
+export function buildRateIndication(
+  gs: GameState, line: CoverageLine, decisions: DecisionSet, yearNumber: number = gs.currentYearNumber,
+): RateIndication | null {
+  const shocks = gameShocksOn(gs.setup, gs.instance);
+  const coming = yearNumber === gs.currentYearNumber && !gs.isComplete;
+
+  let price: (p: FundingPosition, option: string) => Priced | null;
+  let projected: number;
+  let exposure: number;
+  let windowYears: number;
+  let windowExposure: number;
+  let reinsuranceAt: FundingPosition;
+
+  if (coming) {
+    const d = decisions.byLine[line];
+    const prior = gs.poolState.lines[line].ratePer100;
+    price = (p, option) => computeFundingConsequence(
+      p === 'expected' ? d.fundingConfidenceLevel : p, prior, line, p === 'expected',
+      fundingConsequenceInput(gs, line, decisions, option).book,
+    ).newStack ?? null;
+    const { book, purePremium } = fundingConsequenceInput(gs, line, decisions, 'none');
+    if (!purePremium) return null;
+    projected = purePremium.purePremiumPer100;
+    exposure = book.exposure;
+    windowYears = purePremium.points.length;
+    windowExposure = windowYears > 0 ? purePremium.points.reduce((a, p) => a + p.exposure, 0) / windowYears : 0;
+    reinsuranceAt = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
+  } else {
+    const past = pastPricer(gs, line, yearNumber);
+    if (!past) return null;
+    price = past.price;
+    projected = past.newPurePremiumPer100;
+    exposure = past.ratedExposure;
+    windowYears = past.rateBasis.windowYears;
+    windowExposure = past.rateBasis.windowExposure;
+    reinsuranceAt = past.chosen;
+  }
+
+  const atExpected = price('expected', 'none');
+  if (!atExpected) return null;
+
+  // THE PURE PREMIUM: the projected figure is pricing's; the rest follow from it.
+  const annualTrend = lossCostTrendPerYear(line);
+  const purePremiumPer100 = projected / annualTrend;
 
   // THE EXPENSES, as shares of the rate at Expected.
-  const pp = expected.purePremiumRetained;
-  const rateAtExpected = expected.finalRatePer100;
-  const fixedPer100 = ADMIN_FIXED_PER_YEAR[line] / Math.max(book.exposure * 10_000, 1);
-  const perExposurePer100 = expected.adminRatePer100 - fixedPer100;
-  const riskControl = effectiveRiskControlIncentivePct(d);
+  const rateE = atExpected.finalRatePer100;
+  const fixedPer100 = ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1);
+  const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
+    : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
   const contingency = PROFIT_AND_CONTINGENCY_OF_RATE;
-  const share = (per100: number, rate: number) => per100 / rate;
-  const totalAt = (rate: number) => share(expected.adminRatePer100, rate) + riskControl + contingency;
-  const totalAdmin = totalAt(rateAtExpected);
+  const totalAdmin = atExpected.adminRatePer100 / rateE + riskControl + contingency;
 
-  // THE EXPERIENCE: the window's averages, and pricing's projected figure.
-  const pts = purePremium.points;
-  const lae = purePremium.lossCostPer100 > 0 ? purePremium.purePremiumPer100 / purePremium.lossCostPer100 : 1;
-  const experience = pts.length === 0 ? null : (() => {
-    const lossAndLae = pts.reduce((a, p) => a + p.developed, 0) / pts.length * lae;
-    const exposure = pts.reduce((a, p) => a + p.exposure, 0) / pts.length;
-    const ppPer100 = lossAndLae / (exposure * 10_000);
-    return {
-      years: pts.length, lossAndLae, exposure, purePremiumPer100: ppPer100,
-      annualTrend: lossCostTrendPerYear(line), trendFactor: purePremium.purePremiumPer100 / ppPer100,
-      projectedPer100: purePremium.purePremiumPer100,
-    };
-  })();
+  const currentPer100 = currentRate(gs, line, yearNumber);
+  const change = (rate: number) => (currentPer100 && currentPer100 > 0 ? rate / currentPer100 - 1 : null);
 
-  const current = currentRateBeforeReinsurance(gs, line);
-  const change = (rate: number) => (current && current > 0 ? rate / current - 1 : null);
-
-  const positions = RATE_INDICATION_FUNDING_LEVELS.map(level => {
-    const q = at(level, false, 'none');
-    const rate = q.newStack!.finalRatePer100;
-    const permissible = 1 - totalAt(rate);
-    return { level, clf: q.clf, permissibleLossRatio: permissible, indicatedPer100: pp * q.clf / permissible, change: change(pp * q.clf / permissible) };
+  const positions = (['expected', ...RATE_INDICATION_FUNDING_LEVELS] as FundingPosition[]).map(position => {
+    const rate = (position === 'expected' ? atExpected : price(position, 'none'))!.finalRatePer100;
+    return { position, ratePer100: rate, change: change(rate) };
   });
 
-  const shocks = gameShocksOn(gs.setup, gs.instance);
   const reinsurance = reinsuranceOptionIds(line, shocks).map(id => ({
     id,
     name: AGGREGATE_STOP_OPTIONS.find(o => o.id === id)?.name ?? id,
-    pricePer100: at(d.fundingConfidenceLevel, d.fundingAtExpected, id).newStack!.reinsRatePer100,
+    pricePer100: price(reinsuranceAt, id)?.reinsRatePer100 ?? 0,
   }));
 
-  const indicated = pp / (1 - totalAdmin);
   return {
     line,
-    yearNumber: gs.currentYearNumber,
-    calendarYear: gs.setup.startingYear + gs.currentYearNumber - 1,
-    experience,
-    purePremiumPer100: pp,
+    yearNumber,
+    calendarYear: calendarOf(gs, yearNumber),
+    pure: {
+      windowYears,
+      trendedAverageLosses: purePremiumPer100 * windowExposure * 10_000,
+      exposure: windowExposure,
+      purePremiumPer100,
+      annualTrend,
+      projectedPer100: projected,
+    },
     expenses: {
-      fixedAdmin: share(fixedPer100, rateAtExpected),
-      perExposureAdmin: share(perExposurePer100, rateAtExpected),
+      fixedAdmin: fixedPer100 / rateE,
+      perExposureAdmin: (atExpected.adminRatePer100 - fixedPer100) / rateE,
       riskControl, contingency, totalAdmin, permissibleLossRatio: 1 - totalAdmin,
     },
-    atExpected: { indicatedPer100: indicated, currentPer100: current, change: change(indicated) },
+    currentPer100,
     positions,
     reinsurance,
   };
