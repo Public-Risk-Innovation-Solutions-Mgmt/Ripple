@@ -3477,9 +3477,11 @@ export function processYear(
   // every asset class — so any allocation earns it — with no draw (commit 9;
   // it was the market's expectation, net of fee). Every played year draws as
   // before.
+  // A simulated pre-game year draws its market as a played year does, on its
+  // own stream ('pregame_invest') from the game's seed.
   const drawnMarket = FLAT_PRE_GAME.enabled && yearNumber <= 0
     ? { cash: PRE_GAME_INVESTMENT_RETURN, bonds: PRE_GAME_INVESTMENT_RETURN, equities: PRE_GAME_INVESTMENT_RETURN }
-    : simulateMarketReturns(deriveSubRng(instance.seed, yearNumber, 'invest'));
+    : simulateMarketReturns(deriveSubRng(instance.seed, yearNumber, yearNumber <= 0 ? 'pregame_invest' : 'invest'));
   // Investment Loss: twenty points off the equity return in its year, after
   // the draw and its rails — the event is a shock to the market, not a
   // different market. Absent, this is the drawn market object itself.

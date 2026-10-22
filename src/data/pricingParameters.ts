@@ -573,7 +573,8 @@ export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_00
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
- * asset class alike, no draw: a realistic return for a public pool's
+ * asset class alike, no draw — READ ONLY WITH FLAT_PRE_GAME ON (off now: the
+ * pre-game draws its market). A realistic return for a public pool's
  * bond-heavy portfolio. Most of the pre-game's growth comes from the prior
  * board's margin, not from this. The played years draw their market as before.
  */
@@ -845,15 +846,31 @@ export const SHOCK_T_BASIS_PER_100: PerLine<number> = {
 export const ROUTINE_LARGE_LOSSES = { enabled: false };
 
 /**
- * A FLAT PRE-GAME — CHOSEN (stable-scenarios build, commit 1). In the five
- * pre-game years only: each asset class earns its EXPECTED return net of fee
- * (no market draw), and ordinary losses come in at EXACTLY their expected
- * cost — no year factor and no unit (member) factor. No shock fires in the
- * pre-game (it never did — see shockLosses.ts). The history a team inherits is
- * then the pool's expected experience, not one seed's luck, and pricing's
- * window opens on it. The played years are untouched.
+ * A FLAT PRE-GAME — OFF: THE PRE-GAME IS SIMULATED (wip/simulated-pregame, a
+ * test build). On, the five pre-game years ran at exactly expected: each asset
+ * class at PRE_GAME_INVESTMENT_RETURN, and ordinary losses at exactly the
+ * scenario's multiple of expected (preGameLossMultiplier), no year or unit
+ * factor (stable-scenarios build, commit 1).
+ *
+ * OFF, each pre-game year is DRAWN THE WAY A PLAYED YEAR IS: the line's year
+ * factor and each unit's own factor at their settings (BASELINE_CV,
+ * UNIT_ORDINARY_OWN_CV), on the scenario's multiple, and the market drawn as a
+ * played year draws it. No shock fires in the pre-game, as before. Every draw
+ * comes from the game's seed on a stream of its own (`pregame_ordinary_<line>`,
+ * `pregame_ordinary_unit_<line>`, `pregame_invest`), so every team in a room
+ * and any takeover inherit the identical history, and the played years' draws
+ * do not shift. The prior board's margin is still solved so the last pre-game
+ * year ends exactly at the scenario's opening.
+ *
+ * ⚠ WHY: a flat pre-game made the inherited history — five years of the
+ * Annual Statement, and the window year 1 is priced on — read as a straight
+ * line, with no year-to-year variation at all. Simulated, it reads like the
+ * years the team then plays. Measured over the twenty scenarios, the pre-game
+ * loss ratio's year-to-year SD rises from 1.2-2.1 points to 5.7-8.1; the
+ * solved margin then ranges about -11% to +15% (below zero on 7-12 scenarios a
+ * line, against 0-1 flat) and year 1's rate change from -6% to +18%.
  */
-export const FLAT_PRE_GAME = { enabled: true };
+export const FLAT_PRE_GAME = { enabled: false };
 
 /**
  * CLAIMS ABOVE THE ORDINARY LIMIT, PER $1M OF EXPOSURE A YEAR — SOURCED.
@@ -1995,10 +2012,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Pre-game investment return', {
         value: PRE_GAME_INVESTMENT_RETURN, unit: 'a year, on invested assets',
-        what: 'What the pre-game\'s invested assets earn each year, every asset class alike, no draw.',
+        what: 'What the pre-game\'s invested assets earn each year, every asset class alike, no draw — read only '
+          + 'with the flat pre-game on.',
         basis: 'CHOSEN',
         note: 'A realistic return for a public pool\'s bond-heavy portfolio; most of the pre-game\'s growth comes '
-          + 'from the prior board\'s margin. The played years draw their market as before.',
+          + 'from the prior board\'s margin. With the flat pre-game off (as now), the pre-game draws its market as '
+          + 'a played year does.',
       }],
     ],
   },
@@ -2079,11 +2098,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Flat pre-game', {
         value: FLAT_PRE_GAME.enabled ? 'on' : 'off', unit: 'switch',
-        what: 'In the five pre-game years only: expected investment returns net of fee, and ordinary losses at '
-          + 'exactly expected — no year or unit factor. No shocks fire in the pre-game.',
+        what: 'On: the five pre-game years at expected — the pre-game return, and ordinary losses at exactly the '
+          + 'scenario\'s multiple of expected. Off: each pre-game year drawn as a played year is — the year factor, '
+          + 'each unit\'s own factor and the market — on the scenario\'s multiple, from the game\'s seed on '
+          + 'streams of its own. No shocks fire in the pre-game either way.',
         basis: 'CHOSEN',
-        note: 'The history a team inherits is the pool\'s expected experience rather than one seed\'s luck. The '
-          + 'played years are untouched.',
+        note: 'Off (test build) so the inherited history varies like the played years: flat, the pre-game loss '
+          + 'ratio moved 1.2-2.1 points a year; simulated, 5.7-8.1. Every team in a room, and any takeover, gets '
+          + 'the same history, and the played years\' draws do not shift. The prior board\'s margin is still solved '
+          + 'to the opening; it now falls below zero on 7-12 of the twenty scenarios a line.',
       }],
       ['Routine large-loss frequency', {
         value: perLine(ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M, 9), unit: 'claims per $1M of exposure a year',

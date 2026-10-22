@@ -1,9 +1,9 @@
 // ============================================================================
-// STABLE REGULAR YEARS AND A FLAT PRE-GAME — THE GATE (stable-scenarios commit 1).
+// STABLE REGULAR YEARS AND A SIMULATED PRE-GAME — THE GATE (stable-scenarios commit 1).
 //
 //   npx tsx scripts/diagnostics/routine-fold-check.ts
 //
-// With ROUTINE_LARGE_LOSSES off and FLAT_PRE_GAME on:
+// With ROUTINE_LARGE_LOSSES off and FLAT_PRE_GAME off:
 //
 //   1. COST-NEUTRAL: every line-year's expected loss equals what it was with
 //      routine large claims ON and no fold — ordinary x (1 + uplift) + shock
@@ -15,18 +15,21 @@
 //      the fold as without it — scaled off the unfolded ordinary cost.
 //   3. NO ROUTINE CLAIM IS DRAWN: across played games, every large claim comes
 //      from a shock.
-//   4. A FLAT PRE-GAME: every pre-game year's ordinary losses are exactly the
-//      scenario's multiple of expected (no factor drawn — preGameLossMultiplier,
-//      stable-scenarios commit 9; it was exactly expected), it earns
-//      PRE_GAME_INVESTMENT_RETURN (it was the market's expectation net of fee),
-//      and no shock fires.
+//   4. A SIMULATED PRE-GAME: every pre-game year's year factor is the
+//      scenario's multiple (preGameLossMultiplier) x the factor drawn on the
+//      pre-game's own stream from the game's seed; it earns its allocation on
+//      the market drawn on the pre-game's own stream; and no shock fires. (It
+//      was flat — the multiple exactly, and PRE_GAME_INVESTMENT_RETURN.)
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold without the uplift
-// divisor, T scaled off the folded cost, a routine claim slipped in, and a
-// pre-game year that draws its factor.
+// divisor, T scaled off the folded cost, a routine claim slipped in, a flat
+// pre-game, and a pre-game drawn on the played years' streams.
 // ============================================================================
 
-import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, PRE_GAME_INVESTMENT_RETURN, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
+import { blendInvestmentReturn, simulateMarketReturns, type MarketReturns } from '../../src/utils/investmentEngine';
+import { deriveSubRng } from '../../src/utils/random';
 import { scenarioOf } from '../../src/utils/scenarios';
 import { baseOrdinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown, routineFoldPer100, upliftMoments } from '../../src/utils/shockExpectation';
@@ -54,8 +57,8 @@ const check = (ok: boolean, label: string, detail = '') => {
 };
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(1, Math.abs(b));
 
-if (ROUTINE_LARGE_LOSSES.enabled || !FLAT_PRE_GAME.enabled) {
-  console.log('This gate checks the shipped setting: ROUTINE_LARGE_LOSSES off, FLAT_PRE_GAME on.');
+if (ROUTINE_LARGE_LOSSES.enabled || FLAT_PRE_GAME.enabled) {
+  console.log('This gate checks the shipped setting: ROUTINE_LARGE_LOSSES off, FLAT_PRE_GAME off.');
   process.exit(1);
 }
 
@@ -108,7 +111,9 @@ function play(id: string, years: number): Played {
 const games = ['RFC1', 'RFC2', 'RFC3', 'RFC4'].map(id => play(id, 10));
 type Claims = (r: LineResultSet) => { shock: boolean }[];
 const claimsOf: Claims = r => (r.claims ?? []).map(c => ({ shock: c.shockId !== undefined }));
-function gradeGames(claims: Claims, factorOf: (r: LineResultSet) => number, tag: string) {
+type DrawOf = (seed: number, y: number, l: CoverageLine) => number;
+type MarketOf = (seed: number, y: number) => MarketReturns;
+function gradeGames(claims: Claims, drawOf: DrawOf, marketOf: MarketOf, tag: string) {
   let large = 0, routine = 0;
   for (const g of games) for (const r of g.game) for (const l of LINES) for (const c of claims(r.byLine[l]!)) { large++; if (!c.shock) routine++; }
   check(routine === 0, `${tag}3. no routine large claim is drawn — every large claim comes with a shock`, `${large} large claims in ${games.length} ten-year games, ${routine} routine`);
@@ -117,19 +122,23 @@ function gradeGames(claims: Claims, factorOf: (r: LineResultSet) => number, tag:
     const x = r.byLine[l]!;
     const n = x.newLossEngine!;
     years++;
-    worstFactor = Math.max(worstFactor, Math.abs(factorOf(x) - preGameLossMultiplier(g.scenario)));
-    worstReturn = Math.max(worstReturn, Math.abs(x.investmentReturnRate - PRE_GAME_INVESTMENT_RETURN));
+    const want = preGameLossMultiplier(g.scenario) * drawOf(g.seed, r.yearNumber, l);
+    worstFactor = Math.max(worstFactor, Math.abs(x.commonLossFactor / want - 1));
+    const rate = blendInvestmentReturn(1, x.assetAllocation, marketOf(g.seed, r.yearNumber)).returnRate;
+    worstReturn = Math.max(worstReturn, Math.abs(x.investmentReturnRate - rate));
     shocks += n.shockLargeClaims + (n.uplift !== 0 ? 1 : 0);
   }
   check(worstFactor < 1e-12 && worstReturn < 1e-12 && shocks === 0,
-    `${tag}4. a flat pre-game: ordinary losses at exactly the scenario's multiple of expected, a 3% return, no shock`,
-    `${years} pre-game line-years; worst factor off the scenario's ${worstFactor.toExponential(2)}, worst return off 3% ${worstReturn.toExponential(2)}, ${shocks} shocks`);
+    `${tag}4. a simulated pre-game: the scenario's multiple x its draw, the market drawn, on the pre-game's own streams; no shock`,
+    `${years} pre-game line-years; worst factor off ${worstFactor.toExponential(2)}, worst return off ${worstReturn.toExponential(2)}, ${shocks} shocks`);
 }
 
-console.log('STABLE REGULAR YEARS AND A FLAT PRE-GAME');
+console.log('STABLE REGULAR YEARS AND A SIMULATED PRE-GAME');
 const shipped: Fold = routineFoldPer100;
 gradeExpected(shipped, false, '');
-gradeGames(claimsOf, r => r.newLossEngine!.ordinaryRealised / (r.newLossEngine!.ordinaryExpected * (1 + r.newLossEngine!.uplift)), '');
+const drawOf: DrawOf = (seed, y, l) => drawOrdinaryFactor(ordinaryLossRng(seed, y, l), ordinaryYearCv(l));
+const marketOf: MarketOf = (seed, y) => simulateMarketReturns(deriveSubRng(seed, y, 'pregame_invest'));
+gradeGames(claimsOf, drawOf, marketOf, '');
 
 console.log('\nCONTROLS — each must FAIL');
 const controlFails = (name: string, run: () => void, expect: string) => {
@@ -142,12 +151,15 @@ const controlFails = (name: string, run: () => void, expect: string) => {
 };
 controlFails('a fold without the uplift divisor', () => gradeExpected((l, y) => routineFoldPer100(l, y) * (1 + upliftMoments(l, y).mean), false, ''), '1.');
 controlFails('T scaled off the folded cost', () => gradeExpected(shipped, true, ''), '2.');
-controlFails('a routine claim slipped in', () => gradeGames(r => [...claimsOf(r), { shock: false }], r => r.newLossEngine!.ordinaryRealised / (r.newLossEngine!.ordinaryExpected * (1 + r.newLossEngine!.uplift)), ''), '3.');
-controlFails('a pre-game year that draws its factor', () => gradeGames(claimsOf, r => r.newLossEngine!.ordinaryFactor * 1.0 + (r.yearNumber <= 0 ? 0.03 : 0), ''), '4.');
+controlFails('a routine claim slipped in', () => gradeGames(r => [...claimsOf(r), { shock: false }], drawOf, marketOf, ''), '3.');
+controlFails('a flat pre-game (no draw)', () => gradeGames(claimsOf, () => 1, marketOf, ''), '4.');
+controlFails('a pre-game drawn on the played years\' streams', () => gradeGames(claimsOf,
+  (seed, y, l) => drawOrdinaryFactor(deriveSubRng(seed, y, `ordinary_${l}`), ordinaryYearCv(l)),
+  (seed, y) => simulateMarketReturns(deriveSubRng(seed, y, 'invest')), ''), '4.');
 
 console.log('');
 if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — expected loss unchanged line-year by line-year, the shocks unchanged, no routine claim, and a flat pre-game.');
+console.log('PASS — expected loss unchanged line-year by line-year, the shocks unchanged, no routine claim, and a simulated pre-game on its own streams.');
