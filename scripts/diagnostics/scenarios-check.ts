@@ -18,15 +18,19 @@
 //   5. THE OPENING: on every scenario and line, opening surplus = the year-1
 //      premium at Expected, struck on the opening, / the scenario's ratio; the
 //      pre-game begins at STARTING_CAPITAL, and funds every year at one margin.
-//   6. THE PRE-GAME'S EXPERIENCE: every pre-game line-year's ordinary losses
-//      are expected x (1 + (1 - 1.5 / ratio) x 0.3).
-//   7. THE PRE-GAME'S RETURN: every pre-game line-year earns 3% on its invested
-//      assets.
+//   6. THE PRE-GAME'S EXPERIENCE, SIMULATED (FLAT_PRE_GAME off): every
+//      pre-game line-year's year factor is the scenario's multiple,
+//      (1 + (1 - 1.5 / ratio) x 0.3), times the factor drawn on the pre-game's
+//      own stream (pregame_ordinary_<line>) from the game's seed.
+//   7. THE PRE-GAME'S RETURN, SIMULATED: every pre-game line-year earns its
+//      allocation on the market drawn on the pre-game's own stream
+//      (pregame_invest) from the game's seed.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a menu offering 0 to 20, a
 // handler accepting "21", a hosted room built from a hashed code, the ratio
-// order reversed, an opening at another scenario's ratio, a pre-game at
-// expected losses, and a pre-game at the market's expected return.
+// order reversed, an opening at another scenario's ratio, a flat pre-game, a
+// pre-game drawn on the played years' streams, a pre-game at 3%, and a
+// pre-game on the played years' market.
 // ============================================================================
 
 import fs from 'node:fs';
@@ -46,6 +50,9 @@ import { seedFromInstanceId } from '../../src/seedHash';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { openWorlds, strikeRates } from '../../src/utils/worlds';
+import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
+import { blendInvestmentReturn, simulateMarketReturns, type MarketReturns } from '../../src/utils/investmentEngine';
+import { deriveSubRng } from '../../src/utils/random';
 import type { CoverageLine, GameInstance, GameSetupSettings, GameState, LineResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -116,7 +123,7 @@ function gradeTable(ratio: Record<number, number>, order: readonly number[], tag
 }
 
 // ---------------------------------------------------------------- games
-interface Opened { n: number; line: CoverageLine; premium: number; surplus: number; pre: LineResultSet[] }
+interface Opened { n: number; seed: number; line: CoverageLine; premium: number; surplus: number; pre: LineResultSet[] }
 function open(id: string, instance: GameInstance, setup: GameSetupSettings): { opened: Opened[]; gs: GameState } {
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   const gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory } as GameState);
@@ -125,7 +132,7 @@ function open(id: string, instance: GameInstance, setup: GameSetupSettings): { o
   return {
     gs,
     opened: LINES.map(line => ({
-      n: Number(id), line, premium: struck[line]!.quote.finalRatePer100 * struck[line]!.exposure * 10_000,
+      n: Number(id), seed: instance.seed, line, premium: struck[line]!.quote.finalRatePer100 * struck[line]!.exposure * 10_000,
       surplus: poolState.lines[line].surplus, pre: pre.map(r => r.byLine[line]!),
     })),
   };
@@ -154,25 +161,34 @@ function gradeOpening(rows: Opened[], ratioOf: (n: number) => number, tag: strin
 }
 
 // ---------------------------------------------------------------- 6
-function gradeExperience(rows: Opened[], factorOf: (n: number) => number, tag: string) {
-  let worst = 0, n = 0;
+/** A pre-game year factor as drawn: the scenario's multiple x the draw on `drawOf`. */
+type DrawOf = (seed: number, year: number, line: CoverageLine) => number;
+function gradeExperience(rows: Opened[], factorOf: (n: number) => number, drawOf: DrawOf, tag: string) {
+  let worst = 0, n = 0, spread = 0;
   for (const r of rows) for (const y of r.pre) {
-    const e = y.newLossEngine;
-    if (!e || e.ordinaryExpected <= 0) continue;
     n++;
-    worst = Math.max(worst, Math.abs(e.ordinaryRealised / e.ordinaryExpected - factorOf(r.n)));
+    const want = factorOf(r.n) * drawOf(r.seed, y.yearNumber, r.line);
+    worst = Math.max(worst, Math.abs(y.commonLossFactor / want - 1));
+    spread = Math.max(spread, Math.abs(y.commonLossFactor / factorOf(r.n) - 1));
   }
-  check(worst < 1e-9 && n === rows.length * 5,
-    `${tag}6. every pre-game line-year's ordinary losses are expected x (1 + (1 - 1.5 / ratio) x 0.3)`,
-    `${n} pre-game line-years; worst off ${worst.toExponential(2)}`);
+  check(worst < 1e-12 && n === rows.length * 5 && spread > 0.01,
+    `${tag}6. every pre-game line-year's year factor is the scenario's multiple (1 + (1 - 1.5 / ratio) x 0.3) x its draw on the pre-game's own stream`,
+    `${n} pre-game line-years; worst off ${worst.toExponential(2)}; largest draw ${(spread * 100).toFixed(1)}% off the multiple`);
 }
 
 // ---------------------------------------------------------------- 7
-function gradeReturn(rows: Opened[], want: number, tag: string) {
-  const rates = rows.flatMap(r => r.pre.map(y => y.investmentReturnRate));
-  const worst = Math.max(...rates.map(x => Math.abs(x - want)));
-  check(worst < 1e-12, `${tag}7. every pre-game line-year earns ${(PRE_GAME_INVESTMENT_RETURN * 100).toFixed(0)}% on its invested assets`,
-    `${rates.length} line-years; worst off ${worst.toExponential(2)}`);
+function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => MarketReturns, tag: string) {
+  let worst = 0, n = 0;
+  const rates = new Set<number>();
+  for (const r of rows) for (const y of r.pre) {
+    n++;
+    const want = blendInvestmentReturn(1, y.assetAllocation, marketOf(r.seed, y.yearNumber)).returnRate;
+    worst = Math.max(worst, Math.abs(y.investmentReturnRate - want));
+    rates.add(Number(y.investmentReturnRate.toFixed(6)));
+  }
+  check(worst < 1e-12 && rates.size > 5,
+    `${tag}7. every pre-game line-year earns its allocation on the market drawn on the pre-game's own stream`,
+    `${n} line-years; worst off ${worst.toExponential(2)}; ${rates.size} distinct returns`);
 }
 
 (async () => {
@@ -194,8 +210,10 @@ function gradeReturn(rows: Opened[], want: number, tag: string) {
   const ratioOf = (n: number) => SCENARIO_PREMIUM_TO_SURPLUS[n];
   const factorOf = (n: number) => 1 + (1 - PRE_GAME_EXPERIENCE_BASE / ratioOf(n)) * PRE_GAME_EXPERIENCE_WEIGHT;
   gradeOpening(all, ratioOf, '');
-  gradeExperience(all, factorOf, '');
-  gradeReturn(all, 0.03, '');
+  const drawOf: DrawOf = (seed, y, l) => drawOrdinaryFactor(ordinaryLossRng(seed, y, l), ordinaryYearCv(l));
+  const marketOf = (seed: number, y: number) => simulateMarketReturns(deriveSubRng(seed, y, 'pregame_invest'));
+  gradeExperience(all, factorOf, drawOf, '');
+  gradeReturn(all, marketOf, '');
 
   console.log('\nCONTROLS — each must FAIL');
   const controlFails = (name: string, run: () => void, expect: string) => {
@@ -215,8 +233,13 @@ function gradeReturn(rows: Opened[], want: number, tag: string) {
   controlFails('the ratio order reversed', () => gradeTable(
     Object.fromEntries(BRIEF_ORDER.map((n, k) => [n, 1.2 + k * 0.5 / 19])), [...BRIEF_ORDER].reverse(), ''), '4.');
   controlFails('an opening at another scenario\'s ratio', () => gradeOpening(all, n => ratioOf(n === 20 ? 1 : n), ''), '5.');
-  controlFails('a pre-game at expected losses', () => gradeExperience(all, () => 1, ''), '6.');
-  controlFails('a pre-game at the market\'s expected return', () => gradeReturn(all, 0.0349, ''), '7.');
+  controlFails('a flat pre-game (no draw)', () => gradeExperience(all, factorOf, () => 1, ''), '6.');
+  controlFails('a pre-game drawn on the played years\' stream', () => gradeExperience(all, factorOf,
+    (seed, y, l) => drawOrdinaryFactor(deriveSubRng(seed, y, `ordinary_${l}`), ordinaryYearCv(l)), ''), '6.');
+  const flat = PRE_GAME_INVESTMENT_RETURN;
+  controlFails('a pre-game at 3%', () => gradeReturn(all, () => ({ cash: flat, bonds: flat, equities: flat }), ''), '7.');
+  controlFails('a pre-game on the played years\' market', () => gradeReturn(all,
+    (seed, y) => simulateMarketReturns(deriveSubRng(seed, y, 'invest')), ''), '7.');
 
   console.log('');
   if (failures.length) {
