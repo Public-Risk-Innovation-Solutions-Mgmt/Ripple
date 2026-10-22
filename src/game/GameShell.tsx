@@ -30,11 +30,7 @@
 // ============================================================================
 
 import React from 'react';
-import {
-  LayoutDashboard, ClipboardList, FileText, Settings, BarChart2,
-  Calculator, Table, History as HistoryIcon, Layers, HardHat, Scale,
-  Building2, ScrollText, BookOpen, Landmark,
-} from 'lucide-react';
+import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 
 import type {
   CoverageLine, DecisionSet, GameState, LineView, Member, StartingFinancials,
@@ -58,20 +54,16 @@ import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
 import ResultsStatementPage from '../pages/ResultsStatementPage';
 import IntroductionPage from '../pages/IntroductionPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
+import InvestmentsPage from '../pages/InvestmentsPage';
+import RateIndicationPage from '../pages/RateIndicationPage';
+import { isHiddenTab, topBarTabs } from './tabs';
 import { shockTimingOf } from '../utils/shockLosses';
 
 const AUDIT_TAB: TabId = 'audit';
 const SPREADSHEET_TAB: TabId = 'spreadsheet';
 
-// ============================================================================
-// ⚠ THE MULTIPLAYER VERSION HIDES THESE TABS — ONE SWITCH, AND THIS IS IT.
-// In a hosted session (players and viewers, PlayScreen passes `multiplayer`)
-// the Results, Financial Statements and Calculation Audit tabs are neither
-// listed nor rendered; single-player keeps them all. The Result Spreadsheet
-// stays visible in both, for testing. To restore the three in multiplayer,
-// set this list to [] — the pages, their routes and their data are untouched.
-// ============================================================================
-const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = ['results', 'financials', AUDIT_TAB];
+// ⚠ THE TOP BAR'S ORDER AND ITS HIDDEN TABS LIVE IN ./tabs.tsx — one list each,
+// solo and multiplayer. A hidden tab is neither listed nor rendered.
 
 // Pages that support the Pool / per-line view toggle (Stage 2.1; 'history'
 // added in Stage 2.10 — each line now has its own real pre-game history —
@@ -89,30 +81,6 @@ const LINE_VIEW_ICONS: Record<LineView, React.ReactNode> = {
   GL: <Scale size={14} />,
   Property: <Building2 size={14} />,
 };
-
-const SETUP_TAB = { id: 'setup' as TabId, label: 'Game Setup', icon: <Settings size={16} /> };
-
-const PLAY_TABS = [
-  { id: 'introduction' as TabId, label: 'Introduction', icon: <BookOpen size={16} /> },
-  { id: 'departments' as TabId, label: 'Departments', icon: <Landmark size={16} /> },
-  // ⚠ THE MEMBERSHIP TAB IS HIDDEN, NOT REMOVED. The multiplayer game shows the
-  // pool in aggregate and drops individual members; the ENGINE keeps them until
-  // a simplified model replaces it, so this hides the view and leaves
-  // MembershipPage, its route and every member path intact. Restoring it is
-  // uncommenting one line.
-  //   { id: 'membership' as TabId, label: 'Membership', icon: <Users size={16} /> },
-  // ⚠ THE ANNUAL STATEMENT REPLACES POOL HISTORY FOR PLAYERS. HistoryPage is
-  // kept in the tree, unrouted; Results, the Result Spreadsheet and the
-  // Calculation Audit stay as they are, for testing.
-  { id: 'statement' as TabId, label: 'Annual Statement', icon: <HistoryIcon size={16} /> },
-  { id: 'dashboard' as TabId, label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
-  { id: 'decisions' as TabId, label: 'Decisions', icon: <ClipboardList size={16} /> },
-  { id: 'decisionHistory' as TabId, label: 'Decision History', icon: <ScrollText size={16} /> },
-  { id: 'financials' as TabId, label: 'Financial Statements', icon: <FileText size={16} /> },
-  { id: 'results' as TabId, label: 'Results', icon: <BarChart2 size={16} /> },
-  { id: SPREADSHEET_TAB, label: 'Result Spreadsheet', icon: <Table size={16} /> },
-  { id: AUDIT_TAB, label: 'Calculation Audit', icon: <Calculator size={16} /> },
-];
 
 export interface GameShellProps {
   gameState: GameState | null;
@@ -132,7 +100,7 @@ export interface GameShellProps {
   advanceLabel?: string;
   onNewGame?: () => void;
 
-  /** Rendered in the Game Setup tab. Omitting it removes the tab entirely. */
+  /** The Game Setup page (solo): where a game starts. Off the top bar — see tabs.tsx. */
   setupPage?: React.ReactNode;
   /** Solo's loan modal. A session declines automatically and passes nothing. */
   loanPrompt?: React.ReactNode;
@@ -146,7 +114,7 @@ export interface GameShellProps {
   decisionsDisabled?: boolean;
   /** Rendered under the tab bar. The session's lock/waiting strip lives here. */
   statusStrip?: React.ReactNode;
-  /** A hosted session's screen — players and viewers. Hides MULTIPLAYER_HIDDEN_TABS. */
+  /** A hosted session's screen — players and viewers. Hides tabs.tsx's MULTIPLAYER_HIDDEN_TABS too. */
   multiplayer?: boolean;
 }
 
@@ -161,13 +129,17 @@ export default function GameShell({
 
   const d = useGameDerivations(gameState, lineView, currentDecisions);
 
-  // A tab the multiplayer version hides is neither listed nor rendered.
-  const hidden = (t: TabId) => !!multiplayer && MULTIPLAYER_HIDDEN_TABS.includes(t);
-  const tabs = React.useMemo(() => {
-    const list = (setupPage !== undefined ? [SETUP_TAB, ...PLAY_TABS] : PLAY_TABS)
-      .filter(t => !(multiplayer && MULTIPLAYER_HIDDEN_TABS.includes(t.id)));
-    return list.map(t => ({ ...t, disabled: !isStarted && t.id !== 'setup' }));
-  }, [isStarted, setupPage, multiplayer]);
+  // A hidden tab is neither listed nor rendered (tabs.tsx).
+  const hidden = (t: TabId) => isHiddenTab(t, !!multiplayer);
+  const tabs = React.useMemo(
+    () => topBarTabs({ multiplayer: !!multiplayer, hasSetup: setupPage !== undefined })
+      .map(t => ({ ...t, disabled: !isStarted && t.id !== 'setup' })),
+    [isStarted, setupPage, multiplayer],
+  );
+  // ⚠ A HIDDEN TAB ASKED FOR SHOWS THE FIRST LISTED ONE. Callers still name
+  // tabs that may be hidden (a restored save lands on Dashboard); the setup
+  // page is the exception — it is where a solo game starts, off the bar.
+  const shownTab: TabId = activeTab === 'setup' || !hidden(activeTab) ? activeTab : (tabs[0]?.id ?? activeTab);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -185,12 +157,12 @@ export default function GameShell({
       {isStarted && (
         <TabNav
           tabs={tabs}
-          activeTab={activeTab}
+          activeTab={shownTab}
           onSelect={onSelectTab}
         />
       )}
 
-      {isStarted && LINE_VIEW_PAGES.includes(activeTab) && (
+      {isStarted && LINE_VIEW_PAGES.includes(shownTab) && (
         <TabNav<LineView>
           tabs={[
             { id: 'pool' as LineView, label: 'Pool', icon: LINE_VIEW_ICONS.pool },
@@ -206,17 +178,23 @@ export default function GameShell({
       {statusStrip}
 
       <main>
-        {activeTab === 'setup' && setupPage}
+        {shownTab === 'setup' && setupPage}
 
-        {activeTab === 'introduction' && gameState && (
+        {shownTab === 'introduction' && gameState && (
           <IntroductionPage gameState={gameState} />
         )}
 
-        {activeTab === 'departments' && gameState && (
+        {shownTab === 'investments' && gameState && <InvestmentsPage />}
+
+        {shownTab === 'rateIndication' && gameState && (
+          <RateIndicationPage gameState={gameState} decisions={currentDecisions} />
+        )}
+
+        {shownTab === 'departments' && !hidden('departments') && gameState && (
           <DepartmentsPage gameState={gameState} currentDecisions={currentDecisions} />
         )}
 
-        {activeTab === 'dashboard' && gameState && startingFinancials && (
+        {shownTab === 'dashboard' && !hidden('dashboard') && gameState && startingFinancials && (
           <DashboardPage
             lockedResults={d.viewResults}
             historicalYears={d.historicalYears}
@@ -233,11 +211,11 @@ export default function GameShell({
           />
         )}
 
-        {activeTab === 'statement' && gameState && (
+        {shownTab === 'statement' && gameState && (
           <ResultsStatementPage gameState={gameState} lineView={lineView} />
         )}
 
-        {activeTab === 'decisions' && gameState && (
+        {shownTab === 'decisions' && gameState && (
           <DecisionsPage
             /* ⚠ priorProgramIds AND activeLines ARE NO LONGER PASSED. The
                first derived each program's tenure for the Risk Control
@@ -262,11 +240,11 @@ export default function GameShell({
           />
         )}
 
-        {activeTab === 'decisionHistory' && gameState && (
+        {shownTab === 'decisionHistory' && gameState && (
           <DecisionHistoryPage lockedResults={d.viewResults} lineView={lineView} />
         )}
 
-        {activeTab === 'financials' && !hidden('financials') && gameState && startingFinancials && (
+        {shownTab === 'financials' && !hidden('financials') && gameState && startingFinancials && (
           <FinancialsPage
             lockedResults={d.viewResults}
             priorResults={d.viewPriorResults}
@@ -274,11 +252,11 @@ export default function GameShell({
           />
         )}
 
-        {activeTab === 'results' && !hidden('results') && gameState && (
-          <ResultsPage lockedResults={d.viewResults} lineView={lineView} surplusRangeByYear={d.surplusRangeByYear} />
+        {shownTab === 'results' && !hidden('results') && gameState && (
+          <ResultsPage lockedResults={d.viewResults} lineView={lineView} />
         )}
 
-        {activeTab === SPREADSHEET_TAB && gameState && (
+        {shownTab === SPREADSHEET_TAB && gameState && (
           <ResultSpreadsheetPage
             lockedResults={gameState.lockedResults}
             priorHistory={gameState.priorHistory}
@@ -287,11 +265,10 @@ export default function GameShell({
             instanceId={gameState.setup.instanceId}
             poolState={gameState.poolState}
             claimsWorld={gameState.worlds?.[0]}
-            worldCount={gameState.worlds?.length}
           />
         )}
 
-        {activeTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && (
+        {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && (
           <CalculationAuditPage
             lockedResults={gameState.lockedResults}
             priorHistory={gameState.priorHistory}
@@ -302,7 +279,7 @@ export default function GameShell({
           />
         )}
 
-        {activeTab === 'membership' && gameState && startingFinancials && (
+        {shownTab === 'membership' && gameState && startingFinancials && (
           <MembershipPage
             lockedResults={gameState.lockedResults}
             startingFinancials={startingFinancials}

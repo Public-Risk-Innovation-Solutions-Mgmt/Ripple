@@ -3,6 +3,8 @@ import React from 'react';
 export type TabId =
   | 'setup'
   | 'introduction'
+  | 'investments'
+  | 'rateIndication'
   | 'departments'
   | 'history'
   | 'statement'

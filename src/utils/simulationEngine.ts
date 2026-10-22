@@ -703,10 +703,15 @@ export interface StruckLineRate {
   exposure: number;
   newPp: NewPurePremiumResult;
   quote: NewStackQuote;
+  /** The book's risk the quote was struck on (lineBookRisk); absent for a line with no book of units. */
+  bookRisk?: number;
 }
 
-/** The CLF a line's funding decision selects. One definition, for the engine and strikeBookRate. */
-function selectedClfFor(line: CoverageLine, d: LineDecisionSet): number {
+/**
+ * The CLF a line's funding decision selects. One definition, for the engine,
+ * strikeBookRate, and the Rate Indication's rebuild of a played year.
+ */
+export function selectedClfFor(line: CoverageLine, d: LineDecisionSet): number {
   // The pre-game's cushion over expected: a stated multiplier, no table read.
   if (d.fundingCushion !== undefined) return 1 + d.fundingCushion;
   return hasStaticClf(line)
@@ -764,7 +769,7 @@ export function strikeBookRate(
     reinsuranceOption: lineDecisions.reinsuranceOption,
     shocks,
   });
-  return { exposure, newPp, quote };
+  return { exposure, newPp, quote, ...(bookRisk !== undefined ? { bookRisk } : {}) };
 }
 
 // Shared fields this line's year processing updates. Investments are absent —

@@ -4,7 +4,7 @@
 // generation scripts — uses the same list and cannot silently drift from what
 // the app actually exports.
 import type { SpreadsheetMetric } from './resultsExport';
-import { formatCurrency, formatPct } from './formatters';
+import { formatCurrency, formatNumber, formatPct } from './formatters';
 import { eventLabel, yearEvents } from './yearEvents';
 import { placementCode, placementSummary } from './reinsuranceDisplay';
 import { developmentDisplay } from './developmentDisplay';
@@ -195,14 +195,14 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       key: 'activeExposure',
       category: 'Membership',
       label: 'Active Payroll Exposure ($M)',
-      value: r => r.activeExposure.toFixed(2),
+      value: r => formatNumber(r.activeExposure, 2),
       csvValue: r => r.activeExposure,
     },
     {
       key: 'totalMarketExposure',
       category: 'Membership',
       label: 'Total Market Payroll ($M)',
-      value: r => r.totalMarketExposure.toFixed(2),
+      value: r => formatNumber(r.totalMarketExposure, 2),
       csvValue: r => r.totalMarketExposure,
     },
     {
@@ -273,7 +273,7 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       key: 'writtenExposure',
       category: 'Rate and Premium',
       label: 'Written Payroll ($M)',
-      value: r => r.writtenExposure.toFixed(2),
+      value: r => formatNumber(r.writtenExposure, 2),
       csvValue: r => r.writtenExposure,
     },
     {
@@ -396,8 +396,8 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
         if (evs.length === 0) return 'None';
         return evs.map(ev => {
           // An averaged row (loss engine commit 4b) says in how many worlds it fired.
-          const label = eventLabel(ev.name, ev.region)
-            + (ev.worlds ? ` (in ${ev.worlds.fired} of ${ev.worlds.of} worlds)` : '');
+          // ⚠ NO "(in N of M worlds)" — players are never told about the worlds.
+          const label = eventLabel(ev.name, ev.region);
           const claims = Number.isInteger(ev.claims) ? String(ev.claims) : ev.claims.toFixed(1);
           if (ev.claims > 0) return `${label}: ${claims} claim${ev.claims === 1 ? '' : 's'}, ${formatCurrency(ev.grossLoss)}`;
           // An uplift on the year's ordinary losses: real dollars, no claim.

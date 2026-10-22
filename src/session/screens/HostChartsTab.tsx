@@ -78,7 +78,7 @@ import { useState } from 'react';
 import { BarChart3, Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatMillions } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import type { RoomView, TeamYearFigures, TeamView } from '../index';
 
@@ -162,7 +162,7 @@ const METRICS: Metric[] = [
     source: 'figures',
     pick: f => f.activeExposure,
     // Payroll in $M, as the metric stores it.
-    format: v => `$${v.toFixed(1)}M`,
+    format: v => formatMillions(v, 1),
     // ⚠ NOT ANCHORED AT ZERO, DELIBERATELY. Every pool carries a large standing
     // exposure, so a zero-anchored axis would squash the churn that is the only thing this
     // chart is for. The axis is labelled, and no member count is near zero.

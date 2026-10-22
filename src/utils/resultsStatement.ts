@@ -31,6 +31,7 @@
 // is a 'na' cell and the page lists the rows that carry one.
 // ============================================================================
 
+import { formatNumber } from './formatters';
 import { laeShares, lossExpenseReserve } from './lossExpense';
 import { splitCohorts } from './reserveSplit';
 import { computeContributionShares } from './simulationEngine';
@@ -110,7 +111,7 @@ export function cellText(c: Cell, format: CellFormat): string {
       return format === 'dollars' ? thousands(x)
         : format === 'pct' ? `${(x * 100).toFixed(1)}%`.replace(/^-/, '−')
         : format === 'ratio' ? x.toFixed(2).replace(/^-/, '−')
-        : format === 'exposure' ? `${Math.abs(x) < 0.05 ? '0.0' : x.toFixed(1)}`
+        : format === 'exposure' ? `${Math.abs(x) < 0.05 ? '0.0' : formatNumber(x, 1)}`
         : x.toFixed(3);
     }
   }

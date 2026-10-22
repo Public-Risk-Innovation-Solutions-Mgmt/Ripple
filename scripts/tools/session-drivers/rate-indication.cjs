@@ -1,15 +1,24 @@
 // THE RATE INDICATION REPRODUCES THE RATE THE GAME CHARGES — what a player sees.
 //
-// A solo game on scenario 7, three lines, through the real setup screen. On
-// every line, before year 1 and after a played year, the Rate Indication
-// (Departments, Actuarial) is read, and on the Decisions page the panel's rate
-// (new-rate-final, its full figure) is read with the funding slider at
-// Expected and at 70%, 80% and 90%, under each cover the line offers:
+// Solo (scenario 7, three lines, through the real setup screen) and hosted (a
+// room over the local transport, three lines), each before year 1 and after
+// two played years. On every line:
 //
-//   indicated rate at that position + the cover's price  =  the panel's rate
+//   the coming year   on the Decisions page, under each cover the line offers,
+//                     at Expected, 70%, 80% and 90%:
+//                       indicated rate at that level + the cover's price
+//                         = the panel's rate (new-rate-final, its full figure)
+//   each played year  chosen from the page's year dropdown:
+//                       indicated rate at the level chosen that year + the
+//                       price of the cover bought = the panel's rate when the
+//                       year was locked; and that indicated rate is the next
+//                       year's Current rate (the engine's record: the charged
+//                       rate less the cover's price)
+//   the dropdown      year 1 to the coming year, defaulting to the coming year
+//   the window        five years on the books, so no count on the row
 //
-// to one part in a billion. Also: the page lists exactly the covers the
-// Decisions page offers, and None is priced at nothing.
+// to one part in a billion. The years are played on different choices: year 1
+// at Expected under the line's second cover, year 2 at 80% under None.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/rate-indication.cjs
@@ -25,13 +34,134 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 
-(async () => {
-  await requireServer();
-  const browser = await launchBrowser();
+// What a player does on a game screen: the same in solo and hosted.
+function screen(page, mode) {
+  const tab = async name => { await page.getByRole('button', { name: new RegExp(`^${name}$`) }).first().click(); await page.waitForTimeout(500); };
+  const value = async sel => Number(await page.getAttribute(sel, 'data-value'));
+  const lineView = async label => { await page.getByRole('button', { name: label, exact: true }).first().click(); await page.waitForTimeout(400); };
+
+  async function readIndication(year) {
+    await tab('Rate Indication');
+    await page.waitForSelector('[data-testid="rate-indication"]', { timeout: 20000 });
+    if (year !== undefined) {
+      await page.selectOption('[data-testid="ri-year"]', String(year));
+      await page.waitForFunction(y => document.querySelector('[data-testid="rate-indication"]')?.getAttribute('data-year') === String(y), year);
+    }
+    const out = { year: Number(await page.getAttribute('[data-testid="rate-indication"]', 'data-year')) };
+    for (const [l] of LINES) {
+      const reins = {};
+      for (const el of await page.$$(`[data-testid^="ri-${l}-reins-"]`)) {
+        reins[(await el.getAttribute('data-testid')).replace(`ri-${l}-reins-`, '')] = Number(await el.getAttribute('data-value'));
+      }
+      out[l] = {
+        expected: await value(`[data-testid="ri-${l}-expected"]`),
+        current: await value(`[data-testid="ri-${l}-current"]`),
+        window: Number(await page.getAttribute(`[data-testid="ri-${l}-losses"]`, 'data-window')),
+        lossesLabel: await page.locator(`[data-testid="ri-${l}-losses"]`).locator('xpath=..').innerText(),
+        reins, levels: {},
+      };
+      for (const lv of LEVELS) out[l].levels[lv] = await value(`[data-testid="ri-${l}-level-${lv}"]`);
+    }
+    return out;
+  }
+  const options = async () => page.$$eval('[data-testid="ri-year"] option', os => os.map(o => ({ value: Number(o.value), text: o.textContent.trim() })));
+
+  async function setLevel(lv) {
+    if (lv === 'expected') {
+      const reset = page.getByRole('button', { name: /^Reset to Expected/ }).first();
+      if (await reset.count() > 0) { await reset.click(); await page.waitForTimeout(300); }
+      return;
+    }
+    const s = page.locator('div.flex.flex-col.gap-2', { has: page.locator('span', { hasText: /^Funding Confidence Level$/ }) }).first().locator('input[type=range]');
+    await s.focus();
+    await page.keyboard.press('Home');
+    for (let i = 0; i < (lv - 30) / 5; i++) await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(300);
+  }
+  const offeredOn = l => page.$$eval(`[data-testid^="reins-option-${l}-"]`,
+    (els, prefix) => els.map(el => el.getAttribute('data-testid').replace(prefix, '')), `reins-option-${l}-`);
+
+  // THE COMING YEAR: every level, every cover, against the panel.
+  async function comingYear(name) {
+    const ind = await readIndication();
+    const opts = await options();
+    ok(opts.length > 0 && ind.year === opts[opts.length - 1].value,
+      `${mode}, ${name}: the dropdown defaults to the coming year`, opts.map(o => o.text).join(', '));
+    await tab('Decisions');
+    for (const [l, label] of LINES) {
+      await lineView(label);
+      const offered = await offeredOn(l);
+      ok(JSON.stringify(Object.keys(ind[l].reins).sort()) === JSON.stringify([...offered].sort()),
+        `${mode}, ${name}, ${l}: the page lists exactly the covers the Decisions page offers`, offered.join(', '));
+      ok(ind[l].window === 5 && !/year average/.test(ind[l].lossesLabel),
+        `${mode}, ${name}, ${l}: five years on the books, and no count on the row`, `${ind[l].window}`);
+      for (const option of offered) {
+        await page.click(`[data-testid="reins-option-${l}-${option}"]`);
+        await page.waitForTimeout(300);
+        for (const lv of ['expected', ...LEVELS]) {
+          await setLevel(lv);
+          const panel = await value('[data-testid="new-rate-final"]');
+          const indicated = lv === 'expected' ? ind[l].expected : ind[l].levels[lv];
+          ok(near(panel, indicated + ind[l].reins[option]),
+            `${mode}, ${name}, ${l}, ${option}, ${lv === 'expected' ? 'Expected' : `${lv}%`}: indicated + the cover's price = the panel's rate`,
+            `${indicated.toFixed(4)} + ${ind[l].reins[option].toFixed(4)} vs ${panel.toFixed(6)}`);
+        }
+      }
+      await page.click(`[data-testid="reins-option-${l}-${offered[0]}"]`);
+      await setLevel('expected');
+    }
+  }
+
+  // SET A YEAR'S CHOICES and record the rate the panel charges for them.
+  async function choose(level, coverIndex) {
+    await tab('Decisions');
+    const charged = {};
+    for (const [l, label] of LINES) {
+      await lineView(label);
+      const offered = await offeredOn(l);
+      const cover = offered[Math.min(coverIndex, offered.length - 1)];
+      await page.click(`[data-testid="reins-option-${l}-${cover}"]`);
+      await page.waitForTimeout(300);
+      await setLevel(level);
+      charged[l] = { level, cover, rate: await value('[data-testid="new-rate-final"]') };
+    }
+    return charged;
+  }
+
+  // EACH PLAYED YEAR, from the dropdown, against what was charged.
+  async function playedYears(name, played) {
+    await readIndication();
+    const opts = await options();
+    ok(opts.length === played.length + 1 && opts.every((o, i) => o.value === i + 1),
+      `${mode}, ${name}: the dropdown runs from year 1 to the coming year`, opts.map(o => o.text).join(', '));
+    const rows = [];
+    for (let i = 0; i < played.length; i++) rows.push(await readIndication(i + 1));
+    rows.push(await readIndication(played.length + 1));
+    for (let i = 0; i < played.length; i++) {
+      for (const [l] of LINES) {
+        const c = played[i][l];
+        const ind = c.level === 'expected' ? rows[i][l].expected : rows[i][l].levels[c.level];
+        const price = rows[i][l].reins[c.cover];
+        ok(near(ind + price, c.rate),
+          `${mode}, ${name}, year ${i + 1}, ${l} (${c.level === 'expected' ? 'Expected' : `${c.level}%`}, ${c.cover}): indicated + the cover bought = the rate charged`,
+          `${ind.toFixed(4)} + ${price.toFixed(4)} vs ${c.rate.toFixed(6)}`);
+        ok(near(ind, rows[i + 1][l].current),
+          `${mode}, ${name}, year ${i + 1}, ${l}: that indicated rate is year ${i + 2}'s Current rate`, `${ind.toFixed(6)} vs ${rows[i + 1][l].current.toFixed(6)}`);
+        ok(rows[i][l].window === 5 && !/year average/.test(rows[i][l].lossesLabel),
+          `${mode}, ${name}, year ${i + 1}, ${l}: five years on the books, and no count on the row`);
+      }
+    }
+    // Back to the default for whatever follows.
+    await page.selectOption('[data-testid="ri-year"]', String(played.length + 1));
+  }
+
+  return { comingYear, choose, playedYears, tab };
+}
+
+async function solo(browser) {
   const page = await (await browser.newContext({ baseURL: BASE })).newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-
   await page.goto('/solo');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -43,81 +173,66 @@ const ok = (cond, label, detail = '') => {
   }
   await page.getByRole('button', { name: 'Start Simulation' }).click();
   await page.waitForSelector('text=Lock Year', { timeout: 60000 });
+  const s = screen(page, 'solo');
 
-  const tab = async name => { await page.getByRole('button', { name: new RegExp(`^${name}$`) }).first().click(); await page.waitForTimeout(500); };
-  const value = async sel => Number(await page.getAttribute(sel, 'data-value'));
-
-  async function readIndication() {
-    await tab('Departments');
-    await page.getByRole('button', { name: /Actuarial/ }).first().click();
-    await page.waitForSelector('[data-testid="rate-indication"]', { timeout: 20000 });
-    const out = {};
-    for (const [l] of LINES) {
-      const reins = {};
-      for (const el of await page.$$(`[data-testid^="ri-${l}-reins-"]`)) {
-        reins[(await el.getAttribute('data-testid')).replace(`ri-${l}-reins-`, '')] = Number(await el.getAttribute('data-value'));
-      }
-      out[l] = { expected: await value(`[data-testid="ri-${l}-expected"]`), reins, levels: {} };
-      for (const lv of LEVELS) out[l].levels[lv] = await value(`[data-testid="ri-${l}-level-${lv}"]`);
-    }
-    return out;
+  await s.comingYear('before year 1');
+  const played = [];
+  for (const [y, level, cover] of [[1, 'expected', 1], [2, 80, 0]]) {
+    played.push(await s.choose(level, cover));
+    await page.getByRole('button', { name: /Lock Year/ }).first().click();
+    await page.waitForTimeout(2500);
+    const decline = page.getByRole('button', { name: /Decline/i }).first();
+    if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+    await page.waitForSelector(`text=Lock Year ${y + 1}`, { timeout: 120000 });
   }
+  await s.comingYear('after two played years');
+  await s.playedYears('after two played years', played);
+  ok(errors.length === 0, 'solo: no page errors', errors[0] ?? '');
+}
 
-  async function slider() {
-    return page.locator('div.flex.flex-col.gap-2', { has: page.locator('span', { hasText: /^Funding Confidence Level$/ }) }).first().locator('input[type=range]');
+async function hosted(browser) {
+  const ctx = await browser.newContext({ baseURL: BASE });
+  const host = await ctx.newPage();
+  const page = await ctx.newPage();
+  const errors = [];
+  for (const p of [host, page]) p.on('pageerror', e => errors.push(e.message));
+  await host.goto('/host');
+  await host.waitForSelector('[data-testid="create-room"]');
+  await host.fill('[data-testid="event-name"]', 'Rate Indication');
+  await host.selectOption('[data-testid="seed"]', '7');
+  await host.fill('[data-testid="year-count"]', '4');
+  await host.fill('[data-testid="expected-teams"]', '1');
+  await host.click('[data-testid="create-room"]');
+  await host.waitForSelector('[data-testid="room-code"]');
+  const code = (await host.textContent('[data-testid="room-code"]')).trim();
+  await page.goto(`/join/${code}`);
+  await page.waitForSelector('[data-testid="team-picker"]');
+  await page.fill('[data-testid="team-name"]', 'Harbour Mutual');
+  await page.click('[data-testid="join-team"]');
+  await page.waitForSelector('[data-testid="session-strip"]', { timeout: 180000 });
+  await page.waitForSelector('[data-testid="rate-indication"], button:has-text("Rate Indication")', { timeout: 60000 });
+  const s = screen(page, 'hosted');
+
+  await s.comingYear('before year 1');
+  const played = [];
+  for (const [y, level, cover] of [[1, 'expected', 1], [2, 80, 0]]) {
+    played.push(await s.choose(level, cover));
+    await page.getByRole('button', { name: /Lock Year/ }).first().click();
+    await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await host.click('[data-testid="advance"]');
+    await page.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
+    await page.waitForTimeout(1000);
   }
-  async function setLevel(lv) {
-    if (lv === 'expected') {
-      const reset = page.getByRole('button', { name: /^Reset to Expected/ }).first();
-      if (await reset.count() > 0) { await reset.click(); await page.waitForTimeout(300); }
-      return;
-    }
-    const s = await slider();
-    await s.focus();
-    await page.keyboard.press('Home');
-    for (let i = 0; i < (lv - 30) / 5; i++) await page.keyboard.press('ArrowRight');
-    await page.waitForTimeout(300);
-  }
+  await s.comingYear('after two played years');
+  await s.playedYears('after two played years', played);
+  ok(errors.length === 0, 'hosted: no page errors', errors[0] ?? '');
+}
 
-  async function phase(name) {
-    const ind = await readIndication();
-    await tab('Decisions');
-    for (const [l, label] of LINES) {
-      await page.getByRole('button', { name: label, exact: true }).first().click();
-      await page.waitForTimeout(400);
-      const offered = [];
-      for (const el of await page.$$(`[data-testid^="reins-option-${l}-"]`)) offered.push((await el.getAttribute('data-testid')).replace(`reins-option-${l}-`, ''));
-      const listed = Object.keys(ind[l].reins);
-      ok(JSON.stringify([...listed].sort()) === JSON.stringify([...offered].sort()),
-        `${name}, ${l}: the page lists exactly the covers the Decisions page offers`, `${listed.join(', ')} | ${offered.join(', ')}`);
-      ok(ind[l].reins.none === 0, `${name}, ${l}: None is priced at nothing`);
-      for (const option of offered) {
-        await page.click(`[data-testid="reins-option-${l}-${option}"]`);
-        await page.waitForTimeout(300);
-        for (const lv of ['expected', ...LEVELS]) {
-          await setLevel(lv);
-          const panel = await value('[data-testid="new-rate-final"]');
-          const indicated = lv === 'expected' ? ind[l].expected : ind[l].levels[lv];
-          const want = indicated + ind[l].reins[option];
-          ok(near(panel, want), `${name}, ${l}, ${option}, ${lv === 'expected' ? 'Expected' : `${lv}%`}: indicated + the cover's price = the panel's rate`,
-            `${indicated.toFixed(4)} + ${ind[l].reins[option].toFixed(4)} = ${want.toFixed(6)} vs ${panel.toFixed(6)}`);
-        }
-      }
-      // Back to the default for the next phase: None at Expected.
-      await page.click(`[data-testid="reins-option-${l}-${offered[0]}"]`);
-      await setLevel('expected');
-    }
-  }
-
-  await phase('before year 1');
-  await page.getByRole('button', { name: /Lock Year/ }).first().click();
-  await page.waitForTimeout(2500);
-  const decline = page.getByRole('button', { name: /Decline/i }).first();
-  if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
-  await page.waitForSelector('text=Lock Year 2', { timeout: 60000 });
-  await phase('after year 1');
-
-  ok(errors.length === 0, 'no page errors', errors[0] ?? '');
+(async () => {
+  await requireServer();
+  const browser = await launchBrowser();
+  await solo(browser);
+  await hosted(browser);
   await browser.close();
   console.log(`\nrate-indication: ${passed}/${passed + failed} checks passed`);
   console.log(failed === 0 ? 'RATE INDICATION PASS' : 'FAIL');
