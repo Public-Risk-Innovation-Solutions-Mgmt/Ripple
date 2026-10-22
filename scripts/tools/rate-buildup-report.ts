@@ -56,6 +56,7 @@
 // ============================================================================
 
 // ⚠ FIRST IMPORT, AND IT HAS TO BE — see pricing-overrides-install.ts.
+import { investmentIncomeCredit, gameHistory } from '../../src/utils/investmentIncomeCredit';
 import { argvWithoutOverrides, overridesBanner, pricingOverrides } from './pricing-overrides-install';
 import { startRunLog } from './runlog';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -165,6 +166,7 @@ for (let y = 1; y <= YEAR; y++) {
         groundUpPurePremiumPer100: pp.purePremiumPer100,
         clf: result.selectedFundingCLF, riskControlPct: rc,
         layersPlaced: placed, aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
+        investmentIncomeCredit: investmentIncomeCredit(LINE, gameHistory(gs), y),
       }),
     });
   }

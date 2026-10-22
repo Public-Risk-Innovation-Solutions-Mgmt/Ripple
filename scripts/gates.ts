@@ -244,6 +244,10 @@ const FAST: string[] = [
   'new-rate-bill-check',             //  12s   with the flag on, the rate members are CHARGED is the rate
                                      //         they are SHOWN, the charge is additive, the retained-cover
                                      //         margin is retired, and the bill is NOT the old stack's.
+  'investment-income-credit-check',  //  60s   every rate credits last year's pool return (3% before any
+                                     //         history) off its pure premium only — admin and the
+                                     //         reinsurance price untouched — and the charged rate carries
+                                     //         it; three controls
                                      //         ⚠ THE CHECK WHOSE ABSENCE LET COMMIT 3 SHIP INERT: it had
                                      //         wired the price signal and not the bill, and 20 games came
                                      //         back bit-identical flag-on. Flips the flag in its own process.

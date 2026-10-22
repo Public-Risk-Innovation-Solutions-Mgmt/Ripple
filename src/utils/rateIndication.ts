@@ -77,6 +77,10 @@ export interface RateIndication {
     trendYears: number;
     /** Pricing's own projected pure premium for the priced year. */
     projectedPer100: number;
+    /** The investment income credit the rate takes off it — 0.03 is 3% (INVESTMENT_INCOME_CREDIT). */
+    investmentIncomeCredit: number;
+    /** The projected pure premium after the credit: what the rate is struck on. */
+    projectedAfterCreditPer100: number;
   };
   /** The indicated rate at Expected over the program rate in force, - 1; null with no rate in force. */
   indicatedRateChange: number | null;
@@ -138,6 +142,8 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: option,
     shocks,
+    // The credit the year's rate took, as recorded on its row.
+    investmentIncomeCredit: lr.investmentIncomeCredit ?? 0,
   });
   const chosen: FundingPosition = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
   return { lr, rateBasis, ratedExposure, newPurePremiumPer100, d, price, chosen };
@@ -168,6 +174,7 @@ export function buildRateIndication(
   let exposure: number;
   let windowYears: number;
   let latestExposure: number;
+  let credit: number;
   let reinsuranceAt: FundingPosition;
 
   if (coming) {
@@ -179,6 +186,7 @@ export function buildRateIndication(
     ).newStack ?? null;
     const { book, purePremium } = fundingConsequenceInput(gs, line, decisions, 'none');
     if (!purePremium) return null;
+    credit = book.investmentIncomeCredit;
     projected = purePremium.purePremiumPer100;
     exposure = book.exposure;
     windowYears = purePremium.points.length;
@@ -192,6 +200,7 @@ export function buildRateIndication(
     exposure = past.ratedExposure;
     windowYears = past.rateBasis.windowYears;
     latestExposure = past.rateBasis.latestExposure ?? past.rateBasis.windowExposure;
+    credit = past.lr.investmentIncomeCredit ?? 0;
     reinsuranceAt = past.chosen;
   }
 
@@ -240,6 +249,9 @@ export function buildRateIndication(
       annualTrend,
       trendYears,
       projectedPer100: projected,
+      investmentIncomeCredit: credit,
+      // As the quote takes it: quoteNewRateStack's creditedPurePremiumPer100.
+      projectedAfterCreditPer100: projected * (1 - credit),
     },
     indicatedRateChange: positions[0].change,
     expenses: {
