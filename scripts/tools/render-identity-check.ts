@@ -1099,7 +1099,15 @@ const BASELINE = process.env.RENDER_BASELINE
 // rename, landed without a sweep. Against the control 10 more move, no key
 // added or removed, all Departments pages on the Actuarial department: the
 // Rate Indication cards added above the document, nothing else changed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v72.json');
+// v73: THE TOP BAR AND THE RATE INDICATION PAGE (display only; value v79 and
+// export v87 byte-identical). The control ran first: 60d2608 moved 18 of 242
+// against v72 — 13 Results and 5 Result Spreadsheet pages, only "Loss, as booked
+// (excl. LAE)" for "Loss + LAE", the label landed under light checks. Against
+// the control: 56 keys removed, every Dashboard (26) and Departments (30) row —
+// both tabs hidden; 20 added, Investments (10) and Rate Indication (10); and
+// 176 moved, every other page, whose only change is the top bar ("Game Setup",
+// "Departments" and "Dashboard" gone, "Investments" and "Rate Indication" in).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v73.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1133,7 +1141,11 @@ const LINE_LABEL: Record<string, string> = {
 // aggregate, so the tab is not rendered and this harness cannot click it. The
 // baseline loses that tab's keys with it — that is a KEY-SET change, which is
 // exactly the kind this file's header says to expect and to attribute.
-const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
+//
+// ⚠ DASHBOARD AND DEPARTMENTS CAME OFF THE SAME WAY — hidden in solo and
+// multiplayer alike (src/game/tabs.tsx), their pages intact — and Investments
+// and Rate Indication joined, in the top bar's own order.
+const TABS = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
   'Calculation Audit'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
