@@ -375,7 +375,6 @@ function shippedRun(): Collected {
       };
       for (const line of LINES) {
         for (const row of ps.lines[line]?.reserveDevelopment ?? []) {
-          if (row.seeded) continue;
           const u = row.ultimateByValuation ?? [];
           if (u.length === 0) continue;
           const age = row.ageAtFirstValuation + (u.length - 1);

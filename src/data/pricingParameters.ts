@@ -398,8 +398,12 @@ export const REINSURANCE_LOAD = 0.14;
 
 /**
  * HOW MANY YEARS OF PRIOR HISTORY THE PRE-GAME SIMULATES, with real claims
- * behind them. Everything OLDER, out to the end of the line's recorded paid
- * pattern, opens as a BULK cohort — see openingReserves.ts.
+ * behind them — 2021 to 2025. ⚠ AND THEY ARE THE POOL'S WHOLE HISTORY: there
+ * are no accident years before 2021. The pre-game starts on its paid-in capital
+ * with no reserves; 2021 prices on the starting expected loss, 2022 on one
+ * year, 2023 on two, 2024 on three, 2025 on four, and 2026 on the full five.
+ * (Everything older used to open as a BULK cohort — 2016-2020 on WC and GL,
+ * 2019-2020 on Property — inside OPENING_RESERVE_YEARS; both are retired.)
  *
  * ⚠ FIVE SINCE COMMIT 3, AND IT DROPPED WHETHER OR NOT THE NEW RATE IS ON.
  * It used to read ten, with a note saying five would STARVE the old ten-year
@@ -1133,21 +1137,10 @@ export const NEW_BUSINESS_PENALTY = 0.20;
  */
 // (OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2, removed with the wiring.)
 
-/**
- * OPENING RESERVE YEARS — how many accident years the pool holds reserves for
- * at the opening. Older accident years are treated as CLOSED.
- *
- * The opening window is the last OPENING_RESERVE_YEARS accident years: the
- * PRIOR_HISTORY_YEARS the pre-game plays with claims behind them, and the
- * years before those as bulk cohorts. The bulk years are on the books from
- * the START of the pre-game, at their ages then, and pay down on the recorded
- * patterns through it — so every pre-game balance sheet carries them, their
- * losses are in the pricing history from the first pre-game year, and the
- * opening is simply where the pre-game ends. (Before Prompt A commit 2 the
- * runoff reached each pattern's end — WC 37 years, GL 21, Property 11 — and
- * appeared all at once at the opening.)
- */
-export const OPENING_RESERVE_YEARS = 10;
+// ⚠ OPENING_RESERVE_YEARS IS RETIRED: the pool's history begins in 2021, so the
+// opening holds every accident year it has (the five played) and there is no
+// older window to bound. It was 10 — the played years and the bulk years before
+// them, on the books from the start of the pre-game.
 
 /**
  * How many years of prior history the new pricing reads.
@@ -1720,7 +1713,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'WC and GL at 1.5 because the recorded patterns were judged too slow; Property at 1.0. '
           + 'Applied where the patterns are defined, so payments, case and IBNR, the pricing LDFs, the '
-          + 'opening and its bulk years, the pre-game and the host\'s development all read the compressed patterns. '
+          + 'opening, the pre-game and the host\'s development all read the compressed patterns. '
           + 'Year-1 rates are unchanged; later rates move slightly because faster payment brings the host\'s adverse '
           + 'development into pricing sooner, and leaves less open balance for shock R development to act on.',
       }],
@@ -1803,12 +1796,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Singleplayer takes these defaults; a session takes the host\'s setting, per line.',
         basis: 'CHOSEN',
         note: 'THE BASE is the accident year\'s outstanding at the first valuation it meets — game '
-          + 'start for prior and bulk years, the end of its own first year for a played one. '
+          + 'start for a pre-game year, the end of its own first year for one played in the game. '
           + 'EACH YEAR\'S SHARE is that year\'s increment in paid share over the share still unpaid '
           + 'at the base, so by run-off exactly this percentage has emerged — asserted per accident '
           + 'year by development-emergence-check. ⚠ NOT A YEARLY RATE: read as one these same '
-          + 'percentages compound to about +54% on GL and +171% on WC. Bulk years develop held NET; '
-          + 'played years develop GROSS and their reinsurance recoveries are recalculated on each '
+          + 'percentages compound to about +54% on GL and +171% on WC. Every year develops GROSS and their reinsurance recoveries are recalculated on each '
           + 'occurrence\'s revised cost under that accident year\'s own cover, so adverse '
           + 'development makes reinsurance worth more. The GL $25M pool limit still applies.',
       }],
@@ -1841,9 +1833,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
-        what: 'How many pre-game years are simulated with real claims behind them.', basis: 'CHOSEN',
-        note: 'Ten while the old ten-year experience path is live; drops to the new window of five at '
-          + 'commit 3, and the two move together. Everything older opens as a bulk cohort.',
+        what: 'How many pre-game years are simulated with real claims behind them — 2021 to 2025.', basis: 'CHOSEN',
+        note: 'Ten while the old ten-year experience path was live; five with the new window since commit 3, '
+          + 'and the two move together.',
+      }],
+      ['The pool\'s history begins', {
+        value: 2021, unit: 'the first accident year',
+        what: 'There are no accident years before 2021, the first pre-game year. The pre-game starts on its paid-in '
+          + 'capital ($5M a line) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
+          + 'the starting expected loss with trend applied — no history; 2022 on one year, 2023 on two, 2024 on three, '
+          + '2025 on four; from 2026 the full five-year window.',
+        basis: 'CHOSEN',
+        note: 'Until then the books carried imaginary accident years before the pre-game — 2016-2020 on WC and GL, '
+          + '2019-2020 on Property — as bulk reserves on the books from its start, inside a window of ten accident '
+          + 'years (Opening reserve years, retired), so that pricing\'s window was full from the first pre-game year. '
+          + 'The opening surplus is still the scenario\'s, and the pre-game\'s margin is still solved to reach it.',
       }],
       ['Opening surplus', {
         value: 'year-1 premium at Expected / the scenario\'s premium to surplus', unit: 'surplus at the opening, each line',
@@ -1851,14 +1855,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'divided by its scenario\'s target ratio — see The twenty scenarios.', basis: 'CHOSEN',
         note: 'Was $35M on every line, interim until the scenarios. The pre-game starts from the starting capital and '
           + 'the prior board\'s margin is solved so its last year-end lands here, so the opening is set without a reset.',
-      }],
-      ['Opening reserve years', {
-        value: OPENING_RESERVE_YEARS, unit: 'accident years',
-        what: 'How many accident years the opening holds reserves for; older years are treated as closed.',
-        basis: 'CHOSEN',
-        note: 'The prior history years played with claims, and the years before them as bulk cohorts on '
-          + 'the books from the start of the pre-game, paying down through it. Was each pattern\'s full '
-          + 'length (WC 37 years, GL 21, Property 11) before Prompt A commit 2.',
       }],
     ],
   },

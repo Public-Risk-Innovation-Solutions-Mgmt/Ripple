@@ -424,8 +424,7 @@ export const RETIRED_GL_TOTAL_PAID_DEVELOPMENT: readonly DevelopmentRow[] = [
 // PATTERN below ARE the compressed patterns, closed, and the recorded rows above are
 // private to this file. So every reader — payments (payoutPattern.ts tabulates
 // from the paid pattern), case and IBNR (reserveSplit.ts), the pricing LDFs
-// (newPurePremium.ts), the opening and its bulk years (openingReserves.ts),
-// the pre-game, and the host's development (hostDevelopment.ts) — reads the
+// (newPurePremium.ts), the pre-game and the opening it leaves, and the host's development (hostDevelopment.ts) — reads the
 // same compressed pattern, and none can reach the uncompressed one.
 //
 // ⚠ BOTH BASES ON THE SAME GRID, so reported stays at or above paid at every

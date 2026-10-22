@@ -3250,7 +3250,6 @@ export function processLineYear(
     reserveCohorts: allCohorts,
     reserveDevelopment: recordReserveDevelopment(
       lineState.reserveDevelopment ?? [],
-      lineState.reserveCohorts,
       updatedCohorts,
       currentYearCohort,
       yearNumber,
@@ -4523,25 +4522,21 @@ export function aggregateLineResults(
 // memorandum; see ReserveDevelopmentRow for why the path cannot be recovered
 // after the fact and therefore has to be written down as it happens.
 //
-// ⚠ TAKES BOTH SIDES OF THE STEP ON PURPOSE. `before` is needed only to open a
-// row for a cohort the ledger has never seen — a SEED cohort, which exists
-// before the first processed year and would otherwise have its opening estimate
-// overwritten by its first development. For those the opening entry is the
-// estimate as at GAME START, filed against valuation year `yearNumber - 1`,
-// because that is the valuation it actually describes.
+// ⚠ EVERY ROW IS OPENED BY ITS OWN ACCIDENT YEAR. It used to take the cohorts
+// before the step as well, to open rows for SEED cohorts that existed before the
+// first processed year; the pool's history now begins in 2021 and every cohort
+// is written by a processed year, so there is nothing to open early.
 //
 // ⚠ PURE, AND IT MUST STAY PURE. No RNG, no mutation of either input, and no
 // return path into any booked or priced quantity. That is what keeps a display
 // feature out of the value gates.
 function recordReserveDevelopment(
   ledger: ReserveDevelopmentRow[],
-  before: ReserveCohort[],
   after: ReserveCohort[],
   incepted: ReserveCohort,
   yearNumber: number,
   // With MEMBER_LEVEL off, the book's exposure this year: written onto the row
-  // the year inceptes, and onto any seed row opened now (the bulk years were
-  // sized on the same book). Undefined with members, and no key is written.
+  // the year inceptes. Undefined with members, and no key is written.
   bookExposure?: number,
 ): ReserveDevelopmentRow[] {
   // ⚠ paidByValuation IS NET, matching ultimateByValuation. The engine's own
@@ -4558,25 +4553,6 @@ function recordReserveDevelopment(
     grossPaidByValuation: [...(r.grossPaidByValuation ?? [])],
   }]));
 
-  // Open a row for any pre-existing cohort the ledger has not met yet. Only
-  // seed cohorts reach this: an engine-written accident year is registered in
-  // the year it inceptes, by the `incepted` block below.
-  for (const c of before) {
-    if (c.closed || byYear.has(c.yearNumber)) continue;
-    byYear.set(c.yearNumber, {
-      yearNumber: c.yearNumber,
-      calendarYear: c.calendarYear,
-      ultimateByValuation: [c.netUltimate],
-      paidByValuation: [c.netPaid],
-      grossPaidByValuation: [c.grossPaid ?? c.netPaid],
-      firstValuationYear: yearNumber - 1,
-      ageAtFirstValuation: c.age,
-      horizon: c.horizon,
-      seeded: true,
-      ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
-      ...(c.shockGross !== undefined ? { shockGross: c.shockGross } : {}),
-    });
-  }
 
   // This valuation's estimate for every cohort that survived the step.
   for (const c of after) {
@@ -4617,7 +4593,6 @@ function recordReserveDevelopment(
       firstValuationYear: yearNumber,
       ageAtFirstValuation: 0,
       horizon: incepted.horizon,
-      seeded: false,
       ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
       ...(incepted.shockGross !== undefined ? { shockGross: incepted.shockGross } : {}),
     });
@@ -4943,11 +4918,10 @@ function processIbner(
         // deterioration like any other loss. The pool's reserve moves by the
         // RETAINED part only.
         //
-        // A cohort with no register — a seed cohort, apportioned from a reserve
-        // total at generation with no claims behind it — retains its
-        // development ENTIRE. That is the honest default rather than inventing
-        // claims to cede against, and it is 0.4% of all adverse development, so
-        // it does not matter much either.
+        // A cohort with nothing tracked retains its development ENTIRE — the
+        // honest default rather than inventing claims to cede against. (It was
+        // written for the seed cohorts, which had no register; they are retired
+        // with the pool's history beginning in 2021.)
         //
         // ⚠ THE RESELECTED SET, NOT THE COHORT'S STORED ONE. Reselection ran
         // above and may have stood developing claims down and promoted replacements
@@ -5360,8 +5334,7 @@ function processIbner(
             emergedAbovePoolLimit += d - Math.min(d, headroom);
             return Math.min(d, headroom);
           });
-          // A cohort carrying frozen cover is one the tower was bought for;
-          // a bulk cohort has none and falls to the net branch below.
+          // A cohort carrying frozen cover is one the tower was bought for.
           const cession = c.placedAtInception !== undefined
             ? cedeDevelopment(line as TowerLine, liveTracked, deltas,
               alloc.untrackedDelta, c.placedAtInception)
@@ -5405,10 +5378,9 @@ function processIbner(
           untrackedOut = (untrackedOut ?? 0) + alloc.untrackedDelta;
           newGrossUnpaid += emerging - emergedAbovePoolLimit;
         } else {
-          // --- THE BULK CASE: no register, so it is simply net -------------
-          // A bulk or seeded cohort has no claims to cede to and no gross
-          // ledger of its own; its base was its net outstanding and its
-          // development is net. See hostDevelopment.ts.
+          // --- NOTHING TRACKED: no claims to cede to, so it is simply net ---
+          // (Written for the bulk and seed cohorts, retired with the pool's
+          // history beginning in 2021.) See hostDevelopment.ts.
           emergedNet = emerging;
           newGrossUnpaid += emerging;
         }

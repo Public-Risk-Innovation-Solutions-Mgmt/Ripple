@@ -238,7 +238,6 @@ function runArm(flagged: boolean): Arm {
           // ⚠ NOT WINDOWED, and for the same reason the old arm gave: the
           // window is a pricing convention, not a fact about the losses. What a
           // played accident year cost is a statement about that year.
-          if (r.seeded) continue;
           const u = r.ultimateByValuation ?? [];
           const lastAge = (r.ageAtFirstValuation ?? 0) + u.length - 1;
           if (lastAge < r.horizon || u.length === 0) continue;

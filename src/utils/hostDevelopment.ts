@@ -8,8 +8,8 @@
 // compound to roughly +54% on GL and +171% on WC. See
 // DEVELOPMENT_IS_LIFETIME_TOTAL in pricingParameters.ts.
 //
-//   THE BASE          prior years, bulk years included: their outstanding at
-//                     game start. Played years: their outstanding at the end
+//   THE BASE          pre-game years: their outstanding at game start.
+//                     Played years: their outstanding at the end
 //                     of their first year. Both are the same rule — the
 //                     cohort's outstanding at the first valuation it is
 //                     subject to — which is why one function sets both.
@@ -29,19 +29,17 @@
 // development-emergence-check asserts, per accident year, to the cent.
 //
 // ============================================================================
-// ⚠ THE BASIS IS THE COHORT'S OWN, AND THAT IS WHAT "BULK YEARS DEVELOP, HELD
-// NET" MEANS IN CODE RATHER THAN IN PROSE.
+// ⚠ THE BASIS IS THE COHORT'S OWN.
 //
 // A played year has a claim register and a gross ledger beside its net one, so
 // its base is its GROSS outstanding and the development lands on the register
 // as a gross movement — the tower then answers it, and adverse development
 // makes the reinsurance worth more, as excess cover does.
 //
-// A bulk or seeded year has no register. openingReserves writes it with
-// netUltimate/netPaid/netUnpaid and no gross fields at all, so `grossUnpaid ??
-// netUnpaid` resolves to the net figure and the development is simply net,
-// with nothing to cede it to. The two cases need no branch: the data already
-// says which is which.
+// Every year has one since the pool's history begins in 2021: the bulk and
+// seed years that had no register — and developed net, `grossUnpaid ??
+// netUnpaid` resolving to the net figure — are retired. The fallback stays as
+// the general form; nothing reaches it now.
 // ============================================================================
 
 import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
