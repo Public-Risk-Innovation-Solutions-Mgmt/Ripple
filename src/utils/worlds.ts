@@ -246,6 +246,7 @@ function withRateBasis(result: ResultSet, struck: WorldsYear['struckRates']): Re
       ...(s.bookRisk !== undefined ? { risk: s.bookRisk } : {}),
       windowYears: pts.length,
       windowExposure: pts.length > 0 ? pts.reduce((a, p) => a + p.exposure, 0) / pts.length : 0,
+      ...(pts.length > 0 ? { latestExposure: pts[pts.length - 1].exposure } : {}),
     };
     byLine[line] = { ...row, rateBasis };
   }

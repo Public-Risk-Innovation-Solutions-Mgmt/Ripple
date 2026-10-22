@@ -34,7 +34,7 @@ import { decisionsForYear } from './decisions';
 import { gameShocksOn } from '../../utils/shockLosses';
 
 export type RoomBuildInputs = Pick<RoomView,
-  'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'shocks' | 'priorDevelopment'>;
+  'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'poolName' | 'shocks' | 'priorDevelopment'>;
 
 export interface BuiltTeamGame {
   gameState: GameState;
@@ -46,13 +46,12 @@ export interface BuiltTeamGame {
 
 export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]): BuiltTeamGame {
   const settings: GameSetupSettings = {
-    // ⚠ THE EVENT'S NAME, DELIBERATELY UNCHANGED IN MEANING. The engine's
-    // GameSetupSettings.poolName is display-only (the Header chip), and it has
-    // always carried the room's name for every team. Renaming the room field
-    // does not change what the engine is handed. Naming each team's pool after
-    // the TEAM would read better and is a separate decision — it would change
-    // what every session player sees in the header.
-    poolName: r.eventName,
+    // ⚠ THE ROOM'S POOL NAME, NOT THE EVENT'S. The engine's
+    // GameSetupSettings.poolName is display-only — the Header chip and the
+    // welcome memo — and every team in a room runs a pool of this name. The
+    // host sets it apart from the event name the lobby shows; a room created
+    // before it existed reads the event name (RoomView.poolName).
+    poolName: r.poolName || r.eventName,
     gameLength: r.yearCount,
     startingYear: r.startingYear,
     instanceId: r.seed,

@@ -17,14 +17,18 @@
 //                     is the rate charged that year.
 //   The rate-indication driver holds both, on every line, solo and hosted.
 //
-// ⚠ TRENDED AVERAGE LOSSES ARE THE AVERAGE EXPOSURE x THE AVERAGE TRENDED LOSS
-// COST (Loss & LAE per $100, each window year trended to the latest one).
-// Pricing averages each year's loss cost with equal weight, so this is what
-// reproduces it exactly whether or not the book has moved; the plain average
-// of the dollars would miss it by up to ~0.1% once a renewal cut moves the
-// book. With the window ending the year before the one priced, the average
-// trended to the latest year is the projected pure premium over one year's
-// trend. (The catastrophe load is off; were it on, it would sit in this figure.)
+// ⚠ THE PURE PREMIUM IS STATED AT THE LATEST DATA YEAR'S RATE LEVEL — the year
+// before the one in progress (2025 when 2027 is priced; PRICING_DATA_LAG_YEARS).
+// Trended average losses are that year's exposure x the average trended loss
+// cost (Loss & LAE per $100, each window year trended to the latest data year):
+// option 1's method — pricing averages each year's loss cost with equal weight,
+// so the average loss COST is what reproduces it exactly whether or not the
+// book has moved; the plain average of the dollars would miss it by up to ~0.1%
+// once a renewal cut moves the book. Divided by that exposure it is the pure
+// premium at the latest data year's level, and x the annual trend over the
+// 1 + PRICING_DATA_LAG_YEARS years to the priced year it is the projected pure
+// premium — pricing's own figure, shown as pricing struck it. (The catastrophe
+// load is off; were it on, it would sit in this figure.)
 //
 // ⚠ THE PERMISSIBLE LOSS RATIO IS AT EXPECTED. Admin is charged in dollars and
 // the CLF does not scale it, so each funding level has its own share; every
@@ -34,7 +38,8 @@
 // (docs/PENDING_MULTIPLAYER.md: players never see how the engine works).
 // ============================================================================
 import {
-  ADMIN_FIXED_PER_YEAR, AGGREGATE_STOP_OPTIONS, PROFIT_AND_CONTINGENCY_OF_RATE, RATE_INDICATION_FUNDING_LEVELS,
+  ADMIN_FIXED_PER_YEAR, AGGREGATE_STOP_OPTIONS, PRICING_DATA_LAG_YEARS, PROFIT_AND_CONTINGENCY_OF_RATE,
+  RATE_INDICATION_FUNDING_LEVELS,
 } from '../data/pricingParameters';
 import { computeFundingConsequence } from './fundingConsequence';
 import { effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
@@ -56,16 +61,25 @@ export interface RateIndication {
   yearNumber: number;
   calendarYear: number;
   pure: {
-    /** Window years; fewer than five labels the row with the count. 0: none (no figures). */
+    /** Window years — the row's count. 0: none (no figures). */
     windowYears: number;
+    /** The latest data year, a calendar year: the rate level the losses are stated at (2025 for 2027). */
+    rateLevelYear: number;
+    /** The window's losses trended to the latest data year, at that year's exposure. */
     trendedAverageLosses: number;
-    /** $M. */
+    /** The latest data year's exposure, $M. */
     exposure: number;
+    /** At the latest data year's rate level: trended average losses / exposure, per $100. */
     purePremiumPer100: number;
     /** 1.04 is +4%. */
     annualTrend: number;
+    /** Years of trend from the latest data year to the priced year: 1 + PRICING_DATA_LAG_YEARS. */
+    trendYears: number;
+    /** Pricing's own projected pure premium for the priced year. */
     projectedPer100: number;
   };
+  /** The indicated rate at Expected over the program rate in force, - 1; null with no rate in force. */
+  indicatedRateChange: number | null;
   /** Shares of the rate at Expected. */
   expenses: {
     fixedAdmin: number; perExposureAdmin: number; riskControl: number; contingency: number;
@@ -153,7 +167,7 @@ export function buildRateIndication(
   let projected: number;
   let exposure: number;
   let windowYears: number;
-  let windowExposure: number;
+  let latestExposure: number;
   let reinsuranceAt: FundingPosition;
 
   if (coming) {
@@ -168,7 +182,7 @@ export function buildRateIndication(
     projected = purePremium.purePremiumPer100;
     exposure = book.exposure;
     windowYears = purePremium.points.length;
-    windowExposure = windowYears > 0 ? purePremium.points.reduce((a, p) => a + p.exposure, 0) / windowYears : 0;
+    latestExposure = windowYears > 0 ? purePremium.points[windowYears - 1].exposure : 0;
     reinsuranceAt = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
   } else {
     const past = pastPricer(gs, line, yearNumber);
@@ -177,16 +191,19 @@ export function buildRateIndication(
     projected = past.newPurePremiumPer100;
     exposure = past.ratedExposure;
     windowYears = past.rateBasis.windowYears;
-    windowExposure = past.rateBasis.windowExposure;
+    latestExposure = past.rateBasis.latestExposure ?? past.rateBasis.windowExposure;
     reinsuranceAt = past.chosen;
   }
 
   const atExpected = price('expected', 'none');
   if (!atExpected) return null;
 
-  // THE PURE PREMIUM: the projected figure is pricing's; the rest follow from it.
+  // THE PURE PREMIUM: the projected figure is pricing's; the rest follow from
+  // it, at the latest data year's rate level, 1 + PRICING_DATA_LAG_YEARS years
+  // of trend before the priced year.
   const annualTrend = lossCostTrendPerYear(line);
-  const purePremiumPer100 = projected / annualTrend;
+  const trendYears = 1 + PRICING_DATA_LAG_YEARS;
+  const purePremiumPer100 = projected / Math.pow(annualTrend, trendYears);
 
   // THE EXPENSES, as shares of the rate at Expected.
   const rateE = atExpected.finalRatePer100;
@@ -216,12 +233,15 @@ export function buildRateIndication(
     calendarYear: calendarOf(gs, yearNumber),
     pure: {
       windowYears,
-      trendedAverageLosses: purePremiumPer100 * windowExposure * 10_000,
-      exposure: windowExposure,
+      rateLevelYear: calendarOf(gs, yearNumber) - trendYears,
+      trendedAverageLosses: purePremiumPer100 * latestExposure * 10_000,
+      exposure: latestExposure,
       purePremiumPer100,
       annualTrend,
+      trendYears,
       projectedPer100: projected,
     },
+    indicatedRateChange: positions[0].change,
     expenses: {
       fixedAdmin: fixedPer100 / rateE,
       perExposureAdmin: (atExpected.adminRatePer100 - fixedPer100) / rateE,

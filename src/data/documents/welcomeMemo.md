@@ -3,13 +3,16 @@
 <!--
 ⚠ RULE — THE WELCOME MEMO NEVER MENTIONS FUNDING LEVELS, CUSHIONS, CONFIDENCE
 LEVELS, PARAMETERS, MARKET SHARE, MEMBERSHIP OR OTHER ENGINE DETAIL. It speaks as
-the Board, about what the Pool is for and what is expected of its managers.
+the Executive Committee, about what the Pool is for and what is expected of its managers.
 Recorded in docs/PENDING_MULTIPLAYER.md as well.
 
 TEMPLATE. Shown in the Introduction tab. Every figure is READ FROM THE GAME,
 never typed (IntroductionPage's buildWelcomeMemoValues):
-  poolName          the Pool's name, from setup
+  poolName          the Pool's name: single player's own, from setup; in
+                    multiplayer the room's pool name, which the host sets
+                    (the event name, for a room created before it existed)
   year              the policy year the team enters — the game's first year
+                    (2027)
   lines             only the lines in the game, as a natural list: "Workers'
                     Compensation", "Workers' Compensation and General Liability",
                     "Workers' Compensation, General Liability and Property"
@@ -20,13 +23,13 @@ The memo describes the Pool as the team takes it over, so it reads the same in
 year 9 as in year 1.
 -->
 
-**To:** Incoming Pool Management Team
-**From:** Board of Governors
+**To:** Incoming Pool Management\
+**From:** Executive Committee\
 **Re:** Welcome to {{poolName}}
 
 ---
 
-On behalf of the Board of Governors, welcome to {{poolName}}. You are taking responsibility for the Pool as it
+On behalf of the Executive Committee, welcome to {{poolName}}. You are taking responsibility for the Pool as it
 enters the {{year}} policy year. Your decisions will shape its financial position, its members' costs, and its
 ability to meet its obligations for years to come.
 
@@ -49,7 +52,7 @@ Each year's results become the starting point for the next — and many decision
 
 {{MULTI_LINE}}
 
-## The Board's expectations
+## The Committee's expectations
 
 We do not expect you to eliminate risk. We do expect you to understand the risks you take, weigh their effect today
 and years from now, and keep the Pool strong enough to withstand a difficult year. Success will not be measured by
@@ -58,4 +61,4 @@ long-term strength.
 
 We wish you success.
 
-**Board of Governors**
+**Executive Committee**

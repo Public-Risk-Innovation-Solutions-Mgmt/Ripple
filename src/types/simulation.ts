@@ -2082,6 +2082,12 @@ export interface RateBasis {
   windowYears: number;
   /** Their mean exposure, $M. */
   windowExposure: number;
+  /**
+   * The newest window year's exposure, $M — the latest data year's (2025 when
+   * 2027 is priced), which the Rate Indication states its losses at. Absent on
+   * a row stored before it was kept; the page then reads windowExposure.
+   */
+  latestExposure?: number;
 }
 
 /**

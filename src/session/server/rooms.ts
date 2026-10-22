@@ -429,6 +429,9 @@ export class DynamoSessionTransport implements SessionTransport {
         throw new SessionError('INVALID_REQUEST', 'The seed must be a scenario from 1 to 20.');
       }
       requireString(req.eventName, 'eventName');
+      // Optional: a client older than this handler sends none (the event name stands in).
+      if (req.poolName !== undefined) requireString(req.poolName, 'poolName');
+      const poolName = req.poolName?.trim() ?? '';
       requireInteger(req.startingYear, 'startingYear');
       // ⚠ THE ONLY LINE-SET GATE IN THE SERVER NOW. It used to run per join;
       // the host picks once, so this is it.
@@ -493,6 +496,7 @@ export class DynamoSessionTransport implements SessionTransport {
           code: candidate,
           seed: req.seed,
           eventName: req.eventName,
+          ...(poolName ? { poolName } : {}),
           yearCount: req.yearCount,
           startingYear: req.startingYear,
           expectedTeams: req.expectedTeams,
