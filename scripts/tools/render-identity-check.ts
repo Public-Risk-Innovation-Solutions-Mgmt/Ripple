@@ -1107,7 +1107,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // both tabs hidden; 20 added, Investments (10) and Rate Indication (10); and
 // 176 moved, every other page, whose only change is the top bar ("Game Setup",
 // "Departments" and "Dashboard" gone, "Investments" and "Rate Indication" in).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v73.json');
+// v74: NO WORLDS ON A PLAYER'S SCREEN, AND EXPOSURE WITH SEPARATORS (display
+// only; value v79 and export v87 byte-identical). The control ran first:
+// bda7729 reproduced v73 206 of 206. 47 move, no key added or removed: the
+// Calculation Audit's world labels (13 — "averaged over the 100 worlds' own",
+// "average of the worlds' own sweeps" gone); the claims button's "— world 1 of
+// 100" (5 Result Spreadsheet); the Results page's surplus range across the
+// worlds (13, which also carry exposure as "$9,978.14M" for "$9.98B"); and the
+// Annual Statement's exposure rows (16, "9,978.1" for "9978.1"), the spreadsheet's
+// exposure metrics with them. Nothing else.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v74.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
