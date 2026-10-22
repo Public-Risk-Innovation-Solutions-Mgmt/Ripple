@@ -77,7 +77,7 @@
 // THE MEMBER PATH — first, before anything reads a switch. It tests code the member
 // path keeps: see engine-mode/member-level.ts.
 import '../tools/engine-mode/member-level';
-import { INTAKE_LOW, INTAKE_MODERATE, INTAKE_NONE, INTAKE_STRICT } from '../../src/utils/intakeInspection';
+import { ARM_BOTH, ARM_OPEN, ARM_REJECT, ARM_RENEW, applyArm, armLabel } from '../tools/uw-arms';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -308,14 +308,17 @@ function collectAcrossArms(line: CoverageLine): BandRow[] {
 // THAT COUPLING IS LOAD-BEARING. The backtest judges each table against the
 // population it was fitted on; adding an arm to one file alone would score a
 // table on a book it never saw. Change one, change both.
+  // ⚠ THE ARMS ARE THE TWO UNDERWRITING SLIDERS NOW (scripts/tools/uw-arms.ts):
+  // open, reject 15, renew 5 and both strictest — growing to shrinking books,
+  // the job the intake positions did. Before them:
   // ⚠ THE ARMS ARE THE INTAKE SLIDER'S POSITIONS NOW — Low, Moderate, Strict and
   // No New Business — and they are ANALOGUES OF THE RETIRED APPETITE TIERS, NOT
   // EQUIVALENTS. The tiers screened on the applicant's loss run; the positions
-  // screen on a noisy inspection AND cap the count (intakeInspection.ts), writing
+  // screen on a noisy inspection AND cap the count (the retired intakeInspection.ts), writing
   // about 4.3 / 2.8 / 1.2 / 0 members a line a year. That spans the same range of
   // books, one arm fewer. The shipped CLF tables were derived on the TIER arms
   // and are not re-derived here; a re-derivation on these arms is its own commit.
-  const arms: number[] = [INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT, INTAKE_NONE];
+  const arms: number[] = [ARM_OPEN, ARM_REJECT, ARM_RENEW, ARM_BOTH];
   const active: CoverageLine[] = POOLED ? ['WC', 'GL', 'Property'] : [line];
   const out: BandRow[] = [];
   for (const appetite of arms) {
@@ -334,16 +337,14 @@ function collectAcrossArms(line: CoverageLine): BandRow[] {
         // appetite is a per-line control but a player setting a strict bar sets
         // it across the pool, and in POOLED mode leaving the other two on Accept
         // All would put this line's small book next to two growing ones.
-        // ⚠ uw-hybrid: the intake positions are retired, so every arm plays the default
-        // sliders. Re-derive on the rejection rate before trusting this.
-        void appetite; void active;
+        applyArm(d, active, appetite);
         const pr = processYear(gs, d);
         const r = (pr.result as never as { byLine: Record<string, Record<string, number>> }).byLine[line];
         if (r && r.poolPremium > 0) {
           out.push({
             ratio: r.netIncurredLoss / r.poolPremium,
             members: r.activeMembers, year: y,
-            arm: appetite === INTAKE_LOW ? 'low' : `L${appetite}`,
+            arm: armLabel(appetite),
             game: id,
           });
         }

@@ -42,7 +42,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
 import { memberExperienceMods, EXPERIENCE_MOD } from '../../src/utils/memberExperienceMod';
-import { INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT, intakeLabel } from '../../src/utils/intakeInspection';
+import { ARM_BOTH, ARM_OPEN, ARM_REJECT, ARM_RENEW, applyArm, armLabel } from '../tools/uw-arms';
 import { canReenroll } from '../../src/utils/membershipHistory';
 import { APPLICATION_RATE, MAX_NEW_MEMBER_SHARE } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, DecisionSet, GameState, Member } from '../../src/types/simulation';
@@ -57,7 +57,8 @@ const WARM = EXPERIENCE_MOD.minYears + 2;
 // retired Accept All / 1.50 / 1.00 / 0.75 appetite tiers (see clf-table-derive).
 // The rate derivation this probe records was done on the tiers; this keeps the
 // sweep runnable against the shipped control.
-const ARMS: number[] = [INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT];
+// The two underwriting sliders' arms (scripts/tools/uw-arms.ts), since the intake positions retired.
+const ARMS: number[] = [ARM_OPEN, ARM_REJECT, ARM_RENEW, ARM_BOTH];
 /** The retired loss-run tiers, printed against the applicant ratio distribution
  *  in section 1 FOR THE RECORD — nothing ships on them. */
 const RETIRED_TIERS = [0.75, 1.00, 1.50];
@@ -104,9 +105,7 @@ function playUncached(appetite: number, rate: number): { rows: YearRow[]; ratios
     };
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y) as DecisionSet;
-      // ⚠ uw-hybrid: the intake positions are retired, so every arm plays the default
-        // sliders. Re-derive on the rejection rate before trusting this.
-        void appetite;
+      applyArm(d, LINES, appetite);
       const before: Record<string, number> = {};
       for (const l of LINES) before[l] = gs.poolState.lines[l].members.length;
       const p = processYear(gs, d, { applicationRate: rate });
@@ -132,7 +131,7 @@ function playUncached(appetite: number, rate: number): { rows: YearRow[]; ratios
           grossUltimate: x.grossUltimateLoss ?? 0,
           surplus: x.endingSurplus ?? 0,
         });
-        if (y >= WARM && appetite === INTAKE_LOW && rate === APPLICATION_RATE) {
+        if (y >= WARM && appetite === ARM_OPEN && rate === APPLICATION_RATE) {
           const mods = memberExperienceMods(avail, l as CoverageLine, hist, y + 1);
           for (const m of mods) if (m.rated && m.rawRatio !== null) ratios.push({ line: l, r: m.rawRatio });
         }
@@ -154,7 +153,7 @@ const q = (v: readonly number[], pr: number) => {
   return lo === hi ? s[lo] : s[lo] + (s[hi] - s[lo]) * (i - lo);
 };
 const pct = (n: number, d: number) => (d > 0 ? `${((100 * n) / d).toFixed(0)}%` : '—');
-const label = (a: number) => intakeLabel(a);
+const label = (a: number) => armLabel(a);
 
 console.log(RULE);
 console.log(`APPLICATION RATE, RE-DERIVED — ${GAMES} games x ${YEARS} years, no target, no intake count cap`);
@@ -162,7 +161,7 @@ console.log(RULE);
 console.log(`shipped rate ${(100 * APPLICATION_RATE).toFixed(0)}%, capacity guard `
   + `${(100 * MAX_NEW_MEMBER_SHARE).toFixed(0)}% of book (JUDGEMENT, not measured)\n`);
 
-const base = play(INTAKE_LOW, APPLICATION_RATE);
+const base = play(ARM_OPEN, APPLICATION_RATE);
 
 // --------------------------------------------- 1. the applicant distribution
 console.log('--- 1. THE APPLICANT DISTRIBUTION THE TIERS SIT ON ---\n');

@@ -248,10 +248,8 @@ if (dead.length > 0) {
   // computes a ratio locally instead, the gate is already watching the file.
   //
   // ⚠ newBusinessAppetite.ts WAS THE SECOND MODULE AND IS DELETED. Intake no
-  // longer reads the loss ratio at all: intakeInspection.ts reads TRUE risk
-  // quality through a deliberately noisy inspection, engine-side, as the claim
-  // engines do. That is not a surface, and the page sums its probabilities
-  // without rendering any per-member figure — the scan above is what holds that.
+  // longer reads the loss ratio at all; since uw-hybrid it admits a random
+  // share of applicants (the rejection rate) and reads no member's figures.
   const RATIO_MODULES = ['utils/memberExperienceMod.ts', 'utils/renewalUnderwriting.ts'];
   for (const RATIO_MODULE of RATIO_MODULES) {
   const p = path.join(SRC, RATIO_MODULE);

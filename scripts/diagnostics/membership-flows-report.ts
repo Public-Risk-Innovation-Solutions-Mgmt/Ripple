@@ -39,7 +39,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
-import { INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT, intakeLabel } from '../../src/utils/intakeInspection';
+import { ARM_BOTH, ARM_OPEN, ARM_REJECT, ARM_RENEW, applyArm, armLabel } from '../tools/uw-arms';
 import {
   APPLICATION_RATE, MAX_NEW_MEMBER_SHARE, BASE_RETENTION,
 } from '../../src/data/defaultAssumptions';
@@ -53,7 +53,8 @@ const GAMES = Number(process.env.GAMES ?? 8);
 const YEARS = Number(process.env.YEARS ?? 20);
 // Intake-slider levels: Open and the bars 3 / 4 / 5 — the analogues of the
 // retired Accept All / 1.50 / 1.00 / 0.75 appetite tiers (see clf-table-derive).
-const ARMS: number[] = [INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT];
+// The two underwriting sliders' arms (scripts/tools/uw-arms.ts), since the intake positions retired.
+const ARMS: number[] = [ARM_OPEN, ARM_REJECT, ARM_RENEW, ARM_BOTH];
 
 interface Row {
   line: string; game: number; year: number;
@@ -74,9 +75,7 @@ function play(appetite: number): Row[] {
     };
     for (let y = 1; y <= YEARS; y++) {
       const d = defaultDecisionSet(y) as DecisionSet;
-      // ⚠ uw-hybrid: the intake positions are retired, so every arm plays the default
-        // sliders. Re-derive on the rejection rate before trusting this.
-        void appetite;
+      applyArm(d, LINES, appetite);
       const before: Record<string, number> = {};
       for (const l of LINES) before[l] = gs.poolState.lines[l].members.length;
       const p = processYear(gs, d);
@@ -111,7 +110,7 @@ console.log(`roster ${MARKET_MEMBER_COUNT}, application rate ${(100 * APPLICATIO
 console.log('NO TARGET, NO INTAKE COUNT CAP, NO WITHDRAWAL CAP.\n');
 
 for (const a of ARMS) {
-  const label = intakeLabel(a);
+  const label = armLabel(a);
   const rows = play(a);
   console.log(`--- ${label} ---`);
 

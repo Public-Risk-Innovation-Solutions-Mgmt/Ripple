@@ -220,7 +220,7 @@
 // THE MEMBER PATH — first, before anything reads a switch. It tests code the member
 // path keeps: see engine-mode/member-level.ts.
 import '../tools/engine-mode/member-level';
-import { INTAKE_LOW, INTAKE_MODERATE, INTAKE_NONE, INTAKE_STRICT } from '../../src/utils/intakeInspection';
+import { ARM_BOTH, ARM_OPEN, ARM_REJECT, ARM_RENEW, applyArm } from '../tools/uw-arms';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -288,14 +288,16 @@ const MIN_BAND_N = 250;
 // THAT COUPLING IS LOAD-BEARING. The backtest judges each table against the
 // population it was fitted on; adding an arm to one file alone would score a
 // table on a book it never saw. Change one, change both.
+// ⚠ THE ARMS ARE THE TWO UNDERWRITING SLIDERS NOW (scripts/tools/uw-arms.ts),
+// the same four clf-table-derive samples. Before them:
 // ⚠ THE ARMS ARE THE INTAKE SLIDER'S POSITIONS NOW — Low, Moderate, Strict and
 // No New Business — and they are ANALOGUES OF THE RETIRED APPETITE TIERS, NOT
 // EQUIVALENTS. The tiers screened on the applicant's loss run; the positions
-// screen on a noisy inspection AND cap the count (intakeInspection.ts), writing
+// screen on a noisy inspection AND cap the count (the retired intakeInspection.ts), writing
 // about 4.3 / 2.8 / 1.2 / 0 members a line a year. That spans the same range of
 // books, one arm fewer. The shipped CLF tables were derived on the TIER arms
 // and are not re-derived here; a re-derivation on these arms is its own commit.
-const ARMS: number[] = [INTAKE_LOW, INTAKE_MODERATE, INTAKE_STRICT, INTAKE_NONE];
+const ARMS: number[] = [ARM_OPEN, ARM_REJECT, ARM_RENEW, ARM_BOTH];
 
 // ⚠ EACH LINE IS GATED ON THE BASIS ITS OWN TABLE WAS DERIVED ON. Read the
 // ruling note above before changing one of these: they are not a preference.
@@ -355,9 +357,7 @@ function shippedRun(): Collected {
       };
       for (let y = 1; y <= YEARS; y++) {
         const d = defaultDecisionSet(y);
-        // ⚠ uw-hybrid: the intake positions are retired, so every arm plays the default
-        // sliders. Re-derive on the rejection rate before trusting this.
-        void arm;
+        applyArm(d, LINES, arm);
         const p = processYear(gs, d);
         for (const line of LINES) {
           const lr = (p.result as never as { byLine: Record<string, Record<string, number>> }).byLine[line];

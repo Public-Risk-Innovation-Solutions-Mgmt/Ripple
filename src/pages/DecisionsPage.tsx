@@ -921,37 +921,6 @@ function RenewalUnderwriting({
   );
 }
 
-// ============================================================================
-// INTAKE — ONE SLIDER, FOUR NAMED POSITIONS: No New Business, Strict, Moderate,
-// Low. Each sets a bar on a NOISY INSPECTION of risk quality and a cap on how
-// many join; the names sit on the slider, so a player reads "Strict" rather
-// than a bar value. See intakeInspection.ts for the positions and the
-// measurement they were set against, and INSPECTION_SIGMA for why it is an
-// inspection and not the truth.
-//
-// ⚠ THE FORECAST IS AN EXPECTATION AND IS LABELLED AS ONE. The available pool,
-// the application count and the intake room are exact; WHICH members apply is
-// drawn (and skewed toward worse risks, APPLICANT_ADVERSE_SELECTION), and each
-// applicant's inspection is drawn. So the page sums, over the available pool,
-// each member's chance of applying (applicantInclusion) times their chance of
-// clearing the bar (intakePassProbability), then takes E[min(cap, passing)]
-// (intakeForecast) — no draw, and no per-member figure reaches the screen, only
-// the sum. When more are expected to pass than the cap allows, it says the CAP
-// is what limits intake this year, not the standard.
-//
-// ⚠ WHAT IT MOVES. Intake shapes the book's QUALITY, and with pricing
-// cost-plus that shows in members' rates rather than in surplus — a better
-// intake lowers the triangle's loss cost a few years later. What the slider
-// can show before members react is how many join and the book they join; the
-// rate consequence is on the funding panel, a few years on.
-//
-// ⚠ PER-APPLICANT ACCEPT/DECLINE IS DEFERRED, NOT PENDING. A dozen decisions a
-// year, across ten years and five teams, is the whole session in a facilitated
-// room, and per-applicant has nothing to forecast — the join count depends on
-// choices not yet made. The slider is a POLICY, which is what makes the count
-// above computable. Reopening it means arguing those two costs down. (The same
-// reasoning covers per-member renewal overrides.)
-// ============================================================================
 const RISK_CONTROL_PROGRAM_NAME: Record<CoverageLine, string> = {
   WC: 'Safety & Return-to-Work',
   GL: 'Training and Analytics',
