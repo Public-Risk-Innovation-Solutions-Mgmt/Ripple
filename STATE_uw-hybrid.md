@@ -40,7 +40,9 @@ Code: `src/utils/bookUnderwriting.ts`; ledger `PoolState.bookLedger` (shares, jo
   now admits a random (1 − rejection) share of applicants. Re-derived at the landing, the arms give
   genuinely different books again: at the shipped 6% application rate the member book after 14 years
   is about 140 open, 131 reject 15, 91 renew 5, 48 both (new-business-appetite-derive), and 157 /
-  148 / 97 / 43 at year 20 (membership-flows-report). `clf-label-backtest-check` stays red (dormant,
+  148 / 97 / 43 at year 20 (membership-flows-report); `clf-table-derive` in band mode (BANDS=1, 400
+  games) spreads its line-years over all three book sizes again (WC small/mid/large 40/23/37%, GL
+  39/23/38%, Property 13/22/66%). Its tables are history, not in force; nothing is re-installed. `clf-label-backtest-check` stays red (dormant,
   code 1) on the same failure as on `1632ab4` — Property's 30% stop over-delivering, +54.4pp here
   against +52.1pp there — so not the landing's.
 - **Property's catastrophe capital follows the shock switch** (its own commit): a solo game's year-1
