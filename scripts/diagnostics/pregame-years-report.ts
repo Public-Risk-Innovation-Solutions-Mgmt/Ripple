@@ -3,6 +3,7 @@
 //
 //   npx tsx scripts/diagnostics/pregame-years-report.ts            # all of it
 //   PART=pregame npx tsx scripts/diagnostics/pregame-years-report.ts  # 1-3 only
+//   ... --set 'STARTING_CAPITAL={"WC":1e7,"GL":1e7,"Property":1e7}'   # any override
 //
 // Single-player, all three lines, at the default decisions (funded at
 // Expected). Written to compare one commit against another — run it on both.
@@ -21,6 +22,8 @@
 //      and 20.
 // ============================================================================
 
+// ⚠ FIRST IMPORT — it re-execs with the override loader when --set is present.
+import { overridesBanner } from '../tools/pricing-overrides-install';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -53,6 +56,7 @@ function open(id: string) {
 const margins: Record<CoverageLine, { id: string; m: number }[]> = { WC: [], GL: [], Property: [] };
 const rates: Record<CoverageLine, number[][]> = { WC: [], GL: [], Property: [] };   // per scenario: 5 pre-game + year 1
 let statementShown = false;
+console.log(overridesBanner);
 for (const id of SCENARIO_OPTIONS) {
   const { gs, shocks, pre } = open(id);
   const struck = strikeRates(gs, defaultDecisionSet(1, shocks));

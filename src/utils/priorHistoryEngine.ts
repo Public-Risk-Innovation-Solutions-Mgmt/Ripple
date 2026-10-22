@@ -74,7 +74,7 @@ export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
 // THE PRE-GAME IS THE POOL'S WHOLE HISTORY, AND IT BEGINS IN 2021.
 //
 // PRE_GAME_DEPTH years are played — 2021 to 2025 at the shipped five — on the
-// line's paid-in capital (STARTING_CAPITAL, $5M) and nothing else: no reserves,
+// line's paid-in capital (STARTING_CAPITAL, $10M) and nothing else: no reserves,
 // no cohorts, no ledger. Reserves build only from 2021's claims on, and the
 // opening is simply where the last year ends. The last PRE_GAME_YEARS of them
 // are the declared prior history (priorHistory); the ones before are the early
