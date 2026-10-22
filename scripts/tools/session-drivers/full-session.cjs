@@ -116,10 +116,11 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // Statements and Calculation Audit (GameShell's MULTIPLAYER_HIDDEN_TABS);
     // single-player keeps them, and solo-oracle holds that. The PAGES are intact.
     // ⚠ DASHBOARD AND DEPARTMENTS ARE HIDDEN IN BOTH (src/game/tabs.tsx), and
-    // Investments and Rate Indication joined the bar; navigation.cjs holds the order.
-    const tabs = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions',
+    // Rate Indication joined the bar, and Investments is hidden too (its memo is
+    // in the Introduction tab); navigation.cjs holds the order.
+    const tabs = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
                   'Decision History', 'Result Spreadsheet'];
-    const hiddenTabs = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments'];
+    const hiddenTabs = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments', 'Investments'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);
@@ -165,7 +166,11 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // code comments, so this assertion had been failing for a legitimate reason.
     // It checks BOTH sliders rather than either, which is stricter than the
     // or-test it replaces. Intake is labelled "New business" to players (UI tidy).
-    ok(/Renewal/.test(main) && /New business/.test(main) && !/\bIntake\b/.test(main), 'the renewal and new business sliders render');
+    // uw-hybrid: the two sliders by their names and values only — "Renewals
+    // declined" and "New Business, rejection rate", each at 0% — and nothing of
+    // the retired intake positions.
+    ok(/Renewals declined\s*0%/.test(main) && /New Business, rejection rate\s*0%/.test(main)
+       && !/\bIntake\b|No New Business|Renew all/.test(main), 'the two underwriting sliders render, by name and value');
   }
 
   for (let year = 1; year <= YEARS; year++) {

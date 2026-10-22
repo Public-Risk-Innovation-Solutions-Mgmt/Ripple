@@ -34,7 +34,7 @@ import { aggregateTermsRetainedPer100 } from '../utils/simulationEngine';
 import { bookPurePremium, newPurePremiumPer100 } from '../utils/newPurePremium';
 import { pricingExperienceBasis } from '../utils/pricingTriangle';
 import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEngine';
-import { bookExposureOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
+import { bookExposureOf, bookRiskOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
 import { lineBookRisk } from '../utils/bookUnits';
 import type { LinePoolState } from '../types/simulation';
@@ -62,7 +62,7 @@ import type { NewPurePremiumResult } from '../utils/newPurePremium';
 export function pricingBookFor(gameState: GameState, line: CoverageLine): Book {
   const lineState = gameState.poolState.lines[line];
   // With the book's own risk, which its tower's price carries (book units commit 5).
-  const risk = lineBookRisk(gameState.instance, line, gameState.poolState.bookUnits);
+  const risk = lineBookRisk(gameState.instance, line, gameState.poolState.bookUnits, gameState.poolState.bookLedger);
   return lineState.bookExposure !== undefined
     ? { exposure: lineBookExposure(lineState, line, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}) }
     : lineState.members.filter(m => m.status === 'active');
@@ -90,7 +90,7 @@ export function fundingConsequenceInput(
   // engine's expectation before the ledger has one.
   const purePremium = isRoster(book)
     ? newPurePremiumPer100(line, gameState.currentYearNumber, basis)
-    : bookPurePremium(line, gameState.currentYearNumber, basis, exposure);
+    : bookPurePremium(line, gameState.currentYearNumber, basis, exposure, bookRiskOf(book));
   const lineState = gameState.poolState.lines[line];
   return {
     purePremium,
@@ -281,7 +281,7 @@ export function useGameDerivations(
     if (!gameState) return [];
     const lineState = gameState.poolState.lines[decisionLine];
     // With the book's own risk, which its tower's price carries (book units commit 5).
-    const risk = lineBookRisk(gameState.instance, decisionLine, gameState.poolState.bookUnits);
+    const risk = lineBookRisk(gameState.instance, decisionLine, gameState.poolState.bookUnits, gameState.poolState.bookLedger);
     return lineState.bookExposure !== undefined
       ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}) }
       : decisionLineActiveMembers;

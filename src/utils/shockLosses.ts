@@ -304,6 +304,11 @@ export interface LargeLossDraw {
   grossAdded: number;
   /** Per member, the same. */
   byMember: Map<string, number>;
+  /**
+   * Per book unit, for its loss history (bookUnderwriting.ts): each shock
+   * claim's pool amount, and the routine claims' excess. Empty with no units.
+   */
+  byUnit: Map<number, { routine: number; shock: number[] }>;
   /** Above the GL pool limit — the member's, in no pool total. */
   memberShareAboveLimit: number;
   /** Per firing key: the pool's T losses and their count. */
@@ -373,12 +378,18 @@ export function drawLargeLosses(
   units?: readonly BookUnit[],
 ): LargeLossDraw {
   const out: LargeLossDraw = {
-    claims: [], occurrences: [], grossAdded: 0, byMember: new Map(),
+    claims: [], occurrences: [], grossAdded: 0, byMember: new Map(), byUnit: new Map(),
     memberShareAboveLimit: 0, tByFiring: new Map(), routine: { count: 0, groundUp: 0, excess: 0 },
   };
   const book = weighted(members, line, yearNumber, undefined, units);
   const credit = (memberId: string, amount: number) =>
     out.byMember.set(memberId, (out.byMember.get(memberId) ?? 0) + amount);
+  const onUnit = (m: Lander) => {
+    if (m.unit === undefined) return undefined;
+    let u = out.byUnit.get(m.unit);
+    if (!u) out.byUnit.set(m.unit, (u = { routine: 0, shock: [] }));
+    return u;
+  };
   const claimOf = (id: string, occurrenceId: string, m: Lander, tier: string, amount: number, shockId?: string): Claim => ({
     id, occurrenceId, memberId: m.id, line, accidentYear: yearNumber, calendarYear, tier,
     ...(line === 'WC' && m.wcRatingGroup ? { ratingClass: ratingGroupOf(m as Member) } : {}),
@@ -420,6 +431,7 @@ export function drawLargeLosses(
           });
         }
         credit(m.id, pool);
+        onUnit(m)?.shock.push(pool);
         rec.gross += pool;
         rec.claims += 1;
       });
@@ -463,6 +475,8 @@ export function drawLargeLosses(
         region: m.region, isCatastrophe: false, claimIds: [id],
       });
       credit(m.id, excess);
+      const onU = onUnit(m);
+      if (onU) onU.routine += excess;
       out.grossAdded += excess;
       out.routine.count += 1;
       out.routine.groundUp += pool;

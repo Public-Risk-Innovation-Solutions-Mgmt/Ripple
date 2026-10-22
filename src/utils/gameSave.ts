@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v22';
+export const SAVE_KEY = 'riskpool_gamestate_v24';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -211,7 +211,19 @@ export const SAVE_KEY = 'riskpool_gamestate_v22';
 // decisions and world 1's claim rows and rebuilds the rest by replay; its game
 // was seeded by an eight-character code where a seed is now a scenario, 1 to
 // 20; and its pre-game opened on $35M with a 14% cushion. Cleared the same way.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21'];
+// ⚠ v23 SINCE uw-hybrid — THE TWO UNDERWRITING SLIDERS. A v22 save's decisions
+// carry renewalCut and intakeLevel, which nothing reads any more, and its pool
+// state has no underwriting ledger (PoolState.bookLedger) — no units held in
+// part and no loss history by unit. Its replay would play renewals and new
+// business it never chose, so it is cleared the same way. The same landing
+// takes Property's catastrophe charge out of required capital while a game's
+// shocks are off, which a v22 replay would not reproduce either.
+// ⚠ v24 SINCE THE POOL'S HISTORY BEGAN IN 2021. A v23 save's pre-game started
+// with bulk accident years older than 2021 on its books, and its ledger carries
+// them; this engine has no years before 2021, so its replay would open a
+// different pool. The paid-in capital moved with it ($5M -> $12.5M a line),
+// so the pre-game's margin solves differently too. Cleared the same way.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23'];
 
 /**
  * Fields dropped on the way out.

@@ -111,7 +111,7 @@ function play(): Row[] {
           // A book (MEMBER_LEVEL off) is priced on its exposure, as the engine
           // prices it; a roster on its members.
           members: (gs.poolState.lines[line] as LinePoolState).bookExposure !== undefined
-            ? { exposure, risk: lineBookRisk(gs.instance, line, gs.poolState.bookUnits) ?? 1 }
+            ? { exposure, risk: lineBookRisk(gs.instance, line, gs.poolState.bookUnits, gs.poolState.bookLedger) ?? 1 }
             : (gs.poolState.lines[line] as LinePoolState).members ?? [],
           exposure, layersPlaced: placementFor(line, ld.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
           reinsuranceOption: ld.reinsuranceOption,

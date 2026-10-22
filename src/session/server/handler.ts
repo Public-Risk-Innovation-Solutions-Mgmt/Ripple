@@ -27,7 +27,9 @@
 // without inspecting it. A new field inside an existing payload is therefore a
 // contract-and-transport change, not a handler one. It is named here because
 // "the handler was not touched" is a thing a reader should be able to confirm
-// deliberately rather than infer from a silent file.
+// deliberately rather than infer from a silent file. The same holds for
+// uw-hybrid's two sliders (renewalsDeclined, newBusinessRejection), which
+// replaced renewalCut and intakeLevel inside that block: no code here.
 //
 // ⚠ IT STILL SHIPS FIRST. The handler carries no new code but the DEPLOY ORDER
 // is unchanged and still matters: the stored R# row gains a field, and a front

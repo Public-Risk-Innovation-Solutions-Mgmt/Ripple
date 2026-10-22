@@ -398,8 +398,12 @@ export const REINSURANCE_LOAD = 0.14;
 
 /**
  * HOW MANY YEARS OF PRIOR HISTORY THE PRE-GAME SIMULATES, with real claims
- * behind them. Everything OLDER, out to the end of the line's recorded paid
- * pattern, opens as a BULK cohort — see openingReserves.ts.
+ * behind them — 2021 to 2025. ⚠ AND THEY ARE THE POOL'S WHOLE HISTORY: there
+ * are no accident years before 2021. The pre-game starts on its paid-in capital
+ * with no reserves; 2021 prices on the starting expected loss, 2022 on one
+ * year, 2023 on two, 2024 on three, 2025 on four, and 2026 on the full five.
+ * (Everything older used to open as a BULK cohort — 2016-2020 on WC and GL,
+ * 2019-2020 on Property — inside OPENING_RESERVE_YEARS; both are retired.)
  *
  * ⚠ FIVE SINCE COMMIT 3, AND IT DROPPED WHETHER OR NOT THE NEW RATE IS ON.
  * It used to read ten, with a note saying five would STARVE the old ten-year
@@ -534,29 +538,38 @@ export const preGameLossMultiplier = (scenario: number): number =>
   1 + (1 - PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
 
 /**
- * STARTING CAPITAL — $5M PER LINE, paid in, with no earned surplus, at the
+ * STARTING CAPITAL — $12.5M PER LINE, paid in, with no earned surplus, at the
  * start of the pre-game. The Annual Statement's paid-in capital is this; earned
  * surplus is everything the pre-game adds.
  *
- * ⚠ WHY $5M, NOT $15M OR $10M — tried at all three across the twenty scenarios
- * by line, with the prior board's margin solved to land on each opening:
+ * ⚠ WHY $12.5M. The prior board's margin is solved to grow this into the
+ * scenario's opening, and it comes off when year 1 funds at Expected — so the
+ * less there is to grow, the higher the margin and the further the 2026 rate
+ * falls from 2025's. Tried across the twenty scenarios by line (the history
+ * beginning in 2021, profit and contingency 0); trend is WC 4%, GL 8%,
+ * Property 5%:
  *
- *   start   margins >= 0   margin supplies most growth   investment's share (median)
- *   $15M        1 / 60            0 / 60                          > 1
- *   $10M       19 / 60           21 / 60                         0.67
- *   $5M        45 / 60           40 / 60                         0.42
+ *            solved pre-game margin (range)          2026 rate change from 2025 (range)
+ *   start    WC            GL            Property    WC            GL            Property
+ *   $5M      7.1 to 10.2   8.5 to 13.0   9.8 to 13.8 -4.9 to -2.6  -3.7 to -0.3  -6.2 to -3.6
+ *   $10M     2.2 to 5.0    2.7 to 7.2    3.9 to 8.0  -0.8 to +1.6  +0.6 to +4.2  -2.3 to +0.8
+ *   $12.5M  -0.4 to 2.5   -0.1 to 4.2    1.0 to 5.4  +1.3 to +3.8  +3.0 to +6.7  -0.3 to +3.2
+ *   $15M    -2.9 to -0.1  -3.0 to 1.3   -2.0 to 2.8  +3.6 to +6.1  +5.5 to +9.3  +1.8 to +5.7
  *
- * $5M is the one where the most solved margins are zero or positive and most
- * growth comes from the margin. WC is the exception on every start: its long
- * reserves earn the 3% too, so investment is 55-77% of its growth and its
- * margin solves below expected in 15 of 20 scenarios (-7.0% to +2.3%). The
- * price is a thin first pre-game year: premium to surplus about 4.4-5.5.
- * ⚠ THAT TABLE WAS MEASURED WITH PROFIT AND CONTINGENCY AT 5%. At 0 the solved
- * margins rise by about the 5% the rate no longer carries: at $5M, 58 of 60
- * are at or above expected, WC below in 2 of 20 (-2.7% to +7.1%), investment
- * 57-81% of WC's growth; first pre-game year premium to surplus 4.5-5.6.
+ * At $12.5M the 2026 rate carries on rising from 2025's on almost every line
+ * and scenario (the one exception a Property scenario at -0.3%), where at $5M
+ * it fell on every one. Two scenarios' margins solve just below expected —
+ * WC scenario 10 at -0.35% and GL scenario 12 at -0.12% — ACCEPTED as a
+ * negligible underpricing by the prior board. $15M brings 2026 nearer trend
+ * but solves most margins below expected. Making the mean change equal trend
+ * would take about $14.2M / $15.4M / $16.4M (paid-in-capital-solve-report).
+ *
+ * $5M was chosen while imaginary accident years before the pre-game sat on
+ * the books as reserves, earning investment income that a larger start
+ * compounded (at $15M investment outgrew the margin). Those years are retired
+ * (The pool's history begins), so that reason went with them.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 5_000_000, GL: 5_000_000, Property: 5_000_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 12_500_000 };
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
@@ -616,7 +629,7 @@ export const newLossEngineRuns = (): boolean => !MEMBER_LEVEL.enabled;
  *
  * Off, each line is ONE BOOK: premium is rate x exposure, losses are the new
  * engine's ordinary aggregate and its large losses, and underwriting moves
- * exposure rather than members (BOOK_INTAKE_SHARE, the renewal cut, Member
+ * exposure rather than members (the two underwriting sliders, Member
  * Withdrawal). There is no roster selection, no per-member premium or loss,
  * no experience modifier, risk quality, rating group, satisfaction or
  * departure.
@@ -990,39 +1003,107 @@ export const UNIT_RISK_CV = 0.30;
 export const UNIT_POOL_SHARE = 0.30;
 
 /**
- * UNDERWRITING'S VIEW OF A UNIT'S RISK — CHOSEN, a starting point (book units
- * commit 4). Each unit's OBSERVED risk is its true risk x a noise drawn once
- * from the seed (BookUnit.noiseZ); VISIBILITY is the share of the observed
- * log-risk's variance that is true risk:
+ * ============================================================================
+ * UNDERWRITING — TWO SLIDERS ON THE BOOK OF UNITS (uw-hybrid, a test build).
+ * Every setting underwriting reads is here; bookUnderwriting.ts applies them.
  *
- *   log observed  ~  sqrt(v) x log(true risk) + sqrt(1 − v) x sigma x z
+ * RENEWALS DECLINED (RENEWALS_DECLINED_SLIDER) — the share of RENEWING
+ * exposure (the book at the start of the year) the pool declines, on loss
+ * history. Each held unit's loss ratio is its losses over the last
+ * LOSS_HISTORY_YEARS accident years against the premium it paid in them,
+ * each shock claim counted at most LOSS_HISTORY_CLAIM_CAP. Units in the book
+ * less than NEW_MEMBER_GRACE_YEARS are not eligible. The history is AVERAGED
+ * ACROSS ALL THE WORLDS — losses and premium each the mean over the worlds —
+ * so every world ranks the units alike and declines the same ones. The worst
+ * loss ratios go first.
  *
- * with sigma the true risk's own log-scale spread, so the observed spread is
- * the true one at every v. At 0 underwriting sees only noise and selects at
- * random; at 1 it sees true risk and selects perfectly. Renewal declines the
- * units that look riskiest; intake takes the prospects that look best.
+ * ⚠ MEASURED: THE HISTORY READS TRUE RISK ALMOST EXACTLY, so this slider is
+ * close to perfect selection. On scenario 18 Property its correlation with
+ * true risk at each renewal is 0.96–1.00 whether averaged over 1, 10 or all
+ * 100 worlds (a ten-world history was tried on wip/uw-hybrid and dropped: it
+ * changed nothing). The clarity comes from the flat pre-game (every unit at
+ * exactly its expected loss), a unit's own noise (UNIT_ORDINARY_OWN_CV, 10%)
+ * small against the spread of risk (UNIT_RISK_CV, 30%), and the shared year
+ * factor, which cancels in a ranking. Declining 5% a year cuts the loss ratio
+ * 2.1 points in year 1 and 6.7 by year 5, against the data scientist's 2.5.
+ *
+ * NEW BUSINESS, REJECTION RATE (NEW_BUSINESS_REJECTION_SLIDER) — the share
+ * of applicants turned away. Applicants arrive at NEW_BUSINESS_APPLICATIONS
+ * of the book's exposure a year, drawn from the market (the units the book
+ * does not hold) in a seeded random order, so they carry the market's own
+ * risk. Rejection is random too: the formula below is its only effect on
+ * quality.
+ *
+ * THE FRACTIONAL-UNIT RULE, so each slider hits its share of exposure
+ * exactly rather than to the nearest whole unit (a unit is about 1.7% of a
+ * book; the sliders step in 1%):
+ *   renewal    whole units are declined from the worst loss ratio down, and
+ *              PART of the last one — the share of it that reaches the
+ *              target. The rest of that unit renews and keeps its history.
+ *   new        applicants are whole units in the random order and part of the
+ *              last, to exactly NEW_BUSINESS_APPLICATIONS of the book; every
+ *              applicant is then accepted at (1 − rejection) of its share, so
+ *              accepted exposure is short of applied by exactly the rate.
+ * A partly held unit's exposure — and so its losses, its premium and its
+ * weight in the book's risk — is its size x the share held.
+ *
+ * WHAT JOINS CARRIES, IN ITS FIRST YEAR ONLY, on its actual ordinary losses:
+ *   penalty factor = 1 + NEW_BUSINESS_PENALTY x (1 − savings)
+ *   savings        = min(1, rejection / FULL_SAVINGS_AT)
+ * — the data scientist's formula: 1.20 at 0%, 1.10 at 5%, 1.00 from 10%.
+ * Not in pricing's expected loss. From year 2 the unit is the existing book.
+ *
+ * BOOK SETTINGS UNDERWRITING ACTS ON: UNIT_MARKET_COUNT, UNIT_SIZE_CV,
+ * UNIT_RISK_CV and UNIT_POOL_SHARE above (the market and the opening book),
+ * FULL_MARKET_EXPOSURE (the cap) and R_MODEL.memberWithdrawalReduction (a
+ * Member Withdrawal's 25%).
+ *
+ * RETIRED HERE: UNIT_UW_VISIBILITY (a noisy view of true risk; selection is
+ * now on loss history), BOOK_INTAKE_SHARE and the four intake positions.
+ * ============================================================================
  */
-export const UNIT_UW_VISIBILITY = 0.5;
+
+/** Accident years of loss history a renewal reads — CHOSEN, the brief's 3. */
+export const LOSS_HISTORY_YEARS = 3;
+
+/** The most one shock claim counts for in a unit's loss history, $ — CHOSEN, the brief's $1M. */
+export const LOSS_HISTORY_CLAIM_CAP = 1_000_000;
 
 /**
- * NEW BUSINESS A YEAR, AS A SHARE OF THE CURRENT BOOK, PER INTAKE POSITION —
- * CHOSEN, A STARTING POINT. No New Business, Strict, Moderate, Low. The R model
- * wrote about 5 prospects in 100 a year, which is Moderate; today's member
- * intake joined about 2%, 4% and 7% of the book at the same three positions.
+ * Years in the book before a unit can be declined on its history — CHOSEN, the
+ * brief's 1. A renewal is decided before the year it renews into, so a unit
+ * written in year J has been in the book less than a year at year J+1's
+ * renewal: at 1 new business is safe at its first renewal (when its record is
+ * one penalised year) and eligible from its second.
  */
-export const BOOK_INTAKE_SHARE: readonly number[] = [0, 0.02, 0.05, 0.08];
+export const NEW_MEMBER_GRACE_YEARS = 1;
 
 /**
- * NEW-BUSINESS PENALTY — CHOSEN, the R model's 20% (book units commit 6). The
- * book units written this year cost this much more on their ACTUAL ordinary
- * losses, in their first year only (ordinaryLossFromUnits); a unit renewed
- * the next year carries none.
+ * APPLICATIONS A YEAR, AS A SHARE OF THE BOOK'S EXPOSURE AT THE START OF THE
+ * YEAR — CHOSEN, 5%: the top of the dial tested between 2% and 5%, the first
+ * rate at which taking all new business visibly costs loss ratio. ONE LINE.
+ */
+export const NEW_BUSINESS_APPLICATIONS = 0.05;
+
+/** The rejection rate at which new business costs no more than the book — CHOSEN, the data scientist's 10%. */
+export const FULL_SAVINGS_AT = 0.10;
+
+/** "Renewals declined": 0–10% of renewing exposure, in 1% steps, default 0%. */
+export const RENEWALS_DECLINED_SLIDER = { min: 0, max: 0.10, step: 0.01, default: 0 } as const;
+
+/** "New Business, rejection rate": 0–15% of applicants, in 1% steps, default 0%. */
+export const NEW_BUSINESS_REJECTION_SLIDER = { min: 0, max: 0.15, step: 0.01, default: 0 } as const;
+
+/**
+ * NEW-BUSINESS PENALTY — CHOSEN, the R model's 20%: the most new business
+ * costs over the book, on its ACTUAL ordinary losses in its first year only
+ * (ordinaryLossFromUnits). The rejection rate buys it down — the factor is
+ * 1 + this x (1 − min(1, rejection / FULL_SAVINGS_AT)); see the underwriting
+ * block above. A unit renewed the next year carries none.
  *
  * ⚠ AND IT IS NOT IN EXPECTED LOSS. A pool does not know in advance that its
  * new business will run worse; expected loss is the book's own exposure x
- * risk x cost, and the rate learns the penalty only through the history, as
- * new business's losses reach the ledger. It was 0 — the mechanism without a
- * calibration — and it was IN expected loss.
+ * risk x cost, and the rate learns the penalty only through the history.
  */
 export const NEW_BUSINESS_PENALTY = 0.20;
 
@@ -1065,21 +1146,10 @@ export const NEW_BUSINESS_PENALTY = 0.20;
  */
 // (OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2, removed with the wiring.)
 
-/**
- * OPENING RESERVE YEARS — how many accident years the pool holds reserves for
- * at the opening. Older accident years are treated as CLOSED.
- *
- * The opening window is the last OPENING_RESERVE_YEARS accident years: the
- * PRIOR_HISTORY_YEARS the pre-game plays with claims behind them, and the
- * years before those as bulk cohorts. The bulk years are on the books from
- * the START of the pre-game, at their ages then, and pay down on the recorded
- * patterns through it — so every pre-game balance sheet carries them, their
- * losses are in the pricing history from the first pre-game year, and the
- * opening is simply where the pre-game ends. (Before Prompt A commit 2 the
- * runoff reached each pattern's end — WC 37 years, GL 21, Property 11 — and
- * appeared all at once at the opening.)
- */
-export const OPENING_RESERVE_YEARS = 10;
+// ⚠ OPENING_RESERVE_YEARS IS RETIRED: the pool's history begins in 2021, so the
+// opening holds every accident year it has (the five played) and there is no
+// older window to bound. It was 10 — the played years and the bulk years before
+// them, on the books from the start of the pre-game.
 
 /**
  * How many years of prior history the new pricing reads.
@@ -1466,6 +1536,12 @@ export const SHOCKS_PER_YEAR = 0.3;
  * in a game where none could fire, Expected Losses read 4-6% above every
  * simulated year, and the Working cover attached that far above the real mean,
  * paid in about one world in five and recovered 8% of its price.
+ *
+ * ⚠ AND SO DOES PROPERTY'S CATASTROPHE CAPITAL (newEngineCatCapital): with a
+ * game's shocks off, required capital carries no catastrophe charge; with
+ * them on, it returns. Measured on a solo game (scenario 7): Property's year-1
+ * requirement $51.5M -> $1.3M (the charge was $50.2M of it), its capital
+ * status Deficient -> Strong.
  */
 export const SOLO_SHOCKS = { enabled: false };
 export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
@@ -1646,7 +1722,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'WC and GL at 1.5 because the recorded patterns were judged too slow; Property at 1.0. '
           + 'Applied where the patterns are defined, so payments, case and IBNR, the pricing LDFs, the '
-          + 'opening and its bulk years, the pre-game and the host\'s development all read the compressed patterns. '
+          + 'opening, the pre-game and the host\'s development all read the compressed patterns. '
           + 'Year-1 rates are unchanged; later rates move slightly because faster payment brings the host\'s adverse '
           + 'development into pricing sooner, and leaves less open balance for shock R development to act on.',
       }],
@@ -1729,12 +1805,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Singleplayer takes these defaults; a session takes the host\'s setting, per line.',
         basis: 'CHOSEN',
         note: 'THE BASE is the accident year\'s outstanding at the first valuation it meets — game '
-          + 'start for prior and bulk years, the end of its own first year for a played one. '
+          + 'start for a pre-game year, the end of its own first year for one played in the game. '
           + 'EACH YEAR\'S SHARE is that year\'s increment in paid share over the share still unpaid '
           + 'at the base, so by run-off exactly this percentage has emerged — asserted per accident '
           + 'year by development-emergence-check. ⚠ NOT A YEARLY RATE: read as one these same '
-          + 'percentages compound to about +54% on GL and +171% on WC. Bulk years develop held NET; '
-          + 'played years develop GROSS and their reinsurance recoveries are recalculated on each '
+          + 'percentages compound to about +54% on GL and +171% on WC. Every year develops GROSS and their reinsurance recoveries are recalculated on each '
           + 'occurrence\'s revised cost under that accident year\'s own cover, so adverse '
           + 'development makes reinsurance worth more. The GL $25M pool limit still applies.',
       }],
@@ -1767,9 +1842,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
-        what: 'How many pre-game years are simulated with real claims behind them.', basis: 'CHOSEN',
-        note: 'Ten while the old ten-year experience path is live; drops to the new window of five at '
-          + 'commit 3, and the two move together. Everything older opens as a bulk cohort.',
+        what: 'How many pre-game years are simulated with real claims behind them — 2021 to 2025.', basis: 'CHOSEN',
+        note: 'Ten while the old ten-year experience path was live; five with the new window since commit 3, '
+          + 'and the two move together.',
+      }],
+      ['The pool\'s history begins', {
+        value: 2021, unit: 'the first accident year',
+        what: 'There are no accident years before 2021, the first pre-game year. The pre-game starts on its paid-in '
+          + 'capital ($12.5M a line — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
+          + 'the starting expected loss with trend applied — no history; 2022 on one year, 2023 on two, 2024 on three, '
+          + '2025 on four; from 2026 the full five-year window.',
+        basis: 'CHOSEN',
+        note: 'Until then the books carried imaginary accident years before the pre-game — 2016-2020 on WC and GL, '
+          + '2019-2020 on Property — as bulk reserves on the books from its start, inside a window of ten accident '
+          + 'years (Opening reserve years, retired), so that pricing\'s window was full from the first pre-game year. '
+          + 'The opening surplus is still the scenario\'s, and the pre-game\'s margin is still solved to reach it.',
       }],
       ['Opening surplus', {
         value: 'year-1 premium at Expected / the scenario\'s premium to surplus', unit: 'surplus at the opening, each line',
@@ -1777,14 +1864,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'divided by its scenario\'s target ratio — see The twenty scenarios.', basis: 'CHOSEN',
         note: 'Was $35M on every line, interim until the scenarios. The pre-game starts from the starting capital and '
           + 'the prior board\'s margin is solved so its last year-end lands here, so the opening is set without a reset.',
-      }],
-      ['Opening reserve years', {
-        value: OPENING_RESERVE_YEARS, unit: 'accident years',
-        what: 'How many accident years the opening holds reserves for; older years are treated as closed.',
-        basis: 'CHOSEN',
-        note: 'The prior history years played with claims, and the years before them as bulk cohorts on '
-          + 'the books from the start of the pre-game, paying down through it. Was each pattern\'s full '
-          + 'length (WC 37 years, GL 21, Property 11) before Prompt A commit 2.',
       }],
     ],
   },
@@ -1890,12 +1969,13 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'Tried at $15M, $10M and $5M across the twenty scenarios by line. $5M gives the most solved margins at or '
-          + 'above expected (45 of 60, against 19 at $10M and 1 at $15M) and the most growth from the margin (40 of 60; '
-          + 'investment\'s median share 42%). WC stays the exception: its long reserves earn the 3% too, so investment '
-          + 'is 55-77% of its growth and its margin solves below expected in 15 of 20 scenarios. The first pre-game year '
-          + 'is thin: premium to surplus about 4.4-5.5. Those counts were with profit and contingency at 5%; at 0 the '
-          + 'margins rise by about that 5%: 58 of 60 at or above expected, WC below in 2 of 20 (-2.7% to +7.1%).',
+        note: 'The prior board\'s margin is solved to grow this into the opening and comes off when year 1 funds at '
+          + 'Expected, so a smaller start means a higher margin and a 2026 rate that falls from 2025\'s. Tried at $5M, $10M, '
+          + '$12.5M and $15M across the twenty scenarios by line. At $12.5M 2026\'s rate carries on rising from 2025\'s on '
+          + 'almost every line and scenario (WC +1.3 to +3.8%, GL +3.0 to +6.7%, Property -0.3 to +3.2%; at $5M it fell on '
+          + 'all). Two margins solve just below expected — WC scenario 10 at -0.35%, GL scenario 12 at -0.12% — accepted '
+          + 'as a negligible underpricing by the prior board. $15M solves most margins below expected. $5M was set while '
+          + 'imaginary pre-2021 reserves earned investment income; those years are retired.',
       }],
       ['Prior board\'s margin', {
         value: 'solved, per scenario and line', unit: 'over expected (CLF 1 + this)',
@@ -2088,27 +2168,73 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Full-market exposure', {
         value: perLine(FULL_MARKET_EXPOSURE, 3), unit: '$M of exposure, base year',
-        what: 'The most a line can write — the cap on the book. Intake stops at it.',
+        what: 'The most a line can write — the cap on the book. New business stops at it.',
         basis: 'SOURCED',
         note: 'The 200-member market (WC 1,300, GL 1,300, Property 59,233.002) x the exposure scale.',
       }],
-      ['Book intake', {
-        value: BOOK_INTAKE_SHARE.map(v => `${(100 * v).toFixed(0)}%`).join(' · '),
-        unit: 'of the book a year, by intake position',
-        what: 'New exposure written each year as a share of the book at the start of the year: No New '
-          + 'Business, Strict, Moderate, Low. The renewal cut declines its share of the book, and a Member '
-          + 'Withdrawal removes 25% of what is left from the following year.',
+      ['Renewals declined — slider', {
+        value: `${(100 * RENEWALS_DECLINED_SLIDER.min).toFixed(0)}–${(100 * RENEWALS_DECLINED_SLIDER.max).toFixed(0)}%, `
+          + `${(100 * RENEWALS_DECLINED_SLIDER.step).toFixed(0)}% steps, default ${(100 * RENEWALS_DECLINED_SLIDER.default).toFixed(0)}%`,
+        unit: 'of renewing exposure',
+        what: 'The share of the book at the start of the year the pool declines, worst loss ratio first. Whole units '
+          + 'from the worst down, and part of the last one, so the share is hit exactly. Units in the book less than '
+          + 'the grace years are not eligible.',
         basis: 'CHOSEN',
-        note: 'A starting point. The R model wrote about 5 prospects in 100 a year, which is Moderate; today\'s '
-          + 'member intake joined about 2%, 4% and 7% of the book at the same three positions.',
+        note: 'Replaces selection on a noisy view of true risk (underwriting visibility, retired). The history is '
+          + 'averaged across all the worlds, so every world declines the same units. Measured, it reads true risk '
+          + 'almost exactly (flat pre-game, small unit noise): declining 5% a year cuts the loss ratio 2.1 points '
+          + 'in year 1 and 6.7 by year 5 on scenario 18 Property.',
+      }],
+      ['Loss history years', {
+        value: LOSS_HISTORY_YEARS, unit: 'accident years',
+        what: 'A unit\'s loss ratio is its losses over this many most recent accident years against the premium it '
+          + 'paid in them — the pre-game\'s years included.',
+        basis: 'CHOSEN', note: 'The brief\'s 3.',
+      }],
+      ['Loss history claim cap', {
+        value: LOSS_HISTORY_CLAIM_CAP, unit: '$ per shock claim',
+        what: 'The most one shock claim counts for in a unit\'s loss history, so one catastrophe does not decide a '
+          + 'renewal. Ordinary losses and routine large claims count in full.',
+        basis: 'CHOSEN', note: 'The brief\'s $1M. Solo games draw no shocks while SOLO_SHOCKS is off.',
+      }],
+      ['New-member grace', {
+        value: NEW_MEMBER_GRACE_YEARS, unit: 'years in the book',
+        what: 'A unit in the book less than this when the renewal is decided is not eligible for a decline. The '
+          + 'renewal is decided before the year it renews into, so at 1 new business is safe at its first renewal.',
+        basis: 'CHOSEN', note: 'The brief\'s 1: new business is not declined on its one penalised year.',
+      }],
+      ['New Business, rejection rate — slider', {
+        value: `${(100 * NEW_BUSINESS_REJECTION_SLIDER.min).toFixed(0)}–${(100 * NEW_BUSINESS_REJECTION_SLIDER.max).toFixed(0)}%, `
+          + `${(100 * NEW_BUSINESS_REJECTION_SLIDER.step).toFixed(0)}% steps, default ${(100 * NEW_BUSINESS_REJECTION_SLIDER.default).toFixed(0)}%`,
+        unit: 'of applicants',
+        what: 'The share of applicants turned away, at random: every applicant is accepted at (1 − the rate) of its '
+          + 'share, so accepted exposure is short of applied by exactly the rate. Its only effect on quality is the '
+          + 'new-business penalty it buys down.',
+        basis: 'CHOSEN',
+        note: 'Replaces the four intake positions (No New Business, Strict, Moderate, Low) and the book intake share, '
+          + 'retired. At the default every applicant joins.',
+      }],
+      ['New-business applications', {
+        value: NEW_BUSINESS_APPLICATIONS, unit: 'of the book\'s exposure a year',
+        what: 'Applicants a year as a share of the book at the start of the year, drawn from the market in a seeded '
+          + 'random order — at the market\'s risk — whole units and part of the last to hit the share exactly.',
+        basis: 'CHOSEN',
+        note: 'Tested from 2% to 5%; set at 5%, the first rate at which growth visibly costs loss ratio. The market (the full-market exposure) is the cap.',
+      }],
+      ['Full savings at', {
+        value: FULL_SAVINGS_AT, unit: 'rejection rate',
+        what: 'The rejection rate at which new business costs no more than the book: savings = min(1, rejection / '
+          + 'this), and the first-year penalty factor is 1 + the penalty x (1 − savings).',
+        basis: 'CHOSEN',
+        note: 'The data scientist\'s 10%: 1.20 at 0%, 1.10 at 5%, 1.00 from 10% to 15%.',
       }],
       ['New-business penalty', {
-        value: NEW_BUSINESS_PENALTY, unit: 'on first-year actual ordinary losses of new units',
-        what: 'Book units written this year cost this much more on their actual ordinary losses, in their first '
-          + 'year only. It is not in expected loss: the rate learns it only through the history.',
+        value: NEW_BUSINESS_PENALTY, unit: 'on first-year actual ordinary losses of new units, at 0% rejection',
+        what: 'The most new business costs over the book, on its actual ordinary losses, in its first year only. '
+          + 'The rejection rate buys it down to nothing at full savings. It is not in expected loss: the rate '
+          + 'learns it only through the history.',
         basis: 'CHOSEN',
-        note: 'The R model\'s 20%, adopted with book units (it was 0, the mechanism without a calibration, and '
-          + 'it was in expected loss).',
+        note: 'The R model\'s 20%, adopted with book units.',
       }],
       ['Reinsurance packages', {
         value: `WC and GL ${REINSURANCE_OPTIONS.WC.map(o => o.id).join(' · ')}`,
@@ -2129,14 +2255,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The R model\'s shapes. Read by nothing yet: the book is drawn and stored once per game, and the '
           + 'engine still runs on each line\'s one exposure.',
-      }],
-      ['Underwriting visibility', {
-        value: UNIT_UW_VISIBILITY, unit: 'share of the observed risk\'s variance that is true risk',
-        what: 'How well underwriting sees each book unit\'s true risk. Renewal declines the units that look '
-          + 'riskiest; intake takes the prospects that look best. 0 is random selection, 1 perfect.',
-        basis: 'CHOSEN',
-        note: 'A starting point. The noise is drawn once from the game seed, so a unit looks the same every '
-          + 'year and in every world.',
       }],
       ['Aggregate stop', {
         value: AGGREGATE_STOP.enabled
@@ -2253,6 +2371,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'about one world in five and recovered 8% of its price. On the ordinary expectation it costs about a '
           + 'third less and pays in about half the worlds, recovering 55% of its price; the Bad-year and Catastrophe '
           + 'covers, attaching at 115% and 130% of an ordinary year, now price at about nothing.',
+      }],
+      ['Catastrophe capital follows the shocks', {
+        value: 'Property: none while a game\'s shocks are off', unit: 'rule',
+        what: 'Required capital is the reserve risk margin plus, on Property, the catastrophe the pool retains from '
+          + 'one regional event after its cover. A game whose shocks are off — single-player while the switch above '
+          + 'is off, or a hosted room with no shocks scheduled — carries no catastrophe charge: no catastrophe can '
+          + 'fire in it. With a schedule the charge returns, as before. WC and GL carry none either way.',
+        basis: 'CHOSEN',
+        note: 'The same switch as the expectation (shockLosses.gameShocksOn). Measured on a solo game (scenario 7): '
+          + 'Property\'s year-1 required capital was $51.5M, $50.2M of it the catastrophe charge, and its capital '
+          + 'status Deficient (-0.58); without the charge it is $1.3M and Strong (15.8).',
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',

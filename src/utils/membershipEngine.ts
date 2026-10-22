@@ -4,7 +4,7 @@
 import type { Member, LineDecisionSet, CoverageLine, MembershipHistory, MemberLossHistory } from '../types/simulation';
 import { SeededRandom } from './random';
 import { canReenroll } from './membershipHistory';
-import { intakeAdmit } from './intakeInspection';
+import { rejectionShare } from './bookUnderwriting';
 import { getMemberExposure } from './lineHelpers';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { departureRisks } from './memberDeparture';
@@ -23,8 +23,8 @@ import {
 } from '../data/defaultAssumptions';
 
 export interface MemberMovementInputs {
-  /** The instance seed. The intake inspection draws each applicant's error from
-   *  its own labelled sub-stream of it — see intakeInspection.ts. */
+  /** The instance seed. (The intake inspection that drew from it is retired
+   *  with the intake positions; uw-hybrid.) */
   instanceSeed: number;
   currentMembers: Member[];
   allMarketMembers: Member[];
@@ -85,11 +85,9 @@ export interface MemberMovementResult {
   // strict bar looks exactly like a year nobody wanted to join. These separate
   // them: `intakeRoom` is what the pool had space for after demand and both
   // caps, `applicantCount` is how many applied, `eligibleCount` how many
-  // cleared the bar. Short ⟺ eligibleCount < intakeRoom. ⚠ With the intake
-  // positions' own caps (intakeInspection.ts), the binding limit is
-  // min(position cap, intakeRoom), and the position cap is never above
-  // intakeRoom — so the CAP bound a year iff eligibleCount > that position's cap,
-  // and the BAR bound it iff eligibleCount < it.
+  // cleared the bar. Short ⟺ eligibleCount < intakeRoom. ⚠ Since the intake
+  // positions retired (uw-hybrid) there is no bar: eligibleCount is everyone
+  // who applied, and the rejection rate admits a random share of them.
   intakeRoom: number;
   applicantCount: number;
   eligibleCount: number;
@@ -576,7 +574,8 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
   //
   // RANDOM AMONG ELIGIBLE, NOT BEST-FIRST. Filter to who clears the inspection,
   // keep their arrival order, take the room off the top. Best-first would
-  // collapse every level into the cap. See intakeInspection.ts.
+  // collapse every level into the cap. ⚠ RETIRED WITH THE INTAKE POSITIONS
+  // (uw-hybrid): the rejection rate below admits a random share instead.
   //
   // ⚠ THE INSPECTION DRAWS ON ITS OWN LABELLED SUB-STREAMS, so no level moves
   // the membership stream: every level shuffles the same pool to the same order
@@ -617,15 +616,12 @@ export function simulateMemberMovement(inputs: MemberMovementInputs): MemberMove
   // At 0 this is exactly the shuffled prefix it always was.
   const applicants = selectApplicants(shuffledPool, applicationCount);
 
-  // The position's bar, then its cap: everyone who passes joins if they fit,
-  // otherwise the best by inspected quality. The cap is a share of the same book
-  // intakeRoom is, and never above it (Low's cap IS MAX_NEW_MEMBER_SHARE), so the
-  // intakeRoom slice below is a guard that cannot bind. `passed` is kept so the
-  // result can say whether the bar or the cap limited the year.
-  const intake = intakeAdmit(
-    applicants, line, yearNumber, inputs.instanceSeed,
-    inputs.decisions.intakeLevel ?? 0, currentMembers.length,
-  );
+  // ⚠ THE REJECTION RATE, AT RANDOM (since the intake positions retired):
+  // the applicants are already a random order, so the first (1 − rate) of them
+  // are admitted — no selection beyond who applies. "Eligible" is everyone who
+  // applied.
+  const admittedCount = Math.round(applicants.length * (1 - rejectionShare(inputs.decisions.newBusinessRejection)));
+  const intake = { passed: applicants, admitted: applicants.slice(0, admittedCount) };
   const candidatePool = intake.admitted;
 
   // ⚠ BUILT IN FULL AND THEN DISCARDED WHEN THE ROSTER IS FROZEN, BECAUSE THE

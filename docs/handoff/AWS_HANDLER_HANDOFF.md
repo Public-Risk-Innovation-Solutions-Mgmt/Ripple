@@ -110,6 +110,20 @@ the host must read back exactly that package and neither retired field;
 confirmed to fail against the old shape. Run on every pass —
 `npm run contract:dynamo`, `npm run contract:built`, `npm run contract:races`.
 
+### Two underwriting sliders — a contract change (uw-hybrid, a TEST BUILD)
+
+**On `wip/uw-hybrid` only; not on `multiplayer`.** Inside the decisions
+section, each line's `renewalCut` and `intakeLevel` are replaced by
+**`renewalsDeclined`** (a fraction, 0–0.10) and **`newBusinessRejection`** (a
+fraction, 0–0.15); see `TeamLineDecisions` in `src/session/contract.ts`. The
+host Decisions tab shows both as percentages. Same order as before if it ever
+deploys: handler first, then the front end. The handler, both transports and
+`keys.ts` carry no new code — the block is still scalars stored whole — and a
+row posted under the old shape reads 0% for both.
+
+**Contract harness:** the fixture posts 7% and 12% and the host must read back
+exactly those and neither retired field.
+
 ### Ten worlds — the surplus spread (loss engine commit 4b)
 
 **This also deploys handler first, then the front end.** Each team's year now

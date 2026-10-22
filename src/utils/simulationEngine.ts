@@ -1,7 +1,7 @@
 // Core simulation engine for Risk Pool Simulation v1
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
-import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
+import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation, BookLedger } from '../types/simulation';
 import type { ShockFiring, ShockRecord } from '../types/shocks';
 
 // THE NEW LOSS ENGINE'S FIRINGS, IN THE RECORD SHAPE THE RESULTS PAGES READ.
@@ -148,16 +148,18 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, NEW_BUSINESS_PENALTY, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
 import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
-import { bookMovementResult, moveBook, moveBookUnits } from './bookUnderwriting';
+import {
+  bookMovementResult, heldUnits, moveBook, moveBookUnits, newBusinessPenaltyFactor as newBusinessPenaltyFactor_, recordUnitYear,
+} from './bookUnderwriting';
 import {
   bookOrdinaryRisk, ordinaryLossCostPer100, ordinaryLossFromUnits, ordinaryLossYear, ordinaryMemberRecords, preGameLossFactor,
-  type OrdinaryLossYear,
+  type OrdinaryLossYear, type UnitOrdinaryYear,
 } from './ordinaryLoss';
-import { marketSeedOf, unitsOf, type BookUnit } from './bookUnits';
+import { marketSeedOf, type BookUnit } from './bookUnits';
 import { drawLargeLosses, firingKey, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
@@ -596,6 +598,8 @@ interface LineYearContext {
    * shapes the line's losses, and every result stays at line level.
    */
   bookUnits?: readonly BookUnit[];
+  /** The line's underwriting ledger (PoolState.bookLedger) — shares held, joins, the worlds' averaged history. */
+  bookLedger?: BookLedger;
   /** DIAGNOSTIC SEAM — see processYear's `overrides` parameter. Undefined in
    *  every shipped path. */
   applicationRateOverride?: number;
@@ -755,7 +759,7 @@ export function strikeBookRate(
     rows: lineState.reserveDevelopment ?? [],
     allMarketMembers: basis.allMarketMembers,
     membershipHistory: basis.membershipHistory,
-  }, exposure);
+  }, exposure, bookRisk ?? 1);
   const quote = quoteNewRateStack({
     line,
     yearNumber,
@@ -785,7 +789,7 @@ export function processLineYear(
   lineState: LinePoolState,
   lineDecisions: LineDecisionSet,
   ctx: LineYearContext
-): { updatedLineState: LinePoolState; updatedShared: LineYearShared; result: LineResultSet; bookUnitsAfter?: number[] } {
+): { updatedLineState: LinePoolState; updatedShared: LineYearShared; result: LineResultSet; bookUnitsAfter?: number[]; bookLedgerAfter?: BookLedger } {
   const { instance, yearNumber, calendarYear, priorResult } = ctx;
   const shocks = ctx.shocks ?? true;
 
@@ -1034,7 +1038,7 @@ export function processLineYear(
   const newPp = struck
     ? struck.newPp
     : bookMode
-      ? bookPurePremium(line, yearNumber, newPpBasis, estimatedExposure)
+      ? bookPurePremium(line, yearNumber, newPpBasis, estimatedExposure, ctx.bookUnits ? bookOrdinaryRisk(ctx.bookUnits) : 1)
       : computeNewPurePremium(line, yearNumber, newPpBasis);
   // THE OLD STACK'S PURE PREMIUM — a roster blend of the old engine's held
   // figures. A book has neither; its pure premium IS the new stack's.
@@ -1193,25 +1197,30 @@ export function processLineYear(
   // the full market; frozen through the pre-game. See bookUnderwriting.ts. It
   // stands in for movement's result below, so the rest of the year reads one
   // shape either way.
-  // ⚠ UNIT BY UNIT SINCE BOOK UNITS COMMIT 4 (moveBookUnits): renewal declines
-  // the units that look riskiest, intake takes the prospects that look best,
-  // withdrawal removes units in a seeded order. On the game's seed, so every
-  // world moves the same book. A state with no book moves its exposure as before.
+  // ⚠ UNIT BY UNIT (moveBookUnits): renewal declines the worst loss ratios on
+  // the worlds' averaged history, new business takes applicants at random and
+  // rejects at random, withdrawal removes units in a seeded order; parts of
+  // units where a share needs them. On the game's seed and the shared ledger,
+  // so every world moves the same book. A state with no book moves its
+  // exposure as before.
   const unitMove = bookMode && ctx.bookUnits
-    ? moveBookUnits(line, marketSeedOf(instance), ctx.bookUnits.map(u => u.index), lineDecisions,
+    ? moveBookUnits(line, marketSeedOf(instance), ctx.bookUnits.map(u => u.index), ctx.bookLedger, lineDecisions,
       ctx.shockYear?.withdrawal === true, ctx.freezeMembership, yearNumber)
     : null;
   const bookMovement = unitMove ?? (bookMode
     ? moveBook(line, lineState.bookExposure ?? 0, lineDecisions, ctx.shockYear?.withdrawal === true, ctx.freezeMembership)
     : null);
   // The book the year's losses are drawn on: after movement.
-  const yearUnits = unitMove ? unitsOf(marketSeedOf(instance), line, unitMove.afterUnits) : ctx.bookUnits;
-  // THE NEW-BUSINESS PENALTY. On a book of units it lands on the units written
-  // this year, inside their own ordinary draw (ordinaryLossFromUnits), so the
-  // line-wide factor is 1 there; a book with no units still takes it as a
-  // share of the line. ⚠ IN NEITHER CASE IS IT IN EXPECTED LOSS (book units
-  // commit 6): the rate learns it only through the history.
-  const newBusinessPenaltyFactor = unitMove ? 1 : 1 + NEW_BUSINESS_PENALTY * (bookMovement?.newShare ?? 0);
+  const yearUnits = unitMove ? heldUnits(marketSeedOf(instance), line, unitMove.afterUnits, unitMove.ledger) : ctx.bookUnits;
+  // THE NEW-BUSINESS PENALTY — the data scientist's formula on the year's
+  // rejection rate (newBusinessPenaltyFactor). On a book of units it lands on
+  // the units written this year, inside their own ordinary draw
+  // (ordinaryLossFromUnits), so the line-wide factor is 1 there; a book with no
+  // units still takes it as a share of the line. ⚠ IN NEITHER CASE IS IT IN
+  // EXPECTED LOSS: the rate learns it only through the history.
+  const unitPenalty = unitMove ? unitMove.penaltyFactor - 1 : 0;
+  const newBusinessPenaltyFactor = unitMove || !bookMovement ? 1
+    : 1 + (newBusinessPenaltyFactor_(lineDecisions.newBusinessRejection) - 1) * bookMovement.newShare;
   const newUnits = new Set(unitMove?.writtenUnits ?? []);
   const memberResult = bookMovement
     ? bookMovementResult(
@@ -1263,7 +1272,7 @@ export function processLineYear(
   // ============================================================================
   //
   // ⚠ AND IT IS OFF IN THE PRE-GAME, STRUCTURALLY RATHER THAN BY DEFAULT. The
-  // pre-game runs at defaultDecisionSet, whose renewalCut is 0, so nothing is
+  // pre-game runs at defaultDecisionSet, whose renewalsDeclined is 0, so nothing is
   // declined there today — but that is a property of the defaults and not of
   // the pre-game. The cut is forced to 0 here so a future default cannot reopen
   // it. renewalDeclines is PURE and takes no draw, so skipping the call cannot
@@ -1272,7 +1281,7 @@ export function processLineYear(
   // everyone".
   const renewalDecisions = renewalDeclines(
     memberResult.activeMembers, line, ctx.memberLossHistory, yearNumber,
-    ctx.freezeMembership ? 0 : (lineDecisions.renewalCut ?? 0),
+    ctx.freezeMembership ? 0 : (lineDecisions.renewalsDeclined ?? 0),
   );
   const renewal = applyRenewalDeclines(
     memberResult.activeMembers, line, yearNumber, renewalDecisions, ctx.membershipHistory,
@@ -1849,7 +1858,7 @@ export function processLineYear(
     // exposure x risk x cost, times the shared year factor and its own.
     ordinaryYear = yearUnits
       ? ordinaryLossFromUnits(line, yearUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed,
-        newUnits, NEW_BUSINESS_PENALTY, preGameLossFactor(instance, yearNumber))
+        newUnits, unitPenalty, preGameLossFactor(instance, yearNumber))
       : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed, preGameLossFactor(instance, yearNumber));
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
@@ -2719,8 +2728,10 @@ export function processLineYear(
   // ⚠ ON THE NEW ENGINE, ITS OWN CATASTROPHES. The old figure read the old
   // catastrophe model over the member roster; the new engine's catastrophes are
   // the catalogue's regional events. See newEngineCatCapital for the basis.
+  // ⚠ AND ONLY WHILE THE GAME'S SHOCKS ARE ON: with them off no catastrophe
+  // can fire, so required capital carries no catastrophe charge.
   const catCapitalNeeded = newLossEngineRuns()
-    ? newEngineCatCapital(line, estimatedExposure, yearNumber, placedForCost, lineDecisions.reinsuranceOption)
+    ? newEngineCatCapital(line, estimatedExposure, yearNumber, placedForCost, lineDecisions.reinsuranceOption, shocks)
     : catCapitalRetained(line, currentActiveMembers, placedForCost);
   const reserveRiskMarginNeeded = Math.max(
     0,
@@ -3239,7 +3250,6 @@ export function processLineYear(
     reserveCohorts: allCohorts,
     reserveDevelopment: recordReserveDevelopment(
       lineState.reserveDevelopment ?? [],
-      lineState.reserveCohorts,
       updatedCohorts,
       currentYearCohort,
       yearNumber,
@@ -3271,7 +3281,18 @@ export function processLineYear(
     allMarketMembers: updatedAllMembers,
   };
 
-  return { updatedLineState, updatedShared, result, ...(unitMove ? { bookUnitsAfter: unitMove.afterUnits } : {}) };
+  // THIS WORLD'S RECORD OF THE YEAR, per held unit, for the loss history the
+  // next renewals read; settleWorldsYear averages it across the worlds.
+  const bookLedgerAfter = unitMove && yearUnits && ordinaryYear && 'byUnit' in ordinaryYear
+    ? recordUnitYear(unitMove.ledger, yearUnits, yearNumber,
+      new Map((ordinaryYear as UnitOrdinaryYear).byUnit.map(u => [u.index, u.realised * (1 + (lineShocks?.uplift ?? 0))])),
+      largeDraw?.byUnit ?? new Map(), totalMemberCharge)
+    : undefined;
+  return {
+    updatedLineState, updatedShared, result,
+    ...(unitMove ? { bookUnitsAfter: unitMove.afterUnits } : {}),
+    ...(bookLedgerAfter ? { bookLedgerAfter } : {}),
+  };
 }
 
 // Each active line's share of the shared cash/other-assets pool. The weight is
@@ -3433,6 +3454,7 @@ export function processYear(
   const updatedLineStates: Partial<Record<CoverageLine, LinePoolState>> = {};
   // Each line's book after this year's underwriting (moveBookUnits), for the pool state.
   const movedBook: Partial<Record<CoverageLine, number[]>> = {};
+  const movedLedger: Partial<Record<CoverageLine, BookLedger>> = {};
   let sharedCash = 0;
   let sharedUnearnedPremium = 0;
   // Loan repayments owed back to each lending line this year (principal +
@@ -3549,7 +3571,10 @@ export function processYear(
       yearNumber,
       calendarYear,
       shocks: gameShocksOn(setup, instance),
-      ...(lineBook ? { bookUnits: unitsOf(marketSeedOf(instance), line, lineBook) } : {}),
+      ...(lineBook ? {
+        bookUnits: heldUnits(marketSeedOf(instance), line, lineBook, poolState.bookLedger?.[line]),
+        bookLedger: poolState.bookLedger?.[line],
+      } : {}),
       applicationRateOverride: overrides?.applicationRate,
       freezeMembership: overrides?.freezeMembership === true,
       struckRate: overrides?.struckRates?.[line],
@@ -3595,13 +3620,14 @@ export function processYear(
       priorResult: priorPoolResult?.byLine[line],
     };
 
-    const { updatedLineState, updatedShared, result, bookUnitsAfter } = processLineYear(
+    const { updatedLineState, updatedShared, result, bookUnitsAfter, bookLedgerAfter } = processLineYear(
       line,
       lineState,
       lineDecisions,
       ctx
     );
     if (bookUnitsAfter) movedBook[line] = bookUnitsAfter;
+    if (bookLedgerAfter) movedLedger[line] = bookLedgerAfter;
 
     // Ledger maintenance by roster diff: compare this line's active roster
     // before and after the year. Joins open an interval (active from this
@@ -3776,6 +3802,8 @@ export function processYear(
     memberLossHistory,
     // The book of units, as underwriting left it this year (moveBookUnits).
     ...(poolState.bookUnits ? { bookUnits: { ...poolState.bookUnits, ...movedBook } } : {}),
+    // Its ledger, with this world's record of the year (recordUnitYear).
+    ...(poolState.bookUnits ? { bookLedger: { ...poolState.bookLedger, ...movedLedger } } : {}),
   };
 
   // Detect deficient lines that don't already carry a loan — these become
@@ -4494,25 +4522,21 @@ export function aggregateLineResults(
 // memorandum; see ReserveDevelopmentRow for why the path cannot be recovered
 // after the fact and therefore has to be written down as it happens.
 //
-// ⚠ TAKES BOTH SIDES OF THE STEP ON PURPOSE. `before` is needed only to open a
-// row for a cohort the ledger has never seen — a SEED cohort, which exists
-// before the first processed year and would otherwise have its opening estimate
-// overwritten by its first development. For those the opening entry is the
-// estimate as at GAME START, filed against valuation year `yearNumber - 1`,
-// because that is the valuation it actually describes.
+// ⚠ EVERY ROW IS OPENED BY ITS OWN ACCIDENT YEAR. It used to take the cohorts
+// before the step as well, to open rows for SEED cohorts that existed before the
+// first processed year; the pool's history now begins in 2021 and every cohort
+// is written by a processed year, so there is nothing to open early.
 //
 // ⚠ PURE, AND IT MUST STAY PURE. No RNG, no mutation of either input, and no
 // return path into any booked or priced quantity. That is what keeps a display
 // feature out of the value gates.
 function recordReserveDevelopment(
   ledger: ReserveDevelopmentRow[],
-  before: ReserveCohort[],
   after: ReserveCohort[],
   incepted: ReserveCohort,
   yearNumber: number,
   // With MEMBER_LEVEL off, the book's exposure this year: written onto the row
-  // the year inceptes, and onto any seed row opened now (the bulk years were
-  // sized on the same book). Undefined with members, and no key is written.
+  // the year inceptes. Undefined with members, and no key is written.
   bookExposure?: number,
 ): ReserveDevelopmentRow[] {
   // ⚠ paidByValuation IS NET, matching ultimateByValuation. The engine's own
@@ -4529,25 +4553,6 @@ function recordReserveDevelopment(
     grossPaidByValuation: [...(r.grossPaidByValuation ?? [])],
   }]));
 
-  // Open a row for any pre-existing cohort the ledger has not met yet. Only
-  // seed cohorts reach this: an engine-written accident year is registered in
-  // the year it inceptes, by the `incepted` block below.
-  for (const c of before) {
-    if (c.closed || byYear.has(c.yearNumber)) continue;
-    byYear.set(c.yearNumber, {
-      yearNumber: c.yearNumber,
-      calendarYear: c.calendarYear,
-      ultimateByValuation: [c.netUltimate],
-      paidByValuation: [c.netPaid],
-      grossPaidByValuation: [c.grossPaid ?? c.netPaid],
-      firstValuationYear: yearNumber - 1,
-      ageAtFirstValuation: c.age,
-      horizon: c.horizon,
-      seeded: true,
-      ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
-      ...(c.shockGross !== undefined ? { shockGross: c.shockGross } : {}),
-    });
-  }
 
   // This valuation's estimate for every cohort that survived the step.
   for (const c of after) {
@@ -4588,7 +4593,6 @@ function recordReserveDevelopment(
       firstValuationYear: yearNumber,
       ageAtFirstValuation: 0,
       horizon: incepted.horizon,
-      seeded: false,
       ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
       ...(incepted.shockGross !== undefined ? { shockGross: incepted.shockGross } : {}),
     });
@@ -4914,11 +4918,10 @@ function processIbner(
         // deterioration like any other loss. The pool's reserve moves by the
         // RETAINED part only.
         //
-        // A cohort with no register — a seed cohort, apportioned from a reserve
-        // total at generation with no claims behind it — retains its
-        // development ENTIRE. That is the honest default rather than inventing
-        // claims to cede against, and it is 0.4% of all adverse development, so
-        // it does not matter much either.
+        // A cohort with nothing tracked retains its development ENTIRE — the
+        // honest default rather than inventing claims to cede against. (It was
+        // written for the seed cohorts, which had no register; they are retired
+        // with the pool's history beginning in 2021.)
         //
         // ⚠ THE RESELECTED SET, NOT THE COHORT'S STORED ONE. Reselection ran
         // above and may have stood developing claims down and promoted replacements
@@ -5331,8 +5334,7 @@ function processIbner(
             emergedAbovePoolLimit += d - Math.min(d, headroom);
             return Math.min(d, headroom);
           });
-          // A cohort carrying frozen cover is one the tower was bought for;
-          // a bulk cohort has none and falls to the net branch below.
+          // A cohort carrying frozen cover is one the tower was bought for.
           const cession = c.placedAtInception !== undefined
             ? cedeDevelopment(line as TowerLine, liveTracked, deltas,
               alloc.untrackedDelta, c.placedAtInception)
@@ -5376,10 +5378,9 @@ function processIbner(
           untrackedOut = (untrackedOut ?? 0) + alloc.untrackedDelta;
           newGrossUnpaid += emerging - emergedAbovePoolLimit;
         } else {
-          // --- THE BULK CASE: no register, so it is simply net -------------
-          // A bulk or seeded cohort has no claims to cede to and no gross
-          // ledger of its own; its base was its net outstanding and its
-          // development is net. See hostDevelopment.ts.
+          // --- NOTHING TRACKED: no claims to cede to, so it is simply net ---
+          // (Written for the bulk and seed cohorts, retired with the pool's
+          // history beginning in 2021.) See hostDevelopment.ts.
           emergedNet = emerging;
           newGrossUnpaid += emerging;
         }

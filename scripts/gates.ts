@@ -127,21 +127,12 @@ const FAST: string[] = [
   //
   // scripts/diagnostics/opening-pin-solve.ts goes with them — it exists only to
   // re-solve a pin that no longer exists.
-  'opening-partition-check',         //   6s   played and bulk accident years PARTITION the opening —
-                                     //         no year held twice, no age held by nothing, nothing past
-                                     //         its own pattern; every cohort's paid-to-date is its age's,
-                                     //         and year 1 pays the bulk one step (control: the old
-                                     //         bulk ages paid 1.75-1.92x). Written against a real double-count:
-                                     //         PRE_GAME_DEPTH was a fixed 10 silently coupled to
-                                     //         PRIOR_HISTORY_YEARS, and dropping the latter to 5 put
-                                     //         accident years 6-10 in BOTH sets. Carries its control.
-  'opening-reserves-report',         //  40s   the SET opening beside today's search. ASSERTS
-                                     //         NOTHING and exits 0 on any number — openingReserves.ts
-                                     //         is recorded and unwired at commit (a), so there is no
-                                     //         bar to clear yet. It is in the sweep so commit (b)'s
-                                     //         baseline move is a CONFIRMATION rather than a
-                                     //         discovery: a move whose size was not known beforehand
-                                     //         can only be accepted, not checked.
+  'history-begins-2021-check',       //   6s   the pool's history begins in 2021: the pre-game starts
+                                     //         empty on its paid-in capital, the opening holds exactly
+                                     //         its years and nothing older, no jump, and pricing reads
+                                     //         0/1/2/3/4 years then the full 5. Four controls. Replaces
+                                     //         opening-partition-check and opening-reserves-report,
+                                     //         retired with the bulk years.
   'parameters-page-check',           //   6s   docs/PARAMETERS.md must be what the generator
                                      //         would write. A byte comparison, so it catches an
                                      //         edited page, a changed constant that was not
@@ -326,7 +317,6 @@ const FAST: string[] = [
   'save-flush-wiring-check',         //   1s   static: the two lifecycle events reach flush(); 6 controls
   'save-round-trip-check',           //   3s
   'save-size-check',                 //   4s
-  'seed-cohort-shape-check',         //   1s
   'solo-export-guard',               //   4s
   'surface-privacy-check',           //   1s   risk quality reaches no player-facing render or export path
   'terminal-severity-check',         //  30s   STAGE 1 — derives phi against the pool's settled log-SD
@@ -848,6 +838,10 @@ const PROBES: Record<string, string> = {
   'property-mitigation-value': "what Property mitigation is worth at each setting of the risk-control dial — paired WHOLE GAMES through the engine at 1% to 5% of Property premium against 0%, so the reading carries the charge, the premium feedback and the forgone investment income rather than arithmetic on a redraw. Property SOLO, because the dial is pool-wide. STORM_YEAR=0 for a quiet book, AGG=0|1 to read the aggregate overlap. A READING with no pass condition; property-mitigation-check asserts the confinement [~600s at GAMES=48]",
   'open-share-derive': "derives TRIANGLE_OPEN_SHARE and asserts the identity that justifies it — cohort compounding against the per-claim mean-of-products, 0.9966 / 1.0000 / 1.0000. A GENERATOR, but one that exits non-zero if the curve stops reproducing the per-claim clock [25s]",
   'forward-booking-climb-report': "the climb against the development a cohort SHOULD have received by its age — the acceptance instrument for every forward-booking attempt, replacing a 3-observation statistic with an all-observation one. A READING with no threshold: the mechanism it measures is not built. Prints its own per-game sd and required sample every run. GAMES=112 resolves GL to +/-0.02 and costs ~4.5 min; the 24-game default costs 57s [57s]",
+  'pregame-years-report': 'the pre-game and what follows, by line: every scenario\'s solved margin (range, and those below zero), the pre-game rates 2021-2025 and year 1 with their year-on-year swing, the Annual Statement\'s columns at game start, and played ten years at the defaults — investment income y1-5, surplus at 5 and 10, cumulative combined ratio on scenarios 1, 10, 20. No threshold [20 min]',
+  'paid-in-capital-solve-report': 'per line, the paid-in capital (STARTING_CAPITAL) at which the mean over the twenty scenarios of the 2026 rate change from 2025 equals the line\'s severity trend, found by bisection; at it, the change\'s range and the solved pre-game margin\'s range with those below zero. No threshold [2 min]',
+  'opening-position-report': 'each line\'s opening at the start of year 1 over the twenty scenarios — net and LAE reserve, required capital, surplus, the solved pre-game margin, year-1 premium and the oldest open accident year; mean and range. A reading to compare one commit against another, no threshold [30s]',
+  'uw-applications-dial-report': 'uw-hybrid: scenario 18 Property, five years at Expected, four underwriting arms — exposure, loss ratio, combined ratio and surplus at year 5; run once per NEW_BUSINESS_APPLICATIONS with --set. A design reading with no threshold [60s]',
   'investment-dominance-report': 'underwriting against investment income, per line, with the implied return. A design reading with no threshold — see its header [12s]',
   'ibner-clf-basis-report': 'reports the IBNER/CLF basis pairing; no threshold. Renamed from -check [17s]',
   'ibner-pregame-report': 'pre-game IBNER state report [64s]',

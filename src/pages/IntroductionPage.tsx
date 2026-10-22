@@ -5,6 +5,9 @@ import { applyTemplate } from '../utils/renderMarkdown';
 import DocumentReader, { type DocumentEntry } from '../components/DocumentReader';
 import welcomeMemoRaw from '../data/documents/welcomeMemo.md?raw';
 import howToPlayRaw from '../data/documents/howToPlay.md?raw';
+import investmentMemoRaw from '../data/documents/investmentMemo.md?raw';
+import underwritingMemoRaw from '../data/documents/underwritingMemorandum.md?raw';
+import { buildInvestmentMemo, currentAllocation } from '../utils/investmentMemo';
 
 interface IntroductionPageProps {
   gameState: GameState;
@@ -66,6 +69,20 @@ export default function IntroductionPage({ gameState }: IntroductionPageProps) {
       title: 'How to Play',
       summary: 'The yearly cycle, your decisions, and the reports',
       content: howToPlayContent,
+    },
+    {
+      // Its figures are the game's: the asset classes' parameters and the
+      // Pool's allocation in force (buildInvestmentMemo, currentAllocation).
+      id: 'investment',
+      title: 'Investment Memorandum',
+      summary: 'From the Investment Committee',
+      content: buildInvestmentMemo(investmentMemoRaw, currentAllocation(gameState)),
+    },
+    {
+      id: 'underwriting',
+      title: 'Underwriting Memorandum',
+      summary: 'From the Underwriting Department',
+      content: underwritingMemoRaw,
     },
   ];
 

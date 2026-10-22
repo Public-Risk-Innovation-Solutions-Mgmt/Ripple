@@ -44,6 +44,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { heldUnits, newBusinessPenaltyFactor } from '../../src/utils/bookUnderwriting';
 import { bookOrdinaryCv, drawOrdinaryFactor, ordinaryLossFromUnits } from '../../src/utils/ordinaryLoss';
 import { marketSeedOf, openingBookUnits, unitsOf } from '../../src/utils/bookUnits';
 import { allLayerRiskMoments } from '../../src/utils/towerMoments';
@@ -152,8 +153,15 @@ try {
         // 4. the draw's own scale, recomputed from the same streams on the
         // year's book, after the year's movement (withdrawal, renewal, intake)
         // — scale-free, so any exposure gives the factor
-        const units = unitsOf(marketSeedOf(instance), line, p.updatedPoolState.bookUnits?.[line] ?? []);
-        const factor = ordinaryLossFromUnits(line, units, 100, y, instance.seed).factor;
+        // ⚠ AT HELD SHARES, AND WITH THIS YEAR'S NEW BUSINESS LOADED: the
+        // default writes new business, whose first-year actual carries the
+        // penalty (newBusinessPenaltyFactor) and its expected does not, so the
+        // draw's own scale includes it.
+        const ledger = p.updatedPoolState.bookLedger?.[line];
+        const units = heldUnits(marketSeedOf(instance), line, p.updatedPoolState.bookUnits?.[line] ?? [], ledger);
+        const fresh = new Set(units.filter(u => ledger?.joined[String(u.index)] === y).map(u => u.index));
+        const pen = newBusinessPenaltyFactor(defaultDecisionSet(y).byLine[line].newBusinessRejection) - 1;
+        const factor = ordinaryLossFromUnits(line, units, 100, y, instance.seed, fresh, pen).factor;
         worstScale = Math.max(worstScale, Math.abs(ratio / factor - 1), Math.abs(n.ordinaryFactor / factor - 1));
         // the record adds up to the line's gross: ordinary + T + routine excess
         worstRecord = Math.max(worstRecord,
@@ -209,7 +217,7 @@ try {
     const members = getPredefinedMarketMembers();
     for (const line of LINES) {
       const exposure = bookExposureOf(members, line, 0);
-      const actual = newEngineLayerMoments(line as never, exposure, 0, 1, false).reduce((s, m) => s + m.expected, 0);
+      const actual = newEngineLayerMoments(line as never, exposure, 0, false).reduce((s, m) => s + m.expected, 0);
       check(actual === 0, `${line}: ordinary losses only, so the year's expected recovery is zero`,
         `$${actual.toFixed(2)}, year 0, routine large losses held off`);
       const priced = allLayerRiskMoments(line as never, members, 0).reduce((s, m) => s + m.expected, 0);

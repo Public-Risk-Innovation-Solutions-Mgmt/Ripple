@@ -44,7 +44,6 @@ import { ibnrShareOfUnpaid, splitAgeMonths } from './reserveSplit';
 export interface ExhibitRow {
   yearNumber: number;
   calendarYear: number;
-  seeded: boolean;
   initial: number;
   prior: number | null;
   current: number;
@@ -128,12 +127,11 @@ export interface ExhibitRow {
 // ============================================================================
 // THE PRIOR BOUNDARY — accident years OLDER than this collapse into one row.
 //
-// ⚠ NOT AN ARBITRARY CUT-OFF. It is exactly the line between cohorts that have a
-// claim register and cohorts that do not. Accident years -2, -1 and 0 were run
-// through processLineYear and have real registers behind them, so their INITIAL
-// column is a real original estimate. Everything older is a SEED cohort,
-// apportioned from a drawn reserve total at generation with no claims behind it
-// at all — its "initial" is a game-start valuation and not an original estimate.
+// It was the line between cohorts with a claim register and SEED cohorts with
+// none. There are no seed cohorts now — the pool's history begins in 2021, and
+// every accident year was played through processLineYear — so everything older
+// than it is the early pre-game years, collapsed for space. Accident years -2,
+// -1 and 0 have their own rows, as before.
 //
 // So the collapse separates rows whose initial value means something from rows
 // whose does not, and the "as at game start" caveat now attaches to ONE row
@@ -196,7 +194,6 @@ export function exhibitRows(line: CoverageLine, ledger: ReserveDevelopmentRow[],
       return {
         yearNumber: r.yearNumber,
         calendarYear: r.calendarYear,
-        seeded: r.seeded,
         initial,
         current,
         prior,
@@ -244,7 +241,6 @@ export function poolExhibitRows(perLine: ExhibitRow[][]): ExhibitRow[] {
       return {
         yearNumber,
         calendarYear: rows[0].calendarYear,
-        seeded: rows.every(r => r.seeded),
         initial: sum(r => r.initial),
         prior: anyNull(r => r.prior) ? null : sum(r => r.prior ?? 0),
         current: sum(r => r.current),
@@ -294,24 +290,6 @@ export function collapsePrior(rows: ExhibitRow[]): ExhibitRow[] {
   const priorRow: ExhibitRow = {
     yearNumber: PRIOR_ROW_YEAR,
     calendarYear: Math.min(...old.map(r => r.calendarYear)),
-    // Every cohort inside Prior is a seed cohort by construction — that IS the
-    // boundary. Asserted rather than assumed, because a non-seeded year falling
-    // in here would mean the cut had drifted off the register line it is
-    // supposed to trace.
-    // ⚠ `some`, NOT `every`, AND THIS IS THE HALF THE GATE WAS ASSERTING WRONG.
-    // When this collapse was written the pre-game was PRE_GAME_YEARS = 3 — years
-    // -2, -1 and 0 — so everything older than PRIOR_BOUNDARY really was a seed
-    // cohort and `every` and `some` agreed. MATURATION_YEARS = 7 (556cef5) then
-    // put seven PLAYED accident years, -9 to -3, inside Prior, each with a real
-    // claim register. `every` has read false ever since, so the dagger stopped
-    // rendering at all and the caveat it carries stopped being shown.
-    //
-    // The honest claim is that the row CONTAINS carried-in years, which is what
-    // the caveat is about: Prior's INITIAL column is now a mixture of real
-    // original estimates and game-start valuations, and a reader needs to know
-    // the mixture is there. `every` would only be true again if the boundary were
-    // moved back onto the register line.
-    seeded: old.some(r => r.seeded),
     initial: sum(r => r.initial),
     prior: anyNull(r => r.prior) ? null : sum(r => r.prior ?? 0),
     current: sum(r => r.current),
@@ -648,7 +626,7 @@ export function buildActuarialMemo({ gameState, asAtYear }: ActuarialMemoInput):
           `The pool prices off the triangle above. This is what it indicates for year ${indicatedYear}, ` +
           'the first year to be played. It is **retained loss cost per $100** — net of reinsurance, ' +
           'which is the basis the triangle is built on. There is nothing to compare it against yet: ' +
-          'the opening triangle is seeded history, and no year of it was priced by this pool.',
+          'the opening triangle is the pre-game\'s history, and no year of it was priced by this pool.',
         );
       }
       const body = indRows.map(r => {

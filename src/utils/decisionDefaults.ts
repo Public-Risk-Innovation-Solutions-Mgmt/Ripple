@@ -1,5 +1,5 @@
 import { defaultReinsuranceOption } from './reinsuranceOptions';
-import { INTAKE_NONE } from './intakeInspection';
+import { NEW_BUSINESS_REJECTION_SLIDER, RENEWALS_DECLINED_SLIDER } from '../data/pricingParameters';
 // Single source of truth for default decisions. Used by the App (new game /
 // next year), the Decisions page (per-line reset), and the Stage 2.10 pre-game
 // history simulation — so the "steadily managed before the player took over"
@@ -22,39 +22,17 @@ export function defaultLineDecisionSet(line: CoverageLine, shocks = true): LineD
     fundingAtExpected: true,
     // Renew everyone. A pool that declines by default would be making an
     // underwriting decision nobody took.
-    renewalCut: 0,
+    renewalsDeclined: RENEWALS_DECLINED_SLIDER.default,
     /**
-     * ⚠ WRITE NOBODY. AND THIS IS THE OPPOSITE RULING FROM renewalCut
-     * DIRECTLY ABOVE, WHICH IS WHY IT IS ARGUED RATHER THAN JUST SET.
-     *
-     * Declining an EXISTING member by default would be an underwriting decision
-     * nobody took — the pool would be throwing members out on its own
-     * initiative. Writing a NEW member by default is the same kind of thing in
-     * the other direction: the pool would be growing itself while the player
-     * watched, and every consequence of that growth — the rate falling as fixed
-     * costs spread, the reserve building, the book drifting away from the one
-     * the game opened with — would arrive unattributed.
-     *
-     * The asymmetry is that renewal's default keeps the book AS IT IS and
-     * intake's default — the slider at 0 — does too. Both defaults are "change nothing". They
-     * only look opposite because one control acts by omission and the other by
-     * commission.
-     *
-     * ⚠ WITH BOTH AT THEIR DEFAULTS THE BOOK IS FROZEN FOR THE WHOLE GAME, and
-     * that is the intended reading rather than a side effect. Voluntary
-     * departures are off (VOLUNTARY_DEPARTURES_ENABLED), Renew All declines
-     * nobody, and No New Business writes nobody — so a player who touches
-     * nothing plays the pool they were given. Every membership change in a
-     * played game is now traceable to a decision somebody made.
-     *
-     * ⚠ AND IT DOES NOT REACH THE PRE-GAME, WHICH IS WHAT MAKES IT SAFE TO SET.
-     * The pre-game runs at these same defaults, so before the roster was frozen
-     * STRUCTURALLY this would have changed the opening book — exactly the
-     * coupling LineYearContext.freezeMembership removes. Verified rather than
-     * assumed: the year-1 book is unchanged member for member across this
-     * change.
+     * ⚠ REJECT NOBODY — AND SO, UNLIKE THE INTAKE POSITIONS THIS REPLACES, THE
+     * BOOK GROWS BY DEFAULT. Applicants arrive at NEW_BUSINESS_APPLICATIONS of
+     * the book a year whatever the team decides; the slider only turns a share
+     * of them away. At 0% every applicant joins and carries the full 20%
+     * first-year penalty. The old default wrote nobody, so a player who touched
+     * nothing played a frozen book; on uw-hybrid they play a growing one.
+     * The pre-game is unaffected: it moves nothing (freezeMembership).
      */
-    intakeLevel: INTAKE_NONE,
+    newBusinessRejection: NEW_BUSINESS_REJECTION_SLIDER.default,
     dividendPct: SLIDER_RANGES.dividendPct.default,
     assessmentPct: SLIDER_RANGES.assessmentPct.default,
     riskControlPct: SLIDER_RANGES.riskControlPct.default,

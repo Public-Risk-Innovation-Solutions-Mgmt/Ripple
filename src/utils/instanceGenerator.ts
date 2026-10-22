@@ -3,9 +3,8 @@
 // Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
 import { scenarioOfId } from './scenarios';
-import type { GameInstance, Member, MembershipHistory, PoolState, LinePoolState, StartingFinancials, ReserveCohort } from '../types/simulation';
+import type { GameInstance, Member, MembershipHistory, PoolState, LinePoolState, StartingFinancials } from '../types/simulation';
 import { SeededRandom, deriveSubRng } from './random';
-import { seedPaidRatio, seedWeight } from './payoutPattern';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { getMemberExposure, emptyLinePoolState } from './lineHelpers';
 import {
@@ -20,9 +19,6 @@ import {
   PROPERTY_STARTING_RATE_PER_100,
   PROPERTY_EXPECTED_LOSS_RATIO,
   PROPERTY_STARTING_FINANCIALS,
-  LINE_PAYOUT_PATTERN,
-  IBNER_HORIZON,
-  IBNER_STEP_MIXTURE,
 } from '../data/defaultAssumptions';
 import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
@@ -80,190 +76,12 @@ function enrollLabel(line: CoverageLine): string {
   return line === 'WC' ? 'enroll' : `enroll_${line}`;
 }
 
-// One draw from IBNER_STEP_MIXTURE. Duplicated from simulationEngine's
-// drawStepMultiplier rather than imported: instanceGenerator is upstream of the
-// engine and importing from it would make a cycle. Both read the SAME exported
-// constant, so the mixture itself has one definition.
-function drawStepMultiplierFor(rng: SeededRandom): number {
-  const u = rng.next();
-  let acc = 0;
-  for (const bucket of IBNER_STEP_MIXTURE) {
-    acc += bucket.weight;
-    if (u < acc) return bucket.multiplier;
-  }
-  return IBNER_STEP_MIXTURE[IBNER_STEP_MIXTURE.length - 1].multiplier;
-}
-
-// Generate starting reserve cohorts from the beginning NET unpaid reserve
-// These are prior accident-year cohorts that exist before gameplay starts
-// ⚠ PRE-GAME COHORTS ARE SYNTHETIC AND HAVE NO CLAIM REGISTER BEHIND THEM.
-// They are apportioned from a drawn reserve TOTAL, so there is no "sum of drawn
-// claims" that ever existed for them. `registerSum` is therefore set equal to
-// the generated `netUltimate`, which makes their IBNER provision exactly zero at
-// game start — they begin honest and develop forward from there. Their history
-// is NOT back-filled: the Actuarial exhibit shows blanks for their pre-game
-// years and measures their total development FROM GAME START, because inventing
-// a development history that never happened would put fiction in the one exhibit
-// whose whole value is showing real movement.
-//
-// They carry NO booking bias. The bias is a consequence of a funding decision
-// the player made, and they predate the player.
-//
-// ⚠ THE IBNER DRAWS USE THEIR OWN SUB-STREAM, not the instance `rng` threaded
-// through here. Drawing horizon and step multiplier from the shared stream would
-// re-roll every later instance-generation draw for reasons unrelated to this
-// change, and the `deriveSubRng(seed, 0, label)` pattern beside enrollLabel is
-// the existing precedent for exactly this.
-function generateStartingReserveCohorts(
-  netUnpaidReserve: number,
-  startingYear: number,
-  rng: SeededRandom,
-  line: CoverageLine,
-  ibnerRng: SeededRandom,
-): ReserveCohort[] {
-  if (netUnpaidReserve <= 0) return [];
-
-  // Create 3-5 prior accident-year cohorts
-  // More recent cohorts have more unpaid; older cohorts have less
-  const numCohorts = rng.intRange(3, 5);
-  const cohorts: ReserveCohort[] = [];
-
-  // ============================================================================
-  // ⚠ THE WEIGHTS ARE THE PATTERN, AND THAT MAKES THE BACK-DERIVATION STOP BEING
-  // ONE.
-  //
-  // This read `w = 1 / (i + 1)`, normalised — a decreasing sequence chosen
-  // because older cohorts should hold less, which is true and is the only thing
-  // it was ever justified by. Combined with `netUltimate = netUnpaid / (1 -
-  // paidRatio)` below, it made the seed book's IMPLIED ACCIDENT-YEAR ULTIMATES
-  // arbitrary: measured across seeds at generation, the largest was 2.10x the
-  // smallest on WC and 2.91x on Property. The pool was implicitly written as
-  // having underwritten $0.49M one year and $1.43M four years later, for no
-  // reason at all.
-  //
-  // A pool in equilibrium holds one accident year at each age, each having had
-  // roughly the same ultimate U, so the unpaid at age a is U x unpaidShare(a).
-  // Taking the weights from the pattern makes that true by construction — and
-  // the back-derivation below then returns the SAME U for every cohort, because
-  // (U x unpaidShare(a)) / (1 - cumulativePaid(a)) is U identically. The
-  // division stops inventing an ultimate and starts recovering the one the
-  // weights already implied.
-  //
-  // ⚠ IT IS FEWER LINES THAN WHAT IT REPLACES, and that is the argument for
-  // doing it now rather than as part of a larger change. It deletes a parameter
-  // instead of adding one.
-  //
-  // ⚠ AND IT IS THE SMALLER STEP TOWARD RETIRING SEEDS ALTOGETHER. The end state
-  // is a pre-game deep enough that every cohort has a real claim register, and
-  // what that produces directly is a per-accident-year ULTIMATE. `U =
-  // drawnReserve / sum(unpaidShare(a))` is the analytic stand-in for exactly
-  // that quantity, so when the deep pre-game lands this function deletes and
-  // nothing downstream changes.
-  //
-  // ⚠ THE DEEP PRE-GAME HAS LANDED AND THAT CLAIM WAS TESTED RATHER THAN TAKEN.
-  // MATURATION_YEARS gives every line ten engine-born accident years with real
-  // registers, and this function now seeds only the bootstrap that sits ten years
-  // BEFORE the opening. Measured at game start, the cohorts it produces carry
-  // 3.12% of WC's opening net reserve and 0.00% of GL's and Property's. So the
-  // claim is right on two lines and nearly right on the third, and it is NOT yet
-  // exactly right — deleting this function today would move WC's opening by
-  // about three per cent of its reserve, which is a re-solve of the pin, not a
-  // no-op. It stays until someone wants that re-solve.
-  //
-  // ⚠ AND seedWeight / seedPaidRatio ARE NOT ORPHANED BY THAT, for now. They
-  // exist to keep value-identity-check's legacy geometric control alive (see
-  // payoutPattern.ts), and they die with this function rather than before it. The 1/(i+1) weights were a stand-in for nothing
-  // and would simply have been thrown away.
-  //
-  // ⚠ WHAT THIS DOES NOT DO: make a seed indistinguishable from an old game-born
-  // cohort. A seed still has no `developingClaims`, so its development is
-  // retained entire and never cedes; its `registerSum` is its ultimate rather
-  // than a real register sum; its `bookingBias` is zero. The claim register is
-  // the whole remaining difference and it is precisely what the deep pre-game
-  // supplies. This closes the apportionment half only.
-  //
-  // NO RNG IS CONSUMED HERE — the weights are deterministic given the pattern,
-  // as they were given 1/(i+1) — so the stream position is unchanged and the
-  // null test still reads. The geometric control keeps the old weights; see
-  // seedWeight, which explains why that is the fourth and last.
-  // ============================================================================
-  const weights: number[] = [];
-  let weightSum = 0;
-  for (let i = 0; i < numCohorts; i++) {
-    const w = seedWeight(LINE_PAYOUT_PATTERN[line], i + 1);
-    weights.push(w);
-    weightSum += w;
-  }
-  for (let i = 0; i < weights.length; i++) weights[i] /= weightSum;
-
-  // Distribute the net unpaid reserve across cohorts
-  let remainingReserve = netUnpaidReserve;
-
-  for (let i = 0; i < numCohorts; i++) {
-    // Last cohort gets the remainder to ensure exact sum
-    const isLast = i === numCohorts - 1;
-    const cohortNetUnpaid = isLast ? remainingReserve : netUnpaidReserve * weights[i];
-
-    // Calculate how much has been paid on this cohort (older = more paid)
-    // Age determines paydown: cohorts aged 1-5 years
-    const age = i + 1; // 1 = most recent (1 year ago), 5 = oldest (5 years ago)
-    // ⚠ THE LINE'S OWN PATTERN, NOT A FLAT RATE TIMES AN AGE. This was
-    // `Math.min(0.80, age * paydownPct)` — a linear approximation with a hard
-    // cap, which was never even the geometric pattern's own cumulative. A
-    // cohort `age` years old has paid what the pattern says it has paid, and a
-    // cumulative distribution needs no cap because it cannot exceed 1. The
-    // legacy behaviour is preserved on the geometric variant so the null test
-    // has a real control; see seedPaidRatio.
-    const paidRatio = seedPaidRatio(LINE_PAYOUT_PATTERN[line], age);
-    const netUltimate = cohortNetUnpaid / (1 - paidRatio);
-    const netPaid = netUltimate * paidRatio;
-
-    // Year number is negative for prior accident years (relative to game start)
-    // yearNumber 0 = accident year before game starts
-    // Calendar year is game starting year minus age
-    const cohortYearNumber = -age;
-    const cohortCalendarYear = startingYear - age;
-
-    // ⚠ HORIZON IS DRAWN THEN AGED. A cohort five years old has already used
-    // five years of its runoff, so it develops only for whatever remains. Giving
-    // every pre-game cohort a full fresh horizon would hand the oldest ones more
-    // remaining uncertainty than a brand-new accident year, which is backwards.
-    // `age` is carried so processIbner's `age < horizon` test does the rest, and
-    // a cohort drawn shorter than its own age is simply already mature.
-    const horizon = ibnerRng.intRange(IBNER_HORIZON[line].min, IBNER_HORIZON[line].max);
-
-    cohorts.push({
-      yearNumber: cohortYearNumber,
-      calendarYear: cohortCalendarYear,
-      netUltimate,
-      netPaid,
-      netUnpaid: cohortNetUnpaid,
-      // ⚠ THE GROSS LEDGER OPENS EQUAL TO THE NET ONE ON A SEED COHORT, and that
-      // is the honest reading rather than a placeholder. A seed cohort is
-      // apportioned from a drawn NET reserve total with no claim register behind
-      // it — there is nothing gross to record, which is the same reason its
-      // development is retained entire. Inventing a gross figure here would mean
-      // inventing a cession the cohort never had.
-      grossPaid: netPaid,
-      grossUnpaid: cohortNetUnpaid,
-      closed: false,
-      // The one thing that distinguishes these from an engine-born cohort at a
-      // glance. See ReserveCohort.seeded — a gate was already filtering on this
-      // and the filter had never fired.
-      seeded: true,
-      registerSum: netUltimate,
-      horizon,
-      age,
-      stepMultiplier: drawStepMultiplierFor(ibnerRng),
-      bookingBias: 0,
-    });
-
-    remainingReserve -= cohortNetUnpaid;
-  }
-
-  return cohorts;
-}
-
+// ⚠ NO SEED COHORTS: THE POOL'S HISTORY BEGINS IN 2021. The bootstrap used to
+// apportion a drawn reserve total into three to five synthetic prior accident
+// years (generateStartingReserveCohorts) — cohorts with no claim register, which
+// the pre-game then replaced with bulk years older than 2021. There are no
+// accident years before the pre-game's first, so the bootstrap holds no
+// reserves and the pre-game starts on its paid-in capital alone.
 // ============================================================================
 // THE SHOCK SCHEDULE IS AN ARGUMENT OF THE CONSTRUCTOR, AND BOTH CALLERS PASS IT.
 //
@@ -473,7 +291,10 @@ export function generateStartingPoolState(
   // values are discarded.
   rng.range(STARTING_FINANCIALS.otherAssets.min, STARTING_FINANCIALS.otherAssets.max);
   const wcGrossReserveDraw = rng.range(STARTING_FINANCIALS.grossUnpaidReserve.min, STARTING_FINANCIALS.grossUnpaidReserve.max);
-  const netUnpaidReserve = wcGrossReserveDraw - wcRecoverableDraw;
+  // ⚠ DRAWN AND DISCARDED: no reserves before 2021 (see the note above
+  // generateGameInstance). The draws stay so the rest of the stream lands where it did.
+  void wcGrossReserveDraw; void wcRecoverableDraw;
+  const netUnpaidReserve = 0;
   // Held at zero, matching every subsequent year: written premium is treated as collected
   // and earned in the year it's written, with no separate unearned-premium timing layer.
   const unearnedPremium = 0;
@@ -485,22 +306,6 @@ export function generateStartingPoolState(
   const surplus = totalAssets - totalLiabilities;
 
   const marketShare = activeExposure / Math.max(totalMarketExposure, 0.01);
-
-  // Generate starting reserve cohorts from the beginning NET unpaid reserve
-  // These represent prior accident-year unpaid losses that will roll forward during gameplay
-  const startingReserveCohorts = generateStartingReserveCohorts(
-    netUnpaidReserve,
-    startingYear,
-    rng,
-    'WC',
-    deriveSubRng(instance.seed, 0, 'ibner_seed_WC'),
-  );
-
-  // Validate sum
-  const cohortSum = startingReserveCohorts.reduce((s, c) => s + c.netUnpaid, 0);
-  if (Math.abs(cohortSum - netUnpaidReserve) > 1) {
-    console.warn(`Starting reserve cohort sum (${cohortSum}) does not match netUnpaidReserve (${netUnpaidReserve})`);
-  }
 
   // GL bootstrap draws happen strictly after every WC draw above, so the WC-only
   // seed stream (and its regression baseline) is completely unaffected by GL's
@@ -519,17 +324,12 @@ export function generateStartingPoolState(
         // and re-roll every seed's opening position.
         // The drawn value is used only locally: seededNetReserve = grossDraw - recoverableDraw.
         const glRecoverableDraw = rng.range(GL_STARTING_FINANCIALS.reinsuranceRecoverable.min, GL_STARTING_FINANCIALS.reinsuranceRecoverable.max);
-        const glNetUnpaidReserve = glGrossReserveDraw - glRecoverableDraw;
+        // Drawn and discarded: no reserves before 2021.
+        void glGrossReserveDraw; void glRecoverableDraw;
+        const glNetUnpaidReserve = 0;
         const glTotalMarketExposure = bookMode
           ? FULL_MARKET_EXPOSURE.GL * exposureFactor('GL', OPENING_EXPOSURE_YEAR)
           : allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'GL', OPENING_EXPOSURE_YEAR), 0);
-        const glStartingReserveCohorts = generateStartingReserveCohorts(
-          glNetUnpaidReserve,
-          startingYear,
-          rng,
-          'GL',
-          deriveSubRng(instance.seed, 0, 'ibner_seed_GL'),
-        );
         return {
           rateLevel: 100,
           ratePer100: glRatePer100,
@@ -538,7 +338,7 @@ export function generateStartingPoolState(
           memberSatisfaction: parseFloat(memberSatisfaction.toFixed(1)),
           averageRiskQuality: parseFloat(riskQuality.toFixed(1)),
           riskControlEffectiveness: 0,
-          reserveCohorts: glStartingReserveCohorts,
+          reserveCohorts: [],
           members: lineMembers('GL'),
           ...(bookMode ? { bookExposure: openingExposure('GL') } : {}),
           netUnpaidReserve: glNetUnpaidReserve,
@@ -568,17 +368,12 @@ export function generateStartingPoolState(
         // and re-roll every seed's opening position.
         // The drawn value is used only locally: seededNetReserve = grossDraw - recoverableDraw.
         const propertyRecoverableDraw = rng.range(PROPERTY_STARTING_FINANCIALS.reinsuranceRecoverable.min, PROPERTY_STARTING_FINANCIALS.reinsuranceRecoverable.max);
-        const propertyNetUnpaidReserve = propertyGrossReserveDraw - propertyRecoverableDraw;
+        // Drawn and discarded: no reserves before 2021.
+        void propertyGrossReserveDraw; void propertyRecoverableDraw;
+        const propertyNetUnpaidReserve = 0;
         const propertyTotalMarketExposure = bookMode
           ? FULL_MARKET_EXPOSURE.Property * exposureFactor('Property', OPENING_EXPOSURE_YEAR)
           : allMarketMembers.reduce((sum, m) => sum + getMemberExposure(m, 'Property', OPENING_EXPOSURE_YEAR), 0);
-        const propertyStartingReserveCohorts = generateStartingReserveCohorts(
-          propertyNetUnpaidReserve,
-          startingYear,
-          rng,
-          'Property',
-          deriveSubRng(instance.seed, 0, 'ibner_seed_Property'),
-        );
         return {
           rateLevel: 100,
           ratePer100: propertyRatePer100,
@@ -587,7 +382,7 @@ export function generateStartingPoolState(
           memberSatisfaction: parseFloat(memberSatisfaction.toFixed(1)),
           averageRiskQuality: parseFloat(riskQuality.toFixed(1)),
           riskControlEffectiveness: 0,
-          reserveCohorts: propertyStartingReserveCohorts,
+          reserveCohorts: [],
           members: lineMembers('Property'),
           ...(bookMode ? { bookExposure: openingExposure('Property') } : {}),
           netUnpaidReserve: propertyNetUnpaidReserve,
@@ -607,7 +402,7 @@ export function generateStartingPoolState(
     memberSatisfaction: parseFloat(memberSatisfaction.toFixed(1)),
     averageRiskQuality: parseFloat(riskQuality.toFixed(1)),
     riskControlEffectiveness: 0,
-    reserveCohorts: startingReserveCohorts,
+    reserveCohorts: [],
     members: wcMembers,
     ...(bookMode ? { bookExposure: openingExposure('WC') } : {}),
     netUnpaidReserve,

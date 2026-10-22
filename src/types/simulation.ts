@@ -658,30 +658,23 @@ export interface LineDecisionSet {
   dividendPct: number;            // 0.00 to 0.15 of premium
   assessmentPct: number;          // 0.00 to 0.25 of premium
   /**
-   * The INTAKE SLIDER, a position 0..INTAKE_LOW: No New Business (0, and absent —
-   * the default), Strict, Moderate, Low. Each position sets a bar on a NOISY
-   * INSPECTION of risk quality and a cap on how many join that year; Low's cap
-   * is MAX_NEW_MEMBER_SHARE, the overall maximum. See intakeInspection.ts.
+   * "RENEWALS DECLINED": the share of this line's renewing exposure the pool
+   * declines this year, worst loss ratio first (bookUnderwriting.ts). 0–0.10
+   * in 0.01 steps, default 0 (RENEWALS_DECLINED_SLIDER). Absent reads as 0.
    *
-   * ⚠ REPLACES newBusinessAppetite, which screened applicants on their own loss
-   * run. A save carrying newBusinessAppetite loads at No New Business; there is
-   * no save migration in this repo by design (gameSave.ts). A save written
-   * under the seven-level version of this slider carries a level up to 6, which
-   * reads as Low.
+   * ⚠ REPLACES renewalCut (0–5%, on a noisy view of true risk). The save key
+   * moved with it, so no save carries the old field.
    */
-  intakeLevel?: number;
+  renewalsDeclined?: number;
   /**
-   * The RENEWAL SLIDER: the share of this line's book NOT renewed this year,
-   * worst first on the member's own multi-year raw loss ratio. 0 (and absent)
-   * renews everyone, which is the default. One of RENEWAL_CUT_STEPS. See
-   * renewalUnderwriting.ts.
+   * "NEW BUSINESS, REJECTION RATE": the share of this year's applicants turned
+   * away, at random. 0–0.15 in 0.01 steps, default 0
+   * (NEW_BUSINESS_REJECTION_SLIDER). Absent reads as 0. Buys down the
+   * first-year new-business penalty.
    *
-   * ⚠ REPLACES renewalThreshold, which compared a ratio against a fixed bar. A
-   * save written before this carries renewalThreshold, which nothing reads any
-   * more, and no renewalCut — so it loads renewing everyone. There is no save
-   * migration in this repo by design (gameSave.ts).
+   * ⚠ REPLACES intakeLevel and the four intake positions, retired.
    */
-  renewalCut?: number;
+  newBusinessRejection?: number;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
   // candidates by riskQuality descending and kept the top 60% — exact
   // selection on an attribute the player can no longer see. See
@@ -968,7 +961,7 @@ export interface ReserveCohort {
    * commit 6): its terms in dollars, fixed at inception, and what it has
    * recovered to date. Recalculated each valuation on the year's developed
    * gross; the change is a prior-year reinsurance adjustment. Absent when the
-   * year bought none, and on bulk cohorts.
+   * year bought none.
    */
   /**
    * THE ACCIDENT YEAR'S SHOCK DOLLARS, booked gross (stable-scenarios commit 7):
@@ -1006,17 +999,6 @@ export interface ReserveCohort {
   // payoutPattern.ts — so `age` and the line are the whole state it needs.
   closed: boolean;
 
-  // True on a cohort apportioned by generateStartingReserveCohorts rather than
-  // written by a simulated year. Absent (falsy) on every engine-born cohort.
-  //
-  // ⚠ THIS FIELD DID NOT EXIST AND SOMETHING WAS ALREADY FILTERING ON IT.
-  // maturity-anchor-check declares `seeded?: boolean` on its own local cohort
-  // type and skips rows where it is set — a filter that has never once fired,
-  // because the flag lived only on ReserveDevelopmentRow. The gate was silently
-  // measuring apportioned seeds alongside real cohorts, which is exactly the
-  // contamination the filter was written to prevent. Adding the field makes the
-  // filter do what it says; it does not add a new rule.
-  seeded?: boolean;
 
   // --- IBNER (see defaultAssumptions.ts's IBNER_* block) -------------------
   // ⚠ `developmentFactor` IS GONE. It was written at two sites and READ AT
@@ -1042,13 +1024,12 @@ export interface ReserveCohort {
   bookingBias: number;
 
   // --- claim-level development (see developmentAllocation.ts) --------------
-  // The occurrences this accident year's development lands on. EMPTY on a seed
-  // cohort, which has no claim register behind it — its development is retained
-  // entire, which is the honest default and is 0.4% of all adverse development.
+  // The occurrences this accident year's development lands on. (Every cohort
+  // has a claim register since the pool's history begins in 2021; the seed
+  // cohorts that had none, and retained their development entire, are retired.)
   // ⚠ TRACKED OCCURRENCES, NOT JUST THE CARRIERS. Everything at or above the
   // retention plus the developing set — the only occurrences whose value can ever
-  // change a cession. EMPTY on a seed cohort, which has no register behind it
-  // and retains its development entire.
+  // change a cession.
   developingClaims?: DevelopingClaim[];
   // Gross total of the occurrences NOT tracked. All below the retention, so
   // they never cede; carried so a proportional movement gets the shares right
@@ -1229,18 +1210,11 @@ export interface ReserveDevelopmentRow {
   grossPaidByValuation?: number[];
   // The valuation year that ultimateByValuation[0] belongs to.
   firstValuationYear: number;
-  // The cohort's age at that first valuation. Zero for an accident year the
-  // engine wrote; POSITIVE for a seed cohort, which is born already aged.
+  // The cohort's age at that first valuation: zero, since every accident year
+  // is written by the engine (the seed cohorts that were born aged are retired).
   ageAtFirstValuation: number;
   // Runoff length. Development stops once age exceeds it.
   horizon: number;
-  // ⚠ SEEDED COHORTS HAVE NO REGISTER BEHIND THEM. They are apportioned from a
-  // drawn reserve total rather than summed from claims, so their first entry is
-  // their estimate AS AT GAME START, not at inception — there was no inception.
-  // The exhibit labels their column differently for that reason; presenting a
-  // game-start value as an original estimate would be the fiction that
-  // generateStartingReserveCohorts' header refuses to invent.
-  seeded: boolean;
 }
 
 // ============================================================================
@@ -1266,7 +1240,7 @@ export interface PricingTriangleState {
   /** The window depth this triangle was cut to — TRIANGLE_HISTORY_YEARS. */
   years: number;
   cells: PricingCell[];
-  /** 0 on seeded accident years, whose exposure is not reconstructable. */
+  /** Each accident year's exposure, as its ledger row recorded it. */
   exposureByYear: Record<string, number>;
   /**
    * The prospective rate per $100 THIS window produces — the rate the next
@@ -2391,6 +2365,31 @@ export interface PoolState {
    * on, and on saves from before book units. Never shown.
    */
   bookUnits?: Partial<Record<CoverageLine, number[]>>;
+  /**
+   * WHAT UNDERWRITING KNOWS OF EACH LINE'S BOOK BEYOND ITS INDICES — the share
+   * held of a partly held unit, the year each unit joined, and each unit's loss
+   * history AVERAGED ACROSS THE WORLDS. Like bookUnits, ONCE PER GAME on the
+   * game's pool state, never on a world's. Never shown. See bookUnderwriting.ts.
+   */
+  bookLedger?: Partial<Record<CoverageLine, BookLedger>>;
+}
+
+/** One accident year of a unit's record: its losses for the history, and the premium it paid, $. */
+export interface UnitYearRecord {
+  year: number;
+  /** Ordinary (with the year's uplift and any penalty), routine large excess, shock claims capped. */
+  loss: number;
+  premium: number;
+}
+
+/** A line's underwriting ledger — keys are unit indices, as strings (JSON). */
+export interface BookLedger {
+  /** The share held of a unit held only in part; absent is wholly held. */
+  share: Record<string, number>;
+  /** The year a unit joined; absent is the opening book. */
+  joined: Record<string, number>;
+  /** The last LOSS_HISTORY_YEARS records of every held unit, oldest first. */
+  history: Record<string, UnitYearRecord[]>;
 }
 
 // Top-level game state

@@ -65,11 +65,11 @@
 // ============================================================================
 // TWO CONSTRAINTS FOUND IN THE DATA, BOTH OF WHICH SHAPE THE ARITHMETIC BELOW.
 //
-// 1. SEEDED ACCIDENT YEARS ARE BORN ALREADY AGED. ReserveDevelopmentRow carries
-//    ageAtFirstValuation, POSITIVE for a seed cohort, and index k is age
-//    (ageAtFirstValuation + k) — NOT k. Aligning on the array index mixes a seed
-//    cohort's age-6 cell into the age-1 column. The first measurement of this
-//    triangle did exactly that and had to be redone.
+// 1. A ROW'S INDEX k IS AGE (ageAtFirstValuation + k) — NOT k. Every row opens
+//    at age 0 now (the pool's history begins in 2021; the seed cohorts that were
+//    born aged are retired), but the arithmetic keeps the general form: the
+//    first measurement of this triangle aligned on the array index, mixed a seed
+//    cohort's age-6 cell into the age-1 column, and had to be redone.
 //
 // 2. SEEDED YEARS HAVE NO RECONSTRUCTABLE EXPOSURE. They are apportioned from a
 //    drawn reserve total rather than summed from a register, and membershipHistory

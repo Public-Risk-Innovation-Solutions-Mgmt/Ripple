@@ -34,7 +34,7 @@ import {
 } from '../data/pricingParameters';
 import { deriveSubRng } from './random';
 import { bookOrdinaryRisk } from './ordinaryLoss';
-import type { CoverageLine, Region } from '../types/simulation';
+import type { BookLedger, CoverageLine, Region } from '../types/simulation';
 
 /** One unit of a line's market. Never shown. */
 export interface BookUnit {
@@ -127,7 +127,13 @@ export const lineBookRisk = (
   instance: { seed: number; marketSeed?: number },
   line: CoverageLine,
   bookUnits: Partial<Record<CoverageLine, number[]>> | undefined,
+  // The underwriting ledger (PoolState.bookLedger): a partly held unit weighs
+  // its held size. Absent, every unit is wholly held.
+  bookLedger?: Partial<Record<CoverageLine, BookLedger>>,
 ): number | undefined => {
   const indices = bookUnits?.[line];
-  return indices ? bookOrdinaryRisk(unitsOf(marketSeedOf(instance), line, indices)) : undefined;
+  if (!indices) return undefined;
+  const share = bookLedger?.[line]?.share ?? {};
+  return bookOrdinaryRisk(unitsOf(marketSeedOf(instance), line, indices)
+    .map(u => (share[String(u.index)] === undefined ? u : { ...u, size: u.size * share[String(u.index)] })));
 };

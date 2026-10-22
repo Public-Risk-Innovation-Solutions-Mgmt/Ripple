@@ -820,7 +820,30 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // control ran first: 8f367f4 reproduced v86 24 of 24. All 24 move, and each
 // file is the control's with that row's label replaced, nothing else (120
 // rows). No file added or removed. VALUE_IDENTITY_v79 holds.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v87.json');
+// v88: THE UNDERWRITING LANDING (see VALUE_IDENTITY_v80). The control ran
+// first: 1632ab4 reproduced v87 24 of 24. No file added or removed. The
+// underwriting commit moved all 24: in each, 119 of 166 rows — exposure no
+// longer flat (the default writes 5% new business a year) and every row that
+// follows it; the export carries no decision rows for underwriting. The
+// catastrophe-capital commit moved the 12 exports with Property in them
+// (PR-solo and tri): 4 rows each and nothing else — Reserve Risk Margin
+// Needed, Excess Available Surplus, Excess Capital Ratio and Excess Capital
+// Status (MAMC6EA4 year 1: required $38.92M -> $1.19M, Deficient -> Strong,
+// every year). The probes commit moved nothing.
+// v89: THE HISTORY LANDING (see VALUE_IDENTITY_v81). The control ran first:
+// 1dd0118 reproduced v88 24 of 24. No file added or removed. Each commit
+// against the one before:
+//   the history commit, all 24, 33 rows each: the reserves (beginning and
+//     ending net, expected net unpaid, indicated at confidence, loss expense
+//     reserves), paid losses and LAE, prior-year development, the loss, LAE
+//     and combined ratios, invested assets, investment income, net income,
+//     surplus and capital (6KA6WGLJ GL year 1 beginning net reserve $45.41M
+//     -> $42.21M). Year-1 beginning surplus unchanged.
+//   the cash cap, 18 of 24, up to 14 rows: beginning cash and the invested
+//     assets, investment income, surplus and capital rows that follow.
+//   the book's-risk fix, $10M and $12.5M, all 24, the same 14 rows each.
+//   No rate or premium row moves in any of them.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v89.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

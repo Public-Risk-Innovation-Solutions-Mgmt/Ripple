@@ -2,19 +2,19 @@
 //
 // The order and the hidden tabs live in src/game/tabs.tsx; this reads what a
 // player is actually shown. Solo: the bar after the game starts, Game Setup
-// still the page a game starts from, Investments showing the Investment
-// memorandum, and a restored save (which asks for the hidden Dashboard)
+// still the page a game starts from, and a restored save (which asks for the hidden Dashboard)
 // landing on the first listed tab. Multiplayer: a team's bar in a hosted room.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/navigation.cjs
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
-const SOLO = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History',
+const SOLO = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History',
   'Financial Statements', 'Results', 'Result Spreadsheet', 'Calculation Audit'];
-const MULTI = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History',
+const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History',
   'Result Spreadsheet'];
-const HIDDEN = ['Game Setup', 'Dashboard', 'Departments'];
+// Investments is hidden too: its memorandum is in the Introduction tab (introduction.cjs).
+const HIDDEN = ['Game Setup', 'Investments', 'Dashboard', 'Departments'];
 const MULTI_HIDDEN = [...HIDDEN, 'Financial Statements', 'Results', 'Calculation Audit'];
 
 let passed = 0, failed = 0;
@@ -44,11 +44,6 @@ const active = page => page.locator('nav').first().locator('button.border-blue-6
   const s = await bar(solo);
   ok(JSON.stringify(s) === JSON.stringify(SOLO), 'solo: the top bar, in order', s.join(' | '));
   ok(HIDDEN.every(t => !s.includes(t)), `solo: ${HIDDEN.join(', ')} are not on the bar`);
-
-  await solo.getByRole('button', { name: 'Investments', exact: true }).click();
-  await solo.waitForTimeout(500);
-  const inv = await solo.locator('[data-testid="document-body"]').innerText();
-  ok(inv.startsWith('Investment Memorandum') && !/\{\{/.test(inv), 'solo: Investments shows the Investment memorandum, filled', inv.slice(0, 40));
 
   await solo.getByRole('button', { name: 'Rate Indication', exact: true }).click();
   await solo.waitForTimeout(500);

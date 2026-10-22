@@ -31,9 +31,9 @@
 //     months held 0.00 unpaid where the pattern still says 1.3% of ultimate is
 //     outstanding. Computed from ultimate, that cohort would be presented with
 //     $113k of case and IBNR it does not have.
-//   - cohorts AGE PAST THE PATTERN. After five played years a WC bulk cohort
-//     that opened at 444 months is at 456, and GL reaches 264 against a table
-//     ending at 252. Read from ultimate, the lookup throws.
+//   - cohorts AGE PAST THE PATTERN. A long game takes an accident year past
+//     its table (it was the bulk cohorts, now retired, that did it first: a WC
+//     one opened at 444 months reached 456). Read from ultimate, the lookup throws.
 //
 // So the pattern supplies the RATIO and the cohort supplies the DOLLARS. The
 // sum is then the held unpaid by construction rather than by coincidence, which
@@ -47,7 +47,9 @@
 // set of ratios to both bases is what keeps ceded case plus ceded IBNR equal to
 // ceded unpaid.
 //
-// ⚠ BULK COHORTS ARE HELD NET AND SO THEIR CEDED SPLIT IS ZERO, which is
+// ⚠ (RETIRED WITH THE BULK COHORTS — the pool's history begins in 2021, and
+// every cohort now carries its own gross ledger. Kept for the record:) BULK
+// COHORTS WERE HELD NET AND SO THEIR CEDED SPLIT WAS ZERO, which was
 // correct rather than missing. The set opening (commit 5(b)) holds accident
 // years older than PRIOR_HISTORY_YEARS net of the reinsurance their own year
 // bought, because the recoveries on those years were collected before the game
@@ -128,9 +130,8 @@ export function splitCohort(line: CoverageLine, c: ReserveCohort): AccidentYearS
   // way that `unpaid x caseShare` is not, and the gate asserts an exact sum.
   const caseNet = unpaidNet - ibnrNet;
 
-  // Bulk cohorts carry no gross basis of their own; net IS their ground-up as
-  // far as the game can observe, so the fallback is the net figure and ceded
-  // comes out at zero. See the header.
+  // A cohort with no gross basis of its own falls back to net (ceded zero).
+  // None does since the bulk cohorts were retired; see the header.
   const unpaidGross = c.grossUnpaid ?? c.netUnpaid;
   const ibnrGross = unpaidGross * share;
   const caseGross = unpaidGross - ibnrGross;

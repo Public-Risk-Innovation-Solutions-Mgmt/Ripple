@@ -1116,7 +1116,84 @@ const BASELINE = process.env.RENDER_BASELINE
 // worlds (13, which also carry exposure as "$9,978.14M" for "$9.98B"); and the
 // Annual Statement's exposure rows (16, "9,978.1" for "9978.1"), the spreadsheet's
 // exposure metrics with them. Nothing else.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v74.json');
+// v75: THE UNDERWRITING LANDING (see VALUE_IDENTITY_v80). The control ran
+// first: 1632ab4 built in its own worktree reproduced v74 206 of 206. Run at
+// each commit, built and served in its own worktree, and attributed by
+// dumping both sides' text (RENDER_TEXT_DIR). No key added or removed. 119
+// move:
+//   the underwriting commit, 111. At y0 only the 8 Decisions pages: the two
+//   sliders by name and value ("Renewals declined 0%", "New Business,
+//   rejection rate 0%") for "Renewal / Renew all" and the four intake
+//   positions. Nothing else at y0 — the pre-game is unchanged. At y2 every
+//   screen with figures on it (Annual Statement, Calculation Audit, Decision
+//   History, Decisions, Financial Statements, Results 13 each; Introduction,
+//   Investments, Rate Indication, Result Spreadsheet and the header 5 each):
+//   the default book grows 5% a year (WC market share 30.0% -> 33.1% by y2),
+//   and Decision History names the two sliders, as percentages.
+//   the catastrophe-capital commit, 8 more, all at y0 with Property in them
+//   (PR, WC+GL+PR; the Calculation Audit and Financial Statements, Property
+//   and Pool views): required capital without the retained-catastrophe term
+//   (PR $48,932,246 -> $1,141,394), Deficient -> Strong, the audit's capital
+//   check Review -> OK. Its y2 Property screens move again for the same rows.
+//   the probes commit, none.
+// v76: THE HISTORY LANDING (see VALUE_IDENTITY_v81). The control ran first:
+// 1dd0118 built in its own worktree reproduced v75 206 of 206. Run at each
+// commit, built and served in its own worktree, attributed against the commit
+// before by dumping both sides' text (RENDER_TEXT_DIR). No key added or
+// removed. 198 move in all:
+//   the history commit, all 206: the Annual Statement's Prior column and the
+//     smaller reserves (ultimates, case, IBNR, paid and reported loss + LAE),
+//     the audit's reserve and ratio checks, the Financial Statements'
+//     position and income, Results' reserve and surplus rows, the Rate
+//     Indication's current rate, and every screen's header (Combined Ratio;
+//     Pool year 1 90.5% -> 90.1%; Surplus by a rounding cent at y2).
+//   the cash cap, 123: cash and invested assets, investment income, net
+//     income and the statements built on them; the header's combined ratio.
+//   the book's-risk fix, 113: the pre-game's rates (the Annual Statement's
+//     premium and ratios, the Rate Indication's current rate, Decisions' "vs
+//     last year"), and the income and surplus rows after them.
+//   $10M, all 206, and $12.5M, 182: the same rows again on the re-solved
+//     margin, the header's prior-year combined ratio (Pool y0 93.8%, then
+//     95.8%), the pool's charge-weighted market share by a tenth. 8 Property
+//     y2 screens whose only figure is the header's surplus land back on
+//     $22.00M by rounding, so they equal v75.
+//   the pricing report commit, none.
+// v77: THE INTRODUCTION'S FOUR MEMOS, AND INVESTMENTS OFF THE BAR (display
+// only; value v81 and export v89 byte-identical). The control ran first:
+// 50a7450 reproduced v76 206 of 206 with its own harness. This harness then
+// captures each Introduction document as Departments' are, and no longer walks
+// the hidden Investments tab: on the control that is 10 keys removed
+// (Investments) and 20 added (Welcome Memorandum, How to Play), nothing moved.
+// Against that: 20 keys added (Investment Memorandum, Underwriting
+// Memorandum) and 186 moved, each only "Investments" leaving the top bar — the
+// Introduction pages' document list also gaining the two memos.
+// v78: THE HEADER'S SURPLUS READ OFF THE STATEMENT. The control ran first:
+// f054ba1 built in its own worktree reproduced v77 236 of 236. 136 move, and
+// in every one the text differs in exactly one word: the header's Surplus
+// figure (RENDER_TEXT_DIR on both sides, word-diffed). Before year 1, the 98
+// y0 screens with the header: the opening now leaves out the loss expense
+// reserve as the balance sheet does (WC $26.17M -> $20.95M, GL $25.54M ->
+// $21.29M, PR $23.36M -> $21.67M; WC+GL+PR pool $75.07M -> $63.91M), and a
+// line's view shows that line's (WC+GL+PR on WC $75.07M -> $20.95M). At y2,
+// the 38 line-view keys of the multi-line games (WC+GL+PR on PR $64.82M ->
+// $22.00M), including the view-less screens, which follow the view last
+// chosen as the combined ratio already did. Unmoved: the 20 Introduction
+// memo bodies (no header, no figure), every y2 pool view, and the
+// single-line games at y2, where the pool's last result already was the
+// statement's.
+// v79: THE HEADER'S MARKET SHARE FOLLOWS THE VIEW. The control ran first:
+// 501f38b built in its own worktree reproduced v78 236 of 236. 133 move, and
+// in every one the only change is the header's Market Share chip (both sides'
+// text word-diffed):
+//   90 on the pool view, and the view-less screens shown on it: the chip is
+//     gone — the three lines' markets are not comparable.
+//   43 on a line's view in the multi-line games, and the view-less screens
+//     following it: the line's own share for the pool's charge-weighted one
+//     (WC+GL+PR on WC 30.5% -> 30.0% at y0, on PR 33.6% -> 34.0% at y2).
+// Unmoved: the single-line games' line views (the pool's share was the
+// line's), the GL view of WC+GL+PR (GL's share equals the pool's to the
+// tenth), and the memo bodies.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v79.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1152,9 +1229,10 @@ const LINE_LABEL: Record<string, string> = {
 // exactly the kind this file's header says to expect and to attribute.
 //
 // ⚠ DASHBOARD AND DEPARTMENTS CAME OFF THE SAME WAY — hidden in solo and
-// multiplayer alike (src/game/tabs.tsx), their pages intact — and Investments
-// and Rate Indication joined, in the top bar's own order.
-const TABS = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions',
+// multiplayer alike (src/game/tabs.tsx), their pages intact — and Rate
+// Indication joined, in the top bar's own order. Investments joined and then
+// came off too: its memorandum is one of the Introduction tab's documents.
+const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
   'Calculation Audit'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
@@ -1280,7 +1358,8 @@ async function capture(page: Page, cfg: Cfg, year: string, out: Record<string, s
       const short = view === '-' ? '-' : (view === 'Pool' ? 'Pool'
         : Object.entries(LINE_LABEL).find(([, v]) => v === view)![0]);
       out[`${cfg.key}|${tab}|${short}|${year}`] = hash(await visibleText(page));
-      if (tab === 'Departments') await captureDocuments(page, cfg, year, out);
+      // Every document of a document tab, not just the one it opens on.
+      if (tab === 'Departments' || tab === 'Introduction') await captureDocuments(page, cfg, year, out, tab);
     }
   }
 }
@@ -1316,7 +1395,7 @@ async function capture(page: Page, cfg: Cfg, year: string, out: Record<string, s
 // therefore captured twice, once as the default and once by name; that is
 // deliberate, not redundancy to tidy away.
 // ============================================================================
-async function captureDocuments(page: Page, cfg: Cfg, year: string, out: Record<string, string>): Promise<void> {
+async function captureDocuments(page: Page, cfg: Cfg, year: string, out: Record<string, string>, tab: string): Promise<void> {
   // ⚠ THERE ARE TWO <nav>s AND THE OBVIOUS SELECTOR PICKS THE WRONG ONE. The
   // tab bar is a nav of twelve buttons; the document list is a nav of five.
   // `nav button` matches all seventeen, which fails LOUDLY here only by luck —
@@ -1340,7 +1419,7 @@ async function captureDocuments(page: Page, cfg: Cfg, year: string, out: Record<
     return -1;
   });
   if (list < 0) {
-    throw new Error('render-identity-check: no single document list <nav> beside document-body on Departments. '
+    throw new Error(`render-identity-check: no single document list <nav> beside document-body on ${tab}. `
       + 'DocumentReader\'s markup changed — fix the discriminator rather than letting this capture the tab bar.');
   }
   const buttons = navs.nth(list).locator('button');
@@ -1363,7 +1442,7 @@ async function captureDocuments(page: Page, cfg: Cfg, year: string, out: Record<
       const t = el.querySelector('span.font-semibold');
       return (t?.textContent ?? el.textContent ?? '').trim();
     }));
-    const key = `${cfg.key}|Departments|doc:${title}|${year}`;
+    const key = `${cfg.key}|${tab}|doc:${title}|${year}`;
     // A document with no content is disabled in the list. Recorded as LOCKED
     // rather than skipped: if one is ever BUILT, this row moves.
     if (!(await btn.isEnabled())) { out[key] = 'LOCKED'; continue; }

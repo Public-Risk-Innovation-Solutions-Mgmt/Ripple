@@ -193,54 +193,6 @@ export function conditionalPaydown(p: PayoutPattern, t: number): number {
   return 1 - Math.exp(-(Math.pow(t / p.b, p.k) - Math.pow((t - 1) / p.b, p.k)));
 }
 
-/**
- * The share of ULTIMATE a cohort of age `a` (in years, >= 1) has already paid,
- * for the SEED cohorts the instance generator apportions a drawn reserve
- * across.
- *
- * ⚠ THE GEOMETRIC BRANCH IS NOT GEOMETRIC, AND THAT IS DELIBERATE. It
- * reproduces `Math.min(0.80, age * paydownPct)` — a linear approximation with a
- * hard cap that the retired generator used and that was never the geometric
- * pattern's own cumulative. The geometric variant's job is to be the RETIRED
- * BEHAVIOUR, not a tidy version of it; a null test against a cleaned-up control
- * proves nothing about the change being made. The weibull branch uses the
- * pattern's real cumulative, and needs no cap because a cumulative distribution
- * cannot exceed 1.
- */
-export function seedPaidRatio(p: PayoutPattern, ageYears: number): number {
-  if (p.kind === 'geometric') return Math.min(0.80, ageYears * p.conditional);
-  return cumulativePaid(p, ageYears);
-}
-
-/**
- * How a drawn opening reserve total is split across the seed cohorts — the
- * weight for a cohort of age `a`.
- *
- * ⚠ THE WEIGHT IS THE PATTERN'S OWN UNPAID SHARE, which makes the seed book a
- * steady-state book: one accident year at each age, each with the same ultimate
- * U, so the unpaid at age a is U x unpaidShare(a). The back-derivation in
- * generateStartingReserveCohorts then returns that same U for every cohort
- * instead of inventing a different one per age.
- *
- * ⚠ THE GEOMETRIC CONTROL KEEPS 1/(i+1), AND IT IS THE FOURTH LEGACY BEHAVIOUR.
- * The close-floor commit said, one commit ago, that if a fourth were ever needed
- * the control should be retired instead. The trigger has fired, and deferring it
- * is deliberate rather than an exception:
- *
- *   The null test compares this branch against the PRE-PATTERN parent baseline.
- *   At the merge that baseline is superseded — recaptured to include the payout
- *   patterns — and from that moment the control has nothing left to be compared
- *   against, so its value goes to zero on its own. Retiring it now costs a
- *   working null test for the rest of this branch; retiring it at the merge
- *   costs nothing.
- *
- * So: retire the control at the merge, not here, and do not add a fifth.
- */
-export function seedWeight(p: PayoutPattern, ageYears: number): number {
-  if (p.kind === 'geometric') return 1 / ageYears;
-  return unpaidShare(p, ageYears);
-}
-
 // ============================================================================
 // WHEN A COHORT IS FINISHED.
 //

@@ -106,8 +106,9 @@ const lineDecisions = (): TeamLineDecisions => ({
   // Not the default cover, so a transport that substituted the default
   // would fail the read-back below.
   reinsuranceOption: 'working',
-  renewalCut: 0.1,
-  intakeLevel: 2,
+  // Not the defaults (0 and 0), so a transport that substituted one fails.
+  renewalsDeclined: 0.07,
+  newBusinessRejection: 0.12,
   riskControlPct: 0.03,
   dividendPct: 0.05,
   assessmentPct: 0,
@@ -704,6 +705,10 @@ async function main(): Promise<void> {
     eq(seen?.reinsuranceOption, 'working', 'and the reinsurance cover the team bought');
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
+    eq(seen?.renewalsDeclined, 0.07, 'and the share of renewals declined');
+    eq(seen?.newBusinessRejection, 0.12, 'and the new-business rejection rate');
+    ok(seen !== undefined && !('renewalCut' in seen) && !('intakeLevel' in seen),
+       'and nothing of the retired renewal cut or intake position (uw-hybrid)');
     eq(seen?.dividendPct, 0.05, 'and the dividend');
     // THE WORLDS' SPREAD (loss engine commit 4b): what the team posts beside the
     // average comes back exactly, for the host's minimum column.
