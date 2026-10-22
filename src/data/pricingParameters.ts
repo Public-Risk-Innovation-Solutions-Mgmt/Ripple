@@ -538,11 +538,11 @@ export const preGameLossMultiplier = (scenario: number): number =>
   1 + (1 - PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
 
 /**
- * STARTING CAPITAL — $10M PER LINE, paid in, with no earned surplus, at the
+ * STARTING CAPITAL — $12.5M PER LINE, paid in, with no earned surplus, at the
  * start of the pre-game. The Annual Statement's paid-in capital is this; earned
  * surplus is everything the pre-game adds.
  *
- * ⚠ WHY $10M. The prior board's margin is solved to grow this into the
+ * ⚠ WHY $12.5M. The prior board's margin is solved to grow this into the
  * scenario's opening, and it comes off when year 1 funds at Expected — so the
  * less there is to grow, the higher the margin and the further the 2026 rate
  * falls from 2025's. Tried across the twenty scenarios by line (the history
@@ -556,20 +556,20 @@ export const preGameLossMultiplier = (scenario: number): number =>
  *   $12.5M  -0.4 to 2.5   -0.1 to 4.2    1.0 to 5.4  +1.3 to +3.8  +3.0 to +6.7  -0.3 to +3.2
  *   $15M    -2.9 to -0.1  -3.0 to 1.3   -2.0 to 2.8  +3.6 to +6.1  +5.5 to +9.3  +1.8 to +5.7
  *
- * $10M is the highest of the four where no line's margin solves below
- * expected (one scenario does at $12.5M on WC and GL, most at $15M), so it is
- * the one nearest trend within that bound: the mean change goes from -3.7 /
- * -1.9 / -4.9% at $5M to +0.3 / +2.6 / -0.8%. It does not reach trend — WC and
- * Property still dip in some scenarios. Making the mean change equal trend
- * would take about $14.2M / $15.4M / $16.4M, where the margin solves below
- * expected in 15, 19 and 17 of 20 scenarios (paid-in-capital-solve-report).
+ * At $12.5M the 2026 rate carries on rising from 2025's on almost every line
+ * and scenario (the one exception a Property scenario at -0.3%), where at $5M
+ * it fell on every one. Two scenarios' margins solve just below expected —
+ * WC scenario 10 at -0.35% and GL scenario 12 at -0.12% — ACCEPTED as a
+ * negligible underpricing by the prior board. $15M brings 2026 nearer trend
+ * but solves most margins below expected. Making the mean change equal trend
+ * would take about $14.2M / $15.4M / $16.4M (paid-in-capital-solve-report).
  *
  * $5M was chosen while imaginary accident years before the pre-game sat on
  * the books as reserves, earning investment income that a larger start
  * compounded (at $15M investment outgrew the margin). Those years are retired
  * (The pool's history begins), so that reason went with them.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 10_000_000, GL: 10_000_000, Property: 10_000_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 12_500_000 };
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
@@ -1849,7 +1849,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['The pool\'s history begins', {
         value: 2021, unit: 'the first accident year',
         what: 'There are no accident years before 2021, the first pre-game year. The pre-game starts on its paid-in '
-          + 'capital ($10M a line — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
+          + 'capital ($12.5M a line — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
           + 'the starting expected loss with trend applied — no history; 2022 on one year, 2023 on two, 2024 on three, '
           + '2025 on four; from 2026 the full five-year window.',
         basis: 'CHOSEN',
@@ -1971,11 +1971,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The prior board\'s margin is solved to grow this into the opening and comes off when year 1 funds at '
           + 'Expected, so a smaller start means a higher margin and a 2026 rate that falls from 2025\'s. Tried at $5M, $10M, '
-          + '$12.5M and $15M across the twenty scenarios by line. $10M is the highest where no solved margin is below '
-          + 'expected (WC 2.2-5.0%, GL 2.7-7.2%, Property 3.9-8.0%); one scenario goes below on WC and GL at $12.5M. 2026\'s '
-          + 'change from 2025 moves from -3.7 / -1.9 / -4.9% (mean) at $5M to +0.3 / +2.6 / -0.8%, short of trend (4 / 8 / '
-          + '5%); reaching trend would take about $14.2M / $15.4M / $16.4M, with most margins below expected. $5M was set '
-          + 'while imaginary pre-2021 reserves earned investment income; those years are retired.',
+          + '$12.5M and $15M across the twenty scenarios by line. At $12.5M 2026\'s rate carries on rising from 2025\'s on '
+          + 'almost every line and scenario (WC +1.3 to +3.8%, GL +3.0 to +6.7%, Property -0.3 to +3.2%; at $5M it fell on '
+          + 'all). Two margins solve just below expected — WC scenario 10 at -0.35%, GL scenario 12 at -0.12% — accepted '
+          + 'as a negligible underpricing by the prior board. $15M solves most margins below expected. $5M was set while '
+          + 'imaginary pre-2021 reserves earned investment income; those years are retired.',
       }],
       ['Prior board\'s margin', {
         value: 'solved, per scenario and line', unit: 'over expected (CLF 1 + this)',
