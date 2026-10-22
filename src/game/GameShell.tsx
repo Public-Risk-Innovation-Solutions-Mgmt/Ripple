@@ -146,7 +146,6 @@ export default function GameShell({
       {banner}
       <Header
         gameState={gameState}
-        startingFinancials={startingFinancials}
         onNewGame={onNewGame}
         onAdvanceYear={onAdvanceYear}
         canAdvance={canAdvance}
