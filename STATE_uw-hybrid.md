@@ -35,7 +35,16 @@ Code: `src/utils/bookUnderwriting.ts`; ledger `PoolState.bookLedger` (shares, jo
   across them, so the loss ratio follows the book's risk. The penalty adds only about 0.4–1 point.
 - **The book grows by default.** At 0% rejection every applicant joins; there is no "no new business".
 - **The intake-arm probes** (`clf-table-derive`, `clf-label-backtest-check`, `membership-flows-report`,
-  `new-business-appetite-derive`) run their arms on the two sliders since the landing.
+  `new-business-appetite-derive`) run one arm table on the two sliders (`scripts/tools/uw-arms.ts`:
+  open, reject 15, renew 5, both strictest). All four run on the dormant member path, whose intake
+  now admits a random (1 − rejection) share of applicants. Re-derived at the landing, the arms give
+  genuinely different books again: at the shipped 6% application rate the member book after 14 years
+  is about 140 open, 131 reject 15, 91 renew 5, 48 both (new-business-appetite-derive), and 157 /
+  148 / 97 / 43 at year 20 (membership-flows-report). `clf-label-backtest-check` stays red (dormant,
+  code 1) on the same failure as on `1632ab4` — Property's 30% stop over-delivering, +54.4pp here
+  against +52.1pp there — so not the landing's.
+- **Property's catastrophe capital follows the shock switch** (its own commit): a solo game's year-1
+  Property requirement $51.5M -> $1.3M, Deficient -> Strong.
 
 ## The table — scenario 18, Property, 5 years, at Expected, applications 5% (measured on the test build)
 
@@ -50,7 +59,12 @@ Code: `src/utils/bookUnderwriting.ts`; ledger `PoolState.bookLedger` (shares, jo
 
 The earlier 2%–5% dial (history on all 100 worlds) is in this file's history at `8252f7f`.
 
-## Checks
+## Checks at the landing (2026-10-22, on `4d25f7b`)
 
-The landing's checks are in its commit messages: the FAST sweep, all three baselines with the
-control, every session driver, the contract harness on every pass and the manifest.
+- FAST sweep 78/80, the expected red `cession-uplift-basis` and nothing else of the landing's.
+  `export-number-format-check` was red on `1632ab4` itself (the Shock Events sheet's formats one
+  column late since c8ac253) and is fixed in its own commit.
+- Baselines value v80, export v88, render v75; the control (`1632ab4`) reproduced v79 / v87 / v74;
+  every moved row attributed in the baseline commit.
+- All 16 session drivers pass; the contract harness passes on localStorage, the stub, DynamoDB
+  in-process, the Lambda handler and the built zip (194/194 each), races pass; the manifest is whole.
