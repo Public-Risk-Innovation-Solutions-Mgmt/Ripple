@@ -1534,6 +1534,12 @@ export const SHOCKS_PER_YEAR = 0.3;
  * in a game where none could fire, Expected Losses read 4-6% above every
  * simulated year, and the Working cover attached that far above the real mean,
  * paid in about one world in five and recovered 8% of its price.
+ *
+ * ⚠ AND SO DOES PROPERTY'S CATASTROPHE CAPITAL (newEngineCatCapital): with a
+ * game's shocks off, required capital carries no catastrophe charge; with
+ * them on, it returns. Measured on a solo game (scenario 7): Property's year-1
+ * requirement $51.5M -> $1.3M (the charge was $50.2M of it), its capital
+ * status Deficient -> Strong.
  */
 export const SOLO_SHOCKS = { enabled: false };
 export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
@@ -2359,6 +2365,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'about one world in five and recovered 8% of its price. On the ordinary expectation it costs about a '
           + 'third less and pays in about half the worlds, recovering 55% of its price; the Bad-year and Catastrophe '
           + 'covers, attaching at 115% and 130% of an ordinary year, now price at about nothing.',
+      }],
+      ['Catastrophe capital follows the shocks', {
+        value: 'Property: none while a game\'s shocks are off', unit: 'rule',
+        what: 'Required capital is the reserve risk margin plus, on Property, the catastrophe the pool retains from '
+          + 'one regional event after its cover. A game whose shocks are off — single-player while the switch above '
+          + 'is off, or a hosted room with no shocks scheduled — carries no catastrophe charge: no catastrophe can '
+          + 'fire in it. With a schedule the charge returns, as before. WC and GL carry none either way.',
+        basis: 'CHOSEN',
+        note: 'The same switch as the expectation (shockLosses.gameShocksOn). Measured on a solo game (scenario 7): '
+          + 'Property\'s year-1 required capital was $51.5M, $50.2M of it the catastrophe charge, and its capital '
+          + 'status Deficient (-0.58); without the charge it is $1.3M and Strong (15.8).',
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',

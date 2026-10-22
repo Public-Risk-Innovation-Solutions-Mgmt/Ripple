@@ -2728,8 +2728,10 @@ export function processLineYear(
   // ⚠ ON THE NEW ENGINE, ITS OWN CATASTROPHES. The old figure read the old
   // catastrophe model over the member roster; the new engine's catastrophes are
   // the catalogue's regional events. See newEngineCatCapital for the basis.
+  // ⚠ AND ONLY WHILE THE GAME'S SHOCKS ARE ON: with them off no catastrophe
+  // can fire, so required capital carries no catastrophe charge.
   const catCapitalNeeded = newLossEngineRuns()
-    ? newEngineCatCapital(line, estimatedExposure, yearNumber, placedForCost, lineDecisions.reinsuranceOption)
+    ? newEngineCatCapital(line, estimatedExposure, yearNumber, placedForCost, lineDecisions.reinsuranceOption, shocks)
     : catCapitalRetained(line, currentActiveMembers, placedForCost);
   const reserveRiskMarginNeeded = Math.max(
     0,

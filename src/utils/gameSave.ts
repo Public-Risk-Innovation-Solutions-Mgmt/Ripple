@@ -215,7 +215,9 @@ export const SAVE_KEY = 'riskpool_gamestate_v23';
 // carry renewalCut and intakeLevel, which nothing reads any more, and its pool
 // state has no underwriting ledger (PoolState.bookLedger) — no units held in
 // part and no loss history by unit. Its replay would play renewals and new
-// business it never chose, so it is cleared the same way.
+// business it never chose, so it is cleared the same way. The same landing
+// takes Property's catastrophe charge out of required capital while a game's
+// shocks are off, which a v22 replay would not reproduce either.
 export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22'];
 
 /**

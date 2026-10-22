@@ -24,13 +24,17 @@
 //      the default is None; on, all four and the default is the Bad-year cover.
 //   7. THE PRIOR BOARD holds the default: None through a solo game's pre-game,
 //      the Bad-year cover through a scheduled room's.
+//   8. PROPERTY'S CATASTROPHE CAPITAL: none with the shocks off, under every
+//      cover; with them on, it returns. Through the engine, a solo Property
+//      game's required capital carries no catastrophe charge in any year and a
+//      scheduled room's carries one in every year.
 // Each with a control that must fail.
 // ============================================================================
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, strikeRates } from '../../src/utils/worlds';
-import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
+import { expectedLossBreakdown, newEngineCatCapital } from '../../src/utils/shockExpectation';
 import { sampledYearTotals, stopQuotes, stopRecovery } from '../../src/utils/aggregateStop';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import { drawShockSchedule } from '../../src/utils/shockSchedule';
@@ -166,6 +170,33 @@ function gradeBoard(soloCovers: string[], roomCovers: string[], tag: string) {
 }
 gradeBoard(soloBoard, roomBoard, '');
 
+// ---------------------------------------------------------------- 8
+type CatFn = typeof newEngineCatCapital;
+function playCapital(setup: GameSetupSettings, instance: GameInstance) {
+  const s = { ...setup, activeLines: ['Property' as const] };
+  const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, s);
+  const shocks = gameShocksOn(s, instance);
+  let gs = openWorlds({ setup: s, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1, shocks), priorHistory, earlyPreGameHistory } as GameState);
+  for (let y = 1; y <= 3; y++) {
+    gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y, shocks)), [])), currentYearNumber: y + 1 };
+  }
+  return gs.lockedResults.map(r => r.byLine.Property!);
+}
+const soloCap = playCapital(solo.setup, solo.instance), roomCap = playCapital(hostedWith.setup, hostedWith.instance);
+function gradeCapital(cat: CatFn, soloRows: { catCapitalNeeded?: number; reserveRiskMarginNeeded: number }[],
+  roomRows: { catCapitalNeeded?: number }[], tag: string) {
+  const exposure = 10_000;
+  const off = AGGREGATE_STOP_OPTIONS.map(o => cat('Property', exposure, 1, null, o.id, false));
+  const on = cat('Property', exposure, 1, null, 'none', true);
+  check(off.every(x => x === 0) && on > 0, `${tag}8a. Property's catastrophe capital: none with the shocks off, under every cover; it returns with them on`,
+    `off ${off.map(x => x.toFixed(0)).join(' / ')}; on, no cover, $${(on / 1e6).toFixed(2)}M`);
+  check(soloRows.every(r => r.catCapitalNeeded === 0 && r.reserveRiskMarginNeeded > 0)
+    && roomRows.every(r => (r.catCapitalNeeded ?? 0) > 0),
+    `${tag}8b. through the engine: a solo Property game carries no catastrophe charge; a scheduled room carries one every year`,
+    `solo ${soloRows.map(r => r.catCapitalNeeded?.toFixed(0)).join(' / ')}; room $${roomRows.map(r => ((r.catCapitalNeeded ?? 0) / 1e6).toFixed(2)).join(' / ')}M`);
+}
+gradeCapital(newEngineCatCapital, soloCap, roomCap, '');
+
 console.log('\nCONTROLS — each must FAIL');
 const controlFails = (name: string, run: () => void, expect: string) => {
   const before = failures.length;
@@ -190,6 +221,12 @@ controlFails('a hosted game whose expectation dropped its shocks',
 controlFails('every option offered with the shocks off', () => gradeOffer(l => reinsuranceOptionIds(l, true), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
 controlFails('the Bad-year default with the shocks off', () => gradeOffer(reinsuranceOptionIds, () => 'bad-year', ''), '6.');
 controlFails('a solo prior board on the Bad-year cover', () => gradeBoard(['bad-year'], roomBoard, ''), '7.');
+controlFails('catastrophe capital that ignores the switch',
+  () => gradeCapital((l, e, y, p, o) => newEngineCatCapital(l, e, y, p, o, true), soloCap, roomCap, ''), '8a.');
+controlFails('a solo game still charged for a catastrophe',
+  () => gradeCapital(newEngineCatCapital, soloCap.map((r, i) => ({ ...r, catCapitalNeeded: roomCap[i].catCapitalNeeded })), roomCap, ''), '8b.');
+controlFails('a scheduled room whose charge dropped',
+  () => gradeCapital(newEngineCatCapital, soloCap, roomCap.map(r => ({ ...r, catCapitalNeeded: 0 })), ''), '8b.');
 
 console.log(failures.length === 0 ? '\nTHE EXPECTATION FOLLOWS THE SHOCK SWITCH: ALL CHECKS PASS.' : `\n${failures.length} FAILURE(S):\n  ${failures.join('\n  ')}`);
 process.exit(failures.length === 0 ? 0 : 1);
