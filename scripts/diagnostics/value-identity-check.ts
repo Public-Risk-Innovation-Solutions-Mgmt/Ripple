@@ -1303,7 +1303,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // The catastrophe-capital commit moved nothing: this harness runs bare
 // instances on the catalogue, where shocks stay on. The probes commit moved
 // nothing: it touches only the dormant member path.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v80.json');
+// v81: THE HISTORY LANDING (the pool's history begins in 2021; the cash cap
+// at the pre-game's start; the no-history rate on the book's own risk; paid-in
+// capital $10M then $12.5M). The control ran first: 1dd0118 reproduced v80,
+// with export v88 (24 of 24) and render v75 (206 of 206). Run at each commit
+// in turn, each against the one before. No field added or removed.
+//   the history commit, 13,483 instances across 52 fields: no bulk accident
+//     years before 2021, so every reserve is smaller (beginningNetReserve
+//     $74.78M -> $55.39M on the first instance) and paid losses, LAE,
+//     development, IBNR and case, invested assets and investment income,
+//     capital and the ratios follow. Year-1 beginning surplus does not move —
+//     the opening is still the scenario's.
+//   the cash cap, 3,834 across 21: the pre-game's cash and invested-asset
+//     split, so investment income, surplus after year 1, and capital.
+//   the book's-risk fix, 5,101 across 21: 2021's rate moves, the pre-game
+//     margin re-solves, and the same 21 fields follow (priorFinalRatePer100,
+//     2025's rate, on the 36 year-1 instances).
+//   $10M, 5,105 across 21; $12.5M, 5,097 across the same 21: the margin
+//     re-solves on a larger start; the same asset-split fields.
+//   The pricing report commit moved nothing. No played-year rate, premium,
+//   loss or reserve moves after the history commit: year 1 prices on a full
+//   five-year window of flat pre-game losses either way.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v81.json');
 
 function seedOf(id: string) {
   let h = 5381;

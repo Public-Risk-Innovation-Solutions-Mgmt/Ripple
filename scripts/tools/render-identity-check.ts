@@ -1136,7 +1136,29 @@ const BASELINE = process.env.RENDER_BASELINE
 //   (PR $48,932,246 -> $1,141,394), Deficient -> Strong, the audit's capital
 //   check Review -> OK. Its y2 Property screens move again for the same rows.
 //   the probes commit, none.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v75.json');
+// v76: THE HISTORY LANDING (see VALUE_IDENTITY_v81). The control ran first:
+// 1dd0118 built in its own worktree reproduced v75 206 of 206. Run at each
+// commit, built and served in its own worktree, attributed against the commit
+// before by dumping both sides' text (RENDER_TEXT_DIR). No key added or
+// removed. 198 move in all:
+//   the history commit, all 206: the Annual Statement's Prior column and the
+//     smaller reserves (ultimates, case, IBNR, paid and reported loss + LAE),
+//     the audit's reserve and ratio checks, the Financial Statements'
+//     position and income, Results' reserve and surplus rows, the Rate
+//     Indication's current rate, and every screen's header (Combined Ratio;
+//     Pool year 1 90.5% -> 90.1%; Surplus by a rounding cent at y2).
+//   the cash cap, 123: cash and invested assets, investment income, net
+//     income and the statements built on them; the header's combined ratio.
+//   the book's-risk fix, 113: the pre-game's rates (the Annual Statement's
+//     premium and ratios, the Rate Indication's current rate, Decisions' "vs
+//     last year"), and the income and surplus rows after them.
+//   $10M, all 206, and $12.5M, 182: the same rows again on the re-solved
+//     margin, the header's prior-year combined ratio (Pool y0 93.8%, then
+//     95.8%), the pool's charge-weighted market share by a tenth. 8 Property
+//     y2 screens whose only figure is the header's surplus land back on
+//     $22.00M by rounding, so they equal v75.
+//   the pricing report commit, none.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v76.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
