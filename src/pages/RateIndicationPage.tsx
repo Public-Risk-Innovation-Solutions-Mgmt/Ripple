@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import type { CoverageLine, DecisionSet, GameState } from '../types/simulation';
 import { buildRateIndication, rateIndicationYears, type RateIndication } from '../utils/rateIndication';
 import { lineDisplayName } from '../utils/lineDisplay';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, formatMillions } from '../utils/formatters';
 
 const rate = (x: number) => x.toFixed(3);
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
@@ -53,7 +53,7 @@ function LineCard({ ri }: { ri: RateIndication }) {
             {p.windowYears > 0 ? formatCurrency(p.trendedAverageLosses, true) : '—'}
           </Row>
           <Row label="Exposure" testId={`ri-${l}-exposure`} value={p.exposure}>
-            {p.windowYears > 0 ? `$${p.exposure.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M` : '—'}
+            {p.windowYears > 0 ? formatMillions(p.exposure, 1) : '—'}
           </Row>
           <Row label="Pure premium" testId={`ri-${l}-pp`} value={p.purePremiumPer100}>{rate(p.purePremiumPer100)}</Row>
           <Space />

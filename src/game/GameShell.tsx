@@ -253,7 +253,7 @@ export default function GameShell({
         )}
 
         {shownTab === 'results' && !hidden('results') && gameState && (
-          <ResultsPage lockedResults={d.viewResults} lineView={lineView} surplusRangeByYear={d.surplusRangeByYear} />
+          <ResultsPage lockedResults={d.viewResults} lineView={lineView} />
         )}
 
         {shownTab === SPREADSHEET_TAB && gameState && (
@@ -265,7 +265,6 @@ export default function GameShell({
             instanceId={gameState.setup.instanceId}
             poolState={gameState.poolState}
             claimsWorld={gameState.worlds?.[0]}
-            worldCount={gameState.worlds?.length}
           />
         )}
 
