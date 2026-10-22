@@ -26,7 +26,8 @@
 
 import {
   FULL_MARKET_EXPOSURE, FULL_SAVINGS_AT, LOSS_HISTORY_CLAIM_CAP, LOSS_HISTORY_YEARS, NEW_BUSINESS_APPLICATIONS,
-  NEW_BUSINESS_PENALTY, NEW_BUSINESS_REJECTION_SLIDER, NEW_MEMBER_GRACE_YEARS, R_MODEL, RENEWALS_DECLINED_SLIDER,
+  NEW_BUSINESS_PENALTY, NEW_BUSINESS_REJECTION_SLIDER, NEW_MEMBER_GRACE_YEARS, R_MODEL, RENEWAL_JUDGEMENT_CV,
+  RENEWALS_DECLINED_SLIDER,
 } from '../data/pricingParameters';
 import { deriveSubRng } from './random';
 import { marketUnits, type BookUnit } from './bookUnits';
@@ -117,7 +118,8 @@ export function bookMovementResult(
 //
 //   RENEWAL     ranks the eligible units — in the book at least
 //               NEW_MEMBER_GRACE_YEARS at the decision, with a premium on record — by their
-//               loss ratio over the last LOSS_HISTORY_YEARS (unitLossRatio),
+//               loss ratio over the last LOSS_HISTORY_YEARS (unitLossRatio) times the
+//               underwriter's judgement (renewalJudgement; 1 at RENEWAL_JUDGEMENT_CV 0),
 //               worst first, and declines whole units down that order and PART
 //               of the last, so the declined exposure is EXACTLY the slider's
 //               share of the book at the start of the year. A unit it cannot
@@ -165,6 +167,19 @@ export function unitLossRatio(records: readonly UnitYearRecord[] | undefined, ye
     premium += r.premium;
   }
   return premium > 0 ? loss / premium : null;
+}
+
+/**
+ * The underwriter's judgement on a unit at `yearNumber`'s renewal: a factor on
+ * its loss history, lognormal with mean 1 and RENEWAL_JUDGEMENT_CV's spread,
+ * drawn once per unit per year from the game's seed — keyed on the unit, so
+ * every world and every order of ranking draws the same one. 1 at a CV of 0.
+ */
+export function renewalJudgement(marketSeed: number, line: CoverageLine, index: number, yearNumber: number): number {
+  const cv = RENEWAL_JUDGEMENT_CV.value;
+  if (!(cv > 0)) return 1;
+  const sigma = Math.sqrt(Math.log(1 + cv * cv));
+  return deriveSubRng(marketSeed, yearNumber, `renewal_judgement_${line}_${index}`).lognormal(-sigma * sigma / 2, sigma);
 }
 
 /**
@@ -230,10 +245,14 @@ export function moveBookUnits(
       afterUnits: [...book].sort((a, b) => a - b), writtenUnits: [], declinedUnits: [], withdrawnUnits: [], ledger: base,
     };
   }
-  // RENEWAL — the worst loss ratio first, among the eligible.
+  // RENEWAL — the worst loss ratio first, among the eligible, as the
+  // underwriter judges it: the history times renewalJudgement's factor.
   const ranked = book
     .filter(i => renewalEligible(base, i, yearNumber))
-    .map(i => ({ i, lr: unitLossRatio(base.history[key(i)], yearNumber) }))
+    .map(i => {
+      const lr = unitLossRatio(base.history[key(i)], yearNumber);
+      return { i, lr: lr === null ? null : lr * renewalJudgement(marketSeed, line, i, yearNumber) };
+    })
     .filter((x): x is { i: number; lr: number } => x.lr !== null)
     .sort((a, b) => b.lr - a.lr || a.i - b.i);
   const declines = takeExactly(ranked.map(x => ({ index: x.i, held: heldSize(x.i) })),

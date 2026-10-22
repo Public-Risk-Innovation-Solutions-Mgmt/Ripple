@@ -1075,6 +1075,23 @@ export const NEW_BUSINESS_APPLICATIONS = 0.05;
 /** The rejection rate at which new business costs no more than the book — CHOSEN, the data scientist's 10%. */
 export const FULL_SAVINGS_AT = 0.10;
 
+/**
+ * RENEWAL JUDGEMENT NOISE — the spread of the underwriter's judgement at
+ * renewal, as a coefficient of variation. Units are ranked for renewal on
+ * their loss history MULTIPLIED by a factor drawn once per unit per year from
+ * the game's seed (lognormal, mean 1, this CV), so every world declines the
+ * same units. 0 is the plain history.
+ *
+ * ⚠ WHY: the history reads true risk almost exactly (see the underwriting note
+ * above), so on the plain history declining renewals is close to perfect
+ * selection and about three times too strong. The noise stands for what an
+ * underwriter cannot see or weighs differently, so that declining 5% a year
+ * improves the existing book's loss ratio about as the data scientist's target
+ * has it. The value is measured by renewal-judgement-derive. A probe sets
+ * `.value`; nothing else does.
+ */
+export const RENEWAL_JUDGEMENT_CV = { value: 0 };
+
 /** "Renewals declined": 0–10% of renewing exposure, in 1% steps, default 0%. */
 export const RENEWALS_DECLINED_SLIDER = { min: 0, max: 0.10, step: 0.01, default: 0 } as const;
 
@@ -2178,6 +2195,18 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'averaged across all the worlds, so every world declines the same units. Measured, it reads true risk '
           + 'almost exactly (flat pre-game, small unit noise): declining 5% a year cuts the loss ratio 2.1 points '
           + 'in year 1 and 6.7 by year 5 on scenario 18 Property.',
+      }],
+      ['Renewal judgement spread', {
+        value: `${RENEWAL_JUDGEMENT_CV.value}`,
+        unit: 'CV of the judgement factor',
+        what: 'Units are ranked for renewal on their loss history times a factor drawn once per unit per year from '
+          + 'the game\'s seed (lognormal, mean 1, this CV), so every world declines the same units. 0 is the plain '
+          + 'history.',
+        basis: 'CHOSEN',
+        note: 'Off (0) pending a decision. Measured by renewal-judgement-derive: one year at 5% declined already '
+          + 'improves the existing book\'s loss ratio 2.3 points on scenario 18 Property (2.5–3.7 on scenarios 7 '
+          + 'and 13), at the data scientist\'s 2.5; the "about 7" is 5% a year for five years (6.9), which even a '
+          + 'CV of 3 only brings to 2.9, so most of it does not come from how well the history reads risk.',
       }],
       ['Loss history years', {
         value: LOSS_HISTORY_YEARS, unit: 'accident years',
