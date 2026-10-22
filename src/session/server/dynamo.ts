@@ -103,3 +103,16 @@ export const ROOM_CODE_LENGTH = 6;
 export function newRoomCode(): string {
   return randomFrom(CODE_ALPHABET, ROOM_CODE_LENGTH);
 }
+
+// ⚠ DUPLICATED IN localTransport.ts, NOT IMPORTED — same reasoning as the code
+// alphabet above: that file is reachable from the browser bundle, and nothing
+// server-specific belongs pulled in alongside it.
+//
+// Digits only, unlike a room code: a PIN is read off a screen and typed, not
+// read aloud across a room, so there is no spoken-letter ambiguity to avoid.
+const PIN_ALPHABET = '0123456789';
+export const VIEWER_PIN_LENGTH = 6;
+
+export function newViewerPin(): string {
+  return randomFrom(PIN_ALPHABET, VIEWER_PIN_LENGTH);
+}

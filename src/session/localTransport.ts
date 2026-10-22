@@ -77,6 +77,16 @@ const KEY_PREFIX = ROOM_KEY_PREFIX;
 // the table; that is the server's side of the wire and the contract does not
 // constrain it.
 const IDEMPOTENCY_PREFIX = 'ripple.session.v1.create.';
+// ⚠ THE VIEWER-PIN INDEX: pin -> {code, teamName}, outside any room's record —
+// same reasoning as IDEMPOTENCY_PREFIX above. A viewer's PIN must resolve to a
+// room+team from the Lobby itself, before a room code is in hand, so it cannot
+// live inside one room's own key. See keys.ts's pinPk for the hosted side.
+const PIN_PREFIX = 'ripple.session.v1.pin.';
+
+interface PinIndexEntry {
+  code: string;
+  teamName: string;
+}
 
 // ============================================================================
 // THE LOBBY INDEX — ONE RECORD LISTING CURRENT EVENTS.
@@ -162,6 +172,13 @@ function lobbyEntryFor(room: RoomRecord): LobbyIndexEntry {
 // whiteboard, and those are the four characters that come back wrong.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
+// Digits only, unlike a room code — a PIN is typed, not read aloud, so there
+// is no spoken-letter ambiguity to avoid. Same alphabet rooms.ts's
+// newViewerPin uses, duplicated for the same reason CODE_ALPHABET is: this
+// file is reachable from the browser bundle.
+const PIN_ALPHABET = '0123456789';
+const PIN_LENGTH = 6;
+
 // ---------------------------------------------------------------- records
 
 // What is actually stored. Holds the SECRETS (host token, team tokens) and every
@@ -173,6 +190,13 @@ interface TeamRecord {
   // again. The host owns the line set now; a team has no say and sends none.
   lines: CoverageLine[];
   token: string | null;
+  /**
+   * ⚠ OPTIONAL ON THE RECORD, same reasoning as `lines` above was given a
+   * fallback for: a team created before this field existed has none. Plain,
+   * not hashed — see keys.ts's pinPk for why a PIN is not treated as a secret
+   * the way `token` is.
+   */
+  pin?: string;
   joined: boolean;
   lockedYear: number | null;
   // Year number (as a string key, per JSON) -> that year's submitted decisions.
@@ -591,8 +615,31 @@ export class LocalSessionTransport implements SessionTransport {
 
   join(req: JoinRequest): Promise<JoinResponse> {
     return this.call(() => {
-      const room = loadRoom(req.code);
-      const name = req.teamName.trim();
+      // ⚠ A PIN RESOLVES code AND teamName BOTH — viewer-only, see
+      // JoinRequest.pin. Everything below this reads exactly as it did before
+      // a PIN could ever reach this method; it only decides what `code` and
+      // `rawName` are.
+      let code: string;
+      let rawName: string;
+      if (req.pin !== undefined) {
+        if (req.role !== 'viewer') {
+          throw new SessionError('INVALID_REQUEST', 'pin may only be used to join as a viewer.');
+        }
+        if (typeof req.pin !== 'string') throw new SessionError('INVALID_REQUEST', 'pin must be a string.');
+        const raw = storage().getItem(PIN_PREFIX + req.pin);
+        if (raw === null) throw new SessionError('TEAM_NOT_FOUND', 'No team with that PIN.');
+        const entry = JSON.parse(raw) as PinIndexEntry;
+        code = entry.code;
+        rawName = entry.teamName;
+      } else {
+        if (typeof req.code !== 'string') throw new SessionError('INVALID_REQUEST', 'code must be a string.');
+        if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
+        code = req.code;
+        rawName = req.teamName;
+      }
+
+      const room = loadRoom(code);
+      const name = rawName.trim();
       if (name.length === 0) {
         throw new SessionError('INVALID_REQUEST', 'A team needs a name.');
       }
@@ -603,7 +650,10 @@ export class LocalSessionTransport implements SessionTransport {
       // player's join is the moment the team comes into being, so "not found"
       // is an error for one role and the normal case for the other.
       if (req.role === 'viewer' && !team) {
-        throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+        throw new SessionError(
+          'TEAM_NOT_FOUND',
+          req.pin !== undefined ? 'No team with that PIN.' : `${name} is not a team in this room.`,
+        );
       }
 
       if (req.role === 'viewer' && team) {
@@ -613,6 +663,8 @@ export class LocalSessionTransport implements SessionTransport {
           ? room.viewers.find(v => v.token === req.token && v.teamName === team.name)
           : undefined;
         if (existing) {
+          // ⚠ NO pin HERE — a viewer's JoinResponse never carries one. See
+          // JoinResponse.pin: only the team's own player ever learns it.
           return { teamToken: existing.token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: true, room: roomView(room) };
         }
         // ⚠ THE CALLER'S OWN TOKEN WHEN IT SUPPLIED ONE, so a retried viewer
@@ -637,7 +689,10 @@ export class LocalSessionTransport implements SessionTransport {
           // there is no disagreement to detect — the team plays the room's lines
           // on the first join and on every return, and that is the same set by
           // construction rather than by a check.
-          return { teamToken: team.token, teamName: team.name, lines: [...team.lines], role: 'player' as const, rejoined: true, room: roomView(room) };
+          // ⚠ pin, AGAIN, EVERY REJOIN — not only on create, so a reloaded
+          // player's screen can show it without a second lookup. Absent only
+          // for a team created before this field existed.
+          return { teamToken: team.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: roomView(room) };
         }
         // The name is the identity now, so a second person arriving with a name
         // already in the room is a COLLISION rather than a claim on a seat.
@@ -682,12 +737,23 @@ export class LocalSessionTransport implements SessionTransport {
       // a token already owned by anyone else in the room is refused.
       const token = req.token ?? newToken();
       if (req.token) assertTokenFree(room, req.token);
+      // A PIN lets a viewer jump straight to this team from the Lobby with no
+      // room code in hand — see PIN_PREFIX above and keys.ts's PIN# index on
+      // the hosted side. Checked for collision against every PIN ever issued,
+      // not just this room's, since the Lobby-level lookup has no room to
+      // scope it to.
+      const store = storage();
+      let pin = randomFrom(PIN_ALPHABET, PIN_LENGTH);
+      for (let i = 0; store.getItem(PIN_PREFIX + pin) !== null && i < 50; i++) {
+        pin = randomFrom(PIN_ALPHABET, PIN_LENGTH);
+      }
       const created: TeamRecord = {
         name,
         // Canonical WC/GL/Property order regardless of click sequence, so two
         // teams with the same choice compare equal everywhere they are shown.
         lines: LINE_ORDER.filter(l => lines.includes(l)),
         token,
+        pin,
         joined: true,
         lockedYear: null,
         decisionsByYear: {},
@@ -695,11 +761,12 @@ export class LocalSessionTransport implements SessionTransport {
       };
       room.teams.push(created);
       saveRoom(room);
+      store.setItem(PIN_PREFIX + pin, JSON.stringify({ code: room.code, teamName: created.name } satisfies PinIndexEntry));
       // Not one of the four moments, but the row carries a team COUNT and the
       // lobby shows it — a listing that said "0 teams so far" under a room six
       // people had joined would be worse than no count at all.
       updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
-      return { teamToken: token, teamName: created.name, lines: [...created.lines], role: 'player' as const, rejoined: false, room: roomView(room) };
+      return { teamToken: token, teamName: created.name, lines: [...created.lines], pin, role: 'player' as const, rejoined: false, room: roomView(room) };
     }, true);
   }
 
