@@ -125,7 +125,7 @@ function play(g: number, cut: number): Record<string, YearRow[]> {
   const out: Record<string, YearRow[]> = { WC: [], GL: [], Property: [] };
   for (let y = 1; y <= YEARS; y++) {
     const d = defaultDecisionSet(y) as DecisionSet;
-    for (const l of LINES) d.byLine[l].renewalCut = cut;
+    for (const l of LINES) d.byLine[l].renewalsDeclined = cut;
     const p = processYear(gs, d);
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
     for (const lr of p.lineResults) {

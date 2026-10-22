@@ -590,7 +590,12 @@ export function nameSk(teamName: string): string {
   return checkSortKey(`NAME#${trimmed}`);
 }
 
-/** One team's decisions for one year. */
+/**
+ * One team's decisions for one year. ⚠ uw-hybrid: the per-line block carries
+ * renewalsDeclined and newBusinessRejection in place of renewalCut and
+ * intakeLevel — two scalars for two, so the item's size and every figure above
+ * are unchanged. Stored whole; nothing here reads them.
+ */
 export function decisionSk(teamId: string, year: number): string {
   return `D#${checkTeamId(teamId)}#${padYear(year)}`;
 }

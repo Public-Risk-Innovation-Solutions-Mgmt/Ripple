@@ -392,14 +392,20 @@ export function expectedLargeLossCount(line: CoverageLine, exposure: number, yea
  * model over the member roster (catCapitalRetained); with no roster, the
  * catalogue's regional events are the catastrophes there are. Zero on WC and
  * GL, as before.
+ *
+ * ⚠ AND ZERO WHEN THE GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn), like
+ * the expectation: a game in which no catastrophe can fire holds no capital
+ * for one. With a schedule, or on a harness's catalogue, it returns.
  */
 export function newEngineCatCapital(
   line: CoverageLine, exposure: number, yearNumber: number, placed: readonly boolean[] | null,
   // The team's reinsurance option. With AGGREGATE_STOP on it names the stop,
   // and the retained catastrophe is what the stop leaves (stopCatRetained).
   stopOptionId?: string,
+  /** The game's shock switch (shockLosses.gameShocksOn); absent is on. */
+  shocks = true,
 ): number {
-  if (line !== 'Property' || !(exposure > 0)) return 0;
+  if (line !== 'Property' || !(exposure > 0) || !shocks) return 0;
   if (AGGREGATE_STOP.enabled && stopOptionId !== undefined) return stopCatRetained(line, exposure, yearNumber, stopOptionId);
   const layers = REINSURANCE_TOWER.Property.filter((l, i) => placed?.[i] === true && l.purchasable);
   const h: PerLoss = (x, d) => poolShare(line, x) - layers.reduce((s, l) => s + cedeAboveLocal(poolShare(line, x), l, d), 0);

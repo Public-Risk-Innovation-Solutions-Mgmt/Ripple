@@ -281,7 +281,7 @@ export function useGameDerivations(
     if (!gameState) return [];
     const lineState = gameState.poolState.lines[decisionLine];
     // With the book's own risk, which its tower's price carries (book units commit 5).
-    const risk = lineBookRisk(gameState.instance, decisionLine, gameState.poolState.bookUnits);
+    const risk = lineBookRisk(gameState.instance, decisionLine, gameState.poolState.bookUnits, gameState.poolState.bookLedger);
     return lineState.bookExposure !== undefined
       ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}) }
       : decisionLineActiveMembers;

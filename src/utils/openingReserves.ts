@@ -440,10 +440,10 @@ export function requiredCapital(line: CoverageLine, netUnpaidReserve: number): n
  * every year (simulationEngine's catCapitalNeeded): zero on WC and GL, which
  * have no catastrophe band.
  */
-export function openingCatCapital(line: CoverageLine, members: Book): number {
-  const placed = placementFor(line, defaultReinsuranceOption(line));
+export function openingCatCapital(line: CoverageLine, members: Book, shocks = true): number {
+  const placed = placementFor(line, defaultReinsuranceOption(line, shocks));
   return newLossEngineRuns()
-    ? newEngineCatCapital(line, bookExposureOf(members, line, 1), 1, placed, defaultReinsuranceOption(line))
+    ? newEngineCatCapital(line, bookExposureOf(members, line, 1), 1, placed, defaultReinsuranceOption(line, shocks), shocks)
     : catCapitalRetained(line, [...rosterOf(members, 'openingCatCapital')], placed);
 }
 

@@ -137,10 +137,10 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
       confidenceLevel: d.fundingConfidenceLevel,
       atExpected: d.fundingAtExpected,
       reinsuranceOption: d.reinsuranceOption,
-      // Absent reads as 0 on the engine side; it is written as 0 here so the
-      // host renders "renews everyone" rather than an empty cell.
-      renewalCut: d.renewalCut ?? 0,
-      intakeLevel: d.intakeLevel ?? 0,
+      // Absent reads as 0 on the engine side; each is written as 0 here so the
+      // host renders 0% rather than an empty cell.
+      renewalsDeclined: d.renewalsDeclined ?? 0,
+      newBusinessRejection: d.newBusinessRejection ?? 0,
       riskControlPct: d.riskControlPct,
       dividendPct: d.dividendPct,
       assessmentPct: d.assessmentPct,

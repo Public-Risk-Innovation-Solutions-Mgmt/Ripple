@@ -415,11 +415,13 @@ export function buildResultsWorkbook(
   if (shockRows.length > 1) {
     const ws = XLSX.utils.aoa_to_sheet(shockRows);
     // COLUMN-WISE, like the claims sheets: Year, Calendar Year, Event, Name,
-    // Band, Horizon, Year Fired, Lines, Worlds, Attributable Gross Loss,
-    // Attributable Claims, Expected Gross Loss Added, Effects, Description.
-    // (Worlds is text — "2 of 10" — added at loss engine commit 4b.)
+    // Band, Horizon, Year Fired, Lines, Attributable Gross Loss, Attributable
+    // Claims, Expected Gross Loss Added, Effects, Description. ⚠ The Worlds
+    // column came off (c8ac253) and its slot here with it: left in, every
+    // format after Lines sat one column late and Attributable Gross Loss had
+    // none (export-number-format-check).
     const fmts: (NumFmt | undefined)[] = [
-      '0', '0', undefined, undefined, undefined, '#,##0.00', '0', undefined, undefined,
+      '0', '0', undefined, undefined, undefined, '#,##0.00', '0', undefined,
       '#,##0', '#,##0.00', '#,##0', undefined, undefined,
     ];
     const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1');

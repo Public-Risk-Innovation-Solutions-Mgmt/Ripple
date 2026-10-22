@@ -28,6 +28,7 @@
 
 import { UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV } from '../../src/data/pricingParameters';
 import { marketSeedOf, openingBookUnits, unitsOf, type BookUnit } from '../../src/utils/bookUnits';
+import { heldUnits } from '../../src/utils/bookUnderwriting';
 import {
   bookOrdinaryCv, bookOrdinaryRisk, drawOrdinaryFactor, ordinaryYearCv, ordinaryLossCostPer100, ordinaryLossFromUnits, ordinaryLossRng,
   unitOrdinaryRng,
@@ -124,9 +125,11 @@ console.log(`ORDINARY LOSSES FROM BOOK UNITS — ${BOOK_SEEDS.length} books x ${
   gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(1)), [])), currentYearNumber: 2 };
   let worst = 0, sameExpected = true, differ = 0;
   for (const line of LINES) {
-    const units = unitsOf(marketSeedOf(instance), line, gs.poolState.bookUnits?.[line] ?? []);
+    // The book year 1 drew on — after its movement, each unit at its held share
+    // (uw-hybrid: the defaults write new business, part of the last applicant).
+    const units = heldUnits(marketSeedOf(instance), line, gs.poolState.bookUnits?.[line] ?? [], gs.poolState.bookLedger?.[line]);
     const recs = (gs.worlds ?? []).map(w => w.lockedResults[0].byLine[line].newLossEngine!);
-    const exposure = (poolState.lines[line].bookExposure ?? 0) * exposureFactor(line, 1);
+    const exposure = units.reduce((a, u) => a + u.size, 0) * exposureFactor(line, 1);
     const want = exposure * bookOrdinaryRisk(units) * 10_000 * ordinaryLossCostPer100(line, 1);
     for (const r of recs) worst = Math.max(worst, Math.abs(r.ordinaryExpected / want - 1));
     sameExpected = sameExpected && recs.every(r => r.ordinaryExpected === recs[0].ordinaryExpected);

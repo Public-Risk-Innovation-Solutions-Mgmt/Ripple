@@ -820,7 +820,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // control ran first: 8f367f4 reproduced v86 24 of 24. All 24 move, and each
 // file is the control's with that row's label replaced, nothing else (120
 // rows). No file added or removed. VALUE_IDENTITY_v79 holds.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v87.json');
+// v88: THE UNDERWRITING LANDING (see VALUE_IDENTITY_v80). The control ran
+// first: 1632ab4 reproduced v87 24 of 24. No file added or removed. The
+// underwriting commit moved all 24: in each, 119 of 166 rows — exposure no
+// longer flat (the default writes 5% new business a year) and every row that
+// follows it; the export carries no decision rows for underwriting. The
+// catastrophe-capital commit moved the 12 exports with Property in them
+// (PR-solo and tri): 4 rows each and nothing else — Reserve Risk Margin
+// Needed, Excess Available Surplus, Excess Capital Ratio and Excess Capital
+// Status (MAMC6EA4 year 1: required $38.92M -> $1.19M, Deficient -> Strong,
+// every year). The probes commit moved nothing.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v88.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

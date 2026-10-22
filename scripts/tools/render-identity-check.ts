@@ -1116,7 +1116,27 @@ const BASELINE = process.env.RENDER_BASELINE
 // worlds (13, which also carry exposure as "$9,978.14M" for "$9.98B"); and the
 // Annual Statement's exposure rows (16, "9,978.1" for "9978.1"), the spreadsheet's
 // exposure metrics with them. Nothing else.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v74.json');
+// v75: THE UNDERWRITING LANDING (see VALUE_IDENTITY_v80). The control ran
+// first: 1632ab4 built in its own worktree reproduced v74 206 of 206. Run at
+// each commit, built and served in its own worktree, and attributed by
+// dumping both sides' text (RENDER_TEXT_DIR). No key added or removed. 119
+// move:
+//   the underwriting commit, 111. At y0 only the 8 Decisions pages: the two
+//   sliders by name and value ("Renewals declined 0%", "New Business,
+//   rejection rate 0%") for "Renewal / Renew all" and the four intake
+//   positions. Nothing else at y0 — the pre-game is unchanged. At y2 every
+//   screen with figures on it (Annual Statement, Calculation Audit, Decision
+//   History, Decisions, Financial Statements, Results 13 each; Introduction,
+//   Investments, Rate Indication, Result Spreadsheet and the header 5 each):
+//   the default book grows 5% a year (WC market share 30.0% -> 33.1% by y2),
+//   and Decision History names the two sliders, as percentages.
+//   the catastrophe-capital commit, 8 more, all at y0 with Property in them
+//   (PR, WC+GL+PR; the Calculation Audit and Financial Statements, Property
+//   and Pool views): required capital without the retained-catastrophe term
+//   (PR $48,932,246 -> $1,141,394), Deficient -> Strong, the audit's capital
+//   check Review -> OK. Its y2 Property screens move again for the same rows.
+//   the probes commit, none.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v75.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

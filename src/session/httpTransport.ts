@@ -130,6 +130,8 @@
 //    ⚠ DESIGNED: src/session/server/keys.ts — a header item plus one item per
 //    team-year for decisions and for results, with the sizes and which of them
 //    are measured. That file is authoritative; this item is the reason for it.
+//    (uw-hybrid swapped two decision scalars for two — renewalsDeclined and
+//    newBusinessRejection — so nothing here moved.)
 //
 // 7. POLLING IS METERED NOW. Every client reads the WHOLE room on every poll;
 //    the back-off in pollSchedule.ts cuts the request count by ~60% and does

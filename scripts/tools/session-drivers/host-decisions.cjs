@@ -129,6 +129,15 @@ async function join(ctx, code, name) {
   // (AGGREGATE_STOP_DEFAULT_SHOCKS_OFF).
   ok(rows.every(r => r[2] === 'None'),
      `the Reinsurance column shows the package the team chose (${rows.map(r => r[2]).join(', ')})`);
+  // uw-hybrid: the two underwriting sliders, by name, as percentages — both
+  // teams locked on the defaults, 0% and 0%.
+  {
+    const heads = await host.$$eval('[data-testid="decisions-table"] th', hs => hs.map(h => h.textContent.trim()));
+    ok(heads.includes('Renewals declined') && heads.includes('New Business, rejection rate'),
+       `the Decisions tab names both sliders (${heads.join(' | ')})`);
+    ok(rows.every(r => r[3] === '0%' && r[4] === '0%'),
+       `and shows both as percentages (${rows.map(r => `${r[3]} / ${r[4]}`).join(', ')})`);
+  }
 
   // ⚠ ADDED AFTER THIS DRIVER FOUND THE BUG. The allocation column rendered
   // "1000% / 8000% / 1000%" on the first run: AssetAllocation is 0-100 and it

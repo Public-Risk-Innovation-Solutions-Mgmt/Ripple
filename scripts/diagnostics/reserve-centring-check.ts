@@ -76,7 +76,6 @@ import {
   FORWARD_BOOKING, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, PRICING_TRIANGLE,
 } from '../../src/data/defaultAssumptions';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
-import { INTAKE_LOW } from '../../src/utils/intakeInspection';
 
 const RULE = '='.repeat(76);
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -108,7 +107,9 @@ function decisionsFor(y: number) {
   const d = defaultDecisionSet(y);
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
-      d.byLine[l].intakeLevel = INTAKE_LOW;
+      // uw-hybrid: the intake positions are retired; new business arrives at
+      // NEW_BUSINESS_APPLICATIONS and the default rejects nobody.
+      d.byLine[l].newBusinessRejection = 0;
     }
   }
   return d;

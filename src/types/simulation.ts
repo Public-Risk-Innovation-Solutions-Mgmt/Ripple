@@ -658,30 +658,23 @@ export interface LineDecisionSet {
   dividendPct: number;            // 0.00 to 0.15 of premium
   assessmentPct: number;          // 0.00 to 0.25 of premium
   /**
-   * The INTAKE SLIDER, a position 0..INTAKE_LOW: No New Business (0, and absent —
-   * the default), Strict, Moderate, Low. Each position sets a bar on a NOISY
-   * INSPECTION of risk quality and a cap on how many join that year; Low's cap
-   * is MAX_NEW_MEMBER_SHARE, the overall maximum. See intakeInspection.ts.
+   * "RENEWALS DECLINED": the share of this line's renewing exposure the pool
+   * declines this year, worst loss ratio first (bookUnderwriting.ts). 0–0.10
+   * in 0.01 steps, default 0 (RENEWALS_DECLINED_SLIDER). Absent reads as 0.
    *
-   * ⚠ REPLACES newBusinessAppetite, which screened applicants on their own loss
-   * run. A save carrying newBusinessAppetite loads at No New Business; there is
-   * no save migration in this repo by design (gameSave.ts). A save written
-   * under the seven-level version of this slider carries a level up to 6, which
-   * reads as Low.
+   * ⚠ REPLACES renewalCut (0–5%, on a noisy view of true risk). The save key
+   * moved with it, so no save carries the old field.
    */
-  intakeLevel?: number;
+  renewalsDeclined?: number;
   /**
-   * The RENEWAL SLIDER: the share of this line's book NOT renewed this year,
-   * worst first on the member's own multi-year raw loss ratio. 0 (and absent)
-   * renews everyone, which is the default. One of RENEWAL_CUT_STEPS. See
-   * renewalUnderwriting.ts.
+   * "NEW BUSINESS, REJECTION RATE": the share of this year's applicants turned
+   * away, at random. 0–0.15 in 0.01 steps, default 0
+   * (NEW_BUSINESS_REJECTION_SLIDER). Absent reads as 0. Buys down the
+   * first-year new-business penalty.
    *
-   * ⚠ REPLACES renewalThreshold, which compared a ratio against a fixed bar. A
-   * save written before this carries renewalThreshold, which nothing reads any
-   * more, and no renewalCut — so it loads renewing everyone. There is no save
-   * migration in this repo by design (gameSave.ts).
+   * ⚠ REPLACES intakeLevel and the four intake positions, retired.
    */
-  renewalCut?: number;
+  newBusinessRejection?: number;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
   // candidates by riskQuality descending and kept the top 60% — exact
   // selection on an attribute the player can no longer see. See
@@ -2391,6 +2384,31 @@ export interface PoolState {
    * on, and on saves from before book units. Never shown.
    */
   bookUnits?: Partial<Record<CoverageLine, number[]>>;
+  /**
+   * WHAT UNDERWRITING KNOWS OF EACH LINE'S BOOK BEYOND ITS INDICES — the share
+   * held of a partly held unit, the year each unit joined, and each unit's loss
+   * history AVERAGED ACROSS THE WORLDS. Like bookUnits, ONCE PER GAME on the
+   * game's pool state, never on a world's. Never shown. See bookUnderwriting.ts.
+   */
+  bookLedger?: Partial<Record<CoverageLine, BookLedger>>;
+}
+
+/** One accident year of a unit's record: its losses for the history, and the premium it paid, $. */
+export interface UnitYearRecord {
+  year: number;
+  /** Ordinary (with the year's uplift and any penalty), routine large excess, shock claims capped. */
+  loss: number;
+  premium: number;
+}
+
+/** A line's underwriting ledger — keys are unit indices, as strings (JSON). */
+export interface BookLedger {
+  /** The share held of a unit held only in part; absent is wholly held. */
+  share: Record<string, number>;
+  /** The year a unit joined; absent is the opening book. */
+  joined: Record<string, number>;
+  /** The last LOSS_HISTORY_YEARS records of every held unit, oldest first. */
+  history: Record<string, UnitYearRecord[]>;
 }
 
 // Top-level game state
