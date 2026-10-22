@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
+import type { TeamMarketShare } from '../session/contract';
 import { buildAnnualStatement, topCombinedRatio, topSurplus } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
 import { RippleMark } from '../assets/RippleLogo';
@@ -22,9 +23,17 @@ interface HeaderProps {
   advanceLabel?: string;
   /** The view on screen — the combined ratio is the pool's or that line's. Defaults to the pool. */
   lineView?: LineView;
+  /**
+   * A HOSTED GAME'S MARKET SHARE: the team's share of the ROOM, from the
+   * room's stored set (CallerView.marketShare) — its line's on a line view,
+   * its premium share on the pool view. Passed only by a session screen; null
+   * there means the room has no set for this team yet, and the chip is left
+   * out. Absent (single player) keeps the share of the full market.
+   */
+  roomMarketShare?: TeamMarketShare | null;
 }
 
-export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool' }: HeaderProps) {
+export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool', roomMarketShare }: HeaderProps) {
   const lastResult = gameState?.lockedResults?.[gameState.lockedResults.length - 1];
 
   // ============================================================================
@@ -67,7 +76,10 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   // TIV), so the chip is left out rather than showing a blend of them.
   // ============================================================================
   const latestResult = lastResult ?? gameState?.priorHistory?.at(-1);
-  const marketShare = lineView === 'pool' ? undefined : latestResult?.byLine[lineView]?.marketShare;
+  const fullMarketShare = lineView === 'pool' ? undefined : latestResult?.byLine[lineView]?.marketShare;
+  const marketShare = roomMarketShare === undefined
+    ? fullMarketShare
+    : (lineView === 'pool' ? roomMarketShare?.pool : roomMarketShare?.byLine[lineView]) ?? undefined;
   const poolName = gameState?.setup?.poolName ?? 'Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';
   const yearNumber = gameState?.currentYearNumber ?? 1;

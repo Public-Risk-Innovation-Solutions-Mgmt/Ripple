@@ -58,6 +58,7 @@ import InvestmentsPage from '../pages/InvestmentsPage';
 import RateIndicationPage from '../pages/RateIndicationPage';
 import { isHiddenTab, topBarTabs } from './tabs';
 import { shockTimingOf } from '../utils/shockLosses';
+import type { TeamMarketShare } from '../session/contract';
 
 const AUDIT_TAB: TabId = 'audit';
 const SPREADSHEET_TAB: TabId = 'spreadsheet';
@@ -116,13 +117,15 @@ export interface GameShellProps {
   statusStrip?: React.ReactNode;
   /** A hosted session's screen — players and viewers. Hides tabs.tsx's MULTIPLAYER_HIDDEN_TABS too. */
   multiplayer?: boolean;
+  /** A hosted session's own room market share, for the header — see Header. */
+  roomMarketShare?: TeamMarketShare | null;
 }
 
 export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
   const activeLines = gameState?.setup.activeLines ?? [];
@@ -151,6 +154,7 @@ export default function GameShell({
         canAdvance={canAdvance}
         advanceLabel={advanceLabel}
         lineView={lineView}
+        roomMarketShare={roomMarketShare}
       />
 
       {isStarted && (

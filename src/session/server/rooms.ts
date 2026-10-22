@@ -136,6 +136,7 @@ import type {
 } from '../contract';
 import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
 import { Faults } from '../faults';
+import { mayStoreShares, roomSharesFor } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, RESULT_PREFIX, ROOM_HEADER_SK,
@@ -144,7 +145,7 @@ import {
 } from './keys';
 import { dynamoFromEnv, hashToken, newRoomCode, newTeamId, type Dynamo, type DynamoConfig } from './dynamo';
 import {
-  buildCallerView, buildRoomView, type Fetched, type RoomHeader, type RosterEntry, type YearItem,
+  buildCallerView, buildRoomView, orderedRoster, type Fetched, type RoomHeader, type RosterEntry, type YearItem,
 } from './views';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -378,7 +379,7 @@ export class DynamoSessionTransport implements SessionTransport {
     const entry = teamId ? header.roster?.[teamId] ?? null : null;
     return {
       room: buildRoomView(header, fetched, role),
-      you: buildCallerView(role, teamId, entry, fetched),
+      you: buildCallerView(role, teamId, entry, fetched, header.marketShares),
     };
   }
 
@@ -681,6 +682,7 @@ export class DynamoSessionTransport implements SessionTransport {
           lockedYear: null,
           tokenHash: h,
           posted: {},
+          lockedYears: {},
           joinedAt: Date.now(),
         };
         const tx = await this.transact([
@@ -775,6 +777,13 @@ export class DynamoSessionTransport implements SessionTransport {
         const items: TransactItem[] = [];
         if (req.decisions !== undefined) {
           sets.push('roster.#tid.lockedYear = :y');
+          // The per-year record the room market share reads. An entry written
+          // before it existed has no map to set into; it keeps lockedYear alone.
+          if (header.roster[teamId]?.lockedYears) {
+            sets.push('roster.#tid.lockedYears.#ly = :true');
+            names['#ly'] = String(y);
+            values[':true'] = true;
+          }
           items.push({ Put: {
             TableName: this.db.table,
             Item: {
@@ -815,7 +824,10 @@ export class DynamoSessionTransport implements SessionTransport {
         } });
 
         const tx = await this.transact(items);
-        if (tx.ok) return this.freshView(code, 'player', teamId);
+        if (tx.ok) {
+          if (req.result !== undefined) await this.storeSharesIfComplete(code, y);
+          return this.freshView(code, 'player', teamId);
+        }
         // The year moved under us. Re-read and decide again: the checks above
         // then raise WRONG_YEAR against the room as it now is.
         if (attempt >= MAX_ATTEMPTS - 1) {
@@ -823,6 +835,45 @@ export class DynamoSessionTransport implements SessionTransport {
         }
       }
     });
+  }
+
+  /**
+   * ⚠ THE ROOM MARKET SHARE, IN THE SUBMIT THAT COMPLETES THE YEAR — the same
+   * rule as localTransport's storeSharesIfComplete, through the same
+   * roomSharesFor. Reads every team's results (the host's Query), and writes
+   * the set onto the header under a condition, so two last posts racing each
+   * other write it once: a played year's set never replaces itself or a later
+   * one; year 0's is rewritten until a played year's exists.
+   */
+  private async storeSharesIfComplete(code: string, year: number): Promise<void> {
+    const header = await this.getHeader(code);
+    if (!mayStoreShares(header.marketShares, year)) return;
+    const results = new Map<string, Record<string, TeamYearSummary>>();
+    for (const item of await this.queryPrefix(roomPk(code), RESULT_PREFIX)) {
+      const held = results.get(item.teamId) ?? {};
+      held[String(item.year)] = JSON.parse(item.body) as TeamYearSummary;
+      results.set(item.teamId, held);
+    }
+    const set = roomSharesFor(year, orderedRoster(header).filter(([, e]) => e.joined).map(([teamId, e]) => ({
+      name: e.name,
+      lockedYear: e.lockedYears ? e.lockedYears[String(year)] === true : e.lockedYear === year,
+      results: results.get(teamId) ?? {},
+    })), header.lines ?? LINE_ORDER);
+    if (!set) return;
+    try {
+      await this.db.doc.send(new UpdateCommand({
+        TableName: this.db.table,
+        Key: { pk: roomPk(code), sk: ROOM_HEADER_SK },
+        UpdateExpression: 'SET marketShares = :m, updatedAt = :now ADD rev :one',
+        ConditionExpression: year === 0
+          ? 'attribute_not_exists(marketShares) OR marketShares.#yr = :y'
+          : 'attribute_not_exists(marketShares) OR marketShares.#yr < :y',
+        ExpressionAttributeNames: { '#yr': 'year' },
+        ExpressionAttributeValues: { ':m': set, ':y': year, ':now': Date.now(), ':one': 1 },
+      }));
+    } catch (e) {
+      if (!(e instanceof ConditionalCheckFailedException)) throw e;
+    }
   }
 
   // ---- advance ---------------------------------------------------------

@@ -51,6 +51,7 @@ import type {
   JsonValue,
   PriorDevelopment,
   ReadRequest, ReadResponse,
+  RoomMarketShares,
   RoomStatus, RoomView,
   ScheduledShockSpec,
   SessionTransport,
@@ -60,6 +61,7 @@ import type {
 } from './contract';
 import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
 import { Faults } from './faults';
+import { mayStoreShares, roomSharesFor } from './marketShares';
 import type { CoverageLine } from '../types/simulation';
 
 // ⚠ EXPORTED BECAUSE THE STORE NOW HOLDS MORE THAN ROOMS. The stub server's
@@ -207,6 +209,8 @@ interface RoomRecord {
   shocks: ScheduledShockSpec[];
   teams: TeamRecord[];
   viewers: ViewerRecord[];
+  /** The stored room market shares — see RoomMarketShares. Absent until the first year-0 post. */
+  marketShares?: RoomMarketShares;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -342,8 +346,14 @@ function summaryFor(s: TeamYearSummary, role: CallerRole): TeamYearSummary {
   return rest;
 }
 
-function teamView(t: TeamRecord, currentYear: number, role: CallerRole): TeamView {
-  const results = Object.entries(t.resultsByYear);
+// ⚠ THE OVER-SEND ABOVE IS CLOSED NOW (room market share): resultsByYear goes to
+// the host for every team, to a player or viewer for its own team only, and to
+// an anonymous caller for none — what the DynamoDB transport's role-keyed Query
+// already did (keys.ts, READ). Players never see another team's figures, which
+// the room market share would otherwise have handed them by a side door.
+function teamView(t: TeamRecord, currentYear: number, role: CallerRole, ownTeam?: string): TeamView {
+  const sees = role === 'host' || ((role === 'player' || role === 'viewer') && t.name === ownTeam);
+  const results = sees ? Object.entries(t.resultsByYear) : [];
   return {
     name: t.name,
     lines: [...t.lines],
@@ -361,7 +371,7 @@ function teamView(t: TeamRecord, currentYear: number, role: CallerRole): TeamVie
 }
 
 // `role` defaults to the restrictive case on purpose — see summaryFor.
-function roomView(room: RoomRecord, role: CallerRole = 'anonymous'): RoomView {
+function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: string): RoomView {
   return {
     code: room.code,
     status: statusOf(room),
@@ -379,7 +389,9 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous'): RoomView {
     expectedTeams: room.expectedTeams,
     currentYear: room.currentYear,
     shocks: room.shocks.map(s => ({ ...s })),
-    teams: room.teams.map(t => teamView(t, room.currentYear, role)),
+    teams: room.teams.map(t => teamView(t, room.currentYear, role, ownTeam)),
+    // Host only: every other caller gets its own team's on CallerView.
+    ...(role === 'host' && room.marketShares ? { marketShares: structuredClone(room.marketShares) } : {}),
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     rev: room.rev,
@@ -408,9 +420,12 @@ function callerOf(room: RoomRecord, token: string | undefined): { role: CallerRo
   throw new SessionError('BAD_TOKEN', 'That token does not belong to this room.');
 }
 
-function callerView(role: CallerRole, team: TeamRecord | null): CallerView {
+function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord): CallerView {
   const view: CallerView = { role };
   if (!team) return view;
+
+  const share = room?.marketShares?.byTeam[team.name];
+  if (share) view.marketShare = { year: room!.marketShares!.year, pool: share.pool, byLine: { ...share.byLine } };
 
   view.teamName = team.name;
   view.lines = [...team.lines];
@@ -440,6 +455,21 @@ function callerView(role: CallerRole, team: TeamRecord | null): CallerView {
     view.lastResultYear = played;
   }
   return view;
+}
+
+// ---------------------------------------------------------------- market share
+
+// ⚠ IN THE SUBMIT THAT COMPLETES THE YEAR. See RoomMarketShares: the set for a
+// played year is written once, when the last team that locked that year posts
+// it; year 0 is recomputed on each opening post until year 1's set exists.
+function storeSharesIfComplete(room: RoomRecord, year: number): void {
+  if (!mayStoreShares(room.marketShares, year)) return;
+  const set = roomSharesFor(year, room.teams.filter(t => t.joined).map(t => ({
+    name: t.name,
+    lockedYear: t.decisionsByYear[String(year)] !== undefined,
+    results: t.resultsByYear,
+  })), room.lines ?? LINE_ORDER);
+  if (set) room.marketShares = set;
 }
 
 // ---------------------------------------------------------------- locking
@@ -615,7 +645,7 @@ export class LocalSessionTransport implements SessionTransport {
           ? room.viewers.find(v => v.token === req.token && v.teamName === team.name)
           : undefined;
         if (existing) {
-          return { teamToken: existing.token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: true, room: roomView(room) };
+          return { teamToken: existing.token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: true, room: roomView(room, 'viewer', team.name) };
         }
         // ⚠ THE CALLER'S OWN TOKEN WHEN IT SUPPLIED ONE, so a retried viewer
         // join lands on the `existing` branch above instead of stacking a
@@ -624,7 +654,7 @@ export class LocalSessionTransport implements SessionTransport {
         if (req.token) assertTokenFree(room, req.token);
         room.viewers.push({ token, teamName: team.name });
         saveRoom(room);
-        return { teamToken: token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: false, room: roomView(room) };
+        return { teamToken: token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: false, room: roomView(room, 'viewer', team.name) };
       }
 
       // ---- a player, on a team that already exists ------------------------
@@ -639,7 +669,7 @@ export class LocalSessionTransport implements SessionTransport {
           // there is no disagreement to detect — the team plays the room's lines
           // on the first join and on every return, and that is the same set by
           // construction rather than by a check.
-          return { teamToken: team.token, teamName: team.name, lines: [...team.lines], role: 'player' as const, rejoined: true, room: roomView(room) };
+          return { teamToken: team.token, teamName: team.name, lines: [...team.lines], role: 'player' as const, rejoined: true, room: roomView(room, 'player', team.name) };
         }
         // The name is the identity now, so a second person arriving with a name
         // already in the room is a COLLISION rather than a claim on a seat.
@@ -701,7 +731,7 @@ export class LocalSessionTransport implements SessionTransport {
       // lobby shows it — a listing that said "0 teams so far" under a room six
       // people had joined would be worse than no count at all.
       updateLobbyEntry(storage(), room.code, () => lobbyEntryFor(room));
-      return { teamToken: token, teamName: created.name, lines: [...created.lines], role: 'player' as const, rejoined: false, room: roomView(room) };
+      return { teamToken: token, teamName: created.name, lines: [...created.lines], role: 'player' as const, rejoined: false, room: roomView(room, 'player', created.name) };
     }, true);
   }
 
@@ -757,10 +787,11 @@ export class LocalSessionTransport implements SessionTransport {
         // ⚠ RECORDED AGAINST ITS YEAR. A re-post of the same year (which a
         // reloaded tab does) replaces that year and leaves every other alone.
         team.resultsByYear[String(req.yearNumber)] = req.result;
+        storeSharesIfComplete(room, req.yearNumber);
       }
 
       saveRoom(room);
-      return { room: roomView(room, role), you: callerView(role, team) };
+      return { room: roomView(room, role, team.name), you: callerView(role, team, room) };
     }, true);
   }
 
@@ -933,7 +964,7 @@ export class LocalSessionTransport implements SessionTransport {
     return this.call(() => {
       const room = loadRoom(req.code);
       const { role, team } = callerOf(room, req.token);
-      return { room: roomView(room, role), you: callerView(role, team) };
+      return { room: roomView(room, role, team?.name), you: callerView(role, team, room) };
     });
   }
 }

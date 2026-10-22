@@ -449,6 +449,47 @@ export interface TeamYearSummary {
   surplusRange?: { min: number; median: number; max: number };
 }
 
+// ---------------------------------------------------------------- market share
+
+/**
+ * A TEAM'S SHARE OF THE ROOM — multiplayer only, and a different measure from
+ * single player's share of the full market.
+ *
+ *   per line  the team's exposure on the line / the total exposure on that line
+ *             of every team in the room that writes it
+ *   pool      the team's total premium / the room's total premium — the lines'
+ *             exposures are in different units (payroll, TIV), premium is not
+ *
+ * Fractions, not percentages. At the opening every team holds the same book, so
+ * N teams each read 1/N on every line and the pool.
+ */
+export interface TeamMarketShare {
+  pool: number;
+  byLine: Partial<Record<CoverageLine, number>>;
+}
+
+/**
+ * ⚠ WORKED OUT ONCE PER YEAR AND STORED WITH THE ROOM, so the host and every
+ * player read the same figures and they stay fixed until the next set. The set
+ * for year Y is computed in the SUBMIT that brings in the last year-Y result
+ * from the teams that locked in year Y (results are computed by the clients
+ * after the host advances, so no advance call ever holds them). A team that did
+ * not lock in year Y counts as stopped: nobody waits for it, and its last
+ * reported figures (its newest result at or before Y) stay in the totals. A
+ * team that locked in and has not yet posted is waited for. Year 0 is the
+ * opening books, from the year-0 posts, recomputed as teams post them until the
+ * year-1 set replaces it.
+ *
+ * ⚠ HOST ONLY ON RoomView. A player or viewer gets its own team's figure on
+ * CallerView.marketShare and never another team's.
+ */
+export interface RoomMarketShares {
+  /** The result year the figures are from: 0 is the opening books. */
+  year: number;
+  /** Keyed by team name. A team with no result yet is absent. */
+  byTeam: Record<string, TeamMarketShare>;
+}
+
 // ---------------------------------------------------------------- views
 
 export type RoomStatus = 'lobby' | 'running' | 'complete';
@@ -681,6 +722,8 @@ export interface RoomView {
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamView[];
+  /** Every team's room market share — HOST ONLY; absent for every other caller. */
+  marketShares?: RoomMarketShares;
   createdAt: number;
   updatedAt: number;
   // Monotonic per write. A poller compares this to know something moved without
@@ -731,6 +774,12 @@ export interface CallerView {
    * landed, the opening position included. Sorted ascending, year 0 included.
    */
   postedYears?: number[];
+  /**
+   * THIS CALLER'S TEAM'S ROOM MARKET SHARE, from the room's stored set — the
+   * one figure of RoomView.marketShares a player (or a viewer of that player)
+   * may see. Absent until the team has a share in the stored set.
+   */
+  marketShare?: TeamMarketShare & { year: number };
 }
 
 // ---------------------------------------------------------------- requests

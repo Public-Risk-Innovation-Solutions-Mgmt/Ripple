@@ -27,6 +27,8 @@
 // save a few more requests and would spend them in the only place that hurts.
 // ============================================================================
 
+import { SESSION_POLL_INTERVAL_MS } from '../../data/pricingParameters';
+
 export interface PollSchedule {
   /** The floor, and where every change resets to. */
   minMs: number;
@@ -36,7 +38,8 @@ export interface PollSchedule {
   growth: number;
 }
 
-export const POLL: PollSchedule = { minMs: 3000, maxMs: 10000, growth: 1.5 };
+// The floor is the one setting in the parameters file (SESSION_POLL_INTERVAL_MS).
+export const POLL: PollSchedule = { minMs: SESSION_POLL_INTERVAL_MS, maxMs: 10000, growth: 1.5 };
 
 /**
  * The delay before the next read.

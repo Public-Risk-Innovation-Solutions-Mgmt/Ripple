@@ -59,6 +59,13 @@ Applied at the DRAW, and on the held pricing path so the two cannot diverge. The
 | Risk control range | `0 to 0.08, step 0.01` | share of the line's premium | CHOSEN | Pool-wide risk control intensity. The control is retired from the screen; the field is pinned at its default of 0. |
 | Risk control incentives range | `0 to 0.05, step 0.01` | share of the line's premium | CHOSEN | Per-line risk control incentives. Stored and not read by the engine; awaiting the new rate indication. |
 
+## Multiplayer
+
+| Parameter | Value | Unit | Basis | What it does |
+| --- | --- | --- | --- | --- |
+| Session poll interval | `3 seconds` | between reads of the room, at the fastest | CHOSEN | How often the host's, every player's and every viewer's screen reads the room. It is the poller's floor: a change resets to it, and a still room backs off from it towards ten seconds. One setting for every session screen. Kept at today's 3 seconds; set to 5 to move them all. |
+| Room market share | `per line: own exposure / the room's exposure on the line · pool: own premium / the room's premium` | share of the room, hosted games only | CHOSEN | In a hosted game a team's market share is its share of the room, not of the full market. Per line, its exposure over the total exposure of every team in the room that writes the line; for the pool, its premium over the room's, since the lines' exposures are in different units. Before year 1 it comes from the opening books, so N teams each read 1/N. Worked out once a year and stored with the room, in the submit that brings in the last result from the teams that locked in that year; fixed until the next set. A team that did not lock in a year counts as stopped: nobody waits for it and its last reported figures stay in the totals. Each player sees its own team's; the host sees every team's. Single player keeps the share of the full market. |
+
 ## Opening position
 
 | Parameter | Value | Unit | Basis | What it does |
