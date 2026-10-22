@@ -40,3 +40,13 @@ test build first.
   `--set`. `opening-position-report`. `paid-in-capital-solve-report`. All PROBES.
 - `history-begins-2021-check` (FAST) replaces opening-partition-check, opening-reserves-report and
   seed-cohort-shape-check.
+
+## Checks at the landing (2026-10-22)
+
+- Control `1dd0118` reproduced value v80, export v88 (24 of 24), render v75 (206 of 206); the new
+  baselines value v81, export v89, render v76, every moved row attributed per commit in the baselines
+  commit.
+- FAST sweep 77/78, the expected red `cession-uplift-basis` only.
+- All 16 session drivers pass; the contract harness passes on localStorage, the stub, DynamoDB
+  in-process, the Lambda handler and the built zip (194/194 each), races pass; the manifest is whole.
+- Typecheck clean; lint at its baseline (21 problems, unchanged).
