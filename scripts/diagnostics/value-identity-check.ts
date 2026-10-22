@@ -1289,7 +1289,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // shocks-off switch (58cd3b9; this harness draws no solo schedule), the
 // hundred worlds (b3011df; it drives one world at a time) and the give-back
 // fix (e6e0e93, display only).
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v79.json');
+// v80: THE UNDERWRITING LANDING (the two sliders; Property's catastrophe
+// capital on the shock switch; the intake-arm probes). The control ran first:
+// 1632ab4 reproduced v79, with export v87 (24 of 24) and render v74 (206 of
+// 206). Run at each commit in turn. No field added or removed. The underwriting
+// commit moved 25,337 instances across 99 fields, every one downstream of the
+// book now growing by default: applicants at NEW_BUSINESS_APPLICATIONS (5%) of
+// the book, none rejected, so activeExposure, writtenExposure and
+// marketShare rise 5% a year (922.61 -> 968.74 at year 1) and premium, losses,
+// reserves, cession, capital and income follow. ⚠ ONE IDENTITY RETIRED ON
+// PURPOSE: newBusinessExposure was 0 on all 300 instances because the old
+// default wrote nobody; it is now exactly 5% of the book (46.13 at year 1).
+// The catastrophe-capital commit moved nothing: this harness runs bare
+// instances on the catalogue, where shocks stay on. The probes commit moved
+// nothing: it touches only the dormant member path.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v80.json');
 
 function seedOf(id: string) {
   let h = 5381;
