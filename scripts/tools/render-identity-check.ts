@@ -1158,7 +1158,16 @@ const BASELINE = process.env.RENDER_BASELINE
 //     y2 screens whose only figure is the header's surplus land back on
 //     $22.00M by rounding, so they equal v75.
 //   the pricing report commit, none.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v76.json');
+// v77: THE INTRODUCTION'S FOUR MEMOS, AND INVESTMENTS OFF THE BAR (display
+// only; value v81 and export v89 byte-identical). The control ran first:
+// 50a7450 reproduced v76 206 of 206 with its own harness. This harness then
+// captures each Introduction document as Departments' are, and no longer walks
+// the hidden Investments tab: on the control that is 10 keys removed
+// (Investments) and 20 added (Welcome Memorandum, How to Play), nothing moved.
+// Against that: 20 keys added (Investment Memorandum, Underwriting
+// Memorandum) and 186 moved, each only "Investments" leaving the top bar — the
+// Introduction pages' document list also gaining the two memos.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v77.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1194,9 +1203,10 @@ const LINE_LABEL: Record<string, string> = {
 // exactly the kind this file's header says to expect and to attribute.
 //
 // ⚠ DASHBOARD AND DEPARTMENTS CAME OFF THE SAME WAY — hidden in solo and
-// multiplayer alike (src/game/tabs.tsx), their pages intact — and Investments
-// and Rate Indication joined, in the top bar's own order.
-const TABS = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions',
+// multiplayer alike (src/game/tabs.tsx), their pages intact — and Rate
+// Indication joined, in the top bar's own order. Investments joined and then
+// came off too: its memorandum is one of the Introduction tab's documents.
+const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
   'Calculation Audit'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
@@ -1322,7 +1332,8 @@ async function capture(page: Page, cfg: Cfg, year: string, out: Record<string, s
       const short = view === '-' ? '-' : (view === 'Pool' ? 'Pool'
         : Object.entries(LINE_LABEL).find(([, v]) => v === view)![0]);
       out[`${cfg.key}|${tab}|${short}|${year}`] = hash(await visibleText(page));
-      if (tab === 'Departments') await captureDocuments(page, cfg, year, out);
+      // Every document of a document tab, not just the one it opens on.
+      if (tab === 'Departments' || tab === 'Introduction') await captureDocuments(page, cfg, year, out, tab);
     }
   }
 }
@@ -1358,7 +1369,7 @@ async function capture(page: Page, cfg: Cfg, year: string, out: Record<string, s
 // therefore captured twice, once as the default and once by name; that is
 // deliberate, not redundancy to tidy away.
 // ============================================================================
-async function captureDocuments(page: Page, cfg: Cfg, year: string, out: Record<string, string>): Promise<void> {
+async function captureDocuments(page: Page, cfg: Cfg, year: string, out: Record<string, string>, tab: string): Promise<void> {
   // ⚠ THERE ARE TWO <nav>s AND THE OBVIOUS SELECTOR PICKS THE WRONG ONE. The
   // tab bar is a nav of twelve buttons; the document list is a nav of five.
   // `nav button` matches all seventeen, which fails LOUDLY here only by luck —
@@ -1382,7 +1393,7 @@ async function captureDocuments(page: Page, cfg: Cfg, year: string, out: Record<
     return -1;
   });
   if (list < 0) {
-    throw new Error('render-identity-check: no single document list <nav> beside document-body on Departments. '
+    throw new Error(`render-identity-check: no single document list <nav> beside document-body on ${tab}. `
       + 'DocumentReader\'s markup changed — fix the discriminator rather than letting this capture the tab bar.');
   }
   const buttons = navs.nth(list).locator('button');
@@ -1405,7 +1416,7 @@ async function captureDocuments(page: Page, cfg: Cfg, year: string, out: Record<
       const t = el.querySelector('span.font-semibold');
       return (t?.textContent ?? el.textContent ?? '').trim();
     }));
-    const key = `${cfg.key}|Departments|doc:${title}|${year}`;
+    const key = `${cfg.key}|${tab}|doc:${title}|${year}`;
     // A document with no content is disabled in the list. Recorded as LOCKED
     // rather than skipped: if one is ever BUILT, this row moves.
     if (!(await btn.isEnabled())) { out[key] = 'LOCKED'; continue; }
