@@ -759,7 +759,7 @@ export function strikeBookRate(
     rows: lineState.reserveDevelopment ?? [],
     allMarketMembers: basis.allMarketMembers,
     membershipHistory: basis.membershipHistory,
-  }, exposure);
+  }, exposure, bookRisk ?? 1);
   const quote = quoteNewRateStack({
     line,
     yearNumber,
@@ -1038,7 +1038,7 @@ export function processLineYear(
   const newPp = struck
     ? struck.newPp
     : bookMode
-      ? bookPurePremium(line, yearNumber, newPpBasis, estimatedExposure)
+      ? bookPurePremium(line, yearNumber, newPpBasis, estimatedExposure, ctx.bookUnits ? bookOrdinaryRisk(ctx.bookUnits) : 1)
       : computeNewPurePremium(line, yearNumber, newPpBasis);
   // THE OLD STACK'S PURE PREMIUM — a roster blend of the old engine's held
   // figures. A book has neither; its pure premium IS the new stack's.

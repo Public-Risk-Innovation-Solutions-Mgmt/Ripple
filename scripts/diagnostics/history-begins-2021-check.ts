@@ -14,8 +14,8 @@
 //   3. NO JUMP: the last pre-game year ends on the opening's net reserve.
 //   4. PRICING READS THE YEARS THERE ARE: the window the year-y rate reads,
 //      rebuilt from the opening's ledger as it stood then, holds 0 usable years
-//      in 2021 (so the first year prices on the starting expected loss, trended
-//      — the engine's figure is exactly bookPurePremium's with no history),
+//      in 2021 (so the first year prices on the starting expected loss, trended,
+//      at the book's own risk — exactly bookPurePremium's with no history),
 //      then 1, 2, 3, 4, and the full 5 at year 1.
 //
 // Replaces opening-partition-check, whose subject — played and BULK accident
@@ -30,6 +30,7 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory, PRE_GAME_DEPTH } from '../../src/utils/priorHistoryEngine';
 import { bookPurePremium, newPurePremiumPer100 } from '../../src/utils/newPurePremium';
 import { STARTING_CAPITAL, PRICING_WINDOW_YEARS_NEW } from '../../src/data/pricingParameters';
+import { lineBookRisk } from '../../src/utils/bookUnits';
 import type { CoverageLine, LineResultSet, ReserveCohort, ReserveDevelopmentRow, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -45,6 +46,8 @@ interface Opening {
   line: CoverageLine; game: number;
   firstYear: LineResultSet; years: LineResultSet[];          // every pre-game year, oldest first
   cohorts: ReserveCohort[]; ledger: ReserveDevelopmentRow[]; netReserve: number; startingSurplus: number;
+  /** The book's true risk — the pre-game moves no unit, so the opening's is 2021's. */
+  risk: number;
 }
 
 function openings(): Opening[] {
@@ -61,6 +64,7 @@ function openings(): Opening[] {
       out.push({
         line, game: g, firstYear: years[0], years, cohorts: ls.reserveCohorts ?? [], ledger: ls.reserveDevelopment ?? [],
         netReserve: ls.netUnpaidReserve, startingSurplus: years[0].beginingSurplus,
+        risk: lineBookRisk(inst, line, poolState.bookUnits, poolState.bookLedger) ?? 1,
       });
     }
   }
@@ -115,9 +119,9 @@ function gradePricing(os: Opening[], tag: string) {
     const want = got.map((_, i) => Math.min(i, PRICING_WINDOW_YEARS_NEW));
     if (got.join() !== want.join()) wrong++;
     if (counts.length === 0) counts.push(got.join(' / '));
-    // The first year's rate is the no-history figure, exactly.
+    // The first year's rate is the no-history figure on the book's own risk, exactly.
     const f = o.firstYear;
-    const expect = bookPurePremium(o.line, FIRST, { rows: [], allMarketMembers: [], membershipHistory: {} }, f.activeExposure).purePremiumPer100;
+    const expect = bookPurePremium(o.line, FIRST, { rows: [], allMarketMembers: [], membershipHistory: {} }, f.activeExposure, o.risk).purePremiumPer100;
     if (Math.abs((f.newPurePremiumPer100 ?? NaN) / expect - 1) > 1e-9) firstOff++;
   }
   check(wrong === 0 && firstOff === 0,
