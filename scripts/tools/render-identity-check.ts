@@ -1167,7 +1167,21 @@ const BASELINE = process.env.RENDER_BASELINE
 // Against that: 20 keys added (Investment Memorandum, Underwriting
 // Memorandum) and 186 moved, each only "Investments" leaving the top bar — the
 // Introduction pages' document list also gaining the two memos.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v77.json');
+// v78: THE HEADER'S SURPLUS READ OFF THE STATEMENT. The control ran first:
+// f054ba1 built in its own worktree reproduced v77 236 of 236. 136 move, and
+// in every one the text differs in exactly one word: the header's Surplus
+// figure (RENDER_TEXT_DIR on both sides, word-diffed). Before year 1, the 98
+// y0 screens with the header: the opening now leaves out the loss expense
+// reserve as the balance sheet does (WC $26.17M -> $20.95M, GL $25.54M ->
+// $21.29M, PR $23.36M -> $21.67M; WC+GL+PR pool $75.07M -> $63.91M), and a
+// line's view shows that line's (WC+GL+PR on WC $75.07M -> $20.95M). At y2,
+// the 38 line-view keys of the multi-line games (WC+GL+PR on PR $64.82M ->
+// $22.00M), including the view-less screens, which follow the view last
+// chosen as the combined ratio already did. Unmoved: the 20 Introduction
+// memo bodies (no header, no figure), every y2 pool view, and the
+// single-line games at y2, where the pool's last result already was the
+// statement's.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v78.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
