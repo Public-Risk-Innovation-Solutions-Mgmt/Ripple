@@ -1,6 +1,7 @@
 // Core simulation engine for Risk Pool Simulation v1
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
+import { investmentIncomeCredit, gameHistory } from './investmentIncomeCredit';
 import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation, BookLedger } from '../types/simulation';
 import type { ShockFiring, ShockRecord } from '../types/shocks';
 
@@ -629,6 +630,14 @@ interface LineYearContext {
    * read site has to know where it came from.
    */
   developmentPct: number;
+  /**
+   * THE INVESTMENT INCOME CREDIT this line-year's rate takes off its pure
+   * premium (investmentIncomeCredit.ts): last year's realised return on the
+   * pool's invested assets, or the parameter's before any history. Read where
+   * the year strikes its own rate — the pre-game and every one-world year; a
+   * struck rate carries its own.
+   */
+  investmentIncomeCredit: number;
   allMarketMembers: Member[];
   // The authoritative per-line enrollment ledger (as of this year's entry,
   // plus earlier-processed lines' same-year updates — irrelevant to this
@@ -746,7 +755,9 @@ export function strikeBookRate(
   lineState: LinePoolState,
   lineDecisions: LineDecisionSet,
   yearNumber: number,
-  basis: { allMarketMembers: Member[]; membershipHistory: MembershipHistory },
+  // `investmentIncomeCredit`: the credit the rate takes off its pure premium
+  // (investmentIncomeCredit.ts), read by the caller off the game's history.
+  basis: { allMarketMembers: Member[]; membershipHistory: MembershipHistory; investmentIncomeCredit: number },
   // The book's size-weighted true risk (lineBookRisk), which its tower's price
   // carries as the engine's does; absent for a line with no book of units.
   bookRisk?: number,
@@ -772,6 +783,7 @@ export function strikeBookRate(
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: lineDecisions.reinsuranceOption,
     shocks,
+    investmentIncomeCredit: basis.investmentIncomeCredit,
   });
   return { exposure, newPp, quote, ...(bookRisk !== undefined ? { bookRisk } : {}) };
 }
@@ -1146,6 +1158,7 @@ export function processLineYear(
       aggregateStopLevel,
       reinsuranceOption: lineDecisions.reinsuranceOption,
       shocks,
+      investmentIncomeCredit: ctx.investmentIncomeCredit,
     })
     : null;
 
@@ -1520,6 +1533,7 @@ export function processLineYear(
       aggregateStopLevel,
       reinsuranceOption: lineDecisions.reinsuranceOption,
       shocks,
+      investmentIncomeCredit: ctx.investmentIncomeCredit,
     })
     : null;
 
@@ -3034,6 +3048,8 @@ export function processLineYear(
     // audit page states the admin rate at it. Absent on a one-world year, which
     // bills on its own book after movement.
     ...(struck ? { ratedExposure: struck.exposure } : {}),
+    // The credit the billed rate took off its pure premium.
+    ...(billedStack !== null ? { investmentIncomeCredit: billedStack.investmentIncomeCredit } : {}),
     writtenExposure: parseFloat(writtenExposure.toFixed(2)),
     // THE BOOK'S MOVEMENT, in written-exposure units ($M at this year's trend):
     // what renewed (the book kept after the renewal cut and any withdrawal) and
@@ -3594,6 +3610,7 @@ export function processYear(
       // caught it at once: the pre-game cohorts carried a base struck mid-
       // pre-game, so `developmentTotal == pct x base` failed by up to $7.6k
       // and twelve Property cohorts had emerged the wrong way.
+      investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gameState), yearNumber),
       developmentPct: overrides?.freezeMembership === true
         ? 0
         : gameState.setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line],

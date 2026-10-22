@@ -67,6 +67,12 @@ function LineCard({ ri }: { ri: RateIndication }) {
             value={p.projectedPer100} window={p.trendYears} strong>
             {rate(p.projectedPer100)}
           </Row>
+          <Row label="Investment Income Credit" testId={`ri-${l}-credit`} value={p.investmentIncomeCredit}>
+            {`−${(p.investmentIncomeCredit * 100).toFixed(2)}%`}
+          </Row>
+          <Row label={`Projected Pure Premium after Credit`} testId={`ri-${l}-after-credit`} value={p.projectedAfterCreditPer100} strong>
+            {rate(p.projectedAfterCreditPer100)}
+          </Row>
           <Row label="Indicated Rate Change" testId={`ri-${l}-change`} value={ri.indicatedRateChange ?? undefined}>
             {signed(ri.indicatedRateChange)}
           </Row>

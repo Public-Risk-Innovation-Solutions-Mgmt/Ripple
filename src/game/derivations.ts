@@ -22,6 +22,7 @@
 // session caller a caller rather than a fork.
 // ============================================================================
 
+import { investmentIncomeCredit, gameHistory } from '../utils/investmentIncomeCredit';
 import React from 'react';
 import type {
   CoverageLine, DecisionSet, GameState, HistoricalYear,
@@ -111,6 +112,7 @@ export function fundingConsequenceInput(
       priorRcEffectiveness: lineState.riskControlEffectiveness,
       riskControlPct: d.riskControlPct,
       groundUpPurePremiumPer100: purePremium?.purePremiumPer100,
+      investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gameState), gameState.currentYearNumber),
       newStackRiskControlPct: effectiveRiskControlIncentivePct(d),
       // S3: the panel prices off the same played triangle the engine does
       // (pricingExperienceBasis — see its header).

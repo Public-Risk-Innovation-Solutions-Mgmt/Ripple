@@ -15,9 +15,11 @@
 //
 // WHAT IT ASSERTS, on every line and year:
 //
-//   1. THE FIRST INDICATION TIES: (ground-up + admin) / divisor, rebuilt here
-//      from the parameters, equals the engine's figure to the bit.
-//   2. THE FINAL RATE TIES: (retained x CLF + admin) / divisor + reinsurance.
+//   1. THE FIRST INDICATION TIES: (ground-up x (1 - the investment income
+//      credit) + admin) / divisor, rebuilt here from the parameters and the
+//      credit the row records, equals the engine's figure to the bit.
+//   2. THE FINAL RATE TIES: (retained x CLF + admin) / divisor + reinsurance,
+//      retained being the credited ground-up less anything netted.
 //      With the aggregate stop on, retained IS the ground-up claims cost: the
 //      cover's expected recovery is not taken off it
 //      (STOP_RECOVERY_OFF_CLAIMS_COST off) and its full price is the
@@ -79,7 +81,7 @@ interface Row {
   line: CoverageLine; year: number;
   first: number; final: number; rebuiltFirst: number; rebuiltFinal: number;
   admin: number; divisor: number; clf: number;
-  groundUp: number; retained: number; reins: number;
+  groundUp: number; credited: number; retained: number; reins: number;
   total: number;
 }
 
@@ -117,15 +119,17 @@ function play(): Row[] {
           reinsuranceOption: ld.reinsuranceOption,
         });
         const netted = AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled ? 0 : expectedCededPer100;
-        const retained = Math.max(0, groundUp - netted);
+        // The investment income credit comes off the pure premium only (INVESTMENT_INCOME_CREDIT).
+        const credited = groundUp * (1 - (r.investmentIncomeCredit ?? NaN));
+        const retained = Math.max(0, credited - netted);
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);
         rows.push({
           line, year: y,
           first: r.firstIndicationPer100, final: r.finalRatePer100,
-          rebuiltFirst: (groundUp + admin) / divisor,
+          rebuiltFirst: (credited + admin) / divisor,
           rebuiltFinal: (retained * r.selectedFundingCLF + admin) / divisor + reins,
           admin, divisor, clf: r.selectedFundingCLF,
-          groundUp, retained, reins,
+          groundUp, credited, retained, reins,
           total: r.ratePer100,
         });
       }
@@ -161,7 +165,7 @@ for (const r of rows) {
   worstFirst = Math.max(worstFirst, d1); worstFinal = Math.max(worstFinal, d2);
   if (d1 > EPS) {
     fail(`${r.line} y${r.year} first indication ${r.first.toFixed(6)} against rebuilt `
-      + `${r.rebuiltFirst.toFixed(6)} — (ground-up ${r.groundUp.toFixed(4)} + admin `
+      + `${r.rebuiltFirst.toFixed(6)} — (credited ${r.credited.toFixed(4)} + admin `
       + `${r.admin.toFixed(4)}) / ${r.divisor.toFixed(4)}`);
   }
   if (d2 > EPS) {
@@ -185,7 +189,7 @@ let checkedOrder = 0;
 for (const r of rows) {
   if (Math.abs(r.clf - 1) > 1e-12) continue;
   checkedOrder++;
-  const expectedGap = (r.groundUp - r.retained) / r.divisor - r.reins;
+  const expectedGap = (r.credited - r.retained) / r.divisor - r.reins;
   if (Math.abs((r.first - r.final) - expectedGap) > EPS) {
     fail(`${r.line} y${r.year}: at CLF 1 the indication less the rate (${(r.first - r.final).toFixed(6)}) `
       + `must be the ceded premium through the divisor less reinsurance (${expectedGap.toFixed(6)})`);
@@ -215,6 +219,7 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
       line, yearNumber: 1, members: [], exposure: 100,
       groundUpPurePremiumPer100: groundUp, clf: CLF,
       riskControlPct: 0.02, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
+      investmentIncomeCredit: 0,
     });
     const designed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100) / q.divisor + q.reinsRatePer100;
     const adminGrossed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100 * CLF) / q.divisor + q.reinsRatePer100;
@@ -260,6 +265,7 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
       line, yearNumber: 1, members: [], exposure: line === 'Property' ? 9000 : 900,
       groundUpPurePremiumPer100: line === 'Property' ? 0.30 : 3.0, clf: 1,
       riskControlPct: 0.10, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'bad-year',
+      investmentIncomeCredit: 0,
     });
     if (!(q.reinsRatePer100 > 1e-6) || Math.abs(q.divisor - 1) < 1e-12) continue;
     direct++;
@@ -293,6 +299,7 @@ console.log('\n--- 5. THE ADAPTER IS ADDITIVE ---');
       line: r.line, yearNumber: r.year, members: [], exposure: 100,
       groundUpPurePremiumPer100: r.groundUp, clf: r.clf,
       riskControlPct: 0, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
+      investmentIncomeCredit: 0,
     });
     const lrq = newStackAsLineRateQuote(q, 100);
     const sum = lrq.poolPremiumRatePer100 + lrq.adminRatePer100 + lrq.reinsRatePer100;

@@ -33,6 +33,7 @@
 // to fail. A control that passes is a check that cannot.
 // ============================================================================
 
+import { investmentIncomeCredit, gameHistory } from '../../src/utils/investmentIncomeCredit';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -256,7 +257,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       }));
       const book = start.worlds!.reduce((s, w) => s + (w.poolState.lines[l].bookExposure ?? 0), 0) / start.worlds!.length;
       const mine = strikeBookRate(l, { ...start.poolState.lines[l], reserveDevelopment: ledger, bookExposure: book },
-        decisionsFor(y).byLine[l], y, { allMarketMembers: [], membershipHistory: {} },
+        decisionsFor(y).byLine[l], y, { allMarketMembers: [], membershipHistory: {}, investmentIncomeCredit: investmentIncomeCredit(l, gameHistory(start), y) },
         lineBookRisk(start.instance, l, start.poolState.bookUnits, start.poolState.bookLedger));
       const charged = W[0].lockedResults[y - 1].byLine[l].finalRatePer100;
       if (!mine || Math.abs(mine.quote.finalRatePer100 - (charged ?? NaN)) > 1e-12 * mine.quote.finalRatePer100) struckOk = false;
@@ -274,7 +275,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
     // defaults), and a one-world year bills the MOVED book — so the rate is
     // struck here on the moved book's exposure and risk, as the engine does.
     const moved = { ...one.poolState.lines[l], bookExposure: p1.updatedPoolState.lines[l].bookExposure };
-    const s = strikeBookRate(l, moved, decisionsFor(1).byLine[l], 1, { allMarketMembers: [], membershipHistory: {} },
+    const s = strikeBookRate(l, moved, decisionsFor(1).byLine[l], 1, { allMarketMembers: [], membershipHistory: {}, investmentIncomeCredit: investmentIncomeCredit(l, gameHistory(one), 1) },
       lineBookRisk(one.instance, l, p1.updatedPoolState.bookUnits, p1.updatedPoolState.bookLedger));
     tried++;
     if (s && Math.abs(s.quote.finalRatePer100 - (r.finalRatePer100 ?? NaN)) < 1e-12 * s.quote.finalRatePer100) ok++;
@@ -300,6 +301,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
           rows: ls.reserveDevelopment ?? [], allMarketMembers: start.poolState.allMarketMembers,
           membershipHistory: start.poolState.membershipHistory,
         }, exposure).purePremiumPer100,
+        investmentIncomeCredit: investmentIncomeCredit(l, gameHistory(start), y),
         newStackRiskControlPct: effectiveRiskControlIncentivePct(d),
       });
       const shown = c.newStack?.finalRatePer100;
@@ -433,6 +435,7 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
     groundUpPurePremiumPer100: bookPurePremium('GL', 3, {
       rows: ls.reserveDevelopment ?? [], allMarketMembers: [], membershipHistory: {},
     }, exposure).purePremiumPer100,
+    investmentIncomeCredit: investmentIncomeCredit('GL', gameHistory(A.starts[2]), 3),
     newStackRiskControlPct: 0,
   });
   check(wrong.newStack?.finalRatePer100 !== W[0].lockedResults[2].byLine.GL.finalRatePer100,

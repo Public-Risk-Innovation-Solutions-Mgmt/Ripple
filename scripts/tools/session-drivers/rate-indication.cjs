@@ -22,7 +22,11 @@
 //                     losses / exposure = the pure premium at that level; that
 //                     x the annual trend squared = the projected pure premium,
 //                     which is pricing's own; and the indicated rate change is
-//                     the indicated rate at Expected / the Current rate - 1
+//                     the indicated rate at Expected / the Current rate - 1;
+//                     the investment income credit's line, and the projection
+//                     after it = the projection x (1 - credit), which x 1 at
+//                     Expected / the permissible loss ratio is the indicated
+//                     rate at Expected — the page ties to the rate charged
 //
 // to one part in a billion. The years are played on different choices: year 1
 // at Expected under the line's second cover, year 2 at 80% under None.
@@ -69,6 +73,9 @@ function screen(page, mode) {
         trendYears: Number(await page.getAttribute(`[data-testid="ri-${l}-projected"]`, 'data-window')),
         projected: await value(`[data-testid="ri-${l}-projected"]`),
         change: await value(`[data-testid="ri-${l}-change"]`),
+        credit: await value(`[data-testid="ri-${l}-credit"]`),
+        afterCredit: await value(`[data-testid="ri-${l}-after-credit"]`),
+        permissible: await value(`[data-testid="ri-${l}-permissible"]`),
         labels: { losses: await label('losses'), exposure: await label('exposure'), pp: await label('pp'), projected: await label('projected') },
         expected: await value(`[data-testid="ri-${l}-expected"]`),
         current: await value(`[data-testid="ri-${l}-current"]`),
@@ -110,6 +117,9 @@ function screen(page, mode) {
       ok(near(x.losses / (x.exposure * 10_000), x.pp) && x.trendYears === 2 && near(x.pp * x.trend ** 2, x.projected),
         `${mode}, ${name}, ${P}, ${l}: losses / ${level} exposure = the pure premium at ${level}'s level, x the trend squared = the projection`,
         `${x.pp.toFixed(6)} x ${x.trend}^${x.trendYears} = ${(x.pp * x.trend ** 2).toFixed(6)} vs ${x.projected.toFixed(6)}`);
+      ok(Number.isFinite(x.credit) && near(x.afterCredit, x.projected * (1 - x.credit)) && near(x.expected * x.permissible, x.afterCredit),
+        `${mode}, ${name}, ${P}, ${l}: the projection after the investment income credit, and it is what the rate at Expected is struck on`,
+        `credit ${(x.credit * 100).toFixed(3)}%; ${x.afterCredit.toFixed(6)} vs rate x permissible ${(x.expected * x.permissible).toFixed(6)}`);
       ok(near(x.change, x.expected / x.current - 1),
         `${mode}, ${name}, ${P}, ${l}: the indicated rate change is the rate at Expected / the Current rate - 1`,
         `${(x.change * 100).toFixed(4)}%`);

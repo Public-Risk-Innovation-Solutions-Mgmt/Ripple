@@ -590,6 +590,40 @@ export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_00
 export const PRE_GAME_INVESTMENT_RETURN = 0.03;
 
 /**
+ * THE INVESTMENT INCOME CREDIT — rates credit the investment income the pool
+ * earns on claim money before it pays it. The pure premium is reduced by it,
+ * and nothing else: pure premium x (1 - credit). Admin and the reinsurance
+ * price are never credited, and the cover's expected recovery and price are
+ * read on the uncredited figure.
+ *
+ * THE CREDIT IS LAST YEAR'S ACTUAL RETURN on the pool's invested assets, after
+ * fees — the year before the one priced: its investment income over its
+ * invested assets, summed over the lines (each class's return is drawn net of
+ * its fee, so the realised rate is already after fees). Before any history
+ * exists it is `beforeHistory`, 3%. So a year that earned 4% credits 4% and
+ * rates drop; one that earned 2% credits 2% and rates rise. The prior board's
+ * pre-game pricing uses the same rule: 2021 credits 3%, and each later year the
+ * return the year before it earned.
+ *
+ * WHY: the pool collects premium at the start of the year and pays claims over
+ * years — WC's for decades — and earns on the money meanwhile. A rate that
+ * ignores that income charges members for money the pool will earn on their
+ * behalf. Last year's actual return is the rate the board can see when it
+ * prices.
+ *
+ * ⚠ THE SAME ON EVERY LINE FOR NOW, WHICH OVERSTATES A FAST-PAYING LINE'S
+ * CREDIT AND UNDERSTATES A SLOW ONE'S. `byLine` scales it per line and is 1 on
+ * every line: setting each to the line's payout length — the mean years from
+ * premium to payment on its paid pattern — makes the credit duration-weighted
+ * with this one change and nothing else. `enabled: false` removes it.
+ */
+export const INVESTMENT_INCOME_CREDIT = {
+  enabled: true,
+  beforeHistory: 0.03,
+  byLine: { WC: 1, GL: 1, Property: 1 } as PerLine<number>,
+};
+
+/**
  * ⚠ RETIRED: PRE_GAME_FUNDING_CUSHION, the prior board's fixed 14% cushion
  * over expected (WC 1.1400, GL 1.1350, Property 1.1471 on the old 70% stops).
  * The board's funding level is now solved per scenario and line so the
@@ -2034,6 +2068,19 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'Replaces the fixed 14% cushion. A team that locks year 1 untouched funds at Expected, so year 1\'s rate '
           + 'on WC and GL may step up or down from last year\'s, depending on the scenario\'s solved margin. No '
           + 'player-facing text names it.',
+      }],
+      ['Investment income credit', {
+        value: INVESTMENT_INCOME_CREDIT.enabled
+          ? `last year's return (${(INVESTMENT_INCOME_CREDIT.beforeHistory * 100).toFixed(0)}% before any history), x ${perLine(INVESTMENT_INCOME_CREDIT.byLine, 2)}`
+          : 'off',
+        unit: 'off the pure premium',
+        what: 'Rates credit the investment income the pool earns on claim money before paying it: pure premium x (1 - credit), '
+          + 'never admin or reinsurance. The credit is last year\'s actual return on the pool\'s invested assets, after fees — '
+          + 'its investment income over its invested assets, summed over the lines — and 3% before any history. A year that '
+          + 'earned 4% credits 4% and rates drop; 2% and they rise. The prior board\'s pre-game pricing uses the same rule.',
+        basis: 'CHOSEN',
+        note: 'The same on every line for now. The per-line factor is 1 on each; set to each line\'s payout length it makes '
+          + 'the credit duration-weighted with that one change.',
       }],
       ['Pre-game investment return', {
         value: PRE_GAME_INVESTMENT_RETURN, unit: 'a year, on invested assets',
