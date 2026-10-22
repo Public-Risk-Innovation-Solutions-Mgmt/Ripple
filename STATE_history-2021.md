@@ -29,10 +29,10 @@ test build first.
 - **The opening moves only in its reserves.** Surplus and year-1 premium are the scenario's as before;
   no played-year rate, premium, loss or reserve moves after the history commit (the baselines commit
   has the attribution).
-- **Not this landing's, seen while attributing:** the header's surplus before year 1
-  (`deriveStartingFinancials`) is cash + investments − net unpaid − unearned premium, leaving out the
-  loss expense reserve, so it reads above the statement's surplus by that reserve (scenario 7 WC:
-  $28.10M on `1dd0118`, $26.17M here, falling with the smaller reserve). Not fixed.
+- **The top bar's surplus reads off the Annual Statement** (fixed after the landing): the balance
+  sheet's latest Ending Surplus for the view on screen (`topSurplus`). Before, it left out the loss
+  expense reserve before year 1 (scenario 7 WC $26.17M against the statement's $20.95M) and showed the
+  pool's surplus on every line's view. Display only; `header-surplus` drives it on scenarios 1, 7, 12.
 
 ## Tools
 

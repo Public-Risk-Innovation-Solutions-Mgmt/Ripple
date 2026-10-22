@@ -215,6 +215,7 @@ function sumOperating(ys: OperatingYear[]): OperatingYear {
 const combinedCosts = (o: OperatingYear) => add(o.losses, o.lae, o.admin, o.riskControl, o.reinsurance);
 
 export const COMBINED_RATIO_LABEL = 'Combined Ratio';
+export const ENDING_SURPLUS_LABEL = 'Ending Surplus';
 
 /**
  * The statement's first row. Each year's cell is that year's own; TOTAL is
@@ -233,6 +234,17 @@ function combinedRatioRow(prior: OperatingYear | null, cols: OperatingYear[], cu
 export function topCombinedRatio(st: AnnualStatement): number | undefined {
   const r = st.sections.find(s => s.key === 'operating')?.rows.find(x => x.label === COMBINED_RATIO_LABEL);
   return r ? num(r.cells[r.cells.length - 1]) : undefined;
+}
+
+/**
+ * THE HEADER'S SURPLUS: the balance sheet's Ending Surplus for the latest year
+ * — the opening before year 1, each played year's year-end after it — for the
+ * statement's view. The last cell is Total, so the latest year is the one
+ * before it.
+ */
+export function topSurplus(st: AnnualStatement): number | undefined {
+  const r = st.sections.find(s => s.key === 'balance')?.rows.find(x => x.label === ENDING_SURPLUS_LABEL);
+  return r && r.cells.length >= 2 ? num(r.cells[r.cells.length - 2]) : undefined;
 }
 
 function operatingRows(prior: OperatingYear | null, cols: OperatingYear[], cumulativeOver: OperatingYear[]): StatementRow[] {
@@ -327,7 +339,7 @@ function balanceRows(
     bal('Other Liabilities', p => p.other, { indent: true }),
     bal('Paid-in Capital', () => paidIn, { indent: true }),
     bal('Earned Surplus', p => sub(p.surplus, paidIn), { indent: true }),
-    bal('Ending Surplus', p => p.surplus, { emphasis: true }),
+    bal(ENDING_SURPLUS_LABEL, p => p.surplus, { emphasis: true }),
     // ⚠ NO "ACROSS THE WORLDS" ROW: players are never told about the worlds
     // (docs/PENDING_MULTIPLAYER.md). The surplus range stays in the session's
     // posted results, for the host.
