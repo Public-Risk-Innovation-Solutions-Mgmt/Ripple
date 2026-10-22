@@ -7,7 +7,11 @@
 // and after it (no year's-return column: see the investment memo's header) —
 // every figure filled, and the allocation it says the Pool holds is the one
 // Decision History shows for the year just played. The Underwriting memorandum
-// is its source text, exactly.
+// is its source text, exactly. The Welcome memorandum's header is three lines —
+// To: Incoming Pool Management / From: Executive Committee / Re: Welcome to
+// <the pool> — it speaks as the Executive Committee throughout, never the Board,
+// and it names the 2027 policy year. In solo the pool is the setup's; hosted it
+// is the room's POOL NAME, not the event name.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/introduction.cjs
@@ -57,6 +61,21 @@ function intro(page, mode) {
   return { tab, titles, open, investment };
 }
 
+async function checkWelcome(page, s, mode, poolName) {
+  await s.open('Welcome Memorandum');
+  const body = page.locator('[data-testid="document-body"]');
+  const raw = await body.innerText();
+  const lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
+  const head = lines.slice(lines.indexOf('Welcome Memorandum') + 1, lines.indexOf('Welcome Memorandum') + 4);
+  ok(JSON.stringify(head) === JSON.stringify(['To: Incoming Pool Management', 'From: Executive Committee', `Re: Welcome to ${poolName}`]),
+    `${mode}: the welcome memo's header is To, From and Re on three lines, to ${poolName}`, head.join(' / '));
+  const text = norm(raw);
+  ok(text.includes(`On behalf of the Executive Committee, welcome to ${poolName}.`) && text.includes('enters the 2027 policy year')
+    && text.includes("The Committee's expectations") && lines.at(-1) === 'Executive Committee' && !/Board/.test(text) && !/\{\{/.test(text),
+    `${mode}: the memo speaks as the Executive Committee, never the Board, and names the 2027 policy year`, lines.at(-1));
+  return text;
+}
+
 async function checkUnderwriting(page, s, mode) {
   await s.open('Underwriting Memorandum');
   const got = norm(await page.locator('[data-testid="document-body"]').innerText());
@@ -90,6 +109,7 @@ async function checkUnderwriting(page, s, mode) {
   ok(JSON.stringify(t) === JSON.stringify(DOCS), 'solo: the Introduction tab lists the four memos, in order', t.join(' | '));
   const before = await s.investment('before year 1');
   ok(before !== null && before.reduce((a, b) => a + b, 0) === 100, 'solo, before year 1: the allocation the Pool holds is stated', String(before));
+  await checkWelcome(page, s, 'solo', 'Clearwater Public Entity Pool');
   await checkUnderwriting(page, s, 'solo');
 
   await page.getByRole('button', { name: /Lock Year/ }).first().click();
@@ -116,6 +136,7 @@ async function checkUnderwriting(page, s, mode) {
   await host.goto('/host');
   await host.waitForSelector('[data-testid="create-room"]');
   await host.fill('[data-testid="event-name"]', 'Introduction');
+  await host.fill('[data-testid="pool-name"]', 'Harbour Public Entity Pool');
   await host.selectOption('[data-testid="seed"]', '7');
   await host.fill('[data-testid="year-count"]', '3');
   await host.fill('[data-testid="expected-teams"]', '1');
@@ -133,6 +154,8 @@ async function checkUnderwriting(page, s, mode) {
   const ht = await h.titles();
   ok(JSON.stringify(ht) === JSON.stringify(DOCS), 'hosted: the Introduction tab lists the four memos, in order', ht.join(' | '));
   await h.investment('before year 1');
+  const hostedMemo = await checkWelcome(team, h, 'hosted', 'Harbour Public Entity Pool');
+  ok(!hostedMemo.includes('Introduction'), 'hosted: the memo names the pool, never the event');
   await checkUnderwriting(team, h, 'hosted');
 
   ok(errors.length === 0, 'no page errors', errors[0] ?? '');
