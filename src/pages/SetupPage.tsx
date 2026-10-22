@@ -29,7 +29,7 @@ const MANAGED_ITEMS: { label: string; definition: string }[] = [
 export default function SetupPage({ onStart }: SetupPageProps) {
   const [poolName, setPoolName] = useState('Ripple Public Entity Risk Pool');
   const [gameLength, setGameLength] = useState(5);
-  const [startingYear, setStartingYear] = useState(2026);
+  const [startingYear, setStartingYear] = useState(2027);
   // The scenario, 1 to 20, is the game's only seed (utils/scenarios.ts).
   const [instanceId, setInstanceId] = useState(() => randomScenarioId());
   const [activeLines, setActiveLines] = useState<CoverageLine[]>(['WC']);

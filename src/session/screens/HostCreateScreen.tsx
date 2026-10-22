@@ -77,7 +77,7 @@ export default function HostCreateScreen() {
   const [eventName, setEventName] = useState('');
   const [seed, setSeed] = useState(() => randomSeed());
   const [yearCount, setYearCount] = useState(5);
-  const [startingYear, setStartingYear] = useState(2026);
+  const [startingYear, setStartingYear] = useState(2027);
   const [expectedTeams, setExpectedTeams] = useState(3);
   // ⚠ ALL THREE LINES ON BY DEFAULT, which is what every room played when teams
   // chose for themselves — so a host who changes nothing gets the old game.

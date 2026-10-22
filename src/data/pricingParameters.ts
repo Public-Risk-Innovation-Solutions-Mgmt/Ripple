@@ -398,10 +398,20 @@ export const REINSURANCE_LOAD = 0.14;
 
 /**
  * HOW MANY YEARS OF PRIOR HISTORY THE PRE-GAME SIMULATES, with real claims
- * behind them — 2021 to 2025. ⚠ AND THEY ARE THE POOL'S WHOLE HISTORY: there
- * are no accident years before 2021. The pre-game starts on its paid-in capital
- * with no reserves; 2021 prices on the starting expected loss, 2022 on one
- * year, 2023 on two, 2024 on three, 2025 on four, and 2026 on the full five.
+ * behind them — 2021 to 2026, with 2026 the year in progress when the game
+ * opens and 2027 the first played year. ⚠ AND THEY ARE THE POOL'S WHOLE
+ * HISTORY: there are no accident years before 2021. The pre-game starts on its
+ * paid-in capital with no reserves.
+ *
+ * ⚠ SIX SINCE THE 2027 POLICY YEAR, WITH THE ONE-YEAR DATA LAG
+ * (PRICING_DATA_LAG_YEARS). Pricing's window ends two years before the year
+ * priced, so the newest accident year on the books — 2026 at the opening — is
+ * reserved, stated and carried in surplus but too new to price on. A sixth
+ * pre-game year keeps 2027 priced on the full five (2021-2025) while 2026's
+ * claims are on the books. With the lag, 2021 and 2022 price on the starting
+ * expected loss (no usable history), 2023 on one year, 2024 on two, 2025 on
+ * three, 2026 on four, and 2027 on the full five. (Five, 2021-2025 with a 2026
+ * start and no lag, until then.)
  * (Everything older used to open as a BULK cohort — 2016-2020 on WC and GL,
  * 2019-2020 on Property — inside OPENING_RESERVE_YEARS; both are retired.)
  *
@@ -419,7 +429,7 @@ export const REINSURANCE_LOAD = 0.14;
  * move at this commit with the flag still off, and every row of that move is
  * attributable to this one parameter.
  */
-export const PRIOR_HISTORY_YEARS = 5;
+export const PRIOR_HISTORY_YEARS = 6;
 
 /**
  * THE NEW RATE STACK — ON.
@@ -1169,6 +1179,32 @@ export const PRIOR_HISTORY_YEARS_NEW = 5;
  * ⚠ LIVE — the new pure premium's window (newPurePremium.ts).
  */
 export const PRICING_WINDOW_YEARS_NEW = 5;
+
+/**
+ * THE POOL'S DATA RUNS A YEAR BEHIND, AS IN REAL PRICING (the 2027 policy
+ * year). The year being priced is never the year after the latest data, but
+ * the year after that: 2027 is priced on accident years 2021-2025, 2028 on
+ * 2022-2026, and so on — the five most recent COMPLETE years, ending
+ * 1 + PRICING_DATA_LAG_YEARS years before the priced year.
+ *
+ * ⚠ AND THE WHOLE DATA SET IS A YEAR OLD, NOT ONLY THE WINDOW. The window years
+ * are valued as at the end of the latest data year (2025 for 2027), as an
+ * actuary pricing 2027 in mid-2026 would have them: 2025 enters at 12 months,
+ * 2021 at 60, and no payment made in the year in progress is used — on the
+ * newest year or the older ones. The year in progress (2026) is on the books —
+ * in the reserves, the statements and surplus — but none of it prices.
+ *
+ * Experience is trended to the latest data year and then forward two years to
+ * the priced year (WC 1.04^2), which is the same as trending each accident year
+ * straight to the priced year: the trend did not change, only the window.
+ *
+ * WHY: pricing the next year on the year just closed is not how a pool prices.
+ * Its data closes after the year ends, the indication is built from it, and the
+ * rate is filed for the year after — so the newest experience a rate can see is
+ * two years old, and the board has to carry a year it cannot yet price on.
+ * 0 restores the old rule (priced on the year just closed, valued at its end).
+ */
+export const PRICING_DATA_LAG_YEARS = 1;
 export const PRICING_WINDOW_WEIGHTING_NEW = 'equal';
 
 /**
@@ -1849,16 +1885,18 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
-        what: 'How many pre-game years are simulated with real claims behind them — 2021 to 2025.', basis: 'CHOSEN',
-        note: 'Ten while the old ten-year experience path was live; five with the new window since commit 3, '
-          + 'and the two move together.',
+        what: 'How many pre-game years are simulated with real claims behind them — 2021 to 2026, with 2026 the year in '
+          + 'progress when the game opens and 2027 the first played year.', basis: 'CHOSEN',
+        note: 'Ten while the old ten-year experience path was live; five with the new window since commit 3; six since the '
+          + '2027 policy year, so that with the one-year data lag (Pricing data lag) 2027 still prices on the full five-year '
+          + 'window while 2026\'s claims are on the books.',
       }],
       ['The pool\'s history begins', {
         value: 2021, unit: 'the first accident year',
         what: 'There are no accident years before 2021, the first pre-game year. The pre-game starts on its paid-in '
           + 'capital ($12.5M a line — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
-          + 'the starting expected loss with trend applied — no history; 2022 on one year, 2023 on two, 2024 on three, '
-          + '2025 on four; from 2026 the full five-year window.',
+          + 'the starting expected loss with trend applied — no history — and so is 2022, with the one-year data lag; '
+          + '2023 on one year, 2024 on two, 2025 on three, 2026 on four; from 2027 the full five-year window.',
         basis: 'CHOSEN',
         note: 'Until then the books carried imaginary accident years before the pre-game — 2016-2020 on WC and GL, '
           + '2019-2020 on Property — as bulk reserves on the books from its start, inside a window of ten accident '
@@ -1943,6 +1981,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Pricing window (new)', {
         value: `${PRICING_WINDOW_YEARS_NEW} years, ${PRICING_WINDOW_WEIGHTING_NEW} weights`, unit: 'years',
         what: 'The new window and its weighting. Live: the experience pure premium reads it.', basis: 'CHOSEN',
+      }],
+      ['Pricing data lag', {
+        value: PRICING_DATA_LAG_YEARS, unit: 'year',
+        what: 'The pool\'s data runs a year behind. The year priced is never the year after the latest data but the year '
+          + 'after that: 2027 is priced on 2021-2025, 2028 on 2022-2026. The window years are valued as at the end of the '
+          + 'latest data year (2025 for 2027, so 2025 enters at 12 months), and no payment from the year in progress is '
+          + 'used. Experience is trended to the latest data year, then forward two years to the priced year (WC 1.04 squared).',
+        basis: 'CHOSEN',
+        note: 'As in real pricing: a pool\'s data closes after its year ends and the rate is filed for the year after, so '
+          + 'the newest experience a rate sees is two years old. The year in progress is on the books — reserves, '
+          + 'statements and surplus — but too new to price on. 0 restores pricing on the year just closed.',
       }],
       ['Rate change cap', {
         value: RATE_CHANGE_CAP_NEW === null ? 'none' : RATE_CHANGE_CAP_NEW, unit: '—',

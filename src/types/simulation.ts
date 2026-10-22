@@ -2407,9 +2407,9 @@ export interface GameState {
   // Year 1 opening position; year 0's result is Year 1's priorResult.
   priorHistory: ResultSet[];
   /**
-   * THE PRE-GAME'S EARLIER YEARS (yearNumbers -4, -3), oldest first — every
+   * THE PRE-GAME'S EARLIER YEARS (yearNumbers -5, -4, -3), oldest first — every
    * played pre-game year before priorHistory's three, kept so the Annual
-   * Statement can show all five. Shared by every world: the pre-game runs once.
+   * Statement can show all six. Shared by every world: the pre-game runs once.
    * Absent on a save from before it was kept; the statement then shows the
    * three it has.
    */

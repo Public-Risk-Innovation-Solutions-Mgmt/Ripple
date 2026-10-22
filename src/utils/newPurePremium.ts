@@ -10,7 +10,10 @@
 //
 // WHAT IT IS, per $100 of exposure, per line:
 //
-//   1. WINDOW       the most recent five accident years, EQUAL WEIGHTS
+//   1. WINDOW       the five most recent COMPLETE accident years, EQUAL
+//                   WEIGHTS, a year behind (PRICING_DATA_LAG_YEARS): the year
+//                   priced reads the years ending two before it, valued as at
+//                   the end of the latest of them
 //   2. DEVELOPMENT  each year to the end of the pattern with the PAID LDFs at
 //                   its age — the patterns the game reads, closed with no tail
 //                   (DEVELOPMENT_TAIL), not factors estimated from the ledger
@@ -51,7 +54,7 @@
 // ============================================================================
 
 import {
-  PRICING_WINDOW_YEARS_NEW,
+  PRICING_WINDOW_YEARS_NEW, PRICING_DATA_LAG_YEARS,
   ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
   FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, EXPOSURE_GROWTH_PER_YEAR,
   CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SHOCKS_OUT_OF_EXPERIENCE,
@@ -101,9 +104,9 @@ export const GL_LAYER_MISMATCH = true;
 
 export interface NewPurePremiumPoint {
   accidentYear: number;
-  /** Ledger age at the latest valuation; months = (age + 1) x 12. */
+  /** Age in months at the valuation priced on — the end of the latest data year. */
   ageMonths: number;
-  /** Ground-up paid to date, with the year's shock dollars taken out on the paid basis. */
+  /** Ground-up paid at that valuation, with the year's shock dollars taken out on the paid basis. */
   groundUpPaid: number;
   /** The shock dollars' paid to date that came out: the year's shock gross / the LDF. */
   shockPaid: number;
@@ -227,10 +230,16 @@ export function newPurePremiumPer100(
   // Absent, the newest window year's own.
   loadExposure?: number,
 ): NewPurePremiumResult | null {
-  // THE WINDOW: the most recent five accident years. Taken from the rows the
-  // caller supplies, newest last, so a caller that already windowed is not
+  // THE WINDOW: the five most recent COMPLETE accident years, a year behind
+  // (PRICING_DATA_LAG_YEARS). The latest data year is the one before the year
+  // just closed — 2025 when 2027 is priced — and the year in progress at the
+  // opening (2026) is on the books but too new to price on. Taken from the rows
+  // the caller supplies, so a caller that already windowed is not
   // double-windowed — it just takes the last five of five.
-  const ordered = [...basis.rows].sort((a, b) => a.yearNumber - b.yearNumber);
+  const latestDataYear = pricingYear - 1 - PRICING_DATA_LAG_YEARS;
+  const ordered = [...basis.rows]
+    .filter(r => r.yearNumber <= latestDataYear)
+    .sort((a, b) => a.yearNumber - b.yearNumber);
   const windowed = ordered.slice(-PRICING_WINDOW_YEARS_NEW);
 
   const trendPerYear = lossCostTrendPerYear(line);
@@ -240,15 +249,23 @@ export function newPurePremiumPer100(
   for (const r of windowed) {
     const gross = r.grossPaidByValuation ?? [];
     if (gross.length === 0) { skipped++; continue; }
-    const paidToDate = gross[gross.length - 1];
+    // ⚠ VALUED AS AT THE END OF THE LATEST DATA YEAR, NOT THE LATEST VALUATION
+    // ON THE LEDGER: the whole data set is a year old, so no payment made in
+    // the year in progress is read, on any accident year. Index k is valuation
+    // year firstValuationYear + k; clamped forward as actuarialMemo's seriesAt
+    // is — a closed cohort stops recording and its last figure is final.
+    const k = Math.min(latestDataYear - r.firstValuationYear, gross.length - 1);
+    if (k < 0) { skipped++; continue; }
+    const paidToDate = gross[k];
     if (!(paidToDate > 0)) { skipped++; continue; }
     const exposure = exposureFor(basis, line, r.yearNumber);
     if (!(exposure > 0)) { skipped++; continue; }
 
     // Ledger ages are 0-based and the patterns are 1-based in MONTHS — the one
     // place the two clocks meet, converted here as pricingTriangle.ts converts
-    // it: triangle age = ledger age + 1, months = that x 12.
-    const ledgerAge = (r.ageAtFirstValuation ?? 0) + gross.length - 1;
+    // it: triangle age = ledger age + 1, months = that x 12. The age is the
+    // one at the valuation read, so the year develops from there.
+    const ledgerAge = (r.ageAtFirstValuation ?? 0) + (latestDataYear - r.firstValuationYear);
     const ageMonths = (ledgerAge + 1) * 12;
     const ldf = recordedPaidLdf(line, ageMonths);
     // ⚠ THE SHOCK DOLLARS COME OUT ON THE PAID BASIS, BEFORE DEVELOPMENT
@@ -260,7 +277,9 @@ export function newPurePremiumPer100(
     const developed = groundUpPaid * ldf;
     const lossCostPer100 = developed / (exposure * 10_000);
 
-    // Trend from the accident year to the year being priced.
+    // Trend from the accident year to the year being priced: to the latest
+    // data year and then forward 1 + PRICING_DATA_LAG_YEARS years, which is
+    // the same factor.
     const years = pricingYear - r.yearNumber;
     const trendFactor = Math.pow(trendPerYear, years);
 
