@@ -1,160 +1,52 @@
 # Investment Memorandum
 
 <!--
-Departments tab. Currently static; intended to become per-year.
+⚠ RULE — THE WELCOME MEMO'S RULE HOLDS HERE: no engine detail beyond what is
+written below, and nothing about liquidity requirements or early-sale costs,
+which are not in effect. Shown in the Introduction tab.
 
-⚠ THE FIGURES ARE NO LONGER WRITTEN HERE, AND THAT IS WHY THIS NOTE CHANGED. It used to read
-"EVERY FIGURE BELOW MATCHES THE ENGINE EXACTLY", which was true when written, checked by nothing,
-and one parameter change away from being a promise this file broke. The expected returns, standard
-deviations, fees and the default allocation now arrive as {{ASSET_CLASS_TABLE}} and
-{{DEFAULT_ALLOCATION}}, filled from ASSET_CLASS_ASSUMPTIONS and ASSET_ALLOCATION_DEFAULT by
-src/utils/investmentMemo.ts. They cannot disagree with the engine, so nobody has to remember this
-document when the rate moves. An unknown {{TOKEN}} throws rather than rendering.
+TEMPLATE. Every figure is READ FROM THE GAME, never typed
+(src/utils/investmentMemo.ts):
+  {{ASSET_CLASS_TABLE}}   each asset class's expected return (before fees) and
+                          fee, from ASSET_CLASS_ASSUMPTIONS
+  {{cash}} {{bonds}} {{equities}}
+                          the Pool's current allocation, in percent — the one
+                          in force: the latest year's
+An unknown {{TOKEN}} throws rather than rendering.
 
-ONE EXCEPTION: the Liquidity Requirements and Cost of Liquidity sections describe behaviour that
-is NOT BUILT. No code holds cash against projected claim payments, no early-sale penalty exists,
-and no forced liquidation occurs. Marked in place as planned rather than deleted.
-
-FUTURE, per-year section: last year's REALISED return by asset class against its expectation.
-simulateMarketReturns draws cash, bonds and equities separately, but blendInvestmentReturn
-collapses them and only the BLENDED rate is stored — the per-class figures would need
-persisting first.
+⚠ NO "[year] return" COLUMN. Each year's market is drawn separately for every
+world, so the year's averaged return by asset class sits close to the expected
+return and cannot be squared with the statement's investment income; the column
+waits on that (see the round's report).
 -->
 
 **To:** Incoming Pool Management Team
 **From:** Investment Committee
-**Re:** Investment Strategy, Asset Allocation, and Liquidity
+**Re:** Investment Strategy
 
 ---
 
-The Investment Committee welcomes you to your new role overseeing the Pool's financial strategy. In
-addition to maintaining adequate rates, reserves, and reinsurance protection, management is responsible
-for determining how the Pool's available assets are invested.
+Alongside rates, reserves and reinsurance, you decide how the Pool's assets are invested. Because claims are paid
+over several years, the money held for them earns investment income in the meantime. Higher returns, though, come
+with bigger swings from year to year.
 
-Investment income is an important component of the Pool's overall financial performance. Because claim
-liabilities may remain outstanding for several years, assets held to support those obligations can
-generate investment income before claims are ultimately paid. However, pursuing higher investment returns
-also introduces additional volatility and liquidity risk.
+## The three asset classes
 
-Your objective is therefore not simply to maximize investment return. You must establish an investment
-strategy that provides sufficient liquidity to meet the Pool's obligations while generating an appropriate
-return on assets that are not immediately needed to pay claims.
-
-## Current Investment Portfolio
-
-The Pool's investment portfolio is divided among three asset classes:
-
-- **Cash** provides immediate liquidity and the greatest stability, but offers the lowest expected return.
-- **Bonds** provide a higher expected return than cash with moderate investment volatility.
-- **Equities** provide the highest expected return but expose the Pool to substantially greater
-  year-to-year market volatility.
-
-Management determines the percentage of the investment portfolio allocated to each asset class. The Pool
-currently begins with the following allocation:
-
-**{{DEFAULT_ALLOCATION}}**
-
-This allocation is not intended to represent a required or optimal strategy. It is simply the Pool's
-current position. Management may adjust the portfolio based on its assessment of expected claim payments,
-financial strength, and willingness to accept investment risk.
-
-## Investment Assumptions
-
-Current market assumptions incorporated into the Pool's investment projections are as follows:
-
-| Asset Class | Expected Return | Standard Deviation | Investment Fee |
-|---|---|---|---|
+| Asset class | Expected return | Fee |
+|---|---|---|
 {{ASSET_CLASS_TABLE}}
 
-Expected returns should not be interpreted as guaranteed annual results. Actual investment performance
-will vary from year to year.
+Cash is steady but earns least. Bonds earn more with moderate swings. Equities earn most but can gain or lose
+heavily in a single year. Expected returns are averages, not promises.
 
-The difference in volatility among the three asset classes is particularly important. Cash returns are
-expected to remain relatively stable. Bond returns may experience moderate fluctuations. Equity returns
-may vary substantially and can produce significant gains or losses in individual years.
+The Pool currently holds {{cash}}% cash, {{bonds}}% bonds and {{equities}}% equities. This is simply where it
+stands, not a recommendation.
 
-Investment fees are deducted from the return generated by each asset class.
+## What to weigh
 
-These assumptions represent the current investment environment used by the Pool and may change as market
-conditions evolve.
+A poor investment year can arrive at the same time as a bad claims year. A Pool with thin surplus has less room
+to absorb both. A Pool with a strong cushion can afford more risk.
 
-## Liquidity Requirements
+No allocation removes all risk. Your task is to balance return against the swings your surplus can bear.
 
-> *The liquidity mechanics described in this section and the next are planned but not yet in effect. They
-> describe how the Pool intends to manage liquidity risk, and the considerations remain sound, but no
-> liquidity requirement or early-sale cost is currently applied.*
-
-The Pool must maintain sufficient liquid assets to meet its anticipated claim payments and other near-term
-obligations.
-
-Management is expected to maintain enough cash to fund projected claim payments over the next 12 months.
-This requirement should be considered carefully when establishing the investment allocation.
-
-If the Pool does not have sufficient cash available when claims become payable, investments must be
-liquidated to generate the required funds. A forced liquidation may create additional costs.
-
-Bonds sold before they were intended to be liquidated may incur an early-sale penalty in addition to any
-changes in market value. The Pool may therefore receive less from the investment than it would have
-realized had the bond remained invested as planned.
-
-Equities do not carry the same stated early-sale penalty. However, they must be sold at their market value
-at the time liquidity is required. If equity markets have declined, the Pool may be forced to recognize
-losses that otherwise could have remained unrealized.
-
-For this reason, liquidity risk and investment risk should not be evaluated independently. Unexpectedly
-high claim payments can increase the Pool's need for cash at precisely the time financial markets are
-performing poorly. A difficult claims year combined with unfavorable investment performance can place
-substantially greater pressure on surplus than either event occurring independently.
-
-## The Cost of Liquidity
-
-Maintaining additional cash provides greater protection against unexpected claim payments and reduces the
-likelihood that investments will need to be sold at an unfavorable time.
-
-That protection, however, has a cost.
-
-Cash has the lowest expected return of the Pool's three investment options. Maintaining substantially more
-cash than necessary reduces the amount of assets available for investment in higher-returning securities
-and may lower the Pool's investment income over time.
-
-Management must therefore determine an appropriate liquidity margin. Holding too little cash increases the
-possibility of forced asset sales. Holding too much cash reduces investment earnings even when the
-additional liquidity is never needed.
-
-## Risk and Return
-
-After establishing an appropriate cash position, management must determine how the remaining assets should
-be allocated between bonds and equities.
-
-A larger equity allocation increases the Pool's expected investment return but also increases the
-possibility of significant investment losses. A larger bond allocation generally produces lower expected
-returns but reduces overall portfolio volatility.
-
-Investment decisions should also be considered in conjunction with the Pool's broader risk profile. A Pool
-retaining significant insurance risk or operating with limited surplus may have less capacity to absorb
-investment volatility. Conversely, a financially strong Pool with substantial liquidity may be better
-positioned to accept additional investment risk.
-
-The Investment Committee therefore encourages management to consider the entire financial position of the
-Pool when establishing its investment strategy.
-
-## Management Considerations
-
-As you evaluate the Pool's investment allocation, the Committee recommends that you consider the following
-questions:
-
-- How much cash is required to meet anticipated claim payments?
-- How much additional liquidity should be maintained for adverse claim development or unexpected events?
-- How much investment volatility can the Pool's current surplus reasonably absorb?
-- Is the additional expected return from equities sufficient to justify the additional risk?
-- Could an adverse investment year coincide with a significant insurance loss or other financial shock?
-- Does the investment strategy support the Pool's long-term objective of maintaining stable coverage and
-  financial strength?
-
-There is no investment allocation that eliminates all risk. A conservative portfolio may sacrifice
-potential investment income, while an aggressive portfolio may produce stronger returns but expose surplus
-to greater volatility.
-
-Your responsibility is to determine an allocation that appropriately balances liquidity, investment
-return, and financial risk while ensuring that the Pool remains capable of meeting its obligations to
-members.
+Investment Committee

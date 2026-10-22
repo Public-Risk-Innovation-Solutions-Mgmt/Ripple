@@ -184,7 +184,7 @@ export default function GameShell({
           <IntroductionPage gameState={gameState} />
         )}
 
-        {shownTab === 'investments' && gameState && <InvestmentsPage />}
+        {shownTab === 'investments' && !hidden('investments') && gameState && <InvestmentsPage gameState={gameState} />}
 
         {shownTab === 'rateIndication' && gameState && (
           <RateIndicationPage gameState={gameState} decisions={currentDecisions} />

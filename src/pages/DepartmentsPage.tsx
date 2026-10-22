@@ -7,7 +7,7 @@ import { buildActuarialMemo } from '../utils/actuarialMemo';
 // commented entry in `documents` below. src/utils/claimsMemo.ts, its template
 // and claims-memo-check are all untouched; the import comes back with the pane.
 //   import { buildClaimsMemo } from '../utils/claimsMemo';
-import { buildInvestmentMemo } from '../utils/investmentMemo';
+import { buildInvestmentMemo, currentAllocation } from '../utils/investmentMemo';
 import { buildRiskControlMemo } from '../utils/riskControlMemo';
 import { RISK_CONTROL } from '../data/pricingParameters';
 // ⚠ buildUnderwritingMemo IS NOT IMPORTED WHILE THE UNDERWRITING PANE IS HIDDEN —
@@ -136,7 +136,7 @@ export default function DepartmentsPage({ gameState }: DepartmentsPageProps) {
       // ⚠ BUILT, NOT RAW. The asset table and the default allocation are filled
       // from the engine's constants — see buildInvestmentMemo. The raw file
       // carries tokens, so rendering it unfilled would show them to a player.
-      content: buildInvestmentMemo(investmentMemoRaw),
+      content: buildInvestmentMemo(investmentMemoRaw, currentAllocation(gameState)),
     },
   ];
 
