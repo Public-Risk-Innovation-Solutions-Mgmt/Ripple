@@ -21,12 +21,79 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Eye, LogOut, Play, Plus, Shield, Trash2 } from 'lucide-react';
+import { CheckCircle2, Clock, Eye, KeyRound, LogOut, Play, Plus, Shield, Trash2 } from 'lucide-react';
 import { sessionTransport, isSessionError, type LobbyEvent, type SessionError } from '../index';
+import { newSessionToken } from '../contract';
 import { navigate } from '../client/navigation';
-import { loadActive, loadHeld } from '../client/identity';
+import { loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
 import { adminLogout, currentAdmin } from '../../admin/client/adminAuth';
 import AdminLoginModal from './AdminLoginModal';
+
+// ⚠ VIEWER-ONLY, AND RESOLVED WITH NO ROOM CODE IN HAND — see contract.ts's
+// JoinRequest.pin. This modal is why: it is the one place in the app a caller
+// names a team before naming a room at all.
+function WatchByPinModal({ onClose }: { onClose: () => void }) {
+  const [pin, setPin] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setJoining(true);
+    setError(null);
+    try {
+      const token = newSessionToken();
+      const res = await sessionTransport().join({ pin, role: 'viewer', token } as never);
+      saveActive(res.room.code, { teamToken: res.teamToken, teamName: res.teamName, role: 'viewer' });
+      rememberTeamCredential(res.room.code, { teamToken: res.teamToken, teamName: res.teamName, role: 'viewer' });
+      navigate(`/view/${res.room.code}`);
+    } catch (e) {
+      setError(isSessionError(e) ? e.message : 'Could not find a team with that PIN.');
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-slate-900">Watch a team</h2>
+        <p className="mt-2 text-sm text-slate-500">
+          Enter the PIN a team leader gave you. You&rsquo;ll watch that team only — nothing you
+          enter here can claim or change its decisions.
+        </p>
+        <input
+          type="text"
+          inputMode="numeric"
+          autoFocus
+          value={pin}
+          onChange={e => setPin(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && pin.trim() && !joining) void submit(); }}
+          placeholder="6-digit PIN"
+          className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest text-slate-900"
+        />
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={joining}
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={joining || !pin.trim()}
+            onClick={() => { void submit(); }}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {joining ? 'Finding team…' : 'Watch'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ⚠ SCOPED DOWN, DELIBERATELY. An admin can delete (hide) an event only when
 // THIS BROWSER holds that room's host token — the same token HostRoomScreen's
@@ -70,6 +137,7 @@ export default function LobbyScreen() {
   const [deleteTarget, setDeleteTarget] = useState<LobbyEvent | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showWatchByPin, setShowWatchByPin] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -158,6 +226,8 @@ export default function LobbyScreen() {
         />
       )}
 
+      {showWatchByPin && <WatchByPinModal onClose={() => setShowWatchByPin(false)} />}
+
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
@@ -191,7 +261,17 @@ export default function LobbyScreen() {
 
       <div className="mx-auto max-w-4xl px-6 py-8">
         <h1 className="text-2xl font-bold text-slate-900">Welcome</h1>
-        <p className="mt-1 text-sm text-slate-500">Join an event your organisation is running.</p>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-slate-500">Join an event your organisation is running.</p>
+          <button
+            type="button"
+            data-testid="watch-by-pin"
+            onClick={() => setShowWatchByPin(true)}
+            className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
+          >
+            <KeyRound size={14} /> Have a PIN? Watch a team
+          </button>
+        </div>
 
         {isAdmin && (SHOW_PLAY_SOLO || SHOW_HOST_AN_EVENT) && (
           <div className="mt-6 grid grid-cols-2 gap-4">

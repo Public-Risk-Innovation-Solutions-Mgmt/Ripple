@@ -40,7 +40,8 @@ export interface BuiltTeamGame {
   gameState: GameState;
   startingFinancials: StartingFinancials;
   initialMembers: Member[];
-  opening: { result: ResultSet; poolState: PoolState } | null;
+  /** The opening: its result, and the game as it stands before year 1 — what its statement values. */
+  opening: { result: ResultSet; gameState: GameState } | null;
 }
 
 export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]): BuiltTeamGame {
@@ -96,8 +97,19 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     // both callers at once, which is the only way to fix it without the session
     // assembling a GameState differently from solo.
     initialMembers: openingRoster(poolState, settings.activeLines),
-    opening: openingResult ? { result: openingResult, poolState } : null,
+    opening: openingResult ? { result: openingResult, gameState } : null,
   };
+}
+
+/**
+ * One played year: its result and pool state, and the game as it stands after
+ * it — the valuation the year's posted developed column is read at.
+ */
+export interface ProducedYear {
+  result: ResultSet;
+  poolState: PoolState;
+  gameState: GameState;
+  surplusRange: SurplusRange | null;
 }
 
 // Advance a team's game to `targetYear` (exclusive) on its own recorded
@@ -107,9 +119,9 @@ export function replayTeamYears(
   start: GameState,
   targetYear: number,
   decisionsByYear: Record<string, JsonValue> | undefined,
-): { state: GameState; produced: Array<{ result: ResultSet; poolState: PoolState; surplusRange: SurplusRange | null }> } {
+): { state: GameState; produced: ProducedYear[] } {
   let state = start;
-  const produced: Array<{ result: ResultSet; poolState: PoolState; surplusRange: SurplusRange | null }> = [];
+  const produced: ProducedYear[] = [];
 
   // ⚠ EVERY YEAR THE LOOP PRODUCES, NOT THE LAST ONE, each with its own pool
   // state — the caller posts all of them. See useSessionGame for the defect a
@@ -147,7 +159,7 @@ export function replayTeamYears(
       ...commitSettledYear(state, settled),
       currentDecisions: defaultDecisionSet(nextYear, gameShocksOn(state.setup, state.instance)),
     };
-    produced.push({ result: settled.result, poolState: settled.poolState, surplusRange: surplusRange(state, year) });
+    produced.push({ result: settled.result, poolState: settled.poolState, gameState: state, surplusRange: surplusRange(state, year) });
   }
   return { state, produced };
 }

@@ -149,9 +149,9 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
         />
         <StatCard
           label="Active Exposure"
-          value={`$${displayExposure.toFixed(1)}M`}
+          value={formatMillions(displayExposure, 1)}
           icon={<Users size={16} />}
-          sub={MEMBER_LEVEL.enabled ? `of ${MARKET_MEMBER_COUNT} market members` : `of $${displayTotalMarketExposure.toFixed(0)}M in the market`}
+          sub={MEMBER_LEVEL.enabled ? `of ${MARKET_MEMBER_COUNT} market members` : `of ${formatMillions(displayTotalMarketExposure, 0)} in the market`}
         />
         {/* Hidden with MEMBER_LEVEL off: satisfaction feeds nothing, and returns
             as a pool-level figure once designed. */}
@@ -220,7 +220,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                     <td className="px-4 py-3">{formatCurrency(year.investmentIncome, true)}</td>
                     <td className={year.netIncome >= 0 ? 'px-4 py-3 font-semibold text-emerald-600/70' : 'px-4 py-3 font-semibold text-red-600/70'}>{formatCurrency(year.netIncome, true)}</td>
                     <td className="px-4 py-3 font-bold">{formatCurrency(year.endingSurplus, true)}</td>
-                    <td className="px-4 py-3">{`$${year.activeExposure.toFixed(1)}M`}</td>
+                    <td className="px-4 py-3">{formatMillions(year.activeExposure, 1)}</td>
                     <td className="px-4 py-3 text-sky-600/70 font-medium">{formatPct(year.marketShare)}</td>
                   </tr>
                 ))}
@@ -237,7 +237,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                     <td className="px-4 py-3 text-gray-700">{formatCurrency(openingYear.investmentIncome, true)}</td>
                     <td className={openingYear.netIncome >= 0 ? 'px-4 py-3 font-semibold text-emerald-600/70' : 'px-4 py-3 font-semibold text-red-600/70'}>{formatCurrency(openingYear.netIncome, true)}</td>
                     <td className={`px-4 py-3 font-bold ${colorForSurplus(openingYear.endingSurplus)}`}>{formatCurrency(openingYear.endingSurplus, true)}</td>
-                    <td className="px-4 py-3 text-gray-600">{`$${openingYear.activeExposure.toFixed(1)}M`}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatMillions(openingYear.activeExposure, 1)}</td>
                     <td className="px-4 py-3 text-sky-600 font-medium">{formatPct(openingYear.marketShare)}</td>
                   </tr>
                 )}
@@ -260,7 +260,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
                     <td className={`px-4 py-3 font-bold ${colorForSurplus(r.endingSurplus)}`}>
                       {formatCurrency(r.endingSurplus, true)}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{`$${r.activeExposure.toFixed(1)}M`}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatMillions(r.activeExposure, 1)}</td>
                     <td className="px-4 py-3 text-sky-600 font-medium">{formatPct(r.marketShare)}</td>
                   </tr>
                 ))}

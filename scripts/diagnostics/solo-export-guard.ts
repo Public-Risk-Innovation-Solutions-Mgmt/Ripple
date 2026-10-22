@@ -815,7 +815,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (while shocks are off, None the default for players and the prior board).
 // No file added or removed. VALUE_IDENTITY_v79 holds at both: its harness runs
 // bare instances, on the catalogue, where the shocks stay on.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v86.json');
+// v87: THE LABEL ONLY. "Net Ultimate Loss + LAE" becomes "Net Ultimate Loss,
+// as booked (excl. LAE)" — the figure is unchanged and carries no LAE. The
+// control ran first: 8f367f4 reproduced v86 24 of 24. All 24 move, and each
+// file is the control's with that row's label replaced, nothing else (120
+// rows). No file added or removed. VALUE_IDENTITY_v79 holds.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v87.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

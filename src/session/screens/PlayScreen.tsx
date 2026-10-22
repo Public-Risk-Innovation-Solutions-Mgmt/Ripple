@@ -45,7 +45,7 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Clock, Eye, Loader2, Lock, Users } from 'lucide-react';
+import { CheckCircle2, Clock, Copy, Eye, Loader2, Lock, Users } from 'lucide-react';
 import { sessionTransport, isSessionError, type SessionError } from '../index';
 import { newSessionToken, eventStatusOf, mayCreateTeam, type EventStatus } from '../contract';
 import { clearActive, forgetTeamCredential, loadActive, loadHeld, rememberTeamCredential, saveActive } from '../client/identity';
@@ -212,8 +212,8 @@ export default function PlayScreen({ code, role }: Props) {
         code, teamName, role,
         token: held?.teamToken ?? joinTokenRef.current[teamName],
       });
-      saveActive(code, { teamToken: res.teamToken, teamName: res.teamName, role });
-      rememberTeamCredential(code, { teamToken: res.teamToken, teamName: res.teamName, role });
+      saveActive(code, { teamToken: res.teamToken, teamName: res.teamName, role, pin: res.pin });
+      rememberTeamCredential(code, { teamToken: res.teamToken, teamName: res.teamName, role, pin: res.pin });
       setToken(res.teamToken);
       seededYear.current = null;
       refresh();
@@ -301,7 +301,7 @@ export default function PlayScreen({ code, role }: Props) {
                     type="button"
                     data-testid={`resume-${c.teamName}`}
                     onClick={() => {
-                      saveActive(code, { teamToken: c.teamToken, teamName: c.teamName, role });
+                      saveActive(code, { teamToken: c.teamToken, teamName: c.teamName, role, pin: c.pin });
                       setToken(c.teamToken);
                       seededYear.current = null;
                     }}
@@ -470,6 +470,22 @@ export default function PlayScreen({ code, role }: Props) {
               <span className="ml-1 text-slate-400">(fixed)</span>
             </span>
             <span className="text-slate-400">room <span className="font-mono">{code}</span></span>
+            {/* ⚠ PLAYER ONLY, SAME AS THE GUARD loadActive's role check already uses.
+                A viewer never holds a PIN of its own — see JoinResponse.pin — so
+                there is nothing here to show one. */}
+            {!isViewer && active.role === role && active.pin && (
+              <span className="flex items-center gap-1 text-slate-400" data-testid="team-pin">
+                viewer PIN <span className="font-mono text-slate-700">{active.pin}</span>
+                <button
+                  type="button"
+                  onClick={() => { void navigator.clipboard?.writeText(active.pin ?? ''); }}
+                  className="text-slate-400 hover:text-slate-600"
+                  aria-label="Copy viewer PIN"
+                >
+                  <Copy size={12} />
+                </button>
+              </span>
+            )}
             <span className="text-slate-500">
               Year <span data-testid="player-year" className="font-medium text-slate-700">{complete ? '—' : room.currentYear}</span>
               {' '}of {room.yearCount}

@@ -2817,7 +2817,7 @@ export function buildRevExpRows(
           factors: [
             checks.worldBasis?.[lineRow.line as CoverageLine]
               ? cur(checks.worldBasis[lineRow.line as CoverageLine]!.assessment,
-                `opening surplus basis, averaged over the ${checks.worldBasis[lineRow.line as CoverageLine]!.worlds} worlds' own`)
+                'opening surplus basis')
               : cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'),
             { value: lineRow.decisions.assessmentPct, format: 'pct', label: 'assessment rate' },
           ],
@@ -2996,7 +2996,7 @@ export function buildRevExpRows(
               factors: [
                 checks.worldBasis?.[lineRow.line as CoverageLine]
                   ? cur(checks.worldBasis[lineRow.line as CoverageLine]!.dividend,
-                    `opening surplus basis, averaged over the ${checks.worldBasis[lineRow.line as CoverageLine]!.worlds} worlds' own (blocked worlds count zero)`)
+                    'opening surplus basis')
                   : cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'),
                 { value: lineRow.decisions.dividendPct, format: 'pct', label: 'dividend rate' },
               ],
@@ -3371,7 +3371,7 @@ export function buildCashInvestmentRows(
   // target, so no single branch describes the average. Stated as what it is.
   const endingCashTermFor = (p: typeof sweeps[number]): FormulaTerm =>
     checks.worldBasis
-      ? { product: [cur(p.cash)], label: `${p.line} (average of the worlds' own sweeps${p.liquidityFloorBound ? '; floor bound in at least one' : ''})` }
+      ? { product: [cur(p.cash)], label: `${p.line}${p.liquidityFloorBound ? ' (liquidity floor bound)' : ''}` }
       : p.liquidityFloorBound
       ? { product: [cur(p.preSweepCash + p.investmentsBeforeSweep)], label: `${p.line} (liquidity floor bound)` }
       : { product: [cur(p.operatingCashTarget)], label: `${p.line} (swept to target)` };
