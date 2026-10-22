@@ -865,11 +865,18 @@ export class DynamoSessionTransport implements SessionTransport {
         TableName: this.db.table,
         Key: { pk: roomPk(code), sk: ROOM_HEADER_SK },
         UpdateExpression: 'SET marketShares = :m, updatedAt = :now ADD rev :one',
+        // ⚠ YEAR 0 IS REWRITTEN, SO IT NEEDS A SECOND GUARD. Opening posts arrive
+        // together; a post that read the results before a neighbour's landed
+        // computes a set with fewer teams, and may write after a fuller one.
+        // Never let a smaller opening set replace a larger one.
         ConditionExpression: year === 0
-          ? 'attribute_not_exists(marketShares) OR marketShares.#yr = :y'
+          ? 'attribute_not_exists(marketShares) OR (marketShares.#yr = :y AND size(marketShares.byTeam) <= :n)'
           : 'attribute_not_exists(marketShares) OR marketShares.#yr < :y',
         ExpressionAttributeNames: { '#yr': 'year' },
-        ExpressionAttributeValues: { ':m': set, ':y': year, ':now': Date.now(), ':one': 1 },
+        ExpressionAttributeValues: {
+          ':m': set, ':y': year, ':now': Date.now(), ':one': 1,
+          ...(year === 0 ? { ':n': Object.keys(set.byTeam).length } : {}),
+        },
       }));
     } catch (e) {
       if (!(e instanceof ConditionalCheckFailedException)) throw e;
