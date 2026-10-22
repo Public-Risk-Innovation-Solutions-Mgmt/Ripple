@@ -132,7 +132,7 @@ function targetClimb(line: CoverageLine): { value: number; count: number } {
 }
 
 type Coh = {
-  yearNumber: number; age: number; horizon: number; seeded?: boolean;
+  yearNumber: number; age: number; horizon: number;
   netUltimate: number; cededDevelopmentToDate?: number;
   grossPaid?: number; grossUnpaid?: number;
 };
@@ -163,7 +163,6 @@ function runArm(flagged: boolean): Record<string, Arm> {
         const S = st as never as { lines: Record<string, { reserveCohorts: Coh[] }> };
         for (const l of LINES) {
           for (const c of S.lines[l]?.reserveCohorts ?? []) {
-            if (c.seeded) continue;
             const gu = (c.grossPaid ?? 0) + (c.grossUnpaid ?? 0);
             if (!(gu > 0)) continue;
             const key = `${l}|${c.yearNumber}`;

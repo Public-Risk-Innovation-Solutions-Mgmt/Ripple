@@ -62,108 +62,40 @@ import {
 import { marketLevelGapPct } from './marketConditions';
 import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState } from './lineHelpers';
-import { preGameBulkYears } from './openingReserves';
 import { lossExpenseReserve } from './lossExpense';
-import { MEMBER_LEVEL, OPENING_RESERVE_YEARS, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS, SCENARIO_PREMIUM_TO_SURPLUS, STARTING_CAPITAL } from '../data/pricingParameters';
+import { MEMBER_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, PRIOR_HISTORY_YEARS, SCENARIO_PREMIUM_TO_SURPLUS, STARTING_CAPITAL } from '../data/pricingParameters';
 import { confidenceAtClf, hasStaticClf } from '../data/clfTables';
-import { exposureFactor } from '../data/exposureTrend';
 import { withLifetimeDevelopment } from './hostDevelopment';
 import { defaultDecisionSet } from './decisionDefaults';
 
 export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
 
 // ============================================================================
-// THE MATURATION YEARS — WHY THE POOL NO LONGER STARTS THREE YEARS OLD.
+// THE PRE-GAME IS THE POOL'S WHOLE HISTORY, AND IT BEGINS IN 2021.
 //
-// These are played BEFORE the three declared pre-game years and are not part of
-// the pool's stated past. Their only job is to leave a book behind: ten accident
-// years, each at its own age, each with a real claim register, a real developing
-// set and real cession — the thing a three-year pre-game plus a handful of
-// apportioned seed cohorts cannot produce.
+// PRE_GAME_DEPTH years are played — 2021 to 2025 at the shipped five — on the
+// line's paid-in capital (STARTING_CAPITAL, $12.5M) and nothing else: no reserves,
+// no cohorts, no ledger. Reserves build only from 2021's claims on, and the
+// opening is simply where the last year ends. The last PRE_GAME_YEARS of them
+// are the declared prior history (priorHistory); the ones before are the early
+// pre-game years the Annual Statement shows beside them (earlyPreGameHistory).
 //
-// ⚠ WHY IT WAS NEEDED, AND IT IS A FORWARD-BOOKING PROBLEM. Booking a cohort at
-// its contracted initial estimate understates incurred while the book is young.
-// A pool in runoff EQUILIBRIUM does not have that problem: the development of
-// its older years exactly offsets the under-booking of its newest, so booked
-// incurred equals ultimate written. A three-year book is nowhere near
-// equilibrium, so three years of income were overstated and the opening surplus
-// ran away with them — measured, the unfiltered opening median rose to 2.207 on
-// WC against a band ceiling of 1.22, and no admissible pin brought it back:
-// WC and GL both solved NEGATIVE and both sat above their ceilings at K = 0.
+// ⚠ IT USED TO START WITH YEARS BEHIND IT, AND THEY WERE IMAGINARY. Bulk
+// accident years older than the pre-game — 2016-2020 on WC and GL, 2019-2020
+// on Property — sat on the books from its start, inside a window of
+// OPENING_RESERVE_YEARS, so that pricing's five-year window was full from the
+// first pre-game year; before them the bootstrap apportioned drawn seed
+// cohorts. Both are retired: there are no accident years before 2021. The
+// first pre-game year prices on the starting expected loss (bookPurePremium's
+// ex-ante figure), and each later one on the years there are.
 //
-// ⚠ THE TRANSIENT IS AS LONG AS THE IBNER HORIZON, WHICH IS WHERE TEN COMES
-// FROM. Measured, the implied intercept by depth:
-//
-//   accident years at game start        WC       GL   Property
-//   3 (the old book)                  1.304    1.628     0.395
-//   7                                 0.783    0.064    -0.265
-//   10  <- shipped                    0.377   -0.012    -0.105
-//   13                                0.237   -0.048    -0.131
-//
-// Each line stops improving at roughly its own MEAN IBNER horizon — GL (5.5)
-// and Property (3) are done by seven, WC (8.5) is still moving at thirteen.
-// Nobody designed that agreement; it is the reason to trust the number. Seven
-// passes on all three lines but leaves WC at K* = 0.112, which is thin. Ten is
-// set by WC and is where WC has room.
-//
-// ⚠ AND THE RELIEF IS DEVELOPMENT, NOT RESERVE — WHICH IS WHY THE BOOK HAS TO BE
-// PLAYED RATHER THAN APPORTIONED. Split at the boundary below, the whole move is
-// made in the three declared years and it is adverse development on the mature
-// book: 108% of it on every line, with investment income on the assets backing
-// the deeper reserve pushing the other way (hence over 100%). GL is the proof —
-// its net reserve/premium rises only 1.118 -> 1.429 while its opening falls by
-// 1.585 of premium, five times more. The relief is a FLOW of development across
-// ten cohorts, not a STOCK of reserve. An apportioned book carries the stock and
-// none of the flow, so it would have bought nothing.
-//
-// ⚠ AND CESSION IS REAL HERE, WHICH AN APPORTIONED BOOK CANNOT MODEL. A seed
-// cohort has no register, so it cedes nothing ever. These cohorts cede: the
-// tower takes 15% / 26% / 14% off the standing reserve, and the gain survives it.
+// ⚠ AND THE OPENING SURPLUS IS SET, NOT EARNED, so a young book costs it
+// nothing. The scenario's premium-to-surplus ratio sets it (applySetOpening),
+// and the prior board's funding margin is solved so the last year-end lands
+// there (solvePreGameMargin). A young book's forward-booking optimism — what
+// once ran the opening away and needed a ten-year maturation to cure — moves
+// only the solved margin.
 // ============================================================================
-// ⚠ WHAT IT COSTS, AND THE TWO COSTS ARE DIFFERENT AUDIENCES.
-//
-// THE PLAYER pays 261 ms for a full three-line opening, measured at the
-// re-solved pin with the band in force and no fallbacks in 20 openings. That is
-// 2.6x the old path rather than the 3.3x the depth alone implies, because a
-// centred pin buys back more than the extra years cost: fifty precomputed
-// openings take 13 s, and a cold start that generates one takes 0.26 s.
-//
-// THE DEVELOPER pays much more, on the two-armed gates only, and this is the
-// real bill. The pin is ONE SCALAR PER LINE and it centres the SHIPPED
-// configuration. Any gate that also runs the other arm through runPriorHistory
-// runs it off-centre, and the deeper pre-game multiplies every extra attempt.
-// Measured, share of unfiltered candidates landing in band:
-//
-//   line       FB on (shipped)   FB off (retired)
-//   WC              30%               45%
-//   GL              35%                5%     <- 1 in 20, so ~20 attempts
-//   Property        20%               25%
-//
-// GL's retired arm therefore pays roughly twenty ten-year pre-games per opening,
-// and cohort-ledger-check went from about 35 s to over ten minutes on that
-// alone. It is not fallbacks — nothing hits the 500 cap — it is an off-centre
-// proposal distribution meeting a longer candidate.
-//
-// ⚠ DO NOT FIX THIS BY SHORTENING THE PRE-GAME. The depth is what the mechanism
-// needs. If the suite's runtime has to come down, cut GAMES on the two-armed
-// gates, or stop running the retired arm through the real search where the arm
-// is only being reported — pregame-acceptance-check does the latter and says so.
-// ⚠ THE FIXED SEVEN IS RETIRED. It was `MATURATION_YEARS = 7`, giving a
-// PRE_GAME_DEPTH of 10, and that ten was SILENTLY COUPLED to
-// PRIOR_HISTORY_YEARS, which also read 10. Bulk reserves begin at
-// PRIOR_HISTORY_YEARS + 1, so while both were ten the pre-game's last played
-// accident year (10) sat exactly one short of the first bulk year (11) and the
-// two partitions met without touching. Nothing anywhere said so.
-//
-// Dropping PRIOR_HISTORY_YEARS to 5 broke it in the worst way available: the
-// pre-game went on playing ten years while bulk began at six, so accident
-// years 6 to 10 existed TWICE — once played, once bulk — and the opening
-// double-counted them. Measured before the fix: 5 duplicated years on WC and
-// GL, 2 on Property.
-//
-// ONE PARAMETER DRIVES BOTH NOW. The pre-game plays exactly the prior history
-// the pricing reads, and everything older is a bulk reserve.
-// opening-partition-check asserts the two never overlap and leave no gap.
 export const PRE_GAME_DEPTH = PRIOR_HISTORY_YEARS;
 
 /**
@@ -255,38 +187,37 @@ export function simulateLineCandidate(
     [line],
     -(PRE_GAME_DEPTH - 1)
   );
-  // ⚠ THE POOL STARTS WITH YEARS BEHIND IT (Prompt A commit 2). The
-  // bootstrap's drawn seed cohorts are replaced by the bulk accident years —
-  // the ones older than the pre-game inside the opening window — at their ages
-  // at the pre-game's start, with their ledger rows, so pricing's window is
-  // full from the first pre-game year and every pre-game balance sheet carries
-  // them. They pay down on the recorded patterns through the pre-game, and the
-  // opening keeps them as they stand. See preGameBulkYears.
+  // ⚠ THE POOL'S HISTORY BEGINS IN 2021, THE FIRST PRE-GAME YEAR. There are
+  // no accident years before it: the line starts with no reserves, no cohorts
+  // and an empty ledger, and reserves build only from 2021's claims on. So
+  // 2021 is priced on the starting expected loss for its year (bookPurePremium's
+  // ex-ante figure, trended) — no history — and each later year on the years
+  // there are: 2022 on one, 2023 on two, 2024 on three, 2025 on four, 2026 on
+  // the full five-year window. (The bulk accident years that used to sit here,
+  // older than the pre-game, are retired.)
   {
     const ls = bootstrap.lines[line];
-    const book = ls.bookExposure !== undefined
-      ? { exposure: ls.bookExposure * exposureFactor(line, 1) } : ls.members ?? [];
-    const bulk = preGameBulkYears(line, book, setup.startingYear, PRE_GAME_DEPTH);
-    bootstrap.lines[line] = {
-      ...ls,
-      reserveCohorts: bulk.cohorts,
-      reserveDevelopment: bulk.ledger,
-      netUnpaidReserve: bulk.cohorts.reduce((t, c) => t + c.netUnpaid, 0),
-    };
+    bootstrap.lines[line] = { ...ls, reserveCohorts: [], reserveDevelopment: [], netUnpaidReserve: 0 };
   }
   // ⚠ THE STARTING SURPLUS IS THE ONLY CAPITAL EVENT IN THE PRE-GAME. From here
   // the line's surplus moves only by its income, dividends and assessments, year
   // by year, into the opening. invested is re-derived from the identity, loss
   // expense reserve included, so the first year opens balanced.
+  //
+  // ⚠ AND OPERATING CASH IS CAPPED AT WHAT THE BALANCE SHEET HOLDS. With no
+  // reserves the line's assets are its paid-in capital and nothing else, and
+  // the bootstrap's operating-cash target (a share of its drawn premium) can
+  // exceed it — measured, GL's did. Invested would then be negative, the engine
+  // floors a year's investments at zero, and the floor creates assets: GL's
+  // first pre-game year missed its income by $9.8M. So cash is the target or
+  // the whole balance, whichever is less, and invested is the rest (never
+  // below zero). The first year's sweep restores the target from premium.
   {
     const ls = bootstrap.lines[line];
     const surplus = startingSurplus ?? ls.surplus;
-    bootstrap.lines[line] = {
-      ...ls,
-      surplus,
-      investedAssets: surplus + ls.netUnpaidReserve
-        + lossExpenseReserve(line, ls.reserveCohorts ?? []) - bootstrap.cash,
-    };
+    const assets = surplus + ls.netUnpaidReserve + lossExpenseReserve(line, ls.reserveCohorts ?? []);
+    bootstrap.cash = Math.min(bootstrap.cash, Math.max(0, assets));
+    bootstrap.lines[line] = { ...ls, surplus, investedAssets: assets - bootstrap.cash };
   }
 
   let gs: GameState = {
@@ -512,18 +443,17 @@ const PRE_GAME_START_TOLERANCE = 0.01; // dollars
 
 // ============================================================================
 // THE SET OPENING, APPLIED. The pre-game's ending book IS the opening book:
-// the bulk years it started with and the years it played, as they stand.
+// the years it played, 2021 on, as they stand — the pool's whole history.
 // Surplus is the ruled multiple of required capital on that reserve — and the
 // pre-game started from the surplus that lands its last year-end exactly there
 // (solvePreGameMargin), so setting it moves nothing.
 //
-// ⚠ NOTHING IS SWAPPED IN (Prompt A commit 2). Until then the bootstrap's drawn
-// seed cohorts ran through the pre-game and were replaced here by bulk cohorts
-// out to each pattern's end, so the reserve jumped at the boundary (WC $39M at
-// the end of 2025, $75M at the opening). The bulk years are now on the books
-// from the start of the pre-game, and accident years older than
-// OPENING_RESERVE_YEARS are closed — none should be open here, and the filter
-// says what the window is rather than finding anything.
+// ⚠ NOTHING IS SWAPPED IN AND NOTHING IS FILTERED. The pool's history begins
+// in 2021, the first pre-game year: there are no accident years before it, so
+// every cohort and ledger row the pre-game wrote is the opening's. (It used to
+// carry bulk accident years older than the pre-game — 2016-2020 on WC and GL,
+// 2019-2020 on Property — and keep a window of OPENING_RESERVE_YEARS; both are
+// retired.)
 //
 // ⚠ invested IS RE-DERIVED FROM THE IDENTITY, not adjusted. surplus = cash +
 // invested - netReserve - LAE reserve, so invested = surplus + netReserve + LAE
@@ -538,8 +468,7 @@ function applySetOpening(
   // at Expected / its ratio).
   surplusOf: (opened: LinePoolState) => number,
 ): LinePoolState {
-  const oldest = 1 - OPENING_RESERVE_YEARS;
-  const open = (ls.reserveCohorts ?? []).filter(c => c.yearNumber >= oldest);
+  const open = ls.reserveCohorts ?? [];
   // ⚠ EVERY COHORT THE POOL OPENS WITH IS BASED HERE on its outstanding AT
   // GAME START — the brief's rule for prior years. The fields are cleared
   // first: withLifetimeDevelopment refuses to re-base a cohort that already
@@ -551,8 +480,7 @@ function applySetOpening(
     line, developmentPct,
   ));
   const netUnpaidReserve = reserveCohorts.reduce((a, c) => a + c.netUnpaid, 0);
-  const kept = new Set(open.map(c => c.yearNumber));
-  const reserveDevelopment = (ls.reserveDevelopment ?? []).filter(r => kept.has(r.yearNumber));
+  const reserveDevelopment = ls.reserveDevelopment ?? [];
   // SET at the scenario's opening, read off the opened book — never off
   // required capital (funding tables wiring) — see runLinePreGame.
   const surplus = surplusOf({ ...ls, reserveCohorts, reserveDevelopment, netUnpaidReserve });

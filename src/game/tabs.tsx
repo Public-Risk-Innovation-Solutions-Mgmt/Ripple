@@ -57,10 +57,12 @@ export const TAB_ORDER: readonly TabId[] = [
 /**
  * Hidden in solo and multiplayer alike. Game Setup is the page a solo game
  * starts from (and returns to on New Game); it is off the bar, not removed.
- * Dashboard and Departments are hidden while they are reworked.
+ * Dashboard and Departments are hidden while they are reworked. Investments is
+ * hidden because its memorandum moved into the Introduction tab.
  */
 export const HIDDEN_TABS: readonly TabId[] = [
   'setup',
+  'investments',
   'dashboard',
   'departments',
 ];

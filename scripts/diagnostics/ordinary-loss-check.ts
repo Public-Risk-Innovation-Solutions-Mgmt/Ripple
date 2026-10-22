@@ -217,7 +217,7 @@ try {
     const members = getPredefinedMarketMembers();
     for (const line of LINES) {
       const exposure = bookExposureOf(members, line, 0);
-      const actual = newEngineLayerMoments(line as never, exposure, 0, 1, false).reduce((s, m) => s + m.expected, 0);
+      const actual = newEngineLayerMoments(line as never, exposure, 0, false).reduce((s, m) => s + m.expected, 0);
       check(actual === 0, `${line}: ordinary losses only, so the year's expected recovery is zero`,
         `$${actual.toFixed(2)}, year 0, routine large losses held off`);
       const priced = allLayerRiskMoments(line as never, members, 0).reduce((s, m) => s + m.expected, 0);

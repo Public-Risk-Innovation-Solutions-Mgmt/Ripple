@@ -369,9 +369,9 @@ interface LineClaimRow {
 // construction rather than by inspection — which is why the constant is imported
 // rather than restated. The MATURATION years just older than it (-9 through -3,
 // MATURATION_YEARS of them) have registers but no retained result — see
-// ClaimCoverage.unretained. Only cohorts older than THOSE are SEED cohorts,
-// apportioned from a drawn reserve total at generation with no claims behind
-// them at all. Both sit in the exhibit's collapsed Prior row.
+// ClaimCoverage.unretained. There is nothing older than THOSE: the pool's
+// history begins in 2021, the first pre-game year, and the seed cohorts that
+// used to sit below it are retired. They sit in the exhibit's collapsed Prior row.
 // ============================================================================
 // ============================================================================
 // THE REGISTER FOR A LINE-YEAR: what the result carries, or what it can redraw.
@@ -452,8 +452,8 @@ function collectLineClaims(
 //
 // Two different absences, and a reader must be able to tell them apart:
 //
-//   PERMANENT   a seed cohort older than PRIOR_BOUNDARY has no register and
-//               never will. Nothing to act on.
+//   PERMANENT   (retired) a seed cohort with no register — there are none now:
+//               the pool's history begins in 2021.
 //   SESSION     a year that WAS played but whose detail did not survive a
 //               save/restore. gameSave strips `claims` and `occurrences` on the
 //               way to localStorage, and there is no regeneration path, so a
@@ -485,7 +485,7 @@ interface ClaimCoverage {
    *  NOT part of the declared past, so their results are never carried into
    *  priorHistory and there is nothing to regenerate a register from.
    *
-   *  They are not SEED cohorts (those never had a register) and not a SESSION
+   *  They are not SEED cohorts (retired; those never had a register) and not a SESSION
    *  loss (nothing was lost — it was never kept). Without this third category the
    *  Development sheet listed accident years the line sheets had no rows for and
    *  the workbook said nothing about why, which is the exact silence the other
@@ -538,16 +538,13 @@ function claimCoverage(
 /** The sheet note describing that coverage. Empty when there is nothing to say. */
 function coverageNote(cov: ClaimCoverage): string {
   if (cov.neverProduced) return '';
-  // ⚠ THE SEED BOUNDARY IS NOT PRIOR_BOUNDARY. The years just older than it are
-  // the maturation years, which DO have registers (maturationNote, below); the
-  // note that stood here called every year older than -2 a seed cohort with no
-  // register, two sentences before naming those same years as having one.
+  // ⚠ THERE ARE NO YEARS BEFORE THE PRE-GAME: the pool's history begins with
+  // its first year (2021). The seed cohorts this note used to describe, older
+  // than the pre-game, are retired.
   const seedNote =
-    `Cohorts older than accident year ${PRIOR_BOUNDARY - MATURATION_YEARS} are SEED cohorts — `
-    + 'apportioned from a drawn reserve total at generation, with no claim register behind them — so '
-    + 'they can never appear on this sheet or on the Development sheet, and their absence is permanent '
-    + 'rather than a gap. The Actuarial exhibit\'s collapsed Prior row gathers every accident year older '
-    + `than ${PRIOR_BOUNDARY}: the seed cohorts and the simulated years below together.`;
+    `There are no accident years before ${PRIOR_BOUNDARY - MATURATION_YEARS}: the pool's history begins `
+    + 'with the first pre-game year. The Actuarial exhibit\'s collapsed Prior row gathers every accident '
+    + `year older than ${PRIOR_BOUNDARY}: the simulated years below.`;
   // ⚠ SAID PLAINLY BECAUSE THE DEVELOPMENT SHEET WILL SHOW THESE YEARS. They have
   // registers, so their occurrences develop and appear there; they have no
   // result, so they have no rows here. A reader who totals one sheet against the
@@ -970,7 +967,7 @@ function buildDevelopmentRows(poolState: PoolState, activeLines: CoverageLine[],
     'the chosen subset is carried, not the whole register — cession is per occurrence and independent ' +
     'between occurrences, so the ones that did not move cede exactly what they always did. Amounts are ' +
     'OCCURRENCE totals, GROSS of reinsurance. A blank sheet means no accident year has developed yet, ' +
-    'or the only cohorts developing are seed cohorts, which have no claim register. ' +
+    'or no developing accident year has an occurrence that moved. ' +
     '⚠ THIS IS THE SHEET TO TOTAL, and it is the only one that can be. The line sheets repeat an ' +
     'occurrence figure on each of its claims; these rows are one per occurrence and do not repeat, so ' +
     'a Yr column summed here is the pool\'s GROSS development in that valuation year across every ' +
@@ -985,8 +982,8 @@ function buildDevelopmentRows(poolState: PoolState, activeLines: CoverageLine[],
     'rows like any other year. What this sheet still carries alone is development on the SIMULATED ' +
     `years ${PRIOR_BOUNDARY - MATURATION_YEARS} to ${PRIOR_BOUNDARY - 1}, run to build the opening book, ` +
     'on whichever of them still develop: they have claim registers, so their occurrences develop here, but no retained result, so the line ' +
-    'sheets have no rows for them. SEED cohorts older than that have no register and appear on neither ' +
-    'sheet. ' +
+    'sheets have no rows for them. There are no accident years older than that: the pool\'s history ' +
+    'begins with the first pre-game year. ' +
     'The Claim ID column was DROPPED: it held the occurrence\'s FIRST claim beside an occurrence-level ' +
     'amount, which is a misattribution waiting for the first multi-claim event.' +
     (coverage ? ' ' + coverage : '');

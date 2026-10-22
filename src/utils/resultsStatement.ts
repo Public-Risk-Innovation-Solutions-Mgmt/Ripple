@@ -6,9 +6,9 @@
 // labelled by calendar year; every older year collects in PRIOR.
 //   PRIOR   flows summed over the years rolled out; balances at the end of the
 //           last of them; in the program-year blocks, every older program
-//           year combined — the bulk reserves included, so the blocks carry a
-//           Prior from game start while the calendar sections show one only
-//           once a year has rolled out.
+//           year combined. The pool's history begins in 2021, so at game start
+//           the five pre-game years fill the window and there is no Prior; it
+//           appears once a year has rolled out, in every section alike.
 //   TOTAL   over the five years shown: the sum for flow rows; the latest year
 //           for balances, ratios and changes.
 //
@@ -215,6 +215,7 @@ function sumOperating(ys: OperatingYear[]): OperatingYear {
 const combinedCosts = (o: OperatingYear) => add(o.losses, o.lae, o.admin, o.riskControl, o.reinsurance);
 
 export const COMBINED_RATIO_LABEL = 'Combined Ratio';
+export const ENDING_SURPLUS_LABEL = 'Ending Surplus';
 
 /**
  * The statement's first row. Each year's cell is that year's own; TOTAL is
@@ -233,6 +234,17 @@ function combinedRatioRow(prior: OperatingYear | null, cols: OperatingYear[], cu
 export function topCombinedRatio(st: AnnualStatement): number | undefined {
   const r = st.sections.find(s => s.key === 'operating')?.rows.find(x => x.label === COMBINED_RATIO_LABEL);
   return r ? num(r.cells[r.cells.length - 1]) : undefined;
+}
+
+/**
+ * THE HEADER'S SURPLUS: the balance sheet's Ending Surplus for the latest year
+ * — the opening before year 1, each played year's year-end after it — for the
+ * statement's view. The last cell is Total, so the latest year is the one
+ * before it.
+ */
+export function topSurplus(st: AnnualStatement): number | undefined {
+  const r = st.sections.find(s => s.key === 'balance')?.rows.find(x => x.label === ENDING_SURPLUS_LABEL);
+  return r && r.cells.length >= 2 ? num(r.cells[r.cells.length - 2]) : undefined;
 }
 
 function operatingRows(prior: OperatingYear | null, cols: OperatingYear[], cumulativeOver: OperatingYear[]): StatementRow[] {
@@ -271,8 +283,8 @@ function operatingRows(prior: OperatingYear | null, cols: OperatingYear[], cumul
 // except the last pre-game year (2025 for a 2026 start), whose year-end is THE
 // OPENING, which is what year 1 begins from. Its surplus is that year's own
 // year-end — the pre-game starts from the surplus that lands it there — but the
-// set opening swaps the seed reserves for bulk cohorts (priorHistoryEngine), so
-// its reserves and invested assets are the opening's. It is read as year 1's
+// opening re-bases its cohorts for the host's development (priorHistoryEngine),
+// so its reserves and invested assets are the opening's. It is read as year 1's
 // beginning position, or the opening state itself before any year is played.
 // ---------------------------------------------------------------------------
 interface Position { invested?: number; cash?: number; lossRes?: number; laeRes?: number; other?: number; surplus?: number }
@@ -327,7 +339,7 @@ function balanceRows(
     bal('Other Liabilities', p => p.other, { indent: true }),
     bal('Paid-in Capital', () => paidIn, { indent: true }),
     bal('Earned Surplus', p => sub(p.surplus, paidIn), { indent: true }),
-    bal('Ending Surplus', p => p.surplus, { emphasis: true }),
+    bal(ENDING_SURPLUS_LABEL, p => p.surplus, { emphasis: true }),
     // ⚠ NO "ACROSS THE WORLDS" ROW: players are never told about the worlds
     // (docs/PENDING_MULTIPLAYER.md). The surplus range stays in the session's
     // posted results, for the host.
@@ -387,8 +399,7 @@ function underwritingRows(scope: LineView, timeline: (Scoped | undefined)[], fir
 // Paid and ultimate loss come from the averaged reserve ledger; case and IBNR
 // from the engine's presentation split of the latest averaged result (closed
 // years carry neither). LAE is the rate's share of the GROUND-UP loss
-// (lossExpense.ts): paid with the paid loss, its reserve — a bulk provision —
-// in IBNR; the reinsurer reimburses none, so it is in gross and net alike.
+// (lossExpense.ts): paid with the paid loss, its reserve in IBNR; the reinsurer reimburses none, so it is in gross and net alike.
 // ---------------------------------------------------------------------------
 interface AyLoss { paid: number; case_: number; ibnr: number }
 interface AyBlock { gross: AyLoss; ceded: AyLoss; net: AyLoss }
@@ -488,8 +499,9 @@ function programRows(
     L('Reported Loss + LAE', l => l.paid + l.case_, { emphasis: true }),
     L('IBNR Reserve', l => l.ibnr),
     L('Ultimates', ult, { emphasis: true }),
-    // ⚠ PRIOR HAS NO COMPLETE PREMIUM: it always holds the bulk years, which
-    // carry none, so a ratio over it would divide losses that have no premium.
+    // ⚠ NO RATIO IN PRIOR. It was left blank because Prior always held the bulk
+    // years, which carried no premium; those are retired (the pool's history
+    // begins in 2021), and the cell stays blank as it was.
     row('Loss and LAE Ratio', 'pct', 'point', NA, gameLoss.map((l, i) => div(ult(l), gamePremium[i])),
       { total: cumulativeRatio(gameLoss.map(ult), gamePremium) }),
   ];
@@ -555,7 +567,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
     underwritingRows(scope, timeline.map(r => at(r, scope)), first));
 
   // Program years, summed over the scope's lines. The window is the same five
-  // years, as program years; Prior holds every older one, bulk years included.
+  // years, as program years; Prior holds every older one, once there is one.
   const asOfResult = timeline[timeline.length - 1];
   const perLine = lines.map(l => programYearsOf(gs, l, asOfResult, isLatest));
   const blockAt = (pick: (b: AyBlock) => AyLoss, ays: (ay: number) => boolean) =>
@@ -573,7 +585,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
     const priorPrem = rolled.length === 0 ? undefined : add(...premAll.slice(0, first).map(p => p[key]));
     const rows = programRows(key, blockAt(pick, ay => ay < firstAy), windowYears.map(ay => blockAt(pick, x => x === ay)),
       priorPrem, premAll.slice(first).map(p => p[key]), first > 0 ? premAll[first - 1][key] : undefined);
-    // Drop the Prior cell where nothing predates the window (never, while bulk years exist).
+    // Drop the Prior cell where nothing predates the window — at game start, since the pool's history begins with the pre-game.
     if (!programPrior) for (const r of rows) r.cells.shift();
     return {
       key, title, basis: isLatest ? 'by program year, at the latest valuation' : `by program year, valued at ${asOfResult.calendarYear}`,
@@ -593,8 +605,8 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
   const notes = [
     'Dollars are the average of the ten worlds; every ratio is worked out from those averaged figures. The surplus range is the one per-world figure; the pre-game ran once, before the worlds.',
     `The most recent ${STATEMENT_WINDOW_YEARS} years are shown as their own columns; every older year collects in Prior — flows summed, balances at the end of the last year in it. Total covers the ${STATEMENT_WINDOW_YEARS} years shown: the sum for flows; for a ratio of premium, the summed figures over summed premium; the latest year for balances and changes. The combined ratio in the first row is every cost — net losses, LAE, admin and the reinsurance cost — over the member charge, and its Total is cumulative over every played year since game start, or over the pre-game years before year 1.`,
-    `The ${preGame.length} pre-game years are the pool's played history. Surplus moves through them only by each year's income, assessments and dividends, from the paid-in capital the pool started with, the prior board's margin set so the last of them ends at the opening. That year's year-end is shown as the opening, which is what year 1 begins from. The accident years before the pre-game are on the books from its first year, so no reserve appears at the opening that the pre-game did not carry. Paid-in capital is the surplus the pool started the pre-game with; earned surplus is everything since.`,
-    'In the Gross, Ceded and Net blocks Prior holds every older program year, the bulk reserves from before the pre-game included. Those carry no premium, so Prior has no Loss and LAE Ratio.',
+    `The ${preGame.length} pre-game years are the pool's played history. Surplus moves through them only by each year's income, assessments and dividends, from the paid-in capital the pool started with, the prior board's margin set so the last of them ends at the opening. That year's year-end is shown as the opening, which is what year 1 begins from. The pool's history begins with the first of them: it started with its paid-in capital and no reserves, and every reserve at the opening is one the pre-game wrote. Paid-in capital is the surplus the pool started the pre-game with; earned surplus is everything since.`,
+    'In the Gross, Ceded and Net blocks Prior holds every older program year, once there is one.',
     'Loss adjustment expense is the rate\'s share of the ground-up loss: paid with the losses, its reserve held in IBNR. The reinsurer reimburses none of it, so it is in gross and net alike.',
   ];
   return { scope, asOf, sections, notes };

@@ -830,7 +830,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Needed, Excess Available Surplus, Excess Capital Ratio and Excess Capital
 // Status (MAMC6EA4 year 1: required $38.92M -> $1.19M, Deficient -> Strong,
 // every year). The probes commit moved nothing.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v88.json');
+// v89: THE HISTORY LANDING (see VALUE_IDENTITY_v81). The control ran first:
+// 1dd0118 reproduced v88 24 of 24. No file added or removed. Each commit
+// against the one before:
+//   the history commit, all 24, 33 rows each: the reserves (beginning and
+//     ending net, expected net unpaid, indicated at confidence, loss expense
+//     reserves), paid losses and LAE, prior-year development, the loss, LAE
+//     and combined ratios, invested assets, investment income, net income,
+//     surplus and capital (6KA6WGLJ GL year 1 beginning net reserve $45.41M
+//     -> $42.21M). Year-1 beginning surplus unchanged.
+//   the cash cap, 18 of 24, up to 14 rows: beginning cash and the invested
+//     assets, investment income, surplus and capital rows that follow.
+//   the book's-risk fix, $10M and $12.5M, all 24, the same 14 rows each.
+//   No rate or premium row moves in any of them.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v89.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

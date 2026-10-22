@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
-import { buildAnnualStatement, topCombinedRatio } from '../utils/resultsStatement';
+import { buildAnnualStatement, topCombinedRatio, topSurplus } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
 import { RippleMark } from '../assets/RippleLogo';
 
@@ -28,7 +28,6 @@ interface HeaderProps {
 export default function Header({ gameState, startingFinancials, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool' }: HeaderProps) {
   const lastResult = gameState?.lockedResults?.[gameState.lockedResults.length - 1];
 
-  const surplus = lastResult?.endingSurplus ?? startingFinancials?.surplus ?? 0;
   // ============================================================================
   // THE COMBINED RATIO, CUMULATIVE SINCE GAME START, READ OFF THE ANNUAL STATEMENT.
   //
@@ -46,10 +45,20 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
   // ratio compressed the range, because the near-constant reinsurance and admin
   // sat in the denominator only. Here every cost is in the numerator too.
   // ============================================================================
-  const combined = useMemo(
-    () => (gameState?.isStarted ? topCombinedRatio(buildAnnualStatement(gameState, lineView)) : undefined),
+  const statement = useMemo(
+    () => (gameState?.isStarted ? buildAnnualStatement(gameState, lineView) : undefined),
     [gameState, lineView],
   );
+  const combined = statement ? topCombinedRatio(statement) : undefined;
+  // ============================================================================
+  // THE SURPLUS, READ OFF THE SAME STATEMENT: the balance sheet's Ending Surplus
+  // for the latest year (topSurplus) — the opening before year 1, each played
+  // year's year-end after it — for the view on screen. It was the pool's last
+  // result, whatever the view, and before year 1 startingFinancials' cash plus
+  // investments less the net reserve and unearned premium, which left out the
+  // loss expense reserve and read high by it.
+  // ============================================================================
+  const surplus = (statement ? topSurplus(statement) : undefined) ?? 0;
   const marketShare = lastResult?.marketShare ?? startingFinancials?.marketShare ?? 0;
   const poolName = gameState?.setup?.poolName ?? 'Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';

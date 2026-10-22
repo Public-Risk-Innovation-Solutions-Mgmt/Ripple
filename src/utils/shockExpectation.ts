@@ -327,9 +327,7 @@ export interface NewEngineLayerMoments { expected: number; sd: number; sdOverExp
 
 /**
  * Each layer's expected annual recovery and its SD, on the new engine's own
- * large losses. Bounds may be scaled (the bulk years' identity — see
- * expectedCededAtBoundsScale), which here is exact: every large loss scales
- * with the same trend.
+ * large losses.
  *
  * ⚠ EX ANTE IN EVERY YEAR, THE PRE-GAME INCLUDED (Prompt A commit 2). A price
  * is struck before the year on the catalogue's probabilities, so a pre-game
@@ -339,16 +337,15 @@ export interface NewEngineLayerMoments { expected: number; sd: number; sdOverExp
  * Property's layers at the routine claims alone and its Prior ceded premium
  * at nothing beside game years' $1M. `exAnte = false` asks instead what the
  * year's losses actually were expected to cede, which before year 1 is the
- * routine claims only: the bulk years' net ultimates are struck on that.
+ * routine claims only.
  */
 export function newEngineLayerMoments(
-  line: TowerLine, exposure: number, yearNumber: number, boundsScale = 1, exAnte = true,
+  line: TowerLine, exposure: number, yearNumber: number, exAnte = true,
   // The book's size-weighted true risk, on the routine claims (see largeLossMoments).
   routineRisk = 1,
 ): NewEngineLayerMoments[] {
   return REINSURANCE_TOWER[line].map(l => {
-    const layer = { attachment: l.attachment * boundsScale, limit: l.limit * boundsScale };
-    const c = layerCession(line, layer);
+    const c = layerCession(line, l);
     const m = largeLossMoments(line, exposure, yearNumber, c.h, c.kinks, false, ROUTINE_LARGE_LOSSES.enabled, exAnte, routineRisk);
     const sd = Math.sqrt(Math.max(0, m.variance));
     return { expected: m.mean, sd, sdOverExpected: m.mean > 0 ? sd / m.mean : 0, lambda: m.occurrences };

@@ -5,9 +5,9 @@ const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 const crypto = require('crypto');
 const OUT = process.argv[2] || 'before';
 
-// The top bar as src/game/tabs.tsx lists it (Dashboard and Departments are
-// hidden), plus Membership, which records TAB-ABSENT.
-const TABS = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions',
+// The top bar as src/game/tabs.tsx lists it (Dashboard, Departments and
+// Investments are hidden), plus Membership, which records TAB-ABSENT.
+const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
                'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
                'Calculation Audit', 'Membership'];
 const LINE_VIEWS = ['Pool', "Workers' Compensation"];

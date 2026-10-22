@@ -319,19 +319,28 @@ export function newPurePremiumFromLossCost(
  * usable accident year, the new engine's own ex-ante expectation on the same
  * rule. One function, read by the engine and by the Decisions panel, so the
  * two cannot price a book differently.
+ *
+ * ⚠ THE EXPECTATION IS THE BOOK'S OWN, AT ITS TRUE RISK (`bookRisk`, its
+ * size-weighted mean — bookOrdinaryRisk / lineBookRisk), like every other
+ * expected loss the engine reads. It first carried none, so the market's 1.0:
+ * harmless while bulk years gave the ledger a history from the start, but
+ * since the pool's history begins in 2021 this is what prices 2021, and 2022
+ * then jumped by exactly the book's risk x the scenario's experience x trend.
  */
 export function bookPurePremium(
   line: CoverageLine, pricingYear: number, basis: NewPurePremiumBasis, exposure: number,
+  // The book's size-weighted true risk; 1 is the market's.
+  bookRisk = 1,
 ): NewPurePremiumResult {
   if (!SHOCKS_OUT_OF_EXPERIENCE.enabled) {
     return newPurePremiumPer100(line, pricingYear, basis, exposure)
       ?? newPurePremiumFromLossCost(line,
-        expectedLossBreakdown(line, exposure, pricingYear).total / Math.max(exposure * 10_000, 1));
+        expectedLossBreakdown(line, exposure, pricingYear, undefined, bookRisk).total / Math.max(exposure * 10_000, 1));
   }
   // With no usable history: the ordinary expectation, plus the steady load when
   // it is on (0 off) — the shocks priced as the history prices them.
   const load = catastropheLoadPer100(line, pricingYear, exposure);
   return newPurePremiumPer100(line, pricingYear, basis, exposure)
     ?? newPurePremiumFromLossCost(line,
-      expectedLossBreakdown(line, exposure, pricingYear).ordinary / Math.max(exposure * 10_000, 1) + load, load);
+      expectedLossBreakdown(line, exposure, pricingYear, undefined, bookRisk).ordinary / Math.max(exposure * 10_000, 1) + load, load);
 }

@@ -195,8 +195,8 @@ export const DEVELOPMENT_CESSION_ENABLED = true;
 // will ever pay, so it cannot be the one an accident year's deterioration lands
 // on, and a subset frozen at inception ends its life pointing entirely at
 // settled files. The alternative to replacing them — letting the set SHRINK —
-// leaves a cohort with no open developing claims retaining its development ENTIRE, like
-// a seed cohort with no register: no cession at all on a cohort that still
+// leaves a cohort with no open developing claims retaining its development ENTIRE: no
+// cession at all on a cohort that still
 // carries an unpaid balance and still develops. Measured before this commit at
 // 0.59% of GL cohort-valuations and 0.61% of Property's. That is wrong at any
 // rate, so the set is replenished.

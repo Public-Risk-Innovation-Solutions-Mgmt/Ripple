@@ -301,7 +301,18 @@ async function resultsYearText(page, year) {
   ok(namedBefore.length > 0 && namedBefore.every(Boolean),
     `BEFORE THE RELOAD each drawn event is named in its own year's results (${carried.map(s => `${eventName(s)} y${s.yearNumber}`).join('; ')})`);
 
-  const playerSurplusBefore = (await player.locator('header').innerText()).match(/Surplus\s*\n?\s*(\S+)/)?.[1];
+  // ⚠ READ ON THE POOL VIEW, BOTH TIMES. The header's surplus is the view's
+  // (resultsStatement.topSurplus) since it was read off the statement, and the
+  // view on screen is not kept across a reload — the player left the WC tab
+  // open above and comes back on the pool. Reading both on one view compares
+  // the replay, not the tab.
+  const poolSurplus = async () => {
+    await player.getByRole('button', { name: 'Decisions', exact: true }).click();
+    const pool = player.getByRole('button', { name: 'Pool', exact: true }).first();
+    if (await pool.count() > 0) { await pool.click(); await player.waitForTimeout(350); }
+    return (await player.locator('header').innerText()).match(/Surplus\s*\n?\s*(\S+)/)?.[1];
+  };
+  const playerSurplusBefore = await poolSurplus();
 
   // ---- RELOAD: rebuild from the seed and replay ---------------------------
   await player.reload();
@@ -352,7 +363,7 @@ async function resultsYearText(page, year) {
   ok(JSON.stringify(rebuilt) === JSON.stringify(postedAt[PLAY]), `the whole year-${PLAY} summary is identical, field for field`);
 
   // ---- two paths to one number -------------------------------------------
-  const playerSurplusAfter = (await player.locator('header').innerText()).match(/Surplus\s*\n?\s*(\S+)/)?.[1];
+  const playerSurplusAfter = await poolSurplus();
   ok(playerSurplusAfter === playerSurplusBefore, `the player's own screen is unchanged by the reload (${playerSurplusBefore} -> ${playerSurplusAfter})`);
 
   await host.click('[data-testid="host-tab-teams"]');

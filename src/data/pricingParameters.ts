@@ -398,8 +398,12 @@ export const REINSURANCE_LOAD = 0.14;
 
 /**
  * HOW MANY YEARS OF PRIOR HISTORY THE PRE-GAME SIMULATES, with real claims
- * behind them. Everything OLDER, out to the end of the line's recorded paid
- * pattern, opens as a BULK cohort — see openingReserves.ts.
+ * behind them — 2021 to 2025. ⚠ AND THEY ARE THE POOL'S WHOLE HISTORY: there
+ * are no accident years before 2021. The pre-game starts on its paid-in capital
+ * with no reserves; 2021 prices on the starting expected loss, 2022 on one
+ * year, 2023 on two, 2024 on three, 2025 on four, and 2026 on the full five.
+ * (Everything older used to open as a BULK cohort — 2016-2020 on WC and GL,
+ * 2019-2020 on Property — inside OPENING_RESERVE_YEARS; both are retired.)
  *
  * ⚠ FIVE SINCE COMMIT 3, AND IT DROPPED WHETHER OR NOT THE NEW RATE IS ON.
  * It used to read ten, with a note saying five would STARVE the old ten-year
@@ -534,29 +538,38 @@ export const preGameLossMultiplier = (scenario: number): number =>
   1 + (1 - PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
 
 /**
- * STARTING CAPITAL — $5M PER LINE, paid in, with no earned surplus, at the
+ * STARTING CAPITAL — $12.5M PER LINE, paid in, with no earned surplus, at the
  * start of the pre-game. The Annual Statement's paid-in capital is this; earned
  * surplus is everything the pre-game adds.
  *
- * ⚠ WHY $5M, NOT $15M OR $10M — tried at all three across the twenty scenarios
- * by line, with the prior board's margin solved to land on each opening:
+ * ⚠ WHY $12.5M. The prior board's margin is solved to grow this into the
+ * scenario's opening, and it comes off when year 1 funds at Expected — so the
+ * less there is to grow, the higher the margin and the further the 2026 rate
+ * falls from 2025's. Tried across the twenty scenarios by line (the history
+ * beginning in 2021, profit and contingency 0); trend is WC 4%, GL 8%,
+ * Property 5%:
  *
- *   start   margins >= 0   margin supplies most growth   investment's share (median)
- *   $15M        1 / 60            0 / 60                          > 1
- *   $10M       19 / 60           21 / 60                         0.67
- *   $5M        45 / 60           40 / 60                         0.42
+ *            solved pre-game margin (range)          2026 rate change from 2025 (range)
+ *   start    WC            GL            Property    WC            GL            Property
+ *   $5M      7.1 to 10.2   8.5 to 13.0   9.8 to 13.8 -4.9 to -2.6  -3.7 to -0.3  -6.2 to -3.6
+ *   $10M     2.2 to 5.0    2.7 to 7.2    3.9 to 8.0  -0.8 to +1.6  +0.6 to +4.2  -2.3 to +0.8
+ *   $12.5M  -0.4 to 2.5   -0.1 to 4.2    1.0 to 5.4  +1.3 to +3.8  +3.0 to +6.7  -0.3 to +3.2
+ *   $15M    -2.9 to -0.1  -3.0 to 1.3   -2.0 to 2.8  +3.6 to +6.1  +5.5 to +9.3  +1.8 to +5.7
  *
- * $5M is the one where the most solved margins are zero or positive and most
- * growth comes from the margin. WC is the exception on every start: its long
- * reserves earn the 3% too, so investment is 55-77% of its growth and its
- * margin solves below expected in 15 of 20 scenarios (-7.0% to +2.3%). The
- * price is a thin first pre-game year: premium to surplus about 4.4-5.5.
- * ⚠ THAT TABLE WAS MEASURED WITH PROFIT AND CONTINGENCY AT 5%. At 0 the solved
- * margins rise by about the 5% the rate no longer carries: at $5M, 58 of 60
- * are at or above expected, WC below in 2 of 20 (-2.7% to +7.1%), investment
- * 57-81% of WC's growth; first pre-game year premium to surplus 4.5-5.6.
+ * At $12.5M the 2026 rate carries on rising from 2025's on almost every line
+ * and scenario (the one exception a Property scenario at -0.3%), where at $5M
+ * it fell on every one. Two scenarios' margins solve just below expected —
+ * WC scenario 10 at -0.35% and GL scenario 12 at -0.12% — ACCEPTED as a
+ * negligible underpricing by the prior board. $15M brings 2026 nearer trend
+ * but solves most margins below expected. Making the mean change equal trend
+ * would take about $14.2M / $15.4M / $16.4M (paid-in-capital-solve-report).
+ *
+ * $5M was chosen while imaginary accident years before the pre-game sat on
+ * the books as reserves, earning investment income that a larger start
+ * compounded (at $15M investment outgrew the margin). Those years are retired
+ * (The pool's history begins), so that reason went with them.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 5_000_000, GL: 5_000_000, Property: 5_000_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 12_500_000 };
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
@@ -1133,21 +1146,10 @@ export const NEW_BUSINESS_PENALTY = 0.20;
  */
 // (OPENING_SURPLUS_MULTIPLE_OF_REQUIRED = 2, removed with the wiring.)
 
-/**
- * OPENING RESERVE YEARS — how many accident years the pool holds reserves for
- * at the opening. Older accident years are treated as CLOSED.
- *
- * The opening window is the last OPENING_RESERVE_YEARS accident years: the
- * PRIOR_HISTORY_YEARS the pre-game plays with claims behind them, and the
- * years before those as bulk cohorts. The bulk years are on the books from
- * the START of the pre-game, at their ages then, and pay down on the recorded
- * patterns through it — so every pre-game balance sheet carries them, their
- * losses are in the pricing history from the first pre-game year, and the
- * opening is simply where the pre-game ends. (Before Prompt A commit 2 the
- * runoff reached each pattern's end — WC 37 years, GL 21, Property 11 — and
- * appeared all at once at the opening.)
- */
-export const OPENING_RESERVE_YEARS = 10;
+// ⚠ OPENING_RESERVE_YEARS IS RETIRED: the pool's history begins in 2021, so the
+// opening holds every accident year it has (the five played) and there is no
+// older window to bound. It was 10 — the played years and the bulk years before
+// them, on the books from the start of the pre-game.
 
 /**
  * How many years of prior history the new pricing reads.
@@ -1720,7 +1722,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'WC and GL at 1.5 because the recorded patterns were judged too slow; Property at 1.0. '
           + 'Applied where the patterns are defined, so payments, case and IBNR, the pricing LDFs, the '
-          + 'opening and its bulk years, the pre-game and the host\'s development all read the compressed patterns. '
+          + 'opening, the pre-game and the host\'s development all read the compressed patterns. '
           + 'Year-1 rates are unchanged; later rates move slightly because faster payment brings the host\'s adverse '
           + 'development into pricing sooner, and leaves less open balance for shock R development to act on.',
       }],
@@ -1803,12 +1805,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Singleplayer takes these defaults; a session takes the host\'s setting, per line.',
         basis: 'CHOSEN',
         note: 'THE BASE is the accident year\'s outstanding at the first valuation it meets — game '
-          + 'start for prior and bulk years, the end of its own first year for a played one. '
+          + 'start for a pre-game year, the end of its own first year for one played in the game. '
           + 'EACH YEAR\'S SHARE is that year\'s increment in paid share over the share still unpaid '
           + 'at the base, so by run-off exactly this percentage has emerged — asserted per accident '
           + 'year by development-emergence-check. ⚠ NOT A YEARLY RATE: read as one these same '
-          + 'percentages compound to about +54% on GL and +171% on WC. Bulk years develop held NET; '
-          + 'played years develop GROSS and their reinsurance recoveries are recalculated on each '
+          + 'percentages compound to about +54% on GL and +171% on WC. Every year develops GROSS and their reinsurance recoveries are recalculated on each '
           + 'occurrence\'s revised cost under that accident year\'s own cover, so adverse '
           + 'development makes reinsurance worth more. The GL $25M pool limit still applies.',
       }],
@@ -1841,9 +1842,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
-        what: 'How many pre-game years are simulated with real claims behind them.', basis: 'CHOSEN',
-        note: 'Ten while the old ten-year experience path is live; drops to the new window of five at '
-          + 'commit 3, and the two move together. Everything older opens as a bulk cohort.',
+        what: 'How many pre-game years are simulated with real claims behind them — 2021 to 2025.', basis: 'CHOSEN',
+        note: 'Ten while the old ten-year experience path was live; five with the new window since commit 3, '
+          + 'and the two move together.',
+      }],
+      ['The pool\'s history begins', {
+        value: 2021, unit: 'the first accident year',
+        what: 'There are no accident years before 2021, the first pre-game year. The pre-game starts on its paid-in '
+          + 'capital ($12.5M a line — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
+          + 'the starting expected loss with trend applied — no history; 2022 on one year, 2023 on two, 2024 on three, '
+          + '2025 on four; from 2026 the full five-year window.',
+        basis: 'CHOSEN',
+        note: 'Until then the books carried imaginary accident years before the pre-game — 2016-2020 on WC and GL, '
+          + '2019-2020 on Property — as bulk reserves on the books from its start, inside a window of ten accident '
+          + 'years (Opening reserve years, retired), so that pricing\'s window was full from the first pre-game year. '
+          + 'The opening surplus is still the scenario\'s, and the pre-game\'s margin is still solved to reach it.',
       }],
       ['Opening surplus', {
         value: 'year-1 premium at Expected / the scenario\'s premium to surplus', unit: 'surplus at the opening, each line',
@@ -1851,14 +1864,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'divided by its scenario\'s target ratio — see The twenty scenarios.', basis: 'CHOSEN',
         note: 'Was $35M on every line, interim until the scenarios. The pre-game starts from the starting capital and '
           + 'the prior board\'s margin is solved so its last year-end lands here, so the opening is set without a reset.',
-      }],
-      ['Opening reserve years', {
-        value: OPENING_RESERVE_YEARS, unit: 'accident years',
-        what: 'How many accident years the opening holds reserves for; older years are treated as closed.',
-        basis: 'CHOSEN',
-        note: 'The prior history years played with claims, and the years before them as bulk cohorts on '
-          + 'the books from the start of the pre-game, paying down through it. Was each pattern\'s full '
-          + 'length (WC 37 years, GL 21, Property 11) before Prompt A commit 2.',
       }],
     ],
   },
@@ -1964,12 +1969,13 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'Tried at $15M, $10M and $5M across the twenty scenarios by line. $5M gives the most solved margins at or '
-          + 'above expected (45 of 60, against 19 at $10M and 1 at $15M) and the most growth from the margin (40 of 60; '
-          + 'investment\'s median share 42%). WC stays the exception: its long reserves earn the 3% too, so investment '
-          + 'is 55-77% of its growth and its margin solves below expected in 15 of 20 scenarios. The first pre-game year '
-          + 'is thin: premium to surplus about 4.4-5.5. Those counts were with profit and contingency at 5%; at 0 the '
-          + 'margins rise by about that 5%: 58 of 60 at or above expected, WC below in 2 of 20 (-2.7% to +7.1%).',
+        note: 'The prior board\'s margin is solved to grow this into the opening and comes off when year 1 funds at '
+          + 'Expected, so a smaller start means a higher margin and a 2026 rate that falls from 2025\'s. Tried at $5M, $10M, '
+          + '$12.5M and $15M across the twenty scenarios by line. At $12.5M 2026\'s rate carries on rising from 2025\'s on '
+          + 'almost every line and scenario (WC +1.3 to +3.8%, GL +3.0 to +6.7%, Property -0.3 to +3.2%; at $5M it fell on '
+          + 'all). Two margins solve just below expected — WC scenario 10 at -0.35%, GL scenario 12 at -0.12% — accepted '
+          + 'as a negligible underpricing by the prior board. $15M solves most margins below expected. $5M was set while '
+          + 'imaginary pre-2021 reserves earned investment income; those years are retired.',
       }],
       ['Prior board\'s margin', {
         value: 'solved, per scenario and line', unit: 'over expected (CLF 1 + this)',

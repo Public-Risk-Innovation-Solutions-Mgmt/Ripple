@@ -24,7 +24,8 @@
 // the cohorts' gross unpaid balances wherever it is needed — the year's
 // accounting, the opening balance sheet — so there is no second balance to save
 // and nothing that can drift from the losses it is a share of. A cohort that
-// carries no gross ledger (the bulk years, held net) is taken at its net.
+// carries no gross ledger is taken at its net (none does since the bulk years,
+// held net, were retired).
 // ============================================================================
 
 import { ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST } from '../data/pricingParameters';

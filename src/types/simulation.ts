@@ -961,7 +961,7 @@ export interface ReserveCohort {
    * commit 6): its terms in dollars, fixed at inception, and what it has
    * recovered to date. Recalculated each valuation on the year's developed
    * gross; the change is a prior-year reinsurance adjustment. Absent when the
-   * year bought none, and on bulk cohorts.
+   * year bought none.
    */
   /**
    * THE ACCIDENT YEAR'S SHOCK DOLLARS, booked gross (stable-scenarios commit 7):
@@ -999,17 +999,6 @@ export interface ReserveCohort {
   // payoutPattern.ts — so `age` and the line are the whole state it needs.
   closed: boolean;
 
-  // True on a cohort apportioned by generateStartingReserveCohorts rather than
-  // written by a simulated year. Absent (falsy) on every engine-born cohort.
-  //
-  // ⚠ THIS FIELD DID NOT EXIST AND SOMETHING WAS ALREADY FILTERING ON IT.
-  // maturity-anchor-check declares `seeded?: boolean` on its own local cohort
-  // type and skips rows where it is set — a filter that has never once fired,
-  // because the flag lived only on ReserveDevelopmentRow. The gate was silently
-  // measuring apportioned seeds alongside real cohorts, which is exactly the
-  // contamination the filter was written to prevent. Adding the field makes the
-  // filter do what it says; it does not add a new rule.
-  seeded?: boolean;
 
   // --- IBNER (see defaultAssumptions.ts's IBNER_* block) -------------------
   // ⚠ `developmentFactor` IS GONE. It was written at two sites and READ AT
@@ -1035,13 +1024,12 @@ export interface ReserveCohort {
   bookingBias: number;
 
   // --- claim-level development (see developmentAllocation.ts) --------------
-  // The occurrences this accident year's development lands on. EMPTY on a seed
-  // cohort, which has no claim register behind it — its development is retained
-  // entire, which is the honest default and is 0.4% of all adverse development.
+  // The occurrences this accident year's development lands on. (Every cohort
+  // has a claim register since the pool's history begins in 2021; the seed
+  // cohorts that had none, and retained their development entire, are retired.)
   // ⚠ TRACKED OCCURRENCES, NOT JUST THE CARRIERS. Everything at or above the
   // retention plus the developing set — the only occurrences whose value can ever
-  // change a cession. EMPTY on a seed cohort, which has no register behind it
-  // and retains its development entire.
+  // change a cession.
   developingClaims?: DevelopingClaim[];
   // Gross total of the occurrences NOT tracked. All below the retention, so
   // they never cede; carried so a proportional movement gets the shares right
@@ -1222,18 +1210,11 @@ export interface ReserveDevelopmentRow {
   grossPaidByValuation?: number[];
   // The valuation year that ultimateByValuation[0] belongs to.
   firstValuationYear: number;
-  // The cohort's age at that first valuation. Zero for an accident year the
-  // engine wrote; POSITIVE for a seed cohort, which is born already aged.
+  // The cohort's age at that first valuation: zero, since every accident year
+  // is written by the engine (the seed cohorts that were born aged are retired).
   ageAtFirstValuation: number;
   // Runoff length. Development stops once age exceeds it.
   horizon: number;
-  // ⚠ SEEDED COHORTS HAVE NO REGISTER BEHIND THEM. They are apportioned from a
-  // drawn reserve total rather than summed from claims, so their first entry is
-  // their estimate AS AT GAME START, not at inception — there was no inception.
-  // The exhibit labels their column differently for that reason; presenting a
-  // game-start value as an original estimate would be the fiction that
-  // generateStartingReserveCohorts' header refuses to invent.
-  seeded: boolean;
 }
 
 // ============================================================================
@@ -1259,7 +1240,7 @@ export interface PricingTriangleState {
   /** The window depth this triangle was cut to — TRIANGLE_HISTORY_YEARS. */
   years: number;
   cells: PricingCell[];
-  /** 0 on seeded accident years, whose exposure is not reconstructable. */
+  /** Each accident year's exposure, as its ledger row recorded it. */
   exposureByYear: Record<string, number>;
   /**
    * The prospective rate per $100 THIS window produces — the rate the next

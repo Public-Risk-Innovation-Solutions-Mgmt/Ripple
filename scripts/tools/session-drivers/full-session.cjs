@@ -116,10 +116,11 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // Statements and Calculation Audit (GameShell's MULTIPLAYER_HIDDEN_TABS);
     // single-player keeps them, and solo-oracle holds that. The PAGES are intact.
     // ⚠ DASHBOARD AND DEPARTMENTS ARE HIDDEN IN BOTH (src/game/tabs.tsx), and
-    // Investments and Rate Indication joined the bar; navigation.cjs holds the order.
-    const tabs = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions',
+    // Rate Indication joined the bar, and Investments is hidden too (its memo is
+    // in the Introduction tab); navigation.cjs holds the order.
+    const tabs = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
                   'Decision History', 'Result Spreadsheet'];
-    const hiddenTabs = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments'];
+    const hiddenTabs = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments', 'Investments'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);

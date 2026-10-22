@@ -395,10 +395,10 @@ export function claimTerminalValue(
 //    is every occurrence that can ever cede. Named here rather than discovered
 //    at the flip.
 //
-// 2. SEED COHORTS ARE UNCHANGED. A cohort with no register has nothing to
-//    revise; processIbner's no-register branch keeps the cohort factor whether
-//    the flag is on or off. That is the same honest default as today, where a
-//    seed cohort retains its development entire.
+// 2. A COHORT WITH NOTHING TRACKED IS UNCHANGED: it has nothing to revise, and
+//    processIbner's no-register branch keeps the cohort factor whether the flag
+//    is on or off. (It was written for the seed cohorts, retired with the pool's
+//    history beginning in 2021.)
 // ============================================================================
 
 /** allocateDevelopment's result shape, reproduced so the engine's cession path
