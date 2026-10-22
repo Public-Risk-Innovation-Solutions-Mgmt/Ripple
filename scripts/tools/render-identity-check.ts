@@ -1181,7 +1181,19 @@ const BASELINE = process.env.RENDER_BASELINE
 // memo bodies (no header, no figure), every y2 pool view, and the
 // single-line games at y2, where the pool's last result already was the
 // statement's.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v78.json');
+// v79: THE HEADER'S MARKET SHARE FOLLOWS THE VIEW. The control ran first:
+// 501f38b built in its own worktree reproduced v78 236 of 236. 133 move, and
+// in every one the only change is the header's Market Share chip (both sides'
+// text word-diffed):
+//   90 on the pool view, and the view-less screens shown on it: the chip is
+//     gone — the three lines' markets are not comparable.
+//   43 on a line's view in the multi-line games, and the view-less screens
+//     following it: the line's own share for the pool's charge-weighted one
+//     (WC+GL+PR on WC 30.5% -> 30.0% at y0, on PR 33.6% -> 34.0% at y2).
+// Unmoved: the single-line games' line views (the pool's share was the
+// line's), the GL view of WC+GL+PR (GL's share equals the pool's to the
+// tenth), and the memo bodies.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v79.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

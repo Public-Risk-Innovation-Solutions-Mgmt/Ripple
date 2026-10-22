@@ -7,7 +7,6 @@ import { RippleMark } from '../assets/RippleLogo';
 
 interface HeaderProps {
   gameState: GameState | null;
-  startingFinancials?: { surplus: number; annualPremium: number; marketShare: number } | null;
   /** Omitted by a session player: the room owns the game's lifecycle, and a
    *  player who restarted would desync from a room that is still advancing. The
    *  solo game always passes it, so its button is unchanged. */
@@ -25,7 +24,7 @@ interface HeaderProps {
   lineView?: LineView;
 }
 
-export default function Header({ gameState, startingFinancials, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool' }: HeaderProps) {
+export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool' }: HeaderProps) {
   const lastResult = gameState?.lockedResults?.[gameState.lockedResults.length - 1];
 
   // ============================================================================
@@ -59,7 +58,16 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
   // loss expense reserve and read high by it.
   // ============================================================================
   const surplus = (statement ? topSurplus(statement) : undefined) ?? 0;
-  const marketShare = lastResult?.marketShare ?? startingFinancials?.marketShare ?? 0;
+  // ============================================================================
+  // THE MARKET SHARE FOLLOWS THE VIEW, LIKE THE SURPLUS: a line's own
+  // exposure share on its view, read off the latest year there is — the last
+  // pre-game year before year 1, the last played year after — the same result
+  // the Calculation Audit's Market Share opens on. ⚠ NONE ON THE POOL VIEW:
+  // the three lines' markets are not comparable (WC and GL payroll, Property
+  // TIV), so the chip is left out rather than showing a blend of them.
+  // ============================================================================
+  const latestResult = lastResult ?? gameState?.priorHistory?.at(-1);
+  const marketShare = lineView === 'pool' ? undefined : latestResult?.byLine[lineView]?.marketShare;
   const poolName = gameState?.setup?.poolName ?? 'Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';
   const yearNumber = gameState?.currentYearNumber ?? 1;
@@ -115,11 +123,14 @@ export default function Header({ gameState, startingFinancials, onNewGame, onAdv
                   testId="header-combined-ratio"
                 />
               )}
-              <Chip
-                label="Market Share"
-                value={formatPct(marketShare)}
-                valueClass="text-sky-400"
-              />
+              {marketShare !== undefined && (
+                <Chip
+                  label="Market Share"
+                  value={formatPct(marketShare)}
+                  valueClass="text-sky-400"
+                  testId="header-market-share"
+                />
+              )}
             </div>
           )}
 

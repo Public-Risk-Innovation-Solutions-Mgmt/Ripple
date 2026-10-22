@@ -1,4 +1,5 @@
-// THE SURPLUS AT THE TOP MATCHES THE STATEMENT'S — what a player sees.
+// THE SURPLUS AT THE TOP MATCHES THE STATEMENT'S, AND THE MARKET SHARE
+// FOLLOWS THE VIEW — what a player sees.
 //
 // The header's "Surplus" chip is the Annual Statement's balance-sheet Ending
 // Surplus for the latest year (resultsStatement.topSurplus): the opening before
@@ -7,6 +8,12 @@
 // 1, 7 and 12 and, on the Annual Statement tab, for the pool and every line,
 // before year 1 and after years 1 and 2, checks the chip against the
 // statement's latest-year Ending Surplus.
+//
+// The "Market Share" chip is a line's own exposure share on its view — the
+// same figure the Calculation Audit's Market Share row shows for that line at
+// the latest year — and absent on the pool view, where the three lines'
+// markets are not comparable. Checked at the same points, on the Calculation
+// Audit tab.
 //
 // The chip is in $M to two places and the statement in thousands, so the two
 // are equal when they agree within the chip's own rounding (half a cent of a
@@ -76,6 +83,30 @@ const ok = (cond, label, detail = '') => {
         ok(a !== null && b !== null && Math.abs(a - b) <= TOLERANCE_M,
           `scenario ${scenario}, ${phase}, ${view}: the chip is the statement's latest Ending Surplus`,
           `chip ${chip} · statement ${latest} (thousands)`);
+      }
+      await page.getByRole('button', { name: /^Calculation Audit$/ }).first().click();
+      await page.waitForTimeout(800);
+      for (const view of VIEWS) {
+        await page.getByRole('button', { name: view, exact: true }).first().click();
+        await page.waitForTimeout(500);
+        const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
+        const chip = (head.match(/Market Share\s+([\d.]+%)/) || [])[1];
+        if (view === 'Pool') {
+          ok(chip === undefined && !/Market Share/.test(head),
+            `scenario ${scenario}, ${phase}, Pool: no market share chip — the lines' markets are not comparable`, chip ? `chip ${chip}` : '');
+          continue;
+        }
+        const audit = await page.evaluate(() => {
+          for (const tr of document.querySelectorAll('main tr')) {
+            const tds = [...tr.querySelectorAll('td, th')].map(td => td.textContent.trim());
+            const i = tds.indexOf('Market Share');
+            if (i >= 0 && tds[i + 1]) return tds[i + 1];
+          }
+          return null;
+        });
+        ok(chip !== undefined && chip === audit,
+          `scenario ${scenario}, ${phase}, ${view}: the market share chip is the line's own, as the Calculation Audit shows it`,
+          `chip ${chip} · audit ${audit}`);
       }
     }
 
