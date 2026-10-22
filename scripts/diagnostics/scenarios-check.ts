@@ -43,7 +43,7 @@ import { LocalSessionTransport } from '../../src/session/localTransport';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
+import { PRE_GAME_DEPTH, runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { openWorlds, strikeRates } from '../../src/utils/worlds';
 import type { CoverageLine, GameInstance, GameSetupSettings, GameState, LineResultSet } from '../../src/types/simulation';
@@ -86,7 +86,7 @@ type Outcome = Record<string, 'accepted' | 'refused' | string>;
 async function createWith(seed: string): Promise<string> {
   const t = new LocalSessionTransport({ latencyMs: 0 });
   try {
-    await t.createRoom({ hostToken: newSessionToken(), seed, yearCount: 3, startingYear: 2026, eventName: 'S', expectedTeams: 2, shocks: [], lines: ['WC'] });
+    await t.createRoom({ hostToken: newSessionToken(), seed, yearCount: 3, startingYear: 2027, eventName: 'S', expectedTeams: 2, shocks: [], lines: ['WC'] });
     return 'accepted';
   } catch (e) { return (e as { code?: string }).code === 'INVALID_REQUEST' ? 'refused' : `failed (${(e as Error).message})`; }
 }
@@ -130,7 +130,7 @@ function open(id: string, instance: GameInstance, setup: GameSetupSettings): { o
     })),
   };
 }
-const settings = (id: string): GameSetupSettings => ({ poolName: 'S', gameLength: 10, startingYear: 2026, instanceId: id, activeLines: LINES } as GameSetupSettings);
+const settings = (id: string): GameSetupSettings => ({ poolName: 'S', gameLength: 10, startingYear: 2027, instanceId: id, activeLines: LINES } as GameSetupSettings);
 const all: Opened[] = [];
 const soloInstances: Record<string, GameInstance> = {};
 for (const id of TWENTY) {
@@ -162,7 +162,7 @@ function gradeExperience(rows: Opened[], factorOf: (n: number) => number, tag: s
     n++;
     worst = Math.max(worst, Math.abs(e.ordinaryRealised / e.ordinaryExpected - factorOf(r.n)));
   }
-  check(worst < 1e-9 && n === rows.length * 5,
+  check(worst < 1e-9 && n === rows.length * PRE_GAME_DEPTH,
     `${tag}6. every pre-game line-year's ordinary losses are expected x (1 + (1 - 1.5 / ratio) x 0.3)`,
     `${n} pre-game line-years; worst off ${worst.toExponential(2)}`);
 }

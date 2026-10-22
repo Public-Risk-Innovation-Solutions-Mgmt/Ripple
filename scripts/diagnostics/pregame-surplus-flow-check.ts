@@ -4,7 +4,7 @@
 //   npx tsx scripts/diagnostics/pregame-surplus-flow-check.ts
 //
 // A real pool's surplus moves only by its income, assessments and dividends.
-// Across all five pre-game years and into year 1, on every line and the pool,
+// Across all six pre-game years (PRE_GAME_DEPTH) and into year 1, on every line and the pool,
 // in solo ten-world games as the app plays them:
 //
 //   1. EACH YEAR MOVES BY ITS INCOME: year-end − year-start = net income, and
@@ -43,7 +43,8 @@ const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const SEEDS = ['12', '16', '1', '7'];
 // ⚠ THE FIVE PRE-GAME YEARS, STATED HERE — not read from the engine's depth, or
 // a pre-game that lost a year would shorten the chain this checks along with it.
-const PRE_GAME = 5;
+const PRE_GAME = PRE_GAME_DEPTH;
+const PRE_GAME_YEARS_LIST = Array.from({ length: PRE_GAME }, (_, i) => i - (PRE_GAME - 1)).join();
 const DOLLAR = 1;
 const failures: string[] = [];
 const check = (ok: boolean, label: string, detail = '') => {
@@ -54,7 +55,7 @@ const check = (ok: boolean, label: string, detail = '') => {
 interface Year { yearNumber: number; begin: number; end: number; netIncome: number; uw: number; inv: number }
 interface Chain {
   label: string;
-  preGame: Year[];             // the five pre-game years, oldest first
+  preGame: Year[];             // the pre-game years (PRE_GAME_DEPTH), oldest first
   year1: Year[];               // year 1 in every world
   opening: number;             // the opening surplus the game holds
   setOpening: number;          // what the opening rule sets
@@ -99,8 +100,8 @@ function grade(chains: Chain[], tag: string) {
     for (const c of chains) { const v = f(c); if (v > m) { m = v; at = c.label; } }
     return { m, at };
   };
-  const yrs = chains.every(c => c.preGame.length === PRE_GAME && c.preGame.map(y => y.yearNumber).join() === '-4,-3,-2,-1,0');
-  check(yrs, `${tag}five pre-game years, −4 to 0, on every chain`);
+  const yrs = chains.every(c => c.preGame.length === PRE_GAME && c.preGame.map(y => y.yearNumber).join() === PRE_GAME_YEARS_LIST);
+  check(yrs, `${tag}all ${PRE_GAME} pre-game years, ${-(PRE_GAME - 1)} to 0, on every chain`);
   const f = worst(flowMiss);
   check(f.m <= DOLLAR, `${tag}1. every year moves by its net income`, `worst $${f.m.toFixed(6)} (${f.at})`);
   const s = worst(seamMiss);
@@ -118,7 +119,7 @@ const chains: Chain[] = [];
 const opensUnsolved: Chain[] = [];
 const seamRestored: Chain[] = [];
 for (const id of SEEDS) {
-  const { setup, instance } = openSoloInstance({ poolName: 'S', gameLength: 1, startingYear: 2026, instanceId: id, activeLines: LINES } as GameSetupSettings);
+  const { setup, instance } = openSoloInstance({ poolName: 'S', gameLength: 1, startingYear: 2027, instanceId: id, activeLines: LINES } as GameSetupSettings);
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   const preGame: ResultSet[] = [...(earlyPreGameHistory ?? []), ...priorHistory];
   let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory });
@@ -178,7 +179,7 @@ controlFails('the reset before 2023 restored (seam spliced)', seamRestored, '2.'
 controlFails('a dividend paid outside income', chains.map(c => ({ ...c, preGame: c.preGame.map((y, i) => i === 2 ? { ...y, end: y.end - 1e5 } : y) })), '1.');
 controlFails('an opening off the rule', chains.map(c => ({ ...c, setOpening: c.setOpening * 1.01 })), '4.');
 controlFails('a pre-game started from the old $15M', chains.map(c => ({ ...c, paidIn: c.paidIn * 3 })), '5.');
-controlFails('a pre-game year missing', chains.map(c => ({ ...c, preGame: c.preGame.slice(1) })), 'five');
+controlFails('a pre-game year missing', chains.map(c => ({ ...c, preGame: c.preGame.slice(1) })), 'all ');
 
 // ---------------------------------------------------------------- verdict
 console.log('');

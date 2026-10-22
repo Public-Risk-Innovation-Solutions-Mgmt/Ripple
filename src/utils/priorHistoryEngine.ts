@@ -73,7 +73,7 @@ export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
 // ============================================================================
 // THE PRE-GAME IS THE POOL'S WHOLE HISTORY, AND IT BEGINS IN 2021.
 //
-// PRE_GAME_DEPTH years are played — 2021 to 2025 at the shipped five — on the
+// PRE_GAME_DEPTH years are played — 2021 to 2026 at the shipped six — on the
 // line's paid-in capital (STARTING_CAPITAL, $12.5M) and nothing else: no reserves,
 // no cohorts, no ledger. Reserves build only from 2021's claims on, and the
 // opening is simply where the last year ends. The last PRE_GAME_YEARS of them
@@ -122,8 +122,8 @@ export interface PriorHistoryResult {
   priorHistory: ResultSet[];      // the 3 accepted pre-game years, oldest first (pool aggregate)
   /**
    * THE PRE-GAME'S EARLIER YEARS — every played pre-game year before the three
-   * in priorHistory (yearNumbers -4, -3), oldest first, aggregated the same way.
-   * Kept for the Annual Statement, which shows all five; priorHistory is
+   * in priorHistory (yearNumbers -5, -4, -3), oldest first, aggregated the same way.
+   * Kept for the Annual Statement, which shows all six; priorHistory is
    * unchanged, so nothing else that reads it moves.
    */
   earlyPreGameHistory: ResultSet[];
@@ -137,7 +137,7 @@ export interface PriorHistoryResult {
 interface LinePreGame {
   line: CoverageLine;
   lineResults: LineResultSet[];   // years -2, -1, 0 for this line
-  /** The pre-game's earlier years (-4, -3), kept for the Annual Statement. */
+  /** The pre-game's earlier years (-5, -4, -3), kept for the Annual Statement. */
   earlyLineResults: LineResultSet[];
   lineState: LinePoolState;       // ending state (Year 1 opening for this line)
   cash: number;                   // this line's own ending operating cash
@@ -191,10 +191,11 @@ export function simulateLineCandidate(
   // no accident years before it: the line starts with no reserves, no cohorts
   // and an empty ledger, and reserves build only from 2021's claims on. So
   // 2021 is priced on the starting expected loss for its year (bookPurePremium's
-  // ex-ante figure, trended) — no history — and each later year on the years
-  // there are: 2022 on one, 2023 on two, 2024 on three, 2025 on four, 2026 on
-  // the full five-year window. (The bulk accident years that used to sit here,
-  // older than the pre-game, are retired.)
+  // ex-ante figure, trended) — no history — and so is 2022, since pricing reads
+  // a year behind (PRICING_DATA_LAG_YEARS); each later year on the complete
+  // years there are: 2023 on one, 2024 on two, 2025 on three, 2026 on four, and
+  // 2027, the first played year, on the full five-year window. (The bulk
+  // accident years that used to sit here, older than the pre-game, are retired.)
   {
     const ls = bootstrap.lines[line];
     bootstrap.lines[line] = { ...ls, reserveCohorts: [], reserveDevelopment: [], netUnpaidReserve: 0 };

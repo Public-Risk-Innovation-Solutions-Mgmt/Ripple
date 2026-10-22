@@ -130,7 +130,9 @@ const FAST: string[] = [
   'history-begins-2021-check',       //   6s   the pool's history begins in 2021: the pre-game starts
                                      //         empty on its paid-in capital, the opening holds exactly
                                      //         its years and nothing older, no jump, and pricing reads
-                                     //         0/1/2/3/4 years then the full 5. Four controls. Replaces
+                                     //         the complete years a year behind — 0/0/1/2/3/4 then the
+                                     //         full 5 in 2027 — valued at the latest data year's end.
+                                     //         Seven controls. Replaces
                                      //         opening-partition-check and opening-reserves-report,
                                      //         retired with the bulk years.
   'parameters-page-check',           //   6s   docs/PARAMETERS.md must be what the generator
@@ -285,7 +287,7 @@ const FAST: string[] = [
                                      //         Prior + the five reconcile to the full history, the
                                      //         pre-game columns are the engine's — each with a control
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
-                                     //         and dividends across all five years and into year 1,
+                                     //         and dividends across all six years and into year 1,
                                      //         with no reset before 2023 or at the opening, and year 1
                                      //         opens at the set opening — each reset restored a control
   'lae-booking-check',               //  15s   LAE is booked: incurred, paid and reserved as the rate's
