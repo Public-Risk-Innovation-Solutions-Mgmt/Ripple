@@ -188,6 +188,13 @@ export const DEFAULT_FUNDING_CONFIDENCE_LEVEL = 0.60;
 export const FUNDING_SLIDER_RANGE = { min: 0.30, max: 0.90, step: 0.05, default: DEFAULT_FUNDING_CONFIDENCE_LEVEL };
 
 /**
+ * THE RATE INDICATION'S OTHER FUNDING LEVELS — shown beside Expected on the
+ * Actuarial department's Rate Indication. Display only: each is a slider stop,
+ * priced as the Decisions panel prices it.
+ */
+export const RATE_INDICATION_FUNDING_LEVELS = [0.70, 0.80, 0.90] as const;
+
+/**
  * THE RESERVE MARGIN'S FIXED CONFIDENCE LEVEL — 80% (stable-scenarios commit 2;
  * was 90%). Required capital = outstanding reserves x (the line's CLF at this
  * level - 1). The single source: clfTables' RESERVE_MARGIN_CONFIDENCE reads it.
@@ -933,6 +940,10 @@ export const SHOCK_LOSS_CV = 0.5;
  * ⚠ AND A THIRD TIME, from WC 2.211 / GL 1.549 / Property 0.515, once profit
  * and contingency went to 0: premium on the same books fell to $28.38M /
  * $28.44M / $28.47M.
+ * ⚠ AND NO LONGER RE-SCALED WHEN PRICING CHANGES. Since the expectation
+ * followed the shock switch the multipliers stay as they are; a pricing change
+ * moves year-1 premium, and exposure-scale-check allows $27M to $33M on each
+ * line before anyone looks. Then: WC $29.1M, GL $28.5M, Property $27.9M.
  */
 export const EXPOSURE_SCALE: PerLine<number> = { WC: 2.342, GL: 1.640, Property: 0.546 };
 
@@ -1202,12 +1213,34 @@ export interface AggregateStopOption {
 }
 export const AGGREGATE_STOP_OPTIONS: readonly AggregateStopOption[] = [
   { id: 'none', name: 'None', attachment: 0, limit: 0 },
-  { id: 'working', name: 'Working cover', attachment: 1.00, limit: 0.50 },
-  { id: 'bad-year', name: 'Bad-year cover', attachment: 1.15, limit: 0.50 },
-  { id: 'catastrophe', name: 'Catastrophe cover', attachment: 1.30, limit: 1.00 },
+  // ⚠ NAMES ARE LABELS ONLY: the ids ('working', 'bad-year', 'catastrophe') are
+  // what saves, decisions and the session contract carry, and stay as they are.
+  // Renamed from Working / Bad-year / Catastrophe cover, by where each attaches.
+  { id: 'working', name: 'Low attachment', attachment: 1.00, limit: 0.50 },
+  { id: 'bad-year', name: 'Medium attachment', attachment: 1.15, limit: 0.50 },
+  { id: 'catastrophe', name: 'High attachment', attachment: 1.30, limit: 1.00 },
 ];
-/** Held by every team until it chooses, and by the pre-game's prior board. */
+/**
+ * Held by every team until it chooses, and by the pre-game's prior board — WHILE
+ * THE GAME'S SHOCKS ARE ON (shockLosses.gameShocksOn).
+ */
 export const AGGREGATE_STOP_DEFAULT = 'bad-year';
+
+/**
+ * WHILE A GAME'S SHOCKS ARE OFF: the options offered, and the default.
+ *
+ * Only None and the Working cover are offered; the Bad-year and Catastrophe
+ * covers are hidden. They attach at 115% and 130% of the year's expected
+ * losses, and with the shocks off a year is its ordinary losses alone — a
+ * lognormal around expected at the line's Baseline CV — which almost never
+ * reaches 115% and never 130%: priced on that year they cost about nothing and
+ * pay nothing. The default, for players and the pre-game's prior board, is
+ * None. When the game's shocks are on, all four options return and the default
+ * is AGGREGATE_STOP_DEFAULT. The engine still prices any option it is handed;
+ * this is what a team is offered and what it holds until it chooses.
+ */
+export const AGGREGATE_STOP_OFFERED_SHOCKS_OFF: readonly string[] = ['none', 'working'];
+export const AGGREGATE_STOP_DEFAULT_SHOCKS_OFF = 'none';
 /** The price's load on the SD of the annual recovery: price = E + this x SD. */
 export const AGGREGATE_STOP_SD_LOAD = 0.5;
 /**
@@ -1422,6 +1455,17 @@ export const SHOCKS_PER_YEAR = 0.3;
  * stream and save handling are untouched and come back as they were when this
  * is switched on. Pricing never read the schedule, so the rate is the same
  * either way.
+ *
+ * ⚠ THE EXPECTATION FOLLOWS THE GAME'S SHOCKS (shockLosses.gameShocksOn). A
+ * game whose shocks are off — single-player with this off, or a room whose
+ * host scheduled none — reads the ORDINARY-LOSS expectation only, everywhere:
+ * the Expected Losses rows and the reserve basis built on them, the expected
+ * loss ratio, the aggregate stop's attachment, and each cover's price and its
+ * recovery distribution. A hosted game with a schedule, and a harness on the
+ * catalogue, keep the shock-inclusive expectation. With the catalogue's shocks
+ * in a game where none could fire, Expected Losses read 4-6% above every
+ * simulated year, and the Working cover attached that far above the real mean,
+ * paid in about one world in five and recovered 8% of its price.
  */
 export const SOLO_SHOCKS = { enabled: false };
 export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
@@ -1642,6 +1686,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'Back to fives: the funding tables wiring cut it to tens because its tables had columns only at 30, 40 … 90; '
           + 'they now carry the fives too, re-derived on the same draws (all existing cells identical). Every stop is a '
           + 'column of the BaselineCV tables, none interpolated.',
+      }],
+      ['Rate Indication funding levels', {
+        value: RATE_INDICATION_FUNDING_LEVELS.map(l => `${Math.round(l * 100)}%`).join(', '),
+        unit: 'confidence',
+        what: 'The funding levels the Rate Indication shows beside Expected, each with its indicated rate and change.',
+        basis: 'CHOSEN',
+        note: 'Display only. Each is a slider stop, priced by the Decisions panel\'s own pricing, so the indicated '
+          + 'rate plus a cover\'s price is the rate the panel charges there.',
       }],
     ],
   },
@@ -2029,7 +2081,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'Scales everything tied to exposure — ordinary losses, the shocks\' large losses, the stop\'s terms — '
           + 'and nothing fixed in dollars: the fixed admin, the GL pool limit, the peril deductibles, the opening surplus. '
-          + 'Last re-set from WC 2.211 / GL 1.549 / Property 0.515 when profit and contingency went to 0.',
+          + 'Last re-set from WC 2.211 / GL 1.549 / Property 0.515 when profit and contingency went to 0. NO LONGER '
+          + 'RE-SCALED WHEN PRICING CHANGES: the multipliers are pinned, and year-1 premium at Expected may sit '
+          + 'anywhere from $27M to $33M on each line (WC $29.1M, GL $28.5M, Property $27.9M once the covers were '
+          + 'priced on the ordinary year in single-player).',
       }],
       ['Full-market exposure', {
         value: perLine(FULL_MARKET_EXPOSURE, 3), unit: '$M of exposure, base year',
@@ -2096,7 +2151,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: `Price = expected recovery + ${AGGREGATE_STOP_SD_LOAD} x the SD of the annual recovery, no floor, from `
           + `${AGGREGATE_STOP_SAMPLES.toLocaleString('en-US')} sampled accident years per line. Default: `
           + `${AGGREGATE_STOP_OPTIONS.find(o => o.id === AGGREGATE_STOP_DEFAULT)?.name}, for players and the prior `
-          + 'board. Replaces the per-claim packages, whose code stays dormant behind the switch.',
+          + 'board, while the game\'s shocks are on. Replaces the per-claim packages, whose code stays dormant behind '
+          + 'the switch.',
+      }],
+      ['Covers while shocks are off', {
+        value: `offered: ${AGGREGATE_STOP_OFFERED_SHOCKS_OFF.map(id => AGGREGATE_STOP_OPTIONS.find(o => o.id === id)?.name).join(' · ')}; `
+          + `default: ${AGGREGATE_STOP_OPTIONS.find(o => o.id === AGGREGATE_STOP_DEFAULT_SHOCKS_OFF)?.name}`,
+        unit: 'rule',
+        what: 'While a game\'s shocks are off (single-player while shocks are off there, or a hosted room with none '
+          + 'scheduled) only None and the lowest-attaching cover are offered, and None is the default for players and '
+          + 'the prior board. With the shocks on, all four options return and the default is the one above.',
+        basis: 'CHOSEN',
+        note: 'The two higher-attaching covers attach at 115% and 130% of the year\'s expected losses; with no shocks a '
+          + 'year is its ordinary losses alone, which almost never reach 115% and never 130%, so they would cost about '
+          + 'nothing and pay nothing.',
       }],
       ['Default package', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,
@@ -2171,6 +2239,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'Pending the data scientist\'s review of the shocks\' sizes. On, single-player draws its schedule as '
           + 'described under Shock timing.',
+      }],
+      ['Expected losses follow the shocks', {
+        value: 'ordinary only whenever a game\'s shocks are off', unit: 'rule',
+        what: 'A game whose shocks are off — single-player while the switch above is off, or a hosted room with '
+          + 'no shocks scheduled — reads the ordinary-loss expectation only, everywhere it reads expected loss: '
+          + 'the Expected Losses rows and the reserve basis on them, the expected loss ratio, the aggregate stop\'s '
+          + 'attachment, and each cover\'s price and recovery distribution. A hosted game with a shock schedule '
+          + 'keeps the shock-inclusive expectation, at the catalogue\'s probabilities.',
+        basis: 'CHOSEN',
+        note: 'With the catalogue\'s shocks in a game where none could fire, Expected Losses read 4-6% above every '
+          + 'simulated year (scenario 10, WC), and the Working cover attached that far above the real mean, paid in '
+          + 'about one world in five and recovered 8% of its price. On the ordinary expectation it costs about a '
+          + 'third less and pays in about half the worlds, recovering 55% of its price; the Bad-year and Catastrophe '
+          + 'covers, attaching at 115% and 130% of an ordinary year, now price at about nothing.',
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',

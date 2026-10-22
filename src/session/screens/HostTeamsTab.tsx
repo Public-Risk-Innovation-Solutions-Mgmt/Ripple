@@ -36,7 +36,7 @@ import { useState } from 'react';
 import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
-import { colorForRatio, colorForSurplus, formatCurrency, formatPct } from '../../utils/formatters';
+import { colorForRatio, colorForSurplus, formatCurrency, formatMillions, formatPct } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import type { RoomView, TeamYearFigures, TeamView } from '../index';
 
@@ -189,7 +189,7 @@ export default function HostTeamsTab({ room }: Props) {
                         {formatCurrency(state.figures.poolPremium, true)}
                       </td>
                       <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {`$${state.figures.activeExposure.toFixed(1)}M`}
+                        {formatMillions(state.figures.activeExposure, 1)}
                       </td>
                       <td className="px-5 py-2.5 font-mono text-slate-700">
                         {/* ⚠ A DASH MEANS THE TEAM'S LINES CHOSE DIFFERENT STOPS, not zero

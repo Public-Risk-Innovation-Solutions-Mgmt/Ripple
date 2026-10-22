@@ -297,11 +297,20 @@ export function expectedLossBreakdown(
   // ⚠ AND ITS ROUTINE LARGE LOSSES SINCE BOOK UNITS COMMIT 5: they land on the
   // units by size x risk, and their count is on exposure x risk.
   bookRisk = 1,
+  // ⚠ THE GAME'S SHOCK SWITCH (shockLosses.gameShocksOn). Off, the expectation
+  // is what the game can draw: ordinary losses and any routine large losses,
+  // with no uplift and no shock large losses. On (the default — a hosted game
+  // with a schedule, or a harness on the catalogue), the shocks at the
+  // catalogue's probabilities, as before.
+  shocks = true,
 ): ExpectedLossBreakdown {
   const ordinary = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber) * bookRisk;
-  const u = upliftMoments(line, yearNumber);
   const large = largeLossMoments(line, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line), true, routineOn,
     false, bookRisk);
+  if (!shocks) {
+    return { ordinary, uplift: 0, shockLarge: 0, routineLarge: large.routine, total: ordinary + large.routine, byEvent: new Map() };
+  }
+  const u = upliftMoments(line, yearNumber);
   const byEvent = new Map<string, number>();
   for (const [k, v] of u.byEvent) byEvent.set(k, v * ordinary);
   for (const [k, v] of large.byEvent) byEvent.set(k, (byEvent.get(k) ?? 0) + v);

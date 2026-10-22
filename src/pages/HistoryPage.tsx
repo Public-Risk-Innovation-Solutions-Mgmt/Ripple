@@ -27,7 +27,7 @@ export default function HistoryPage({ historicalYears, lineView }: HistoryPagePr
   const exposureLabel = lineView === 'Property' ? 'TIV Exposure' : 'Payroll Exposure';
 
   const operatingRows: HistoryRow[] = [
-    { label: 'Active Exposure', value: year => `$${year.activeExposure.toFixed(1)}M` },
+    { label: 'Active Exposure', value: year => formatMillions(year.activeExposure, 1) },
     { label: exposureLabel, value: year => formatMillions(year.activeExposure) },
     { label: 'Market Share (% of Exposure)', value: year => formatPct(year.marketShare) },
     // ⚠ BLANK AT POOL SCOPE, AND THE LABEL IS WHY. "per $100 Payroll" is a true
@@ -115,8 +115,8 @@ export default function HistoryPage({ historicalYears, lineView }: HistoryPagePr
         <SummaryCard
           icon={<Users size={17} />}
           label="Opening Exposure"
-          value={`$${last.activeExposure.toFixed(1)}M`}
-          detail={`${exposureChange >= 0 ? '+' : ''}$${exposureChange.toFixed(1)}M over history`}
+          value={formatMillions(last.activeExposure, 1)}
+          detail={`${exposureChange >= 0 ? '+' : '−'}${formatMillions(Math.abs(exposureChange), 1)} over history`}
           valueClass="text-gray-900"
         />
         <SummaryCard

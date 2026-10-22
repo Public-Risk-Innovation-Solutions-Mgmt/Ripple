@@ -25,14 +25,11 @@ import { placementSummary, hasTractableCeded, towerTopLabel, RETAINED_ABOVE_TOWE
 import { lineDisplayName } from '../utils/lineDisplay';
 import { eventLabel, yearEvents } from '../utils/yearEvents';
 import { MEMBER_LEVEL } from '../data/pricingParameters';
-import WorldsSurplusRange from '../components/WorldsSurplusRange';
-import type { SurplusRange } from '../utils/worlds';
 
 interface ResultsPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
   lineView: LineView;
   /** Ending surplus across the worlds, by played year, at this view's scope (loss engine commit 4b). */
-  surplusRangeByYear?: Record<number, SurplusRange>;
 }
 
 // Stage 2.3 — Individual-Year Comparison. 'goodUp'/'goodDown' color the change
@@ -125,7 +122,7 @@ function formatMetricValue(kind: MetricKind, value: number): string {
   return kind === 'ratio' ? formatPct(value) : formatCurrency(value);
 }
 
-export default function ResultsPage({ lockedResults, lineView, surplusRangeByYear }: ResultsPageProps) {
+export default function ResultsPage({ lockedResults, lineView }: ResultsPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
   );
@@ -196,14 +193,9 @@ export default function ResultsPage({ lockedResults, lineView, surplusRangeByYea
                     {ev.sinceYear !== undefined && (
                       <span className="ml-2 font-normal text-amber-700">in force since year {ev.sinceYear}</span>
                     )}
-                    {ev.worlds && (
-                      // An averaged row (loss engine commit 4b): the figures below
-                      // are averages over every world, counting zero where it did
-                      // not fire.
-                      <span data-testid="event-worlds" className="ml-2 font-normal text-amber-700">
-                        in {ev.worlds.fired} of {ev.worlds.of} worlds — averaged over all {ev.worlds.of}
-                      </span>
-                    )}
+                    {/* ⚠ NO "in N of M worlds" — players are never told about the
+                        worlds (docs/PENDING_MULTIPLAYER.md §0). The figures below are
+                        the averaged row's, as every figure on the page is. */}
                   </p>
                   {ev.lines.map(l => (
                     <p key={l.line} className="text-amber-700 font-mono text-xs mt-1">
@@ -493,7 +485,9 @@ export default function ResultsPage({ lockedResults, lineView, surplusRangeByYea
                 valueColor={colorForSurplus(result.endingSurplus)}
                 bold
               />
-              <WorldsSurplusRange range={surplusRangeByYear?.[selectedYear]} label="Ending surplus" />
+              {/* ⚠ THE SURPLUS RANGE ACROSS THE WORLDS CAME OFF — players are never
+                  told about the worlds. It stays in the session's posted results,
+                  for the host. */}
               <Row
                 label="Tie-Out Difference"
                 value={formatCurrency(result.surplusTieOutDifference)}

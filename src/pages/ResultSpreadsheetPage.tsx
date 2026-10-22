@@ -25,7 +25,6 @@ interface ResultSpreadsheetPageProps {
   poolState: PoolState;
   /** A multi-world game's world 1 — the claims workbook's source. Absent on one world. */
   claimsWorld?: { lockedResults: ResultSet[]; poolState: PoolState };
-  worldCount?: number;
 }
 
 // ⚠ ONE SWITCH FOR THE TWO MEMBER-LEVEL VIEWS ON THIS PAGE: the Active Member
@@ -35,7 +34,7 @@ interface ResultSpreadsheetPageProps {
 // Typed, not a literal, so it reads as a setting rather than dead code.
 const SHOW_MEMBER_VIEWS: boolean = false;
 
-export default function ResultSpreadsheetPage({ lockedResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld, worldCount }: ResultSpreadsheetPageProps) {
+export default function ResultSpreadsheetPage({ lockedResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld }: ResultSpreadsheetPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
   );
@@ -147,7 +146,8 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
               // ⚠ CLAIMS ARE A WORLD'S, NOT THE AVERAGE'S (loss engine commit 4b).
               // An averaged year has no claims of its own, so in a multi-world
               // game the workbook is world 1's — its own claims, its own
-              // development — and the button says so.
+              // development. The button does not say so: players are never told
+              // about the worlds.
               const src = claimsWorld ?? { lockedResults, poolState };
               const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instanceId);
               XLSX.writeFile(wb, claimsExportFilename);
@@ -155,7 +155,8 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
           >
             <Download size={16} />
-            {claimsWorld ? `Download Claims — world 1 of ${worldCount} (.xlsx)` : 'Download Claims (.xlsx)'}
+            {/* ⚠ NO "world 1 of N" — players are never told about the worlds. */}
+            Download Claims (.xlsx)
           </button>
 
           {/* ⚠ THE MEMBERS CSV DOWNLOAD IS HIDDEN, NOT DELETED. buildMemberCsv

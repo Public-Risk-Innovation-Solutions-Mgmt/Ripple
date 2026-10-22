@@ -5,7 +5,7 @@
 // in sync.
 import * as XLSX from 'xlsx';
 import type { CoverageLine, LineResultSet, ResultSet } from '../types/simulation';
-import { formatPct } from './formatters';
+import { formatNumber, formatPct } from './formatters';
 
 // SpreadsheetMetric functions are typed against LineResultSet (the smaller
 // shape) so the SAME metric list works for both the Pool tab (ResultSet[],
@@ -138,7 +138,7 @@ function poolLineSplitMetrics(src: SpreadsheetMetric, activeLines: CoverageLine[
         key: `activeExposure_${line}`,
         category,
         label: `Active Exposure — ${line} (${exposureUnitLabel(line)})`,
-        value: r => byLine(r, line).activeExposure.toFixed(2),
+        value: r => formatNumber(byLine(r, line).activeExposure, 2),
         csvValue: r => byLine(r, line).activeExposure,
       }));
     case 'totalMarketExposure':
@@ -147,7 +147,7 @@ function poolLineSplitMetrics(src: SpreadsheetMetric, activeLines: CoverageLine[
         key: `totalMarketExposure_${line}`,
         category,
         label: `Total Market Exposure — ${line} (${exposureUnitLabel(line)})`,
-        value: r => byLine(r, line).totalMarketExposure.toFixed(2),
+        value: r => formatNumber(byLine(r, line).totalMarketExposure, 2),
         csvValue: r => byLine(r, line).totalMarketExposure,
       }));
     case 'writtenExposure':
@@ -156,7 +156,7 @@ function poolLineSplitMetrics(src: SpreadsheetMetric, activeLines: CoverageLine[
         key: `writtenExposure_${line}`,
         category,
         label: `Written Exposure — ${line} (${exposureUnitLabel(line)})`,
-        value: r => byLine(r, line).writtenExposure.toFixed(2),
+        value: r => formatNumber(byLine(r, line).writtenExposure, 2),
         csvValue: r => byLine(r, line).writtenExposure,
       }));
     case 'marketShare':
@@ -440,18 +440,17 @@ export function buildResultsWorkbook(
 // case the caller drops the sheet entirely).
 function buildShockRows(lockedResults: ResultSet[]): (string | number)[][] {
   const rows: (string | number)[][] = [[
-    'Year', 'Calendar Year', 'Event', 'Name', 'Band', 'Horizon', 'Year Fired', 'Lines', 'Worlds',
+    'Year', 'Calendar Year', 'Event', 'Name', 'Band', 'Horizon', 'Year Fired', 'Lines',
     'Attributable Gross Loss', 'Attributable Claims', 'Expected Gross Loss Added', 'Effects', 'Description',
   ]];
   // ⚠ AVERAGED ROWS (loss engine commit 4b): an event's dollars and claims are
-  // the average over every world, and 'Worlds' says how many it fired in.
-  // Claims are then fractional, so they are shown to two places.
+  // the average over every world, so claims are fractional and shown to two
+  // places. The 'Worlds' column came off: players are never told about the worlds.
   for (const r of lockedResults) {
     for (const s of r.shockEvents ?? []) {
       rows.push([
         r.yearNumber, r.calendarYear, s.shockId, s.name, s.band, s.horizon, s.yearFired,
         s.linesAffected.join(' + '),
-        s.worlds ? `${s.worlds.fired} of ${s.worlds.of}` : '',
         Math.round(s.attributableGrossLoss),
         Number.isInteger(s.attributableClaims) ? s.attributableClaims : Number(s.attributableClaims.toFixed(2)),
         Math.round(s.expectedGrossLossAdded),

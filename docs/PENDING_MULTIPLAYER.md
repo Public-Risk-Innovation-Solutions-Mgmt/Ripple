@@ -26,6 +26,13 @@ a number typed into the text, here or in the code that renders it.
   surplus-range lines ("Ending surplus, year n across 10 worlds: min · median ·
   max" and "The figures shown are the average of the worlds") are gone. The
   range stays in the session's posted results, for the host.
+- **Players never see how the engine works — on any page, including that
+  results average several worlds.** Pages print plain labels and figures. No
+  page explains how a figure is calculated, names an averaging or weighting
+  method, or mentions worlds, solved margins or the prior board's funding
+  method; a prior board's funding shows as an ordinary CLF figure. The method
+  lives in the code, never on the screen. The Rate Indication
+  (`src/pages/RateIndicationPage.tsx`) is built to this rule.
 
 The first two rules also stand at the top of each document's source
 (`src/data/documents/welcomeMemo.md`, `src/data/documents/howToPlay.md`).

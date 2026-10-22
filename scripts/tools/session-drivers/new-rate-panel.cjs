@@ -157,47 +157,40 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     .includes('border-blue-500');
   const panelText = async () => (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
   const reinsLine = t => (t.match(/\+ Reinsurance[^+=]*/g) || []).join(' | ');
-  // The aggregate stop's four covers (stable-scenarios commit 6).
-  ok(await chosen('bad-year'), 'WC opens on the default cover, Bad-year');
-  ok(await page.$('[data-testid="reins-option-WC-working"]') !== null
-     && await page.$('[data-testid="reins-option-WC-catastrophe"]') !== null,
-     'all four WC covers are offered');
+  // The aggregate stop's covers (stable-scenarios commit 6). A solo game's
+  // shocks are off, so only None and the Working cover are offered and None is
+  // the default (AGGREGATE_STOP_OFFERED_SHOCKS_OFF / _DEFAULT_SHOCKS_OFF).
+  ok(await chosen('none'), 'WC opens on the default cover, None (a solo game\'s shocks are off)');
+  ok(await page.$('[data-testid="reins-option-WC-working"]') !== null,
+     'the Low-attachment cover is offered');
+  ok(await page.$('[data-testid="reins-option-WC-bad-year"]') === null
+     && await page.$('[data-testid="reins-option-WC-catastrophe"]') === null,
+     'the Medium- and High-attachment covers are hidden while the shocks are off');
   const atDefault = await panelText();
-  await page.click('[data-testid="reins-option-WC-none"]');
+  await page.click('[data-testid="reins-option-WC-working"]');
   await page.waitForTimeout(800);
-  const atNone = await panelText();
-  ok(await chosen('none') && !(await chosen('bad-year')), 'clicking None selects it, and only it');
-  ok(reinsLine(atNone) !== reinsLine(atDefault),
-     `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atNone)}")`);
-  await page.click('[data-testid="reins-option-WC-bad-year"]');
+  const atWorking = await panelText();
+  ok(await chosen('working') && !(await chosen('none')), 'clicking the Low-attachment cover selects it, and only it');
+  ok(reinsLine(atWorking) !== reinsLine(atDefault),
+     `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atWorking)}")`);
+  await page.click('[data-testid="reins-option-WC-none"]');
   await page.waitForTimeout(800);
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
 
   // ---- ten worlds (loss engine commit 4b) ----------------------------------
-  // Lock a year; the solo Results page then shows the minimum, median and
-  // maximum ending surplus across the worlds beside the average. The Decisions
-  // page does not — players are never told about the worlds.
-  const moneyOf = t => { const m = t.replace(/[$,\s]/g, ''); const v = parseFloat(m); return /K$/.test(m) ? v * 1e3 : /M$/.test(m) ? v * 1e6 : /B$/.test(m) ? v * 1e9 : v; };
-  const readRange = async () => ({
-    min: moneyOf(await page.textContent('[data-testid="worlds-surplus-range-min"]')),
-    median: moneyOf(await page.textContent('[data-testid="worlds-surplus-range-median"]')),
-    max: moneyOf(await page.textContent('[data-testid="worlds-surplus-range-max"]')),
-    text: (await page.textContent('[data-testid="worlds-surplus-range"]')).replace(/\s+/g, ' ').trim(),
-  });
+  // Lock a year. Players are never told about the worlds: neither the Results
+  // page nor the Decisions page shows the surplus range across them, or says
+  // they exist. The range stays in the session's posted results, for the host.
   await page.getByRole('button', { name: /Lock Year/ }).first().click();
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+  // ⚠ THE RESULTS PAGE NO LONGER SHOWS THE RANGE EITHER — players are never
+  // told about the worlds, on any page. The range stays for the host.
   await page.getByRole('button', { name: /^Results$/ }).first().click();
-  await page.waitForSelector('[data-testid="worlds-surplus-range"]', { timeout: 20000 }).catch(() => {});
-  const onResults = await page.$('[data-testid="worlds-surplus-range"]') !== null;
-  ok(onResults, 'Results: the ending surplus across the worlds is shown beside the average');
-  if (onResults) {
-    const r = await readRange();
-    console.log(`  results range : ${r.text}`);
-    ok(r.min <= r.median && r.median <= r.max && r.min < r.max, 'Results: min <= median <= max, and the worlds differ');
-    ok(/across 100 worlds/.test(r.text), 'Results: it says how many worlds');  // WORLD_COUNT, 100 since stable-scenarios commit 10
-  }
+  await page.waitForTimeout(1000);
+  ok(await page.$('[data-testid="worlds-surplus-range"]') === null, 'Results: no surplus range across the worlds');
+  ok(!/\bworlds?\b/i.test((await page.locator('main').innerText()).replace(/\s+/g, ' ')), 'Results: the page never mentions the worlds');
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1000);
   // ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS (the documents commit): the

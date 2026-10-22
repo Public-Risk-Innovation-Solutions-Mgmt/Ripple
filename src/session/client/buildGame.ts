@@ -31,6 +31,7 @@ import { defaultDecisionSet } from '../../utils/decisionDefaults';
 import type { CoverageLine, GameSetupSettings, GameState, Member, PoolState, ResultSet, StartingFinancials } from '../../types/simulation';
 import type { JsonValue, RoomView } from '../contract';
 import { decisionsForYear } from './decisions';
+import { gameShocksOn } from '../../utils/shockLosses';
 
 export type RoomBuildInputs = Pick<RoomView,
   'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'shocks' | 'priorDevelopment'>;
@@ -39,7 +40,8 @@ export interface BuiltTeamGame {
   gameState: GameState;
   startingFinancials: StartingFinancials;
   initialMembers: Member[];
-  opening: { result: ResultSet; poolState: PoolState } | null;
+  /** The opening: its result, and the game as it stands before year 1 — what its statement values. */
+  opening: { result: ResultSet; gameState: GameState } | null;
 }
 
 export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]): BuiltTeamGame {
@@ -81,7 +83,7 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     isComplete: false,
     poolState,
     lockedResults: [],
-    currentDecisions: defaultDecisionSet(1),
+    currentDecisions: defaultDecisionSet(1, gameShocksOn(settings, instance)),
     priorHistory,
     earlyPreGameHistory,
   });
@@ -95,8 +97,19 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     // both callers at once, which is the only way to fix it without the session
     // assembling a GameState differently from solo.
     initialMembers: openingRoster(poolState, settings.activeLines),
-    opening: openingResult ? { result: openingResult, poolState } : null,
+    opening: openingResult ? { result: openingResult, gameState } : null,
   };
+}
+
+/**
+ * One played year: its result and pool state, and the game as it stands after
+ * it — the valuation the year's posted developed column is read at.
+ */
+export interface ProducedYear {
+  result: ResultSet;
+  poolState: PoolState;
+  gameState: GameState;
+  surplusRange: SurplusRange | null;
 }
 
 // Advance a team's game to `targetYear` (exclusive) on its own recorded
@@ -106,9 +119,9 @@ export function replayTeamYears(
   start: GameState,
   targetYear: number,
   decisionsByYear: Record<string, JsonValue> | undefined,
-): { state: GameState; produced: Array<{ result: ResultSet; poolState: PoolState; surplusRange: SurplusRange | null }> } {
+): { state: GameState; produced: ProducedYear[] } {
   let state = start;
-  const produced: Array<{ result: ResultSet; poolState: PoolState; surplusRange: SurplusRange | null }> = [];
+  const produced: ProducedYear[] = [];
 
   // ⚠ EVERY YEAR THE LOOP PRODUCES, NOT THE LAST ONE, each with its own pool
   // state — the caller posts all of them. See useSessionGame for the defect a
@@ -123,7 +136,7 @@ export function replayTeamYears(
     // the room stores a history: it runs on a reload, replaying every year from
     // the seed, and reading one slot for all of them produced results the team
     // never played.
-    const decisions = decisionsForYear(year, decisionsByYear);
+    const decisions = decisionsForYear(year, decisionsByYear, gameShocksOn(state.setup, state.instance));
     const played = playWorldsYear(state, decisions);
 
     // ⚠ AN UNRESOLVED LOAN OFFER IS DECLINED, AND THAT IS A REAL
@@ -144,9 +157,9 @@ export function replayTeamYears(
       currentYearNumber: nextYear,
       isComplete: nextYear > state.setup.gameLength,
       ...commitSettledYear(state, settled),
-      currentDecisions: defaultDecisionSet(nextYear),
+      currentDecisions: defaultDecisionSet(nextYear, gameShocksOn(state.setup, state.instance)),
     };
-    produced.push({ result: settled.result, poolState: settled.poolState, surplusRange: surplusRange(state, year) });
+    produced.push({ result: settled.result, poolState: settled.poolState, gameState: state, surplusRange: surplusRange(state, year) });
   }
   return { state, produced };
 }

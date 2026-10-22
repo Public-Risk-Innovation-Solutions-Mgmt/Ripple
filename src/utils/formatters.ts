@@ -23,17 +23,17 @@ export function formatCurrency(value: number, compact = false): string {
   }).format(value);
 }
 
-// For figures already expressed in millions (payroll/TIV exposure). Rolls up
-// to billions at 1000M ($1B) so a large exposure figure doesn't display as an
-// unreadable 4+ digit millions number — e.g. "$4177.95M" becomes "$4.18B".
-// Below $1B, formatting is unchanged from the plain "$X.XXM" convention.
+/** A figure with thousands separators at a fixed number of places: 9978.1 -> "9,978.1". */
+export function formatNumber(value: number, decimals = 2): string {
+  return value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+// For figures already expressed in millions (payroll/TIV exposure), with
+// thousands separators: "$9,978.1M". It used to roll up to billions at $1,000M
+// ("$9.98B"), which sat under "($M)" labels and disagreed with every other
+// exposure on screen; the separators are what keep a 4-digit figure readable.
 export function formatMillions(valueInMillions: number, decimals = 2): string {
-  // Round before comparing so a value just under 1000M doesn't display as
-  // "$1000.00M" instead of correctly bumping to B.
-  if (Math.abs(Number(valueInMillions.toFixed(decimals))) >= 1000) {
-    return `$${(valueInMillions / 1000).toFixed(decimals)}B`;
-  }
-  return `$${valueInMillions.toFixed(decimals)}M`;
+  return `$${formatNumber(valueInMillions, decimals)}M`;
 }
 
 export function formatPct(value: number, decimals = 1): string {

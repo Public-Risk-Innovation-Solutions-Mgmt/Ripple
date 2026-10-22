@@ -50,6 +50,74 @@ function lineBookExposure(lineState: LinePoolState, line: CoverageLine, yearNumb
 import { effectiveRiskControlIncentivePct } from '../utils/linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../utils/reinsuranceOptions';
 import { surplusRange, type SurplusRange } from '../utils/worlds';
+import { gameShocksOn } from '../utils/shockLosses';
+import type { FundingConsequenceBook } from '../utils/fundingConsequence';
+import type { NewPurePremiumResult } from '../utils/newPurePremium';
+
+/**
+ * WHAT A LINE'S RATE IS PRICED ON FOR THE COMING YEAR — the roster, or with
+ * MEMBER_LEVEL off the line's one book with its own risk, exactly as the
+ * engine does (see Book). The Decisions panel and the Rate Indication read it.
+ */
+export function pricingBookFor(gameState: GameState, line: CoverageLine): Book {
+  const lineState = gameState.poolState.lines[line];
+  // With the book's own risk, which its tower's price carries (book units commit 5).
+  const risk = lineBookRisk(gameState.instance, line, gameState.poolState.bookUnits);
+  return lineState.bookExposure !== undefined
+    ? { exposure: lineBookExposure(lineState, line, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}) }
+    : lineState.members.filter(m => m.status === 'active');
+}
+
+/**
+ * THE DECISIONS PANEL'S PRICING INPUT FOR A LINE, AND THE PURE PREMIUM BEHIND
+ * IT — one builder, so the panel and the Rate Indication (Departments,
+ * Actuarial) price off the same figures and cannot drift. `reinsuranceOption`
+ * overrides the line's chosen cover (the indication prices each one).
+ */
+export function fundingConsequenceInput(
+  gameState: GameState, line: CoverageLine, decisions: DecisionSet, reinsuranceOption?: string,
+): { book: FundingConsequenceBook; purePremium: NewPurePremiumResult | null } {
+  const d = decisions.byLine[line];
+  const option = reinsuranceOption ?? d.reinsuranceOption;
+  const book = pricingBookFor(gameState, line);
+  const exposure = bookExposureOf(book, line, gameState.currentYearNumber);
+  const basis = {
+    rows: gameState.poolState.lines[line]?.reserveDevelopment ?? [],
+    allMarketMembers: gameState.poolState.allMarketMembers,
+    membershipHistory: gameState.poolState.membershipHistory,
+  };
+  // A book takes the engine's own book rule — the ledger's figure, or the
+  // engine's expectation before the ledger has one.
+  const purePremium = isRoster(book)
+    ? newPurePremiumPer100(line, gameState.currentYearNumber, basis)
+    : bookPurePremium(line, gameState.currentYearNumber, basis, exposure);
+  const lineState = gameState.poolState.lines[line];
+  return {
+    purePremium,
+    book: {
+      yearNumber: gameState.currentYearNumber,
+      // The tower prices off the book itself, so the panel needs the members
+      // and the year, not just an exposure total.
+      members: book,
+      exposure,
+      // The chosen package, as the tower reads it — the engine's own call.
+      layersPlaced: placementFor(line, option),
+      aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+      reinsuranceOption: option,
+      shocks: gameShocksOn(gameState.setup, gameState.instance),
+      pricingAdjustment: lineState.rateLevel / 100,
+      priorPurePremiumPer100: lineState.purePremiumPer100,
+      lossTrend: gameState.instance.lossEnvironment.lossTrend,
+      priorRcEffectiveness: lineState.riskControlEffectiveness,
+      riskControlPct: d.riskControlPct,
+      groundUpPurePremiumPer100: purePremium?.purePremiumPer100,
+      newStackRiskControlPct: effectiveRiskControlIncentivePct(d),
+      // S3: the panel prices off the same played triangle the engine does
+      // (pricingExperienceBasis — see its header).
+      experience: isRoster(book) ? pricingExperienceBasis(gameState.poolState, line) : undefined,
+    },
+  };
+}
 
 export interface GameDerivations {
   decisionLine: CoverageLine;
@@ -224,72 +292,17 @@ export function useGameDerivations(
   const fundingConsequence = React.useMemo(() => {
     if (!gameState) return null;
     const lineState = gameState.poolState.lines[decisionLine];
-    const d = currentDecisions.byLine[decisionLine];
+    // ⚠ ONE BUILDER (fundingConsequenceInput), shared with the Rate Indication
+    // on the Actuarial page, so the two price off the same figures. It is the
+    // input that stood here, field for field.
     return computeFundingConsequence(
       decisionLineFundingLevel,
       lineState.ratePer100,
       decisionLine,
       decisionLineFundingAtExpected,
-      {
-        yearNumber: gameState.currentYearNumber,
-        // The tower prices off the book itself, so the panel needs the members
-        // and the year, not just an exposure total.
-        members: decisionLineBook,
-        exposure: bookExposureOf(decisionLineBook, decisionLine, gameState.currentYearNumber),
-        // The chosen package, as the tower reads it — the engine's own call.
-        layersPlaced: placementFor(decisionLine, d.reinsuranceOption),
-        aggregateStopLevel: AGGREGATE_NOT_OFFERED,
-        reinsuranceOption: d.reinsuranceOption,
-        pricingAdjustment: lineState.rateLevel / 100,
-        priorPurePremiumPer100: lineState.purePremiumPer100,
-        lossTrend: gameState.instance.lossEnvironment.lossTrend,
-        priorRcEffectiveness: lineState.riskControlEffectiveness,
-        riskControlPct: d.riskControlPct,
-        // ⚠ NEW_RATE_STACK ONLY, AND IT IS NOW READ OFF THE LEDGER RATHER THAN
-        // OFF LAST YEAR'S RESULT. What stood here was
-        // `lastLineResult?.newPurePremiumPer100`, on the reasoning that the
-        // page had no reserve ledger reader of its own. It has one — the
-        // aggregate-terms tile above uses exactly this basis shape — and the
-        // stale figure had a consequence the panel showed on its face: the
-        // "vs last year" row read +0.0% / +0.1% every year while the rate
-        // climbed about 3% a year, because the panel's indication was built
-        // from the SAME pure premium that produced the indication it was being
-        // compared against. A change column that cannot move is not one.
-        //
-        // This is the engine's own call with the engine's own arguments —
-        // simulationEngine.ts computes `newPp` as
-        // computeNewPurePremium(line, yearNumber, { rows: reserveDevelopment,
-        // allMarketMembers, membershipHistory }) — evaluated on the state the
-        // page is holding, which after year N is processed is the state year
-        // N+1 will be priced from. Still undefined before the first priced
-        // year, which is when the panel has no comparison to show either.
-        // A book takes the engine's own book rule — the ledger's figure, or
-        // the engine's expectation before the ledger has one.
-        groundUpPurePremiumPer100: (isRoster(decisionLineBook)
-          ? newPurePremiumPer100(decisionLine, gameState.currentYearNumber, {
-            rows: gameState.poolState.lines[decisionLine]?.reserveDevelopment ?? [],
-            allMarketMembers: gameState.poolState.allMarketMembers,
-            membershipHistory: gameState.poolState.membershipHistory,
-          })
-          : bookPurePremium(decisionLine, gameState.currentYearNumber, {
-            rows: gameState.poolState.lines[decisionLine]?.reserveDevelopment ?? [],
-            allMarketMembers: gameState.poolState.allMarketMembers,
-            membershipHistory: gameState.poolState.membershipHistory,
-          }, bookExposureOf(decisionLineBook, decisionLine, gameState.currentYearNumber)))?.purePremiumPer100,
-        newStackRiskControlPct: effectiveRiskControlIncentivePct(d),
-        // S3: the panel prices off the same played triangle the engine does.
-        //
-        // ⚠ IT DID NOT, UNTIL THIS COMMIT. These three fields were spelled out
-        // here with `rows: lineState.reserveDevelopment ?? []` and NO
-        // windowRows, so the panel priced off the pool's whole history against
-        // an engine pricing off ten years — WC's basis ran 23.3% high on average
-        // and 72.9% at worst, in every line-year of every game from year one.
-        // pricingExperienceBasis is now the single builder; see its header for
-        // the measurement and for the identity that validates it.
-        experience: isRoster(decisionLineBook) ? pricingExperienceBasis(gameState.poolState, decisionLine) : undefined,
-      },
+      fundingConsequenceInput(gameState, decisionLine, currentDecisions).book,
     );
-  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, decisionLineBook, currentDecisions]);
+  }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, currentDecisions]);
 
   return {
     decisionLine,

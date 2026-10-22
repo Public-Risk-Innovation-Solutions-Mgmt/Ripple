@@ -23,7 +23,8 @@
 // ============================================================================
 
 import {
-  AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_OPTIONS, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OPTIONS,
+  AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_DEFAULT_SHOCKS_OFF, AGGREGATE_STOP_OFFERED_SHOCKS_OFF,
+  AGGREGATE_STOP_OPTIONS, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OPTIONS,
   type ReinsuranceOption,
 } from '../data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
@@ -86,9 +87,14 @@ export function reinsuranceOptionsFor(line: CoverageLine): readonly ReinsuranceO
   return REINSURANCE_OPTIONS[line as TowerLine];
 }
 
-/** The ids a team can choose on a line: the stop's options, or the per-claim packages. */
-export function reinsuranceOptionIds(line: CoverageLine): readonly string[] {
-  return AGGREGATE_STOP.enabled ? AGGREGATE_STOP_OPTIONS.map(o => o.id) : REINSURANCE_OPTIONS[line as TowerLine].map(o => o.id);
+/**
+ * The ids a team is OFFERED on a line: the stop's options, or the per-claim
+ * packages. While the game's shocks are off (shockLosses.gameShocksOn), only
+ * AGGREGATE_STOP_OFFERED_SHOCKS_OFF — None and the Low-attachment cover (id `working`).
+ */
+export function reinsuranceOptionIds(line: CoverageLine, shocks = true): readonly string[] {
+  if (!AGGREGATE_STOP.enabled) return REINSURANCE_OPTIONS[line as TowerLine].map(o => o.id);
+  return shocks ? AGGREGATE_STOP_OPTIONS.map(o => o.id) : AGGREGATE_STOP_OFFERED_SHOCKS_OFF;
 }
 
 export function isReinsuranceOption(line: CoverageLine, id: unknown): id is string {
@@ -97,8 +103,10 @@ export function isReinsuranceOption(line: CoverageLine, id: unknown): id is stri
     : PLACEMENT[line as TowerLine].has(id));
 }
 
-export function defaultReinsuranceOption(line: CoverageLine): string {
-  return AGGREGATE_STOP.enabled ? AGGREGATE_STOP_DEFAULT : REINSURANCE_DEFAULT_OPTION[line as TowerLine];
+/** What a team holds until it chooses, and the prior board plays: None while the game's shocks are off. */
+export function defaultReinsuranceOption(line: CoverageLine, shocks = true): string {
+  if (!AGGREGATE_STOP.enabled) return REINSURANCE_DEFAULT_OPTION[line as TowerLine];
+  return shocks ? AGGREGATE_STOP_DEFAULT : AGGREGATE_STOP_DEFAULT_SHOCKS_OFF;
 }
 
 /**

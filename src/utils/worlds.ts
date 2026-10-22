@@ -42,12 +42,12 @@ import {
 } from './simulationEngine';
 import type {
   AccidentYearSplit, CoverageLine, DecisionSet, GameInstance, GameState, InterLineLoan,
-  LinePoolState, LineResultSet, PlayedYear, PoolState, ReserveCohort, ReserveDevelopmentRow, ResultSet, WorldState,
+  LinePoolState, LineResultSet, PlayedYear, PoolState, RateBasis, ReserveCohort, ReserveDevelopmentRow, ResultSet, WorldState,
 } from '../types/simulation';
 import type { ShockRecord } from '../types/shocks';
 import { rangeOf, summarizeWorlds, type SurplusRange } from './worldAudit';
 import { simulateMarketReturns, type MarketReturns } from './investmentEngine';
-import { resolveShockYear, shockTimingOf } from './shockLosses';
+import { gameShocksOn, resolveShockYear, shockTimingOf } from './shockLosses';
 export { rangeOf, type SurplusRange };
 
 /** Worlds per team-year for the engine in force: WORLD_COUNT on the new engine, one on the member path. */
@@ -121,7 +121,7 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
     const struck = strikeBookRate(line, gs.poolState.lines[line], decisions.byLine[line], gs.currentYearNumber, {
       allMarketMembers: gs.poolState.allMarketMembers,
       membershipHistory: gs.poolState.membershipHistory,
-    }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits));
+    }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits), gameShocksOn(gs.setup, gs.instance));
     if (struck) out[line] = struck;
   }
   return out;
@@ -209,16 +209,38 @@ export function settleWorldsYear(gs: GameState, played_: WorldsYear, authorizedL
     closedCohorts: archiveClosedCohorts(w, settled[i].updatedPoolState, gs.setup.activeLines),
   }));
   const prior = gs.lockedResults[gs.lockedResults.length - 1] ?? gs.priorHistory[gs.priorHistory.length - 1];
-  const result = {
+  const result = withRateBasis({
     ...averageResultSets(settled.map(s => s.result), gs.setup.activeLines, prior, gs.worlds.map(w => w.poolState)),
     worldSummary: summarizeWorlds(settled.map(s => s.result), gs.setup.activeLines, i => worldMarket(gs, i)),
-  };
+  }, played_.struckRates);
   const averaged = averagePoolStates(worlds, gs.setup.activeLines, gs.currentYearNumber);
   // The book as underwriting left it — the same in every world (it reads only
   // the game's seed and the team's decision), so world 1's is the game's.
   const moved = settled[0].updatedPoolState.bookUnits ?? gs.poolState.bookUnits;
   const poolState = moved ? { ...averaged, bookUnits: moved } : averaged;
   return { poolState, result, worlds, played };
+}
+
+/**
+ * Each line's rebuild basis for the Rate Indication (the row's rateBasis), read
+ * off the rate the year was struck at. Nothing the engine computed is changed,
+ * and nothing else is stored.
+ */
+function withRateBasis(result: ResultSet, struck: WorldsYear['struckRates']): ResultSet {
+  if (!struck) return result;
+  const byLine = { ...result.byLine };
+  for (const [line, s] of Object.entries(struck) as [CoverageLine, StruckLineRate | undefined][]) {
+    const row = byLine[line];
+    if (!row || !s) continue;
+    const pts = s.newPp.points;
+    const rateBasis: RateBasis = {
+      ...(s.bookRisk !== undefined ? { risk: s.bookRisk } : {}),
+      windowYears: pts.length,
+      windowExposure: pts.length > 0 ? pts.reduce((a, p) => a + p.exposure, 0) / pts.length : 0,
+    };
+    byLine[line] = { ...row, rateBasis };
+  }
+  return { ...result, byLine };
 }
 
 /** The game after a settled year: the averaged state, the worlds, the year appended. */

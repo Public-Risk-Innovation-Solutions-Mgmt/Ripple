@@ -187,7 +187,9 @@ export default function PlayScreen({ code, role }: Props) {
     // Seeding the editable set is the same question the replay asks: what was
     // this team playing in this year? For an unlocked year that is the most
     // recent lock before it — carry-forward, unchanged in meaning.
-    setDecisions(decisionsForYear(room.currentYear, you.decisionsByYear));
+    // The room's shocks: a host-scheduled room fires its schedule, so its
+    // switch is whether anything is scheduled (shockLosses.gameShocksOn).
+    setDecisions(decisionsForYear(room.currentYear, you.decisionsByYear, room.shocks.length > 0));
   }, [room, you, role]);
 
   async function enter(teamName: string) {

@@ -192,6 +192,10 @@ const FAST: string[] = [
   'aggregate-stop-check',            //   3s   the stop's four options, Bad-year default, price E + 0.5 SD charged so,
                                      //         recovery at booking and recalculated as each year develops, what
                                      //         players see; five controls
+  'expectation-shock-switch-check',  //   4s   the expectation follows the game's shocks: off (solo, a room with no
+                                     //         schedule) the Expected Losses, the stop's attachment and each cover's
+                                     //         price read the ordinary year only; a scheduled room keeps the shocks;
+                                     //         six controls
   'catastrophe-load-check',          //   3s   shock dollars on each ledger row, kept out of the experience on the
                                      //         paid basis before development; no catastrophe load charged (the
                                      //         supplied loss costs carry large events); four controls

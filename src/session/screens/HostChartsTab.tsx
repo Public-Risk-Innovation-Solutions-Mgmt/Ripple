@@ -78,7 +78,7 @@ import { useState } from 'react';
 import { BarChart3, Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatMillions } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
 import type { RoomView, TeamYearFigures, TeamView } from '../index';
 
@@ -162,7 +162,7 @@ const METRICS: Metric[] = [
     source: 'figures',
     pick: f => f.activeExposure,
     // Payroll in $M, as the metric stores it.
-    format: v => `$${v.toFixed(1)}M`,
+    format: v => formatMillions(v, 1),
     // ⚠ NOT ANCHORED AT ZERO, DELIBERATELY. Every pool carries a large standing
     // exposure, so a zero-anchored axis would squash the churn that is the only thing this
     // chart is for. The axis is labelled, and no member count is near zero.
@@ -191,8 +191,11 @@ const METRICS: Metric[] = [
     // estimates alone shows none of it.
     id: 'developed',
     title: 'Losses — as developed',
-    note: 'reserveDevelopment · ultimateByValuation (NOT a RESULT_METRICS key)',
-    subtitle: 'The same accident years at their CURRENT valuation. Every point moves as prior years develop.',
+    // ⚠ THE TEAM'S ANNUAL STATEMENT'S FIGURE: net Ultimates by program year,
+    // loss + LAE, as currently valued (see DevelopedUltimates). The as-booked
+    // chart beside it is the year at its own close, excl. LAE.
+    note: 'Annual Statement · Net Ultimates by program year (NOT a RESULT_METRICS key)',
+    subtitle: 'The same accident years at their CURRENT valuation, loss + LAE, as the Annual Statement shows them. Every point moves as prior years develop.',
     xLabel: 'accident year',
     source: 'developed',
     pick: f => f.netUltimateLoss,   // unused on this source; the column is read directly

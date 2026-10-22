@@ -3,7 +3,9 @@
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 const crypto = require('crypto');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley'];
-const YEARS = 2;
+// Three played years, checked after each; the room runs one more so year 3 is not its last.
+const PLAYED = 3;
+const YEARS = PLAYED + 1;
 
 const fails = [];
 let checks = 0;
@@ -63,10 +65,11 @@ async function tabText(page, tab) {
   // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool in
   // aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial Statements
   // and Calculation Audit from players and viewers alike (GameShell's
-  // MULTIPLAYER_HIDDEN_TABS). The PAGES are intact.
-  const TABS = ['Introduction', 'Departments', 'Annual Statement', 'Dashboard', 'Decisions',
+  // MULTIPLAYER_HIDDEN_TABS). The PAGES are intact. Dashboard and Departments
+  // are hidden in both (src/game/tabs.tsx); Investments and Rate Indication joined.
+  const TABS = ['Introduction', 'Investments', 'Rate Indication', 'Annual Statement', 'Decisions',
                 'Decision History', 'Result Spreadsheet'];
-  const HIDDEN = ['Financial Statements', 'Results', 'Calculation Audit'];
+  const HIDDEN = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
   ok(present === TABS.length, `viewer has all ${TABS.length} multiplayer tabs (${present}/${TABS.length})`);
@@ -104,38 +107,75 @@ async function tabText(page, tab) {
     els => els.filter(e => !e.disabled).length);
   ok(enabledInputs === 0, `no enabled decision inputs on the viewer's page (${enabledInputs})`);
 
-  // ---- MID-TURN: RESULTS, NOT A SPINNER -----------------------------------
-  // Play year 1 so there is something to read, then check the viewer mid-turn.
-  await driver.getByRole('button', { name: /Lock Year/ }).first().click();
-  await driver.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
-  await host.click('[data-testid="advance"]');
-  await host.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '2', null, { timeout: 30000 });
+  // ---- AFTER EACH OF SEVERAL YEARS: ONE SET OF FIGURES ---------------------
+  //
+  // ⚠ THE PLAYER, THE VIEWER AND THE HOST PRINT THE SAME FIGURE FOR EVERY YEAR,
+  // AS CURRENTLY VALUED. After each played year: the viewer's Annual Statement
+  // is the player's, and the newest posted developed column — what the host's
+  // as-developed views read — is the statement's Net Ultimates (loss + LAE) for
+  // every program year shown, to the statement's own thousand. The driver moves
+  // its funding each year, so the replay is checked on decisions that differ.
+  const room = () => host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
+  const netUltimates = p => p.$eval('[data-testid="statement-net"]', el => ({
+    heads: [...el.querySelectorAll('thead tr:nth-child(2) th')].map(t => t.textContent.trim()),
+    cells: [...el.querySelector('tr[data-row-label="Ultimates"]').querySelectorAll('td')].map(t => t.textContent.trim()),
+  }));
+  const thousands = x => { const r = Math.round(x / 1000); return `${r < 0 ? '−' : ''}${Math.abs(r).toLocaleString('en-US')}`; };
 
-  await driver.waitForFunction(() => {
-    const e = document.querySelector('[data-testid="posted-year"]');
-    return !!e && e.textContent.includes('year 1 result posted');
-  }, null, { timeout: 180000 });
-  await viewer.waitForFunction(() => {
-    const e = document.querySelector('[data-testid="posted-year"]');
-    return !!e && e.textContent.includes('year 1 result computed');
-  }, null, { timeout: 180000 });
-  ok(true, 'viewer computed year 1 on its own, from the watched team\'s decisions');
+  for (let y = 1; y <= PLAYED; y++) {
+    // The driver's own choice this year: the funding slider, a different stop each year.
+    await driver.getByRole('button', { name: 'Decisions', exact: true }).click();
+    await driver.waitForTimeout(400);
+    const dWc = driver.getByRole('button', { name: "Workers' Compensation", exact: true }).first();
+    if (await dWc.count() > 0) { await dWc.click(); await driver.waitForTimeout(400); }
+    const slider = driver.locator('div.flex.flex-col.gap-2', { has: driver.locator('span', { hasText: /^Funding Confidence Level$/ }) }).first().locator('input[type=range]');
+    if (await slider.count() > 0) {
+      await slider.focus();
+      await driver.keyboard.press('Home');
+      for (let i = 0; i < 4 + 2 * y; i++) await driver.keyboard.press('ArrowRight');
+      await driver.waitForTimeout(300);
+    }
 
-  // Mid-turn (year 2 open, nobody locked): the viewer reads real results.
-  const vResults = await tabText(viewer, 'Annual Statement');
-  ok(!/^\s*$/.test(vResults) && vResults.length > 200, `mid-turn the viewer reads real results, not a spinner (${vResults.length} chars)`);
+    await driver.getByRole('button', { name: /Lock Year/ }).first().click();
+    await driver.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+    await host.click('[data-testid="advance"]');
+    await host.waitForFunction(n => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === String(n), y + 1, { timeout: 30000 });
+    await driver.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
+    await viewer.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result computed`), y, { timeout: 180000 });
+    ok(true, `year ${y}: the viewer computed it on its own, from the watched team's decisions`);
 
-  // ---- ITS NUMBERS ARE THE DRIVER'S NUMBERS -------------------------------
-  // Both panes must be on the SAME line view, or the comparison is between two
-  // different pages rather than two computations.
-  for (const p of [driver, viewer]) {
-    const pool = p.getByRole('button', { name: 'Pool', exact: true }).first();
-    if (await pool.count() > 0) { await pool.click(); await p.waitForTimeout(400); }
-  }
-  for (const tab of ['Annual Statement', 'Decision History', 'Dashboard']) {
-    const d = await tabText(driver, tab);
-    const v = await tabText(viewer, tab);
-    ok(h(d) === h(v), `${tab}: viewer output is identical to the driver's (driver ${h(d)} / viewer ${h(v)})`);
+    // Mid-turn (the next year open, nobody locked): the viewer reads real results.
+    const vResults = await tabText(viewer, 'Annual Statement');
+    ok(vResults.length > 200, `year ${y}: mid-turn the viewer reads real results, not a spinner (${vResults.length} chars)`);
+
+    // Both panes on the SAME line view, or the comparison is between two pages.
+    for (const p of [driver, viewer]) {
+      const pool = p.getByRole('button', { name: 'Pool', exact: true }).first();
+      if (await pool.count() > 0) { await pool.click(); await p.waitForTimeout(400); }
+    }
+    for (const tab of ['Annual Statement', 'Decision History', 'Rate Indication']) {
+      const d = await tabText(driver, tab);
+      const v = await tabText(viewer, tab);
+      ok(h(d) === h(v), `year ${y}, ${tab}: the viewer's is identical to the player's (${h(d)} / ${h(v)})`);
+    }
+
+    // The host's figure: the newest posted developed column, against the
+    // player's statement, every program year the statement shows by itself.
+    await tabText(driver, 'Annual Statement');
+    const st = await netUltimates(driver);
+    const rec = await room();
+    const posted = rec.teams.find(t => t.name === TEAMS[0]).resultsByYear[String(y)];
+    const year0Calendar = rec.startingYear - 1;
+    const compared = [];
+    st.heads.forEach((head, i) => {
+      if (!/^\d{4}$/.test(head)) return;               // Prior and Total are not one year
+      const ay = Number(head) - year0Calendar;
+      if (ay < 0) return;                               // pre-game years are off the session's axis
+      compared.push({ ay, screen: st.cells[i], host: thousands(posted.developed.pool[String(ay)]) });
+    });
+    ok(compared.length === y + 1 && compared.every(c => c.screen === c.host),
+      `year ${y}: the host's as-developed figure is the statement's Net Ultimates for every year — `
+      + compared.map(c => `year ${c.ay} ${c.screen}${c.screen === c.host ? '' : ` vs host ${c.host}`}`).join(', '));
   }
 
   // ---- THE VIEWER NEVER WROTE ---------------------------------------------
@@ -143,12 +183,12 @@ async function tabText(page, tab) {
   const team = rec.teams.find(t => t.name === TEAMS[0]);
   ok(rec.viewers.length === 1, `the room records one viewer (${rec.viewers.length})`);
   // The record keeps a result PER YEAR now, so "the viewer wrote nothing" is
-  // said more strongly than it was: exactly one year, and it is the driver's.
+  // said more strongly than it was: exactly the played years, all the driver's.
   // The opening position (year 0) is posted at build by the DRIVER too; a viewer
-  // posts neither it nor anything else, so the record is exactly those two.
+  // posts neither it nor anything else, so the record is exactly those.
   const posted = Object.keys(team.resultsByYear || {}).sort();
-  ok(posted.join(',') === '0,1',
-     `the team's posted results are the DRIVER's opening and its one played year (years ${posted.join(',') || 'none'})`);
+  ok(posted.join(',') === [0, ...Array.from({ length: PLAYED }, (_, i) => i + 1)].join(','),
+     `the team's posted results are the DRIVER's opening and its ${PLAYED} played years (years ${posted.join(',') || 'none'})`);
   ok(await viewer.$('[data-testid="submit-error"]') === null, 'no transport error on the viewer screen');
   ok(await viewer.$('[data-testid="game-error"]') === null, 'no game error on the viewer screen');
 

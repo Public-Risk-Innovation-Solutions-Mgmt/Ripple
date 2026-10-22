@@ -290,20 +290,22 @@ export interface TeamYearFigures {
  * distinction the whole Teams tab turns on.
  */
 /**
- * ⚠ THE DEVELOPED TRIANGLE'S CURRENT COLUMN: one accident year's NET ULTIMATE AT
- * THIS VALUATION, keyed by accident year as a string. Posted afresh every year,
- * because that is what makes it the current column rather than a frozen one.
+ * ⚠ THE DEVELOPED TRIANGLE'S CURRENT COLUMN: one program year's NET ULTIMATE,
+ * LOSS + LAE, AT THIS VALUATION — the team's Annual Statement's Net Ultimates,
+ * keyed by accident year as a string. Posted afresh every year, because that is
+ * what makes it the current column rather than a frozen one; earlier posts are
+ * never rewritten, and the host reads the newest.
  *
  * ⚠ AND IT IS NOT A RESULT_METRICS KEY, WHICH IS A STATEMENT AND NOT AN
  * OVERSIGHT. A RESULT_METRICS entry maps ONE ResultSet to ONE value; this is a
  * value per accident year per valuation, and it does not live on a ResultSet at
- * all — it lives on LinePoolState.reserveDevelopment, the append-only ledger.
- * Inventing a metric key for it would be the grossPremium mistake in reverse:
- * not a figure published from outside the list, but a quantity forced into a
- * list it does not fit. What this DOES reuse is the ledger's existing reader —
- * actuarialMemo's exhibitRows/poolExhibitRows, the same functions the Actuarial
- * memorandum's development exhibit is built from, clamping rule included. One
- * field, one derivation, two readers.
+ * all — it is the statement's program-year valuation of the ledger. Inventing a
+ * metric key for it would be the grossPremium mistake in reverse: not a figure
+ * published from outside the list, but a quantity forced into a list it does
+ * not fit. What this DOES reuse is the statement's own reader —
+ * resultsStatement's netUltimatesByProgramYear, the code the Net block's
+ * Ultimates row is printed from. One field, one derivation, two readers: the
+ * team's statement and the host's views print the same figure for every year.
  */
 export type DevelopedUltimates = Record<string, number>;
 

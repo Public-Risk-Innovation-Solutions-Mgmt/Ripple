@@ -1483,6 +1483,14 @@ interface ResultRowFields {
   expectedToSurplus?: number;
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;
+  /**
+   * WHAT THE RATE INDICATION NEEDS TO REBUILD THIS YEAR'S RATE, and nothing
+   * else — stored on the averaged row when a multi-world year settles. With the
+   * struck rate's own fields already on the row (newPurePremiumPer100,
+   * ratedExposure, the decisions echoed), these make the year's indication
+   * exact. Absent on a one-world year and on a save written before it existed.
+   */
+  rateBasis?: RateBasis;
   writtenExposure: number;      // payroll exposure in $M
   /** The book renewed this year, in written-exposure units — a book only. */
   renewalExposure?: number;
@@ -2091,6 +2099,16 @@ interface ResultRowFields {
 // 'byLine'>` — which made the POOL row the complete one and left every per-line
 // quantity sitting on it as a placeholder holding the FIRST ACTIVE LINE'S value.
 export type LineResultSet = ResultRowFields;
+
+/** See the row's rateBasis: what the Rate Indication rebuilds a played year's rate from. */
+export interface RateBasis {
+  /** The book's risk the rate was struck on; absent for a line with no book of units. */
+  risk?: number;
+  /** The accident years in the pricing window. */
+  windowYears: number;
+  /** Their mean exposure, $M. */
+  windowExposure: number;
+}
 
 /**
  * THE QUANTITIES THAT DO NOT EXIST AT POOL SCALE, ABSENT FROM THE POOL ROW BY
