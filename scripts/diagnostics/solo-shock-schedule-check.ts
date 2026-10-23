@@ -45,7 +45,7 @@ import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, worldI
 import { packSave, unpackSave, type SavedGame } from '../../src/utils/gameSave';
 import { restoreSavedGame } from '../../src/utils/saveRestore';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { INVESTMENT_INCOME_CREDIT, PRICING_DATA_LAG_YEARS, SHOCKS_OUT_OF_EXPERIENCE, SOLO_SHOCKS, WORLD_COUNT } from '../../src/data/pricingParameters';
+import { PRICING_DATA_LAG_YEARS, SHOCKS_OUT_OF_EXPERIENCE, SOLO_SHOCKS, WORLD_COUNT } from '../../src/data/pricingParameters';
 import type { ScheduledShock } from '../../src/types/shocks';
 import type { CoverageLine, GameInstance, GameSetupSettings, GameState } from '../../src/types/simulation';
 
@@ -355,11 +355,9 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   // nothing there; it and a smaller residual on WC and GL arrive from year 6.
   const after = first.yearNumber + 1 + PRICING_DATA_LAG_YEARS;
   SHOCKS_OUT_OF_EXPERIENCE.enabled = false;
-  INVESTMENT_INCOME_CREDIT.enabled = false;
   const withShock = playTo(open(solo.setup, solo.instance), 1, after);
   const withoutShock = playTo(open(solo.setup, generateGameInstance(ID, seedFromInstanceId(ID), schedule.filter(s => s !== first))), 1, after);
   SHOCKS_OUT_OF_EXPERIENCE.enabled = true;
-  INVESTMENT_INCOME_CREDIT.enabled = true;
   if (PRICING_DATA_LAG_YEARS > 0) {
     check(pricingOf(withoutShock, after - 1) === pricingOf(withShock, after - 1),
       `control: inside the data lag (year ${after - 1}) the rate cannot see ${first.shockId} yet, even left in the experience`);

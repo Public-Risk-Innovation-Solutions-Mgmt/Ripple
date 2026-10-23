@@ -15,18 +15,20 @@
 //                       year's Current rate (the engine's record: the charged
 //                       rate less the cover's price)
 //   the dropdown      year 1 to the coming year, defaulting to the coming year
-//   the window        five complete years, a year behind: the losses row reads
-//                     "5-Year Trended Average Loss at <priced - 2> Rate Level"
+//   the window        five complete years, a year behind, stated at the
+//                     current year's level: the losses row reads
+//                     "5-Year Trended Average Loss at <priced - 1> Rate Level"
 //   section 1         every label follows the priced year (the rate level and
-//                     exposure two years before it, the projection for it);
+//                     exposure the year before it, the projection for it);
 //                     losses / exposure = the pure premium at that level; that
-//                     x the annual trend squared = the projected pure premium,
-//                     which is pricing's own; and the indicated rate change is
-//                     the indicated rate at Expected / the Current rate - 1;
-//                     the investment income credit's line, and the projection
-//                     after it = the projection x (1 - credit), which x 1 at
-//                     Expected / the permissible loss ratio is the indicated
-//                     rate at Expected — the page ties to the rate charged
+//                     x one year's annual trend = the projected pure premium,
+//                     which is pricing's own; the indicated rate at Expected =
+//                     the projection / the permissible loss ratio; and the
+//                     indicated rate change is the rate at Expected / the
+//                     Current rate - 1, labelled against the current year's rate
+//   section 2         no investment income line; profit & contingency the line's
+//                     (WC 2%, GL 0%, Property 0%); the
+//                     total expense ratio = 1 - the permissible loss ratio
 //   the years named   section 3 reads "<current> Rate" and "Indicated <priced>
 //                     Rate at Expected / at 70% CLF …", the current year being
 //                     the one before the priced; and for the coming year the
@@ -43,6 +45,8 @@ const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
 const LEVELS = [70, 80, 90];
+// Profit and contingency by line (pricingParameters' PROFIT_AND_CONTINGENCY_OF_RATE), written out.
+const CONTINGENCY = { WC: 0.02, GL: 0, Property: 0 };
 const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
 
 let passed = 0, failed = 0;
@@ -76,13 +80,13 @@ function screen(page, mode) {
         exposure: await value(`[data-testid="ri-${l}-exposure"]`),
         pp: await value(`[data-testid="ri-${l}-pp"]`),
         trend: await value(`[data-testid="ri-${l}-trend"]`),
-        trendYears: Number(await page.getAttribute(`[data-testid="ri-${l}-projected"]`, 'data-window')),
         projected: await value(`[data-testid="ri-${l}-projected"]`),
         change: await value(`[data-testid="ri-${l}-change"]`),
-        credit: await value(`[data-testid="ri-${l}-credit"]`),
-        afterCredit: await value(`[data-testid="ri-${l}-after-credit"]`),
+        credit: await page.locator(`[data-testid="ri-${l}-credit"]`).count(),
+        contingency: await value(`[data-testid="ri-${l}-contingency"]`),
+        totalExpense: await value(`[data-testid="ri-${l}-total-admin"]`),
         permissible: await value(`[data-testid="ri-${l}-permissible"]`),
-        labels: { losses: await label('losses'), exposure: await label('exposure'), pp: await label('pp'), projected: await label('projected'),
+        labels: { losses: await label('losses'), exposure: await label('exposure'), pp: await label('pp'), projected: await label('projected'), change: await label('change'),
           current: await label('current'),
           // A level's label sits beside the span that holds its figure and change.
           expected: (await page.locator(`[data-testid="ri-${l}-expected"]`).locator('xpath=../../span[1]').innerText()).trim(),
@@ -118,18 +122,19 @@ function screen(page, mode) {
   // SECTION 1 of one indication: its labels follow the priced year, and its
   // figures chain to pricing's projected pure premium.
   function sectionOne(ind, name) {
-    const P = ind.calendar, level = P - 2;
+    const P = ind.calendar, level = P - 1;
     for (const [l] of LINES) {
       const x = ind[l];
       ok(x.labels.losses === `5-Year Trended Average Loss at ${level} Rate Level` && x.labels.exposure === `${level} Exposure`
-        && x.labels.pp === `Indicated Pure Premium at ${level} Rate Level` && x.labels.projected === `Projected Pure Premium for Program Year ${P}`,
-        `${mode}, ${name}, ${P}, ${l}: section 1's labels follow the priced year`, `${x.labels.losses} | ${x.labels.exposure} | ${x.labels.pp} | ${x.labels.projected}`);
-      ok(near(x.losses / (x.exposure * 10_000), x.pp) && x.trendYears === 2 && near(x.pp * x.trend ** 2, x.projected),
-        `${mode}, ${name}, ${P}, ${l}: losses / ${level} exposure = the pure premium at ${level}'s level, x the trend squared = the projection`,
-        `${x.pp.toFixed(6)} x ${x.trend}^${x.trendYears} = ${(x.pp * x.trend ** 2).toFixed(6)} vs ${x.projected.toFixed(6)}`);
-      ok(Number.isFinite(x.credit) && near(x.afterCredit, x.projected * (1 - x.credit)) && near(x.expected * x.permissible, x.afterCredit),
-        `${mode}, ${name}, ${P}, ${l}: the projection after the investment income credit, and it is what the rate at Expected is struck on`,
-        `credit ${(x.credit * 100).toFixed(3)}%; ${x.afterCredit.toFixed(6)} vs rate x permissible ${(x.expected * x.permissible).toFixed(6)}`);
+        && x.labels.pp === `Indicated Pure Premium at ${level} Rate Level` && x.labels.projected === `Projected Pure Premium for Program Year ${P}`
+        && x.labels.change === `Indicated Rate Change from the ${level} Rate`,
+        `${mode}, ${name}, ${P}, ${l}: section 1's labels follow the priced year`, `${x.labels.losses} | ${x.labels.exposure} | ${x.labels.pp} | ${x.labels.projected} | ${x.labels.change}`);
+      ok(near(x.losses / (x.exposure * 10_000), x.pp) && near(x.pp * x.trend, x.projected),
+        `${mode}, ${name}, ${P}, ${l}: losses / ${level} exposure = the pure premium at ${level}'s level, x one year's trend = the projection`,
+        `${x.pp.toFixed(6)} x ${x.trend} = ${(x.pp * x.trend).toFixed(6)} vs ${x.projected.toFixed(6)}`);
+      ok(x.credit === 0 && near(x.expected, x.projected / x.permissible) && near(x.totalExpense, 1 - x.permissible) && near(x.contingency, CONTINGENCY[l]),
+        `${mode}, ${name}, ${P}, ${l}: the rate at Expected is the projected pure premium / the permissible loss ratio; profit & contingency the line's; no investment income line`,
+        `${x.expected.toFixed(6)} vs ${(x.projected / x.permissible).toFixed(6)}; total expense ${(x.totalExpense * 100).toFixed(3)}%`);
       ok(near(x.change, x.expected / x.current - 1),
         `${mode}, ${name}, ${P}, ${l}: the indicated rate change is the rate at Expected / the Current rate - 1`,
         `${(x.change * 100).toFixed(4)}%`);

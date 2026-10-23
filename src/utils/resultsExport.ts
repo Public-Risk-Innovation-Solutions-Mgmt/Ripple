@@ -368,8 +368,22 @@ function sheetFor(results: LineResultSet[], metrics: SpreadsheetMetric[]): XLSX.
   return ws;
 }
 
+/**
+ * A result year's label, played or pre-game — the Financial Statements'
+ * convention: "Year 2 / 2028" for a played year, "Year 0 / 2026 (Opening)" for
+ * the last pre-game year, "2025 (History)" before it. Pre-game years are listed
+ * because results run one year behind (utils/knownYears): after the first lock
+ * the newest known year is 2026, the opening, and a page of played years only
+ * would show nothing.
+ */
+export function resultYearLabel(r: { yearNumber: number; calendarYear: number }): string {
+  return r.yearNumber > 0 ? `Year ${r.yearNumber} / ${r.calendarYear}`
+    : r.yearNumber === 0 ? `Year 0 / ${r.calendarYear} (Opening)`
+    : `${r.calendarYear} (History)`;
+}
+
 export function buildAoaRows(results: LineResultSet[], metrics: SpreadsheetMetric[]): (string | number)[][] {
-  const header = ['Category', 'Metric', ...results.map(r => `Year ${r.yearNumber} / ${r.calendarYear}`)];
+  const header = ['Category', 'Metric', ...results.map(resultYearLabel)];
   const rows = metrics.map(metric => [
     metric.category,
     metric.label,

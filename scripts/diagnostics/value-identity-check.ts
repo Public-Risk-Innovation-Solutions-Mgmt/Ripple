@@ -1348,7 +1348,37 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     credits that were negative (as low as -5.59%) are 0, so premium, income,
 //     surplus and capital follow. No negative credit remains.
 //   The driver and gate commits moved nothing.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v82.json');
+// v83: THE RESERVE-INFLATION LANDING (reserve inflation booked and priced;
+// the per-line opening; the investment income credit off; the admin overrun;
+// profit and contingency, priced inflation years and paid-in capital per line),
+// rebased on multiplayer 91559fd. The control ran first: 91559fd reproduced
+// v82, with export v90 (24 of 24) and render v84 (236 of 236). Captured at each
+// commit in turn and compared with the one before. 21,361 of 39,600 values
+// differ from the control at head; every one is attributed to a commit. One
+// field removed, 180 values: investmentIncomeCredit. None added.
+//   reserve inflation, 21,250 across 80 fields on all 300 instances: open
+//     years inflate, so reserves, paid losses, development and IBNR move, and
+//     pricing two years of it moves every rate (tri Y1 WC 3.283 -> 3.586, GL
+//     4.967 -> 5.568 per $100).
+//   the opening (per-line targets, guardrails, pre-game growth, capital),
+//     20,689 across 78: the pre-game's book and margin, so reserves, surplus
+//     and premium.
+//   the credit off and 5% profit and contingency, 13,393 across 50: premium,
+//     admin charged (grossed up by the new divisor: +5.263% on GL and
+//     Property, +2.105% on WC) and everything after; investmentIncomeCredit
+//     removed.
+//   the admin overrun, 6,906 across 26: the admin booked (operatingExpense)
+//     and the income, surplus and capital that follow; the admin charged does
+//     not move.
+//   profit and contingency, priced years and capital per line, 13,496 across
+//     54: premium and admin charged (-5.000% on GL and Property, -3.061% on
+//     WC), and the openings at WC $3.0M, GL $12.0M, Property $12.5M (tri Y1
+//     rates WC 3.632, GL 5.665, Property 0.3082).
+//   The probes, panel-driver and audit-row commits moved nothing, nor did
+//   paying inflation by the pattern whatever FORWARD_BOOKING says (the
+//   shipped game has the flag on) or the gate restatements. Exposure moves in
+//   none of them.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v83.json');
 
 function seedOf(id: string) {
   let h = 5381;

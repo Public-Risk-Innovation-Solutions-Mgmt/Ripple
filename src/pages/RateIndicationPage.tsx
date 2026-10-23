@@ -68,27 +68,22 @@ function LineCard({ ri }: { ri: RateIndication }) {
           <Row label="Annual Trend" testId={`ri-${l}-trend`} value={p.annualTrend}>{factor(p.annualTrend)}</Row>
           <Space />
           <Row label={`Projected Pure Premium for Program Year ${ri.calendarYear}`} testId={`ri-${l}-projected`}
-            value={p.projectedPer100} window={p.trendYears} strong>
+            value={p.projectedPer100} strong>
             {rate(p.projectedPer100)}
           </Row>
-          <Row label="Investment Income Credit" testId={`ri-${l}-credit`} value={p.investmentIncomeCredit}>
-            {`−${(p.investmentIncomeCredit * 100).toFixed(2)}%`}
-          </Row>
-          <Row label={`Projected Pure Premium after Credit`} testId={`ri-${l}-after-credit`} value={p.projectedAfterCreditPer100} strong>
-            {rate(p.projectedAfterCreditPer100)}
-          </Row>
-          <Row label="Indicated Rate Change" testId={`ri-${l}-change`} value={ri.indicatedRateChange ?? undefined}>
+          <Space />
+          <Row label={`Indicated Rate Change from the ${p.rateLevelYear} Rate`} testId={`ri-${l}-change`} value={ri.indicatedRateChange ?? undefined}>
             {signed(ri.indicatedRateChange)}
           </Row>
         </Section>
 
         <Section title="Expenses">
-          <Row label="Fixed admin" value={x.fixedAdmin}>{pct(x.fixedAdmin)}</Row>
-          <Row label="Per-exposure admin" value={x.perExposureAdmin}>{pct(x.perExposureAdmin)}</Row>
-          <Row label="Risk control" value={x.riskControl}>{pct(x.riskControl)}</Row>
-          {x.contingency > 0 && <Row label="Profit and contingency" value={x.contingency}>{pct(x.contingency)}</Row>}
+          <Row label="Fixed admin" testId={`ri-${l}-fixed-admin`} value={x.fixedAdmin}>{pct(x.fixedAdmin)}</Row>
+          <Row label="Per-exposure admin" testId={`ri-${l}-exposure-admin`} value={x.perExposureAdmin}>{pct(x.perExposureAdmin)}</Row>
+          <Row label="Risk control" testId={`ri-${l}-risk-control`} value={x.riskControl}>{pct(x.riskControl)}</Row>
+          <Row label="Profit & contingency" testId={`ri-${l}-contingency`} value={x.contingency}>{pct(x.contingency)}</Row>
           <Space />
-          <Row label="Total admin expense ratio" testId={`ri-${l}-total-admin`} value={x.totalAdmin} strong>{pct(x.totalAdmin)}</Row>
+          <Row label="Total expense ratio" testId={`ri-${l}-total-admin`} value={x.totalAdmin} strong>{pct(x.totalAdmin)}</Row>
           <Space />
           <Row label="Permissible loss ratio" testId={`ri-${l}-permissible`} value={x.permissibleLossRatio} strong>{pct(x.permissibleLossRatio)}</Row>
         </Section>

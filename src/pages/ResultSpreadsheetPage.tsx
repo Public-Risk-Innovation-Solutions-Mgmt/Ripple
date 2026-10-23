@@ -4,12 +4,18 @@ import { Download, ClipboardList, Table, Users } from 'lucide-react';
 import type { CoverageLine, ResultSet, LineResultSet, PoolState, GameInstance } from '../types/simulation';
 import { formatCurrency, formatPct } from '../utils/formatters';
 import { getMemberExposure } from '../utils/lineHelpers';
-import { type SpreadsheetMetric, buildResultsWorkbook, buildExportFilename, buildPoolMetrics, poolRowsAsMetricInput } from '../utils/resultsExport';
+import { type SpreadsheetMetric, buildResultsWorkbook, buildExportFilename, buildPoolMetrics, poolRowsAsMetricInput, resultYearLabel } from '../utils/resultsExport';
 import { buildClaimsWorkbook, buildClaimsExportFilename } from '../utils/claimsExport';
 import { RESULT_METRICS } from '../utils/resultMetrics';
 
 interface ResultSpreadsheetPageProps {
   lockedResults: ResultSet[];
+  // ⚠ THE KNOWN PRE-GAME YEARS, oldest first, for the table and the Results
+  // download. Results run one year behind (utils/knownYears): after the first
+  // lock the newest known year is 2026, a pre-game year, and a page of played
+  // years alone would show nothing. Not passed to the Claims download, which
+  // reads the pre-game itself (priorHistory) and would count it twice.
+  preGameResults: ResultSet[];
   // The pre-game bootstrap's three years. Accident years -2, -1 and 0 have real
   // claim registers and belong on the claims workbook's line sheets; without
   // this they were absent from the sheets while their development sat on the
@@ -34,12 +40,14 @@ interface ResultSpreadsheetPageProps {
 // Typed, not a literal, so it reads as a setting rather than dead code.
 const SHOW_MEMBER_VIEWS: boolean = false;
 
-export default function ResultSpreadsheetPage({ lockedResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld }: ResultSpreadsheetPageProps) {
+export default function ResultSpreadsheetPage({ lockedResults, preGameResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld }: ResultSpreadsheetPageProps) {
+  // Every known year the table and the Results download show: pre-game, then played.
+  const shown = useMemo(() => [...preGameResults, ...lockedResults], [preGameResults, lockedResults]);
   const [selectedYear, setSelectedYear] = useState<number>(
-    lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
+    shown.length > 0 ? shown[shown.length - 1].yearNumber : 1
   );
 
-  const selectedResult = lockedResults.find(r => r.yearNumber === selectedYear);
+  const selectedResult = shown.find(r => r.yearNumber === selectedYear);
 
   // ⚠ THE POOL FILTER, THE SAME ONE THE WORKBOOK USES. This table renders pool
   // rows; RESULT_METRICS is the full LINE list and included six metrics reading
@@ -78,7 +86,7 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
     });
   }, [selectedResult]);
 
-  if (lockedResults.length === 0) {
+  if (shown.length === 0) {
     return (
       <div className="max-w-screen-2xl mx-auto px-4 py-6">
         <div className="text-center py-20 text-gray-400">
@@ -91,7 +99,7 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
   }
 
   const memberCsv = buildMemberCsv(selectedResult);
-  const exportFilename = buildExportFilename(instanceId, activeLines, lockedResults);
+  const exportFilename = buildExportFilename(instanceId, activeLines, shown);
   const claimsExportFilename = buildClaimsExportFilename(instanceId, activeLines, lockedResults);
 
   return (
@@ -110,9 +118,9 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
             onChange={e => setSelectedYear(parseInt(e.target.value))}
             className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {lockedResults.map(r => (
+            {shown.map(r => (
               <option key={r.yearNumber} value={r.yearNumber}>
-                Year {r.yearNumber} / {r.calendarYear}
+                {resultYearLabel(r)}
               </option>
             ))}
           </select>
@@ -128,7 +136,7 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
               // the line tabs came out with 81 rows instead of 92 even once the
               // accessors were made reversible. The pooled list above is for the
               // on-screen pool table, which is the only thing it is correct for.
-              const wb = buildResultsWorkbook(lockedResults, activeLines, RESULT_METRICS);
+              const wb = buildResultsWorkbook(shown, activeLines, RESULT_METRICS);
               XLSX.writeFile(wb, exportFilename);
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
@@ -187,7 +195,7 @@ export default function ResultSpreadsheetPage({ lockedResults, priorHistory, ins
         title="Year-by-Year Results"
         icon={<ClipboardList size={16} />}
         metrics={resultMetrics}
-        results={poolRowsAsMetricInput(lockedResults)}
+        results={poolRowsAsMetricInput(shown)}
       />
 
       {/* ⚠ THE ACTIVE MEMBER ROSTER TABLE IS HIDDEN, NOT DELETED. The multiplayer
@@ -273,7 +281,7 @@ function VerticalResultTable({
                     key={`year-header-${result.yearNumber}`}
                     className="border border-gray-200 px-3 py-2 text-right font-bold text-gray-700 whitespace-nowrap"
                   >
-                    Year {result.yearNumber}
+                    {result.yearNumber > 0 ? `Year ${result.yearNumber}` : result.yearNumber === 0 ? 'Year 0 (Opening)' : 'History'}
                     <span className="block text-[10px] font-medium text-gray-500">
                       {result.calendarYear}
                     </span>

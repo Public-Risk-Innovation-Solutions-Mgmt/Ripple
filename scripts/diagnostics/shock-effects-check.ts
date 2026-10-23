@@ -25,7 +25,6 @@ import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
 import { optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
 import { blendInvestmentReturn } from '../../src/utils/investmentEngine';
 import { quoteNewRateStack } from '../../src/utils/linePricing';
-import { ratePieces } from '../../src/game/derivations';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -281,29 +280,28 @@ function sectionCoverInGame(): string[] {
 
 // ---- 4c. THE RATE PANEL ---------------------------------------------------
 // Pure premium = normal expected losses x CLF (never lowered by cover), admin,
-// risk control, reinsurance = the fixed price (not x CLF); the rows add to the
-// rate exactly.
+// risk control, profit & contingency, reinsurance = the price grown by the
+// trend (not x CLF, not loaded); the five rows add to the rate exactly.
 function sectionRatePanel(): string[] {
   const out: string[] = [];
   for (const l of LINES) for (const clf of [1, 1.35]) {
     const exposure = 2000;
     const q = (opt: string) => quoteNewRateStack({
       line: l, yearNumber: 3, members: { exposure }, exposure, groundUpPurePremiumPer100: 2.5, clf, riskControlPct: 0,
-      layersPlaced: placementFor(l, opt), aggregateStopLevel: -1, reinsuranceOption: opt, shocks: true, investmentIncomeCredit: 0.02,
+      layersPlaced: placementFor(l, opt), aggregateStopLevel: -1, reinsuranceOption: opt, shocks: true,
     });
     const none = q('none');
     for (const [id] of BRIEF_COVERS) {
       const c = q(id);
-      const pieces = ratePieces({ purePremiumRetained: c.retainedPurePremiumPer100, purePremiumGroundUp: c.groundUpPurePremiumPer100,
-        clf: c.clf, adminRatePer100: c.adminRatePer100, reinsRatePer100: c.reinsRatePer100, finalRatePer100: c.finalRatePer100,
-        firstIndicationPer100: c.firstIndicationPer100 } as Parameters<typeof ratePieces>[0]).yours;
-      if (!near(pieces.purePremium, none.retainedPurePremiumPer100 * clf, 1e-12)) out.push(`${l} ${id} CLF ${clf}: pure premium ${pieces.purePremium} vs None ${none.retainedPurePremiumPer100 * clf}`);
-      if (!near(pieces.purePremium, 2.5 * (1 - 0.02) * clf, 1e-12)) out.push(`${l} ${id}: pure premium is not the credited expected x CLF`);
+      const rows = [c.retainedPurePremiumPer100 * c.clf, c.adminRatePer100, c.riskControlPer100, c.contingencyPer100, c.reinsRatePer100];
+      if (!near(rows[0], 2.5 * clf, 1e-12)) out.push(`${l} ${id} CLF ${clf}: pure premium ${rows[0]}, expected x CLF ${2.5 * clf}`);
+      if (!near(c.contingencyPer100, none.contingencyPer100, 1e-12)) out.push(`${l} ${id}: the cover moved profit & contingency`);
       // Year 3 with no year-1 base on the book: the table price x the trend for two years.
       const want = optionPrice(l, id) * Math.pow(1 + BRIEF_TREND[l], 2);
-      if (!near(pieces.reins * exposure * 1e4, want, 1e-9)) out.push(`${l} ${id} CLF ${clf}: reinsurance ${pieces.reins * exposure * 1e4}, price ${want}`);
-      const sum = pieces.purePremium + pieces.admin + pieces.rcAndContingency + pieces.reins;
-      if (!near(sum, c.finalRatePer100, 1e-12) || Math.abs(pieces.rcAndContingency) > 1e-12) out.push(`${l} ${id}: rows ${sum} vs rate ${c.finalRatePer100}, risk control ${pieces.rcAndContingency}`);
+      if (!near(c.reinsuranceCost, want, 1e-9)) out.push(`${l} ${id} CLF ${clf}: reinsurance ${c.reinsuranceCost}, price ${want}`);
+      const sum = rows.reduce((x, y) => x + y, 0);
+      if (!near(sum, c.finalRatePer100, 1e-12)) out.push(`${l} ${id}: rows ${sum} vs rate ${c.finalRatePer100}`);
+      if (!near(c.finalRatePer100 - c.reinsRatePer100, none.finalRatePer100, 1e-12)) out.push(`${l} ${id}: the rate less the cover differs from None's`);
     }
   }
   return out;

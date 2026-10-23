@@ -35,6 +35,7 @@ import { formatNumber } from './formatters';
 import { laeShares, lossExpenseReserve } from './lossExpense';
 import { splitCohorts } from './reserveSplit';
 import { computeContributionShares } from './simulationEngine';
+import { realStateOf } from './knownYears';
 import type {
   AccidentYearSplit, CoverageLine, GameState, LineResultSet, LineView, ResultSet,
 } from '../types/simulation';
@@ -72,8 +73,6 @@ export interface StatementSection {
   hasPrior: boolean;
   /** The yearNumber of each window column. */
   windowYears: number[];
-  /** The header row above `columns`, aligned with it: "Current", "Year n", or ''. */
-  yearLabels: string[];
   rows: StatementRow[];
 }
 
@@ -87,12 +86,6 @@ export interface AnnualStatement {
    * the tables. Kept so they can be restored, or shown in a testing view.
    */
   notes: string[];
-}
-
-/** "Current" on the game's latest year, "Year n" from the last pre-game year on, else blank. */
-export function yearLabelOf(yearNumber: number, latest: number): string {
-  if (yearNumber === latest) return 'Current';
-  return yearNumber >= 0 ? `Year ${yearNumber}` : '';
 }
 
 /** A cell's text. A figure with no source shows BLANK — it is still 'na' in the statement. */
@@ -293,7 +286,10 @@ function openingPosition(gs: GameState, scope: LineView): Position {
   const lines: CoverageLine[] = scope === 'pool' ? gs.setup.activeLines : [scope];
   const y0 = gs.priorHistory?.at(-1);
   const other = y0 ? at(y0, scope)?.unearnedPremium : undefined;
-  const first = gs.lockedResults[0];
+  // ⚠ FROM THE REAL GAME, NOT THE KNOWN VIEW (knownYears.ts): after the first
+  // advance the view lists no played year, but the pool state has moved on —
+  // year 1's own beginning balances are the opening.
+  const first = realStateOf(gs).lockedResults[0];
   if (first) {
     const r = at(first, scope)!;
     return {
@@ -412,16 +408,18 @@ const addLoss = (a: AyLoss, b: AyLoss): AyLoss => ({ paid: a.paid + b.paid, case
  * year's own reserve split and the ledger's paid at its valuation, over the
  * accident years it had.
  */
-function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet, isLatest: boolean): Map<number, AyBlock> {
+function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet): Map<number, AyBlock> {
   const out = new Map<number, AyBlock>();
-  const latest = gs.lockedResults.at(-1)?.byLine[line];
   const ls = gs.poolState.lines[line];
   // The opening — the last pre-game year — stands at the opening's own cohorts
-  // whenever it is the year shown: before year 1 it is the latest year; after,
-  // it is chosen from the selector.
-  const atOpening = asOf.yearNumber === 0 && (isLatest || !latest);
+  // while the pool state still IS the opening: before year 1. After, it is
+  // valued from its own result and the ledger like any other year.
+  // ⚠ READ OFF THE REAL GAME, NOT THE KNOWN VIEW (knownYears.ts): after the
+  // first advance the view lists no played year, yet the pool state has moved on.
+  const atOpening = asOf.yearNumber === 0 && realStateOf(gs).lockedResults.length === 0;
+  // The year shown's own reserve split — at the latest year, that is the latest
+  // result's; at an earlier one, its own.
   const split: AccidentYearSplit[] = atOpening ? splitCohorts(line, openingCohorts(gs, line))
-    : isLatest ? latest?.reserveSplitByYear ?? []
     : asOf.byLine[line]?.reserveSplitByYear ?? [];
   const splitOf = new Map(split.map(x => [x.yearNumber, x]));
   // Paid to date: the averaged ledger, at the shown year's valuation; the
@@ -435,8 +433,11 @@ function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet, isLa
       const k = asOf.yearNumber - r.firstValuationYear;
       if (k < 0) continue;
       const pick = (xs?: number[]) => (xs && xs.length > 0 ? xs[Math.min(k, xs.length - 1)] : undefined);
-      const net = isLatest ? (r.paidByValuation?.at(-1) ?? 0) : (pick(r.paidByValuation) ?? 0);
-      const gross = isLatest ? (r.grossPaidByValuation?.at(-1) ?? net) : (pick(r.grossPaidByValuation) ?? net);
+      // Paid AT THE SHOWN YEAR'S VALUATION — at the latest year the ledger's
+      // newest, since k is then its last; on a known view (knownYears.ts) the
+      // ledger runs past the year shown, and later valuations stay unseen.
+      const net = pick(r.paidByValuation) ?? 0;
+      const gross = pick(r.grossPaidByValuation) ?? net;
       paid.set(r.yearNumber, { net, gross });
     }
   }
@@ -466,7 +467,7 @@ export function netUltimatesByProgramYear(gs: GameState, line: CoverageLine): Ma
   const latest = [...(gs.earlyPreGameHistory ?? []), ...(gs.priorHistory ?? []), ...gs.lockedResults].at(-1);
   const out = new Map<number, number>();
   if (!latest) return out;
-  for (const [ay, b] of programYearsOf(gs, line, latest, true)) out.set(ay, b.net.paid + b.net.case_ + b.net.ibnr);
+  for (const [ay, b] of programYearsOf(gs, line, latest)) out.set(ay, b.net.paid + b.net.case_ + b.net.ibnr);
   return out;
 }
 
@@ -539,9 +540,8 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
     : rolled.length === preGame.length && rolled.every(r => r.yearNumber <= 0) ? 'Prior (all pre-game)'
     : `Prior (${yearsLabel(rolled[0].calendarYear, rolled[rolled.length - 1].calendarYear)})`;
   const calendarColumns = [...(hasCalendarPrior ? [priorLabel] : []), ...window.map(r => `${r.calendarYear}`), 'Total'];
-  const labelsFor = (hasPrior: boolean) => [...(hasPrior ? [''] : []), ...windowYears.map(y => yearLabelOf(y, latestYear)), ''];
   const calendar = (key: StatementSection['key'], title: string, basis: string, rows: StatementRow[]): StatementSection =>
-    ({ key, title, basis, columns: calendarColumns, hasPrior: hasCalendarPrior, windowYears, yearLabels: labelsFor(hasCalendarPrior), rows });
+    ({ key, title, basis, columns: calendarColumns, hasPrior: hasCalendarPrior, windowYears, rows });
 
   // Operating results.
   const operatingAll = timeline.map(r => operatingOf(at(r, scope)));
@@ -570,7 +570,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
   // Program years, summed over the scope's lines. The window is the same five
   // years, as program years; Prior holds every older one, once there is one.
   const asOfResult = timeline[timeline.length - 1];
-  const perLine = lines.map(l => programYearsOf(gs, l, asOfResult, isLatest));
+  const perLine = lines.map(l => programYearsOf(gs, l, asOfResult));
   const blockAt = (pick: (b: AyBlock) => AyLoss, ays: (ay: number) => boolean) =>
     perLine.reduce((acc, m) => [...m.entries()].filter(([ay]) => ays(ay)).reduce((a, [, b]) => addLoss(a, pick(b)), acc), zero());
   const firstAy = windowYears[0] ?? 1;
@@ -590,7 +590,7 @@ export function buildAnnualStatement(gs: GameState, scope: LineView, asOfYear?: 
     if (!programPrior) for (const r of rows) r.cells.shift();
     return {
       key, title, basis: isLatest ? 'by program year, at the latest valuation' : `by program year, valued at ${asOfResult.calendarYear}`,
-      columns: programColumns, hasPrior: programPrior, windowYears, yearLabels: labelsFor(programPrior), rows,
+      columns: programColumns, hasPrior: programPrior, windowYears, rows,
     };
   };
 

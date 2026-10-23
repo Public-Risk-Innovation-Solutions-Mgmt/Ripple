@@ -12,9 +12,10 @@
 //      (the contract harness drives it on DynamoDB and the built zip).
 //   3. THE SCENARIO IS THE ONLY SEED: a solo game and a hosted room on the same
 //      number build the same instance — scenario, seed and opening alike.
-//   4. THE TABLE: twenty premium-to-surplus ratios evenly spaced from 1.7
-//      (scenario 12, thinnest) to 1.2 (scenario 16, richest), in the briefed
-//      order.
+//   4. THE TABLE, PER LINE: twenty premium-to-surplus ratios evenly spaced,
+//      in the briefed order, from scenario 12 (thinnest) to scenario 16
+//      (richest) — WC 3.0 to 1.5, GL 2.3 to 1.3, Property 1.7 to 1.2. (One
+//      1.7-1.2 table for every line until the per-line targets.)
 //   5. THE MARGIN IS SET ON THE DESIGNED HISTORY, AND THE OPENING IS WHERE THE
 //      PLAYED ONE ENDS, INSIDE THE GUARDRAILS (PRE_GAME_MARGIN_ON_DESIGN,
 //      OPENING_PREMIUM_TO_SURPLUS_BOUNDS): on every scenario and line the
@@ -23,15 +24,16 @@
 //      is the DESIGNED one — it lands the designed pre-game (exactly expected x
 //      the scenario's multiple, at the cash-and-bond portfolio's expected
 //      return) on the scenario's ratio, floored at zero (PRE_GAME_MARGIN_FLOOR)
-//      — and the opening's premium to surplus is inside 1.0 to 3.0; OR the
+//      — and the opening's premium to surplus is inside 1.0 to 3.5; OR the
 //      played history at the designed margin would have opened outside them,
 //      and the opening is exactly on that side's bound, unless reaching the
 //      rich bound needs a negative margin, when the margin is zero. No margin
 //      is ever below zero. (Until the designed-margin rule the opening WAS the
 //      target: the margin was solved on the played history.)
 //   6. THE PRE-GAME'S EXPERIENCE, SIMULATED (FLAT_PRE_GAME off): every
-//      pre-game line-year's year factor is the scenario's multiple,
-//      (1 + (1 - 1.5 / ratio) x 0.3), times the factor drawn on the pre-game's
+//      pre-game line-year's year factor is the scenario's multiple on the
+//      line, (1 + (1 - midpoint / ratio) x 0.3) with the line's range's
+//      midpoint (WC 2.25, GL 1.8, Property 1.45), times the factor drawn on the pre-game's
 //      own stream (pregame_ordinary_<line>) from the game's seed.
 //   7. THE PRE-GAME'S RETURN, SIMULATED (PRE_GAME_MARKET_DRAWS): every
 //      pre-game line-year holds cash and bonds only — the default allocation
@@ -132,11 +134,18 @@ function gradeOneSeed(solo: GameInstance, hosted: GameInstance, soloOpen: number
 
 // ---------------------------------------------------------------- 4
 const BRIEF_ORDER = [12, 19, 10, 14, 3, 8, 15, 11, 20, 6, 9, 5, 4, 1, 18, 7, 17, 2, 13, 16];
-function gradeTable(ratio: Record<number, number>, order: readonly number[], tag: string) {
-  const step = 0.5 / 19;
-  const worst = Math.max(...BRIEF_ORDER.map((n, k) => Math.abs(ratio[n] - (1.7 - k * step))));
-  check(worst < 1e-12 && same(order.map(String), BRIEF_ORDER.map(String)) && ratio[12] === 1.7 && Math.abs(ratio[16] - 1.2) < 1e-12,
-    `${tag}4. twenty ratios evenly spaced from 1.7 (scenario 12) to 1.2 (scenario 16), in the briefed order`,
+const BRIEF_RANGE: Record<CoverageLine, [number, number]> = { WC: [3.0, 1.5], GL: [2.3, 1.3], Property: [1.7, 1.2] };
+function gradeTable(ratio: Record<CoverageLine, Record<number, number>>, order: readonly number[], tag: string) {
+  let worst = 0, ends = true;
+  for (const l of LINES) {
+    const [thin, rich] = BRIEF_RANGE[l];
+    const step = (thin - rich) / 19;
+    worst = Math.max(worst, ...BRIEF_ORDER.map((n, k) => Math.abs(ratio[l][n] - (thin - k * step))));
+    ends &&= ratio[l][12] === thin && Math.abs(ratio[l][16] - rich) < 1e-12;
+  }
+  check(worst < 1e-12 && ends && same(order.map(String), BRIEF_ORDER.map(String)),
+    `${tag}4. twenty ratios a line evenly spaced from scenario 12 (thinnest) to scenario 16 (richest), in the briefed order: `
+    + LINES.map(l => `${l} ${BRIEF_RANGE[l][0]}-${BRIEF_RANGE[l][1]}`).join(', '),
     `worst off ${worst.toExponential(2)}`);
 }
 
@@ -159,7 +168,7 @@ function open(id: string, instance: GameInstance, setup: GameSetupSettings): { o
     opened: LINES.map(line => {
       const rows = pre.map(r => r.byLine[line]!);
       const shocks = gameShocksOn(setup, instance);
-      const ratio = SCENARIO_PREMIUM_TO_SURPLUS[Number(id)];
+      const ratio = SCENARIO_PREMIUM_TO_SURPLUS[line][Number(id)];
       const at = (m: number, kind: 'designed' | 'simulated') => simulateLineCandidate(instance, setup, line, 0, STARTING_CAPITAL[line], m, kind);
       const premiumOf = (c: ReturnType<typeof at>) =>
         openingYear1Premium(instance, line, c.poolState.lines[line], c.lineResults[c.lineResults.length - 1], shocks);
@@ -189,7 +198,7 @@ for (const id of TWENTY) {
 
 // ---------------------------------------------------------------- 5
 type Bounds = { min: number; max: number };
-function gradeOpening(rows: Opened[], ratioOf: (n: number) => number, bounds: Bounds, tag: string) {
+function gradeOpening(rows: Opened[], ratioOf: (n: number, line: CoverageLine) => number, bounds: Bounds, tag: string) {
   let worstDesigned = 0, worstOpen = 0, worstStart = 0, worstMargin = 0, offTarget = 0, worstBound = 0, guarded = 0;
   let floored = 0, belowFloor = 0;
   for (const r of rows) {
@@ -199,14 +208,18 @@ function gradeOpening(rows: Opened[], ratioOf: (n: number) => number, bounds: Bo
     if (margin === PRE_GAME_MARGIN_FLOOR) floored++;
     if (Math.abs(margin - r.designedMargin) <= 1e-12 && r.designedRaw < PRE_GAME_MARGIN_FLOOR) {
       // The designed history needed a negative margin: charged at the floor,
-      // and the opening inside the bounds.
-      worstBound = Math.max(worstBound, ps < bounds.min ? bounds.min - ps : ps > bounds.max ? ps - bounds.max : 0);
+      // and the opening never thinner than the thin bound. ⚠ IT MAY BE RICHER
+      // THAN THE RICH ONE — at the floor the rich bound can be out of reach, the
+      // same rule the guarded branch below applies (priorHistoryEngine: a
+      // designed margin already at the floor stays there). Until the per-line
+      // targets no floored line opened that rich, so this branch asked for both.
+      worstBound = Math.max(worstBound, ps > bounds.max ? ps - bounds.max : 0);
     } else if (Math.abs(margin - r.designedMargin) <= 1e-12) {
       // The designed margin — it lands the designed history on the scenario's
       // ratio (checked by replaying it) — and the opening inside the bounds.
       const c = simulateLineCandidate(r.instance, r.setup, r.line, 0, STARTING_CAPITAL[r.line], margin, 'designed');
       const prem = openingYear1Premium(r.instance, r.line, c.poolState.lines[r.line], c.lineResults[c.lineResults.length - 1], r.shocks);
-      worstDesigned = Math.max(worstDesigned, Math.abs(c.poolState.lines[r.line].surplus / (prem / ratioOf(r.n)) - 1));
+      worstDesigned = Math.max(worstDesigned, Math.abs(c.poolState.lines[r.line].surplus / (prem / ratioOf(r.n, r.line)) - 1));
       worstBound = Math.max(worstBound, ps < bounds.min ? bounds.min - ps : ps > bounds.max ? ps - bounds.max : 0);
     } else {
       // A guarded line: its history at the designed margin opened outside the
@@ -220,7 +233,7 @@ function gradeOpening(rows: Opened[], ratioOf: (n: number) => number, bounds: Bo
     }
     // The opening is the played history's own last year-end.
     worstOpen = Math.max(worstOpen, Math.abs(r.surplus - r.pre[r.pre.length - 1].endingSurplus));
-    offTarget = Math.max(offTarget, Math.abs(r.surplus / (r.premium / ratioOf(r.n)) - 1));
+    offTarget = Math.max(offTarget, Math.abs(r.surplus / (r.premium / ratioOf(r.n, r.line)) - 1));
     worstStart = Math.max(worstStart, Math.abs(r.pre[0].beginingSurplus - STARTING_CAPITAL[r.line]));
     const m = r.pre.map(x => x.decisions.fundingCushion ?? NaN);
     worstMargin = Math.max(worstMargin, ...m.map(x => Math.abs(x - m[0])), Number.isFinite(m[0]) ? 0 : Infinity);
@@ -239,16 +252,16 @@ function gradeOpening(rows: Opened[], ratioOf: (n: number) => number, bounds: Bo
 // ---------------------------------------------------------------- 6
 /** A pre-game year factor as drawn: the scenario's multiple x the draw on `drawOf`. */
 type DrawOf = (seed: number, year: number, line: CoverageLine) => number;
-function gradeExperience(rows: Opened[], factorOf: (n: number) => number, drawOf: DrawOf, tag: string) {
+function gradeExperience(rows: Opened[], factorOf: (n: number, line: CoverageLine) => number, drawOf: DrawOf, tag: string) {
   let worst = 0, n = 0, spread = 0;
   for (const r of rows) for (const y of r.pre) {
     n++;
-    const want = factorOf(r.n) * drawOf(r.seed, y.yearNumber, r.line);
+    const want = factorOf(r.n, r.line) * drawOf(r.seed, y.yearNumber, r.line);
     worst = Math.max(worst, Math.abs(y.commonLossFactor / want - 1));
-    spread = Math.max(spread, Math.abs(y.commonLossFactor / factorOf(r.n) - 1));
+    spread = Math.max(spread, Math.abs(y.commonLossFactor / factorOf(r.n, r.line) - 1));
   }
   check(worst < 1e-12 && n === rows.length * PRE_GAME_DEPTH && spread > 0.01,
-    `${tag}6. every pre-game line-year's year factor is the scenario's multiple (1 + (1 - 1.5 / ratio) x 0.3) x its draw on the pre-game's own stream`,
+    `${tag}6. every pre-game line-year's year factor is the scenario's multiple on the line (1 + (1 - midpoint / ratio) x 0.3) x its draw on the pre-game's own stream`,
     `${n} pre-game line-years (${PRE_GAME_DEPTH} a line); worst off ${worst.toExponential(2)}; largest draw ${(spread * 100).toFixed(1)}% off the multiple`);
 }
 
@@ -285,8 +298,11 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
   const soloOpen = all.find(r => r.n === 7 && r.line === 'WC')!.surplus;
   gradeOneSeed(soloInstances['7'], hosted, soloOpen, hostedOpen, '');
   gradeTable(SCENARIO_PREMIUM_TO_SURPLUS, SCENARIOS_THIN_TO_RICH, '');
-  const ratioOf = (n: number) => SCENARIO_PREMIUM_TO_SURPLUS[n];
-  const factorOf = (n: number) => 1 + (1 - PRE_GAME_EXPERIENCE_BASE / ratioOf(n)) * PRE_GAME_EXPERIENCE_WEIGHT;
+  const ratioOf = (n: number, l: CoverageLine) => SCENARIO_PREMIUM_TO_SURPLUS[l][n];
+  // The midpoint, rebuilt from the briefed range rather than read from the engine.
+  const factorOf = (n: number, l: CoverageLine) =>
+    1 + (1 - (BRIEF_RANGE[l][0] + BRIEF_RANGE[l][1]) / 2 / ratioOf(n, l)) * PRE_GAME_EXPERIENCE_WEIGHT;
+  void PRE_GAME_EXPERIENCE_BASE;
   gradeOpening(all, ratioOf, OPENING_PREMIUM_TO_SURPLUS_BOUNDS, '');
   const drawOf: DrawOf = (seed, y, l) => drawOrdinaryFactor(ordinaryLossRng(seed, y, l), ordinaryYearCv(l));
   // The average of PRE_GAME_MARKET_DRAWS markets, each on its own stream — rebuilt here, not read from the engine.
@@ -317,21 +333,23 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
   const hashed = generateGameInstance('MAMC6EA4', seedFromInstanceId('MAMC6EA4'), []);
   controlFails('a hosted room built from a hashed code', () => gradeOneSeed(soloInstances['7'], hashed, soloOpen, hostedOpen, ''), '3.');
   controlFails('the ratio order reversed', () => gradeTable(
-    Object.fromEntries(BRIEF_ORDER.map((n, k) => [n, 1.2 + k * 0.5 / 19])), [...BRIEF_ORDER].reverse(), ''), '4.');
+    { ...SCENARIO_PREMIUM_TO_SURPLUS, WC: Object.fromEntries(BRIEF_ORDER.map((n, k) => [n, 1.5 + k * 1.5 / 19])) }, [...BRIEF_ORDER].reverse(), ''), '4.');
+  controlFails('one table for every line', () => gradeTable(
+    { WC: SCENARIO_PREMIUM_TO_SURPLUS.Property, GL: SCENARIO_PREMIUM_TO_SURPLUS.Property, Property: SCENARIO_PREMIUM_TO_SURPLUS.Property }, BRIEF_ORDER, ''), '4.');
   const B = OPENING_PREMIUM_TO_SURPLUS_BOUNDS;
-  controlFails('a margin landing on another scenario\'s ratio', () => gradeOpening(all, n => ratioOf(n === 20 ? 1 : n), B, ''), '5.');
+  controlFails('a margin landing on another scenario\'s ratio', () => gradeOpening(all, (n, l) => ratioOf(n === 20 ? 1 : n, l), B, ''), '5.');
   controlFails('an opening forced onto the target', () => gradeOpening(
-    all.map(r => ({ ...r, surplus: r.premium / ratioOf(r.n) })), ratioOf, B, ''), '5.');
+    all.map(r => ({ ...r, surplus: r.premium / ratioOf(r.n, r.line) })), ratioOf, B, ''), '5.');
   controlFails('guardrails narrowed to 2.0', () => gradeOpening(all, ratioOf, { min: B.min, max: 2.0 }, ''), '5.');
   controlFails('a negative margin', () => gradeOpening(all.map((r, i) => (i === 0
     ? { ...r, pre: r.pre.map(y => ({ ...y, decisions: { ...y.decisions, fundingCushion: -0.01 } })) } : r)), ratioOf, B, ''), '5.');
   // A line made to need the thin guardrail — its history at the designed
-  // margin opening at 3.5 — but left where that history put it. Synthetic,
+  // margin opening at 4.0 — but left where that history put it. Synthetic,
   // because with the rich bound at 1.0 and the margin floored no line needs
   // the guardrail today, and a control with nothing to catch is not one.
   const firstPriced = all.findIndex(r => (r.pre[0].decisions.fundingCushion ?? 0) > PRE_GAME_MARGIN_FLOOR);
   controlFails('a guarded opening left where its history put it', () => gradeOpening(
-    all.map((r, i) => (i === firstPriced ? { ...r, designedMargin: r.designedMargin + 0.01, unguardedRatio: 3.5 } : r)),
+    all.map((r, i) => (i === firstPriced ? { ...r, designedMargin: r.designedMargin + 0.01, unguardedRatio: 4.0 } : r)),
     ratioOf, B, ''), '5.');
   controlFails('a flat pre-game (no draw)', () => gradeExperience(all, factorOf, () => 1, ''), '6.');
   controlFails('a pre-game drawn on the played years\' stream', () => gradeExperience(all, factorOf,

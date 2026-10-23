@@ -882,22 +882,19 @@ const EXPORT_IDENTITIES: {
   control?: { name: string; check: (v: Record<string, number>) => [number, number] };
 }[] = [
   // ⚠ RESTATED FOR THE INVESTMENT INCOME CREDIT (ff57131), as
-  // net-funding-fields-check's section 2 is: the credit comes off the pure
-  // premium only and the cover is priced on the uncredited figure, so net +
-  // ceded is the pure premium x (1 - credit). The export carries no credit
-  // column, so the credit is the one figure here read off the engine's row.
-  // Against the uncredited pure premium this read 6,611x its bound.
-  { label: 'purePremium x (1 - credit) = expectedCeded + netPurePremium (per $100)',
+  // net-funding-fields-check's section 2: net + ceded is the pure premium. It
+  // was the pure premium x (1 - credit) while the investment income credit
+  // came off it; the credit is gone (investment income does not touch the
+  // rate), and the control is a 3% credit slipped back in.
+  { label: 'purePremium = expectedCeded + netPurePremium (per $100)',
     parts: ['purePremiumRatePer100', 'expectedCededPer100', 'netPurePremiumRatePer100'],
     // purePremiumPer100 is STORED rounded to 4dp while the other two are
-    // stored unrounded, so half a 4dp unit is the floor — scaled by (1 -
-    // credit), never above 1 since the credit is floored at zero. Same bound
-    // and same reason as net-funding-fields-check's section 2.
-    bound: 5e-5, why: 'purePremiumPer100 is stored at 4dp; the other two are not; the credit read off the engine row',
-    engine: r => ({ credit: r.investmentIncomeCredit ?? 0 }),
-    check: v => [v.expectedCededPer100 + v.netPurePremiumRatePer100, v.purePremiumRatePer100 * (1 - v.credit)],
-    control: { name: 'the credit ignored',
-      check: v => [v.expectedCededPer100 + v.netPurePremiumRatePer100, v.purePremiumRatePer100] } },
+    // stored unrounded, so half a 4dp unit is the floor. Same bound and same
+    // reason as net-funding-fields-check's section 2.
+    bound: 5e-5, why: 'purePremiumPer100 is stored at 4dp; the other two are not',
+    check: v => [v.expectedCededPer100 + v.netPurePremiumRatePer100, v.purePremiumRatePer100],
+    control: { name: 'a 3% credit slipped back in',
+      check: v => [v.expectedCededPer100 + v.netPurePremiumRatePer100, v.purePremiumRatePer100 * 0.97] } },
   { label: 'totalMemberCharge = poolPremium + adminExpense + reinsuranceCost',
     parts: ['totalMemberCharge', 'poolPremium', 'adminExpense', 'reinsuranceCost'],
     // ⚠ THE EXPORT ROUNDS TO WHOLE DOLLARS (csvValue uses roundDollars), so

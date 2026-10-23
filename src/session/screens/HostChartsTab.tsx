@@ -75,6 +75,7 @@
 // ============================================================================
 
 import { useState } from 'react';
+import { latestKnownRoomYear } from '../../utils/knownYears';
 import { BarChart3, Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -232,12 +233,17 @@ interface TeamSeries {
  * ⚠ ABSENCE IS DECIDED BEFORE SILENCE, the same order the Teams tab uses. A team
  * that does not write GL is not "late on GL" and never will be.
  */
-function seriesFor(team: TeamView, color: string, view: LineView, years: number[]): TeamSeries {
+// `lastShown` is the newest year results may show — the latest known year
+// (utils/knownYears: the room's current year less two, every year once the
+// event is over). A later post exists but stays unseen, and the developed
+// column is the one posted AT that year: every post is kept, never rewritten.
+function seriesFor(team: TeamView, color: string, view: LineView, years: number[], lastShown: number): TeamSeries {
   if (view !== 'pool' && !team.lines.includes(view)) {
     return { team, color, state: { kind: 'absent' }, byYear: new Map(), developed: new Map() };
   }
   const byYear = new Map<number, TeamYearFigures>();
   for (const y of years) {
+    if (y > lastShown) continue;
     const posted = team.resultsByYear?.[String(y)];
     if (!posted) continue;
     const figures = view === 'pool' ? posted.pool : posted.byLine[view];
@@ -248,6 +254,7 @@ function seriesFor(team: TeamView, color: string, view: LineView, years: number[
   // column existed has none, which is absence rather than an empty valuation.
   const developed = new Map<number, number>();
   for (let i = years.length - 1; i >= 0; i--) {
+    if (years[i] > lastShown) continue;
     const posted = team.resultsByYear?.[String(years[i])];
     const column = view === 'pool' ? posted?.developed?.pool : posted?.developed?.byLine[view];
     if (!column) continue;
@@ -539,8 +546,9 @@ export default function HostChartsTab({ room }: Props) {
   // space, which is the honest rendering of a team that has not reported.
   const years: number[] = [];
   for (let y = 0; y <= room.yearCount; y++) years.push(y);
-  // The last year anybody could have posted — what "behind" is measured against.
-  const lastPlayable = room.currentYear - 1;
+  // The newest year results show — the latest known year, a year behind the
+  // last one played until the event is over — and what "behind" is measured against.
+  const lastPlayable = Math.min(latestKnownRoomYear(room), room.currentYear - 1);
 
   if (room.teams.length === 0) {
     return (
@@ -550,7 +558,7 @@ export default function HostChartsTab({ room }: Props) {
     );
   }
 
-  const series = room.teams.map((t, i) => seriesFor(t, TEAM_COLORS[i % TEAM_COLORS.length], effectiveView, years));
+  const series = room.teams.map((t, i) => seriesFor(t, TEAM_COLORS[i % TEAM_COLORS.length], effectiveView, years, lastPlayable));
   const directLabels = series.filter(s => s.state.kind === 'drawn').length <= 4;
 
   // ⚠ ONE DOMAIN ACROSS A SCALE GROUP, COMPUTED BEFORE ANY OF ITS CHARTS DRAWS.

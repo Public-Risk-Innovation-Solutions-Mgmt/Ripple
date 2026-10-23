@@ -65,10 +65,24 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(/\+ Reinsurance\s*—/.test(body) || body.includes('+ Reinsurance —'),
      'the Indicated column shows a dash for reinsurance, not $0.00');
 
-  // wip/shocks: Pure premium, Admin, Risk control, Reinsurance, in that order.
-  const order = ['Pure premium', '+ Admin', '+ Risk control', '+ Reinsurance', '= Rate'].map(t => body.indexOf(t));
-  ok(order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1])) && !body.includes('contingency'),
-     'the build-up rows render in order: pure premium, admin, risk control, reinsurance, rate');
+  ok(/Pure premium/.test(body) && /\+ Admin/.test(body) && /\+ Risk Control/.test(body)
+    && /\+ Profit & contingency/.test(body) && /\+ Reinsurance/.test(body) && /= Rate/.test(body)
+    && !/Risk control & contingency/.test(body),
+     'each piece its own row: Pure premium, Admin, Risk Control, Profit & contingency, Reinsurance, = Rate');
+  // ⚠ EACH COLUMN ADDS EXACTLY TO ITS RATE, in the cents printed; Risk Control
+  // reads $0.00 in both while risk control is off.
+  {
+    const cents = async id => { const t = await page.textContent(`[data-testid="${id}"]`); return Math.round(money(t) * 100); };
+    const rows = ['pure-premium', 'admin', 'risk-control', 'contingency'];
+    const ind = await Promise.all(rows.map(r => cents(`new-rate-indicated-${r}`)));
+    const yours = await Promise.all([...rows, 'reins'].map(r => cents(`new-rate-yours-${r}`)));
+    const indRate = await cents('new-rate-indicated'), yourRate = await cents('new-rate-final');
+    ok(ind.reduce((a, b) => a + b, 0) === indRate, `the Indicated rows add to the Indicated rate (${ind.join(' + ')} = ${indRate} cents)`);
+    ok(yours.reduce((a, b) => a + b, 0) === yourRate, `Your rate's rows add to Your rate (${yours.join(' + ')} = ${yourRate} cents)`);
+    ok(ind[2] === 0 && yours[2] === 0, 'Risk Control reads $0.00 in both columns while risk control is off');
+    // The panel is on Workers' Compensation, which carries 2% (GL and Property carry none).
+    ok(ind[3] > 0 && yours[3] > 0, 'Profit & contingency is charged in both columns (WC, 2%)');
+  }
   ok(/vs last year/.test(body), 'the vs-last-year row renders');
 
   // ⚠ THE vs-last-year CELLS ARE A PERCENTAGE, NOT A RATE, AND THAT IS WHAT IS

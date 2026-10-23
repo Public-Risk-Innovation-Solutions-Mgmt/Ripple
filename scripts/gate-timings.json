@@ -107,7 +107,8 @@
     "routine-fold-check": 10,
     "pool-loss-cost-check": 10,
     "no-tail-trend-check": 10,
-    "adverse-rate-placeholder-check": 6,
+    "reserve-inflation-check": 20,
+    "pregame-growth-check": 10,
     "shock-rate-check": 6,
     "aggregate-stop-check": 10,
     "catastrophe-load-check": 10,
@@ -115,7 +116,6 @@
     "pure-premium-basis-check": 30,
     "scenarios-check": 25,
     "expectation-shock-switch-check": 12,
-    "investment-income-credit-check": 45,
     "admin-trend-check": 30,
     "decision-figures-check": 8,
     "alae-ratio-check": 50
