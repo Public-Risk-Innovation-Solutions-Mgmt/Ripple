@@ -13,8 +13,9 @@
 //               rate" turns that share of them away, at random.
 //
 // Every setting is in pricingParameters.ts, under UNDERWRITING. The book is
-// capped at FULL_MARKET_EXPOSURE. The pre-game moves nothing — its book is the
-// opening, as its roster was.
+// capped at FULL_MARKET_EXPOSURE. The pre-game neither renews, withdraws nor
+// underwrites: its book GROWS by PRE_GAME_BOOK_GROWTH a year into the opening
+// book (preGameGrowth, below), with no decision in it.
 //
 // ⚠ IT RETURNS THE MEMBERSHIP ENGINE'S SHAPE. Everything downstream of movement
 // reads a MemberMovementResult; handing it one with an empty roster and the
@@ -26,10 +27,11 @@
 
 import {
   FULL_MARKET_EXPOSURE, FULL_SAVINGS_AT, LOSS_HISTORY_CLAIM_CAP, LOSS_HISTORY_YEARS, NEW_BUSINESS_APPLICATIONS,
-  NEW_BUSINESS_PENALTY, NEW_BUSINESS_REJECTION_SLIDER, NEW_MEMBER_GRACE_YEARS, R_MODEL, RENEWALS_DECLINED_SLIDER,
+  NEW_BUSINESS_PENALTY, NEW_BUSINESS_REJECTION_SLIDER, NEW_MEMBER_GRACE_YEARS, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS,
+  R_MODEL, RENEWALS_DECLINED_SLIDER,
 } from '../data/pricingParameters';
 import { deriveSubRng } from './random';
-import { marketUnits, type BookUnit } from './bookUnits';
+import { marketUnits, openingBookUnits, type BookUnit } from './bookUnits';
 import type { BookLedger, CoverageLine, UnitYearRecord } from '../types/simulation';
 import type { MemberMovementResult } from './membershipEngine';
 
@@ -224,6 +226,10 @@ export function moveBookUnits(
   const share = new Map(book.map(i => [i, heldShare(base, i)]));
   const heldSize = (i: number) => market[i].size * (share.get(i) ?? 0);
   const before = book.reduce((a, i) => a + heldSize(i), 0);
+  // THE PRE-GAME GROWS INTO THE OPENING BOOK (PRE_GAME_BOOK_GROWTH).
+  if (frozen && PRE_GAME_BOOK_GROWTH > 0 && yearNumber <= 0) {
+    return preGameGrowth(line, marketSeed, base, yearNumber, newBusinessPenaltyFactor(decisions.newBusinessRejection));
+  }
   if (frozen) {
     return {
       before, renewedOff: 0, withdrawn: 0, written: 0, after: before, newShare: 0, applied: 0, penaltyFactor: 1,
@@ -304,6 +310,62 @@ export function moveBookUnits(
     afterUnits, writtenUnits: [...writtenUnits].sort((a, b) => a - b),
     declinedUnits: declines.map(d => d.index).sort((a, b) => a - b),
     withdrawnUnits: withdrawnUnits.sort((a, b) => a - b), ledger: next,
+  };
+}
+
+/** The first pre-game year's number (2021): the pre-game runs to year 0. */
+const FIRST_PRE_GAME_YEAR = 1 - PRIOR_HISTORY_YEARS;
+
+/**
+ * The share of each opening-book unit held in pre-game year `y`: the opening
+ * book in a seeded order, taken whole and a part of the last to exactly the
+ * opening exposure x (1 + PRE_GAME_BOOK_GROWTH)^y; at year 0, all of it.
+ */
+export function preGameBookShares(marketSeed: number, line: CoverageLine, y: number): Map<number, number> {
+  const market = marketUnits(marketSeed, line);
+  const order = openingBookUnits(marketSeed, line);
+  const rng = deriveSubRng(marketSeed, 0, `pregame_growth_${line}`);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(rng.next() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const out = new Map<number, number>();
+  if (y >= 0) {
+    for (const i of order) out.set(i, 1);
+    return out;
+  }
+  const target = order.reduce((a, i) => a + market[i].size, 0) * Math.pow(1 + PRE_GAME_BOOK_GROWTH, y);
+  for (const p of takeExactly(order.map(i => ({ index: i, held: market[i].size })), target)) out.set(p.index, p.part);
+  return out;
+}
+
+/**
+ * A pre-game year's book movement under PRE_GAME_BOOK_GROWTH: what the year
+ * holds (preGameBookShares), and as written the units whose share rose since
+ * the year before — new business, at the year's first-year penalty. The first
+ * pre-game year writes nothing: its book is where the pool starts.
+ */
+function preGameGrowth(line: CoverageLine, marketSeed: number, base: BookLedger, yearNumber: number, penaltyFactor: number): UnitBookMovement {
+  const market = marketUnits(marketSeed, line);
+  const now = preGameBookShares(marketSeed, line, yearNumber);
+  const prev = yearNumber > FIRST_PRE_GAME_YEAR ? preGameBookShares(marketSeed, line, yearNumber - 1) : null;
+  const sizeOf = (m: Map<number, number>) => [...m].reduce((a, [i, sh]) => a + market[i].size * sh, 0);
+  const writtenUnits = prev ? [...now.keys()].filter(i => now.get(i)! > (prev.get(i) ?? 0) + EPS).sort((a, b) => a - b) : [];
+  const written = prev ? writtenUnits.reduce((a, i) => a + market[i].size * (now.get(i)! - (prev.get(i) ?? 0)), 0) : 0;
+  const after = sizeOf(now);
+  const isNew = new Set(writtenUnits);
+  const ledger = emptyLedger();
+  for (const [i, sh] of now) {
+    const k = key(i);
+    if (sh < 1 - EPS) ledger.share[k] = sh;
+    const j = isNew.has(i) ? yearNumber : base.joined[k];
+    if (j !== undefined) ledger.joined[k] = j;
+    if (base.history[k]) ledger.history[k] = base.history[k];
+  }
+  return {
+    before: prev ? sizeOf(prev) : after, renewedOff: 0, withdrawn: 0, written, after, applied: written, penaltyFactor,
+    newShare: after > 0 ? written / after : 0, afterUnits: [...now.keys()].sort((a, b) => a - b), writtenUnits,
+    declinedUnits: [], withdrawnUnits: [], ledger,
   };
 }
 

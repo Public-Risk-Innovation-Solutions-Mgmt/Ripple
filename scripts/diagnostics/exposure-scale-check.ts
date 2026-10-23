@@ -12,8 +12,9 @@
 //      2.211 / 1.549 / 0.515 once the contingency went to 0).
 //   2. THE POOL KEEPS ABOUT 30% OF IT: every seed's opening book is 29% to 33%
 //      of its line's scaled market.
-//   3. ABOUT $30M AT EXPECTED: each line's year-1 premium at the default
-//      decisions, averaged over seeds, is between $27M and $33M.
+//   3. YEAR-1 PREMIUM AT EXPECTED IN ITS BAND: each line's year-1 premium at
+//      the default decisions, averaged over seeds, is within 10% of the line's
+//      centre — WC $34.92M, GL $35.71M, Property $30.53M (see BAND).
 //
 // ⚠ THE MULTIPLIERS ARE PINNED, AND NO LONGER RE-SCALED WHEN PRICING CHANGES
 // (after the expectation followed the shock switch): a pricing change moves
@@ -21,6 +22,16 @@
 // It was 2% of $30M, re-scaled after every pricing change; with the covers on
 // the ordinary year a solo game's premium at Expected came to WC $29.1M,
 // GL $28.5M, Property $27.9M, and exposure was kept.
+//
+// ⚠ AND THE BAND MOVES WITH THE PRICING INSTEAD (the reserve-inflation
+// landing). It was $27M to $33M on every line — $30M +/- 10%. Reserve
+// inflation priced in for its first years, the investment income credit
+// taken off and profit and contingency set per line raised year-1 premium to
+// WC $34.92M, GL $35.71M, Property $30.53M over these twelve seeds (from
+// $30.94M, $30.91M and $28.33M). Exposure is not re-scaled when pricing
+// changes, so the band is re-centred on those figures, per line, at the same
+// +/- 10%. The controls keep it honest both ways: premiums 20% over or 20%
+// under, and the premiums before the landing, each fail.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a market left unscaled, a book
 // read off the unscaled market, and premiums 20% off.
@@ -36,8 +47,13 @@ import type { CoverageLine, GameSetupSettings, GameState } from '../../src/types
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const BASE: Record<CoverageLine, number> = { WC: 1300, GL: 1300, Property: 59233.002 };
 const CALIBRATED: Record<CoverageLine, number> = { WC: 2.342, GL: 1.640, Property: 0.546 };
-/** Year-1 premium at Expected, each line's mean over seeds: $27M to $33M. */
-const BAND: [number, number] = [27e6, 33e6];
+/** Year-1 premium at Expected, each line's mean over seeds: within 10% of the line's centre. */
+const CENTRE: Record<CoverageLine, number> = { WC: 34.92e6, GL: 35.71e6, Property: 30.53e6 };
+const BAND_WIDTH = 0.10;
+const BAND: Record<CoverageLine, [number, number]> = Object.fromEntries(
+  LINES.map(l => [l, [CENTRE[l] * (1 - BAND_WIDTH), CENTRE[l] * (1 + BAND_WIDTH)]])) as Record<CoverageLine, [number, number]>;
+/** Year-1 premium before the reserve-inflation landing, as a share of today's, by line (a control). */
+const BEFORE_LANDING: Record<CoverageLine, number> = { WC: 30.94 / 34.92, GL: 30.91 / 35.71, Property: 28.33 / 30.53 };
 const failures: string[] = [];
 const check = (ok: boolean, label: string, detail = '') => {
   if (!ok) failures.push(label);
@@ -78,12 +94,12 @@ function gradeShare(book: Record<CoverageLine, number[]>, market: Record<Coverag
 
 // ---------------------------------------------------------------- 3
 function gradePremium(prem: Record<CoverageLine, number[]>, tag: string) {
-  const inBand = LINES.every(l => mean(prem[l]) >= BAND[0] && mean(prem[l]) <= BAND[1]);
-  check(inBand, `${tag}3. each line's year-1 premium at Expected averages between $27M and $33M`,
-    LINES.map(l => `${l} $${(mean(prem[l]) / 1e6).toFixed(2)}M`).join(', ') + ` over ${SEEDS} seeds`);
+  const inBand = LINES.every(l => mean(prem[l]) >= BAND[l][0] && mean(prem[l]) <= BAND[l][1]);
+  check(inBand, `${tag}3. each line's year-1 premium at Expected averages within 10% of its centre`,
+    LINES.map(l => `${l} $${(mean(prem[l]) / 1e6).toFixed(2)}M in $${(BAND[l][0] / 1e6).toFixed(2)}M-$${(BAND[l][1] / 1e6).toFixed(2)}M`).join(', ') + ` over ${SEEDS} seeds`);
 }
 
-console.log('EACH LINE AT ABOUT $30M OF YEAR-1 PREMIUM');
+console.log('EACH LINE\'S YEAR-1 PREMIUM IN ITS BAND');
 gradeMarket(FULL_MARKET_EXPOSURE, '');
 gradeShare(books, FULL_MARKET_EXPOSURE, '');
 gradePremium(premiums, '');
@@ -105,12 +121,15 @@ controlFails('the multipliers before the cover was charged in full', () => grade
 controlFails('the multipliers before the contingency went to 0', () => gradeMarket(
   { WC: 1300 * 2.211, GL: 1300 * 1.549, Property: 59233.002 * 0.515 }, '', { WC: 2.211, GL: 1.549, Property: 0.515 }), '1.');
 controlFails('a book read off the unscaled market', () => gradeShare(books, BASE, ''), '2.');
-controlFails('premiums 20% off', () => gradePremium(
-  Object.fromEntries(LINES.map(l => [l, premiums[l].map(p => p * 1.2)])) as Record<CoverageLine, number[]>, ''), '3.');
+const scaled = (f: (l: CoverageLine) => number) =>
+  Object.fromEntries(LINES.map(l => [l, premiums[l].map(p => p * f(l))])) as Record<CoverageLine, number[]>;
+controlFails('premiums 20% over', () => gradePremium(scaled(() => 1.2), ''), '3.');
+controlFails('premiums 20% under', () => gradePremium(scaled(() => 0.8), ''), '3.');
+controlFails('the premiums before the reserve-inflation landing', () => gradePremium(scaled(l => BEFORE_LANDING[l]), ''), '3.');
 
 console.log('');
 if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — one exposure multiplier per line on the whole market, a 30% book, and about $30M of year-1 premium.');
+console.log('PASS — one exposure multiplier per line on the whole market, a 30% book, and year-1 premium in its band.');

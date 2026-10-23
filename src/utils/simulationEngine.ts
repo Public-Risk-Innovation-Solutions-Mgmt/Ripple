@@ -2,7 +2,7 @@
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
 import { alaeRatioFor } from './alaeRatio';
-import { investmentIncomeCredit, gameHistory } from './investmentIncomeCredit';
+import { adminOverrunFor } from './adminOverrun';
 import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation, BookLedger } from '../types/simulation';
 import type { ShockFiring, ShockRecord } from '../types/shocks';
 
@@ -44,7 +44,7 @@ function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | 
 function newLossEngineRecord(
   ordinary: OrdinaryLossYear, shocks: LineShockYear, large: LargeLossDraw,
   expected: { ordinary: number; uplift: number; shockLarge: number; routineLarge: number; total: number },
-  rDevelopment: number, penalty: number, withdrawnExposure: number,
+  rDevelopment: number, reserveInflation: number, penalty: number, withdrawnExposure: number,
 ): NewLossEngineRecord {
   const events = new Map<string, NewLossEngineRecord['events'][number]>();
   const note = (f: LineShockYear['byFiring'][number]['firing'], uplift: number, rRate: number) => {
@@ -75,6 +75,7 @@ function newLossEngineRecord(
     },
     rRate: shocks.rRate,
     rDevelopment,
+    reserveInflation,
     withdrawnExposure,
     events: [...events.values()],
   };
@@ -150,7 +151,7 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn, expectedMarketReturns, preGameMarketReturns } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR } from '../data/pricingParameters';
 import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
@@ -638,14 +639,6 @@ interface LineYearContext {
    * read site has to know where it came from.
    */
   developmentPct: number;
-  /**
-   * THE INVESTMENT INCOME CREDIT this line-year's rate takes off its pure
-   * premium (investmentIncomeCredit.ts): last year's realised return on the
-   * pool's invested assets, or the parameter's before any history. Read where
-   * the year strikes its own rate — the pre-game and every one-world year; a
-   * struck rate carries its own.
-   */
-  investmentIncomeCredit: number;
   allMarketMembers: Member[];
   // The authoritative per-line enrollment ledger (as of this year's entry,
   // plus earlier-processed lines' same-year updates — irrelevant to this
@@ -763,9 +756,7 @@ export function strikeBookRate(
   lineState: LinePoolState,
   lineDecisions: LineDecisionSet,
   yearNumber: number,
-  // `investmentIncomeCredit`: the credit the rate takes off its pure premium
-  // (investmentIncomeCredit.ts), read by the caller off the game's history.
-  basis: { allMarketMembers: Member[]; membershipHistory: MembershipHistory; investmentIncomeCredit: number },
+  basis: { allMarketMembers: Member[]; membershipHistory: MembershipHistory },
   // The book's size-weighted true risk (lineBookRisk), which its tower's price
   // carries as the engine's does; absent for a line with no book of units.
   bookRisk?: number,
@@ -791,7 +782,6 @@ export function strikeBookRate(
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: lineDecisions.reinsuranceOption,
     shocks,
-    investmentIncomeCredit: basis.investmentIncomeCredit,
   });
   return { exposure, newPp, quote, ...(bookRisk !== undefined ? { bookRisk } : {}) };
 }
@@ -1166,7 +1156,6 @@ export function processLineYear(
       aggregateStopLevel,
       reinsuranceOption: lineDecisions.reinsuranceOption,
       shocks,
-      investmentIncomeCredit: ctx.investmentIncomeCredit,
     })
     : null;
 
@@ -1541,7 +1530,6 @@ export function processLineYear(
       aggregateStopLevel,
       reinsuranceOption: lineDecisions.reinsuranceOption,
       shocks,
-      investmentIncomeCredit: ctx.investmentIncomeCredit,
     })
     : null;
 
@@ -1746,7 +1734,10 @@ export function processLineYear(
 
   // Legacy names remain populated for compatibility with older screens and exports.
   const grossPremium = totalMemberCharge;
-  const operatingExpense = adminExpense;
+  // ⚠ THE ADMIN BOOKED RUNS OVER THE ADMIN PRICED by the year's drawn share
+  // (ADMIN_OVERRUN_RANGE, adminOverrun.ts): adminExpense stays what the rate
+  // charged; operatingExpense — what the result books — carries the overrun.
+  const operatingExpense = adminExpense * (1 + adminOverrunFor(marketSeedOf(instance), yearNumber, line));
   // ⚠ THE PROGRAM'S COST JOINS THE EXISTING RISK-CONTROL EXPENSE LINE RATHER
   // THAN OPENING A NEW ONE. riskControlInvestment already flows into BOTH
   // underwritingIncome and newCash, and is already reported, exported and
@@ -1880,9 +1871,9 @@ export function processLineYear(
     // exposure x risk x cost, times the shared year factor and its own.
     ordinaryYear = yearUnits
       ? ordinaryLossFromUnits(line, yearUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed,
-        newUnits, unitPenalty, preGameLossFactor(instance, yearNumber), ctx.flatPreGame)
+        newUnits, unitPenalty, preGameLossFactor(instance, yearNumber, line), ctx.flatPreGame)
       : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed,
-        preGameLossFactor(instance, yearNumber), ctx.flatPreGame);
+        preGameLossFactor(instance, yearNumber, line), ctx.flatPreGame);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
     const penalty = newBusinessPenaltyFactor;
@@ -2325,9 +2316,11 @@ export function processLineYear(
     unallocatedDevelopment,
     developmentAbovePoolLimit,
     rDevelopment,
+    reserveInflation,
   } = processIbner(
     lineState.reserveCohorts, line, ibnerRng, instance.instanceId, instance.seed, yearNumber,
     lineShocks?.rRate ?? 0,
+    RESERVE_INFLATION_PER_YEAR[line],
   );
   void unallocatedDevelopment;   // surfaced by the harness, not by the result
 
@@ -2870,8 +2863,10 @@ export function processLineYear(
   // declining LOWERS the expense ratio, which is the true statement: the pool
   // has stopped paying a reinsurer. What it has taken on instead shows in the
   // surplus path and in the two-part loss ratio, not here.
+  // ⚠ THE ADMIN BOOKED (operatingExpense), with the year's overrun
+  // (ADMIN_OVERRUN_RANGE) — the expected ratio keeps the admin priced.
   const actualExpenseRatio =
-    (adminExpense + reinsuranceCost) / Math.max(totalMemberCharge, 1);
+    (operatingExpense + reinsuranceCost) / Math.max(totalMemberCharge, 1);
   // LAE is its own ratio, beside the loss ratio and inside the combined one.
   const actualLaeRatio = lae.laeIncurred / Math.max(totalMemberCharge, 1);
   const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
@@ -3062,8 +3057,6 @@ export function processLineYear(
     // audit page states the admin rate at it. Absent on a one-world year, which
     // bills on its own book after movement.
     ...(struck ? { ratedExposure: struck.exposure } : {}),
-    // The credit the billed rate took off its pure premium.
-    ...(billedStack !== null ? { investmentIncomeCredit: billedStack.investmentIncomeCredit } : {}),
     // The year's drawn ALAE ratio, and the ALAE load its rate carried.
     alaeRatio: currentYearCohort.alaeRatio,
     ...(newPp !== null && newPp.lossCostPer100 > 0 ? { pricingAlaeRatio: newPp.alaeRatio } : {}),
@@ -3147,7 +3140,7 @@ export function processLineYear(
     // carries no key at all.
     ...(ordinaryYear && lineShocks && largeDraw && newEngineExpected
       ? { newLossEngine: newLossEngineRecord(
-        ordinaryYear, lineShocks, largeDraw, newEngineExpected, rDevelopment, newBusinessPenaltyFactor,
+        ordinaryYear, lineShocks, largeDraw, newEngineExpected, rDevelopment, reserveInflation, newBusinessPenaltyFactor,
         bookMovement
           ? bookMovement.withdrawn * exposureFactor(line, yearNumber)
           : shockWithdrawn.reduce((t, m) => t + getMemberExposure(m, line, yearNumber), 0),
@@ -3663,7 +3656,6 @@ export function processYear(
       // caught it at once: the pre-game cohorts carried a base struck mid-
       // pre-game, so `developmentTotal == pct x base` failed by up to $7.6k
       // and twelve Property cohorts had emerged the wrong way.
-      investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gameState), yearNumber),
       developmentPct: overrides?.freezeMembership === true
         ? 0
         : gameState.setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line],
@@ -4271,7 +4263,8 @@ export function aggregateLineResults(
     netIncurredLossSum / Math.max(poolPremiumAndAdminExpenseSum, 1);
   const actualLossRatioRetainedPremium =
     netIncurredLossSum / Math.max(addDollars('poolPremium'), 1);
-  const actualExpenseRatio = (adminExpenseSum + reinsuranceCostSum) / Math.max(totalMemberChargeSum, 1);
+  // The admin booked, with each line's overrun; expected keeps the admin priced.
+  const actualExpenseRatio = (addDollars('operatingExpense') + reinsuranceCostSum) / Math.max(totalMemberChargeSum, 1);
   const actualLaeRatio = addDollars('laeIncurred') / Math.max(totalMemberChargeSum, 1);
   const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
 
@@ -4744,8 +4737,11 @@ function processIbner(
   valuationYear: number,
   // The new loss engine's R rate this year — 0 with the flag off.
   extraDevelopmentRate = 0,
+  // Reserve inflation's yearly rate on the line (RESERVE_INFLATION_PER_YEAR).
+  reserveInflationRate = 0,
 ): {
   rDevelopment: number;
+  reserveInflation: number;
   developmentImpact: number;
   updatedCohorts: ReserveCohort[];
   netPaidThisYear: number;
@@ -4767,6 +4763,8 @@ function processIbner(
   let developmentClamped = 0;
   // What the R shocks added this year, on the cohorts' own bases.
   let rDevelopment = 0;
+  // What reserve inflation added this year, on the same bases.
+  let reserveInflation = 0;
 
   const updatedCohorts = cohorts
     .filter(c => !c.closed)
@@ -5374,8 +5372,16 @@ function processIbner(
       // host's percentage still emerges in full and only in full.
       // Zero with the flag off, and `hostEmerging + 0` is hostEmerging.
       const rEmerging = extraDevelopmentRate > 0 ? extraDevelopmentRate * developmentBaseOf(c) : 0;
-      const emerging = hostEmerging + rEmerging;
+      // ⚠ RESERVE INFLATION (RESERVE_INFLATION_PER_YEAR), ON THE SAME BASIS AND
+      // THE SAME ROUTE: the line's trend on this prior year's outstanding at the
+      // START of the year — before this year's payments — recognised now and
+      // paid by later years. Like the R shocks it is outside the lifetime total,
+      // and outside `developing`: open claims inflate until they are paid, not
+      // until the host's development has finished emerging.
+      const inflationEmerging = reserveInflationRate > 0 ? reserveInflationRate * developmentBaseOf(c) : 0;
+      const emerging = hostEmerging + rEmerging + inflationEmerging;
       rDevelopment += rEmerging;
+      reserveInflation += inflationEmerging;
       let emergedNet = 0;
       let emergedAbovePoolLimit = 0;
       if (emerging !== 0) {
@@ -5577,7 +5583,16 @@ function processIbner(
       // pool should never have earned. It does not touch the float the pool
       // legitimately earns, and it is not a difficulty lever.
       // ====================================================================
-      if (FORWARD_BOOKING.enabled) {
+      // ⚠ AND WHENEVER THE LINE INFLATES, WHATEVER THE FLAG. Reserve inflation
+      // raises every open year's ultimate each year, and this true-up is what
+      // pays the pattern's share of the higher ultimate in the same year.
+      // Gated on FORWARD_BOOKING alone, the flag decided when inflation was
+      // paid — and through the paid history, the experience window and the
+      // rate — which is a path ratemaking-loop-check and
+      // experience-pricing-drift-check forbid it. The shipped game (flag on)
+      // is unchanged by construction; only the flag-off arm now pays inflation
+      // the same way.
+      if (FORWARD_BOOKING.enabled || reserveInflationRate > 0) {
         const paidTarget = newUltimate * cumulativePaid(LINE_PAYOUT_PATTERN[line], c.age + 2);
         const trueUp = Math.max(0, Math.min(paidTarget - newPaid, newUnpaid));
         if (trueUp > 0) {
@@ -5675,6 +5690,7 @@ function processIbner(
   void developmentClamped;
   return {
     rDevelopment,
+    reserveInflation,
     developmentAbovePoolLimit,
     developmentImpact,
     updatedCohorts,

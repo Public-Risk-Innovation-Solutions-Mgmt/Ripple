@@ -56,7 +56,6 @@
 // ============================================================================
 
 // ⚠ FIRST IMPORT, AND IT HAS TO BE — see pricing-overrides-install.ts.
-import { investmentIncomeCredit, gameHistory } from '../../src/utils/investmentIncomeCredit';
 import { argvWithoutOverrides, overridesBanner, pricingOverrides } from './pricing-overrides-install';
 import { startRunLog } from './runlog';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -166,7 +165,6 @@ for (let y = 1; y <= YEAR; y++) {
         groundUpPurePremiumPer100: pp.purePremiumPer100,
         clf: result.selectedFundingCLF, riskControlPct: rc,
         layersPlaced: placed, aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
-        investmentIncomeCredit: investmentIncomeCredit(LINE, gameHistory(gs), y),
       }),
     });
   }
@@ -235,8 +233,8 @@ console.log(`  = ADMIN RATE per $100                                  ${r4(w.quo
 // ---------------------------------------------------------------------------
 console.log('\n--- 4. THE VARIABLE PERCENTAGES ---');
 console.log(`  risk control incentive                                 ${pct(w.rc).padStart(10)}`);
-console.log(`  profit & contingency                                   ${pct(PROFIT_AND_CONTINGENCY_OF_RATE).padStart(10)}`);
-console.log(`  = divisor  1 - ${pct(w.rc)} - ${pct(PROFIT_AND_CONTINGENCY_OF_RATE)}`
+console.log(`  profit & contingency                                   ${pct(PROFIT_AND_CONTINGENCY_OF_RATE[LINE]).padStart(10)}`);
+console.log(`  = divisor  1 - ${pct(w.rc)} - ${pct(PROFIT_AND_CONTINGENCY_OF_RATE[LINE])}`
   + `                           ${w.quote.divisor.toFixed(4).padStart(10)}`);
 console.log(`  what the divisor adds to the final rate                ${r4(w.quote.riskControlAndContingencyPer100).padStart(10)} per $100`);
 

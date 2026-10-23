@@ -32,7 +32,6 @@
 // reseeds another. Deterministic: same seed -> same per-line redraw path
 // -> same history, every config. The accepted history is real and ties out.
 
-import { investmentIncomeCreditFromLine } from './investmentIncomeCredit';
 import type {
   BookLedger,
   CoverageLine,
@@ -398,7 +397,7 @@ function runLinePreGame(
   line: CoverageLine
 ): LinePreGame {
   const developmentPct = setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line];
-  const ratio = SCENARIO_PREMIUM_TO_SURPLUS[scenarioOf(instance)];
+  const ratio = SCENARIO_PREMIUM_TO_SURPLUS[line][scenarioOf(instance)];
   const shocks = gameShocksOn(setup, instance);
   // One pre-game of a given kind at a given margin, and how far its last
   // year-end misses an opening at premium to surplus `target`.
@@ -459,7 +458,7 @@ export function openingYear1Premium(
   shocks = true,
 ): number {
   const struck = strikeBookRate(line, lineState, defaultDecisionSet(1, shocks).byLine[line], 1,
-    { allMarketMembers: [], membershipHistory: {}, investmentIncomeCredit: investmentIncomeCreditFromLine(line, lastPreGame) },
+    { allMarketMembers: [], membershipHistory: {} },
     MEMBER_LEVEL.enabled ? undefined : lineBookRisk(instance, line, { [line]: openingBookUnits(marketSeedOf(instance), line) }),
     shocks);
   return struck ? struck.quote.finalRatePer100 * struck.exposure * 10_000 : lastPreGame?.totalMemberCharge ?? 0;

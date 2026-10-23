@@ -91,7 +91,6 @@ function gradePrice(price: Price, tag: string) {
       const stack = quoteNewRateStack({
         line: l, yearNumber: y, members: { exposure }, exposure, groundUpPurePremiumPer100: 5, clf: 1,
         riskControlPct: 0, layersPlaced: placementFor(l, q.optionId), aggregateStopLevel: -1, reinsuranceOption: q.optionId,
-        investmentIncomeCredit: 0,
       });
       // The full price as reinsurance; the claims cost (5 per $100) untouched.
       worstCharge = Math.max(worstCharge, rel(stack.reinsuranceCost, q.premium),

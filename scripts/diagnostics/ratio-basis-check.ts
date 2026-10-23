@@ -169,6 +169,9 @@ console.log('  no longer reproduces from its stated parts has had one side chang
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
   };
   const bad: string[] = [];
+  // The control: the actual expense ratio rebuilt from the admin PRICED must
+  // NOT reproduce it, line-year by line-year, while the overrun is drawn.
+  let pricedAdminMisses = 0, lineYears = 0;
   for (let y = 1; y <= 4; y++) {
     const p = processYear(gs, defaultDecisionSet(y));
     for (const l of LINES) {
@@ -182,7 +185,13 @@ console.log('  no longer reproduces from its stated parts has had one side chang
       t('expectedLossRatioMemberBasis', r.expectedLossRatioMemberBasis, funded / Math.max(r.totalMemberCharge, 1));
       t('expectedExpenseRatio', r.expectedExpenseRatio, (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1));
       t('actualLossRatio', r.actualLossRatio, r.netIncurredLoss / Math.max(r.totalMemberCharge, 1));
-      t('actualExpenseRatio', r.actualExpenseRatio, (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1));
+      // ⚠ THE ADMIN PAID (operatingExpense), NOT THE ADMIN PRICED: actual admin
+      // runs over the admin the rate charged by the year's drawn share
+      // (ADMIN_OVERRUN_RANGE). The expected expense ratio above keeps the admin
+      // priced; the total member charge below is still built on it.
+      t('actualExpenseRatio', r.actualExpenseRatio, (r.operatingExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1));
+      lineYears++;
+      if (Math.abs(r.actualExpenseRatio - (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1)) > 1e-12) pricedAdminMisses++;
       t('actualLaeRatio', r.actualLaeRatio, r.laeIncurred / Math.max(r.totalMemberCharge, 1));
       t('actualCombinedRatio', r.actualCombinedRatio, r.actualLossRatio + r.actualLaeRatio + r.actualExpenseRatio);
       // The member-charge identity every one of the above leans on.
@@ -192,6 +201,9 @@ console.log('  no longer reproduces from its stated parts has had one side chang
   }
   check(bad.length === 0, 'every stored ratio reproduces from its own stated parts', `${bad.length} mismatch(es)`);
   for (const b of bad.slice(0, 8)) console.log(`        ${b}`);
+  check(lineYears > 0 && pricedAdminMisses === lineYears,
+    'control: the actual expense ratio rebuilt from the admin PRICED is caught on every line-year',
+    `${pricedAdminMisses} of ${lineYears} line-years differ`);
 }
 
 // --- 4. ACTUAL vs EXPECTED NOW SHARE A BASIS ---------------------------------

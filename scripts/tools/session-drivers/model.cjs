@@ -8,7 +8,14 @@
 //   section A           for every priced year, the rate the page builds step
 //                       by step IS the rate the game charged that year, and
 //                       its premium the premium charged; for the coming year,
-//                       the rate the Decisions panel quotes
+//                       the rate the Decisions panel quotes. Its rows — pure
+//                       premium x CLF, admin, Risk Control, profit &
+//                       contingency, reinsurance — add to that rate; the
+//                       indicated rate at Expected is the projected pure
+//                       premium / the permissible loss ratio; profit &
+//                       contingency is the line's (WC 2%, GL 0%, Property 0%); every window year shows its reserve
+//                       inflation still to come (1 past the priced years), and
+//                       there is no investment income credit
 //   section B           every KNOWN year's simulated combined ratio,
 //                       investment income and year-end surplus are the Annual
 //                       Statement's own, at the statement's precision (0.1%,
@@ -23,6 +30,8 @@
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
+// Profit and contingency by line (pricingParameters' PROFIT_AND_CONTINGENCY_OF_RATE), written out.
+const CONTINGENCY = { WC: 0.02, GL: 0, Property: 0 };
 const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
 
 let passed = 0, failed = 0;
@@ -100,13 +109,24 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       const chargedPremium = await value('[data-testid="model-a-charged-premium"]');
       const coming = o.value === opts[opts.length - 1].value;
       const want = coming ? panel[l] : charged;
-      const good = coming ? near(rate, panel[l]) : near(rate, charged) && near(premium, chargedPremium);
+      const pieces = await Promise.all(['pure-premium', 'admin', 'risk-control', 'contingency', 'reins'].map(k => value(`[data-testid="model-a-piece-${k}"]`)));
+      const projected = await value('[data-testid="model-a-projected"]');
+      const plr = await value('[data-testid="model-a-plr"]');
+      const indicated = await value('[data-testid="model-a-indicated"]');
+      const contingency = await value('[data-testid="model-a-exp-contingency"]');
+      const inflation = await page.$$eval('[data-testid$="-inflation"]', els => els.map(e => Number(e.getAttribute('data-value'))));
+      const credit = await page.locator('[data-testid="model-a-credit"]').count();
+      const sum = pieces.reduce((x, y) => x + y, 0);
+      const structure = near(sum, rate) && near(indicated, projected / plr) && near(contingency, CONTINGENCY[l]) && credit === 0
+        && inflation.length > 0 && inflation.every(x => x >= 1);
+      if (!structure && !bad) bad = `${o.text}: rows ${sum} vs rate ${rate}; indicated ${indicated} vs ${projected / plr}; contingency ${contingency}; ${inflation.length} inflation cells; credit rows ${credit}`;
+      const good = structure && (coming ? near(rate, panel[l]) : near(rate, charged) && near(premium, chargedPremium));
       n++;
       if (!good && !bad) bad = `${o.text}: ${rate} vs ${want}${coming ? ' (panel)' : `, premium ${premium} vs ${chargedPremium}`}`;
       if (!good) worst++;
     }
     ok(worst === 0 && n === opts.length,
-      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged`,
+      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged; its rows add to it, the indicated rate is pure premium / permissible loss ratio, the line's contingency, inflation shown, no credit`,
       bad || `${n} years`);
 
     // Section B's simulated figures, by calendar year: every year but the

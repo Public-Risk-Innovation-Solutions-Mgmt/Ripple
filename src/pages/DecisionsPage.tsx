@@ -19,7 +19,7 @@ import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import type { FundingConsequence } from '../utils/fundingConsequence';
-import { ratePieces, type UnderwritingFigures } from '../game/derivations';
+import { pieceCents, ratePieces, type UnderwritingFigures } from '../game/derivations';
 import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import { REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
@@ -565,10 +565,8 @@ function NewRatePanel({ n, prior }: {
   n: NonNullable<FundingConsequence['newStack']>;
   prior?: LineResultSet;
 }) {
-  // ⚠ NO "$-0.00". The risk control & contingency row is the rate's remainder
-  // (ratePieces), so where the loading is nil it lands a rounding hair either
-  // side of zero; a figure that rounds to zero prints as zero.
-  const d2 = (v: number) => `$${(Math.abs(v) < 0.005 ? 0 : v).toFixed(2)}`;
+  // A whole number of cents, as printed.
+  const c2 = (cents: number) => `$${(cents / 100).toFixed(2)}`;
   // ⚠ THE CHANGE IS THE FIGURE; LAST YEAR'S RATE IS THE FOOTNOTE TO IT. A rate
   // on its own asks the reader to do the subtraction, and the subtraction is
   // the only part they actually want — "my rate went up 7%" is the sentence,
@@ -603,15 +601,19 @@ function NewRatePanel({ n, prior }: {
     );
   };
 
-  // ⚠ YOUR RATE'S PURE PREMIUM IS THE RETAINED FIGURE TIMES THE CLF, so it
-  // moves with the funding level, and the risk control & contingency row is the
-  // remainder — the four rows sum to the rate charged exactly. Indicated stays
-  // at Expected. See ratePieces.
+  // ⚠ EACH PIECE ITS OWN ROW, AND EACH COLUMN ADDS TO ITS RATE EXACTLY — in
+  // whole cents as printed (pieceCents: profit and contingency takes the
+  // rounding). Your rate's pure premium is the retained figure x the CLF, so it
+  // moves with the funding level; its Risk Control is the Risk Control box's
+  // cost per $100 ($0.00 while risk control is off). Indicated stays at
+  // Expected, self-funded. See ratePieces.
   const pieces = ratePieces(n);
-  const rows: Array<[string, string, string]> = [
-    ['Pure premium', d2(pieces.indicated.purePremium), d2(pieces.yours.purePremium)],
-    ['+ Admin', d2(pieces.indicated.admin), d2(pieces.yours.admin)],
-    ['+ Risk control & contingency', d2(pieces.indicated.rcAndContingency), d2(pieces.yours.rcAndContingency)],
+  const ind = pieceCents(pieces.indicated), yours = pieceCents(pieces.yours);
+  const rows: Array<[string, string, string, string]> = [
+    ['Pure premium', 'pure-premium', c2(ind.purePremium), c2(yours.purePremium)],
+    ['+ Admin', 'admin', c2(ind.admin), c2(yours.admin)],
+    ['+ Risk Control', 'risk-control', c2(ind.riskControl), c2(yours.riskControl)],
+    ['+ Profit & contingency', 'contingency', c2(ind.contingency), c2(yours.contingency)],
   ];
 
   return (
@@ -625,23 +627,23 @@ function NewRatePanel({ n, prior }: {
           </tr>
         </thead>
         <tbody>
-          {rows.map(([label, a, b]) => (
+          {rows.map(([label, id, a, b]) => (
             <tr key={label} className="border-t border-gray-200/70">
               <td className="py-1 text-gray-600">{label}</td>
-              <td className="py-1 text-right tabular-nums">{a}</td>
-              <td className="py-1 text-right tabular-nums">{b}</td>
+              <td data-testid={`new-rate-indicated-${id}`} className="py-1 text-right tabular-nums">{a}</td>
+              <td data-testid={`new-rate-yours-${id}`} className="py-1 text-right tabular-nums">{b}</td>
             </tr>
           ))}
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">+ Reinsurance</td>
             <td className="py-1 text-right text-gray-400">—</td>
-            <td className="py-1 text-right tabular-nums">{d2(pieces.yours.reins)}</td>
+            <td data-testid="new-rate-yours-reins" className="py-1 text-right tabular-nums">{c2(yours.reins)}</td>
           </tr>
           <tr className="border-t border-gray-300 font-medium">
             <td className="py-1">= Rate</td>
-            <td data-testid="new-rate-indicated" className="py-1 text-right tabular-nums">{d2(n.firstIndicationPer100)}</td>
+            <td data-testid="new-rate-indicated" className="py-1 text-right tabular-nums">{c2(ind.rate)}</td>
             {/* data-value: the full figure, for the rate-indication driver; the text is unchanged. */}
-            <td data-testid="new-rate-final" data-value={n.finalRatePer100} className="py-1 text-right tabular-nums">{d2(n.finalRatePer100)}</td>
+            <td data-testid="new-rate-final" data-value={n.finalRatePer100} className="py-1 text-right tabular-nums">{c2(yours.rate)}</td>
           </tr>
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">vs last year</td>
