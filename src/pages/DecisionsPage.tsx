@@ -966,7 +966,7 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
   return (
     <div className="space-y-3">
       {/* The program is the label; the value reads as an approximate share of
-          premium, the right end as the most of the pure premium it can spend. */}
+          pure premium, the right end as the most of the pure premium it can spend. */}
       <SliderInput
         label={RISK_CONTROL_PROGRAM_NAME[line]}
         value={value}
@@ -974,7 +974,7 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
         max={r.max}
         step={r.step}
         onChange={onChange}
-        formatValue={v => `${Number((v * 100).toFixed(1))} Approximate % of Premium`}
+        formatValue={v => `~${Number((v * 100).toFixed(1))}% of pure premium`}
         leftLabel="None"
         rightLabel={`${Number((r.max * 100).toFixed(1))}% of Pure Premium`}
         valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
