@@ -5,8 +5,8 @@
 written below. Shown in the Introduction tab, as written; no figures.
 -->
 
-**To:** Incoming Pool Management Team
-**From:** Underwriting Department
+**To:** Incoming Pool Management\
+**From:** Underwriting Department\
 **Re:** Who the Pool Covers
 
 Underwriting helps determine who the Pool covers.

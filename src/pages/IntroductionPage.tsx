@@ -75,7 +75,7 @@ export default function IntroductionPage({ gameState }: IntroductionPageProps) {
       // Pool's allocation in force (buildInvestmentMemo, currentAllocation).
       id: 'investment',
       title: 'Investment Memorandum',
-      summary: 'From the Investment Committee',
+      summary: 'From the Finance Department',
       content: buildInvestmentMemo(investmentMemoRaw, currentAllocation(gameState)),
     },
     {
