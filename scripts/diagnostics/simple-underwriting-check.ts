@@ -248,13 +248,21 @@ console.log(`\n${failed.length === 0 ? 'ALL OK' : `${failed.length} FAILED`}`);
 //   1. THE FORMULA: the relief read as 1 x a1, not NON_RENEWAL_LOSS_RELIEF x
 //      a1, in moveBook: EXIT 1 — section 1's formula and 1b's engine ratio
 //      fail, worst 2.56e-2 each.
-//   2. ONE YEAR ONLY: the relief made to stick to the book (a1 + 1 − E /
-//      the opening book, so a book shrunk last year still runs cheaper):
-//      EXIT 1 — section 2's plain-draw check fails, worst 2.50e-2. Year 1
-//      passes, as it should: the break is only in the carry-over.
+//   2. ONE YEAR ONLY (run while oneYear was in force): the relief made to
+//      stick to the book (a1 + 1 − E / the opening book, so a book shrunk last
+//      year still runs cheaper): EXIT 1 — section 2's plain-draw check fails,
+//      worst 2.50e-2. Year 1 passes, as it should: the break is only in the
+//      carry-over.
 //   3. 100 MEMBERS: UNDERWRITING_MEMBERS 50: EXIT 1 — section 3's count fails
 //      (50). The variance check follows the parameter, so it passes.
 //   4. THE PRE-GAME: lossFactor 1 on the pre-game's growth: EXIT 1 — section
 //      4's penalty check fails, worst 3.91e-3.
+//   5. PERSISTENCE, decaying in force: decaying made to carry all of last
+//      year's improvement (carry 1, not NON_RENEWAL_DECAY): EXIT 1 — section 2
+//      through the engine (worst 1.27e-2), the version's carry, and section
+//      5's halving and steady state (0.776 against 0.951) fail.
+//   6. DILUTION: Q at year end left at the renewing book's, new members not
+//      blended in at 1: EXIT 1 — section 2 (worst 6.33e-4) and section 5's
+//      dilution check fail.
 // ============================================================================
 process.exit(failed.length === 0 ? 0 : 1);

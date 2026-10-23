@@ -1602,8 +1602,20 @@ export const NON_RENEWAL_LOSS_RELIEF = 0.5;
  *   lasting   never resets: Q compounds by (1 − 0.5 a1) a year
  *
  * Pricing still learns only from the experience.
+ *
+ * ⚠ DECAYING IS IN FORCE — MEASURED (scripts/probes/simple-uw-report.mts,
+ * twenty scenarios, ten years, single player, shocks off, non-renewal held at
+ * 5%). oneYear: never beats leaving the book alone on WC or GL (combined
+ * ratio worse on 20/20), because the smaller book carries the same fixed
+ * admin. lasting: Q compounds without limit (0.776 by year 10, and lower every
+ * year after), the year-10 loss ratio 5.9 / 7.4 / 13.5 points below doing
+ * nothing on WC / GL / Property and the rate down about 10% — too strong.
+ * decaying settles at 0.951 (4.9% cheaper), beats doing nothing on Property
+ * (20/20 on surplus and combined ratio), and on WC and GL about breaks even
+ * (surplus ahead in 8 and 16 of 20, combined ratio behind): worth using, not
+ * dominant.
  */
-export const NON_RENEWAL_PERSISTENCE: { mode: 'oneYear' | 'decaying' | 'lasting' } = { mode: 'oneYear' };
+export const NON_RENEWAL_PERSISTENCE: { mode: 'oneYear' | 'decaying' | 'lasting' } = { mode: 'decaying' };
 
 /** The share of the improvement a DECAYING book carries into the next year — CHOSEN, the brief's half. */
 export const NON_RENEWAL_DECAY = 0.5;
@@ -2900,7 +2912,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'f(x) x Q): one year only, halved each year, or never reset. New members join at Q = 1 and blend in '
           + 'by exposure.',
         basis: 'CHOSEN',
-        note: 'A test-build switch so all three versions can be run.',
+        note: 'A test-build switch so all three versions can be run. Decaying in force: measured, it makes non-renewal '
+          + 'worth using (settling 4.9% cheaper) without the lasting version\'s unbounded compounding.',
       }],
       ['New members — slider', {
         value: `${(100 * NEW_MEMBERS_SLIDER.min).toFixed(0)}–${(100 * NEW_MEMBERS_SLIDER.max).toFixed(0)}%, `
