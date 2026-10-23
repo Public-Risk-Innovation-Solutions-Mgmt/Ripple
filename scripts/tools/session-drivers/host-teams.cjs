@@ -80,14 +80,14 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
     await p.waitForFunction(() => /year 1 result posted/.test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''), null, { timeout: 180000 });
   }
 
-  // ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): year 1 is complete and
-  // posted, but it is not yet KNOWN — it shows at the next advance. So the
-  // table still says so, and every team still reads pending.
+  // ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): the first advance
+  // completes 2026 — the opening, a pre-game year — and that is now the latest
+  // known year, so the table shows it: year 1 is posted but not yet known.
   await host.click('[data-testid="host-tab-teams"]');
-  await host.waitForTimeout(600);
+  await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length >= 1, null, { timeout: 30000 });
   const y1 = await host.textContent('[data-testid="teams-year"]');
-  ok(/No results known yet/.test(y1), `after one advance year 1 is posted but not yet known: "${y1.trim()}"`);
-  ok(await host.$('[data-testid^="surplus-"]') === null, 'and no team shows figures yet');
+  ok(/^2026 — the latest known year/.test(y1.trim()), `after one advance the opening, 2026, is the latest known year: "${y1.trim()}"`);
+  ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'and the teams show its figures — the opening they posted');
 
   // A second year: the two live teams lock and post year 2, and year 1 becomes known.
   for (const p of [wcTeam, glTeam]) {
@@ -111,7 +111,7 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length >= 1,
     null, { timeout: 30000 });
   const yr = await host.textContent('[data-testid="teams-year"]');
-  ok(/Year 1 — the latest known year/.test(yr), `after the second advance it shows the latest KNOWN year: "${yr.trim()}"`);
+  ok(/^2027 — the latest known year/.test(yr.trim()), `after the second advance it shows the latest KNOWN year, 2027: "${yr.trim()}"`);
 
   const views = await host.$$eval('nav button, [role="tablist"] button', b => b.map(x => x.textContent.trim()));
   console.log('  line-view bar :', views.filter(v => /Pool|Compensation|Liability|Property/.test(v)));

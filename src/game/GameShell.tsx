@@ -39,6 +39,7 @@ import { endingPosition } from '../utils/endingPosition';
 import { LINE_FULL_NAME } from '../utils/lineDisplay';
 import { useGameDerivations } from './derivations';
 import { claimsPoolStateAsOf, knownGameState, latestKnownYearNumber } from '../utils/knownYears';
+import { selectResultView } from '../utils/lineHelpers';
 import { openingRosterForLine } from './openingRoster';
 
 import Header from '../components/Header';
@@ -139,6 +140,12 @@ export default function GameShell({
   const knownYear = gameState ? latestKnownYearNumber(gameState) : Number.POSITIVE_INFINITY;
   const knownViewResults = React.useMemo(() => d.viewResults.filter(r => r.yearNumber <= knownYear), [d.viewResults, knownYear]);
   const knownPriorResults = React.useMemo(() => d.viewPriorResults.filter(r => r.yearNumber <= knownYear), [d.viewPriorResults, knownYear]);
+  // ⚠ EVERY KNOWN YEAR, PRE-GAME INCLUDED, for the pages that listed played
+  // years alone. After the first lock the newly known year is 2026 — the
+  // opening, a pre-game year — and a list of played years would be empty, so
+  // the game would look stuck. Oldest first: the early pre-game, then the rest.
+  const knownPreGame = React.useMemo(() => (known ? [...(known.earlyPreGameHistory ?? []), ...known.priorHistory] : []), [known]);
+  const knownPreGameView = React.useMemo(() => selectResultView(knownPreGame, lineView), [knownPreGame, lineView]);
   // The claims workbook reads the live reserve cohorts, so it is handed them as
   // they stood at the latest known year — the game's, and world 1's for its claims.
   const knownClaimsPool = React.useMemo(() => (gameState
@@ -284,12 +291,13 @@ export default function GameShell({
         )}
 
         {shownTab === 'results' && !hidden('results') && gameState && (
-          <ResultsPage lockedResults={knownViewResults} lineView={lineView} />
+          <ResultsPage lockedResults={[...knownPreGameView, ...knownViewResults]} lineView={lineView} />
         )}
 
         {shownTab === SPREADSHEET_TAB && known && (
           <ResultSpreadsheetPage
             lockedResults={known.lockedResults}
+            preGameResults={knownPreGame}
             priorHistory={known.priorHistory}
             instance={known.instance}
             activeLines={known.setup.activeLines}
