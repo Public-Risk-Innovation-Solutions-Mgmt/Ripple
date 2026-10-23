@@ -5,6 +5,7 @@ export type TabId =
   | 'introduction'
   | 'investments'
   | 'rateIndication'
+  | 'model'
   | 'departments'
   | 'history'
   | 'statement'

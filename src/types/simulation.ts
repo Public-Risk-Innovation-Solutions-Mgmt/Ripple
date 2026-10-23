@@ -1458,6 +1458,12 @@ interface ResultRowFields {
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;
   /**
+   * The exposure the year was BILLED on, $M, unrounded — activeExposure is
+   * stated to two places; the charge is the rate on this exactly. A played
+   * year's is the mean over worlds. Absent on a save written before it.
+   */
+  billedExposure?: number;
+  /**
    * THE INVESTMENT INCOME CREDIT the year's rate took off its pure premium
    * (investmentIncomeCredit.ts) — 0.03 is 3%. Absent on the old stack.
    */
@@ -1467,7 +1473,8 @@ interface ResultRowFields {
    * else — stored on the averaged row when a multi-world year settles. With the
    * struck rate's own fields already on the row (newPurePremiumPer100,
    * ratedExposure, the decisions echoed), these make the year's indication
-   * exact. Absent on a one-world year and on a save written before it existed.
+   * exact. A one-world year — the pre-game — records its own (the Model tab
+   * rebuilds its rate from it); absent on a save written before it existed.
    */
   rateBasis?: RateBasis;
   writtenExposure: number;      // payroll exposure in $M
@@ -2093,6 +2100,18 @@ export interface RateBasis {
    * a row stored before it was kept; the page then reads windowExposure.
    */
   latestExposure?: number;
+  /**
+   * The exposure the pure premium was struck at, $M — a played year's struck
+   * book; a one-world year's (the pre-game's) book before movement. Absent on
+   * a row stored before it was kept.
+   */
+  pricedExposure?: number;
+  /**
+   * A one-world year's: the risk of the book it billed on, after movement,
+   * which its cover was priced at. Absent on a struck year, priced and billed
+   * on one book at `risk`.
+   */
+  billedRisk?: number;
 }
 
 /**
