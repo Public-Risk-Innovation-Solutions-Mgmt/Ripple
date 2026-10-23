@@ -647,7 +647,7 @@ export const preGameLossMultiplier = (scenario: number): number =>
  * compounded (at $15M investment outgrew the margin). Those years are retired
  * (The pool's history begins), so that reason went with them.
  *
- * ⚠ PROPERTY $15M, WC AND GL $12.5M (policy-year build, with the six-year
+ * ⚠ PROPERTY $17.5M, WC AND GL $12.5M (policy-year build, with the six-year
  * simulated pre-game, the margin set on the designed history and floored at
  * zero, the one-year data lag, the investment income credit and ALAE drawn by
  * line and year). The table above predates all of those. At $12.5M Property's
@@ -661,12 +661,17 @@ export const preGameLossMultiplier = (scenario: number): number =>
  *   $17.5M     0.0% to 1.1%    18              1.00-2.14            -1.7% to +7.7%       1
  *   $20M       0.0%            20              0.90-1.74            -0.9% to +7.7%       1
  *
- * $15M is the level with the fewest drops at which no designed margin needs
- * the zero floor. $17.5M and $20M drop less only because the floor hides a
- * designed history that would need the board to price BELOW expected — on 18
- * and all 20 scenarios — and $20M also opens richer than the 1.0 guardrail.
+ * CHOSEN: $17.5M. One 2027 drop (scenario 17), against 3 at $15M and 9 at
+ * $12.5M. On 18 of the twenty scenarios the designed history would price
+ * below expected, so the zero floor (PRE_GAME_MARGIN_FLOOR) holds the prior
+ * board at EXACTLY expected — ruled fine: a board funding at expected is an
+ * ordinary history to hand over, and with no margin to come off, 2027 at
+ * Expected follows 2026 at trend. Openings stay inside the guardrails
+ * (1.00-2.14, none needing them). $20M drops no less and opens richer than
+ * the 1.0 guardrail (0.90 at its richest). $15M (shipped briefly, f096e1a)
+ * kept every designed margin above the floor at the cost of two more drops.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 15_000_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 17_500_000 };
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
@@ -2285,9 +2290,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'Property $15M, WC and GL $12.5M: at $12.5M Property\'s designed margin (3.0-5.8%) came off at Expected and '
-          + 'its 2027 rate dropped in 9 of 20 scenarios; at $15M, 3, with margins 0.3-3.5% and none at the zero floor. '
-          + '$17.5M and $20M drop once but only by flooring 18 and 20 designed margins that would sit below expected. '
+        note: 'Property $17.5M, WC and GL $12.5M: at $12.5M Property\'s designed margin (3.0-5.8%) came off at Expected and '
+          + 'its 2027 rate dropped in 9 of 20 scenarios; at $15M, 3; at $17.5M, 1. At $17.5M the zero floor holds the '
+          + 'prior board at exactly expected on 18 scenarios, ruled fine: a board funding at expected is an ordinary '
+          + 'history, and with no margin to come off 2027 follows 2026 at trend. $20M drops no less and opens richer '
+          + 'than the 1.0 guardrail. '
           + 'Earlier, before the simulated pre-game: the prior board\'s margin is solved to grow this into the opening and comes off when year 1 funds at '
           + 'Expected, so a smaller start means a higher margin and a 2026 rate that falls from 2025\'s. Tried at $5M, $10M, '
           + '$12.5M and $15M across the twenty scenarios by line. At $12.5M 2026\'s rate carries on rising from 2025\'s on '
