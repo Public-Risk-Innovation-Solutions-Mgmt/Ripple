@@ -68,7 +68,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   // ============================================================================
   const latestResult = lastResult ?? gameState?.priorHistory?.at(-1);
   const marketShare = lineView === 'pool' ? undefined : latestResult?.byLine[lineView]?.marketShare;
-  const poolName = gameState?.setup?.poolName ?? 'Risk Pool';
+  const poolName = gameState?.setup?.poolName ?? 'Ripple Public Entity Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';
   const yearNumber = gameState?.currentYearNumber ?? 1;
   const calendarYear = gameState
