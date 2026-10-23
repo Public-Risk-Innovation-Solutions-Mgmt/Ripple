@@ -109,7 +109,9 @@ async function checkUnderwriting(page, s, mode) {
   ok(JSON.stringify(t) === JSON.stringify(DOCS), 'solo: the Introduction tab lists the four memos, in order', t.join(' | '));
   const before = await s.investment('before year 1');
   ok(before !== null && before.reduce((a, b) => a + b, 0) === 100, 'solo, before year 1: the allocation the Pool holds is stated', String(before));
-  await checkWelcome(page, s, 'solo', 'Clearwater Public Entity Pool');
+  // Single-player's setup default (SetupPage), "Ripple Public Entity Risk Pool"
+  // since multiplayer's 5226457 — it was "Clearwater Public Entity Pool".
+  await checkWelcome(page, s, 'solo', 'Ripple Public Entity Risk Pool');
   await checkUnderwriting(page, s, 'solo');
 
   await page.getByRole('button', { name: /Lock Year/ }).first().click();

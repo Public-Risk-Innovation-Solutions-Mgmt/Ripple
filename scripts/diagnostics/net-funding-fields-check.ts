@@ -46,6 +46,9 @@ console.log('=== NET-FUNDING FIELDS: expectedCededPer100 / netPurePremiumPer100 
 const worstReconstruct: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
 const worstReconstructVsBound: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
 const worstIdentity: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
+// The control: the same identity with the credit ignored — the rule before ff57131.
+const worstIdentityUncredited: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
+let missingCredit = 0;
 let propertyZero = 0, nettedLineYears = 0;
 let floorBound = 0;
 let n = 0;
@@ -89,14 +92,27 @@ for (let g = 0; g < GAMES; g++) {
       const roundingBound = 0.005 / Math.max(r.activeExposure, 1);
       worstReconstructVsBound[l] = Math.max(worstReconstructVsBound[l], relErr / Math.max(roundingBound, 1e-12));
 
-      // 2. netPurePremiumPer100 + expectedCededPer100 == gross pure premium.
+      // 2. netPurePremiumPer100 + expectedCededPer100 == the CREDITED gross
+      // pure premium, purePremiumPer100 x (1 - investmentIncomeCredit).
+      // ⚠ RESTATED FOR THE INVESTMENT INCOME CREDIT (ff57131). The credit
+      // comes off the pure premium and nothing else, and the cover is priced
+      // on the UNCREDITED figure (INVESTMENT_INCOME_CREDIT, quoteNewRateStack),
+      // so the retained figure is ground-up x (1 - credit) less ceded, and the
+      // row records the credit it took. Read against the uncredited figure
+      // this gate went red by exactly the credit (WC 0.45, GL 0.81, Property
+      // 0.04 per $100) — the rule moved, not the fields.
       // purePremiumPer100 is rounded to 4dp for display; compare at that
       // tolerance, not float tolerance, since that rounding is the one place
-      // this identity is expected to be inexact.
+      // this identity is expected to be inexact — scaled by (1 - credit), which
+      // never exceeds 1: the credit is floored at zero.
+      if (NEW_RATE_STACK.enabled && r.investmentIncomeCredit === undefined) missingCredit++;
+      const credit = r.investmentIncomeCredit ?? 0;
       const identityGap = Math.abs(
-        (r.netPurePremiumPer100 + r.expectedCededPer100) - r.purePremiumPer100
+        (r.netPurePremiumPer100 + r.expectedCededPer100) - r.purePremiumPer100 * (1 - credit)
       );
       worstIdentity[l] = Math.max(worstIdentity[l], identityGap);
+      worstIdentityUncredited[l] = Math.max(worstIdentityUncredited[l],
+        Math.abs((r.netPurePremiumPer100 + r.expectedCededPer100) - r.purePremiumPer100));
 
       if (l === 'Property' && r.expectedCededPer100 === 0) propertyZero++;
       if (r.expectedCededPer100 !== 0) nettedLineYears++;
@@ -131,11 +147,18 @@ for (const l of LINES) {
     worstReconstructVsBound[l].toFixed(2));
 }
 
-console.log('\n--- 2. netPurePremiumPer100 + expectedCededPer100 == gross pure premium ---');
-console.log('  Compared against purePremiumPer100 (rounded to 4dp for display) at 5e-5 tolerance —');
-console.log('  that rounding, not float noise, is the only source of gap this identity should show.\n');
+console.log('\n--- 2. netPurePremiumPer100 + expectedCededPer100 == gross pure premium x (1 - credit) ---');
+console.log('  Compared against purePremiumPer100 (rounded to 4dp for display) x (1 - the row\'s');
+console.log('  investmentIncomeCredit) at 5e-5 tolerance — that rounding, not float noise, is the');
+console.log('  only source of gap this identity should show.\n');
+if (NEW_RATE_STACK.enabled) check(missingCredit === 0, 'every line-year records the credit it took', `${missingCredit} without`);
 for (const l of LINES) {
-  check(worstIdentity[l] < 5e-5, `${l}: worst |sum - grossPurePremium|`, worstIdentity[l].toExponential(2));
+  check(worstIdentity[l] < 5e-5, `${l}: worst |sum - grossPurePremium x (1 - credit)|`, worstIdentity[l].toExponential(2));
+}
+// CONTROL — must FAIL: the identity with the credit ignored is caught on every line.
+for (const l of LINES) {
+  check(worstIdentityUncredited[l] >= 5e-5, `control: ${l}: the credit ignored is caught`,
+    `worst |sum - grossPurePremium| ${worstIdentityUncredited[l].toExponential(2)}`);
 }
 
 console.log('\n--- 3. WHAT NETS: Property by its own layer and aggregate; nothing under the stop ---');
