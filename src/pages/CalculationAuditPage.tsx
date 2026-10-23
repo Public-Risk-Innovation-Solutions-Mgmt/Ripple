@@ -50,7 +50,7 @@ import {
 } from '../data/defaultAssumptions';
 import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalog';
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
-import { AGGREGATE_STOP, DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
+import { ADMIN_OVERRUN_RANGE, AGGREGATE_STOP, DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
 import { placementFor } from '../utils/reinsuranceOptions';
 import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
@@ -1759,8 +1759,9 @@ export function buildSupportingRows(
   // investments sweep, and the asset / liability / net position identities), so
   // the duplicates are gone rather than stated twice with different wording.
 
+  // The admin BOOKED (operatingExpense, with the year's overrun), as the engine's ratios read it.
   const combinedRatioCheck =
-    (netIncurredLossFromIncome + result.laeIncurred + result.adminExpense + result.reinsuranceCost) /
+    (netIncurredLossFromIncome + result.laeIncurred + result.operatingExpense + result.reinsuranceCost) /
     Math.max(result.totalMemberCharge, 1);
 
   const lossRatioCheck =
@@ -1784,9 +1785,10 @@ export function buildSupportingRows(
   // identically totalMemberCharge (the export guard asserts the same identity),
   // so this stays green today — worst measured residual 1.11e-16 against the
   // row's 1e-4 tolerance — but it now fails if that identity ever breaks, which
-  // is a thing that can actually happen.
+  // is a thing that can actually happen. The numerator is the admin BOOKED
+  // (with the overrun); the denominator's admin is the admin CHARGED.
   const expenseRatioCheck =
-    (result.adminExpense + result.reinsuranceCost) /
+    (result.operatingExpense + result.reinsuranceCost) /
     Math.max(result.poolPremium + result.adminExpense + result.reinsuranceCost, 1);
 
   const capitalFundingGapCheck =
@@ -2458,12 +2460,13 @@ export function buildSupportingRows(
       metric: 'Actual Expense Ratio',
       value: formatPct(result.expenseRatio),
       numericValue: result.expenseRatio,
-      formula: { kind: 'ratio', numerator: curTerm(result.adminExpense + result.reinsuranceCost, 'admin expense + reinsurance cost'), denominator: curTerm(result.totalMemberCharge, 'collected gross premium and admin expense') },
+      formula: { kind: 'ratio', numerator: curTerm(result.operatingExpense + result.reinsuranceCost, 'admin paid + reinsurance cost'), denominator: curTerm(result.totalMemberCharge, 'collected gross premium and admin expense') },
       subFormula: {
-        label: 'admin expense + reinsurance cost',
-        value: result.adminExpense + result.reinsuranceCost,
-        spec: { kind: 'sum', terms: [curTerm(result.adminExpense, 'admin expense'), curTerm(result.reinsuranceCost, 'reinsurance cost')] },
+        label: 'admin paid + reinsurance cost',
+        value: result.operatingExpense + result.reinsuranceCost,
+        spec: { kind: 'sum', terms: [curTerm(result.operatingExpense, 'admin paid'), curTerm(result.reinsuranceCost, 'reinsurance cost')] },
       },
+      explain: 'The admin actually paid, with the year\'s overrun — not the admin the rate charged, which the expected expense ratio keeps.',
     },
     {
       metric: 'Expense Ratio Check Difference',
@@ -2955,7 +2958,10 @@ export function buildRevExpRows(
       metric: 'General administrative services',
       value: formatCurrency(result.operatingExpense),
       numericValue: result.operatingExpense,
-      formula: { kind: 'echo', value: result.adminExpense, text: 'the administration fees collected above, paid out' },
+      // ⚠ THE ADMIN ACTUALLY PAID, NOT THE FEES COLLECTED: actual admin runs
+      // over the admin priced by the year's drawn share (ADMIN_OVERRUN_RANGE).
+      formula: { kind: 'sum', terms: [cur(result.adminExpense, 'administration fees collected above'), cur(result.operatingExpense - result.adminExpense, 'admin overrun')] },
+      explain: `Actual admin runs over the admin the rate charged by a share drawn each year between ${(ADMIN_OVERRUN_RANGE.min * 100).toFixed(0)}% and ${(ADMIN_OVERRUN_RANGE.max * 100).toFixed(0)}% — ${result.adminExpense > 0 ? ((result.operatingExpense / result.adminExpense - 1) * 100).toFixed(2) : '0.00'}% this year${lineRow === null ? ', blended across the lines' : ''}.`,
       indent: 1,
     },
     {
