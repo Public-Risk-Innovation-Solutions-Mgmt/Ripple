@@ -11,6 +11,45 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## OWED — the shocks landing (save key v30), landed for play-testing
+
+**Landed on multiplayer for play-testing without the full checks.** What it
+was checked with: typecheck and lint at baseline (21 pre-existing problems),
+`scripts/diagnostics/shock-effects-check.ts`, and every session driver in
+`scripts/tools/session-drivers/`. Single-player shocks are ON (`SOLO_SHOCKS`).
+**Still owed before this is treated as checked:**
+
+1. **The FAST gate sweep** (`npm run gates`) and **the SLOW tier**
+   (`npm run gates:slow`). Neither was run on this landing. Expect gates that
+   assert the old shock design to need restating, not the code: anything reading
+   the aggregate stop as live (`AGGREGATE_STOP` is now off), GL's $25M pool
+   limit (removed), several lognormal T claims scaled to the book (now one claim
+   per event-line, grown by trend and exposure), A decaying over its duration
+   (now its firing year only), the routine fold net of the uplift
+   (`ROUTINE_FOLD_NET_OF_UPLIFT` off), and solo games drawing 2-4 events
+   (`SOLO_SHOCK_DRAW` 'catalogue'). Each red gate is to be read as restate or
+   fix; `shock-loss-check` was replaced by `shock-effects-check`.
+2. **Every baseline recaptured**: the value baselines and the render baseline
+   (`baselines/`). None was recaptured, so each is expected to differ: solo
+   games now draw shocks, the reinsurance options and prices changed, and the
+   pure premium is struck from the shock-free shadow once a shock fires.
+3. **`gate-timings.json`**: `shock-effects-check` is entered by hand at 10s;
+   with section 7 (two eight-year games plus the shadow) it measures longer and
+   should be re-recorded, and checked against `TIER_THRESHOLD_SECONDS`.
+4. **The shadow's cost** (`SHOCK_FREE_PRICING`): years after a shock run their
+   worlds twice. Measured only through the drivers' and the report's run
+   times, not by `result-size-check`/turn-time gates.
+5. **Known approximations, stated not fixed**: expected losses grow T by trend
+   only (no year-1 base in hand); with shocks off Property sits slightly below
+   the pre-landing build (Y10 $38.2M vs $39.1M over 20 scenarios) because the
+   fold no longer divides by the uplift; the T covers' brief prices do not follow
+   from the catalogue's odds (WC's expected loss ratio 16-27%).
+
+The figures this landing was read on are in `scripts/tools/shocks-report.ts`
+(sections 1-5 and `--growth`).
+
+---
+
 ## 0. Rules for the player-facing documents
 
 - **The welcome memo never mentions funding levels, cushions, confidence
