@@ -873,8 +873,11 @@ export const FLAT_PRE_GAME = { enabled: false };
  * pregame, a test build). The margin is the one that would land the pre-game
  * on the scenario's target premium to surplus if it ran as DESIGNED: ordinary
  * losses at exactly expected x the scenario's experience multiple
- * (preGameLossMultiplier), at the pre-game return (PRE_GAME_INVESTMENT_RETURN)
- * — the flat pre-game. The simulated pre-game is then played at that margin,
+ * (preGameLossMultiplier), at the EXPECTED return of the pre-game's cash-and-
+ * bond portfolio (each class's expected return net of fee, about 3.28% —
+ * see PRE_GAME_MARKET_DRAWS; it was a flat 3%, which ran about $1.5M under the
+ * drawn market and biased every opening up). The simulated pre-game is then
+ * played at that margin,
  * and the opening surplus falls wherever its history takes it: richer after
  * good luck, thinner after bad. Off, the margin is solved on the history as
  * played, so the opening lands exactly on the ratio.
@@ -890,19 +893,58 @@ export const FLAT_PRE_GAME = { enabled: false };
  * Flat (FLAT_PRE_GAME on) the designed and played histories are one run, and
  * either setting opens exactly on the ratio.
  *
- * ⚠ MEASURED, AND THE OPENING NOW CARRIES THE WHOLE OF THE LUCK. Over the
- * twenty scenarios the margin runs WC -0.4% to 2.4%, GL -0.1% to 4.2%,
- * Property 1.0% to 5.4% (two a hair below zero, on the designed history
- * itself), and no 2026 rate drops on WC or GL (Property 4, from 6). But the
- * opening premium to surplus runs WC 0.82-5.21, GL 0.72-2.68, Property
- * 0.98-1.98 against targets of 1.2-1.7, and the scenarios no longer read in
- * their designed order (rank correlation 0.21 / -0.02 / 0.31). Most of the
- * spread is the drawn market, not the loss draws: against the designed run the
- * opening moves with an SD of about $6.4M, $5M of it investment income — and
- * about $1.5M higher on average, because the designed run earns
- * PRE_GAME_INVESTMENT_RETURN (3%) while the drawn market averages more.
+ * Outside OPENING_PREMIUM_TO_SURPLUS_BOUNDS, the guardrails move the margin
+ * just enough to land on the nearest bound.
+ *
+ * ⚠ MEASURED, with the pre-game market at ten draws on cash and bonds. Against
+ * the designed run the opening moves with an SD of WC $3.4M, GL $3.3M,
+ * Property $2.5M, and investments are now under a tenth of it (variance share
+ * 10% / 8% / 4%; one equity-bearing draw made them most of it). Opening
+ * premium to surplus WC 1.20-2.22, GL 1.20-2.77, Property 1.20-1.90; rank
+ * correlation with the designed order 0.51 / 0.20 / 0.52. Only the lower bound
+ * binds: 3 WC, 1 GL and 4 Property scenarios open too rich and are pulled to
+ * 1.2. The margin runs WC -1.4% to 1.9%, GL -0.6% to 3.7%, Property 0.7% to
+ * 4.8% — below zero on 8 WC and 4 GL scenarios, most on the designed history
+ * itself (its higher expected return needs less margin) and some from the
+ * guardrail taking a too-rich opening down. No 2026 rate drops on WC or GL;
+ * one on Property.
  */
 export const PRE_GAME_MARGIN_ON_DESIGN = { enabled: true };
+
+/**
+ * THE PRE-GAME'S MARKET — THE AVERAGE OF 10 DRAWS, ON CASH AND BONDS ONLY.
+ *
+ * Each simulated pre-game year's market is the average of this many markets,
+ * each drawn as a played year's is, every one from the game's seed on its own
+ * labelled stream (`pregame_invest_0` to `_9`), so a replay is identical. The
+ * pre-game holds CASH AND BONDS ONLY: the default allocation with equities
+ * removed and the rest scaled up to 100% (about 11% cash, 89% bonds —
+ * investmentEngine.preGameAllocation). The played years keep the default
+ * allocation, equities included, and draw one market each, as before.
+ *
+ * ⚠ WHY: with the prior board's margin set on the designed history, the
+ * opening carries the pre-game's whole luck, and one equity-bearing market a
+ * year was most of it — about $5M of a $6.4M SD in the opening. Averaging ten
+ * draws on a bond-heavy book keeps a year's return realistic while leaving the
+ * loss history, not the stock market, to give each scenario its character.
+ */
+export const PRE_GAME_MARKET_DRAWS = 10;
+
+/**
+ * THE OPENING'S GUARDRAILS — PREMIUM TO SURPLUS BETWEEN 1.2 AND 3.0.
+ *
+ * With the margin set on the designed history (PRE_GAME_MARGIN_ON_DESIGN),
+ * the opening falls where the simulated history takes it. If it would open a
+ * line outside these bounds, that scenario's prior-board margin on that line
+ * is adjusted JUST ENOUGH to land it on the nearest bound — solved on the
+ * played history, so the opening is exactly the bound. Every other scenario
+ * keeps its designed margin and lands where its history takes it.
+ *
+ * ⚠ WHY: a pool opening thinner than 3x premium to surplus is close to
+ * failing before a team has made a decision, and one richer than 1.2x has
+ * more capital than any of the designed scenarios (1.2-1.7) intends.
+ */
+export const OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.2, max: 3.0 } as const;
 
 /**
  * CLAIMS ABOVE THE ORDINARY LIMIT, PER $1M OF EXPOSURE A YEAR — SOURCED.
@@ -2138,6 +2180,25 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'On (test build) because, solved on the played history, the margin absorbed the luck: it fell below zero '
           + 'on 7-12 of the twenty scenarios a line and the 2026 rate dropped on 2-6. A board prices for the risk it '
           + 'expects; its surplus is the outcome.',
+      }],
+      ['Pre-game market draws', {
+        value: PRE_GAME_MARKET_DRAWS, unit: 'draws averaged, each pre-game year',
+        what: 'Each simulated pre-game year\'s market is the average of this many markets drawn as a played year\'s, '
+          + 'each on its own stream from the game\'s seed, on a cash-and-bond portfolio: the default allocation '
+          + 'without equities, scaled to 100% (about 11% cash, 89% bonds). The played years keep the default '
+          + 'allocation and draw one market each.',
+        basis: 'CHOSEN',
+        note: 'One equity-bearing market a year drove most of the opening\'s scatter once the margin was set on the '
+          + 'designed history; the loss history, not the stock market, is meant to give each scenario its character.',
+      }],
+      ['Opening premium-to-surplus guardrails', {
+        value: `${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.min} to ${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.max}`,
+        unit: 'premium to surplus at the opening',
+        what: 'A line whose simulated history would open outside this range has its prior-board margin adjusted just '
+          + 'enough to land on the nearest bound; every other line keeps its designed margin.',
+        basis: 'CHOSEN',
+        note: 'Thinner than 3.0 is a pool near failure before a team decides anything; richer than 1.2 is more capital '
+          + 'than any designed scenario (1.2-1.7) intends.',
       }],
       ['Flat pre-game', {
         value: FLAT_PRE_GAME.enabled ? 'on' : 'off', unit: 'switch',

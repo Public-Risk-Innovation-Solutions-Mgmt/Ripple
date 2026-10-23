@@ -145,7 +145,7 @@ import {
   occurrenceTotals,
   quoteAggregate,
 } from './reinsuranceTower';
-import { simulateMarketReturns, blendInvestmentReturn } from './investmentEngine';
+import { simulateMarketReturns, blendInvestmentReturn, expectedMarketReturns, preGameMarketReturns } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
 import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
@@ -3396,6 +3396,14 @@ export function processYear(
     freezeMembership?: boolean;
     /** A pre-game year run flat whatever FLAT_PRE_GAME says — the pre-game's designed run (PRE_GAME_MARGIN_ON_DESIGN). */
     flatPreGame?: boolean;
+    /**
+     * A pre-game year's market: 'flat' (PRE_GAME_INVESTMENT_RETURN on every
+     * class — FLAT_PRE_GAME on), 'expected' (each class's expected return net
+     * of fee, no draw — the designed run), or 'drawn' (the average of
+     * PRE_GAME_MARKET_DRAWS draws — the simulated pre-game). Absent, FLAT_PRE_GAME
+     * decides between 'flat' and 'drawn'.
+     */
+    preGameMarket?: 'flat' | 'expected' | 'drawn';
     /** A multi-world year's one rate per line — see LineYearContext.struckRate and worlds.ts. */
     struckRates?: Partial<Record<CoverageLine, StruckLineRate>>;
   },
@@ -3489,10 +3497,18 @@ export function processYear(
   // before.
   // A simulated pre-game year draws its market as a played year does, on its
   // own stream ('pregame_invest') from the game's seed.
+  // ⚠ AND SINCE PRE_GAME_MARKET_DRAWS, A SIMULATED PRE-GAME YEAR'S MARKET IS
+  // THE AVERAGE OF TEN DRAWS, each on its own stream ('pregame_invest_<k>'),
+  // and the designed run the prior board's margin is set on earns the market's
+  // expectation. The pre-game's portfolio is cash and bonds only
+  // (preGameAllocation, set on its decisions). Played years are untouched.
   const flatPreGame = overrides?.flatPreGame ?? FLAT_PRE_GAME.enabled;
-  const drawnMarket = flatPreGame && yearNumber <= 0
-    ? { cash: PRE_GAME_INVESTMENT_RETURN, bonds: PRE_GAME_INVESTMENT_RETURN, equities: PRE_GAME_INVESTMENT_RETURN }
-    : simulateMarketReturns(deriveSubRng(instance.seed, yearNumber, yearNumber <= 0 ? 'pregame_invest' : 'invest'));
+  const preGameMarket = overrides?.preGameMarket ?? (FLAT_PRE_GAME.enabled ? 'flat' : 'drawn');
+  const drawnMarket = yearNumber > 0
+    ? simulateMarketReturns(deriveSubRng(instance.seed, yearNumber, 'invest'))
+    : preGameMarket === 'flat'
+      ? { cash: PRE_GAME_INVESTMENT_RETURN, bonds: PRE_GAME_INVESTMENT_RETURN, equities: PRE_GAME_INVESTMENT_RETURN }
+      : preGameMarket === 'expected' ? expectedMarketReturns() : preGameMarketReturns(instance.seed, yearNumber);
   // Investment Loss: twenty points off the equity return in its year, after
   // the draw and its rails — the event is a shock to the market, not a
   // different market. Absent, this is the drawn market object itself.
