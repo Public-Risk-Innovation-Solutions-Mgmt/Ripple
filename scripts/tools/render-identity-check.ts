@@ -1285,7 +1285,23 @@ const BASELINE = process.env.RENDER_BASELINE
 //     capture reproduced on the head that carries them).
 // The 30 unmoved are the Introduction's static documents (How to Play and the
 // Underwriting and Investment memoranda) on every configuration.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v85.json');
+// v86: THE NEWEST KNOWN YEAR ON EVERY RESULT SCREEN (display only; value v83
+// and export v91 byte-identical). After the first lock the newly known year is
+// 2026, the opening — a pre-game year — and the pages that listed played years
+// alone showed nothing, so the game looked stuck. They now list the known
+// pre-game years too. The control ran first: 26c1fbd, built and run with its
+// own harness, reproduced v85 236 of 236. 36 move, all Results and Result
+// Spreadsheet, and word-diffed against the control's text every one is that:
+//   Results, y0 (13): "No results yet" -> 2021 to 2025 "(History)", opening on
+//     2025 and its comparison with 2024;
+//   Results, y2 (13): the selector gains 2021-2025 (History) and "Year 0 /
+//     2026 (Opening)", and year 1's comparison runs against 2026 ("This is Year
+//     1" gone);
+//   Result Spreadsheet, y0 (5): "No spreadsheet data yet" -> the 2021-2025
+//     table and both downloads;
+//   Result Spreadsheet, y2 (5): the 2021-2026 columns before the played years.
+// Nothing else moves.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v86.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
