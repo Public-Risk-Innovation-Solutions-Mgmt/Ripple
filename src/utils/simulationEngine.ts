@@ -5583,7 +5583,16 @@ function processIbner(
       // pool should never have earned. It does not touch the float the pool
       // legitimately earns, and it is not a difficulty lever.
       // ====================================================================
-      if (FORWARD_BOOKING.enabled) {
+      // ⚠ AND WHENEVER THE LINE INFLATES, WHATEVER THE FLAG. Reserve inflation
+      // raises every open year's ultimate each year, and this true-up is what
+      // pays the pattern's share of the higher ultimate in the same year.
+      // Gated on FORWARD_BOOKING alone, the flag decided when inflation was
+      // paid — and through the paid history, the experience window and the
+      // rate — which is a path ratemaking-loop-check and
+      // experience-pricing-drift-check forbid it. The shipped game (flag on)
+      // is unchanged by construction; only the flag-off arm now pays inflation
+      // the same way.
+      if (FORWARD_BOOKING.enabled || reserveInflationRate > 0) {
         const paidTarget = newUltimate * cumulativePaid(LINE_PAYOUT_PATTERN[line], c.age + 2);
         const trueUp = Math.max(0, Math.min(paidTarget - newPaid, newUnpaid));
         if (trueUp > 0) {
