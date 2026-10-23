@@ -900,14 +900,13 @@ export const FLAT_PRE_GAME = { enabled: false };
  * the designed run the opening moves with an SD of WC $3.4M, GL $3.3M,
  * Property $2.5M, and investments are now under a tenth of it (variance share
  * 10% / 8% / 4%; one equity-bearing draw made them most of it). Opening
- * premium to surplus WC 1.20-2.22, GL 1.20-2.77, Property 1.20-1.90; rank
- * correlation with the designed order 0.51 / 0.20 / 0.52. Only the lower bound
- * binds: 3 WC, 1 GL and 4 Property scenarios open too rich and are pulled to
- * 1.2. The margin runs WC -1.4% to 1.9%, GL -0.6% to 3.7%, Property 0.7% to
- * 4.8% — below zero on 8 WC and 4 GL scenarios, most on the designed history
- * itself (its higher expected return needs less margin) and some from the
- * guardrail taking a too-rich opening down. No 2026 rate drops on WC or GL;
- * one on Property.
+ * premium to surplus WC 1.06-2.22, GL 1.06-2.77, Property 1.06-1.90, all
+ * inside the guardrails (1.0-3.0) with none needing them; rank correlation
+ * with the designed order 0.46 / 0.19 / 0.52. With the margin floored at zero
+ * (PRE_GAME_MARGIN_FLOOR) it runs WC 0.0% to 2.0%, GL 0.0% to 3.7%, Property
+ * 0.7% to 5.1%; 6 WC and 3 GL scenarios sit on the floor, their designed
+ * history needing less than nothing. No year-1 rate drops on WC or GL; three
+ * on Property.
  */
 export const PRE_GAME_MARGIN_ON_DESIGN = { enabled: true };
 
@@ -931,7 +930,7 @@ export const PRE_GAME_MARGIN_ON_DESIGN = { enabled: true };
 export const PRE_GAME_MARKET_DRAWS = 10;
 
 /**
- * THE OPENING'S GUARDRAILS — PREMIUM TO SURPLUS BETWEEN 1.2 AND 3.0.
+ * THE OPENING'S GUARDRAILS — PREMIUM TO SURPLUS BETWEEN 1.0 AND 3.0.
  *
  * With the margin set on the designed history (PRE_GAME_MARGIN_ON_DESIGN),
  * the opening falls where the simulated history takes it. If it would open a
@@ -941,10 +940,31 @@ export const PRE_GAME_MARKET_DRAWS = 10;
  * keeps its designed margin and lands where its history takes it.
  *
  * ⚠ WHY: a pool opening thinner than 3x premium to surplus is close to
- * failing before a team has made a decision, and one richer than 1.2x has
- * more capital than any of the designed scenarios (1.2-1.7) intends.
+ * failing before a team has made a decision, and one richer than 1.0x has
+ * well more capital than any of the designed scenarios (1.2-1.7) intends.
+ *
+ * ⚠ THE RICH BOUND WAS 1.2 AND IS 1.0. At 1.2 it sat on the richest designed
+ * scenario's own target, so any good luck there tripped it, and pulling those
+ * openings down took margins below zero (WC scenario 9: +1.1% -> -1.4%). The
+ * margin is now floored at zero (PRE_GAME_MARGIN_FLOOR): where landing on 1.0
+ * would need a negative margin, the board charges at zero and the opening
+ * lands where that history takes it.
  */
-export const OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.2, max: 3.0 } as const;
+export const OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.0, max: 3.0 } as const;
+
+/**
+ * THE PRIOR BOARD'S MARGIN IS NEVER BELOW ZERO. Whether set on the designed
+ * history or moved by the guardrails, a margin that would come out negative is
+ * zero: the board charges at expected and the opening lands where that
+ * history takes it.
+ *
+ * ⚠ WHY: a negative margin is the board pricing under its own expected loss.
+ * With the designed history earning the cash-and-bond mix's expected return
+ * (about 3.28%), the designed margin fell below zero on 8 WC and 4 GL
+ * scenarios, and the rich guardrail took some lower still. A board that funds
+ * below expectation is an odd history to hand a team.
+ */
+export const PRE_GAME_MARGIN_FLOOR = 0;
 
 /**
  * CLAIMS ABOVE THE ORDINARY LIMIT, PER $1M OF EXPOSURE A YEAR — SOURCED.
@@ -2191,14 +2211,23 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'One equity-bearing market a year drove most of the opening\'s scatter once the margin was set on the '
           + 'designed history; the loss history, not the stock market, is meant to give each scenario its character.',
       }],
+      ['Prior board\'s margin floor', {
+        value: PRE_GAME_MARGIN_FLOOR, unit: 'margin over expected',
+        what: 'No prior-board margin is below this: a designed history or a guardrail that would need a negative '
+          + 'margin uses zero, and the opening lands where that history takes it.',
+        basis: 'CHOSEN',
+        note: 'A negative margin is the board pricing under its own expected loss; it had fallen below zero on 8 WC '
+          + 'and 4 GL scenarios, and the rich guardrail took some lower still.',
+      }],
       ['Opening premium-to-surplus guardrails', {
         value: `${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.min} to ${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.max}`,
         unit: 'premium to surplus at the opening',
         what: 'A line whose simulated history would open outside this range has its prior-board margin adjusted just '
           + 'enough to land on the nearest bound; every other line keeps its designed margin.',
         basis: 'CHOSEN',
-        note: 'Thinner than 3.0 is a pool near failure before a team decides anything; richer than 1.2 is more capital '
-          + 'than any designed scenario (1.2-1.7) intends.',
+        note: 'Thinner than 3.0 is a pool near failure before a team decides anything; richer than 1.0 is well more '
+          + 'capital than any designed scenario (1.2-1.7) intends. The rich bound was 1.2, the richest scenario\'s own '
+          + 'target, which good luck tripped; lowering openings to it took margins below zero.',
       }],
       ['Flat pre-game', {
         value: FLAT_PRE_GAME.enabled ? 'on' : 'off', unit: 'switch',
