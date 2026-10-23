@@ -603,8 +603,8 @@ export function effectiveRiskControlIncentivePct(d: { riskControlIncentivePct?: 
  * `riskControlPct`, which is ALREADY spent as riskControlInvestment and would
  * be charged twice if it appeared here as well.
  */
-export function expenseDivisor(riskControlPct: number): number {
-  return 1 - riskControlPct - PROFIT_AND_CONTINGENCY_OF_RATE;
+export function expenseDivisor(riskControlPct: number, line: CoverageLine): number {
+  return 1 - riskControlPct - PROFIT_AND_CONTINGENCY_OF_RATE[line];
 }
 
 export interface NewStackInputs {
@@ -670,7 +670,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
     throw new Error(`quoteNewRateStack: ${line} quoted without its reinsurance option while the aggregate stop is on`);
   }
   const adminRatePer100 = adminRatePer100For(line, exposure, yearNumber);
-  const divisor = expenseDivisor(riskControlPct);
+  const divisor = expenseDivisor(riskControlPct, line);
 
   // ⚠ NO INVESTMENT INCOME CREDIT. Investment income does not touch the rate in
   // any way; it flows into surplus only. (The credit — last year's return taken
@@ -723,7 +723,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   // expected the tower's price exceeds its expected recovery by the risk load,
   // so including it would make buying cover look like a surplus gain.
   const cushionPer100 = retainedPurePremiumPer100 * (clf - 1);
-  const contingencyPer100 = loadedBase * PROFIT_AND_CONTINGENCY_OF_RATE;
+  const contingencyPer100 = loadedBase * PROFIT_AND_CONTINGENCY_OF_RATE[line];
   const expectedToSurplus = (cushionPer100 + contingencyPer100) * exposure * 10_000;
 
   return {

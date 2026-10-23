@@ -13,7 +13,7 @@
 //                       contingency, reinsurance — add to that rate; the
 //                       indicated rate at Expected is the projected pure
 //                       premium / the permissible loss ratio; profit &
-//                       contingency is 5%; every window year shows its reserve
+//                       contingency is the line's (WC 2%, GL 0%, Property 0%); every window year shows its reserve
 //                       inflation still to come (1 past the priced years), and
 //                       there is no investment income credit
 //   section B           every KNOWN year's simulated combined ratio,
@@ -30,6 +30,8 @@
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
+// Profit and contingency by line (pricingParameters' PROFIT_AND_CONTINGENCY_OF_RATE), written out.
+const CONTINGENCY = { WC: 0.02, GL: 0, Property: 0 };
 const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
 
 let passed = 0, failed = 0;
@@ -115,7 +117,7 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       const inflation = await page.$$eval('[data-testid$="-inflation"]', els => els.map(e => Number(e.getAttribute('data-value'))));
       const credit = await page.locator('[data-testid="model-a-credit"]').count();
       const sum = pieces.reduce((x, y) => x + y, 0);
-      const structure = near(sum, rate) && near(indicated, projected / plr) && near(contingency, 0.05) && credit === 0
+      const structure = near(sum, rate) && near(indicated, projected / plr) && near(contingency, CONTINGENCY[l]) && credit === 0
         && inflation.length > 0 && inflation.every(x => x >= 1);
       if (!structure && !bad) bad = `${o.text}: rows ${sum} vs rate ${rate}; indicated ${indicated} vs ${projected / plr}; contingency ${contingency}; ${inflation.length} inflation cells; credit rows ${credit}`;
       const good = structure && (coming ? near(rate, panel[l]) : near(rate, charged) && near(premium, chargedPremium));
@@ -124,7 +126,7 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       if (!good) worst++;
     }
     ok(worst === 0 && n === opts.length,
-      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged; its rows add to it, the indicated rate is pure premium / permissible loss ratio, 5% contingency, inflation shown, no credit`,
+      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged; its rows add to it, the indicated rate is pure premium / permissible loss ratio, the line's contingency, inflation shown, no credit`,
       bad || `${n} years`);
 
     // Section B's simulated figures, by calendar year: every year but the

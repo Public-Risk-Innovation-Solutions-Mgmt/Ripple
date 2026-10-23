@@ -26,7 +26,8 @@
 //                     the projection / the permissible loss ratio; and the
 //                     indicated rate change is the rate at Expected / the
 //                     Current rate - 1, labelled against the current year's rate
-//   section 2         no investment income line; profit & contingency 5%; the
+//   section 2         no investment income line; profit & contingency the line's
+//                     (WC 2%, GL 0%, Property 0%); the
 //                     total expense ratio = 1 - the permissible loss ratio
 //   the years named   section 3 reads "<current> Rate" and "Indicated <priced>
 //                     Rate at Expected / at 70% CLF …", the current year being
@@ -44,6 +45,8 @@ const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
 const LEVELS = [70, 80, 90];
+// Profit and contingency by line (pricingParameters' PROFIT_AND_CONTINGENCY_OF_RATE), written out.
+const CONTINGENCY = { WC: 0.02, GL: 0, Property: 0 };
 const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
 
 let passed = 0, failed = 0;
@@ -129,8 +132,8 @@ function screen(page, mode) {
       ok(near(x.losses / (x.exposure * 10_000), x.pp) && near(x.pp * x.trend, x.projected),
         `${mode}, ${name}, ${P}, ${l}: losses / ${level} exposure = the pure premium at ${level}'s level, x one year's trend = the projection`,
         `${x.pp.toFixed(6)} x ${x.trend} = ${(x.pp * x.trend).toFixed(6)} vs ${x.projected.toFixed(6)}`);
-      ok(x.credit === 0 && near(x.expected, x.projected / x.permissible) && near(x.totalExpense, 1 - x.permissible) && near(x.contingency, 0.05),
-        `${mode}, ${name}, ${P}, ${l}: the rate at Expected is the projected pure premium / the permissible loss ratio; profit & contingency 5%; no investment income line`,
+      ok(x.credit === 0 && near(x.expected, x.projected / x.permissible) && near(x.totalExpense, 1 - x.permissible) && near(x.contingency, CONTINGENCY[l]),
+        `${mode}, ${name}, ${P}, ${l}: the rate at Expected is the projected pure premium / the permissible loss ratio; profit & contingency the line's; no investment income line`,
         `${x.expected.toFixed(6)} vs ${(x.projected / x.permissible).toFixed(6)}; total expense ${(x.totalExpense * 100).toFixed(3)}%`);
       ok(near(x.change, x.expected / x.current - 1),
         `${mode}, ${name}, ${P}, ${l}: the indicated rate change is the rate at Expected / the Current rate - 1`,

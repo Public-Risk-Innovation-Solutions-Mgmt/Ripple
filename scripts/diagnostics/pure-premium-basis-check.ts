@@ -145,7 +145,7 @@ const atYear1Flat: Record<CoverageLine, Seen[]> = { WC: [], GL: [], Property: []
 // emerged in its run-off so far, and what is still to come in the priced years.
 const carriedAt = (l: CoverageLine, k: number) => {
   let f = 1;
-  for (let j = 1; j <= Math.max(RESERVE_INFLATION_PRICED_YEARS, k - 1); j++) f *= 1 + RESERVE_INFLATION_PER_YEAR[l] * unpaidShare(LINE_PAYOUT_PATTERN[l], j);
+  for (let j = 1; j <= Math.max(RESERVE_INFLATION_PRICED_YEARS[l], k - 1); j++) f *= 1 + RESERVE_INFLATION_PER_YEAR[l] * unpaidShare(LINE_PAYOUT_PATTERN[l], j);
   return f;
 };
 const windowCarried = (l: CoverageLine) => mean(Array.from({ length: PRICING_WINDOW_YEARS_NEW }, (_, i) => carriedAt(l, i + 1)));

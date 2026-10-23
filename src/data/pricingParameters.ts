@@ -157,13 +157,13 @@ export const SEVERITY_TREND_PER_YEAR: PerLine<number> = { WC: 0.04, GL: 0.08, Pr
 export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = { ...SEVERITY_TREND_PER_YEAR };
 
 /**
- * HOW MUCH OF IT PRICING ANTICIPATES — THE FIRST 2 YEARS, ON EVERY LINE. The
- * pure premium includes the inflation each year's claims pick up in their
- * first N years of run-off along the line's paid pattern:
+ * HOW MUCH OF IT PRICING ANTICIPATES — WC 2 YEARS, GL 1, PROPERTY 2. The pure
+ * premium includes the inflation each year's claims pick up in their first N
+ * years of run-off along the line's paid pattern:
  *
  *     factor = product over j = 1..N of (1 + rate x unpaid share at year j)
  *
- *     N = 2:  WC 1.0591   GL 1.1342   Property 1.0370
+ *     WC (N 2) 1.0591   GL (N 1) 1.0742   Property (N 2) 1.0370
  *     (in full, N unbounded: WC 1.2112, GL 1.2323, Property 1.0449)
  *
  * A window year valued at age k picks up only the steps still to come, j = k
@@ -171,18 +171,17 @@ export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = { ...SEVERITY_TREND_P
  * Inflation after year N is LEFT TO EXPERIENCE: it reaches the rate as it
  * emerges in the window, as the host's development does.
  *
- * ⚠ WHY 2 (scripts/probes/ri-part-probe.mts; N = 2, 3, 5 at contingency 0%,
- * 3%, 5%): priced in full, the rate charges claims' whole lifetime inflation
- * while reserves hold only what has emerged, so the ten-year combined ratio
- * fell below 100% and surplus doubled. N = 2 with WC at 3% contingency kept
- * WC's ten-year combined ratio and surplus at today's (104.6% against 104.5%)
- * with no 2027 drop — measured with the investment income credit in the rate;
- * both have since given way to 5% profit and contingency on every line
- * (PROFIT_AND_CONTINGENCY_OF_RATE), re-measured with it. GL at N = 1
- * came closer to today's but dropped 2027 in one scenario; N = 2 drops none.
- * Property at N = 2 matched today's exactly.
+ * ⚠ WHY (scripts/probes/; twenty scenarios, ten years, the defaults). Priced in
+ * full, the rate charges claims' whole lifetime inflation while reserves hold
+ * only what has emerged: the ten-year combined ratio fell below 100% and
+ * surplus doubled. Two years held WC's and Property's combined ratios near
+ * their levels before inflation. GL's experience catches its own inflation
+ * within a few years, so with no investment income credit and no contingency
+ * one year is enough: at two GL ran a ten-year combined ratio of 95.4% (against
+ * 100.2% before the correction), at one 98.9%, with no 2027 drop. Measured with
+ * the per-line profit and contingency and the admin overrun.
  */
-export const RESERVE_INFLATION_PRICED_YEARS = 2;
+export const RESERVE_INFLATION_PRICED_YEARS: PerLine<number> = { WC: 2, GL: 1, Property: 2 };
 
 /**
  * THE TREND BOOKED UP FRONT (stable-scenarios commit 3). ON: each accident
@@ -513,8 +512,8 @@ export const ADMIN_BASE_YEAR = 1;
 export const ADMIN_OVERRUN_RANGE = { min: 0, max: 0.02 } as const;
 
 /**
- * PROFIT AND CONTINGENCY — 5% OF THE RATE, ON EVERY LINE, in the expense
- * provision. THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS
+ * PROFIT AND CONTINGENCY — A SHARE OF THE RATE, PER LINE, in the expense
+ * provision: WC 2%, GL 0%, Property 0%. THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS
  * RATIO, where the permissible loss ratio is 100% less the total expense ratio
  * — fixed admin, per-exposure admin, risk control and this — and the cover's
  * price is added on top.
@@ -540,7 +539,18 @@ export const ADMIN_OVERRUN_RANGE = { min: 0, max: 0.02 } as const;
  * beside the credit, with reserve inflation; now 5% on every line again, the
  * credit gone.
  */
-export const PROFIT_AND_CONTINGENCY_OF_RATE = 0.05;
+export const PROFIT_AND_CONTINGENCY_OF_RATE: PerLine<number> = { WC: 0.02, GL: 0, Property: 0 };
+// ⚠ WC 2%, GL 0%, PROPERTY 0% — NOT 5% ON EVERY LINE (reserve-inflation build;
+// twenty scenarios, ten years, the defaults, with the admin overrun). With the
+// investment income credit gone every pure premium rose about 3%, and 5% on top
+// made every line too rich: ten-year combined ratios WC 99.2%, GL 92.7%,
+// Property 95.4% against 104.4%, 100.2% and 102.7% before the correction, and
+// the prior board's designed margin below zero on almost every scenario — the
+// pre-game overshot every target. 2% everywhere still left GL and Property 4.6
+// to 4.8 points rich. WC keeps 2%: its long tail inflates longest after the two
+// years pricing anticipates. GL and Property need none: GL's experience catches
+// its inflation within a few years, and Property's tail is short. Measured:
+// WC 102.1%, GL 98.9%, Property 99.7% (see STARTING_CAPITAL).
 
 /**
  * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
@@ -777,7 +787,7 @@ export const preGameLossMultiplier = (scenario: number, line: CoverageLine): num
   1 + (1 - PRE_GAME_EXPERIENCE_BASE[line] / SCENARIO_PREMIUM_TO_SURPLUS[line][scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
 
 /**
- * STARTING CAPITAL — PER LINE (WC $5.0M, GL $10.0M, Property $17.5M; see the
+ * STARTING CAPITAL — PER LINE (WC $3.0M, GL $12.0M, Property $12.5M; see the
  * note under the value), paid in, with no earned surplus, at the
  * start of the pre-game. The Annual Statement's paid-in capital is this; earned
  * surplus is everything the pre-game adds.
@@ -833,7 +843,32 @@ export const preGameLossMultiplier = (scenario: number, line: CoverageLine): num
  * the 1.0 guardrail (0.90 at its richest). $15M (shipped briefly, f096e1a)
  * kept every designed margin above the floor at the cost of two more drops.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 5_000_000, GL: 10_000_000, Property: 17_500_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 3_000_000, GL: 12_000_000, Property: 12_500_000 };
+// ⚠ WC $3.0M, GL $12.0M, PROPERTY $12.5M (reserve-inflation build: no
+// investment income credit; profit and contingency WC 2%, GL 0%, Property 0%;
+// inflation priced WC 2 years, GL 1, Property 2; the admin overrun; twenty
+// scenarios, ten years, the defaults). The notes above predate all of these.
+//
+// WC and GL: the largest $0.5M step that keeps every scenario's designed
+// margin above zero. WC +0.12% to +2.22% (the step above, $3.5M, takes the
+// lowest to -0.29%); GL +0.20% to +4.34% ($12.5M: -0.22%). Before the
+// correction they were $5.0M and $10.0M; removing the credit raised every
+// pure premium, which moved the solve.
+//
+// Property: the rule gives $11.0M, but there the margin that comes off when
+// 2027 funds at Expected drops 2027's rate in 3 scenarios. Measured:
+//
+//   Property   designed margin   on the floor   2027 change        drops   10-yr CR   surplus yr 5 / 10 ($M)
+//   $11.0M     +2.22 to +5.22%   0              -0.9% to +3.9%      3       99.7%      28.5 / 40.7
+//   $12.5M     +0.65 to +3.85%   0              +0.2% to +5.2%      0       99.7%      28.5 / 40.7
+//   $14.0M     -0.91 to +2.48%   3              +1.3% to +6.5%      0       99.7%      28.6 / 40.8
+//   $17.5M     (before the correction: -2.04 to +1.89%, 12 on the floor, 1 drop, 102.7%, 23.0 / 25.8)
+//
+// CHOSEN $12.5M: the fewest 2027 drops (none) while no margin sits on the
+// floor. $14.0M drops none either but puts three scenarios (8, 19, 20) on the
+// floor. Openings 1.01-1.96 at every level, inside the guardrails; the ten-year
+// figures barely move, since the pre-game's margin grows each level to the same
+// opening.
 // ⚠ WC $5.0M AND GL $10.0M SINCE THE PER-LINE TARGETS (SCENARIO_RATIO_RANGE),
 // PROPERTY STAYS $17.5M. With WC's targets at 1.5-3.0 and GL's at 1.3-2.3 the
 // openings are thinner, and $12.5M grew past them with nothing to spare: the
@@ -2096,15 +2131,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + '+1.9%, +7.3%, -1.0%).',
       }],
       ['Reserve inflation priced', {
-        value: RESERVE_INFLATION_PRICED_YEARS, unit: 'years of run-off, every line',
+        value: `WC ${RESERVE_INFLATION_PRICED_YEARS.WC} · GL ${RESERVE_INFLATION_PRICED_YEARS.GL} · Property ${RESERVE_INFLATION_PRICED_YEARS.Property}`, unit: 'years of run-off',
         what: 'The pure premium includes the inflation each year\'s claims pick up in their first this-many years along '
-          + 'the paid pattern: the product over those years of (1 + rate x unpaid share) — WC 1.0591, GL 1.1342, '
-          + 'Property 1.0370. A window year valued at age k picks up only the years still to come. Later inflation is '
-          + 'left to experience.', basis: 'CHOSEN',
+          + 'the paid pattern: the product over those years of (1 + rate x unpaid share) — WC 1.0591 (2 years), GL 1.0742 '
+          + '(1), Property 1.0370 (2). A window year valued at age k picks up only the years still to come. Later inflation '
+          + 'is left to experience.', basis: 'CHOSEN',
         note: 'Priced in full (WC 1.2112, GL 1.2323, Property 1.0449) the rate charges lifetime inflation up front and '
-          + 'ten-year surplus doubles; unpriced, 2027 drops on most WC and GL scenarios. Two years kept the ten-year '
-          + 'combined ratio and surplus near their levels before inflation (measured with the investment income credit '
-          + 'and WC at 3% contingency, since replaced by 5% on every line).',
+          + 'ten-year surplus doubles; unpriced, 2027 drops on most WC and GL scenarios. Two years keeps WC and Property '
+          + 'near their combined ratios before inflation; GL\'s experience catches its inflation within a few years, and '
+          + 'at two years it ran 95.4% against 100.2% before the correction, at one 98.9%.',
       }],
       ['Frequency trend', {
         value: perLine(FREQUENCY_TREND_PER_YEAR, 3), unit: 'per year',
@@ -2388,14 +2423,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
       }],
       ['Profit and contingency', {
-        value: PROFIT_AND_CONTINGENCY_OF_RATE, unit: 'share of rate, every line',
+        value: perLine(PROFIT_AND_CONTINGENCY_OF_RATE, 2), unit: 'share of rate',
         what: 'In the expense provision. Rate = projected pure premium / permissible loss ratio, the permissible loss ratio '
           + 'being 100% less the total expense ratio (fixed admin, per-exposure admin, risk control and this); the cover\'s '
           + 'price on top. As a divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance.',
         basis: 'CHOSEN',
-        note: '5% on every line, with no investment income credit: investment income does not affect the rate in any way '
-          + 'and flows into surplus only. Replaces the credit (last year\'s return off the pure premium) and the per-line '
-          + 'contingency (WC 3%, GL and Property 0%) that briefly stood beside it.',
+        note: 'WC 2%, GL 0%, Property 0%, with no investment income credit: investment income does not affect the rate in '
+          + 'any way and flows into surplus only. 5% on every line made every line too rich once the credit was gone '
+          + '(ten-year combined ratios 92.7-99.2% against 100.2-104.4% before), and 2% everywhere left GL and Property 4.6-4.8 '
+          + 'points rich. WC keeps 2% for its long tail\'s inflation beyond the two years priced.',
       }],
       ['Reinsurance load', {
         value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
@@ -2456,10 +2492,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'WC $5.0M and GL $10.0M since the per-line targets (WC 1.5-3.0, GL 1.3-2.3): the largest amount, in $0.5M '
-          + 'steps, that keeps every scenario\'s designed margin above zero (WC +0.27% to +2.83%, GL +0.34% to +4.65%; '
-          + 'the step above takes the lowest below zero). At $12.5M the thinner openings needed less than nothing and '
-          + 'the designed margin sat on the floor. Property stays at $17.5M. '
+        note: 'WC $3.0M and GL $12.0M: the largest amount, in $0.5M steps, that keeps every scenario\'s designed '
+          + 'margin above zero (WC +0.12% to +2.22%, GL +0.20% to +4.34%; the step above takes the lowest to -0.29% and '
+          + '-0.22%). They were $5.0M and $10.0M with the investment income credit; removing it raised every pure premium. '
+          + 'Property $12.5M: the rule gives $11.0M, where 2027\'s rate drops in 3 scenarios as the margin comes off at '
+          + 'Expected (+2.22% to +5.22%). At $12.5M none drops and every margin is genuine (+0.65% to +3.85%); at $14.0M '
+          + 'none drops but three margins sit on the floor. All three levels run a 99.7% ten-year combined ratio. '
+          + 'Measured with profit and contingency WC 2%, GL 0%, Property 0%, inflation priced WC 2 years, GL 1, Property 2, '
+          + 'and the admin overrun. '
           + 'Before the per-line targets — Property $17.5M, WC and GL $12.5M: at $12.5M Property\'s designed margin (3.0-5.8%) came off at Expected and '
           + 'its 2027 rate dropped in 9 of 20 scenarios; at $15M, 3; at $17.5M, 1. At $17.5M the zero floor holds the '
           + 'prior board at exactly expected on 18 scenarios, ruled fine: a board funding at expected is an ordinary '

@@ -221,7 +221,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   const rateE = atExpected.firstIndicationPer100;
   const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(quotedExposure * 10_000, 1);
   const rc = effectiveRiskControlIncentivePct(d);
-  const total = atExpected.adminRatePer100 / rateE + rc + PROFIT_AND_CONTINGENCY_OF_RATE;
+  const total = atExpected.adminRatePer100 / rateE + rc + PROFIT_AND_CONTINGENCY_OF_RATE[line];
   const reinsurancePer100 = oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100;
 
   return {
@@ -232,7 +232,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
       reserveInflation: pp.reserveInflation ?? 1,
       lossCostPer100: pp.lossCostPer100 - pp.catastropheLoadPer100,
     } : null,
-    reserveInflationYears: RESERVE_INFLATION_PRICED_YEARS,
+    reserveInflationYears: RESERVE_INFLATION_PRICED_YEARS[line],
     averageTrendedToLatestPer100: average,
     bookRisk: risk,
     annualTrend, trendYears, trendToPriced: Math.pow(annualTrend, trendYears),
@@ -250,10 +250,10 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     adminPerExposureTrendedPer100: ADMIN_PER_EXPOSURE_PER_100[line] * adminTrendFactor(yearNumber),
     quotedExposure, adminPer100: adminRatePer100For(line, quotedExposure, yearNumber),
     funding: { label: fundingLabel(d), clf: quote.clf },
-    riskControl: rc, divisor: expenseDivisor(rc),
+    riskControl: rc, divisor: expenseDivisor(rc, line),
     expenses: {
       fixedAdmin: fixedPer100 / rateE, perExposureAdmin: (atExpected.adminRatePer100 - fixedPer100) / rateE,
-      riskControl: rc, contingency: PROFIT_AND_CONTINGENCY_OF_RATE, total, permissibleLossRatio: 1 - total,
+      riskControl: rc, contingency: PROFIT_AND_CONTINGENCY_OF_RATE[line], total, permissibleLossRatio: 1 - total,
     },
     indicatedRatePer100: pp.purePremiumPer100 / (1 - total),
     pieces: {

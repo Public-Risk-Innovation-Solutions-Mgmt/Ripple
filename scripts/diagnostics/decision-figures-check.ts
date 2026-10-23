@@ -27,10 +27,11 @@
 //      at 50%, 70%, 80% and 90% funding: Your rate's pure premium is the
 //      retained pure premium x selectedClfFor's CLF; its admin, Risk Control,
 //      profit and contingency and reinsurance are the engine quote's
-//      (strikeBookRate's); profit and contingency is 5% of the loaded rate;
+//      (strikeBookRate's); profit and contingency is the line's share of the
+//      loaded rate (WC 2%, GL 0%, Property 0%);
 //      the rows add to the rate the game charges to 1e-12, and in printed
 //      cents to the printed rate exactly. Indicated is the ground-up pure
-//      premium, admin, its own risk control and 5% contingency, adding to the
+//      premium, admin, its own risk control and the line's contingency, adding to the
 //      indicated rate the same two ways. The Risk Control row is the Risk
 //      Control box's cost per $100 at the current exposure — $0.00 with
 //      RISK_CONTROL off, and with it forced on the box's dollars / (exposure x
@@ -199,7 +200,10 @@ const centsAddUp = (c: RatePieceColumn) => {
     && k.rate === (Math.round(c.rate * 100) || 0)
     && Math.abs(k.contingency - Math.round(c.contingency * 100)) <= 1;
 };
-const contingencyIsFive = (c: RatePieceColumn) => Math.abs(c.contingency - (c.rate - c.reins) * PROFIT_AND_CONTINGENCY_OF_RATE) <= 1e-12;
+// The line's share, written out rather than read from the parameter.
+const BRIEFED_PC: Record<CoverageLine, number> = { WC: 0.02, GL: 0, Property: 0 };
+const contingencyIsTheLines = (c: RatePieceColumn, line: CoverageLine) =>
+  PROFIT_AND_CONTINGENCY_OF_RATE[line] === BRIEFED_PC[line] && Math.abs(c.contingency - (c.rate - c.reins) * BRIEFED_PC[line]) <= 1e-12;
 let rateChecked = 0, worstSum = 0;
 for (const gs of games) {
   for (const line of LINES) {
@@ -225,7 +229,7 @@ for (const gs of games) {
       worstSum = Math.max(worstSum, Math.abs(sumOf(p.yours) - engine.finalRatePer100), Math.abs(sumOf(p.indicated) - engine.firstIndicationPer100));
       check(addsUp(p.yours, engine.finalRatePer100), `${line} ${lvl}: Your-rate rows sum ${sumOf(p.yours)} vs charged ${engine.finalRatePer100}`);
       check(centsAddUp(p.yours), `${line} ${lvl}: Your-rate rows in cents do not add to the printed rate`);
-      check(contingencyIsFive(p.yours), `${line} ${lvl}: Your-rate profit and contingency is not 5% of the loaded rate`);
+      check(contingencyIsTheLines(p.yours, line), `${line} ${lvl}: Your-rate profit and contingency is not the line's share of the loaded rate`);
       // Risk control is off: the row is $0.00, as the box is.
       check(p.yours.riskControl === 0 && pieceCents(p.yours).riskControl === 0, `${line} ${lvl}: Risk Control is not $0.00 with risk control off`);
       // Indicated: at Expected, self-funded, adding to the indicated rate.
@@ -234,7 +238,7 @@ for (const gs of games) {
       check(p.indicated.reins === 0, `${line} ${lvl}: Indicated carries reinsurance`);
       check(addsUp(p.indicated, engine.firstIndicationPer100), `${line} ${lvl}: Indicated rows sum ${sumOf(p.indicated)} vs ${engine.firstIndicationPer100}`);
       check(centsAddUp(p.indicated), `${line} ${lvl}: Indicated rows in cents do not add to the printed rate`);
-      check(contingencyIsFive(p.indicated), `${line} ${lvl}: Indicated profit and contingency is not 5%`);
+      check(contingencyIsTheLines(p.indicated, line), `${line} ${lvl}: Indicated profit and contingency is not the line's share`);
       seen.push(p.yours.purePremium);
     }
     // Expected is CLF 1: Your-rate pure premium there is the retained figure itself.
@@ -282,8 +286,8 @@ console.log('\n--- 4. CONTROLS: THE BROKEN PANELS MUST BE CAUGHT ---');
   // Risk control and contingency as one row, with the contingency row left beside it.
   const merged = { ...p.yours, riskControl: p.yours.riskControl + p.yours.contingency + 0.01 };
   check(!addsUp(merged, n.finalRatePer100), 'control: risk control and contingency in one row was not caught');
-  // No contingency in the rate: the 5% predicate must see it.
-  check(!contingencyIsFive({ ...p.yours, contingency: 0 }), 'control: a rate with no profit and contingency was not caught');
+  // WC with no contingency in the rate: the line's-share predicate must see it.
+  check(!contingencyIsTheLines({ ...p.yours, contingency: 0 }, line), 'control: WC with no profit and contingency was not caught');
   // A Risk Control row priced on the Indicated rate, not the box's.
   const on = boxRow(gs, line, withLine(ds, line, { riskControlIncentivePct: 0.05 }), x => ratePieces(x).indicated.riskControl);
   check(Math.abs(on.row - on.box) > 1e-6, 'control: a Risk Control row priced on the Indicated rate was not caught');

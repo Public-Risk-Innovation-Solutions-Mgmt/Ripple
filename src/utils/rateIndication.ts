@@ -210,7 +210,7 @@ export function buildRateIndication(
   const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1);
   const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
     : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
-  const contingency = PROFIT_AND_CONTINGENCY_OF_RATE;
+  const contingency = PROFIT_AND_CONTINGENCY_OF_RATE[line];
   // The total expense ratio, at Expected: admin's share of the rate, risk
   // control and profit and contingency.
   const totalAdmin = atExpected.adminRatePer100 / rateE + riskControl + contingency;

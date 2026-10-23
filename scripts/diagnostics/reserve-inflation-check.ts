@@ -17,19 +17,20 @@
 //      booked on top. Paid-to-date is never restated; the forward-booking
 //      true-up pays the pattern's share of the higher ultimate in the year it
 //      emerges, as it does the host's development.
-//   3. PRICED FOR THE FIRST 2 YEARS: reserveInflationToCome is the product over
-//      run-off years age..RESERVE_INFLATION_PRICED_YEARS of (1 + rate x unpaid
+//   3. PRICED FOR THE FIRST YEARS — WC 2, GL 1, PROPERTY 2: reserveInflationToCome
+//      is the product over run-off years age..the line's
+//      RESERVE_INFLATION_PRICED_YEARS of (1 + rate x unpaid
 //      share), 1 past them; every window year of every priced rate carries its
 //      age's factor and its loss cost is developed x factor / exposure; and a
 //      rate with no history carries the full factor.
-//   4. PROFIT AND CONTINGENCY, 5% ON EVERY LINE: the expense divisor is
-//      1 - risk control - 5%. (It was per line, WC 3%, GL and Property 0%, for
-//      one commit; 5% on every line replaced it with the investment income
-//      credit's removal.)
+//   4. PROFIT AND CONTINGENCY PER LINE — WC 2%, GL 0%, PROPERTY 0%: the expense
+//      divisor is 1 - risk control - the line's own. (Per line WC 3% / GL and
+//      Property 0% for one commit, then 5% on every line, which made every line
+//      too rich once the investment income credit was gone.)
 //
 // ⚠ AND EACH FAILS WHEN BROKEN: the controls feed 1 the END-of-year base
 // (after the paydown), 2 a year whose payments fell, 3 a factor that runs to
-// the end of the pattern, and 4 a divisor with no contingency in it.
+// the end of the pattern and GL priced for 2 years, and 4 the 5% on every line.
 // ============================================================================
 
 import {
@@ -122,7 +123,9 @@ function gradePaid(games: Game[], tag: string, shift = 0) {
 type ToCome = (line: CoverageLine, age: number) => number;
 const byDefinition: ToCome = (line, age) => {
   let f = 1;
-  for (let j = Math.max(1, age); j <= RESERVE_INFLATION_PRICED_YEARS; j++) f *= 1 + rate[line] * unpaidShare(LINE_PAYOUT_PATTERN[line], j);
+  // The briefed years, written out rather than read from the parameter.
+  const years: Record<CoverageLine, number> = { WC: 2, GL: 1, Property: 2 };
+  for (let j = Math.max(1, age); j <= years[line]; j++) f *= 1 + rate[line] * unpaidShare(LINE_PAYOUT_PATTERN[line], j);
   return f;
 };
 function gradePriced(games: Game[], toCome: ToCome, tag: string) {
@@ -146,17 +149,18 @@ function gradePriced(games: Game[], toCome: ToCome, tag: string) {
   }
   const f = LINES.map(l => `${l} ${toCome(l, 1).toFixed(4)}`).join(', ');
   check(worst < 1e-12 && points > 0,
-    `${tag}3. pricing carries the inflation still to come within ${RESERVE_INFLATION_PRICED_YEARS} years: every window year at its age, a rate with no history in full`,
+    `${tag}3. pricing carries the inflation still to come within the line's priced years (WC ${RESERVE_INFLATION_PRICED_YEARS.WC}, GL ${RESERVE_INFLATION_PRICED_YEARS.GL}, Property ${RESERVE_INFLATION_PRICED_YEARS.Property}): every window year at its age, a rate with no history in full`,
     `${points} window points, ${noHistory} no-history rates; full factor ${f}; worst ${worst.toExponential(2)}`);
 }
 
 // ---------------------------------------------------------------- 4
-function gradeContingency(divisor: (rc: number) => number, tag: string) {
+const BRIEFED_PC: Record<CoverageLine, number> = { WC: 0.02, GL: 0, Property: 0 };
+function gradeContingency(divisor: (rc: number, line: CoverageLine) => number, tag: string) {
   let worst = 0;
-  for (const rc of [0, 0.02, 0.05]) worst = Math.max(worst, Math.abs(divisor(rc) - (1 - rc - 0.05)));
-  check(worst < 1e-15 && PROFIT_AND_CONTINGENCY_OF_RATE === 0.05,
-    `${tag}4. profit and contingency is 5% on every line: the divisor is 1 - risk control - 5%`,
-    `profit and contingency ${(PROFIT_AND_CONTINGENCY_OF_RATE * 100).toFixed(1)}%; worst ${worst.toExponential(2)}`);
+  for (const l of LINES) for (const rc of [0, 0.02, 0.05]) worst = Math.max(worst, Math.abs(divisor(rc, l) - (1 - rc - BRIEFED_PC[l])));
+  check(worst < 1e-15,
+    `${tag}4. profit and contingency per line, WC 2%, GL 0%, Property 0%: the divisor is 1 - risk control - the line's own`,
+    `${LINES.map(l => `${l} ${(PROFIT_AND_CONTINGENCY_OF_RATE[l] * 100).toFixed(1)}%`).join(', ')}; worst ${worst.toExponential(2)}`);
 }
 
 console.log(`RESERVE INFLATION — scenarios ${SCENARIOS.join(', ')}, the pre-game and ${YEARS} played years, three lines, one world`);
@@ -183,11 +187,16 @@ controlFails('a factor that runs to the end of the pattern', () => gradePriced(g
   for (let j = Math.max(1, age); j <= 60; j++) f *= 1 + rate[l] * unpaidShare(LINE_PAYOUT_PATTERN[l], j);
   return f;
 }, ''), '3.');
-controlFails('a divisor with no contingency in it', () => gradeContingency(rc => 1 - rc, ''), '4.');
+controlFails('GL priced for 2 years', () => gradePriced(games, (l, age) => {
+  let f = 1;
+  for (let j = Math.max(1, age); j <= (l === 'GL' ? 2 : RESERVE_INFLATION_PRICED_YEARS[l]); j++) f *= 1 + rate[l] * unpaidShare(LINE_PAYOUT_PATTERN[l], j);
+  return f;
+}, ''), '3.');
+controlFails('the 5% on every line', () => gradeContingency(rc => 1 - rc - 0.05, ''), '4.');
 
 console.log('');
 if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — open years inflate before payments, booked as development; pricing carries two years of it; contingency is 5% on every line.');
+console.log('PASS — open years inflate before payments, booked as development; pricing carries WC 2, GL 1 and Property 2 years of it; contingency WC 2%, GL 0%, Property 0%.');

@@ -172,7 +172,7 @@ export interface NewPurePremiumResult {
  */
 export function reserveInflationToCome(line: CoverageLine, patternAge: number): number {
   let f = 1;
-  for (let j = Math.max(1, patternAge); j <= RESERVE_INFLATION_PRICED_YEARS; j++) {
+  for (let j = Math.max(1, patternAge); j <= RESERVE_INFLATION_PRICED_YEARS[line]; j++) {
     f *= 1 + RESERVE_INFLATION_PER_YEAR[line] * unpaidShare(LINE_PAYOUT_PATTERN[line], j);
   }
   return f;

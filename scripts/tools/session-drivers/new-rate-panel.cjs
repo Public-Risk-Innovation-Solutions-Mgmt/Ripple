@@ -80,7 +80,8 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     ok(ind.reduce((a, b) => a + b, 0) === indRate, `the Indicated rows add to the Indicated rate (${ind.join(' + ')} = ${indRate} cents)`);
     ok(yours.reduce((a, b) => a + b, 0) === yourRate, `Your rate's rows add to Your rate (${yours.join(' + ')} = ${yourRate} cents)`);
     ok(ind[2] === 0 && yours[2] === 0, 'Risk Control reads $0.00 in both columns while risk control is off');
-    ok(ind[3] > 0 && yours[3] > 0, 'Profit & contingency is charged in both columns');
+    // The panel is on Workers' Compensation, which carries 2% (GL and Property carry none).
+    ok(ind[3] > 0 && yours[3] > 0, 'Profit & contingency is charged in both columns (WC, 2%)');
   }
   ok(/vs last year/.test(body), 'the vs-last-year row renders');
 
