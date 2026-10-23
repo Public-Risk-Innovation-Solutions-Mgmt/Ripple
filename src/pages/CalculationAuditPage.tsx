@@ -1991,8 +1991,8 @@ export function buildSupportingRows(
               // The expense divisor under the new stack, the rate level under
               // the old — see the Contributions row for why it belongs here.
               NEW_RATE_STACK.enabled
-                ? factorTerm(1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)),
-                  `/ ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)).toFixed(2)}`)
+                ? factorTerm(1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
+                  `/ ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`)
                 : factorTerm(lineRow.rateLevel / 100, `rate level ${lineRow.rateLevel}`),
             ],
           },
@@ -2748,9 +2748,9 @@ export function buildRevExpRows(
             // factor is the rate level and this reads exactly as it did.
             ...(NEW_RATE_STACK.enabled
               ? [{
-                value: 1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)),
+                value: 1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
                 format: 'factor' as const,
-                label: `/ (1 - risk control - contingency) = / ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)).toFixed(2)}`,
+                label: `/ (1 - risk control - contingency) = / ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`,
               }]
               : [{ value: lineRow.rateLevel / 100, format: 'factor' as const, label: `rate level ${lineRow.rateLevel}` }]),
           ],
@@ -2792,7 +2792,7 @@ export function buildRevExpRows(
                 // At the book the rate was struck on — a multi-world year's
                 // averaged book before the year (ratedExposure), else this one.
                 value: adminRatePer100For(lineRow.line as CoverageLine, lineRow.ratedExposure ?? lineRow.activeExposure, poolResult.yearNumber)
-                  / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)),
+                  / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
                 format: 'plain',
                 label: 'admin rate per $100, loaded',
               },

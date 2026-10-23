@@ -79,7 +79,7 @@ for (let g = 0; g < GAMES; g++) {
       // contingency). Left unforked this read exactly 5.00e-2 on all three
       // lines, which is the divisor and not an error in the fields.
       const loadFactor = NEW_RATE_STACK.enabled
-        ? 1 / expenseDivisor(RISK_CONTROL_INCENTIVE_RANGE.default)
+        ? 1 / expenseDivisor(RISK_CONTROL_INCENTIVE_RANGE.default, l)
         : r.rateLevel / 100;
       const reconstructed =
         r.activeExposure * r.netPurePremiumPer100 * r.selectedFundingCLF * loadFactor * 10_000;

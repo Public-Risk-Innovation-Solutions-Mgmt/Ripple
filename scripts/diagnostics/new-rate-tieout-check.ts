@@ -108,7 +108,7 @@ function play(): Row[] {
         const exposure = r.writtenExposure;
         const ld = d.byLine[line];
         const admin = adminRatePer100For(line, exposure, y);
-        const divisor = expenseDivisor(ld.riskControlIncentivePct ?? 0);
+        const divisor = expenseDivisor(ld.riskControlIncentivePct ?? 0, line);
         const { expectedCededPer100 } = expectedCededPer100For(line, y, groundUp, {
           // A book (MEMBER_LEVEL off) is priced on its exposure, as the engine
           // prices it; a roster on its members.

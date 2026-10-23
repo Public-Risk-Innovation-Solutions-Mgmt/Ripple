@@ -218,7 +218,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     adminPerExposureTrendedPer100: ADMIN_PER_EXPOSURE_PER_100[line] * adminTrendFactor(yearNumber),
     quotedExposure, adminPer100: adminRatePer100For(line, quotedExposure, yearNumber),
     funding: { label: fundingLabel(d), clf: quote.clf },
-    riskControl: effectiveRiskControlIncentivePct(d), divisor: expenseDivisor(effectiveRiskControlIncentivePct(d)),
+    riskControl: effectiveRiskControlIncentivePct(d), divisor: expenseDivisor(effectiveRiskControlIncentivePct(d), line),
     reinsurancePer100: oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100,
     ratePer100,
     chargedExposure,

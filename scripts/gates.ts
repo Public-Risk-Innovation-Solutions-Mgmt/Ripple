@@ -177,8 +177,10 @@ const FAST: string[] = [
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
                                      //         trend per line, booked up front; older years undeveloped for
                                      //         trend; six controls
-  'adverse-rate-placeholder-check',  //   2s   YEARLY_ADVERSE_RATE is 0, read by nothing under src/, value-neutral
-                                     //         at 50%, marked a placeholder; four controls
+  'reserve-inflation-check',         //  10s   open years inflate by the line's trend on the start-of-year
+                                     //         outstanding, booked as development, paid untouched; priced for
+                                     //         the first 2 years; contingency per line; four controls. Replaced
+                                     //         adverse-rate-placeholder-check when YEARLY_ADVERSE_RATE was wired
   'shock-rate-check',                //   2s   the catalogue scaled to 0.3 events a year, weights kept and priced so;
                                      //         the schedule's count round(0.3 x years) ± 1, at least one, never year
                                      //         1; four controls

@@ -27,7 +27,7 @@
 // taken off admin; and 4 the credit with its floor removed.
 // ============================================================================
 
-import { INVESTMENT_INCOME_CREDIT } from '../../src/data/pricingParameters';
+import { INVESTMENT_INCOME_CREDIT, PROFIT_AND_CONTINGENCY_OF_RATE } from '../../src/data/pricingParameters';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -89,7 +89,8 @@ function gradeCredit(games: Game[], expect: Expect, tag: string) {
 type Requote = (shocks: boolean, line: CoverageLine, y: number, s: StruckLineRate, credit: number) => NewStackQuote;
 const requote: Requote = (shocks, line, y, s, credit) => quoteNewRateStack({
   line, yearNumber: y, members: { exposure: s.exposure, ...(s.bookRisk !== undefined ? { risk: s.bookRisk } : {}) }, exposure: s.exposure,
-  groundUpPurePremiumPer100: s.newPp.purePremiumPer100, clf: s.quote.clf, riskControlPct: 1 - s.quote.divisor,
+  // The divisor is 1 - risk control - the line's contingency (WC 3% since reserve inflation), so risk control is what is left.
+  groundUpPurePremiumPer100: s.newPp.purePremiumPer100, clf: s.quote.clf, riskControlPct: 1 - s.quote.divisor - PROFIT_AND_CONTINGENCY_OF_RATE[line],
   layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: defaultDecisionSet(y).byLine[line].reinsuranceOption,
   investmentIncomeCredit: credit, shocks,
 });

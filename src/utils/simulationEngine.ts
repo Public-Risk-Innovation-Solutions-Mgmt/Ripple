@@ -44,7 +44,7 @@ function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | 
 function newLossEngineRecord(
   ordinary: OrdinaryLossYear, shocks: LineShockYear, large: LargeLossDraw,
   expected: { ordinary: number; uplift: number; shockLarge: number; routineLarge: number; total: number },
-  rDevelopment: number, penalty: number, withdrawnExposure: number,
+  rDevelopment: number, reserveInflation: number, penalty: number, withdrawnExposure: number,
 ): NewLossEngineRecord {
   const events = new Map<string, NewLossEngineRecord['events'][number]>();
   const note = (f: LineShockYear['byFiring'][number]['firing'], uplift: number, rRate: number) => {
@@ -75,6 +75,7 @@ function newLossEngineRecord(
     },
     rRate: shocks.rRate,
     rDevelopment,
+    reserveInflation,
     withdrawnExposure,
     events: [...events.values()],
   };
@@ -150,7 +151,7 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn, expectedMarketReturns, preGameMarketReturns } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS } from '../data/pricingParameters';
+import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR } from '../data/pricingParameters';
 import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
@@ -2325,9 +2326,11 @@ export function processLineYear(
     unallocatedDevelopment,
     developmentAbovePoolLimit,
     rDevelopment,
+    reserveInflation,
   } = processIbner(
     lineState.reserveCohorts, line, ibnerRng, instance.instanceId, instance.seed, yearNumber,
     lineShocks?.rRate ?? 0,
+    RESERVE_INFLATION_PER_YEAR[line],
   );
   void unallocatedDevelopment;   // surfaced by the harness, not by the result
 
@@ -3147,7 +3150,7 @@ export function processLineYear(
     // carries no key at all.
     ...(ordinaryYear && lineShocks && largeDraw && newEngineExpected
       ? { newLossEngine: newLossEngineRecord(
-        ordinaryYear, lineShocks, largeDraw, newEngineExpected, rDevelopment, newBusinessPenaltyFactor,
+        ordinaryYear, lineShocks, largeDraw, newEngineExpected, rDevelopment, reserveInflation, newBusinessPenaltyFactor,
         bookMovement
           ? bookMovement.withdrawn * exposureFactor(line, yearNumber)
           : shockWithdrawn.reduce((t, m) => t + getMemberExposure(m, line, yearNumber), 0),
@@ -4744,8 +4747,11 @@ function processIbner(
   valuationYear: number,
   // The new loss engine's R rate this year — 0 with the flag off.
   extraDevelopmentRate = 0,
+  // Reserve inflation's yearly rate on the line (RESERVE_INFLATION_PER_YEAR).
+  reserveInflationRate = 0,
 ): {
   rDevelopment: number;
+  reserveInflation: number;
   developmentImpact: number;
   updatedCohorts: ReserveCohort[];
   netPaidThisYear: number;
@@ -4767,6 +4773,8 @@ function processIbner(
   let developmentClamped = 0;
   // What the R shocks added this year, on the cohorts' own bases.
   let rDevelopment = 0;
+  // What reserve inflation added this year, on the same bases.
+  let reserveInflation = 0;
 
   const updatedCohorts = cohorts
     .filter(c => !c.closed)
@@ -5374,8 +5382,16 @@ function processIbner(
       // host's percentage still emerges in full and only in full.
       // Zero with the flag off, and `hostEmerging + 0` is hostEmerging.
       const rEmerging = extraDevelopmentRate > 0 ? extraDevelopmentRate * developmentBaseOf(c) : 0;
-      const emerging = hostEmerging + rEmerging;
+      // ⚠ RESERVE INFLATION (RESERVE_INFLATION_PER_YEAR), ON THE SAME BASIS AND
+      // THE SAME ROUTE: the line's trend on this prior year's outstanding at the
+      // START of the year — before this year's payments — recognised now and
+      // paid by later years. Like the R shocks it is outside the lifetime total,
+      // and outside `developing`: open claims inflate until they are paid, not
+      // until the host's development has finished emerging.
+      const inflationEmerging = reserveInflationRate > 0 ? reserveInflationRate * developmentBaseOf(c) : 0;
+      const emerging = hostEmerging + rEmerging + inflationEmerging;
       rDevelopment += rEmerging;
+      reserveInflation += inflationEmerging;
       let emergedNet = 0;
       let emergedAbovePoolLimit = 0;
       if (emerging !== 0) {
@@ -5675,6 +5691,7 @@ function processIbner(
   void developmentClamped;
   return {
     rDevelopment,
+    reserveInflation,
     developmentAbovePoolLimit,
     developmentImpact,
     updatedCohorts,

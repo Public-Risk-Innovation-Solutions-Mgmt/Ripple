@@ -603,8 +603,8 @@ export function effectiveRiskControlIncentivePct(d: { riskControlIncentivePct?: 
  * `riskControlPct`, which is ALREADY spent as riskControlInvestment and would
  * be charged twice if it appeared here as well.
  */
-export function expenseDivisor(riskControlPct: number): number {
-  return 1 - riskControlPct - PROFIT_AND_CONTINGENCY_OF_RATE;
+export function expenseDivisor(riskControlPct: number, line: CoverageLine): number {
+  return 1 - riskControlPct - PROFIT_AND_CONTINGENCY_OF_RATE[line];
 }
 
 export interface NewStackInputs {
@@ -675,7 +675,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
     throw new Error(`quoteNewRateStack: ${line} quoted without its reinsurance option while the aggregate stop is on`);
   }
   const adminRatePer100 = adminRatePer100For(line, exposure, yearNumber);
-  const divisor = expenseDivisor(riskControlPct);
+  const divisor = expenseDivisor(riskControlPct, line);
 
   // ⚠ THE INVESTMENT INCOME CREDIT COMES OFF THE PURE PREMIUM AND NOTHING ELSE
   // (INVESTMENT_INCOME_CREDIT): pure premium x (1 - credit). Admin is added
@@ -727,7 +727,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   // so including it would make buying cover look like a surplus gain.
   const uncreditedRetainedPer100 = Math.max(0, groundUpPurePremiumPer100 - expectedCededPer100);
   const cushionPer100 = retainedPurePremiumPer100 * clf - uncreditedRetainedPer100;
-  const contingencyPer100 = loadedBase * PROFIT_AND_CONTINGENCY_OF_RATE;
+  const contingencyPer100 = loadedBase * PROFIT_AND_CONTINGENCY_OF_RATE[line];
   const expectedToSurplus = (cushionPer100 + contingencyPer100) * exposure * 10_000;
 
   return {

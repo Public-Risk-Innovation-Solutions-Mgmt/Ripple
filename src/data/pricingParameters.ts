@@ -122,6 +122,67 @@ export const REINSURANCE_RISK_LOAD_LAMBDA = 0;
 export const SEVERITY_TREND_PER_YEAR: PerLine<number> = { WC: 0.04, GL: 0.08, Property: 0.05 };
 
 /**
+ * RESERVE INFLATION — OPEN CLAIMS INFLATE WHILE THEY WAIT TO BE PAID. Each
+ * year, BEFORE that year's payments, every open accident year's unpaid reserve
+ * (its gross outstanding at the start of the year) grows by its line's
+ * severity trend — WC 4%, GL 8%, Property 5% — and the growth is booked as
+ * development on prior years, ON TOP OF the host's lifetime development
+ * (PRIOR_DEVELOPMENT_DEFAULTS), through the same path: allocated across the
+ * register, ceded under the accident year's own cover, trimmed at the GL pool
+ * limit. Paid-to-date never moves; the ultimate creeps up, and later payments
+ * are larger. It runs in the pre-game and every played year alike.
+ *
+ * ⚠ IT FILLS THE YEARLY_ADVERSE_RATE PLACEHOLDER (stable-scenarios commit 4),
+ * which wrote down exactly this design — a yearly rate on each open year's
+ * unpaid reserve, applied before payments, booked as prior-year development —
+ * at 0% and wired to nothing. Two things differ from that note, both by the
+ * reserve-inflation brief: the host's development STAYS (this sits on top of
+ * it rather than replacing it), and pricing anticipates part of it
+ * (RESERVE_INFLATION_PRICED_YEARS) rather than none.
+ *
+ * ⚠ WHY THE SEVERITY TREND: a claim reported in its accident year still
+ * settles at the cost of the year it is paid in. The trend already brings each
+ * accident year's cost up to its own year; this is the same inflation running
+ * on after it, on what is still unpaid. Defined from SEVERITY_TREND_PER_YEAR so
+ * the two cannot drift apart.
+ *
+ * MEASURED (scripts/probes/ri-probe.mts, twenty scenarios, ten years, the
+ * default decisions, on wip/policy-year-2027 at e238cbb): scenario 1's 2027
+ * accident year, valued 2027 to 2036, rises WC +12.7%, GL +15.0%, Property
+ * +3.1% (against +1.9%, +7.3%, -1.0% from the host's development alone).
+ * Unpriced, 2027 drops on 16 WC and 12 GL scenarios and WC's ten-year surplus
+ * nearly halves; priced in full, rates charge the whole lifetime inflation up
+ * front and surplus balloons.
+ */
+export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = { ...SEVERITY_TREND_PER_YEAR };
+
+/**
+ * HOW MUCH OF IT PRICING ANTICIPATES — THE FIRST 2 YEARS, ON EVERY LINE. The
+ * pure premium includes the inflation each year's claims pick up in their
+ * first N years of run-off along the line's paid pattern:
+ *
+ *     factor = product over j = 1..N of (1 + rate x unpaid share at year j)
+ *
+ *     N = 2:  WC 1.0591   GL 1.1342   Property 1.0370
+ *     (in full, N unbounded: WC 1.2112, GL 1.2323, Property 1.0449)
+ *
+ * A window year valued at age k picks up only the steps still to come, j = k
+ * to N — what has emerged is already in its paid; a year past N picks up none.
+ * Inflation after year N is LEFT TO EXPERIENCE: it reaches the rate as it
+ * emerges in the window, as the host's development does.
+ *
+ * ⚠ WHY 2 (scripts/probes/ri-part-probe.mts; N = 2, 3, 5 at contingency 0%,
+ * 3%, 5%): priced in full, the rate charges claims' whole lifetime inflation
+ * while reserves hold only what has emerged, so the ten-year combined ratio
+ * fell below 100% and surplus doubled. N = 2 with WC at 3% contingency
+ * (PROFIT_AND_CONTINGENCY_OF_RATE) kept WC's ten-year combined ratio and
+ * surplus at today's (104.6% against 104.5%) with no 2027 drop. GL at N = 1
+ * came closer to today's but dropped 2027 in one scenario; N = 2 drops none.
+ * Property at N = 2 matched today's exactly.
+ */
+export const RESERVE_INFLATION_PRICED_YEARS = 2;
+
+/**
  * THE TREND BOOKED UP FRONT (stable-scenarios commit 3). ON: each accident
  * year's ultimate rises with trend only by as much as its REPORTED losses rise
  * because of trend — inflation up to reporting, not up to final payment. The
@@ -434,15 +495,25 @@ export const ADMIN_TREND_PER_YEAR = 0.03;
 export const ADMIN_BASE_YEAR = 1;
 
 /**
- * PROFIT AND CONTINGENCY — a share of the rate. May be set to 0.
+ * PROFIT AND CONTINGENCY — a share of the rate, PER LINE. May be set to 0.
  * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor).
  * ⚠ SET TO 0 ON EVERY LINE (stable-scenarios, before Pause C2's checks), from
  * 5%: under default play with shocks off, pool surplus more than tripled over
  * ten years ($61.6M -> $194M, the twenty-scenario mean), and the pool should
  * not plan on a margin from pricing. Year-1 premium fell about 5.3%, so the
  * exposure was re-scaled with it (EXPOSURE_SCALE).
+ *
+ * ⚠ WC 3% SINCE RESERVE INFLATION (RESERVE_INFLATION_PER_YEAR). WC's long tail
+ * inflates for longest after the two years pricing anticipates, so with
+ * nothing more WC ran a ten-year combined ratio of 107.5% (against 104.5%
+ * before inflation) and dropped 2027 in 4 scenarios. At 3% it is back at
+ * 104.6%, surplus at years 5 and 10 within $3M of before, and no drop
+ * (scripts/probes/ri-part-probe.mts). GL and Property need none: GL's
+ * experience catches its inflation within a few years, and Property's tail is
+ * short; either at 3% overshoots surplus and puts every prior-board margin on
+ * the floor.
  */
-export const PROFIT_AND_CONTINGENCY_OF_RATE = 0;
+export const PROFIT_AND_CONTINGENCY_OF_RATE: PerLine<number> = { WC: 0.03, GL: 0, Property: 0 };
 
 /**
  * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
@@ -1505,18 +1576,6 @@ export const RESERVE_BASIS_NEW = 'expected';
  */
 export const DEVELOPMENT_IS_LIFETIME_TOTAL = true;
 
-/**
- * ⚠ PLACEHOLDER — NOT YET USED. NOTHING READS THIS (stable-scenarios commit 4).
- *
- * YEARLY ADVERSE DEVELOPMENT, per line, at 0%. It will REPLACE the host's
- * lifetime development (hostDevelopment.ts, DEVELOPMENT_IS_LIFETIME_TOTAL):
- * each year, a yearly rate on each open accident year's unpaid reserve,
- * applied BEFORE that year's payments, booked as prior-year development, and
- * NOT anticipated by pricing — pricing sees it only as it emerges in the
- * experience. Recorded now so the design is written down beside the value; the
- * wiring is a later commit, and placeholder-check holds that nothing reads it.
- */
-export const YEARLY_ADVERSE_RATE: PerLine<number> = { WC: 0, GL: 0, Property: 0 };
 // ⚠ NO LONGER "NOT YET WIRED". The host's development % reads this convention
 // and hostDevelopment.ts implements it; the entry above is live. The constant
 // stays as the written-down statement of WHICH convention is in force.
@@ -1953,6 +2012,25 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'computed along the paid pattern (WC 1.2440, GL 1.2478, Property 1.0460) before it was ruled that '
           + 'inflation runs only to reporting.',
       }],
+      ['Reserve inflation', {
+        value: perLine(RESERVE_INFLATION_PER_YEAR, 3), unit: 'per year, of each open year\'s unpaid reserve',
+        what: 'Each year, before payments, every open accident year\'s unpaid reserve grows by its line\'s severity '
+          + 'trend, booked as development on prior years, on top of the host\'s development. The pre-game and every '
+          + 'played year.', basis: 'CHOSEN',
+        note: 'Fills the Yearly adverse development placeholder, keeping the host\'s development. Scenario 1\'s 2027 '
+          + 'accident year rises WC +12.7%, GL +15.0%, Property +3.1% over ten years (host development alone: '
+          + '+1.9%, +7.3%, -1.0%).',
+      }],
+      ['Reserve inflation priced', {
+        value: RESERVE_INFLATION_PRICED_YEARS, unit: 'years of run-off, every line',
+        what: 'The pure premium includes the inflation each year\'s claims pick up in their first this-many years along '
+          + 'the paid pattern: the product over those years of (1 + rate x unpaid share) — WC 1.0591, GL 1.1342, '
+          + 'Property 1.0370. A window year valued at age k picks up only the years still to come. Later inflation is '
+          + 'left to experience.', basis: 'CHOSEN',
+        note: 'Priced in full (WC 1.2112, GL 1.2323, Property 1.0449) the rate charges lifetime inflation up front and '
+          + 'ten-year surplus doubles; unpriced, 2027 drops on most WC and GL scenarios. Two years, with WC at 3% '
+          + 'contingency, kept the ten-year combined ratio and surplus at their levels before inflation.',
+      }],
       ['Frequency trend', {
         value: perLine(FREQUENCY_TREND_PER_YEAR, 3), unit: 'per year',
         what: 'Zero on all three lines.', basis: 'CHOSEN',
@@ -2234,12 +2312,13 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
       }],
       ['Profit and contingency', {
-        value: PROFIT_AND_CONTINGENCY_OF_RATE, unit: 'share of rate',
-        what: 'In the rate\'s divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance. May be set to 0.',
+        value: perLine(PROFIT_AND_CONTINGENCY_OF_RATE, 2), unit: 'share of rate',
+        what: 'In the rate\'s divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance. Per line; may be 0.',
         basis: 'CHOSEN',
-        note: 'Set to 0 on every line, from 5%: under default play with shocks off, pool surplus more than tripled over '
-          + 'ten years ($61.6M to $194M, the twenty-scenario mean), and the pool should not plan on a margin from pricing. '
-          + 'Year-1 premium fell about 5%, so the exposure scale was re-set with it.',
+        note: 'WC 3% since reserve inflation: WC\'s long tail inflates longest after the two years pricing anticipates, '
+          + 'and at 3% its ten-year combined ratio and surplus are back at their levels before inflation (104.6% against '
+          + '104.5%) with no 2027 drop. GL and Property 0. Was 0 on every line, from 5%, because the pool should not plan '
+          + 'on a margin from pricing.',
       }],
       ['Reinsurance load', {
         value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
@@ -2805,14 +2884,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly '
           + '+54% on GL and +171% on WC in total at today\'s settings — a different model, not a refinement.',
-      }],
-      ['Yearly adverse development', {
-        value: perLine(YEARLY_ADVERSE_RATE, 3), unit: 'per year, of each open year\'s unpaid reserve',
-        what: 'PLACEHOLDER — NOT YET USED. Will replace the host\'s lifetime development: a yearly rate on each open '
-          + 'accident year\'s unpaid reserve, applied before payments, booked as prior-year development, and not '
-          + 'anticipated by pricing.',
-        basis: 'CHOSEN', notYetUsed: true,
-        note: 'Zero on every line and read by nothing; recorded so the design sits beside the value until it is wired.',
       }],
       ['GL ordinary losses', {
         value: `$${GL_ORDINARY_LOSS_BAND_PLANNED.from.toLocaleString('en-US')}`

@@ -583,6 +583,8 @@ export interface NewLossEngineRecord {
   /** The R rate applied to prior years' outstanding this year, and the dollars it added. */
   rRate: number;
   rDevelopment: number;
+  /** Reserve inflation (RESERVE_INFLATION_PER_YEAR) booked on prior years' outstanding this year, in dollars. */
+  reserveInflation: number;
   /** Exposure that left with a Member Withdrawal at this renewal. */
   withdrawnExposure: number;
   /** Events in force on this line: catalogue id, name, the year it fired, region. */

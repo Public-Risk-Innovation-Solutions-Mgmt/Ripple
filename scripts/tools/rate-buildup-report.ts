@@ -235,8 +235,8 @@ console.log(`  = ADMIN RATE per $100                                  ${r4(w.quo
 // ---------------------------------------------------------------------------
 console.log('\n--- 4. THE VARIABLE PERCENTAGES ---');
 console.log(`  risk control incentive                                 ${pct(w.rc).padStart(10)}`);
-console.log(`  profit & contingency                                   ${pct(PROFIT_AND_CONTINGENCY_OF_RATE).padStart(10)}`);
-console.log(`  = divisor  1 - ${pct(w.rc)} - ${pct(PROFIT_AND_CONTINGENCY_OF_RATE)}`
+console.log(`  profit & contingency                                   ${pct(PROFIT_AND_CONTINGENCY_OF_RATE[LINE]).padStart(10)}`);
+console.log(`  = divisor  1 - ${pct(w.rc)} - ${pct(PROFIT_AND_CONTINGENCY_OF_RATE[LINE])}`
   + `                           ${w.quote.divisor.toFixed(4).padStart(10)}`);
 console.log(`  what the divisor adds to the final rate                ${r4(w.quote.riskControlAndContingencyPer100).padStart(10)} per $100`);
 

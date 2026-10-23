@@ -60,7 +60,7 @@ function gradeBooked(games: ResultSet[][], trend: Trend, tag: string) {
     const priced = x.ratedExposure ?? billed;
     const [tf, te] = trend(r.yearNumber);
     const per100 = tf * ADMIN_FIXED_PER_YEAR[l] / (priced * 10_000) + te * ADMIN_PER_EXPOSURE_PER_100[l];
-    const want = billed * per100 / expenseDivisor(effectiveRiskControlIncentivePct(x.decisions)) * 10_000;
+    const want = billed * per100 / expenseDivisor(effectiveRiskControlIncentivePct(x.decisions), l) * 10_000;
     n++;
     worst = Math.max(worst, Math.abs(x.adminExpense / want - 1));
     if (x.operatingExpense !== x.adminExpense) booked++;
