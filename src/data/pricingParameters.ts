@@ -541,10 +541,12 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
 //   2. THE PRE-GAME'S EXPERIENCE: its ordinary losses run at expected x
 //      (1 + (1 - f) x PRE_GAME_EXPERIENCE_WEIGHT), f = PRE_GAME_EXPERIENCE_BASE /
 //      ratio — a thin scenario inherits a worse record as well as less surplus.
-//   3. THE PRIOR BOARD'S MARGIN: solved, one funding level per line across the
-//      five pre-game years, so that from STARTING_CAPITAL surplus ends exactly at
-//      the opening (priorHistoryEngine's solvePreGameMargin). It replaces the
-//      fixed 14% cushion (PRE_GAME_FUNDING_CUSHION, retired).
+//   3. THE PRIOR BOARD'S MARGIN: one funding level per line across the six
+//      pre-game years, set on the scenario's DESIGNED history so that from
+//      STARTING_CAPITAL that history would end exactly at the opening
+//      (PRE_GAME_MARGIN_ON_DESIGN), floored at zero, with the opening falling
+//      where the simulated history takes it inside the guardrails. It replaces
+//      the fixed 14% cushion (PRE_GAME_FUNDING_CUSHION, retired).
 // ============================================================================
 
 export const SCENARIO_COUNT = 20;
@@ -607,7 +609,10 @@ export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_00
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
- * asset class alike, no draw: a realistic return for a public pool's
+ * asset class alike, no draw — READ BY THE FLAT PRE-GAME: with FLAT_PRE_GAME
+ * off, only by the DESIGNED run the prior board's margin is set on
+ * (PRE_GAME_MARGIN_ON_DESIGN); the played pre-game draws its market. A
+ * realistic return for a public pool's
  * bond-heavy portfolio. Most of the pre-game's growth comes from the prior
  * board's margin, not from this. The played years draw their market as before.
  */
@@ -913,15 +918,130 @@ export const SHOCK_T_BASIS_PER_100: PerLine<number> = {
 export const ROUTINE_LARGE_LOSSES = { enabled: false };
 
 /**
- * A FLAT PRE-GAME — CHOSEN (stable-scenarios build, commit 1). In the five
- * pre-game years only: each asset class earns its EXPECTED return net of fee
- * (no market draw), and ordinary losses come in at EXACTLY their expected
- * cost — no year factor and no unit (member) factor. No shock fires in the
- * pre-game (it never did — see shockLosses.ts). The history a team inherits is
- * then the pool's expected experience, not one seed's luck, and pricing's
- * window opens on it. The played years are untouched.
+ * A FLAT PRE-GAME — OFF: THE PRE-GAME IS SIMULATED (wip/simulated-pregame, a
+ * test build). On, the six pre-game years (2021-2026) ran at exactly expected: each asset
+ * class at PRE_GAME_INVESTMENT_RETURN, and ordinary losses at exactly the
+ * scenario's multiple of expected (preGameLossMultiplier), no year or unit
+ * factor (stable-scenarios build, commit 1).
+ *
+ * OFF, each pre-game year is DRAWN THE WAY A PLAYED YEAR IS: the line's year
+ * factor and each unit's own factor at their settings (BASELINE_CV,
+ * UNIT_ORDINARY_OWN_CV), on the scenario's multiple, and the market drawn as a
+ * played year draws it. No shock fires in the pre-game, as before. Every draw
+ * comes from the game's seed on a stream of its own (`pregame_ordinary_<line>`,
+ * `pregame_ordinary_unit_<line>`, `pregame_invest`), so every team in a room
+ * and any takeover inherit the identical history, and the played years' draws
+ * do not shift. The prior board's margin is set on the scenario's DESIGNED
+ * history (PRE_GAME_MARGIN_ON_DESIGN, below), so the opening falls where the
+ * simulated history takes it.
+ *
+ * ⚠ WHY: a flat pre-game made the inherited history — six years of the
+ * Annual Statement, and the window year 1 is priced on — read as a straight
+ * line, with no year-to-year variation at all. Simulated, it reads like the
+ * years the team then plays. Measured over the twenty scenarios, the pre-game
+ * loss ratio's year-to-year SD rises from 1.2-2.1 points to 5.7-8.1; the
+ * solved margin then ranges about -11% to +15% (below zero on 7-12 scenarios a
+ * line, against 0-1 flat) and year 1's rate change from -6% to +18%.
  */
-export const FLAT_PRE_GAME = { enabled: true };
+export const FLAT_PRE_GAME = { enabled: false };
+
+/**
+ * THE PRIOR BOARD'S MARGIN, SET ON THE DESIGNED HISTORY — ON (wip/simulated-
+ * pregame, a test build). The margin is the one that would land the pre-game
+ * on the scenario's target premium to surplus if it ran as DESIGNED: ordinary
+ * losses at exactly expected x the scenario's experience multiple
+ * (preGameLossMultiplier), at the EXPECTED return of the pre-game's cash-and-
+ * bond portfolio (each class's expected return net of fee, about 3.28% —
+ * see PRE_GAME_MARKET_DRAWS; it was a flat 3%, which ran about $1.5M under the
+ * drawn market and biased every opening up). The simulated pre-game is then
+ * played at that margin,
+ * and the opening surplus falls wherever its history takes it: richer after
+ * good luck, thinner after bad. Off, the margin is solved on the history as
+ * played, so the opening lands exactly on the ratio.
+ *
+ * ⚠ WHY: solved on the played history, the margin absorbs the luck. With the
+ * pre-game simulated (FLAT_PRE_GAME off) the luck is as large as the scenarios'
+ * designed differences, so a run of bad years forced the prior board to
+ * undercharge to land on its opening — the margin fell below zero on 7-12 of
+ * the twenty scenarios a line, and the 2026 rate dropped on 2-6. A board does
+ * not price to hit a surplus it cannot see coming; it prices for the risk it
+ * expects, and its surplus is the outcome.
+ *
+ * Flat (FLAT_PRE_GAME on) the designed and played histories are one run, and
+ * either setting opens exactly on the ratio.
+ *
+ * Outside OPENING_PREMIUM_TO_SURPLUS_BOUNDS, the guardrails move the margin
+ * just enough to land on the nearest bound.
+ *
+ * ⚠ MEASURED, with the pre-game market at ten draws on cash and bonds. Against
+ * the designed run the opening moves with an SD of WC $3.4M, GL $3.3M,
+ * Property $2.5M, and investments are now under a tenth of it (variance share
+ * 10% / 8% / 4%; one equity-bearing draw made them most of it). Opening
+ * premium to surplus WC 1.06-2.22, GL 1.06-2.77, Property 1.06-1.90, all
+ * inside the guardrails (1.0-3.0) with none needing them; rank correlation
+ * with the designed order 0.46 / 0.19 / 0.52. With the margin floored at zero
+ * (PRE_GAME_MARGIN_FLOOR) it runs WC 0.0% to 2.0%, GL 0.0% to 3.7%, Property
+ * 0.7% to 5.1%; 6 WC and 3 GL scenarios sit on the floor, their designed
+ * history needing less than nothing. No year-1 rate drops on WC or GL; three
+ * on Property.
+ */
+export const PRE_GAME_MARGIN_ON_DESIGN = { enabled: true };
+
+/**
+ * THE PRE-GAME'S MARKET — THE AVERAGE OF 10 DRAWS, ON CASH AND BONDS ONLY.
+ *
+ * Each simulated pre-game year's market is the average of this many markets,
+ * each drawn as a played year's is, every one from the game's seed on its own
+ * labelled stream (`pregame_invest_0` to `_9`), so a replay is identical. The
+ * pre-game holds CASH AND BONDS ONLY: the default allocation with equities
+ * removed and the rest scaled up to 100% (about 11% cash, 89% bonds —
+ * investmentEngine.preGameAllocation). The played years keep the default
+ * allocation, equities included, and draw one market each, as before.
+ *
+ * ⚠ WHY: with the prior board's margin set on the designed history, the
+ * opening carries the pre-game's whole luck, and one equity-bearing market a
+ * year was most of it — about $5M of a $6.4M SD in the opening. Averaging ten
+ * draws on a bond-heavy book keeps a year's return realistic while leaving the
+ * loss history, not the stock market, to give each scenario its character.
+ */
+export const PRE_GAME_MARKET_DRAWS = 10;
+
+/**
+ * THE OPENING'S GUARDRAILS — PREMIUM TO SURPLUS BETWEEN 1.0 AND 3.0.
+ *
+ * With the margin set on the designed history (PRE_GAME_MARGIN_ON_DESIGN),
+ * the opening falls where the simulated history takes it. If it would open a
+ * line outside these bounds, that scenario's prior-board margin on that line
+ * is adjusted JUST ENOUGH to land it on the nearest bound — solved on the
+ * played history, so the opening is exactly the bound. Every other scenario
+ * keeps its designed margin and lands where its history takes it.
+ *
+ * ⚠ WHY: a pool opening thinner than 3x premium to surplus is close to
+ * failing before a team has made a decision, and one richer than 1.0x has
+ * well more capital than any of the designed scenarios (1.2-1.7) intends.
+ *
+ * ⚠ THE RICH BOUND WAS 1.2 AND IS 1.0. At 1.2 it sat on the richest designed
+ * scenario's own target, so any good luck there tripped it, and pulling those
+ * openings down took margins below zero (WC scenario 9: +1.1% -> -1.4%). The
+ * margin is now floored at zero (PRE_GAME_MARGIN_FLOOR): where landing on 1.0
+ * would need a negative margin, the board charges at zero and the opening
+ * lands where that history takes it.
+ */
+export const OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.0, max: 3.0 } as const;
+
+/**
+ * THE PRIOR BOARD'S MARGIN IS NEVER BELOW ZERO. Whether set on the designed
+ * history or moved by the guardrails, a margin that would come out negative is
+ * zero: the board charges at expected and the opening lands where that
+ * history takes it.
+ *
+ * ⚠ WHY: a negative margin is the board pricing under its own expected loss.
+ * With the designed history earning the cash-and-bond mix's expected return
+ * (about 3.28%), the designed margin fell below zero on 8 WC and 4 GL
+ * scenarios, and the rich guardrail took some lower still. A board that funds
+ * below expectation is an odd history to hand a team.
+ */
+export const PRE_GAME_MARGIN_FLOOR = 0;
 
 /**
  * CLAIMS ABOVE THE ORDINARY LIMIT, PER $1M OF EXPOSURE A YEAR — SOURCED.
@@ -2107,8 +2227,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Prior board\'s margin', {
         value: 'solved, per scenario and line', unit: 'over expected (CLF 1 + this)',
-        what: 'One funding level across the five pre-game years, per line, solved so surplus ends exactly at the '
-          + 'scenario\'s opening from the starting capital. It may sit below expected.',
+        what: 'One funding level across the six pre-game years, per line, set on the scenario\'s designed history '
+          + '(PRE_GAME_MARGIN_ON_DESIGN) and floored at zero; the opening falls where the simulated history takes it, '
+          + 'inside the guardrails.',
         basis: 'CHOSEN',
         note: 'Replaces the fixed 14% cushion. A team that locks year 1 untouched funds at Expected, so year 1\'s rate '
           + 'on WC and GL may step up or down from last year\'s, depending on the scenario\'s solved margin. No '
@@ -2129,10 +2250,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Pre-game investment return', {
         value: PRE_GAME_INVESTMENT_RETURN, unit: 'a year, on invested assets',
-        what: 'What the pre-game\'s invested assets earn each year, every asset class alike, no draw.',
+        what: 'What the pre-game\'s invested assets earn each year, every asset class alike, no draw — read by the '
+          + 'flat pre-game, and with it off by the designed history the prior board\'s margin is set on.',
         basis: 'CHOSEN',
         note: 'A realistic return for a public pool\'s bond-heavy portfolio; most of the pre-game\'s growth comes '
-          + 'from the prior board\'s margin. The played years draw their market as before.',
+          + 'from the prior board\'s margin. With the flat pre-game off (as now), the pre-game as played draws its '
+          + 'market as a played year does.',
       }],
     ],
   },
@@ -2211,13 +2334,56 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'shocks\' large losses stay scaled off the ordinary cost without the fold. It was ON from Prompt A '
           + 'commit 1, routine large claims every year with the shocks on top.',
       }],
+      ['Prior board\'s margin on the designed history', {
+        value: PRE_GAME_MARGIN_ON_DESIGN.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'On: the pre-game\'s margin is the one that lands the DESIGNED history (flat: exactly expected x the '
+          + 'scenario\'s experience multiple, at the pre-game return) on the scenario\'s premium to surplus; the '
+          + 'simulated pre-game plays at it and the opening falls where its history takes it. Off: the margin is '
+          + 'solved on the history as played, so the opening lands exactly on the ratio.',
+        basis: 'CHOSEN',
+        note: 'On (test build) because, solved on the played history, the margin absorbed the luck: it fell below zero '
+          + 'on 7-12 of the twenty scenarios a line and the 2026 rate dropped on 2-6. A board prices for the risk it '
+          + 'expects; its surplus is the outcome.',
+      }],
+      ['Pre-game market draws', {
+        value: PRE_GAME_MARKET_DRAWS, unit: 'draws averaged, each pre-game year',
+        what: 'Each simulated pre-game year\'s market is the average of this many markets drawn as a played year\'s, '
+          + 'each on its own stream from the game\'s seed, on a cash-and-bond portfolio: the default allocation '
+          + 'without equities, scaled to 100% (about 11% cash, 89% bonds). The played years keep the default '
+          + 'allocation and draw one market each.',
+        basis: 'CHOSEN',
+        note: 'One equity-bearing market a year drove most of the opening\'s scatter once the margin was set on the '
+          + 'designed history; the loss history, not the stock market, is meant to give each scenario its character.',
+      }],
+      ['Prior board\'s margin floor', {
+        value: PRE_GAME_MARGIN_FLOOR, unit: 'margin over expected',
+        what: 'No prior-board margin is below this: a designed history or a guardrail that would need a negative '
+          + 'margin uses zero, and the opening lands where that history takes it.',
+        basis: 'CHOSEN',
+        note: 'A negative margin is the board pricing under its own expected loss; it had fallen below zero on 8 WC '
+          + 'and 4 GL scenarios, and the rich guardrail took some lower still.',
+      }],
+      ['Opening premium-to-surplus guardrails', {
+        value: `${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.min} to ${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.max}`,
+        unit: 'premium to surplus at the opening',
+        what: 'A line whose simulated history would open outside this range has its prior-board margin adjusted just '
+          + 'enough to land on the nearest bound; every other line keeps its designed margin.',
+        basis: 'CHOSEN',
+        note: 'Thinner than 3.0 is a pool near failure before a team decides anything; richer than 1.0 is well more '
+          + 'capital than any designed scenario (1.2-1.7) intends. The rich bound was 1.2, the richest scenario\'s own '
+          + 'target, which good luck tripped; lowering openings to it took margins below zero.',
+      }],
       ['Flat pre-game', {
         value: FLAT_PRE_GAME.enabled ? 'on' : 'off', unit: 'switch',
-        what: 'In the five pre-game years only: expected investment returns net of fee, and ordinary losses at '
-          + 'exactly expected — no year or unit factor. No shocks fire in the pre-game.',
+        what: 'On: the six pre-game years at expected — the pre-game return, and ordinary losses at exactly the '
+          + 'scenario\'s multiple of expected. Off: each pre-game year drawn as a played year is — the year factor, '
+          + 'each unit\'s own factor and the market — on the scenario\'s multiple, from the game\'s seed on '
+          + 'streams of its own. No shocks fire in the pre-game either way.',
         basis: 'CHOSEN',
-        note: 'The history a team inherits is the pool\'s expected experience rather than one seed\'s luck. The '
-          + 'played years are untouched.',
+        note: 'Off (test build) so the inherited history varies like the played years: flat, the pre-game loss '
+          + 'ratio moved 1.2-2.1 points a year; simulated, 5.7-8.1. Every team in a room, and any takeover, gets '
+          + 'the same history, and the played years\' draws do not shift. The prior board\'s margin is still solved '
+          + 'to the opening; it now falls below zero on 7-12 of the twenty scenarios a line.',
       }],
       ['Routine large-loss frequency', {
         value: perLine(ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M, 9), unit: 'claims per $1M of exposure a year',

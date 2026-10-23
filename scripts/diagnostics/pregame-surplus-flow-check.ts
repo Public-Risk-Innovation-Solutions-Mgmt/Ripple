@@ -14,10 +14,12 @@
 //      it ended — the seam into the declared three included.
 //   3. NO RESET AT THE OPENING: the opening surplus, and year 1's start in
 //      every world, is the last pre-game year's year-end.
-//   4. AND THE OPENING IS THE SET ONE: the opening surplus is exactly the
-//      scenario's — the line's year-1 premium at Expected, struck on the
-//      opening (worlds.strikeRates), / the scenario's premium-to-surplus ratio
-//      (stable-scenarios commit 9; it was OPENING_SURPLUS, $35M).
+//   4. ONE MARGIN: every pre-game year funds at the same margin over expected —
+//      the prior board's one level, set on the scenario's designed history
+//      (PRE_GAME_MARGIN_ON_DESIGN; scenarios-check holds where it lands). The
+//      opening is NOT required to land on the scenario's target: it is where
+//      the played history ends (3). Until the designed-margin rule it was
+//      exactly the year-1 premium at Expected / the scenario's ratio.
 //   5. FROM THE STARTING CAPITAL: every line's first pre-game year begins at
 //      STARTING_CAPITAL, paid in — the solved margin, not the start, closes it.
 //
@@ -29,13 +31,11 @@
 // declared years (the reset before 2023 — the seam jumps).
 // ============================================================================
 
-import { gameShocksOn } from '../../src/utils/shockLosses';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { PRE_GAME_DEPTH, runPriorHistory, simulateLineCandidate } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, strikeRates } from '../../src/utils/worlds';
-import { SCENARIO_PREMIUM_TO_SURPLUS, STARTING_CAPITAL } from '../../src/data/pricingParameters';
-import { scenarioOf } from '../../src/utils/scenarios';
+import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
+import { STARTING_CAPITAL } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameSetupSettings, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -58,7 +58,7 @@ interface Chain {
   preGame: Year[];             // the pre-game years (PRE_GAME_DEPTH), oldest first
   year1: Year[];               // year 1 in every world
   opening: number;             // the opening surplus the game holds
-  setOpening: number;          // what the opening rule sets
+  margins: number[];           // the margin each pre-game year funded at
   paidIn: number;              // what the first pre-game year must begin at
   // The start was floored at zero and even so the pre-game ended above the
   // opening — the one case allowed an opening reset (see runLinePreGame).
@@ -90,8 +90,10 @@ function openingMiss(c: Chain): number {
 }
 const isFloored = (preGame: Year[], opening: number) =>
   preGame.length > 0 && preGame[0].begin === 0 && preGame.at(-1)!.end > opening + DOLLAR;
-function setMiss(c: Chain): number {
-  return Math.abs(c.opening - c.setOpening);
+/** Widest spread of the margin across the pre-game years — 0 for one level; a chain with none is a miss. */
+function marginSpread(c: Chain): number {
+  if (c.margins.length === 0 || !c.margins.every(Number.isFinite)) return Infinity;
+  return Math.max(...c.margins) - Math.min(...c.margins);
 }
 
 function grade(chains: Chain[], tag: string) {
@@ -108,8 +110,8 @@ function grade(chains: Chain[], tag: string) {
   check(s.m <= DOLLAR, `${tag}2. no reset between pre-game years`, `worst $${s.m.toFixed(6)} (${s.at})`);
   const o = worst(openingMiss);
   check(o.m <= DOLLAR, `${tag}3. no reset at the opening`, `worst $${o.m.toFixed(6)} (${o.at})`);
-  const z = worst(setMiss);
-  check(z.m <= 1e-6, `${tag}4. the opening is the set opening`, `worst $${z.m.toExponential(2)} (${z.at})`);
+  const z = worst(c => (c.label.endsWith('pool') ? 0 : marginSpread(c)));
+  check(z.m <= 1e-12, `${tag}4. one margin across the pre-game years`, `worst spread ${z.m.toExponential(2)} (${z.at})`);
   const p = worst(c => Math.abs((c.preGame[0]?.begin ?? Infinity) - c.paidIn));
   check(p.m <= 1e-6, `${tag}5. the pre-game begins at the starting capital`, `worst $${p.m.toExponential(2)} (${p.at})`);
 }
@@ -123,9 +125,6 @@ for (const id of SEEDS) {
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   const preGame: ResultSet[] = [...(earlyPreGameHistory ?? []), ...priorHistory];
   let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory });
-  // The scenario's opening, struck as the game strikes year 1.
-  const struck = strikeRates(gs, defaultDecisionSet(1, gameShocksOn(gs.setup, gs.instance)));
-  const ratio = SCENARIO_PREMIUM_TO_SURPLUS[scenarioOf(instance)];
   gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(1)), [])) };
   const worlds = gs.worlds ?? [];
   const lineChains = LINES.map(line => {
@@ -135,7 +134,7 @@ for (const id of SEEDS) {
       preGame: preGame.map(r => yearOf(r.byLine[line])),
       year1: worlds.map(w => yearOf(w.lockedResults[0].byLine[line])),
       opening: ls.surplus,
-      setOpening: struck[line]!.quote.finalRatePer100 * struck[line]!.exposure * 10_000 / ratio,
+      margins: preGame.map(r => r.byLine[line]!.decisions.fundingCushion ?? NaN),
       paidIn: STARTING_CAPITAL[line],
       floored: false,
     };
@@ -153,7 +152,7 @@ for (const id of SEEDS) {
     preGame: preGame.map(r => yearOf(r)),
     year1: worlds.map(w => yearOf(w.lockedResults[0])),
     opening: lineChains.reduce((a, c) => a + c.opening, 0),
-    setOpening: lineChains.reduce((a, c) => a + c.setOpening, 0),
+    margins: [],
     paidIn: lineChains.reduce((a, c) => a + c.paidIn, 0),
     floored: lineChains.some(c => c.floored),
   });
@@ -177,7 +176,7 @@ const controlFails = (name: string, broken: Chain[], expect: string) => {
 controlFails('the opening reset restored (pre-game at expected, not the solved margin)', opensUnsolved, '3.');
 controlFails('the reset before 2023 restored (seam spliced)', seamRestored, '2.');
 controlFails('a dividend paid outside income', chains.map(c => ({ ...c, preGame: c.preGame.map((y, i) => i === 2 ? { ...y, end: y.end - 1e5 } : y) })), '1.');
-controlFails('an opening off the rule', chains.map(c => ({ ...c, setOpening: c.setOpening * 1.01 })), '4.');
+controlFails('a margin changed in one pre-game year', chains.map(c => ({ ...c, margins: c.margins.map((m, i) => (i === 2 ? m + 0.01 : m)) })), '4.');
 controlFails('a pre-game started from the old $15M', chains.map(c => ({ ...c, paidIn: c.paidIn * 3 })), '5.');
 controlFails('a pre-game year missing', chains.map(c => ({ ...c, preGame: c.preGame.slice(1) })), 'all ');
 
@@ -187,4 +186,4 @@ if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — surplus moves only by income, assessments and dividends from the first pre-game year into year 1, which opens at the set opening.');
+console.log('PASS — surplus moves only by income, assessments and dividends from the first pre-game year into year 1, at one margin, with no reset at the opening.');

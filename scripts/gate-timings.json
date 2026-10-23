@@ -88,7 +88,6 @@
     "new-rate-tieout-check": 8,
     "history-begins-2021-check": 6,
     "new-rate-bill-check": 12,
-    "decision-figures-check": 8,
     "development-emergence-check": 20,
     "ordinary-loss-check": 10,
     "shock-loss-check": 40,
@@ -117,6 +116,7 @@
     "scenarios-check": 25,
     "expectation-shock-switch-check": 12,
     "investment-income-credit-check": 45,
-    "admin-trend-check": 30
+    "admin-trend-check": 30,
+    "decision-figures-check": 8
   }
 }
