@@ -11,7 +11,8 @@ import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
 import { optionPrice, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
-import { bookExposureOf, bookRiskOf, type Book } from '../utils/lineHelpers';
+import { bookExposureOf, bookRiskOf, isRoster, shockBaseOf, type Book } from '../utils/lineHelpers';
+import { shockCostFactor } from '../utils/shockCost';
 import { stopQuote } from '../utils/aggregateStop';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
@@ -1141,7 +1142,7 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
 // (REINSURANCE_PRICE, via optionPrice — the price the engine charges), never a
 // description, its expected recovery or how it was priced. While the game's
 // shocks are off only None is offered (reinsuranceOptionIds).
-function OccurrencePackageControls({ line, d, setMany, disabled, shocks }: {
+function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
   line: CoverageLine;
   d: LineDecisionSet;
   setMany: (patch: Partial<LineDecisionSet>) => void;
@@ -1152,6 +1153,8 @@ function OccurrencePackageControls({ line, d, setMany, disabled, shocks }: {
 }) {
   const offered = reinsuranceOptionIds(line, shocks);
   const options = reinsuranceOptionsFor(line).filter(o => offered.includes(o.id));
+  // This year's price: the table's, grown by the line's trend and the book (utils/shockCost).
+  const factor = shockCostFactor(line, yearNumber, isRoster(book) ? undefined : bookExposureOf(book, line, yearNumber), shockBaseOf(book));
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-600 leading-relaxed">
@@ -1172,7 +1175,7 @@ function OccurrencePackageControls({ line, d, setMany, disabled, shocks }: {
               } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <span>{o.id === 'none' ? 'None' : o.id}</span>
-              <span className="text-xs text-gray-600">{`${formatCurrency(optionPrice(line, o.id))}/yr`}</span>
+              <span className="text-xs text-gray-600">{`${formatCurrency(optionPrice(line, o.id, factor))}/yr`}</span>
             </button>
           );
         })}

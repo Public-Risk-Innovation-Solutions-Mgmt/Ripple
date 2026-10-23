@@ -29,7 +29,8 @@ import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './to
 import { newLossEngineRuns, REINSURANCE_LOAD } from '../data/pricingParameters';
 import { retainedSd } from './shockExpectation';
 import { fixedPlacementPrice } from './reinsuranceOptions';
-import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
+import { bookExposureOf, isRoster, rosterOf, shockBaseOf, type Book } from './lineHelpers';
+import { shockCostFactor } from './shockCost';
 import type { Claim, Occurrence } from '../types/simulation';
 
 // --- the waterfall (J14) ----------------------------------------------------
@@ -215,7 +216,11 @@ export function occurrenceProgramCost(
   // ⚠ THE NEW ENGINE CHARGES THE T COVERS' FIXED PRICES (wip/shocks:
   // REINSURANCE_PRICE), whatever the book or year; expected ceded stays the
   // moments' own, for the record.
-  if (newLossEngineRuns()) premium = fixedPlacementPrice(line, placed);
+  // Grown by the line's trend and the book (shockCost.shockCostFactor).
+  if (newLossEngineRuns()) {
+    premium = fixedPlacementPrice(line, placed)
+      * shockCostFactor(line, yearNumber, isRoster(members) ? undefined : bookExposureOf(members, line, yearNumber), shockBaseOf(members));
+  }
   return { premium, expectedCeded };
 }
 

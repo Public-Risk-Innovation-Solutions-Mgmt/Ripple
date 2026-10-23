@@ -137,6 +137,7 @@ import { catCapitalRetained } from './propertyCatastrophe';
 import { occurrenceProgramCost } from './reinsuranceTower';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { AGGREGATE_NOT_OFFERED, fixedPlacementPrice, placementFor } from './reinsuranceOptions';
+import { shockCostFactor } from './shockCost';
 import {
   aggregateRecovery,
   cedeOccurrences,
@@ -782,7 +783,8 @@ export function strikeBookRate(
   const quote = quoteNewRateStack({
     line,
     yearNumber,
-    members: { exposure, ...(bookRisk !== undefined ? { risk: bookRisk } : {}) },
+    members: { exposure, ...(bookRisk !== undefined ? { risk: bookRisk } : {}),
+      ...(lineState.shockCostBaseExposure !== undefined ? { shockBase: lineState.shockCostBaseExposure } : {}) },
     exposure,
     groundUpPurePremiumPer100: newPp.purePremiumPer100,
     clf: selectedClfFor(line, lineDecisions),
@@ -1019,7 +1021,9 @@ export function processLineYear(
   // The book the pre-movement quote prices — the roster, or its exposure.
   // With the book's own risk, which its routine large losses carry (book units commit 5).
   const preMovementBook: Book = bookMode
-    ? { exposure: estimatedExposure, ...(ctx.bookUnits ? { risk: bookOrdinaryRisk(ctx.bookUnits) } : {}) }
+    ? { exposure: estimatedExposure, ...(ctx.bookUnits ? { risk: bookOrdinaryRisk(ctx.bookUnits) } : {}),
+      // The shock cost base (wip/shocks), so the cover's price is grown by the book.
+      ...(lineState.shockCostBaseExposure !== undefined ? { shockBase: lineState.shockCostBaseExposure } : {}) }
     : currentActiveMembers;
 
   // ⚠ THE AGGREGATE'S TERMS, AGREED ONCE FOR THE WHOLE LINE-YEAR, BEFORE ANY
@@ -1636,8 +1640,13 @@ export function processLineYear(
   // REINSURANCE_PRICE), charged as itself — not the struck per-$100 rate times
   // the book after movement, which charged it about 5% over when new business
   // grew the book after the quote.
+  // The price is the one quoted on the book before movement (estimatedQuote:
+  // the struck quote, or this world's own), grown by the shock cost factor —
+  // the figure the Decisions panel shows.
   const reinsuranceCost = newLossEngineRuns() && !AGGREGATE_STOP.enabled
-    ? fixedPlacementPrice(line as TowerLine, placedForCost)
+    ? (newStack !== null ? newStack.reinsuranceCost
+      : fixedPlacementPrice(line as TowerLine, placedForCost)
+        * shockCostFactor(line, yearNumber, estimatedExposure, lineState.shockCostBaseExposure))
     : struck
     ? struck.quote.reinsRatePer100 * activeExposure * 10_000
     : towerQuote.premium + (aggregateQuote?.premium ?? 0);
@@ -1900,6 +1909,8 @@ export function processLineYear(
     const draw = drawLargeLosses(
       line, bookMode ? null : enrolledMembers, yearNumber, calendarYear, instance.seed, lineShocks, activeExposure,
       bookMode ? yearUnits : undefined, shockSeedOf(instance),
+      // T claims grown by the line's trend and the book (wip/shocks; utils/shockCost).
+      shockCostFactor(line, yearNumber, estimatedExposure, lineState.shockCostBaseExposure),
     );
     largeDraw = draw;
     generatedClaims = draw.claims;
@@ -3315,6 +3326,8 @@ export function processLineYear(
     members: enrolledMembersScored,
     // The book, carried forward in base-year exposure. No key with members.
     ...(bookMovement ? { bookExposure: bookMovement.after } : {}),
+    // Year 1's quoted exposure, carried unchanged (wip/shocks; utils/shockCost).
+    ...(lineState.shockCostBaseExposure !== undefined ? { shockCostBaseExposure: lineState.shockCostBaseExposure } : {}),
 
     netUnpaidReserve: endingNetReserve,
     // Carried forward so NEXT year can compare each indication against its own

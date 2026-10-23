@@ -32,6 +32,7 @@
 // reseeds another. Deterministic: same seed -> same per-line redraw path
 // -> same history, every config. The accepted history is real and ties out.
 
+import { exposureFactor } from '../data/exposureTrend';
 import { investmentIncomeCreditFromLine } from './investmentIncomeCredit';
 import type {
   BookLedger,
@@ -743,6 +744,11 @@ export function runPriorHistory(
     // the anchor and the residual walk to the fixed point is left alone.
     lines[line] = {
       ...pg.lineState,
+      // THE SHOCK COST BASE (wip/shocks): the book as year 1 quotes it — the
+      // opening book x year 1's exposure factor — recorded once, so every later
+      // year's T claims and cover prices scale against it (shockCost.ts).
+      ...(pg.lineState.bookExposure !== undefined
+        ? { shockCostBaseExposure: pg.lineState.bookExposure * exposureFactor(line, 1) } : {}),
       members: pg.lineState.members.map(m => {
         const roster = openingByMember.get(m.id);
         if (roster === undefined) return m;

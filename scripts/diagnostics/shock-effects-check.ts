@@ -14,7 +14,7 @@
 // ============================================================================
 
 import {
-  INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REINSURANCE_PRICE,
+  INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REINSURANCE_PRICE, SHOCK_COST_TREND,
   SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS, WORLD_COUNT,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
@@ -32,6 +32,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { drawCatalogueSchedule, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
 import { seedFromInstanceId } from '../../src/seedHash';
+import { exposureFactor } from '../../src/data/exposureTrend';
 import type { ScheduledShock } from '../../src/types/shocks';
 import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineResultSet } from '../../src/types/simulation';
 
@@ -212,17 +213,28 @@ function open(id: string, schedule: ScheduledShock[]): GameState {
   return openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
 }
-/** Play to `years`, returning each year's per-world line results. */
+/** Play to `years`, returning each year's per-world line results (and, on `starts`, the state each year began in). */
+const starts = new WeakMap<object, GameState[]>();
 function play(id: string, schedule: ScheduledShock[], years: number, edit: (d: DecisionSet) => void = () => {}) {
   let gs = open(id, schedule);
   const perYear: LineResultSet[][][] = [];
+  const began: GameState[] = [];
   for (let y = 1; y <= years; y++) {
+    began.push(gs);
     const d = defaultDecisionSet(y); edit(d);
     const played = playWorldsYear(gs, d);
     perYear.push(played.perWorld.map(p => p.lineResults.map(r => r.result)));
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, played, [])), currentYearNumber: y + 1 };
   }
+  starts.set(perYear, began);
   return perYear;
+}
+// THE BRIEF'S GROWTH RULE: table x (1 + trend)^(years since 2027, the game's
+// year 1) x (this year's quoted exposure / year 1's).
+const BRIEF_TREND: Record<CoverageLine, number> = { WC: 0.04, GL: 0.08, Property: 0.05 };
+function briefFactor(gs: GameState, l: CoverageLine, y: number): number {
+  const ls = gs.poolState.lines[l];
+  return Math.pow(1 + BRIEF_TREND[l], y - 1) * ((ls.bookExposure ?? 0) * exposureFactor(l, y)) / (ls.shockCostBaseExposure ?? NaN);
 }
 const lineOf = (rows: LineResultSet[], l: CoverageLine) => rows.find(r => r.line === l)!;
 
@@ -234,14 +246,22 @@ function sectionCoverInGame(): string[] {
   const withCover = play('6', [{ shockId: '#3', yearNumber: 2 }], 2, d => { d.byLine.Property.reinsuranceOption = top; });
   const without = play('6', [{ shockId: '#3', yearNumber: 2 }], 2);
   const sizes = new Set<number>();
+  // Year 2's factor, from the state the year began in, and the T claim's table size.
+  const g = briefFactor(starts.get(withCover)![1], 'Property', 2);
+  const table = resolveShockYear(starts.get(withCover)![1].instance, 'host', 2).byLine.Property.arrivals[0]?.size ?? NaN;
+  if (!(g > 1)) out.push(`year 2's factor ${g} is not a growth`);
   withCover[1].forEach((rows, w) => {
     const r = lineOf(rows, 'Property');
     const t = (r.claims ?? []).filter(c => c.tier === 'shock' && c.accidentYear === 2);
     if (t.length !== 1) { out.push(`world ${w + 1}: ${t.length} T claims on Property`); return; }
     sizes.add(t[0].grossUltimate);
+    if (!near(t[0].grossUltimate, table * g, 1e-9)) out.push(`world ${w + 1}: T claim ${t[0].grossUltimate}, table ${table} x factor ${g.toFixed(4)}`);
     const want = Math.min(Math.max(t[0].grossUltimate - 2 * M, 0), 38 * M);
     if (!near(r.reinsuranceRecovery, want, 1e-9)) out.push(`world ${w + 1}: recovery ${r.reinsuranceRecovery}, layer on the claim ${want}`);
-    if (!near(r.reinsuranceCost, BRIEF_PRICE.Property[3], 1e-6)) out.push(`world ${w + 1}: cost ${r.reinsuranceCost}`);
+    if (!near(r.reinsuranceCost, BRIEF_PRICE.Property[3] * g, 1e-9)) out.push(`world ${w + 1}: cost ${r.reinsuranceCost}, brief x factor ${BRIEF_PRICE.Property[3] * g}`);
+    // Year 1: the table price exactly — the base year.
+    const y1 = lineOf(withCover[0][w], 'Property');
+    if (!near(y1.reinsuranceCost, BRIEF_PRICE.Property[3], 1e-9)) out.push(`world ${w + 1}: year-1 cost ${y1.reinsuranceCost}, the table's ${BRIEF_PRICE.Property[3]}`);
     const n = lineOf(without[1][w], 'Property');
     if (n.reinsuranceRecovery !== 0 || n.reinsuranceCost !== 0) out.push(`world ${w + 1}: None recovered ${n.reinsuranceRecovery} at ${n.reinsuranceCost}`);
     // The rate panel's rule: reinsurance never lowers the pure premium; the
@@ -279,7 +299,9 @@ function sectionRatePanel(): string[] {
         firstIndicationPer100: c.firstIndicationPer100 } as Parameters<typeof ratePieces>[0]).yours;
       if (!near(pieces.purePremium, none.retainedPurePremiumPer100 * clf, 1e-12)) out.push(`${l} ${id} CLF ${clf}: pure premium ${pieces.purePremium} vs None ${none.retainedPurePremiumPer100 * clf}`);
       if (!near(pieces.purePremium, 2.5 * (1 - 0.02) * clf, 1e-12)) out.push(`${l} ${id}: pure premium is not the credited expected x CLF`);
-      if (!near(pieces.reins * exposure * 1e4, optionPrice(l, id), 1e-9)) out.push(`${l} ${id} CLF ${clf}: reinsurance ${pieces.reins * exposure * 1e4}, price ${optionPrice(l, id)}`);
+      // Year 3 with no year-1 base on the book: the table price x the trend for two years.
+      const want = optionPrice(l, id) * Math.pow(1 + BRIEF_TREND[l], 2);
+      if (!near(pieces.reins * exposure * 1e4, want, 1e-9)) out.push(`${l} ${id} CLF ${clf}: reinsurance ${pieces.reins * exposure * 1e4}, price ${want}`);
       const sum = pieces.purePremium + pieces.admin + pieces.rcAndContingency + pieces.reins;
       if (!near(sum, c.finalRatePer100, 1e-12) || Math.abs(pieces.rcAndContingency) > 1e-12) out.push(`${l} ${id}: rows ${sum} vs rate ${c.finalRatePer100}, risk control ${pieces.rcAndContingency}`);
     }
@@ -366,7 +388,8 @@ control('a map row changed', () => {
 check(sectionCoverTerms(), '4a. T covers: offered, priced at the brief, ceding min(max(x - att, 0), limit)');
 control('a price changed', () => { const p = REINSURANCE_PRICE.GL as Record<string, number>; const o = p['$8M xs $2M']; p['$8M xs $2M'] = 331e3; return () => { p['$8M xs $2M'] = o; }; }, sectionCoverTerms);
 control('a tower layer moved', () => { const L = REINSURANCE_TOWER.WC[1]; const o = L.attachment; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = o; L.limit = 8e6; }; }, sectionCoverTerms);
-check(sectionCoverInGame(), '4b. in a game: the T claim\'s recovery, the fixed price, the charge, A never ceded, one claim in every world');
+check(sectionCoverInGame(), '4b. in a game: the T claim\'s recovery, size and price grown by the trend and book, the charge, A never ceded, one claim in every world');
+control('the trend changed', () => { const t = SHOCK_COST_TREND as Record<string, number>; const o = t.Property; t.Property = 0.07; return () => { t.Property = o; }; }, sectionCoverInGame);
 control('the $2M layer moved', () => { const L = REINSURANCE_TOWER.Property[1]; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = 2e6; L.limit = 8e6; }; }, sectionCoverInGame);
 check(sectionRatePanel(), '4c. rate panel: pure premium = expected x CLF whatever the cover, reinsurance = the price, rows add to the rate');
 control('a price changed, on the panel', () => { const p = REINSURANCE_PRICE.WC as Record<string, number>; const o = p['$9M xs $1M']; p['$9M xs $1M'] = 1; return () => { p['$9M xs $1M'] = o; }; }, sectionRatePanel);

@@ -7,6 +7,7 @@
 //   npx tsx scripts/tools/shocks-report.ts --json out.json          the figures, for comparing runs
 //   npx tsx scripts/tools/shocks-report.ts --shocks-off             this build, single-player shocks off
 //   npx tsx scripts/tools/shocks-report.ts --invest                 only section 5: the Investment Loss in dollars
+//   npx tsx scripts/tools/shocks-report.ts --growth [--scenario N]  T ranges and cover prices, 2027 and 2031
 //
 // ⚠ PORTABLE TO THE BASELINE ON PURPOSE. It imports only what multiplayer's head
 // also has, so the same file run in a worktree of that head gives "today's
@@ -80,6 +81,38 @@ if (process.argv.includes('--invest')) {
   for (const sc of [1, 12, 16]) {
     const cells = Object.entries(ALLOCS).map(([k, a]) => `${k} ${fmtM(incomeY3(sc, [{ shockId: '#11', yearNumber: 3 }], a) - incomeY3(sc, [], a))}`);
     console.log(`   scenario ${sc}: ${cells.join(' · ')}`);
+  }
+  process.exit(0);
+}
+
+// ---- THE GROWTH TABLE: each line's T ranges and cover prices in 2027 and 2031 ----
+// One scenario at the defaults; each year's factor read off the state the year
+// begins in, by the same function the engine and the panel use.
+if (process.argv.includes('--growth')) {
+  const sc = Number(arg('scenario') ?? '7');
+  const { shockCostFactor } = await import('../../src/utils/shockCost');
+  const { exposureFactor } = await import('../../src/data/exposureTrend');
+  const settings = { poolName: 'R', gameLength: YEARS, startingYear: 2027, instanceId: String(sc), activeLines: LINES } as GameSetupSettings;
+  const { setup, instance } = openSoloInstance(settings);
+  const { poolState, priorHistory } = runPriorHistory(instance, setup);
+  let gs: GameState = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
+    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
+  const ranges = (P as unknown as { SHOCK_T_CLAIM_RANGE: Record<CoverageLine, Record<string, [number, number]>> }).SHOCK_T_CLAIM_RANGE;
+  const prices = (P as unknown as { REINSURANCE_PRICE: Record<CoverageLine, Record<string, number>> }).REINSURANCE_PRICE;
+  console.log(`GROWTH — scenario ${sc}, default decisions: T ranges and cover prices, each table figure x the year's factor`);
+  for (let y = 1; y <= 5; y++) {
+    if (y === 1 || y === 5) {
+      console.log(`  ${2026 + y} (year ${y})`);
+      for (const l of LINES) {
+        const ls = gs.poolState.lines[l];
+        const f = shockCostFactor(l, y, (ls.bookExposure ?? 0) * exposureFactor(l, y), ls.shockCostBaseExposure);
+        const r = ['Low', 'Mid', 'High'].map(v => `${v} ${fmtM(ranges[l][v][0] * f)}–${fmtM(ranges[l][v][1] * f)}`).join(', ');
+        const p = Object.entries(prices[l]).map(([id, v]) => `${id} $${(v * f / 1e3).toFixed(0)}K`).join(', ');
+        console.log(`    ${l.padEnd(9)}factor ${f.toFixed(4)} · T ${r} · covers ${p}`);
+      }
+    }
+    const played = playWorldsYear(gs, defaultDecisionSet(y, true));
+    gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, played, [])), currentYearNumber: y + 1 };
   }
   process.exit(0);
 }

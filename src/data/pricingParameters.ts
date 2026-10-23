@@ -1212,6 +1212,50 @@ export const SHOCK_T_CLAIM_RANGE: PerLine<Readonly<Record<'Low' | 'Mid' | 'High'
  */
 export const SHOCK_A_YEARS = 1;
 
+/**
+ * T CLAIMS AND COVER PRICES GROW WITH THE LINE'S TREND AND ITS BOOK
+ * (wip/shocks). Each year's figure is the table figure (SHOCK_T_CLAIM_RANGE's
+ * ranges, REINSURANCE_PRICE's prices) x
+ *
+ *     (1 + SHOCK_COST_TREND[line]) ^ (years since SHOCK_COST_BASE_YEAR)
+ *       x (this year's exposure / the base year's exposure)
+ *
+ * The layers themselves (9 xs 1, 8 xs 2, 18 xs 2, 38 xs 2) stay fixed in
+ * dollars, so a growing claim pierces them further and a cover's price rises
+ * with what it covers.
+ *
+ * WHY: the tables are year-1 figures. A claim in year 8 that cost what it
+ * cost in year 1 would shrink against a book whose losses trend at 4-8% a
+ * year and whose exposure grows; and a price that stood still while the
+ * claims it pays grew would get cheaper every year for the same layer.
+ *
+ * THE BASE YEAR IS THE GAME'S YEAR 1 — 2027 in single player, whose first
+ * program year is 2027 — counted as yearNumber - 1, so a hosted room that
+ * starts in another calendar year is not re-based by its start date.
+ * "Exposure" is the book's exposure as quoted for the year (before the year's
+ * underwriting moves it), and the base is that figure in year 1, recorded once
+ * when the pre-game ends (LinePoolState.shockCostBaseExposure), so the
+ * Decisions panel's price and the engine's charge are one figure.
+ */
+export const SHOCK_COST_BASE_YEAR = 2027;
+/** The trend each line's T claims and cover prices take: its severity trend (WC 4%, GL 8%, Property 5%). */
+export const SHOCK_COST_TREND: PerLine<number> = SEVERITY_TREND_PER_YEAR;
+/** And the book's exposure, against year 1's. */
+export const SHOCK_COST_FOLLOWS_EXPOSURE = { enabled: true };
+
+/**
+ * THE ROUTINE FOLD NET OF THE SHOCKS' UPLIFT — OFF (wip/shocks). On, the
+ * routine fold (shockExpectation.routineFoldPer100) was divided by (1 + the
+ * catalogue's expected A uplift), so the uplift gave it back and a line's
+ * expected loss held still. WHY OFF: that division ran whatever the game's
+ * shock switch said, so Property's normal losses moved with the shock
+ * catalogue even in a game whose shocks are off (Y10 surplus $23.2M against
+ * $22.3M when the A sizing changed). Off, the fold is the routine claims'
+ * cost and the shocks land wholly on top of normal losses — no shock
+ * allowance in the normal losses, as there is none in the rate.
+ */
+export const ROUTINE_FOLD_NET_OF_UPLIFT = { enabled: false };
+
 // ============================================================================
 // THE BOOK — loss engine commit 3. Read only with MEMBER_LEVEL off.
 // ============================================================================

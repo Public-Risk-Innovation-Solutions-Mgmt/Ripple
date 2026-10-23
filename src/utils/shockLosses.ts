@@ -370,6 +370,9 @@ export function drawLargeLosses(
   units?: readonly BookUnit[],
   // The GAME's seed (shockSeedOf), for where each T claim lands. Absent: `seed`.
   gameSeed: number = seed,
+  // The year's shock cost factor (utils/shockCost): each T claim is its drawn
+  // table size x this. Absent: 1, the table.
+  tFactor = 1,
 ): LargeLossDraw {
   const out: LargeLossDraw = {
     claims: [], occurrences: [], grossAdded: 0, byMember: new Map(), byUnit: new Map(),
@@ -403,7 +406,7 @@ export function drawLargeLosses(
     const where = weighted(members, line, yearNumber, f.region, units);
     const rec = { gross: 0, claims: 0 };
     if (where.total > 0) {
-      const x = arrival.size;
+      const x = arrival.size * tFactor;
       const m = pickMember(whoRng, where.pool, where.total);
       const pool = poolShare(line, x);
       out.memberShareAboveLimit += x - pool;

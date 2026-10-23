@@ -27,10 +27,11 @@
 
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
-  POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, ROUTINE_LARGE_LOSSES, SHOCK_A_YEARS,
+  POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, ROUTINE_FOLD_NET_OF_UPLIFT, ROUTINE_LARGE_LOSSES, SHOCK_A_YEARS,
   SHOCK_T_CLAIM_RANGE, UP_FRONT_TREND, AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS,
 } from '../data/pricingParameters';
 import { routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
+import { shockTrendFactor } from './shockCost';
 import { ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
 import { DECAY, SHOCK_EVENTS, eventLines, poolShare, trendFactor, type ShockLevel } from './shockLosses';
 import type { CoverageLine } from '../types/simulation';
@@ -144,14 +145,18 @@ interface LargeMoments {
  * waiting for a 0.2% earthquake to happen often enough to measure.
  */
 export function conditionalEventMoments(
-  line: CoverageLine, eventName: string, _exposure: number, _yearNumber: number,
+  line: CoverageLine, eventName: string, _exposure: number, yearNumber: number,
   h: PerLoss, kinks: (deductible: number) => number[],
 ): { c1: number; c2: number; occurrences: number } | null {
   // ONE claim, uniform on the level's range (SHOCK_T_CLAIM_RANGE), no
   // deductible: E[h(U)] and E[h(U)^2], exact on each piece between kinks.
   const row = eventLines(eventName).find(r => r.line === line && r.t !== 'None');
   if (!row) return null;
-  const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][row.t as Exclude<ShockLevel, 'None'>];
+  // ⚠ GROWN BY THE LINE'S TREND ONLY (shockCost.shockTrendFactor), not by the
+  // book: an expectation is asked of a book with no year-1 base in hand. A book
+  // that has grown since year 1 draws its T a little larger than this.
+  const g = shockTrendFactor(line, yearNumber);
+  const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][row.t as Exclude<ShockLevel, 'None'>].map(v => v * g);
   const k = kinks(0);
   return {
     c1: overUniformPw(lo, hi, k, x => h(x, 0)),
@@ -255,7 +260,7 @@ export function routineFoldPer100(line: CoverageLine, yearNumber: number): numbe
   // already carries the $1M – $5M layer, and what lies above $5M arrives only
   // with the shocks. Property, still on its derived cost, keeps the fold.
   if (ROUTINE_LARGE_LOSSES.enabled || POOL_LOSS_COST_LAYERS[line]) return 0;
-  const key = `${line}|${yearNumber}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}|${UP_FRONT_TREND.enabled}`;
+  const key = `${line}|${yearNumber}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}|${UP_FRONT_TREND.enabled}|${ROUTINE_FOLD_NET_OF_UPLIFT.enabled}`;
   const hit = foldMemo.get(key);
   if (hit !== undefined) return hit;
   const basis = routineLargeBasis(line);
@@ -264,7 +269,13 @@ export function routineFoldPer100(line: CoverageLine, yearNumber: number): numbe
   // h the routine expectation in expectedLossBreakdown uses (routineOffset).
   const r = routineExpectation(basis, g, x => poolShare(line, x) - g * basis.limit, poolKinks(line));
   const routinePer100 = routineLargeCount(line, 1) * r.m1 / 10_000;
-  const fold = routinePer100 / (1 + upliftMoments(line, yearNumber).mean);
+  // ⚠ NOT NET OF THE SHOCKS' UPLIFT (wip/shocks; ROUTINE_FOLD_NET_OF_UPLIFT):
+  // the fold is the routine claims' cost, whatever the shock switch says, and
+  // an A lands on top of it. Divided by (1 + the expected uplift) it moved
+  // Property's normal losses with the shock catalogue even in a game whose
+  // shocks are off.
+  const fold = ROUTINE_FOLD_NET_OF_UPLIFT.enabled
+    ? routinePer100 / (1 + upliftMoments(line, yearNumber).mean) : routinePer100;
   foldMemo.set(key, fold);
   return fold;
 }
@@ -442,7 +453,8 @@ function stopCatRetained(line: CoverageLine, exposure: number, yearNumber: numbe
     if (!ev.regional) continue;
     const row = eventLines(ev.name).find(r => r.line === line && r.t !== 'None');
     if (!row) continue;
-    const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][row.t as Exclude<ShockLevel, 'None'>];
+    const g = shockTrendFactor(line, yearNumber);
+    const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][row.t as Exclude<ShockLevel, 'None'>].map(v => v * g);
     weight += ev.probability;
     retained += ev.probability * overUniformPw(lo, hi, kinks, h);
   }

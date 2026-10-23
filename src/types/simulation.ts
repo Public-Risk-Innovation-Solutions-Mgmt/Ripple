@@ -2285,6 +2285,12 @@ export interface LinePoolState {
    * Withdrawal move it; the year's exposure is it x exposureFactor.
    */
   bookExposure?: number;
+  /**
+   * YEAR 1'S QUOTED EXPOSURE (wip/shocks) — the base the shock cost factor
+   * scales T claims and cover prices against (utils/shockCost). Set once when
+   * the pre-game ends; absent on a save from before it, read as no exposure term.
+   */
+  shockCostBaseExposure?: number;
   netUnpaidReserve: number;    // unpaid loss reserve, net of reinsurance
   surplus: number;
   investedAssets: number;      // this line's own segregated investment portfolio (Stage 2.9),

@@ -121,9 +121,13 @@ export function fixedPlacementPrice(line: TowerLine, placed: readonly boolean[])
   return REINSURANCE_TOWER[line].reduce((s, l, i) => s + (placed[i] && l.purchasable ? LAYER_PRICE[line][i] : 0), 0);
 }
 
-/** An option's fixed price a year — what a player sees beside its name. */
-export function optionPrice(line: CoverageLine, optionId: string): number {
-  return optionId === 'none' ? 0 : REINSURANCE_PRICE[line as TowerLine][optionId] ?? fixedPlacementPrice(line as TowerLine, placementFor(line, optionId));
+/**
+ * An option's price for a year — what a player sees beside its name: the table
+ * price x `factor` (shockCost.shockCostFactor; 1 is the table, year 1).
+ */
+export function optionPrice(line: CoverageLine, optionId: string, factor = 1): number {
+  return optionId === 'none' ? 0
+    : factor * (REINSURANCE_PRICE[line as TowerLine][optionId] ?? fixedPlacementPrice(line as TowerLine, placementFor(line, optionId)));
 }
 
 /** The per-claim packages a line offers, in display order (dormant with AGGREGATE_STOP on). */

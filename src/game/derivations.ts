@@ -67,7 +67,9 @@ export function pricingBookFor(gameState: GameState, line: CoverageLine): Book {
   // With the book's own risk, which its tower's price carries (book units commit 5).
   const risk = lineBookRisk(gameState.instance, line, gameState.poolState.bookUnits, gameState.poolState.bookLedger);
   return lineState.bookExposure !== undefined
-    ? { exposure: lineBookExposure(lineState, line, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}) }
+    ? { exposure: lineBookExposure(lineState, line, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}),
+      // The shock cost base (wip/shocks), so the cover's price grows with the book as the engine's does.
+      ...(lineState.shockCostBaseExposure !== undefined ? { shockBase: lineState.shockCostBaseExposure } : {}) }
     : lineState.members.filter(m => m.status === 'active');
 }
 
@@ -381,7 +383,8 @@ export function useGameDerivations(
     // With the book's own risk, which its tower's price carries (book units commit 5).
     const risk = lineBookRisk(gameState.instance, decisionLine, gameState.poolState.bookUnits, gameState.poolState.bookLedger);
     return lineState.bookExposure !== undefined
-      ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}) }
+      ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}),
+        ...(lineState.shockCostBaseExposure !== undefined ? { shockBase: lineState.shockCostBaseExposure } : {}) }
       : decisionLineActiveMembers;
   }, [gameState, decisionLine, decisionLineActiveMembers]);
 
