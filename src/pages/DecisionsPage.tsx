@@ -563,7 +563,10 @@ function NewRatePanel({ n, prior }: {
   n: NonNullable<FundingConsequence['newStack']>;
   prior?: LineResultSet;
 }) {
-  const d2 = (v: number) => `$${v.toFixed(2)}`;
+  // ⚠ NO "$-0.00". The risk control & contingency row is the rate's remainder
+  // (ratePieces), so where the loading is nil it lands a rounding hair either
+  // side of zero; a figure that rounds to zero prints as zero.
+  const d2 = (v: number) => `$${(Math.abs(v) < 0.005 ? 0 : v).toFixed(2)}`;
   // ⚠ THE CHANGE IS THE FIGURE; LAST YEAR'S RATE IS THE FOOTNOTE TO IT. A rate
   // on its own asks the reader to do the subtraction, and the subtraction is
   // the only part they actually want — "my rate went up 7%" is the sentence,
