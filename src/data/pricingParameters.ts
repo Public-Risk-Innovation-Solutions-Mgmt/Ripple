@@ -497,6 +497,22 @@ export const ADMIN_TREND_PER_YEAR = 0.03;
 export const ADMIN_BASE_YEAR = 1;
 
 /**
+ * ACTUAL ADMIN RUNS OVER WHAT WAS PRICED — by a share drawn each year,
+ * uniformly between 0% and 2%, per line, from the game's seed on its own
+ * labelled stream (adminOverrun.ts), the same in every world. Pricing still
+ * charges the expected trended admin; only the admin booked (operatingExpense)
+ * and the year's result carry it.
+ *
+ * ⚠ WHY: a pool's expenses do not come in exactly at budget, and when they miss
+ * they mostly miss high — salaries, systems and claims handling run ahead of the
+ * plan the rate was set on. Charged at expected and booked a little above, admin
+ * is a small, steady drag on the underwriting result that the rate never
+ * recovers, beside the profit and contingency provision that is there to absorb
+ * such things. 0% to 2% keeps it a drag and not a shock: a mean 1% of admin.
+ */
+export const ADMIN_OVERRUN_RANGE = { min: 0, max: 0.02 } as const;
+
+/**
  * PROFIT AND CONTINGENCY — 5% OF THE RATE, ON EVERY LINE, in the expense
  * provision. THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS
  * RATIO, where the permissible loss ratio is 100% less the total expense ratio

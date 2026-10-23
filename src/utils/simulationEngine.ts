@@ -2,6 +2,7 @@
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
 import { alaeRatioFor } from './alaeRatio';
+import { adminOverrunFor } from './adminOverrun';
 import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation, BookLedger } from '../types/simulation';
 import type { ShockFiring, ShockRecord } from '../types/shocks';
 
@@ -1733,7 +1734,10 @@ export function processLineYear(
 
   // Legacy names remain populated for compatibility with older screens and exports.
   const grossPremium = totalMemberCharge;
-  const operatingExpense = adminExpense;
+  // ⚠ THE ADMIN BOOKED RUNS OVER THE ADMIN PRICED by the year's drawn share
+  // (ADMIN_OVERRUN_RANGE, adminOverrun.ts): adminExpense stays what the rate
+  // charged; operatingExpense — what the result books — carries the overrun.
+  const operatingExpense = adminExpense * (1 + adminOverrunFor(marketSeedOf(instance), yearNumber, line));
   // ⚠ THE PROGRAM'S COST JOINS THE EXISTING RISK-CONTROL EXPENSE LINE RATHER
   // THAN OPENING A NEW ONE. riskControlInvestment already flows into BOTH
   // underwritingIncome and newCash, and is already reported, exported and
@@ -2859,8 +2863,10 @@ export function processLineYear(
   // declining LOWERS the expense ratio, which is the true statement: the pool
   // has stopped paying a reinsurer. What it has taken on instead shows in the
   // surplus path and in the two-part loss ratio, not here.
+  // ⚠ THE ADMIN BOOKED (operatingExpense), with the year's overrun
+  // (ADMIN_OVERRUN_RANGE) — the expected ratio keeps the admin priced.
   const actualExpenseRatio =
-    (adminExpense + reinsuranceCost) / Math.max(totalMemberCharge, 1);
+    (operatingExpense + reinsuranceCost) / Math.max(totalMemberCharge, 1);
   // LAE is its own ratio, beside the loss ratio and inside the combined one.
   const actualLaeRatio = lae.laeIncurred / Math.max(totalMemberCharge, 1);
   const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
@@ -4257,7 +4263,8 @@ export function aggregateLineResults(
     netIncurredLossSum / Math.max(poolPremiumAndAdminExpenseSum, 1);
   const actualLossRatioRetainedPremium =
     netIncurredLossSum / Math.max(addDollars('poolPremium'), 1);
-  const actualExpenseRatio = (adminExpenseSum + reinsuranceCostSum) / Math.max(totalMemberChargeSum, 1);
+  // The admin booked, with each line's overrun; expected keeps the admin priced.
+  const actualExpenseRatio = (addDollars('operatingExpense') + reinsuranceCostSum) / Math.max(totalMemberChargeSum, 1);
   const actualLaeRatio = addDollars('laeIncurred') / Math.max(totalMemberChargeSum, 1);
   const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
 

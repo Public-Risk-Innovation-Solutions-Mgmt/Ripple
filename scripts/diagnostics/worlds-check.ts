@@ -146,7 +146,8 @@ function dollarsAreMeans(avg: { [k: string]: unknown }, worlds: { [k: string]: u
 
 const RATIO_PARTS: Array<[string, (r: LineResultSet | ResultSet) => number]> = [
   ['actualLossRatio', r => r.netIncurredLoss / Math.max(r.totalMemberCharge, 1)],
-  ['actualExpenseRatio', r => (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1)],
+  // The admin BOOKED, with its overrun (ADMIN_OVERRUN_RANGE); it was adminExpense while booked = priced.
+  ['actualExpenseRatio', r => (r.operatingExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1)],
   ['actualLossRatioPricingBasis', r => r.netIncurredLoss / Math.max(r.poolPremiumAndAdminExpense, 1)],
   ['poolLayerLossRatio', r => r.poolLayerLoss / Math.max(r.poolPremiumAndAdminExpense, 1)],
 ];

@@ -63,7 +63,7 @@ function check(ok: boolean, label: string, detail = '') {
 
 interface Row {
   poolPremium: number; adminExpense: number; expectedLoss: number; reinsuranceCost: number;
-  totalMemberCharge: number; netIncurredLoss: number; laeIncurred: number; underwritingIncome: number;
+  totalMemberCharge: number; netIncurredLoss: number; laeIncurred: number; underwritingIncome: number; operatingExpense: number;
   activeExposure: number; purePremiumPer100: number; ratePer100: number; clf: number;
   netPurePremiumPer100: number; rcIncentive: number; year: number;
 }
@@ -99,7 +99,7 @@ for (let g = 0; g < GAMES; g++) {
       rows[line].push({
         poolPremium: r.poolPremium, adminExpense: r.adminExpense, expectedLoss: r.expectedLoss,
         reinsuranceCost: r.reinsuranceCost, totalMemberCharge: r.totalMemberCharge,
-        netIncurredLoss: r.netIncurredLoss, laeIncurred: r.laeIncurred, underwritingIncome: r.underwritingIncome,
+        netIncurredLoss: r.netIncurredLoss, laeIncurred: r.laeIncurred, underwritingIncome: r.underwritingIncome, operatingExpense: r.operatingExpense,
         activeExposure: r.activeExposure, purePremiumPer100: r.purePremiumPer100,
         ratePer100: r.ratePer100, clf: r.selectedFundingCLF,
         netPurePremiumPer100: r.netPurePremiumPer100,
@@ -238,9 +238,17 @@ console.log('\n--- 3. THE UNDERWRITING IDENTITY STILL HOLDS EXACTLY ---');
 for (const l of LINES) {
   // ⚠ LESS LAE SINCE IT IS BOOKED: the pool premium funds the loss AND its
   // adjustment expense (the pure premium carries both), and both are spent.
-  const diff = rows[l].map(r => Math.abs(r.underwritingIncome - (r.poolPremium - r.netIncurredLoss - r.laeIncurred)));
+  // ⚠ AND LESS THE ADMIN OVERRUN (ADMIN_OVERRUN_RANGE): admin is charged at the
+  // admin priced (adminExpense) and booked above it (operatingExpense), so the
+  // two no longer cancel — the difference is the overrun. RESTATED: the
+  // identity held without it until actual admin was made to run over.
+  const diff = rows[l].map(r => Math.abs(r.underwritingIncome
+    - (r.poolPremium - r.netIncurredLoss - r.laeIncurred - (r.operatingExpense - r.adminExpense))));
   check(Math.max(...diff) < 1e-6,
-    `${l}: underwritingIncome == poolPremium - netIncurredLoss - laeIncurred`, `max abs diff $${Math.max(...diff).toExponential(2)}`);
+    `${l}: underwritingIncome == poolPremium - netIncurredLoss - laeIncurred - the admin overrun (booked - priced)`, `max abs diff $${Math.max(...diff).toExponential(2)}`);
+  // CONTROL — must FAIL: the identity without the overrun.
+  const without = rows[l].map(r => Math.abs(r.underwritingIncome - (r.poolPremium - r.netIncurredLoss - r.laeIncurred)));
+  check(Math.max(...without) > 1, `control: ${l}: the identity without the overrun is caught`, `max abs diff $${Math.max(...without).toExponential(2)}`);
 }
 
 console.log('\n--- 4. E[UW INCOME] AT CLF 1.000 IS NOW ~ZERO, NOT E[CEDED] ---');
