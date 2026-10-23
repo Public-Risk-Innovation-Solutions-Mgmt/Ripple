@@ -65,7 +65,8 @@ import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState } from './lineHelpers';
 import { lossExpenseReserve } from './lossExpense';
 import {
-  FLAT_PRE_GAME, MEMBER_LEVEL, OPENING_PREMIUM_TO_SURPLUS_BOUNDS, PRE_GAME_MARGIN_ON_DESIGN, PRIOR_DEVELOPMENT_DEFAULTS,
+  FLAT_PRE_GAME, MEMBER_LEVEL, OPENING_PREMIUM_TO_SURPLUS_BOUNDS, PRE_GAME_MARGIN_FLOOR, PRE_GAME_MARGIN_ON_DESIGN,
+  PRIOR_DEVELOPMENT_DEFAULTS,
   PRIOR_HISTORY_YEARS, SCENARIO_PREMIUM_TO_SURPLUS, STARTING_CAPITAL,
 } from '../data/pricingParameters';
 import { preGameAllocation } from './investmentEngine';
@@ -414,21 +415,33 @@ function runLinePreGame(
   if (!PRE_GAME_MARGIN_ON_DESIGN.enabled || FLAT_PRE_GAME.enabled) {
     return solvePreGameMargin(run(FLAT_PRE_GAME.enabled ? 'flat' : 'simulated'), line).opened;
   }
-  const margin = solvePreGameMargin(run('designed'), line).start;
-  const c = simulateLineCandidate(instance, setup, line, 0, STARTING_CAPITAL[line], margin, 'simulated');
-  const played = finalizeLine(c, line, 0, developmentPct, instance, ratio, margin, shocks, () => c.poolState.lines[line].surplus);
+  // ⚠ NEVER BELOW ZERO (PRE_GAME_MARGIN_FLOOR): a designed history that would
+  // need the board to charge under expected is charged at expected.
+  const playAt = (margin: number) => {
+    const c = simulateLineCandidate(instance, setup, line, 0, STARTING_CAPITAL[line], margin, 'simulated');
+    return finalizeLine(c, line, 0, developmentPct, instance, ratio, margin, shocks, () => c.poolState.lines[line].surplus);
+  };
+  const designed = Math.max(PRE_GAME_MARGIN_FLOOR, solvePreGameMargin(run('designed'), line).start);
+  const played = playAt(designed);
   // ⚠ THE GUARDRAILS (OPENING_PREMIUM_TO_SURPLUS_BOUNDS). An opening outside
   // them has its margin re-solved on the played history to land JUST on the
-  // nearest bound; inside them, the designed margin stands. The year-1 premium
-  // reads the ledger and the book, not funding, so the bound is the same
-  // target at every margin.
+  // nearest bound; inside them, the designed margin stands. The secant reads
+  // the opening's own year-1 premium at every trial margin.
   const premium = openingYear1Premium(instance, line, played.lineState,
     played.lineResults[played.lineResults.length - 1], shocks);
   const ps = premium / played.lineState.surplus;
   const { min, max } = OPENING_PREMIUM_TO_SURPLUS_BOUNDS;
-  // A surplus at or below zero is thinner than any bound.
+  // A surplus at or below zero is thinner than any bound; raising the margin
+  // to the thin bound never takes it below the floor.
   if (!(played.lineState.surplus > 0) || ps > max) return solvePreGameMargin(run('simulated', max), line).opened;
-  if (ps < min) return solvePreGameMargin(run('simulated', min), line).opened;
+  if (ps < min) {
+    // Too rich: lower the margin to land on the rich bound — but not below the
+    // floor. Where the bound needs a negative margin, the board charges at the
+    // floor and the opening lands where that history takes it.
+    const guarded = solvePreGameMargin(run('simulated', min), line);
+    return guarded.start >= PRE_GAME_MARGIN_FLOOR ? guarded.opened
+      : designed === PRE_GAME_MARGIN_FLOOR ? played : playAt(PRE_GAME_MARGIN_FLOOR);
+  }
   return played;
 }
 
