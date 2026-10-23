@@ -36,7 +36,13 @@ export function getMemberExposure(member: Member, line: CoverageLine, yearNumber
 // A book is a roster, or the line's exposure — with, since book units, the
 // book's size-weighted true risk (bookOrdinaryRisk), which its routine large
 // losses' count and their price carry. Absent reads as 1, the market's.
-export type Book = readonly Member[] | { readonly exposure: number; readonly risk?: number };
+export type Book = readonly Member[] | {
+  readonly exposure: number; readonly risk?: number;
+  /** Year 1's quoted exposure, for the shock cost factor (utils/shockCost) — absent: no exposure term. */
+  readonly shockBase?: number;
+};
+/** The shock cost base a book carries (shockCost.shockCostFactor), if any. */
+export const shockBaseOf = (book: Book): number | undefined => (Array.isArray(book) ? undefined : (book as { shockBase?: number }).shockBase);
 
 /** A book's size-weighted true risk; 1 for a roster or a book that does not say. */
 export const bookRiskOf = (book: Book): number => (Array.isArray(book) ? 1 : (book as { risk?: number }).risk ?? 1);

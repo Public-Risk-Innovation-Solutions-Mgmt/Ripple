@@ -69,6 +69,9 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
     // A loan prompt would block; resolve it by declining if it appears.
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+    // wip/shocks: a shock can bring a loan offer, which posts only on Confirm & Continue.
+    const confirmLoan = page.getByRole('button', { name: /Confirm & Continue/ }).first();
+    if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
   }
   await walk('year3');
 

@@ -50,7 +50,7 @@ import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCo
 import type { TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine } from '../types/simulation';
 import { bookRiskOf, type Book } from './lineHelpers';
-import { AGGREGATE_STOP, RISK_CONTROL, STOP_RECOVERY_OFF_CLAIMS_COST } from '../data/pricingParameters';
+import { AGGREGATE_STOP, newLossEngineRuns, RISK_CONTROL, STOP_RECOVERY_OFF_CLAIMS_COST } from '../data/pricingParameters';
 import { stopQuote } from './aggregateStop';
 
 export interface LineRateInputs {
@@ -210,8 +210,16 @@ export function expectedCededPer100For(
 
   const expectedCededDollars =
     (towerQuote?.expectedCeded ?? 0) + (aggregateQuote?.expectedCeded ?? 0);
-  const expectedCededPer100 =
-    expectedCededDollars / Math.max(exposure * 10_000, 1);
+  // ⚠ BUYING REINSURANCE NEVER LOWERS THE PURE PREMIUM (wip/shocks, the T
+  // covers): the pure premium is the normal expected losses x the CLF, and the
+  // cover's fixed price is added beside it as reinsurance. The T claims it
+  // recovers on are shocks, out of the experience the pure premium is struck
+  // from (SHOCKS_OUT_OF_EXPERIENCE), so netting the expected recovery off it
+  // would take off a recovery on losses it never charged. Nothing is netted on
+  // the new engine; the recovery stays on towerQuote for its readers.
+  const expectedCededPer100 = newLossEngineRuns()
+    ? 0
+    : expectedCededDollars / Math.max(exposure * 10_000, 1);
 
   return { towerQuote, aggregateQuote, expectedCededPer100 };
 }

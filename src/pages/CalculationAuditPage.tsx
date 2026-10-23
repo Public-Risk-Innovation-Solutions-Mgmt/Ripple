@@ -13,7 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { CoverageLine, GameInstance, LineResultSet, LineView, ResultSet } from '../types/simulation';
-import { resolveShockYear, type ShockTiming } from '../utils/shockLosses';
+import { applyMarketShock, resolveShockYear, type ShockTiming } from '../utils/shockLosses';
 import { worldInstance } from '../utils/worlds';
 import { reconstructSweep } from '../utils/worldAudit';
 import { asLineRow } from '../utils/lineHelpers';
@@ -1100,10 +1100,9 @@ export function computeAuditChecks(
       const seed = i === 0 ? instanceSeed : worldInstance({ seed: instanceSeed } as GameInstance, i).seed;
       const effectiveSeed = attempt === 0 ? seed : (seed + attempt * 997) >>> 0;
       const drawn = simulateMarketReturns(deriveSubRng(effectiveSeed, r.yearNumber, 'invest'));
-      const shock = market && isLiveYear && newLossEngineRuns()
-        ? resolveShockYear(worldInstance(market.instance, i), market.timing, r.yearNumber).equityShock
-        : 0;
-      return shock !== 0 ? { ...drawn, equities: drawn.equities + shock } : drawn;
+      return market && isLiveYear && newLossEngineRuns()
+        ? applyMarketShock(drawn, resolveShockYear(worldInstance(market.instance, i), market.timing, r.yearNumber).marketShock)
+        : drawn;
     };
     // ⚠ A MULTI-WORLD YEAR IS THE AVERAGE OF EACH WORLD'S OWN MARKET on its own
     // assets (loss engine commit 4b) — no single draw produced the averaged row.

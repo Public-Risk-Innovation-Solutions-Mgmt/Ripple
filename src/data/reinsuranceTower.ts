@@ -129,7 +129,7 @@
 // consumption tracked per layer) and would change every price here.
 // ============================================================================
 
-import { PROPERTY_LOSS_MODEL } from './defaultAssumptions';
+
 
 export type TowerLine = 'WC' | 'GL' | 'Property';
 
@@ -217,102 +217,20 @@ function layer(attachment: number, limit: number): TowerLayer {
   return { name: `$${limit / 1e6}M xs $${attachment / 1e6}M`, attachment, limit, purchasable: true };
 }
 
+// ⚠ wip/shocks TEST BUILD: EVERY LINE IS CUT AT $1M, $2M, $10M, $20M AND $40M —
+// the edges of the four T covers (pricingParameters REINSURANCE_OPTIONS: 9 xs 1,
+// 8 xs 2, 18 xs 2, 38 xs 2), so each cover is whole layers. The cuts the earlier
+// packages needed, and the notes on them, are in this file's history.
+const T_COVER_TOWER = (): TowerLayer[] => [layer(1e6, 1e6), layer(2e6, 8e6), layer(10e6, 10e6), layer(20e6, 20e6)];
 export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
-  // ⚠ RE-DERIVED FOR THE WC SEVERITY REBUILD, THEN RESTRUCTURED TO THREE LAYERS
-  // (the retired scripts/diagnostics/wc-tower-rederive.ts; its Monte Carlo
-  // machinery now lives in tower-runtime-check.ts, which validates the runtime
-  // pricing that replaced the constants that script used to emit).
-  //
-  // THE TOP TWO LAYERS ARE MERGED. `$15M xs $10M` and `$25M xs $25M` are now one
-  // `$40M xs $10M` band covering the same $10M-$50M. Two reasons, and the second
-  // is the actuarial one:
-  //
-  //   1. FOUR BUYABLE LAYERS IS ONE DECISION TOO MANY. WC and GL now carry the
-  //      same three-layer shape.
-  //   2. $25M xs $25M FIRED ONCE PER 27 YEARS, which is too thin to be a real
-  //      purchase decision — a player would never see it pay inside a game.
-  //      Merged, the band fires ONCE EVERY 4.7 YEARS.
-  //
-  // THE LOADING MULTIPLE RISES MONOTONICALLY WITH ATTACHMENT and it EMERGES from
-  // SD/E rather than being chosen — that is the whole point of the SD risk load.
-  // It survived the restructure (a merged $10M-$50M band is more remote than the
-  // $15M xs $10M it absorbs, so its SD/E and its multiple both rise) and it
-  // survives the move to runtime pricing. Asserted in reinsurance-tower-check.
-  //
-  // ⚠ THE MULTIPLES ARE NO LONGER FIXED NUMBERS, because SD/E is no longer a
-  // fixed number: a small book is more volatile per dollar of expected ceded loss
-  // and now correctly pays a higher multiple for the same layer. At the full
-  // market in year 1 they are 1.33x / 1.87x / 3.02x on WC and 1.27x / 1.51x /
-  // 1.82x on GL; on a $82M GL book the working layer's rises to ~1.98x.
-  WC: [
-    layer(1e6, 4e6),
-    layer(5e6, 5e6),
-    // THE MERGED BAND, $10M-$50M. Absorbs the retired `$15M xs $10M` and
-    // `$25M xs $25M`. Pierced 0.22/yr — once every 4.6 years, against the
-    // 1-per-26-years of the `$25M xs $25M` layer it swallowed, which is what
-    // makes it a real purchase decision rather than a line item.
-    //
-    // Above it the pool retains, unreinsurable but now BOUNDED: one occurrence
-    // over $50M per ~109 years, and the WC ceiling ends the band. It read
-    // "UNBOUNDED (WC has no severity cap)" until that cap was imposed.
-    //
-    // ⚠ THE BAND WIDTH IS YEAR-DEPENDENT AND IT GROWS. This said "at most $35M
-    // per occurrence", which is the YEAR-1 figure only. wcSeverityCap trends
-    // while these attachment points do not, so the retained band above the
-    // tower runs $85M - $50M = $35M in year 1 and $117.6M - $50M = $67.6M by
-    // year 10. That is not a new exposure the trending ceiling created — it is
-    // the tower ERODING in real terms, which is what a nominal contract does
-    // against an inflating distribution. The fixed ceiling was concealing half
-    // of it by shrinking the modelled tail at the same rate the tower lost
-    // ground. Do not restate this as a single number.
-    layer(10e6, 5e6),   // 4a: $5M xs $10M — the packages end at $15M
-  ],
-  // GL KEEPS THREE LAYERS — re-confirmed at the runtime-pricing change against
-  // the rebuilt severity model. The merge test WC failed is pierce frequency, and
-  // GL passes it comfortably: its top band is pierced 0.833/yr (once every 1.2
-  // years) against the 1-per-27-years that got WC's top layer merged away. All
-  // three GL bands are working layers.
-  GL: [
-    layer(1e6, 4e6),
-    layer(5e6, 5e6),
-    layer(10e6, 5e6),   // 4a: $5M xs $10M — the packages end at $15M
-    // No fourth layer. Market capacity — see the header. The pool retains above
-    // $25M and it is DISPLAYED as retainedAboveTower.
-    //
-    // ⚠ THE REASON NARROWED WHEN THE SEVERITY CAP LANDED, and the header above
-    // still needs reading with that in mind. It used to be capacity AND
-    // pricing-honesty: an unbounded band cannot be priced with a straight face.
-    // The GL ceiling bounds this band at $75M per occurrence IN YEAR 1, so it is
-    // now priceable — the remaining objection is capacity alone, which has not
-    // changed. Adding the layer would still assert a market exists to write it.
-    // As with WC, the band widens after year 1 because glSeverityCap trends and
-    // the $25M tower top does not: $164.7M - $25M = $139.7M by year 10.
-  ],
-  // ONE LAYER. See the header note above for why this is the whole structure
-  // rather than a starting point: occurrence == claim for the fitted
-  // (attritional) mixture, the retention is $5M, and the layer runs to the
-  // model's own severity cap because nothing the generator produces exceeds
-  // it. BOTH BOUNDS READ FROM PROPERTY_LOSS_MODEL rather than restating the
-  // numbers — perRiskRetention and severityCap are the single source for
-  // both this tower and propertyAggregate.ts's Panjer pricing.
-  //
-  // ⚠ ONE LAYER AGAIN, NOW RUNNING TO $1B RATHER THAN TO THE SEVERITY CAP — see
-  // the header. It answers every occurrence, attritional or catastrophe.
-  Property: [
-    // 4a: cut at $25M, the edge of the $20M xs $5M and $25M xs $25M packages.
-    layer(PROPERTY_LOSS_MODEL.perRiskRetention, 25e6 - PROPERTY_LOSS_MODEL.perRiskRetention),
-    layer(25e6, PROPERTY_TOWER_TOP - 25e6),
-  ],
+  WC: T_COVER_TOWER(),
+  GL: T_COVER_TOWER(),
+  Property: T_COVER_TOWER(),
 };
 
-// Top of each tower. Above this the pool retains, unlimited.
-//
-// PROPERTY'S TOP IS $1B — see PROPERTY_TOWER_TOP. It USED to be
-// PROPERTY_LOSS_MODEL.severityCap ($75M), when occurrence == claim made the two
-// the same number. An attritional claim still cannot exceed $75M, so
-// above-tower dollars come only from a single occurrence larger than $1B.
-// The top of the largest package on each line (loss engine commit 4a).
-export const TOWER_TOP: Record<TowerLine, number> = { WC: 15e6, GL: 15e6, Property: PROPERTY_TOWER_TOP };
+// Top of each tower — the top of the widest T cover. Above it the pool retains,
+// unlimited. (PROPERTY_TOWER_TOP stays the old engine's, read by propertyCatastrophe.)
+export const TOWER_TOP: Record<TowerLine, number> = { WC: 40e6, GL: 40e6, Property: 40e6 };
 
 // ============================================================================
 // THE RISK LOAD — one market parameter, not four chosen multiples.

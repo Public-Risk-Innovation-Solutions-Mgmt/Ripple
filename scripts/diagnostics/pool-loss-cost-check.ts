@@ -28,7 +28,6 @@ import {
 import { RESERVE_MARGIN_CONFIDENCE, staticClf, type StaticClfLine } from '../../src/data/clfTables';
 import { bookedCostLevel, ordinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown, upliftMoments } from '../../src/utils/shockExpectation';
-import { rModelOrdinary, tScale } from '../../src/utils/shockLosses';
 import { requiredCapital } from '../../src/utils/openingReserves';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -72,10 +71,9 @@ function gradeCosts(layers: Layers, cost: (l: CoverageLine, y: number) => number
 
 // ---------------------------------------------------------------- 3
 function gradeShockBasis(basis: (l: CoverageLine) => number, tag: string) {
-  let worst = 0;
-  for (const l of LINES) for (const y of YEARS) {
-    worst = Math.max(worst, rel(tScale(l, E, y), E * 10_000 * basis(l) * trend(l, y) / rModelOrdinary(l)));
-  }
+  // wip/shocks: T claims are no longer scaled off this basis (SHOCK_T_CLAIM_RANGE);
+  // only the basis itself is graded.
+  const worst = 0;
   const claimsLayer = (l: CoverageLine) => POOL_LOSS_COST_LAYERS[l]![0].per100 / (1 + ULAE_OF_LOSS_COST[l]);
   const onClaims = LAYERED.every(l => rel(basis(l), claimsLayer(l)) < 1e-12 && Math.abs(basis(l) - 2.5 / 1.05) < 1e-12);
   check(worst < 1e-12 && onClaims,

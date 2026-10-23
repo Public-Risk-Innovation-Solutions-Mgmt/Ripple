@@ -32,6 +32,9 @@
 // The pages about pricing — Decisions, Decision History, the Rate Indication
 // and the Model tab's rate — are not read: they name the program year priced.
 // At the end it prints the table of what each screen showed at each point.
+//
+// T claims (wip/shocks): a third game, solo with shocks on, certain to draw T
+// claims — see tClaimsGame.
 // ============================================================================
 const fs = require('node:fs');
 const XLSX = require('xlsx');
@@ -170,6 +173,116 @@ async function solo(browser) {
   await ctx.close();
 }
 
+// ============================================================================
+// T CLAIMS (wip/shocks) — a shocks-on solo game CERTAIN to have them. Scenario
+// 16 over five years draws (single player, catalogue odds) a Wildfire in year
+// 2 — ONE Property T claim — and a Social Inflation in year 5 — one GL T
+// claim; the end workbook must hold exactly those, so a changed draw fails here
+// by name rather than passing on an empty workbook. At every point the Claims
+// workbook's T claims (its rows with an Event) are exactly the game's T claims
+// from known years — every one, none from after the latest known year — and at
+// game end the final year's appears. THE CONTROL: after the second lock year 2
+// is played and is the year in progress; its claim exists (the end workbook
+// has it) but must be absent, and must appear after the third.
+// ============================================================================
+const T_SCENARIO = '16', T_LENGTH = 5;
+const T_EXPECTED = [{ sheet: /Property/, ay: 2 }, { sheet: /General Liability|GL/, ay: 5 }];
+
+async function tClaimsGame(browser) {
+  const ctx = await browser.newContext({ baseURL: BASE, acceptDownloads: true });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const tab = async name => { await page.getByRole('button', { name, exact: true }).first().click(); await page.waitForTimeout(600); };
+  await page.goto('/solo');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
+  await page.locator('[data-testid="scenario"]').selectOption(T_SCENARIO);
+  // All three lines: single player opens on WC alone, which no T claim here reaches.
+  for (const label of ["Workers' Compensation", 'General Liability', 'Property']) {
+    const btn = page.locator('button', { hasText: label }).first();
+    if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
+  }
+  await page.locator('input[type="range"]').first().fill(String(T_LENGTH));
+  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
+
+  /** The Claims workbook's T claims: its rows whose Event names an event. */
+  async function tClaims() {
+    await tab('Result Spreadsheet');
+    const btn = page.getByRole('button', { name: 'Download Claims (.xlsx)', exact: false }).first();
+    if (await btn.count() === 0) return null;
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }).catch(() => null), btn.click()]);
+    const path = dl ? await dl.path() : null;
+    if (!path || !fs.existsSync(path)) return null;
+    if (process.env.KNOWN_YEARS_KEEP) fs.copyFileSync(path, process.env.KNOWN_YEARS_KEEP);
+    const wb = XLSX.readFile(path);
+    const out = [];
+    for (const sheet of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1 });
+      const h = rows.findIndex(r => Array.isArray(r) && r.includes('Accident Year') && r.includes('Event'));
+      if (h < 0) continue;
+      const [id, ay, ev] = ['Claim ID', 'Accident Year', 'Event'].map(c => rows[h].indexOf(c));
+      for (const r of rows.slice(h + 1)) {
+        if (typeof r[ay] === 'number' && r[ev] !== undefined && String(r[ev]).trim() !== '') {
+          out.push({ sheet, id: String(r[id]), ay: r[ay], event: String(r[ev]) });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Three lines can need a loan at once: decline every offer, then confirm —
+  // through the DOM, since a tall dialog puts Confirm & Continue off the viewport.
+  async function lockDecliningAll() {
+    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await page.waitForTimeout(2500);
+    const declines = page.getByRole('button', { name: /Decline/i });
+    for (let i = 0; i < await declines.count(); i++) { await declines.nth(i).dispatchEvent('click'); await page.waitForTimeout(300); }
+    const confirm = page.getByRole('button', { name: /Confirm & Continue/i }).first();
+    if (await confirm.count() > 0) { await confirm.dispatchEvent('click'); await page.waitForTimeout(600); }
+  }
+
+  const points = [];   // after each lock: the latest known year (number) and the T claims listed
+  for (let n = 1; n <= T_LENGTH; n++) {
+    points.push({ name: `T game, after ${n - 1} lock${n - 1 === 1 ? '' : 's'}`, known: n - 2, claims: await tClaims() });
+    await lockDecliningAll();
+    if (n < T_LENGTH) await page.waitForSelector(`text=Lock Program Year ${START + n}`, { timeout: 120000 });
+    else await page.waitForSelector('text=Game Complete', { timeout: 120000 });
+  }
+  const end = await tClaims();
+  ok(end !== null, 'T game, game end: the Claims workbook downloads');
+  const all = end ?? [];
+  for (const e of T_EXPECTED) {
+    const hit = all.filter(c => e.sheet.test(c.sheet) && c.ay === e.ay);
+    ok(hit.length === 1, `T game, game end: one T claim on ${e.sheet.source}, accident year ${e.ay}`,
+      hit.map(c => `${c.id} (${c.event})`).join(', ') || 'none');
+  }
+  ok(all.length === T_EXPECTED.length, `T game, game end: the T claims are exactly the draw's`,
+    all.map(c => `${c.sheet} y${c.ay} ${c.event}`).join(' · ') || 'none');
+  ok(all.some(c => c.ay === T_LENGTH), `T game, game end: the final year's (year ${T_LENGTH}) T claim appears`);
+  const key = c => `${c.sheet}|${c.id}`;
+  for (const p of points) {
+    if (p.claims === null) { ok(false, `${p.name}: the Claims workbook downloads`); continue; }
+    const want = all.filter(c => c.ay <= p.known).map(key).sort();
+    const got = p.claims.map(key).sort();
+    ok(JSON.stringify(got) === JSON.stringify(want),
+      `${p.name}: lists every T claim from known years (through year ${p.known}), and only those`,
+      `listed ${got.length}, known ${want.length}`);
+    ok(p.claims.every(c => c.ay <= p.known), `${p.name}: no T claim after year ${p.known}`,
+      `newest ${p.claims.length ? Math.max(...p.claims.map(c => c.ay)) : 'none'}`);
+  }
+  const y2 = all.filter(c => c.ay === 2).map(key);
+  const inProgress = points.find(p => p.known === 1), next = points.find(p => p.known === 2);
+  ok(y2.length === 1 && !!inProgress?.claims && !inProgress.claims.some(c => y2.includes(key(c))),
+    'control: after the second lock, year 2 is the year in progress and its T claim is absent');
+  ok(y2.length === 1 && !!next?.claims && next.claims.some(c => y2.includes(key(c))),
+    'control: after the third, year 2 is known and its T claim appears');
+  ok(errors.length === 0, 'T game: no page errors', errors[0] ?? '');
+  await ctx.close();
+}
+
 async function hosted(browser) {
   const ctx = await browser.newContext({ baseURL: BASE });
   const host = await ctx.newPage();
@@ -243,6 +356,7 @@ async function hosted(browser) {
   const browser = await launchBrowser();
   await solo(browser);
   await hosted(browser);
+  await tClaimsGame(browser);
   await browser.close();
 
   const cols = ['point', 'Top bar year', 'Priced', ...RESULT_TABS, 'Model (section B)', 'Results download', 'Claims download', 'Host Teams tab', 'Host Charts tab', 'Top bar figures'];
