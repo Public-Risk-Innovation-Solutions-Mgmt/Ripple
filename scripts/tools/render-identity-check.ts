@@ -1223,7 +1223,18 @@ const BASELINE = process.env.RENDER_BASELINE
 // The 25 unmoved are the Introduction's static documents (How to Play, the
 // Underwriting Memorandum, and the Investment Memorandum at y2) on every
 // configuration.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v81.json');
+// v82: THE MEMO HEADERS (display only; value v82 and export v90 byte-identical).
+// The control ran first: 9bf00b6 built in its own worktree reproduced v81 236
+// of 236. 30 move, all on the Introduction tab — six on each of the five
+// configurations — and, word-diffed against the control's text:
+//   the Investment memorandum, y0 and y2: "Team" off the To line, and
+//     "Investment Committee" -> "Finance Department" in From and the sign-off;
+//   the Underwriting memorandum, y0 and y2: "Team" off the To line;
+//   the tab's own view, y0 and y2: the Investment memorandum's subtitle in the
+//     list, "From the Investment Committee" -> "From the Finance Department".
+// Nothing else moves. The three-line layout itself is whitespace, which this
+// fingerprint does not see; the introduction driver checks it.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v82.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -11,7 +11,11 @@
 // To: Incoming Pool Management / From: Executive Committee / Re: Welcome to
 // <the pool> — it speaks as the Executive Committee throughout, never the Board,
 // and it names the 2027 policy year. In solo the pool is the setup's; hosted it
-// is the room's POOL NAME, not the event name.
+// is the room's POOL NAME, not the event name. The Investment and Underwriting
+// memoranda's headers are three lines the same way — To: Incoming Pool
+// Management / From: Finance Department / Re: Investment Strategy, and From:
+// Underwriting Department / Re: Who the Pool Covers — and the Investment
+// memorandum is signed by the Finance Department.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/introduction.cjs
@@ -23,7 +27,7 @@ const DOCS = ['Welcome Memorandum', 'How to Play', 'Investment Memorandum', 'Und
 const norm = s => s.replace(/\s+/g, ' ').trim();
 // The underwriting memo as rendered: the source without its comment and its markdown marks.
 const UW_EXPECTED = norm(fs.readFileSync(path.join(REPO, 'src/data/documents/underwritingMemorandum.md'), 'utf8')
-  .replace(/<!--[\s\S]*?-->/g, '').replace(/^#+\s*/gm, '').replace(/\*\*/g, ''));
+  .replace(/<!--[\s\S]*?-->/g, '').replace(/^#+\s*/gm, '').replace(/\*\*/g, '').replace(/\\$/gm, ''));
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -76,6 +80,26 @@ async function checkWelcome(page, s, mode, poolName) {
   return text;
 }
 
+// A memo's header: To, From and Re on three lines straight after its title.
+async function checkHeader(page, s, mode, title, want) {
+  await s.open(title);
+  const lines = (await page.locator('[data-testid="document-body"]').innerText()).split('\n').map(x => x.trim()).filter(Boolean);
+  const at = lines.indexOf(title);
+  const head = lines.slice(at + 1, at + 4);
+  ok(at >= 0 && JSON.stringify(head) === JSON.stringify(want),
+    `${mode}: the ${title}'s header is To, From and Re on three lines`, head.join(' / '));
+  return lines;
+}
+
+async function checkMemoHeaders(page, s, mode) {
+  const inv = await checkHeader(page, s, mode, 'Investment Memorandum',
+    ['To: Incoming Pool Management', 'From: Finance Department', 'Re: Investment Strategy']);
+  ok(inv.at(-1) === 'Finance Department' && !inv.some(l => /Investment Committee/.test(l)),
+    `${mode}: the Investment memorandum is signed by the Finance Department`, inv.at(-1));
+  await checkHeader(page, s, mode, 'Underwriting Memorandum',
+    ['To: Incoming Pool Management', 'From: Underwriting Department', 'Re: Who the Pool Covers']);
+}
+
 async function checkUnderwriting(page, s, mode) {
   await s.open('Underwriting Memorandum');
   const got = norm(await page.locator('[data-testid="document-body"]').innerText());
@@ -112,6 +136,7 @@ async function checkUnderwriting(page, s, mode) {
   // Single-player's setup default (SetupPage), "Ripple Public Entity Risk Pool"
   // since multiplayer's 5226457 — it was "Clearwater Public Entity Pool".
   await checkWelcome(page, s, 'solo', 'Ripple Public Entity Risk Pool');
+  await checkMemoHeaders(page, s, 'solo');
   await checkUnderwriting(page, s, 'solo');
 
   await page.getByRole('button', { name: /Lock Year/ }).first().click();
@@ -158,6 +183,7 @@ async function checkUnderwriting(page, s, mode) {
   await h.investment('before year 1');
   const hostedMemo = await checkWelcome(team, h, 'hosted', 'Harbour Public Entity Pool');
   ok(!hostedMemo.includes('Introduction'), 'hosted: the memo names the pool, never the event');
+  await checkMemoHeaders(team, h, 'hosted');
   await checkUnderwriting(team, h, 'hosted');
 
   ok(errors.length === 0, 'no page errors', errors[0] ?? '');
