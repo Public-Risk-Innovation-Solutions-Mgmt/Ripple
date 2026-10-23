@@ -38,7 +38,7 @@ import { bookExposureOf, bookRiskOf, getMemberExposure, isRoster, selectResultVi
 import { exposureFactor } from '../data/exposureTrend';
 import { lineBookRisk, marketSeedOf } from '../utils/bookUnits';
 import { moveBook, moveBookUnits } from '../utils/bookUnderwriting';
-import { MEMBER_LEVEL, newLossEngineRuns } from '../data/pricingParameters';
+import { MEMBER_LEVEL, newLossEngineRuns, RISK_CONTROL } from '../data/pricingParameters';
 import type { LinePoolState } from '../types/simulation';
 
 /** A line's exposure this year — its book, or its active roster. */
@@ -166,14 +166,20 @@ export function underwritingFigures(
  * rate's risk control loading (quoteNewRateStack.riskControlPer100) on the
  * book's exposure, at the funding level and cover chosen.
  *
- * ⚠ THE QUOTE IS TAKEN AT THE SLIDER'S OWN VALUE, NOT AT THE ENGINE'S. While
- * RISK_CONTROL is off the engine reads the incentive as zero and the panel's
- * quote carries none, so the panel's quote cannot price a slider the engine
- * ignores. The slider's value goes straight into the same quote function and
- * the flag is left as it is — nothing the engine bills or books moves. With the
- * flag on, the figure is what the engine's rate charges for the incentive.
+ * ⚠ $0 WHILE RISK_CONTROL IS OFF. The engine charges nothing for the incentive
+ * then, and the slider is disabled at 0%, so the box shows $0 — never a cost the
+ * game does not charge. With the flag on, the figure is what the engine's rate
+ * charges for the incentive at the slider's value.
+ *
+ * ⚠ OPEN, FOR WHEN THE FLAG COMES ON: the engine loads the incentive as a share
+ * of the loaded rate (quoteNewRateStack's divisor), but the slider is labelled
+ * as a share of the PURE PREMIUM. It must be charged as a percentage of the pure
+ * premium, matching the label, before the flag is switched on.
  */
 export function riskControlCost(gameState: GameState, line: CoverageLine, decisions: DecisionSet): number | null {
+  // ⚠ $0 WHILE RISK_CONTROL IS OFF: the engine charges nothing for the
+  // incentive, and the box never shows a cost the game does not charge.
+  if (!RISK_CONTROL.enabled) return 0;
   const d = decisions.byLine[line];
   const { book } = fundingConsequenceInput(gameState, line, decisions);
   const c = computeFundingConsequence(

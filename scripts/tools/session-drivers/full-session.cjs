@@ -14,15 +14,25 @@ function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + 
 
 // The real DecisionsPage sliders carry no label association, so find the range
 // input whose nearby container carries the label text.
+//
+// ⚠ THE NEAREST, NOT THE FIRST. Taking the first input with the label anywhere
+// in its five ancestors found the wrong slider once the Decisions columns
+// moved: the left column's underwriting sliders sit close enough to the grid
+// that holds Pricing & Funding to reach its text. The input whose label-bearing
+// ancestor is CLOSEST is the one the label belongs to; ties go to page order.
 async function nudgeSlider(page, label, presses) {
   const el = await page.evaluateHandle((lbl) => {
+    let best = null, bestDepth = Infinity;
     for (const input of document.querySelectorAll('input[type=range]')) {
       let n = input.parentElement;
       for (let i = 0; i < 5 && n; i++, n = n.parentElement) {
-        if (n.textContent && n.textContent.includes(lbl)) return input;
+        if (n.textContent && n.textContent.includes(lbl)) {
+          if (i < bestDepth) { best = input; bestDepth = i; }
+          break;
+        }
       }
     }
-    return null;
+    return best;
   }, label);
   const input = el.asElement();
   if (!input) return null;

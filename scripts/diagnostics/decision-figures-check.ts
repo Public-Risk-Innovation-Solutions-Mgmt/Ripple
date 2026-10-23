@@ -16,12 +16,13 @@
 //      what processYear writes, for the non-renewal and rejection settings
 //      tried. The rate the dollars are priced at equals strikeBookRate's, the
 //      engine's own pre-movement quote.
-//   2. RISK CONTROL. The page's cost equals the engine's: with RISK_CONTROL
-//      forced on, strikeBookRate's quote at the slider's value gives
-//      (final rate - reinsurance) x the incentive x exposure. The flag is off
-//      for the page's call and on for the engine's, which is the point — and
-//      with it off, the stored slider moves nothing the engine returns (the
-//      two processYear results are identical).
+//   2. RISK CONTROL. With RISK_CONTROL off, as it ships, the page's cost is $0
+//      at every stored value — the game charges nothing, so the box shows
+//      nothing charged — and the stored slider moves nothing the engine
+//      returns (the two processYear results are identical). With the flag
+//      forced on, the page's cost equals the engine's: strikeBookRate's quote
+//      at the slider's value gives (final rate - reinsurance) x the incentive
+//      x exposure.
 //   3. YOUR RATE. At Expected and at 50%, 70%, 80% and 90% funding, the pure
 //      premium shown is the retained pure premium x the CLF, the CLF is
 //      selectedClfFor's, and pure premium + admin + risk control &
@@ -143,12 +144,17 @@ for (const gs of games) {
     for (const rc of [0, 0.01, 0.03, 0.05]) {
       const ds = withLine(defaultDecisionSet(1), line, { riskControlIncentivePct: rc, fundingAtExpected: false, fundingConfidenceLevel: 0.8 });
       const d = ds.byLine[line];
+      // Off (as it ships): the engine charges nothing, so the box shows $0
+      // whatever is stored — never a cost the game does not charge.
       check(!RISK_CONTROL.enabled, 'RISK_CONTROL is expected off for the page\'s call');
-      const page = riskControlCost(stateOf(gs, ds), line, ds);
-      let engine: number;
+      const off = riskControlCost(stateOf(gs, ds), line, ds);
+      check(off === 0, `${line} rc ${rc}: the box shows $${off} with RISK_CONTROL off`);
+      // On: the box is the engine's own charge for the incentive.
+      let page: number | null, engine: number;
       const was = RISK_CONTROL.enabled;
       try {
         RISK_CONTROL.enabled = true;
+        page = riskControlCost(stateOf(gs, ds), line, ds);
         const s = struck(gs, line, d);
         engine = (s.quote.finalRatePer100 - s.quote.reinsRatePer100) * rc * s.exposure * 10_000;
       } finally {
