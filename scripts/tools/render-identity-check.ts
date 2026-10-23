@@ -1268,7 +1268,24 @@ const BASELINE = process.env.RENDER_BASELINE
 //     columns are just years.
 // Nothing is added on any screen. Results and the Result Spreadsheet at y0 show
 // no played year either way. The 40 unmoved are the Introduction's documents.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v84.json');
+// v85: THE RESERVE-INFLATION LANDING (see VALUE_IDENTITY_v83). The control ran
+// first: 91559fd, built and run in its own worktree, reproduced v84 236 of 236.
+// 206 differ at head; none added or removed. Captured at each commit in turn,
+// each built in its own worktree, and compared with the one before:
+//   reserve inflation, the opening, the credit off at 5%, the admin overrun,
+//     and the per-line profit and contingency, priced years and capital: 206
+//     each — every screen that shows a figure (the top bar, Decisions,
+//     Decision History, Results, Result Spreadsheet, Annual Statement,
+//     Financial Statements, Calculation Audit, Rate Indication, and the
+//     Introduction's Welcome memorandum and tab view);
+//   the audit rows, 26 — the Calculation Audit alone (General administrative
+//     services, the Actual Expense Ratio's operands, and the two check rows);
+//   the probes and panel-driver commits, 0; inflation paid by the pattern
+//     whatever FORWARD_BOOKING says, and the gate restatements, 0 (this
+//     capture reproduced on the head that carries them).
+// The 30 unmoved are the Introduction's static documents (How to Play and the
+// Underwriting and Investment memoranda) on every configuration.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v85.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

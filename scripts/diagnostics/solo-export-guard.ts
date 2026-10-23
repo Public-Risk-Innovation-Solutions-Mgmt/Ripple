@@ -851,7 +851,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // tri); Property $15M and $17.5M each move the 12 with Property in them
 // (PR-solo and tri). The memo, Model tab, credit floor, driver and gate
 // commits move none.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v90.json');
+// v91: THE RESERVE-INFLATION LANDING (see VALUE_IDENTITY_v83). The control ran
+// first: 91559fd reproduced v90 24 of 24. No file added or removed. All 24
+// differ at head. Each commit against the one before: reserve inflation, the
+// opening, the credit off at 5%, the admin overrun, and the per-line profit
+// and contingency, priced years and capital each move all 24; the probes,
+// panel-driver, audit-row, inflation-routing and gate commits move none.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v91.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
