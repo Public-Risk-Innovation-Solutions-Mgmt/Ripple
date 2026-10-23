@@ -829,6 +829,37 @@ async function main(): Promise<void> {
     eq(JSON.stringify(bareRead.room.priorDevelopment), '{}',
       'a room created without prior development carries none');
 
+    // THE POOL NAME. The host sets it apart from the event name; a room created
+    // without one — by a client older than the handler, or before it existed —
+    // names its pool after the event, as does a blank one. The lobby still
+    // lists the event, never the pool.
+    eq(bareRead.room.poolName, 'p', 'a room created without a pool name names its pool after the event');
+    const named = await t.createRoom({
+      hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2027,
+      eventName: 'Spring Workshop', poolName: '  Harbour Public Entity Pool  ', expectedTeams: 1, shocks: [], lines: ['WC'],
+    });
+    const namedRead = await t.read({ code: named.code, token: named.hostToken });
+    eq(namedRead.room.poolName, 'Harbour Public Entity Pool', 'the pool name the host set is the room\'s, trimmed');
+    eq(namedRead.room.eventName, 'Spring Workshop', 'the event name stands apart from the pool name');
+    const namedJoin = await t.join({ code: named.code, teamName: 'Harbour', role: 'player' });
+    eq((await t.read({ code: named.code, token: namedJoin.teamToken })).room.poolName, 'Harbour Public Entity Pool',
+      'a team reads the pool name');
+    const namedLobby = (await t.listEvents({})).events.find(e => e.code === named.code);
+    eq(namedLobby?.eventName, 'Spring Workshop', 'the lobby lists the event, not the pool');
+    eq('poolName' in (namedLobby ?? {}), false, 'the lobby carries no pool name');
+    const blank = await t.createRoom({
+      hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2027,
+      eventName: 'q', poolName: '   ', expectedTeams: 1, shocks: [], lines: ['WC'],
+    });
+    eq((await t.read({ code: blank.code, token: blank.hostToken })).room.poolName, 'q', 'a blank pool name reads the event name');
+    await rejects(
+      t.createRoom({
+        hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2027,
+        eventName: 'p', poolName: 42 as unknown as string, expectedTeams: 1, shocks: [], lines: ['WC'],
+      }),
+      'INVALID_REQUEST', 'a pool name that is not text is refused',
+    );
+
     // expectedTeams still binds nothing.
     await t.join({ code: wcOnly.code, teamName: 'A', role: 'player' });
     const third = await t.join({ code: wcOnly.code, teamName: 'B', role: 'player' });

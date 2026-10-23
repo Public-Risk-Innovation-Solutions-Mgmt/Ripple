@@ -75,9 +75,10 @@ export default function HostCreateScreen() {
   // lobby of identical rows, each needing its code read to tell apart. An empty
   // required field asks the one question the lobby cannot answer for itself.
   const [eventName, setEventName] = useState('');
+  const [poolName, setPoolName] = useState('');
   const [seed, setSeed] = useState(() => randomSeed());
   const [yearCount, setYearCount] = useState(5);
-  const [startingYear, setStartingYear] = useState(2026);
+  const [startingYear, setStartingYear] = useState(2027);
   const [expectedTeams, setExpectedTeams] = useState(3);
   // ⚠ ALL THREE LINES ON BY DEFAULT, which is what every room played when teams
   // chose for themselves — so a host who changes nothing gets the old game.
@@ -133,6 +134,8 @@ export default function HostCreateScreen() {
         yearCount,
         startingYear,
         eventName: eventName.trim(),
+        // Blank: the room names its pool after the event (RoomView.poolName).
+        ...(poolName.trim() ? { poolName: poolName.trim() } : {}),
         expectedTeams,
         lines,
         priorDevelopment: priorDev,
@@ -185,6 +188,20 @@ export default function HostCreateScreen() {
             />
             <span className="mt-1 block text-xs text-slate-400">
               Required. This is how the event appears in the lobby and on every player&rsquo;s screen.
+            </span>
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Pool name</span>
+            <input
+              data-testid="pool-name"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={poolName}
+              onChange={e => setPoolName(e.target.value)}
+              placeholder="e.g. Harbour Public Entity Risk Pool"
+            />
+            <span className="mt-1 block text-xs text-slate-400">
+              The pool every team runs, as the welcome memo and each team&rsquo;s screens name it. Left blank, the event name is used.
             </span>
           </label>
 

@@ -43,6 +43,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { RISK_CONTROL } from '../../src/data/pricingParameters';
 import { lineBookRisk } from '../../src/utils/bookUnits';
 import { gameShocksOn } from '../../src/utils/shockLosses';
+import { gameHistory, investmentIncomeCredit } from '../../src/utils/investmentIncomeCredit';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
 import { fundingConsequenceInput, pricingBookFor, ratePieces, riskControlCost, underwritingFigures } from '../../src/game/derivations';
 import type { CoverageLine, DecisionSet, GameState, LineDecisionSet } from '../../src/types/simulation';
@@ -77,7 +78,11 @@ function struck(gs: GameState, line: CoverageLine, d: LineDecisionSet) {
   const ps = gs.poolState;
   const s = strikeBookRate(
     line, ps.lines[line], d, gs.currentYearNumber,
-    { allMarketMembers: ps.allMarketMembers, membershipHistory: ps.membershipHistory },
+    {
+      allMarketMembers: ps.allMarketMembers, membershipHistory: ps.membershipHistory,
+      // The credit the game strikes the rate with (worlds.strikeRates): last year's realised return.
+      investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gs), gs.currentYearNumber),
+    },
     lineBookRisk(gs.instance, line, ps.bookUnits, ps.bookLedger), gameShocksOn(gs.setup, gs.instance),
   );
   if (!s) throw new Error('strikeBookRate returned null — the new loss engine and rate stack are expected on');

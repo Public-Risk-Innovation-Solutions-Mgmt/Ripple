@@ -55,6 +55,7 @@
 // book. The panel cannot know who will join or leave, so that residual is
 // structural and is MEASURED here rather than asserted at zero.
 
+import { investmentIncomeCredit, gameHistory } from '../../src/utils/investmentIncomeCredit';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -173,6 +174,7 @@ console.log('  Panel vs engine, per component, at every level the slider can rea
               priorRcEffectiveness: lineState.riskControlEffectiveness,
               riskControlPct: dec.riskControlPct,
               groundUpPurePremiumPer100: groundUp,
+              investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gs), y),
             },
           );
 
@@ -350,6 +352,7 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
             priorRcEffectiveness: ls.riskControlEffectiveness,
             riskControlPct: dec.riskControlPct,
             groundUpPurePremiumPer100: pre[line].groundUp,
+            investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gs), y),
           },
         );
         // ⚠ TOLERANCE IS SET BY activeExposure's OWN STORAGE, not chosen. The
@@ -481,6 +484,7 @@ console.log('  the engine settles after it. Measured so the comment can state it
             priorRcEffectiveness: lineState.riskControlEffectiveness,
             riskControlPct: dec.riskControlPct,
             groundUpPurePremiumPer100: BOOK_MODE ? bookGroundUp(gs, line, y, exposure) : undefined,
+            investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gs), y),
           },
         );
         snapshot[line] = panel.newStack?.finalRatePer100 ?? panel.poolPremiumRatePer100;

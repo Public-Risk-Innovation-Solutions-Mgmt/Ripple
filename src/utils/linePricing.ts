@@ -43,7 +43,7 @@
 
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED } from '../data/defaultAssumptions';
 import {
-  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, PROFIT_AND_CONTINGENCY_OF_RATE,
+  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR, ADMIN_BASE_YEAR, PROFIT_AND_CONTINGENCY_OF_RATE,
 } from '../data/pricingParameters';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
@@ -561,10 +561,22 @@ export function quoteLineRates(input: LineRateInputs): LineRateQuote {
 // less is ceded, which is the whole and only effect it should have.
 // ============================================================================
 
-/** Admin per $100: the line's fixed amount spread over exposure, plus the rate. */
-export function adminRatePer100For(line: CoverageLine, exposure: number): number {
-  return ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1)
-    + ADMIN_PER_EXPOSURE_PER_100[line];
+/**
+ * THE ADMIN TREND FACTOR for a year: (1 + ADMIN_TREND_PER_YEAR)^(year -
+ * ADMIN_BASE_YEAR) — compounding after the base year, discounting before it.
+ */
+export function adminTrendFactor(yearNumber: number): number {
+  return Math.pow(1 + ADMIN_TREND_PER_YEAR, yearNumber - ADMIN_BASE_YEAR);
+}
+
+/**
+ * Admin per $100 for a year: the line's fixed amount spread over exposure,
+ * plus the rate — both trended to the year (adminTrendFactor). What the rate
+ * charges and, through the charge, what the engine books as the year's admin.
+ */
+export function adminRatePer100For(line: CoverageLine, exposure: number, yearNumber: number): number {
+  return adminTrendFactor(yearNumber) * (ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1)
+    + ADMIN_PER_EXPOSURE_PER_100[line]);
 }
 /**
  * THE INCENTIVE THE RATE ACTUALLY CARRIES — the stored slider with RISK_CONTROL
@@ -611,17 +623,27 @@ export interface NewStackInputs {
   reinsuranceOption?: string;
   /** The game's shock switch (shockLosses.gameShocksOn); absent is on. See CessionBasis. */
   shocks?: boolean;
+  /**
+   * THE INVESTMENT INCOME CREDIT (investmentIncomeCredit.ts), off the pure
+   * premium only: 0.04 takes 4% off it. ⚠ REQUIRED, so no caller can strike a
+   * rate without deciding what it credits.
+   */
+  investmentIncomeCredit: number;
 }
 
 export interface NewStackQuote {
   /** Carried so the adapter below can split the loading without re-deriving it. */
   clf: number;
   groundUpPurePremiumPer100: number;
+  /** The credit taken off the pure premium. */
+  investmentIncomeCredit: number;
+  /** groundUpPurePremiumPer100 x (1 - the credit): the pure premium the rate is struck on. */
+  creditedPurePremiumPer100: number;
   expectedCededPer100: number;
   retainedPurePremiumPer100: number;
   adminRatePer100: number;
   divisor: number;
-  /** (ground-up + admin) / divisor. At expected, self-funded, no reinsurance. */
+  /** (credited pure premium + admin) / divisor. At expected, self-funded, no reinsurance. */
   firstIndicationPer100: number;
   /** (retained x CLF + admin) / divisor + reinsurance. What members pay. */
   finalRatePer100: number;
@@ -644,7 +666,7 @@ export interface NewStackQuote {
 export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   const {
     line, yearNumber, members, exposure, groundUpPurePremiumPer100, clf,
-    riskControlPct, layersPlaced, aggregateStopLevel, reinsuranceOption, shocks,
+    riskControlPct, layersPlaced, aggregateStopLevel, reinsuranceOption, shocks, investmentIncomeCredit,
   } = input;
 
   // ⚠ WITH THE STOP ON, A QUOTE WITHOUT THE OPTION WOULD PRICE NO COVER AT
@@ -652,17 +674,24 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   if (AGGREGATE_STOP.enabled && reinsuranceOption === undefined) {
     throw new Error(`quoteNewRateStack: ${line} quoted without its reinsurance option while the aggregate stop is on`);
   }
-  const adminRatePer100 = adminRatePer100For(line, exposure);
+  const adminRatePer100 = adminRatePer100For(line, exposure, yearNumber);
   const divisor = expenseDivisor(riskControlPct);
 
-  const firstIndicationPer100 = (groundUpPurePremiumPer100 + adminRatePer100) / divisor;
+  // ⚠ THE INVESTMENT INCOME CREDIT COMES OFF THE PURE PREMIUM AND NOTHING ELSE
+  // (INVESTMENT_INCOME_CREDIT): pure premium x (1 - credit). Admin is added
+  // after it, and the cover's price and expected recovery are read on the
+  // UNCREDITED figure below, so neither is credited.
+  const creditedPurePremiumPer100 = groundUpPurePremiumPer100 * (1 - investmentIncomeCredit);
+  const firstIndicationPer100 = (creditedPurePremiumPer100 + adminRatePer100) / divisor;
 
   // The SAME cession function the old stack uses, on the ground-up figure.
   const { towerQuote, aggregateQuote, expectedCededPer100 } = expectedCededPer100For(
     line, yearNumber, groundUpPurePremiumPer100,
     { members, exposure, layersPlaced, aggregateStopLevel, reinsuranceOption, shocks },
   );
-  const retainedPurePremiumPer100 = Math.max(0, groundUpPurePremiumPer100 - expectedCededPer100);
+  // Nothing is ceded off the claims cost with the aggregate stop on
+  // (STOP_RECOVERY_OFF_CLAIMS_COST off), so this is the credited figure.
+  const retainedPurePremiumPer100 = Math.max(0, creditedPurePremiumPer100 - expectedCededPer100);
 
   if (towerQuote === null) {
     throw new Error(`quoteNewRateStack: no tower quote for line ${line}`);
@@ -683,9 +712,12 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   // question it answers is "what does this year add to surplus if claims come
   // in at expected" and that is a dollar question. Two terms and no others:
   //
-  //   THE FUNDING CUSHION  retained x (CLF - 1). At expected, claims cost the
-  //                        retained pure premium and the pool charged CLF times
-  //                        it; the difference is what is left over.
+  //   THE FUNDING CUSHION  what the claims charge leaves over the claims' cost:
+  //                        the pool charged CLF x the retained (credited) pure
+  //                        premium, and at expected claims cost the retained
+  //                        figure BEFORE the credit — the credit is earned back
+  //                        as investment income, not underwriting, so it comes
+  //                        off here: at Expected the cushion is minus the credit.
   //   THE CONTINGENCY      the profit and contingency provision, which is the
   //                        part of the divisor's loading that is NOT spent.
   //
@@ -693,13 +725,16 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   // SPENT, so it adds nothing to surplus. Reinsurance is not here either — at
   // expected the tower's price exceeds its expected recovery by the risk load,
   // so including it would make buying cover look like a surplus gain.
-  const cushionPer100 = retainedPurePremiumPer100 * (clf - 1);
+  const uncreditedRetainedPer100 = Math.max(0, groundUpPurePremiumPer100 - expectedCededPer100);
+  const cushionPer100 = retainedPurePremiumPer100 * clf - uncreditedRetainedPer100;
   const contingencyPer100 = loadedBase * PROFIT_AND_CONTINGENCY_OF_RATE;
   const expectedToSurplus = (cushionPer100 + contingencyPer100) * exposure * 10_000;
 
   return {
     clf,
     groundUpPurePremiumPer100,
+    investmentIncomeCredit,
+    creditedPurePremiumPer100,
     expectedCededPer100,
     retainedPurePremiumPer100,
     adminRatePer100,

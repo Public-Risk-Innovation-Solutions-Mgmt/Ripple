@@ -843,7 +843,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     assets, investment income, surplus and capital rows that follow.
 //   the book's-risk fix, $10M and $12.5M, all 24, the same 14 rows each.
 //   No rate or premium row moves in any of them.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v89.json');
+// v90: THE POLICY-YEAR LANDING (see VALUE_IDENTITY_v82). The control ran
+// first: 96fe2a2 reproduced v89 24 of 24. No file added or removed. All 24
+// differ at head. Each commit against the one before: the 2027 policy year,
+// the investment income credit, admin trends, the simulated pre-game merge
+// and ALAE by year each move all 24; the credit fix moves 4 (GL-solo and
+// tri); Property $15M and $17.5M each move the 12 with Property in them
+// (PR-solo and tri). The memo, Model tab, credit floor, driver and gate
+// commits move none.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v90.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

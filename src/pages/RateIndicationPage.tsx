@@ -10,6 +10,8 @@ import { formatCurrency, formatMillions } from '../utils/formatters';
 
 const rate = (x: number) => x.toFixed(3);
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+// A factor as itself, to the places it has: 1.04, 1.08, 1.05.
+const factor = (x: number) => String(Number(x.toFixed(4)));
 const signed = (x: number | null) => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`);
 
 function Row({ label, testId, value, window, children, strong }: {
@@ -48,19 +50,31 @@ function LineCard({ ri }: { ri: RateIndication }) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-gray-200">
         <Section title="Pure Premium">
-          <Row label={`Trended average losses${p.windowYears > 0 && p.windowYears < 5 ? ` (${p.windowYears}-year average)` : ''}`}
+          <Row label={`${p.windowYears}-Year Trended Average Loss at ${p.rateLevelYear} Rate Level`}
             testId={`ri-${l}-losses`} value={p.trendedAverageLosses} window={p.windowYears}>
             {p.windowYears > 0 ? formatCurrency(p.trendedAverageLosses, true) : '—'}
           </Row>
-          <Row label="Exposure" testId={`ri-${l}-exposure`} value={p.exposure}>
+          <Row label={`${p.rateLevelYear} Exposure`} testId={`ri-${l}-exposure`} value={p.exposure}>
             {p.windowYears > 0 ? formatMillions(p.exposure, 1) : '—'}
           </Row>
-          <Row label="Pure premium" testId={`ri-${l}-pp`} value={p.purePremiumPer100}>{rate(p.purePremiumPer100)}</Row>
+          <Row label={`Indicated Pure Premium at ${p.rateLevelYear} Rate Level`} testId={`ri-${l}-pp`} value={p.purePremiumPer100}>
+            {rate(p.purePremiumPer100)}
+          </Row>
           <Space />
-          <Row label="Annual trend" testId={`ri-${l}-trend`} value={p.annualTrend}>{pct(p.annualTrend - 1)}</Row>
+          <Row label="Annual Trend" testId={`ri-${l}-trend`} value={p.annualTrend}>{factor(p.annualTrend)}</Row>
           <Space />
-          <Row label={`Projected pure premium for Program Year ${ri.calendarYear}`} testId={`ri-${l}-projected`} value={p.projectedPer100} strong>
+          <Row label={`Projected Pure Premium for Program Year ${ri.calendarYear}`} testId={`ri-${l}-projected`}
+            value={p.projectedPer100} window={p.trendYears} strong>
             {rate(p.projectedPer100)}
+          </Row>
+          <Row label="Investment Income Credit" testId={`ri-${l}-credit`} value={p.investmentIncomeCredit}>
+            {`−${(p.investmentIncomeCredit * 100).toFixed(2)}%`}
+          </Row>
+          <Row label={`Projected Pure Premium after Credit`} testId={`ri-${l}-after-credit`} value={p.projectedAfterCreditPer100} strong>
+            {rate(p.projectedAfterCreditPer100)}
+          </Row>
+          <Row label="Indicated Rate Change" testId={`ri-${l}-change`} value={ri.indicatedRateChange ?? undefined}>
+            {signed(ri.indicatedRateChange)}
           </Row>
         </Section>
 

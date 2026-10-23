@@ -130,7 +130,9 @@ const FAST: string[] = [
   'history-begins-2021-check',       //   6s   the pool's history begins in 2021: the pre-game starts
                                      //         empty on its paid-in capital, the opening holds exactly
                                      //         its years and nothing older, no jump, and pricing reads
-                                     //         0/1/2/3/4 years then the full 5. Four controls. Replaces
+                                     //         the complete years a year behind — 0/0/1/2/3/4 then the
+                                     //         full 5 in 2027 — valued at the latest data year's end.
+                                     //         Seven controls. Replaces
                                      //         opening-partition-check and opening-reserves-report,
                                      //         retired with the bulk years.
   'parameters-page-check',           //   6s   docs/PARAMETERS.md must be what the generator
@@ -169,7 +171,7 @@ const FAST: string[] = [
   'property-claim-check',            //   3s
   'routine-fold-check',              //   3s   stable regular years: routine large losses off and folded into the
                                      //         ordinary cost, cost-neutral line-year by line-year; the shocks
-                                     //         unchanged; no routine claim drawn; a flat pre-game; four controls
+                                     //         unchanged; no routine claim drawn; a simulated pre-game; five controls
   'pool-loss-cost-check',            //   3s   WC and GL priced on the pool's layered loss costs, the shocks off the
                                      //         $0 - $1M layer, required capital at 80%; four controls
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
@@ -197,8 +199,8 @@ const FAST: string[] = [
                                      //         about $30M of year-1 premium at Expected; three controls
   'scenarios-check',                 //   5s   the twenty scenarios: setup offers 1-20, the handler refuses others, one
                                      //         seed solo and hosted, the ratio table, every opening at year-1 premium /
-                                     //         its ratio from the starting capital, the pre-game's experience and 3%
-                                     //         return; eight controls
+                                     //         its ratio from the starting capital, the pre-game's drawn experience and
+                                     //         return on its own streams; ten controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls
@@ -242,6 +244,16 @@ const FAST: string[] = [
   'new-rate-bill-check',             //  12s   with the flag on, the rate members are CHARGED is the rate
                                      //         they are SHOWN, the charge is additive, the retained-cover
                                      //         margin is retired, and the bill is NOT the old stack's.
+  'alae-ratio-check',                //  50s   ALAE drawn by line and year on the game seed (the same in
+                                     //         every world), booked at the draw, priced on the window's
+                                     //         mean, replayed identically; four controls
+  'admin-trend-check',               //  30s   admin trended 3% a year on both parts from the base year
+                                     //         (2027), priced and booked alike, pre-game included;
+                                     //         three controls
+  'investment-income-credit-check',  //  60s   every rate credits last year's pool return (3% before any
+                                     //         history) off its pure premium only — admin and the
+                                     //         reinsurance price untouched — and the charged rate carries
+                                     //         it; three controls
                                      //         ⚠ THE CHECK WHOSE ABSENCE LET COMMIT 3 SHIP INERT: it had
                                      //         wired the price signal and not the bill, and 20 games came
                                      //         back bit-identical flag-on. Flips the flag in its own process.
@@ -291,7 +303,7 @@ const FAST: string[] = [
                                      //         Prior + the five reconcile to the full history, the
                                      //         pre-game columns are the engine's — each with a control
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
-                                     //         and dividends across all five years and into year 1,
+                                     //         and dividends across all six years and into year 1,
                                      //         with no reset before 2023 or at the opening, and year 1
                                      //         opens at the set opening — each reset restored a control
   'lae-booking-check',               //  15s   LAE is booked: incurred, paid and reserved as the rate's

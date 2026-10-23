@@ -650,6 +650,14 @@ export interface RoomView {
    * a pool made sense only while every team shared one.
    */
   eventName: string;
+  /**
+   * THE POOL'S NAME — what every team's game calls its pool: the welcome memo,
+   * the header chip, every player-facing mention of the pool. Set by the host
+   * when creating the room, separate from the event name the lobby shows.
+   * ⚠ ALWAYS PRESENT ON THE VIEW: a room created before it existed, or created
+   * with it blank, reads the event name here.
+   */
+  poolName: string;
   yearCount: number;
   startingYear: number;
   /**
@@ -748,6 +756,12 @@ export interface CreateRoomRequest {
   yearCount: number;
   startingYear: number;
   eventName: string;
+  /**
+   * The pool's name — see RoomView.poolName. ⚠ OPTIONAL ON THE REQUEST so a
+   * client older than the handler still creates rooms (the handler deploys
+   * first); absent or blank, the room's pool is named after the event.
+   */
+  poolName?: string;
   /** Non-binding — see RoomView.expectedTeams. */
   expectedTeams: number;
   /**

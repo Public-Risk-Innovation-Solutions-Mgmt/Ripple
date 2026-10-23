@@ -875,14 +875,29 @@ function report(list: Finding[], heading: string) {
 const EXPORT_IDENTITIES: {
   label: string; parts: string[]; bound: number; why: string;
   check: (v: Record<string, number>) => [number, number];
+  // A figure the identity needs that the export does not carry, read off the
+  // engine's row — named, so the one thing not checked from the export is visible.
+  engine?: (r: LineResultSet) => Record<string, number>;
+  // The identity as it stood before a designed change, which must now FAIL.
+  control?: { name: string; check: (v: Record<string, number>) => [number, number] };
 }[] = [
-  { label: 'purePremium = expectedCeded + netPurePremium (per $100)',
+  // ⚠ RESTATED FOR THE INVESTMENT INCOME CREDIT (ff57131), as
+  // net-funding-fields-check's section 2 is: the credit comes off the pure
+  // premium only and the cover is priced on the uncredited figure, so net +
+  // ceded is the pure premium x (1 - credit). The export carries no credit
+  // column, so the credit is the one figure here read off the engine's row.
+  // Against the uncredited pure premium this read 6,611x its bound.
+  { label: 'purePremium x (1 - credit) = expectedCeded + netPurePremium (per $100)',
     parts: ['purePremiumRatePer100', 'expectedCededPer100', 'netPurePremiumRatePer100'],
     // purePremiumPer100 is STORED rounded to 4dp while the other two are
-    // stored unrounded, so half a 4dp unit is the floor. Same bound and same
-    // reason as net-funding-fields-check's section 2.
-    bound: 5e-5, why: 'purePremiumPer100 is stored at 4dp; the other two are not',
-    check: v => [v.expectedCededPer100 + v.netPurePremiumRatePer100, v.purePremiumRatePer100] },
+    // stored unrounded, so half a 4dp unit is the floor — scaled by (1 -
+    // credit), never above 1 since the credit is floored at zero. Same bound
+    // and same reason as net-funding-fields-check's section 2.
+    bound: 5e-5, why: 'purePremiumPer100 is stored at 4dp; the other two are not; the credit read off the engine row',
+    engine: r => ({ credit: r.investmentIncomeCredit ?? 0 }),
+    check: v => [v.expectedCededPer100 + v.netPurePremiumRatePer100, v.purePremiumRatePer100 * (1 - v.credit)],
+    control: { name: 'the credit ignored',
+      check: v => [v.expectedCededPer100 + v.netPurePremiumRatePer100, v.purePremiumRatePer100] } },
   { label: 'totalMemberCharge = poolPremium + adminExpense + reinsuranceCost',
     parts: ['totalMemberCharge', 'poolPremium', 'adminExpense', 'reinsuranceCost'],
     // ⚠ THE EXPORT ROUNDS TO WHOLE DOLLARS (csvValue uses roundDollars), so
@@ -941,6 +956,7 @@ console.log('  fields, so it checks what actually ships.\n');
 {
   const byKey = new Map(RESULT_METRICS.map(m => [m.key, m]));
   const worst: Record<string, number> = {};
+  const worstControl: Record<string, number> = {};
   const missing: string[] = [];
   for (const idy of EXPORT_IDENTITIES) {
     for (const k of idy.parts) if (!byKey.has(k)) missing.push(`${idy.label}: no export column '${k}'`);
@@ -965,6 +981,11 @@ console.log('  fields, so it checks what actually ships.\n');
           const m = byKey.get(k)!;
           v[k] = Number(m.csvValue ? m.csvValue(r) : m.value(r));
         }
+        if (idy.engine) Object.assign(v, idy.engine(r));
+        if (idy.control) {
+          const [cd, cs] = idy.control.check(v);
+          worstControl[idy.label] = Math.max(worstControl[idy.label] ?? 0, Math.abs(cd - cs) / idy.bound);
+        }
         const [derived, stated] = idy.check(v);
         // Measured as a MULTIPLE of the identity's own bound, so the number
         // reported is "how far past what rounding can explain".
@@ -981,6 +1002,13 @@ console.log('  fields, so it checks what actually ships.\n');
     if (!ok) { failures++; failedIdentities.push(idy.label); }
     console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${idy.label}`);
     console.log(`          worst gap ${ratio.toFixed(2)}x its bound (${idy.why})`);
+    if (idy.control) {
+      // CONTROL — must FAIL: the identity as it stood before the designed change.
+      const c = worstControl[idy.label] ?? 0;
+      const caught = c > 1;
+      if (!caught) { failures++; failedIdentities.push(`control: ${idy.control.name}`); }
+      console.log(`  ${caught ? 'OK  ' : 'FAIL'}  control: ${idy.control.name} is caught — worst gap ${c.toFixed(2)}x its bound`);
+    }
   }
 }
 

@@ -56,6 +56,7 @@ import IntroductionPage from '../pages/IntroductionPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
 import InvestmentsPage from '../pages/InvestmentsPage';
 import RateIndicationPage from '../pages/RateIndicationPage';
+import ModelPage from '../pages/ModelPage';
 import { isHiddenTab, topBarTabs } from './tabs';
 import { shockTimingOf } from '../utils/shockLosses';
 
@@ -187,6 +188,11 @@ export default function GameShell({
 
         {shownTab === 'rateIndication' && gameState && (
           <RateIndicationPage gameState={gameState} decisions={currentDecisions} />
+        )}
+
+        {/* Solo only: hidden in multiplayer (MULTIPLAYER_HIDDEN_TABS), so never rendered there. */}
+        {shownTab === 'model' && !hidden('model') && gameState && (
+          <ModelPage gameState={gameState} decisions={currentDecisions} />
         )}
 
         {shownTab === 'departments' && !hidden('departments') && gameState && (

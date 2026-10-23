@@ -1210,7 +1210,20 @@ const BASELINE = process.env.RENDER_BASELINE
 // And on 7 of the 16 — GL y2 and PR y0/y2 views — the risk control &
 // contingency row's "$-0.00" now reads "$0.00" (229f1ee). The default pool
 // name (5226457) moves nothing: this harness types its own (POOL_NAME).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v80.json');
+// v81: THE POLICY-YEAR LANDING (see VALUE_IDENTITY_v82). The control ran
+// first: 96fe2a2 built in its own worktree reproduced v80 236 of 236. 211
+// differ at head; none added or removed. Each commit against the one before:
+//   the 2027 policy year, 206 — every tab's figures and years.
+//   the welcome memo and pool name, 30 — Introduction 20 (the Executive
+//     Committee memo), Rate Indication 10.
+//   the investment income credit, 206; the Model tab, 186 (the tab bar);
+//   admin trends, 149; the simulated pre-game merge, 211; ALAE by year, 206.
+//   the credit fix, 0. Property $15M, 66; $17.5M, 67 — the Property views.
+//   the credit floored at zero, 0.
+// The 25 unmoved are the Introduction's static documents (How to Play, the
+// Underwriting Memorandum, and the Investment Memorandum at y2) on every
+// configuration.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v81.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

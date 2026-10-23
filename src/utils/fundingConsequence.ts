@@ -196,6 +196,11 @@ export interface FundingConsequenceBook {
   newStackRiskControlPct?: number;
   /** The game's shock switch (shockLosses.gameShocksOn) — the cover's price follows it. Absent is on. */
   shocks?: boolean;
+  /**
+   * The investment income credit the rate takes off its pure premium
+   * (investmentIncomeCredit.ts) — the engine's reading of the same history.
+   */
+  investmentIncomeCredit: number;
 }
 
 function ratesAt(
@@ -286,10 +291,13 @@ function ratesAt(
           aggregateStopLevel: book.aggregateStopLevel,
           reinsuranceOption: book.reinsuranceOption,
           shocks: book.shocks,
+          investmentIncomeCredit: book.investmentIncomeCredit,
         });
         return {
           clf: n.clf,
           purePremiumGroundUp: n.groundUpPurePremiumPer100,
+          investmentIncomeCredit: n.investmentIncomeCredit,
+          purePremiumCredited: n.creditedPurePremiumPer100,
           purePremiumRetained: n.retainedPurePremiumPer100,
           adminRatePer100: n.adminRatePer100,
           riskControlAndContingencyPer100: n.riskControlAndContingencyPer100,

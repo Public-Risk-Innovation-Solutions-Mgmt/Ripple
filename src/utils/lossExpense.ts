@@ -32,12 +32,19 @@ import { ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST } from '../data/pricingParameters'
 import { ALAE_ALREADY_IN_LOSSES } from './newPurePremium';
 import type { CoverageLine, ReserveCohort } from '../types/simulation';
 
-/** The shares of ground-up loss a line books as ALAE and ULAE — what its rate charges. */
-export function laeShares(line: CoverageLine): { alae: number; ulae: number; total: number } {
-  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : ALAE_OF_LOSS_COST[line];
+/**
+ * The shares of ground-up loss a line books as ALAE and ULAE — at `alaeRatio`,
+ * an accident year's drawn ratio (alaeRatio.ts); absent, the middle of the
+ * line's range (ALAE_OF_LOSS_COST).
+ */
+export function laeShares(line: CoverageLine, alaeRatio?: number): { alae: number; ulae: number; total: number } {
+  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : alaeRatio ?? ALAE_OF_LOSS_COST[line];
   const ulae = ULAE_OF_LOSS_COST[line];
   return { alae, ulae, total: alae + ulae };
 }
+
+/** A cohort's shares: its own accident year's ALAE ratio. */
+const sharesOf = (line: CoverageLine, c: ReserveCohort) => laeShares(line, c.alaeRatio);
 
 const grossPaid = (c: ReserveCohort) => c.grossPaid ?? c.netPaid;
 const grossUnpaid = (c: ReserveCohort) => Math.max(0, c.grossUnpaid ?? c.netUnpaid);
@@ -47,9 +54,9 @@ export function grossUnpaidLoss(cohorts: readonly ReserveCohort[]): number {
   return cohorts.filter(c => !c.closed).reduce((s, c) => s + grossUnpaid(c), 0);
 }
 
-/** The loss expense reserve a line holds against its cohorts. */
+/** The loss expense reserve a line holds against its cohorts — each at its own accident year's shares. */
 export function lossExpenseReserve(line: CoverageLine, cohorts: readonly ReserveCohort[]): number {
-  return laeShares(line).total * grossUnpaidLoss(cohorts);
+  return cohorts.filter(c => !c.closed).reduce((s, c) => s + sharesOf(line, c).total * grossUnpaid(c), 0);
 }
 
 export interface LaeYear {
@@ -68,23 +75,28 @@ export interface LaeYear {
  * step and is not here either; one that closes during it is, with its residual
  * paid. Gross incurred is the movement in gross ultimate (paid + unpaid), so
  * paid + the change in reserve is incurred exactly.
+ *
+ * ⚠ COHORT BY COHORT, EACH AT ITS OWN ACCIDENT YEAR'S ALAE RATIO: a year's ALAE
+ * is its claims x its drawn ratio, and a development on an older year books
+ * that year's ALAE at that year's ratio. With one ratio throughout this is the
+ * old line-level arithmetic exactly.
  */
 export function laeForYear(
   line: CoverageLine, before: readonly ReserveCohort[], after: readonly ReserveCohort[],
 ): LaeYear {
-  const s = laeShares(line);
   const opened = before.filter(c => !c.closed);
-  const paidBefore = opened.reduce((a, c) => a + grossPaid(c), 0);
-  const paidAfter = after.reduce((a, c) => a + grossPaid(c), 0);
-  const beginningLaeReserve = s.total * opened.reduce((a, c) => a + grossUnpaid(c), 0);
-  const endingLaeReserve = s.total * after.reduce((a, c) => a + grossUnpaid(c), 0);
-  const laePaid = s.total * (paidAfter - paidBefore);
-  const laeIncurred = laePaid + endingLaeReserve - beginningLaeReserve;
-  const alaeShare = s.total > 0 ? s.alae / s.total : 0;
+  const sum = (cs: readonly ReserveCohort[], f: (c: ReserveCohort) => number) => cs.reduce((a, c) => a + f(c), 0);
+  // Gross ultimate (paid + unpaid) and paid, each weighted by the cohort's share.
+  const ult = (c: ReserveCohort) => grossPaid(c) + grossUnpaid(c);
+  const alaeIncurred = sum(after, c => sharesOf(line, c).alae * ult(c)) - sum(opened, c => sharesOf(line, c).alae * ult(c));
+  const ulaeIncurred = sum(after, c => sharesOf(line, c).ulae * ult(c)) - sum(opened, c => sharesOf(line, c).ulae * ult(c));
+  const beginningLaeReserve = sum(opened, c => sharesOf(line, c).total * grossUnpaid(c));
+  const endingLaeReserve = sum(after, c => sharesOf(line, c).total * grossUnpaid(c));
+  const laePaid = sum(after, c => sharesOf(line, c).total * grossPaid(c)) - sum(opened, c => sharesOf(line, c).total * grossPaid(c));
   return {
-    alaeIncurred: laeIncurred * alaeShare,
-    ulaeIncurred: laeIncurred * (1 - alaeShare),
-    laeIncurred,
+    alaeIncurred,
+    ulaeIncurred,
+    laeIncurred: laePaid + endingLaeReserve - beginningLaeReserve,
     laePaid,
     beginningLaeReserve,
     endingLaeReserve,

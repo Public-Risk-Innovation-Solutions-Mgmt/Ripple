@@ -69,6 +69,8 @@ export interface RoomHeader {
   code: string;
   seed: string;
   eventName: string;
+  /** The pool's name. ⚠ Optional on the item: a header written before it existed reads the event name. */
+  poolName?: string;
   yearCount: number;
   startingYear: number;
   expectedTeams: number;
@@ -176,6 +178,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     status: statusOf(header),
     seed: header.seed,
     eventName: header.eventName,
+    poolName: header.poolName || header.eventName,
     yearCount: header.yearCount,
     startingYear: header.startingYear,
     expectedTeams: header.expectedTeams,

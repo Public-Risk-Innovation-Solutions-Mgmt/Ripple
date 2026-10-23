@@ -61,7 +61,7 @@ export default function IntroductionPage({ gameState }: IntroductionPageProps) {
     {
       id: 'welcome',
       title: 'Welcome Memorandum',
-      summary: `From the Board of Governors, Year ${gameState.setup.startingYear}`,
+      summary: `From the Executive Committee, Year ${gameState.setup.startingYear}`,
       content: welcomeMemoContent,
     },
     {

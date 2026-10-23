@@ -95,7 +95,7 @@ export function useSessionGame(
   // built for a different schedule if that ever stopped being true.
   const myLines = you?.lines;
   const buildKey = room && myLines && myLines.length > 0
-    ? `${room.seed}|${room.yearCount}|${room.startingYear}|${myLines.join(',')}|${room.eventName}|${JSON.stringify(room.shocks)}`
+    ? `${room.seed}|${room.yearCount}|${room.startingYear}|${myLines.join(',')}|${room.eventName}|${room.poolName}|${JSON.stringify(room.shocks)}`
     : null;
   const builtKey = useRef<string | null>(null);
 

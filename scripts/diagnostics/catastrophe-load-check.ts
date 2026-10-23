@@ -23,7 +23,7 @@
 // load left on, and a pure premium that still carries the load.
 // ============================================================================
 
-import { CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
+import { CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SEVERITY_TREND_PER_YEAR, PRICING_DATA_LAG_YEARS } from '../../src/data/pricingParameters';
 import { bookPurePremium, catastropheLoadPer100, newPurePremiumPer100 } from '../../src/utils/newPurePremium';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
 import { bookedCostLevel } from '../../src/utils/ordinaryLoss';
@@ -100,7 +100,9 @@ function gradeRemoval(taken: Taken, tag: string) {
       const pp = newPurePremiumPer100(l, i + 2, { rows, allMarketMembers: [], membershipHistory: {} as never });
       for (const p of pp?.points ?? []) {
         const row = rows.find(r => r.yearNumber === p.accidentYear)!;
-        const paid = row.grossPaidByValuation![row.grossPaidByValuation!.length - 1];
+        // Valued at the end of the latest data year (PRICING_DATA_LAG_YEARS), clamped forward.
+        const k = Math.min(i + 1 - PRICING_DATA_LAG_YEARS - row.firstValuationYear, row.grossPaidByValuation!.length - 1);
+        const paid = row.grossPaidByValuation![k];
         const shock = row.shockGross ?? 0;
         points++;
         if (shock > 0) withShock++;
