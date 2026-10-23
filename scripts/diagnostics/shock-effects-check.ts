@@ -14,7 +14,7 @@
 // ============================================================================
 
 import {
-  INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REINSURANCE_PRICE, SHOCK_COST_TREND,
+  INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REINSURANCE_PRICE, SHOCK_COST_TREND, SHOCK_FREE_PRICING,
   SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS, WORLD_COUNT,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
@@ -372,6 +372,44 @@ function sectionSolo(): string[] {
   return out;
 }
 
+// ---- 7. SHOCKS NEVER REACH THE PURE PREMIUM ---------------------------------
+// The same game with and without scheduled shocks — every route a shock has:
+// A + R (Legislation), T + R (Nuclear Verdict), a regional A + T (Wildfire),
+// Investment Loss, Economic Inflation and Member Withdrawal — must charge
+// identical pure premiums, line by line, in every year (SHOCK_FREE_PRICING).
+const PP_SHOCKS: ScheduledShock[] = [
+  { shockId: '#4', yearNumber: 2 }, { shockId: '#7', yearNumber: 2 }, { shockId: '#3', yearNumber: 3 },
+  { shockId: '#11', yearNumber: 3 }, { shockId: '#10', yearNumber: 4 }, { shockId: '#12', yearNumber: 4 },
+];
+const PP_YEARS = 8;
+function purePremiums(schedule: ScheduledShock[]): Record<CoverageLine, number>[] {
+  let gs = open('5', schedule);
+  const out: Record<CoverageLine, number>[] = [];
+  for (let y = 1; y <= PP_YEARS; y++) {
+    const played = playWorldsYear(gs, defaultDecisionSet(y));
+    gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, played, [])), currentYearNumber: y + 1 };
+    const row = gs.lockedResults[gs.lockedResults.length - 1];
+    out.push(Object.fromEntries(LINES.map(l => [l, row.byLine[l].newPurePremiumPer100 ?? NaN])) as Record<CoverageLine, number>);
+  }
+  return out;
+}
+let ppPlain: Record<CoverageLine, number>[] | null = null;
+function sectionPurePremium(): string[] {
+  const out: string[] = [];
+  ppPlain ??= purePremiums([]);
+  const shocked = purePremiums(PP_SHOCKS);
+  let moved = 0;
+  shocked.forEach((r, i) => LINES.forEach(l => {
+    if (!Number.isFinite(r[l]) || !Number.isFinite(ppPlain![i][l])) out.push(`year ${i + 1} ${l}: no pure premium on the row`);
+    else if (r[l] !== ppPlain![i][l]) {
+      moved++;
+      if (out.length < 6) out.push(`year ${i + 1} ${l}: ${r[l].toFixed(6)} with the shocks, ${ppPlain![i][l].toFixed(6)} without (${((r[l] / ppPlain![i][l] - 1) * 100).toFixed(3)}%)`);
+    }
+  }));
+  if (moved) out.push(`${moved} of ${PP_YEARS * 3} line-years moved`);
+  return out;
+}
+
 // ---- run -------------------------------------------------------------------
 console.log(`shock-effects-check (${WORLD_COUNT} worlds)\n`);
 check(sectionA(), '1. A: uniform within the brief\'s range, the firing year only, the whole line');
@@ -395,6 +433,8 @@ check(sectionInvestCalc(), '5a. Investment Loss: cash 0, bonds -5, equities -20,
 control('cash hit', () => { const o = INVESTMENT_LOSS_BY_ASSET.cash; (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = -0.02; return () => { (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = o; }; }, sectionInvestCalc);
 check(sectionInvestGame(), '5b. in a game: the loss follows the pool\'s allocation, all cash loses nothing');
 control('cash hit, in a game', () => { const o = INVESTMENT_LOSS_BY_ASSET.cash; (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = -0.02; return () => { (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = o; }; }, sectionInvestGame);
+check(sectionPurePremium(), '7. shocks never reach the pure premium: the same game with and without six shocks prices identically, every line, every year');
+control('the shadow off — the deduction alone, R development left in', () => { const o = SHOCK_FREE_PRICING.enabled; SHOCK_FREE_PRICING.enabled = false; return () => { SHOCK_FREE_PRICING.enabled = o; }; }, sectionPurePremium);
 check(sectionSolo(), '6. single player: catalogue odds, about 0.3 a year, year 1 shock-free');
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');

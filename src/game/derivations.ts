@@ -51,7 +51,7 @@ function lineBookExposure(lineState: LinePoolState, line: CoverageLine, yearNumb
 }
 import { effectiveRiskControlIncentivePct } from '../utils/linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../utils/reinsuranceOptions';
-import { surplusRange, type SurplusRange } from '../utils/worlds';
+import { pricingLineState, surplusRange, type SurplusRange } from '../utils/worlds';
 import { gameShocksOn } from '../utils/shockLosses';
 import type { FundingConsequenceBook } from '../utils/fundingConsequence';
 import type { NewPurePremiumResult } from '../utils/newPurePremium';
@@ -86,7 +86,8 @@ export function fundingConsequenceInput(
   const book = pricingBookFor(gameState, line);
   const exposure = bookExposureOf(book, line, gameState.currentYearNumber);
   const basis = {
-    rows: gameState.poolState.lines[line]?.reserveDevelopment ?? [],
+    // The pricing ledger — the shock-free shadow's once a shock has fired (SHOCK_FREE_PRICING).
+    rows: pricingLineState(gameState, line)?.reserveDevelopment ?? [],
     allMarketMembers: gameState.poolState.allMarketMembers,
     membershipHistory: gameState.poolState.membershipHistory,
   };

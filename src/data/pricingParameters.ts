@@ -1436,6 +1436,42 @@ export const SHOCK_COST_FOLLOWS_EXPOSURE = { enabled: true };
  */
 export const ROUTINE_FOLD_NET_OF_UPLIFT = { enabled: false };
 
+/**
+ * SHOCKS NEVER REACH THE PURE PREMIUM (wip/shocks) — THE RULE. No shock event
+ * affects the pure premium in any way:
+ *
+ *   - an A surge and a T claim are not in the experience it is built from;
+ *   - nor is a shock's R development on prior years (it was kept in, by
+ *     design, until this build);
+ *   - nor anything a shock does to how the normal losses are booked and
+ *     developed — the reserve inflation and the host's development on a
+ *     shock's own reserves, and forward booking contracting a year's whole
+ *     gross by a ratio its T claim moved;
+ *   - the Investment Loss never reaches the rate, since investment income does
+ *     not enter pricing at all;
+ *   - and the expectation it falls back on is the normal losses only
+ *     (bookPurePremium, with SHOCKS_OUT_OF_EXPERIENCE on and no catastrophe load).
+ *
+ * HOW: ON, once a shock is first in force the game keeps a SHOCK-FREE SHADOW
+ * (utils/worlds.ts, GameState.pricingShadow) — the same game, the same worlds,
+ * decisions and loan choices, with no shock firing — and every pure premium is
+ * struck from the shadow's ledger (pricingLineState). Reserve inflation and the
+ * host's development stay in that experience exactly as they are, on the
+ * normal losses. So a game with a shock prices EXACTLY as the same game without
+ * it, year by year (shock-effects-check 7).
+ *
+ * WHY THE SHADOW AND NOT A DEDUCTION: the ledger's shock dollars were taken out
+ * at their booked gross over the LDF (SHOCKS_OUT_OF_EXPERIENCE), which is
+ * approximate — measured, a Wildfire moved Property's pure premium 0.5-0.9% and
+ * a Legislation (A + R) GL's 6-12% for five years. A shock touches booking,
+ * development and inflation in ways no single deduction reverses; a ledger that
+ * never had the shock is the definition.
+ *
+ * COST: the years after a shock run their worlds twice. Off: the deduction
+ * alone (R left in) — the control in shock-effects-check 7.
+ */
+export const SHOCK_FREE_PRICING = { enabled: true };
+
 // ============================================================================
 // THE BOOK — loss engine commit 3. Read only with MEMBER_LEVEL off.
 // ============================================================================
@@ -3035,10 +3071,23 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Shocks out of the experience', {
         value: SHOCKS_OUT_OF_EXPERIENCE.enabled ? 'on' : 'off', unit: 'switch',
         what: 'Each accident year\'s shock dollars (the uplift on ordinary losses and the shocks\' large losses, as '
-          + 'booked) are taken out of the experience pure premium, on the paid basis before development. Shock R '
-          + 'development stays in the history.',
+          + 'booked) are taken out of the experience pure premium, on the paid basis before development. With '
+          + 'Shock-free pricing on (below) the pure premium reads the shock-free shadow\'s ledger instead, which '
+          + 'never had them.',
         basis: 'CHOSEN',
         note: 'A shock in the five-year window no longer lifts the rate for five years afterwards.',
+      }],
+      ['Shock-free pricing', {
+        value: SHOCK_FREE_PRICING.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'THE RULE: no shock event affects the pure premium in any way — not its A or T, not its R development '
+          + 'on prior years, not what it does to the booking and development of the normal losses, and not the '
+          + 'Investment Loss (investment income does not enter pricing). From the first year a shock is in force '
+          + 'the game keeps a shock-free shadow — the same game, worlds and decisions with nothing firing — and '
+          + 'every pure premium is struck from its ledger. Reserve inflation and the host\'s development stay in.',
+        basis: 'CHOSEN',
+        note: 'wip/shocks. The deduction alone was approximate: a Wildfire moved Property\'s pure premium 0.5-0.9% '
+          + 'and a Legislation (A + R) GL\'s 6-12% for five years. With the shadow a shocked game prices exactly as '
+          + 'the same game without the shocks (shock-effects-check 7). The years after a shock run twice.',
       }],
       ['Catastrophe load', {
         value: CATASTROPHE_LOAD.enabled ? 'on' : 'off', unit: 'switch',

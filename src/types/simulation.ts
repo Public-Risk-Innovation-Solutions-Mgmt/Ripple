@@ -551,6 +551,12 @@ export interface GameInstance {
   // instance and SAVE_STRIPPED_KEYS does not list this, so a reload keeps the
   // schedule; a session player keeps no save and rebuilds from the room.
   scheduledShocks?: ScheduledShock[];
+  /**
+   * A SHOCK-FREE SHADOW's instance (wip/shocks, SHOCK_FREE_PRICING): nothing
+   * fires, whatever the schedule or timing says, while the setup and schedule
+   * stay as the game's so every other reading of "are shocks on" is the same.
+   */
+  shockFree?: true;
 }
 
 // Coverage lines a pool can write. Selected once at game setup and locked for
@@ -2469,6 +2475,14 @@ export interface GameState {
   worlds?: WorldState[];
   /** Every played year's decisions and loan choices, in order — what a reload replays. */
   playedYears?: PlayedYear[];
+  /**
+   * THE SHOCK-FREE SHADOW the pure premium is struck from (wip/shocks,
+   * SHOCK_FREE_PRICING): this game with no shock firing, advanced in lockstep
+   * with the same decisions and loan choices from the first year a shock is in
+   * force. Absent before then — the game IS its own shadow — and never saved:
+   * a reload replays the years and rebuilds it.
+   */
+  pricingShadow?: GameState;
 }
 
 /** One world's own state and played years. See GameState.worlds. */

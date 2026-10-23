@@ -17,6 +17,7 @@
 // market return net of fees (expectedMarketReturns), and the year's booked
 // figures; the combined ratio is the Annual Statement's own.
 // ============================================================================
+import { pricingLineState } from './worlds';
 import {
   ADMIN_BASE_YEAR, ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR, PRICING_DATA_LAG_YEARS,
   PROFIT_AND_CONTINGENCY_OF_RATE, RESERVE_INFLATION_PRICED_YEARS,
@@ -125,7 +126,8 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   const shocks = gameShocksOn(gs.setup, gs.instance);
   const coming = yearNumber === gs.currentYearNumber && !gs.isComplete;
   const row: LineResultSet | undefined = gameHistory(gs).find(r => r.yearNumber === yearNumber)?.byLine[line];
-  const ledger = gs.poolState.lines[line]?.reserveDevelopment ?? [];
+  // The pricing ledger — the shock-free shadow's once a shock has fired (SHOCK_FREE_PRICING).
+  const ledger = pricingLineState(gs, line)?.reserveDevelopment ?? [];
   const basis = { rows: ledger, allMarketMembers: gs.poolState.allMarketMembers, membershipHistory: gs.poolState.membershipHistory };
 
   let pp: NewPurePremiumResult | null;

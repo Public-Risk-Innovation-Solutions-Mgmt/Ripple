@@ -117,6 +117,17 @@ if (process.argv.includes('--growth')) {
   process.exit(0);
 }
 
+// Each scenario-year's shock cost factor per line (wip/shocks: prices grow), summed
+// so section 2 charges each cover what it would have cost; absent before the
+// growth rule (the baseline), where the factor is 1.
+const factorSum: Record<CoverageLine, number> = { WC: 0, GL: 0, Property: 0 };
+let costFactor: ((l: CoverageLine, y: number, e?: number, b?: number) => number) | null = null;
+let expFactor: ((l: CoverageLine, y: number) => number) | null = null;
+try {
+  costFactor = (await import('../../src/utils/shockCost')).shockCostFactor;
+  expFactor = (await import('../../src/data/exposureTrend')).exposureFactor;
+} catch { /* the baseline: no growth */ }
+
 const t0 = Date.now();
 for (let sc = 1; sc <= SCENARIOS; sc++) {
   const settings = { poolName: 'R', gameLength: YEARS, startingYear: 2026, instanceId: String(sc), activeLines: LINES } as GameSetupSettings;
@@ -141,6 +152,10 @@ for (let sc = 1; sc <= SCENARIOS; sc++) {
   const crNum = Object.fromEntries(LINES.map(l => [l, 0])) as Record<CoverageLine, number>;
   const crDen = Object.fromEntries(LINES.map(l => [l, 0])) as Record<CoverageLine, number>;
   for (let y = 1; y <= YEARS; y++) {
+    for (const l of LINES) {
+      const ls = gs.poolState.lines[l] as { bookExposure?: number; shockCostBaseExposure?: number };
+      factorSum[l] += costFactor && expFactor ? costFactor(l, y, (ls.bookExposure ?? 0) * expFactor(l, y), ls.shockCostBaseExposure) : 1;
+    }
     const played = playWorldsYear(gs, decisions(y));
     played.perWorld.forEach((p, w) => {
       for (const { line, result } of p.lineResults) {
@@ -204,12 +219,12 @@ const options = (P as unknown as { REINSURANCE_OPTIONS?: Record<CoverageLine, re
 const prices = (P as unknown as { REINSURANCE_PRICE?: Record<CoverageLine, Record<string, number>> }).REINSURANCE_PRICE;
 const cover2: Record<string, unknown> = {};
 if (options && prices && tClaims.length) {
-  console.log('\n2. EACH COVER ON THE T CLAIMS, by line (counterfactual on ultimate; price x 200 scenario-years)');
+  console.log('\n2. EACH COVER ON THE T CLAIMS, by line (counterfactual on ultimate; premium = each year\'s grown price over 200 scenario-years)');
   for (const l of LINES) {
     for (const o of options[l].filter(x => x.limit > 0)) {
       const rec = tClaims.filter(t => t.line === l).map(t => Math.min(Math.max(t.size - o.attachment, 0), o.limit));
       const paid = rec.reduce((a, b) => a + b, 0), n = rec.filter(r => r > 0).length;
-      const premium = prices[l][o.id] * SCENARIOS * YEARS;
+      const premium = prices[l][o.id] * factorSum[l];
       cover2[`${l} ${o.id}`] = { paid, n, premium };
       console.log(`   ${l.padEnd(9)}${o.id.padEnd(13)} paid ${fmtM(paid).padStart(8)} on ${String(n).padStart(2)} claims · `
         + `premium ${fmtM(premium).padStart(7)} · loss ratio ${(100 * paid / premium).toFixed(0)}%`);

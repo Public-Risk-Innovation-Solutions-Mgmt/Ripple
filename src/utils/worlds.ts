@@ -30,7 +30,7 @@
 // Screens that list claims read a world's own rows and say which.
 // ============================================================================
 
-import { WORLD_COUNT, newLossEngineRuns } from '../data/pricingParameters';
+import { SHOCK_FREE_PRICING, WORLD_COUNT, newLossEngineRuns } from '../data/pricingParameters';
 import { CAPITAL_ADEQUACY_THRESHOLDS } from '../data/defaultAssumptions';
 import { exposureFactor } from '../data/exposureTrend';
 import { deriveSubRng } from './random';
@@ -103,6 +103,8 @@ function withoutBook(ps: PoolState): PoolState {
 // ----------------------------------------------------------------------------
 
 export interface WorldsYear {
+  /** The shock-free shadow's year, played alongside (SHOCK_FREE_PRICING). */
+  shadow?: { state: GameState; played: WorldsYear };
   /** Each world's processed year, in world order. One entry on a one-world game. */
   perWorld: ProcessYearResult[];
   /** The one rate per line, struck from the averaged history. Absent on one world. */
@@ -117,11 +119,29 @@ export interface WorldsYear {
   decisions: DecisionSet;
 }
 
+/**
+ * THE LINE STATE A PURE PREMIUM IS STRUCK FROM (SHOCK_FREE_PRICING): the game's
+ * own, with its ledger swapped for the shock-free shadow's once there is one —
+ * the experience as it would stand had no shock fired. Every reader of the
+ * pure premium (the struck rate, the Decisions panel, the Model tab) reads this.
+ */
+export function pricingLineState(gs: GameState, line: CoverageLine): LinePoolState {
+  const own = gs.poolState.lines[line];
+  const shadow = SHOCK_FREE_PRICING.enabled ? gs.pricingShadow?.poolState.lines[line] : undefined;
+  return shadow ? { ...own, reserveDevelopment: shadow.reserveDevelopment } : own;
+}
+
+/** Does this year need the shadow — is a shock in force and is there none yet? */
+function shadowStartsNow(gs: GameState): boolean {
+  if (!SHOCK_FREE_PRICING.enabled || !newLossEngineRuns() || gs.instance.shockFree || gs.pricingShadow) return false;
+  return resolveShockYear(gs.instance, shockTimingOf(gs.setup), gs.currentYearNumber).inForce.length > 0;
+}
+
 /** The rate each active line charges this team-year, struck on the averaged state. */
 export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Record<CoverageLine, StruckLineRate>> {
   const out: Partial<Record<CoverageLine, StruckLineRate>> = {};
   for (const line of gs.setup.activeLines) {
-    const struck = strikeBookRate(line, gs.poolState.lines[line], decisions.byLine[line], gs.currentYearNumber, {
+    const struck = strikeBookRate(line, pricingLineState(gs, line), decisions.byLine[line], gs.currentYearNumber, {
       allMarketMembers: gs.poolState.allMarketMembers,
       membershipHistory: gs.poolState.membershipHistory,
     }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits, gs.poolState.bookLedger), gameShocksOn(gs.setup, gs.instance));
@@ -132,9 +152,16 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
 
 /** Run the year in every world. Nothing is committed — see settleWorldsYear. */
 export function playWorldsYear(gs: GameState, decisions: DecisionSet): WorldsYear {
+  // THE SHOCK-FREE SHADOW (SHOCK_FREE_PRICING), played beside the game with the
+  // same decisions: from the first year a shock is in force it is this game with
+  // nothing firing, and the pure premium is struck from its ledger. Before then
+  // the game is its own shadow.
+  const shadowState = gs.pricingShadow
+    ?? (shadowStartsNow(gs) ? { ...gs, instance: { ...gs.instance, shockFree: true as const }, pricingShadow: undefined } : undefined);
+  const shadow = shadowState ? { state: shadowState, played: playWorldsYear(shadowState, decisions) } : undefined;
   if (!gs.worlds) {
     const p = processYear(gs, decisions);
-    return { perWorld: [p], loanOffers: p.loanOffers, decisions };
+    return { perWorld: [p], loanOffers: p.loanOffers, decisions, ...(shadow ? { shadow } : {}) };
   }
   const struckRates = strikeRates(gs, decisions);
   // The game's book reaches every world for the year (withBook); it is never
@@ -149,7 +176,7 @@ export function playWorldsYear(gs: GameState, decisions: DecisionSet): WorldsYea
     decisions,
     { struckRates },
   ));
-  return { perWorld, struckRates, loanOffers: mergeLoanOffers(perWorld), decisions };
+  return { perWorld, struckRates, loanOffers: mergeLoanOffers(perWorld), decisions, ...(shadow ? { shadow } : {}) };
 }
 
 /**
@@ -180,6 +207,8 @@ function mergeLoanOffers(perWorld: ProcessYearResult[]): LoanOffer[] {
 }
 
 export interface SettledYear {
+  /** The shock-free shadow's year, settled on the same loan choices (SHOCK_FREE_PRICING). */
+  shadow?: { state: GameState; settled: SettledYear };
   /** The averaged pool state — or the one world's, on a one-world game. */
   poolState: PoolState;
   /** The averaged result — or the one world's. */
@@ -200,7 +229,11 @@ export function settleWorldsYear(gs: GameState, played_: WorldsYear, authorizedL
       authorizedLines.filter(l => p.loanOffers.some(o => o.line === l)))
     : { updatedPoolState: p.updatedPoolState, result: p.result });
   const played: PlayedYear = { yearNumber: gs.currentYearNumber, decisions: played_.decisions, authorizedLines: [...authorizedLines] };
-  if (!gs.worlds) return { poolState: settled[0].updatedPoolState, result: settled[0].result, played };
+  // The shadow takes the team's loan choices wherever its own worlds need them.
+  const shadow = played_.shadow
+    ? { state: played_.shadow.state, settled: settleWorldsYear(played_.shadow.state, played_.shadow.played, authorizedLines) }
+    : undefined;
+  if (!gs.worlds) return { poolState: settled[0].updatedPoolState, result: settled[0].result, played, ...(shadow ? { shadow } : {}) };
 
   // ⚠ EACH WORLD KEEPS ONLY THIS YEAR'S ROW; WORLD 1 KEEPS ALL OF ITS OWN, for
   // its claims (the claims download). What the screens read of the worlds is
@@ -226,7 +259,7 @@ export function settleWorldsYear(gs: GameState, played_: WorldsYear, authorizedL
   const bookLedger = ledgers[0] ? Object.fromEntries(Object.keys(ledgers[0]).map(l => [l,
     averageLedgerYear(ledgers.map(x => x![l as CoverageLine]!), gs.currentYearNumber)])) as PoolState['bookLedger'] : undefined;
   const poolState = moved ? { ...averaged, bookUnits: moved, ...(bookLedger ? { bookLedger } : {}) } : averaged;
-  return { poolState, result, worlds, played };
+  return { poolState, result, worlds, played, ...(shadow ? { shadow } : {}) };
 }
 
 /**
@@ -254,12 +287,18 @@ function withRateBasis(result: ResultSet, struck: WorldsYear['struckRates']): Re
 }
 
 /** The game after a settled year: the averaged state, the worlds, the year appended. */
-export function commitSettledYear(gs: GameState, s: SettledYear): Pick<GameState, 'poolState' | 'lockedResults' | 'worlds' | 'playedYears'> {
+export function commitSettledYear(
+  gs: GameState, s: SettledYear,
+): Pick<GameState, 'poolState' | 'lockedResults' | 'worlds' | 'playedYears' | 'pricingShadow'> {
+  const shadow = s.shadow
+    ? { ...s.shadow.state, ...commitSettledYear(s.shadow.state, s.shadow.settled), currentYearNumber: s.shadow.state.currentYearNumber + 1 }
+    : gs.pricingShadow;
   return {
     poolState: s.poolState,
     lockedResults: [...gs.lockedResults, s.result],
     ...(s.worlds ? { worlds: s.worlds } : {}),
     playedYears: [...(gs.playedYears ?? []), s.played],
+    ...(shadow ? { pricingShadow: shadow } : {}),
   };
 }
 

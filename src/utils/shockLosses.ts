@@ -145,7 +145,8 @@ export const shockSeedOf = (instance: Pick<GameInstance, 'seed' | 'marketSeed'>)
 
 /** The events that START in `yearNumber`. None before year 1. */
 export function firingsStartingIn(instance: GameInstance, timing: ShockTiming, yearNumber: number): EventFiring[] {
-  if (yearNumber < 1) return [];
+  // A shock-free shadow (SHOCK_FREE_PRICING): nothing fires.
+  if (yearNumber < 1 || instance.shockFree) return [];
   const started: { event: ShockEvent; region?: Region }[] = [];
   if (timing === 'catalogue') {
     // One draw per event per year, ALWAYS, in catalogue order — so whether
