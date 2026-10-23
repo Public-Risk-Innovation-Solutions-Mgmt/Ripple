@@ -24,7 +24,7 @@
 
 import React from 'react';
 import type {
-  CoverageLine, DecisionSet, GameState, HistoricalYear,
+  CoverageLine, DecisionSet, GameState, HistoricalYear, LineDecisionSet,
   LineResultSet, LineView, Member, ResultSet,
 } from '../types/simulation';
 import type { LineLoanInfo } from '../pages/DecisionsPage';
@@ -36,7 +36,9 @@ import { pricingExperienceBasis } from '../utils/pricingTriangle';
 import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEngine';
 import { bookExposureOf, bookRiskOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
-import { lineBookRisk } from '../utils/bookUnits';
+import { lineBookRisk, marketSeedOf } from '../utils/bookUnits';
+import { moveBook, moveBookUnits } from '../utils/bookUnderwriting';
+import { MEMBER_LEVEL, newLossEngineRuns } from '../data/pricingParameters';
 import type { LinePoolState } from '../types/simulation';
 
 /** A line's exposure this year — its book, or its active roster. */
@@ -119,6 +121,90 @@ export function fundingConsequenceInput(
   };
 }
 
+// ============================================================================
+// THE DECISION FIGURES — dollars the Decisions page prints beside its sliders.
+//
+// ⚠ ONE FUNCTION EACH, CALLED BY THE PAGE AND BY decision-figures-check, and
+// every one is the engine's own pricing or movement function applied to the
+// engine's own inputs — none is a second sum. Underwriting calls the same
+// movement function processLineYear calls (moveBookUnits, or moveBook on a
+// book with no units) and multiplies by the rate the panel already quotes;
+// the risk control cost reads quoteNewRateStack's own riskControlPer100.
+// DISPLAY ONLY: nothing here is read by the engine.
+// ============================================================================
+
+export interface UnderwritingFigures {
+  /** Premium on the book the renewal slider turns away, at this year's rate. Dollars. */
+  nonRenewedPremium: number;
+  /** Premium on the new business the rejection slider lets in, at this year's rate. Dollars. */
+  newBusinessPremium: number;
+}
+
+/**
+ * THE BOOK'S MOVEMENT FOR THE COMING YEAR, PRICED. `ratePer100` is the rate the
+ * Decisions panel quotes — the funding level's and the cover's, struck on the
+ * book before it moves, as the engine strikes it. Withdrawal is not forecast:
+ * a Member Withdrawal is a shock the player has not been told of. Null where
+ * there is no book to move (the member path).
+ */
+export function underwritingFigures(
+  gameState: GameState, line: CoverageLine, d: LineDecisionSet, ratePer100: number,
+): UnderwritingFigures | null {
+  if (MEMBER_LEVEL.enabled) return null;
+  const { poolState, instance, currentYearNumber } = gameState;
+  const units = newLossEngineRuns() ? poolState.bookUnits?.[line] : undefined;
+  // The engine's own choice (processLineYear): units where the state has them.
+  const move = units
+    ? moveBookUnits(line, marketSeedOf(instance), units, poolState.bookLedger?.[line], d, false, false, currentYearNumber)
+    : moveBook(line, poolState.lines[line].bookExposure ?? 0, d, false, false);
+  const dollarsPerUnit = exposureFactor(line, currentYearNumber) * 10_000 * ratePer100;
+  return { nonRenewedPremium: move.renewedOff * dollarsPerUnit, newBusinessPremium: move.written * dollarsPerUnit };
+}
+
+/**
+ * WHAT THE RISK CONTROL SLIDER COSTS AT THE CURRENT EXPOSURE, in dollars: the
+ * rate's risk control loading (quoteNewRateStack.riskControlPer100) on the
+ * book's exposure, at the funding level and cover chosen.
+ *
+ * ⚠ THE QUOTE IS TAKEN AT THE SLIDER'S OWN VALUE, NOT AT THE ENGINE'S. While
+ * RISK_CONTROL is off the engine reads the incentive as zero and the panel's
+ * quote carries none, so the panel's quote cannot price a slider the engine
+ * ignores. The slider's value goes straight into the same quote function and
+ * the flag is left as it is — nothing the engine bills or books moves. With the
+ * flag on, the figure is what the engine's rate charges for the incentive.
+ */
+export function riskControlCost(gameState: GameState, line: CoverageLine, decisions: DecisionSet): number | null {
+  const d = decisions.byLine[line];
+  const { book } = fundingConsequenceInput(gameState, line, decisions);
+  const c = computeFundingConsequence(
+    d.fundingConfidenceLevel, gameState.poolState.lines[line].ratePer100, line, d.fundingAtExpected,
+    { ...book, newStackRiskControlPct: d.riskControlIncentivePct ?? 0 },
+  );
+  return c.newStack ? c.newStack.riskControlPer100 * book.exposure * 10_000 : null;
+}
+
+/**
+ * THE "YOUR RATE" AND "INDICATED" COLUMNS' PIECES, per $100, built to add up to
+ * the rate exactly. Your rate's pure premium is the retained pure premium times
+ * the CLF — the figure the divisor loads — so it moves with the funding level;
+ * the risk control & contingency row is what is left of the charged rate once
+ * the other three are taken, so the four sum to the rate by construction.
+ * Indicated stays at Expected: the ground-up pure premium, self-funded.
+ */
+export function ratePieces(n: NonNullable<FundingConsequence['newStack']>) {
+  const purePremium = n.purePremiumRetained * n.clf;
+  const rcAndContingency = n.finalRatePer100 - n.reinsRatePer100 - purePremium - n.adminRatePer100;
+  return {
+    indicated: {
+      purePremium: n.purePremiumGroundUp,
+      admin: n.adminRatePer100,
+      rcAndContingency: n.firstIndicationPer100 - n.purePremiumGroundUp - n.adminRatePer100,
+      rate: n.firstIndicationPer100,
+    },
+    yours: { purePremium, admin: n.adminRatePer100, rcAndContingency, reins: n.reinsRatePer100, rate: n.finalRatePer100 },
+  };
+}
+
 export interface GameDerivations {
   decisionLine: CoverageLine;
   // ⚠ A UNION, NOT LineResultSet[]. At the pool view these ARE pool rows, and
@@ -138,6 +224,10 @@ export interface GameDerivations {
   /** What the decision line's reinsurance is priced on — its book or roster. */
   decisionLineBook: Book;
   fundingConsequence: FundingConsequence | null;
+  /** Underwriting premiums for the decision line's book; null off the book path or before a game. */
+  underwriting: UnderwritingFigures | null;
+  /** The risk control slider's cost in dollars; null before a game. */
+  riskControlCost: number | null;
 }
 
 export function useGameDerivations(
@@ -304,6 +394,16 @@ export function useGameDerivations(
     );
   }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, currentDecisions]);
 
+  const decisionLineDecisions = currentDecisions.byLine[decisionLine];
+  const underwriting = React.useMemo(() => {
+    const n = fundingConsequence?.newStack;
+    return gameState && n ? underwritingFigures(gameState, decisionLine, decisionLineDecisions, n.finalRatePer100) : null;
+  }, [gameState, decisionLine, decisionLineDecisions, fundingConsequence]);
+  const riskControlCostFigure = React.useMemo(
+    () => (gameState ? riskControlCost(gameState, decisionLine, currentDecisions) : null),
+    [gameState, decisionLine, currentDecisions],
+  );
+
   return {
     decisionLine,
     viewResults,
@@ -317,5 +417,7 @@ export function useGameDerivations(
     decisionLineActiveMembers,
     decisionLineBook,
     fundingConsequence,
+    underwriting,
+    riskControlCost: riskControlCostFigure,
   };
 }

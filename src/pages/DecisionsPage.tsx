@@ -19,11 +19,12 @@ import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import type { FundingConsequence } from '../utils/fundingConsequence';
+import { ratePieces, type UnderwritingFigures } from '../game/derivations';
 import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import { REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import {
-  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_BUSINESS_REJECTION_SLIDER, RENEWALS_DECLINED_SLIDER, RISK_CONTROL,
+  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_BUSINESS_REJECTION_SLIDER, RENEWALS_DECLINED_SLIDER,
 } from '../data/pricingParameters';
 
 export interface LineLoanInfo {
@@ -67,6 +68,10 @@ interface DecisionsPageProps {
   book: Book;
   /** The game's shock switch (shockLosses.gameShocksOn) — the covers' prices follow it. Absent is on. */
   shocks?: boolean;
+  /** The two underwriting sliders' premiums, in dollars — derivations.ts's underwritingFigures. Null off the book path. */
+  underwriting?: UnderwritingFigures | null;
+  /** The risk control slider's cost, in dollars — derivations.ts's riskControlCost. */
+  riskControlCost?: number | null;
 }
 
 // THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
@@ -90,7 +95,7 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks:
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
@@ -181,35 +186,15 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
         )}
       </div>
 
+      {/* ⚠ LEFT: Underwriting and Risk Control. RIGHT: Pricing & Funding. The
+          Dividend / Assessment box is below every other choice, full width. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <SectionCard title="Pricing & Funding" icon={<DollarSign size={16} />}>
-          {/* Rate Change REMOVED — CLF-only pricing. Funding Confidence Level
-              is now the sole pricing lever; the consequence panel below
-              replaces the information the deleted lever used to carry. */}
-          <FundingLevelControl
-            d={d}
-            fundingConsequence={fundingConsequence}
-            setFundingLevel={setFundingLevel}
-            setFundingAtExpected={setFundingAtExpected}
-            disabled={disabled}
-          />
-          <FundingConsequencePanel c={fundingConsequence} lastLineResult={lastLineResult} line={selectedLine} />
-          <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
-          <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
-          {/* ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS. The surplus-range line ("…
-              across 10 worlds: min · median · max" and "The figures shown are the
-              average of the worlds") came off; the range stays in the session's
-              posted results, for the host (docs/PENDING_MULTIPLAYER.md). */}
-          {selectedLoanInfo.dividendBlocked && (
-            <p className="text-xs text-red-600 -mt-3">Dividend blocked: this line carried a negative surplus in from last year.</p>
-          )}
-        </SectionCard>
-
-        {/* ⚠ ONE GRID CELL HOLDING TWO CARDS, so "Investment in Risk Control
-            Incentives" sits DIRECTLY UNDER the underwriting sliders rather than
-            wherever the grid's flow would drop it. Left as two siblings it
-            would wrap into the left column under Pricing & Funding — the right
-            number of cards in the wrong place. */}
+        {/* ⚠ LEFT COLUMN: UNDERWRITING, THEN RISK CONTROL; PRICING & FUNDING IS THE
+            RIGHT. One grid cell holding the two cards, so Risk Control sits DIRECTLY
+            UNDER the underwriting sliders rather than wherever the grid's flow
+            would drop it — left as two siblings it would wrap under Pricing &
+            Funding. The Dividend / Assessment control is no longer in Pricing &
+            Funding: it has its own full-width box at the foot of the page. */}
         <div className="space-y-5">
         <SectionCard title="Growth & Underwriting" icon={<TrendingUp size={16} />}>
           {/* ⚠ THE UNDERWRITING STRICTNESS SLIDER IS DELETED. It said "Strict
@@ -245,36 +230,55 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
               {/* ONE BOOK PER LINE: the two sliders move the book's units. See
                   bookUnderwriting.ts. */}
               <UnderwritingSlider
-                label="Renewals declined"
+                label="Existing Book: Non-Renewal Assumption"
                 range={RENEWALS_DECLINED_SLIDER}
                 value={d.renewalsDeclined ?? RENEWALS_DECLINED_SLIDER.default}
                 onChange={v => set('renewalsDeclined', v)}
                 disabled={disabled}
+                result={underwriting && { testId: 'uw-non-renewed', text: 'Premium not renewed', dollars: underwriting.nonRenewedPremium }}
               />
               <UnderwritingSlider
-                label="New Business, rejection rate"
+                label="New Business: Growth Assumption"
                 range={NEW_BUSINESS_REJECTION_SLIDER}
                 value={d.newBusinessRejection ?? NEW_BUSINESS_REJECTION_SLIDER.default}
                 onChange={v => set('newBusinessRejection', v)}
                 disabled={disabled}
+                result={underwriting && { testId: 'uw-new-business', text: 'Premium from new business accepted', dollars: underwriting.newBusinessPremium }}
               />
             </>
           )}
         </SectionCard>
 
         <SectionCard title="Investment in Risk Control Incentives" icon={<Shield size={16} />}>
-          {/* ⚠ PENDING DESIGN WHILE RISK_CONTROL IS OFF: shown so testers see it
-              is part of the game, held at 0% and disabled, labelled "coming
-              soon". The stored decision is untouched and nothing reads it. */}
+          {/* ⚠ THE SLIDER IS LIVE ON THIS BUILD WHILE RISK_CONTROL IS OFF, and
+              what it shows is its cost, not an effect. The engine reads the
+              incentive as zero with the flag off, so the stored decision moves
+              nothing the pool is billed or books; the cost beneath it is the
+              rate quote's own risk control loading at the slider's value
+              (derivations.ts riskControlCost). */}
           <RiskControlIncentives
             line={selectedLine}
-            value={RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default) : 0}
+            value={d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default}
             onChange={v => set('riskControlIncentivePct', v)}
-            disabled={disabled || !RISK_CONTROL.enabled}
-            comingSoon={!RISK_CONTROL.enabled}
+            disabled={disabled}
+            cost={riskControlCost}
           />
         </SectionCard>
         </div>
+
+        <SectionCard title="Pricing & Funding" icon={<DollarSign size={16} />}>
+          {/* Rate Change REMOVED — CLF-only pricing. Funding Confidence Level
+              is now the sole pricing lever; the consequence panel below
+              replaces the information the deleted lever used to carry. */}
+          <FundingLevelControl
+            d={d}
+            fundingConsequence={fundingConsequence}
+            setFundingLevel={setFundingLevel}
+            setFundingAtExpected={setFundingAtExpected}
+            disabled={disabled}
+          />
+          <FundingConsequencePanel c={fundingConsequence} lastLineResult={lastLineResult} line={selectedLine} />
+        </SectionCard>
 
         {outstandingLoanSlider(d, set, selectedLoanInfo, disabled)}
 
@@ -299,6 +303,21 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
         </SectionCard>
 
       </div>
+
+      <SectionCard title="Dividends and Assessments" icon={<DollarSign size={16} />}>
+          <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
+          <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
+          <p data-testid="dividend-assessment-note" className="text-xs text-gray-500 -mt-3">
+            A dividend reduces the Pool&rsquo;s net position; an assessment increases it.
+          </p>
+          {/* ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS. The surplus-range line ("…
+              across 10 worlds: min · median · max" and "The figures shown are the
+              average of the worlds") came off; the range stays in the session's
+              posted results, for the host (docs/PENDING_MULTIPLAYER.md). */}
+          {selectedLoanInfo.dividendBlocked && (
+            <p className="text-xs text-red-600 -mt-3">Dividend blocked: this line carried a negative surplus in from last year.</p>
+          )}
+      </SectionCard>
     </div>
   );
 }
@@ -581,12 +600,15 @@ function NewRatePanel({ n, prior }: {
     );
   };
 
+  // ⚠ YOUR RATE'S PURE PREMIUM IS THE RETAINED FIGURE TIMES THE CLF, so it
+  // moves with the funding level, and the risk control & contingency row is the
+  // remainder — the four rows sum to the rate charged exactly. Indicated stays
+  // at Expected. See ratePieces.
+  const pieces = ratePieces(n);
   const rows: Array<[string, string, string]> = [
-    ['Pure premium', d2(n.purePremiumGroundUp), d2(n.purePremiumRetained)],
-    ['+ Admin', d2(n.adminRatePer100), d2(n.adminRatePer100)],
-    ['+ Risk control & contingency',
-      d2(n.firstIndicationPer100 - n.purePremiumGroundUp - n.adminRatePer100),
-      d2(n.riskControlAndContingencyPer100)],
+    ['Pure premium', d2(pieces.indicated.purePremium), d2(pieces.yours.purePremium)],
+    ['+ Admin', d2(pieces.indicated.admin), d2(pieces.yours.admin)],
+    ['+ Risk control & contingency', d2(pieces.indicated.rcAndContingency), d2(pieces.yours.rcAndContingency)],
   ];
 
   return (
@@ -610,7 +632,7 @@ function NewRatePanel({ n, prior }: {
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">+ Reinsurance</td>
             <td className="py-1 text-right text-gray-400">—</td>
-            <td className="py-1 text-right tabular-nums">{d2(n.reinsRatePer100)}</td>
+            <td className="py-1 text-right tabular-nums">{d2(pieces.yours.reins)}</td>
           </tr>
           <tr className="border-t border-gray-300 font-medium">
             <td className="py-1">= Rate</td>
@@ -839,12 +861,14 @@ function PropertyNoSignalNote() {
 // ⚠ PLAYERS SEE EACH SLIDER'S NAME AND VALUE ONLY — no help text, no end
 // labels, no forecast. The ranges, steps and defaults are the parameters
 // file's (RENEWALS_DECLINED_SLIDER, NEW_BUSINESS_REJECTION_SLIDER).
-function UnderwritingSlider({ label, range, value, onChange, disabled }: {
+function UnderwritingSlider({ label, range, value, onChange, disabled, result }: {
   label: string;
   range: { min: number; max: number; step: number };
   value: number;
   onChange: (v: number) => void;
   disabled?: boolean;
+  /** The premium this setting moves, in dollars — beneath the slider. Absent shows no line. */
+  result?: { testId: string; text: string; dollars: number } | null;
 }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
@@ -858,6 +882,11 @@ function UnderwritingSlider({ label, range, value, onChange, disabled }: {
         formatValue={v => `${(v * 100).toFixed(0)}%`}
         disabled={disabled}
       />
+      {result && (
+        <p className="text-xs text-gray-600">
+          {result.text}: <span data-testid={result.testId} data-value={result.dollars} className="font-semibold text-gray-800 tabular-nums">{formatCurrency(result.dollars)}</span>
+        </p>
+      )}
     </div>
   );
 }
@@ -927,35 +956,37 @@ const RISK_CONTROL_PROGRAM_NAME: Record<CoverageLine, string> = {
   Property: 'Mitigation',
 };
 
-function RiskControlIncentives({ line, value, onChange, disabled }: {
+function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
   line: CoverageLine;
   value: number;
   onChange: (v: number) => void;
   disabled: boolean;
-  /** RISK_CONTROL off: the slider is shown at 0%, disabled, as coming soon. */
-  comingSoon?: boolean;
+  /** What the setting costs at the line's current exposure, in dollars. Absent shows no box. */
+  cost?: number | null;
 }) {
   const r = SLIDER_RANGES.riskControlIncentivePct;
   return (
     <div className="space-y-3">
       <SliderInput
-        label={RISK_CONTROL_PROGRAM_NAME[line]}
+        label="Percentage of Pure Premium"
         value={value}
         min={r.min}
         max={r.max}
         step={r.step}
         onChange={onChange}
-        formatValue={v => `${Math.round(v * 100)}% of premium`}
+        formatValue={v => `${Math.round(v * 100)}%`}
         leftLabel="None"
-        rightLabel={`${Math.round(r.max * 100)}% of premium`}
+        rightLabel={`${Math.round(r.max * 100)}%`}
         valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
         disabled={disabled}
         helpText={`How much of ${lineDisplayName(line)}'s premium is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}.`}
       />
-      {/* ⚠ NO NOTES UNDER THE SLIDER (UI tidy). Both stood here — "The spend
-          comes out of this line's premium…" and the "Coming soon — risk control
-          is being redesigned…" box — and came off; the slider stays, disabled
-          at 0% while RISK_CONTROL is off. */}
+      {cost !== null && cost !== undefined && (
+        <div className="rounded-lg bg-gray-100 border border-gray-200 px-3 py-2 text-xs text-gray-600">
+          Cost at current exposure:{' '}
+          <span data-testid="risk-control-cost" data-value={cost} className="font-semibold text-gray-800 tabular-nums">{formatCurrency(cost)}</span>
+        </div>
+      )}
     </div>
   );
 }

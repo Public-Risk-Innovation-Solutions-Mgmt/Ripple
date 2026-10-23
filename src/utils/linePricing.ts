@@ -629,6 +629,12 @@ export interface NewStackQuote {
   reinsuranceCost: number;
   /** The loading the divisor adds to the final rate, as a rate — for the panel. */
   riskControlAndContingencyPer100: number;
+  /**
+   * The risk control share of that loading, as a rate: the loaded base times
+   * the incentive the divisor was given. Multiplied by the exposure it is the
+   * incentive's cost in dollars, which is what the Decisions slider shows.
+   */
+  riskControlPer100: number;
   /** The CLF-margin plus the contingency provision, in DOLLARS. */
   expectedToSurplus: number;
   towerQuote: ReturnType<typeof occurrenceProgramCost> | null;
@@ -671,6 +677,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   // loaded base less the two things that went into it.
   const riskControlAndContingencyPer100 =
     loadedBase - (retainedPurePremiumPer100 * clf + adminRatePer100);
+  const riskControlPer100 = loadedBase * riskControlPct;
 
   // ⚠ UNDERWRITING ONLY, AND IN DOLLARS RATHER THAN A RATE, because the
   // question it answers is "what does this year add to surplus if claims come
@@ -702,6 +709,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
     reinsRatePer100,
     reinsuranceCost,
     riskControlAndContingencyPer100,
+    riskControlPer100,
     expectedToSurplus,
     towerQuote,
     aggregateQuote,

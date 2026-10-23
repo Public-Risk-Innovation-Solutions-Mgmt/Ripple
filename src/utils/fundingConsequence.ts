@@ -122,10 +122,13 @@ export interface FundingConsequence {
    * rendered together.
    */
   newStack?: {
+    /** The funding multiplier this quote was struck at — the Decisions panel's Your-rate pure premium is retained x this. */
+    clf: number;
     purePremiumGroundUp: number;
     purePremiumRetained: number;
     adminRatePer100: number;
     riskControlAndContingencyPer100: number;
+    riskControlPer100: number;
     reinsRatePer100: number;
     firstIndicationPer100: number;
     finalRatePer100: number;
@@ -285,10 +288,12 @@ function ratesAt(
           shocks: book.shocks,
         });
         return {
+          clf: n.clf,
           purePremiumGroundUp: n.groundUpPurePremiumPer100,
           purePremiumRetained: n.retainedPurePremiumPer100,
           adminRatePer100: n.adminRatePer100,
           riskControlAndContingencyPer100: n.riskControlAndContingencyPer100,
+          riskControlPer100: n.riskControlPer100,
           reinsRatePer100: n.reinsRatePer100,
           firstIndicationPer100: n.firstIndicationPer100,
           finalRatePer100: n.finalRatePer100,
