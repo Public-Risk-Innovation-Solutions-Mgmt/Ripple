@@ -62,7 +62,7 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
 
   await host.waitForFunction(() => document.querySelectorAll('[data-testid="teams-table"] tr').length === 3, null, { timeout: 30000 });
   const y0 = await host.textContent('[data-testid="teams-year"]');
-  ok(/No year completed yet/.test(y0), `before any advance: "${y0.trim()}"`);
+  ok(/No results known yet/.test(y0), `before any advance: "${y0.trim()}"`);
   ok(await host.$('[data-testid="pending-Harbour Mutual"]') !== null, 'and every team reads pending, not zero');
 
   // Two teams lock and play; the third is closed so it never computes or posts.
@@ -80,6 +80,28 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
     await p.waitForFunction(() => /year 1 result posted/.test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''), null, { timeout: 180000 });
   }
 
+  // ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): year 1 is complete and
+  // posted, but it is not yet KNOWN — it shows at the next advance. So the
+  // table still says so, and every team still reads pending.
+  await host.click('[data-testid="host-tab-teams"]');
+  await host.waitForTimeout(600);
+  const y1 = await host.textContent('[data-testid="teams-year"]');
+  ok(/No results known yet/.test(y1), `after one advance year 1 is posted but not yet known: "${y1.trim()}"`);
+  ok(await host.$('[data-testid^="surplus-"]') === null, 'and no team shows figures yet');
+
+  // A second year: the two live teams lock and post year 2, and year 1 becomes known.
+  for (const p of [wcTeam, glTeam]) {
+    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
+  }
+  await host.click('[data-testid="host-tab-setup"]');
+  await host.waitForTimeout(300);
+  await host.click('[data-testid="advance"]');
+  await host.waitForFunction(() => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === '3', null, { timeout: 30000 });
+  for (const p of [wcTeam, glTeam]) {
+    await p.waitForFunction(() => /year 2 result posted/.test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''), null, { timeout: 180000 });
+  }
+
   await host.click('[data-testid="host-tab-teams"]');
   // ⚠ WAIT FOR THE FIGURES, NOT FOR A CLOCK. A fixed 900ms sleep here was a bet
   // that the host's next poll would have landed by then — true at a flat three
@@ -89,7 +111,7 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length >= 1,
     null, { timeout: 30000 });
   const yr = await host.textContent('[data-testid="teams-year"]');
-  ok(/Year 1/.test(yr), `after the advance it shows the last COMPLETED year: "${yr.trim()}"`);
+  ok(/Year 1 — the latest known year/.test(yr), `after the second advance it shows the latest KNOWN year: "${yr.trim()}"`);
 
   const views = await host.$$eval('nav button, [role="tablist"] button', b => b.map(x => x.textContent.trim()));
   console.log('  line-view bar :', views.filter(v => /Pool|Compensation|Liability|Property/.test(v)));

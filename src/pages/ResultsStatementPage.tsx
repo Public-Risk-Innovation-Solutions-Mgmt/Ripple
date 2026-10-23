@@ -36,13 +36,6 @@ function SectionTable({ section }: { section: StatementSection }) {
       </div>
       <table className="w-full text-sm">
         <thead>
-          {/* The year labels: "Current" on the latest year, "Year n" from Year 0 on. */}
-          <tr data-testid="statement-year-labels">
-            <th className="px-4 pt-2 min-w-[240px]"></th>
-            {section.yearLabels.map((l, i) => (
-              <th key={`${section.columns[i]}-label`} className="px-4 pt-2 text-right text-xs font-semibold text-blue-700 whitespace-nowrap">{l}</th>
-            ))}
-          </tr>
           <tr className="border-b border-gray-100">
             <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[240px]"></th>
             {section.columns.map(c => (

@@ -1251,7 +1251,24 @@ const BASELINE = process.env.RENDER_BASELINE
 //     "Indicated rate at …" -> "Indicated <P> Rate at …". Section 1 unmoved.
 // The 40 unmoved are the Introduction's four documents, captured as the
 // document's body alone.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v83.json');
+// v84: RESULTS RUN ONE YEAR BEHIND (display only; value v82 and export v90
+// byte-identical — the export guard plays each game to its end, where every
+// year shows). Results stop at the latest known year, the current year less one
+// (utils/knownYears): at y0 (in 2026, pricing 2027) through 2025, at y2 (in
+// 2028) through 2027. The control ran first: 39d38ac, built and run with its own
+// harness, reproduced v83 236 of 236. 196 move; with the top bar split off and
+// the years each screen names compared against the control's, every one is:
+//   the top bar, on every game screen: the surplus, combined ratio and market
+//     share read the latest known year (WC+GL+PR pool y2 $17.88M -> $18.76M);
+//   Annual Statement, Financial Statements, Calculation Audit (y0 and y2),
+//     Results and Result Spreadsheet (y2): the newest year one earlier — 2026
+//     -> 2025 at y0, 2028 -> 2027 at y2 — columns, selector options and the
+//     figures that follow (the statement's window and Prior shift a year);
+//   Annual Statement: its "Current" / "Year n" header row removed — the
+//     columns are just years.
+// Nothing is added on any screen. Results and the Result Spreadsheet at y0 show
+// no played year either way. The 40 unmoved are the Introduction's documents.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v84.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

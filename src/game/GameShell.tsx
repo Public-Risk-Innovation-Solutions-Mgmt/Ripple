@@ -38,6 +38,7 @@ import type {
 import { endingPosition } from '../utils/endingPosition';
 import { LINE_FULL_NAME } from '../utils/lineDisplay';
 import { useGameDerivations } from './derivations';
+import { claimsPoolStateAsOf, knownGameState, latestKnownYearNumber } from '../utils/knownYears';
 import { openingRosterForLine } from './openingRoster';
 
 import Header from '../components/Header';
@@ -130,6 +131,28 @@ export default function GameShell({
 
   const d = useGameDerivations(gameState, lineView, currentDecisions);
 
+  // ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): every screen that shows
+  // results reads the KNOWN view — cut at the latest known year, the current
+  // year less one — and only Decisions, Decision History, the Rate Indication
+  // and the Model tab's rate read the whole game. At game end they are the same.
+  const known = React.useMemo(() => (gameState ? knownGameState(gameState) : null), [gameState]);
+  const knownYear = gameState ? latestKnownYearNumber(gameState) : Number.POSITIVE_INFINITY;
+  const knownViewResults = React.useMemo(() => d.viewResults.filter(r => r.yearNumber <= knownYear), [d.viewResults, knownYear]);
+  const knownPriorResults = React.useMemo(() => d.viewPriorResults.filter(r => r.yearNumber <= knownYear), [d.viewPriorResults, knownYear]);
+  // The claims workbook reads the live reserve cohorts, so it is handed them as
+  // they stood at the latest known year — the game's, and world 1's for its claims.
+  const knownClaimsPool = React.useMemo(() => (gameState
+    ? claimsPoolStateAsOf(gameState.poolState, [...(gameState.earlyPreGameHistory ?? []), ...gameState.priorHistory, ...gameState.lockedResults], knownYear)
+    : undefined), [gameState, knownYear]);
+  const knownClaimsWorld = React.useMemo(() => {
+    const w = gameState?.worlds?.[0];
+    if (!gameState || !w) return undefined;
+    return {
+      lockedResults: w.lockedResults.filter(r => r.yearNumber <= knownYear),
+      poolState: claimsPoolStateAsOf(w.poolState, [...(gameState.earlyPreGameHistory ?? []), ...gameState.priorHistory, ...w.lockedResults], knownYear),
+    };
+  }, [gameState, knownYear]);
+
   // A hidden tab is neither listed nor rendered (tabs.tsx).
   const hidden = (t: TabId) => isHiddenTab(t, !!multiplayer);
   const tabs = React.useMemo(
@@ -146,7 +169,7 @@ export default function GameShell({
     <div className="min-h-screen bg-gray-50">
       {banner}
       <Header
-        gameState={gameState}
+        gameState={known}
         onNewGame={onNewGame}
         onAdvanceYear={onAdvanceYear}
         canAdvance={canAdvance}
@@ -191,8 +214,8 @@ export default function GameShell({
         )}
 
         {/* Solo only: hidden in multiplayer (MULTIPLAYER_HIDDEN_TABS), so never rendered there. */}
-        {shownTab === 'model' && !hidden('model') && gameState && (
-          <ModelPage gameState={gameState} decisions={currentDecisions} />
+        {shownTab === 'model' && !hidden('model') && gameState && known && (
+          <ModelPage gameState={gameState} knownState={known} decisions={currentDecisions} />
         )}
 
         {shownTab === 'departments' && !hidden('departments') && gameState && (
@@ -201,7 +224,7 @@ export default function GameShell({
 
         {shownTab === 'dashboard' && !hidden('dashboard') && gameState && startingFinancials && (
           <DashboardPage
-            lockedResults={d.viewResults}
+            lockedResults={knownViewResults}
             historicalYears={d.historicalYears}
             startingFinancials={startingFinancials}
             currentYearNumber={gameState.currentYearNumber}
@@ -216,8 +239,8 @@ export default function GameShell({
           />
         )}
 
-        {shownTab === 'statement' && gameState && (
-          <ResultsStatementPage gameState={gameState} lineView={lineView} />
+        {shownTab === 'statement' && known && (
+          <ResultsStatementPage gameState={known} lineView={lineView} />
         )}
 
         {shownTab === 'decisions' && gameState && (
@@ -254,32 +277,32 @@ export default function GameShell({
 
         {shownTab === 'financials' && !hidden('financials') && gameState && startingFinancials && (
           <FinancialsPage
-            lockedResults={d.viewResults}
-            priorResults={d.viewPriorResults}
+            lockedResults={knownViewResults}
+            priorResults={knownPriorResults}
             lineView={lineView}
           />
         )}
 
         {shownTab === 'results' && !hidden('results') && gameState && (
-          <ResultsPage lockedResults={d.viewResults} lineView={lineView} />
+          <ResultsPage lockedResults={knownViewResults} lineView={lineView} />
         )}
 
-        {shownTab === SPREADSHEET_TAB && gameState && (
+        {shownTab === SPREADSHEET_TAB && known && (
           <ResultSpreadsheetPage
-            lockedResults={gameState.lockedResults}
-            priorHistory={gameState.priorHistory}
-            instance={gameState.instance}
-            activeLines={gameState.setup.activeLines}
-            instanceId={gameState.setup.instanceId}
-            poolState={gameState.poolState}
-            claimsWorld={gameState.worlds?.[0]}
+            lockedResults={known.lockedResults}
+            priorHistory={known.priorHistory}
+            instance={known.instance}
+            activeLines={known.setup.activeLines}
+            instanceId={known.setup.instanceId}
+            poolState={knownClaimsPool ?? known.poolState}
+            claimsWorld={knownClaimsWorld}
           />
         )}
 
         {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && (
           <CalculationAuditPage
-            lockedResults={gameState.lockedResults}
-            priorHistory={gameState.priorHistory}
+            lockedResults={known?.lockedResults ?? gameState.lockedResults}
+            priorHistory={known?.priorHistory ?? gameState.priorHistory}
             instanceSeed={gameState.instance.seed}
             lineView={lineView}
             instance={gameState.instance}
@@ -289,7 +312,7 @@ export default function GameShell({
 
         {shownTab === 'membership' && gameState && startingFinancials && (
           <MembershipPage
-            lockedResults={gameState.lockedResults}
+            lockedResults={known?.lockedResults ?? gameState.lockedResults}
             startingFinancials={startingFinancials}
             {...{
               /* ⚠ THE PRE-YEAR-1 FALLBACK FOLLOWS THE VIEW TOO. Before any year
