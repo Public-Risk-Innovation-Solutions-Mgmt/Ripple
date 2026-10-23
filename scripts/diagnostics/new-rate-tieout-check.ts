@@ -108,7 +108,7 @@ function play(): Row[] {
         const exposure = r.writtenExposure;
         const ld = d.byLine[line];
         const admin = adminRatePer100For(line, exposure, y);
-        const divisor = expenseDivisor(ld.riskControlIncentivePct ?? 0, line);
+        const divisor = expenseDivisor(ld.riskControlIncentivePct ?? 0);
         const { expectedCededPer100 } = expectedCededPer100For(line, y, groundUp, {
           // A book (MEMBER_LEVEL off) is priced on its exposure, as the engine
           // prices it; a roster on its members.
@@ -119,8 +119,8 @@ function play(): Row[] {
           reinsuranceOption: ld.reinsuranceOption,
         });
         const netted = AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled ? 0 : expectedCededPer100;
-        // The investment income credit comes off the pure premium only (INVESTMENT_INCOME_CREDIT).
-        const credited = groundUp * (1 - (r.investmentIncomeCredit ?? NaN));
+        // No investment income credit: investment income does not touch the rate.
+        const credited = groundUp;
         const retained = Math.max(0, credited - netted);
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);
         rows.push({
@@ -219,7 +219,6 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
       line, yearNumber: 1, members: [], exposure: 100,
       groundUpPurePremiumPer100: groundUp, clf: CLF,
       riskControlPct: 0.02, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
-      investmentIncomeCredit: 0,
     });
     const designed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100) / q.divisor + q.reinsRatePer100;
     const adminGrossed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100 * CLF) / q.divisor + q.reinsRatePer100;
@@ -265,7 +264,6 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
       line, yearNumber: 1, members: [], exposure: line === 'Property' ? 9000 : 900,
       groundUpPurePremiumPer100: line === 'Property' ? 0.30 : 3.0, clf: 1,
       riskControlPct: 0.10, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'bad-year',
-      investmentIncomeCredit: 0,
     });
     if (!(q.reinsRatePer100 > 1e-6) || Math.abs(q.divisor - 1) < 1e-12) continue;
     direct++;
@@ -299,7 +297,6 @@ console.log('\n--- 5. THE ADAPTER IS ADDITIVE ---');
       line: r.line, yearNumber: r.year, members: [], exposure: 100,
       groundUpPurePremiumPer100: r.groundUp, clf: r.clf,
       riskControlPct: 0, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
-      investmentIncomeCredit: 0,
     });
     const lrq = newStackAsLineRateQuote(q, 100);
     const sum = lrq.poolPremiumRatePer100 + lrq.adminRatePer100 + lrq.reinsRatePer100;

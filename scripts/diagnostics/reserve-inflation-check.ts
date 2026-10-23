@@ -22,12 +22,14 @@
 //      share), 1 past them; every window year of every priced rate carries its
 //      age's factor and its loss cost is developed x factor / exposure; and a
 //      rate with no history carries the full factor.
-//   4. CONTINGENCY PER LINE: the expense divisor is 1 - risk control - the
-//      line's own profit and contingency (WC 3%, GL 0%, Property 0%).
+//   4. PROFIT AND CONTINGENCY, 5% ON EVERY LINE: the expense divisor is
+//      1 - risk control - 5%. (It was per line, WC 3%, GL and Property 0%, for
+//      one commit; 5% on every line replaced it with the investment income
+//      credit's removal.)
 //
 // ⚠ AND EACH FAILS WHEN BROKEN: the controls feed 1 the END-of-year base
-// (after the paydown), 2 a year whose payments moved, 3 a factor that runs to
-// the end of the pattern, and 4 WC's contingency on every line.
+// (after the paydown), 2 a year whose payments fell, 3 a factor that runs to
+// the end of the pattern, and 4 a divisor with no contingency in it.
 // ============================================================================
 
 import {
@@ -149,12 +151,12 @@ function gradePriced(games: Game[], toCome: ToCome, tag: string) {
 }
 
 // ---------------------------------------------------------------- 4
-function gradeContingency(pc: Record<CoverageLine, number>, tag: string) {
+function gradeContingency(divisor: (rc: number) => number, tag: string) {
   let worst = 0;
-  for (const l of LINES) for (const rc of [0, 0.02, 0.05]) worst = Math.max(worst, Math.abs(expenseDivisor(rc, l) - (1 - rc - pc[l])));
-  check(worst < 1e-15 && pc.WC === 0.03 && pc.GL === 0 && pc.Property === 0,
-    `${tag}4. the divisor is 1 - risk control - the line's own contingency: WC 3%, GL 0%, Property 0%`,
-    `${LINES.map(l => `${l} ${(pc[l] * 100).toFixed(0)}%`).join(', ')}; worst ${worst.toExponential(2)}`);
+  for (const rc of [0, 0.02, 0.05]) worst = Math.max(worst, Math.abs(divisor(rc) - (1 - rc - 0.05)));
+  check(worst < 1e-15 && PROFIT_AND_CONTINGENCY_OF_RATE === 0.05,
+    `${tag}4. profit and contingency is 5% on every line: the divisor is 1 - risk control - 5%`,
+    `profit and contingency ${(PROFIT_AND_CONTINGENCY_OF_RATE * 100).toFixed(1)}%; worst ${worst.toExponential(2)}`);
 }
 
 console.log(`RESERVE INFLATION — scenarios ${SCENARIOS.join(', ')}, the pre-game and ${YEARS} played years, three lines, one world`);
@@ -162,7 +164,7 @@ const games = SCENARIOS.map(play);
 gradeBooked(games, startBase, '');
 gradePaid(games, '');
 gradePriced(games, byDefinition, '');
-gradeContingency(PROFIT_AND_CONTINGENCY_OF_RATE as Record<CoverageLine, number>, '');
+gradeContingency(expenseDivisor, '');
 
 console.log('\nCONTROLS — each must FAIL');
 const controlFails = (name: string, run: () => void, expect: string) => {
@@ -181,11 +183,11 @@ controlFails('a factor that runs to the end of the pattern', () => gradePriced(g
   for (let j = Math.max(1, age); j <= 60; j++) f *= 1 + rate[l] * unpaidShare(LINE_PAYOUT_PATTERN[l], j);
   return f;
 }, ''), '3.');
-controlFails("WC's contingency on every line", () => gradeContingency({ WC: 0.03, GL: 0.03, Property: 0.03 }, ''), '4.');
+controlFails('a divisor with no contingency in it', () => gradeContingency(rc => 1 - rc, ''), '4.');
 
 console.log('');
 if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — open years inflate before payments, booked as development; pricing carries two years of it; contingency is per line.');
+console.log('PASS — open years inflate before payments, booked as development; pricing carries two years of it; contingency is 5% on every line.');

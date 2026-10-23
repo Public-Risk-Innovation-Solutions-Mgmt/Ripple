@@ -19,13 +19,14 @@
 // ============================================================================
 import {
   ADMIN_BASE_YEAR, ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR, PRICING_DATA_LAG_YEARS,
+  PROFIT_AND_CONTINGENCY_OF_RATE, RESERVE_INFLATION_PRICED_YEARS,
 } from '../data/pricingParameters';
 import { bookPurePremium, lossCostTrendPerYear, type NewPurePremiumResult } from './newPurePremium';
 import { adminRatePer100For, adminTrendFactor, effectiveRiskControlIncentivePct, expenseDivisor, quoteNewRateStack } from './linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
 import { gameShocksOn } from './shockLosses';
 import { selectedClfFor } from './simulationEngine';
-import { gameHistory } from './investmentIncomeCredit';
+import { gameHistory } from './gameHistory';
 import { laeShares } from './lossExpense';
 import { blendInvestmentReturn, expectedMarketReturns } from './investmentEngine';
 import { buildAnnualStatement, COMBINED_RATIO_LABEL } from './resultsStatement';
@@ -49,6 +50,8 @@ export interface ModelWindowRow {
   ageMonths: number;
   ldf: number;
   developed: number;
+  /** The reserve inflation the year has still to pick up in the priced years (newPurePremium.reserveInflationToCome). */
+  reserveInflation: number;
   /** $M. */
   exposure: number;
   lossCostPer100: number;
@@ -65,8 +68,10 @@ export interface ModelRate {
   calendarYear: number;
   latestDataYear: number;
   window: ModelWindowRow[];
-  /** With no usable history: the starting expected loss cost the rate is struck on. */
-  noHistory: { lossCostPer100: number } | null;
+  /** With no usable history: the starting expected loss cost, the reserve inflation it carries, and the two together. */
+  noHistory: { startingPer100: number; reserveInflation: number; lossCostPer100: number } | null;
+  /** RESERVE_INFLATION_PRICED_YEARS. */
+  reserveInflationYears: number;
   averageTrendedToLatestPer100: number | null;
   bookRisk: number;
   annualTrend: number;
@@ -79,8 +84,8 @@ export interface ModelRate {
   alaePer100: number;
   ulaePer100: number;
   projectedPurePremiumPer100: number;
-  credit: number;
-  afterCreditPer100: number;
+  /** The projected pure premium at the current year's rate level: one year's trend off it (the Rate Indication's). */
+  currentLevelPurePremiumPer100: number;
   /** The parameters as set, at the base year. */
   adminFixed: number;
   adminPerExposurePer100: number;
@@ -94,6 +99,12 @@ export interface ModelRate {
   funding: { label: string; clf: number };
   riskControl: number;
   divisor: number;
+  /** The expenses as shares of the rate at Expected, self-funded, and the permissible loss ratio (the Rate Indication's). */
+  expenses: { fixedAdmin: number; perExposureAdmin: number; riskControl: number; contingency: number; total: number; permissibleLossRatio: number };
+  /** Projected pure premium / permissible loss ratio: the rate at Expected, self-funded. */
+  indicatedRatePer100: number;
+  /** The rate's rows, as the Decisions panel's Your rate: each its own, adding to ratePer100. */
+  pieces: { purePremium: number; admin: number; riskControl: number; contingency: number; reins: number };
   reinsurancePer100: number;
   ratePer100: number;
   /** $M — the exposure charged (the year's book; a played year's mean over worlds). */
@@ -124,7 +135,6 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   let quoteRisk: number | undefined;
   let quotedExposure: number;
   let chargedExposure: number;
-  let credit: number;
   let panelRatePer100: number | null = null;
   if (coming) {
     const input = fundingConsequenceInput(gs, line, decisions);
@@ -135,7 +145,6 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     quoteRisk = members.risk;
     quotedExposure = input.book.exposure;
     chargedExposure = input.book.exposure;
-    credit = input.book.investmentIncomeCredit;
   } else {
     if (!row?.rateBasis || row.newPurePremiumPer100 === undefined || row.finalRatePer100 === undefined) return null;
     d = row.decisions;
@@ -145,7 +154,6 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     // one-world year — the pre-game — on its own book after movement.
     quotedExposure = row.ratedExposure ?? row.billedExposure ?? row.activeExposure;
     chargedExposure = row.billedExposure ?? row.activeExposure;
-    credit = row.investmentIncomeCredit ?? 0;
     pp = bookPurePremium(line, yearNumber, basis, row.rateBasis.pricedExposure ?? quotedExposure, risk);
   }
   if (!pp) return null;
@@ -159,7 +167,8 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     const trendToLatest = Math.pow(annualTrend, yearsToLatest);
     return {
       accidentYear: calendarOf(gs, p.accidentYear), valuationDate, paid: p.groundUpPaid, shockPaid: p.shockPaid,
-      ageMonths: p.ageMonths, ldf: p.ldf, developed: p.developed, exposure: p.exposure, lossCostPer100: p.lossCostPer100,
+      ageMonths: p.ageMonths, ldf: p.ldf, developed: p.developed, reserveInflation: p.reserveInflation,
+      exposure: p.exposure, lossCostPer100: p.lossCostPer100,
       yearsToLatest, trendToLatest, trendedToLatestPer100: p.lossCostPer100 * trendToLatest,
       alaeRatio: pp!.alaeRatios[i],
     };
@@ -179,9 +188,21 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: d.reinsuranceOption,
     shocks,
-    investmentIncomeCredit: credit,
   });
   if (coming) panelRatePer100 = quote.finalRatePer100;
+  // At Expected, self-funded: the expense shares and the indicated rate.
+  const atExpected = quoteNewRateStack({
+    line, yearNumber,
+    members: { exposure: quotedExposure, ...(quoteRisk !== undefined ? { risk: quoteRisk } : {}) },
+    exposure: quotedExposure,
+    groundUpPurePremiumPer100: pp.purePremiumPer100,
+    clf: 1,
+    riskControlPct: effectiveRiskControlIncentivePct(d),
+    layersPlaced: placementFor(line, 'none'),
+    aggregateStopLevel: AGGREGATE_NOT_OFFERED,
+    reinsuranceOption: 'none',
+    shocks,
+  });
 
   // ⚠ HOW THE YEAR WAS BILLED. A struck year — played, or the coming one — is
   // charged the quote's rate exactly. A one-world year (the pre-game) is billed
@@ -197,10 +218,21 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     : quote.finalRatePer100 * chargedExposure * 10_000;
   const ratePer100 = oneWorld ? premium / Math.max(chargedExposure * 10_000, 1) : quote.finalRatePer100;
 
+  const rateE = atExpected.firstIndicationPer100;
+  const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(quotedExposure * 10_000, 1);
+  const rc = effectiveRiskControlIncentivePct(d);
+  const total = atExpected.adminRatePer100 / rateE + rc + PROFIT_AND_CONTINGENCY_OF_RATE;
+  const reinsurancePer100 = oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100;
+
   return {
     line, yearNumber, calendarYear: calendarOf(gs, yearNumber), latestDataYear: calendarOf(gs, latestDataYear),
     window,
-    noHistory: window.length === 0 ? { lossCostPer100: pp.lossCostPer100 - pp.catastropheLoadPer100 } : null,
+    noHistory: window.length === 0 ? {
+      startingPer100: (pp.lossCostPer100 - pp.catastropheLoadPer100) / (pp.reserveInflation ?? 1),
+      reserveInflation: pp.reserveInflation ?? 1,
+      lossCostPer100: pp.lossCostPer100 - pp.catastropheLoadPer100,
+    } : null,
+    reserveInflationYears: RESERVE_INFLATION_PRICED_YEARS,
     averageTrendedToLatestPer100: average,
     bookRisk: risk,
     annualTrend, trendYears, trendToPriced: Math.pow(annualTrend, trendYears),
@@ -208,7 +240,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     projectedLossCostPer100: pp.lossCostPer100,
     alaeShare: lae.alae, ulaeShare: lae.ulae, alaePer100: pp.alaePer100, ulaePer100: pp.ulaePer100,
     projectedPurePremiumPer100: pp.purePremiumPer100,
-    credit, afterCreditPer100: quote.creditedPurePremiumPer100,
+    currentLevelPurePremiumPer100: pp.purePremiumPer100 / annualTrend,
     adminFixed: ADMIN_FIXED_PER_YEAR[line], adminPerExposurePer100: ADMIN_PER_EXPOSURE_PER_100[line],
     adminTrend: {
       perYear: ADMIN_TREND_PER_YEAR, baseYear: calendarOf(gs, ADMIN_BASE_YEAR),
@@ -218,8 +250,17 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     adminPerExposureTrendedPer100: ADMIN_PER_EXPOSURE_PER_100[line] * adminTrendFactor(yearNumber),
     quotedExposure, adminPer100: adminRatePer100For(line, quotedExposure, yearNumber),
     funding: { label: fundingLabel(d), clf: quote.clf },
-    riskControl: effectiveRiskControlIncentivePct(d), divisor: expenseDivisor(effectiveRiskControlIncentivePct(d), line),
-    reinsurancePer100: oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100,
+    riskControl: rc, divisor: expenseDivisor(rc),
+    expenses: {
+      fixedAdmin: fixedPer100 / rateE, perExposureAdmin: (atExpected.adminRatePer100 - fixedPer100) / rateE,
+      riskControl: rc, contingency: PROFIT_AND_CONTINGENCY_OF_RATE, total, permissibleLossRatio: 1 - total,
+    },
+    indicatedRatePer100: pp.purePremiumPer100 / (1 - total),
+    pieces: {
+      purePremium: quote.retainedPurePremiumPer100 * quote.clf, admin: quote.adminRatePer100,
+      riskControl: quote.riskControlPer100, contingency: quote.contingencyPer100, reins: reinsurancePer100,
+    },
+    reinsurancePer100,
     ratePer100,
     chargedExposure,
     premium,

@@ -174,9 +174,11 @@ export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = { ...SEVERITY_TREND_P
  * ⚠ WHY 2 (scripts/probes/ri-part-probe.mts; N = 2, 3, 5 at contingency 0%,
  * 3%, 5%): priced in full, the rate charges claims' whole lifetime inflation
  * while reserves hold only what has emerged, so the ten-year combined ratio
- * fell below 100% and surplus doubled. N = 2 with WC at 3% contingency
- * (PROFIT_AND_CONTINGENCY_OF_RATE) kept WC's ten-year combined ratio and
- * surplus at today's (104.6% against 104.5%) with no 2027 drop. GL at N = 1
+ * fell below 100% and surplus doubled. N = 2 with WC at 3% contingency kept
+ * WC's ten-year combined ratio and surplus at today's (104.6% against 104.5%)
+ * with no 2027 drop — measured with the investment income credit in the rate;
+ * both have since given way to 5% profit and contingency on every line
+ * (PROFIT_AND_CONTINGENCY_OF_RATE), re-measured with it. GL at N = 1
  * came closer to today's but dropped 2027 in one scenario; N = 2 drops none.
  * Property at N = 2 matched today's exactly.
  */
@@ -495,25 +497,34 @@ export const ADMIN_TREND_PER_YEAR = 0.03;
 export const ADMIN_BASE_YEAR = 1;
 
 /**
- * PROFIT AND CONTINGENCY — a share of the rate, PER LINE. May be set to 0.
- * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor).
- * ⚠ SET TO 0 ON EVERY LINE (stable-scenarios, before Pause C2's checks), from
- * 5%: under default play with shocks off, pool surplus more than tripled over
- * ten years ($61.6M -> $194M, the twenty-scenario mean), and the pool should
- * not plan on a margin from pricing. Year-1 premium fell about 5.3%, so the
- * exposure was re-scaled with it (EXPOSURE_SCALE).
+ * PROFIT AND CONTINGENCY — 5% OF THE RATE, ON EVERY LINE, in the expense
+ * provision. THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS
+ * RATIO, where the permissible loss ratio is 100% less the total expense ratio
+ * — fixed admin, per-exposure admin, risk control and this — and the cover's
+ * price is added on top.
  *
- * ⚠ WC 3% SINCE RESERVE INFLATION (RESERVE_INFLATION_PER_YEAR). WC's long tail
- * inflates for longest after the two years pricing anticipates, so with
- * nothing more WC ran a ten-year combined ratio of 107.5% (against 104.5%
- * before inflation) and dropped 2027 in 4 scenarios. At 3% it is back at
- * 104.6%, surplus at years 5 and 10 within $3M of before, and no drop
- * (scripts/probes/ri-part-probe.mts). GL and Property need none: GL's
- * experience catches its inflation within a few years, and Property's tail is
- * short; either at 3% overshoots surplus and puts every prior-board margin on
- * the floor.
+ * ⚠ 5% ON EVERY LINE, AND NO INVESTMENT INCOME CREDIT (reserve-inflation
+ * build). Investment income does not affect the rate in any way; it flows into
+ * surplus only. The credit that took last year's return off the pure premium
+ * (INVESTMENT_INCOME_CREDIT, retired) and the per-line contingency that briefly
+ * stood beside it (WC 3%, GL 0%, Property 0%) are both gone: a pool prices for
+ * its losses and expenses with a margin for the unexpected, and leaves what
+ * its investments earn to its surplus, so the rate does not move with a year's
+ * markets and every line carries the same provision.
+ *
+ * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor): (claims x CLF
+ * + admin) / (1 - risk control - this) + the cover's price. At Expected and with
+ * no cover that is exactly the projected pure premium / the permissible loss
+ * ratio, admin being its share of that rate.
+ *
+ * HISTORY: 5% until stable-scenarios, then 0 on every line (under default play
+ * with shocks off pool surplus more than tripled over ten years, $61.6M ->
+ * $194M, and the exposure was re-scaled with the 5.3% fall in year-1 premium,
+ * EXPOSURE_SCALE — NOT re-scaled back now); then WC 3%, GL and Property 0%
+ * beside the credit, with reserve inflation; now 5% on every line again, the
+ * credit gone.
  */
-export const PROFIT_AND_CONTINGENCY_OF_RATE: PerLine<number> = { WC: 0.03, GL: 0, Property: 0 };
+export const PROFIT_AND_CONTINGENCY_OF_RATE = 0.05;
 
 /**
  * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
@@ -836,49 +847,10 @@ export const STARTING_CAPITAL: PerLine<number> = { WC: 5_000_000, GL: 10_000_000
  */
 export const PRE_GAME_INVESTMENT_RETURN = 0.03;
 
-/**
- * THE INVESTMENT INCOME CREDIT — rates credit the investment income the pool
- * earns on claim money before it pays it. The pure premium is reduced by it,
- * and nothing else: pure premium x (1 - credit). Admin and the reinsurance
- * price are never credited, and the cover's expected recovery and price are
- * read on the uncredited figure.
- *
- * THE CREDIT IS LAST YEAR'S ACTUAL RETURN on the pool's invested assets, after
- * fees — the year before the one priced: its investment income over its
- * invested assets, summed over the lines (each class's return is drawn net of
- * its fee, so the realised rate is already after fees). Before any history
- * exists it is `beforeHistory`, 3%. So a year that earned 4% credits 4% and
- * rates drop; one that earned 2% credits 2% and rates rise. The prior board's
- * pre-game pricing uses the same rule: 2021 credits 3%, and each later year the
- * return the year before it earned.
- *
- * WHY: the pool collects premium at the start of the year and pays claims over
- * years — WC's for decades — and earns on the money meanwhile. A rate that
- * ignores that income charges members for money the pool will earn on their
- * behalf. Last year's actual return is the rate the board can see when it
- * prices.
- *
- * ⚠ FLOORED AT ZERO (`floor`): after a year whose return was negative the
- * credit is 0, never a surcharge. The credit exists to pass on income the pool
- * will earn on members' money; a year that lost money on its investments says
- * nothing that should make members pay more for their claims cost, and a rate
- * that rose because markets fell would charge members for the pool's
- * investment result. Unfloored, the credit reached -7.3% on GL (a 7.3%
- * surcharge on the pure premium) in a played year on the default allocation.
- *
- * ⚠ THE SAME ON EVERY LINE FOR NOW, WHICH OVERSTATES A FAST-PAYING LINE'S
- * CREDIT AND UNDERSTATES A SLOW ONE'S. `byLine` scales it per line and is 1 on
- * every line: setting each to the line's payout length — the mean years from
- * premium to payment on its paid pattern — makes the credit duration-weighted
- * with this one change and nothing else. `enabled: false` removes it.
- */
-export const INVESTMENT_INCOME_CREDIT = {
-  enabled: true,
-  beforeHistory: 0.03,
-  // The least the credit can be, before the line's factor: 0 — never a surcharge.
-  floor: 0,
-  byLine: { WC: 1, GL: 1, Property: 1 } as PerLine<number>,
-};
+// ⚠ RETIRED: INVESTMENT_INCOME_CREDIT, which took last year's realised return
+// off the pure premium (policy-year build). INVESTMENT INCOME DOES NOT AFFECT
+// THE RATE IN ANY WAY; it flows into surplus only. See
+// PROFIT_AND_CONTINGENCY_OF_RATE for what replaced it in the rate.
 
 /**
  * ⚠ RETIRED: PRE_GAME_FUNDING_CUSHION, the prior board's fixed 14% cushion
@@ -2114,8 +2086,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'Property 1.0370. A window year valued at age k picks up only the years still to come. Later inflation is '
           + 'left to experience.', basis: 'CHOSEN',
         note: 'Priced in full (WC 1.2112, GL 1.2323, Property 1.0449) the rate charges lifetime inflation up front and '
-          + 'ten-year surplus doubles; unpriced, 2027 drops on most WC and GL scenarios. Two years, with WC at 3% '
-          + 'contingency, kept the ten-year combined ratio and surplus at their levels before inflation.',
+          + 'ten-year surplus doubles; unpriced, 2027 drops on most WC and GL scenarios. Two years kept the ten-year '
+          + 'combined ratio and surplus near their levels before inflation (measured with the investment income credit '
+          + 'and WC at 3% contingency, since replaced by 5% on every line).',
       }],
       ['Frequency trend', {
         value: perLine(FREQUENCY_TREND_PER_YEAR, 3), unit: 'per year',
@@ -2399,13 +2372,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
       }],
       ['Profit and contingency', {
-        value: perLine(PROFIT_AND_CONTINGENCY_OF_RATE, 2), unit: 'share of rate',
-        what: 'In the rate\'s divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance. Per line; may be 0.',
+        value: PROFIT_AND_CONTINGENCY_OF_RATE, unit: 'share of rate, every line',
+        what: 'In the expense provision. Rate = projected pure premium / permissible loss ratio, the permissible loss ratio '
+          + 'being 100% less the total expense ratio (fixed admin, per-exposure admin, risk control and this); the cover\'s '
+          + 'price on top. As a divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance.',
         basis: 'CHOSEN',
-        note: 'WC 3% since reserve inflation: WC\'s long tail inflates longest after the two years pricing anticipates, '
-          + 'and at 3% its ten-year combined ratio and surplus are back at their levels before inflation (104.6% against '
-          + '104.5%) with no 2027 drop. GL and Property 0. Was 0 on every line, from 5%, because the pool should not plan '
-          + 'on a margin from pricing.',
+        note: '5% on every line, with no investment income credit: investment income does not affect the rate in any way '
+          + 'and flows into surplus only. Replaces the credit (last year\'s return off the pure premium) and the per-line '
+          + 'contingency (WC 3%, GL and Property 0%) that briefly stood beside it.',
       }],
       ['Reinsurance load', {
         value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
@@ -2492,21 +2466,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'Replaces the fixed 14% cushion. A team that locks year 1 untouched funds at Expected, so year 1\'s rate '
           + 'on WC and GL may step up or down from last year\'s, depending on the scenario\'s solved margin. No '
           + 'player-facing text names it.',
-      }],
-      ['Investment income credit', {
-        value: INVESTMENT_INCOME_CREDIT.enabled
-          ? `last year's return, at least ${(INVESTMENT_INCOME_CREDIT.floor * 100).toFixed(0)}% (${(INVESTMENT_INCOME_CREDIT.beforeHistory * 100).toFixed(0)}% before any history), x ${perLine(INVESTMENT_INCOME_CREDIT.byLine, 2)}`
-          : 'off',
-        unit: 'off the pure premium',
-        what: 'Rates credit the investment income the pool earns on claim money before paying it: pure premium x (1 - credit), '
-          + 'never admin or reinsurance. The credit is last year\'s actual return on the pool\'s invested assets, after fees — '
-          + 'its investment income over its invested assets, summed over the lines — and 3% before any history. A year that '
-          + 'earned 4% credits 4% and rates drop; 2% and they rise. The prior board\'s pre-game pricing uses the same rule. '
-          + 'Floored at zero: after a year with a negative return the credit is 0, never a surcharge — a loss on the '
-          + 'pool\'s investments is not a reason to charge members more for their claims cost.',
-        basis: 'CHOSEN',
-        note: 'The same on every line for now. The per-line factor is 1 on each; set to each line\'s payout length it makes '
-          + 'the credit duration-weighted with that one change.',
       }],
       ['Pre-game investment return', {
         value: PRE_GAME_INVESTMENT_RETURN, unit: 'a year, on invested assets',

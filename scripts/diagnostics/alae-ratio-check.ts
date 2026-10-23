@@ -28,7 +28,7 @@ import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, worldInstance } from '../../src/utils/worlds';
-import { gameHistory } from '../../src/utils/investmentIncomeCredit';
+import { gameHistory } from '../../src/utils/gameHistory';
 import { alaeRatioFor } from '../../src/utils/alaeRatio';
 import { marketSeedOf } from '../../src/utils/bookUnits';
 import { deriveSubRng } from '../../src/utils/random';

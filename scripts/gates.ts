@@ -254,13 +254,6 @@ const FAST: string[] = [
   'admin-trend-check',               //  30s   admin trended 3% a year on both parts from the base year
                                      //         (2027), priced and booked alike, pre-game included;
                                      //         three controls
-  'investment-income-credit-check',  //  60s   every rate credits last year's pool return (3% before any
-                                     //         history) off its pure premium only — admin and the
-                                     //         reinsurance price untouched — and the charged rate carries
-                                     //         it; three controls
-                                     //         ⚠ THE CHECK WHOSE ABSENCE LET COMMIT 3 SHIP INERT: it had
-                                     //         wired the price signal and not the bill, and 20 games came
-                                     //         back bit-identical flag-on. Flips the flag in its own process.
   'decision-figures-check',          //   8s   the Decisions page's dollar figures are the engine's: the
                                      //         premium turned away and the new business let in match
                                      //         processYear's own movement, the risk control cost is the

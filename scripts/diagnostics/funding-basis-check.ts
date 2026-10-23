@@ -66,8 +66,6 @@ interface Row {
   totalMemberCharge: number; netIncurredLoss: number; laeIncurred: number; underwritingIncome: number;
   activeExposure: number; purePremiumPer100: number; ratePer100: number; clf: number;
   netPurePremiumPer100: number; rcIncentive: number; year: number;
-  /** The investment income credit the year's rate took off its pure premium. */
-  credit: number;
 }
 const rows: Record<string, Row[]> = { WC: [], GL: [], Property: [] };
 const cededPriced: Record<string, number[]> = { WC: [], GL: [], Property: [] };
@@ -111,7 +109,6 @@ for (let g = 0; g < GAMES; g++) {
         // parameter rather than the row keeps that assumption visible.
         rcIncentive: RISK_CONTROL_INCENTIVE_RANGE.default,
         year: y,
-        credit: (r as never as { investmentIncomeCredit?: number }).investmentIncomeCredit ?? 0,
       });
     }
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
@@ -142,7 +139,7 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   if (NEW_RATE_STACK.enabled) {
     const want = rows[l].map(r =>
       r.poolPremium / Math.max(r.netPurePremiumPer100 * r.activeExposure * 10_000, 1)
-      - r.clf / expenseDivisor(r.rcIncentive, l));
+      - r.clf / expenseDivisor(r.rcIncentive));
     // ⚠ NOT BIT-EXACT, AND THE BOUND IS THE SAME ONE new-rate-bill-check
     // states: activeExposure is stored to 2dp in $M, so a ratio built through
     // it carries about 1e-5. Measured worst 1.13e-6.
@@ -173,7 +170,7 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   // by the ceded share, which no rounding produces.
   const grossBasis = rows[l].map(r =>
     (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1))
-    / (r.clf / expenseDivisor(r.rcIncentive, l)));
+    / (r.clf / expenseDivisor(r.rcIncentive)));
   // ⚠ THE BAR IS THE IDENTITY'S OWN PRECISION, NOT 2%, SINCE STABLE-SCENARIOS
   // COMMIT 1. With routine large losses folded below every retention, the
   // ceded share of the pure premium fell to 0.4% on WC and about 2% on GL and
@@ -190,14 +187,15 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   const unnetted = AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled;
   check(NEW_RATE_STACK.enabled
     ? Math.abs(mean(grossBasis) - mean(retainedShare)) < 1e-4
-      // Under the stop the claims basis is the gross figure less only the
-      // investment income credit (INVESTMENT_INCOME_CREDIT). On the means, as
-      // before: the row's pure premium is stored to four places, which is
-      // 2e-4 of Property's on a single row.
-      && (unnetted ? Math.abs(mean(grossBasis) - mean(rows[l].map(r => 1 - r.credit))) < 1e-4
+      // Under the stop the claims basis IS the gross figure (it was the gross
+      // less the investment income credit while there was one; investment
+      // income no longer touches the rate). On the means, as before: the row's
+      // pure premium is stored to four places, which is 2e-4 of Property's on
+      // a single row.
+      && (unnetted ? Math.abs(mean(grossBasis) - 1) < 1e-4
         : Math.abs(mean(grossBasis) - 1) > 1e-3)
     : mean(gross) < 0.95,
-    unnetted ? `${l}: and under the stop it IS the gross figure less the investment income credit — nothing else nets off the claims cost`
+    unnetted ? `${l}: and under the stop it IS the gross figure — nothing nets off the claims cost`
       : `${l}: and it is NO LONGER the gross figure`,
     NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasis).toFixed(4)}, the retained share ${mean(retainedShare).toFixed(4)} (gross expected loss ${mean(gross).toFixed(4)})`
       : `gross ratio ${mean(gross).toFixed(4)}`);
@@ -219,7 +217,7 @@ for (const l of LINES) {
     // limb — the mistake that is easy to make when the loading is split
     // across limbs — fails here even though the ratio test would not notice.
     const rel = rows[l].map(r => Math.abs(r.adminExpense
-      - r.activeExposure * (adminRatePer100For(l, r.activeExposure, r.year) / expenseDivisor(r.rcIncentive, l)) * 10_000)
+      - r.activeExposure * (adminRatePer100For(l, r.activeExposure, r.year) / expenseDivisor(r.rcIncentive)) * 10_000)
       / Math.max(r.adminExpense, 1));
     // ⚠ NOT BIT-EXACT, SAME CAUSE AS SECTION 1: activeExposure is stored to
     // 2dp in $M ($5,000 on a $400M book), and the admin rate is a function of

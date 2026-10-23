@@ -30,7 +30,6 @@
 // Screens that list claims read a world's own rows and say which.
 // ============================================================================
 
-import { investmentIncomeCredit, gameHistory } from './investmentIncomeCredit';
 import { WORLD_COUNT, newLossEngineRuns } from '../data/pricingParameters';
 import { CAPITAL_ADEQUACY_THRESHOLDS } from '../data/defaultAssumptions';
 import { exposureFactor } from '../data/exposureTrend';
@@ -125,7 +124,6 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
     const struck = strikeBookRate(line, gs.poolState.lines[line], decisions.byLine[line], gs.currentYearNumber, {
       allMarketMembers: gs.poolState.allMarketMembers,
       membershipHistory: gs.poolState.membershipHistory,
-      investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gs), gs.currentYearNumber),
     }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits, gs.poolState.bookLedger), gameShocksOn(gs.setup, gs.instance));
     if (struck) out[line] = struck;
   }

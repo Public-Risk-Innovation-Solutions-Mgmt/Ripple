@@ -22,7 +22,6 @@
 // session caller a caller rather than a fork.
 // ============================================================================
 
-import { investmentIncomeCredit, gameHistory } from '../utils/investmentIncomeCredit';
 import React from 'react';
 import type {
   CoverageLine, DecisionSet, GameState, HistoricalYear, LineDecisionSet,
@@ -114,7 +113,6 @@ export function fundingConsequenceInput(
       priorRcEffectiveness: lineState.riskControlEffectiveness,
       riskControlPct: d.riskControlPct,
       groundUpPurePremiumPer100: purePremium?.purePremiumPer100,
-      investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gameState), gameState.currentYearNumber),
       newStackRiskControlPct: effectiveRiskControlIncentivePct(d),
       // S3: the panel prices off the same played triangle the engine does
       // (pricingExperienceBasis — see its header).
@@ -192,25 +190,58 @@ export function riskControlCost(gameState: GameState, line: CoverageLine, decisi
 }
 
 /**
- * THE "YOUR RATE" AND "INDICATED" COLUMNS' PIECES, per $100, built to add up to
- * the rate exactly. Your rate's pure premium is the retained pure premium times
- * the CLF — the figure the divisor loads — so it moves with the funding level;
- * the risk control & contingency row is what is left of the charged rate once
- * the other three are taken, so the four sum to the rate by construction.
- * Indicated stays at Expected: the ground-up pure premium, self-funded.
+ * THE "YOUR RATE" AND "INDICATED" COLUMNS' PIECES, per $100, each its own row:
+ * pure premium, admin, Risk Control, profit and contingency, reinsurance — and
+ * each column adds exactly to its rate.
+ *
+ *   Your rate   the retained pure premium x the CLF (it moves with the funding
+ *               level), admin, the rate's risk control loading — the cost the
+ *               Risk Control box shows at the current exposure, per $100, $0.00
+ *               while risk control is off — profit and contingency, and the
+ *               cover's price. Adds to the rate the game charges.
+ *   Indicated   at Expected, self-funded: the ground-up pure premium, admin, and
+ *               the Indicated rate's own risk control and contingency shares;
+ *               no cover. Adds to the indicated rate.
+ *
+ * Profit and contingency is what is left of the divisor's loading once risk
+ * control is taken (quoteNewRateStack), so the rows add to the rate exactly.
  */
 export function ratePieces(n: NonNullable<FundingConsequence['newStack']>) {
-  const purePremium = n.purePremiumRetained * n.clf;
-  const rcAndContingency = n.finalRatePer100 - n.reinsRatePer100 - purePremium - n.adminRatePer100;
   return {
     indicated: {
       purePremium: n.purePremiumGroundUp,
       admin: n.adminRatePer100,
-      rcAndContingency: n.firstIndicationPer100 - n.purePremiumGroundUp - n.adminRatePer100,
+      riskControl: n.indicatedRiskControlPer100,
+      contingency: n.indicatedContingencyPer100,
+      reins: 0,
       rate: n.firstIndicationPer100,
     },
-    yours: { purePremium, admin: n.adminRatePer100, rcAndContingency, reins: n.reinsRatePer100, rate: n.finalRatePer100 },
+    yours: {
+      purePremium: n.purePremiumRetained * n.clf,
+      admin: n.adminRatePer100,
+      riskControl: n.riskControlPer100,
+      contingency: n.contingencyPer100,
+      reins: n.reinsRatePer100,
+      rate: n.finalRatePer100,
+    },
   };
+}
+
+/** One column's pieces, the rows in order. */
+export type RatePieceColumn = ReturnType<typeof ratePieces>['yours'];
+export const RATE_PIECE_ROWS = ['purePremium', 'admin', 'riskControl', 'contingency', 'reins'] as const;
+
+/**
+ * A column in WHOLE CENTS that adds to its rate in whole cents: every row
+ * rounded to the cent, and profit and contingency — the remainder of the
+ * divisor's loading — takes what the rounding leaves, so the printed rows add
+ * to the printed rate exactly. Never a "-0" cent.
+ */
+export function pieceCents(c: RatePieceColumn): Record<(typeof RATE_PIECE_ROWS)[number] | 'rate', number> {
+  const cents = (v: number) => Math.round(v * 100) || 0;
+  const rate = cents(c.rate);
+  const purePremium = cents(c.purePremium), admin = cents(c.admin), riskControl = cents(c.riskControl), reins = cents(c.reins);
+  return { purePremium, admin, riskControl, contingency: rate - purePremium - admin - riskControl - reins, reins, rate };
 }
 
 export interface GameDerivations {

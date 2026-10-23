@@ -23,14 +23,23 @@
 //      forced on, the page's cost equals the engine's: strikeBookRate's quote
 //      at the slider's value gives (final rate - reinsurance) x the incentive
 //      x exposure.
-//   3. YOUR RATE. At Expected and at 50%, 70%, 80% and 90% funding, the pure
-//      premium shown is the retained pure premium x the CLF, the CLF is
-//      selectedClfFor's, and pure premium + admin + risk control &
-//      contingency + reinsurance equals the rate charged (strikeBookRate's) to
-//      1e-12. Indicated is the ground-up figure at every level.
+//   3. THE RATE PANEL, BOTH COLUMNS, EACH PIECE ITS OWN ROW. At Expected and
+//      at 50%, 70%, 80% and 90% funding: Your rate's pure premium is the
+//      retained pure premium x selectedClfFor's CLF; its admin, Risk Control,
+//      profit and contingency and reinsurance are the engine quote's
+//      (strikeBookRate's); profit and contingency is 5% of the loaded rate;
+//      the rows add to the rate the game charges to 1e-12, and in printed
+//      cents to the printed rate exactly. Indicated is the ground-up pure
+//      premium, admin, its own risk control and 5% contingency, adding to the
+//      indicated rate the same two ways. The Risk Control row is the Risk
+//      Control box's cost per $100 at the current exposure — $0.00 with
+//      RISK_CONTROL off, and with it forced on the box's dollars / (exposure x
+//      10,000).
 //
 // ⚠ IT CAN FAIL: section 4 feeds section 3's predicates the page's OLD rows —
-// the retained pure premium without the CLF — and requires them to be caught.
+// the retained pure premium without the CLF; risk control and contingency as
+// one row; a Risk Control row priced on the Indicated rate rather than the
+// box's — and requires each to be caught.
 //
 // ⚠ IT FLIPS RISK_CONTROL AT RUNTIME and restores it in a `finally`, safe only
 // because every gate runs in its own process.
@@ -43,9 +52,9 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { RISK_CONTROL } from '../../src/data/pricingParameters';
 import { lineBookRisk } from '../../src/utils/bookUnits';
 import { gameShocksOn } from '../../src/utils/shockLosses';
-import { gameHistory, investmentIncomeCredit } from '../../src/utils/investmentIncomeCredit';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
-import { fundingConsequenceInput, pricingBookFor, ratePieces, riskControlCost, underwritingFigures } from '../../src/game/derivations';
+import { fundingConsequenceInput, pieceCents, pricingBookFor, ratePieces, riskControlCost, underwritingFigures, type RatePieceColumn } from '../../src/game/derivations';
+import { PROFIT_AND_CONTINGENCY_OF_RATE } from '../../src/data/pricingParameters';
 import type { CoverageLine, DecisionSet, GameState, LineDecisionSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -78,11 +87,7 @@ function struck(gs: GameState, line: CoverageLine, d: LineDecisionSet) {
   const ps = gs.poolState;
   const s = strikeBookRate(
     line, ps.lines[line], d, gs.currentYearNumber,
-    {
-      allMarketMembers: ps.allMarketMembers, membershipHistory: ps.membershipHistory,
-      // The credit the game strikes the rate with (worlds.strikeRates): last year's realised return.
-      investmentIncomeCredit: investmentIncomeCredit(line, gameHistory(gs), gs.currentYearNumber),
-    },
+    { allMarketMembers: ps.allMarketMembers, membershipHistory: ps.membershipHistory },
     lineBookRisk(gs.instance, line, ps.bookUnits, ps.bookLedger), gameShocksOn(gs.setup, gs.instance),
   );
   if (!s) throw new Error('strikeBookRate returned null — the new loss engine and rate stack are expected on');
@@ -183,8 +188,18 @@ for (const gs of games) {
 console.log(`  ${rcChecked} line x level cases; worst departure from the engine's loading ${worstRc.toExponential(2)} dollars`);
 
 // --------------------------------------------------------------------------
-console.log('\n--- 3. YOUR RATE: PURE PREMIUM x CLF, AND THE PIECES SUM TO THE RATE CHARGED ---');
+console.log('\n--- 3. THE RATE PANEL: EACH PIECE ITS OWN ROW, EACH COLUMN ADDING TO ITS RATE ---');
 const LEVELS: Array<'expected' | number> = ['expected', 0.5, 0.7, 0.8, 0.9];
+const sumOf = (c: RatePieceColumn) => c.purePremium + c.admin + c.riskControl + c.contingency + c.reins;
+/** Predicates over one column, so section 4 can feed them broken columns. */
+const addsUp = (c: RatePieceColumn, rate: number) => Math.abs(sumOf(c) - rate) <= 1e-12;
+const centsAddUp = (c: RatePieceColumn) => {
+  const k = pieceCents(c);
+  return k.purePremium + k.admin + k.riskControl + k.contingency + k.reins === k.rate
+    && k.rate === (Math.round(c.rate * 100) || 0)
+    && Math.abs(k.contingency - Math.round(c.contingency * 100)) <= 1;
+};
+const contingencyIsFive = (c: RatePieceColumn) => Math.abs(c.contingency - (c.rate - c.reins) * PROFIT_AND_CONTINGENCY_OF_RATE) <= 1e-12;
 let rateChecked = 0, worstSum = 0;
 for (const gs of games) {
   for (const line of LINES) {
@@ -199,16 +214,27 @@ for (const gs of games) {
       const clf = selectedClfFor(line, d);
       rateChecked++;
       check(n.clf === clf, `${line} ${lvl}: panel CLF ${n.clf} vs selectedClfFor ${clf}`);
+      // Your rate: every row is the engine's, and the rate is what the game charges.
       check(p.yours.purePremium === engine.retainedPurePremiumPer100 * clf,
         `${line} ${lvl}: Your-rate pure premium ${p.yours.purePremium} vs engine retained x CLF ${engine.retainedPurePremiumPer100 * clf}`);
+      check(p.yours.admin === engine.adminRatePer100, `${line} ${lvl}: admin is not the engine's`);
+      check(p.yours.riskControl === engine.riskControlPer100, `${line} ${lvl}: Risk Control is not the engine's loading`);
+      check(p.yours.contingency === engine.contingencyPer100, `${line} ${lvl}: profit and contingency is not the engine's`);
+      check(p.yours.reins === engine.reinsRatePer100, `${line} ${lvl}: reinsurance is not the engine's`);
       check(p.yours.rate === engine.finalRatePer100, `${line} ${lvl}: rate ${p.yours.rate} vs engine ${engine.finalRatePer100}`);
-      const sum = p.yours.purePremium + p.yours.admin + p.yours.rcAndContingency + p.yours.reins;
-      worstSum = Math.max(worstSum, Math.abs(sum - engine.finalRatePer100));
-      check(Math.abs(sum - engine.finalRatePer100) <= 1e-12, `${line} ${lvl}: pieces sum ${sum} vs charged ${engine.finalRatePer100}`);
-      const isum = p.indicated.purePremium + p.indicated.admin + p.indicated.rcAndContingency;
-      check(Math.abs(isum - engine.firstIndicationPer100) <= 1e-12, `${line} ${lvl}: Indicated pieces sum ${isum} vs ${engine.firstIndicationPer100}`);
+      worstSum = Math.max(worstSum, Math.abs(sumOf(p.yours) - engine.finalRatePer100), Math.abs(sumOf(p.indicated) - engine.firstIndicationPer100));
+      check(addsUp(p.yours, engine.finalRatePer100), `${line} ${lvl}: Your-rate rows sum ${sumOf(p.yours)} vs charged ${engine.finalRatePer100}`);
+      check(centsAddUp(p.yours), `${line} ${lvl}: Your-rate rows in cents do not add to the printed rate`);
+      check(contingencyIsFive(p.yours), `${line} ${lvl}: Your-rate profit and contingency is not 5% of the loaded rate`);
+      // Risk control is off: the row is $0.00, as the box is.
+      check(p.yours.riskControl === 0 && pieceCents(p.yours).riskControl === 0, `${line} ${lvl}: Risk Control is not $0.00 with risk control off`);
+      // Indicated: at Expected, self-funded, adding to the indicated rate.
       check(p.indicated.purePremium === engine.groundUpPurePremiumPer100,
         `${line} ${lvl}: Indicated pure premium is not the ground-up figure at Expected`);
+      check(p.indicated.reins === 0, `${line} ${lvl}: Indicated carries reinsurance`);
+      check(addsUp(p.indicated, engine.firstIndicationPer100), `${line} ${lvl}: Indicated rows sum ${sumOf(p.indicated)} vs ${engine.firstIndicationPer100}`);
+      check(centsAddUp(p.indicated), `${line} ${lvl}: Indicated rows in cents do not add to the printed rate`);
+      check(contingencyIsFive(p.indicated), `${line} ${lvl}: Indicated profit and contingency is not 5%`);
       seen.push(p.yours.purePremium);
     }
     // Expected is CLF 1: Your-rate pure premium there is the retained figure itself.
@@ -216,18 +242,52 @@ for (const gs of games) {
     check(seen[1] < seen[2] && seen[2] < seen[3] && seen[3] < seen[4], `${line}: Your-rate pure premium does not rise with the funding level (${seen.join(', ')})`);
   }
 }
-console.log(`  ${rateChecked} line x level cases; worst departure of the pieces' sum from the charged rate ${worstSum.toExponential(2)}`);
+console.log(`  ${rateChecked} line x level cases; worst departure of a column's rows from its rate ${worstSum.toExponential(2)}`);
+
+// With risk control forced on: the Risk Control row is the box's cost per $100.
+let boxChecked = 0, worstBox = 0;
+const boxRow = (gs: GameState, line: CoverageLine, ds: DecisionSet, pick: (n: ReturnType<typeof panel>) => number) => {
+  const was = RISK_CONTROL.enabled;
+  try {
+    RISK_CONTROL.enabled = true;
+    const n = panel(gs, line, ds);
+    const box = riskControlCost(stateOf(gs, ds), line, ds) ?? NaN;
+    const exposure = (fundingConsequenceInput(gs, line, ds).book as { exposure: number }).exposure;
+    return { row: pick(n), box: box / (exposure * 10_000), n };
+  } finally {
+    RISK_CONTROL.enabled = was;
+  }
+};
+for (const gs of games) for (const line of LINES) for (const rc of [0.01, 0.03, 0.05]) {
+  const ds = withLine(defaultDecisionSet(1), line, { riskControlIncentivePct: rc, fundingAtExpected: false, fundingConfidenceLevel: 0.8 });
+  const { row, box, n } = boxRow(gs, line, ds, x => ratePieces(x).yours.riskControl);
+  boxChecked++;
+  worstBox = Math.max(worstBox, Math.abs(row - box));
+  check(row > 0 && Math.abs(row - box) <= 1e-12 * Math.max(1, box), `${line} rc ${rc}: Risk Control row ${row} vs the box per $100 ${box}`);
+  check(addsUp(ratePieces(n).yours, n.finalRatePer100), `${line} rc ${rc}: with risk control on, Your-rate rows do not add to the rate`);
+}
+console.log(`  risk control forced on: ${boxChecked} cases, the Risk Control row against the box per $100, worst ${worstBox.toExponential(2)}`);
 
 // --------------------------------------------------------------------------
-console.log('\n--- 4. CONTROL: THE OLD ROWS (RETAINED, NOT x CLF) MUST BE CAUGHT ---');
+console.log('\n--- 4. CONTROLS: THE BROKEN PANELS MUST BE CAUGHT ---');
 {
   const gs = games[0];
   const line: CoverageLine = 'WC';
   const ds = withLine(defaultDecisionSet(1), line, { fundingAtExpected: false, fundingConfidenceLevel: 0.9 });
   const n = panel(gs, line, ds);
-  const old = n.purePremiumRetained + n.adminRatePer100 + n.riskControlAndContingencyPer100 + n.reinsRatePer100;
-  check(Math.abs(old - n.finalRatePer100) > 1e-3, 'the old rows summed to the rate at 90% — the control cannot detect the defect');
-  console.log(`  at 90% the old rows summed to ${old.toFixed(4)} against ${n.finalRatePer100.toFixed(4)} charged: caught`);
+  const p = ratePieces(n);
+  // The old rows: the retained pure premium without the CLF.
+  const old = { ...p.yours, purePremium: n.purePremiumRetained };
+  check(!addsUp(old, n.finalRatePer100), 'control: the retained pure premium without the CLF was not caught');
+  // Risk control and contingency as one row, with the contingency row left beside it.
+  const merged = { ...p.yours, riskControl: p.yours.riskControl + p.yours.contingency + 0.01 };
+  check(!addsUp(merged, n.finalRatePer100), 'control: risk control and contingency in one row was not caught');
+  // No contingency in the rate: the 5% predicate must see it.
+  check(!contingencyIsFive({ ...p.yours, contingency: 0 }), 'control: a rate with no profit and contingency was not caught');
+  // A Risk Control row priced on the Indicated rate, not the box's.
+  const on = boxRow(gs, line, withLine(ds, line, { riskControlIncentivePct: 0.05 }), x => ratePieces(x).indicated.riskControl);
+  check(Math.abs(on.row - on.box) > 1e-6, 'control: a Risk Control row priced on the Indicated rate was not caught');
+  console.log('  four broken panels: the old pure premium, risk control and contingency merged, no contingency, Risk Control off the box');
 }
 
 console.log(`\n${checks} checks.`);
