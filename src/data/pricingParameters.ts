@@ -1583,6 +1583,32 @@ export const NEW_MEMBERS_SLIDER = { min: 0, max: 0.05, step: 0.01, default: 0 } 
 export const NON_RENEWAL_LOSS_RELIEF = 0.5;
 
 /**
+ * HOW LONG NON-RENEWAL'S IMPROVEMENT LASTS — CHOSEN, a test-build switch with
+ * three versions, so each can be run against the others. The existing book
+ * carries a quality factor Q (LinePoolState.bookQuality, 1 at the opening):
+ * its ordinary loss per unit is f(x) x Q. Each year, before the year's own
+ * non-renewal, what last year left is carried as
+ *
+ *   carried = 1 − carry x (1 − Q)       carry: oneYear 0 · decaying
+ *                                       NON_RENEWAL_DECAY · lasting 1
+ *
+ * the renewing book runs at carried x (1 − NON_RENEWAL_LOSS_RELIEF x a1), and
+ * new members join at quality 1 (plus NEW_BUSINESS_PENALTY in their first
+ * year), so at year end Q is the two blended by exposure — adding members
+ * dilutes the improvement.
+ *
+ *   oneYear   the improvement is this year's only (the first test build)
+ *   decaying  full in the year of non-renewal, then halved each year
+ *   lasting   never resets: Q compounds by (1 − 0.5 a1) a year
+ *
+ * Pricing still learns only from the experience.
+ */
+export const NON_RENEWAL_PERSISTENCE: { mode: 'oneYear' | 'decaying' | 'lasting' } = { mode: 'oneYear' };
+
+/** The share of the improvement a DECAYING book carries into the next year — CHOSEN, the brief's half. */
+export const NON_RENEWAL_DECAY = 0.5;
+
+/**
  * NEW-BUSINESS PENALTY — CHOSEN, the R model's 20%, now FLAT: the new members'
  * exposure (NEW_MEMBERS_SLIDER) costs this much more per unit than the book on
  * its ordinary losses, in its first year only. Nothing buys it down — the
@@ -2865,6 +2891,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: NON_RENEWAL_LOSS_RELIEF, unit: 'x the non-renewal share, off this year\'s loss per unit',
         what: 'How much cheaper the renewing book runs this year for what was declined: 5% non-renewed, 2.5% cheaper.',
         basis: 'CHOSEN', note: 'The brief\'s 0.5. Not in pricing\'s expected loss.',
+      }],
+      ['Non-renewal persistence', {
+        value: NON_RENEWAL_PERSISTENCE.mode === 'decaying'
+          ? `decaying — ${NON_RENEWAL_DECAY} of the improvement carried a year` : NON_RENEWAL_PERSISTENCE.mode,
+        unit: 'switch: oneYear · decaying · lasting',
+        what: 'How long non-renewal\'s improvement lasts. The existing book carries a quality Q (loss per unit = '
+          + 'f(x) x Q): one year only, halved each year, or never reset. New members join at Q = 1 and blend in '
+          + 'by exposure.',
+        basis: 'CHOSEN',
+        note: 'A test-build switch so all three versions can be run.',
       }],
       ['New members — slider', {
         value: `${(100 * NEW_MEMBERS_SLIDER.min).toFixed(0)}–${(100 * NEW_MEMBERS_SLIDER.max).toFixed(0)}%, `

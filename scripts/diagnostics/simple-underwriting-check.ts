@@ -1,5 +1,5 @@
 // ============================================================================
-// SIMPLE UNDERWRITING — THE BRIEF'S FORMULA, ONE YEAR ONLY, 100 EQUAL MEMBERS.
+// SIMPLE UNDERWRITING — THE BRIEF'S FORMULA, ITS PERSISTENCE, 100 EQUAL MEMBERS.
 //
 //   npx tsx scripts/diagnostics/simple-underwriting-check.ts
 //
@@ -12,9 +12,12 @@
 //      settings, each line's ordinary realised against the same game at 0/0 —
 //      the same streams, so the ratio IS the bracket — and ordinary expected
 //      against E x (1 − a1 + a2), the bracket kept out of it.
-//   2. ONE YEAR ONLY. The same games, sliders used in year 1 and back to 0 in
-//      year 2: year 2's ordinary actual over expected is exactly the plain
-//      draw (lossFactor 1), and the exposure stays where year 1 left it.
+//   2. PERSISTENCE, THROUGH THE ENGINE, in the version in force
+//      (NON_RENEWAL_PERSISTENCE). The same games, sliders used in year 1 and
+//      back to 0 in year 2: year 2's ordinary actual over expected is the
+//      plain draw x what the version carries of year 1's improvement —
+//      1 − carry x (1 − Q1), Q1 = [(1 − a1)(1 − 0.5 a1) + a2] / (1 − a1 + a2),
+//      the new members joining at 1 — and the exposure stays put.
 //   3. 100 EQUAL MEMBERS. The draw has UNDERWRITING_MEMBERS luck factors, the
 //      realised loss is expected x lossFactor x year factor x their mean, and
 //      over 20,000 seeds the mean luck's variance is MEMBER_LUCK_CV^2 / 100 —
@@ -22,15 +25,21 @@
 //   4. THE PRE-GAME. 2021 holds the opening book / 1.02^5, each year grows 2%,
 //      2026 holds the opening book exactly, and each year's lossFactor is
 //      (last year + 1.2 x the growth) / this year — the penalty on growth.
+//   5. ALL THREE VERSIONS, ON THE BOOK. A one-off 5% non-renewal: oneYear
+//      leaves nothing in year 2; decaying leaves 2.5%, then 1.25%, 0.625%,
+//      halving; lasting keeps 2.5% for good. Held every year with no new
+//      members, lasting compounds to 0.975^t and decaying settles at 0.951.
+//      New members at 5% a year dilute a lasting improvement by exposure.
 //
 // ⚠ AND IT FAILS WHEN BROKEN — see THE CONTROLS at the foot.
 // ============================================================================
 
 import {
   MEMBER_LEVEL, MEMBER_LUCK_CV, NEW_BUSINESS_PENALTY, NEW_MEMBERS_SLIDER, NON_RENEWAL_LOSS_RELIEF, NON_RENEWAL_SLIDER,
-  OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS, UNDERWRITING_MEMBERS,
+  NON_RENEWAL_DECAY, NON_RENEWAL_PERSISTENCE, OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS,
+  UNDERWRITING_MEMBERS,
 } from '../../src/data/pricingParameters';
-import { moveBook } from '../../src/utils/bookUnderwriting';
+import { moveBook, persistenceCarry } from '../../src/utils/bookUnderwriting';
 import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -39,6 +48,8 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
+// The share of an improvement each version carries a year — stated here, not read from the module.
+const CARRY = { oneYear: 0, decaying: 0.5, lasting: 1 } as const;
 const failed: string[] = [];
 function check(ok: boolean, label: string, detail = '') {
   if (!ok) failed.push(label);
@@ -119,7 +130,7 @@ console.log('\n--- 1b. THROUGH THE ENGINE, year 1 against 0/0 ---');
 }
 
 // --------------------------------------------------------------------------
-console.log('\n--- 2. ONE YEAR ONLY ---');
+console.log(`\n--- 2. PERSISTENCE THROUGH THE ENGINE — ${NON_RENEWAL_PERSISTENCE.mode} ---`);
 {
   let worstPlain = 0, worstExposure = 0;
   for (let g = 0; g < games.length; g++) {
@@ -128,13 +139,17 @@ console.log('\n--- 2. ONE YEAR ONLY ---');
       for (const line of LINES) {
         const n = p2.result.byLine[line]!.newLossEngine!;
         const plain = ordinaryLossFromMembers(line, 100, 2, games[g].instance.seed).factor;
-        worstPlain = Math.max(worstPlain, Math.abs(n.ordinaryRealised / (n.ordinaryExpected * (1 + n.uplift)) / plain - 1));
+        const [a1, a2] = SETTINGS[k];
+        const q1 = ((1 - a1) * (1 - NON_RENEWAL_LOSS_RELIEF * a1) + a2) / (1 - a1 + a2);
+        const carried = 1 - CARRY[NON_RENEWAL_PERSISTENCE.mode] * (1 - q1);
+        worstPlain = Math.max(worstPlain,
+          Math.abs(n.ordinaryRealised / (n.ordinaryExpected * (1 + n.uplift)) / (plain * carried) - 1));
         worstExposure = Math.max(worstExposure,
           Math.abs((p2.updatedPoolState.lines[line].bookExposure ?? 0) / (p1.updatedPoolState.lines[line].bookExposure ?? 0) - 1));
       }
     }
   }
-  check(worstPlain < 1e-9, 'year 2 at 0/0: ordinary actual over expected is the plain draw — no carry-over',
+  check(worstPlain < 1e-9, `year 2 at 0/0: actual over expected is the plain draw x what ${NON_RENEWAL_PERSISTENCE.mode} carries`,
     `worst ${worstPlain.toExponential(2)}`);
   check(worstExposure < 1e-12, 'and the book stays where year 1 left it', `worst ${worstExposure.toExponential(2)}`);
 }
@@ -183,6 +198,45 @@ console.log('\n--- 4. THE PRE-GAME ---');
   // Through the engine: the opening game's year-0 book is the opening book.
   const ex = games.map(g => LINES.map(l => (g.start.poolState.lines[l].bookExposure ?? 0) / OPENING_BOOK_EXPOSURE[l] - 1)).flat();
   check(ex.every(x => Math.abs(x) < 1e-12), 'through runPriorHistory: every game opens on the opening book');
+}
+
+// --------------------------------------------------------------------------
+console.log('\n--- 5. ALL THREE VERSIONS, ON THE BOOK ---');
+{
+  const inForce = NON_RENEWAL_PERSISTENCE.mode;
+  check(persistenceCarry() === CARRY[inForce] && NON_RENEWAL_DECAY === CARRY.decaying,
+    `the version in force (${inForce}) carries ${CARRY[inForce]}`);
+  // Ten years of moveBook on one line; the renewing book's loss per unit each year.
+  const play = (mode: keyof typeof CARRY, a1At: (t: number) => number, a2: number) => {
+    NON_RENEWAL_PERSISTENCE.mode = mode;
+    let E = OPENING_BOOK_EXPOSURE.WC, Q = 1;
+    const out: number[] = [];
+    for (let t = 1; t <= 10; t++) {
+      const m = moveBook('WC', E, { nonRenewal: a1At(t), newMembers: a2 }, false, false, t, Q);
+      out.push(m.renewingQuality);
+      E = m.after; Q = m.qualityAfter;
+    }
+    NON_RENEWAL_PERSISTENCE.mode = inForce;
+    return out;
+  };
+  const once = (t: number) => (t === 1 ? 0.05 : 0), held = () => 0.05;
+  const near = (a: number[], b: number[]) => Math.max(...a.map((x, i) => Math.abs(x - b[i])));
+  const yrs = Array.from({ length: 10 }, (_, i) => i + 1);
+  const r = NON_RENEWAL_LOSS_RELIEF * 0.05;
+  check(near(play('oneYear', once, 0), yrs.map(t => (t === 1 ? 1 - r : 1))) < 1e-12,
+    'oneYear: a one-off non-renewal is gone in year 2');
+  check(near(play('decaying', once, 0), yrs.map(t => 1 - r * 0.5 ** (t - 1))) < 1e-12,
+    'decaying: full, then half, a quarter, ... of 2.5%');
+  check(near(play('lasting', once, 0), yrs.map(() => 1 - r)) < 1e-12, 'lasting: a one-off 2.5% stays');
+  check(near(play('lasting', held, 0), yrs.map(t => (1 - r) ** t)) < 1e-12, 'lasting, held: 0.975^t',
+    `year 10 ${play('lasting', held, 0)[9].toFixed(4)}`);
+  // Year 1 ends 95% renewed at 0.975 and 5% new at 1; each later year adds 5% at 1.
+  check(near(play('lasting', once, 0.05), yrs.map(t => (t === 1 ? 1 - r : 1 - r * 0.95 / 1.05 ** (t - 2)))) < 1e-12,
+    'lasting, with 5% new members a year: the improvement dilutes by exposure, 1 / 1.05 a year');
+  // q = 0.975 x (1 − 0.5 (1 − q))  =>  q = 0.4875 / 0.5125.
+  check(near(play('decaying', held, 0).slice(-1), [0.4875 / 0.5125]) < 1e-4,
+    'decaying, held: settles at 0.4875 / 0.5125 = 0.951',
+    `year 10 ${play('decaying', held, 0)[9].toFixed(4)}`);
 }
 
 console.log(`\n${failed.length === 0 ? 'ALL OK' : `${failed.length} FAILED`}`);

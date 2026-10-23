@@ -6,17 +6,23 @@
 // moves the line's EXPOSURE, and with it this year's ordinary loss per unit:
 //
 //   NON-RENEWAL  a1 of the book at the start of the year leaves; the rest runs
-//                NON_RENEWAL_LOSS_RELIEF x a1 cheaper this year.
+//                NON_RENEWAL_LOSS_RELIEF x a1 cheaper this year — and, by
+//                NON_RENEWAL_PERSISTENCE, in later years too: the book
+//                carries a quality Q (loss per unit f(x) x Q) that new
+//                members, joining at 1, dilute.
 //   WITHDRAWAL   a Member Withdrawal in force removes R_MODEL's 25% of what
 //                renews, at the renewal after the event.
 //   NEW MEMBERS  a2 of the book at the start of the year joins; it costs
 //                1 + NEW_BUSINESS_PENALTY per unit this year.
 //
-//   lossFactor = [ renewing x (1 − 0.5 a1) + new x 1.2 ] / after
+//   carried    = 1 − carry x (1 − Q)                 (carry 0 · 0.5 · 1)
+//   lossFactor = [ renewing x carried x (1 − 0.5 a1) + new x 1.2 ] / after
+//   Q next     = [ renewing x carried x (1 − 0.5 a1) + new ] / after
 //
-// so the year's expected ordinary loss is f(x) x after x lossFactor =
-// f(x) x E x [ (1 − a1)(1 − 0.5 a1) + 1.2 a2 ] with no withdrawal. One year
-// only: next year's factor is 1 unless a slider is used again. ⚠ NOT IN
+// so with Q at 1 the year's expected ordinary loss is f(x) x after x
+// lossFactor = f(x) x E x [ (1 − a1)(1 − 0.5 a1) + 1.2 a2 ] with no
+// withdrawal. In the oneYear version carry is 0 and next year's factor is 1
+// unless a slider is used again. ⚠ NOT IN
 // PRICING'S EXPECTED LOSS — the rate learns it through the experience.
 //
 // Every setting is in pricingParameters.ts, under UNDERWRITING. The book is
@@ -33,7 +39,8 @@
 // ============================================================================
 
 import {
-  FULL_MARKET_EXPOSURE, NEW_BUSINESS_PENALTY, NEW_MEMBERS_SLIDER, NON_RENEWAL_LOSS_RELIEF, NON_RENEWAL_SLIDER,
+  FULL_MARKET_EXPOSURE, NEW_BUSINESS_PENALTY, NEW_MEMBERS_SLIDER, NON_RENEWAL_DECAY, NON_RENEWAL_LOSS_RELIEF,
+  NON_RENEWAL_PERSISTENCE, NON_RENEWAL_SLIDER,
   OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS, R_MODEL,
 } from '../data/pricingParameters';
 import type { CoverageLine } from '../types/simulation';
@@ -51,11 +58,19 @@ export interface BookMovement {
   newShare: number;
   /**
    * This year's ordinary loss per unit of `after`, over the line's cost:
-   * [renewing x (1 − relief x a1) + written x (1 + penalty)] / after. 1 with
+   * [renewing x renewingQuality + written x (1 + penalty)] / after. 1 with
    * no movement. On the year's actual ordinary losses only.
    */
   lossFactor: number;
+  /** The renewing book's loss per unit this year, over the line's cost: carried Q x (1 − relief x a1). */
+  renewingQuality: number;
+  /** The book's quality Q at year end — renewing and new blended by exposure (LinePoolState.bookQuality). */
+  qualityAfter: number;
 }
+
+/** The share of last year's improvement carried into this one (NON_RENEWAL_PERSISTENCE). */
+export const persistenceCarry = (): number =>
+  NON_RENEWAL_PERSISTENCE.mode === 'lasting' ? 1 : NON_RENEWAL_PERSISTENCE.mode === 'decaying' ? NON_RENEWAL_DECAY : 0;
 
 const clampTo = (v: number | undefined, r: { min: number; max: number }) => {
   const x = v ?? 0;
@@ -77,8 +92,8 @@ const FIRST_PRE_GAME_YEAR = 1 - PRIOR_HISTORY_YEARS;
 export const preGameBook = (line: CoverageLine, y: number): number =>
   OPENING_BOOK_EXPOSURE[line] * Math.pow(1 + PRE_GAME_BOOK_GROWTH, Math.min(0, y));
 
-const lossFactorOf = (renewing: number, relief: number, written: number, after: number) =>
-  after > 0 ? (renewing * (1 - relief) + written * (1 + NEW_BUSINESS_PENALTY)) / after : 1;
+const lossFactorOf = (renewing: number, quality: number, written: number, after: number) =>
+  after > 0 ? (renewing * quality + written * (1 + NEW_BUSINESS_PENALTY)) / after : 1;
 
 export function moveBook(
   line: CoverageLine,
@@ -87,6 +102,8 @@ export function moveBook(
   withdrawal: boolean,
   frozen: boolean,
   yearNumber: number,
+  // The book's quality Q at the start of the year (LinePoolState.bookQuality); absent is 1.
+  quality = 1,
 ): BookMovement {
   // THE PRE-GAME GROWS INTO THE OPENING BOOK (PRE_GAME_BOOK_GROWTH), its growth new exposure at the penalty.
   if (frozen && yearNumber <= 0) {
@@ -95,10 +112,13 @@ export function moveBook(
     const written = Math.max(0, after - prev);
     return {
       before: prev, renewedOff: 0, withdrawn: 0, written, after, newShare: after > 0 ? written / after : 0,
-      lossFactor: lossFactorOf(after - written, 0, written, after),
+      lossFactor: lossFactorOf(after - written, 1, written, after), renewingQuality: 1, qualityAfter: 1,
     };
   }
-  if (frozen) return { before, renewedOff: 0, withdrawn: 0, written: 0, after: before, newShare: 0, lossFactor: 1 };
+  if (frozen) {
+    return { before, renewedOff: 0, withdrawn: 0, written: 0, after: before, newShare: 0, lossFactor: 1,
+      renewingQuality: 1, qualityAfter: quality };
+  }
   const a1 = nonRenewalShare(decisions.nonRenewal);
   const renewedOff = before * a1;
   const kept = before - renewedOff;
@@ -107,9 +127,14 @@ export function moveBook(
   const room = Math.max(0, FULL_MARKET_EXPOSURE[line] - renewing);
   const written = Math.min(room, before * newMembersShare(decisions.newMembers));
   const after = renewing + written;
+  // What last year's improvement leaves this year, then this year's own on top.
+  const carried = 1 - persistenceCarry() * (1 - quality);
+  const renewingQuality = carried * (1 - NON_RENEWAL_LOSS_RELIEF * a1);
   return {
     before, renewedOff, withdrawn, written, after, newShare: after > 0 ? written / after : 0,
-    lossFactor: lossFactorOf(renewing, NON_RENEWAL_LOSS_RELIEF * a1, written, after),
+    lossFactor: lossFactorOf(renewing, renewingQuality, written, after),
+    // New members join at quality 1; their penalty is first-year only.
+    renewingQuality, qualityAfter: after > 0 ? (renewing * renewingQuality + written) / after : 1,
   };
 }
 

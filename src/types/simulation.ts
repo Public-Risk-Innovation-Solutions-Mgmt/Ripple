@@ -2285,6 +2285,13 @@ export interface LinePoolState {
    */
   bookExposure?: number;
   /**
+   * THE BOOK'S QUALITY Q — its ordinary loss per unit over the line's cost
+   * (bookUnderwriting.moveBook). Absent is 1: the opening, the pre-game, and
+   * every year of the oneYear version. NON_RENEWAL_PERSISTENCE decides how much
+   * of it a year carries. Never shown; the rate learns it through experience.
+   */
+  bookQuality?: number;
+  /**
    * YEAR 1'S QUOTED EXPOSURE (wip/shocks) — the base the shock cost factor
    * scales T claims and cover prices against (utils/shockCost). Set once when
    * the pre-game ends; absent on a save from before it, read as no exposure term.
