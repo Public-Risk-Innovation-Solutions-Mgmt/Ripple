@@ -10,15 +10,15 @@ import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
-import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
-import { occurrenceProgramCost } from '../utils/reinsuranceTower';
-import { placementFor, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
-import { bookExposureOf, bookRiskOf, type Book } from '../utils/lineHelpers';
-import { stopQuote, stopWording } from '../utils/aggregateStop';
+import { optionPrice, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
+import { bookExposureOf, bookRiskOf, isRoster, shockBaseOf, type Book } from '../utils/lineHelpers';
+import { shockCostFactor } from '../utils/shockCost';
+import { stopQuote } from '../utils/aggregateStop';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import type { FundingConsequence } from '../utils/fundingConsequence';
+import { pieceCents, ratePieces, type UnderwritingFigures } from '../game/derivations';
 import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting';
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import { REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
@@ -35,6 +35,8 @@ interface DecisionsPageProps {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
   yearNumber: number;
+  /** The program year these decisions price — the setup's first year at year 1. */
+  programYear: number;
   disabled?: boolean;
   // 'pool' hosts the two pool-wide decisions (investment allocation, risk
   // control); each coverage line's tab edits that line's own decisions.
@@ -67,6 +69,10 @@ interface DecisionsPageProps {
   book: Book;
   /** The game's shock switch (shockLosses.gameShocksOn) — the covers' prices follow it. Absent is on. */
   shocks?: boolean;
+  /** The two underwriting sliders' premiums, in dollars — derivations.ts's underwritingFigures. Null off the book path. */
+  underwriting?: UnderwritingFigures | null;
+  /** The risk control slider's cost, in dollars — derivations.ts's riskControlCost. */
+  riskControlCost?: number | null;
 }
 
 // THE FUNDING SLIDER'S LABELS: THE PERCENTAGE ALONE — "(80%)". The descriptive
@@ -90,11 +96,11 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks:
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
-    return <PoolDecisionsView decisions={decisions} onChange={onChange} yearNumber={yearNumber} disabled={disabled} />;
+    return <PoolDecisionsView decisions={decisions} onChange={onChange} programYear={programYear} disabled={disabled} />;
   }
 
   // Stage 2.7: every active line's remaining decisions are edited on its own
@@ -171,7 +177,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
     <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Year {yearNumber} Decisions — {lineDisplayName(lineView)}</h2>
+          <h2 className="text-xl font-bold text-gray-900">Decisions for Program Year {programYear} — {lineDisplayName(lineView)}</h2>
           <p className="text-gray-500 text-sm">Configure this line's strategy for the year</p>
         </div>
         {!disabled && (
@@ -181,35 +187,13 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <SectionCard title="Pricing & Funding" icon={<DollarSign size={16} />}>
-          {/* Rate Change REMOVED — CLF-only pricing. Funding Confidence Level
-              is now the sole pricing lever; the consequence panel below
-              replaces the information the deleted lever used to carry. */}
-          <FundingLevelControl
-            d={d}
-            fundingConsequence={fundingConsequence}
-            setFundingLevel={setFundingLevel}
-            setFundingAtExpected={setFundingAtExpected}
-            disabled={disabled}
-          />
-          <FundingConsequencePanel c={fundingConsequence} lastLineResult={lastLineResult} line={selectedLine} />
-          <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
-          <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
-          {/* ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS. The surplus-range line ("…
-              across 10 worlds: min · median · max" and "The figures shown are the
-              average of the worlds") came off; the range stays in the session's
-              posted results, for the host (docs/PENDING_MULTIPLAYER.md). */}
-          {selectedLoanInfo.dividendBlocked && (
-            <p className="text-xs text-red-600 -mt-3">Dividend blocked: this line carried a negative surplus in from last year.</p>
-          )}
-        </SectionCard>
-
-        {/* ⚠ ONE GRID CELL HOLDING TWO CARDS, so "Investment in Risk Control
-            Incentives" sits DIRECTLY UNDER the underwriting sliders rather than
-            wherever the grid's flow would drop it. Left as two siblings it
-            would wrap into the left column under Pricing & Funding — the right
-            number of cards in the wrong place. */}
+      {/* ⚠ LEFT: Underwriting, Risk Control, then Dividends and Assessments at
+          the foot. RIGHT: Pricing & Funding, then Reinsurance beneath it. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+        {/* ⚠ EACH COLUMN IS ONE GRID CELL holding its cards, so every card sits
+            DIRECTLY UNDER the one above it in its own column rather than wherever
+            the grid's flow would drop it. Dividends and Assessments is the left
+            column's last card, the left column's width. */}
         <div className="space-y-5">
         <SectionCard title="Growth & Underwriting" icon={<TrendingUp size={16} />}>
           {/* ⚠ THE UNDERWRITING STRICTNESS SLIDER IS DELETED. It said "Strict
@@ -245,59 +229,93 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
               {/* ONE BOOK PER LINE: the two sliders move the book's units. See
                   bookUnderwriting.ts. */}
               <UnderwritingSlider
-                label="Renewals declined"
+                label="Existing Book: Non-Renewal Assumption"
                 range={RENEWALS_DECLINED_SLIDER}
                 value={d.renewalsDeclined ?? RENEWALS_DECLINED_SLIDER.default}
                 onChange={v => set('renewalsDeclined', v)}
                 disabled={disabled}
+                result={underwriting && { testId: 'uw-non-renewed', text: 'Premium not renewed', dollars: underwriting.nonRenewedPremium }}
               />
               <UnderwritingSlider
-                label="New Business, rejection rate"
+                label="New Business: Growth Assumption"
                 range={NEW_BUSINESS_REJECTION_SLIDER}
                 value={d.newBusinessRejection ?? NEW_BUSINESS_REJECTION_SLIDER.default}
                 onChange={v => set('newBusinessRejection', v)}
                 disabled={disabled}
+                result={underwriting && { testId: 'uw-new-business', text: 'Premium from new business accepted', dollars: underwriting.newBusinessPremium }}
               />
             </>
           )}
         </SectionCard>
 
-        <SectionCard title="Investment in Risk Control Incentives" icon={<Shield size={16} />}>
-          {/* ⚠ PENDING DESIGN WHILE RISK_CONTROL IS OFF: shown so testers see it
-              is part of the game, held at 0% and disabled, labelled "coming
-              soon". The stored decision is untouched and nothing reads it. */}
+        <SectionCard title="Risk Control" icon={<Shield size={16} />}>
+          {/* ⚠ DISABLED AT 0% WHILE RISK_CONTROL IS OFF, and the cost box shows
+              $0: the engine charges nothing for it, and the box never shows a
+              cost the game does not charge (derivations.ts riskControlCost).
+              When the flag comes on it must be charged as a share of the PURE
+              PREMIUM, matching the slider's end label — see RISK_CONTROL. */}
           <RiskControlIncentives
             line={selectedLine}
             value={RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default) : 0}
             onChange={v => set('riskControlIncentivePct', v)}
             disabled={disabled || !RISK_CONTROL.enabled}
-            comingSoon={!RISK_CONTROL.enabled}
+            cost={riskControlCost}
           />
+        </SectionCard>
+
+        <SectionCard title="Dividends and Assessments" icon={<DollarSign size={16} />}>
+          <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
+          <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
+          <p data-testid="dividend-assessment-note" className="text-xs text-gray-500 -mt-3">
+            A dividend reduces the Pool&rsquo;s net position; an assessment increases it.
+          </p>
+          {/* ⚠ PLAYERS ARE NEVER TOLD ABOUT THE WORLDS. The surplus-range line ("…
+              across 10 worlds: min · median · max" and "The figures shown are the
+              average of the worlds") came off; the range stays in the session's
+              posted results, for the host (docs/PENDING_MULTIPLAYER.md). */}
+          {selectedLoanInfo.dividendBlocked && (
+            <p className="text-xs text-red-600 -mt-3">Dividend blocked: this line carried a negative surplus in from last year.</p>
+          )}
         </SectionCard>
         </div>
 
-        {outstandingLoanSlider(d, set, selectedLoanInfo, disabled)}
-
-        <SectionCard title="Reinsurance Program" icon={<Shield size={16} />}>
-          {/* REINSURANCE_PROGRAMS RETIRED. Every CoverageLine runs the
-              per-occurrence tower now — hasTractableCeded(selectedLine) is
-              exhaustively true — so the percentage-of-premium branch that used
-              to render here is gone rather than kept dead. hasTractableCeded
-              stays imported and checked (thrown on else) so a future line
-              without one fails loudly here instead of rendering nothing. */}
-          {hasTractableCeded(selectedLine) ? (
-            <PackageControls
-              line={selectedLine}
+        <div className="space-y-5">
+          <SectionCard title="Pricing & Funding" icon={<DollarSign size={16} />}>
+            {/* Rate Change REMOVED — CLF-only pricing. Funding Confidence Level
+                is now the sole pricing lever; the consequence panel below
+                replaces the information the deleted lever used to carry. */}
+            <FundingLevelControl
               d={d}
-              setMany={setMany}
+              fundingConsequence={fundingConsequence}
+              setFundingLevel={setFundingLevel}
+              setFundingAtExpected={setFundingAtExpected}
               disabled={disabled}
-              book={book}
-              yearNumber={yearNumber}
-              shocks={shocks}
             />
-          ) : (() => { throw new Error(`DecisionsPage: ${selectedLine} has no tractable ceded reinsurance`); })()}
-        </SectionCard>
+            <FundingConsequencePanel c={fundingConsequence} lastLineResult={lastLineResult} line={selectedLine} />
+          </SectionCard>
 
+          <SectionCard title="Reinsurance Program" icon={<Shield size={16} />}>
+            {/* REINSURANCE_PROGRAMS RETIRED. Every CoverageLine runs the
+                per-occurrence tower now — hasTractableCeded(selectedLine) is
+                exhaustively true — so the percentage-of-premium branch that used
+                to render here is gone rather than kept dead. hasTractableCeded
+                stays imported and checked (thrown on else) so a future line
+                without one fails loudly here instead of rendering nothing. */}
+            {hasTractableCeded(selectedLine) ? (
+              <PackageControls
+                line={selectedLine}
+                d={d}
+                setMany={setMany}
+                disabled={disabled}
+                book={book}
+                yearNumber={yearNumber}
+                shocks={shocks}
+              />
+            ) : (() => { throw new Error(`DecisionsPage: ${selectedLine} has no tractable ceded reinsurance`); })()}
+          </SectionCard>
+
+          {outstandingLoanSlider(d, set, selectedLoanInfo, disabled)}
+        </div>
       </div>
     </div>
   );
@@ -306,10 +324,10 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
 // Pool tab: the two pool-wide decisions. Portfolios remain segregated per
 // line (Stage 2.9) — every line applies this one allocation policy to its own
 // invested assets, and the one risk-control intensity to its own premium.
-function PoolDecisionsView({ decisions, onChange, yearNumber, disabled }: {
+function PoolDecisionsView({ decisions, onChange, programYear, disabled }: {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
-  yearNumber: number;
+  programYear: number;
   disabled: boolean;
 }) {
   // ⚠ RESET DOES NOT CANCEL A PROGRAM, AND THAT IS DELIBERATE. This button
@@ -328,7 +346,7 @@ function PoolDecisionsView({ decisions, onChange, yearNumber, disabled }: {
     <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Year {yearNumber} Decisions — Pool</h2>
+          <h2 className="text-xl font-bold text-gray-900">Decisions for Program Year {programYear} — Pool</h2>
           <p className="text-gray-500 text-sm">Pool-wide policies applied by every line to its own base</p>
         </div>
         {!disabled && (
@@ -546,7 +564,8 @@ function NewRatePanel({ n, prior }: {
   n: NonNullable<FundingConsequence['newStack']>;
   prior?: LineResultSet;
 }) {
-  const d2 = (v: number) => `$${v.toFixed(2)}`;
+  // A whole number of cents, as printed.
+  const c2 = (cents: number) => `$${(cents / 100).toFixed(2)}`;
   // ⚠ THE CHANGE IS THE FIGURE; LAST YEAR'S RATE IS THE FOOTNOTE TO IT. A rate
   // on its own asks the reader to do the subtraction, and the subtraction is
   // the only part they actually want — "my rate went up 7%" is the sentence,
@@ -581,12 +600,19 @@ function NewRatePanel({ n, prior }: {
     );
   };
 
-  const rows: Array<[string, string, string]> = [
-    ['Pure premium', d2(n.purePremiumGroundUp), d2(n.purePremiumRetained)],
-    ['+ Admin', d2(n.adminRatePer100), d2(n.adminRatePer100)],
-    ['+ Risk control & contingency',
-      d2(n.firstIndicationPer100 - n.purePremiumGroundUp - n.adminRatePer100),
-      d2(n.riskControlAndContingencyPer100)],
+  // ⚠ EACH PIECE ITS OWN ROW, AND EACH COLUMN ADDS TO ITS RATE EXACTLY — in
+  // whole cents as printed (pieceCents: profit and contingency takes the
+  // rounding). Your rate's pure premium is the retained figure x the CLF, so it
+  // moves with the funding level; its Risk Control is the Risk Control box's
+  // cost per $100 ($0.00 while risk control is off). Indicated stays at
+  // Expected, self-funded. See ratePieces.
+  const pieces = ratePieces(n);
+  const ind = pieceCents(pieces.indicated), yours = pieceCents(pieces.yours);
+  const rows: Array<[string, string, string, string]> = [
+    ['Pure premium', 'pure-premium', c2(ind.purePremium), c2(yours.purePremium)],
+    ['+ Admin', 'admin', c2(ind.admin), c2(yours.admin)],
+    ['+ Risk Control', 'risk-control', c2(ind.riskControl), c2(yours.riskControl)],
+    ['+ Profit & contingency', 'contingency', c2(ind.contingency), c2(yours.contingency)],
   ];
 
   return (
@@ -600,23 +626,23 @@ function NewRatePanel({ n, prior }: {
           </tr>
         </thead>
         <tbody>
-          {rows.map(([label, a, b]) => (
+          {rows.map(([label, id, a, b]) => (
             <tr key={label} className="border-t border-gray-200/70">
               <td className="py-1 text-gray-600">{label}</td>
-              <td className="py-1 text-right tabular-nums">{a}</td>
-              <td className="py-1 text-right tabular-nums">{b}</td>
+              <td data-testid={`new-rate-indicated-${id}`} className="py-1 text-right tabular-nums">{a}</td>
+              <td data-testid={`new-rate-yours-${id}`} className="py-1 text-right tabular-nums">{b}</td>
             </tr>
           ))}
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">+ Reinsurance</td>
             <td className="py-1 text-right text-gray-400">—</td>
-            <td className="py-1 text-right tabular-nums">{d2(n.reinsRatePer100)}</td>
+            <td data-testid="new-rate-yours-reins" className="py-1 text-right tabular-nums">{c2(yours.reins)}</td>
           </tr>
           <tr className="border-t border-gray-300 font-medium">
             <td className="py-1">= Rate</td>
-            <td data-testid="new-rate-indicated" className="py-1 text-right tabular-nums">{d2(n.firstIndicationPer100)}</td>
+            <td data-testid="new-rate-indicated" className="py-1 text-right tabular-nums">{c2(ind.rate)}</td>
             {/* data-value: the full figure, for the rate-indication driver; the text is unchanged. */}
-            <td data-testid="new-rate-final" data-value={n.finalRatePer100} className="py-1 text-right tabular-nums">{d2(n.finalRatePer100)}</td>
+            <td data-testid="new-rate-final" data-value={n.finalRatePer100} className="py-1 text-right tabular-nums">{c2(yours.rate)}</td>
           </tr>
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">vs last year</td>
@@ -839,12 +865,14 @@ function PropertyNoSignalNote() {
 // ⚠ PLAYERS SEE EACH SLIDER'S NAME AND VALUE ONLY — no help text, no end
 // labels, no forecast. The ranges, steps and defaults are the parameters
 // file's (RENEWALS_DECLINED_SLIDER, NEW_BUSINESS_REJECTION_SLIDER).
-function UnderwritingSlider({ label, range, value, onChange, disabled }: {
+function UnderwritingSlider({ label, range, value, onChange, disabled, result }: {
   label: string;
   range: { min: number; max: number; step: number };
   value: number;
   onChange: (v: number) => void;
   disabled?: boolean;
+  /** The premium this setting moves, in dollars — beneath the slider. Absent shows no line. */
+  result?: { testId: string; text: string; dollars: number } | null;
 }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
@@ -858,6 +886,11 @@ function UnderwritingSlider({ label, range, value, onChange, disabled }: {
         formatValue={v => `${(v * 100).toFixed(0)}%`}
         disabled={disabled}
       />
+      {result && (
+        <p className="text-xs text-gray-600">
+          {result.text}: <span data-testid={result.testId} data-value={result.dollars} className="font-semibold text-gray-800 tabular-nums">{formatCurrency(result.dollars)}</span>
+        </p>
+      )}
     </div>
   );
 }
@@ -927,17 +960,19 @@ const RISK_CONTROL_PROGRAM_NAME: Record<CoverageLine, string> = {
   Property: 'Mitigation',
 };
 
-function RiskControlIncentives({ line, value, onChange, disabled }: {
+function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
   line: CoverageLine;
   value: number;
   onChange: (v: number) => void;
   disabled: boolean;
-  /** RISK_CONTROL off: the slider is shown at 0%, disabled, as coming soon. */
-  comingSoon?: boolean;
+  /** What the setting costs at the line's current exposure, in dollars — $0 while RISK_CONTROL is off. Absent shows no box. */
+  cost?: number | null;
 }) {
   const r = SLIDER_RANGES.riskControlIncentivePct;
   return (
     <div className="space-y-3">
+      {/* The program is the label; the value reads as an approximate share of
+          pure premium, the right end as the most of the pure premium it can spend. */}
       <SliderInput
         label={RISK_CONTROL_PROGRAM_NAME[line]}
         value={value}
@@ -945,17 +980,19 @@ function RiskControlIncentives({ line, value, onChange, disabled }: {
         max={r.max}
         step={r.step}
         onChange={onChange}
-        formatValue={v => `${Math.round(v * 100)}% of premium`}
+        formatValue={v => `~${Number((v * 100).toFixed(1))}% of pure premium`}
         leftLabel="None"
-        rightLabel={`${Math.round(r.max * 100)}% of premium`}
+        rightLabel={`${Number((r.max * 100).toFixed(1))}% of Pure Premium`}
         valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
         disabled={disabled}
         helpText={`How much of ${lineDisplayName(line)}'s premium is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}.`}
       />
-      {/* ⚠ NO NOTES UNDER THE SLIDER (UI tidy). Both stood here — "The spend
-          comes out of this line's premium…" and the "Coming soon — risk control
-          is being redesigned…" box — and came off; the slider stays, disabled
-          at 0% while RISK_CONTROL is off. */}
+      {cost !== null && cost !== undefined && (
+        <div className="rounded-lg bg-gray-100 border border-gray-200 px-3 py-2 text-xs text-gray-600">
+          Cost at current exposure:{' '}
+          <span data-testid="risk-control-cost" data-value={cost} className="font-semibold text-gray-800 tabular-nums">{formatCurrency(cost)}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1049,8 +1086,8 @@ function PackageControls(props: {
 // ============================================================================
 // THE AGGREGATE STOP — ONE CHOICE PER LINE (stable-scenarios commit 6).
 //
-// ⚠ EACH OPTION'S NAME, WHAT IT COVERS IN ONE SENTENCE, AND ITS PRICE — NEVER
-// its expected recovery or how it was priced (docs/PENDING_MULTIPLAYER.md).
+// ⚠ EACH OPTION'S NAME AND ITS PRICE ONLY — no description of what it covers,
+// and never its expected recovery or how it was priced (docs/PENDING_MULTIPLAYER.md).
 // The price is the engine's own quote (aggregateStop.stopQuote) on the line's
 // book and year, so the panel cannot show a figure the engine does not charge.
 // ============================================================================
@@ -1088,10 +1125,8 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
                 chosen ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'
               } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
-              <span>
-                <span className={chosen ? 'font-semibold' : ''}>{o.name}</span>
-                <span className="block text-xs text-gray-500">{stopWording(o.id)}</span>
-              </span>
+              {/* ⚠ NAME AND PRICE ONLY: no description of what the cover answers. */}
+              <span className={chosen ? 'font-semibold' : ''}>{o.name}</span>
               <span className="text-xs text-gray-600 whitespace-nowrap">{formatCurrency(price)}/yr</span>
             </button>
           );
@@ -1101,34 +1136,31 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
   );
 }
 
-// The per-claim packages, dormant behind AGGREGATE_STOP.
-function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber }: {
+// THE T COVERS (wip/shocks) — per occurrence, on the single T claim, from
+// REINSURANCE_OPTIONS. ⚠ EACH OPTION'S NAME AND ITS FIXED PRICE ONLY
+// (REINSURANCE_PRICE, via optionPrice — the price the engine charges), never a
+// description, its expected recovery or how it was priced. While the game's
+// shocks are off only None is offered (reinsuranceOptionIds).
+function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
   line: CoverageLine;
   d: LineDecisionSet;
   setMany: (patch: Partial<LineDecisionSet>) => void;
   disabled: boolean;
   book: Book;
   yearNumber: number;
+  shocks: boolean;
 }) {
-  const quotes = reinsuranceOptionsFor(line).map(o => ({
-    o, q: occurrenceProgramCost(line as TowerLine, placementFor(line, o.id), book, yearNumber),
-  }));
-  const perilDeductibles = line === 'Property' ? Object.entries(PROPERTY_PERIL_DEDUCTIBLE) : [];
+  const offered = reinsuranceOptionIds(line, shocks);
+  const options = reinsuranceOptionsFor(line).filter(o => offered.includes(o.id));
+  // This year's price: the table's, grown by the line's trend and the book (utils/shockCost).
+  const factor = shockCostFactor(line, yearNumber, isRoster(book) ? undefined : bookExposureOf(book, line, yearNumber), shockBaseOf(book));
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-600 leading-relaxed">
-        Choose <strong>one package</strong> for this line. Each covers every occurrence above its attachment
-        up to its limit.
+        Choose <strong>one cover</strong> for this line.
       </p>
-      {perilDeductibles.length > 0 && (
-        <p className="text-xs text-gray-600 leading-relaxed" data-testid="reins-peril-deductibles">
-          {perilDeductibles.map(([peril, ded]) =>
-            `${peril.charAt(0).toUpperCase()}${peril.slice(1)} carries its own $${ded / 1e6}M retention per occurrence: `
-            + 'a package attaching below it answers that peril from there up.').join(' ')}
-        </p>
-      )}
       <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
-        {quotes.map(({ o, q }) => {
+        {options.map(o => {
           const chosen = d.reinsuranceOption === o.id;
           return (
             <button
@@ -1141,19 +1173,12 @@ function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumbe
                 chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
               } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
-              <span>{o.id === 'none' ? 'None — retain every loss' : o.id}</span>
-              <span className="text-xs text-gray-600">
-                {/* ⚠ THE PRICE ONLY — never the expected recovery or how it was priced. */}
-                {o.id === 'none' ? '$0/yr' : `${formatCurrency(q.premium)}/yr`}
-              </span>
+              <span>{o.id === 'none' ? 'None' : o.id}</span>
+              <span className="text-xs text-gray-600">{`${formatCurrency(optionPrice(line, o.id, factor))}/yr`}</span>
             </button>
           );
         })}
       </div>
-      {/* ⚠ PRICE ONLY (UI tidy). The note that aggregate cover is not offered and
-          the Package / Reinsurance Cost / Retained Above Package block came off:
-          players see each option's price, never its expected recovery or how it
-          was priced (docs/PENDING_MULTIPLAYER.md). */}
     </div>
   );
 }

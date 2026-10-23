@@ -24,17 +24,16 @@ interface HeaderProps {
   /** The view on screen — the combined ratio is the pool's or that line's. Defaults to the pool. */
   lineView?: LineView;
   /**
-   * A HOSTED GAME'S MARKET SHARE: the team's share of the ROOM, from the
-   * room's stored set (CallerView.marketShare) — its line's on a line view,
-   * its premium share on the pool view. Passed only by a session screen; null
-   * there means the room has no set for this team yet, and the chip is left
-   * out. Absent (single player) keeps the share of the full market.
+   * A HOSTED GAME'S MARKET SHARE: the team's share of the ROOM for the latest
+   * known year (CallerView.marketShare) — its line's on a line view, its
+   * premium share on the pool view. Passed only by a session screen; null
+   * there means the room holds no share for this team (an older handler sends
+   * none), and the chip is left out. Absent (single player): no chip.
    */
   roomMarketShare?: TeamMarketShare | null;
 }
 
 export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool', roomMarketShare }: HeaderProps) {
-  const lastResult = gameState?.lockedResults?.[gameState.lockedResults.length - 1];
 
   // ============================================================================
   // THE COMBINED RATIO, CUMULATIVE SINCE GAME START, READ OFF THE ANNUAL STATEMENT.
@@ -68,24 +67,28 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   // ============================================================================
   const surplus = (statement ? topSurplus(statement) : undefined) ?? 0;
   // ============================================================================
-  // THE MARKET SHARE FOLLOWS THE VIEW, LIKE THE SURPLUS: a line's own
-  // exposure share on its view, read off the latest year there is — the last
-  // pre-game year before year 1, the last played year after — the same result
-  // the Calculation Audit's Market Share opens on. ⚠ NONE ON THE POOL VIEW:
-  // the three lines' markets are not comparable (WC and GL payroll, Property
-  // TIV), so the chip is left out rather than showing a blend of them.
+  // THE MARKET SHARE IS THE TEAM'S SHARE OF THE ROOM, AND ONLY IN A HOSTED GAME.
+  // Its exposure over every team's in the room on a line view, its premium over
+  // the room's on the pool view, for the latest known year — the room's own
+  // figure for this team (CallerView.marketShare), worked out where the room
+  // is kept so every screen in it reads the same number. ⚠ SINGLE PLAYER HAS NO
+  // CHIP: there is no room to share, and the share of the whole market of
+  // potential members (which a hosted team used to see as ~30% in a room of
+  // eight) is not a share of anything the player competes for.
   // ============================================================================
-  const latestResult = lastResult ?? gameState?.priorHistory?.at(-1);
-  const fullMarketShare = lineView === 'pool' ? undefined : latestResult?.byLine[lineView]?.marketShare;
-  const marketShare = roomMarketShare === undefined
-    ? fullMarketShare
-    : (lineView === 'pool' ? roomMarketShare?.pool : roomMarketShare?.byLine[lineView]) ?? undefined;
-  const poolName = gameState?.setup?.poolName ?? 'Risk Pool';
+  const marketShare = roomMarketShare
+    ? (lineView === 'pool' ? roomMarketShare.pool : roomMarketShare.byLine[lineView])
+    : undefined;
+  const poolName = gameState?.setup?.poolName ?? 'Ripple Public Entity Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';
   const yearNumber = gameState?.currentYearNumber ?? 1;
-  const calendarYear = gameState
-    ? gameState.setup.startingYear + gameState.currentYearNumber - 1
-    : '—';
+  // ⚠ TWO YEARS, NAMED APART. The board sets next year's rates during the year
+  // in progress: the PROGRAM YEAR is the one being priced (the setup's first
+  // year, 2027, at year 1), and the CURRENT year — this chip — is the year
+  // before it (2026 at the start, 2027 after the first played year). The lock
+  // button names the program year.
+  const programYear = gameState ? gameState.setup.startingYear + gameState.currentYearNumber - 1 : undefined;
+  const calendarYear = programYear !== undefined ? programYear - 1 : '—';
   const isStarted = gameState?.isStarted ?? false;
   const isComplete = gameState?.isComplete ?? false;
 
@@ -113,7 +116,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
           {isStarted && (
             <div className="flex items-center gap-3 flex-wrap">
               <Chip label="Year" value={`${yearNumber}`} />
-              <Chip label="Calendar" value={`${calendarYear}`} />
+              <Chip label="Calendar" value={`${calendarYear}`} testId="header-calendar" />
               <Chip label="Scenario" value={instanceId} mono />
               <Chip
                 label="Surplus"
@@ -163,7 +166,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
                 disabled={!canAdvance}
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold transition-colors"
               >
-                {advanceLabel ?? `Lock Year ${yearNumber}`}
+                {advanceLabel ?? `Lock Program Year ${programYear}`}
                 <ChevronRight size={14} />
               </button>
             )}

@@ -33,6 +33,7 @@
 // ============================================================================
 
 import { useState } from 'react';
+import { latestKnownRoomYear } from '../../utils/knownYears';
 import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -63,12 +64,11 @@ type RowState =
 function rowState(team: TeamView, view: LineView, reportingYear: number): RowState {
   if (view !== 'pool' && !team.lines.includes(view)) return { kind: 'absent' };
 
-  // ⚠ YEAR 0 IS NOT A COMPLETED YEAR, AND THIS TABLE IS ABOUT COMPLETED YEARS.
-  // The opening position is posted the moment a team builds its game, so a
-  // lookup for "the last completed year" before the first advance would find it
-  // and fill five columns under a heading that says no year is completed. The
-  // charts want that point; this table does not.
-  if (reportingYear < 1) return { kind: 'pending' };
+  // ⚠ YEAR 0 COUNTS ONCE IT IS KNOWN. Results run one year behind
+  // (utils/knownYears): the first advance completes 2026, the opening, and it is
+  // then the latest known year — the table shows it rather than nothing. Before
+  // that advance nothing is known, though the opening is already posted.
+  if (reportingYear < 0) return { kind: 'pending' };
 
   // ⚠ THE EXACT YEAR, NOT "THE LATEST ONE, IF IT HAPPENS TO BE THIS YEAR". The
   // room keeps every year now, so this asks for the year the table is showing
@@ -100,7 +100,9 @@ export default function HostTeamsTab({ room }: Props) {
   const linesInPlay = LINE_ORDER.filter(l => room.teams.some(t => t.lines.includes(l)));
   const effectiveView: LineView = view !== 'pool' && !linesInPlay.includes(view) ? 'pool' : view;
 
-  const reportingYear = room.currentYear - 1;
+  // The latest known year (utils/knownYears): results run a year behind the
+  // last year played, until the event is over and the final year shows.
+  const reportingYear = Math.min(latestKnownRoomYear(room), room.currentYear - 1);
   const teams = room.teams;
 
   if (teams.length === 0) {
@@ -136,9 +138,9 @@ export default function HostTeamsTab({ room }: Props) {
               : `Market share: year ${room.marketShares.year}`}
           </p>
           <p data-testid="teams-year" className="text-xs text-slate-400">
-            {reportingYear < 1
-              ? 'No year completed yet'
-              : `Year ${reportingYear} — the last completed year`}
+            {reportingYear < 0
+              ? 'No results known yet'
+              : `${room.startingYear + reportingYear - 1} — the latest known year`}
           </p>
         </div>
 
@@ -189,7 +191,7 @@ export default function HostTeamsTab({ room }: Props) {
 
                   {state.kind === 'pending' && (
                     <td colSpan={6} data-testid={`pending-${t.name}`} className="px-5 py-2.5 text-xs text-amber-600">
-                      {reportingYear < 1 ? 'no year played yet' : `year ${reportingYear} not reported yet`}
+                      {reportingYear < 0 ? 'no results known yet' : `${room.startingYear + reportingYear - 1} not reported yet`}
                     </td>
                   )}
 

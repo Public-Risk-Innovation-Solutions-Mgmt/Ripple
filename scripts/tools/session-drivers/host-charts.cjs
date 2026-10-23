@@ -1,4 +1,9 @@
 // The Charts tab: three metrics over time, three states, and the palette rule.
+// ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): with the room in year N the
+// charts show posts through year N - 2 — none before the first advance, the
+// opening after it — and every year once the event is over. Each expectation
+// below is the count AT that latest known year; the records themselves still
+// hold every post, and the record checks read them as before.
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
@@ -98,11 +103,10 @@ const activeView = page => page.$$eval('nav button', bs =>
   await host.waitForTimeout(900);
   await pickView(host, 'Pool');
 
-  const axis0 = await axisYears(host, 'surplus');
-  ok(axis0.join(',') === '0,1,2,3,4,5,6',
-     `the axis is the whole game from setup, not the part played so far (${axis0.join(',')})`);
+  // ⚠ NOTHING IS KNOWN YET: the opening is the year in progress (2026), and a
+  // year's results first show at the advance after it. The record has it.
   const opening = await marks(host, 'surplus', COLORS['Harbour Mutual']);
-  ok(opening.length === 1, `a team that has played nothing still has its opening point (${opening.length})`);
+  ok(opening.length === 0, `before the first advance no point is drawn — the opening is not yet known (${opening.length})`);
   const rec0 = await host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
   const h0 = rec0.teams.find(t => t.name === 'Harbour Mutual').resultsByYear['0'];
   // ⚠ EXPOSURE, NOT A MEMBER COUNT. TeamYearFigures.activeMembers became
@@ -138,7 +142,7 @@ const activeView = page => page.$$eval('nav button', bs =>
   for (let year = 1; year <= 3; year++) {
     const live = year === 1 ? players : [harbour, cedar];
     for (const p of live) {
-      await p.getByRole('button', { name: /Lock Year/ }).first().click();
+      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]');
@@ -218,7 +222,7 @@ const activeView = page => page.$$eval('nav button', bs =>
 
   const devMarks = await marks(host, 'developed', COLORS['Harbour Mutual']);
   const bookMarks = await marks(host, 'losses', COLORS['Harbour Mutual']);
-  ok(devMarks.length === bookMarks.length && devMarks.length === 4,
+  ok(devMarks.length === bookMarks.length && devMarks.length === 3,
      `the developed chart covers the same accident years (${devMarks.length})`);
   // ⚠ AND THE DRAWN POINTS FOLLOW THE FIGURES BACK UP. This asserted the
   // points sat ON each other — correct while nothing developed, and it had
@@ -243,7 +247,7 @@ const activeView = page => page.$$eval('nav button', bs =>
   // ---- REPORTED, PENDING, and the line that must not fall to zero ------
   const hs = await marks(host, 'surplus', COLORS['Harbour Mutual']);
   const ts = await marks(host, 'surplus', COLORS['Tri-County']);
-  ok(hs.length === 4, `a team that reported every year has a point per year, plus the opening (${hs.length})`);
+  ok(hs.length === 3, `a team that reported every year has a point per KNOWN year, plus the opening (${hs.length})`);
   ok(ts.length === 2, `a team that stopped after year 1 has the opening and year 1, and nothing after (${ts.length})`);
   const axis3 = await axisYears(host, 'surplus');
   ok(axis3.join(',') === '0,1,2,3,4,5,6',
@@ -287,28 +291,30 @@ const activeView = page => page.$$eval('nav button', bs =>
   const hGLdev = await marks(host, 'developed', COLORS['Harbour Mutual']);
   ok(hGLdev.length > 0, 'the developed chart carries the same team identically — a line there too');
   const cGLdev = await marks(host, 'developed', COLORS['Cedar Valley']);
-  ok(cGLdev.length === 4, `and the GL team has its own line's developed column (${cGLdev.length})`);
+  ok(cGLdev.length === 3, `and the GL team has its own line's developed column (${cGLdev.length})`);
   const cGL = await marks(host, 'surplus', COLORS['Cedar Valley']);
-  ok(cGL.length === 4, `the GL team keeps opening plus three years on its own line view (${cGL.length})`);
+  ok(cGL.length === 3, `the GL team keeps opening plus its two known years on its own line view (${cGL.length})`);
 
   // ---- colour follows the entity, not its rank ------------------------
   await pickView(host, 'Pool');
   const cPool = await marks(host, 'surplus', COLORS['Cedar Valley']);
-  ok(cPool.length === 4, 'switching the view back does not repaint the survivors — same hue, same team');
+  ok(cPool.length === 3, 'switching the view back does not repaint the survivors — same hue, same team');
 
   // ---- the numbers on the chart are the numbers in the record ---------
   const box = await host.$eval('[data-testid="chart-surplus"]', e => {
     const b = e.getBoundingClientRect();
     return { x: b.x, y: b.y, w: b.width, h: b.height };
   });
-  const x3 = await axisXFor(host, 'surplus', 3);
-  await host.mouse.move(box.x + box.w * (x3 / 760), box.y + box.h * 0.5);
+  // The latest known year, 2: year 3 is posted but not yet shown.
+  const h2 = rec.teams.find(t => t.name === 'Harbour Mutual').resultsByYear['2'];
+  const x2 = await axisXFor(host, 'surplus', 2);
+  await host.mouse.move(box.x + box.w * (x2 / 760), box.y + box.h * 0.5);
   await host.waitForTimeout(300);
   const tip = (await host.textContent('.pointer-events-none')) || '';
   const fmt = v => Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${(v / 1e3).toFixed(1)}K`;
-  ok(/Year 3/.test(tip), `the hover reads the year off the axis: "${tip.slice(0, 40)}"`);
-  ok(tip.includes(fmt(h3.pool.endingSurplus)),
-     `and the surplus it shows is the posted one (${fmt(h3.pool.endingSurplus)})`);
+  ok(/Year 2/.test(tip), `the hover reads the year off the axis: "${tip.slice(0, 40)}"`);
+  ok(tip.includes(fmt(h2.pool.endingSurplus)),
+     `and the surplus it shows is the posted one (${fmt(h2.pool.endingSurplus)})`);
 
   // ---- a year missing in the MIDDLE breaks the line ---------------------
   // Injected, because the product cannot produce one: a reopened tab replays and
@@ -317,7 +323,7 @@ const activeView = page => page.$$eval('nav button', bs =>
   await host.evaluate(c => {
     const k = 'ripple.session.v1.room.' + c;
     const r = JSON.parse(localStorage.getItem(k));
-    delete r.teams.find(t => t.name === 'Harbour Mutual').resultsByYear['2'];
+    delete r.teams.find(t => t.name === 'Harbour Mutual').resultsByYear['1'];
     localStorage.setItem(k, JSON.stringify(r));
   }, code);
   await host.reload();
@@ -328,9 +334,9 @@ const activeView = page => page.$$eval('nav button', bs =>
   const gapRuns = await runs(host, 'surplus', COLORS['Harbour Mutual']);
   const gapMarks = await marks(host, 'surplus', COLORS['Harbour Mutual']);
   ok(gapRuns.length === 2, `the missing middle year splits the line in two (${gapRuns.length} segments)`);
-  ok(gapMarks.length === 3, 'and leaves three points, not four — nothing is invented for the gap');
+  ok(gapMarks.length === 2, 'and leaves two points, not three — nothing is invented for the gap');
   const gapDev = await marks(host, 'developed', COLORS['Harbour Mutual']);
-  ok(gapDev.length === 4,
+  ok(gapDev.length === 3,
      'while the developed chart is UNBROKEN — the gap is in what was posted, not in the valuation');
 
   // ---- A TAB THAT FALLS BEHIND ----------------------------------------
@@ -370,9 +376,10 @@ const activeView = page => page.$$eval('nav button', bs =>
   await host.click('[data-testid="host-tab-charts"]');
   await host.waitForTimeout(700);
   await pickView(host, 'General Liability');
+  // The room is in year 6: posts 0 to 5 are in the record, 0 to 4 are known.
   const caughtMarks = await marks(host, 'losses', COLORS['Cedar Valley']);
-  ok(caughtMarks.length === 6,
-     `and the as-booked chart draws a point for every one of them (${caughtMarks.length} of 6)`);
+  ok(caughtMarks.length === 5,
+     `and the as-booked chart draws a point for every KNOWN one of them (${caughtMarks.length} of 5)`);
   const caughtRuns = await runs(host, 'losses', COLORS['Cedar Valley']);
   ok(caughtRuns.length === 1, `with no gap in the line (${caughtRuns.length} segment)`);
   await back.close();

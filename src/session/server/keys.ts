@@ -81,7 +81,9 @@
 //
 //   sk                          holds (every item also carries expiresAtSec)
 //   ------------------------    ------------------------------------------------
-//   ROOM                        THE HEADER. seed, eventName, yearCount,
+//   ROOM                        THE HEADER. seed, eventName, poolName (absent
+//                               on a room made before it: the event name
+//                               stands in), yearCount,
 //                               startingYear, expectedTeams, LINES,
 //                               PRIOR DEVELOPMENT, shocks,
 //                               currentYear, rev, createdAt, updatedAt,

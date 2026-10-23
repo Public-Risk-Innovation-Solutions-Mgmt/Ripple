@@ -195,6 +195,8 @@ interface RoomRecord {
   hostToken: string;
   seed: string;
   eventName: string;
+  /** The pool's name. ⚠ Optional on the record: one written before it existed reads the event name. */
+  poolName?: string;
   yearCount: number;
   startingYear: number;
   expectedTeams: number;
@@ -384,6 +386,7 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     priorDevelopment: { ...(room.priorDevelopment ?? {}) },
     hidden: room.hidden ?? false,
     eventName: room.eventName,
+    poolName: room.poolName || room.eventName,
     yearCount: room.yearCount,
     startingYear: room.startingYear,
     expectedTeams: room.expectedTeams,
@@ -546,6 +549,10 @@ export class LocalSessionTransport implements SessionTransport {
       // ⚠ THE LINE SET IS CHECKED HERE AND NOWHERE ELSE NOW. It used to be
       // checked on every join, once per team; the host picks it once, so this is
       // the only gate and it has to be the strict one.
+      // Optional, as the handler has it: absent, the event name stands in.
+      if (req.poolName !== undefined && typeof req.poolName !== 'string') {
+        throw new SessionError('INVALID_REQUEST', 'poolName must be a string.');
+      }
       const reqLines = Array.isArray(req.lines) ? req.lines : [];
       if (reqLines.length === 0) {
         throw new SessionError('INVALID_REQUEST', 'A game must use at least one coverage line.');
@@ -592,6 +599,7 @@ export class LocalSessionTransport implements SessionTransport {
         hostToken: req.hostToken,
         seed: req.seed,
         eventName: req.eventName,
+        ...(req.poolName?.trim() ? { poolName: req.poolName.trim() } : {}),
         yearCount: req.yearCount,
         startingYear: req.startingYear,
         expectedTeams: req.expectedTeams,

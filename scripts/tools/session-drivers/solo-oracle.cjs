@@ -34,7 +34,7 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption('7');
   else await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
   await page.getByRole('button', { name: /Start/i }).last().click();
-  await page.waitForSelector('text=Lock Year', { timeout: 30000 });
+  await page.waitForSelector('text=Lock Program Year', { timeout: 30000 });
 
   const fingerprints = {};
 
@@ -64,11 +64,14 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   // Advance two years through the real solo path and walk again — this exercises
   // lockedResults, the results pages and the audit cards with real data.
   for (let i = 0; i < 2; i++) {
-    await page.getByRole('button', { name: /Lock Year/ }).first().click();
+    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForTimeout(2500);
     // A loan prompt would block; resolve it by declining if it appears.
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+    // wip/shocks: a shock can bring a loan offer, which posts only on Confirm & Continue.
+    const confirmLoan = page.getByRole('button', { name: /Confirm & Continue/ }).first();
+    if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
   }
   await walk('year3');
 

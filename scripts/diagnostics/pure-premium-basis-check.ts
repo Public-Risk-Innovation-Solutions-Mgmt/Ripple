@@ -11,13 +11,23 @@
 //      expected ordinary claims per $100 are the pure premium / 1.05, and with
 //      ULAE at 5% of them give $2.618 and $3.45 back exactly. Property's cost
 //      is loss only and is not divided.
-//   2. LAE: ALAE and ULAE each 5% of claims on every line, charged and booked;
-//      no line's losses are read as already holding ALAE.
+//   2. LAE: ULAE 5% of claims on every line; ALAE in its line's range (WC 7-15%,
+//      GL 10-20%, Property 2-5%, drawn by year — alae-ratio-check holds the
+//      draw), the middle of it before any history; no line's losses are read as
+//      already holding ALAE.
 //   3. TREND ONCE: no inflation to settlement on top (UP_FRONT_TREND off), so
-//      year-1 pricing lands on the pure premium: the rate's loss cost + ULAE
-//      is the pure premium x the book's own risk x the scenario's pre-game
-//      experience (preGameLossMultiplier, stable-scenarios commit 9 — every
-//      year in the window ran at it), within 1%.
+//      with RESERVE INFLATION AT 0 year-1 pricing lands on the pure premium:
+//      the rate's loss cost + ULAE is the pure premium x the book's own risk x
+//      the scenario's pre-game experience (preGameLossMultiplier,
+//      stable-scenarios commit 9 — every year in the window ran at it), within
+//      1%. ⚠ RESTATED FOR RESERVE INFLATION (RESERVE_INFLATION_PER_YEAR): open
+//      years now inflate after their accident year, so the window's experience
+//      carries the inflation each year has emerged and pricing adds what is
+//      still to come in the priced years. With it on, the landing rises by a
+//      factor between the priced years' (reserveInflationToCome from age 1,
+//      the least any window year carries) and the window's mean of what each
+//      year carries in full by its age, within 1% either side — the only thing
+//      added on top of the pure premium is reserve inflation.
 //   4. ACTUAL TRACKS EXPECTED: over twelve ten-year games, each line's ordinary
 //      claims drawn — before the shocks' uplift, which the record's
 //      ordinaryRealised includes — are within 2% of its expected ordinary claims.
@@ -26,12 +36,17 @@
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: claims at the full pure premium
 // (ULAE on top), GL left without ALAE, inflation to settlement left on, and
-// claims drawn 5% over expected.
+// claims drawn 5% over expected; and for 3 also the window's reserve
+// inflation dropped from pricing.
 // ============================================================================
 
 import {
-  ALAE_OF_LOSS_COST, POOL_LOSS_COST_LAYERS, preGameLossMultiplier, ULAE_OF_LOSS_COST, UP_FRONT_TREND,
+  ALAE_OF_LOSS_COST, ALAE_RATIO_RANGE, POOL_LOSS_COST_LAYERS, preGameLossMultiplier, ULAE_OF_LOSS_COST, UP_FRONT_TREND,
+  PRICING_WINDOW_YEARS_NEW, RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS,
 } from '../../src/data/pricingParameters';
+import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
+import { unpaidShare } from '../../src/utils/payoutPattern';
+import { reserveInflationToCome } from '../../src/utils/newPurePremium';
 import { scenarioOf } from '../../src/utils/scenarios';
 import { ALAE_ALREADY_IN_LOSSES } from '../../src/utils/newPurePremium';
 import { laeShares } from '../../src/utils/lossExpense';
@@ -69,9 +84,11 @@ function gradeClaims(claims: Claims, tag: string) {
 // ---------------------------------------------------------------- 2
 type Shares = (l: CoverageLine) => { alae: number; ulae: number };
 function gradeLae(shares: Shares, tag: string) {
-  const ok = LINES.every(l => shares(l).alae === 0.05 && shares(l).ulae === 0.05 && !ALAE_ALREADY_IN_LOSSES[l]
-    && ALAE_OF_LOSS_COST[l] === 0.05 && ULAE_OF_LOSS_COST[l] === 0.05);
-  check(ok, `${tag}2. ALAE and ULAE are each 5% of claims on every line, charged and booked; GL takes ALAE too`,
+  const mid = (l: CoverageLine) => (ALAE_RATIO_RANGE[l].min + ALAE_RATIO_RANGE[l].max) / 2;
+  const ok = LINES.every(l => shares(l).alae === mid(l) && shares(l).ulae === 0.05 && !ALAE_ALREADY_IN_LOSSES[l]
+    && ALAE_OF_LOSS_COST[l] === mid(l) && ULAE_OF_LOSS_COST[l] === 0.05
+    && ALAE_RATIO_RANGE[l].min > 0 && ALAE_RATIO_RANGE[l].max > ALAE_RATIO_RANGE[l].min);
+  check(ok, `${tag}2. ULAE is 5% of claims on every line; ALAE is in its line's range, at its middle before history; GL takes ALAE too`,
     LINES.map(l => `${l} ${shares(l).alae} + ${shares(l).ulae}`).join(', '));
 }
 
@@ -88,7 +105,7 @@ for (let g = 0; g < SEEDS; g++) {
   const struck = strikeRates(gs, defaultDecisionSet(1));
   for (const l of LINES) {
     const s = struck[l]!;
-    atYear1[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits, poolState.bookLedger) ?? 1, experience: preGameLossMultiplier(scenarioOf(instance)) });
+    atYear1[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits, poolState.bookLedger) ?? 1, experience: preGameLossMultiplier(scenarioOf(instance), l) });
   }
   for (let y = 1; y <= 10; y++) {
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), LINES)), currentYearNumber: y + 1 };
@@ -104,18 +121,52 @@ for (let g = 0; g < SEEDS; g++) {
 }
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
+// The same year-1 strike with reserve inflation at 0 — pricing and the
+// pre-game's development alike.
+const atYear1Flat: Record<CoverageLine, Seen[]> = { WC: [], GL: [], Property: [] };
+{
+  const inflation = RESERVE_INFLATION_PER_YEAR as Record<CoverageLine, number>;
+  const saved = { ...inflation };
+  for (const l of LINES) inflation[l] = 0;
+  for (let g = 0; g < SEEDS; g++) {
+    const { setup, instance } = openSoloInstance({ poolName: 'P', gameLength: 10, startingYear: 2026, instanceId: `PPB${g}`, activeLines: LINES } as GameSetupSettings);
+    const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
+    const gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory } as GameState);
+    const struck = strikeRates(gs, defaultDecisionSet(1));
+    for (const l of LINES) {
+      const s = struck[l]!;
+      atYear1Flat[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits, poolState.bookLedger) ?? 1, experience: preGameLossMultiplier(scenarioOf(instance), l) });
+    }
+  }
+  Object.assign(inflation, saved);
+}
+
+// What a window year valued at pattern age k carries in full: the inflation
+// emerged in its run-off so far, and what is still to come in the priced years.
+const carriedAt = (l: CoverageLine, k: number) => {
+  let f = 1;
+  for (let j = 1; j <= Math.max(RESERVE_INFLATION_PRICED_YEARS[l], k - 1); j++) f *= 1 + RESERVE_INFLATION_PER_YEAR[l] * unpaidShare(LINE_PAYOUT_PATTERN[l], j);
+  return f;
+};
+const windowCarried = (l: CoverageLine) => mean(Array.from({ length: PRICING_WINDOW_YEARS_NEW }, (_, i) => carriedAt(l, i + 1)));
+
 // ---------------------------------------------------------------- 3
-function gradeLanding(seen: Record<CoverageLine, Seen[]>, upFront: (l: CoverageLine) => number, tag: string) {
-  let worst = 0;
-  const shown: string[] = [];
+function gradeLanding(flat: Record<CoverageLine, Seen[]>, seen: Record<CoverageLine, Seen[]>, upFront: (l: CoverageLine) => number, tag: string) {
+  let worst = 0, inBand = 0;
+  const shown: string[] = [], rises: string[] = [];
+  const landedOf = (xs: Seen[]) => mean(xs.map(s => (s.pp + s.ulae) / s.risk / s.experience));
   for (const l of ['WC', 'GL'] as CoverageLine[]) {
-    const landed = mean(seen[l].map(s => (s.pp + s.ulae) / s.risk / s.experience)) * upFront(l);
+    const landed = landedOf(flat[l]) * upFront(l);
     worst = Math.max(worst, rel(landed, SUPPLIED[l]!));
     shown.push(`${l} $${landed.toFixed(4)}`);
+    const rise = landedOf(seen[l]) / landedOf(flat[l]);
+    const lo = reserveInflationToCome(l, 1) * 0.99, hi = windowCarried(l) * 1.01;
+    if (rise >= lo && rise <= hi) inBand++;
+    rises.push(`${l} x${rise.toFixed(4)} in ${lo.toFixed(4)}-${hi.toFixed(4)}`);
   }
-  check(worst < 0.01 && !UP_FRONT_TREND.enabled,
-    `${tag}3. trend once: year-1 pricing's loss cost + ULAE lands on the pure premium (per unit of book risk and of the scenario's pre-game experience)`,
-    `${shown.join(', ')} against $2.618 and $3.45; worst ${(worst * 100).toFixed(2)}%`);
+  check(worst < 0.01 && inBand === 2 && !UP_FRONT_TREND.enabled,
+    `${tag}3. trend once: at reserve inflation 0, year-1 pricing's loss cost + ULAE lands on the pure premium (per unit of book risk and of the scenario's pre-game experience); with it, it rises by the inflation the window carries`,
+    `${shown.join(', ')} against $2.618 and $3.45, worst ${(worst * 100).toFixed(2)}%; with reserve inflation ${rises.join(', ')}`);
 }
 
 // ---------------------------------------------------------------- 4
@@ -130,7 +181,7 @@ function gradeTracking(d: typeof drawn, tag: string) {
 console.log('YEAR-1 PRICING ON THE POOL\'S OWN PURE PREMIUM');
 gradeClaims(l => ordinaryLossCostPer100(l, 1), '');
 gradeLae(laeShares, '');
-gradeLanding(atYear1, () => 1, '');
+gradeLanding(atYear1Flat, atYear1, () => 1, '');
 gradeTracking(drawn, '');
 
 console.log('\nCONTROLS — each must FAIL');
@@ -147,7 +198,8 @@ controlFails('GL left without ALAE', () => gradeLae(l => (l === 'GL' ? { alae: 0
 UP_FRONT_TREND.enabled = true;
 const dormantF = Object.fromEntries(LINES.map(l => [l, upFrontTrendFactor(l)])) as Record<CoverageLine, number>;
 UP_FRONT_TREND.enabled = false;
-controlFails('inflation to settlement left on', () => gradeLanding(atYear1, l => dormantF[l], ''), '3.');
+controlFails('inflation to settlement left on', () => gradeLanding(atYear1Flat, atYear1, l => dormantF[l], ''), '3.');
+controlFails("the window's reserve inflation dropped from pricing", () => gradeLanding(atYear1Flat, atYear1Flat, () => 1, ''), '3.');
 controlFails('claims drawn 5% over expected', () => gradeTracking(
   Object.fromEntries(LINES.map(l => [l, { real: drawn[l].real * 1.05, exp: drawn[l].exp }])) as typeof drawn, ''), '4.');
 
@@ -156,4 +208,4 @@ if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — claims + ULAE are the pool\'s pure premium, ALAE on top at 5%, trend once, and claims track expected.');
+console.log('PASS — claims + ULAE are the pool\'s pure premium, ALAE on top in its range, trend once, and claims track expected.');

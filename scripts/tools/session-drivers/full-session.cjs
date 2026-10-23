@@ -14,15 +14,25 @@ function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + 
 
 // The real DecisionsPage sliders carry no label association, so find the range
 // input whose nearby container carries the label text.
+//
+// ⚠ THE NEAREST, NOT THE FIRST. Taking the first input with the label anywhere
+// in its five ancestors found the wrong slider once the Decisions columns
+// moved: the left column's underwriting sliders sit close enough to the grid
+// that holds Pricing & Funding to reach its text. The input whose label-bearing
+// ancestor is CLOSEST is the one the label belongs to; ties go to page order.
 async function nudgeSlider(page, label, presses) {
   const el = await page.evaluateHandle((lbl) => {
+    let best = null, bestDepth = Infinity;
     for (const input of document.querySelectorAll('input[type=range]')) {
       let n = input.parentElement;
       for (let i = 0; i < 5 && n; i++, n = n.parentElement) {
-        if (n.textContent && n.textContent.includes(lbl)) return input;
+        if (n.textContent && n.textContent.includes(lbl)) {
+          if (i < bestDepth) { best = input; bestDepth = i; }
+          break;
+        }
       }
     }
-    return null;
+    return best;
   }, label);
   const input = el.asElement();
   if (!input) return null;
@@ -166,10 +176,12 @@ const roomRecord = (page, code) => page.evaluate(c =>
     // code comments, so this assertion had been failing for a legitimate reason.
     // It checks BOTH sliders rather than either, which is stricter than the
     // or-test it replaces. Intake is labelled "New business" to players (UI tidy).
-    // uw-hybrid: the two sliders by their names and values only — "Renewals
-    // declined" and "New Business, rejection rate", each at 0% — and nothing of
-    // the retired intake positions.
-    ok(/Renewals declined\s*0%/.test(main) && /New Business, rejection rate\s*0%/.test(main)
+    // uw-hybrid: the two sliders by their names and values — "Existing Book:
+    // Non-Renewal Assumption" and "New Business: Growth Assumption" (renamed
+    // from "Renewals declined" and "New Business, rejection rate" when the
+    // Decisions layout moved), each at 0% — and nothing of the retired intake
+    // positions.
+    ok(/Existing Book: Non-Renewal Assumption\s*0%/.test(main) && /New Business: Growth Assumption\s*0%/.test(main)
        && !/\bIntake\b|No New Business|Renew all/.test(main), 'the two underwriting sliders render, by name and value');
   }
 
@@ -177,7 +189,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
     for (let i = 0; i < 3; i++) {
       if (year === SKIP_YEAR && i === SKIPPER) continue;
       const p = players[i];
-      await p.getByRole('button', { name: /Lock Year/ }).first().waitFor({ timeout: 120000 });
+      await p.getByRole('button', { name: /Lock Program Year/ }).first().waitFor({ timeout: 120000 });
 
       if (year === 1 && i === SKIPPER) {
         // A deliberate, non-default choice made through the REAL decisions page.
@@ -202,7 +214,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
            `carry-forward setup: ${TEAMS[i]} moved Funding Confidence on the real page (${moved && moved.before} -> ${moved && moved.after})`);
       }
 
-      await p.getByRole('button', { name: /Lock Year/ }).first().click();
+      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     ok(true, `year ${year}: teams locked in${year === SKIP_YEAR ? ` (${TEAMS[SKIPPER]} deliberately did not)` : ''}`);

@@ -23,8 +23,8 @@
 // load left on, and a pure premium that still carries the load.
 // ============================================================================
 
-import { CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
-import { bookPurePremium, catastropheLoadPer100, newPurePremiumPer100 } from '../../src/utils/newPurePremium';
+import { CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SEVERITY_TREND_PER_YEAR, PRICING_DATA_LAG_YEARS } from '../../src/data/pricingParameters';
+import { bookPurePremium, catastropheLoadPer100, newPurePremiumPer100, reserveInflationToCome } from '../../src/utils/newPurePremium';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
 import { bookedCostLevel } from '../../src/utils/ordinaryLoss';
 import { averageLedger } from '../../src/utils/worlds';
@@ -100,7 +100,9 @@ function gradeRemoval(taken: Taken, tag: string) {
       const pp = newPurePremiumPer100(l, i + 2, { rows, allMarketMembers: [], membershipHistory: {} as never });
       for (const p of pp?.points ?? []) {
         const row = rows.find(r => r.yearNumber === p.accidentYear)!;
-        const paid = row.grossPaidByValuation![row.grossPaidByValuation!.length - 1];
+        // Valued at the end of the latest data year (PRICING_DATA_LAG_YEARS), clamped forward.
+        const k = Math.min(i + 1 - PRICING_DATA_LAG_YEARS - row.firstValuationYear, row.grossPaidByValuation!.length - 1);
+        const paid = row.grossPaidByValuation![k];
         const shock = row.shockGross ?? 0;
         points++;
         if (shock > 0) withShock++;
@@ -150,14 +152,17 @@ function gradeCarried(carried: Carried, tag: string) {
       worst = Math.max(worst, rel(pp.lossCostPer100 * 1e6, carried(exShock, load) * 1e6));
     }
   });
-  // With no history at all: the ordinary expectation, nothing for the shocks.
+  // With no history at all: the ordinary expectation, nothing for the shocks —
+  // carrying the priced years' reserve inflation (RESERVE_INFLATION_PRICED_YEARS)
+  // on the claims, as a window year just valued would.
   let worstFallback = 0;
   for (const l of LINES) for (const y of [-4, 1, 5]) {
     const pp = bookPurePremium(l, y, { rows: [], allMarketMembers: [], membershipHistory: {} as never }, 1000);
     const b = expectedLossBreakdown(l, 1000, y);
-    worstFallback = Math.max(worstFallback, rel(pp.lossCostPer100 * 1e6, carried(b.ordinary / 1e7, catastropheLoadPer100(l, y, 1000)) * 1e6));
+    worstFallback = Math.max(worstFallback, rel(pp.lossCostPer100 * 1e6,
+      carried(b.ordinary / 1e7 * reserveInflationToCome(l, 1), catastropheLoadPer100(l, y, 1000)) * 1e6));
   }
-  check(worst < 1e-9 && worstFallback < 1e-9, `${tag}4. the pure premium's loss cost is the experience without its shocks; with no history, the ordinary expectation`,
+  check(worst < 1e-9 && worstFallback < 1e-9, `${tag}4. the pure premium's loss cost is the experience without its shocks; with no history, the ordinary expectation with its priced reserve inflation`,
     `${n} line-years priced; worst relative ${Math.max(worst, worstFallback).toExponential(2)}`);
 }
 

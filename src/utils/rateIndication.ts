@@ -17,18 +17,23 @@
 //                     is the rate charged that year.
 //   The rate-indication driver holds both, on every line, solo and hosted.
 //
-// ⚠ TRENDED AVERAGE LOSSES ARE THE AVERAGE EXPOSURE x THE AVERAGE TRENDED LOSS
-// COST (Loss & LAE per $100, each window year trended to the latest one).
-// Pricing averages each year's loss cost with equal weight, so this is what
-// reproduces it exactly whether or not the book has moved; the plain average
-// of the dollars would miss it by up to ~0.1% once a renewal cut moves the
-// book. With the window ending the year before the one priced, the average
-// trended to the latest year is the projected pure premium over one year's
-// trend. (The catastrophe load is off; were it on, it would sit in this figure.)
+// ⚠ THE PURE PREMIUM IS STATED AT THE CURRENT YEAR'S RATE LEVEL — the year in
+// progress, the one before the year priced (2026 when 2027 is priced). Trended
+// average losses are that year's exposure x the average trended loss cost (Loss
+// & LAE per $100, each window year trended to the current year): pricing
+// averages each year's loss cost with equal weight, so the average loss COST is
+// what reproduces it exactly whether or not the book has moved. Divided by that
+// exposure it is the indicated pure premium at the current year's level, and x
+// one year's annual trend it is the projected pure premium for the program year
+// — pricing's own figure, shown as pricing struck it.
 //
-// ⚠ THE PERMISSIBLE LOSS RATIO IS AT EXPECTED. Admin is charged in dollars and
-// the CLF does not scale it, so each funding level has its own share; every
-// indicated rate is the quote's own, not pure premium / one permissible ratio.
+// ⚠ THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS RATIO, the
+// permissible loss ratio being 100% less the total expense ratio — fixed admin,
+// per-exposure admin, risk control and profit and contingency (5%) as shares of
+// the rate at Expected (PROFIT_AND_CONTINGENCY_OF_RATE). At Expected with no
+// cover the two are the same figure exactly. NO INVESTMENT INCOME LINE:
+// investment income does not touch the rate. Other funding levels scale the
+// claims by their CLF and not admin, so each is the quote's own rate.
 //
 // ⚠ NOTHING HERE IS SHOWN AS METHOD. The page prints labels and figures only
 // (docs/PENDING_MULTIPLAYER.md: players never see how the engine works).
@@ -36,8 +41,9 @@
 import {
   ADMIN_FIXED_PER_YEAR, AGGREGATE_STOP_OPTIONS, PROFIT_AND_CONTINGENCY_OF_RATE, RATE_INDICATION_FUNDING_LEVELS,
 } from '../data/pricingParameters';
+import { gameHistory } from './gameHistory';
 import { computeFundingConsequence } from './fundingConsequence';
-import { effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
+import { adminTrendFactor, effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
 import { lossCostTrendPerYear } from './newPurePremium';
 import { AGGREGATE_NOT_OFFERED, placementFor, reinsuranceOptionIds } from './reinsuranceOptions';
 import { gameShocksOn } from './shockLosses';
@@ -56,16 +62,25 @@ export interface RateIndication {
   yearNumber: number;
   calendarYear: number;
   pure: {
-    /** Window years; fewer than five labels the row with the count. 0: none (no figures). */
+    /** Window years — the row's count. 0: none (no figures). */
     windowYears: number;
+    /** The current year, a calendar year: the rate level the losses are stated at (2026 for 2027). */
+    rateLevelYear: number;
+    /** The window's losses trended to the current year, at the current year's exposure. */
     trendedAverageLosses: number;
-    /** $M. */
+    /** The current year's exposure, $M. */
     exposure: number;
+    /** At the current year's rate level: trended average losses / exposure, per $100. */
     purePremiumPer100: number;
     /** 1.04 is +4%. */
     annualTrend: number;
+    /** Pricing's own projected pure premium for the priced year: the above x one year's trend. */
     projectedPer100: number;
   };
+  /** The rate at Expected (projected pure premium / permissible loss ratio) over the current year's rate, - 1; null with none. */
+  indicatedRateChange: number | null;
+  /** The rate at Expected, self-funded: projected pure premium / permissible loss ratio. */
+  indicatedRatePer100: number;
   /** Shares of the rate at Expected. */
   expenses: {
     fixedAdmin: number; perExposureAdmin: number; riskControl: number; contingency: number;
@@ -153,7 +168,6 @@ export function buildRateIndication(
   let projected: number;
   let exposure: number;
   let windowYears: number;
-  let windowExposure: number;
   let reinsuranceAt: FundingPosition;
 
   if (coming) {
@@ -168,7 +182,6 @@ export function buildRateIndication(
     projected = purePremium.purePremiumPer100;
     exposure = book.exposure;
     windowYears = purePremium.points.length;
-    windowExposure = windowYears > 0 ? purePremium.points.reduce((a, p) => a + p.exposure, 0) / windowYears : 0;
     reinsuranceAt = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
   } else {
     const past = pastPricer(gs, line, yearNumber);
@@ -177,23 +190,29 @@ export function buildRateIndication(
     projected = past.newPurePremiumPer100;
     exposure = past.ratedExposure;
     windowYears = past.rateBasis.windowYears;
-    windowExposure = past.rateBasis.windowExposure;
     reinsuranceAt = past.chosen;
   }
 
   const atExpected = price('expected', 'none');
   if (!atExpected) return null;
 
-  // THE PURE PREMIUM: the projected figure is pricing's; the rest follow from it.
+  // THE PURE PREMIUM: the projected figure is pricing's; the rest follow from
+  // it, at the current year's rate level, one year of trend before the priced
+  // year, on the current year's exposure (its row).
   const annualTrend = lossCostTrendPerYear(line);
   const purePremiumPer100 = projected / annualTrend;
+  const currentRow = gameHistory(gs).find(x => x.yearNumber === yearNumber - 1)?.byLine[line];
+  const currentExposure = currentRow ? (currentRow.billedExposure ?? currentRow.activeExposure) : 0;
 
   // THE EXPENSES, as shares of the rate at Expected.
   const rateE = atExpected.finalRatePer100;
-  const fixedPer100 = ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1);
+  // The fixed part's share, trended to the year as the rate charges it.
+  const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1);
   const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
     : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
-  const contingency = PROFIT_AND_CONTINGENCY_OF_RATE;
+  const contingency = PROFIT_AND_CONTINGENCY_OF_RATE[line];
+  // The total expense ratio, at Expected: admin's share of the rate, risk
+  // control and profit and contingency.
   const totalAdmin = atExpected.adminRatePer100 / rateE + riskControl + contingency;
 
   const currentPer100 = currentRate(gs, line, yearNumber);
@@ -216,12 +235,15 @@ export function buildRateIndication(
     calendarYear: calendarOf(gs, yearNumber),
     pure: {
       windowYears,
-      trendedAverageLosses: purePremiumPer100 * windowExposure * 10_000,
-      exposure: windowExposure,
+      rateLevelYear: calendarOf(gs, yearNumber) - 1,
+      trendedAverageLosses: purePremiumPer100 * currentExposure * 10_000,
+      exposure: currentExposure,
       purePremiumPer100,
       annualTrend,
       projectedPer100: projected,
     },
+    indicatedRateChange: positions[0].change,
+    indicatedRatePer100: projected / (1 - totalAdmin),
     expenses: {
       fixedAdmin: fixedPer100 / rateE,
       perExposureAdmin: (atExpected.adminRatePer100 - fixedPer100) / rateE,

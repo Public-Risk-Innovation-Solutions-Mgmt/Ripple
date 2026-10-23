@@ -20,8 +20,8 @@ return and cannot be squared with the statement's investment income; the column
 waits on that (see the round's report).
 -->
 
-**To:** Incoming Pool Management Team
-**From:** Investment Committee
+**To:** Incoming Pool Management\
+**From:** Finance Department\
 **Re:** Investment Strategy
 
 ---
@@ -49,4 +49,4 @@ to absorb both. A Pool with a strong cushion can afford more risk.
 
 No allocation removes all risk. Your task is to balance return against the swings your surplus can bear.
 
-Investment Committee
+Finance Department

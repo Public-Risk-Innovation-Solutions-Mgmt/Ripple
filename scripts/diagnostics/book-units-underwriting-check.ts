@@ -13,7 +13,11 @@
 //   2. THE WORKED EXAMPLE: 105% x 1.10 = 115.5%; a book renewing at 102.5%
 //      (the example's 105% after declines) blended 98% / 2% with new business
 //      at 115.5% is 1.0276 — through the engine's own ordinary loss on a
-//      two-unit book.
+//      two-unit book, in a year run flat (no factor drawn). ⚠ THE FLAT YEAR IS
+//      ASKED FOR, NOT ASSUMED: this read year 0 under the global FLAT_PRE_GAME
+//      until the simulated pre-game turned it off (584715e), after which year 0
+//      drew its year and unit factors and the example read 1.00475 — 1.0276
+//      times that year's draws, the formula unmoved.
 //   3. LOSS-HISTORY SELECTION, on 300 seeds x 3 lines of synthetic histories:
 //      a. the declined are the worst loss ratios among the eligible;
 //      b. whole units, and part of the last only;
@@ -89,17 +93,18 @@ function gradeFormula(f: Factor, tag: string) {
 }
 
 // ---------------------------------------------------------------- 2. the worked example
-function gradeExample(f: Factor, tag: string) {
+function gradeExample(f: Factor, tag: string, flat = true) {
   const newBusiness = 1.05 * f(0.05);
   // Two units, priced at the line's cost per exposure (risk 1 = a 100% loss
   // ratio): the book renewing at 102.5% and 98 of the exposure, new business
   // from the 105% market, 2 of it, carrying the factor. A flat year draws no
-  // factor, so the ordinary loss is exactly exposure x risk x cost x load.
+  // factor, so the ordinary loss is exactly exposure x risk x cost x load —
+  // and the run is told it is flat, since FLAT_PRE_GAME is off.
   const units: BookUnit[] = [
     { index: 0, size: 98, risk: 1.025, region: 'Northeast' as BookUnit['region'], noiseZ: 0 },
     { index: 1, size: 2, risk: 1.05, region: 'Northeast' as BookUnit['region'], noiseZ: 0 },
   ];
-  const draw = ordinaryLossFromUnits('Property', units, 100, 0, 1, new Set([1]), f(0.05) - 1, 1);
+  const draw = ordinaryLossFromUnits('Property', units, 100, 0, 1, new Set([1]), f(0.05) - 1, 1, flat);
   const blended = draw.realised / (100 * 10_000 * ordinaryLossCostPer100('Property', 0));
   check(Math.abs(newBusiness - 1.155) < 1e-12 && Math.abs(blended - 1.0276) < 1e-12,
     `${tag}2. the worked example: 105% x 1.10 = 115.5%; 98% at 102.5% with 2% at 115.5% = 1.0276`,
@@ -303,6 +308,7 @@ const controlFails = (name: string, run: () => void, expect: string) => {
 };
 controlFails('the formula without its cap at full savings', () => gradeFormula(r => 1 + 0.2 * (1 - r / 0.10), ''), '1.');
 controlFails('full savings at 5%', () => gradeExample(r => 1 + 0.2 * (1 - Math.min(1, r / 0.05)), ''), '2.');
+controlFails('the example in a year that draws its factors', () => gradeExample(newBusinessPenaltyFactor, '', false), '2.');
 const reversed: Mover = (line, seed, book, ledger, d, w, y) => {
   // Rank on the inverse: the best loss ratios go first.
   const flipped = { ...ledger, history: Object.fromEntries(Object.entries(ledger.history)

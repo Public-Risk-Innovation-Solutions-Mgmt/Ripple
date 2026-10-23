@@ -67,7 +67,7 @@ const ok = (cond, label, detail = '') => {
       if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
     }
     await page.getByRole('button', { name: 'Start Simulation' }).click();
-    await page.waitForSelector('text=Lock Year', { timeout: 60000 });
+    await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
 
     async function compare(phase) {
       await page.getByRole('button', { name: /^Annual Statement$/ }).first().click();
@@ -112,11 +112,17 @@ const ok = (cond, label, detail = '') => {
 
     await compare('before year 1');
     for (const y of [1, 2]) {
-      await page.getByRole('button', { name: /Lock Year/ }).first().click();
+      await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
       await page.waitForTimeout(2500);
       const decline = page.getByRole('button', { name: /Decline/i }).first();
+      // A loan offer, if a line ended the year below zero (the Line Surplus Deficit
+      // prompt): declined, then CONFIRMED — Decline only selects the choice, and the
+      // year does not post until Confirm & Continue. Measured: scenario 1 stalled
+      // here after year 1 on the six-year simulated pre-game.
       if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
-      await page.waitForSelector(`text=Lock Year ${y + 1}`, { timeout: 60000 });
+      const confirm = page.getByRole('button', { name: /Confirm & Continue/ }).first();
+      if (await confirm.count() > 0) { await confirm.click(); await page.waitForTimeout(800); }
+      await page.waitForSelector(`text=Lock Program Year ${2027 + y}`, { timeout: 60000 });
       await compare(`after year ${y}`);
     }
     await page.context().close();

@@ -41,7 +41,6 @@ import {
 } from '../../src/data/paidDevelopmentPatterns';
 import { EXPECTED_ORDINARY_LOSS_COST_PER_100 } from '../../src/data/pricingParameters';
 import { baseOrdinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
-import { tScale } from '../../src/utils/shockLosses';
 import { lossCostTrendPerYear, newPurePremiumPer100 } from '../../src/utils/newPurePremium';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -148,8 +147,8 @@ function gradeTrend(trend: Record<CoverageLine, number>, lagFrom: number, tag: s
     for (const y of YEARS) {
       const level = Math.pow(1 + t, y - 1) * (expectOn ? F : 1);
       worstBooked = Math.max(worstBooked,
-        rel(baseOrdinaryLossCostPer100(l, y), EXPECTED_ORDINARY_LOSS_COST_PER_100[l] * level),
-        rel(tScale(l, 1000, y) / tScale(l, 1000, 1), level / (expectOn ? F : 1)));
+        // (wip/shocks: T claims are unscaled and untrended, so tScale's term is gone.)
+        rel(baseOrdinaryLossCostPer100(l, y), EXPECTED_ORDINARY_LOSS_COST_PER_100[l] * level));
     }
   }
   check(worstGrowth < 1e-12 && LINES.every(l => SEVERITY_TREND_PER_YEAR[l] === SHIPPED_TREND[l]),

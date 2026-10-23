@@ -10,15 +10,25 @@
 //
 // WHAT IT IS, per $100 of exposure, per line:
 //
-//   1. WINDOW       the most recent five accident years, EQUAL WEIGHTS
+//   1. WINDOW       the five most recent COMPLETE accident years, EQUAL
+//                   WEIGHTS, a year behind (PRICING_DATA_LAG_YEARS): the year
+//                   priced reads the years ending two before it, valued as at
+//                   the end of the latest of them
 //   2. DEVELOPMENT  each year to the end of the pattern with the PAID LDFs at
 //                   its age — the patterns the game reads, closed with no tail
 //                   (DEVELOPMENT_TAIL), not factors estimated from the ledger
 //   3. TREND        each year's loss cost to the year being priced, NET of
 //                   exposure growth
-//   4. ALAE + ULAE  each the parameter's share of loss cost (claims). On WC and
-//                   GL the claims are the supplied pure premium / (1 + ULAE),
-//                   so loss cost + ULAE is the pure premium; ALAE is on top
+//   2b. RESERVE     each year's developed losses x the reserve inflation it
+//       INFLATION   still has to pick up within the first
+//                   RESERVE_INFLATION_PRICED_YEARS of run-off (reserveInflationToCome);
+//                   a year past them picks up none, and later inflation reaches
+//                   the rate only as it emerges in the window
+//   4. ALAE + ULAE  ALAE at the mean of the window years' drawn ALAE ratios (the
+//                   middle of the line's range before any history); ULAE the
+//                   parameter's share of loss cost (claims). On WC and GL the
+//                   claims are the supplied pure premium / (1 + ULAE), so loss
+//                   cost + ULAE is the pure premium; ALAE is on top
 //
 // Every parameter comes from src/data/pricingParameters.ts. Nothing here holds
 // a literal that belongs there.
@@ -51,11 +61,14 @@
 // ============================================================================
 
 import {
-  PRICING_WINDOW_YEARS_NEW,
+  PRICING_WINDOW_YEARS_NEW, PRICING_DATA_LAG_YEARS,
   ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
   FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, EXPOSURE_GROWTH_PER_YEAR,
   CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SHOCKS_OUT_OF_EXPERIENCE,
+  RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS,
 } from '../data/pricingParameters';
+import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
+import { unpaidShare } from './payoutPattern';
 import { bookedCostLevel } from './ordinaryLoss';
 import { PAID_DEVELOPMENT_PATTERN } from '../data/paidDevelopmentPatterns';
 import { expectedLossBreakdown } from './shockExpectation';
@@ -101,15 +114,19 @@ export const GL_LAYER_MISMATCH = true;
 
 export interface NewPurePremiumPoint {
   accidentYear: number;
-  /** Ledger age at the latest valuation; months = (age + 1) x 12. */
+  /** Age in months at the valuation priced on — the end of the latest data year. */
   ageMonths: number;
-  /** Ground-up paid to date, with the year's shock dollars taken out on the paid basis. */
+  /** Ground-up paid at that valuation, with the year's shock dollars taken out on the paid basis. */
   groundUpPaid: number;
   /** The shock dollars' paid to date that came out: the year's shock gross / the LDF. */
   shockPaid: number;
   ldf: number;
+  /** Ground-up paid x the LDF. */
   developed: number;
+  /** The reserve inflation still to come for the year within the priced years (reserveInflationToCome); 1 past them. */
+  reserveInflation: number;
   exposure: number;
+  /** developed x reserveInflation / exposure, per $100. */
   lossCostPer100: number;
   trendFactor: number;
   trendedLossCostPer100: number;
@@ -121,12 +138,44 @@ export interface NewPurePremiumResult {
   /** The steady catastrophe load in it (catastropheLoadPer100); 0 with CATASTROPHE_LOAD off. */
   catastropheLoadPer100: number;
   alaePer100: number;
+  /** The ALAE load as a share of the loss cost: the window years' mean drawn ratio, or the range's middle. */
+  alaeRatio: number;
+  /** The window years' drawn ALAE ratios, oldest first — what alaeRatio averages. */
+  alaeRatios: number[];
   ulaePer100: number;
   /** loss cost + ALAE + ULAE, at expected. The headline. */
   purePremiumPer100: number;
   points: NewPurePremiumPoint[];
   /** Years dropped for want of a ground-up series or a known exposure. */
   skipped: number;
+  /**
+   * With no usable history: the reserve inflation factor the expected loss cost
+   * carries — the full priced years' (reserveInflationToCome at age 1). Null on
+   * the experience path, where each window year carries its own.
+   */
+  reserveInflation: number | null;
+}
+
+/**
+ * THE RESERVE INFLATION A YEAR'S CLAIMS STILL HAVE TO PICK UP WITHIN THE YEARS
+ * PRICING ANTICIPATES, from pattern age `patternAge` (1 at the end of the
+ * accident year):
+ *
+ *     product over j = max(1, patternAge) .. RESERVE_INFLATION_PRICED_YEARS of
+ *         (1 + RESERVE_INFLATION_PER_YEAR x unpaid share at year j)
+ *
+ * The engine grows each open year's start-of-year outstanding by the line's
+ * rate (processIbner), and the outstanding at the start of run-off year j is
+ * the share still unpaid at pattern age j — so this is what those steps add to
+ * a year's ultimate, as a factor. Steps before `patternAge` have already
+ * emerged and are in the year's paid; past the priced years it is 1.
+ */
+export function reserveInflationToCome(line: CoverageLine, patternAge: number): number {
+  let f = 1;
+  for (let j = Math.max(1, patternAge); j <= RESERVE_INFLATION_PRICED_YEARS[line]; j++) {
+    f *= 1 + RESERVE_INFLATION_PER_YEAR[line] * unpaidShare(LINE_PAYOUT_PATTERN[line], j);
+  }
+  return f;
 }
 
 export interface NewPurePremiumBasis {
@@ -227,10 +276,16 @@ export function newPurePremiumPer100(
   // Absent, the newest window year's own.
   loadExposure?: number,
 ): NewPurePremiumResult | null {
-  // THE WINDOW: the most recent five accident years. Taken from the rows the
-  // caller supplies, newest last, so a caller that already windowed is not
+  // THE WINDOW: the five most recent COMPLETE accident years, a year behind
+  // (PRICING_DATA_LAG_YEARS). The latest data year is the one before the year
+  // just closed — 2025 when 2027 is priced — and the year in progress at the
+  // opening (2026) is on the books but too new to price on. Taken from the rows
+  // the caller supplies, so a caller that already windowed is not
   // double-windowed — it just takes the last five of five.
-  const ordered = [...basis.rows].sort((a, b) => a.yearNumber - b.yearNumber);
+  const latestDataYear = pricingYear - 1 - PRICING_DATA_LAG_YEARS;
+  const ordered = [...basis.rows]
+    .filter(r => r.yearNumber <= latestDataYear)
+    .sort((a, b) => a.yearNumber - b.yearNumber);
   const windowed = ordered.slice(-PRICING_WINDOW_YEARS_NEW);
 
   const trendPerYear = lossCostTrendPerYear(line);
@@ -240,15 +295,23 @@ export function newPurePremiumPer100(
   for (const r of windowed) {
     const gross = r.grossPaidByValuation ?? [];
     if (gross.length === 0) { skipped++; continue; }
-    const paidToDate = gross[gross.length - 1];
+    // ⚠ VALUED AS AT THE END OF THE LATEST DATA YEAR, NOT THE LATEST VALUATION
+    // ON THE LEDGER: the whole data set is a year old, so no payment made in
+    // the year in progress is read, on any accident year. Index k is valuation
+    // year firstValuationYear + k; clamped forward as actuarialMemo's seriesAt
+    // is — a closed cohort stops recording and its last figure is final.
+    const k = Math.min(latestDataYear - r.firstValuationYear, gross.length - 1);
+    if (k < 0) { skipped++; continue; }
+    const paidToDate = gross[k];
     if (!(paidToDate > 0)) { skipped++; continue; }
     const exposure = exposureFor(basis, line, r.yearNumber);
     if (!(exposure > 0)) { skipped++; continue; }
 
     // Ledger ages are 0-based and the patterns are 1-based in MONTHS — the one
     // place the two clocks meet, converted here as pricingTriangle.ts converts
-    // it: triangle age = ledger age + 1, months = that x 12.
-    const ledgerAge = (r.ageAtFirstValuation ?? 0) + gross.length - 1;
+    // it: triangle age = ledger age + 1, months = that x 12. The age is the
+    // one at the valuation read, so the year develops from there.
+    const ledgerAge = (r.ageAtFirstValuation ?? 0) + (latestDataYear - r.firstValuationYear);
     const ageMonths = (ledgerAge + 1) * 12;
     const ldf = recordedPaidLdf(line, ageMonths);
     // ⚠ THE SHOCK DOLLARS COME OUT ON THE PAID BASIS, BEFORE DEVELOPMENT
@@ -258,14 +321,19 @@ export function newPurePremiumPer100(
     const shockPaid = SHOCKS_OUT_OF_EXPERIENCE.enabled ? (r.shockGross ?? 0) / ldf : 0;
     const groundUpPaid = Math.max(0, paidToDate - shockPaid);
     const developed = groundUpPaid * ldf;
-    const lossCostPer100 = developed / (exposure * 10_000);
+    // The inflation the year has still to pick up in the priced years — from
+    // its age at the valuation read (ledgerAge + 1, the pattern's clock).
+    const reserveInflation = reserveInflationToCome(line, ledgerAge + 1);
+    const lossCostPer100 = developed * reserveInflation / (exposure * 10_000);
 
-    // Trend from the accident year to the year being priced.
+    // Trend from the accident year to the year being priced: to the latest
+    // data year and then forward 1 + PRICING_DATA_LAG_YEARS years, which is
+    // the same factor.
     const years = pricingYear - r.yearNumber;
     const trendFactor = Math.pow(trendPerYear, years);
 
     points.push({
-      accidentYear: r.yearNumber, ageMonths, groundUpPaid, shockPaid, ldf, developed, exposure,
+      accidentYear: r.yearNumber, ageMonths, groundUpPaid, shockPaid, ldf, developed, reserveInflation, exposure,
       lossCostPer100, trendFactor, trendedLossCostPer100: lossCostPer100 * trendFactor,
     });
   }
@@ -279,20 +347,27 @@ export function newPurePremiumPer100(
   const lossCost = points.reduce((s, p) => s + p.trendedLossCostPer100, 0) / points.length + catastropheLoad;
 
   // ⚠ ALAE IS NOT ADDED WHERE IT IS ALREADY IN THE LOSSES. See
-  // ALAE_ALREADY_IN_LOSSES — no line, since the pure-premium basis. ULAE is at
-  // its share of the claims on every line: on WC and GL the claims are the pure
-  // premium / (1 + ULAE), so claims + ULAE give the pure premium back exactly.
-  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCost * ALAE_OF_LOSS_COST[line];
+  // ALAE_ALREADY_IN_LOSSES — no line, since the pure-premium basis. Its load is
+  // the MEAN OF THE WINDOW YEARS' DRAWN ALAE RATIOS, as the ledger records them
+  // (alaeRatio.ts; a row from before the draw reads the range's middle). ULAE
+  // is at its share of the claims on every line: on WC and GL the claims are
+  // the pure premium / (1 + ULAE), so claims + ULAE give the pure premium back.
+  const alaeRatios = points.map(p => basis.rows.find(r => r.yearNumber === p.accidentYear)?.alaeRatio ?? ALAE_OF_LOSS_COST[line]);
+  const alaeRatio = alaeRatios.reduce((a, b) => a + b, 0) / alaeRatios.length;
+  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCost * alaeRatio;
   const ulae = lossCost * ULAE_OF_LOSS_COST[line];
 
   return {
     lossCostPer100: lossCost,
     catastropheLoadPer100: catastropheLoad,
     alaePer100: alae,
+    alaeRatio: ALAE_ALREADY_IN_LOSSES[line] ? 0 : alaeRatio,
+    alaeRatios,
     ulaePer100: ulae,
     purePremiumPer100: lossCost + alae + ulae,
     points,
     skipped,
+    reserveInflation: null,
   };
 }
 
@@ -305,12 +380,16 @@ export function newPurePremiumPer100(
  */
 export function newPurePremiumFromLossCost(
   line: CoverageLine, lossCostPer100: number, catastropheLoad = 0,
+  // The reserve inflation factor already in the loss cost — recorded, not applied.
+  reserveInflation: number | null = null,
 ): NewPurePremiumResult {
+  // No history: ALAE at the middle of the line's range (ALAE_OF_LOSS_COST).
   const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCostPer100 * ALAE_OF_LOSS_COST[line];
   const ulae = lossCostPer100 * ULAE_OF_LOSS_COST[line];
   return {
-    lossCostPer100, catastropheLoadPer100: catastropheLoad, alaePer100: alae, ulaePer100: ulae,
-    purePremiumPer100: lossCostPer100 + alae + ulae, points: [], skipped: 0,
+    lossCostPer100, catastropheLoadPer100: catastropheLoad, alaePer100: alae,
+    alaeRatio: ALAE_ALREADY_IN_LOSSES[line] ? 0 : ALAE_OF_LOSS_COST[line], alaeRatios: [], ulaePer100: ulae,
+    purePremiumPer100: lossCostPer100 + alae + ulae, points: [], skipped: 0, reserveInflation,
   };
 }
 
@@ -332,15 +411,21 @@ export function bookPurePremium(
   // The book's size-weighted true risk; 1 is the market's.
   bookRisk = 1,
 ): NewPurePremiumResult {
+  // ⚠ WITH NO HISTORY, THE EXPECTATION CARRIES THE PRICED YEARS' RESERVE
+  // INFLATION IN FULL (reserveInflationToCome from age 1), as a window year
+  // just valued would — on the claims, not on the catastrophe load.
+  const inflation = reserveInflationToCome(line, 1);
   if (!SHOCKS_OUT_OF_EXPERIENCE.enabled) {
     return newPurePremiumPer100(line, pricingYear, basis, exposure)
       ?? newPurePremiumFromLossCost(line,
-        expectedLossBreakdown(line, exposure, pricingYear, undefined, bookRisk).total / Math.max(exposure * 10_000, 1));
+        expectedLossBreakdown(line, exposure, pricingYear, undefined, bookRisk).total * inflation
+          / Math.max(exposure * 10_000, 1), 0, inflation);
   }
   // With no usable history: the ordinary expectation, plus the steady load when
   // it is on (0 off) — the shocks priced as the history prices them.
   const load = catastropheLoadPer100(line, pricingYear, exposure);
   return newPurePremiumPer100(line, pricingYear, basis, exposure)
     ?? newPurePremiumFromLossCost(line,
-      expectedLossBreakdown(line, exposure, pricingYear, undefined, bookRisk).ordinary / Math.max(exposure * 10_000, 1) + load, load);
+      expectedLossBreakdown(line, exposure, pricingYear, undefined, bookRisk).ordinary * inflation
+        / Math.max(exposure * 10_000, 1) + load, load, inflation);
 }
