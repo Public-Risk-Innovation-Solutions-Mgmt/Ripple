@@ -398,7 +398,7 @@ function runLinePreGame(
   line: CoverageLine
 ): LinePreGame {
   const developmentPct = setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line];
-  const ratio = SCENARIO_PREMIUM_TO_SURPLUS[scenarioOf(instance)];
+  const ratio = SCENARIO_PREMIUM_TO_SURPLUS[line][scenarioOf(instance)];
   const shocks = gameShocksOn(setup, instance);
   // One pre-game of a given kind at a given margin, and how far its last
   // year-end misses an opening at premium to surplus `target`.

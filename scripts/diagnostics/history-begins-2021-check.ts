@@ -129,10 +129,15 @@ function gradePricing(os: Opening[], tag: string, price: Pricer = shipped) {
     if (got.join() !== want.join()) wrong++;
     if (counts.length === 0) counts.push(got.join(' / '));
     // The years with no usable history price on the no-history figure on the book's own risk, exactly.
+    // ⚠ THE YEAR'S OWN BOOK, NOT THE OPENING'S: with PRE_GAME_BOOK_GROWTH the
+    // pre-game's early books are smaller subsets of the opening book, each with
+    // its own size-weighted risk, and the engine prices each on its own
+    // (rateBasis). Until the growth they were the opening book.
     want.forEach((n, i) => {
       if (n > 0) return;
       const yr = o.years[i];
-      const expect = bookPurePremium(o.line, FIRST + i, { rows: [], allMarketMembers: [], membershipHistory: {} }, yr.activeExposure, o.risk).purePremiumPer100;
+      const expect = bookPurePremium(o.line, FIRST + i, { rows: [], allMarketMembers: [], membershipHistory: {} },
+        yr.rateBasis?.pricedExposure ?? yr.activeExposure, yr.rateBasis?.risk ?? o.risk).purePremiumPer100;
       if (Math.abs((yr.newPurePremiumPer100 ?? NaN) / expect - 1) > 1e-9) noHistoryOff++;
     });
   }
@@ -192,6 +197,12 @@ controlFails('a ledger carrying a pre-2021 row', () => gradePricing(os.map(o => 
 // on the year just closed, valued at its end.
 const noLag: Pricer = (line, y, rows) => shipped(line, y + PRICING_DATA_LAG_YEARS, rows);
 controlFails('a window ending on the year just closed (no lag)', () => gradePricing(os, '', noLag), '4.');
+controlFails("a no-history year priced on the opening book's risk", () => gradePricing(os.map(o => ({
+  ...o, years: o.years.map((yr, i) => (i > PRICING_DATA_LAG_YEARS ? yr : {
+    ...yr, newPurePremiumPer100: bookPurePremium(o.line, FIRST + i, { rows: [], allMarketMembers: [], membershipHistory: {} },
+      yr.rateBasis?.pricedExposure ?? yr.activeExposure, o.risk).purePremiumPer100,
+  })),
+})), ''), '4.');
 controlFails('a window ending on the year just closed (no lag)', () => gradeLag(os, '', noLag), '5.');
 // Valued a year late: every row's valuations relabelled a year earlier, so the
 // index read is the year in progress's.

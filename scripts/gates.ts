@@ -177,6 +177,8 @@ const FAST: string[] = [
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
                                      //         trend per line, booked up front; older years undeveloped for
                                      //         trend; six controls
+  'pregame-growth-check',            //   5s   the pre-game book grows 2% a year into exactly the opening book, new
+                                     //         business at market risk, 2021 writing none; four controls
   'reserve-inflation-check',         //  10s   open years inflate by the line's trend on the start-of-year
                                      //         outstanding, booked as development, paid untouched; priced for
                                      //         the first 2 years; contingency per line; four controls. Replaced

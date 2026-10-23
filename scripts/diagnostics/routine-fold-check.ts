@@ -124,7 +124,7 @@ function gradeGames(claims: Claims, drawOf: DrawOf, marketOf: MarketOf, tag: str
     const x = r.byLine[l]!;
     const n = x.newLossEngine!;
     years++;
-    const want = preGameLossMultiplier(g.scenario) * drawOf(g.seed, r.yearNumber, l);
+    const want = preGameLossMultiplier(g.scenario, l) * drawOf(g.seed, r.yearNumber, l);
     worstFactor = Math.max(worstFactor, Math.abs(x.commonLossFactor / want - 1));
     const rate = blendInvestmentReturn(1, x.assetAllocation, marketOf(g.seed, r.yearNumber)).returnRate;
     worstReturn = Math.max(worstReturn, Math.abs(x.investmentReturnRate - rate));

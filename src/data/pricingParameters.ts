@@ -569,6 +569,36 @@ export const REINSURANCE_LOAD = 0.14;
 export const PRIOR_HISTORY_YEARS = 6;
 
 /**
+ * THE PRE-GAME BOOK GROWS 2% A YEAR, ENDING EXACTLY AT THE OPENING BOOK.
+ *
+ * The opening book (bookUnits.openingBookUnits) is put in a seeded order (its
+ * own stream, pregame_growth_<line>, from the game's seed). 2021, the first
+ * pre-game year, holds the first 1 / (1 + this)^5 of its exposure; each later
+ * year writes the next units in as NEW BUSINESS, to exactly the opening book x
+ * (1 + this)^(year - 2026), a part of a unit where the exposure needs one;
+ * 2026 holds the whole opening book. The units written carry the first-year
+ * penalty on their ordinary losses as new business does in play
+ * (NEW_BUSINESS_PENALTY at the default rejection), and are joined that year,
+ * so a unit written in 2026 is safe at its first renewal in 2027.
+ *
+ * ⚠ AT MARKET RISK, AND WHY THE OPENING BOOK'S OWN UNITS: the opening book is
+ * a random draw from the market, so units taken from it in a random order are
+ * new business at market risk in expectation — and the book still ends exactly
+ * at today's opening, so the played game opens on the same book as before.
+ *
+ * ⚠ WHY: a pool's book does not stand still for six years before the game, and
+ * a growing one hands the team a history of smaller, older years, with new
+ * business in each. Measured (scripts/probes/ri-growth-probe.mts, at 1%, 2%,
+ * 3% against none): 2021's exposure is 0.906 of 2026's at 2%; pricing reads
+ * each window year's loss cost on its own exposure with equal weights, so the
+ * smaller years neither drag the rate nor count for less, and growth reaches
+ * it only through the penalty on new business in the history (the 2027 rate
+ * about +0.5%). Opening reserves fall up to $1.8M, paid-in capital needs about
+ * $1M more on WC, and every other figure moves by a point or less.
+ */
+export const PRE_GAME_BOOK_GROWTH = 0.02;
+
+/**
  * THE NEW RATE STACK — ON.
  *
  * ⚠ IT IS STILL A FLAG, AND ONE LINE SWITCHES IT BACK. Set `enabled` to false
@@ -646,14 +676,15 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
 //
 // The scenario number, 1 to 20, is the game's ONLY seed: the market, the book,
 // the pre-game and the worlds, solo and hosted, all derive from it
-// (scenarioInstance). Each carries a target premium-to-surplus ratio, and that
-// one figure sets three things:
+// (scenarioInstance). Each carries a target premium-to-surplus ratio ON EACH
+// LINE, and that figure sets three things on the line:
 //
 //   1. THE OPENING: each line opens with surplus = its year-1 premium at
 //      Expected / the ratio.
 //   2. THE PRE-GAME'S EXPERIENCE: its ordinary losses run at expected x
-//      (1 + (1 - f) x PRE_GAME_EXPERIENCE_WEIGHT), f = PRE_GAME_EXPERIENCE_BASE /
-//      ratio — a thin scenario inherits a worse record as well as less surplus.
+//      (1 + (1 - f) x PRE_GAME_EXPERIENCE_WEIGHT), f = the line's
+//      PRE_GAME_EXPERIENCE_BASE / ratio — a thin scenario inherits a worse
+//      record as well as less surplus.
 //   3. THE PRIOR BOARD'S MARGIN: one funding level per line across the six
 //      pre-game years, set on the scenario's DESIGNED history so that from
 //      STARTING_CAPITAL that history would end exactly at the opening
@@ -667,27 +698,60 @@ export const SCENARIO_COUNT = 20;
 /** The scenarios from THINNEST (highest premium to surplus) to RICHEST. */
 export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 15, 11, 20, 6, 9, 5, 4, 1, 18, 7, 17, 2, 13, 16];
 
-/** The thinnest and richest target premium-to-surplus ratios; the twenty are evenly spaced between. */
-export const SCENARIO_RATIO_RANGE = { thinnest: 1.7, richest: 1.2 } as const;
+/**
+ * EACH LINE'S THINNEST AND RICHEST TARGET PREMIUM-TO-SURPLUS RATIOS; its twenty
+ * are evenly spaced between, in the one scenario order (SCENARIOS_THIN_TO_RICH):
+ * scenario 12 is the thinnest on every line and scenario 16 the richest.
+ *
+ *   WC        3.0 to 1.5   (centred on 2.25)
+ *   GL        2.3 to 1.3   (centred on 1.8)
+ *   Property  1.7 to 1.2   (centred on 1.45 — the range every line had before)
+ *
+ * ⚠ WHY PER LINE (reserve-inflation measurements, scripts/probes/; twenty
+ * scenarios, ten years, the defaults, with reserve inflation priced for two
+ * years). The game opened rich — premium to surplus 1.2 to 1.7 — and a thinner
+ * start was wanted where a line can carry one:
+ *   WC at 1.5-3.0 opens about $9M thinner at year 5 with no line below zero
+ *     and one 2027 drop (a guardrail scenario).
+ *   GL at 1.3-2.3 against 1.4-2.6: the lowest surplus at any point $6.5M
+ *     (P/S 3.8) against $4.8M (P/S 5.1), no Deficient scenario-year against
+ *     3, loans to GL in 0.8% of worlds against 1.4%, no 2027 drop on either.
+ *   Property stays at 1.2-1.7: at 1.5-3.0, three Property scenarios went
+ *     below zero and three dropped in 2027 — its 103% combined ratio from a
+ *     thinner start left it exposed.
+ */
+export const SCENARIO_RATIO_RANGE: PerLine<{ thinnest: number; richest: number }> = {
+  WC: { thinnest: 3.0, richest: 1.5 },
+  GL: { thinnest: 2.3, richest: 1.3 },
+  Property: { thinnest: 1.7, richest: 1.2 },
+};
 
-/** Each scenario's target premium-to-surplus ratio, by scenario number. */
-export const SCENARIO_PREMIUM_TO_SURPLUS: Readonly<Record<number, number>> = Object.fromEntries(
+const lineMap = <T>(f: (l: CoverageLine) => T): PerLine<T> => ({ WC: f('WC'), GL: f('GL'), Property: f('Property') });
+
+/** Each line's target premium-to-surplus ratio, by scenario number. */
+export const SCENARIO_PREMIUM_TO_SURPLUS: PerLine<Readonly<Record<number, number>>> = lineMap(l => Object.fromEntries(
   SCENARIOS_THIN_TO_RICH.map((n, k) => [n,
-    SCENARIO_RATIO_RANGE.thinnest
-      - k * (SCENARIO_RATIO_RANGE.thinnest - SCENARIO_RATIO_RANGE.richest) / (SCENARIO_COUNT - 1)]),
-);
+    SCENARIO_RATIO_RANGE[l].thinnest
+      - k * (SCENARIO_RATIO_RANGE[l].thinnest - SCENARIO_RATIO_RANGE[l].richest) / (SCENARIO_COUNT - 1)]),
+));
 
-/** The pre-game's experience factor is this / the scenario's ratio: 1 at a ratio of 1.5. */
-export const PRE_GAME_EXPERIENCE_BASE = 1.5;
+/**
+ * The pre-game's experience factor is this / the scenario's ratio: 1 at the
+ * line's MIDPOINT, so the middle scenario's pre-game runs at expected on every
+ * line. Property 1.45 (it was 1.5 for the shared 1.2-1.7 range, near but not on
+ * its middle), WC 2.25, GL 1.8.
+ */
+export const PRE_GAME_EXPERIENCE_BASE: PerLine<number> = lineMap(l => (SCENARIO_RATIO_RANGE[l].thinnest + SCENARIO_RATIO_RANGE[l].richest) / 2);
 /** How far the experience factor moves the pre-game's ordinary losses: x (1 + (1 - factor) x this). */
 export const PRE_GAME_EXPERIENCE_WEIGHT = 0.3;
 
-/** The pre-game's ordinary losses, as a multiple of expected, in a scenario. */
-export const preGameLossMultiplier = (scenario: number): number =>
-  1 + (1 - PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
+/** The pre-game's ordinary losses on a line, as a multiple of expected, in a scenario. */
+export const preGameLossMultiplier = (scenario: number, line: CoverageLine): number =>
+  1 + (1 - PRE_GAME_EXPERIENCE_BASE[line] / SCENARIO_PREMIUM_TO_SURPLUS[line][scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
 
 /**
- * STARTING CAPITAL — $12.5M PER LINE, paid in, with no earned surplus, at the
+ * STARTING CAPITAL — PER LINE (WC $5.0M, GL $10.0M, Property $17.5M; see the
+ * note under the value), paid in, with no earned surplus, at the
  * start of the pre-game. The Annual Statement's paid-in capital is this; earned
  * surplus is everything the pre-game adds.
  *
@@ -742,7 +806,24 @@ export const preGameLossMultiplier = (scenario: number): number =>
  * the 1.0 guardrail (0.90 at its richest). $15M (shipped briefly, f096e1a)
  * kept every designed margin above the floor at the cost of two more drops.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 17_500_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 5_000_000, GL: 10_000_000, Property: 17_500_000 };
+// ⚠ WC $5.0M AND GL $10.0M SINCE THE PER-LINE TARGETS (SCENARIO_RATIO_RANGE),
+// PROPERTY STAYS $17.5M. With WC's targets at 1.5-3.0 and GL's at 1.3-2.3 the
+// openings are thinner, and $12.5M grew past them with nothing to spare: the
+// designed margin solved below zero and sat on the floor (PRE_GAME_MARGIN_FLOOR)
+// on 41 of the 60 line-scenarios, Property's at $17.5M among them. THE RULE: the largest
+// amount, in $0.5M steps, that keeps every scenario's DESIGNED margin above
+// zero — small and genuine. Solved with reserve inflation, the per-line
+// targets and PRE_GAME_BOOK_GROWTH in (scripts/probes/capital-solve-probe.mts,
+// twenty scenarios):
+//
+//            capital   designed margin (range)    the step above
+//   WC       $5.0M     +0.27% to +2.83%           $5.5M: -0.17% at the lowest
+//   GL       $10.0M    +0.34% to +4.65%           $10.5M: -0.06% at the lowest
+//
+// Property is held at $17.5M by the brief, where its designed margin runs
+// -2.04% to +1.89%: the scenarios below zero are charged at the floor, as
+// before (18 of 20 sat there at $17.5M on the shared targets).
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
@@ -1154,7 +1235,7 @@ export const PRE_GAME_MARGIN_ON_DESIGN = { enabled: true };
 export const PRE_GAME_MARKET_DRAWS = 10;
 
 /**
- * THE OPENING'S GUARDRAILS — PREMIUM TO SURPLUS BETWEEN 1.0 AND 3.0.
+ * THE OPENING'S GUARDRAILS — PREMIUM TO SURPLUS BETWEEN 1.0 AND 3.5.
  *
  * With the margin set on the designed history (PRE_GAME_MARGIN_ON_DESIGN),
  * the opening falls where the simulated history takes it. If it would open a
@@ -1174,7 +1255,12 @@ export const PRE_GAME_MARKET_DRAWS = 10;
  * would need a negative margin, the board charges at zero and the opening
  * lands where that history takes it.
  */
-export const OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.0, max: 3.0 } as const;
+export const OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.0, max: 3.5 } as const;
+// ⚠ THE THIN BOUND WAS 3.0 AND IS 3.5, with WC's targets running to 3.0
+// (SCENARIO_RATIO_RANGE). At 3.0 the bound sat on the thinnest target, so any
+// bad luck there tripped it and raised that board's margin — as high as 6.7% —
+// which then came off in 2027: 17 of 60 line-scenario openings hit it at
+// 2.0-3.0 targets. At 3.5 the hits fell to 6 (scripts/probes/ri-ps-probe.mts).
 
 /**
  * THE PRIOR BOARD'S MARGIN IS NEVER BELOW ZERO. Whether set on the designed
@@ -2198,15 +2284,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   {
     title: 'The twenty scenarios',
     blurb: 'The scenario number is the game\'s only seed — market, book, pre-game and worlds, solo and hosted. Each '
-      + 'sets the opening premium to surplus, the pre-game\'s experience and, through the solved margin, how the '
-      + `prior board ran the pool. Evenly spaced from ${SCENARIO_RATIO_RANGE.thinnest} (thinnest) to `
-      + `${SCENARIO_RATIO_RANGE.richest} (richest). Experience factor = ${PRE_GAME_EXPERIENCE_BASE} / ratio; the `
-      + `pre-game's ordinary losses = expected x (1 + (1 - factor) x ${PRE_GAME_EXPERIENCE_WEIGHT}).`,
+      + 'sets each line\'s opening premium to surplus, the pre-game\'s experience and, through the solved margin, how the '
+      + 'prior board ran the pool. Evenly spaced per line, in one order, from thinnest to richest: '
+      + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_RATIO_RANGE[l].thinnest} to ${SCENARIO_RATIO_RANGE[l].richest}`).join(', ')
+      + '. Experience factor = the line\'s midpoint (' + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${PRE_GAME_EXPERIENCE_BASE[l]}`).join(', ')
+      + `) / ratio; the pre-game's ordinary losses = expected x (1 + (1 - factor) x ${PRE_GAME_EXPERIENCE_WEIGHT}).`,
     entries: Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1).map(n => [`Scenario ${n}`, {
-      value: SCENARIO_PREMIUM_TO_SURPLUS[n].toFixed(4), unit: 'premium to surplus at the opening',
-      what: `${SCENARIOS_THIN_TO_RICH.indexOf(n) + 1} of ${SCENARIO_COUNT}, thinnest first. Experience factor `
-        + `${(PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[n]).toFixed(4)}; pre-game ordinary losses x `
-        + `${preGameLossMultiplier(n).toFixed(4)} of expected.`,
+      value: (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_PREMIUM_TO_SURPLUS[l][n].toFixed(4)}`).join(' · '),
+      unit: 'premium to surplus at the opening',
+      what: `${SCENARIOS_THIN_TO_RICH.indexOf(n) + 1} of ${SCENARIO_COUNT}, thinnest first. Pre-game ordinary losses x `
+        + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${preGameLossMultiplier(n, l).toFixed(4)}`).join(', ') + ' of expected.',
       basis: 'CHOSEN',
     }] as const),
   },
@@ -2226,7 +2313,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['The pool\'s history begins', {
         value: 2021, unit: 'the first accident year',
         what: 'There are no accident years before 2021, the first pre-game year. The pre-game starts on its paid-in '
-          + 'capital ($12.5M a line — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
+          + 'capital (WC $5.0M, GL $10.0M, Property $17.5M — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
           + 'the starting expected loss with trend applied — no history — and so is 2022, with the one-year data lag; '
           + '2023 on one year, 2024 on two, 2025 on three, 2026 on four; from 2027 the full five-year window.',
         basis: 'CHOSEN',
@@ -2379,7 +2466,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'Property $17.5M, WC and GL $12.5M: at $12.5M Property\'s designed margin (3.0-5.8%) came off at Expected and '
+        note: 'WC $5.0M and GL $10.0M since the per-line targets (WC 1.5-3.0, GL 1.3-2.3): the largest amount, in $0.5M '
+          + 'steps, that keeps every scenario\'s designed margin above zero (WC +0.27% to +2.83%, GL +0.34% to +4.65%; '
+          + 'the step above takes the lowest below zero). At $12.5M the thinner openings needed less than nothing and '
+          + 'the designed margin sat on the floor. Property stays at $17.5M. '
+          + 'Before the per-line targets — Property $17.5M, WC and GL $12.5M: at $12.5M Property\'s designed margin (3.0-5.8%) came off at Expected and '
           + 'its 2027 rate dropped in 9 of 20 scenarios; at $15M, 3; at $17.5M, 1. At $17.5M the zero floor holds the '
           + 'prior board at exactly expected on 18 scenarios, ruled fine: a board funding at expected is an ordinary '
           + 'history, and with no margin to come off 2027 follows 2026 at trend. $20M drops no less and opens richer '
@@ -2538,9 +2629,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'A line whose simulated history would open outside this range has its prior-board margin adjusted just '
           + 'enough to land on the nearest bound; every other line keeps its designed margin.',
         basis: 'CHOSEN',
-        note: 'Thinner than 3.0 is a pool near failure before a team decides anything; richer than 1.0 is well more '
-          + 'capital than any designed scenario (1.2-1.7) intends. The rich bound was 1.2, the richest scenario\'s own '
-          + 'target, which good luck tripped; lowering openings to it took margins below zero.',
+        note: 'Thinner than 3.5 is a pool near failure before a team decides anything; richer than 1.0 is well more '
+          + 'capital than any designed scenario intends. The thin bound was 3.0, WC\'s thinnest target, which bad luck '
+          + 'tripped in 17 of 60 line-scenario openings and whose raised margins then came off in 2027; at 3.5, 6. The '
+          + 'rich bound was 1.2, then the richest scenario\'s own target; lowering openings to it took margins below zero.',
       }],
       ['Flat pre-game', {
         value: FLAT_PRE_GAME.enabled ? 'on' : 'off', unit: 'switch',

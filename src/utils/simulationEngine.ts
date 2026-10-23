@@ -1881,9 +1881,9 @@ export function processLineYear(
     // exposure x risk x cost, times the shared year factor and its own.
     ordinaryYear = yearUnits
       ? ordinaryLossFromUnits(line, yearUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed,
-        newUnits, unitPenalty, preGameLossFactor(instance, yearNumber), ctx.flatPreGame)
+        newUnits, unitPenalty, preGameLossFactor(instance, yearNumber, line), ctx.flatPreGame)
       : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed,
-        preGameLossFactor(instance, yearNumber), ctx.flatPreGame);
+        preGameLossFactor(instance, yearNumber, line), ctx.flatPreGame);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
     const penalty = newBusinessPenaltyFactor;

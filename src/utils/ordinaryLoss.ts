@@ -107,8 +107,8 @@ const streamLabel = (yearNumber: number, label: string): string => (yearNumber <
  * times the year's draws (mean 1), so the scenario keeps its record. Expected
  * is untouched.
  */
-export const preGameLossFactor = (instance: { scenario?: number }, yearNumber: number): number =>
-  yearNumber <= 0 && instance.scenario !== undefined ? preGameLossMultiplier(instance.scenario) : 1;
+export const preGameLossFactor = (instance: { scenario?: number }, yearNumber: number, line: CoverageLine): number =>
+  yearNumber <= 0 && instance.scenario !== undefined ? preGameLossMultiplier(instance.scenario, line) : 1;
 
 /**
  * THE CV OF THE YEAR FACTOR A LINE'S UNITS SHARE — its BASELINE_CV, the same

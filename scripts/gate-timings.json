@@ -108,6 +108,7 @@
     "pool-loss-cost-check": 10,
     "no-tail-trend-check": 10,
     "reserve-inflation-check": 20,
+    "pregame-growth-check": 10,
     "shock-rate-check": 6,
     "aggregate-stop-check": 10,
     "catastrophe-load-check": 10,

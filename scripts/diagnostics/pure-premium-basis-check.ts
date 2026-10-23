@@ -105,7 +105,7 @@ for (let g = 0; g < SEEDS; g++) {
   const struck = strikeRates(gs, defaultDecisionSet(1));
   for (const l of LINES) {
     const s = struck[l]!;
-    atYear1[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits, poolState.bookLedger) ?? 1, experience: preGameLossMultiplier(scenarioOf(instance)) });
+    atYear1[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits, poolState.bookLedger) ?? 1, experience: preGameLossMultiplier(scenarioOf(instance), l) });
   }
   for (let y = 1; y <= 10; y++) {
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), LINES)), currentYearNumber: y + 1 };
@@ -135,7 +135,7 @@ const atYear1Flat: Record<CoverageLine, Seen[]> = { WC: [], GL: [], Property: []
     const struck = strikeRates(gs, defaultDecisionSet(1));
     for (const l of LINES) {
       const s = struck[l]!;
-      atYear1Flat[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits, poolState.bookLedger) ?? 1, experience: preGameLossMultiplier(scenarioOf(instance)) });
+      atYear1Flat[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: lineBookRisk(instance, l, poolState.bookUnits, poolState.bookLedger) ?? 1, experience: preGameLossMultiplier(scenarioOf(instance), l) });
     }
   }
   Object.assign(inflation, saved);
