@@ -646,8 +646,27 @@ export const preGameLossMultiplier = (scenario: number): number =>
  * the books as reserves, earning investment income that a larger start
  * compounded (at $15M investment outgrew the margin). Those years are retired
  * (The pool's history begins), so that reason went with them.
+ *
+ * ⚠ PROPERTY $15M, WC AND GL $12.5M (policy-year build, with the six-year
+ * simulated pre-game, the margin set on the designed history and floored at
+ * zero, the one-year data lag, the investment income credit and ALAE drawn by
+ * line and year). The table above predates all of those. At $12.5M Property's
+ * designed margin ran 3.0% to 5.8%, and it comes off when year 1 (2027) funds
+ * at Expected, so the 2027 rate dropped from 2026's in 9 of the twenty
+ * scenarios. Property alone, WC and GL at $12.5M:
+ *
+ *   Property   margin           at the floor   opening P/S          2027 rate change    drops
+ *   $12.5M     3.0% to 5.8%     0              1.00-2.15 (sc 17)    -5.4% to +4.8%       9
+ *   $15M       0.3% to 3.5%     0              1.00-2.15 (sc 17)    -3.6% to +7.1%       3
+ *   $17.5M     0.0% to 1.1%    18              1.00-2.14            -1.7% to +7.7%       1
+ *   $20M       0.0%            20              0.90-1.74            -0.9% to +7.7%       1
+ *
+ * $15M is the level with the fewest drops at which no designed margin needs
+ * the zero floor. $17.5M and $20M drop less only because the floor hides a
+ * designed history that would need the board to price BELOW expected — on 18
+ * and all 20 scenarios — and $20M also opens richer than the 1.0 guardrail.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 12_500_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 15_000_000 };
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
@@ -2259,7 +2278,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'The prior board\'s margin is solved to grow this into the opening and comes off when year 1 funds at '
+        note: 'Property $15M, WC and GL $12.5M: at $12.5M Property\'s designed margin (3.0-5.8%) came off at Expected and '
+          + 'its 2027 rate dropped in 9 of 20 scenarios; at $15M, 3, with margins 0.3-3.5% and none at the zero floor. '
+          + '$17.5M and $20M drop once but only by flooring 18 and 20 designed margins that would sit below expected. '
+          + 'Earlier, before the simulated pre-game: the prior board\'s margin is solved to grow this into the opening and comes off when year 1 funds at '
           + 'Expected, so a smaller start means a higher margin and a 2026 rate that falls from 2025\'s. Tried at $5M, $10M, '
           + '$12.5M and $15M across the twenty scenarios by line. At $12.5M 2026\'s rate carries on rising from 2025\'s on '
           + 'almost every line and scenario (WC +1.3 to +3.8%, GL +3.0 to +6.7%, Property -0.3 to +3.2%; at $5M it fell on '
