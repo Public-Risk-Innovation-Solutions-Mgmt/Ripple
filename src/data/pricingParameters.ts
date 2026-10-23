@@ -662,6 +662,13 @@ export const MEMBER_LEVEL = { enabled: false };
  * Decisions page shows each line's slider disabled at 0% ("coming soon") and
  * the Departments screen hides the programs. The programs, the spend and their
  * code are kept intact and unwired, for the pool-level redesign to reuse.
+ *
+ * ⚠ WHEN IT IS SWITCHED ON, IT MUST BE CHARGED AS A PERCENTAGE OF THE PURE
+ * PREMIUM. The Decisions slider is labelled that way ("5% of Pure Premium" at
+ * its end), but quoteNewRateStack loads it today as a share of the loaded rate,
+ * in the divisor. Change the charge to match the label before turning this on;
+ * the slider's gray cost box (derivations.ts riskControlCost) then shows the
+ * real cost, and shows $0 until then.
  */
 export const RISK_CONTROL = { enabled: false };
 

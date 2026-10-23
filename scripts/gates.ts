@@ -245,6 +245,12 @@ const FAST: string[] = [
                                      //         ⚠ THE CHECK WHOSE ABSENCE LET COMMIT 3 SHIP INERT: it had
                                      //         wired the price signal and not the bill, and 20 games came
                                      //         back bit-identical flag-on. Flips the flag in its own process.
+  'decision-figures-check',          //   8s   the Decisions page's dollar figures are the engine's: the
+                                     //         premium turned away and the new business let in match
+                                     //         processYear's own movement, the risk control cost is the
+                                     //         engine's rate loading, and Your rate's pure premium is the
+                                     //         retained figure x the CLF with the pieces summing to the
+                                     //         rate charged. Flips RISK_CONTROL in its own process.
   'new-rate-tieout-check',           //   8s   the NEW rate stack's two indications tie to their own
                                      //         components, neither loading error is present and the
                                      //         adapter is additive. ⚠ IT FLIPS NEW_RATE_STACK AT

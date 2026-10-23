@@ -236,6 +236,8 @@ export default function GameShell({
             lastLineResult={d.lastLineResult}
             fundingConsequence={d.fundingConsequence}
             book={d.decisionLineBook}
+            underwriting={d.underwriting}
+            riskControlCost={d.riskControlCost}
           />
         )}
 
