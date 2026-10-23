@@ -1234,7 +1234,24 @@ const BASELINE = process.env.RENDER_BASELINE
 //     list, "From the Investment Committee" -> "From the Finance Department".
 // Nothing else moves. The three-line layout itself is whitespace, which this
 // fingerprint does not see; the introduction driver checks it.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v82.json');
+// v83: THE YEAR LABELS (display only; value v82 and export v90 byte-identical).
+// The game sits in the year in progress while the board prices the next: the
+// top bar shows the CURRENT year, everything about deciding names the PROGRAM
+// YEAR. The control ran first: c201051, built and run with its own harness in
+// its own worktree, reproduced v82 236 of 236. 196 move; word-diffed against
+// the control's text, every one is a label and nothing else:
+//   every game screen (the top bar): the Calendar chip one year earlier (2027
+//     -> 2026 at y0, 2029 -> 2028 at y2), and "Lock Year N" -> "Lock Program
+//     Year <P>";
+//   Decisions: "Year N Decisions" -> "Decisions for Program Year <P>";
+//   Decision History (y2): the "Calendar" column -> "Program Year";
+//   Introduction: the Welcome memorandum's subtitle "Year 2027" -> "Program
+//     Year 2027";
+//   Rate Indication, section 3, each line: "Current rate" -> "<P-1> Rate", and
+//     "Indicated rate at …" -> "Indicated <P> Rate at …". Section 1 unmoved.
+// The 40 unmoved are the Introduction's four documents, captured as the
+// document's body alone.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v83.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1518,7 +1535,7 @@ async function run(): Promise<Record<string, string>> {
     await startGame(page, cfg);
     await capture(page, cfg, 'y0', out);
     for (let i = 0; i < 2; i++) {
-      await page.getByRole('button', { name: /^Lock Year \d+$/ }).click();
+      await page.getByRole('button', { name: /^Lock Program Year \d+$/ }).click();
       await settle(page);
       // ⚠ TEN WORLDS (loss engine commit 4b): a line short in ANY world raises
       // the loan prompt, so a year can stop at it. Confirmed at the prompt's own
