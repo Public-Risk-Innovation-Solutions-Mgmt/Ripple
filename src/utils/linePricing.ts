@@ -43,7 +43,7 @@
 
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED } from '../data/defaultAssumptions';
 import {
-  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, PROFIT_AND_CONTINGENCY_OF_RATE,
+  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR, ADMIN_BASE_YEAR, PROFIT_AND_CONTINGENCY_OF_RATE,
 } from '../data/pricingParameters';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
@@ -561,10 +561,22 @@ export function quoteLineRates(input: LineRateInputs): LineRateQuote {
 // less is ceded, which is the whole and only effect it should have.
 // ============================================================================
 
-/** Admin per $100: the line's fixed amount spread over exposure, plus the rate. */
-export function adminRatePer100For(line: CoverageLine, exposure: number): number {
-  return ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1)
-    + ADMIN_PER_EXPOSURE_PER_100[line];
+/**
+ * THE ADMIN TREND FACTOR for a year: (1 + ADMIN_TREND_PER_YEAR)^(year -
+ * ADMIN_BASE_YEAR) — compounding after the base year, discounting before it.
+ */
+export function adminTrendFactor(yearNumber: number): number {
+  return Math.pow(1 + ADMIN_TREND_PER_YEAR, yearNumber - ADMIN_BASE_YEAR);
+}
+
+/**
+ * Admin per $100 for a year: the line's fixed amount spread over exposure,
+ * plus the rate — both trended to the year (adminTrendFactor). What the rate
+ * charges and, through the charge, what the engine books as the year's admin.
+ */
+export function adminRatePer100For(line: CoverageLine, exposure: number, yearNumber: number): number {
+  return adminTrendFactor(yearNumber) * (ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1)
+    + ADMIN_PER_EXPOSURE_PER_100[line]);
 }
 /**
  * THE INCENTIVE THE RATE ACTUALLY CARRIES — the stored slider with RISK_CONTROL
@@ -662,7 +674,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   if (AGGREGATE_STOP.enabled && reinsuranceOption === undefined) {
     throw new Error(`quoteNewRateStack: ${line} quoted without its reinsurance option while the aggregate stop is on`);
   }
-  const adminRatePer100 = adminRatePer100For(line, exposure);
+  const adminRatePer100 = adminRatePer100For(line, exposure, yearNumber);
   const divisor = expenseDivisor(riskControlPct);
 
   // ⚠ THE INVESTMENT INCOME CREDIT COMES OFF THE PURE PREMIUM AND NOTHING ELSE

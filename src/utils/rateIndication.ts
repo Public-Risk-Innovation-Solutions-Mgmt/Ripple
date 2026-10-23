@@ -42,7 +42,7 @@ import {
   RATE_INDICATION_FUNDING_LEVELS,
 } from '../data/pricingParameters';
 import { computeFundingConsequence } from './fundingConsequence';
-import { effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
+import { adminTrendFactor, effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
 import { lossCostTrendPerYear } from './newPurePremium';
 import { AGGREGATE_NOT_OFFERED, placementFor, reinsuranceOptionIds } from './reinsuranceOptions';
 import { gameShocksOn } from './shockLosses';
@@ -216,7 +216,8 @@ export function buildRateIndication(
 
   // THE EXPENSES, as shares of the rate at Expected.
   const rateE = atExpected.finalRatePer100;
-  const fixedPer100 = ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1);
+  // The fixed part's share, trended to the year as the rate charges it.
+  const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1);
   const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
     : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
   const contingency = PROFIT_AND_CONTINGENCY_OF_RATE;

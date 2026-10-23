@@ -244,6 +244,9 @@ const FAST: string[] = [
   'new-rate-bill-check',             //  12s   with the flag on, the rate members are CHARGED is the rate
                                      //         they are SHOWN, the charge is additive, the retained-cover
                                      //         margin is retired, and the bill is NOT the old stack's.
+  'admin-trend-check',               //  30s   admin trended 3% a year on both parts from the base year
+                                     //         (2027), priced and booked alike, pre-game included;
+                                     //         three controls
   'investment-income-credit-check',  //  60s   every rate credits last year's pool return (3% before any
                                      //         history) off its pure premium only — admin and the
                                      //         reinsurance price untouched — and the charged rate carries

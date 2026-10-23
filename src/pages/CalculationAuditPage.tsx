@@ -2791,7 +2791,7 @@ export function buildRevExpRows(
               {
                 // At the book the rate was struck on — a multi-world year's
                 // averaged book before the year (ratedExposure), else this one.
-                value: adminRatePer100For(lineRow.line as CoverageLine, lineRow.ratedExposure ?? lineRow.activeExposure)
+                value: adminRatePer100For(lineRow.line as CoverageLine, lineRow.ratedExposure ?? lineRow.activeExposure, poolResult.yearNumber)
                   / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions)),
                 format: 'plain',
                 label: 'admin rate per $100, loaded',

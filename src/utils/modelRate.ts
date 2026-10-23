@@ -18,10 +18,10 @@
 // figures; the combined ratio is the Annual Statement's own.
 // ============================================================================
 import {
-  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, PRICING_DATA_LAG_YEARS,
+  ADMIN_BASE_YEAR, ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR, PRICING_DATA_LAG_YEARS,
 } from '../data/pricingParameters';
 import { bookPurePremium, lossCostTrendPerYear, type NewPurePremiumResult } from './newPurePremium';
-import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor, quoteNewRateStack } from './linePricing';
+import { adminRatePer100For, adminTrendFactor, effectiveRiskControlIncentivePct, expenseDivisor, quoteNewRateStack } from './linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
 import { gameShocksOn } from './shockLosses';
 import { selectedClfFor } from './simulationEngine';
@@ -79,8 +79,13 @@ export interface ModelRate {
   projectedPurePremiumPer100: number;
   credit: number;
   afterCreditPer100: number;
+  /** The parameters as set, at the base year. */
   adminFixed: number;
   adminPerExposurePer100: number;
+  /** (1 + trend)^(year - base year), and the two parts trended to the year. */
+  adminTrend: { perYear: number; baseYear: number; years: number; factor: number };
+  adminFixedTrended: number;
+  adminPerExposureTrendedPer100: number;
   /** $M — the exposure the rate is quoted on. */
   quotedExposure: number;
   adminPer100: number;
@@ -201,7 +206,13 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     projectedPurePremiumPer100: pp.purePremiumPer100,
     credit, afterCreditPer100: quote.creditedPurePremiumPer100,
     adminFixed: ADMIN_FIXED_PER_YEAR[line], adminPerExposurePer100: ADMIN_PER_EXPOSURE_PER_100[line],
-    quotedExposure, adminPer100: adminRatePer100For(line, quotedExposure),
+    adminTrend: {
+      perYear: ADMIN_TREND_PER_YEAR, baseYear: calendarOf(gs, ADMIN_BASE_YEAR),
+      years: yearNumber - ADMIN_BASE_YEAR, factor: adminTrendFactor(yearNumber),
+    },
+    adminFixedTrended: ADMIN_FIXED_PER_YEAR[line] * adminTrendFactor(yearNumber),
+    adminPerExposureTrendedPer100: ADMIN_PER_EXPOSURE_PER_100[line] * adminTrendFactor(yearNumber),
+    quotedExposure, adminPer100: adminRatePer100For(line, quotedExposure, yearNumber),
     funding: { label: fundingLabel(d), clf: quote.clf },
     riskControl: effectiveRiskControlIncentivePct(d), divisor: expenseDivisor(effectiveRiskControlIncentivePct(d)),
     reinsurancePer100: oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100,
