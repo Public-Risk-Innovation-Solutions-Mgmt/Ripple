@@ -1193,7 +1193,24 @@ const BASELINE = process.env.RENDER_BASELINE
 // Unmoved: the single-line games' line views (the pool's share was the
 // line's), the GL view of WC+GL+PR (GL's share equals the pool's to the
 // tenth), and the memo bodies.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v79.json');
+// v80: THE DECISIONS LAYOUT (display only; value v81 and export v89
+// byte-identical). The control ran first: 51b27cf built in its own worktree
+// reproduced v79 236 of 236. 16 move, and they are exactly the Decisions line
+// views — every line of all five configurations, at y0 and y2. Nothing else
+// moves: no other tab, and not Decisions|Pool. In every one, word-diffed
+// against the control's text:
+//   the boxes re-ordered: Underwriting, Risk Control, then Dividends and
+//     Assessments on the left; Pricing & Funding, then Reinsurance on the right;
+//   the underwriting sliders renamed ("Existing Book: Non-Renewal Assumption",
+//     "New Business: Growth Assumption"), each with its premium in dollars;
+//   the risk control box titled "Risk Control", reading "~0% of pure premium",
+//     its ends "None" and "5% of Pure Premium", and a "Cost at current
+//     exposure: $0" box (the slider is disabled at 0% while RISK_CONTROL is off);
+//   the dividend note added; the reinsurance options' description lines gone.
+// And on 7 of the 16 — GL y2 and PR y0/y2 views — the risk control &
+// contingency row's "$-0.00" now reads "$0.00" (229f1ee). The default pool
+// name (5226457) moves nothing: this harness types its own (POOL_NAME).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v80.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
