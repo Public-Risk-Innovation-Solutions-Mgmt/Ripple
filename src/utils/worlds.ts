@@ -246,6 +246,8 @@ function withRateBasis(result: ResultSet, struck: WorldsYear['struckRates']): Re
       ...(s.bookRisk !== undefined ? { risk: s.bookRisk } : {}),
       windowYears: pts.length,
       windowExposure: pts.length > 0 ? pts.reduce((a, p) => a + p.exposure, 0) / pts.length : 0,
+      ...(pts.length > 0 ? { latestExposure: pts[pts.length - 1].exposure } : {}),
+      pricedExposure: s.exposure,
     };
     byLine[line] = { ...row, rateBasis };
   }
@@ -290,7 +292,7 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
  * a formula changed in the engine and not here fails the gate.
  */
 export function deriveLineRatios(r: Pick<LineResultSet,
-  'poolPremium' | 'selectedFundingCLF' | 'poolPremiumAndAdminExpense' | 'totalMemberCharge' | 'adminExpense'
+  'poolPremium' | 'selectedFundingCLF' | 'poolPremiumAndAdminExpense' | 'totalMemberCharge' | 'adminExpense' | 'operatingExpense'
   | 'reinsuranceCost' | 'netIncurredLoss' | 'poolLayerLoss' | 'reserveRiskMarginNeeded' | 'excessAvailableSurplus'
   | 'activeExposure' | 'totalMarketExposure' | 'laeIncurred'> & { bookedGrossUltimate?: number; grossUltimateLoss: number }) {
   const funded = fundedNetExpectedLoss({ poolPremium: r.poolPremium, selectedFundingCLF: r.selectedFundingCLF });
@@ -298,7 +300,8 @@ export function deriveLineRatios(r: Pick<LineResultSet,
   const expectedLossRatioMemberBasis = funded / Math.max(r.totalMemberCharge, 1);
   const expectedExpenseRatio = (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
   const actualLossRatio = r.netIncurredLoss / Math.max(r.totalMemberCharge, 1);
-  const actualExpenseRatio = (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
+  // The admin BOOKED, with the year's overrun (ADMIN_OVERRUN_RANGE); expected is the admin priced.
+  const actualExpenseRatio = (r.operatingExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
   const actualLaeRatio = r.laeIncurred / Math.max(r.totalMemberCharge, 1);
   const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
   const excessCapitalRatio = r.reserveRiskMarginNeeded > 0

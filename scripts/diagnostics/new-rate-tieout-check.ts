@@ -15,9 +15,11 @@
 //
 // WHAT IT ASSERTS, on every line and year:
 //
-//   1. THE FIRST INDICATION TIES: (ground-up + admin) / divisor, rebuilt here
-//      from the parameters, equals the engine's figure to the bit.
-//   2. THE FINAL RATE TIES: (retained x CLF + admin) / divisor + reinsurance.
+//   1. THE FIRST INDICATION TIES: (ground-up x (1 - the investment income
+//      credit) + admin) / divisor, rebuilt here from the parameters and the
+//      credit the row records, equals the engine's figure to the bit.
+//   2. THE FINAL RATE TIES: (retained x CLF + admin) / divisor + reinsurance,
+//      retained being the credited ground-up less anything netted.
 //      With the aggregate stop on, retained IS the ground-up claims cost: the
 //      cover's expected recovery is not taken off it
 //      (STOP_RECOVERY_OFF_CLAIMS_COST off) and its full price is the
@@ -79,7 +81,7 @@ interface Row {
   line: CoverageLine; year: number;
   first: number; final: number; rebuiltFirst: number; rebuiltFinal: number;
   admin: number; divisor: number; clf: number;
-  groundUp: number; retained: number; reins: number;
+  groundUp: number; credited: number; retained: number; reins: number;
   total: number;
 }
 
@@ -105,8 +107,8 @@ function play(): Row[] {
         const groundUp = r.newPurePremiumPer100!;
         const exposure = r.writtenExposure;
         const ld = d.byLine[line];
-        const admin = adminRatePer100For(line, exposure);
-        const divisor = expenseDivisor(ld.riskControlIncentivePct ?? 0);
+        const admin = adminRatePer100For(line, exposure, y);
+        const divisor = expenseDivisor(ld.riskControlIncentivePct ?? 0, line);
         const { expectedCededPer100 } = expectedCededPer100For(line, y, groundUp, {
           // A book (MEMBER_LEVEL off) is priced on its exposure, as the engine
           // prices it; a roster on its members.
@@ -117,15 +119,17 @@ function play(): Row[] {
           reinsuranceOption: ld.reinsuranceOption,
         });
         const netted = AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled ? 0 : expectedCededPer100;
-        const retained = Math.max(0, groundUp - netted);
+        // No investment income credit: investment income does not touch the rate.
+        const credited = groundUp;
+        const retained = Math.max(0, credited - netted);
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);
         rows.push({
           line, year: y,
           first: r.firstIndicationPer100, final: r.finalRatePer100,
-          rebuiltFirst: (groundUp + admin) / divisor,
+          rebuiltFirst: (credited + admin) / divisor,
           rebuiltFinal: (retained * r.selectedFundingCLF + admin) / divisor + reins,
           admin, divisor, clf: r.selectedFundingCLF,
-          groundUp, retained, reins,
+          groundUp, credited, retained, reins,
           total: r.ratePer100,
         });
       }
@@ -161,7 +165,7 @@ for (const r of rows) {
   worstFirst = Math.max(worstFirst, d1); worstFinal = Math.max(worstFinal, d2);
   if (d1 > EPS) {
     fail(`${r.line} y${r.year} first indication ${r.first.toFixed(6)} against rebuilt `
-      + `${r.rebuiltFirst.toFixed(6)} — (ground-up ${r.groundUp.toFixed(4)} + admin `
+      + `${r.rebuiltFirst.toFixed(6)} — (credited ${r.credited.toFixed(4)} + admin `
       + `${r.admin.toFixed(4)}) / ${r.divisor.toFixed(4)}`);
   }
   if (d2 > EPS) {
@@ -185,7 +189,7 @@ let checkedOrder = 0;
 for (const r of rows) {
   if (Math.abs(r.clf - 1) > 1e-12) continue;
   checkedOrder++;
-  const expectedGap = (r.groundUp - r.retained) / r.divisor - r.reins;
+  const expectedGap = (r.credited - r.retained) / r.divisor - r.reins;
   if (Math.abs((r.first - r.final) - expectedGap) > EPS) {
     fail(`${r.line} y${r.year}: at CLF 1 the indication less the rate (${(r.first - r.final).toFixed(6)}) `
       + `must be the ceded premium through the divisor less reinsurance (${expectedGap.toFixed(6)})`);

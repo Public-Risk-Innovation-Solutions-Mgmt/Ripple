@@ -10,6 +10,8 @@ import { formatCurrency, formatMillions } from '../utils/formatters';
 
 const rate = (x: number) => x.toFixed(3);
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+// A factor as itself, to the places it has: 1.04, 1.08, 1.05.
+const factor = (x: number) => String(Number(x.toFixed(4)));
 const signed = (x: number | null) => (x === null ? '—' : `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`);
 
 function Row({ label, testId, value, window, children, strong }: {
@@ -38,8 +40,12 @@ function LineCard({ ri }: { ri: RateIndication }) {
   const l = ri.line;
   const p = ri.pure;
   const x = ri.expenses;
+  // Section 3 names its years: the program year priced (ri.calendarYear) and
+  // the current year before it, whose rate is in force — "2026 Rate" and
+  // "Indicated 2027 Rate at …" at the start, following the year shown.
+  const programYear = ri.calendarYear;
   const levelLabel = (pos: RateIndication['positions'][number]['position']) =>
-    pos === 'expected' ? 'Indicated rate at Expected' : `Indicated rate at ${Math.round(pos * 100)}% CLF`;
+    pos === 'expected' ? `Indicated ${programYear} Rate at Expected` : `Indicated ${programYear} Rate at ${Math.round(pos * 100)}% CLF`;
   const levelId = (pos: RateIndication['positions'][number]['position']) =>
     pos === 'expected' ? `ri-${l}-expected` : `ri-${l}-level-${Math.round(pos * 100)}`;
   return (
@@ -48,35 +54,42 @@ function LineCard({ ri }: { ri: RateIndication }) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-gray-200">
         <Section title="Pure Premium">
-          <Row label={`Trended average losses${p.windowYears > 0 && p.windowYears < 5 ? ` (${p.windowYears}-year average)` : ''}`}
+          <Row label={`${p.windowYears}-Year Trended Average Loss at ${p.rateLevelYear} Rate Level`}
             testId={`ri-${l}-losses`} value={p.trendedAverageLosses} window={p.windowYears}>
             {p.windowYears > 0 ? formatCurrency(p.trendedAverageLosses, true) : '—'}
           </Row>
-          <Row label="Exposure" testId={`ri-${l}-exposure`} value={p.exposure}>
+          <Row label={`${p.rateLevelYear} Exposure`} testId={`ri-${l}-exposure`} value={p.exposure}>
             {p.windowYears > 0 ? formatMillions(p.exposure, 1) : '—'}
           </Row>
-          <Row label="Pure premium" testId={`ri-${l}-pp`} value={p.purePremiumPer100}>{rate(p.purePremiumPer100)}</Row>
+          <Row label={`Indicated Pure Premium at ${p.rateLevelYear} Rate Level`} testId={`ri-${l}-pp`} value={p.purePremiumPer100}>
+            {rate(p.purePremiumPer100)}
+          </Row>
           <Space />
-          <Row label="Annual trend" testId={`ri-${l}-trend`} value={p.annualTrend}>{pct(p.annualTrend - 1)}</Row>
+          <Row label="Annual Trend" testId={`ri-${l}-trend`} value={p.annualTrend}>{factor(p.annualTrend)}</Row>
           <Space />
-          <Row label={`Projected pure premium for Program Year ${ri.calendarYear}`} testId={`ri-${l}-projected`} value={p.projectedPer100} strong>
+          <Row label={`Projected Pure Premium for Program Year ${ri.calendarYear}`} testId={`ri-${l}-projected`}
+            value={p.projectedPer100} strong>
             {rate(p.projectedPer100)}
+          </Row>
+          <Space />
+          <Row label={`Indicated Rate Change from the ${p.rateLevelYear} Rate`} testId={`ri-${l}-change`} value={ri.indicatedRateChange ?? undefined}>
+            {signed(ri.indicatedRateChange)}
           </Row>
         </Section>
 
         <Section title="Expenses">
-          <Row label="Fixed admin" value={x.fixedAdmin}>{pct(x.fixedAdmin)}</Row>
-          <Row label="Per-exposure admin" value={x.perExposureAdmin}>{pct(x.perExposureAdmin)}</Row>
-          <Row label="Risk control" value={x.riskControl}>{pct(x.riskControl)}</Row>
-          {x.contingency > 0 && <Row label="Profit and contingency" value={x.contingency}>{pct(x.contingency)}</Row>}
+          <Row label="Fixed admin" testId={`ri-${l}-fixed-admin`} value={x.fixedAdmin}>{pct(x.fixedAdmin)}</Row>
+          <Row label="Per-exposure admin" testId={`ri-${l}-exposure-admin`} value={x.perExposureAdmin}>{pct(x.perExposureAdmin)}</Row>
+          <Row label="Risk control" testId={`ri-${l}-risk-control`} value={x.riskControl}>{pct(x.riskControl)}</Row>
+          <Row label="Profit & contingency" testId={`ri-${l}-contingency`} value={x.contingency}>{pct(x.contingency)}</Row>
           <Space />
-          <Row label="Total admin expense ratio" testId={`ri-${l}-total-admin`} value={x.totalAdmin} strong>{pct(x.totalAdmin)}</Row>
+          <Row label="Total expense ratio" testId={`ri-${l}-total-admin`} value={x.totalAdmin} strong>{pct(x.totalAdmin)}</Row>
           <Space />
           <Row label="Permissible loss ratio" testId={`ri-${l}-permissible`} value={x.permissibleLossRatio} strong>{pct(x.permissibleLossRatio)}</Row>
         </Section>
 
         <Section title="Indication at Various CLF">
-          <Row label="Current rate" testId={`ri-${l}-current`} value={ri.currentPer100 ?? undefined}>
+          <Row label={`${programYear - 1} Rate`} testId={`ri-${l}-current`} value={ri.currentPer100 ?? undefined}>
             {ri.currentPer100 === null ? '—' : rate(ri.currentPer100)}
           </Row>
           <Space />

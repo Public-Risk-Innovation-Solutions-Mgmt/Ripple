@@ -1324,7 +1324,61 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   The pricing report commit moved nothing. No played-year rate, premium,
 //   loss or reserve moves after the history commit: year 1 prices on a full
 //   five-year window of flat pre-game losses either way.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v81.json');
+// v82: THE POLICY-YEAR LANDING (policy year 2027, the simulated pre-game, the
+// investment income credit, admin trends, ALAE by year, Property capital
+// $17.5M), rebased on multiplayer 96fe2a2. The control ran first: 96fe2a2
+// reproduced v81, with export v89 (24 of 24) and render v80 (236 of 236). Run
+// at each commit in turn, each against the one before. 21,427 of 39,780
+// values differ from the control at head; every one is attributed to a commit.
+// Four fields added, 180 each (720): billedExposure, investmentIncomeCredit,
+// alaeRatio, pricingAlaeRatio. None removed.
+//   the 2027 policy year and data lag, 18,619: a sixth pre-game year and a
+//     one-year lag, so every reserve, asset and surplus field moves.
+//   the welcome memo and pool name, 0.
+//   the investment income credit, 13,007: premium and charge on every
+//     instance, and everything that follows them.
+//   the Model tab, 180 — billedExposure added, no existing value moves.
+//   admin trends 3%, 10,894: funding, surplus and capital.
+//   the simulated pre-game merge, 20,297: premiums, losses, reserves, IBNR.
+//   ALAE by line and year, 15,823: premium, LAE and what follows.
+//   the credit fix (no invested assets), 1,181 on 59 instances.
+//   Property $15M, 2,335 on 137; $17.5M, 2,722 on 151: opening surplus and
+//     the funding and capital fields that follow.
+//   the credit floored at zero, 1,950 on 8 instances, years 3-5: the 24
+//     credits that were negative (as low as -5.59%) are 0, so premium, income,
+//     surplus and capital follow. No negative credit remains.
+//   The driver and gate commits moved nothing.
+// v83: THE RESERVE-INFLATION LANDING (reserve inflation booked and priced;
+// the per-line opening; the investment income credit off; the admin overrun;
+// profit and contingency, priced inflation years and paid-in capital per line),
+// rebased on multiplayer 91559fd. The control ran first: 91559fd reproduced
+// v82, with export v90 (24 of 24) and render v84 (236 of 236). Captured at each
+// commit in turn and compared with the one before. 21,361 of 39,600 values
+// differ from the control at head; every one is attributed to a commit. One
+// field removed, 180 values: investmentIncomeCredit. None added.
+//   reserve inflation, 21,250 across 80 fields on all 300 instances: open
+//     years inflate, so reserves, paid losses, development and IBNR move, and
+//     pricing two years of it moves every rate (tri Y1 WC 3.283 -> 3.586, GL
+//     4.967 -> 5.568 per $100).
+//   the opening (per-line targets, guardrails, pre-game growth, capital),
+//     20,689 across 78: the pre-game's book and margin, so reserves, surplus
+//     and premium.
+//   the credit off and 5% profit and contingency, 13,393 across 50: premium,
+//     admin charged (grossed up by the new divisor: +5.263% on GL and
+//     Property, +2.105% on WC) and everything after; investmentIncomeCredit
+//     removed.
+//   the admin overrun, 6,906 across 26: the admin booked (operatingExpense)
+//     and the income, surplus and capital that follow; the admin charged does
+//     not move.
+//   profit and contingency, priced years and capital per line, 13,496 across
+//     54: premium and admin charged (-5.000% on GL and Property, -3.061% on
+//     WC), and the openings at WC $3.0M, GL $12.0M, Property $12.5M (tri Y1
+//     rates WC 3.632, GL 5.665, Property 0.3082).
+//   The probes, panel-driver and audit-row commits moved nothing, nor did
+//   paying inflation by the pattern whatever FORWARD_BOOKING says (the
+//   shipped game has the flag on) or the gate restatements. Exposure moves in
+//   none of them.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v83.json');
 
 function seedOf(id: string) {
   let h = 5381;

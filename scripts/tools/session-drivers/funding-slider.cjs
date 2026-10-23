@@ -39,7 +39,7 @@ const ok = (cond, label, detail = '') => {
     if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
   }
   await page.getByRole('button', { name: 'Start Simulation' }).click();
-  await page.waitForSelector('text=Lock Year', { timeout: 60000 });
+  await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
 
   for (const line of LINES) {

@@ -68,12 +68,16 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   // ============================================================================
   const latestResult = lastResult ?? gameState?.priorHistory?.at(-1);
   const marketShare = lineView === 'pool' ? undefined : latestResult?.byLine[lineView]?.marketShare;
-  const poolName = gameState?.setup?.poolName ?? 'Risk Pool';
+  const poolName = gameState?.setup?.poolName ?? 'Ripple Public Entity Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';
   const yearNumber = gameState?.currentYearNumber ?? 1;
-  const calendarYear = gameState
-    ? gameState.setup.startingYear + gameState.currentYearNumber - 1
-    : '—';
+  // ⚠ TWO YEARS, NAMED APART. The board sets next year's rates during the year
+  // in progress: the PROGRAM YEAR is the one being priced (the setup's first
+  // year, 2027, at year 1), and the CURRENT year — this chip — is the year
+  // before it (2026 at the start, 2027 after the first played year). The lock
+  // button names the program year.
+  const programYear = gameState ? gameState.setup.startingYear + gameState.currentYearNumber - 1 : undefined;
+  const calendarYear = programYear !== undefined ? programYear - 1 : '—';
   const isStarted = gameState?.isStarted ?? false;
   const isComplete = gameState?.isComplete ?? false;
 
@@ -101,7 +105,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
           {isStarted && (
             <div className="flex items-center gap-3 flex-wrap">
               <Chip label="Year" value={`${yearNumber}`} />
-              <Chip label="Calendar" value={`${calendarYear}`} />
+              <Chip label="Calendar" value={`${calendarYear}`} testId="header-calendar" />
               <Chip label="Scenario" value={instanceId} mono />
               <Chip
                 label="Surplus"
@@ -151,7 +155,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
                 disabled={!canAdvance}
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-bold transition-colors"
               >
-                {advanceLabel ?? `Lock Year ${yearNumber}`}
+                {advanceLabel ?? `Lock Program Year ${programYear}`}
                 <ChevronRight size={14} />
               </button>
             )}

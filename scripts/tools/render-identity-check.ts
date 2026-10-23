@@ -1193,7 +1193,115 @@ const BASELINE = process.env.RENDER_BASELINE
 // Unmoved: the single-line games' line views (the pool's share was the
 // line's), the GL view of WC+GL+PR (GL's share equals the pool's to the
 // tenth), and the memo bodies.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v79.json');
+// v80: THE DECISIONS LAYOUT (display only; value v81 and export v89
+// byte-identical). The control ran first: 51b27cf built in its own worktree
+// reproduced v79 236 of 236. 16 move, and they are exactly the Decisions line
+// views — every line of all five configurations, at y0 and y2. Nothing else
+// moves: no other tab, and not Decisions|Pool. In every one, word-diffed
+// against the control's text:
+//   the boxes re-ordered: Underwriting, Risk Control, then Dividends and
+//     Assessments on the left; Pricing & Funding, then Reinsurance on the right;
+//   the underwriting sliders renamed ("Existing Book: Non-Renewal Assumption",
+//     "New Business: Growth Assumption"), each with its premium in dollars;
+//   the risk control box titled "Risk Control", reading "~0% of pure premium",
+//     its ends "None" and "5% of Pure Premium", and a "Cost at current
+//     exposure: $0" box (the slider is disabled at 0% while RISK_CONTROL is off);
+//   the dividend note added; the reinsurance options' description lines gone.
+// And on 7 of the 16 — GL y2 and PR y0/y2 views — the risk control &
+// contingency row's "$-0.00" now reads "$0.00" (229f1ee). The default pool
+// name (5226457) moves nothing: this harness types its own (POOL_NAME).
+// v81: THE POLICY-YEAR LANDING (see VALUE_IDENTITY_v82). The control ran
+// first: 96fe2a2 built in its own worktree reproduced v80 236 of 236. 211
+// differ at head; none added or removed. Each commit against the one before:
+//   the 2027 policy year, 206 — every tab's figures and years.
+//   the welcome memo and pool name, 30 — Introduction 20 (the Executive
+//     Committee memo), Rate Indication 10.
+//   the investment income credit, 206; the Model tab, 186 (the tab bar);
+//   admin trends, 149; the simulated pre-game merge, 211; ALAE by year, 206.
+//   the credit fix, 0. Property $15M, 66; $17.5M, 67 — the Property views.
+//   the credit floored at zero, 0.
+// The 25 unmoved are the Introduction's static documents (How to Play, the
+// Underwriting Memorandum, and the Investment Memorandum at y2) on every
+// configuration.
+// v82: THE MEMO HEADERS (display only; value v82 and export v90 byte-identical).
+// The control ran first: 9bf00b6 built in its own worktree reproduced v81 236
+// of 236. 30 move, all on the Introduction tab — six on each of the five
+// configurations — and, word-diffed against the control's text:
+//   the Investment memorandum, y0 and y2: "Team" off the To line, and
+//     "Investment Committee" -> "Finance Department" in From and the sign-off;
+//   the Underwriting memorandum, y0 and y2: "Team" off the To line;
+//   the tab's own view, y0 and y2: the Investment memorandum's subtitle in the
+//     list, "From the Investment Committee" -> "From the Finance Department".
+// Nothing else moves. The three-line layout itself is whitespace, which this
+// fingerprint does not see; the introduction driver checks it.
+// v83: THE YEAR LABELS (display only; value v82 and export v90 byte-identical).
+// The game sits in the year in progress while the board prices the next: the
+// top bar shows the CURRENT year, everything about deciding names the PROGRAM
+// YEAR. The control ran first: c201051, built and run with its own harness in
+// its own worktree, reproduced v82 236 of 236. 196 move; word-diffed against
+// the control's text, every one is a label and nothing else:
+//   every game screen (the top bar): the Calendar chip one year earlier (2027
+//     -> 2026 at y0, 2029 -> 2028 at y2), and "Lock Year N" -> "Lock Program
+//     Year <P>";
+//   Decisions: "Year N Decisions" -> "Decisions for Program Year <P>";
+//   Decision History (y2): the "Calendar" column -> "Program Year";
+//   Introduction: the Welcome memorandum's subtitle "Year 2027" -> "Program
+//     Year 2027";
+//   Rate Indication, section 3, each line: "Current rate" -> "<P-1> Rate", and
+//     "Indicated rate at …" -> "Indicated <P> Rate at …". Section 1 unmoved.
+// The 40 unmoved are the Introduction's four documents, captured as the
+// document's body alone.
+// v84: RESULTS RUN ONE YEAR BEHIND (display only; value v82 and export v90
+// byte-identical — the export guard plays each game to its end, where every
+// year shows). Results stop at the latest known year, the current year less one
+// (utils/knownYears): at y0 (in 2026, pricing 2027) through 2025, at y2 (in
+// 2028) through 2027. The control ran first: 39d38ac, built and run with its own
+// harness, reproduced v83 236 of 236. 196 move; with the top bar split off and
+// the years each screen names compared against the control's, every one is:
+//   the top bar, on every game screen: the surplus, combined ratio and market
+//     share read the latest known year (WC+GL+PR pool y2 $17.88M -> $18.76M);
+//   Annual Statement, Financial Statements, Calculation Audit (y0 and y2),
+//     Results and Result Spreadsheet (y2): the newest year one earlier — 2026
+//     -> 2025 at y0, 2028 -> 2027 at y2 — columns, selector options and the
+//     figures that follow (the statement's window and Prior shift a year);
+//   Annual Statement: its "Current" / "Year n" header row removed — the
+//     columns are just years.
+// Nothing is added on any screen. Results and the Result Spreadsheet at y0 show
+// no played year either way. The 40 unmoved are the Introduction's documents.
+// v85: THE RESERVE-INFLATION LANDING (see VALUE_IDENTITY_v83). The control ran
+// first: 91559fd, built and run in its own worktree, reproduced v84 236 of 236.
+// 206 differ at head; none added or removed. Captured at each commit in turn,
+// each built in its own worktree, and compared with the one before:
+//   reserve inflation, the opening, the credit off at 5%, the admin overrun,
+//     and the per-line profit and contingency, priced years and capital: 206
+//     each — every screen that shows a figure (the top bar, Decisions,
+//     Decision History, Results, Result Spreadsheet, Annual Statement,
+//     Financial Statements, Calculation Audit, Rate Indication, and the
+//     Introduction's Welcome memorandum and tab view);
+//   the audit rows, 26 — the Calculation Audit alone (General administrative
+//     services, the Actual Expense Ratio's operands, and the two check rows);
+//   the probes and panel-driver commits, 0; inflation paid by the pattern
+//     whatever FORWARD_BOOKING says, and the gate restatements, 0 (this
+//     capture reproduced on the head that carries them).
+// The 30 unmoved are the Introduction's static documents (How to Play and the
+// Underwriting and Investment memoranda) on every configuration.
+// v86: THE NEWEST KNOWN YEAR ON EVERY RESULT SCREEN (display only; value v83
+// and export v91 byte-identical). After the first lock the newly known year is
+// 2026, the opening — a pre-game year — and the pages that listed played years
+// alone showed nothing, so the game looked stuck. They now list the known
+// pre-game years too. The control ran first: 26c1fbd, built and run with its
+// own harness, reproduced v85 236 of 236. 36 move, all Results and Result
+// Spreadsheet, and word-diffed against the control's text every one is that:
+//   Results, y0 (13): "No results yet" -> 2021 to 2025 "(History)", opening on
+//     2025 and its comparison with 2024;
+//   Results, y2 (13): the selector gains 2021-2025 (History) and "Year 0 /
+//     2026 (Opening)", and year 1's comparison runs against 2026 ("This is Year
+//     1" gone);
+//   Result Spreadsheet, y0 (5): "No spreadsheet data yet" -> the 2021-2025
+//     table and both downloads;
+//   Result Spreadsheet, y2 (5): the 2021-2026 columns before the played years.
+// Nothing else moves.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v86.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1477,7 +1585,7 @@ async function run(): Promise<Record<string, string>> {
     await startGame(page, cfg);
     await capture(page, cfg, 'y0', out);
     for (let i = 0; i < 2; i++) {
-      await page.getByRole('button', { name: /^Lock Year \d+$/ }).click();
+      await page.getByRole('button', { name: /^Lock Program Year \d+$/ }).click();
       await settle(page);
       // ⚠ TEN WORLDS (loss engine commit 4b): a line short in ANY world raises
       // the loan prompt, so a year can stop at it. Confirmed at the prompt's own

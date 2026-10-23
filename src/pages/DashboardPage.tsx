@@ -201,7 +201,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Yr', 'Calendar', 'Total Member Charge', 'Prem + Admin', 'Gross Loss', 'Net Loss', 'Loss Ratio (prem + admin)', 'Underwriting Income', 'Investment Income', 'Total Income', 'Ending Surplus', 'Exposure', 'Mkt Share'].map(h => (
+                  {['Yr', 'Program Year', 'Total Member Charge', 'Prem + Admin', 'Gross Loss', 'Net Loss', 'Loss Ratio (prem + admin)', 'Underwriting Income', 'Investment Income', 'Total Income', 'Ending Surplus', 'Exposure', 'Mkt Share'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>

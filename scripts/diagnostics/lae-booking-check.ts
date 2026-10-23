@@ -8,11 +8,14 @@
 // app plays them, every world's every line-year, against figures this gate
 // rebuilds from the world's own cohorts before and after the year:
 //
-//   1. THE SHARES are the rate's: ALAE + ULAE on every line, 5% each, since the
-//      pure-premium basis (GL once booked ULAE alone, a rule from the old
+//   1. THE SHARES: ULAE 5% of claims on every line, and ALAE at each accident
+//      year's DRAWN ratio (alaeRatio.ts) — the middle of the line's range for a
+//      cohort without one (GL once booked ULAE alone, a rule from the old
 //      per-claim GL model, whose claim sizes included ALAE).
 //   2. INCURRED, PAID AND RESERVE are those shares of the ground-up loss
-//      incurred, paid and still unpaid — the cohorts' gross ledger.
+//      incurred, paid and still unpaid — the cohorts' gross ledger, COHORT BY
+//      COHORT at each one's own share — and ALAE incurred is each cohort's
+//      ratio of its own movement.
 //   3. THE LAE RESERVE ROLLS FORWARD: beginning + incurred − paid = ending,
 //      and each year begins where the last ended.
 //   4. THE BALANCE SHEET HOLDS IT: assets = loss reserve + loss expense reserve
@@ -36,7 +39,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { laeShares, lossExpenseReserve } from '../../src/utils/lossExpense';
-import { ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST } from '../../src/data/pricingParameters';
+import { ALAE_OF_LOSS_COST, ALAE_RATIO_RANGE, ULAE_OF_LOSS_COST } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameSetupSettings, GameState, LineResultSet, PoolState, ReserveCohort } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -88,13 +91,20 @@ function gross(cohorts: readonly ReserveCohort[], dropClosed: boolean) {
   };
 }
 
-/** 2. The year's LAE against the shares of its ground-up movement, rebuilt from the cohorts. */
-function laeAgainstLosses(share: number, before: readonly ReserveCohort[], after: readonly ReserveCohort[], r: LineResultSet): string[] {
+/** A cohort's LAE shares — ALAE at its accident year's drawn ratio, plus ULAE. */
+type Shares = (c: ReserveCohort) => { alae: number; total: number };
+
+/** 2. The year's LAE against the shares of its ground-up movement, rebuilt cohort by cohort. */
+function laeAgainstLosses(share: Shares, before: readonly ReserveCohort[], after: readonly ReserveCohort[], r: LineResultSet): string[] {
   const out: string[] = [];
-  const b = gross(before, true), a = gross(after, false);
-  const paid = share * (a.paid - b.paid);
-  const reserve = share * a.unpaid;
-  const incurred = share * (a.paid + a.unpaid - b.paid - b.unpaid);
+  const opened = before.filter(c => !c.closed);
+  const sum = (cs: readonly ReserveCohort[], f: (c: ReserveCohort) => number) => cs.reduce((t, c) => t + f(c), 0);
+  const gp = (c: ReserveCohort) => gross([c], false).paid, gu = (c: ReserveCohort) => gross([c], false).unpaid;
+  const paid = sum(after, c => share(c).total * gp(c)) - sum(opened, c => share(c).total * gp(c));
+  const reserve = sum(after, c => share(c).total * gu(c));
+  const incurred = sum(after, c => share(c).total * (gp(c) + gu(c))) - sum(opened, c => share(c).total * (gp(c) + gu(c)));
+  const alae = sum(after, c => share(c).alae * (gp(c) + gu(c))) - sum(opened, c => share(c).alae * (gp(c) + gu(c)));
+  if (!near(r.alaeIncurred, alae, 1e-7)) out.push(`ALAE ${r.alaeIncurred.toFixed(0)} vs ${alae.toFixed(0)}`);
   if (!near(r.laePaid, paid, 1e-7)) out.push(`paid ${r.laePaid.toFixed(0)} vs ${paid.toFixed(0)}`);
   if (!near(r.endingLaeReserve, reserve, 1e-7)) out.push(`reserve ${r.endingLaeReserve.toFixed(0)} vs ${reserve.toFixed(0)}`);
   if (!near(r.laeIncurred, incurred, 1e-7)) out.push(`incurred ${r.laeIncurred.toFixed(0)} vs ${incurred.toFixed(0)}`);
@@ -139,10 +149,13 @@ function openingHolds(p: PoolState, lae: (l: CoverageLine) => number): number {
 console.log('=== LOSS ADJUSTMENT EXPENSE, BOOKED — solo ten-world games, three lines ===');
 console.log('\n--- 1. the shares are the rate\'s ---');
 for (const l of LINES) {
-  const s = laeShares(l);
-  const want = ALAE_OF_LOSS_COST[l] + ULAE_OF_LOSS_COST[l];
-  check(near(s.total, want) && s.alae === ALAE_OF_LOSS_COST[l] && s.alae > 0, `${l}: ALAE ${s.alae} + ULAE ${s.ulae}`);
+  // A drawn ratio is the cohort's ALAE share; with none, the middle of the range.
+  const drawn = (ALAE_RATIO_RANGE[l].min + ALAE_RATIO_RANGE[l].max) / 3;
+  const s = laeShares(l, drawn), mid = laeShares(l);
+  check(near(s.total, drawn + ULAE_OF_LOSS_COST[l]) && s.alae === drawn && mid.alae === ALAE_OF_LOSS_COST[l] && s.ulae === 0.05,
+    `${l}: ALAE at the cohort's drawn ratio (${(drawn * 100).toFixed(2)}%), the range's middle without one (${(mid.alae * 100).toFixed(1)}%), + ULAE ${s.ulae}`);
 }
+const sharesFor = (l: CoverageLine): Shares => c => laeShares(l, c.alaeRatio);
 
 const games = [play('LAE1', 6, 'on'), play('LAE2', 6, 'on')];
 const bad2: string[] = [], bad3: string[] = [], bad4: string[] = [];
@@ -151,7 +164,7 @@ for (const g of games) {
   worstOpening = Math.max(worstOpening, Math.abs(openingHolds(g.opening, l => lossExpenseReserve(l, g.opening.lines[l].reserveCohorts ?? []))));
   g.gs.worlds!.forEach((w, wi) => {
     for (const l of LINES) {
-      const share = laeShares(l).total;
+      const share = sharesFor(l);
       const lineRows = w.lockedResults.map(r => r.byLine[l]);
       lineRows.forEach((r, y) => {
         rows++;
@@ -205,14 +218,24 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
     const a0 = (y + 1 < gg.starts.length ? gg.starts[y + 1].worlds![wi] : w).poolState.lines[l].reserveCohorts ?? [];
     if (Math.abs(gross(a0, false).unpaid - gross(toNet(a0), false).unpaid) < 1) return;
     cededYears++;
-    if (laeAgainstLosses(laeShares(l).total, toNet(b0), toNet(a0), row.byLine[l]).length > 0) caughtNet++;
+    if (laeAgainstLosses(sharesFor(l), toNet(b0), toNet(a0), row.byLine[l]).length > 0) caughtNet++;
   })));
   check(cededYears > 0 && caughtNet === cededYears, 'control: LAE on the net loss rather than the ground-up is caught',
     `${caughtNet} of ${cededYears} line-years whose gross and net differ`);
   // GL booking ULAE alone, as under the old rule.
-  check(laeAgainstLosses(ULAE_OF_LOSS_COST.GL,
+  check(laeAgainstLosses(() => ({ alae: 0, total: ULAE_OF_LOSS_COST.GL }),
     g.starts[2].worlds![0].poolState.lines.GL.reserveCohorts ?? [], g.starts[3].worlds![0].poolState.lines.GL.reserveCohorts ?? [], glRow).length > 0,
   'control: GL booking ULAE alone, without its ALAE, is caught');
+  // Every cohort at the range's middle, not its own drawn ratio.
+  let caughtMid = 0, midYears = 0;
+  for (const gg of games) gg.gs.worlds!.slice(0, 3).forEach((w, wi) => LINES.forEach(l => w.lockedResults.forEach((row, y) => {
+    const b0 = gg.starts[y].worlds![wi].poolState.lines[l].reserveCohorts ?? [];
+    const a0 = (y + 1 < gg.starts.length ? gg.starts[y + 1].worlds![wi] : w).poolState.lines[l].reserveCohorts ?? [];
+    midYears++;
+    if (laeAgainstLosses(() => laeShares(l), b0, a0, row.byLine[l]).length > 0) caughtMid++;
+  })));
+  check(midYears > 0 && caughtMid === midYears, "control: ALAE at the range's middle rather than each year's drawn ratio is caught",
+    `${caughtMid} of ${midYears} line-years`);
   // A reserve that does not roll: LAE paid dropped.
   const wcRows = g.gs.worlds![0].lockedResults.map(x => x.byLine.WC);
   check(laeRollforward(wcRows.map((x, i) => (i === 2 ? { ...x, laePaid: 0 } : x))).length > 0, 'control: a loss expense reserve that does not roll is caught');

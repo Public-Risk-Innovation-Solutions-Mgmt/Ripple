@@ -64,7 +64,7 @@ async function join(ctx, code, name) {
 
   // Both teams lock year 1 and the host advances.
   for (const p of [a, b]) {
-    await p.getByRole('button', { name: /Lock Year/ }).first().click();
+    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
   }
 

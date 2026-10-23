@@ -12,9 +12,10 @@
 // draw. Portfolios stay segregated per line (each owns its assets and picks its
 // allocation); only the return draws are shared.
 
-import { SeededRandom } from './random';
+import { deriveSubRng, SeededRandom } from './random';
 import type { AssetAllocation } from '../types/simulation';
-import { ASSET_CLASS_ASSUMPTIONS, type AssetClassAssumption } from '../data/defaultAssumptions';
+import { ASSET_ALLOCATION_DEFAULT, ASSET_CLASS_ASSUMPTIONS, type AssetClassAssumption } from '../data/defaultAssumptions';
+import { PRE_GAME_MARKET_DRAWS } from '../data/pricingParameters';
 
 export interface InvestmentResult {
   returnRate: number;
@@ -77,6 +78,32 @@ export function simulateMarketReturns(rng: SeededRandom): MarketReturns {
     bonds: simulateAssetClassReturn(ASSET_CLASS_ASSUMPTIONS.bonds, rng),
     equities: simulateAssetClassReturn(ASSET_CLASS_ASSUMPTIONS.equities, rng),
   };
+}
+
+/**
+ * THE PRE-GAME'S PORTFOLIO — cash and bonds only: the default allocation with
+ * equities removed and the rest scaled up to 100% (10/80 -> about 11% cash,
+ * 89% bonds). The played years keep the default, equities included. See
+ * PRE_GAME_MARKET_DRAWS.
+ */
+export function preGameAllocation(): AssetAllocation {
+  const { cashPct, bondsPct } = ASSET_ALLOCATION_DEFAULT;
+  const total = cashPct + bondsPct;
+  return { cashPct: (100 * cashPct) / total, bondsPct: (100 * bondsPct) / total, equitiesPct: 0 };
+}
+
+/**
+ * A SIMULATED PRE-GAME YEAR'S MARKET — the average of PRE_GAME_MARKET_DRAWS
+ * markets, each drawn as a played year's is (simulateMarketReturns), every
+ * one from the game's seed on its own labelled stream (`pregame_invest_<k>`),
+ * so a replay, a room and a takeover all get the identical year. The played
+ * years draw one market on 'invest', as before.
+ */
+export function preGameMarketReturns(seed: number, yearNumber: number): MarketReturns {
+  const draws = Array.from({ length: PRE_GAME_MARKET_DRAWS }, (_, k) =>
+    simulateMarketReturns(deriveSubRng(seed, yearNumber, `pregame_invest_${k}`)));
+  const avg = (f: (m: MarketReturns) => number) => draws.reduce((a, m) => a + f(m), 0) / draws.length;
+  return { cash: avg(m => m.cash), bonds: avg(m => m.bonds), equities: avg(m => m.equities) };
 }
 
 // Blend the shared market returns by one line's allocation and asset base.

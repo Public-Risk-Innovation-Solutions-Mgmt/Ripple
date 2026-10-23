@@ -21,6 +21,7 @@ import {
   colorForSurplus,
 } from '../utils/formatters';
 import { metricLabel } from '../utils/resultMetrics';
+import { resultYearLabel } from '../utils/resultsExport';
 import { placementSummary, hasTractableCeded, towerTopLabel, RETAINED_ABOVE_TOWER_CAVEAT } from '../utils/reinsuranceDisplay';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { eventLabel, yearEvents } from '../utils/yearEvents';
@@ -149,7 +150,7 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
           >
             {lockedResults.map(r => (
               <option key={r.yearNumber} value={r.yearNumber}>
-                Year {r.yearNumber} / {r.calendarYear}
+                {resultYearLabel(r)}
               </option>
             ))}
           </select>

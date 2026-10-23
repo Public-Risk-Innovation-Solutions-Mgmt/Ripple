@@ -143,13 +143,13 @@ const SCOPE_STYLE: Record<string, string> = {
 //
 // ⚠ "Safety & Return-to-Work" was checked against the drivers' button queries
 // the way "Law Enforcement Analytics" was: none is unanchored on a string it
-// contains — /Workers' Compensation|General Liability|^Property$/, /Lock Year/,
+// contains — /Workers' Compensation|General Liability|^Property$/, /Lock Program Year/,
 // /Start/i, /Decline/i, 'Start Simulation'.
 //
 // ⚠ THE ACCESSIBLE NAME IS THE PROGRAM'S TILE NAME AND NOTHING ELSE, which is
 // what keeps it out of the drivers' way. Two session drivers query this page by
 // button name; the names they use are 'Decisions', the line labels (anchored
-// /^Property$/) and /Lock Year/. "Law Enforcement Analytics" collides with none
+// /^Property$/) and /Lock Program Year/. "Law Enforcement Analytics" collides with none
 // of them, and the four names that might have — 'Property Mitigation' above all
 // — are the four that are still divs.
 function CategoryTile({ c, standing, onToggle, disabled }: {

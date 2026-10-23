@@ -38,7 +38,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { paidLdfAt, PAID_DEVELOPMENT_PATTERN } from '../../src/data/paidDevelopmentPatterns';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
 import { unpaidShare } from '../../src/utils/payoutPattern';
-import { newLossEngineRuns } from '../../src/data/pricingParameters';
+import { newLossEngineRuns, RESERVE_INFLATION_PER_YEAR } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, ReserveDevelopmentRow } from '../../src/types/simulation';
 
 // ============================================================================
@@ -70,6 +70,27 @@ const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 // extra time buys only the ages past 204 months, which no game reaches.
 const GAMES = Number(process.env.GAMES ?? 2);
 const YEARS = Number(process.env.YEARS ?? 10);
+
+// ⚠ RESERVE INFLATION GROWS EVERY OPEN YEAR'S ULTIMATE, AND THE BAR ALLOWS FOR
+// IT (the reserve-inflation landing). Each year the line's trend
+// (RESERVE_INFLATION_PER_YEAR) lands on the year's start-of-year unpaid, and
+// the true-up pays the pattern's share of the higher ultimate. So paid stays
+// on the pattern against the CURRENT ultimate (section 3, to the digit), and
+// the chain ladder, which develops to the LATER one, reads the recorded factor
+// TIMES the growth inflation adds between the two ages:
+//
+//   growth(a -> L) = product over ledger ages k = a .. L-1 of
+//                    (1 + trend x unpaid share at pattern age k + 1)
+//
+// Measured before this allowance: WC's 12-month factor 20.9% above the recorded
+// one, GL's 32.1%, every line inside 12% at the ages past three years. With it,
+// see the table. The control holds the ledger to the recorded factors with no
+// allowance, which is that failure.
+const inflationGrowth = (line: CoverageLine, fromAge: number, toAge: number, rate = RESERVE_INFLATION_PER_YEAR[line]): number => {
+  let g = 1;
+  for (let k = fromAge; k < toAge; k++) g *= 1 + rate * unpaidShare(LINE_PAYOUT_PATTERN[line], k + 1);
+  return g;
+};
 
 // ⚠ THE BAR IS ON THE RATIO, NOT THE DIFFERENCE, because an LDF of 12.777 and
 // one of 1.02 cannot share an absolute tolerance. 12% either way: comfortably
@@ -193,9 +214,14 @@ if (usedRows === 0) fail('no ledger rows carried grossPaidByValuation — nothin
 // age-to-L factor is compared against. Nothing is extrapolated on either side.
 // The age-to-ultimate column is printed beside it so the tail that cannot be
 // observed is visible rather than quietly dropped.
-console.log('\n--- 2. THE POOL\'S OWN PAID LDF AGAINST THE RECORDED ONE, BY LINE AND AGE ---');
-console.log('  Both sides cut at the last age the ledger reaches. age-to-ULT is printed for reference only.');
-console.log('  line      age(mo)   recorded a->L   pool\'s own   ratio   rows    recorded a->ULT');
+// `growth` is the reserve inflation allowed between two ledger ages; the
+// control passes none. Returns the failures, printing only when `show`.
+function gradeLedger(growth: (line: CoverageLine, a: number, L: number) => number, show: boolean): string[] {
+const out: string[] = [];
+const log = (x: string) => { if (show) console.log(x); };
+log('\n--- 2. THE POOL\'S OWN PAID LDF AGAINST THE RECORDED ONE x RESERVE INFLATION, BY LINE AND AGE ---');
+log('  Both sides cut at the last age the ledger reaches. age-to-ULT is printed for reference only.');
+log('  line      age(mo)   recorded a->L   x inflation   pool\'s own   ratio   rows    recorded a->ULT');
 for (const line of LINES) {
   const link = num[line].map((_, a) => (den[line][a] > 0 ? num[line][a] / den[line][a] : 1));
   const lastRecorded = PAID_DEVELOPMENT_PATTERN[line][PAID_DEVELOPMENT_PATTERN[line].length - 1].ageMonths;
@@ -210,7 +236,7 @@ for (const line of LINES) {
     return v;
   };
   const ldfAtAge = (a: number) => paidLdfAt(line, (a + 1) * 12);
-  console.log(`  ${line} — ledger reaches ledger age ${lastObserved} (${(lastObserved + 1) * 12} months); `
+  log(`  ${line} — ledger reaches ledger age ${lastObserved} (${(lastObserved + 1) * 12} months); `
     + `the unobservable tail past it is worth x${ldfAtAge(lastObserved).toFixed(4)}`);
   let checked = 0;
   for (let age = 0; age < lastObserved; age++) {
@@ -218,21 +244,33 @@ for (const line of LINES) {
     const ageMonths = (age + 1) * 12;
     const recordedToUlt = paidLdfAt(line, ageMonths);
     const recordedToL = recordedToUlt / ldfAtAge(lastObserved);
+    const inflation = growth(line, age, lastObserved);
     const own = ownToL(age);
-    const ratio = own / recordedToL;
+    const ratio = own / (recordedToL * inflation);
     const ok = Math.abs(ratio - 1) <= TOLERANCE;
     checked++;
-    console.log(`  ${line.padEnd(9)} ${String(ageMonths).padStart(7)} ${recordedToL.toFixed(4).padStart(15)} `
-      + `${own.toFixed(4).padStart(12)} ${ratio.toFixed(4).padStart(7)} ${String(obs[line][age]).padStart(6)} `
+    log(`  ${line.padEnd(9)} ${String(ageMonths).padStart(7)} ${recordedToL.toFixed(4).padStart(15)} `
+      + `${inflation.toFixed(4).padStart(13)} ${own.toFixed(4).padStart(12)} ${ratio.toFixed(4).padStart(7)} ${String(obs[line][age]).padStart(6)} `
       + `${recordedToUlt.toFixed(4).padStart(18)}`
       + `${ok ? '' : '   <-- OUTSIDE TOLERANCE'}`);
     if (!ok) {
-      fail(`${line} at ${ageMonths}mo: the pool's own age-to-${(lastObserved + 1) * 12}mo factor ${own.toFixed(4)} is `
-        + `${((ratio - 1) * 100).toFixed(1)}% from the recorded ${recordedToL.toFixed(4)} — `
+      out.push(`${line} at ${ageMonths}mo: the pool's own age-to-${(lastObserved + 1) * 12}mo factor ${own.toFixed(4)} is `
+        + `${((ratio - 1) * 100).toFixed(1)}% from the recorded ${recordedToL.toFixed(4)} x inflation ${inflation.toFixed(4)} — `
         + 'the engine is not paying the way pricing develops');
     }
   }
-  if (checked === 0) fail(`${line}: no age had ${MIN_OBSERVATIONS} observations — nothing was compared`);
+  if (checked === 0) out.push(`${line}: no age had ${MIN_OBSERVATIONS} observations — nothing was compared`);
+}
+return out;
+}
+for (const f of gradeLedger((line, a, L) => inflationGrowth(line, a, L), true)) fail(f);
+
+// THE CONTROL: the same ledger held to the recorded factors with no allowance
+// for reserve inflation must fail.
+{
+  const caught = gradeLedger(() => 1, false);
+  if (caught.length === 0) fail('control: the recorded factors with no reserve inflation allowed are NOT caught');
+  else console.log(`\n  OK    control: the recorded factors with no reserve inflation allowed are caught (${caught.length} ages outside ${(TOLERANCE * 100).toFixed(0)}%)`);
 }
 
 // --------------------------------------------------------------------------

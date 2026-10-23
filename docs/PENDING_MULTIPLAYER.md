@@ -314,6 +314,13 @@ soon"**, so testers know it is part of the game; the old programs are hidden on
 the Departments screen. The programs, the spend and their code are kept intact
 and unwired for the redesign to reuse.
 
+**When it is switched on, it must be charged as a percentage of the pure
+premium**, matching the Decisions slider's label ("5% of Pure Premium" at its
+right end). Today `quoteNewRateStack` loads it as a share of the loaded rate, in
+the divisor; that changes before the flag comes on. Until then the slider is
+disabled at 0% and its gray cost box shows $0 — never a cost the game does not
+charge — and it shows the real cost once the flag is on.
+
 ### The old engine — frozen on the `legacy-engine` branch
 
 The repository's tag protection refuses a pushed tag, so the old engine is

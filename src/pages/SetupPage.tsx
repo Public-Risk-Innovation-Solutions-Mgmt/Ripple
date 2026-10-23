@@ -27,9 +27,9 @@ const MANAGED_ITEMS: { label: string; definition: string }[] = [
 ];
 
 export default function SetupPage({ onStart }: SetupPageProps) {
-  const [poolName, setPoolName] = useState('Clearwater Public Entity Pool');
+  const [poolName, setPoolName] = useState('Ripple Public Entity Risk Pool');
   const [gameLength, setGameLength] = useState(5);
-  const [startingYear, setStartingYear] = useState(2026);
+  const [startingYear, setStartingYear] = useState(2027);
   // The scenario, 1 to 20, is the game's only seed (utils/scenarios.ts).
   const [instanceId, setInstanceId] = useState(() => randomScenarioId());
   const [activeLines, setActiveLines] = useState<CoverageLine[]>(['WC']);
@@ -114,9 +114,9 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                 </div>
               </div>
 
-              {/* Starting Year */}
+              {/* First program year: the year the board prices first; the game opens in the year before it */}
               <div>
-                <label className="block text-base font-semibold text-gray-700 mb-2">Starting Year</label>
+                <label className="block text-base font-semibold text-gray-700 mb-2">First Program Year</label>
                 <select
                   value={startingYear}
                   onChange={e => setStartingYear(parseInt(e.target.value))}

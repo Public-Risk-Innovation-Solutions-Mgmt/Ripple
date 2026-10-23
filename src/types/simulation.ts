@@ -583,6 +583,8 @@ export interface NewLossEngineRecord {
   /** The R rate applied to prior years' outstanding this year, and the dollars it added. */
   rRate: number;
   rDevelopment: number;
+  /** Reserve inflation (RESERVE_INFLATION_PER_YEAR) booked on prior years' outstanding this year, in dollars. */
+  reserveInflation: number;
   /** Exposure that left with a Member Withdrawal at this renewal. */
   withdrawnExposure: number;
   /** Events in force on this line: catalogue id, name, the year it fired, region. */
@@ -953,6 +955,12 @@ export interface BenchClaim {
 export interface ReserveCohort {
   yearNumber: number;
   calendarYear: number;
+  /**
+   * THE ACCIDENT YEAR'S ALAE RATIO, drawn at inception (alaeRatio.ts): its ALAE
+   * is incurred, paid and reserved at this share of its ground-up losses.
+   * Absent on a cohort from before the draw — read as the range's middle.
+   */
+  alaeRatio?: number;
   // The cohort's CURRENT estimate of ultimate, net of reinsurance. This is what
   // develops: IBNER moves it each year until the cohort matures. `netUnpaid`
   // follows from it, and `netPaid` accumulates against it.
@@ -1158,6 +1166,8 @@ export interface ReserveDevelopmentRow {
    * the paid basis before development and prices them as a steady load.
    */
   shockGross?: number;
+  /** The accident year's drawn ALAE ratio (alaeRatio.ts) — what pricing's ALAE load averages over its window. */
+  alaeRatio?: number;
   ultimateByValuation: number[];
   // CUMULATIVE NET PAID at each of the same valuations, same indexing. A
   // RECORDING, not a computation — the figure processIbner already produced,
@@ -1457,12 +1467,23 @@ interface ResultRowFields {
   expectedToSurplus?: number;
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;
+  /** THE YEAR'S DRAWN ALAE RATIO (alaeRatio.ts): its claims' ALAE is booked at it. */
+  alaeRatio?: number;
+  /** The ALAE load the year's rate carried: the mean of its window's drawn ratios, or the range's middle. */
+  pricingAlaeRatio?: number;
+  /**
+   * The exposure the year was BILLED on, $M, unrounded — activeExposure is
+   * stated to two places; the charge is the rate on this exactly. A played
+   * year's is the mean over worlds. Absent on a save written before it.
+   */
+  billedExposure?: number;
   /**
    * WHAT THE RATE INDICATION NEEDS TO REBUILD THIS YEAR'S RATE, and nothing
    * else — stored on the averaged row when a multi-world year settles. With the
    * struck rate's own fields already on the row (newPurePremiumPer100,
    * ratedExposure, the decisions echoed), these make the year's indication
-   * exact. Absent on a one-world year and on a save written before it existed.
+   * exact. A one-world year — the pre-game — records its own (the Model tab
+   * rebuilds its rate from it); absent on a save written before it existed.
    */
   rateBasis?: RateBasis;
   writtenExposure: number;      // payroll exposure in $M
@@ -2082,6 +2103,24 @@ export interface RateBasis {
   windowYears: number;
   /** Their mean exposure, $M. */
   windowExposure: number;
+  /**
+   * The newest window year's exposure, $M — the latest data year's (2025 when
+   * 2027 is priced), which the Rate Indication states its losses at. Absent on
+   * a row stored before it was kept; the page then reads windowExposure.
+   */
+  latestExposure?: number;
+  /**
+   * The exposure the pure premium was struck at, $M — a played year's struck
+   * book; a one-world year's (the pre-game's) book before movement. Absent on
+   * a row stored before it was kept.
+   */
+  pricedExposure?: number;
+  /**
+   * A one-world year's: the risk of the book it billed on, after movement,
+   * which its cover was priced at. Absent on a struck year, priced and billed
+   * on one book at `risk`.
+   */
+  billedRisk?: number;
 }
 
 /**
@@ -2407,9 +2446,9 @@ export interface GameState {
   // Year 1 opening position; year 0's result is Year 1's priorResult.
   priorHistory: ResultSet[];
   /**
-   * THE PRE-GAME'S EARLIER YEARS (yearNumbers -4, -3), oldest first — every
+   * THE PRE-GAME'S EARLIER YEARS (yearNumbers -5, -4, -3), oldest first — every
    * played pre-game year before priorHistory's three, kept so the Annual
-   * Statement can show all five. Shared by every world: the pre-game runs once.
+   * Statement can show all six. Shared by every world: the pre-game runs once.
    * Absent on a save from before it was kept; the statement then shows the
    * three it has.
    */

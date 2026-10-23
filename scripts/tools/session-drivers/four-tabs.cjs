@@ -99,7 +99,7 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
 
   // ---- all three lock in --------------------------------------------------
   for (let i = 0; i < 3; i++) {
-    await players[i].getByRole('button', { name: /Lock Year/ }).first().click();
+    await players[i].getByRole('button', { name: /Lock Program Year/ }).first().click();
     await players[i].waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
   }
   ok(true, 'all three tabs submitted and show submit-and-wait');
@@ -130,7 +130,7 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
   ok(true, 'all three player tabs moved to year 2 on their own');
 
   for (let i = 0; i < 3; i++) {
-    const unlocked = await players[i].getByRole('button', { name: /Lock Year/ }).count() > 0;
+    const unlocked = await players[i].getByRole('button', { name: /Lock Program Year/ }).count() > 0;
     if (!unlocked) { ok(false, `tab ${i + 1} is able to submit year 2`); }
   }
   ok(true, 'every tab can submit again for the new year');

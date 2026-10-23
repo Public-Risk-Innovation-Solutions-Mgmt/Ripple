@@ -11,7 +11,7 @@ import type React from 'react';
 import {
   LayoutDashboard, ClipboardList, FileText, Settings, BarChart2,
   Calculator, Table, History as HistoryIcon, ScrollText, BookOpen, Landmark,
-  TrendingUp, Percent, Users,
+  TrendingUp, Percent, Users, Sigma,
 } from 'lucide-react';
 import type { TabId } from '../components/TabNav';
 
@@ -20,6 +20,7 @@ export const TAB_DEFS: Record<TabId, { label: string; icon: React.ReactNode }> =
   introduction: { label: 'Introduction', icon: <BookOpen size={16} /> },
   investments: { label: 'Investments', icon: <TrendingUp size={16} /> },
   rateIndication: { label: 'Rate Indication', icon: <Percent size={16} /> },
+  model: { label: 'Model', icon: <Sigma size={16} /> },
   statement: { label: 'Annual Statement', icon: <HistoryIcon size={16} /> },
   departments: { label: 'Departments', icon: <Landmark size={16} /> },
   dashboard: { label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
@@ -40,6 +41,7 @@ export const TAB_ORDER: readonly TabId[] = [
   'introduction',
   'investments',
   'rateIndication',
+  'model',
   'statement',
   'departments',
   'dashboard',
@@ -72,6 +74,10 @@ export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = [
   'results',
   'financials',
   'audit',
+  // ⚠ THE MODEL TAB IS SOLO ONLY, NEVER MULTIPLAYER: it shows every input to
+  // the rate and every expectation against the simulation, for checking the
+  // indication by hand. To hide it in solo as well, add 'model' to HIDDEN_TABS.
+  'model',
 ];
 
 /** Whether a tab is hidden on this screen. */

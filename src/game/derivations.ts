@@ -24,7 +24,7 @@
 
 import React from 'react';
 import type {
-  CoverageLine, DecisionSet, GameState, HistoricalYear,
+  CoverageLine, DecisionSet, GameState, HistoricalYear, LineDecisionSet,
   LineResultSet, LineView, Member, ResultSet,
 } from '../types/simulation';
 import type { LineLoanInfo } from '../pages/DecisionsPage';
@@ -36,7 +36,9 @@ import { pricingExperienceBasis } from '../utils/pricingTriangle';
 import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEngine';
 import { bookExposureOf, bookRiskOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
-import { lineBookRisk } from '../utils/bookUnits';
+import { lineBookRisk, marketSeedOf } from '../utils/bookUnits';
+import { moveBook, moveBookUnits } from '../utils/bookUnderwriting';
+import { MEMBER_LEVEL, newLossEngineRuns, RISK_CONTROL } from '../data/pricingParameters';
 import type { LinePoolState } from '../types/simulation';
 
 /** A line's exposure this year — its book, or its active roster. */
@@ -119,6 +121,129 @@ export function fundingConsequenceInput(
   };
 }
 
+// ============================================================================
+// THE DECISION FIGURES — dollars the Decisions page prints beside its sliders.
+//
+// ⚠ ONE FUNCTION EACH, CALLED BY THE PAGE AND BY decision-figures-check, and
+// every one is the engine's own pricing or movement function applied to the
+// engine's own inputs — none is a second sum. Underwriting calls the same
+// movement function processLineYear calls (moveBookUnits, or moveBook on a
+// book with no units) and multiplies by the rate the panel already quotes;
+// the risk control cost reads quoteNewRateStack's own riskControlPer100.
+// DISPLAY ONLY: nothing here is read by the engine.
+// ============================================================================
+
+export interface UnderwritingFigures {
+  /** Premium on the book the renewal slider turns away, at this year's rate. Dollars. */
+  nonRenewedPremium: number;
+  /** Premium on the new business the rejection slider lets in, at this year's rate. Dollars. */
+  newBusinessPremium: number;
+}
+
+/**
+ * THE BOOK'S MOVEMENT FOR THE COMING YEAR, PRICED. `ratePer100` is the rate the
+ * Decisions panel quotes — the funding level's and the cover's, struck on the
+ * book before it moves, as the engine strikes it. Withdrawal is not forecast:
+ * a Member Withdrawal is a shock the player has not been told of. Null where
+ * there is no book to move (the member path).
+ */
+export function underwritingFigures(
+  gameState: GameState, line: CoverageLine, d: LineDecisionSet, ratePer100: number,
+): UnderwritingFigures | null {
+  if (MEMBER_LEVEL.enabled) return null;
+  const { poolState, instance, currentYearNumber } = gameState;
+  const units = newLossEngineRuns() ? poolState.bookUnits?.[line] : undefined;
+  // The engine's own choice (processLineYear): units where the state has them.
+  const move = units
+    ? moveBookUnits(line, marketSeedOf(instance), units, poolState.bookLedger?.[line], d, false, false, currentYearNumber)
+    : moveBook(line, poolState.lines[line].bookExposure ?? 0, d, false, false);
+  const dollarsPerUnit = exposureFactor(line, currentYearNumber) * 10_000 * ratePer100;
+  return { nonRenewedPremium: move.renewedOff * dollarsPerUnit, newBusinessPremium: move.written * dollarsPerUnit };
+}
+
+/**
+ * WHAT THE RISK CONTROL SLIDER COSTS AT THE CURRENT EXPOSURE, in dollars: the
+ * rate's risk control loading (quoteNewRateStack.riskControlPer100) on the
+ * book's exposure, at the funding level and cover chosen.
+ *
+ * ⚠ $0 WHILE RISK_CONTROL IS OFF. The engine charges nothing for the incentive
+ * then, and the slider is disabled at 0%, so the box shows $0 — never a cost the
+ * game does not charge. With the flag on, the figure is what the engine's rate
+ * charges for the incentive at the slider's value.
+ *
+ * ⚠ OPEN, FOR WHEN THE FLAG COMES ON: the engine loads the incentive as a share
+ * of the loaded rate (quoteNewRateStack's divisor), but the slider is labelled
+ * as a share of the PURE PREMIUM. It must be charged as a percentage of the pure
+ * premium, matching the label, before the flag is switched on.
+ */
+export function riskControlCost(gameState: GameState, line: CoverageLine, decisions: DecisionSet): number | null {
+  // ⚠ $0 WHILE RISK_CONTROL IS OFF: the engine charges nothing for the
+  // incentive, and the box never shows a cost the game does not charge.
+  if (!RISK_CONTROL.enabled) return 0;
+  const d = decisions.byLine[line];
+  const { book } = fundingConsequenceInput(gameState, line, decisions);
+  const c = computeFundingConsequence(
+    d.fundingConfidenceLevel, gameState.poolState.lines[line].ratePer100, line, d.fundingAtExpected,
+    { ...book, newStackRiskControlPct: d.riskControlIncentivePct ?? 0 },
+  );
+  return c.newStack ? c.newStack.riskControlPer100 * book.exposure * 10_000 : null;
+}
+
+/**
+ * THE "YOUR RATE" AND "INDICATED" COLUMNS' PIECES, per $100, each its own row:
+ * pure premium, admin, Risk Control, profit and contingency, reinsurance — and
+ * each column adds exactly to its rate.
+ *
+ *   Your rate   the retained pure premium x the CLF (it moves with the funding
+ *               level), admin, the rate's risk control loading — the cost the
+ *               Risk Control box shows at the current exposure, per $100, $0.00
+ *               while risk control is off — profit and contingency, and the
+ *               cover's price. Adds to the rate the game charges.
+ *   Indicated   at Expected, self-funded: the ground-up pure premium, admin, and
+ *               the Indicated rate's own risk control and contingency shares;
+ *               no cover. Adds to the indicated rate.
+ *
+ * Profit and contingency is what is left of the divisor's loading once risk
+ * control is taken (quoteNewRateStack), so the rows add to the rate exactly.
+ */
+export function ratePieces(n: NonNullable<FundingConsequence['newStack']>) {
+  return {
+    indicated: {
+      purePremium: n.purePremiumGroundUp,
+      admin: n.adminRatePer100,
+      riskControl: n.indicatedRiskControlPer100,
+      contingency: n.indicatedContingencyPer100,
+      reins: 0,
+      rate: n.firstIndicationPer100,
+    },
+    yours: {
+      purePremium: n.purePremiumRetained * n.clf,
+      admin: n.adminRatePer100,
+      riskControl: n.riskControlPer100,
+      contingency: n.contingencyPer100,
+      reins: n.reinsRatePer100,
+      rate: n.finalRatePer100,
+    },
+  };
+}
+
+/** One column's pieces, the rows in order. */
+export type RatePieceColumn = ReturnType<typeof ratePieces>['yours'];
+export const RATE_PIECE_ROWS = ['purePremium', 'admin', 'riskControl', 'contingency', 'reins'] as const;
+
+/**
+ * A column in WHOLE CENTS that adds to its rate in whole cents: every row
+ * rounded to the cent, and profit and contingency — the remainder of the
+ * divisor's loading — takes what the rounding leaves, so the printed rows add
+ * to the printed rate exactly. Never a "-0" cent.
+ */
+export function pieceCents(c: RatePieceColumn): Record<(typeof RATE_PIECE_ROWS)[number] | 'rate', number> {
+  const cents = (v: number) => Math.round(v * 100) || 0;
+  const rate = cents(c.rate);
+  const purePremium = cents(c.purePremium), admin = cents(c.admin), riskControl = cents(c.riskControl), reins = cents(c.reins);
+  return { purePremium, admin, riskControl, contingency: rate - purePremium - admin - riskControl - reins, reins, rate };
+}
+
 export interface GameDerivations {
   decisionLine: CoverageLine;
   // ⚠ A UNION, NOT LineResultSet[]. At the pool view these ARE pool rows, and
@@ -138,6 +263,10 @@ export interface GameDerivations {
   /** What the decision line's reinsurance is priced on — its book or roster. */
   decisionLineBook: Book;
   fundingConsequence: FundingConsequence | null;
+  /** Underwriting premiums for the decision line's book; null off the book path or before a game. */
+  underwriting: UnderwritingFigures | null;
+  /** The risk control slider's cost in dollars; null before a game. */
+  riskControlCost: number | null;
 }
 
 export function useGameDerivations(
@@ -304,6 +433,16 @@ export function useGameDerivations(
     );
   }, [gameState, decisionLine, decisionLineFundingLevel, decisionLineFundingAtExpected, currentDecisions]);
 
+  const decisionLineDecisions = currentDecisions.byLine[decisionLine];
+  const underwriting = React.useMemo(() => {
+    const n = fundingConsequence?.newStack;
+    return gameState && n ? underwritingFigures(gameState, decisionLine, decisionLineDecisions, n.finalRatePer100) : null;
+  }, [gameState, decisionLine, decisionLineDecisions, fundingConsequence]);
+  const riskControlCostFigure = React.useMemo(
+    () => (gameState ? riskControlCost(gameState, decisionLine, currentDecisions) : null),
+    [gameState, decisionLine, currentDecisions],
+  );
+
   return {
     decisionLine,
     viewResults,
@@ -317,5 +456,7 @@ export function useGameDerivations(
     decisionLineActiveMembers,
     decisionLineBook,
     fundingConsequence,
+    underwriting,
+    riskControlCost: riskControlCostFigure,
   };
 }

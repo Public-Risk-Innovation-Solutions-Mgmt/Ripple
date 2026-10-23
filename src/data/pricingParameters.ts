@@ -122,6 +122,68 @@ export const REINSURANCE_RISK_LOAD_LAMBDA = 0;
 export const SEVERITY_TREND_PER_YEAR: PerLine<number> = { WC: 0.04, GL: 0.08, Property: 0.05 };
 
 /**
+ * RESERVE INFLATION — OPEN CLAIMS INFLATE WHILE THEY WAIT TO BE PAID. Each
+ * year, BEFORE that year's payments, every open accident year's unpaid reserve
+ * (its gross outstanding at the start of the year) grows by its line's
+ * severity trend — WC 4%, GL 8%, Property 5% — and the growth is booked as
+ * development on prior years, ON TOP OF the host's lifetime development
+ * (PRIOR_DEVELOPMENT_DEFAULTS), through the same path: allocated across the
+ * register, ceded under the accident year's own cover, trimmed at the GL pool
+ * limit. Paid-to-date never moves; the ultimate creeps up, and later payments
+ * are larger. It runs in the pre-game and every played year alike.
+ *
+ * ⚠ IT FILLS THE YEARLY_ADVERSE_RATE PLACEHOLDER (stable-scenarios commit 4),
+ * which wrote down exactly this design — a yearly rate on each open year's
+ * unpaid reserve, applied before payments, booked as prior-year development —
+ * at 0% and wired to nothing. Two things differ from that note, both by the
+ * reserve-inflation brief: the host's development STAYS (this sits on top of
+ * it rather than replacing it), and pricing anticipates part of it
+ * (RESERVE_INFLATION_PRICED_YEARS) rather than none.
+ *
+ * ⚠ WHY THE SEVERITY TREND: a claim reported in its accident year still
+ * settles at the cost of the year it is paid in. The trend already brings each
+ * accident year's cost up to its own year; this is the same inflation running
+ * on after it, on what is still unpaid. Defined from SEVERITY_TREND_PER_YEAR so
+ * the two cannot drift apart.
+ *
+ * MEASURED (scripts/probes/ri-probe.mts, twenty scenarios, ten years, the
+ * default decisions, on wip/policy-year-2027 at e238cbb): scenario 1's 2027
+ * accident year, valued 2027 to 2036, rises WC +12.7%, GL +15.0%, Property
+ * +3.1% (against +1.9%, +7.3%, -1.0% from the host's development alone).
+ * Unpriced, 2027 drops on 16 WC and 12 GL scenarios and WC's ten-year surplus
+ * nearly halves; priced in full, rates charge the whole lifetime inflation up
+ * front and surplus balloons.
+ */
+export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = { ...SEVERITY_TREND_PER_YEAR };
+
+/**
+ * HOW MUCH OF IT PRICING ANTICIPATES — WC 2 YEARS, GL 1, PROPERTY 2. The pure
+ * premium includes the inflation each year's claims pick up in their first N
+ * years of run-off along the line's paid pattern:
+ *
+ *     factor = product over j = 1..N of (1 + rate x unpaid share at year j)
+ *
+ *     WC (N 2) 1.0591   GL (N 1) 1.0742   Property (N 2) 1.0370
+ *     (in full, N unbounded: WC 1.2112, GL 1.2323, Property 1.0449)
+ *
+ * A window year valued at age k picks up only the steps still to come, j = k
+ * to N — what has emerged is already in its paid; a year past N picks up none.
+ * Inflation after year N is LEFT TO EXPERIENCE: it reaches the rate as it
+ * emerges in the window, as the host's development does.
+ *
+ * ⚠ WHY (scripts/probes/; twenty scenarios, ten years, the defaults). Priced in
+ * full, the rate charges claims' whole lifetime inflation while reserves hold
+ * only what has emerged: the ten-year combined ratio fell below 100% and
+ * surplus doubled. Two years held WC's and Property's combined ratios near
+ * their levels before inflation. GL's experience catches its own inflation
+ * within a few years, so with no investment income credit and no contingency
+ * one year is enough: at two GL ran a ten-year combined ratio of 95.4% (against
+ * 100.2% before the correction), at one 98.9%, with no 2027 drop. Measured with
+ * the per-line profit and contingency and the admin overrun.
+ */
+export const RESERVE_INFLATION_PRICED_YEARS: PerLine<number> = { WC: 2, GL: 1, Property: 2 };
+
+/**
  * THE TREND BOOKED UP FRONT (stable-scenarios commit 3). ON: each accident
  * year's ultimate rises with trend only by as much as its REPORTED losses rise
  * because of trend — inflation up to reporting, not up to final payment. The
@@ -308,7 +370,49 @@ export const PRIOR_DEVELOPMENT_DEFAULTS: PerLine<number> = {
  * GL took none: that came from the old per-claim GL model, whose fitted claim
  * sizes included defence costs. GL's losses are the pool's pure premium now.
  */
-export const ALAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property: 0.05 };
+/**
+ * ALAE VARIES YEAR TO YEAR, BY LINE, as a share of claims: WC 7-15%, GL
+ * 10-20%, Property 2-5% (ALAE_RATIO_RANGE).
+ *
+ *   THE DRAW      each line draws its ALAE ratio once per accident year,
+ *                 uniformly within its range, from the GAME's seed (marketSeedOf)
+ *                 on its own labelled stream (alae_ratio_<line>), so every world
+ *                 uses the same draw — the variation shows in the averaged
+ *                 result — a replay draws it again identically, and no other
+ *                 stream moves. The pre-game's years draw it too.
+ *   THE BOOKING   the year's ALAE is its claims x that year's drawn ratio: each
+ *                 accident year's cohort carries its ratio, and its ALAE is
+ *                 incurred, paid and reserved at it as the year develops
+ *                 (lossExpense.ts).
+ *   THE PRICING   the rate's ALAE load is the mean of the drawn ratios of the
+ *                 accident years in its pricing window, as the ledger records
+ *                 them; before any history, the middle of the line's range
+ *                 (ALAE_OF_LOSS_COST below).
+ *
+ * ULAE stays at 5% of claims (ULAE_OF_LOSS_COST).
+ *
+ * WHY: a fixed 5% share made ALAE a constant of the model; a pool's defence
+ * and adjusting spend moves with its claims mix and its vendors, and pricing it
+ * on recent experience is how a pool would.
+ */
+export const ALAE_RATIO_RANGE: PerLine<{ min: number; max: number }> = {
+  WC: { min: 0.07, max: 0.15 },
+  GL: { min: 0.10, max: 0.20 },
+  Property: { min: 0.02, max: 0.05 },
+};
+
+/**
+ * THE ALAE LOAD BEFORE ANY HISTORY — the middle of each line's range
+ * (ALAE_RATIO_RANGE): WC 11%, GL 15%, Property 3.5%. What a rate struck with no
+ * usable accident year loads, and the ratio of a cohort carried from before
+ * the draw existed. (Was 5% of claims on every line, booked and priced alike;
+ * that replaced 8.3%, which misread the pool's pricing example.)
+ */
+export const ALAE_OF_LOSS_COST: PerLine<number> = {
+  WC: (ALAE_RATIO_RANGE.WC.min + ALAE_RATIO_RANGE.WC.max) / 2,
+  GL: (ALAE_RATIO_RANGE.GL.min + ALAE_RATIO_RANGE.GL.max) / 2,
+  Property: (ALAE_RATIO_RANGE.Property.min + ALAE_RATIO_RANGE.Property.max) / 2,
+};
 
 /**
  * ULAE — unallocated loss adjustment expense, as a share of loss cost. Charged
@@ -368,15 +472,85 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
 };
 
 /**
- * PROFIT AND CONTINGENCY — a share of the rate. May be set to 0.
- * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor).
- * ⚠ SET TO 0 ON EVERY LINE (stable-scenarios, before Pause C2's checks), from
- * 5%: under default play with shocks off, pool surplus more than tripled over
- * ten years ($61.6M -> $194M, the twenty-scenario mean), and the pool should
- * not plan on a margin from pricing. Year-1 premium fell about 5.3%, so the
- * exposure was re-scaled with it (EXPOSURE_SCALE).
+ * ADMIN GROWS WITH INFLATION — 3% a year on BOTH parts, the fixed dollars a
+ * year (ADMIN_FIXED_PER_YEAR) and the per-exposure rate
+ * (ADMIN_PER_EXPOSURE_PER_100), compounding each year from ADMIN_BASE_YEAR and
+ * discounted the same way for earlier years, the pre-game's included: a year's
+ * admin is the parameters x (1 + 3%)^(year - base year). The rate charges the
+ * trended admin for the year it prices, and the engine books that same admin
+ * as the year's expense (operatingExpense is the admin charged), so admin
+ * neither drifts against the rate nor is under-charged as costs rise.
+ *
+ * WHY: admin was flat while losses trend 4-8% a year, so its share of the rate
+ * fell every year — an administrative budget that never rises is not one any
+ * pool runs on. 0 restores flat admin.
  */
-export const PROFIT_AND_CONTINGENCY_OF_RATE = 0;
+export const ADMIN_TREND_PER_YEAR = 0.03;
+
+/**
+ * THE YEAR THE ADMIN PARAMETERS ARE SET FOR — the game's year number, 1: the
+ * first played year (2027). The two admin parameters were calibrated at year
+ * 1, so they stand there unchanged; 2021 (year -5) is six years of trend
+ * below them, 2031 (year 5) four above.
+ */
+export const ADMIN_BASE_YEAR = 1;
+
+/**
+ * ACTUAL ADMIN RUNS OVER WHAT WAS PRICED — by a share drawn each year,
+ * uniformly between 0% and 2%, per line, from the game's seed on its own
+ * labelled stream (adminOverrun.ts), the same in every world. Pricing still
+ * charges the expected trended admin; only the admin booked (operatingExpense)
+ * and the year's result carry it.
+ *
+ * ⚠ WHY: a pool's expenses do not come in exactly at budget, and when they miss
+ * they mostly miss high — salaries, systems and claims handling run ahead of the
+ * plan the rate was set on. Charged at expected and booked a little above, admin
+ * is a small, steady drag on the underwriting result that the rate never
+ * recovers, beside the profit and contingency provision that is there to absorb
+ * such things. 0% to 2% keeps it a drag and not a shock: a mean 1% of admin.
+ */
+export const ADMIN_OVERRUN_RANGE = { min: 0, max: 0.02 } as const;
+
+/**
+ * PROFIT AND CONTINGENCY — A SHARE OF THE RATE, PER LINE, in the expense
+ * provision: WC 2%, GL 0%, Property 0%. THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS
+ * RATIO, where the permissible loss ratio is 100% less the total expense ratio
+ * — fixed admin, per-exposure admin, risk control and this — and the cover's
+ * price is added on top.
+ *
+ * ⚠ 5% ON EVERY LINE, AND NO INVESTMENT INCOME CREDIT (reserve-inflation
+ * build). Investment income does not affect the rate in any way; it flows into
+ * surplus only. The credit that took last year's return off the pure premium
+ * (INVESTMENT_INCOME_CREDIT, retired) and the per-line contingency that briefly
+ * stood beside it (WC 3%, GL 0%, Property 0%) are both gone: a pool prices for
+ * its losses and expenses with a margin for the unexpected, and leaves what
+ * its investments earn to its surplus, so the rate does not move with a year's
+ * markets and every line carries the same provision.
+ *
+ * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor): (claims x CLF
+ * + admin) / (1 - risk control - this) + the cover's price. At Expected and with
+ * no cover that is exactly the projected pure premium / the permissible loss
+ * ratio, admin being its share of that rate.
+ *
+ * HISTORY: 5% until stable-scenarios, then 0 on every line (under default play
+ * with shocks off pool surplus more than tripled over ten years, $61.6M ->
+ * $194M, and the exposure was re-scaled with the 5.3% fall in year-1 premium,
+ * EXPOSURE_SCALE — NOT re-scaled back now); then WC 3%, GL and Property 0%
+ * beside the credit, with reserve inflation; now 5% on every line again, the
+ * credit gone.
+ */
+export const PROFIT_AND_CONTINGENCY_OF_RATE: PerLine<number> = { WC: 0.02, GL: 0, Property: 0 };
+// ⚠ WC 2%, GL 0%, PROPERTY 0% — NOT 5% ON EVERY LINE (reserve-inflation build;
+// twenty scenarios, ten years, the defaults, with the admin overrun). With the
+// investment income credit gone every pure premium rose about 3%, and 5% on top
+// made every line too rich: ten-year combined ratios WC 99.2%, GL 92.7%,
+// Property 95.4% against 104.4%, 100.2% and 102.7% before the correction, and
+// the prior board's designed margin below zero on almost every scenario — the
+// pre-game overshot every target. 2% everywhere still left GL and Property 4.6
+// to 4.8 points rich. WC keeps 2%: its long tail inflates longest after the two
+// years pricing anticipates. GL and Property need none: GL's experience catches
+// its inflation within a few years, and Property's tail is short. Measured:
+// WC 102.1%, GL 98.9%, Property 99.7% (see STARTING_CAPITAL).
 
 /**
  * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
@@ -398,10 +572,20 @@ export const REINSURANCE_LOAD = 0.14;
 
 /**
  * HOW MANY YEARS OF PRIOR HISTORY THE PRE-GAME SIMULATES, with real claims
- * behind them — 2021 to 2025. ⚠ AND THEY ARE THE POOL'S WHOLE HISTORY: there
- * are no accident years before 2021. The pre-game starts on its paid-in capital
- * with no reserves; 2021 prices on the starting expected loss, 2022 on one
- * year, 2023 on two, 2024 on three, 2025 on four, and 2026 on the full five.
+ * behind them — 2021 to 2026, with 2026 the year in progress when the game
+ * opens and 2027 the first played year. ⚠ AND THEY ARE THE POOL'S WHOLE
+ * HISTORY: there are no accident years before 2021. The pre-game starts on its
+ * paid-in capital with no reserves.
+ *
+ * ⚠ SIX SINCE THE 2027 POLICY YEAR, WITH THE ONE-YEAR DATA LAG
+ * (PRICING_DATA_LAG_YEARS). Pricing's window ends two years before the year
+ * priced, so the newest accident year on the books — 2026 at the opening — is
+ * reserved, stated and carried in surplus but too new to price on. A sixth
+ * pre-game year keeps 2027 priced on the full five (2021-2025) while 2026's
+ * claims are on the books. With the lag, 2021 and 2022 price on the starting
+ * expected loss (no usable history), 2023 on one year, 2024 on two, 2025 on
+ * three, 2026 on four, and 2027 on the full five. (Five, 2021-2025 with a 2026
+ * start and no lag, until then.)
  * (Everything older used to open as a BULK cohort — 2016-2020 on WC and GL,
  * 2019-2020 on Property — inside OPENING_RESERVE_YEARS; both are retired.)
  *
@@ -419,7 +603,37 @@ export const REINSURANCE_LOAD = 0.14;
  * move at this commit with the flag still off, and every row of that move is
  * attributable to this one parameter.
  */
-export const PRIOR_HISTORY_YEARS = 5;
+export const PRIOR_HISTORY_YEARS = 6;
+
+/**
+ * THE PRE-GAME BOOK GROWS 2% A YEAR, ENDING EXACTLY AT THE OPENING BOOK.
+ *
+ * The opening book (bookUnits.openingBookUnits) is put in a seeded order (its
+ * own stream, pregame_growth_<line>, from the game's seed). 2021, the first
+ * pre-game year, holds the first 1 / (1 + this)^5 of its exposure; each later
+ * year writes the next units in as NEW BUSINESS, to exactly the opening book x
+ * (1 + this)^(year - 2026), a part of a unit where the exposure needs one;
+ * 2026 holds the whole opening book. The units written carry the first-year
+ * penalty on their ordinary losses as new business does in play
+ * (NEW_BUSINESS_PENALTY at the default rejection), and are joined that year,
+ * so a unit written in 2026 is safe at its first renewal in 2027.
+ *
+ * ⚠ AT MARKET RISK, AND WHY THE OPENING BOOK'S OWN UNITS: the opening book is
+ * a random draw from the market, so units taken from it in a random order are
+ * new business at market risk in expectation — and the book still ends exactly
+ * at today's opening, so the played game opens on the same book as before.
+ *
+ * ⚠ WHY: a pool's book does not stand still for six years before the game, and
+ * a growing one hands the team a history of smaller, older years, with new
+ * business in each. Measured (scripts/probes/ri-growth-probe.mts, at 1%, 2%,
+ * 3% against none): 2021's exposure is 0.906 of 2026's at 2%; pricing reads
+ * each window year's loss cost on its own exposure with equal weights, so the
+ * smaller years neither drag the rate nor count for less, and growth reaches
+ * it only through the penalty on new business in the history (the 2027 rate
+ * about +0.5%). Opening reserves fall up to $1.8M, paid-in capital needs about
+ * $1M more on WC, and every other figure moves by a point or less.
+ */
+export const PRE_GAME_BOOK_GROWTH = 0.02;
 
 /**
  * THE NEW RATE STACK — ON.
@@ -499,18 +713,21 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
 //
 // The scenario number, 1 to 20, is the game's ONLY seed: the market, the book,
 // the pre-game and the worlds, solo and hosted, all derive from it
-// (scenarioInstance). Each carries a target premium-to-surplus ratio, and that
-// one figure sets three things:
+// (scenarioInstance). Each carries a target premium-to-surplus ratio ON EACH
+// LINE, and that figure sets three things on the line:
 //
 //   1. THE OPENING: each line opens with surplus = its year-1 premium at
 //      Expected / the ratio.
 //   2. THE PRE-GAME'S EXPERIENCE: its ordinary losses run at expected x
-//      (1 + (1 - f) x PRE_GAME_EXPERIENCE_WEIGHT), f = PRE_GAME_EXPERIENCE_BASE /
-//      ratio — a thin scenario inherits a worse record as well as less surplus.
-//   3. THE PRIOR BOARD'S MARGIN: solved, one funding level per line across the
-//      five pre-game years, so that from STARTING_CAPITAL surplus ends exactly at
-//      the opening (priorHistoryEngine's solvePreGameMargin). It replaces the
-//      fixed 14% cushion (PRE_GAME_FUNDING_CUSHION, retired).
+//      (1 + (1 - f) x PRE_GAME_EXPERIENCE_WEIGHT), f = the line's
+//      PRE_GAME_EXPERIENCE_BASE / ratio — a thin scenario inherits a worse
+//      record as well as less surplus.
+//   3. THE PRIOR BOARD'S MARGIN: one funding level per line across the six
+//      pre-game years, set on the scenario's DESIGNED history so that from
+//      STARTING_CAPITAL that history would end exactly at the opening
+//      (PRE_GAME_MARGIN_ON_DESIGN), floored at zero, with the opening falling
+//      where the simulated history takes it inside the guardrails. It replaces
+//      the fixed 14% cushion (PRE_GAME_FUNDING_CUSHION, retired).
 // ============================================================================
 
 export const SCENARIO_COUNT = 20;
@@ -518,27 +735,60 @@ export const SCENARIO_COUNT = 20;
 /** The scenarios from THINNEST (highest premium to surplus) to RICHEST. */
 export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 15, 11, 20, 6, 9, 5, 4, 1, 18, 7, 17, 2, 13, 16];
 
-/** The thinnest and richest target premium-to-surplus ratios; the twenty are evenly spaced between. */
-export const SCENARIO_RATIO_RANGE = { thinnest: 1.7, richest: 1.2 } as const;
+/**
+ * EACH LINE'S THINNEST AND RICHEST TARGET PREMIUM-TO-SURPLUS RATIOS; its twenty
+ * are evenly spaced between, in the one scenario order (SCENARIOS_THIN_TO_RICH):
+ * scenario 12 is the thinnest on every line and scenario 16 the richest.
+ *
+ *   WC        3.0 to 1.5   (centred on 2.25)
+ *   GL        2.3 to 1.3   (centred on 1.8)
+ *   Property  1.7 to 1.2   (centred on 1.45 — the range every line had before)
+ *
+ * ⚠ WHY PER LINE (reserve-inflation measurements, scripts/probes/; twenty
+ * scenarios, ten years, the defaults, with reserve inflation priced for two
+ * years). The game opened rich — premium to surplus 1.2 to 1.7 — and a thinner
+ * start was wanted where a line can carry one:
+ *   WC at 1.5-3.0 opens about $9M thinner at year 5 with no line below zero
+ *     and one 2027 drop (a guardrail scenario).
+ *   GL at 1.3-2.3 against 1.4-2.6: the lowest surplus at any point $6.5M
+ *     (P/S 3.8) against $4.8M (P/S 5.1), no Deficient scenario-year against
+ *     3, loans to GL in 0.8% of worlds against 1.4%, no 2027 drop on either.
+ *   Property stays at 1.2-1.7: at 1.5-3.0, three Property scenarios went
+ *     below zero and three dropped in 2027 — its 103% combined ratio from a
+ *     thinner start left it exposed.
+ */
+export const SCENARIO_RATIO_RANGE: PerLine<{ thinnest: number; richest: number }> = {
+  WC: { thinnest: 3.0, richest: 1.5 },
+  GL: { thinnest: 2.3, richest: 1.3 },
+  Property: { thinnest: 1.7, richest: 1.2 },
+};
 
-/** Each scenario's target premium-to-surplus ratio, by scenario number. */
-export const SCENARIO_PREMIUM_TO_SURPLUS: Readonly<Record<number, number>> = Object.fromEntries(
+const lineMap = <T>(f: (l: CoverageLine) => T): PerLine<T> => ({ WC: f('WC'), GL: f('GL'), Property: f('Property') });
+
+/** Each line's target premium-to-surplus ratio, by scenario number. */
+export const SCENARIO_PREMIUM_TO_SURPLUS: PerLine<Readonly<Record<number, number>>> = lineMap(l => Object.fromEntries(
   SCENARIOS_THIN_TO_RICH.map((n, k) => [n,
-    SCENARIO_RATIO_RANGE.thinnest
-      - k * (SCENARIO_RATIO_RANGE.thinnest - SCENARIO_RATIO_RANGE.richest) / (SCENARIO_COUNT - 1)]),
-);
+    SCENARIO_RATIO_RANGE[l].thinnest
+      - k * (SCENARIO_RATIO_RANGE[l].thinnest - SCENARIO_RATIO_RANGE[l].richest) / (SCENARIO_COUNT - 1)]),
+));
 
-/** The pre-game's experience factor is this / the scenario's ratio: 1 at a ratio of 1.5. */
-export const PRE_GAME_EXPERIENCE_BASE = 1.5;
+/**
+ * The pre-game's experience factor is this / the scenario's ratio: 1 at the
+ * line's MIDPOINT, so the middle scenario's pre-game runs at expected on every
+ * line. Property 1.45 (it was 1.5 for the shared 1.2-1.7 range, near but not on
+ * its middle), WC 2.25, GL 1.8.
+ */
+export const PRE_GAME_EXPERIENCE_BASE: PerLine<number> = lineMap(l => (SCENARIO_RATIO_RANGE[l].thinnest + SCENARIO_RATIO_RANGE[l].richest) / 2);
 /** How far the experience factor moves the pre-game's ordinary losses: x (1 + (1 - factor) x this). */
 export const PRE_GAME_EXPERIENCE_WEIGHT = 0.3;
 
-/** The pre-game's ordinary losses, as a multiple of expected, in a scenario. */
-export const preGameLossMultiplier = (scenario: number): number =>
-  1 + (1 - PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
+/** The pre-game's ordinary losses on a line, as a multiple of expected, in a scenario. */
+export const preGameLossMultiplier = (scenario: number, line: CoverageLine): number =>
+  1 + (1 - PRE_GAME_EXPERIENCE_BASE[line] / SCENARIO_PREMIUM_TO_SURPLUS[line][scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
 
 /**
- * STARTING CAPITAL — $12.5M PER LINE, paid in, with no earned surplus, at the
+ * STARTING CAPITAL — PER LINE (WC $3.0M, GL $12.0M, Property $12.5M; see the
+ * note under the value), paid in, with no earned surplus, at the
  * start of the pre-game. The Annual Statement's paid-in capital is this; earned
  * surplus is everything the pre-game adds.
  *
@@ -568,16 +818,90 @@ export const preGameLossMultiplier = (scenario: number): number =>
  * the books as reserves, earning investment income that a larger start
  * compounded (at $15M investment outgrew the margin). Those years are retired
  * (The pool's history begins), so that reason went with them.
+ *
+ * ⚠ PROPERTY $17.5M, WC AND GL $12.5M (policy-year build, with the six-year
+ * simulated pre-game, the margin set on the designed history and floored at
+ * zero, the one-year data lag, the investment income credit and ALAE drawn by
+ * line and year). The table above predates all of those. At $12.5M Property's
+ * designed margin ran 3.0% to 5.8%, and it comes off when year 1 (2027) funds
+ * at Expected, so the 2027 rate dropped from 2026's in 9 of the twenty
+ * scenarios. Property alone, WC and GL at $12.5M:
+ *
+ *   Property   margin           at the floor   opening P/S          2027 rate change    drops
+ *   $12.5M     3.0% to 5.8%     0              1.00-2.15 (sc 17)    -5.4% to +4.8%       9
+ *   $15M       0.3% to 3.5%     0              1.00-2.15 (sc 17)    -3.6% to +7.1%       3
+ *   $17.5M     0.0% to 1.1%    18              1.00-2.14            -1.7% to +7.7%       1
+ *   $20M       0.0%            20              0.90-1.74            -0.9% to +7.7%       1
+ *
+ * CHOSEN: $17.5M. One 2027 drop (scenario 17), against 3 at $15M and 9 at
+ * $12.5M. On 18 of the twenty scenarios the designed history would price
+ * below expected, so the zero floor (PRE_GAME_MARGIN_FLOOR) holds the prior
+ * board at EXACTLY expected — ruled fine: a board funding at expected is an
+ * ordinary history to hand over, and with no margin to come off, 2027 at
+ * Expected follows 2026 at trend. Openings stay inside the guardrails
+ * (1.00-2.14, none needing them). $20M drops no less and opens richer than
+ * the 1.0 guardrail (0.90 at its richest). $15M (shipped briefly, f096e1a)
+ * kept every designed margin above the floor at the cost of two more drops.
  */
-export const STARTING_CAPITAL: PerLine<number> = { WC: 12_500_000, GL: 12_500_000, Property: 12_500_000 };
+export const STARTING_CAPITAL: PerLine<number> = { WC: 3_000_000, GL: 12_000_000, Property: 12_500_000 };
+// ⚠ WC $3.0M, GL $12.0M, PROPERTY $12.5M (reserve-inflation build: no
+// investment income credit; profit and contingency WC 2%, GL 0%, Property 0%;
+// inflation priced WC 2 years, GL 1, Property 2; the admin overrun; twenty
+// scenarios, ten years, the defaults). The notes above predate all of these.
+//
+// WC and GL: the largest $0.5M step that keeps every scenario's designed
+// margin above zero. WC +0.12% to +2.22% (the step above, $3.5M, takes the
+// lowest to -0.29%); GL +0.20% to +4.34% ($12.5M: -0.22%). Before the
+// correction they were $5.0M and $10.0M; removing the credit raised every
+// pure premium, which moved the solve.
+//
+// Property: the rule gives $11.0M, but there the margin that comes off when
+// 2027 funds at Expected drops 2027's rate in 3 scenarios. Measured:
+//
+//   Property   designed margin   on the floor   2027 change        drops   10-yr CR   surplus yr 5 / 10 ($M)
+//   $11.0M     +2.22 to +5.22%   0              -0.9% to +3.9%      3       99.7%      28.5 / 40.7
+//   $12.5M     +0.65 to +3.85%   0              +0.2% to +5.2%      0       99.7%      28.5 / 40.7
+//   $14.0M     -0.91 to +2.48%   3              +1.3% to +6.5%      0       99.7%      28.6 / 40.8
+//   $17.5M     (before the correction: -2.04 to +1.89%, 12 on the floor, 1 drop, 102.7%, 23.0 / 25.8)
+//
+// CHOSEN $12.5M: the fewest 2027 drops (none) while no margin sits on the
+// floor. $14.0M drops none either but puts three scenarios (8, 19, 20) on the
+// floor. Openings 1.01-1.96 at every level, inside the guardrails; the ten-year
+// figures barely move, since the pre-game's margin grows each level to the same
+// opening.
+// ⚠ WC $5.0M AND GL $10.0M SINCE THE PER-LINE TARGETS (SCENARIO_RATIO_RANGE),
+// PROPERTY STAYS $17.5M. With WC's targets at 1.5-3.0 and GL's at 1.3-2.3 the
+// openings are thinner, and $12.5M grew past them with nothing to spare: the
+// designed margin solved below zero and sat on the floor (PRE_GAME_MARGIN_FLOOR)
+// on 41 of the 60 line-scenarios, Property's at $17.5M among them. THE RULE: the largest
+// amount, in $0.5M steps, that keeps every scenario's DESIGNED margin above
+// zero — small and genuine. Solved with reserve inflation, the per-line
+// targets and PRE_GAME_BOOK_GROWTH in (scripts/probes/capital-solve-probe.mts,
+// twenty scenarios):
+//
+//            capital   designed margin (range)    the step above
+//   WC       $5.0M     +0.27% to +2.83%           $5.5M: -0.17% at the lowest
+//   GL       $10.0M    +0.34% to +4.65%           $10.5M: -0.06% at the lowest
+//
+// Property is held at $17.5M by the brief, where its designed margin runs
+// -2.04% to +1.89%: the scenarios below zero are charged at the floor, as
+// before (18 of 20 sat there at $17.5M on the shared targets).
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
- * asset class alike, no draw: a realistic return for a public pool's
+ * asset class alike, no draw — READ BY THE FLAT PRE-GAME: with FLAT_PRE_GAME
+ * off, only by the DESIGNED run the prior board's margin is set on
+ * (PRE_GAME_MARGIN_ON_DESIGN); the played pre-game draws its market. A
+ * realistic return for a public pool's
  * bond-heavy portfolio. Most of the pre-game's growth comes from the prior
  * board's margin, not from this. The played years draw their market as before.
  */
 export const PRE_GAME_INVESTMENT_RETURN = 0.03;
+
+// ⚠ RETIRED: INVESTMENT_INCOME_CREDIT, which took last year's realised return
+// off the pure premium (policy-year build). INVESTMENT INCOME DOES NOT AFFECT
+// THE RATE IN ANY WAY; it flows into surplus only. See
+// PROFIT_AND_CONTINGENCY_OF_RATE for what replaced it in the rate.
 
 /**
  * ⚠ RETIRED: PRE_GAME_FUNDING_CUSHION, the prior board's fixed 14% cushion
@@ -662,6 +986,13 @@ export const MEMBER_LEVEL = { enabled: false };
  * Decisions page shows each line's slider disabled at 0% ("coming soon") and
  * the Departments screen hides the programs. The programs, the spend and their
  * code are kept intact and unwired, for the pool-level redesign to reuse.
+ *
+ * ⚠ WHEN IT IS SWITCHED ON, IT MUST BE CHARGED AS A PERCENTAGE OF THE PURE
+ * PREMIUM. The Decisions slider is labelled that way ("5% of Pure Premium" at
+ * its end), but quoteNewRateStack loads it today as a share of the loaded rate,
+ * in the divisor. Change the charge to match the label before turning this on;
+ * the slider's gray cost box (derivations.ts riskControlCost) then shows the
+ * real cost, and shows $0 until then.
  */
 export const RISK_CONTROL = { enabled: false };
 
@@ -838,15 +1169,135 @@ export const SHOCK_T_BASIS_PER_100: PerLine<number> = {
 export const ROUTINE_LARGE_LOSSES = { enabled: false };
 
 /**
- * A FLAT PRE-GAME — CHOSEN (stable-scenarios build, commit 1). In the five
- * pre-game years only: each asset class earns its EXPECTED return net of fee
- * (no market draw), and ordinary losses come in at EXACTLY their expected
- * cost — no year factor and no unit (member) factor. No shock fires in the
- * pre-game (it never did — see shockLosses.ts). The history a team inherits is
- * then the pool's expected experience, not one seed's luck, and pricing's
- * window opens on it. The played years are untouched.
+ * A FLAT PRE-GAME — OFF: THE PRE-GAME IS SIMULATED (wip/simulated-pregame, a
+ * test build). On, the six pre-game years (2021-2026) ran at exactly expected: each asset
+ * class at PRE_GAME_INVESTMENT_RETURN, and ordinary losses at exactly the
+ * scenario's multiple of expected (preGameLossMultiplier), no year or unit
+ * factor (stable-scenarios build, commit 1).
+ *
+ * OFF, each pre-game year is DRAWN THE WAY A PLAYED YEAR IS: the line's year
+ * factor and each unit's own factor at their settings (BASELINE_CV,
+ * UNIT_ORDINARY_OWN_CV), on the scenario's multiple, and the market drawn as a
+ * played year draws it. No shock fires in the pre-game, as before. Every draw
+ * comes from the game's seed on a stream of its own (`pregame_ordinary_<line>`,
+ * `pregame_ordinary_unit_<line>`, `pregame_invest`), so every team in a room
+ * and any takeover inherit the identical history, and the played years' draws
+ * do not shift. The prior board's margin is set on the scenario's DESIGNED
+ * history (PRE_GAME_MARGIN_ON_DESIGN, below), so the opening falls where the
+ * simulated history takes it.
+ *
+ * ⚠ WHY: a flat pre-game made the inherited history — six years of the
+ * Annual Statement, and the window year 1 is priced on — read as a straight
+ * line, with no year-to-year variation at all. Simulated, it reads like the
+ * years the team then plays. Measured over the twenty scenarios, the pre-game
+ * loss ratio's year-to-year SD rises from 1.2-2.1 points to 5.7-8.1; the
+ * solved margin then ranges about -11% to +15% (below zero on 7-12 scenarios a
+ * line, against 0-1 flat) and year 1's rate change from -6% to +18%.
  */
-export const FLAT_PRE_GAME = { enabled: true };
+export const FLAT_PRE_GAME = { enabled: false };
+
+/**
+ * THE PRIOR BOARD'S MARGIN, SET ON THE DESIGNED HISTORY — ON (wip/simulated-
+ * pregame, a test build). The margin is the one that would land the pre-game
+ * on the scenario's target premium to surplus if it ran as DESIGNED: ordinary
+ * losses at exactly expected x the scenario's experience multiple
+ * (preGameLossMultiplier), at the EXPECTED return of the pre-game's cash-and-
+ * bond portfolio (each class's expected return net of fee, about 3.28% —
+ * see PRE_GAME_MARKET_DRAWS; it was a flat 3%, which ran about $1.5M under the
+ * drawn market and biased every opening up). The simulated pre-game is then
+ * played at that margin,
+ * and the opening surplus falls wherever its history takes it: richer after
+ * good luck, thinner after bad. Off, the margin is solved on the history as
+ * played, so the opening lands exactly on the ratio.
+ *
+ * ⚠ WHY: solved on the played history, the margin absorbs the luck. With the
+ * pre-game simulated (FLAT_PRE_GAME off) the luck is as large as the scenarios'
+ * designed differences, so a run of bad years forced the prior board to
+ * undercharge to land on its opening — the margin fell below zero on 7-12 of
+ * the twenty scenarios a line, and the 2026 rate dropped on 2-6. A board does
+ * not price to hit a surplus it cannot see coming; it prices for the risk it
+ * expects, and its surplus is the outcome.
+ *
+ * Flat (FLAT_PRE_GAME on) the designed and played histories are one run, and
+ * either setting opens exactly on the ratio.
+ *
+ * Outside OPENING_PREMIUM_TO_SURPLUS_BOUNDS, the guardrails move the margin
+ * just enough to land on the nearest bound.
+ *
+ * ⚠ MEASURED, with the pre-game market at ten draws on cash and bonds. Against
+ * the designed run the opening moves with an SD of WC $3.4M, GL $3.3M,
+ * Property $2.5M, and investments are now under a tenth of it (variance share
+ * 10% / 8% / 4%; one equity-bearing draw made them most of it). Opening
+ * premium to surplus WC 1.06-2.22, GL 1.06-2.77, Property 1.06-1.90, all
+ * inside the guardrails (1.0-3.0) with none needing them; rank correlation
+ * with the designed order 0.46 / 0.19 / 0.52. With the margin floored at zero
+ * (PRE_GAME_MARGIN_FLOOR) it runs WC 0.0% to 2.0%, GL 0.0% to 3.7%, Property
+ * 0.7% to 5.1%; 6 WC and 3 GL scenarios sit on the floor, their designed
+ * history needing less than nothing. No year-1 rate drops on WC or GL; three
+ * on Property.
+ */
+export const PRE_GAME_MARGIN_ON_DESIGN = { enabled: true };
+
+/**
+ * THE PRE-GAME'S MARKET — THE AVERAGE OF 10 DRAWS, ON CASH AND BONDS ONLY.
+ *
+ * Each simulated pre-game year's market is the average of this many markets,
+ * each drawn as a played year's is, every one from the game's seed on its own
+ * labelled stream (`pregame_invest_0` to `_9`), so a replay is identical. The
+ * pre-game holds CASH AND BONDS ONLY: the default allocation with equities
+ * removed and the rest scaled up to 100% (about 11% cash, 89% bonds —
+ * investmentEngine.preGameAllocation). The played years keep the default
+ * allocation, equities included, and draw one market each, as before.
+ *
+ * ⚠ WHY: with the prior board's margin set on the designed history, the
+ * opening carries the pre-game's whole luck, and one equity-bearing market a
+ * year was most of it — about $5M of a $6.4M SD in the opening. Averaging ten
+ * draws on a bond-heavy book keeps a year's return realistic while leaving the
+ * loss history, not the stock market, to give each scenario its character.
+ */
+export const PRE_GAME_MARKET_DRAWS = 10;
+
+/**
+ * THE OPENING'S GUARDRAILS — PREMIUM TO SURPLUS BETWEEN 1.0 AND 3.5.
+ *
+ * With the margin set on the designed history (PRE_GAME_MARGIN_ON_DESIGN),
+ * the opening falls where the simulated history takes it. If it would open a
+ * line outside these bounds, that scenario's prior-board margin on that line
+ * is adjusted JUST ENOUGH to land it on the nearest bound — solved on the
+ * played history, so the opening is exactly the bound. Every other scenario
+ * keeps its designed margin and lands where its history takes it.
+ *
+ * ⚠ WHY: a pool opening thinner than 3x premium to surplus is close to
+ * failing before a team has made a decision, and one richer than 1.0x has
+ * well more capital than any of the designed scenarios (1.2-1.7) intends.
+ *
+ * ⚠ THE RICH BOUND WAS 1.2 AND IS 1.0. At 1.2 it sat on the richest designed
+ * scenario's own target, so any good luck there tripped it, and pulling those
+ * openings down took margins below zero (WC scenario 9: +1.1% -> -1.4%). The
+ * margin is now floored at zero (PRE_GAME_MARGIN_FLOOR): where landing on 1.0
+ * would need a negative margin, the board charges at zero and the opening
+ * lands where that history takes it.
+ */
+export const OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.0, max: 3.5 } as const;
+// ⚠ THE THIN BOUND WAS 3.0 AND IS 3.5, with WC's targets running to 3.0
+// (SCENARIO_RATIO_RANGE). At 3.0 the bound sat on the thinnest target, so any
+// bad luck there tripped it and raised that board's margin — as high as 6.7% —
+// which then came off in 2027: 17 of 60 line-scenario openings hit it at
+// 2.0-3.0 targets. At 3.5 the hits fell to 6 (scripts/probes/ri-ps-probe.mts).
+
+/**
+ * THE PRIOR BOARD'S MARGIN IS NEVER BELOW ZERO. Whether set on the designed
+ * history or moved by the guardrails, a margin that would come out negative is
+ * zero: the board charges at expected and the opening lands where that
+ * history takes it.
+ *
+ * ⚠ WHY: a negative margin is the board pricing under its own expected loss.
+ * With the designed history earning the cash-and-bond mix's expected return
+ * (about 3.28%), the designed margin fell below zero on 8 WC and 4 GL
+ * scenarios, and the rich guardrail took some lower still. A board that funds
+ * below expectation is an odd history to hand a team.
+ */
+export const PRE_GAME_MARGIN_FLOOR = 0;
 
 /**
  * CLAIMS ABOVE THE ORDINARY LIMIT, PER $1M OF EXPOSURE A YEAR — SOURCED.
@@ -1162,6 +1613,32 @@ export const PRIOR_HISTORY_YEARS_NEW = 5;
  * ⚠ LIVE — the new pure premium's window (newPurePremium.ts).
  */
 export const PRICING_WINDOW_YEARS_NEW = 5;
+
+/**
+ * THE POOL'S DATA RUNS A YEAR BEHIND, AS IN REAL PRICING (the 2027 policy
+ * year). The year being priced is never the year after the latest data, but
+ * the year after that: 2027 is priced on accident years 2021-2025, 2028 on
+ * 2022-2026, and so on — the five most recent COMPLETE years, ending
+ * 1 + PRICING_DATA_LAG_YEARS years before the priced year.
+ *
+ * ⚠ AND THE WHOLE DATA SET IS A YEAR OLD, NOT ONLY THE WINDOW. The window years
+ * are valued as at the end of the latest data year (2025 for 2027), as an
+ * actuary pricing 2027 in mid-2026 would have them: 2025 enters at 12 months,
+ * 2021 at 60, and no payment made in the year in progress is used — on the
+ * newest year or the older ones. The year in progress (2026) is on the books —
+ * in the reserves, the statements and surplus — but none of it prices.
+ *
+ * Experience is trended to the latest data year and then forward two years to
+ * the priced year (WC 1.04^2), which is the same as trending each accident year
+ * straight to the priced year: the trend did not change, only the window.
+ *
+ * WHY: pricing the next year on the year just closed is not how a pool prices.
+ * Its data closes after the year ends, the indication is built from it, and the
+ * rate is filed for the year after — so the newest experience a rate can see is
+ * two years old, and the board has to carry a year it cannot yet price on.
+ * 0 restores the old rule (priced on the year just closed, valued at its end).
+ */
+export const PRICING_DATA_LAG_YEARS = 1;
 export const PRICING_WINDOW_WEIGHTING_NEW = 'equal';
 
 /**
@@ -1208,18 +1685,6 @@ export const RESERVE_BASIS_NEW = 'expected';
  */
 export const DEVELOPMENT_IS_LIFETIME_TOTAL = true;
 
-/**
- * ⚠ PLACEHOLDER — NOT YET USED. NOTHING READS THIS (stable-scenarios commit 4).
- *
- * YEARLY ADVERSE DEVELOPMENT, per line, at 0%. It will REPLACE the host's
- * lifetime development (hostDevelopment.ts, DEVELOPMENT_IS_LIFETIME_TOTAL):
- * each year, a yearly rate on each open accident year's unpaid reserve,
- * applied BEFORE that year's payments, booked as prior-year development, and
- * NOT anticipated by pricing — pricing sees it only as it emerges in the
- * experience. Recorded now so the design is written down beside the value; the
- * wiring is a later commit, and placeholder-check holds that nothing reads it.
- */
-export const YEARLY_ADVERSE_RATE: PerLine<number> = { WC: 0, GL: 0, Property: 0 };
 // ⚠ NO LONGER "NOT YET WIRED". The host's development % reads this convention
 // and hostDevelopment.ts implements it; the entry above is live. The constant
 // stays as the written-down statement of WHICH convention is in force.
@@ -1656,6 +2121,26 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'computed along the paid pattern (WC 1.2440, GL 1.2478, Property 1.0460) before it was ruled that '
           + 'inflation runs only to reporting.',
       }],
+      ['Reserve inflation', {
+        value: perLine(RESERVE_INFLATION_PER_YEAR, 3), unit: 'per year, of each open year\'s unpaid reserve',
+        what: 'Each year, before payments, every open accident year\'s unpaid reserve grows by its line\'s severity '
+          + 'trend, booked as development on prior years, on top of the host\'s development. The pre-game and every '
+          + 'played year.', basis: 'CHOSEN',
+        note: 'Fills the Yearly adverse development placeholder, keeping the host\'s development. Scenario 1\'s 2027 '
+          + 'accident year rises WC +12.7%, GL +15.0%, Property +3.1% over ten years (host development alone: '
+          + '+1.9%, +7.3%, -1.0%).',
+      }],
+      ['Reserve inflation priced', {
+        value: `WC ${RESERVE_INFLATION_PRICED_YEARS.WC} · GL ${RESERVE_INFLATION_PRICED_YEARS.GL} · Property ${RESERVE_INFLATION_PRICED_YEARS.Property}`, unit: 'years of run-off',
+        what: 'The pure premium includes the inflation each year\'s claims pick up in their first this-many years along '
+          + 'the paid pattern: the product over those years of (1 + rate x unpaid share) — WC 1.0591 (2 years), GL 1.0742 '
+          + '(1), Property 1.0370 (2). A window year valued at age k picks up only the years still to come. Later inflation '
+          + 'is left to experience.', basis: 'CHOSEN',
+        note: 'Priced in full (WC 1.2112, GL 1.2323, Property 1.0449) the rate charges lifetime inflation up front and '
+          + 'ten-year surplus doubles; unpriced, 2027 drops on most WC and GL scenarios. Two years keeps WC and Property '
+          + 'near their combined ratios before inflation; GL\'s experience catches its inflation within a few years, and '
+          + 'at two years it ran 95.4% against 100.2% before the correction, at one 98.9%.',
+      }],
       ['Frequency trend', {
         value: perLine(FREQUENCY_TREND_PER_YEAR, 3), unit: 'per year',
         what: 'Zero on all three lines.', basis: 'CHOSEN',
@@ -1823,15 +2308,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   {
     title: 'The twenty scenarios',
     blurb: 'The scenario number is the game\'s only seed — market, book, pre-game and worlds, solo and hosted. Each '
-      + 'sets the opening premium to surplus, the pre-game\'s experience and, through the solved margin, how the '
-      + `prior board ran the pool. Evenly spaced from ${SCENARIO_RATIO_RANGE.thinnest} (thinnest) to `
-      + `${SCENARIO_RATIO_RANGE.richest} (richest). Experience factor = ${PRE_GAME_EXPERIENCE_BASE} / ratio; the `
-      + `pre-game's ordinary losses = expected x (1 + (1 - factor) x ${PRE_GAME_EXPERIENCE_WEIGHT}).`,
+      + 'sets each line\'s opening premium to surplus, the pre-game\'s experience and, through the solved margin, how the '
+      + 'prior board ran the pool. Evenly spaced per line, in one order, from thinnest to richest: '
+      + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_RATIO_RANGE[l].thinnest} to ${SCENARIO_RATIO_RANGE[l].richest}`).join(', ')
+      + '. Experience factor = the line\'s midpoint (' + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${PRE_GAME_EXPERIENCE_BASE[l]}`).join(', ')
+      + `) / ratio; the pre-game's ordinary losses = expected x (1 + (1 - factor) x ${PRE_GAME_EXPERIENCE_WEIGHT}).`,
     entries: Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1).map(n => [`Scenario ${n}`, {
-      value: SCENARIO_PREMIUM_TO_SURPLUS[n].toFixed(4), unit: 'premium to surplus at the opening',
-      what: `${SCENARIOS_THIN_TO_RICH.indexOf(n) + 1} of ${SCENARIO_COUNT}, thinnest first. Experience factor `
-        + `${(PRE_GAME_EXPERIENCE_BASE / SCENARIO_PREMIUM_TO_SURPLUS[n]).toFixed(4)}; pre-game ordinary losses x `
-        + `${preGameLossMultiplier(n).toFixed(4)} of expected.`,
+      value: (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_PREMIUM_TO_SURPLUS[l][n].toFixed(4)}`).join(' · '),
+      unit: 'premium to surplus at the opening',
+      what: `${SCENARIOS_THIN_TO_RICH.indexOf(n) + 1} of ${SCENARIO_COUNT}, thinnest first. Pre-game ordinary losses x `
+        + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${preGameLossMultiplier(n, l).toFixed(4)}`).join(', ') + ' of expected.',
       basis: 'CHOSEN',
     }] as const),
   },
@@ -1842,16 +2328,18 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
-        what: 'How many pre-game years are simulated with real claims behind them — 2021 to 2025.', basis: 'CHOSEN',
-        note: 'Ten while the old ten-year experience path was live; five with the new window since commit 3, '
-          + 'and the two move together.',
+        what: 'How many pre-game years are simulated with real claims behind them — 2021 to 2026, with 2026 the year in '
+          + 'progress when the game opens and 2027 the first played year.', basis: 'CHOSEN',
+        note: 'Ten while the old ten-year experience path was live; five with the new window since commit 3; six since the '
+          + '2027 policy year, so that with the one-year data lag (Pricing data lag) 2027 still prices on the full five-year '
+          + 'window while 2026\'s claims are on the books.',
       }],
       ['The pool\'s history begins', {
         value: 2021, unit: 'the first accident year',
         what: 'There are no accident years before 2021, the first pre-game year. The pre-game starts on its paid-in '
-          + 'capital ($12.5M a line — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
-          + 'the starting expected loss with trend applied — no history; 2022 on one year, 2023 on two, 2024 on three, '
-          + '2025 on four; from 2026 the full five-year window.',
+          + 'capital (WC $5.0M, GL $10.0M, Property $17.5M — see Starting capital) with no reserves, and reserves build only from 2021\'s claims on. 2021 is priced on '
+          + 'the starting expected loss with trend applied — no history — and so is 2022, with the one-year data lag; '
+          + '2023 on one year, 2024 on two, 2025 on three, 2026 on four; from 2027 the full five-year window.',
         basis: 'CHOSEN',
         note: 'Until then the books carried imaginary accident years before the pre-game — 2016-2020 on WC and GL, '
           + '2019-2020 on Property — as bulk reserves on the books from its start, inside a window of ten accident '
@@ -1872,14 +2360,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     blurb: 'Read by the new rate stack, except where an entry is marked not yet used. Every one is CHOSEN and is a '
       + 'starting value to be tuned.',
     entries: [
-      ['ALAE', {
+      ['ALAE ratio range', {
+        value: `WC ${ALAE_RATIO_RANGE.WC.min * 100}-${ALAE_RATIO_RANGE.WC.max * 100}%, GL ${ALAE_RATIO_RANGE.GL.min * 100}-`
+          + `${ALAE_RATIO_RANGE.GL.max * 100}%, Property ${ALAE_RATIO_RANGE.Property.min * 100}-${ALAE_RATIO_RANGE.Property.max * 100}%`,
+        unit: 'share of claims',
+        what: 'Allocated loss adjustment expense varies year to year. Each line draws its ALAE ratio once per accident year, '
+          + 'uniformly in its range, from the game\'s seed on its own labelled stream: every world uses the same draw and a '
+          + 'replay is identical; the pre-game draws it too. The year\'s ALAE is booked at its ratio — incurred, paid on the '
+          + 'loss pattern and reserved as its claims develop. The rate\'s ALAE load is the mean of the drawn ratios over its '
+          + 'pricing window\'s accident years.', basis: 'CHOSEN',
+        note: 'Was 5% of claims on every line, booked and priced alike (which replaced 8.3%, a misreading of the pool\'s '
+          + 'pricing example). The supplied pure premiums exclude ALAE, so it is added on every line.',
+      }],
+      ['ALAE before any history', {
         value: perLine(ALAE_OF_LOSS_COST, 3), unit: 'share of loss cost',
-        what: 'Allocated loss adjustment expense. Charged in the rate on the ground-up loss cost and booked '
-          + 'as a cost: incurred as this share of the ground-up loss incurred, paid on the loss pattern, the '
-          + 'unpaid part held as the loss expense reserve.', basis: 'CHOSEN',
-        note: '5% on every line, replacing 8.3%, which misread the pool\'s pricing example. The supplied pure premiums '
-          + 'exclude ALAE, so it is added on WC and GL as on Property. GL once took none: that rule came from the old '
-          + 'per-claim GL model, whose fitted claim sizes included defence costs.',
+        what: 'The middle of each line\'s range: the ALAE load of a rate struck with no usable accident year.', basis: 'CHOSEN',
       }],
       ['ULAE', {
         value: perLine(ULAE_OF_LOSS_COST, 3), unit: 'share of loss cost',
@@ -1913,13 +2408,30 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'The same calibration, and as stale: 0.5 x 0.15 x the old opening pure premium per $100. Left as it is '
           + 'until the pool\'s budget is sent.',
       }],
-      ['Profit and contingency', {
-        value: PROFIT_AND_CONTINGENCY_OF_RATE, unit: 'share of rate',
-        what: 'In the rate\'s divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance. May be set to 0.',
+      ['Admin trend', {
+        value: ADMIN_TREND_PER_YEAR, unit: 'a year, on both admin parts',
+        what: 'Admin grows with inflation: the fixed dollars and the per-exposure rate are each x (1 + this)^(year - the base '
+          + 'year), compounding after it and discounted before it, the pre-game\'s years included. The rate charges the '
+          + 'trended admin for the year it prices, and the engine books that admin as the year\'s expense.',
         basis: 'CHOSEN',
-        note: 'Set to 0 on every line, from 5%: under default play with shocks off, pool surplus more than tripled over '
-          + 'ten years ($61.6M to $194M, the twenty-scenario mean), and the pool should not plan on a margin from pricing. '
-          + 'Year-1 premium fell about 5%, so the exposure scale was re-set with it.',
+        note: 'Admin was flat while losses trend 4-8% a year, so its share of the rate fell every year. 0 restores flat admin.',
+      }],
+      ['Admin base year', {
+        value: ADMIN_BASE_YEAR, unit: 'game year (2027, the first played year)',
+        what: 'The year the two admin parameters are set for: they stand unchanged there; 2021 is six years of trend below '
+          + 'them and 2031 four above.',
+        basis: 'CHOSEN',
+      }],
+      ['Profit and contingency', {
+        value: perLine(PROFIT_AND_CONTINGENCY_OF_RATE, 2), unit: 'share of rate',
+        what: 'In the expense provision. Rate = projected pure premium / permissible loss ratio, the permissible loss ratio '
+          + 'being 100% less the total expense ratio (fixed admin, per-exposure admin, risk control and this); the cover\'s '
+          + 'price on top. As a divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance.',
+        basis: 'CHOSEN',
+        note: 'WC 2%, GL 0%, Property 0%, with no investment income credit: investment income does not affect the rate in '
+          + 'any way and flows into surplus only. 5% on every line made every line too rich once the credit was gone '
+          + '(ten-year combined ratios 92.7-99.2% against 100.2-104.4% before), and 2% everywhere left GL and Property 4.6-4.8 '
+          + 'points rich. WC keeps 2% for its long tail\'s inflation beyond the two years priced.',
       }],
       ['Reinsurance load', {
         value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
@@ -1936,6 +2448,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Pricing window (new)', {
         value: `${PRICING_WINDOW_YEARS_NEW} years, ${PRICING_WINDOW_WEIGHTING_NEW} weights`, unit: 'years',
         what: 'The new window and its weighting. Live: the experience pure premium reads it.', basis: 'CHOSEN',
+      }],
+      ['Pricing data lag', {
+        value: PRICING_DATA_LAG_YEARS, unit: 'year',
+        what: 'The pool\'s data runs a year behind. The year priced is never the year after the latest data but the year '
+          + 'after that: 2027 is priced on 2021-2025, 2028 on 2022-2026. The window years are valued as at the end of the '
+          + 'latest data year (2025 for 2027, so 2025 enters at 12 months), and no payment from the year in progress is '
+          + 'used. Experience is trended to the latest data year, then forward two years to the priced year (WC 1.04 squared).',
+        basis: 'CHOSEN',
+        note: 'As in real pricing: a pool\'s data closes after its year ends and the rate is filed for the year after, so '
+          + 'the newest experience a rate sees is two years old. The year in progress is on the books — reserves, '
+          + 'statements and surplus — but too new to price on. 0 restores pricing on the year just closed.',
       }],
       ['Rate change cap', {
         value: RATE_CHANGE_CAP_NEW === null ? 'none' : RATE_CHANGE_CAP_NEW, unit: '—',
@@ -1969,7 +2492,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'The prior board\'s margin is solved to grow this into the opening and comes off when year 1 funds at '
+        note: 'WC $3.0M and GL $12.0M: the largest amount, in $0.5M steps, that keeps every scenario\'s designed '
+          + 'margin above zero (WC +0.12% to +2.22%, GL +0.20% to +4.34%; the step above takes the lowest to -0.29% and '
+          + '-0.22%). They were $5.0M and $10.0M with the investment income credit; removing it raised every pure premium. '
+          + 'Property $12.5M: the rule gives $11.0M, where 2027\'s rate drops in 3 scenarios as the margin comes off at '
+          + 'Expected (+2.22% to +5.22%). At $12.5M none drops and every margin is genuine (+0.65% to +3.85%); at $14.0M '
+          + 'none drops but three margins sit on the floor. All three levels run a 99.7% ten-year combined ratio. '
+          + 'Measured with profit and contingency WC 2%, GL 0%, Property 0%, inflation priced WC 2 years, GL 1, Property 2, '
+          + 'and the admin overrun. '
+          + 'Before the per-line targets — Property $17.5M, WC and GL $12.5M: at $12.5M Property\'s designed margin (3.0-5.8%) came off at Expected and '
+          + 'its 2027 rate dropped in 9 of 20 scenarios; at $15M, 3; at $17.5M, 1. At $17.5M the zero floor holds the '
+          + 'prior board at exactly expected on 18 scenarios, ruled fine: a board funding at expected is an ordinary '
+          + 'history, and with no margin to come off 2027 follows 2026 at trend. $20M drops no less and opens richer '
+          + 'than the 1.0 guardrail. '
+          + 'Earlier, before the simulated pre-game: the prior board\'s margin is solved to grow this into the opening and comes off when year 1 funds at '
           + 'Expected, so a smaller start means a higher margin and a 2026 rate that falls from 2025\'s. Tried at $5M, $10M, '
           + '$12.5M and $15M across the twenty scenarios by line. At $12.5M 2026\'s rate carries on rising from 2025\'s on '
           + 'almost every line and scenario (WC +1.3 to +3.8%, GL +3.0 to +6.7%, Property -0.3 to +3.2%; at $5M it fell on '
@@ -1979,8 +2515,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Prior board\'s margin', {
         value: 'solved, per scenario and line', unit: 'over expected (CLF 1 + this)',
-        what: 'One funding level across the five pre-game years, per line, solved so surplus ends exactly at the '
-          + 'scenario\'s opening from the starting capital. It may sit below expected.',
+        what: 'One funding level across the six pre-game years, per line, set on the scenario\'s designed history '
+          + '(PRE_GAME_MARGIN_ON_DESIGN) and floored at zero; the opening falls where the simulated history takes it, '
+          + 'inside the guardrails.',
         basis: 'CHOSEN',
         note: 'Replaces the fixed 14% cushion. A team that locks year 1 untouched funds at Expected, so year 1\'s rate '
           + 'on WC and GL may step up or down from last year\'s, depending on the scenario\'s solved margin. No '
@@ -1988,10 +2525,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Pre-game investment return', {
         value: PRE_GAME_INVESTMENT_RETURN, unit: 'a year, on invested assets',
-        what: 'What the pre-game\'s invested assets earn each year, every asset class alike, no draw.',
+        what: 'What the pre-game\'s invested assets earn each year, every asset class alike, no draw — read by the '
+          + 'flat pre-game, and with it off by the designed history the prior board\'s margin is set on.',
         basis: 'CHOSEN',
         note: 'A realistic return for a public pool\'s bond-heavy portfolio; most of the pre-game\'s growth comes '
-          + 'from the prior board\'s margin. The played years draw their market as before.',
+          + 'from the prior board\'s margin. With the flat pre-game off (as now), the pre-game as played draws its '
+          + 'market as a played year does.',
       }],
     ],
   },
@@ -2070,13 +2609,57 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'shocks\' large losses stay scaled off the ordinary cost without the fold. It was ON from Prompt A '
           + 'commit 1, routine large claims every year with the shocks on top.',
       }],
+      ['Prior board\'s margin on the designed history', {
+        value: PRE_GAME_MARGIN_ON_DESIGN.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'On: the pre-game\'s margin is the one that lands the DESIGNED history (flat: exactly expected x the '
+          + 'scenario\'s experience multiple, at the pre-game return) on the scenario\'s premium to surplus; the '
+          + 'simulated pre-game plays at it and the opening falls where its history takes it. Off: the margin is '
+          + 'solved on the history as played, so the opening lands exactly on the ratio.',
+        basis: 'CHOSEN',
+        note: 'On (test build) because, solved on the played history, the margin absorbed the luck: it fell below zero '
+          + 'on 7-12 of the twenty scenarios a line and the 2026 rate dropped on 2-6. A board prices for the risk it '
+          + 'expects; its surplus is the outcome.',
+      }],
+      ['Pre-game market draws', {
+        value: PRE_GAME_MARKET_DRAWS, unit: 'draws averaged, each pre-game year',
+        what: 'Each simulated pre-game year\'s market is the average of this many markets drawn as a played year\'s, '
+          + 'each on its own stream from the game\'s seed, on a cash-and-bond portfolio: the default allocation '
+          + 'without equities, scaled to 100% (about 11% cash, 89% bonds). The played years keep the default '
+          + 'allocation and draw one market each.',
+        basis: 'CHOSEN',
+        note: 'One equity-bearing market a year drove most of the opening\'s scatter once the margin was set on the '
+          + 'designed history; the loss history, not the stock market, is meant to give each scenario its character.',
+      }],
+      ['Prior board\'s margin floor', {
+        value: PRE_GAME_MARGIN_FLOOR, unit: 'margin over expected',
+        what: 'No prior-board margin is below this: a designed history or a guardrail that would need a negative '
+          + 'margin uses zero, and the opening lands where that history takes it.',
+        basis: 'CHOSEN',
+        note: 'A negative margin is the board pricing under its own expected loss; it had fallen below zero on 8 WC '
+          + 'and 4 GL scenarios, and the rich guardrail took some lower still.',
+      }],
+      ['Opening premium-to-surplus guardrails', {
+        value: `${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.min} to ${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.max}`,
+        unit: 'premium to surplus at the opening',
+        what: 'A line whose simulated history would open outside this range has its prior-board margin adjusted just '
+          + 'enough to land on the nearest bound; every other line keeps its designed margin.',
+        basis: 'CHOSEN',
+        note: 'Thinner than 3.5 is a pool near failure before a team decides anything; richer than 1.0 is well more '
+          + 'capital than any designed scenario intends. The thin bound was 3.0, WC\'s thinnest target, which bad luck '
+          + 'tripped in 17 of 60 line-scenario openings and whose raised margins then came off in 2027; at 3.5, 6. The '
+          + 'rich bound was 1.2, then the richest scenario\'s own target; lowering openings to it took margins below zero.',
+      }],
       ['Flat pre-game', {
         value: FLAT_PRE_GAME.enabled ? 'on' : 'off', unit: 'switch',
-        what: 'In the five pre-game years only: expected investment returns net of fee, and ordinary losses at '
-          + 'exactly expected — no year or unit factor. No shocks fire in the pre-game.',
+        what: 'On: the six pre-game years at expected — the pre-game return, and ordinary losses at exactly the '
+          + 'scenario\'s multiple of expected. Off: each pre-game year drawn as a played year is — the year factor, '
+          + 'each unit\'s own factor and the market — on the scenario\'s multiple, from the game\'s seed on '
+          + 'streams of its own. No shocks fire in the pre-game either way.',
         basis: 'CHOSEN',
-        note: 'The history a team inherits is the pool\'s expected experience rather than one seed\'s luck. The '
-          + 'played years are untouched.',
+        note: 'Off (test build) so the inherited history varies like the played years: flat, the pre-game loss '
+          + 'ratio moved 1.2-2.1 points a year; simulated, 5.7-8.1. Every team in a room, and any takeover, gets '
+          + 'the same history, and the played years\' draws do not shift. The prior board\'s margin is still solved '
+          + 'to the opening; it now falls below zero on 7-12 of the twenty scenarios a line.',
       }],
       ['Routine large-loss frequency', {
         value: perLine(ROUTINE_LARGE_LOSS_FREQUENCY_PER_1M, 9), unit: 'claims per $1M of exposure a year',
@@ -2408,14 +2991,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'It can be changed. ⚠ Read as a YEARLY rate instead, the same percentages compound to roughly '
           + '+54% on GL and +171% on WC in total at today\'s settings — a different model, not a refinement.',
-      }],
-      ['Yearly adverse development', {
-        value: perLine(YEARLY_ADVERSE_RATE, 3), unit: 'per year, of each open year\'s unpaid reserve',
-        what: 'PLACEHOLDER — NOT YET USED. Will replace the host\'s lifetime development: a yearly rate on each open '
-          + 'accident year\'s unpaid reserve, applied before payments, booked as prior-year development, and not '
-          + 'anticipated by pricing.',
-        basis: 'CHOSEN', notYetUsed: true,
-        note: 'Zero on every line and read by nothing; recorded so the design sits beside the value until it is wired.',
       }],
       ['GL ordinary losses', {
         value: `$${GL_ORDINARY_LOSS_BAND_PLANNED.from.toLocaleString('en-US')}`
