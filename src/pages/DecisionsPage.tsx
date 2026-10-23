@@ -186,8 +186,8 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
         )}
       </div>
 
-      {/* ⚠ LEFT: Underwriting, Risk Control, Reinsurance, then Dividends and
-          Assessments at the foot. RIGHT: Pricing & Funding. */}
+      {/* ⚠ LEFT: Underwriting, Risk Control, then Dividends and Assessments at
+          the foot. RIGHT: Pricing & Funding, then Reinsurance beneath it. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
         {/* ⚠ EACH COLUMN IS ONE GRID CELL holding its cards, so every card sits
             DIRECTLY UNDER the one above it in its own column rather than wherever
@@ -262,26 +262,6 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
           />
         </SectionCard>
 
-        <SectionCard title="Reinsurance Program" icon={<Shield size={16} />}>
-          {/* REINSURANCE_PROGRAMS RETIRED. Every CoverageLine runs the
-              per-occurrence tower now — hasTractableCeded(selectedLine) is
-              exhaustively true — so the percentage-of-premium branch that used
-              to render here is gone rather than kept dead. hasTractableCeded
-              stays imported and checked (thrown on else) so a future line
-              without one fails loudly here instead of rendering nothing. */}
-          {hasTractableCeded(selectedLine) ? (
-            <PackageControls
-              line={selectedLine}
-              d={d}
-              setMany={setMany}
-              disabled={disabled}
-              book={book}
-              yearNumber={yearNumber}
-              shocks={shocks}
-            />
-          ) : (() => { throw new Error(`DecisionsPage: ${selectedLine} has no tractable ceded reinsurance`); })()}
-        </SectionCard>
-
         <SectionCard title="Dividends and Assessments" icon={<DollarSign size={16} />}>
           <SliderInput label="Dividend / Assessment" value={dividendAssessmentValue} min={SLIDER_RANGES.dividendAssessment.min} max={dividendAssessmentMax} step={SLIDER_RANGES.dividendAssessment.step} onChange={setDividendAssessment} formatValue={dividendAssessmentDisplay} leftLabel="Assessment" rightLabel="Dividend" valueColor={dividendAssessmentValue > 0 ? 'text-emerald-600' : dividendAssessmentValue < 0 ? 'text-red-600' : 'text-gray-500'} disabled={disabled} helpText="One combined control: positive returns value to members as a dividend; negative calls additional funds beyond premium as an assessment. Exactly one may apply in a given year — this is structural, not a suggestion. Assessments are never counted toward the loss ratio of the members being billed." />
           <DividendAssessmentNote surplus={dividendAssessmentSurplus} pct={dividendAssessmentValue} />
@@ -311,6 +291,26 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
               disabled={disabled}
             />
             <FundingConsequencePanel c={fundingConsequence} lastLineResult={lastLineResult} line={selectedLine} />
+          </SectionCard>
+
+          <SectionCard title="Reinsurance Program" icon={<Shield size={16} />}>
+            {/* REINSURANCE_PROGRAMS RETIRED. Every CoverageLine runs the
+                per-occurrence tower now — hasTractableCeded(selectedLine) is
+                exhaustively true — so the percentage-of-premium branch that used
+                to render here is gone rather than kept dead. hasTractableCeded
+                stays imported and checked (thrown on else) so a future line
+                without one fails loudly here instead of rendering nothing. */}
+            {hasTractableCeded(selectedLine) ? (
+              <PackageControls
+                line={selectedLine}
+                d={d}
+                setMany={setMany}
+                disabled={disabled}
+                book={book}
+                yearNumber={yearNumber}
+                shocks={shocks}
+              />
+            ) : (() => { throw new Error(`DecisionsPage: ${selectedLine} has no tractable ceded reinsurance`); })()}
           </SectionCard>
 
           {outstandingLoanSlider(d, set, selectedLoanInfo, disabled)}
