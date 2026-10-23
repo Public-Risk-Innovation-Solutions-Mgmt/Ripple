@@ -24,8 +24,8 @@
 
 import {
   AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_DEFAULT_SHOCKS_OFF, AGGREGATE_STOP_OFFERED_SHOCKS_OFF,
-  AGGREGATE_STOP_OPTIONS, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OPTIONS,
-  type ReinsuranceOption,
+  AGGREGATE_STOP_OPTIONS, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OFFERED_SHOCKS_OFF, REINSURANCE_OPTIONS,
+  REINSURANCE_PRICE, type ReinsuranceOption,
 } from '../data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine } from '../types/simulation';
@@ -67,19 +67,63 @@ for (const line of LINES) {
   }
 }
 
-// The package that places EVERY layer of the line's tower — the widest cover
-// a team can buy. Checked at load: a tower re-cut so no package spans it would
-// leave scripts that compare "no reinsurance" against "all of it" with no arm.
+// THE WIDEST COVER A TEAM CAN BUY — the option with the highest top, then the
+// most limit (38 xs 2 on every line in the wip/shocks build). Since the T
+// covers overlap, no one option need place every layer.
 const FULL_TOWER: Record<TowerLine, string> = { WC: '', GL: '', Property: '' };
 for (const line of LINES) {
-  const full = REINSURANCE_OPTIONS[line].find(o => PLACEMENT[line].get(o.id)!.every(Boolean));
-  if (!full) throw new Error(`reinsuranceOptions: no ${line} package places the whole tower`);
-  FULL_TOWER[line] = full.id;
+  const widest = [...REINSURANCE_OPTIONS[line]]
+    .sort((a, b) => (b.attachment + b.limit) - (a.attachment + a.limit) || b.limit - a.limit)[0];
+  if (!widest || widest.limit === 0) throw new Error(`reinsuranceOptions: ${line} offers no cover`);
+  FULL_TOWER[line] = widest.id;
 }
 
-/** The widest cover a team can buy: the package placing the whole tower, or the stop's largest. */
+/** The widest cover a team can buy: the widest T cover, or the stop's largest. */
 export function fullTowerOption(line: CoverageLine): string {
   return AGGREGATE_STOP.enabled ? 'catastrophe' : FULL_TOWER[line as TowerLine];
+}
+
+// ============================================================================
+// EACH TOWER LAYER'S FIXED PRICE, derived from the options' fixed prices
+// (REINSURANCE_PRICE) and checked at load. The prices add across layers, so a
+// layer's price is solved from the options one unknown layer at a time, and
+// then every option must equal the sum of its layers' — or the module throws,
+// rather than charging a team a price nobody set.
+// ============================================================================
+const LAYER_PRICE: Record<TowerLine, number[]> = { WC: [], GL: [], Property: [] };
+for (const line of LINES) {
+  const n = REINSURANCE_TOWER[line].length;
+  const price: (number | undefined)[] = new Array(n).fill(undefined);
+  const priced = REINSURANCE_OPTIONS[line].filter(o => o.limit > 0)
+    .map(o => {
+      const p = REINSURANCE_PRICE[line][o.id];
+      if (p === undefined) throw new Error(`reinsuranceOptions: no REINSURANCE_PRICE for ${line} '${o.id}'`);
+      return { o, p, placed: PLACEMENT[line].get(o.id)! };
+    });
+  for (let pass = 0; pass < n; pass++) {
+    for (const { p, placed } of priced) {
+      const unknown = placed.map((on, i) => on && price[i] === undefined ? i : -1).filter(i => i >= 0);
+      if (unknown.length !== 1) continue;
+      price[unknown[0]] = p - placed.reduce((s, on, i) => s + (on && i !== unknown[0] ? price[i]! : 0), 0);
+    }
+  }
+  LAYER_PRICE[line] = price.map(p => p ?? 0);
+  for (const { o, p, placed } of priced) {
+    const sum = placed.reduce((s, on, i) => s + (on ? LAYER_PRICE[line][i] : 0), 0);
+    if (Math.abs(sum - p) > 0.5 || placed.some((on, i) => on && price[i] === undefined)) {
+      throw new Error(`reinsuranceOptions: ${line} '${o.id}' costs $${p} but its layers add to $${sum}`);
+    }
+  }
+}
+
+/** A placement's fixed price a year: the sum of its layers' (LAYER_PRICE). */
+export function fixedPlacementPrice(line: TowerLine, placed: readonly boolean[]): number {
+  return REINSURANCE_TOWER[line].reduce((s, l, i) => s + (placed[i] && l.purchasable ? LAYER_PRICE[line][i] : 0), 0);
+}
+
+/** An option's fixed price a year — what a player sees beside its name. */
+export function optionPrice(line: CoverageLine, optionId: string): number {
+  return optionId === 'none' ? 0 : REINSURANCE_PRICE[line as TowerLine][optionId] ?? fixedPlacementPrice(line as TowerLine, placementFor(line, optionId));
 }
 
 /** The per-claim packages a line offers, in display order (dormant with AGGREGATE_STOP on). */
@@ -93,7 +137,7 @@ export function reinsuranceOptionsFor(line: CoverageLine): readonly ReinsuranceO
  * AGGREGATE_STOP_OFFERED_SHOCKS_OFF — None and the Low-attachment cover (id `working`).
  */
 export function reinsuranceOptionIds(line: CoverageLine, shocks = true): readonly string[] {
-  if (!AGGREGATE_STOP.enabled) return REINSURANCE_OPTIONS[line as TowerLine].map(o => o.id);
+  if (!AGGREGATE_STOP.enabled) return shocks ? REINSURANCE_OPTIONS[line as TowerLine].map(o => o.id) : REINSURANCE_OFFERED_SHOCKS_OFF;
   return shocks ? AGGREGATE_STOP_OPTIONS.map(o => o.id) : AGGREGATE_STOP_OFFERED_SHOCKS_OFF;
 }
 
@@ -105,7 +149,7 @@ export function isReinsuranceOption(line: CoverageLine, id: unknown): id is stri
 
 /** What a team holds until it chooses, and the prior board plays: None while the game's shocks are off. */
 export function defaultReinsuranceOption(line: CoverageLine, shocks = true): string {
-  if (!AGGREGATE_STOP.enabled) return REINSURANCE_DEFAULT_OPTION[line as TowerLine];
+  if (!AGGREGATE_STOP.enabled) return shocks ? REINSURANCE_DEFAULT_OPTION[line as TowerLine] : REINSURANCE_OFFERED_SHOCKS_OFF[0];
   return shocks ? AGGREGATE_STOP_DEFAULT : AGGREGATE_STOP_DEFAULT_SHOCKS_OFF;
 }
 

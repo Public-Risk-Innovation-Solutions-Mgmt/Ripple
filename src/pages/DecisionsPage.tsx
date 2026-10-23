@@ -10,9 +10,7 @@ import { formatCurrency } from '../utils/formatters';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { hasTractableCeded } from '../utils/reinsuranceDisplay';
-import { PROPERTY_PERIL_DEDUCTIBLE, type TowerLine } from '../data/reinsuranceTower';
-import { occurrenceProgramCost } from '../utils/reinsuranceTower';
-import { placementFor, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
+import { optionPrice, reinsuranceOptionIds, reinsuranceOptionsFor } from '../utils/reinsuranceOptions';
 import { bookExposureOf, bookRiskOf, type Book } from '../utils/lineHelpers';
 import { stopQuote } from '../utils/aggregateStop';
 import { lineDisplayName } from '../utils/lineDisplay';
@@ -611,7 +609,10 @@ function NewRatePanel({ n, prior }: {
   const rows: Array<[string, string, string]> = [
     ['Pure premium', d2(pieces.indicated.purePremium), d2(pieces.yours.purePremium)],
     ['+ Admin', d2(pieces.indicated.admin), d2(pieces.yours.admin)],
-    ['+ Risk control & contingency', d2(pieces.indicated.rcAndContingency), d2(pieces.yours.rcAndContingency)],
+    // ⚠ RISK CONTROL, not "& contingency": the contingency provision is 0
+    // (PROFIT_AND_CONTINGENCY_OF_RATE), so this row is the risk control load and
+    // the four rows add to the rate exactly (wip/shocks rate panel).
+    ['+ Risk control', d2(pieces.indicated.rcAndContingency), d2(pieces.yours.rcAndContingency)],
   ];
 
   return (
@@ -1135,34 +1136,29 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
   );
 }
 
-// The per-claim packages, dormant behind AGGREGATE_STOP.
-function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber }: {
+// THE T COVERS (wip/shocks) — per occurrence, on the single T claim, from
+// REINSURANCE_OPTIONS. ⚠ EACH OPTION'S NAME AND ITS FIXED PRICE ONLY
+// (REINSURANCE_PRICE, via optionPrice — the price the engine charges), never a
+// description, its expected recovery or how it was priced. While the game's
+// shocks are off only None is offered (reinsuranceOptionIds).
+function OccurrencePackageControls({ line, d, setMany, disabled, shocks }: {
   line: CoverageLine;
   d: LineDecisionSet;
   setMany: (patch: Partial<LineDecisionSet>) => void;
   disabled: boolean;
   book: Book;
   yearNumber: number;
+  shocks: boolean;
 }) {
-  const quotes = reinsuranceOptionsFor(line).map(o => ({
-    o, q: occurrenceProgramCost(line as TowerLine, placementFor(line, o.id), book, yearNumber),
-  }));
-  const perilDeductibles = line === 'Property' ? Object.entries(PROPERTY_PERIL_DEDUCTIBLE) : [];
+  const offered = reinsuranceOptionIds(line, shocks);
+  const options = reinsuranceOptionsFor(line).filter(o => offered.includes(o.id));
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-600 leading-relaxed">
-        Choose <strong>one package</strong> for this line. Each covers every occurrence above its attachment
-        up to its limit.
+        Choose <strong>one cover</strong> for this line.
       </p>
-      {perilDeductibles.length > 0 && (
-        <p className="text-xs text-gray-600 leading-relaxed" data-testid="reins-peril-deductibles">
-          {perilDeductibles.map(([peril, ded]) =>
-            `${peril.charAt(0).toUpperCase()}${peril.slice(1)} carries its own $${ded / 1e6}M retention per occurrence: `
-            + 'a package attaching below it answers that peril from there up.').join(' ')}
-        </p>
-      )}
       <div className="space-y-1.5" data-testid={`reins-options-${line}`}>
-        {quotes.map(({ o, q }) => {
+        {options.map(o => {
           const chosen = d.reinsuranceOption === o.id;
           return (
             <button
@@ -1175,19 +1171,12 @@ function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumbe
                 chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
               } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
-              <span>{o.id === 'none' ? 'None — retain every loss' : o.id}</span>
-              <span className="text-xs text-gray-600">
-                {/* ⚠ THE PRICE ONLY — never the expected recovery or how it was priced. */}
-                {o.id === 'none' ? '$0/yr' : `${formatCurrency(q.premium)}/yr`}
-              </span>
+              <span>{o.id === 'none' ? 'None' : o.id}</span>
+              <span className="text-xs text-gray-600">{`${formatCurrency(optionPrice(line, o.id))}/yr`}</span>
             </button>
           );
         })}
       </div>
-      {/* ⚠ PRICE ONLY (UI tidy). The note that aggregate cover is not offered and
-          the Package / Reinsurance Cost / Retained Above Package block came off:
-          players see each option's price, never its expected recovery or how it
-          was priced (docs/PENDING_MULTIPLAYER.md). */}
     </div>
   );
 }

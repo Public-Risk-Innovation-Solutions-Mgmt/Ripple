@@ -30,13 +30,12 @@
 // ============================================================================
 
 import {
-  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SAMPLES, AGGREGATE_STOP_SD_LOAD, R_MODEL, REGION_EXPOSURE_SHARE,
-  SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, type AggregateStopOption,
+  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SAMPLES, AGGREGATE_STOP_SD_LOAD, R_MODEL, SHOCK_A_YEARS,
+  SHOCK_T_CLAIM_RANGE, type AggregateStopOption,
 } from '../data/pricingParameters';
-import { DECAY, SHOCK_EVENTS, eventLines, poolShare, tScale, type ShockLevel } from './shockLosses';
+import { DECAY, SHOCK_EVENTS, eventLines, poolShare, type ShockLevel } from './shockLosses';
 import { ordinaryFactorParams, ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
 import { expectedLossBreakdown } from './shockExpectation';
-import { lognormalFromMean } from './largeLosses';
 import { deriveSubRng } from './random';
 import type { CoverageLine } from '../types/simulation';
 
@@ -92,7 +91,6 @@ function samplesFor(line: CoverageLine): LineSamples {
   const n = AGGREGATE_STOP_SAMPLES;
   const rng = deriveSubRng(SAMPLE_SEED, 0, `aggregate_stop_${line}`);
   const { mu, sigma } = ordinaryFactorParams(typicalBookOrdinaryCv(line));
-  const shares = Object.values(REGION_EXPOSURE_SHARE);
   const factor = new Float64Array(n);
   const uplift: [Float64Array, Float64Array, Float64Array] = [new Float64Array(n), new Float64Array(n), new Float64Array(n)];
   const start = new Int32Array(n + 1);
@@ -106,8 +104,7 @@ function samplesFor(line: CoverageLine): LineSamples {
       e,
       a,
       inflation: e.name === 'Economic Inflation' ? R_MODEL.economicInflationInitialRate : 0,
-      t: tRow ? R_MODEL.tShock[line][tRow.t as Exclude<ShockLevel, 'None'>] : null,
-      count: SHOCK_LOSS_COUNT[e.name]?.[line] ?? 0,
+      t: tRow ? SHOCK_T_CLAIM_RANGE[line][tRow.t as Exclude<ShockLevel, 'None'>] : null,
     };
   });
   for (let i = 0; i < n; i++) {
@@ -116,27 +113,17 @@ function samplesFor(line: CoverageLine): LineSamples {
     for (const ev of events) {
       for (let age = 0; age < Math.min(ev.e.duration, MAX_AGES); age++) {
         if (!(rng.next() < ev.e.probability)) continue;
-        // The struck region, by share, and the event's A on each of its rows.
-        let s = 1;
-        if (ev.e.regional) {
-          const u = rng.next();
-          let acc = 0;
-          s = shares[shares.length - 1];
-          for (const x of shares) { acc += x; if (u < acc) { s = x; break; } }
-        }
-        let a = ev.inflation;
-        for (const [lo, hi] of ev.a) a += (lo + rng.next() * (hi - lo)) * s;
-        const d = a * Math.pow(DECAY, age);
+        // Economic Inflation decays over its duration; an A lasts its firing
+        // year only, on the whole line (SHOCK_A_YEARS) — as the engine draws them.
+        let a = ev.inflation * Math.pow(DECAY, age);
+        for (const [lo, hi] of ev.a) { const x = lo + rng.next() * (hi - lo); if (age < SHOCK_A_YEARS) a += x; }
+        const d = a;
         // An event `age` years old reaches an accident year at least age + 1 into the game.
         if (age < 1) u1 += d;
         if (age < 2) u2 += d;
         u3 += d;
         // Its large losses land in the year it fires.
-        if (age === 0 && ev.t && ev.count > 0) {
-          const tModel = ev.t[0] + rng.next() * (ev.t[1] - ev.t[0]);
-          const { mu: m, sigma: sg } = lognormalFromMean(tModel / ev.count, SHOCK_LOSS_CV);
-          for (let k = 0; k < ev.count; k++) sizes.push(rng.lognormal(m, sg));
-        }
+        if (age === 0 && ev.t) sizes.push(ev.t[0] + rng.next() * (ev.t[1] - ev.t[0]));
       }
     }
     uplift[0][i] = u1; uplift[1][i] = u2; uplift[2][i] = u3;
@@ -180,12 +167,11 @@ export function sampledYearTotals(
     for (let i = 0; i < out.length; i++) out[i] = ordinary * s.factor[i];
     return out;
   }
-  const scale = tScale(line, exposure, yearNumber);
   const ages = Math.min(MAX_AGES, Math.max(1, yearNumber)) - 1;
   const u = s.uplift[ages];
   for (let i = 0; i < out.length; i++) {
     let large = 0;
-    for (let k = s.start[i]; k < s.start[i + 1]; k++) large += poolShare(line, s.sizes[k] * scale);
+    for (let k = s.start[i]; k < s.start[i + 1]; k++) large += poolShare(line, s.sizes[k]);
     out[i] = ordinary * s.factor[i] * (1 + u[i]) + large;
   }
   return out;

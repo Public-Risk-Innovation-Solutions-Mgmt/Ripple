@@ -28,6 +28,7 @@ import { quotePropertyAggregate } from './propertyAggregate';
 import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './towerMoments';
 import { newLossEngineRuns, REINSURANCE_LOAD } from '../data/pricingParameters';
 import { retainedSd } from './shockExpectation';
+import { fixedPlacementPrice } from './reinsuranceOptions';
 import { bookExposureOf, rosterOf, type Book } from './lineHelpers';
 import type { Claim, Occurrence } from '../types/simulation';
 
@@ -211,6 +212,10 @@ export function occurrenceProgramCost(
     premium += layerPriceFrom(moments[i].expected);
     expectedCeded += moments[i].expected;
   });
+  // ⚠ THE NEW ENGINE CHARGES THE T COVERS' FIXED PRICES (wip/shocks:
+  // REINSURANCE_PRICE), whatever the book or year; expected ceded stays the
+  // moments' own, for the record.
+  if (newLossEngineRuns()) premium = fixedPlacementPrice(line, placed);
   return { premium, expectedCeded };
 }
 

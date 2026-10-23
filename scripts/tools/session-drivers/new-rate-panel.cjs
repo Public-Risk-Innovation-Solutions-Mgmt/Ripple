@@ -65,9 +65,10 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(/\+ Reinsurance\s*—/.test(body) || body.includes('+ Reinsurance —'),
      'the Indicated column shows a dash for reinsurance, not $0.00');
 
-  ok(/Pure premium/.test(body) && /\+ Admin/.test(body)
-    && /\+ Risk control & contingency/.test(body) && /= Rate/.test(body),
-     'all four build-up rows render');
+  // wip/shocks: Pure premium, Admin, Risk control, Reinsurance, in that order.
+  const order = ['Pure premium', '+ Admin', '+ Risk control', '+ Reinsurance', '= Rate'].map(t => body.indexOf(t));
+  ok(order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1])) && !body.includes('contingency'),
+     'the build-up rows render in order: pure premium, admin, risk control, reinsurance, rate');
   ok(/vs last year/.test(body), 'the vs-last-year row renders');
 
   // ⚠ THE vs-last-year CELLS ARE A PERCENTAGE, NOT A RATE, AND THAT IS WHAT IS
@@ -157,22 +158,26 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     .includes('border-blue-500');
   const panelText = async () => (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
   const reinsLine = t => (t.match(/\+ Reinsurance[^+=]*/g) || []).join(' | ');
-  // The aggregate stop's covers (stable-scenarios commit 6). A solo game's
-  // shocks are off, so only None and the Working cover are offered and None is
-  // the default (AGGREGATE_STOP_OFFERED_SHOCKS_OFF / _DEFAULT_SHOCKS_OFF).
-  ok(await chosen('none'), 'WC opens on the default cover, None (a solo game\'s shocks are off)');
-  ok(await page.$('[data-testid="reins-option-WC-working"]') !== null,
-     'the Low-attachment cover is offered');
-  ok(await page.$('[data-testid="reins-option-WC-bad-year"]') === null
-     && await page.$('[data-testid="reins-option-WC-catastrophe"]') === null,
-     'the Medium- and High-attachment covers are hidden while the shocks are off');
+  // THE T COVERS (wip/shocks). A solo game's shocks are on, so None and all
+  // four covers are offered, None the default; each shows its name and price.
+  // Choosing one moves only the Reinsurance row: the pure premium is never
+  // lowered by cover.
+  const T_COVERS = ['$9M xs $1M', '$8M xs $2M', '$18M xs $2M', '$38M xs $2M'];
+  ok(await chosen('none'), 'WC opens on the default cover, None');
+  const offered = [];
+  for (const id of T_COVERS) if (await page.$(`[data-testid="reins-option-WC-${id}"]`) !== null) offered.push(id);
+  ok(offered.length === 4, `all four T covers are offered (${offered.join(', ')})`);
+  const wcPrice = (await page.textContent('[data-testid="reins-option-WC-$38M xs $2M"]')).replace(/\s+/g, ' ');
+  ok(/\$590,000\/yr/.test(wcPrice), `38 xs 2 on WC shows its fixed price ("${wcPrice}")`);
+  const ppLine = t => (t.match(/Pure premium[^+]*/) || [''])[0];
   const atDefault = await panelText();
-  await page.click('[data-testid="reins-option-WC-working"]');
+  await page.click('[data-testid="reins-option-WC-$38M xs $2M"]');
   await page.waitForTimeout(800);
   const atWorking = await panelText();
-  ok(await chosen('working') && !(await chosen('none')), 'clicking the Low-attachment cover selects it, and only it');
+  ok(await chosen('$38M xs $2M') && !(await chosen('none')), 'clicking 38 xs 2 selects it, and only it');
   ok(reinsLine(atWorking) !== reinsLine(atDefault),
-     `the Reinsurance line moves with the package ("${reinsLine(atDefault)}" -> "${reinsLine(atWorking)}")`);
+     `the Reinsurance line moves with the cover ("${reinsLine(atDefault)}" -> "${reinsLine(atWorking)}")`);
+  ok(ppLine(atWorking) === ppLine(atDefault), `the pure premium does not move ("${ppLine(atDefault)}")`);
   await page.click('[data-testid="reins-option-WC-none"]');
   await page.waitForTimeout(800);
   ok(await panelText() === atDefault, 'and the panel returns exactly when the default is chosen again');
@@ -185,6 +190,9 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+  // wip/shocks: a shock can bring a loan offer, which posts only on Confirm & Continue.
+  const confirmLoan = page.getByRole('button', { name: /Confirm & Continue/ }).first();
+  if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
   // ⚠ THE RESULTS PAGE NO LONGER SHOWS THE RANGE EITHER — players are never
   // told about the worlds, on any page. The range stays for the host.
   await page.getByRole('button', { name: /^Results$/ }).first().click();

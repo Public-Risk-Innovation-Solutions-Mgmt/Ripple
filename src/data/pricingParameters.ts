@@ -564,9 +564,17 @@ export const PRIOR_HISTORY_YEARS = 6;
  * Reinsurance is bought WITHIN the limit and is unaffected: every GL layer
  * tops out at or below $25M.
  */
+/*
+ * ⚠ REMOVED ON EVERY LINE (wip/shocks test build). GL's $25M limit is gone:
+ * the pool pays every shock claim whole, on every line, and reinsurance (the
+ * four T covers, REINSURANCE_OPTIONS) is the only thing above it. A T claim
+ * now reaches $40M, and with a limit the GL covers above $25M would have
+ * insured nothing. null is "no limit"; the machinery above stays for a limit
+ * that is ruled again.
+ */
 export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
   WC: null,
-  GL: 25_000_000,
+  GL: null,
   Property: null,
 };
 
@@ -1168,30 +1176,41 @@ export function regionByShare(u: number): Region {
 }
 
 /**
- * HOW MANY LARGE LOSSES EACH EVENT'S T ARRIVES AS — CHOSEN, A STARTING POINT.
+ * T — ONE ADDITIONAL LARGE CLAIM, in the program year the event fires
+ * (wip/shocks test build). Where the shock map gives an event a T level on a
+ * line, that line takes ONE claim, its size drawn uniformly within the
+ * level's range below, in dollars as they stand — not scaled to the book, not
+ * trended, not spread over several claims. It is its own occurrence; a
+ * regional event's claim lands in the struck region.
  *
- * T is the EXPECTED aggregate, scaled to the game (see tScale in
- * shockLosses.ts); it arrives as this many individual losses, each lognormal
- * around T / count with CV SHOCK_LOSS_CV, so the realised total varies and is
- * never rescaled to T. One for a verdict, many for a disaster.
- *
- * ⚠ EARTHQUAKE AND WILDFIRE ARE ONE OCCURRENCE (SHOCK_ONE_OCCURRENCE): their
- * losses are member claims under a single event, as today's catastrophe band
- * books them, so the tower answers the event total and an earthquake retains
- * PROPERTY_PERIL_DEDUCTIBLE first. Every other T loss is its own occurrence.
+ * WHY: a T is the year's single large loss — a verdict, a catastrophe's worst
+ * risk — and the reinsurance options (REINSURANCE_OPTIONS) are written per
+ * occurrence on exactly that claim. It replaces T as an expected aggregate
+ * scaled by each line's book (the old tScale) and arriving as several
+ * lognormal claims (the old SHOCK_LOSS_COUNT and SHOCK_LOSS_CV). The ranges
+ * are the R model's (R_MODEL.tShock) with each High raised to $40M, the top of
+ * the widest cover.
  */
-export const SHOCK_LOSS_COUNT: Readonly<Record<string, Partial<PerLine<number>>>> = {
-  'Earthquake': { Property: 25 },
-  'Winterstorm': { Property: 10 },
-  'Wildfire': { Property: 15 },
-  'Nuclear Verdict': { GL: 1 },
-  'Social Inflation': { GL: 3 },
-  'Pandemic': { GL: 5, WC: 20 },
+export const SHOCK_T_CLAIM_RANGE: PerLine<Readonly<Record<'Low' | 'Mid' | 'High', readonly [number, number]>>> = {
+  GL: { Low: [1e6, 3e6], Mid: [3e6, 7e6], High: [7e6, 40e6] },
+  WC: { Low: [1e6, 3e6], Mid: [3e6, 6e6], High: [6e6, 40e6] },
+  Property: { Low: [2e6, 5e6], Mid: [5e6, 12e6], High: [12e6, 40e6] },
 };
-export const SHOCK_ONE_OCCURRENCE: readonly string[] = ['Earthquake', 'Wildfire'];
 
-/** The CV of each T loss around T / count — CHOSEN. */
-export const SHOCK_LOSS_CV = 0.5;
+/**
+ * A — ONE YEAR ONLY (wip/shocks test build). Where the shock map gives an
+ * event an A level on a line, that program year's normal (ordinary) losses
+ * are multiplied by (1 + A), A drawn uniformly within the level's range
+ * (R_MODEL.aShock — the brief's ranges, unchanged), in the year the event
+ * fires and no other. It no longer decays over the event's duration, and a
+ * regional event's A is no longer cut to the struck region's share: the brief
+ * sizes it as the line's normal losses x (1 + A).
+ *
+ * WHY: the A is a surge in the year it happens; carrying it on, decayed, was
+ * the R model's and is replaced by the brief's. Economic Inflation (not an A
+ * on the map) and R are untouched, and still run over their durations.
+ */
+export const SHOCK_A_YEARS = 1;
 
 // ============================================================================
 // THE BOOK — loss engine commit 3. Read only with MEMBER_LEVEL off.
@@ -1522,32 +1541,62 @@ export const YEARLY_ADVERSE_RATE: PerLine<number> = { WC: 0, GL: 0, Property: 0 
 // stays as the written-down statement of WHICH convention is in force.
 
 /**
- * THE REINSURANCE A TEAM BUYS — ONE PACKAGE PER LINE, from this fixed set.
- * Loss engine commit 4a; it replaces placing or declining each band.
+ * THE REINSURANCE A TEAM BUYS — PER OCCURRENCE, ON T CLAIMS ONLY (wip/shocks
+ * test build). One option per line, from None and these four, each a layer in
+ * $M — limit xs attachment — on the single T claim (SHOCK_T_CLAIM_RANGE):
  *
- * Each package is one layer, `limit` xs `attachment` per occurrence, priced as
- * every layer is: the expected recovery on the new engine's large losses x the
- * line's CLF at 70%. 'none' buys nothing. GL's $25M pool limit still applies
- * below any package, so a GL loss above $15M is the pool's to $25M.
+ *   9 xs 1    8 xs 2    18 xs 2    38 xs 2       — the same four on every line
  *
- * ⚠ THE TOWER IS CUT AT EVERY PACKAGE'S EDGES, so each package is exactly a
- * set of whole tower layers (REINSURANCE_TOWER, and see reinsuranceOptions.ts,
- * which checks it at load). Per-occurrence cession and expected-recovery
- * pricing both add across adjacent layers, so pricing a package as its layers
- * is pricing it as one layer.
+ * A layer pays min(max(claim - attachment, 0), limit) on each T claim. An A
+ * surge and normal losses never reach it: they are an aggregate, not claims,
+ * and with ROUTINE_LARGE_LOSSES off the T claims are the only claims there are.
+ * Priced at fixed dollars a year (REINSURANCE_PRICE), not by the tower's
+ * moments.
  *
- * WC and GL are deliberately the SAME LIST. Property's differs because its
- * retention and its limits do. The aggregate cover is not among them.
+ * ⚠ THE TOWER IS CUT AT EVERY OPTION'S EDGES — $1M, $2M, $10M, $20M, $40M on
+ * every line (data/reinsuranceTower.ts) — so each option is exactly a set of
+ * whole tower layers, checked at load (reinsuranceOptions.ts). They overlap
+ * (all but 9 xs 1 share the $2M–$10M layer), which a set of layers allows.
+ *
+ * WHY: the brief replaces the aggregate stop with cover written on the event
+ * that hurts a pool — one large claim — in four sizes a player can compare.
+ * The aggregate covers stay dormant behind AGGREGATE_STOP.
  */
 export interface ReinsuranceOption { id: string; attachment: number; limit: number }
 const xs = (limitM: number, attachmentM: number): ReinsuranceOption =>
   ({ id: `$${limitM}M xs $${attachmentM}M`, attachment: attachmentM * 1e6, limit: limitM * 1e6 });
 const NONE: ReinsuranceOption = { id: 'none', attachment: 0, limit: 0 };
+const T_COVERS: readonly ReinsuranceOption[] = [NONE, xs(9, 1), xs(8, 2), xs(18, 2), xs(38, 2)];
 export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
-  WC: [NONE, xs(9, 1), xs(5, 5), xs(14, 1), xs(10, 5)],
-  GL: [NONE, xs(9, 1), xs(5, 5), xs(14, 1), xs(10, 5)],
-  Property: [NONE, xs(20, 5), xs(45, 5), xs(25, 25)],
+  WC: T_COVERS,
+  GL: T_COVERS,
+  Property: T_COVERS,
 };
+
+/**
+ * EACH OPTION'S PRICE, DOLLARS A YEAR — FIXED (wip/shocks test build). What a
+ * team pays for the option on a line, whatever its book or year; None costs
+ * nothing. Players see each option's name and this price only.
+ *
+ * WHY FIXED: the brief's. Per the brief each is each level's annual chance x
+ * the layer's recovery at the top of the level's range. The prices add across
+ * the tower's layers — on GL $1–2M is $100K, $2–10M $330K, $10–20M $100K,
+ * $20–40M $200K — so each layer carries a fixed price of its own, derived and
+ * checked at load (reinsuranceOptions.ts).
+ */
+export const REINSURANCE_PRICE: PerLine<Readonly<Record<string, number>>> = {
+  GL: { '$9M xs $1M': 430_000, '$8M xs $2M': 330_000, '$18M xs $2M': 430_000, '$38M xs $2M': 630_000 },
+  WC: { '$9M xs $1M': 390_000, '$8M xs $2M': 290_000, '$18M xs $2M': 390_000, '$38M xs $2M': 590_000 },
+  Property: { '$9M xs $1M': 650_000, '$8M xs $2M': 550_000, '$18M xs $2M': 730_000, '$38M xs $2M': 930_000 },
+};
+
+/**
+ * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn): only None is
+ * offered, and held. WHY: with no shocks there is no T claim, so every option
+ * would cost its price and never pay. Whenever the game's shocks are on, all
+ * five are offered.
+ */
+export const REINSURANCE_OFFERED_SHOCKS_OFF: readonly string[] = ['none'];
 
 /**
  * THE AGGREGATE STOP, PER LINE (stable-scenarios commit 6). ON: the reinsurance
@@ -1568,7 +1617,9 @@ export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
  * once per line (aggregateStop.ts). Players see each option's name and price
  * only.
  */
-export const AGGREGATE_STOP = { enabled: true };
+// ⚠ OFF (wip/shocks test build): dormant, its code kept. The per-occurrence T
+// covers (REINSURANCE_OPTIONS) replace it.
+export const AGGREGATE_STOP = { enabled: false };
 
 export interface AggregateStopOption {
   id: string;
@@ -1618,14 +1669,18 @@ export const AGGREGATE_STOP_SD_LOAD = 0.5;
 export const AGGREGATE_STOP_SAMPLES = 50_000;
 
 /**
- * WHAT A TEAM HOLDS UNTIL IT CHOOSES — CHOSEN: the middle option, $9M xs $1M on
- * WC and GL and $20M xs $5M on Property. It is also the pre-game's prior board,
- * which plays the default decisions, so the opening is built on it.
+ * WHAT A TEAM HOLDS UNTIL IT CHOOSES — None on every line (wip/shocks test
+ * build). It is also the pre-game's prior board, which plays the default
+ * decisions, so the opening is built on it.
+ *
+ * WHY NONE: the pre-game draws no shocks, so a cover held there would only
+ * cost its price and move every scenario's opening; and a team buys T cover
+ * as a choice. The brief named no default; this is a test-build choice.
  */
 export const REINSURANCE_DEFAULT_OPTION: PerLine<string> = {
-  WC: '$9M xs $1M',
-  GL: '$9M xs $1M',
-  Property: '$20M xs $5M',
+  WC: 'none',
+  GL: 'none',
+  Property: 'none',
 };
 
 /**
@@ -1840,7 +1895,35 @@ export const SHOCKS_PER_YEAR = 0.3;
  * requirement $51.5M -> $1.3M (the charge was $50.2M of it), its capital
  * status Deficient -> Strong.
  */
-export const SOLO_SHOCKS = { enabled: false };
+// ⚠ ON IN THE wip/shocks TEST BUILD, drawn by SOLO_SHOCK_DRAW below.
+export const SOLO_SHOCKS = { enabled: true };
+
+/**
+ * HOW SINGLE-PLAYER DRAWS ITS EVENTS (wip/shocks test build): each year from
+ * year 2, each of the twelve events fires with its catalogue probability (x
+ * SHOCK_CATALOGUE_SCALE, so the twelve total SHOCKS_PER_YEAR, about 0.3 a
+ * year) — independently, so a year can hold two events or none. Year 1 is
+ * shock-free. Drawn ONCE at the game's start from the game seed, on the solo
+ * stream, and kept on the instance, so every world fires the same events in
+ * the same years.
+ *
+ * WHY: the brief's — a game's events at their real odds, rather than a fixed
+ * count of two to four. 'catalogue' is that; 'count' restores the host
+ * Randomise's rule (SHOCK_SCHEDULE_SPREAD), which hosted games keep.
+ */
+export const SOLO_SHOCK_DRAW: 'catalogue' | 'count' = 'catalogue';
+
+/**
+ * THE INVESTMENT LOSS EVENT, BY ASSET CLASS (wip/shocks test build): added
+ * to each class's return in the year it fires — cash unaffected, bonds −5
+ * points, equities −20 — so the loss depends on the pool's own asset mix.
+ * Every world shares the event; each world's own market draw takes it.
+ *
+ * WHY: the brief's. It replaces one cut to the equity return alone
+ * (R_MODEL.investmentLossAdjustment, −20 points, now superseded): a
+ * cash-heavy pool rides an investment shock out; an equity-heavy one does not.
+ */
+export const INVESTMENT_LOSS_BY_ASSET = { cash: 0, bonds: -0.05, equities: -0.20 } as const;
 export const SHOCK_CATALOGUE_SCALE = SHOCKS_PER_YEAR
   / R_MODEL.catalogue.reduce((a, [, p]) => a + (p as number), 0);
 
@@ -2282,17 +2365,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     title: 'Coverage and the pre-game',
     blurb: 'What the pool covers, and how the board before the players funded it. Both are LIVE.',
     entries: [
-      ['GL pool limit', {
-        value: `$${(POOL_LIMIT_PER_OCCURRENCE.GL ?? 0).toLocaleString('en-US')} per claim`,
-        unit: 'per occurrence, GL only',
-        what: 'The most the Pool pays on any one GL claim. Above it the loss falls to the MEMBER — '
-          + 'reported each year as the member\'s share, and counted in none of the Pool\'s losses, '
-          + 'premium, reserves or pricing.',
+      ['Pool limits', {
+        value: 'none on any line', unit: 'per occurrence',
+        what: 'The Pool pays every claim whole, on every line. GL\'s $25M per-claim limit is removed.',
         basis: 'CHOSEN',
-        note: 'WC and Property have no limit. This corrects an error: loss above $25M used to be counted '
-          + 'as the Pool\'s own retention — $655.5M over 30 games x 10 years, 7.83% of GL\'s gross, worst '
-          + 'single year $103.9M. Distinct from GL_SEVERITY_CAP ($84M), which is how large a claim can be '
-          + 'rather than how much of one the Pool covers. Reinsurance is bought within the limit.',
+        note: 'wip/shocks test build. A T claim reaches $40M; reinsurance (the T covers) is the only thing above '
+          + 'the Pool\'s own retention. The limit\'s machinery stays for a limit ruled again.',
       }],
       ['Starting capital', {
         value: `WC $${STARTING_CAPITAL.WC / 1e6}M · GL $${STARTING_CAPITAL.GL / 1e6}M · Property $${STARTING_CAPITAL.Property / 1e6}M`,
@@ -2488,8 +2566,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: GAME_REGIONS.map(r => `${r} ${(100 * REGION_EXPOSURE_SHARE[r]).toFixed(0)}%`).join(' · '),
         unit: 'share of each line\'s exposure',
         what: 'The game\'s four regions and each one\'s share of exposure, the same on every line. A regional '
-          + 'event strikes one region, drawn by this share, and its A reaches only that region\'s share of '
-          + 'ordinary losses.',
+          + 'event strikes one region, drawn by this share; its T claim lands there. Its A now reaches the whole '
+          + 'line (wip/shocks).',
         basis: 'CHOSEN',
         note: 'The R model\'s four regions, adopted with book units; they replace three read from today\'s '
           + 'roster (35.2 / 34.4 / 30.4%). Drawn by share, the expected share an event reaches is 0.255 '
@@ -2497,31 +2575,28 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'cut to the share: it lands whole in the struck region. The region is the same on every line the '
           + 'event reaches.',
       }],
-      ['Large losses per event', {
-        value: Object.entries(SHOCK_LOSS_COUNT).map(([e, by]) =>
-          `${e} ${Object.entries(by).map(([l, n]) => `${l} ${n}`).join(', ')}`).join(' · '),
-        unit: 'losses per T',
-        what: 'How many individual losses each event\'s T arrives as, each lognormal around T / count. T is the '
-          + 'expected aggregate; the realised total varies and is never rescaled.',
+      ['T claim sizes', {
+        value: (['GL', 'WC', 'Property'] as const).map(l => `${l} ${(['Low', 'Mid', 'High'] as const)
+          .map(v => `${v} $${SHOCK_T_CLAIM_RANGE[l][v][0] / 1e6}–${SHOCK_T_CLAIM_RANGE[l][v][1] / 1e6}M`).join(', ')}`).join(' · '),
+        unit: 'one claim, uniform within the range',
+        what: 'Where an event has a T on a line, that program year takes ONE additional claim of this size — '
+          + 'unscaled, untrended, its own occurrence. A regional event\'s claim lands in the struck region.',
         basis: 'CHOSEN',
-        note: `A starting point. ${SHOCK_ONE_OCCURRENCE.join(' and ')} are ONE occurrence each, as today's `
-          + 'catastrophe band books them, so the tower answers the event total and an earthquake retains its '
-          + '$10M peril deductible first; every other loss is its own occurrence. On GL the pool keeps $25M '
-          + 'of any one loss.',
+        note: 'wip/shocks test build. Replaces T as an expected aggregate scaled to each line\'s book and spread '
+          + 'over several lognormal claims. The R model\'s ranges with each High raised to $40M.',
       }],
-      ['Large-loss CV', {
-        value: SHOCK_LOSS_CV, unit: 'coefficient of variation',
-        what: 'The spread of each T loss around T / count.', basis: 'CHOSEN',
+      ['A, one year only', {
+        value: SHOCK_A_YEARS, unit: 'program years',
+        what: 'An event\'s A multiplies that program year\'s normal losses by (1 + A), A uniform within the level\'s '
+          + 'range, in the year it fires only — undecayed and on the whole line, not cut to a region\'s share.',
+        basis: 'CHOSEN', note: 'wip/shocks test build. Economic Inflation and R still run over their durations.',
       }],
-      ['T scaling', {
-        value: 'expected ordinary loss / (R base premium x R target loss ratio)', unit: 'per line, per year',
-        what: 'How the R model\'s T dollars become the game\'s: each line by its own ratio, never one '
-          + 'pool-wide factor.',
-        basis: 'CHOSEN',
-        note: 'A STABLE basis: both halves are ordinary losses — the R model\'s base premium x target loss '
-          + 'ratio is its ordinary expectation — so the ratio moves with the book\'s exposure and the 5% '
-          + 'trend and with nothing a team decides about price. At full market it is about 7.7 on WC, 7.5 on '
-          + 'GL and 32 on Property.',
+      ['Shock draws shared by every world', {
+        value: 'the game seed', unit: 'rule',
+        what: 'Every shock draw — which events fire, each A, T and R size, and where a T claim lands — is keyed on '
+          + 'the game seed, so every world shares the same events and the same draws. Each world keeps its own '
+          + 'ordinary year and market.',
+        basis: 'CHOSEN', note: 'wip/shocks test build. Sizes were drawn per world.',
       }],
       ['Member-level play', {
         value: MEMBER_LEVEL.enabled ? 'on' : 'off', unit: 'switch',
@@ -2592,7 +2667,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: LOSS_HISTORY_CLAIM_CAP, unit: '$ per shock claim',
         what: 'The most one shock claim counts for in a unit\'s loss history, so one catastrophe does not decide a '
           + 'renewal. Ordinary losses and routine large claims count in full.',
-        basis: 'CHOSEN', note: 'The brief\'s $1M. Solo games draw no shocks while SOLO_SHOCKS is off.',
+        basis: 'CHOSEN', note: 'The brief\'s $1M.',
       }],
       ['New-member grace', {
         value: NEW_MEMBER_GRACE_YEARS, unit: 'years in the book',
@@ -2633,14 +2708,25 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The R model\'s 20%, adopted with book units.',
       }],
-      ['Reinsurance packages', {
-        value: `WC and GL ${REINSURANCE_OPTIONS.WC.map(o => o.id).join(' · ')}`,
-        unit: 'one package per line',
-        what: 'What a team buys: one package per line from this fixed set, each one layer per occurrence, '
-          + 'priced as the expected recovery on the new engine\'s large losses x the line\'s CLF at 70%.',
+      ['Reinsurance options (T covers)', {
+        value: REINSURANCE_OPTIONS.GL.filter(o => o.limit > 0).map(o => o.id).join(' · '),
+        unit: 'per occurrence, on T claims only, every line',
+        what: 'What a team buys on each line: None, or one layer on the single T claim — pays min(max(claim − '
+          + 'attachment, 0), limit). An A surge and normal losses never reach it. Players see each option\'s name '
+          + 'and price only.',
         basis: 'CHOSEN',
-        note: `Property: ${REINSURANCE_OPTIONS.Property.map(o => o.id).join(' · ')}. GL's $25M pool limit still `
-          + 'applies. The tower is cut at every package\'s edges, so each package is whole tower layers.',
+        note: 'wip/shocks test build. The tower is cut at $1M, $2M, $10M, $20M and $40M on every line, so each '
+          + 'option is whole layers. Replaces the aggregate stop, which stays dormant behind its switch.',
+      }],
+      ['Reinsurance prices', {
+        value: (['GL', 'WC', 'Property'] as const).map(l => `${l} ${Object.entries(REINSURANCE_PRICE[l])
+          .map(([id, p]) => `${id} $${p / 1000}K`).join(', ')}`).join(' · '),
+        unit: '$ a year, fixed',
+        what: 'What each option costs a year, whatever the book or year. Charged as reinsurance in the rate, not '
+          + 'multiplied by the CLF.',
+        basis: 'CHOSEN',
+        note: 'The brief\'s: each level\'s annual chance x the recovery at the top of its range. The prices add '
+          + 'across the tower\'s layers, which is checked at load.',
       }],
       ['Book units', {
         value: `${UNIT_MARKET_COUNT} units a line; size CV ${(100 * UNIT_SIZE_CV).toFixed(0)}%, risk CV `
@@ -2654,7 +2740,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'engine still runs on each line\'s one exposure.',
       }],
       ['Aggregate stop', {
-        value: AGGREGATE_STOP.enabled
+        value: !AGGREGATE_STOP.enabled ? 'off — dormant; the T covers are offered' : AGGREGATE_STOP.enabled
           ? AGGREGATE_STOP_OPTIONS.filter(o => o.limit > 0)
             .map(o => `${o.name} ${Math.round(o.attachment * 100)}% / ${Math.round(o.limit * 100)}%`).join(' · ')
           : 'off — the per-claim packages', unit: 'attaches / limit, shares of the year\'s expected losses',
@@ -2670,22 +2756,17 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the switch.',
       }],
       ['Covers while shocks are off', {
-        value: `offered: ${AGGREGATE_STOP_OFFERED_SHOCKS_OFF.map(id => AGGREGATE_STOP_OPTIONS.find(o => o.id === id)?.name).join(' · ')}; `
-          + `default: ${AGGREGATE_STOP_OPTIONS.find(o => o.id === AGGREGATE_STOP_DEFAULT_SHOCKS_OFF)?.name}`,
-        unit: 'rule',
-        what: 'While a game\'s shocks are off (single-player while shocks are off there, or a hosted room with none '
-          + 'scheduled) only None and the lowest-attaching cover are offered, and None is the default for players and '
-          + 'the prior board. With the shocks on, all four options return and the default is the one above.',
-        basis: 'CHOSEN',
-        note: 'The two higher-attaching covers attach at 115% and 130% of the year\'s expected losses; with no shocks a '
-          + 'year is its ordinary losses alone, which almost never reach 115% and never 130%, so they would cost about '
-          + 'nothing and pay nothing.',
+        value: `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`, unit: 'rule',
+        what: 'While a game\'s shocks are off (a hosted room with none scheduled) only None is offered; with them on, '
+          + 'all five options are.',
+        basis: 'CHOSEN', note: 'With no shocks there is no T claim, so a cover would cost its price and never pay.',
       }],
-      ['Default package', {
+      ['Default reinsurance', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,
         unit: 'per line',
-        what: 'The middle option, held by every team until it chooses and by the pre-game\'s prior board.',
+        what: 'Held by every team until it chooses, and by the pre-game\'s prior board.',
         basis: 'CHOSEN',
+        note: 'wip/shocks: None — the pre-game draws no shocks, so a cover there would only move every opening.',
       }],
       ['Worlds', {
         value: String(WORLD_COUNT), unit: 'worlds per team-year',
@@ -2701,10 +2782,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Aggregate cover', {
         value: 'not offered', unit: '—',
-        what: 'The aggregate stop-loss is not among the packages: not offered, its code kept unwired.',
+        what: 'Neither aggregate cover (the old WC/Property aggregate, or the aggregate stop) is offered; their code '
+          + 'is kept dormant.',
         basis: 'CHOSEN',
-        note: 'IT MAY RETURN. Aggregate cover is what protects against a broad surge of small losses — a '
-          + 'winterstorm\'s many claims under the retention — which no per-occurrence package reaches.',
+        note: 'IT MAY RETURN. Aggregate cover is what protects against a broad surge — an A — which no '
+          + 'per-occurrence cover reaches.',
       }],
       ['Shocks per year', {
         value: SHOCKS_PER_YEAR, unit: 'expected events a year',
@@ -2715,10 +2797,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Shock schedule count', {
         value: `round(${SHOCKS_PER_YEAR} x years) ± ${SHOCK_SCHEDULE_SPREAD}, at least 1`, unit: 'events per game',
-        what: 'How many events Randomise and the singleplayer schedule draw: round(Shocks per year x years), '
-          + 'then −1, 0 or +1, equally likely, never fewer than one and at most one a year from year 2 — 2 to 4 in '
-          + 'a ten-year game.', basis: 'CHOSEN',
-        note: 'Was one event per three years, rounded. Year 1 stays shock-free.',
+        what: 'How many events the host\'s Randomise draws: round(Shocks per year x years), then −1, 0 or +1, '
+          + 'equally likely, never fewer than one and at most one a year from year 2 — 2 to 4 in a ten-year game.',
+        basis: 'CHOSEN',
+        note: `Single-player draws by SOLO_SHOCK_DRAW ('${SOLO_SHOCK_DRAW}'); 'count' would use this rule. Year 1 stays shock-free.`,
       }],
       ['Shocks out of the experience', {
         value: SHOCKS_OUT_OF_EXPERIENCE.enabled ? 'on' : 'off', unit: 'switch',
@@ -2748,12 +2830,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'with the shocks sized on claims (below): WC 3.407 → 3.432, GL 4.754 → 4.852, Property 0.314 → 0.322.',
       }],
       ['Shocks in single-player', {
-        value: SOLO_SHOCKS.enabled ? 'on' : 'off — pending the data scientist', unit: 'switch',
-        what: 'OFF: a single-player game draws no shock schedule, so no event fires. Hosted games keep the host\'s '
-          + 'schedule.',
-        basis: 'CHOSEN',
-        note: 'Pending the data scientist\'s review of the shocks\' sizes. On, single-player draws its schedule as '
-          + 'described under Shock timing.',
+        value: SOLO_SHOCKS.enabled ? `on — drawn by '${SOLO_SHOCK_DRAW}'` : 'off', unit: 'switch',
+        what: 'On: a single-player game draws its events once at its start — each year from year 2, each event at its '
+          + 'catalogue probability (scaled so the twelve total Shocks per year), independently. Year 1 is shock-free.',
+        basis: 'CHOSEN', note: 'ON in the wip/shocks test build. Hosted games keep the host\'s schedule.',
       }],
       ['Expected losses follow the shocks', {
         value: 'ordinary only whenever a game\'s shocks are off', unit: 'rule',
@@ -2782,13 +2862,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Shock timing', {
         value: 'a schedule drawn once — the host\'s, or singleplayer\'s at its start', unit: '—',
-        what: 'Multiplayer fires only what the host scheduled. Singleplayer draws its schedule once, at the '
-          + 'game\'s start, by the same rule as the host\'s Randomise (Shock schedule count, from year 2, '
-          + 'weighted by the catalogue\'s probabilities) on its own stream, and keeps it in the save. Either way '
-          + 'every world fires the same events in the same years — a regional event in the same region, '
-          + 'resolved once when the game is built — and only each firing\'s size is drawn per world, from a '
-          + 'stream keyed on the world, the event and its year. Pricing uses the catalogue\'s '
-          + 'probabilities, never the schedule. Nothing fires before year 1.',
+        what: 'Multiplayer fires only what the host scheduled. Singleplayer draws its events once, at the game\'s '
+          + 'start, each year from year 2 at the catalogue\'s probabilities, from the game seed, and keeps them in the '
+          + 'save. Either way every world fires the same events in the same years, with the same sizes — a regional '
+          + 'event in the same region. Pricing uses the catalogue\'s probabilities, never the schedule. Nothing fires '
+          + 'before year 1.',
         basis: 'CHOSEN',
       }],
     ],
@@ -2941,8 +3019,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Investment loss adjustment', {
         value: R_MODEL.investmentLossAdjustment, unit: 'added to the equity return', basis: 'CHOSEN',
-        status: 'ADOPTED',
+        status: 'SUPERSEDED',
         what: 'The Investment Loss event\'s hit to the equity return in the event year.',
+        note: `Superseded by the hit by asset class: cash ${INVESTMENT_LOSS_BY_ASSET.cash}, bonds `
+          + `${INVESTMENT_LOSS_BY_ASSET.bonds}, equities ${INVESTMENT_LOSS_BY_ASSET.equities} (wip/shocks).`,
+      }],
+      ['Investment Loss by asset class', {
+        value: `cash ${INVESTMENT_LOSS_BY_ASSET.cash} · bonds ${INVESTMENT_LOSS_BY_ASSET.bonds} · equities ${INVESTMENT_LOSS_BY_ASSET.equities}`,
+        unit: 'added to each class\'s return, event year', basis: 'CHOSEN', status: 'ADAPTED',
+        what: 'In the year Investment Loss fires, each asset class\'s return takes its hit, so the loss depends on the '
+          + 'pool\'s own allocation. Every world shares the event.',
       }],
       ['Member withdrawal reduction', {
         value: R_MODEL.memberWithdrawalReduction, unit: 'of exposure', basis: 'CHOSEN',
@@ -3020,7 +3106,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['A shocks — GL', {
         value: rLevels(R_MODEL.aShock.GL), unit: 'increase on ordinary losses', basis: 'CHOSEN',
         status: 'ADOPTED',
-        what: 'Drawn uniformly within the level\'s range, then decayed over the event\'s duration.',
+        what: 'Drawn uniformly within the level\'s range, in the firing year only (wip/shocks; see A, one year only).',
         note: 'Illustrative, says the data scientist — not fitted to claims data.',
       }],
       ['A shocks — WC', {
@@ -3033,8 +3119,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['T shocks — GL', {
         value: rLevels(R_MODEL.tShock.GL, false), unit: 'dollars at onset', basis: 'CHOSEN',
-        status: 'ADOPTED, SCALED',
-        what: 'An aggregate shock loss at the event\'s start, drawn uniformly.',
+        status: 'SUPERSEDED',
+        what: 'An aggregate shock loss at the event\'s start, drawn uniformly. SUPERSEDED (wip/shocks) by one T claim '
+          + 'of the sizes under T claim sizes.',
         note: '⚠ SCALED PER LINE, by that line\'s own ratio, never one pool-wide factor — the game\'s '
           + 'expected ordinary loss against the R model\'s (base premium x target loss ratio), a basis that '
           + 'does not move with a team\'s funding level; see T scaling under New loss engine. The model\'s '
@@ -3044,11 +3131,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['T shocks — WC', {
         value: rLevels(R_MODEL.tShock.WC, false), unit: 'dollars at onset', basis: 'CHOSEN',
-        status: 'ADOPTED, SCALED', what: 'As GL, scaled by WC\'s own premium ratio.',
+        status: 'SUPERSEDED', what: 'As GL, scaled by WC\'s own premium ratio.',
       }],
       ['T shocks — Property', {
         value: rLevels(R_MODEL.tShock.Property, false), unit: 'dollars at onset', basis: 'CHOSEN',
-        status: 'ADOPTED, SCALED',
+        status: 'SUPERSEDED',
         what: 'The largest of the three, scaled by Property\'s own premium ratio.',
       }],
       ['R shocks', {

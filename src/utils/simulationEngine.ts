@@ -136,7 +136,7 @@ import { programFreqMultiplier, programAnnualCost, programRtwConversion, claimsS
 import { catCapitalRetained } from './propertyCatastrophe';
 import { occurrenceProgramCost } from './reinsuranceTower';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
-import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
+import { AGGREGATE_NOT_OFFERED, fixedPlacementPrice, placementFor } from './reinsuranceOptions';
 import {
   aggregateRecovery,
   cedeOccurrences,
@@ -162,7 +162,7 @@ import {
   type OrdinaryLossYear, type UnitOrdinaryYear,
 } from './ordinaryLoss';
 import { marketSeedOf, type BookUnit } from './bookUnits';
-import { drawLargeLosses, firingKey, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { applyMarketShock, drawLargeLosses, firingKey, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
@@ -1632,7 +1632,13 @@ export function processLineYear(
   // The tower premium is linear in a book's exposure, so this is this world's
   // own premium to float precision; charging it as rate x exposure is what
   // keeps every world's bill exactly the one rate.
-  const reinsuranceCost = struck
+  // ⚠ ON THE NEW ENGINE THE COVER IS A FIXED PRICE IN DOLLARS (wip/shocks,
+  // REINSURANCE_PRICE), charged as itself — not the struck per-$100 rate times
+  // the book after movement, which charged it about 5% over when new business
+  // grew the book after the quote.
+  const reinsuranceCost = newLossEngineRuns() && !AGGREGATE_STOP.enabled
+    ? fixedPlacementPrice(line as TowerLine, placedForCost)
+    : struck
     ? struck.quote.reinsRatePer100 * activeExposure * 10_000
     : towerQuote.premium + (aggregateQuote?.premium ?? 0);
 
@@ -1669,7 +1675,9 @@ export function processLineYear(
   const totalMemberCharge = poolPremiumAndAdminExpense + reinsuranceCost + retainedCoverMargin;
   // Struck, the rate IS the struck quote's, exactly — not re-read off the
   // dollars, which would carry float noise between worlds.
-  const totalMemberRatePer100 = struck
+  // (Struck, the pool premium and admin are the struck rates exactly; the
+  // fixed-price cover is its dollars over this book, so the rate is the charge's.)
+  const totalMemberRatePer100 = struck && !(newLossEngineRuns() && !AGGREGATE_STOP.enabled)
     ? struck.quote.finalRatePer100
     : totalMemberCharge / Math.max(activeExposure * 10_000, 1);
 
@@ -1891,7 +1899,7 @@ export function processLineYear(
     // true risk, a regional T only in the struck region.
     const draw = drawLargeLosses(
       line, bookMode ? null : enrolledMembers, yearNumber, calendarYear, instance.seed, lineShocks, activeExposure,
-      bookMode ? yearUnits : undefined,
+      bookMode ? yearUnits : undefined, shockSeedOf(instance),
     );
     largeDraw = draw;
     generatedClaims = draw.claims;
@@ -3548,12 +3556,10 @@ export function processYear(
     : preGameMarket === 'flat'
       ? { cash: PRE_GAME_INVESTMENT_RETURN, bonds: PRE_GAME_INVESTMENT_RETURN, equities: PRE_GAME_INVESTMENT_RETURN }
       : preGameMarket === 'expected' ? expectedMarketReturns() : preGameMarketReturns(instance.seed, yearNumber);
-  // Investment Loss: twenty points off the equity return in its year, after
-  // the draw and its rails — the event is a shock to the market, not a
+  // Investment Loss: each asset class's hit in its year (INVESTMENT_LOSS_BY_ASSET),
+  // after the draw and its rails — the event is a shock to the market, not a
   // different market. Absent, this is the drawn market object itself.
-  const marketReturns = shockYear && shockYear.equityShock !== 0
-    ? { ...drawnMarket, equities: drawnMarket.equities + shockYear.equityShock }
-    : drawnMarket;
+  const marketReturns = shockYear ? applyMarketShock(drawnMarket, shockYear.marketShock) : drawnMarket;
 
   // THIS YEAR'S POOL RETURN RATE, for the inter-line loan (Stage 2.9): each
   // active line's realized return weighted by its BEGINNING invested assets.

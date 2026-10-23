@@ -49,7 +49,7 @@ import type {
 import type { ShockRecord } from '../types/shocks';
 import { rangeOf, summarizeWorlds, type SurplusRange } from './worldAudit';
 import { simulateMarketReturns, type MarketReturns } from './investmentEngine';
-import { gameShocksOn, resolveShockYear, shockTimingOf } from './shockLosses';
+import { applyMarketShock, gameShocksOn, resolveShockYear, shockTimingOf } from './shockLosses';
 export { rangeOf, type SurplusRange };
 
 /** Worlds per team-year for the engine in force: WORLD_COUNT on the new engine, one on the member path. */
@@ -156,13 +156,12 @@ export function playWorldsYear(gs: GameState, decisions: DecisionSet): WorldsYea
 
 /**
  * World i's market this year, as the engine drew it: its own seed's draw, with
- * the year's Investment Loss taken off equities (simulationEngine).
+ * the year's Investment Loss on each asset class (simulationEngine).
  */
 function worldMarket(gs: GameState, i: number): MarketReturns {
   const inst = worldInstance(gs.instance, i);
   const drawn = simulateMarketReturns(deriveSubRng(inst.seed, gs.currentYearNumber, 'invest'));
-  const shock = resolveShockYear(inst, shockTimingOf(gs.setup), gs.currentYearNumber).equityShock;
-  return shock !== 0 ? { ...drawn, equities: drawn.equities + shock } : drawn;
+  return applyMarketShock(drawn, resolveShockYear(inst, shockTimingOf(gs.setup), gs.currentYearNumber).marketShock);
 }
 
 /** A world's played years as the engine reads them: the averaged rows, the last one the world's own. */

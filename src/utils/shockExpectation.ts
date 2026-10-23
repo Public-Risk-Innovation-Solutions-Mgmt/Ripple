@@ -19,20 +19,20 @@
 // over the years it could have had — year 1 carries no inherited A, year 3
 // carries up to two years of decay.
 //
-// ⚠ ONE APPROXIMATION, STATED. Earthquake and Wildfire are one occurrence
-// each, so the tower sees the SUM of their losses. That sum is priced as a
-// lognormal with the sum's own mean and CV (Fenton-Wilkinson). The draw sums
-// the individual lognormals exactly; shock-loss-check measures the gap.
+// ⚠ wip/shocks: A is the firing year's only, on the whole line (SHOCK_A_YEARS),
+// and a T is ONE claim uniform on its range (SHOCK_T_CLAIM_RANGE), so each
+// event's T moments are integrated exactly, piece by piece between the kinks
+// of whatever h is asked — no lognormal, no scale, no approximation.
 // ============================================================================
 
-import { PROPERTY_PERIL_DEDUCTIBLE, REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
+import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
-  POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
-  SHOCK_LOSS_COUNT, SHOCK_LOSS_CV, SHOCK_ONE_OCCURRENCE, UP_FRONT_TREND, AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS,
+  POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, ROUTINE_LARGE_LOSSES, SHOCK_A_YEARS,
+  SHOCK_T_CLAIM_RANGE, UP_FRONT_TREND, AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS,
 } from '../data/pricingParameters';
-import { pwlMoments, lognormalFromMean, routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
+import { routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
-import { DECAY, SHOCK_EVENTS, eventLines, poolShare, tScale, trendFactor, type ShockLevel } from './shockLosses';
+import { DECAY, SHOCK_EVENTS, eventLines, poolShare, trendFactor, type ShockLevel } from './shockLosses';
 import type { CoverageLine } from '../types/simulation';
 
 // --- quadrature over the uniform T ------------------------------------------
@@ -55,6 +55,18 @@ for (let i = 1; i <= GL_N; i++) {
   GL_NODES.push(x);
   GL_WEIGHTS.push(2 / ((1 - x * x) * dp * dp));
 }
+/**
+ * E[f(U)] for U uniform on [lo, hi], f piecewise smooth with breaks at
+ * `kinks`: Gauss-Legendre on each piece, so a piecewise-linear f (a layer's
+ * cession) and its square are integrated exactly.
+ */
+function overUniformPw(lo: number, hi: number, kinks: readonly number[], f: (t: number) => number): number {
+  if (!(hi > lo)) return f(lo);
+  const cuts = [lo, ...kinks.filter(k => k > lo && k < hi).sort((a, b) => a - b), hi];
+  let s = 0;
+  for (let j = 0; j + 1 < cuts.length; j++) s += ((cuts[j + 1] - cuts[j]) / (hi - lo)) * overUniform(cuts[j], cuts[j + 1], f);
+  return s;
+}
 /** E[f(U)] for U uniform on [lo, hi]. */
 function overUniform(lo: number, hi: number, f: (t: number) => number): number {
   if (!(hi > lo)) return f(lo);
@@ -76,31 +88,34 @@ export function upliftMoments(line: CoverageLine, yearNumber: number): {
   const byEvent = new Map<string, number>();
   let mean = 0, variance = 0;
   if (yearNumber < 1) return { mean: 0, second: 0, byEvent };
-  // The struck region is drawn BY SHARE (regionByShare), so the share an event
-  // reaches has E[s] = sum of w·s and E[s²] = sum of w·s², with w = s.
-  const shares = Object.values(REGION_EXPOSURE_SHARE);
-  const sMean = shares.reduce((a, s) => a + s * s, 0);
-  const sSecond = shares.reduce((a, s) => a + s * s * s, 0);
   for (const e of SHOCK_EVENTS) {
-    const rows: { m1: number; m2: number }[] = [];
+    // Each row: its moments and how many years it lasts. An A lasts its firing
+    // year only (SHOCK_A_YEARS) on the whole line; Economic Inflation its
+    // duration, decaying.
+    const rows: { m1: number; m2: number; years: number }[] = [];
     if (e.name === 'Economic Inflation') {
       const a = R_MODEL.economicInflationInitialRate;
-      rows.push({ m1: a, m2: a * a });
+      rows.push({ m1: a, m2: a * a, years: e.duration });
     }
     for (const row of eventLines(e.name)) {
       if (row.line !== line || row.a === 'None') continue;
       const [lo, hi] = R_MODEL.aShock[line][row.a];
-      const s1 = e.regional ? sMean : 1, s2 = e.regional ? sSecond : 1;
-      rows.push({ m1: ((lo + hi) / 2) * s1, m2: ((lo * lo + lo * hi + hi * hi) / 3) * s2 });
+      rows.push({ m1: (lo + hi) / 2, m2: (lo * lo + lo * hi + hi * hi) / 3, years: Math.min(SHOCK_A_YEARS, e.duration) });
     }
     if (rows.length === 0) continue;
     let contribution = 0;
     for (let age = 0; age < Math.min(e.duration, yearNumber); age++) {
       const d = Math.pow(DECAY, age);
+      // One firing-year's rows together — they are one Bernoulli.
+      let m1 = 0, m2 = 0;
       for (const r of rows) {
-        contribution += e.probability * r.m1 * d;
-        variance += e.probability * r.m2 * d * d - Math.pow(e.probability * r.m1 * d, 2);
+        if (age >= r.years) continue;
+        const dd = e.name === 'Economic Inflation' && r.years === e.duration ? d : 1;
+        m1 += r.m1 * dd;
+        m2 += r.m2 * dd * dd;
       }
+      contribution += e.probability * m1;
+      variance += e.probability * m2 - Math.pow(e.probability * m1, 2);
     }
     byEvent.set(e.name, contribution);
     mean += contribution;
@@ -129,32 +144,19 @@ interface LargeMoments {
  * waiting for a 0.2% earthquake to happen often enough to measure.
  */
 export function conditionalEventMoments(
-  line: CoverageLine, eventName: string, exposure: number, yearNumber: number,
+  line: CoverageLine, eventName: string, _exposure: number, _yearNumber: number,
   h: PerLoss, kinks: (deductible: number) => number[],
 ): { c1: number; c2: number; occurrences: number } | null {
+  // ONE claim, uniform on the level's range (SHOCK_T_CLAIM_RANGE), no
+  // deductible: E[h(U)] and E[h(U)^2], exact on each piece between kinks.
   const row = eventLines(eventName).find(r => r.line === line && r.t !== 'None');
   if (!row) return null;
-  const scale = tScale(line, exposure, yearNumber);
-  const n = SHOCK_LOSS_COUNT[eventName]?.[line] ?? 0;
-  const one = SHOCK_ONE_OCCURRENCE.includes(eventName);
-  const ded = one && line === 'Property' ? PROPERTY_PERIL_DEDUCTIBLE[eventName.toLowerCase()] ?? 0 : 0;
-  const [lo, hi] = R_MODEL.tShock[line][row.t as Exclude<ShockLevel, 'None'>];
-  const k = kinks(ded);
-  const perT = (tModel: number) => {
-    const T = tModel * scale;
-    if (one) {
-      const { mu, sigma } = lognormalFromMean(T, SHOCK_LOSS_CV / Math.sqrt(n));
-      const r = pwlMoments(mu, sigma, 0, k, x => h(x, ded));
-      return { c1: r.m1, c2: r.m2 };
-    }
-    const { mu, sigma } = lognormalFromMean(T / n, SHOCK_LOSS_CV);
-    const r = pwlMoments(mu, sigma, 0, k, x => h(x, ded));
-    return { c1: n * r.m1, c2: n * r.m2 + n * (n - 1) * r.m1 * r.m1 };
-  };
+  const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][row.t as Exclude<ShockLevel, 'None'>];
+  const k = kinks(0);
   return {
-    c1: overUniform(lo, hi, t => perT(t).c1),
-    c2: overUniform(lo, hi, t => perT(t).c2),
-    occurrences: one ? 1 : n,
+    c1: overUniformPw(lo, hi, k, x => h(x, 0)),
+    c2: overUniformPw(lo, hi, k, x => h(x, 0) ** 2),
+    occurrences: 1,
   };
 }
 
@@ -435,20 +437,14 @@ function stopCatRetained(line: CoverageLine, exposure: number, yearNumber: numbe
   // Retained of a catastrophe x: x less what the stop pays on e + x.
   const h = (x: number) => x - Math.min(Math.max(e + x - attachment, 0), limit);
   const kinks = limit > 0 ? [attachment - e, attachment - e + limit].filter(k => k > 0) : [];
-  const scale = tScale(line, exposure, yearNumber);
   let weight = 0, retained = 0;
   for (const ev of SHOCK_EVENTS) {
     if (!ev.regional) continue;
     const row = eventLines(ev.name).find(r => r.line === line && r.t !== 'None');
     if (!row) continue;
-    const n = SHOCK_LOSS_COUNT[ev.name]?.[line] ?? 1;
-    const [lo, hi] = R_MODEL.tShock[line][row.t as Exclude<ShockLevel, 'None'>];
-    const c1 = overUniform(lo, hi, t => {
-      const { mu, sigma } = lognormalFromMean(t * scale, SHOCK_LOSS_CV / Math.sqrt(n));
-      return pwlMoments(mu, sigma, 0, kinks, h).m1;
-    });
+    const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][row.t as Exclude<ShockLevel, 'None'>];
     weight += ev.probability;
-    retained += ev.probability * c1;
+    retained += ev.probability * overUniformPw(lo, hi, kinks, h);
   }
   return weight > 0 ? retained / weight : 0;
 }
