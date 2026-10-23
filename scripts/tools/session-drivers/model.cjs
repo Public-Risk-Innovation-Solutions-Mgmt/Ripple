@@ -9,9 +9,11 @@
 //                       by step IS the rate the game charged that year, and
 //                       its premium the premium charged; for the coming year,
 //                       the rate the Decisions panel quotes
-//   section B           every year's simulated combined ratio, investment
-//                       income and year-end surplus are the Annual Statement's
-//                       own, at the statement's precision (0.1%, $000s)
+//   section B           every KNOWN year's simulated combined ratio,
+//                       investment income and year-end surplus are the Annual
+//                       Statement's own, at the statement's precision (0.1%,
+//                       $000s); the year just played is not shown yet —
+//                       results run one year behind (utils/knownYears)
 //
 // to one part in a billion where the two are numbers. Hosted (a room over the
 // local transport): the top bar has no Model tab.
@@ -107,9 +109,13 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged`,
       bad || `${n} years`);
 
-    // Section B's simulated figures, by calendar year.
+    // Section B's simulated figures, by calendar year: every year but the
+    // coming one and the one just played, which is not yet known.
+    const hidden = cal[cal.length - 2];
+    ok(await page.$(`[data-testid="model-b-surplus-${hidden}-sim"]`) === null,
+      `solo, ${l}: section B has no column for ${hidden}, played but not yet known`);
     sim[l] = {};
-    for (const c of cal.slice(0, -1)) {
+    for (const c of cal.slice(0, -2)) {
       sim[l][c] = {
         cr: await value(`[data-testid="model-b-combinedRatio-${c}-sim"]`),
         inv: await value(`[data-testid="model-b-investmentIncome-${c}-sim"]`),
@@ -125,7 +131,7 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
   for (const [l, label] of LINES) {
     await lineView(label);
     let checked = 0, bad = '';
-    for (let i = 0; i < opts.length - 1; i++) {
+    for (let i = 0; i < opts.length - 2; i++) {
       const c = cal[i];
       await page.selectOption('[data-testid="statement-year"]', String(opts[i].value));
       await page.waitForTimeout(250);
@@ -141,7 +147,7 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       }
       if (!Number.isFinite(s.expCr) && !bad) bad = `${c}: no expected combined ratio`;
     }
-    ok(!bad && checked === 3 * (opts.length - 1),
+    ok(!bad && checked === 3 * (opts.length - 2),
       `solo, ${l}: section B's simulated combined ratio, investment income and surplus are the Annual Statement's, every year`,
       bad || `${checked} cells`);
   }

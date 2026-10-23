@@ -117,7 +117,8 @@ async function tabText(page, tab) {
   // its funding each year, so the replay is checked on decisions that differ.
   const room = () => host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
   const netUltimates = p => p.$eval('[data-testid="statement-net"]', el => ({
-    heads: [...el.querySelectorAll('thead tr:nth-child(2) th')].map(t => t.textContent.trim()),
+    // The years are the header's only row: the "Current / Year n" row above them is gone.
+    heads: [...el.querySelectorAll('thead tr:last-child th')].map(t => t.textContent.trim()),
     cells: [...el.querySelector('tr[data-row-label="Ultimates"]').querySelectorAll('td')].map(t => t.textContent.trim()),
   }));
   const thousands = x => { const r = Math.round(x / 1000); return `${r < 0 ? '−' : ''}${Math.abs(r).toLocaleString('en-US')}`; };
@@ -159,12 +160,15 @@ async function tabText(page, tab) {
       ok(h(d) === h(v), `year ${y}, ${tab}: the viewer's is identical to the player's (${h(d)} / ${h(v)})`);
     }
 
-    // The host's figure: the newest posted developed column, against the
-    // player's statement, every program year the statement shows by itself.
+    // The host's figure: the developed column posted at the LATEST KNOWN year,
+    // against the player's statement, every program year the statement shows by
+    // itself. ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): with year y just
+    // played the statement stands at year y - 1, so it is that year's post —
+    // valued then — that it must match, over accident years 0 to y - 1.
     await tabText(driver, 'Annual Statement');
     const st = await netUltimates(driver);
     const rec = await room();
-    const posted = rec.teams.find(t => t.name === TEAMS[0]).resultsByYear[String(y)];
+    const posted = rec.teams.find(t => t.name === TEAMS[0]).resultsByYear[String(y - 1)];
     const year0Calendar = rec.startingYear - 1;
     const compared = [];
     st.heads.forEach((head, i) => {
@@ -173,7 +177,7 @@ async function tabText(page, tab) {
       if (ay < 0) return;                               // pre-game years are off the session's axis
       compared.push({ ay, screen: st.cells[i], host: thousands(posted.developed.pool[String(ay)]) });
     });
-    ok(compared.length === y + 1 && compared.every(c => c.screen === c.host),
+    ok(compared.length === y && compared.every(c => c.screen === c.host),
       `year ${y}: the host's as-developed figure is the statement's Net Ultimates for every year — `
       + compared.map(c => `year ${c.ay} ${c.screen}${c.screen === c.host ? '' : ` vs host ${c.host}`}`).join(', '));
   }

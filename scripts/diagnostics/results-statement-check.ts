@@ -45,10 +45,9 @@
 //
 // AND WHAT THE PLAYER SEES (the display commit):
 //
-//  14. THE YEAR LABELS: a header row above the year columns in every section —
-//      "Current" on the game's actual latest year only, "Year 0" on the last
-//      pre-game year and "Year n" on each played year after it, nothing on the
-//      earlier pre-game years, Prior or Total.
+//  14. THE COLUMNS ARE JUST YEARS: no header row of "Current" / "Year 0" /
+//      "Year n" above them (removed with results-one-year-behind) — every
+//      section carries no year labels, and each window column is its year.
 //  15. NO SOURCE SHOWS BLANK: every "not yet available" cell renders as an
 //      empty cell, and no other cell does.
 //  16. THE YEAR SELECTOR: chosen at any year, the window is the five years
@@ -412,14 +411,15 @@ function priorAtStart(st: AnnualStatement): string[] {
 }
 
 // --- WHAT THE PLAYER SEES -------------------------------------------------------
-/** 14. The header row: "Current" on the actual latest year only, "Year n" from Year 0 on, blank elsewhere. */
+/** 14. The columns are just years: no year-label row, and each window column is its calendar year. */
 function yearLabels(st: AnnualStatement, gs: GameState): string[] {
-  const latest = timelineOf(gs).at(-1)!.yearNumber;
+  const calendarOf = new Map(timelineOf(gs).map(r => [r.yearNumber, String(r.calendarYear)]));
   const out: string[] = [];
   for (const s of st.sections) {
-    const want = [...(s.hasPrior ? [''] : []), ...s.windowYears.map(y => (y === latest ? 'Current' : y >= 0 ? `Year ${y}` : '')), ''];
-    if (s.yearLabels.length !== s.columns.length) out.push(`${s.title}: ${s.yearLabels.length} labels for ${s.columns.length} columns`);
-    if (JSON.stringify(s.yearLabels) !== JSON.stringify(want)) out.push(`${s.title}: labels ${s.yearLabels.join(' · ')} — expected ${want.join(' · ')}`);
+    if ('yearLabels' in s) out.push(`${s.title}: carries a year-label row`);
+    const cols = s.columns.slice(s.hasPrior ? 1 : 0, -1);
+    const want = s.windowYears.map(y => calendarOf.get(y));
+    if (JSON.stringify(cols) !== JSON.stringify(want)) out.push(`${s.title}: columns ${cols.join(' · ')} — expected the years ${want.join(' · ')}`);
   }
   return out;
 }
@@ -496,7 +496,7 @@ const labels: Record<string, string> = {
   11: 'Prior + the five reconcile to the full history — operating flows and every block\'s premium',
   12: 'at game start the five columns are the last five pre-game years, tied to the engine\'s results',
   13: 'at game start Prior holds 2021 alone in every section — nothing predates 2021',
-  14: 'the year labels: "Current" on the actual latest year only, "Year 0" on the last pre-game year, "Year n" after it, blank elsewhere',
+  14: 'the columns are just years: no year-label row, each window column its calendar year',
   15: 'a cell with no source shows blank, and no other cell does',
   16: 'the year selector: the five years ending at the chosen year, older years in Prior; the default is the latest',
   17: 'the combined ratio is the first row: every cost over the member charge each year (the engine\'s actualCombinedRatio), Total cumulative since game start (over the pre-game years before year 1), and the header shows exactly that Total',
@@ -557,10 +557,11 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   check(priorAtStart(st13b).length > 0, 'control: a Prior missing at game start, 2021 dropped, is caught');
   // What the player sees.
   const st14 = buildAnnualStatement(gs, 'pool', 3); const op14 = sec(st14, 'operating');
-  op14.yearLabels[op14.windowYears.indexOf(3) + (op14.hasPrior ? 1 : 0)] = 'Current';
-  check(yearLabels(st14, gs).length > 0, 'control: "Current" on a chosen year that is not the latest is caught');
-  const st14b = buildAnnualStatement(snaps[0], 'pool'); const g14 = sec(st14b, 'gross'); g14.yearLabels = g14.yearLabels.map(() => '');
-  check(yearLabels(st14b, snaps[0]).length > 0, 'control: a program-year block without its header row is caught');
+  op14.columns[op14.windowYears.indexOf(3) + (op14.hasPrior ? 1 : 0)] = 'Current';
+  check(yearLabels(st14, gs).length > 0, 'control: a column labelled "Current" in place of its year is caught');
+  const st14b = buildAnnualStatement(snaps[0], 'pool');
+  Object.assign(sec(st14b, 'gross'), { yearLabels: sec(st14b, 'gross').columns.map(() => '') });
+  check(yearLabels(st14b, snaps[0]).length > 0, 'control: a year-label row put back is caught');
   const shown = (c: Cell, f: CellFormat) => (c.kind === 'na' ? 'not yet available' : cellText(c, f));
   check(blanks(base(), shown).length > 0, 'control: "not yet available" printed in place of a blank is caught');
   check(selector(base(), gs, 3).length > 0, 'control: a selector that ignores the chosen year is caught');

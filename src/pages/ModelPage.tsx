@@ -184,7 +184,10 @@ function SectionB({ years, line }: { years: ModelVarianceYear[]; line: CoverageL
   );
 }
 
-export default function ModelPage({ gameState, decisions }: { gameState: GameState; decisions: DecisionSet }) {
+// `knownState` is the game cut at the latest known year (utils/knownYears):
+// section A is pricing and reads the whole game; section B is results and
+// stops where results stop.
+export default function ModelPage({ gameState, knownState, decisions }: { gameState: GameState; knownState: GameState; decisions: DecisionSet }) {
   const lines = gameState.setup.activeLines;
   const [line, setLine] = useState<CoverageLine>(lines[0]);
   const years = useMemo(() => modelYears(gameState), [gameState]);
@@ -196,7 +199,7 @@ export default function ModelPage({ gameState, decisions }: { gameState: GameSta
     () => (yearNumber === undefined ? null : buildModelRate(gameState, shownLine, decisions, yearNumber)),
     [gameState, shownLine, decisions, yearNumber],
   );
-  const variance = useMemo(() => buildModelVariance(gameState, shownLine), [gameState, shownLine]);
+  const variance = useMemo(() => buildModelVariance(knownState, shownLine), [knownState, shownLine]);
   return (
     <div data-testid="model" data-year={yearNumber} data-line={shownLine} className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">

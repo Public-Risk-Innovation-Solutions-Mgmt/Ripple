@@ -68,10 +68,21 @@ const BUTTONS = [
   await page.getByRole('button', { name: /Start/i }).last().click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 30000 });
 
-  // One locked year is all three exports need; a second would only make the
-  // driver slower without reaching a different code path.
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
-  await page.waitForTimeout(4000);
+  // ⚠ TWO LOCKED YEARS, BECAUSE RESULTS RUN ONE YEAR BEHIND (utils/knownYears):
+  // a played year's results — and the spreadsheet's downloads with them — first
+  // show at the advance after it completes. One played year that is KNOWN is all
+  // the exports need; a third would only make the driver slower.
+  for (const next of [2028, 2029]) {
+    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await page.waitForTimeout(2500);
+    const decline = page.getByRole('button', { name: /Decline/i }).first();
+    if (await decline.count() > 0) {
+      await decline.click(); await page.waitForTimeout(600);
+      const confirm = page.getByRole('button', { name: /Confirm & Continue/i }).first();
+      if (await confirm.count() > 0) { await confirm.click(); await page.waitForTimeout(600); }
+    }
+    await page.waitForSelector(`text=Lock Program Year ${next}`, { timeout: 120000 });
+  }
 
   await page.getByRole('button', { name: 'Result Spreadsheet', exact: true }).first().click();
   await page.waitForTimeout(1200);

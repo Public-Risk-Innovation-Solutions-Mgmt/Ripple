@@ -33,6 +33,7 @@
 // ============================================================================
 
 import { useState } from 'react';
+import { latestKnownRoomYear } from '../../utils/knownYears';
 import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
@@ -100,7 +101,9 @@ export default function HostTeamsTab({ room }: Props) {
   const linesInPlay = LINE_ORDER.filter(l => room.teams.some(t => t.lines.includes(l)));
   const effectiveView: LineView = view !== 'pool' && !linesInPlay.includes(view) ? 'pool' : view;
 
-  const reportingYear = room.currentYear - 1;
+  // The latest known year (utils/knownYears): results run a year behind the
+  // last year played, until the event is over and the final year shows.
+  const reportingYear = Math.min(latestKnownRoomYear(room), room.currentYear - 1);
   const teams = room.teams;
 
   if (teams.length === 0) {
@@ -132,8 +135,8 @@ export default function HostTeamsTab({ room }: Props) {
           </p>
           <p data-testid="teams-year" className="text-xs text-slate-400">
             {reportingYear < 1
-              ? 'No year completed yet'
-              : `Year ${reportingYear} — the last completed year`}
+              ? 'No results known yet'
+              : `Year ${reportingYear} — the latest known year`}
           </p>
         </div>
 
@@ -169,7 +172,7 @@ export default function HostTeamsTab({ room }: Props) {
 
                   {state.kind === 'pending' && (
                     <td colSpan={6} data-testid={`pending-${t.name}`} className="px-5 py-2.5 text-xs text-amber-600">
-                      {reportingYear < 1 ? 'no year played yet' : `year ${reportingYear} not reported yet`}
+                      {reportingYear < 1 ? 'no results known yet' : `year ${reportingYear} not reported yet`}
                     </td>
                   )}
 
