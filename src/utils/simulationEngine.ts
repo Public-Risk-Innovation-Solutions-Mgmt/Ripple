@@ -2964,6 +2964,8 @@ export function processLineYear(
     eligibleApplicants: memberResult.eligibleCount,
     intakeRoom: memberResult.intakeRoom,
     activeExposure: parseFloat(activeExposure.toFixed(2)),
+    // Unrounded: the exposure the year was billed on, which its charge is exactly rate x this.
+    billedExposure: activeExposure,
     totalMarketExposure: parseFloat(totalMarketExposure.toFixed(2)),
     marketShare: parseFloat(marketShare.toFixed(4)),
     memberRetentionRate: parseFloat(memberResult.retentionRate.toFixed(3)),
@@ -3050,6 +3052,20 @@ export function processLineYear(
     ...(struck ? { ratedExposure: struck.exposure } : {}),
     // The credit the billed rate took off its pure premium.
     ...(billedStack !== null ? { investmentIncomeCredit: billedStack.investmentIncomeCredit } : {}),
+    // ⚠ A ONE-WORLD YEAR'S RATE BASIS — the pre-game's — so its rate can be
+    // rebuilt (the Model tab): the pure premium was struck on the book before
+    // movement, the bill and its cover on the book after it. A struck year's is
+    // written when it settles (worlds.ts, withRateBasis).
+    ...(!struck && bookMode && billedStack !== null && newPp !== null ? {
+      rateBasis: {
+        ...(ctx.bookUnits ? { risk: bookOrdinaryRisk(ctx.bookUnits) } : {}),
+        windowYears: newPp.points.length,
+        windowExposure: newPp.points.length > 0 ? newPp.points.reduce((a, p) => a + p.exposure, 0) / newPp.points.length : 0,
+        ...(newPp.points.length > 0 ? { latestExposure: newPp.points[newPp.points.length - 1].exposure } : {}),
+        pricedExposure: estimatedExposure,
+        ...(yearUnits ? { billedRisk: bookOrdinaryRisk(yearUnits) } : {}),
+      },
+    } : {}),
     writtenExposure: parseFloat(writtenExposure.toFixed(2)),
     // THE BOOK'S MOVEMENT, in written-exposure units ($M at this year's trend):
     // what renewed (the book kept after the renewal cut and any withdrawal) and

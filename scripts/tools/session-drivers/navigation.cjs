@@ -9,7 +9,7 @@
 //   node scripts/tools/session-drivers/navigation.cjs
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
-const SOLO = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History',
+const SOLO = ['Introduction', 'Rate Indication', 'Model', 'Annual Statement', 'Decisions', 'Decision History',
   'Financial Statements', 'Results', 'Result Spreadsheet', 'Calculation Audit'];
 const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History',
   'Result Spreadsheet'];
