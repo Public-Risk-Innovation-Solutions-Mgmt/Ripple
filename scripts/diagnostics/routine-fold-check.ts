@@ -18,15 +18,17 @@
 //   4. A SIMULATED PRE-GAME: every pre-game year's year factor is the
 //      scenario's multiple (preGameLossMultiplier) x the factor drawn on the
 //      pre-game's own stream from the game's seed; it earns its allocation on
-//      the market drawn on the pre-game's own stream; and no shock fires. (It
-//      was flat — the multiple exactly, and PRE_GAME_INVESTMENT_RETURN.)
+//      the average of PRE_GAME_MARKET_DRAWS markets, each on its own pre-game
+//      stream; and no shock fires. (It was flat — the multiple exactly, and
+//      PRE_GAME_INVESTMENT_RETURN.)
 //
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold without the uplift
 // divisor, T scaled off the folded cost, a routine claim slipped in, a flat
-// pre-game, and a pre-game drawn on the played years' streams.
+// pre-game, a pre-game drawn on the played years' streams, and a pre-game on
+// one market draw.
 // ============================================================================
 
-import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, PRE_GAME_MARKET_DRAWS, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
 import { blendInvestmentReturn, simulateMarketReturns, type MarketReturns } from '../../src/utils/investmentEngine';
 import { deriveSubRng } from '../../src/utils/random';
@@ -137,7 +139,13 @@ console.log('STABLE REGULAR YEARS AND A SIMULATED PRE-GAME');
 const shipped: Fold = routineFoldPer100;
 gradeExpected(shipped, false, '');
 const drawOf: DrawOf = (seed, y, l) => drawOrdinaryFactor(ordinaryLossRng(seed, y, l), ordinaryYearCv(l));
-const marketOf: MarketOf = (seed, y) => simulateMarketReturns(deriveSubRng(seed, y, 'pregame_invest'));
+// The average of PRE_GAME_MARKET_DRAWS markets, each on its own stream — rebuilt here, not read from the engine.
+const avgOf = (labels: string[]): MarketOf => (seed, y) => {
+  const ms = labels.map(l => simulateMarketReturns(deriveSubRng(seed, y, l)));
+  const avg = (f: (m: MarketReturns) => number) => ms.reduce((a, m) => a + f(m), 0) / ms.length;
+  return { cash: avg(m => m.cash), bonds: avg(m => m.bonds), equities: avg(m => m.equities) };
+};
+const marketOf = avgOf(Array.from({ length: PRE_GAME_MARKET_DRAWS }, (_, k) => `pregame_invest_${k}`));
 gradeGames(claimsOf, drawOf, marketOf, '');
 
 console.log('\nCONTROLS — each must FAIL');
@@ -156,6 +164,7 @@ controlFails('a flat pre-game (no draw)', () => gradeGames(claimsOf, () => 1, ma
 controlFails('a pre-game drawn on the played years\' streams', () => gradeGames(claimsOf,
   (seed, y, l) => drawOrdinaryFactor(deriveSubRng(seed, y, `ordinary_${l}`), ordinaryYearCv(l)),
   (seed, y) => simulateMarketReturns(deriveSubRng(seed, y, 'invest')), ''), '4.');
+controlFails('a pre-game on one market draw', () => gradeGames(claimsOf, drawOf, avgOf(['pregame_invest_0']), ''), '4.');
 
 console.log('');
 if (failures.length) {
