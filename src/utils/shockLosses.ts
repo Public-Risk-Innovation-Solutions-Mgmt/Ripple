@@ -52,8 +52,7 @@ import {
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
-import { bookOrdinaryRisk, bookedCostLevel } from './ordinaryLoss';
-import type { BookUnit } from './bookUnits';
+import { bookedCostLevel } from './ordinaryLoss';
 import { drawRoutineLargeSize, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { ratingGroupOf } from './wcClaimEngine';
 import type { Claim, CoverageLine, GameInstance, Member, Occurrence, Region } from '../types/simulation';
@@ -137,7 +136,7 @@ const firingKey = (f: EventFiring) => `${f.event.index}_${f.ordinal}`;
  * THE GAME'S SEED, which every shock draw is keyed on (wip/shocks test build):
  * a world's instance carries its own seed and the game's as marketSeed
  * (worlds.worldInstance), so every world fires the same events with the same
- * A, T and R sizes and lands each T on the same unit. Only the ordinary year
+ * A, T and R sizes and lands each T in the same region. Only the ordinary year
  * and the market remain each world's own.
  */
 export const shockSeedOf = (instance: Pick<GameInstance, 'seed' | 'marketSeed'>): number =>
@@ -297,11 +296,6 @@ export interface LargeLossDraw {
   grossAdded: number;
   /** Per member, the same. */
   byMember: Map<string, number>;
-  /**
-   * Per book unit, for its loss history (bookUnderwriting.ts): each shock
-   * claim's pool amount, and the routine claims' excess. Empty with no units.
-   */
-  byUnit: Map<number, { routine: number; shock: number[] }>;
   /** Above the GL pool limit — the member's, in no pool total. */
   memberShareAboveLimit: number;
   /** Per firing key: the pool's T losses and their count. */
@@ -313,7 +307,7 @@ export interface LargeLossDraw {
  * WHERE A LARGE LOSS LANDS. A member (MEMBER_LEVEL on), or — with no roster —
  * the line's book in one of its regions, carrying BOOK_MEMBER_ID.
  */
-type Lander = Pick<Member, 'id' | 'region'> & { wcRatingGroup?: Member['wcRatingGroup']; unit?: number };
+type Lander = Pick<Member, 'id' | 'region'> & { wcRatingGroup?: Member['wcRatingGroup'] };
 
 /** The id a large loss carries when there is no member to carry it. */
 export const BOOK_MEMBER_ID = 'book';
@@ -326,24 +320,14 @@ function pickMember(rng: SeededRandom, pool: { m: Lander; w: number }[], total: 
 }
 
 /**
- * The pool losses land on. A book of UNITS (book units commit 5): each unit,
- * weighted by its size x its true risk — a riskier unit draws more of the
- * book's large losses — and for a regional T only the units in the struck
- * region. A roster: each member by exposure. Neither: the book's four regions
- * at REGION_EXPOSURE_SHARE. A unit's loss carries BOOK_MEMBER_ID and its
- * index on Claim.unit; it is never shown.
+ * The pool losses land on. A roster: each member by exposure. With no roster —
+ * the book of 100 equal members, which shocks never reach one by one — THE
+ * LINE, in its four regions at REGION_EXPOSURE_SHARE (simple underwriting;
+ * book units weighted their units by size x risk before).
  */
 function weighted(
   members: readonly Member[] | null, line: CoverageLine, yearNumber: number, region?: Region,
-  units?: readonly BookUnit[],
 ) {
-  if (members === null && units) {
-    const pool = units
-      .filter(u => !region || u.region === region)
-      .map(u => ({ m: { id: BOOK_MEMBER_ID, region: u.region, unit: u.index } as Lander, w: u.size * u.risk }))
-      .filter(p => p.w > 0);
-    return { pool, total: pool.reduce((s, p) => s + p.w, 0) };
-  }
   const pool: { m: Lander; w: number }[] = members === null
     ? GAME_REGIONS
       .filter(r => !region || r === region)
@@ -366,9 +350,6 @@ export function drawLargeLosses(
   // null with MEMBER_LEVEL off: losses land on the book, by region.
   line: CoverageLine, members: readonly Member[] | null, yearNumber: number, calendarYear: number,
   seed: number, shocks: LineShockYear, exposure: number,
-  // THE BOOK'S UNITS (book units commit 5): losses land on them by size x
-  // true risk, and the book's routine claim count carries its risk.
-  units?: readonly BookUnit[],
   // The GAME's seed (shockSeedOf), for where each T claim lands. Absent: `seed`.
   gameSeed: number = seed,
   // The year's shock cost factor (utils/shockCost): each T claim is its drawn
@@ -376,35 +357,28 @@ export function drawLargeLosses(
   tFactor = 1,
 ): LargeLossDraw {
   const out: LargeLossDraw = {
-    claims: [], occurrences: [], grossAdded: 0, byMember: new Map(), byUnit: new Map(),
+    claims: [], occurrences: [], grossAdded: 0, byMember: new Map(),
     memberShareAboveLimit: 0, tByFiring: new Map(), routine: { count: 0, groundUp: 0, excess: 0 },
   };
-  const book = weighted(members, line, yearNumber, undefined, units);
+  const book = weighted(members, line, yearNumber);
   const credit = (memberId: string, amount: number) =>
     out.byMember.set(memberId, (out.byMember.get(memberId) ?? 0) + amount);
-  const onUnit = (m: Lander) => {
-    if (m.unit === undefined) return undefined;
-    let u = out.byUnit.get(m.unit);
-    if (!u) out.byUnit.set(m.unit, (u = { routine: 0, shock: [] }));
-    return u;
-  };
   const claimOf = (id: string, occurrenceId: string, m: Lander, tier: string, amount: number, shockId?: string): Claim => ({
     id, occurrenceId, memberId: m.id, line, accidentYear: yearNumber, calendarYear, tier,
     ...(line === 'WC' && m.wcRatingGroup ? { ratingClass: ratingGroupOf(m as Member) } : {}),
     status: 'open', reportedYear: yearNumber, grossUltimate: amount, paidToDate: 0, caseReserve: amount,
     ...(shockId !== undefined ? { shockId } : {}),
-    ...(m.unit !== undefined ? { unit: m.unit } : {}),
   });
 
   // --- T: each arriving event's ONE claim ---------------------------------
   // Its size was drawn with the firing (tClaimSize); where it lands is drawn
-  // from the GAME's seed, so every world puts it on the same unit.
+  // from the GAME's seed, so every world puts it in the same region.
   for (const arrival of shocks.arrivals) {
     const f = arrival.firing;
     const key = firingKey(f);
     const tag = `${f.event.index}-${f.ordinal}`;
     const whoRng = deriveSubRng(gameSeed, f.firedYear, `nle_tm_${f.event.index}_${f.ordinal}_${line}`);
-    const where = weighted(members, line, yearNumber, f.region, units);
+    const where = weighted(members, line, yearNumber, f.region);
     const rec = { gross: 0, claims: 0 };
     if (where.total > 0) {
       const x = arrival.size * tFactor;
@@ -422,7 +396,6 @@ export function drawLargeLosses(
         region: m.region, isCatastrophe: f.event.regional, claimIds: [id],
       });
       credit(m.id, pool);
-      onUnit(m)?.shock.push(pool);
       rec.gross += pool;
       rec.claims += 1;
     }
@@ -437,9 +410,8 @@ export function drawLargeLosses(
     const g = trendFactor(line, yearNumber);
     const rng = deriveSubRng(seed, yearNumber, `nle_routine_${line}`);
     const whoRng = deriveSubRng(seed, yearNumber, `nle_routine_m_${line}`);
-    // A riskier book draws more routine large claims: the count is on its
-    // exposure x its size-weighted true risk (1 with no units).
-    const n = rng.poisson(routineLargeCount(line, exposure * (units ? bookOrdinaryRisk(units) : 1)));
+    // The count is on the book's exposure: its members carry no risk score.
+    const n = rng.poisson(routineLargeCount(line, exposure));
     for (let i = 0; i < n; i++) {
       const x = g * drawRoutineLargeSize(rng, basis);
       const m = pickMember(whoRng, book.pool, book.total);
@@ -457,8 +429,6 @@ export function drawLargeLosses(
         region: m.region, isCatastrophe: false, claimIds: [id],
       });
       credit(m.id, excess);
-      const onU = onUnit(m);
-      if (onU) onU.routine += excess;
       out.grossAdded += excess;
       out.routine.count += 1;
       out.routine.groundUp += pool;

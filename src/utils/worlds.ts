@@ -34,8 +34,6 @@ import { SHOCK_FREE_PRICING, WORLD_COUNT, newLossEngineRuns } from '../data/pric
 import { CAPITAL_ADEQUACY_THRESHOLDS } from '../data/defaultAssumptions';
 import { exposureFactor } from '../data/exposureTrend';
 import { deriveSubRng } from './random';
-import { lineBookRisk } from './bookUnits';
-import { averageLedgerYear } from './bookUnderwriting';
 import {
   aggregateLineResults, applyLoanAuthorizations, fundedNetExpectedLoss, processYear,
   stampPricingTriangle, strikeBookRate,
@@ -75,27 +73,11 @@ export function worldInstance(instance: GameInstance, i: number): GameInstance {
 export function openWorlds(gs: GameState): GameState {
   const n = worldCount();
   if (n <= 1) return gs;
-  const opening = withoutBook(gs.poolState);
+  const opening = gs.poolState;
   return {
     ...gs,
     worlds: Array.from({ length: n }, () => ({ poolState: opening, lockedResults: gs.lockedResults })),
   };
-}
-
-// ⚠ THE BOOK OF UNITS IS THE GAME'S, NOT A WORLD'S. Every world holds the same
-// book (underwriting is shared; only loss draws differ), so it is kept once, on
-// the game's pool state (PoolState.bookUnits): a world's state never carries a
-// copy, and the averaged state takes the game's, not world 1's.
-// The underwriting ledger (PoolState.bookLedger) travels with it, the same way.
-function withBook(ps: PoolState, game: PoolState): PoolState {
-  if (game.bookUnits === undefined) return ps;
-  return { ...ps, bookUnits: game.bookUnits, ...(game.bookLedger ? { bookLedger: game.bookLedger } : {}) };
-}
-function withoutBook(ps: PoolState): PoolState {
-  if (ps.bookUnits === undefined && ps.bookLedger === undefined) return ps;
-  const { bookUnits: _book, bookLedger: _ledger, ...rest } = ps;
-  void _book; void _ledger;
-  return rest;
 }
 
 // ----------------------------------------------------------------------------
@@ -144,7 +126,7 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
     const struck = strikeBookRate(line, pricingLineState(gs, line), decisions.byLine[line], gs.currentYearNumber, {
       allMarketMembers: gs.poolState.allMarketMembers,
       membershipHistory: gs.poolState.membershipHistory,
-    }, lineBookRisk(gs.instance, line, gs.poolState.bookUnits, gs.poolState.bookLedger), gameShocksOn(gs.setup, gs.instance));
+    }, 1, gameShocksOn(gs.setup, gs.instance));
     if (struck) out[line] = struck;
   }
   return out;
@@ -164,14 +146,12 @@ export function playWorldsYear(gs: GameState, decisions: DecisionSet): WorldsYea
     return { perWorld: [p], loanOffers: p.loanOffers, decisions, ...(shadow ? { shadow } : {}) };
   }
   const struckRates = strikeRates(gs, decisions);
-  // The game's book reaches every world for the year (withBook); it is never
-  // stored on a world's state (settleWorldsYear strips it).
   // ⚠ A WORLD'S PAST IS THE AVERAGED ROWS WITH ITS OWN LAST ONE (commit 10).
   // The engine reads the previous row's figures — the world's own — and, from
   // the rows before it, only the pool-wide decisions, which every world shares
   // with the average. So a world need keep no row but its last.
   const perWorld = gs.worlds.map((w, i) => processYear(
-    { ...gs, instance: worldInstance(gs.instance, i), poolState: withBook(w.poolState, gs.poolState),
+    { ...gs, instance: worldInstance(gs.instance, i), poolState: w.poolState,
       lockedResults: worldPast(gs.lockedResults, w.lockedResults) },
     decisions,
     { struckRates },
@@ -239,7 +219,7 @@ export function settleWorldsYear(gs: GameState, played_: WorldsYear, authorizedL
   // its claims (the claims download). What the screens read of the worlds is
   // struck below onto the averaged row, while every world's row is in hand.
   const worlds: WorldState[] = gs.worlds.map((w, i) => ({
-    poolState: withoutBook(settled[i].updatedPoolState),
+    poolState: settled[i].updatedPoolState,
     lockedResults: i === 0 ? [...w.lockedResults, settled[i].result] : [settled[i].result],
     closedCohorts: archiveClosedCohorts(w, settled[i].updatedPoolState, gs.setup.activeLines),
   }));
@@ -249,16 +229,7 @@ export function settleWorldsYear(gs: GameState, played_: WorldsYear, authorizedL
     worldSummary: summarizeWorlds(settled.map(s => s.result), gs.setup.activeLines, i => worldMarket(gs, i)),
   }, played_.struckRates);
   const averaged = averagePoolStates(worlds, gs.setup.activeLines, gs.currentYearNumber);
-  // The book as underwriting left it — the same in every world (it reads only
-  // the game's seed and the team's decision), so world 1's is the game's.
-  const moved = settled[0].updatedPoolState.bookUnits ?? gs.poolState.bookUnits;
-  // ⚠ ITS LEDGER IS THE WORLDS' AVERAGE: shares and joins are the same in every
-  // world, and each world's record of this year is averaged across them
-  // (averageLedgerYear), so next year's renewals rank one history.
-  const ledgers = settled.map(s => s.updatedPoolState.bookLedger);
-  const bookLedger = ledgers[0] ? Object.fromEntries(Object.keys(ledgers[0]).map(l => [l,
-    averageLedgerYear(ledgers.map(x => x![l as CoverageLine]!), gs.currentYearNumber)])) as PoolState['bookLedger'] : undefined;
-  const poolState = moved ? { ...averaged, bookUnits: moved, ...(bookLedger ? { bookLedger } : {}) } : averaged;
+  const poolState = averaged;
   return { poolState, result, worlds, played, ...(shadow ? { shadow } : {}) };
 }
 

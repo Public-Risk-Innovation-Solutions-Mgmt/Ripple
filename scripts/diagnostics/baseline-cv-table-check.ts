@@ -19,7 +19,7 @@
 //      neighbouring tables differ by 0.009 or more at the 70% stop and 0.025 or
 //      more at 90% (the 6% and 8% tables), so a table filed under the wrong
 //      CV cannot pass.
-//   3. THE ENGINE DRAWS THE YEAR FACTOR AT THE SAME VALUE: ordinaryLossFromUnits'
+//   3. THE ENGINE DRAWS THE YEAR FACTOR AT THE SAME VALUE: ordinaryLossFromMembers'
 //      year factor, recovered from its units, is exactly the draw on the line's
 //      labelled stream at BASELINE_CV — on many seeds and years, bit for bit.
 //   4. AND THE SLIDER AND REQUIRED CAPITAL READ THAT TABLE: staticClf at each
@@ -34,20 +34,19 @@
 // AND WITH THE SOURCE BROKEN BY HAND, MEASURED: BASELINE_CV.WC moved to 0.07,
 // which has no table — exit 1, tableAtBaselineCv throws at load. WC's
 // STATIC_CLF_TABLE pointed at GL's — exit 1, WC fails 1 and 2 (0.0518 off at
-// 90%). ordinaryLossFromUnits drawing its year factor at 0.02 — exit 1, all
+// 90%). ordinaryLossFromMembers drawing its year factor at 0.02 — exit 1, all
 // three lines fail 3 (14-35% off).
 // ============================================================================
 
-import { BASELINE_CV, UNIT_MARKET_COUNT, UNIT_ORDINARY_OWN_CV, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV } from '../../src/data/pricingParameters';
+import { BASELINE_CV, MEMBER_LUCK_CV, UNDERWRITING_MEMBERS } from '../../src/data/pricingParameters';
 import {
   BASELINE_CV_TABLES, baselineCvKey, crossingOf, RESERVE_MARGIN_CONFIDENCE, staticClf, STATIC_CLF_TABLE, type ClfTable,
   type StaticClfLine,
 } from '../../src/data/clfTables';
 import {
-  drawOrdinaryFactor, ordinaryLossFromUnits, ordinaryLossRng, ordinaryYearCv, unitOrdinaryRng,
+  drawOrdinaryFactor, ordinaryLossFromMembers, ordinaryLossRng, ordinaryYearCv,
 } from '../../src/utils/ordinaryLoss';
 import { requiredCapital } from '../../src/utils/openingReserves';
-import { openingBookUnits, unitsOf } from '../../src/utils/bookUnits';
 import { normalCdf, normalInvCdf } from '../../src/utils/claimMath';
 
 const LINES: StaticClfLine[] = ['WC', 'GL', 'Property'];
@@ -62,10 +61,10 @@ function check(ok: boolean, what: string, detail = ''): void {
   if (!ok) failures.push(what);
 }
 
-// The closed form. H at the market's typical book, from the parameters alone.
-const H = (1 + UNIT_SIZE_CV ** 2) * (1 + UNIT_RISK_CV ** 2) / (UNIT_POOL_SHARE * UNIT_MARKET_COUNT);
+// The closed form. H over the book's equal members, from the parameters alone.
+const H = 1 / UNDERWRITING_MEMBERS;
 function analytic(b: number) {
-  const cv = Math.sqrt((1 + b * b) * (1 + UNIT_ORDINARY_OWN_CV ** 2 * H) - 1);
+  const cv = Math.sqrt((1 + b * b) * (1 + MEMBER_LUCK_CV ** 2 * H) - 1);
   const s = Math.sqrt(Math.log(1 + cv * cv));
   return {
     at: (p: number) => Math.exp(-s * s / 2 + s * normalInvCdf(p)),
@@ -73,15 +72,11 @@ function analytic(b: number) {
   };
 }
 
-// The engine's year factor for one line-year, recovered from its units: each
-// unit's realised / expected is the year factor x that unit's own factor.
+// The engine's year factor for one line-year, from its own draw on the
+// book's members: realised / expected is the year factor x the members' mean luck.
 function engineYearFactor(line: StaticClfLine, seed: number, year: number): number {
-  const units = unitsOf(4_242_424, line, openingBookUnits(4_242_424, line));
-  const o = ordinaryLossFromUnits(line, units, 100, year, seed);
-  const own = unitOrdinaryRng(seed, year, line);
-  const ownFactors = Array.from({ length: UNIT_MARKET_COUNT }, () => drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV));
-  const u = o.byUnit[0];
-  return u.realised / u.expected / ownFactors[u.index];
+  const o = ordinaryLossFromMembers(line, 100, year, seed);
+  return o.realised / o.expected / (o.luck.reduce((a, b) => a + b, 0) / o.luck.length);
 }
 
 type TableOf = (line: StaticClfLine) => ClfTable;

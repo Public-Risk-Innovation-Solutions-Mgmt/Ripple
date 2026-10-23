@@ -215,7 +215,7 @@ export function buildUnderwritingMemo(gameState: GameState, liveDecisions?: Deci
 
     // THE SAME FUNCTION THE ENGINE CALLS, so the list is the list the year will
     // apply rather than a second reading of the rule.
-    const cut = currentDecisions.byLine[line]?.renewalsDeclined ?? 0;
+    const cut = currentDecisions.byLine[line]?.nonRenewal ?? 0;
     const overBar = renewalDeclines(members, line, history, currentYearNumber, cut)
       .map(dec => ({ dec, member: members.find(x => x.id === dec.memberId) }))
       .filter((x): x is { dec: RenewalDecision; member: Member } => x.member !== undefined);

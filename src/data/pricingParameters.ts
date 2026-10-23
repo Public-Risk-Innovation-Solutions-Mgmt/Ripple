@@ -317,12 +317,12 @@ export const DEVELOPMENT_TAIL = { closed: true } as const;
 /**
  * THE BASELINE CV, PER LINE — the shared year-to-year wobble in each line's
  * ordinary losses: the coefficient of variation of the one year factor every
- * unit of a line's book shares in a given year (the data scientist's
+ * member of a line's book shares in a given year (the data scientist's
  * BaselineCV).
  *
  * ⚠ ONE SETTING DRIVES TWO THINGS, SO THE TWO CAN NEVER DISAGREE. It sets
  * BOTH the engine's ordinary loss draw (the shared year factor in
- * ordinaryLossFromUnits, which replaced the single UNIT_ORDINARY_YEAR_CV of 2%
+ * ordinaryLossFromMembers, which replaced the single UNIT_ORDINARY_YEAR_CV of 2%
  * for every line) AND which funding table the line reads (BASELINE_CV_TABLES
  * in clfTables.ts, one per BaselineCV, from wip/clf-tables). A line whose
  * losses wobble at one CV and are funded off a table built at another would be
@@ -331,9 +331,9 @@ export const DEVELOPMENT_TAIL = { closed: true } as const;
  * exist at 2, 4, 6, 8, 10, 12 and 15%).
  *
  * ⚠ CHOSEN, NOT SOURCED. WC 6%, Property 8%, GL 10%. In use since the funding
- * tables wiring. Over a book of about 60 units the line's ordinary loss CV is
- * sqrt((1+B^2)(1+0.10^2 H) - 1), H about 0.021: about 6.2% on WC, 8.1% on
- * Property and 10.1% on GL, against 2.5% on every line before.
+ * tables wiring. Over 100 equal members the line's ordinary loss CV is
+ * sqrt((1+B^2)(1+0.10^2 / 100) - 1): 6.0% on WC, 8.0% on Property and 10.0% on
+ * GL (6.2%, 8.1% and 10.1% over the retired book of about 60 unequal units).
  */
 export const BASELINE_CV: PerLine<number> = { WC: 0.06, GL: 0.10, Property: 0.08 };
 
@@ -608,20 +608,12 @@ export const PRIOR_HISTORY_YEARS = 6;
 /**
  * THE PRE-GAME BOOK GROWS 2% A YEAR, ENDING EXACTLY AT THE OPENING BOOK.
  *
- * The opening book (bookUnits.openingBookUnits) is put in a seeded order (its
- * own stream, pregame_growth_<line>, from the game's seed). 2021, the first
- * pre-game year, holds the first 1 / (1 + this)^5 of its exposure; each later
- * year writes the next units in as NEW BUSINESS, to exactly the opening book x
- * (1 + this)^(year - 2026), a part of a unit where the exposure needs one;
- * 2026 holds the whole opening book. The units written carry the first-year
- * penalty on their ordinary losses as new business does in play
- * (NEW_BUSINESS_PENALTY at the default rejection), and are joined that year,
- * so a unit written in 2026 is safe at its first renewal in 2027.
- *
- * ⚠ AT MARKET RISK, AND WHY THE OPENING BOOK'S OWN UNITS: the opening book is
- * a random draw from the market, so units taken from it in a random order are
- * new business at market risk in expectation — and the book still ends exactly
- * at today's opening, so the played game opens on the same book as before.
+ * 2021, the first pre-game year, holds OPENING_BOOK_EXPOSURE / (1 + this)^5;
+ * each later year grows to exactly the opening book x (1 + this)^(year − 2026),
+ * and 2026 holds the whole opening book (bookUnderwriting.preGameBook). Each
+ * year's growth is new members' exposure: it carries NEW_BUSINESS_PENALTY on
+ * its ordinary losses that year, as the New members slider's does in play.
+ * There is no decision in it, and no non-renewal.
  *
  * ⚠ WHY: a pool's book does not stand still for six years before the game, and
  * a growing one hands the team a history of smaller, older years, with new
@@ -1015,31 +1007,24 @@ export const ORDINARY_LOSS_LIMIT: PerLine<number> = {
 };
 
 /**
- * ORDINARY LOSSES FROM BOOK UNITS — CHOSEN, the R model's two factors (book
- * units commit 3). Each unit's expected ordinary loss is its exposure x its
- * true risk x the line's expected ordinary loss cost; each year it is
+ * ORDINARY LOSSES FROM 100 EQUAL MEMBERS — CHOSEN, the R model's two factors.
+ * Each member's expected ordinary loss is its 1/UNDERWRITING_MEMBERS share of
+ * the line's (exposure x the line's cost x underwriting's one-year bracket);
+ * each year it is
  *
- *   expected x F x f,   F the year factor every unit shares (CV
- *                       BASELINE_CV, the line's own), f the unit's own (CV
- *                       UNIT_ORDINARY_OWN_CV)
+ *   expected x F x f,   F the year factor every member shares (CV
+ *                       BASELINE_CV, the line's own), f the member's own luck
+ *                       (CV MEMBER_LUCK_CV)
  *
  * and the line's ordinary loss is the sum. Both factors are LOGNORMAL WITH
  * MEAN EXACTLY 1, so the expected loss IS the mean of the draws by
- * construction.
+ * construction. Over 100 equal members the line's CV is
+ * sqrt((1 + Y^2)(1 + 0.10^2 / 100) − 1): 6.0% (WC), 8.0% (Property), 10.0% (GL)
+ * — against 6.2%, 8.1% and 10.1% over the retired book of about 60 unequal units.
  *
- * ⚠ THEY REPLACE ORDINARY_LOSS_CV, one 2.2% draw at the line — what these two
- * compound to over 100 equal members, sqrt(0.02^2 + 0.10^2/100). Over a book
- * of about 60 unequal units the line's CV is sqrt(0.02^2 + 0.10^2 x H), H the
- * sum of each unit's squared share of the expected loss: about 2.47%
- * (typicalBookOrdinaryCv). book-units-ordinary-check holds the draws to both.
- *
- * ⚠ THE YEAR FACTOR'S CV IS BASELINE_CV, PER LINE, SINCE THE FUNDING TABLES
- * WIRING. It was UNIT_ORDINARY_YEAR_CV, 2% on every line, and that constant is
- * gone: the year factor is now the one setting the funding table is chosen by.
- * The sqrt(0.02^2 + ...) above is the history; the line's CV today is about
- * 6.2% (WC), 8.1% (Property) and 10.1% (GL).
+ * WHY 10%: the R model's own factor, kept when units were replaced by members.
  */
-export const UNIT_ORDINARY_OWN_CV = 0.10;
+export const MEMBER_LUCK_CV = 0.10;
 
 /*
  * THE OLD ENGINE'S DERIVED ORDINARY LOSS COST, PER $100, YEAR 1 — SOURCED, AND
@@ -1184,9 +1169,8 @@ export const ROUTINE_LARGE_LOSSES = { enabled: false };
  * factor (stable-scenarios build, commit 1).
  *
  * OFF, each pre-game year is DRAWN THE WAY A PLAYED YEAR IS: the line's year
- * factor and each unit's own factor at their settings (BASELINE_CV,
- * UNIT_ORDINARY_OWN_CV), on the scenario's multiple, and the market drawn as a
- * played year draws it. No shock fires in the pre-game, as before. Every draw
+ * factor and each member's own luck at their settings (BASELINE_CV,
+ * MEMBER_LUCK_CV), on the scenario's multiple, as a played year draws them. No shock fires in the pre-game, as before. Every draw
  * comes from the game's seed on a stream of its own (`pregame_ordinary_<line>`,
  * `pregame_ordinary_unit_<line>`, `pregame_invest`), so every team in a room
  * and any takeover inherit the identical history, and the played years' draws
@@ -1488,8 +1472,8 @@ export const SHOCK_FREE_PRICING = { enabled: true };
  * THE EXPOSURE SCALE, PER LINE (stable-scenarios commit 8) — CHOSEN so each
  * line's YEAR-1 PREMIUM AT EXPECTED IS ABOUT $30M (the default decisions, the
  * Bad-year cover, the mean over seeds). It multiplies the whole market
- * (FULL_MARKET_EXPOSURE), so the book, drawn as units up to UNIT_POOL_SHARE of
- * it, keeps about 30% of the market. Everything that scales with exposure —
+ * (FULL_MARKET_EXPOSURE), so the book (OPENING_BOOK_EXPOSURE) keeps about 30%
+ * of the market. Everything that scales with exposure —
  * ordinary losses, the shocks' large losses (their T scale is exposure x cost),
  * the stop's terms — scales with it; what is fixed in dollars does not: the
  * fixed admin, the GL pool limit, the peril deductibles, the opening surplus.
@@ -1531,129 +1515,80 @@ export const FULL_MARKET_EXPOSURE: PerLine<number> = scaled({
 });
 
 /**
- * BOOK UNITS — each line's exposure split across individual units
- * (src/utils/bookUnits.ts). NOT members: the dormant member engine has its own
- * roster; units are never shown on any screen, export or host view. All
- * CHOSEN, the R model's own shapes.
- *
- *   UNIT_MARKET_COUNT  units in each line's market, drawn from the game seed
- *   UNIT_SIZE_CV       the spread of unit sizes; the market sums exactly to
- *                      FULL_MARKET_EXPOSURE
- *   UNIT_RISK_CV       the spread of true risk scores; the market's
- *                      size-weighted mean is exactly 1.0
- *   UNIT_POOL_SHARE    the opening book: units in a seeded order until it
- *                      first reaches this share of the market — about 60
- *
- * ⚠ READ BY NOTHING YET (book units commit 2): the book is drawn and stored,
- * and every loss, rate and movement still runs on the line's one exposure.
- */
-export const UNIT_MARKET_COUNT = 200;
-export const UNIT_SIZE_CV = 0.40;
-export const UNIT_RISK_CV = 0.30;
-export const UNIT_POOL_SHARE = 0.30;
-
-/**
  * ============================================================================
- * UNDERWRITING — TWO SLIDERS ON THE BOOK OF UNITS (uw-hybrid, a test build).
- * Every setting underwriting reads is here; bookUnderwriting.ts applies them.
+ * UNDERWRITING — TWO SLIDERS ON A BOOK OF 100 EQUAL MEMBERS (simple
+ * underwriting, a test build). Every setting underwriting reads is here;
+ * bookUnderwriting.ts moves the book and ordinaryLoss.ts draws its losses.
  *
- * RENEWALS DECLINED (RENEWALS_DECLINED_SLIDER) — the share of RENEWING
- * exposure (the book at the start of the year) the pool declines, on loss
- * history. Each held unit's loss ratio is its losses over the last
- * LOSS_HISTORY_YEARS accident years against the premium it paid in them,
- * each shock claim counted at most LOSS_HISTORY_CLAIM_CAP. Units in the book
- * less than NEW_MEMBER_GRACE_YEARS are not eligible. The history is AVERAGED
- * ACROSS ALL THE WORLDS — losses and premium each the mean over the worlds —
- * so every world ranks the units alike and declines the same ones. The worst
- * loss ratios go first.
+ * THE BOOK. Each line's book is UNDERWRITING_MEMBERS equal members sharing the
+ * line's exposure. They exist ONLY for each member's own luck draw
+ * (MEMBER_LUCK_CV), which randomises the year's ordinary losses. No risk
+ * scores, no loss history, no choosing who leaves, no partial members: the
+ * sliders move the line's EXPOSURE, and every member's share of it alike.
  *
- * ⚠ MEASURED: THE HISTORY READS TRUE RISK ALMOST EXACTLY, so this slider is
- * close to perfect selection. On scenario 18 Property its correlation with
- * true risk at each renewal is 0.96–1.00 whether averaged over 1, 10 or all
- * 100 worlds (a ten-world history was tried on wip/uw-hybrid and dropped: it
- * changed nothing). The clarity comes from the flat pre-game (every unit at
- * exactly its expected loss), a unit's own noise (UNIT_ORDINARY_OWN_CV, 10%)
- * small against the spread of risk (UNIT_RISK_CV, 30%), and the shared year
- * factor, which cancels in a ranking. Declining 5% a year cuts the loss ratio
- * 2.1 points in year 1 and 6.7 by year 5, against the data scientist's 2.5.
+ * NON-RENEWAL (NON_RENEWAL_SLIDER, a1) — exposure falls by a1 of the book at
+ * the start of the year, and THIS YEAR's ordinary loss per unit of the
+ * renewing exposure falls by NON_RENEWAL_LOSS_RELIEF x a1.
  *
- * NEW BUSINESS, REJECTION RATE (NEW_BUSINESS_REJECTION_SLIDER) — the share
- * of applicants turned away. Applicants arrive at NEW_BUSINESS_APPLICATIONS
- * of the book's exposure a year, drawn from the market (the units the book
- * does not hold) in a seeded random order, so they carry the market's own
- * risk. Rejection is random too: the formula below is its only effect on
- * quality.
+ * NEW MEMBERS (NEW_MEMBERS_SLIDER, a2) — exposure rises by a2 of the book at
+ * the start of the year, and that new exposure's ordinary losses carry
+ * NEW_BUSINESS_PENALTY, flat, THIS YEAR.
  *
- * THE FRACTIONAL-UNIT RULE, so each slider hits its share of exposure
- * exactly rather than to the nearest whole unit (a unit is about 1.7% of a
- * book; the sliders step in 1%):
- *   renewal    whole units are declined from the worst loss ratio down, and
- *              PART of the last one — the share of it that reaches the
- *              target. The rest of that unit renews and keeps its history.
- *   new        applicants are whole units in the random order and part of the
- *              last, to exactly NEW_BUSINESS_APPLICATIONS of the book; every
- *              applicant is then accepted at (1 − rejection) of its share, so
- *              accepted exposure is short of applied by exactly the rate.
- * A partly held unit's exposure — and so its losses, its premium and its
- * weight in the book's risk — is its size x the share held.
+ *   expected ordinary loss = f(x) x E x [ (1 − a1)(1 − 0.5 a1) + a2 x 1.2 ]
  *
- * WHAT JOINS CARRIES, IN ITS FIRST YEAR ONLY, on its actual ordinary losses:
- *   penalty factor = 1 + NEW_BUSINESS_PENALTY x (1 − savings)
- *   savings        = min(1, rejection / FULL_SAVINGS_AT)
- * — the data scientist's formula: 1.20 at 0%, 1.10 at 5%, 1.00 from 10%.
- * Not in pricing's expected loss. From year 2 the unit is the existing book.
+ * E the book at the start of the year, f(x) the trended expected loss per
+ * unit. Both effects are one-year: next year the loss per unit is back to
+ * f(x) unless a slider is used again. The year factor and each member's luck
+ * multiply it as before.
  *
- * BOOK SETTINGS UNDERWRITING ACTS ON: UNIT_MARKET_COUNT, UNIT_SIZE_CV,
- * UNIT_RISK_CV and UNIT_POOL_SHARE above (the market and the opening book),
- * FULL_MARKET_EXPOSURE (the cap) and R_MODEL.memberWithdrawalReduction (a
- * Member Withdrawal's 25%).
+ * ⚠ THE BRACKET IS NOT IN PRICING'S EXPECTED LOSS. Pricing is unchanged: it
+ * prices exposure x f(x) and learns what underwriting did only through the
+ * experience, as it learned the old penalty.
  *
- * RETIRED HERE: UNIT_UW_VISIBILITY (a noisy view of true risk; selection is
- * now on loss history), BOOK_INTAKE_SHARE and the four intake positions.
+ * A Member Withdrawal still removes R_MODEL.memberWithdrawalReduction of what
+ * renews (at its relieved cost); FULL_MARKET_EXPOSURE still caps the book.
+ * Shocks hit the line directly — a T claim lands on the line by region share,
+ * an A surge on the whole line's ordinary losses — never on a member.
+ *
+ * RETIRED HERE: the market of units (UNIT_MARKET_COUNT, UNIT_SIZE_CV,
+ * UNIT_RISK_CV, UNIT_POOL_SHARE), selection on loss history
+ * (LOSS_HISTORY_YEARS, LOSS_HISTORY_CLAIM_CAP, NEW_MEMBER_GRACE_YEARS), and
+ * the rejection rate with everything it bought down (NEW_BUSINESS_APPLICATIONS,
+ * FULL_SAVINGS_AT, RENEWALS_DECLINED_SLIDER, NEW_BUSINESS_REJECTION_SLIDER).
  * ============================================================================
  */
 
-/** Accident years of loss history a renewal reads — CHOSEN, the brief's 3. */
-export const LOSS_HISTORY_YEARS = 3;
-
-/** The most one shock claim counts for in a unit's loss history, $ — CHOSEN, the brief's $1M. */
-export const LOSS_HISTORY_CLAIM_CAP = 1_000_000;
-
 /**
- * Years in the book before a unit can be declined on its history — CHOSEN, the
- * brief's 1. A renewal is decided before the year it renews into, so a unit
- * written in year J has been in the book less than a year at year J+1's
- * renewal: at 1 new business is safe at its first renewal (when its record is
- * one penalised year) and eligible from its second.
+ * Members in each line's book — CHOSEN, 100. Each holds 1/100 of the line's
+ * exposure and draws its own luck; with equal shares the line's ordinary CV is
+ * sqrt((1 + Y^2)(1 + MEMBER_LUCK_CV^2 / 100) − 1), Y the line's year CV. WHY
+ * 100: enough that one member's luck cannot move the line, few enough to stay
+ * a pool. Members never come or go — exposure does.
  */
-export const NEW_MEMBER_GRACE_YEARS = 1;
+export const UNDERWRITING_MEMBERS = 100;
+
+/** "Non-renewal": 0–5% of the book at the start of the year, in 1% steps, default 0%. */
+export const NON_RENEWAL_SLIDER = { min: 0, max: 0.05, step: 0.01, default: 0 } as const;
+
+/** "New members": 0–5% of the book at the start of the year added, in 1% steps, default 0%. */
+export const NEW_MEMBERS_SLIDER = { min: 0, max: 0.05, step: 0.01, default: 0 } as const;
 
 /**
- * APPLICATIONS A YEAR, AS A SHARE OF THE BOOK'S EXPOSURE AT THE START OF THE
- * YEAR — CHOSEN, 5%: the top of the dial tested between 2% and 5%, the first
- * rate at which taking all new business visibly costs loss ratio. ONE LINE.
+ * NON-RENEWAL'S LOSS RELIEF — CHOSEN, 0.5: this year's ordinary loss per unit
+ * of renewing exposure falls by this x the non-renewal share (5% non-renewed
+ * -> 2.5% cheaper). WHY: a pool that declines renewals sheds worse-than-average
+ * business, and half the share declined is the brief's measure of how much;
+ * one year only, because the book has no memory of who left.
  */
-export const NEW_BUSINESS_APPLICATIONS = 0.05;
-
-/** The rejection rate at which new business costs no more than the book — CHOSEN, the data scientist's 10%. */
-export const FULL_SAVINGS_AT = 0.10;
-
-/** "Renewals declined": 0–10% of renewing exposure, in 1% steps, default 0%. */
-export const RENEWALS_DECLINED_SLIDER = { min: 0, max: 0.10, step: 0.01, default: 0 } as const;
-
-/** "New Business, rejection rate": 0–15% of applicants, in 1% steps, default 0%. */
-export const NEW_BUSINESS_REJECTION_SLIDER = { min: 0, max: 0.15, step: 0.01, default: 0 } as const;
+export const NON_RENEWAL_LOSS_RELIEF = 0.5;
 
 /**
- * NEW-BUSINESS PENALTY — CHOSEN, the R model's 20%: the most new business
- * costs over the book, on its ACTUAL ordinary losses in its first year only
- * (ordinaryLossFromUnits). The rejection rate buys it down — the factor is
- * 1 + this x (1 − min(1, rejection / FULL_SAVINGS_AT)); see the underwriting
- * block above. A unit renewed the next year carries none.
- *
- * ⚠ AND IT IS NOT IN EXPECTED LOSS. A pool does not know in advance that its
- * new business will run worse; expected loss is the book's own exposure x
- * risk x cost, and the rate learns the penalty only through the history.
+ * NEW-BUSINESS PENALTY — CHOSEN, the R model's 20%, now FLAT: the new members'
+ * exposure (NEW_MEMBERS_SLIDER) costs this much more per unit than the book on
+ * its ordinary losses, in its first year only. Nothing buys it down — the
+ * rejection rate is gone. The pre-game's steady growth (PRE_GAME_BOOK_GROWTH)
+ * carries it on each year's growth too. Not in pricing's expected loss: the
+ * rate learns it only through the experience.
  */
 export const NEW_BUSINESS_PENALTY = 0.20;
 
@@ -2720,14 +2655,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Ordinary loss factors', {
         value: `year: Baseline CV (WC ${(100 * BASELINE_CV.WC).toFixed(0)}% · GL ${(100 * BASELINE_CV.GL).toFixed(0)}% · `
-          + `Property ${(100 * BASELINE_CV.Property).toFixed(0)}%) · unit ${(100 * UNIT_ORDINARY_OWN_CV).toFixed(0)}%`,
+          + `Property ${(100 * BASELINE_CV.Property).toFixed(0)}%) · member luck ${(100 * MEMBER_LUCK_CV).toFixed(0)}%`,
         unit: 'CV, each a mean-1 lognormal',
-        what: 'Each book unit\'s ordinary loss is its expected loss (exposure x true risk x the line\'s cost) times a '
-          + 'year factor every unit shares and a factor of its own; the line\'s ordinary loss is the sum.',
+        what: 'Each of the 100 equal members\' ordinary loss is its 1/100 share of the line\'s expected loss times a '
+          + 'year factor every member shares and its own luck; the line\'s ordinary loss is the sum.',
         basis: 'CHOSEN',
         note: 'The R model\'s two factors. The year factor\'s CV is the line\'s Baseline CV since the funding '
-          + 'tables wiring (it was 2% on every line); over a book of about 60 unequal units the line\'s CV is about '
-          + '6.2% (WC), 8.1% (Property) and 10.1% (GL).',
+          + 'tables wiring (it was 2% on every line); over 100 equal members the line\'s CV is '
+          + '6.0% (WC), 8.0% (Property) and 10.0% (GL) — 6.2%, 8.1% and 10.1% over the retired units.',
       }],
       ['Pool loss costs', {
         value: 'WC $2.50 + $0.118 · GL $2.50 + $0.95', unit: 'per $100 of payroll, year 1: $0–$1M + $1M–$5M',
@@ -2886,11 +2821,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Opening book', {
         value: perLine(OPENING_BOOK_EXPOSURE, 3), unit: '$M of exposure, base year',
-        what: 'What each line opened with before book units — for the record.',
-        basis: 'SOURCED', status: 'SUPERSEDED',
+        what: 'What each line opens with — every game alike — and where the pre-game\'s growth ends.',
+        basis: 'SOURCED',
         note: 'The mean of today\'s opening books over 40 seeds: 30.1%, 28.8% and 29.7% of the full market. '
-          + 'Since book units commit 3 a line opens on its book of units: their sizes summed, about 30% of '
-          + 'the market plus the last unit, and different in every game.',
+          + 'In use again since simple underwriting retired the book of units (which opened on its units\' sizes '
+          + 'summed, different in every game).',
       }],
       ['Exposure scale', {
         value: perLine(EXPOSURE_SCALE, 3), unit: 'x the 200-member market',
@@ -2910,69 +2845,42 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'SOURCED',
         note: 'The 200-member market (WC 1,300, GL 1,300, Property 59,233.002) x the exposure scale.',
       }],
-      ['Renewals declined — slider', {
-        value: `${(100 * RENEWALS_DECLINED_SLIDER.min).toFixed(0)}–${(100 * RENEWALS_DECLINED_SLIDER.max).toFixed(0)}%, `
-          + `${(100 * RENEWALS_DECLINED_SLIDER.step).toFixed(0)}% steps, default ${(100 * RENEWALS_DECLINED_SLIDER.default).toFixed(0)}%`,
-        unit: 'of renewing exposure',
-        what: 'The share of the book at the start of the year the pool declines, worst loss ratio first. Whole units '
-          + 'from the worst down, and part of the last one, so the share is hit exactly. Units in the book less than '
-          + 'the grace years are not eligible.',
+      ['Underwriting members', {
+        value: UNDERWRITING_MEMBERS, unit: 'equal members a line',
+        what: 'Each line\'s book is this many equal members sharing its exposure. They exist only for each member\'s '
+          + 'own luck draw on the year\'s ordinary losses: no risk scores, no loss history, no choosing who leaves.',
         basis: 'CHOSEN',
-        note: 'Replaces selection on a noisy view of true risk (underwriting visibility, retired). The history is '
-          + 'averaged across all the worlds, so every world declines the same units. Measured, it reads true risk '
-          + 'almost exactly (flat pre-game, small unit noise): declining 5% a year cuts the loss ratio 2.1 points '
-          + 'in year 1 and 6.7 by year 5 on scenario 18 Property.',
+        note: 'Replaces the market of about 200 unequal units and selection on loss history (simple underwriting).',
       }],
-      ['Loss history years', {
-        value: LOSS_HISTORY_YEARS, unit: 'accident years',
-        what: 'A unit\'s loss ratio is its losses over this many most recent accident years against the premium it '
-          + 'paid in them — the pre-game\'s years included.',
-        basis: 'CHOSEN', note: 'The brief\'s 3.',
-      }],
-      ['Loss history claim cap', {
-        value: LOSS_HISTORY_CLAIM_CAP, unit: '$ per shock claim',
-        what: 'The most one shock claim counts for in a unit\'s loss history, so one catastrophe does not decide a '
-          + 'renewal. Ordinary losses and routine large claims count in full.',
-        basis: 'CHOSEN', note: 'The brief\'s $1M.',
-      }],
-      ['New-member grace', {
-        value: NEW_MEMBER_GRACE_YEARS, unit: 'years in the book',
-        what: 'A unit in the book less than this when the renewal is decided is not eligible for a decline. The '
-          + 'renewal is decided before the year it renews into, so at 1 new business is safe at its first renewal.',
-        basis: 'CHOSEN', note: 'The brief\'s 1: new business is not declined on its one penalised year.',
-      }],
-      ['New Business, rejection rate — slider', {
-        value: `${(100 * NEW_BUSINESS_REJECTION_SLIDER.min).toFixed(0)}–${(100 * NEW_BUSINESS_REJECTION_SLIDER.max).toFixed(0)}%, `
-          + `${(100 * NEW_BUSINESS_REJECTION_SLIDER.step).toFixed(0)}% steps, default ${(100 * NEW_BUSINESS_REJECTION_SLIDER.default).toFixed(0)}%`,
-        unit: 'of applicants',
-        what: 'The share of applicants turned away, at random: every applicant is accepted at (1 − the rate) of its '
-          + 'share, so accepted exposure is short of applied by exactly the rate. Its only effect on quality is the '
-          + 'new-business penalty it buys down.',
+      ['Non-renewal — slider', {
+        value: `${(100 * NON_RENEWAL_SLIDER.min).toFixed(0)}–${(100 * NON_RENEWAL_SLIDER.max).toFixed(0)}%, `
+          + `${(100 * NON_RENEWAL_SLIDER.step).toFixed(0)}% steps, default ${(100 * NON_RENEWAL_SLIDER.default).toFixed(0)}%`,
+        unit: 'of the book at the start of the year',
+        what: 'Exposure falls by this share, and this year\'s ordinary loss per unit of exposure falls by the loss '
+          + 'relief x the share. One year only.',
         basis: 'CHOSEN',
-        note: 'Replaces the four intake positions (No New Business, Strict, Moderate, Low) and the book intake share, '
-          + 'retired. At the default every applicant joins.',
+        note: 'Replaces "Renewals declined", which ranked units on loss history.',
       }],
-      ['New-business applications', {
-        value: NEW_BUSINESS_APPLICATIONS, unit: 'of the book\'s exposure a year',
-        what: 'Applicants a year as a share of the book at the start of the year, drawn from the market in a seeded '
-          + 'random order — at the market\'s risk — whole units and part of the last to hit the share exactly.',
-        basis: 'CHOSEN',
-        note: 'Tested from 2% to 5%; set at 5%, the first rate at which growth visibly costs loss ratio. The market (the full-market exposure) is the cap.',
+      ['Non-renewal loss relief', {
+        value: NON_RENEWAL_LOSS_RELIEF, unit: 'x the non-renewal share, off this year\'s loss per unit',
+        what: 'How much cheaper the renewing book runs this year for what was declined: 5% non-renewed, 2.5% cheaper.',
+        basis: 'CHOSEN', note: 'The brief\'s 0.5. Not in pricing\'s expected loss.',
       }],
-      ['Full savings at', {
-        value: FULL_SAVINGS_AT, unit: 'rejection rate',
-        what: 'The rejection rate at which new business costs no more than the book: savings = min(1, rejection / '
-          + 'this), and the first-year penalty factor is 1 + the penalty x (1 − savings).',
+      ['New members — slider', {
+        value: `${(100 * NEW_MEMBERS_SLIDER.min).toFixed(0)}–${(100 * NEW_MEMBERS_SLIDER.max).toFixed(0)}%, `
+          + `${(100 * NEW_MEMBERS_SLIDER.step).toFixed(0)}% steps, default ${(100 * NEW_MEMBERS_SLIDER.default).toFixed(0)}%`,
+        unit: 'of the book at the start of the year',
+        what: 'Exposure rises by this share, and that new exposure\'s ordinary losses carry the new-business '
+          + 'penalty this year.',
         basis: 'CHOSEN',
-        note: 'The data scientist\'s 10%: 1.20 at 0%, 1.10 at 5%, 1.00 from 10% to 15%.',
+        note: 'Replaces "New Business, rejection rate" and the applications it was a share of.',
       }],
       ['New-business penalty', {
-        value: NEW_BUSINESS_PENALTY, unit: 'on first-year actual ordinary losses of new units, at 0% rejection',
-        what: 'The most new business costs over the book, on its actual ordinary losses, in its first year only. '
-          + 'The rejection rate buys it down to nothing at full savings. It is not in expected loss: the rate '
-          + 'learns it only through the history.',
+        value: NEW_BUSINESS_PENALTY, unit: 'on the new exposure\'s first-year actual ordinary losses, flat',
+        what: 'What new members\' exposure costs over the book per unit, in its first year only — and on the '
+          + 'pre-game\'s 2% growth each year. It is not in expected loss: the rate learns it through the experience.',
         basis: 'CHOSEN',
-        note: 'The R model\'s 20%, adopted with book units.',
+        note: 'The R model\'s 20%. Flat since simple underwriting: there is no rejection rate to buy it down.',
       }],
       ['Reinsurance options (T covers)', {
         value: REINSURANCE_OPTIONS.GL.filter(o => o.limit > 0).map(o => o.id).join(' · '),
@@ -2993,17 +2901,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The brief\'s: each level\'s annual chance x the recovery at the top of its range. The prices add '
           + 'across the tower\'s layers, which is checked at load.',
-      }],
-      ['Book units', {
-        value: `${UNIT_MARKET_COUNT} units a line; size CV ${(100 * UNIT_SIZE_CV).toFixed(0)}%, risk CV `
-          + `${(100 * UNIT_RISK_CV).toFixed(0)}%; the book ${(100 * UNIT_POOL_SHARE).toFixed(0)}% of the market`,
-        unit: 'per line',
-        what: 'Each line\'s market split into units drawn from the game seed: sizes summing to the full market, '
-          + 'true risk scores averaging 1.0 by size, regions by share. The opening book is the market in a '
-          + 'seeded order until it reaches the pool share — about 60 units. Never shown.',
-        basis: 'CHOSEN',
-        note: 'The R model\'s shapes. Read by nothing yet: the book is drawn and stored once per game, and the '
-          + 'engine still runs on each line\'s one exposure.',
       }],
       ['Aggregate stop', {
         value: !AGGREGATE_STOP.enabled ? 'off — dormant; the T covers are offered' : AGGREGATE_STOP.enabled
@@ -3310,8 +3207,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: R_MODEL.newBusinessPenalty, unit: 'on first-year expected loss', basis: 'CHOSEN',
         status: 'ADAPTED',
         what: 'New business costs more in its first year than its price implies.',
-        note: 'Adopted as NEW_BUSINESS_PENALTY with book units: 20% on new units\' first-year actual ordinary '
-          + 'losses, kept out of expected loss so the rate learns it through the history.',
+        note: 'Adopted as NEW_BUSINESS_PENALTY: 20%, flat, on the new members\' exposure\'s first-year actual '
+          + 'ordinary losses, kept out of expected loss so the rate learns it through the experience.',
       }],
 
       // ---- investment ----

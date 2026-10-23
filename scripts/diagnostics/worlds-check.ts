@@ -42,7 +42,7 @@ import {
   averageLedger, commitSettledYear, deriveLineRatios, LINE_RATIO_FIELDS, openWorlds, playWorldsYear,
   settleWorldsYear, strikeRates, worldInstance, worldCount,
 } from '../../src/utils/worlds';
-import { lineBookRisk, marketSeedOf } from '../../src/utils/bookUnits';
+import { marketSeedOf } from '../../src/utils/bookUnits';
 import { WORLD_COUNT } from '../../src/data/pricingParameters';
 import { exposureFactor } from '../../src/data/exposureTrend';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
@@ -258,7 +258,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       const book = start.worlds!.reduce((s, w) => s + (w.poolState.lines[l].bookExposure ?? 0), 0) / start.worlds!.length;
       const mine = strikeBookRate(l, { ...start.poolState.lines[l], reserveDevelopment: ledger, bookExposure: book },
         decisionsFor(y).byLine[l], y, { allMarketMembers: [], membershipHistory: {} },
-        lineBookRisk(start.instance, l, start.poolState.bookUnits, start.poolState.bookLedger));
+        1);
       const charged = W[0].lockedResults[y - 1].byLine[l].finalRatePer100;
       if (!mine || Math.abs(mine.quote.finalRatePer100 - (charged ?? NaN)) > 1e-12 * mine.quote.finalRatePer100) struckOk = false;
     }
@@ -276,7 +276,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
     // struck here on the moved book's exposure and risk, as the engine does.
     const moved = { ...one.poolState.lines[l], bookExposure: p1.updatedPoolState.lines[l].bookExposure };
     const s = strikeBookRate(l, moved, decisionsFor(1).byLine[l], 1, { allMarketMembers: [], membershipHistory: {} },
-      lineBookRisk(one.instance, l, p1.updatedPoolState.bookUnits, p1.updatedPoolState.bookLedger));
+      1);
     tried++;
     if (s && Math.abs(s.quote.finalRatePer100 - (r.finalRatePer100 ?? NaN)) < 1e-12 * s.quote.finalRatePer100) ok++;
   }
@@ -292,7 +292,7 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       const d = decisionsFor(y).byLine[l];
       const exposure = (ls.bookExposure ?? 0) * exposureFactor(l, y);
       const c = computeFundingConsequence(d.fundingConfidenceLevel, ls.ratePer100, l, d.fundingAtExpected, {
-        yearNumber: y, members: { exposure, risk: lineBookRisk(start.instance, l, start.poolState.bookUnits, start.poolState.bookLedger) ?? 1 }, exposure,
+        yearNumber: y, members: { exposure, risk: 1 }, exposure,
         layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
         pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
         lossTrend: start.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
@@ -426,7 +426,7 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const ls = A.starts[2].poolState.lines.GL;
   const exposure = (ls.bookExposure ?? 0) * exposureFactor('GL', 3);
   const wrong = computeFundingConsequence(0.75, ls.ratePer100, 'GL', false, {
-    yearNumber: 3, members: { exposure, risk: lineBookRisk(gs.instance, 'GL', A.starts[2].poolState.bookUnits, A.starts[2].poolState.bookLedger) ?? 1 }, exposure,
+    yearNumber: 3, members: { exposure, risk: 1 }, exposure,
     layersPlaced: placementFor('GL', 'none'), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: 'none',
     pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
     lossTrend: gs.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,

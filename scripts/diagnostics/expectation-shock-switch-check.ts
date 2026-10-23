@@ -40,8 +40,7 @@ import { gameShocksOn } from '../../src/utils/shockLosses';
 import { drawShockSchedule } from '../../src/utils/shockSchedule';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { lineBookRisk } from '../../src/utils/bookUnits';
-import { AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, FULL_SAVINGS_AT } from '../../src/data/pricingParameters';
+import { AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD } from '../../src/data/pricingParameters';
 import { defaultReinsuranceOption, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
 import type { GameInstance, GameSetupSettings, GameState } from '../../src/types/simulation';
 
@@ -100,15 +99,10 @@ function gradeCover(quotes: typeof stopQuotes, tag: string) {
 gradeCover(stopQuotes, '');
 
 // ---------------------------------------------------------------- games
-// ⚠ AT FULL SAVINGS ON NEW BUSINESS (rejection FULL_SAVINGS_AT): the default
-// writes new business at the 20% first-year penalty, which by design is not
-// in expected loss, so Simulated would sit about newShare x 20% above Expected
-// for a reason that is not the shock switch. At full savings the penalty is 1.
-const decide = (y: number) => {
-  const d = defaultDecisionSet(y);
-  d.byLine.WC.newBusinessRejection = FULL_SAVINGS_AT;
-  return d;
-};
+// ⚠ AT THE DEFAULTS, WHICH ADD NO NEW MEMBERS (simple underwriting): the
+// first-year penalty is not in expected loss, so a book that grew would sit
+// about newShare x 20% above Expected for a reason that is not the shock switch.
+const decide = (y: number) => defaultDecisionSet(y);
 function play(setup: GameSetupSettings, instance: GameInstance, years: number) {
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: decide(1), priorHistory, earlyPreGameHistory } as GameState);
@@ -117,7 +111,7 @@ function play(setup: GameSetupSettings, instance: GameInstance, years: number) {
     const s = strikeRates(gs, decide(y)).WC!;
     struckPrice.push(s.quote.reinsuranceCost);
     // The book's risk at its held shares (the underwriting ledger).
-    quotedOff.push(stopQuotes('WC', s.exposure, y, lineBookRisk(gs.instance, 'WC', gs.poolState.bookUnits, gs.poolState.bookLedger), false)
+    quotedOff.push(stopQuotes('WC', s.exposure, y, 1, false)
       .find(q => q.optionId === decide(y).byLine.WC.reinsuranceOption)!.premium);
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, decide(y)), ['WC'])), currentYearNumber: y + 1 };
   }

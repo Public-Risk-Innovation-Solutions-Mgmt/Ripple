@@ -350,18 +350,18 @@ export interface TeamLineDecisions {
    */
   reinsuranceOption: string;
   /**
-   * "Renewals declined": the share of renewing exposure declined, a FRACTION
-   * 0–0.10. Absent on the engine side reads as 0.
+   * "Non-renewal": the share of the book at the start of the year not renewed,
+   * a FRACTION 0–0.05. Absent on the engine side reads as 0.
    *
-   * ⚠ uw-hybrid: this and newBusinessRejection REPLACE `renewalCut` and
-   * `intakeLevel`, which are gone from the wire. The shape is still scalars the
-   * server stores without reading, so the handler, both transports and keys.ts
-   * change only in their notes; a row written before carries the old names and
-   * the host reads 0% for both.
+   * ⚠ simple underwriting: this and newMembers REPLACE uw-hybrid's
+   * `renewalsDeclined` and `newBusinessRejection` (which replaced `renewalCut`
+   * and `intakeLevel`). Still two scalars the server stores without reading, so
+   * the handler, both transports and keys.ts change only in their notes; a row
+   * written before carries the old names and the host reads 0% for both.
    */
-  renewalsDeclined: number;
-  /** "New Business, rejection rate": the share of applicants turned away, a FRACTION 0–0.15. */
-  newBusinessRejection: number;
+  nonRenewal: number;
+  /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.05. */
+  newMembers: number;
   riskControlPct: number;
   dividendPct: number;
   assessmentPct: number;

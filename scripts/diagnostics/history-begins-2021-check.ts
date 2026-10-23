@@ -36,7 +36,6 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory, PRE_GAME_DEPTH } from '../../src/utils/priorHistoryEngine';
 import { bookPurePremium, newPurePremiumPer100 } from '../../src/utils/newPurePremium';
 import { STARTING_CAPITAL, PRICING_WINDOW_YEARS_NEW, PRICING_DATA_LAG_YEARS } from '../../src/data/pricingParameters';
-import { lineBookRisk } from '../../src/utils/bookUnits';
 import type { CoverageLine, LineResultSet, ReserveCohort, ReserveDevelopmentRow, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -72,7 +71,7 @@ function openings(): Opening[] {
       out.push({
         line, game: g, firstYear: years[0], years, cohorts: ls.reserveCohorts ?? [], ledger: ls.reserveDevelopment ?? [],
         netReserve: ls.netUnpaidReserve, startingSurplus: years[0].beginingSurplus,
-        risk: lineBookRisk(inst, line, poolState.bookUnits, poolState.bookLedger) ?? 1,
+        risk: 1,
       });
     }
   }
