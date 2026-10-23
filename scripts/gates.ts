@@ -171,7 +171,7 @@ const FAST: string[] = [
   'property-claim-check',            //   3s
   'routine-fold-check',              //   3s   stable regular years: routine large losses off and folded into the
                                      //         ordinary cost, cost-neutral line-year by line-year; the shocks
-                                     //         unchanged; no routine claim drawn; a flat pre-game; four controls
+                                     //         unchanged; no routine claim drawn; a simulated pre-game; five controls
   'pool-loss-cost-check',            //   3s   WC and GL priced on the pool's layered loss costs, the shocks off the
                                      //         $0 - $1M layer, required capital at 80%; four controls
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
@@ -199,8 +199,8 @@ const FAST: string[] = [
                                      //         about $30M of year-1 premium at Expected; three controls
   'scenarios-check',                 //   5s   the twenty scenarios: setup offers 1-20, the handler refuses others, one
                                      //         seed solo and hosted, the ratio table, every opening at year-1 premium /
-                                     //         its ratio from the starting capital, the pre-game's experience and 3%
-                                     //         return; eight controls
+                                     //         its ratio from the starting capital, the pre-game's drawn experience and
+                                     //         return on its own streams; ten controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls
