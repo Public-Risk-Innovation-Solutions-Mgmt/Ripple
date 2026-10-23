@@ -308,7 +308,49 @@ export const PRIOR_DEVELOPMENT_DEFAULTS: PerLine<number> = {
  * GL took none: that came from the old per-claim GL model, whose fitted claim
  * sizes included defence costs. GL's losses are the pool's pure premium now.
  */
-export const ALAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property: 0.05 };
+/**
+ * ALAE VARIES YEAR TO YEAR, BY LINE, as a share of claims: WC 7-15%, GL
+ * 10-20%, Property 2-5% (ALAE_RATIO_RANGE).
+ *
+ *   THE DRAW      each line draws its ALAE ratio once per accident year,
+ *                 uniformly within its range, from the GAME's seed (marketSeedOf)
+ *                 on its own labelled stream (alae_ratio_<line>), so every world
+ *                 uses the same draw — the variation shows in the averaged
+ *                 result — a replay draws it again identically, and no other
+ *                 stream moves. The pre-game's years draw it too.
+ *   THE BOOKING   the year's ALAE is its claims x that year's drawn ratio: each
+ *                 accident year's cohort carries its ratio, and its ALAE is
+ *                 incurred, paid and reserved at it as the year develops
+ *                 (lossExpense.ts).
+ *   THE PRICING   the rate's ALAE load is the mean of the drawn ratios of the
+ *                 accident years in its pricing window, as the ledger records
+ *                 them; before any history, the middle of the line's range
+ *                 (ALAE_OF_LOSS_COST below).
+ *
+ * ULAE stays at 5% of claims (ULAE_OF_LOSS_COST).
+ *
+ * WHY: a fixed 5% share made ALAE a constant of the model; a pool's defence
+ * and adjusting spend moves with its claims mix and its vendors, and pricing it
+ * on recent experience is how a pool would.
+ */
+export const ALAE_RATIO_RANGE: PerLine<{ min: number; max: number }> = {
+  WC: { min: 0.07, max: 0.15 },
+  GL: { min: 0.10, max: 0.20 },
+  Property: { min: 0.02, max: 0.05 },
+};
+
+/**
+ * THE ALAE LOAD BEFORE ANY HISTORY — the middle of each line's range
+ * (ALAE_RATIO_RANGE): WC 11%, GL 15%, Property 3.5%. What a rate struck with no
+ * usable accident year loads, and the ratio of a cohort carried from before
+ * the draw existed. (Was 5% of claims on every line, booked and priced alike;
+ * that replaced 8.3%, which misread the pool's pricing example.)
+ */
+export const ALAE_OF_LOSS_COST: PerLine<number> = {
+  WC: (ALAE_RATIO_RANGE.WC.min + ALAE_RATIO_RANGE.WC.max) / 2,
+  GL: (ALAE_RATIO_RANGE.GL.min + ALAE_RATIO_RANGE.GL.max) / 2,
+  Property: (ALAE_RATIO_RANGE.Property.min + ALAE_RATIO_RANGE.Property.max) / 2,
+};
 
 /**
  * ULAE — unallocated loss adjustment expense, as a share of loss cost. Charged
@@ -2095,14 +2137,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     blurb: 'Read by the new rate stack, except where an entry is marked not yet used. Every one is CHOSEN and is a '
       + 'starting value to be tuned.',
     entries: [
-      ['ALAE', {
+      ['ALAE ratio range', {
+        value: `WC ${ALAE_RATIO_RANGE.WC.min * 100}-${ALAE_RATIO_RANGE.WC.max * 100}%, GL ${ALAE_RATIO_RANGE.GL.min * 100}-`
+          + `${ALAE_RATIO_RANGE.GL.max * 100}%, Property ${ALAE_RATIO_RANGE.Property.min * 100}-${ALAE_RATIO_RANGE.Property.max * 100}%`,
+        unit: 'share of claims',
+        what: 'Allocated loss adjustment expense varies year to year. Each line draws its ALAE ratio once per accident year, '
+          + 'uniformly in its range, from the game\'s seed on its own labelled stream: every world uses the same draw and a '
+          + 'replay is identical; the pre-game draws it too. The year\'s ALAE is booked at its ratio — incurred, paid on the '
+          + 'loss pattern and reserved as its claims develop. The rate\'s ALAE load is the mean of the drawn ratios over its '
+          + 'pricing window\'s accident years.', basis: 'CHOSEN',
+        note: 'Was 5% of claims on every line, booked and priced alike (which replaced 8.3%, a misreading of the pool\'s '
+          + 'pricing example). The supplied pure premiums exclude ALAE, so it is added on every line.',
+      }],
+      ['ALAE before any history', {
         value: perLine(ALAE_OF_LOSS_COST, 3), unit: 'share of loss cost',
-        what: 'Allocated loss adjustment expense. Charged in the rate on the ground-up loss cost and booked '
-          + 'as a cost: incurred as this share of the ground-up loss incurred, paid on the loss pattern, the '
-          + 'unpaid part held as the loss expense reserve.', basis: 'CHOSEN',
-        note: '5% on every line, replacing 8.3%, which misread the pool\'s pricing example. The supplied pure premiums '
-          + 'exclude ALAE, so it is added on WC and GL as on Property. GL once took none: that rule came from the old '
-          + 'per-claim GL model, whose fitted claim sizes included defence costs.',
+        what: 'The middle of each line\'s range: the ALAE load of a rate struck with no usable accident year.', basis: 'CHOSEN',
       }],
       ['ULAE', {
         value: perLine(ULAE_OF_LOSS_COST, 3), unit: 'share of loss cost',

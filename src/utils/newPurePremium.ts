@@ -19,9 +19,11 @@
 //                   (DEVELOPMENT_TAIL), not factors estimated from the ledger
 //   3. TREND        each year's loss cost to the year being priced, NET of
 //                   exposure growth
-//   4. ALAE + ULAE  each the parameter's share of loss cost (claims). On WC and
-//                   GL the claims are the supplied pure premium / (1 + ULAE),
-//                   so loss cost + ULAE is the pure premium; ALAE is on top
+//   4. ALAE + ULAE  ALAE at the mean of the window years' drawn ALAE ratios (the
+//                   middle of the line's range before any history); ULAE the
+//                   parameter's share of loss cost (claims). On WC and GL the
+//                   claims are the supplied pure premium / (1 + ULAE), so loss
+//                   cost + ULAE is the pure premium; ALAE is on top
 //
 // Every parameter comes from src/data/pricingParameters.ts. Nothing here holds
 // a literal that belongs there.
@@ -124,6 +126,10 @@ export interface NewPurePremiumResult {
   /** The steady catastrophe load in it (catastropheLoadPer100); 0 with CATASTROPHE_LOAD off. */
   catastropheLoadPer100: number;
   alaePer100: number;
+  /** The ALAE load as a share of the loss cost: the window years' mean drawn ratio, or the range's middle. */
+  alaeRatio: number;
+  /** The window years' drawn ALAE ratios, oldest first — what alaeRatio averages. */
+  alaeRatios: number[];
   ulaePer100: number;
   /** loss cost + ALAE + ULAE, at expected. The headline. */
   purePremiumPer100: number;
@@ -298,16 +304,22 @@ export function newPurePremiumPer100(
   const lossCost = points.reduce((s, p) => s + p.trendedLossCostPer100, 0) / points.length + catastropheLoad;
 
   // ⚠ ALAE IS NOT ADDED WHERE IT IS ALREADY IN THE LOSSES. See
-  // ALAE_ALREADY_IN_LOSSES — no line, since the pure-premium basis. ULAE is at
-  // its share of the claims on every line: on WC and GL the claims are the pure
-  // premium / (1 + ULAE), so claims + ULAE give the pure premium back exactly.
-  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCost * ALAE_OF_LOSS_COST[line];
+  // ALAE_ALREADY_IN_LOSSES — no line, since the pure-premium basis. Its load is
+  // the MEAN OF THE WINDOW YEARS' DRAWN ALAE RATIOS, as the ledger records them
+  // (alaeRatio.ts; a row from before the draw reads the range's middle). ULAE
+  // is at its share of the claims on every line: on WC and GL the claims are
+  // the pure premium / (1 + ULAE), so claims + ULAE give the pure premium back.
+  const alaeRatios = points.map(p => basis.rows.find(r => r.yearNumber === p.accidentYear)?.alaeRatio ?? ALAE_OF_LOSS_COST[line]);
+  const alaeRatio = alaeRatios.reduce((a, b) => a + b, 0) / alaeRatios.length;
+  const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCost * alaeRatio;
   const ulae = lossCost * ULAE_OF_LOSS_COST[line];
 
   return {
     lossCostPer100: lossCost,
     catastropheLoadPer100: catastropheLoad,
     alaePer100: alae,
+    alaeRatio: ALAE_ALREADY_IN_LOSSES[line] ? 0 : alaeRatio,
+    alaeRatios,
     ulaePer100: ulae,
     purePremiumPer100: lossCost + alae + ulae,
     points,
@@ -325,10 +337,12 @@ export function newPurePremiumPer100(
 export function newPurePremiumFromLossCost(
   line: CoverageLine, lossCostPer100: number, catastropheLoad = 0,
 ): NewPurePremiumResult {
+  // No history: ALAE at the middle of the line's range (ALAE_OF_LOSS_COST).
   const alae = ALAE_ALREADY_IN_LOSSES[line] ? 0 : lossCostPer100 * ALAE_OF_LOSS_COST[line];
   const ulae = lossCostPer100 * ULAE_OF_LOSS_COST[line];
   return {
-    lossCostPer100, catastropheLoadPer100: catastropheLoad, alaePer100: alae, ulaePer100: ulae,
+    lossCostPer100, catastropheLoadPer100: catastropheLoad, alaePer100: alae,
+    alaeRatio: ALAE_ALREADY_IN_LOSSES[line] ? 0 : ALAE_OF_LOSS_COST[line], alaeRatios: [], ulaePer100: ulae,
     purePremiumPer100: lossCostPer100 + alae + ulae, points: [], skipped: 0,
   };
 }

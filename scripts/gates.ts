@@ -244,6 +244,9 @@ const FAST: string[] = [
   'new-rate-bill-check',             //  12s   with the flag on, the rate members are CHARGED is the rate
                                      //         they are SHOWN, the charge is additive, the retained-cover
                                      //         margin is retired, and the bill is NOT the old stack's.
+  'alae-ratio-check',                //  50s   ALAE drawn by line and year on the game seed (the same in
+                                     //         every world), booked at the draw, priced on the window's
+                                     //         mean, replayed identically; four controls
   'admin-trend-check',               //  30s   admin trended 3% a year on both parts from the base year
                                      //         (2027), priced and booked alike, pre-game included;
                                      //         three controls

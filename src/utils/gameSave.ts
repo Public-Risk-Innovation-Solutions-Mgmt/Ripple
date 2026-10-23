@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v27';
+export const SAVE_KEY = 'riskpool_gamestate_v28';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -232,7 +232,9 @@ export const SAVE_KEY = 'riskpool_gamestate_v27';
 // replay would strike different rates and solve a different margin.
 // ⚠ v27 SINCE THE ADMIN TREND. Admin is charged and booked at 3% a year from
 // 2027, so a v26 replay would charge and book different admin.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26'];
+// ⚠ v28 SINCE ALAE IS DRAWN BY YEAR. Each accident year books and prices ALAE
+// at its drawn ratio, so a v27 replay would book and price different ALAE.
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27'];
 
 /**
  * Fields dropped on the way out.

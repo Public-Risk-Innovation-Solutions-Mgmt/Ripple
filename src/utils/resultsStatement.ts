@@ -413,7 +413,6 @@ const addLoss = (a: AyLoss, b: AyLoss): AyLoss => ({ paid: a.paid + b.paid, case
  * accident years it had.
  */
 function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet, isLatest: boolean): Map<number, AyBlock> {
-  const s = laeShares(line).total;
   const out = new Map<number, AyBlock>();
   const latest = gs.lockedResults.at(-1)?.byLine[line];
   const ls = gs.poolState.lines[line];
@@ -445,6 +444,8 @@ function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet, isLa
   for (const ay of ays) {
     const p = paid.get(ay) ?? { net: 0, gross: 0 };
     const x = splitOf.get(ay);
+    // The accident year's own LAE share: its drawn ALAE ratio + ULAE (alaeRatio.ts).
+    const s = laeShares(line, ls.reserveDevelopment?.find(r => r.yearNumber === ay)?.alaeRatio).total;
     const laeRes = s * (x?.unpaidGross ?? 0);
     out.set(ay, {
       gross: { paid: p.gross * (1 + s), case_: x?.caseGross ?? 0, ibnr: (x?.ibnrGross ?? 0) + laeRes },

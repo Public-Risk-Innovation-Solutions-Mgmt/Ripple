@@ -36,11 +36,12 @@
 //      every block's premium, summed over Prior and the window, is the sum over
 //      every pre-game and game year.
 //  12. THE PRE-GAME COLUMNS ARE THE ENGINE'S PRE-GAME RESULTS: at game start the
-//      five columns are the five pre-game years, each tied to its own result —
-//      the last year's year-end tied to the opening.
-//  13. PRIOR IS ABSENT AT GAME START in every section: the pool's history
-//      begins in 2021, so nothing predates the window (the program-year blocks
-//      used to hold the bulk reserves there).
+//      five columns are the last five of the six pre-game years, each tied to
+//      its own result — the last year's year-end tied to the opening.
+//  13. PRIOR HOLDS 2021 ALONE AT GAME START in every section: the pre-game runs
+//      six years and the window shows five; the pool's history begins in 2021,
+//      so nothing older is anywhere (the program-year blocks used to hold the
+//      bulk reserves there).
 //
 // AND WHAT THE PLAYER SEES (the display commit):
 //
@@ -84,7 +85,7 @@ const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Mat
 
 /** One game, its state at game start and after every year. */
 function playSnapshots(id: string, years: number): GameState[] {
-  const { setup, instance } = openSoloInstance({ poolName: 'S', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES } as GameSetupSettings);
+  const { setup, instance } = openSoloInstance({ poolName: 'S', gameLength: years, startingYear: 2027, instanceId: id, activeLines: LINES } as GameSetupSettings);
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory });
   const out = [gs];
@@ -262,11 +263,14 @@ function blocksMeetBalanceSheet(st: AnnualStatement): string[] {
  * `played` is the game years the SHOWN timeline holds — 0 for a statement
  * standing at the opening or earlier.
  */
-function expectedNotAvailable(played: number, scope: LineView, windowLength = WINDOW): string[] {
+function expectedNotAvailable(st: AnnualStatement, scope: LineView, windowLength = WINDOW): string[] {
   // At pool scope the underwriting rows read "by line", not "not yet available".
   const uw = (xs: string[]) => (scope === 'pool' ? [] : xs);
   const blocks: [string, string][] = [['Gross', 'Premium'], ['Ceded (Reinsurance)', 'Reinsurance Premium'], ['Net', 'Premium']];
-  if (played === 0) {
+  // ⚠ WHETHER THE WINDOW HOLDS THE FIRST PRE-GAME YEAR, not how many years were
+  // played: the pre-game runs six years (2021-2026) and the window five, so at
+  // game start 2021 is already in Prior.
+  if (!sec(st, 'operating').hasPrior) {
     // Nothing before the first pre-game year to change from, and no Prior: the
     // pool's history begins in 2021.
     // Standing at the first pre-game year, that year is the window's only one,
@@ -277,15 +281,19 @@ function expectedNotAvailable(played: number, scope: LineView, windowLength = WI
       ...blocks.flatMap(([t]) => cols.flatMap(c => [`${t} — Change from Prior (${c})`, `${t} — % of Prior (${c})`])),
     ];
   }
-  const prior = `Prior (${2021 + played - 1} and earlier)`;
+  // The blocks' Prior, as labelled (its label is check 10's). With Prior holding
+  // 2021 alone there is no year before it for the underwriting change rows.
+  const prior = sec(st, 'gross').columns[0];
+  const uwPrior = sec(st, 'underwriting').columns[0];
   return [
-    ...(played === 1 ? uw(['Underwriting — Change from Prior (Prior (2021))', 'Underwriting — % Change Over Prior (Prior (2021))']) : []),
+    ...(uwPrior === 'Prior (2021)' ? uw(['Underwriting — Change from Prior (Prior (2021))', 'Underwriting — % Change Over Prior (Prior (2021))']) : []),
     ...blocks.map(([t]) => `${t} — Loss and LAE Ratio (${prior})`),
   ];
 }
 function notAvailable(st: AnnualStatement, played: number, scope: LineView): string[] {
   const got = [...notYetAvailable(st)].sort();
-  const want = [...expectedNotAvailable(Math.max(0, Math.min(played, st.asOf)), scope, sec(st, 'operating').windowYears.length)].sort();
+  void played;
+  const want = [...expectedNotAvailable(st, scope, sec(st, 'operating').windowYears.length)].sort();
   return JSON.stringify(got) === JSON.stringify(want) ? [] : [`not-yet-available cells ${JSON.stringify(got)} — expected ${JSON.stringify(want)}`];
 }
 
@@ -349,10 +357,13 @@ function reconciles(st: AnnualStatement, gs: GameState, scope: LineView): string
   return out;
 }
 
-/** 12. At game start, the five columns are the five pre-game years, each its own result. */
+/**
+ * 12. At game start, the five columns are the LAST FIVE pre-game years, each its
+ * own result — the pre-game runs six (2021-2026), so 2021 is in Prior (13).
+ */
 function preGameTies(st: AnnualStatement, gs: GameState, scope: LineView): string[] {
   const out: string[] = [];
-  const pre = [...(gs.earlyPreGameHistory ?? []), ...gs.priorHistory];
+  const pre = [...(gs.earlyPreGameHistory ?? []), ...gs.priorHistory].slice(-WINDOW);
   const op = sec(st, 'operating'), bs = sec(st, 'balance');
   // A window that is not the five pre-game years cannot be tied column by column.
   if (JSON.stringify(op.windowYears) !== JSON.stringify(pre.map(r => r.yearNumber))) return [`window years ${op.windowYears} are not the pre-game's ${pre.map(r => r.yearNumber)}`];
@@ -383,14 +394,19 @@ function preGameTies(st: AnnualStatement, gs: GameState, scope: LineView): strin
 }
 
 /**
- * 13. At game start Prior is absent from every section: the pool's history
- * begins in 2021, so nothing predates the window. (The program-year blocks
- * used to carry a "Prior (before 2021)" for the bulk reserves, now retired.)
+ * 13. At game start Prior holds exactly the first pre-game year, 2021, in every
+ * section: the pre-game runs six years and the window shows five, and the
+ * pool's history begins in 2021, so nothing older is anywhere. (The program-year
+ * blocks used to carry a "Prior (before 2021)" for the bulk reserves, now
+ * retired; with five pre-game years Prior was absent at game start.)
  */
 function priorAtStart(st: AnnualStatement): string[] {
   const out: string[] = [];
   for (const k of ['operating', 'balance', 'underwriting', 'gross', 'ceded', 'net']) {
-    if (sec(st, k).hasPrior || sec(st, k).columns[0].startsWith('Prior')) out.push(`${k} shows a Prior at game start`);
+    // The program-year blocks label it in their own style, "(2021 and earlier)".
+    if (!sec(st, k).hasPrior || !['Prior (2021)', 'Prior (2021 and earlier)'].includes(sec(st, k).columns[0])) {
+      out.push(`${k}: Prior at game start is "${sec(st, k).columns[0]}", not 2021 alone`);
+    }
   }
   return out;
 }
@@ -478,8 +494,8 @@ const labels: Record<string, string> = {
   8: '"not yet available" exactly where there is no source, at every point', 9: 'renewal + new business = written exposure, every line',
   10: 'the window rolls: the five most recent calendar years, older ones in Prior, labelled as specified',
   11: 'Prior + the five reconcile to the full history — operating flows and every block\'s premium',
-  12: 'at game start the five columns are the five pre-game years, tied to the engine\'s results',
-  13: 'at game start Prior is absent from every section — nothing predates 2021',
+  12: 'at game start the five columns are the last five pre-game years, tied to the engine\'s results',
+  13: 'at game start Prior holds 2021 alone in every section — nothing predates 2021',
   14: 'the year labels: "Current" on the actual latest year only, "Year 0" on the last pre-game year, "Year n" after it, blank elsewhere',
   15: 'a cell with no source shows blank, and no other cell does',
   16: 'the year selector: the five years ending at the chosen year, older years in Prior; the default is the latest',
@@ -535,8 +551,10 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const st12 = buildAnnualStatement(snaps[0], 'GL'); const pr = rowOf(st12, 'operating', 'Premium');
   [pr.cells[0], pr.cells[1]] = [pr.cells[1], pr.cells[0]];
   check(preGameTies(st12, snaps[0], 'GL').length > 0, 'control: pre-game columns in the wrong years are caught');
-  const st13 = buildAnnualStatement(snaps[0], 'pool'); sec(st13, 'operating').hasPrior = true;
-  check(priorAtStart(st13).length > 0, 'control: a Prior shown at game start with nothing in it is caught');
+  const st13 = buildAnnualStatement(snaps[0], 'pool'); sec(st13, 'operating').columns[0] = 'Prior (2020–21)';
+  check(priorAtStart(st13).length > 0, 'control: a Prior at game start holding a year before 2021 is caught');
+  const st13b = buildAnnualStatement(snaps[0], 'pool'); sec(st13b, 'balance').hasPrior = false;
+  check(priorAtStart(st13b).length > 0, 'control: a Prior missing at game start, 2021 dropped, is caught');
   // What the player sees.
   const st14 = buildAnnualStatement(gs, 'pool', 3); const op14 = sec(st14, 'operating');
   op14.yearLabels[op14.windowYears.indexOf(3) + (op14.hasPrior ? 1 : 0)] = 'Current';
