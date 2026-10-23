@@ -83,8 +83,12 @@ export function shockBasisCostPer100(line: CoverageLine, yearNumber: number): nu
   return SHOCK_T_BASIS_PER_100[line] * bookedCostLevel(line, yearNumber);
 }
 
-/** A flat pre-game year (FLAT_PRE_GAME): ordinary losses at exactly expected, no factor drawn. */
-export const flatPreGameYear = (yearNumber: number): boolean => FLAT_PRE_GAME.enabled && yearNumber <= 0;
+/**
+ * A flat pre-game year (FLAT_PRE_GAME): ordinary losses at exactly expected, no factor drawn. `flat` is the
+ * run's own choice — the pre-game's DESIGNED run passes true to set the prior board's margin
+ * (PRE_GAME_MARGIN_ON_DESIGN) whatever FLAT_PRE_GAME says.
+ */
+export const flatPreGameYear = (yearNumber: number, flat: boolean = FLAT_PRE_GAME.enabled): boolean => flat && yearNumber <= 0;
 
 /**
  * THE PRE-GAME'S OWN STREAMS. A simulated pre-game year (FLAT_PRE_GAME off)
@@ -174,10 +178,12 @@ export function ordinaryLossYear(
   line: CoverageLine, book: Book, yearNumber: number, seed: number,
   // A flat pre-game year's multiple of expected — the scenario's (preGameLossFactor).
   preGameLoss = 1,
+  // Whether a pre-game year runs flat (flatPreGameYear).
+  flat: boolean = FLAT_PRE_GAME.enabled,
 ): OrdinaryLossYear {
   const exposure = bookExposureOf(book, line, yearNumber);
   const expected = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
-  const factor = flatPreGameYear(yearNumber) ? preGameLoss
+  const factor = flatPreGameYear(yearNumber, flat) ? preGameLoss
     : preGameLoss * drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), typicalBookOrdinaryCv(line));
   return { exposure, expected, realised: expected * factor, factor };
 }
@@ -210,12 +216,14 @@ export function ordinaryLossFromUnits(
   // A flat pre-game year's multiple of expected — the scenario's
   // (preGameLossFactor), one figure on every unit.
   preGameLoss = 1,
+  // Whether a pre-game year runs flat (flatPreGameYear).
+  flatRun: boolean = FLAT_PRE_GAME.enabled,
 ): UnitOrdinaryYear {
   const size = units.reduce((a, u) => a + u.size, 0);
   const scale = size > 0 ? activeExposure / size : 0;
   const cost = 10_000 * ordinaryLossCostPer100(line, yearNumber);
   // A flat pre-game year draws neither factor: every unit at exactly expected.
-  const flat = flatPreGameYear(yearNumber);
+  const flat = flatPreGameYear(yearNumber, flatRun);
   // Simulated, a pre-game year carries the scenario's multiple on its drawn year factor.
   const year = flat ? preGameLoss : preGameLoss * drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ordinaryYearCv(line));
   const own = unitOrdinaryRng(seed, yearNumber, line);

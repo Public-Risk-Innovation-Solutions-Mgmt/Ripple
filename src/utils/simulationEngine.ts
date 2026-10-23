@@ -623,6 +623,13 @@ interface LineYearContext {
    */
   freezeMembership: boolean;
   /**
+   * WHETHER A PRE-GAME YEAR RUNS FLAT — ordinary losses at exactly the
+   * scenario's multiple of expected and the pre-game return, no draw
+   * (flatPreGameYear). FLAT_PRE_GAME unless the pre-game's DESIGNED run asks for
+   * it (PRE_GAME_MARGIN_ON_DESIGN). Read only in pre-game years.
+   */
+  flatPreGame: boolean;
+  /**
    * THE HOST'S DEVELOPMENT % FOR THIS LINE — signed, positive is adverse.
    * Resolved once in processYear from the setup, falling back per line to
    * PRIOR_DEVELOPMENT_DEFAULTS, so every read site sees one number and no
@@ -1858,8 +1865,9 @@ export function processLineYear(
     // exposure x risk x cost, times the shared year factor and its own.
     ordinaryYear = yearUnits
       ? ordinaryLossFromUnits(line, yearUnits, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed,
-        newUnits, unitPenalty, preGameLossFactor(instance, yearNumber))
-      : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed, preGameLossFactor(instance, yearNumber));
+        newUnits, unitPenalty, preGameLossFactor(instance, yearNumber), ctx.flatPreGame)
+      : ordinaryLossYear(line, bookMode ? towerMembers : enrolledMembers, yearNumber, instance.seed,
+        preGameLossFactor(instance, yearNumber), ctx.flatPreGame);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
     const cost = ordinaryLossCostPer100(line, yearNumber);
     const penalty = newBusinessPenaltyFactor;
@@ -3386,6 +3394,8 @@ export function processYear(
   overrides?: {
     applicationRate?: number;
     freezeMembership?: boolean;
+    /** A pre-game year run flat whatever FLAT_PRE_GAME says — the pre-game's designed run (PRE_GAME_MARGIN_ON_DESIGN). */
+    flatPreGame?: boolean;
     /** A multi-world year's one rate per line — see LineYearContext.struckRate and worlds.ts. */
     struckRates?: Partial<Record<CoverageLine, StruckLineRate>>;
   },
@@ -3479,7 +3489,8 @@ export function processYear(
   // before.
   // A simulated pre-game year draws its market as a played year does, on its
   // own stream ('pregame_invest') from the game's seed.
-  const drawnMarket = FLAT_PRE_GAME.enabled && yearNumber <= 0
+  const flatPreGame = overrides?.flatPreGame ?? FLAT_PRE_GAME.enabled;
+  const drawnMarket = flatPreGame && yearNumber <= 0
     ? { cash: PRE_GAME_INVESTMENT_RETURN, bonds: PRE_GAME_INVESTMENT_RETURN, equities: PRE_GAME_INVESTMENT_RETURN }
     : simulateMarketReturns(deriveSubRng(instance.seed, yearNumber, yearNumber <= 0 ? 'pregame_invest' : 'invest'));
   // Investment Loss: twenty points off the equity return in its year, after
@@ -3579,6 +3590,7 @@ export function processYear(
       } : {}),
       applicationRateOverride: overrides?.applicationRate,
       freezeMembership: overrides?.freezeMembership === true,
+      flatPreGame,
       struckRate: overrides?.struckRates?.[line],
       // ⚠ A LINE ABSENT FROM THE RECORD TAKES ITS DEFAULT, NOT ZERO. A host who
       // edited WC and left GL alone meant GL's default; an old room record,
