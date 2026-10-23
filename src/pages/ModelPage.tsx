@@ -96,10 +96,15 @@ function SectionA({ m }: { m: ModelRate }) {
           <Step label="ULAE" op={`loss cost × ${pct4(m.ulaeShare)}`} value={m.ulaePer100} />
 
           <Heading n={5} title="Admin" />
-          <Step label="Fixed admin, dollars a year" value={m.adminFixed} />
-          <Step label="Per-exposure admin, per $100" value={m.adminPerExposurePer100} />
+          <Step label={`Fixed admin, dollars a year (set for ${m.adminTrend.baseYear})`} value={m.adminFixed} />
+          <Step label={`Per-exposure admin, per $100 (set for ${m.adminTrend.baseYear})`} value={m.adminPerExposurePer100} />
+          <Step label={`Admin trend to ${m.calendarYear}`}
+            op={`× ${f4(m.adminTrend.factor)} (${(m.adminTrend.perYear * 100).toFixed(1)}% for ${m.adminTrend.years} year${Math.abs(m.adminTrend.years) === 1 ? '' : 's'})`}
+            value={m.adminTrend.factor} testId="model-a-admin-trend" />
+          <Step label={`Fixed admin, trended to ${m.calendarYear}`} op={`${f4(m.adminFixed)} × ${f4(m.adminTrend.factor)}`} value={m.adminFixedTrended} />
+          <Step label={`Per-exposure admin, trended to ${m.calendarYear}`} op={`${f4(m.adminPerExposurePer100)} × ${f4(m.adminTrend.factor)}`} value={m.adminPerExposureTrendedPer100} />
           <Step label="Exposure priced on ($M)" value={m.quotedExposure} />
-          <Step label="Admin per $100" op={`${f4(m.adminFixed)} ÷ (${f4(m.quotedExposure)} × 10,000) + ${f4(m.adminPerExposurePer100)}`} value={m.adminPer100} testId="model-a-admin" />
+          <Step label="Admin per $100" op={`${f4(m.adminFixedTrended)} ÷ (${f4(m.quotedExposure)} × 10,000) + ${f4(m.adminPerExposureTrendedPer100)}`} value={m.adminPer100} testId="model-a-admin" />
 
           <Heading n={6} title="Funding" />
           <Step label={`Funding level: ${m.funding.label}`} op="CLF" value={m.funding.clf} testId="model-a-clf" />

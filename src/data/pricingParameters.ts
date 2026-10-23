@@ -368,6 +368,30 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
 };
 
 /**
+ * ADMIN GROWS WITH INFLATION — 3% a year on BOTH parts, the fixed dollars a
+ * year (ADMIN_FIXED_PER_YEAR) and the per-exposure rate
+ * (ADMIN_PER_EXPOSURE_PER_100), compounding each year from ADMIN_BASE_YEAR and
+ * discounted the same way for earlier years, the pre-game's included: a year's
+ * admin is the parameters x (1 + 3%)^(year - base year). The rate charges the
+ * trended admin for the year it prices, and the engine books that same admin
+ * as the year's expense (operatingExpense is the admin charged), so admin
+ * neither drifts against the rate nor is under-charged as costs rise.
+ *
+ * WHY: admin was flat while losses trend 4-8% a year, so its share of the rate
+ * fell every year — an administrative budget that never rises is not one any
+ * pool runs on. 0 restores flat admin.
+ */
+export const ADMIN_TREND_PER_YEAR = 0.03;
+
+/**
+ * THE YEAR THE ADMIN PARAMETERS ARE SET FOR — the game's year number, 1: the
+ * first played year (2027). The two admin parameters were calibrated at year
+ * 1, so they stand there unchanged; 2021 (year -5) is six years of trend
+ * below them, 2031 (year 5) four above.
+ */
+export const ADMIN_BASE_YEAR = 1;
+
+/**
  * PROFIT AND CONTINGENCY — a share of the rate. May be set to 0.
  * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor).
  * ⚠ SET TO 0 ON EVERY LINE (stable-scenarios, before Pause C2's checks), from
@@ -1984,6 +2008,20 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'The variable half of administration. Live in the rate.', basis: 'CHOSEN',
         note: 'The same calibration, and as stale: 0.5 x 0.15 x the old opening pure premium per $100. Left as it is '
           + 'until the pool\'s budget is sent.',
+      }],
+      ['Admin trend', {
+        value: ADMIN_TREND_PER_YEAR, unit: 'a year, on both admin parts',
+        what: 'Admin grows with inflation: the fixed dollars and the per-exposure rate are each x (1 + this)^(year - the base '
+          + 'year), compounding after it and discounted before it, the pre-game\'s years included. The rate charges the '
+          + 'trended admin for the year it prices, and the engine books that admin as the year\'s expense.',
+        basis: 'CHOSEN',
+        note: 'Admin was flat while losses trend 4-8% a year, so its share of the rate fell every year. 0 restores flat admin.',
+      }],
+      ['Admin base year', {
+        value: ADMIN_BASE_YEAR, unit: 'game year (2027, the first played year)',
+        what: 'The year the two admin parameters are set for: they stand unchanged there; 2021 is six years of trend below '
+          + 'them and 2031 four above.',
+        basis: 'CHOSEN',
       }],
       ['Profit and contingency', {
         value: PROFIT_AND_CONTINGENCY_OF_RATE, unit: 'share of rate',
