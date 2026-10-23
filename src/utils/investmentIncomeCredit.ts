@@ -18,15 +18,28 @@
 import { INVESTMENT_INCOME_CREDIT } from '../data/pricingParameters';
 import type { CoverageLine, GameState, LineResultSet, ResultSet } from '../types/simulation';
 
-/** A year's realised return on the pool's invested assets: its lines' income over their assets. Null with no assets. */
+/**
+ * A year's realised return on the pool's invested assets: its lines' income
+ * over their assets.
+ *
+ * ⚠ WITH NO INVESTED ASSETS, THE YEAR'S REALISED RETURN RATE — the market on
+ * the allocation (investmentReturnRate), which every line earns alike — not
+ * nothing. A line whose paid-in capital sat wholly in operating cash in its
+ * first pre-game year (scenario 20's General Liability, 2021: cash capped at
+ * the balance) earned 0 on 0, and the credit fell back to the before-history
+ * 3% though the market returned 2.55% that year. Null only with no rate either.
+ */
 export function poolReturnOf(result: ResultSet): number | null {
   let income = 0, assets = 0;
+  const rates: number[] = [];
   for (const r of Object.values(result.byLine)) {
     if (!r) continue;
     income += r.investmentIncome;
     assets += r.investedAssets;
+    if (Number.isFinite(r.investmentReturnRate)) rates.push(r.investmentReturnRate);
   }
-  return assets > 0 ? income / assets : null;
+  if (assets > 0) return income / assets;
+  return rates.length > 0 ? rates.reduce((a, x) => a + x, 0) / rates.length : null;
 }
 
 /** Every year a game has played, oldest first: the pre-game's, then the game's. */
@@ -53,6 +66,9 @@ export function investmentIncomeCredit(line: CoverageLine, history: readonly Res
  */
 export function investmentIncomeCreditFromLine(line: CoverageLine, last: LineResultSet | undefined): number {
   if (!INVESTMENT_INCOME_CREDIT.enabled) return 0;
-  const rate = last && last.investedAssets > 0 ? last.investmentIncome / last.investedAssets : INVESTMENT_INCOME_CREDIT.beforeHistory;
+  // With no invested assets, the year's realised return rate (see poolReturnOf).
+  const rate = !last ? INVESTMENT_INCOME_CREDIT.beforeHistory
+    : last.investedAssets > 0 ? last.investmentIncome / last.investedAssets
+      : Number.isFinite(last.investmentReturnRate) ? last.investmentReturnRate : INVESTMENT_INCOME_CREDIT.beforeHistory;
   return rate * INVESTMENT_INCOME_CREDIT.byLine[line];
 }
