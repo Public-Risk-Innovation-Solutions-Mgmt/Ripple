@@ -138,7 +138,7 @@ const activeView = page => page.$$eval('nav button', bs =>
   for (let year = 1; year <= 3; year++) {
     const live = year === 1 ? players : [harbour, cedar];
     for (const p of live) {
-      await p.getByRole('button', { name: /Lock Year/ }).first().click();
+      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]');

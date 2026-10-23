@@ -78,7 +78,7 @@ async function tabText(page, tab) {
   ok(leaked === 0, `the viewer sees none of ${HIDDEN.join(', ')} (${leaked} shown)`);
 
   // ---- IT CANNOT WRITE -----------------------------------------------------
-  ok(await viewer.getByRole('button', { name: /Lock Year/ }).count() === 0, 'viewer has NO Lock Year button at all');
+  ok(await viewer.getByRole('button', { name: /Lock Program Year/ }).count() === 0, 'viewer has NO Lock Program Year button at all');
   ok(await viewer.getByRole('button', { name: 'New Game', exact: true }).count() === 0, 'viewer has no New Game');
   ok(await viewer.getByRole('button', { name: 'Game Setup', exact: true }).count() === 0, 'viewer has no Game Setup tab');
 
@@ -136,7 +136,7 @@ async function tabText(page, tab) {
       await driver.waitForTimeout(300);
     }
 
-    await driver.getByRole('button', { name: /Lock Year/ }).first().click();
+    await driver.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await driver.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');
     await host.waitForFunction(n => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === String(n), y + 1, { timeout: 30000 });

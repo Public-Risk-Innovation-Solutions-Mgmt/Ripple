@@ -114,9 +114,9 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                 </div>
               </div>
 
-              {/* Starting Year */}
+              {/* First program year: the year the board prices first; the game opens in the year before it */}
               <div>
-                <label className="block text-base font-semibold text-gray-700 mb-2">Starting Year</label>
+                <label className="block text-base font-semibold text-gray-700 mb-2">First Program Year</label>
                 <select
                   value={startingYear}
                   onChange={e => setStartingYear(parseInt(e.target.value))}

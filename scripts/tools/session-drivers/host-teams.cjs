@@ -67,7 +67,7 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
 
   // Two teams lock and play; the third is closed so it never computes or posts.
   for (const p of [wcTeam, glTeam]) {
-    await p.getByRole('button', { name: /Lock Year/ }).first().click();
+    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
   }
   await slow.close();

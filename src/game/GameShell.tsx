@@ -235,6 +235,7 @@ export default function GameShell({
             decisions={currentDecisions}
             onChange={onDecisionsChange}
             yearNumber={gameState.currentYearNumber}
+            programYear={gameState.setup.startingYear + gameState.currentYearNumber - 1}
             disabled={gameState.isComplete || decisionsDisabled}
             lineView={lineView}
             lineLoanInfo={d.lineLoanInfo}

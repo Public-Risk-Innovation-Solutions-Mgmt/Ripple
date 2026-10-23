@@ -443,7 +443,7 @@ export default function PlayScreen({ code, role }: Props) {
       advanceLabel={
         submitting ? 'Submitting…'
           : locked ? 'Waiting for host'
-          : `Lock Year ${room.currentYear}`
+          : `Lock Program Year ${room.startingYear + room.currentYear - 1}`
       }
       // ⚠ DISABLED, NOT ABSENT. The controls still render the team's settings
       // because that is what the room is discussing.
@@ -487,11 +487,11 @@ export default function PlayScreen({ code, role }: Props) {
             ) : locked ? (
               <span data-testid={isViewer ? 'viewer-locked' : 'waiting'} className="flex items-center gap-1.5 text-emerald-700">
                 <CheckCircle2 size={13} />
-                {isViewer ? `Locked in for year ${room.currentYear}` : 'Locked in — waiting for the host'}
+                {isViewer ? `Locked in for Program Year ${room.startingYear + room.currentYear - 1}` : 'Locked in — waiting for the host'}
               </span>
             ) : (
               <span data-testid={isViewer ? 'viewer-open' : undefined} className="flex items-center gap-1.5 text-slate-500">
-                <Clock size={13} /> {isViewer ? `Still deciding year ${room.currentYear}` : 'Open for decisions'}
+                <Clock size={13} /> {isViewer ? `Still deciding Program Year ${room.startingYear + room.currentYear - 1}` : 'Open for decisions'}
               </span>
             )}
 

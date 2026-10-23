@@ -189,7 +189,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
     for (let i = 0; i < 3; i++) {
       if (year === SKIP_YEAR && i === SKIPPER) continue;
       const p = players[i];
-      await p.getByRole('button', { name: /Lock Year/ }).first().waitFor({ timeout: 120000 });
+      await p.getByRole('button', { name: /Lock Program Year/ }).first().waitFor({ timeout: 120000 });
 
       if (year === 1 && i === SKIPPER) {
         // A deliberate, non-default choice made through the REAL decisions page.
@@ -214,7 +214,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
            `carry-forward setup: ${TEAMS[i]} moved Funding Confidence on the real page (${moved && moved.before} -> ${moved && moved.after})`);
       }
 
-      await p.getByRole('button', { name: /Lock Year/ }).first().click();
+      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     ok(true, `year ${year}: teams locked in${year === SKIP_YEAR ? ` (${TEAMS[SKIPPER]} deliberately did not)` : ''}`);

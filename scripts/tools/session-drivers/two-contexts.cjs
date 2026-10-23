@@ -133,7 +133,7 @@ const anyKeys = page => page.evaluate(() =>
     // ⚠ BOTH TEAMS LOCK AT ONCE. Two pages, one server, no client-side lock
     // anywhere on this path: the serialisation is the server's.
     await Promise.all(players.map(async p => {
-      await p.getByRole('button', { name: /Lock Year/ }).first().click();
+      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
     }));
     // The host learns by polling, so this waits for the locks to arrive rather
@@ -179,7 +179,7 @@ const anyKeys = page => page.evaluate(() =>
   await host.waitForTimeout(20000);
 
   await Promise.all(players.map(async p => {
-    await p.getByRole('button', { name: /Lock Year/ }).first().click();
+    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
   }));
   await host.click('[data-testid="host-tab-setup"]');

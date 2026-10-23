@@ -27,6 +27,12 @@
 //                     after it = the projection x (1 - credit), which x 1 at
 //                     Expected / the permissible loss ratio is the indicated
 //                     rate at Expected — the page ties to the rate charged
+//   the years named   section 3 reads "<current> Rate" and "Indicated <priced>
+//                     Rate at Expected / at 70% CLF …", the current year being
+//                     the one before the priced; and for the coming year the
+//                     top bar shows the CURRENT year (2026 before year 1), the
+//                     lock button "Lock Program Year <priced>", and the
+//                     Decisions page "Decisions for Program Year <priced>"
 //
 // to one part in a billion. The years are played on different choices: year 1
 // at Expected under the line's second cover, year 2 at 80% under None.
@@ -76,7 +82,11 @@ function screen(page, mode) {
         credit: await value(`[data-testid="ri-${l}-credit"]`),
         afterCredit: await value(`[data-testid="ri-${l}-after-credit"]`),
         permissible: await value(`[data-testid="ri-${l}-permissible"]`),
-        labels: { losses: await label('losses'), exposure: await label('exposure'), pp: await label('pp'), projected: await label('projected') },
+        labels: { losses: await label('losses'), exposure: await label('exposure'), pp: await label('pp'), projected: await label('projected'),
+          current: await label('current'),
+          // A level's label sits beside the span that holds its figure and change.
+          expected: (await page.locator(`[data-testid="ri-${l}-expected"]`).locator('xpath=../../span[1]').innerText()).trim(),
+          levels: await Promise.all(LEVELS.map(async lv => (await page.locator(`[data-testid="ri-${l}-level-${lv}"]`).locator('xpath=../../span[1]').innerText()).trim())) },
         expected: await value(`[data-testid="ri-${l}-expected"]`),
         current: await value(`[data-testid="ri-${l}-current"]`),
         window: Number(await page.getAttribute(`[data-testid="ri-${l}-losses"]`, 'data-window')),
@@ -126,13 +136,41 @@ function screen(page, mode) {
     }
   }
 
+  // SECTION 3's labels name the years: the current year's rate, and the
+  // priced year's indicated rates.
+  function sectionThree(ind, name) {
+    const P = ind.calendar;
+    const want = [`${P - 1} Rate`, `Indicated ${P} Rate at Expected`, ...LEVELS.map(lv => `Indicated ${P} Rate at ${lv}% CLF`)];
+    for (const [l] of LINES) {
+      const got = [ind[l].labels.current, ind[l].labels.expected, ...ind[l].labels.levels];
+      ok(JSON.stringify(got) === JSON.stringify(want), `${mode}, ${name}, ${P}, ${l}: section 3 names the current year's rate and the ${P} indicated rates`,
+        got.join(' | '));
+    }
+  }
+
+  // THE COMING YEAR'S OTHER LABELS: the top bar's current year, the lock
+  // button's and the Decisions page's program year.
+  async function yearNames(P, name) {
+    const current = (await page.textContent('[data-testid="header-calendar"]')).trim();
+    const lock = (await page.getByRole('button', { name: /Lock Program Year/ }).first().innerText()).trim();
+    await tab('Decisions');
+    await lineView("Workers' Compensation");
+    const heading = (await page.locator('h2', { hasText: /^Decisions for Program Year/ }).first().innerText()).trim();
+    ok(current === String(P - 1) && lock === `Lock Program Year ${P}` && heading === `Decisions for Program Year ${P} — Workers' Compensation`,
+      `${mode}, ${name}: the top bar shows the current year ${P - 1}, the lock button and Decisions page Program Year ${P}`,
+      `${current} | ${lock} | ${heading}`);
+  }
+
   // THE COMING YEAR: every level, every cover, against the panel.
-  async function comingYear(name) {
+  async function comingYear(name, programYear) {
     const ind = await readIndication();
     sectionOne(ind, name);
+    sectionThree(ind, name);
+    ok(ind.calendar === programYear, `${mode}, ${name}: the coming year is Program Year ${programYear}`, String(ind.calendar));
     const opts = await options();
     ok(opts.length > 0 && ind.year === opts[opts.length - 1].value,
       `${mode}, ${name}: the dropdown defaults to the coming year`, opts.map(o => o.text).join(', '));
+    await yearNames(programYear, name);
     await tab('Decisions');
     for (const [l, label] of LINES) {
       await lineView(label);
@@ -183,7 +221,7 @@ function screen(page, mode) {
     const rows = [];
     for (let i = 0; i < played.length; i++) rows.push(await readIndication(i + 1));
     rows.push(await readIndication(played.length + 1));
-    for (let i = 0; i < played.length; i++) sectionOne(rows[i], `${name}, played`);
+    for (let i = 0; i < played.length; i++) { sectionOne(rows[i], `${name}, played`); sectionThree(rows[i], `${name}, played`); }
     for (let i = 0; i < played.length; i++) {
       for (const [l] of LINES) {
         const c = played[i][l];
@@ -219,20 +257,20 @@ async function solo(browser) {
     if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
   }
   await page.getByRole('button', { name: 'Start Simulation' }).click();
-  await page.waitForSelector('text=Lock Year', { timeout: 60000 });
+  await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   const s = screen(page, 'solo');
 
-  await s.comingYear('before year 1');
+  await s.comingYear('before year 1', 2027);
   const played = [];
   for (const [y, level, cover] of [[1, 'expected', 1], [2, 80, 0]]) {
     played.push(await s.choose(level, cover));
-    await page.getByRole('button', { name: /Lock Year/ }).first().click();
+    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForTimeout(2500);
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
-    await page.waitForSelector(`text=Lock Year ${y + 1}`, { timeout: 120000 });
+    await page.waitForSelector(`text=Lock Program Year ${2027 + y}`, { timeout: 120000 });
   }
-  await s.comingYear('after two played years');
+  await s.comingYear('after two played years', 2029);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'solo: no page errors', errors[0] ?? '');
 }
@@ -260,17 +298,17 @@ async function hosted(browser) {
   await page.waitForSelector('[data-testid="rate-indication"], button:has-text("Rate Indication")', { timeout: 60000 });
   const s = screen(page, 'hosted');
 
-  await s.comingYear('before year 1');
+  await s.comingYear('before year 1', 2027);
   const played = [];
   for (const [y, level, cover] of [[1, 'expected', 1], [2, 80, 0]]) {
     played.push(await s.choose(level, cover));
-    await page.getByRole('button', { name: /Lock Year/ }).first().click();
+    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');
     await page.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
     await page.waitForTimeout(1000);
   }
-  await s.comingYear('after two played years');
+  await s.comingYear('after two played years', 2029);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'hosted: no page errors', errors[0] ?? '');
 }

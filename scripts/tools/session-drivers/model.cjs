@@ -58,17 +58,17 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
     if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
   }
   await page.getByRole('button', { name: 'Start Simulation' }).click();
-  await page.waitForSelector('text=Lock Year', { timeout: 60000 });
+  await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   for (const y of [1, 2]) {
     await tab('Decisions');
-    await page.getByRole('button', { name: /Lock Year/ }).first().click();
+    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForTimeout(2500);
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     // A loan offer, if a line ended the year below zero: declined, then confirmed.
     if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
     const confirm = page.getByRole('button', { name: /Confirm & Continue/ }).first();
     if (await confirm.count() > 0) { await confirm.click(); await page.waitForTimeout(800); }
-    await page.waitForSelector(`text=Lock Year ${y + 1}`, { timeout: 120000 });
+    await page.waitForSelector(`text=Lock Program Year ${2027 + y}`, { timeout: 120000 });
   }
 
   // The coming year's rate, as the Decisions panel quotes it.

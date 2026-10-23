@@ -212,7 +212,7 @@ async function resultsYearText(page, year) {
   const fcValues = [];
 
   for (let year = 1; year <= PLAY; year++) {
-    await player.getByRole('button', { name: /Lock Year/ }).first().waitFor({ timeout: 120000 });
+    await player.getByRole('button', { name: /Lock Program Year/ }).first().waitFor({ timeout: 120000 });
     // ⚠ A DIFFERENT SET EVERY YEAR. Without variation the two replay rules give
     // the same answer and the test proves nothing.
     {
@@ -259,7 +259,7 @@ async function resultsYearText(page, year) {
       const v = await nudge(player, 'Funding Confidence Level', year > 1 ? 2 : 0);
       fcValues.push(v);
     }
-    await player.getByRole('button', { name: /Lock Year/ }).first().click();
+    await player.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await player.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
 
     await host.click('[data-testid="advance"]');
