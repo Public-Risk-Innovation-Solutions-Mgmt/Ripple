@@ -40,8 +40,12 @@ function LineCard({ ri }: { ri: RateIndication }) {
   const l = ri.line;
   const p = ri.pure;
   const x = ri.expenses;
+  // Section 3 names its years: the program year priced (ri.calendarYear) and
+  // the current year before it, whose rate is in force — "2026 Rate" and
+  // "Indicated 2027 Rate at …" at the start, following the year shown.
+  const programYear = ri.calendarYear;
   const levelLabel = (pos: RateIndication['positions'][number]['position']) =>
-    pos === 'expected' ? 'Indicated rate at Expected' : `Indicated rate at ${Math.round(pos * 100)}% CLF`;
+    pos === 'expected' ? `Indicated ${programYear} Rate at Expected` : `Indicated ${programYear} Rate at ${Math.round(pos * 100)}% CLF`;
   const levelId = (pos: RateIndication['positions'][number]['position']) =>
     pos === 'expected' ? `ri-${l}-expected` : `ri-${l}-level-${Math.round(pos * 100)}`;
   return (
@@ -90,7 +94,7 @@ function LineCard({ ri }: { ri: RateIndication }) {
         </Section>
 
         <Section title="Indication at Various CLF">
-          <Row label="Current rate" testId={`ri-${l}-current`} value={ri.currentPer100 ?? undefined}>
+          <Row label={`${programYear - 1} Rate`} testId={`ri-${l}-current`} value={ri.currentPer100 ?? undefined}>
             {ri.currentPer100 === null ? '—' : rate(ri.currentPer100)}
           </Row>
           <Space />

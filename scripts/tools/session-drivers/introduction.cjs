@@ -125,7 +125,7 @@ async function checkUnderwriting(page, s, mode) {
     if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
   }
   await page.getByRole('button', { name: 'Start Simulation' }).click();
-  await page.waitForSelector('text=Lock Year', { timeout: 60000 });
+  await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   const s = intro(page, 'solo');
 
   await s.tab('Introduction');
@@ -139,11 +139,11 @@ async function checkUnderwriting(page, s, mode) {
   await checkMemoHeaders(page, s, 'solo');
   await checkUnderwriting(page, s, 'solo');
 
-  await page.getByRole('button', { name: /Lock Year/ }).first().click();
+  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
-  await page.waitForSelector('text=Lock Year 2', { timeout: 120000 });
+  await page.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
 
   await s.tab('Decision History');
   const pool = page.getByRole('button', { name: 'Pool', exact: true }).first();

@@ -36,6 +36,8 @@ interface DecisionsPageProps {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
   yearNumber: number;
+  /** The program year these decisions price — the setup's first year at year 1. */
+  programYear: number;
   disabled?: boolean;
   // 'pool' hosts the two pool-wide decisions (investment allocation, risk
   // control); each coverage line's tab edits that line's own decisions.
@@ -95,11 +97,11 @@ function resetLineToDefaults(decisions: DecisionSet, line: CoverageLine, shocks:
   };
 }
 
-export default function DecisionsPage({ decisions, onChange, yearNumber, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null }: DecisionsPageProps) {
+export default function DecisionsPage({ decisions, onChange, yearNumber, programYear, disabled = false, lineView, lineLoanInfo, lastLineResult, fundingConsequence, book, memberLossHistory, shocks = true, underwriting = null, riskControlCost = null }: DecisionsPageProps) {
   // Pool tab: ONE pool-wide decision now — the investment allocation. The
   // risk-control card that sat beside it has moved onto each line as a slider.
   if (lineView === 'pool') {
-    return <PoolDecisionsView decisions={decisions} onChange={onChange} yearNumber={yearNumber} disabled={disabled} />;
+    return <PoolDecisionsView decisions={decisions} onChange={onChange} programYear={programYear} disabled={disabled} />;
   }
 
   // Stage 2.7: every active line's remaining decisions are edited on its own
@@ -176,7 +178,7 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
     <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Year {yearNumber} Decisions — {lineDisplayName(lineView)}</h2>
+          <h2 className="text-xl font-bold text-gray-900">Decisions for Program Year {programYear} — {lineDisplayName(lineView)}</h2>
           <p className="text-gray-500 text-sm">Configure this line's strategy for the year</p>
         </div>
         {!disabled && (
@@ -323,10 +325,10 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, disable
 // Pool tab: the two pool-wide decisions. Portfolios remain segregated per
 // line (Stage 2.9) — every line applies this one allocation policy to its own
 // invested assets, and the one risk-control intensity to its own premium.
-function PoolDecisionsView({ decisions, onChange, yearNumber, disabled }: {
+function PoolDecisionsView({ decisions, onChange, programYear, disabled }: {
   decisions: DecisionSet;
   onChange: (d: DecisionSet) => void;
-  yearNumber: number;
+  programYear: number;
   disabled: boolean;
 }) {
   // ⚠ RESET DOES NOT CANCEL A PROGRAM, AND THAT IS DELIBERATE. This button
@@ -345,7 +347,7 @@ function PoolDecisionsView({ decisions, onChange, yearNumber, disabled }: {
     <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Year {yearNumber} Decisions — Pool</h2>
+          <h2 className="text-xl font-bold text-gray-900">Decisions for Program Year {programYear} — Pool</h2>
           <p className="text-gray-500 text-sm">Pool-wide policies applied by every line to its own base</p>
         </div>
         {!disabled && (

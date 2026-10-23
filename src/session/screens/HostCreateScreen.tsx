@@ -229,14 +229,14 @@ export default function HostCreateScreen() {
               <span className="mt-1 block text-xs text-slate-400">How many rounds the game will run.</span>
             </label>
             <label className="block">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Starting year</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">First program year</span>
               <input
                 type="number" min={2000} max={2100}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 value={startingYear}
                 onChange={e => setStartingYear(Number(e.target.value))}
               />
-              <span className="mt-1 block text-xs text-slate-400">Year 0 of the game.</span>
+              <span className="mt-1 block text-xs text-slate-400">The year the teams price first; the game opens in the year before it.</span>
             </label>
           </div>
 

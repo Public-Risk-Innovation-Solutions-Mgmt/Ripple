@@ -40,7 +40,7 @@ const active = page => page.locator('nav').first().locator('button.border-blue-6
   await solo.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
   ok(true, 'solo: a game still starts from the Game Setup page');
   await solo.getByRole('button', { name: 'Start Simulation' }).click();
-  await solo.waitForSelector('text=Lock Year', { timeout: 60000 });
+  await solo.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   const s = await bar(solo);
   ok(JSON.stringify(s) === JSON.stringify(SOLO), 'solo: the top bar, in order', s.join(' | '));
   ok(HIDDEN.every(t => !s.includes(t)), `solo: ${HIDDEN.join(', ')} are not on the bar`);
@@ -51,10 +51,10 @@ const active = page => page.locator('nav').first().locator('button.border-blue-6
     'solo: Rate Indication opens on its own page, titled for the program year');
 
   // A restored save asks for the hidden Dashboard; the first listed tab shows.
-  await solo.getByRole('button', { name: /Lock Year/ }).first().click();
-  await solo.waitForSelector('text=Lock Year 2', { timeout: 120000 });
+  await solo.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await solo.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
   await solo.reload();
-  await solo.waitForSelector('text=Lock Year 2', { timeout: 120000 });
+  await solo.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
   await solo.waitForTimeout(800);
   const landed = await active(solo);
   const body = (await solo.locator('main').innerText()).trim();

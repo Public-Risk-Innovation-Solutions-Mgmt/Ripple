@@ -32,7 +32,7 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   await page.goto('/solo');
   await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
   await page.getByRole('button', { name: /Start/i }).last().click();
-  await page.waitForSelector('text=Lock Year', { timeout: 60000 });
+  await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1500);
   // ⚠ A LINE VIEW IS REQUIRED. The funding panel is per line and the page opens
@@ -181,7 +181,7 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   // Lock a year. Players are never told about the worlds: neither the Results
   // page nor the Decisions page shows the surplus range across them, or says
   // they exist. The range stays in the session's posted results, for the host.
-  await page.getByRole('button', { name: /Lock Year/ }).first().click();
+  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }

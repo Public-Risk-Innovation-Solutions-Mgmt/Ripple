@@ -66,11 +66,11 @@ const BUTTONS = [
   if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption('7');
   else await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
   await page.getByRole('button', { name: /Start/i }).last().click();
-  await page.waitForSelector('text=Lock Year', { timeout: 30000 });
+  await page.waitForSelector('text=Lock Program Year', { timeout: 30000 });
 
   // One locked year is all three exports need; a second would only make the
   // driver slower without reaching a different code path.
-  await page.getByRole('button', { name: /Lock Year/ }).first().click();
+  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
   await page.waitForTimeout(4000);
 
   await page.getByRole('button', { name: 'Result Spreadsheet', exact: true }).first().click();

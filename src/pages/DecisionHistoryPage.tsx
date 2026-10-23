@@ -38,9 +38,9 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
   // 'Rate Change' column REMOVED — CLF-only pricing; the decision it showed no
   // longer exists.
   const headers = isPool
-    ? ['Yr', 'Calendar', 'Cash %', 'Bonds %', 'Equities %', 'Risk Control %']
+    ? ['Yr', 'Program Year', 'Cash %', 'Bonds %', 'Equities %', 'Risk Control %']
     : [
-        'Yr', 'Calendar', 'Funding Confidence', 'Dividend %', 'Assessment %',
+        'Yr', 'Program Year', 'Funding Confidence', 'Dividend %', 'Assessment %',
         'Reinsurance Program',
         // Underwriting and risk control, as percentages: the two sliders by their
         // names, and risk control — 0% while it is disabled.
