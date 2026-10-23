@@ -1324,7 +1324,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   The pricing report commit moved nothing. No played-year rate, premium,
 //   loss or reserve moves after the history commit: year 1 prices on a full
 //   five-year window of flat pre-game losses either way.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v81.json');
+// v82: THE POLICY-YEAR LANDING (policy year 2027, the simulated pre-game, the
+// investment income credit, admin trends, ALAE by year, Property capital
+// $17.5M), rebased on multiplayer 96fe2a2. The control ran first: 96fe2a2
+// reproduced v81, with export v89 (24 of 24) and render v80 (236 of 236). Run
+// at each commit in turn, each against the one before. 21,427 of 39,780
+// values differ from the control at head; every one is attributed to a commit.
+// Four fields added, 180 each (720): billedExposure, investmentIncomeCredit,
+// alaeRatio, pricingAlaeRatio. None removed.
+//   the 2027 policy year and data lag, 18,619: a sixth pre-game year and a
+//     one-year lag, so every reserve, asset and surplus field moves.
+//   the welcome memo and pool name, 0.
+//   the investment income credit, 13,007: premium and charge on every
+//     instance, and everything that follows them.
+//   the Model tab, 180 — billedExposure added, no existing value moves.
+//   admin trends 3%, 10,894: funding, surplus and capital.
+//   the simulated pre-game merge, 20,297: premiums, losses, reserves, IBNR.
+//   ALAE by line and year, 15,823: premium, LAE and what follows.
+//   the credit fix (no invested assets), 1,181 on 59 instances.
+//   Property $15M, 2,335 on 137; $17.5M, 2,722 on 151: opening surplus and
+//     the funding and capital fields that follow.
+//   the credit floored at zero, 1,950 on 8 instances, years 3-5: the 24
+//     credits that were negative (as low as -5.59%) are 0, so premium, income,
+//     surplus and capital follow. No negative credit remains.
+//   The driver and gate commits moved nothing.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v82.json');
 
 function seedOf(id: string) {
   let h = 5381;
