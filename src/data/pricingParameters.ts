@@ -706,6 +706,14 @@ export const PRE_GAME_INVESTMENT_RETURN = 0.03;
  * behalf. Last year's actual return is the rate the board can see when it
  * prices.
  *
+ * ⚠ FLOORED AT ZERO (`floor`): after a year whose return was negative the
+ * credit is 0, never a surcharge. The credit exists to pass on income the pool
+ * will earn on members' money; a year that lost money on its investments says
+ * nothing that should make members pay more for their claims cost, and a rate
+ * that rose because markets fell would charge members for the pool's
+ * investment result. Unfloored, the credit reached -7.3% on GL (a 7.3%
+ * surcharge on the pure premium) in a played year on the default allocation.
+ *
  * ⚠ THE SAME ON EVERY LINE FOR NOW, WHICH OVERSTATES A FAST-PAYING LINE'S
  * CREDIT AND UNDERSTATES A SLOW ONE'S. `byLine` scales it per line and is 1 on
  * every line: setting each to the line's payout length — the mean years from
@@ -715,6 +723,8 @@ export const PRE_GAME_INVESTMENT_RETURN = 0.03;
 export const INVESTMENT_INCOME_CREDIT = {
   enabled: true,
   beforeHistory: 0.03,
+  // The least the credit can be, before the line's factor: 0 — never a surcharge.
+  floor: 0,
   byLine: { WC: 1, GL: 1, Property: 1 } as PerLine<number>,
 };
 
@@ -2315,13 +2325,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Investment income credit', {
         value: INVESTMENT_INCOME_CREDIT.enabled
-          ? `last year's return (${(INVESTMENT_INCOME_CREDIT.beforeHistory * 100).toFixed(0)}% before any history), x ${perLine(INVESTMENT_INCOME_CREDIT.byLine, 2)}`
+          ? `last year's return, at least ${(INVESTMENT_INCOME_CREDIT.floor * 100).toFixed(0)}% (${(INVESTMENT_INCOME_CREDIT.beforeHistory * 100).toFixed(0)}% before any history), x ${perLine(INVESTMENT_INCOME_CREDIT.byLine, 2)}`
           : 'off',
         unit: 'off the pure premium',
         what: 'Rates credit the investment income the pool earns on claim money before paying it: pure premium x (1 - credit), '
           + 'never admin or reinsurance. The credit is last year\'s actual return on the pool\'s invested assets, after fees — '
           + 'its investment income over its invested assets, summed over the lines — and 3% before any history. A year that '
-          + 'earned 4% credits 4% and rates drop; 2% and they rise. The prior board\'s pre-game pricing uses the same rule.',
+          + 'earned 4% credits 4% and rates drop; 2% and they rise. The prior board\'s pre-game pricing uses the same rule. '
+          + 'Floored at zero: after a year with a negative return the credit is 0, never a surcharge — a loss on the '
+          + 'pool\'s investments is not a reason to charge members more for their claims cost.',
         basis: 'CHOSEN',
         note: 'The same on every line for now. The per-line factor is 1 on each; set to each line\'s payout length it makes '
           + 'the credit duration-weighted with that one change.',

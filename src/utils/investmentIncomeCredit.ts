@@ -12,8 +12,10 @@
 // one priced, its investment income over its invested assets summed over its
 // lines — net of fees, since every class's return is drawn net of its fee.
 // With no such year (the first pre-game year) it is the parameter's
-// `beforeHistory`. The line's factor (`byLine`, 1 on every line today) scales
-// it, so a payout-length weighting is one change to the parameter.
+// `beforeHistory`. Never below `floor` (0): after a year with a negative return
+// the credit is 0, never a surcharge. The line's factor (`byLine`, 1 on every
+// line today) scales it, so a payout-length weighting is one change to the
+// parameter.
 // ============================================================================
 import { INVESTMENT_INCOME_CREDIT } from '../data/pricingParameters';
 import type { CoverageLine, GameState, LineResultSet, ResultSet } from '../types/simulation';
@@ -47,10 +49,14 @@ export function gameHistory(gs: Pick<GameState, 'earlyPreGameHistory' | 'priorHi
   return [...(gs.earlyPreGameHistory ?? []), ...(gs.priorHistory ?? []), ...gs.lockedResults];
 }
 
-/** The rate before the line's factor: last year's realised return, or the parameter's before any history. */
+/**
+ * The rate before the line's factor: last year's realised return, or the
+ * parameter's before any history — never below the floor (0: a year that lost
+ * money credits nothing, never a surcharge).
+ */
 export function investmentIncomeCreditRate(history: readonly ResultSet[], yearNumber: number): number {
   const last = history.find(r => r.yearNumber === yearNumber - 1);
-  return (last ? poolReturnOf(last) : null) ?? INVESTMENT_INCOME_CREDIT.beforeHistory;
+  return Math.max(INVESTMENT_INCOME_CREDIT.floor, (last ? poolReturnOf(last) : null) ?? INVESTMENT_INCOME_CREDIT.beforeHistory);
 }
 
 /** The credit `line`'s rate for `yearNumber` takes off its pure premium; 0 with the credit off. */
@@ -70,5 +76,5 @@ export function investmentIncomeCreditFromLine(line: CoverageLine, last: LineRes
   const rate = !last ? INVESTMENT_INCOME_CREDIT.beforeHistory
     : last.investedAssets > 0 ? last.investmentIncome / last.investedAssets
       : Number.isFinite(last.investmentReturnRate) ? last.investmentReturnRate : INVESTMENT_INCOME_CREDIT.beforeHistory;
-  return rate * INVESTMENT_INCOME_CREDIT.byLine[line];
+  return Math.max(INVESTMENT_INCOME_CREDIT.floor, rate) * INVESTMENT_INCOME_CREDIT.byLine[line];
 }

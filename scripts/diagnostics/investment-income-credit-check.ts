@@ -10,16 +10,21 @@
 //      played — took off its pure premium the pool's realised return of the
 //      year before it (its investment income over its invested assets, summed
 //      over the lines), and the first pre-game year, with no year before it,
-//      3% (INVESTMENT_INCOME_CREDIT.beforeHistory). The same on every line.
+//      3% (INVESTMENT_INCOME_CREDIT.beforeHistory) — never below the floor, 0.
+//      The same on every line.
 //   2. OFF THE PURE PREMIUM ONLY: every played year's struck rate, re-quoted at
 //      no credit, has the same admin and the same reinsurance price, and the
 //      rate differs by exactly pure premium x credit x CLF / divisor.
 //   3. THE RATE CHARGED CARRIES IT: every played year's charged rate is the
 //      struck rate, credit and all.
+//   4. A NEGATIVE RETURN GIVES A ZERO CREDIT, NEVER A SURCHARGE: a year whose
+//      pool return was negative — on every line, through both readings (the
+//      game's, off its history, and a line's own pre-game's) — credits exactly
+//      0; and every played line-year above whose year before lost money took 0.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN: the controls feed 1 a credit read off the year
-// being priced instead of the year before, and a flat 3%; and 2 a credit also
-// taken off admin.
+// being priced instead of the year before, and a flat 3%; 2 a credit also
+// taken off admin; and 4 the credit with its floor removed.
 // ============================================================================
 
 import { INVESTMENT_INCOME_CREDIT } from '../../src/data/pricingParameters';
@@ -27,11 +32,11 @@ import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, strikeRates } from '../../src/utils/worlds';
-import { gameHistory, poolReturnOf } from '../../src/utils/investmentIncomeCredit';
+import { gameHistory, investmentIncomeCredit, investmentIncomeCreditFromLine, poolReturnOf } from '../../src/utils/investmentIncomeCredit';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import { quoteNewRateStack, type NewStackQuote } from '../../src/utils/linePricing';
 import type { StruckLineRate } from '../../src/utils/simulationEngine';
-import type { CoverageLine, GameSetupSettings, GameState, ResultSet } from '../../src/types/simulation';
+import type { CoverageLine, GameSetupSettings, GameState, LineResultSet, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const SCENARIOS = ['1', '7', '14', '20'];
@@ -60,7 +65,7 @@ function play(id: string): Game {
 type Expect = (history: ResultSet[], y: number) => number;
 const shipped: Expect = (h, y) => {
   const last = h.find(r => r.yearNumber === y - 1);
-  return (last ? poolReturnOf(last) : null) ?? INVESTMENT_INCOME_CREDIT.beforeHistory;
+  return Math.max(INVESTMENT_INCOME_CREDIT.floor, (last ? poolReturnOf(last) : null) ?? INVESTMENT_INCOME_CREDIT.beforeHistory);
 };
 
 function gradeCredit(games: Game[], expect: Expect, tag: string) {
@@ -124,11 +129,35 @@ function gradeCharged(games: Game[], tag: string) {
     `${n} line-years, worst ${worst.toExponential(2)}`);
 }
 
+// 4. A year that lost money: a synthetic one, every line at -5% (income -$0.5M on
+// $10M), read both ways; and every played line-year whose year before lost money.
+type Readings = {
+  game: (line: CoverageLine, history: readonly ResultSet[], y: number) => number;
+  line: (line: CoverageLine, last: LineResultSet | undefined) => number;
+};
+const engine: Readings = { game: investmentIncomeCredit, line: investmentIncomeCreditFromLine };
+const LOSS_LINE = { investmentIncome: -500_000, investedAssets: 10_000_000, investmentReturnRate: -0.05 } as LineResultSet;
+const LOSS_YEAR = { yearNumber: 3, byLine: { WC: LOSS_LINE, GL: LOSS_LINE, Property: LOSS_LINE } } as unknown as ResultSet;
+function gradeFloor(games: Game[], r: Readings, tag: string) {
+  const synthetic = LINES.flatMap(l => [r.game(l, [LOSS_YEAR], 4), r.line(l, LOSS_LINE)]);
+  let n = 0, worst = 0;
+  for (const g of games) for (const row of g.history) {
+    const last = g.history.find(x => x.yearNumber === row.yearNumber - 1);
+    if (!last || (poolReturnOf(last) ?? 0) >= 0) continue;
+    for (const l of LINES) { n++; worst = Math.max(worst, Math.abs(row.byLine[l]?.investmentIncomeCredit ?? NaN)); }
+  }
+  check(synthetic.every(c => c === 0) && !(worst > 0),
+    `${tag}4. a negative return gives a zero credit, never a surcharge`,
+    `a -5% year: ${synthetic.map(c => (c * 100).toFixed(2) + '%').join(' ')} (game, line, on WC GL Property); `
+      + `${n} played line-years after a losing year, worst credit ${worst}`);
+}
+
 console.log(`THE INVESTMENT INCOME CREDIT — scenarios ${SCENARIOS.join(', ')}, ${YEARS} played years, three lines`);
 const games = SCENARIOS.map(play);
 gradeCredit(games, shipped, '');
 gradePurePremiumOnly(games, false, '');
 gradeCharged(games, '');
+gradeFloor(games, engine, '');
 const sample = games[0].history.map(r => `${r.yearNumber}:${((r.byLine.WC?.investmentIncomeCredit ?? NaN) * 100).toFixed(2)}%`).join(' ');
 console.log(`  scenario ${SCENARIOS[0]}, WC's credit by year: ${sample}`);
 
@@ -147,10 +176,15 @@ controlFails('a credit read off the year being priced', () => gradeCredit(games,
 }, ''), '1.');
 controlFails('a flat 3% credit', () => gradeCredit(games, () => INVESTMENT_INCOME_CREDIT.beforeHistory, ''), '1.');
 controlFails('a credit also taken off admin', () => gradePurePremiumOnly(games, true, ''), '2.');
+controlFails('the credit with its floor removed', () => {
+  const floor = INVESTMENT_INCOME_CREDIT.floor;
+  INVESTMENT_INCOME_CREDIT.floor = -Infinity;
+  try { gradeFloor(games, engine, ''); } finally { INVESTMENT_INCOME_CREDIT.floor = floor; }
+}, '4.');
 
 console.log('');
 if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log("PASS — every rate credits last year's return off its pure premium, and nothing else.");
+console.log("PASS — every rate credits last year's return, floored at zero, off its pure premium, and nothing else.");
