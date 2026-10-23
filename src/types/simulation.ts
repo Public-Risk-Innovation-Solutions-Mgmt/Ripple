@@ -953,6 +953,12 @@ export interface BenchClaim {
 export interface ReserveCohort {
   yearNumber: number;
   calendarYear: number;
+  /**
+   * THE ACCIDENT YEAR'S ALAE RATIO, drawn at inception (alaeRatio.ts): its ALAE
+   * is incurred, paid and reserved at this share of its ground-up losses.
+   * Absent on a cohort from before the draw — read as the range's middle.
+   */
+  alaeRatio?: number;
   // The cohort's CURRENT estimate of ultimate, net of reinsurance. This is what
   // develops: IBNER moves it each year until the cohort matures. `netUnpaid`
   // follows from it, and `netPaid` accumulates against it.
@@ -1158,6 +1164,8 @@ export interface ReserveDevelopmentRow {
    * the paid basis before development and prices them as a steady load.
    */
   shockGross?: number;
+  /** The accident year's drawn ALAE ratio (alaeRatio.ts) — what pricing's ALAE load averages over its window. */
+  alaeRatio?: number;
   ultimateByValuation: number[];
   // CUMULATIVE NET PAID at each of the same valuations, same indexing. A
   // RECORDING, not a computation — the figure processIbner already produced,
@@ -1457,6 +1465,10 @@ interface ResultRowFields {
   expectedToSurplus?: number;
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;
+  /** THE YEAR'S DRAWN ALAE RATIO (alaeRatio.ts): its claims' ALAE is booked at it. */
+  alaeRatio?: number;
+  /** The ALAE load the year's rate carried: the mean of its window's drawn ratios, or the range's middle. */
+  pricingAlaeRatio?: number;
   /**
    * The exposure the year was BILLED on, $M, unrounded — activeExposure is
    * stated to two places; the charge is the rate on this exactly. A played

@@ -1,6 +1,7 @@
 // Core simulation engine for Risk Pool Simulation v1
 // Premium formula: Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
+import { alaeRatioFor } from './alaeRatio';
 import { investmentIncomeCredit, gameHistory } from './investmentIncomeCredit';
 import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation, BookLedger } from '../types/simulation';
 import type { ShockFiring, ShockRecord } from '../types/shocks';
@@ -2464,6 +2465,9 @@ export function processLineYear(
   const currentYearCohort: ReserveCohort = {
     yearNumber,
     calendarYear,
+    // THE YEAR'S ALAE RATIO, drawn on the game's seed so every world books the
+    // same (alaeRatio.ts): the cohort's ALAE is incurred and reserved at it.
+    alaeRatio: alaeRatioFor(marketSeedOf(instance), yearNumber, line),
     netUltimate: bookedUltimate,
     netPaid: netPaidCurrentYear,
     netUnpaid: currentYearNetReserve,
@@ -3060,6 +3064,9 @@ export function processLineYear(
     ...(struck ? { ratedExposure: struck.exposure } : {}),
     // The credit the billed rate took off its pure premium.
     ...(billedStack !== null ? { investmentIncomeCredit: billedStack.investmentIncomeCredit } : {}),
+    // The year's drawn ALAE ratio, and the ALAE load its rate carried.
+    alaeRatio: currentYearCohort.alaeRatio,
+    ...(newPp !== null && newPp.lossCostPer100 > 0 ? { pricingAlaeRatio: newPp.alaeRatio } : {}),
     // ⚠ A ONE-WORLD YEAR'S RATE BASIS — the pre-game's — so its rate can be
     // rebuilt (the Model tab): the pure premium was struck on the book before
     // movement, the bill and its cover on the book after it. A struck year's is
@@ -4658,6 +4665,7 @@ function recordReserveDevelopment(
       horizon: incepted.horizon,
       ...(bookExposure !== undefined ? { exposure: bookExposure } : {}),
       ...(incepted.shockGross !== undefined ? { shockGross: incepted.shockGross } : {}),
+      ...(incepted.alaeRatio !== undefined ? { alaeRatio: incepted.alaeRatio } : {}),
     });
   }
 

@@ -55,6 +55,8 @@ export interface ModelWindowRow {
   yearsToLatest: number;
   trendToLatest: number;
   trendedToLatestPer100: number;
+  /** The accident year's drawn ALAE ratio. */
+  alaeRatio: number;
 }
 
 export interface ModelRate {
@@ -152,17 +154,19 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   const annualTrend = lossCostTrendPerYear(line);
   const trendYears = 1 + PRICING_DATA_LAG_YEARS;
   const valuationDate = `12/31/${calendarOf(gs, latestDataYear)}`;
-  const window: ModelWindowRow[] = pp.points.map(p => {
+  const window: ModelWindowRow[] = pp.points.map((p, i) => {
     const yearsToLatest = latestDataYear - p.accidentYear;
     const trendToLatest = Math.pow(annualTrend, yearsToLatest);
     return {
       accidentYear: calendarOf(gs, p.accidentYear), valuationDate, paid: p.groundUpPaid, shockPaid: p.shockPaid,
       ageMonths: p.ageMonths, ldf: p.ldf, developed: p.developed, exposure: p.exposure, lossCostPer100: p.lossCostPer100,
       yearsToLatest, trendToLatest, trendedToLatestPer100: p.lossCostPer100 * trendToLatest,
+      alaeRatio: pp!.alaeRatios[i],
     };
   });
   const average = window.length > 0 ? window.reduce((a, w) => a + w.trendedToLatestPer100, 0) / window.length : null;
-  const lae = laeShares(line);
+  // ULAE's share; ALAE's is the pure premium's own load (the window's mean drawn ratio).
+  const lae = laeShares(line, pp.alaeRatio);
 
   const quote = quoteNewRateStack({
     line, yearNumber,
@@ -239,6 +243,8 @@ export interface ModelVarianceYear {
   reinsurance: [number, number];
   investmentIncome: [number, number];
   combinedRatio: [number, number | null];
+  /** [the ALAE load the year's rate carried, the ratio the year drew and booked]. */
+  alaeRatio: [number, number];
   surplus: [number, number];
 }
 
@@ -257,7 +263,9 @@ export function buildModelVariance(gs: GameState, line: CoverageLine): ModelVari
     const r = res.byLine[line];
     if (!r) return [];
     const claims = r.bookedGrossUltimate ?? r.grossUltimateLoss;
-    const expAlae = r.expectedLoss * lae.alae, expUlae = r.expectedLoss * lae.ulae;
+    // ALAE expected at the load the year's rate carried; booked at the year's drawn ratio.
+    const pricedAlae = r.pricingAlaeRatio ?? lae.alae;
+    const expAlae = r.expectedLoss * pricedAlae, expUlae = r.expectedLoss * lae.ulae;
     const expInvest = blendInvestmentReturn(r.investedAssets, r.assetAllocation, expectedMarketReturns()).income;
     const expRecovery = r.expectedReinsuranceRecovery ?? 0;
     const recovery = r.reinsuranceRecovery + (r.aggregateRecovery ?? 0);
@@ -273,6 +281,7 @@ export function buildModelVariance(gs: GameState, line: CoverageLine): ModelVari
       yearNumber: res.yearNumber, calendarYear: calendarOf(gs, res.yearNumber),
       claims: [r.expectedLoss, claims],
       alae: [expAlae, r.alaeIncurred],
+      alaeRatio: [pricedAlae, r.alaeRatio ?? lae.alae],
       ulae: [expUlae, r.ulaeIncurred],
       lossAndLae: [r.expectedLoss + expAlae + expUlae, claims + r.alaeIncurred + r.ulaeIncurred],
       admin: [r.adminExpense, r.operatingExpense],

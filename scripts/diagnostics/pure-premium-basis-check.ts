@@ -11,8 +11,10 @@
 //      expected ordinary claims per $100 are the pure premium / 1.05, and with
 //      ULAE at 5% of them give $2.618 and $3.45 back exactly. Property's cost
 //      is loss only and is not divided.
-//   2. LAE: ALAE and ULAE each 5% of claims on every line, charged and booked;
-//      no line's losses are read as already holding ALAE.
+//   2. LAE: ULAE 5% of claims on every line; ALAE in its line's range (WC 7-15%,
+//      GL 10-20%, Property 2-5%, drawn by year — alae-ratio-check holds the
+//      draw), the middle of it before any history; no line's losses are read as
+//      already holding ALAE.
 //   3. TREND ONCE: no inflation to settlement on top (UP_FRONT_TREND off), so
 //      year-1 pricing lands on the pure premium: the rate's loss cost + ULAE
 //      is the pure premium x the book's own risk x the scenario's pre-game
@@ -30,7 +32,7 @@
 // ============================================================================
 
 import {
-  ALAE_OF_LOSS_COST, POOL_LOSS_COST_LAYERS, preGameLossMultiplier, ULAE_OF_LOSS_COST, UP_FRONT_TREND,
+  ALAE_OF_LOSS_COST, ALAE_RATIO_RANGE, POOL_LOSS_COST_LAYERS, preGameLossMultiplier, ULAE_OF_LOSS_COST, UP_FRONT_TREND,
 } from '../../src/data/pricingParameters';
 import { scenarioOf } from '../../src/utils/scenarios';
 import { ALAE_ALREADY_IN_LOSSES } from '../../src/utils/newPurePremium';
@@ -69,9 +71,11 @@ function gradeClaims(claims: Claims, tag: string) {
 // ---------------------------------------------------------------- 2
 type Shares = (l: CoverageLine) => { alae: number; ulae: number };
 function gradeLae(shares: Shares, tag: string) {
-  const ok = LINES.every(l => shares(l).alae === 0.05 && shares(l).ulae === 0.05 && !ALAE_ALREADY_IN_LOSSES[l]
-    && ALAE_OF_LOSS_COST[l] === 0.05 && ULAE_OF_LOSS_COST[l] === 0.05);
-  check(ok, `${tag}2. ALAE and ULAE are each 5% of claims on every line, charged and booked; GL takes ALAE too`,
+  const mid = (l: CoverageLine) => (ALAE_RATIO_RANGE[l].min + ALAE_RATIO_RANGE[l].max) / 2;
+  const ok = LINES.every(l => shares(l).alae === mid(l) && shares(l).ulae === 0.05 && !ALAE_ALREADY_IN_LOSSES[l]
+    && ALAE_OF_LOSS_COST[l] === mid(l) && ULAE_OF_LOSS_COST[l] === 0.05
+    && ALAE_RATIO_RANGE[l].min > 0 && ALAE_RATIO_RANGE[l].max > ALAE_RATIO_RANGE[l].min);
+  check(ok, `${tag}2. ULAE is 5% of claims on every line; ALAE is in its line's range, at its middle before history; GL takes ALAE too`,
     LINES.map(l => `${l} ${shares(l).alae} + ${shares(l).ulae}`).join(', '));
 }
 
@@ -156,4 +160,4 @@ if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — claims + ULAE are the pool\'s pure premium, ALAE on top at 5%, trend once, and claims track expected.');
+console.log('PASS — claims + ULAE are the pool\'s pure premium, ALAE on top in its range, trend once, and claims track expected.');

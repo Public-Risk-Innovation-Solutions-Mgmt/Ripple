@@ -47,14 +47,14 @@ function SectionA({ m }: { m: ModelRate }) {
             <thead>
               <tr className="border-b border-gray-200 text-xs text-gray-500">
                 {['Accident year', 'Valued', 'Paid losses as valued', 'Paid LDF', 'Developed losses', 'Exposure ($M)', 'Loss cost per $100',
-                  `Years to ${m.latestDataYear}`, 'Trend factor', `Trended loss cost (${m.latestDataYear} level)`].map(h => (
+                  `Years to ${m.latestDataYear}`, 'Trend factor', `Trended loss cost (${m.latestDataYear} level)`, 'ALAE ratio drawn'].map(h => (
                   <th key={h} className="px-2 py-1 text-right font-semibold whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {m.window.map(w => (
-                <tr key={w.accidentYear} data-testid={`model-a-window-${w.accidentYear}`} className="border-b border-gray-50 font-mono tabular-nums text-right">
+                <tr key={w.accidentYear} data-testid={`model-a-window-${w.accidentYear}`} className="border-b border-gray-50 font-mono tabular-nums text-right whitespace-nowrap">
                   <td className="px-2 py-1">{w.accidentYear}</td>
                   <td className="px-2 py-1">{w.valuationDate} ({w.ageMonths} mo)</td>
                   <td className="px-2 py-1" data-value={w.paid}>{f4(w.paid)}</td>
@@ -65,6 +65,7 @@ function SectionA({ m }: { m: ModelRate }) {
                   <td className="px-2 py-1">{w.yearsToLatest}</td>
                   <td className="px-2 py-1" data-value={w.trendToLatest}>× {f4(w.trendToLatest)}</td>
                   <td className="px-2 py-1" data-value={w.trendedToLatestPer100}>{f4(w.trendedToLatestPer100)}</td>
+                  <td className="px-2 py-1" data-value={w.alaeRatio}>{pct4(w.alaeRatio)}</td>
                 </tr>
               ))}
             </tbody>
@@ -92,6 +93,8 @@ function SectionA({ m }: { m: ModelRate }) {
           <Step label="Projected pure premium after the credit" value={m.afterCreditPer100} testId="model-a-after-credit" strong />
 
           <Heading n={4} title="LAE loads (inside the projected pure premium)" />
+          <Step label="ALAE ratio priced" op={m.window.length > 0 ? `mean of the window's ${m.window.length} drawn ratios` : 'the middle of the line\'s range (no history)'}
+            value={m.alaeShare} testId="model-a-alae-ratio" />
           <Step label="ALAE" op={`loss cost × ${pct4(m.alaeShare)}`} value={m.alaePer100} />
           <Step label="ULAE" op={`loss cost × ${pct4(m.ulaeShare)}`} value={m.ulaePer100} />
 
@@ -129,6 +132,7 @@ function SectionA({ m }: { m: ModelRate }) {
 
 const B_ROWS: { key: keyof Omit<ModelVarianceYear, 'yearNumber' | 'calendarYear'>; label: string; pct?: boolean }[] = [
   { key: 'claims', label: 'Losses, claims only' },
+  { key: 'alaeRatio', label: 'ALAE ratio (priced / drawn and booked)', pct: true },
   { key: 'alae', label: 'ALAE' },
   { key: 'ulae', label: 'ULAE' },
   { key: 'lossAndLae', label: 'Loss + LAE' },

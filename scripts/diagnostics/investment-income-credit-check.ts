@@ -42,7 +42,7 @@ const check = (ok: boolean, label: string, detail = '') => {
   console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 
-interface Game { history: ResultSet[]; shocks: boolean; struck: { year: number; byLine: Partial<Record<CoverageLine, StruckLineRate>> }[] }
+interface Game { id: string; history: ResultSet[]; shocks: boolean; struck: { year: number; byLine: Partial<Record<CoverageLine, StruckLineRate>> }[] }
 
 function play(id: string): Game {
   const { setup, instance } = openSoloInstance({ poolName: 'C', gameLength: YEARS, startingYear: 2027, instanceId: id, activeLines: LINES } as GameSetupSettings);
@@ -53,7 +53,7 @@ function play(id: string): Game {
     struck.push({ year: y, byLine: strikeRates(gs, defaultDecisionSet(y)) });
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), LINES)), currentYearNumber: y + 1 };
   }
-  return { history: gameHistory(gs), shocks: gameShocksOn(setup, instance), struck };
+  return { id, history: gameHistory(gs), shocks: gameShocksOn(setup, instance), struck };
 }
 
 // What a year's credit should be, read off the history: the year before's pool return.
@@ -64,19 +64,20 @@ const shipped: Expect = (h, y) => {
 };
 
 function gradeCredit(games: Game[], expect: Expect, tag: string) {
-  let worst = 0, n = 0, first = Infinity;
+  let worst = 0, n = 0, first = Infinity, where = '';
   const seen = new Set<string>();
   for (const g of games) for (const r of g.history) for (const l of LINES) {
     const got = r.byLine[l]?.investmentIncomeCredit;
     if (got === undefined) { worst = Infinity; continue; }
     n++;
-    worst = Math.max(worst, Math.abs(got - expect(g.history, r.yearNumber) * INVESTMENT_INCOME_CREDIT.byLine[l]));
+    const off = Math.abs(got - expect(g.history, r.yearNumber) * INVESTMENT_INCOME_CREDIT.byLine[l]);
+    if (off > worst) { worst = off; where = `${g.id} ${l} year ${r.yearNumber}: ${(got * 100).toFixed(4)}% vs ${(expect(g.history, r.yearNumber) * 100).toFixed(4)}%`; }
     if (r.yearNumber === g.history[0].yearNumber) first = Math.min(first, got);
     seen.add(got.toFixed(6));
   }
   check(worst < 1e-12 && n > 0,
     `${tag}1. every line-year's credit is the pool's return the year before (3% in the first pre-game year), the same on every line`,
-    `${n} line-years, worst off ${worst.toExponential(2)}; first pre-game year ${(first * 100).toFixed(2)}%; ${seen.size} distinct credits`);
+    `${n} line-years, worst off ${worst.toExponential(2)}${worst > 1e-12 ? ` (${where})` : ''}; first pre-game year ${(first * 100).toFixed(2)}%; ${seen.size} distinct credits`);
 }
 
 // The struck rate re-quoted at no credit: what the credit moved and what it left alone.
