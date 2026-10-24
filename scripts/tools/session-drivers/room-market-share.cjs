@@ -160,7 +160,9 @@ function expectedShares(rec, year) {
 
   // Different underwriting, every line.
   for (const v of LINES) {
-    for (const [t, label, presses] of [['Cedar Valley', 'Renewals declined', 10], ['Tri-County', 'New Business, rejection rate', 15]]) {
+    // The sliders' on-screen names since the Decisions layout: renewalsDeclined
+    // and newBusinessRejection underneath, as before.
+    for (const [t, label, presses] of [['Cedar Valley', 'Existing Book: Non-Renewal Assumption', 10], ['Tri-County', 'New Business: Growth Assumption', 15]]) {
       const p = players[t];
       await decisionsTab(p);
       await p.getByRole('button', { name: VIEW[v], exact: true }).first().click();
