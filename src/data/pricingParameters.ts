@@ -472,6 +472,28 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
 };
 
 /**
+ * HOW MUCH OF THE FIXED ADMIN STAYS FIXED — CHOSEN, a test-build switch: 1
+ * (today), 0.5 or 0. The share removed from ADMIN_FIXED_PER_YEAR is charged
+ * instead as a per-exposure rate, struck at the opening book
+ * (OPENING_BOOK_EXPOSURE, which every game's year 1 bills), so year-1 admin
+ * in dollars is unchanged on every line; from then on it moves with exposure.
+ *
+ * WHY: fixed admin is spread over the book, so growing the book cuts admin
+ * per unit and shrinking it raises it. Measured on simple underwriting, that
+ * is what makes adding new members beat non-renewal on WC and GL whatever the
+ * penalty; this setting tests how much of it decides the trade-off. Both
+ * parts still trend at ADMIN_TREND_PER_YEAR.
+ */
+export const FIXED_ADMIN_SHARE = { share: 1 };
+
+/** The fixed admin a line charges a year at year 1's level: FIXED_ADMIN_SHARE of ADMIN_FIXED_PER_YEAR. */
+export const adminFixedPerYear = (line: CoverageLine): number => FIXED_ADMIN_SHARE.share * ADMIN_FIXED_PER_YEAR[line];
+
+/** The per-exposure admin rate per $100 at year 1's level, with the moved share of the fixed admin on it. */
+export const adminPerExposurePer100 = (line: CoverageLine): number => ADMIN_PER_EXPOSURE_PER_100[line]
+  + (1 - FIXED_ADMIN_SHARE.share) * ADMIN_FIXED_PER_YEAR[line] / (OPENING_BOOK_EXPOSURE[line] * 10_000);
+
+/**
  * ADMIN GROWS WITH INFLATION — 3% a year on BOTH parts, the fixed dollars a
  * year (ADMIN_FIXED_PER_YEAR) and the per-exposure rate
  * (ADMIN_PER_EXPOSURE_PER_100), compounding each year from ADMIN_BASE_YEAR and
@@ -1603,7 +1625,9 @@ export const NON_RENEWAL_LOSS_RELIEF = 0.5;
  *
  * Pricing still learns only from the experience.
  *
- * ⚠ DECAYING IS IN FORCE — MEASURED (scripts/probes/simple-uw-report.mts,
+ * ⚠ ONEYEAR IS IN FORCE AGAIN, by decision, for the fixed-admin test (decaying
+ * was in force from its measurement until then). THAT MEASUREMENT
+ * (scripts/probes/simple-uw-report.mts,
  * twenty scenarios, ten years, single player, shocks off, non-renewal held at
  * 5%). oneYear: never beats leaving the book alone on WC or GL (combined
  * ratio worse on 20/20), because the smaller book carries the same fixed
@@ -1615,7 +1639,7 @@ export const NON_RENEWAL_LOSS_RELIEF = 0.5;
  * (surplus ahead in 8 and 16 of 20, combined ratio behind): worth using, not
  * dominant.
  */
-export const NON_RENEWAL_PERSISTENCE: { mode: 'oneYear' | 'decaying' | 'lasting' } = { mode: 'decaying' };
+export const NON_RENEWAL_PERSISTENCE: { mode: 'oneYear' | 'decaying' | 'lasting' } = { mode: 'oneYear' };
 
 /** The share of the improvement a DECAYING book carries into the next year — CHOSEN, the brief's half. */
 export const NON_RENEWAL_DECAY = 0.5;
@@ -2578,6 +2602,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'The same calibration, and as stale: 0.5 x 0.15 x the old opening pure premium per $100. Left as it is '
           + 'until the pool\'s budget is sent.',
       }],
+      ['Fixed admin share', {
+        value: FIXED_ADMIN_SHARE.share, unit: 'of the fixed admin kept fixed; the rest on the per-exposure rate',
+        what: 'How much of the fixed admin stays a fixed dollar amount. The share removed is charged per $100 of '
+          + 'exposure, struck at the opening book so year-1 admin in dollars is unchanged on every line; after that it '
+          + 'moves with exposure.',
+        basis: 'CHOSEN',
+        note: 'A test-build switch (100%, 50% or 0%): fixed admin rewards growth and penalises shrinking, which decides '
+          + 'whether non-renewal or new members does better.',
+      }],
       ['Admin trend', {
         value: ADMIN_TREND_PER_YEAR, unit: 'a year, on both admin parts',
         what: 'Admin grows with inflation: the fixed dollars and the per-exposure rate are each x (1 + this)^(year - the base '
@@ -2955,8 +2988,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'f(x) x Q): one year only, halved each year, or never reset. New members join at Q = 1 and blend in '
           + 'by exposure.',
         basis: 'CHOSEN',
-        note: 'A test-build switch so all three versions can be run. Decaying in force: measured, it makes non-renewal '
-          + 'worth using (settling 4.9% cheaper) without the lasting version\'s unbounded compounding.',
+        note: 'A test-build switch so all three versions can be run. Measured, decaying made non-renewal worth using '
+          + '(settling 4.9% cheaper) without the lasting version\'s unbounded compounding; one year is in force again '
+          + 'for the fixed-admin test.',
       }],
       ['New members — slider', {
         value: `${(100 * NEW_MEMBERS_SLIDER.min).toFixed(0)}–${(100 * NEW_MEMBERS_SLIDER.max).toFixed(0)}%, `

@@ -43,7 +43,7 @@
 
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED } from '../data/defaultAssumptions';
 import {
-  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR, ADMIN_BASE_YEAR, PROFIT_AND_CONTINGENCY_OF_RATE,
+  adminFixedPerYear, adminPerExposurePer100, ADMIN_TREND_PER_YEAR, ADMIN_BASE_YEAR, PROFIT_AND_CONTINGENCY_OF_RATE,
 } from '../data/pricingParameters';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
@@ -583,8 +583,8 @@ export function adminTrendFactor(yearNumber: number): number {
  * charges and, through the charge, what the engine books as the year's admin.
  */
 export function adminRatePer100For(line: CoverageLine, exposure: number, yearNumber: number): number {
-  return adminTrendFactor(yearNumber) * (ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1)
-    + ADMIN_PER_EXPOSURE_PER_100[line]);
+  return adminTrendFactor(yearNumber) * (adminFixedPerYear(line) / Math.max(exposure * 10_000, 1)
+    + adminPerExposurePer100(line));
 }
 /**
  * THE INCENTIVE THE RATE ACTUALLY CARRIES — the stored slider with RISK_CONTROL

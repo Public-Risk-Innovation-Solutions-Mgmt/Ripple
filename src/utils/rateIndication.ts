@@ -39,7 +39,7 @@
 // (docs/PENDING_MULTIPLAYER.md: players never see how the engine works).
 // ============================================================================
 import {
-  ADMIN_FIXED_PER_YEAR, AGGREGATE_STOP_OPTIONS, PROFIT_AND_CONTINGENCY_OF_RATE, RATE_INDICATION_FUNDING_LEVELS,
+  adminFixedPerYear, AGGREGATE_STOP_OPTIONS, PROFIT_AND_CONTINGENCY_OF_RATE, RATE_INDICATION_FUNDING_LEVELS,
 } from '../data/pricingParameters';
 import { gameHistory } from './gameHistory';
 import { computeFundingConsequence } from './fundingConsequence';
@@ -207,7 +207,7 @@ export function buildRateIndication(
   // THE EXPENSES, as shares of the rate at Expected.
   const rateE = atExpected.finalRatePer100;
   // The fixed part's share, trended to the year as the rate charges it.
-  const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1);
+  const fixedPer100 = adminTrendFactor(yearNumber) * adminFixedPerYear(line) / Math.max(exposure * 10_000, 1);
   const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
     : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
   const contingency = PROFIT_AND_CONTINGENCY_OF_RATE[line];
