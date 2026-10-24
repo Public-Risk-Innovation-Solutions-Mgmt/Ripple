@@ -1644,6 +1644,16 @@ export const NEW_BUSINESS_PENALTY = 0.20;
  * take every cohort alike), joins at quality 1 and is not part of Q: the
  * penalty sits beside the book's quality, not in it. The pre-game's growth is
  * intake too, and fades the same way. Not in pricing's expected loss.
+ *
+ * ⚠ ONEYEAR STAYS IN FORCE — MEASURED, THE FADE CHANGES ALMOST NOTHING
+ * (scripts/probes/simple-uw-report.mts: twenty scenarios, ten years, single
+ * player, shocks off, decaying non-renewal, at Expected and at 70%). Holding
+ * new members at 5%, the ten-year combined ratio moves by at most +0.0016
+ * (threeYear on WC and GL) and the rate learns most of it back (+0.6% by
+ * year 10). Adding members still beats non-renewal on WC and GL in 20 of 20
+ * scenarios under every option and both funding levels, by about 0.02 of
+ * combined ratio — growth spreads the fixed admin, which a 0.5-1% extra load
+ * a year does not offset. No option here makes the two sliders a trade-off.
  */
 export const NEW_MEMBER_PENALTY_FADE: { mode: 'oneYear' | 'twoYear' | 'threeYear' } = { mode: 'oneYear' };
 
