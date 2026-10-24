@@ -633,6 +633,16 @@ export interface TeamView {
 export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
 
 /**
+ * ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development;
+ * ADVERSE_DEVELOPMENT) — what the host sets in place of PriorDevelopment, which
+ * the engine no longer reads with the switch on. A line absent reads
+ * ADVERSE_DEVELOPMENT_DEFAULT_LEVEL; an old room record, absent throughout.
+ */
+export type DevelopmentLevels = Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High'>>;
+/** Is `v` a level? The transports keep only these. */
+export const isDevelopmentLevel = (v: unknown): v is 'Low' | 'Mid' | 'High' => v === 'Low' || v === 'Mid' || v === 'High';
+
+/**
  * The defaults the host screen offers. They are the SCREEN's defaults, not the
  * engine's: the engine has no opinion here yet (see PriorDevelopment), so these
  * are starting points a host is expected to edit, not calibrated constants.
@@ -677,8 +687,10 @@ export interface RoomView {
    * host clicked them.
    */
   lines: CoverageLine[];
-  /** Per-line prior development, stored and not yet read. See PriorDevelopment. */
+  /** Per-line prior development, stored and not read with ADVERSE_DEVELOPMENT on. See PriorDevelopment. */
   priorDevelopment: PriorDevelopment;
+  /** Per-line adverse development level, set by the host. See DevelopmentLevels. */
+  developmentLevels?: DevelopmentLevels;
   /**
    * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding
    * existed, which reads as false — not hidden, which is what those rooms were.
@@ -777,6 +789,8 @@ export interface CreateRoomRequest {
    * entries for lines the room does not play are dropped rather than refused.
    */
   priorDevelopment?: PriorDevelopment;
+  /** Per-line adverse development level (DevelopmentLevels); entries for lines not played are dropped. */
+  developmentLevels?: DevelopmentLevels;
   shocks: ScheduledShockSpec[];
   /**
    * ⚠ THE HOST'S TOKEN, MINTED BY THE CLIENT, AND IT DOUBLES AS THE

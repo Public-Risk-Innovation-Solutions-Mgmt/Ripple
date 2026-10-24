@@ -274,6 +274,9 @@ const FAST: string[] = [
                                      //         own scale; nothing cedes. ⚠ IT HOLDS MEMBER_LEVEL OFF
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
+  'adverse-development-check',       //  ~8s   wip/adverse-development: the λ draws, compounding on
+                                     //         outstanding only, paid untouched, no pre-game
+                                     //         development — each with a control.
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
                                      //         asset class — each with a control. (Replaces

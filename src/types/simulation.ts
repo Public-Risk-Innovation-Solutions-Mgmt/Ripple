@@ -591,6 +591,8 @@ export interface NewLossEngineRecord {
   rDevelopment: number;
   /** Reserve inflation (RESERVE_INFLATION_PER_YEAR) booked on prior years' outstanding this year, in dollars. */
   reserveInflation: number;
+  /** Adverse development (ADVERSE_DEVELOPMENT) booked on prior years' outstanding this year, in dollars. */
+  adverseDevelopment?: number;
   /** Exposure that left with a Member Withdrawal at this renewal. */
   withdrawnExposure: number;
   /** Events in force on this line: catalogue id, name, the year it fired, region. */
@@ -613,6 +615,13 @@ export interface GameSetupSettings {
    * before this field existed means the defaults throughout.
    */
   priorDevelopment?: Partial<Record<CoverageLine, number>>;
+  /**
+   * ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development;
+   * ADVERSE_DEVELOPMENT). A room sets it from the host; single player draws it
+   * from the seed at the start and stores it here; Test player takes the
+   * chosen levels. A line absent reads ADVERSE_DEVELOPMENT_DEFAULT_LEVEL.
+   */
+  developmentLevels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High'>>;
   /**
    * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
    * 'host' — the room's schedule. A solo game sets 'solo' — the schedule it drew

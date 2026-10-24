@@ -101,7 +101,7 @@ export const WELCOME_GUIDE: WelcomeBlock[] = [
     type: 'paragraph',
     text: 'Once you have selected your **Pool name, starting year, game length, and coverage lines**, you are ready to begin.',
   },
-  { type: 'paragraph', text: 'Select **Start Simulation** to create your Pool.' },
+  { type: 'paragraph', text: 'Select **Single player** to create your Pool (or **Test player** to set the development levels and shocks yourself).' },
   {
     type: 'paragraph',
     text: 'You will then receive information about the organization you will be managing, its starting financial position, membership, and the conditions facing the Pool as you begin your first year.',

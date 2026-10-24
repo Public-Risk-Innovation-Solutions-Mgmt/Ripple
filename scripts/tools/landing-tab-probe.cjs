@@ -42,7 +42,7 @@ const settle = async page => {
   // The scenario menu (stable-scenarios commit 9), or the old free field.
   if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption(process.env.PROBE_SEED || '7');
   else await page.getByPlaceholder('e.g. ABC12345').fill(INSTANCE);
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await settle(page);
 
   // FROM HERE ON NOTHING IS CLICKED.

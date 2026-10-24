@@ -18,12 +18,26 @@ import { generateGameInstance } from './instanceGenerator';
 import { drawCatalogueSchedule, drawShockSchedule, SOLO_SHOCK_STREAM } from './shockSchedule';
 import { seedFromInstanceId } from '../seedHash';
 import type { GameInstance, GameSetupSettings } from '../types/simulation';
+import type { ScheduledShock } from '../types/shocks';
+import { drawDevelopmentLevels } from './adverseDevelopment';
 
-export function openSoloInstance(settings: GameSetupSettings): { setup: GameSetupSettings; instance: GameInstance } {
+export function openSoloInstance(
+  settings: GameSetupSettings,
+  // TEST PLAYER (wip/adverse-development): the host's setup, played solo — its
+  // own shock schedule, fixed or randomised on the host screen, in place of the
+  // draw. Its development levels ride on `settings.developmentLevels`.
+  test?: { schedule: ScheduledShock[] },
+): { setup: GameSetupSettings; instance: GameInstance } {
   const draw = SOLO_SHOCK_DRAW === 'catalogue' ? drawCatalogueSchedule : drawShockSchedule;
-  const schedule = SOLO_SHOCKS.enabled ? draw(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
+  const schedule = test
+    ? test.schedule
+    : SOLO_SHOCKS.enabled ? draw(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
+  // SINGLE PLAYER'S DEVELOPMENT LEVELS: drawn from the seed when the start
+  // screen set none (ADVERSE_DEVELOPMENT) — Low, Mid and High equally likely —
+  // and stored on the setup, so the save carries them.
+  const developmentLevels = settings.developmentLevels ?? drawDevelopmentLevels(settings.instanceId);
   return {
-    setup: { ...settings, shockTiming: 'solo' },
+    setup: { ...settings, shockTiming: 'solo', developmentLevels },
     instance: generateGameInstance(settings.instanceId, seedFromInstanceId(settings.instanceId), schedule),
   };
 }

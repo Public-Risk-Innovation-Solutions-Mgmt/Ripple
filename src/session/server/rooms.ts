@@ -127,14 +127,14 @@ import type {
   JoinRequest, JoinResponse,
   JsonValue,
   ListEventsResponse, LobbyEvent,
-  PriorDevelopment,
+  PriorDevelopment, DevelopmentLevels,
   ReadRequest, ReadResponse,
   SetEventHiddenRequest, SetEventHiddenResponse,
   SessionTransport,
   SubmitRequest, SubmitResponse,
   TeamYearSummary,
 } from '../contract';
-import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
+import { SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
 import { Faults } from '../faults';
 import type { CoverageLine } from '../../types/simulation';
 import {
@@ -450,6 +450,13 @@ export class DynamoSessionTransport implements SessionTransport {
         const v = req.priorDevelopment?.[l];
         if (typeof v === 'number' && Number.isFinite(v)) roomPriorDev[l] = v;
       }
+      // Adverse development levels (wip/adverse-development): a real level per
+      // played line is kept; anything else is dropped, and reads the default.
+      const roomDevLevels: DevelopmentLevels = {};
+      for (const l of roomLines) {
+        const v = req.developmentLevels?.[l];
+        if (isDevelopmentLevel(v)) roomDevLevels[l] = v;
+      }
       if (!Array.isArray(req.shocks)) throw new SessionError('INVALID_REQUEST', 'shocks must be a list.');
       const shocks = req.shocks.map(s => ({
         shockId: requireString(s?.shockId, 'shockId'),
@@ -502,6 +509,7 @@ export class DynamoSessionTransport implements SessionTransport {
           expectedTeams: req.expectedTeams,
           lines: roomLines,
           priorDevelopment: roomPriorDev,
+          developmentLevels: roomDevLevels,
           currentYear: 1,
           shocks,
           // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING.

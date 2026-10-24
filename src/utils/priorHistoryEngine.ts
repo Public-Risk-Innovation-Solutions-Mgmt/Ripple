@@ -67,7 +67,7 @@ import { emptyLinePoolState } from './lineHelpers';
 import { lossExpenseReserve } from './lossExpense';
 import {
   FLAT_PRE_GAME, MEMBER_LEVEL, OPENING_PREMIUM_TO_SURPLUS_BOUNDS, PRE_GAME_MARGIN_FLOOR, PRE_GAME_MARGIN_ON_DESIGN,
-  PRIOR_DEVELOPMENT_DEFAULTS,
+  PRIOR_DEVELOPMENT_DEFAULTS, ADVERSE_DEVELOPMENT,
   PRIOR_HISTORY_YEARS, SCENARIO_PREMIUM_TO_SURPLUS, STARTING_CAPITAL,
 } from '../data/pricingParameters';
 import { preGameAllocation } from './investmentEngine';
@@ -397,7 +397,9 @@ function runLinePreGame(
   setup: GameSetupSettings,
   line: CoverageLine
 ): LinePreGame {
-  const developmentPct = setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line];
+  // ⚠ NONE IN THE PRE-GAME WITH ADVERSE_DEVELOPMENT ON: it replaces the host's
+  // percentages and runs in played years only.
+  const developmentPct = ADVERSE_DEVELOPMENT.enabled ? 0 : setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line];
   const ratio = SCENARIO_PREMIUM_TO_SURPLUS[line][scenarioOf(instance)];
   const shocks = gameShocksOn(setup, instance);
   // One pre-game of a given kind at a given margin, and how far its last

@@ -154,7 +154,19 @@ export const SEVERITY_TREND_PER_YEAR: PerLine<number> = { WC: 0.04, GL: 0.08, Pr
  * nearly halves; priced in full, rates charge the whole lifetime inflation up
  * front and surplus balloons.
  */
-export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = { ...SEVERITY_TREND_PER_YEAR };
+/**
+ * ⚠ OFF (wip/adverse-development). Trend sets each NEW accident year's
+ * expected cost only; it does not run on after it on prior years' reserves,
+ * and pricing anticipates none (reserveInflationToCome is then 1). WHY: the
+ * brief replaces open-claim inflation with adverse development
+ * (ADVERSE_DEVELOPMENT), drawn per prior year at the line's level, which the
+ * rate does not anticipate. Ratemaking still trends the experience to the
+ * priced year. On restores inflation at the severity trend, priced for
+ * RESERVE_INFLATION_PRICED_YEARS.
+ */
+export const RESERVE_INFLATION = { enabled: false };
+export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = RESERVE_INFLATION.enabled
+  ? { ...SEVERITY_TREND_PER_YEAR } : { WC: 0, GL: 0, Property: 0 };
 
 /**
  * HOW MUCH OF IT PRICING ANTICIPATES — WC 2 YEARS, GL 1, PROPERTY 2. The pure
@@ -346,12 +358,55 @@ export const RISK_CONTROL_PCT_RANGE = { min: 0, max: 0.08, step: 0.01, default: 
 /** Per-line risk control incentives. Stored and not read by the engine. */
 export const RISK_CONTROL_INCENTIVE_RANGE = { min: 0, max: 0.05, step: 0.01, default: 0 };
 
-/** Per-line prior development the host screen offers. Stored, not read. */
+/**
+ * Per-line prior development the host screen offered — a lifetime total.
+ * ⚠ RETIRED BY ADVERSE_DEVELOPMENT (wip/adverse-development): with it on the
+ * engine develops nothing by these, in the pre-game or the played years; the
+ * figures stay for the switch off.
+ */
 export const PRIOR_DEVELOPMENT_DEFAULTS: PerLine<number> = {
   WC: 0.03,
   GL: 0.10,
   Property: -0.02,
 };
+
+/**
+ * ADVERSE DEVELOPMENT (wip/adverse-development) — replaces the host's
+ * prior-development percentages. Each line has a LEVEL, Low, Mid or High.
+ * Each PLAYED year, every open PRIOR accident year draws its own λ, uniform in
+ * its line's range below, and its outstanding reserve (gross, at the start of
+ * the year, before that year's payments) grows by λ: the added amount is
+ * booked as prior-year development, through the route reserve inflation used
+ * — allocated across the register, ceded under the year's own cover. Paid to
+ * date is never restated; the ultimate rises by the amount and later payments
+ * follow the payout pattern on the new ultimate. The current accident year
+ * gets none in its own year; the pre-game years get none at all. Shock R
+ * development runs on top, as before.
+ *
+ * Draws: the game seed, stream 'adverse_dev', keyed on the line, the
+ * valuation year and the accident year — so every world shares them.
+ *
+ * PRICING DOES NOT ANTICIPATE IT: it reaches the rate only as it emerges in
+ * the experience (and the shock-free shadow develops alike, so it is in that
+ * experience too).
+ *
+ * WHY: the brief's. Development a host can set by severity, compounding on
+ * what is still open — which is why a long tail (WC) feels it hardest — in
+ * place of a lifetime percentage struck once.
+ */
+export const ADVERSE_DEVELOPMENT = { enabled: true };
+export type DevelopmentLevel = 'Low' | 'Mid' | 'High';
+export const DEVELOPMENT_LEVELS: readonly DevelopmentLevel[] = ['Low', 'Mid', 'High'];
+/** λ's range per level, a yearly share of each open prior year's outstanding. */
+export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readonly [number, number]>> = {
+  Low: [0.01, 0.05], Mid: [0.05, 0.15], High: [0.15, 0.20],
+};
+/**
+ * What a game with no level set plays: single player draws each line's level
+ * at random from the seed, Low, Mid and High equally likely (utils/soloGame),
+ * as its shocks are; a hosted room sets them. A harness that sets none reads Mid.
+ */
+export const ADVERSE_DEVELOPMENT_DEFAULT_LEVEL: DevelopmentLevel = 'Mid';
 
 // ============================================================================
 // THE NEW PRICING PARAMETERS — read by the new rate stack, except where an
@@ -2285,13 +2340,13 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'inflation runs only to reporting.',
       }],
       ['Reserve inflation', {
-        value: perLine(RESERVE_INFLATION_PER_YEAR, 3), unit: 'per year, of each open year\'s unpaid reserve',
-        what: 'Each year, before payments, every open accident year\'s unpaid reserve grows by its line\'s severity '
-          + 'trend, booked as development on prior years, on top of the host\'s development. The pre-game and every '
-          + 'played year.', basis: 'CHOSEN',
-        note: 'Fills the Yearly adverse development placeholder, keeping the host\'s development. Scenario 1\'s 2027 '
-          + 'accident year rises WC +12.7%, GL +15.0%, Property +3.1% over ten years (host development alone: '
-          + '+1.9%, +7.3%, -1.0%).',
+        value: RESERVE_INFLATION.enabled ? perLine(RESERVE_INFLATION_PER_YEAR, 3) : 'off',
+        unit: 'per year, of each open year\'s unpaid reserve',
+        what: 'OFF (wip/adverse-development): trend sets each new accident year\'s expected cost only and does not run on '
+          + 'prior years\' reserves; pricing anticipates none. Adverse development (below) is what develops prior years.',
+        basis: 'CHOSEN',
+        note: 'On, every open year\'s unpaid reserve grew by its line\'s severity trend each year, and pricing anticipated '
+          + 'the first years of it (Reserve inflation priced, then inert). Ratemaking still trends the experience to the priced year.',
       }],
       ['Reserve inflation priced', {
         value: `WC ${RESERVE_INFLATION_PRICED_YEARS.WC} · GL ${RESERVE_INFLATION_PRICED_YEARS.GL} · Property ${RESERVE_INFLATION_PRICED_YEARS.Property}`, unit: 'years of run-off',
@@ -2448,18 +2503,25 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Prior development defaults', {
         value: perLine(PRIOR_DEVELOPMENT_DEFAULTS, 2), unit: 'share of the base outstanding, in TOTAL',
-        what: 'LIVE. Each accident year develops by this share of a base outstanding, in TOTAL over '
-          + 'its remaining lifetime, arriving in step with the payments. Positive is adverse. '
-          + 'Singleplayer takes these defaults; a session takes the host\'s setting, per line.',
+        what: ADVERSE_DEVELOPMENT.enabled
+          ? 'RETIRED while adverse development is on: no accident year develops by these, in the pre-game or the game.'
+          : 'Each accident year develops by this share of a base outstanding, in TOTAL over its remaining lifetime.',
         basis: 'CHOSEN',
-        note: 'THE BASE is the accident year\'s outstanding at the first valuation it meets — game '
-          + 'start for a pre-game year, the end of its own first year for one played in the game. '
-          + 'EACH YEAR\'S SHARE is that year\'s increment in paid share over the share still unpaid '
-          + 'at the base, so by run-off exactly this percentage has emerged — asserted per accident '
-          + 'year by development-emergence-check. ⚠ NOT A YEARLY RATE: read as one these same '
-          + 'percentages compound to about +54% on GL and +171% on WC. Every year develops GROSS and their reinsurance recoveries are recalculated on each '
-          + 'occurrence\'s revised cost under that accident year\'s own cover, so adverse '
-          + 'development makes reinsurance worth more. The GL $25M pool limit still applies.',
+        note: 'The host\'s prior-development percentages, replaced on the host screen by a Low / Mid / High level per line.',
+      }],
+      ['Adverse development', {
+        value: ADVERSE_DEVELOPMENT.enabled
+          ? (['Low', 'Mid', 'High'] as const).map(v => `${v} ${Math.round(ADVERSE_DEVELOPMENT_RANGE[v][0] * 100)}–${Math.round(ADVERSE_DEVELOPMENT_RANGE[v][1] * 100)}%`).join(' · ')
+          : 'off',
+        unit: 'λ a year, uniform in the level\'s range',
+        what: 'Each played year every open PRIOR accident year draws its own λ in its line\'s level\'s range and its '
+          + 'outstanding reserve grows by λ, booked as prior-year development. Paid to date is never restated; the ultimate '
+          + 'rises by the amount and later payments follow the payout pattern. None on the current year in its own year, '
+          + 'none in the pre-game. Pricing does not anticipate it; it reaches the rate through the experience. Shock R runs on top.',
+        basis: 'CHOSEN',
+        note: `Draws from the game seed ('adverse_dev' stream), shared by every world. Hosts choose a level per line; single `
+          + `player draws each line's level from the seed, Low / Mid / High equally likely; Test player takes the host's setup. `
+          + `A harness with none reads ${ADVERSE_DEVELOPMENT_DEFAULT_LEVEL}.`,
       }],
       ['Opening surplus bands', {
         value: 'per line, in defaultAssumptions.ts', unit: 'band on a per-line basis',

@@ -45,6 +45,7 @@ function newLossEngineRecord(
   ordinary: OrdinaryLossYear, shocks: LineShockYear, large: LargeLossDraw,
   expected: { ordinary: number; uplift: number; shockLarge: number; routineLarge: number; total: number },
   rDevelopment: number, reserveInflation: number, penalty: number, withdrawnExposure: number,
+  adverseDevelopment = 0,
 ): NewLossEngineRecord {
   const events = new Map<string, NewLossEngineRecord['events'][number]>();
   const note = (f: LineShockYear['byFiring'][number]['firing'], uplift: number, rRate: number) => {
@@ -76,6 +77,7 @@ function newLossEngineRecord(
     rRate: shocks.rRate,
     rDevelopment,
     reserveInflation,
+    ...(adverseDevelopment !== 0 ? { adverseDevelopment } : {}),
     withdrawnExposure,
     events: [...events.values()],
   };
@@ -152,7 +154,8 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn, expectedMarketReturns, preGameMarketReturns } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR } from '../data/pricingParameters';
+import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR, ADVERSE_DEVELOPMENT, type DevelopmentLevel } from '../data/pricingParameters';
+import { adverseDevelopmentRate, developmentLevelOf } from './adverseDevelopment';
 import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
@@ -640,6 +643,11 @@ interface LineYearContext {
    * read site has to know where it came from.
    */
   developmentPct: number;
+  /**
+   * ADVERSE DEVELOPMENT'S LEVEL FOR THIS LINE (ADVERSE_DEVELOPMENT) — null where
+   * none runs: the pre-game, and the switch off. Resolved in processYear.
+   */
+  developmentLevel?: DevelopmentLevel | null;
   allMarketMembers: Member[];
   // The authoritative per-line enrollment ledger (as of this year's entry,
   // plus earlier-processed lines' same-year updates — irrelevant to this
@@ -2336,10 +2344,15 @@ export function processLineYear(
     developmentAbovePoolLimit,
     rDevelopment,
     reserveInflation,
+    adverseDevelopment,
   } = processIbner(
     lineState.reserveCohorts, line, ibnerRng, instance.instanceId, instance.seed, yearNumber,
     lineShocks?.rRate ?? 0,
     RESERVE_INFLATION_PER_YEAR[line],
+    // ADVERSE DEVELOPMENT: each open prior year's own λ, from the game seed.
+    ctx.developmentLevel && yearNumber >= 1
+      ? (accidentYear: number) => adverseDevelopmentRate(marketSeedOf(instance), line, ctx.developmentLevel!, yearNumber, accidentYear)
+      : undefined,
   );
   void unallocatedDevelopment;   // surfaced by the harness, not by the result
 
@@ -3163,6 +3176,7 @@ export function processLineYear(
         bookMovement
           ? bookMovement.withdrawn * exposureFactor(line, yearNumber)
           : shockWithdrawn.reduce((t, m) => t + getMemberExposure(m, line, yearNumber), 0),
+        adverseDevelopment,
       ) }
       : {}),
     // ⚠ NOT THE POOL'S MONEY, AND IT IS HERE SO THAT IS VISIBLE RATHER THAN
@@ -3675,9 +3689,13 @@ export function processYear(
       // caught it at once: the pre-game cohorts carried a base struck mid-
       // pre-game, so `developmentTotal == pct x base` failed by up to $7.6k
       // and twelve Property cohorts had emerged the wrong way.
-      developmentPct: overrides?.freezeMembership === true
+      // ⚠ ZERO WITH ADVERSE_DEVELOPMENT ON: it replaces the host's percentages.
+      developmentPct: overrides?.freezeMembership === true || ADVERSE_DEVELOPMENT.enabled
         ? 0
         : gameState.setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line],
+      // Played years only; the pre-game never reaches processYear.
+      developmentLevel: ADVERSE_DEVELOPMENT.enabled && yearNumber >= 1
+        ? developmentLevelOf(gameState.setup, line) : null,
       allMarketMembers: currentAllMarketMembers,
       membershipHistory,
       // Ends at yearNumber - 1 — see the field's note on LineYearContext.
@@ -4758,9 +4776,13 @@ function processIbner(
   extraDevelopmentRate = 0,
   // Reserve inflation's yearly rate on the line (RESERVE_INFLATION_PER_YEAR).
   reserveInflationRate = 0,
+  // ADVERSE DEVELOPMENT: each open prior accident year's λ this year, by its
+  // accident year (adverseDevelopmentRate). Absent: none.
+  adverseRateFor?: (accidentYear: number) => number,
 ): {
   rDevelopment: number;
   reserveInflation: number;
+  adverseDevelopment: number;
   developmentImpact: number;
   updatedCohorts: ReserveCohort[];
   netPaidThisYear: number;
@@ -4784,6 +4806,8 @@ function processIbner(
   let rDevelopment = 0;
   // What reserve inflation added this year, on the same bases.
   let reserveInflation = 0;
+  // What adverse development added this year, on the same bases.
+  let adverseDevelopment = 0;
 
   const updatedCohorts = cohorts
     .filter(c => !c.closed)
@@ -5398,7 +5422,13 @@ function processIbner(
       // and outside `developing`: open claims inflate until they are paid, not
       // until the host's development has finished emerging.
       const inflationEmerging = reserveInflationRate > 0 ? reserveInflationRate * developmentBaseOf(c) : 0;
-      const emerging = hostEmerging + rEmerging + inflationEmerging;
+      // ⚠ ADVERSE DEVELOPMENT (ADVERSE_DEVELOPMENT), ON THE SAME BASIS AND THE
+      // SAME ROUTE as reserve inflation: this prior year's own λ x its gross
+      // outstanding at the START of the year, recognised now and paid by later
+      // years on the payout pattern. Paid to date is untouched.
+      const adverseEmerging = adverseRateFor ? adverseRateFor(c.yearNumber) * developmentBaseOf(c) : 0;
+      adverseDevelopment += adverseEmerging;
+      const emerging = hostEmerging + rEmerging + inflationEmerging + adverseEmerging;
       rDevelopment += rEmerging;
       reserveInflation += inflationEmerging;
       let emergedNet = 0;
@@ -5710,6 +5740,7 @@ function processIbner(
   return {
     rDevelopment,
     reserveInflation,
+    adverseDevelopment,
     developmentAbovePoolLimit,
     developmentImpact,
     updatedCohorts,

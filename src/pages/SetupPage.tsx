@@ -5,9 +5,18 @@ import RippleLogo from '../assets/RippleLogo';
 import { GAME_LENGTH_YEARS } from '../data/defaultAssumptions';
 import WelcomeModal from '../components/WelcomeModal';
 import { SCENARIO_OPTIONS, randomScenarioId } from '../utils/scenarios';
+import { DevelopmentLevelSelect, ShockScheduleFields } from '../components/GameRulesFields';
+import { ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, type DevelopmentLevel } from '../data/pricingParameters';
+import type { ScheduledShock } from '../types/shocks';
 
 interface SetupPageProps {
-  onStart: (settings: GameSetupSettings) => void;
+  /**
+   * Start a solo game. SINGLE PLAYER passes no `test`: the shock schedule and
+   * each line's development level are drawn from the seed (utils/soloGame).
+   * TEST PLAYER passes the host's rules — the levels on the settings, and the
+   * schedule, fixed or randomised (wip/adverse-development).
+   */
+  onStart: (settings: GameSetupSettings, test?: { schedule: ScheduledShock[] }) => void;
 }
 
 const COVERAGE_LINES: { value: CoverageLine; label: string; hint: string }[] = [
@@ -34,6 +43,12 @@ export default function SetupPage({ onStart }: SetupPageProps) {
   const [instanceId, setInstanceId] = useState(() => randomScenarioId());
   const [activeLines, setActiveLines] = useState<CoverageLine[]>(['WC']);
   const [showWelcome, setShowWelcome] = useState(false);
+  // TEST PLAYER: the host's setup — development level per line, shock schedule.
+  const [testOpen, setTestOpen] = useState(false);
+  const [devLevels, setDevLevels] = useState<Record<CoverageLine, DevelopmentLevel>>({
+    WC: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, GL: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, Property: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL,
+  });
+  const [testShocks, setTestShocks] = useState<ScheduledShock[]>([]);
 
   function toggleLine(line: CoverageLine) {
     setActiveLines(prev =>
@@ -41,12 +56,23 @@ export default function SetupPage({ onStart }: SetupPageProps) {
     );
   }
 
-  function handleStart() {
-    if (!poolName.trim() || activeLines.length === 0) return;
+  function settings(): GameSetupSettings | null {
+    if (!poolName.trim() || activeLines.length === 0) return null;
     // Preserve canonical WC/GL/Property order regardless of click sequence.
     const orderedLines = COVERAGE_LINES.map(l => l.value).filter(l => activeLines.includes(l));
-    onStart({ poolName: poolName.trim(), gameLength, startingYear, instanceId, activeLines: orderedLines });
+    return { poolName: poolName.trim(), gameLength, startingYear, instanceId, activeLines: orderedLines };
   }
+  function handleStart() {
+    const s = settings();
+    if (s) onStart(s);
+  }
+  function handleStartTest() {
+    const s = settings();
+    if (!s) return;
+    const developmentLevels = Object.fromEntries(s.activeLines.map(l => [l, devLevels[l]])) as GameSetupSettings['developmentLevels'];
+    onStart({ ...s, developmentLevels }, { schedule: testShocks.filter(x => x.yearNumber >= 1 && x.yearNumber <= gameLength) });
+  }
+  const canStart = !!poolName.trim() && activeLines.length > 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 flex items-center justify-center p-6">
@@ -210,13 +236,57 @@ export default function SetupPage({ onStart }: SetupPageProps) {
               </div>
             </div>
 
-            <button
-              onClick={handleStart}
-              disabled={!poolName.trim() || activeLines.length === 0}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-colors shadow-md"
-            >
-              Start Simulation
-            </button>
+            {/* ⚠ TWO WAYS TO PLAY SOLO (wip/adverse-development). Single player
+                draws the shocks and each line's development level from the seed;
+                Test player opens the host's rules first. */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                data-testid="start-single-player"
+                onClick={handleStart}
+                disabled={!canStart}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-colors shadow-md"
+              >
+                Single player
+              </button>
+              <button
+                data-testid="open-test-player"
+                onClick={() => setTestOpen(o => !o)}
+                disabled={!canStart}
+                className={`w-full font-bold py-4 rounded-xl text-lg transition-colors shadow-md border disabled:opacity-50 disabled:cursor-not-allowed ${
+                  testOpen ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                Test player
+              </button>
+            </div>
+            {testOpen && (
+              <div data-testid="test-player-setup" className="border border-slate-200 rounded-xl p-5 space-y-5">
+                <div>
+                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Adverse development</span>
+                  <div className="mt-2 space-y-2">
+                    {COVERAGE_LINES.filter(l => activeLines.includes(l.value)).map(l => (
+                      <div key={l.value} className="flex items-center gap-3">
+                        <span className="w-56 text-sm text-slate-700">{l.label}</span>
+                        <DevelopmentLevelSelect line={l.value} value={devLevels[l.value]}
+                          onChange={v => setDevLevels(prev => ({ ...prev, [l.value]: v }))} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <ShockScheduleFields
+                  seed={instanceId} yearCount={gameLength} shocks={testShocks} setShocks={setTestShocks}
+                  note="Fixed or randomised, as the host sets it. Randomise draws from the scenario."
+                />
+                <button
+                  data-testid="start-test-player"
+                  onClick={handleStartTest}
+                  disabled={!canStart}
+                  className="w-full bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-base transition-colors"
+                >
+                  Start test game
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

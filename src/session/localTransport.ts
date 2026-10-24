@@ -49,7 +49,7 @@ import type {
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
-  PriorDevelopment,
+  PriorDevelopment, DevelopmentLevels,
   ReadRequest, ReadResponse,
   RoomStatus, RoomView,
   ScheduledShockSpec,
@@ -58,7 +58,7 @@ import type {
   SubmitRequest, SubmitResponse,
   TeamView,
 } from './contract';
-import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
+import { SessionError, isDevelopmentLevel, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
 import { Faults } from './faults';
 import type { CoverageLine } from '../types/simulation';
 
@@ -203,6 +203,7 @@ interface RoomRecord {
   // stays readable rather than rendering an empty game.
   lines?: CoverageLine[];
   priorDevelopment?: PriorDevelopment;
+  developmentLevels?: DevelopmentLevels;
   /** Taken off the lobby by the host. Absent reads as false — see the contract. */
   hidden?: boolean;
   currentYear: number;
@@ -374,6 +375,7 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous'): RoomView {
     // with an empty game.
     lines: [...(room.lines ?? LINE_ORDER)],
     priorDevelopment: { ...(room.priorDevelopment ?? {}) },
+    ...(room.developmentLevels ? { developmentLevels: { ...room.developmentLevels } } : {}),
     hidden: room.hidden ?? false,
     eventName: room.eventName,
     poolName: room.poolName || room.eventName,
@@ -542,6 +544,13 @@ export class LocalSessionTransport implements SessionTransport {
         const v = req.priorDevelopment?.[l];
         if (typeof v === 'number' && Number.isFinite(v)) roomPriorDev[l] = v;
       }
+      // Adverse development levels (wip/adverse-development): a real level per
+      // played line is kept; anything else is dropped, and reads the default.
+      const roomDevLevels: DevelopmentLevels = {};
+      for (const l of roomLines) {
+        const v = req.developmentLevels?.[l];
+        if (isDevelopmentLevel(v)) roomDevLevels[l] = v;
+      }
 
       const store = storage();
 
@@ -575,6 +584,7 @@ export class LocalSessionTransport implements SessionTransport {
         expectedTeams: req.expectedTeams,
         lines: roomLines,
         priorDevelopment: roomPriorDev,
+          developmentLevels: roomDevLevels,
         currentYear: 1,
         shocks: req.shocks.map(s => ({ ...s })),
         // ⚠ A ROOM OPENS EMPTY. Teams are created by JOINING, not registered in
