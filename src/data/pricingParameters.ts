@@ -480,9 +480,20 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
  *
  * WHY: fixed admin is spread over the book, so growing the book cuts admin
  * per unit and shrinking it raises it. Measured on simple underwriting, that
- * is what makes adding new members beat non-renewal on WC and GL whatever the
- * penalty; this setting tests how much of it decides the trade-off. Both
- * parts still trend at ADMIN_TREND_PER_YEAR.
+ * was taken to be what makes adding new members beat non-renewal on WC and
+ * GL; this setting tests it. Both parts still trend at ADMIN_TREND_PER_YEAR.
+ *
+ * ⚠ MEASURED: IT DOES NOT DECIDE THE TRADE-OFF (scripts/probes/simple-uw-
+ * report.mts, twenty scenarios, five years, single player, shocks off, at
+ * Expected, both underwriting settings one year). At 100%, 50% and 0% the
+ * five-year combined ratio and year-5 surplus agree to three decimals and
+ * $0.1M on every line and setting; only the rate moves. Admin is booked as
+ * charged (operatingExpense is the admin in the rate), so how it is split
+ * changes the price, not the result. What does favour growth on WC and GL is
+ * PRIOR-YEAR DEVELOPMENT — reserve inflation on older years, fixed in dollars
+ * against this year's book: 9.9% of five years' premium on WC and 16.4% on
+ * GL, +1.1 / +1.4 points when the book is non-renewed 5% a year and −0.9 /
+ * −1.3 when it adds 5%. 100% stays in force.
  */
 export const FIXED_ADMIN_SHARE = { share: 1 };
 
