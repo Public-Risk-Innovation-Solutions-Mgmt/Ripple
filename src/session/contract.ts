@@ -470,21 +470,31 @@ export interface TeamMarketShare {
 
 /**
  * ⚠ WORKED OUT ONCE PER YEAR AND STORED WITH THE ROOM, so the host and every
- * player read the same figures and they stay fixed until the next set. The set
- * for year Y is computed in the SUBMIT that brings in the last year-Y result
- * from the teams that locked in year Y (results are computed by the clients
- * after the host advances, so no advance call ever holds them). A team that did
- * not lock in year Y counts as stopped: nobody waits for it, and its last
- * reported figures (its newest result at or before Y) stay in the totals. A
- * team that locked in and has not yet posted is waited for. Year 0 is the
- * opening books, from the year-0 posts, recomputed as teams post them until the
- * year-1 set replaces it.
+ * player read the same figures. The set for year Y is computed in the SUBMIT
+ * that brings in the last year-Y result from the teams that locked in year Y
+ * (results are computed by the clients after the host advances, so no advance
+ * call ever holds them). A team that did not lock in year Y counts as stopped:
+ * nobody waits for it, and its last reported figures (its newest result at or
+ * before Y) stay in the totals. A team that locked in and has not yet posted
+ * is waited for.
+ *
+ * ⚠ SHOWN FOR THE LATEST KNOWN YEAR, ONE YEAR BEHIND LIKE EVERY OTHER RESULT:
+ * with the room deciding year N the set shown is year N - 2's (the year before
+ * the one in progress), the last year's once the game is over — see
+ * marketShares.ts's shownShares. Before the first advance that year is 2025,
+ * which no team posts; every team played the same pre-game, so the opening
+ * posts (year 0) stand in, at 1/N each.
  *
  * ⚠ HOST ONLY ON RoomView. A player or viewer gets its own team's figure on
  * CallerView.marketShare and never another team's.
+ *
+ * ⚠ OPTIONAL ON THE WIRE BOTH WAYS. A handler older than this sends neither
+ * field, and a front end older than it ignores them: the newer front end then
+ * shows no chip (never the old share of the whole market), and the older one
+ * keeps what it showed. Deploy the handler first.
  */
 export interface RoomMarketShares {
-  /** The result year the figures are from: 0 is the opening books. */
+  /** The result year the figures are from: 0 is the opening books (and stands in for 2025). */
   year: number;
   /** Keyed by team name. A team with no result yet is absent. */
   byTeam: Record<string, TeamMarketShare>;

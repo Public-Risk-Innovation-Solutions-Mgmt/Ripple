@@ -51,7 +51,6 @@ import type {
   JsonValue,
   PriorDevelopment,
   ReadRequest, ReadResponse,
-  RoomMarketShares,
   RoomStatus, RoomView,
   ScheduledShockSpec,
   SessionTransport,
@@ -61,7 +60,7 @@ import type {
 } from './contract';
 import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from './contract';
 import { Faults } from './faults';
-import { mayStoreShares, roomSharesFor } from './marketShares';
+import { mayStoreShares, roomSharesFor, shownShares, type RoomSharesByYear } from './marketShares';
 import type { CoverageLine } from '../types/simulation';
 
 // ⚠ EXPORTED BECAUSE THE STORE NOW HOLDS MORE THAN ROOMS. The stub server's
@@ -211,8 +210,8 @@ interface RoomRecord {
   shocks: ScheduledShockSpec[];
   teams: TeamRecord[];
   viewers: ViewerRecord[];
-  /** The stored room market shares — see RoomMarketShares. Absent until the first year-0 post. */
-  marketShares?: RoomMarketShares;
+  /** Every year's room market shares, as each year completed — see RoomMarketShares. */
+  marketSharesByYear?: RoomSharesByYear;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -393,8 +392,9 @@ function roomView(room: RoomRecord, role: CallerRole = 'anonymous', ownTeam?: st
     currentYear: room.currentYear,
     shocks: room.shocks.map(s => ({ ...s })),
     teams: room.teams.map(t => teamView(t, room.currentYear, role, ownTeam)),
-    // Host only: every other caller gets its own team's on CallerView.
-    ...(role === 'host' && room.marketShares ? { marketShares: structuredClone(room.marketShares) } : {}),
+    // Host only, the latest known year's: every other caller gets its own team's on CallerView.
+    ...(role === 'host' && shownShares(room, room.marketSharesByYear)
+      ? { marketShares: shownShares(room, room.marketSharesByYear) } : {}),
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     rev: room.rev,
@@ -427,8 +427,9 @@ function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord
   const view: CallerView = { role };
   if (!team) return view;
 
-  const share = room?.marketShares?.byTeam[team.name];
-  if (share) view.marketShare = { year: room!.marketShares!.year, pool: share.pool, byLine: { ...share.byLine } };
+  const shown = room ? shownShares(room, room.marketSharesByYear) : undefined;
+  const share = shown?.byTeam[team.name];
+  if (shown && share) view.marketShare = { year: shown.year, pool: share.pool, byLine: { ...share.byLine } };
 
   view.teamName = team.name;
   view.lines = [...team.lines];
@@ -464,15 +465,16 @@ function callerView(role: CallerRole, team: TeamRecord | null, room?: RoomRecord
 
 // ⚠ IN THE SUBMIT THAT COMPLETES THE YEAR. See RoomMarketShares: the set for a
 // played year is written once, when the last team that locked that year posts
-// it; year 0 is recomputed on each opening post until year 1's set exists.
+// it; year 0 is rewritten as opening posts arrive. Every year's set is kept;
+// a reader shows the latest known year's (shownShares).
 function storeSharesIfComplete(room: RoomRecord, year: number): void {
-  if (!mayStoreShares(room.marketShares, year)) return;
   const set = roomSharesFor(year, room.teams.filter(t => t.joined).map(t => ({
     name: t.name,
     lockedYear: t.decisionsByYear[String(year)] !== undefined,
     results: t.resultsByYear,
   })), room.lines ?? LINE_ORDER);
-  if (set) room.marketShares = set;
+  if (!set || !mayStoreShares(room.marketSharesByYear, year, Object.keys(set.byTeam).length)) return;
+  room.marketSharesByYear = { ...(room.marketSharesByYear ?? {}), [String(year)]: set.byTeam };
 }
 
 // ---------------------------------------------------------------- locking

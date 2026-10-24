@@ -8,8 +8,11 @@
 //
 //   - before year 1, every team reads one third on every line and the pool;
 //   - nothing changes until the host advances, even after every team locks in;
-//   - after each advance (once the last locked team has posted) each share is
-//     the team's figure / the room's total, and the shares sum to 100%;
+//   - after each advance the shares shown are the LATEST KNOWN year's — one
+//     year behind, like every other result (the year just completed is stored
+//     once its last locked team posts, and shows at the next advance; at game
+//     end the final year shows) — each the team's figure / the room's total,
+//     summing to 100%;
 //   - the host's Teams table and each player's chip agree, view by view;
 //   - a player's screen has no other team's figures: no Teams table, and the
 //     one share it shows is its own.
@@ -168,13 +171,22 @@ function expectedShares(rec, year) {
     }
   }
 
-  const sharesYear = async () => (await roomRecord(host, code)).marketShares?.year;
+  // ⚠ SHOWN ONE YEAR BEHIND, like every other result (marketShares.ts's
+  // shownShares): the room deciding year N shows year N - 2's set, the opening
+  // posts standing in before that year exists; the newest once the game is over.
+  const shownYearOf = rec => {
+    const held = Object.keys(rec.marketSharesByYear ?? {}).map(Number);
+    const known = rec.currentYear > rec.yearCount ? rec.currentYear - 1 : Math.max(0, rec.currentYear - 2);
+    const ok1 = held.filter(y => y <= known);
+    return ok1.length ? Math.max(...ok1) : undefined;
+  };
+  const sharesYear = async () => shownYearOf(await roomRecord(host, code));
   const table = [];
 
   async function checkSet(label, year) {
     const rec = await roomRecord(host, code);
-    const stored = rec.marketShares;
-    ok(stored?.year === year, `${label}: the stored set is year ${year}`, `stored year ${stored?.year}`);
+    const stored = { year, byTeam: rec.marketSharesByYear?.[String(year)] };
+    ok(shownYearOf(rec) === year && stored.byTeam !== undefined, `${label}: the set shown is year ${year}'s`, `shown year ${shownYearOf(rec)}`);
     const want = expectedShares(rec, year);
     for (const t of TEAMS) for (const v of ['pool', ...LINES]) {
       const got = v === 'pool' ? stored.byTeam[t].pool : stored.byTeam[t].byLine[v];
@@ -218,7 +230,7 @@ function expectedShares(rec, year) {
   if (!TIMING) {
     await host.waitForFunction(c => {
       const r = JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c));
-      return r?.marketShares && Object.keys(r.marketShares.byTeam).length === 3;
+      return r?.marketSharesByYear?.['0'] && Object.keys(r.marketSharesByYear['0']).length === 3;
     }, code, { timeout: 180000 });
     for (const t of TEAMS) await waitChip(players[t], '33.3%');
     const s0 = await checkSet('before year 1', 0);
@@ -239,7 +251,7 @@ function expectedShares(rec, year) {
     const before = TIMING ? null : await sharesYear();
     const chipsBefore = TIMING ? null : await playerChips(players[TEAMS[0]]);
     for (const t of locking) {
-      await players[t].getByRole('button', { name: /Lock Year/ }).first().click();
+      await players[t].getByRole('button', { name: /Lock Program Year/ }).first().click();
       await players[t].waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     if (!TIMING) {
@@ -266,7 +278,7 @@ function expectedShares(rec, year) {
     const tResults = Date.now() - t0;
     let tShares = null;
     if (!TIMING) {
-      await host.waitForFunction(([c, yr]) => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c))?.marketShares?.year === yr,
+      await host.waitForFunction(([c, yr]) => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c))?.marketSharesByYear?.[String(yr)] !== undefined,
         [code, y], { timeout: 120000 });
       tShares = Date.now() - t0;
     }
@@ -274,16 +286,22 @@ function expectedShares(rec, year) {
     console.log(`  year ${y}: advance ${tAdvance} ms, locked teams' results in ${tResults} ms${tShares !== null ? `, shares stored ${tShares} ms` : ''}`);
 
     if (!TIMING) {
-      const s = (await roomRecord(host, code)).marketShares;
+      // The year just completed is stored; what shows is the latest KNOWN year —
+      // the one before it while the game runs, this one once it is over.
+      const showing = y === YEARS ? y : y - 1;
+      const rec = await roomRecord(host, code);
+      ok(shownYearOf(rec) === Math.max(0, showing),
+        `after advance ${y}: year ${y}'s shares are stored, and year ${Math.max(0, showing)}'s show — one year behind${y === YEARS ? ' until the game ends' : ''}`,
+        `shown ${shownYearOf(rec)}`);
+      const s = { byTeam: rec.marketSharesByYear[String(Math.max(0, showing))] };
       for (const t of TEAMS) if (!players[t].isClosed()) await waitChip(players[t], pct(s.byTeam[t].pool));
-      const stored = await checkSet(`after advance ${y}`, y);
-      if (STOP && y >= 2) {
-        const rec = await roomRecord(host, code);
+      const stored = await checkSet(`after advance ${y}`, Math.max(0, showing));
+      if (STOP && showing >= 2) {
         const st = rec.teams.find(t => t.name === STOPPER);
-        ok(st.decisionsByYear[String(y)] === undefined, `year ${y}: ${STOPPER} did not lock in (stopped)`);
-        const last = Math.max(...Object.keys(st.resultsByYear).map(Number).filter(k => k <= y));
+        ok(st.decisionsByYear[String(showing)] === undefined, `year ${showing}: ${STOPPER} did not lock in (stopped)`);
+        const last = Math.max(...Object.keys(st.resultsByYear).map(Number).filter(k => k <= showing));
         ok(stored.byTeam[STOPPER] !== undefined,
-          `year ${y}: ${STOPPER} stays in the totals on its last reported figures (year ${last})`,
+          `year ${showing}: ${STOPPER} stays in the totals on its last reported figures (year ${last})`,
           `WC ${pct(stored.byTeam[STOPPER].byLine.WC)}, pool ${pct(stored.byTeam[STOPPER].pool)}`);
       }
     }

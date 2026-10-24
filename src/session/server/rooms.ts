@@ -136,7 +136,7 @@ import type {
 } from '../contract';
 import { SessionError, SESSION_TOKEN_PATTERN, isRoomSeed, newSessionToken, eventStatusOf, mayCreateTeam } from '../contract';
 import { Faults } from '../faults';
-import { mayStoreShares, roomSharesFor } from '../marketShares';
+import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, RESULT_PREFIX, ROOM_HEADER_SK,
@@ -379,7 +379,7 @@ export class DynamoSessionTransport implements SessionTransport {
     const entry = teamId ? header.roster?.[teamId] ?? null : null;
     return {
       room: buildRoomView(header, fetched, role),
-      you: buildCallerView(role, teamId, entry, fetched, header.marketShares),
+      you: buildCallerView(role, teamId, entry, fetched, shownShares(header, header.marketSharesByYear)),
     };
   }
 
@@ -845,13 +845,14 @@ export class DynamoSessionTransport implements SessionTransport {
    * ⚠ THE ROOM MARKET SHARE, IN THE SUBMIT THAT COMPLETES THE YEAR — the same
    * rule as localTransport's storeSharesIfComplete, through the same
    * roomSharesFor. Reads every team's results (the host's Query), and writes
-   * the set onto the header under a condition, so two last posts racing each
-   * other write it once: a played year's set never replaces itself or a later
-   * one; year 0's is rewritten until a played year's exists.
+   * that year's set into the header's marketSharesByYear under a condition, so
+   * two last posts racing each other write a played year once; year 0's is
+   * rewritten as opening posts arrive, never by a smaller set. Readers show
+   * the latest known year's (shownShares in views.ts).
    */
   private async storeSharesIfComplete(code: string, year: number): Promise<void> {
     const header = await this.getHeader(code);
-    if (!mayStoreShares(header.marketShares, year)) return;
+    if (header.marketSharesByYear?.[String(year)] && year !== 0) return;
     const results = new Map<string, Record<string, TeamYearSummary>>();
     for (const item of await this.queryPrefix(roomPk(code), RESULT_PREFIX)) {
       const held = results.get(item.teamId) ?? {};
@@ -863,23 +864,32 @@ export class DynamoSessionTransport implements SessionTransport {
       lockedYear: e.lockedYears ? e.lockedYears[String(year)] === true : e.lockedYear === year,
       results: results.get(teamId) ?? {},
     })), header.lines ?? LINE_ORDER);
-    if (!set) return;
+    const teams = set ? Object.keys(set.byTeam).length : 0;
+    if (!set || !mayStoreShares(header.marketSharesByYear, year, teams)) return;
+    const key = { pk: roomPk(code), sk: ROOM_HEADER_SK };
+    // A header written before the store existed has no map to set into.
+    if (!header.marketSharesByYear) {
+      await this.db.doc.send(new UpdateCommand({
+        TableName: this.db.table, Key: key,
+        UpdateExpression: 'SET marketSharesByYear = if_not_exists(marketSharesByYear, :empty)',
+        ExpressionAttributeValues: { ':empty': {} },
+      }));
+    }
     try {
       await this.db.doc.send(new UpdateCommand({
-        TableName: this.db.table,
-        Key: { pk: roomPk(code), sk: ROOM_HEADER_SK },
-        UpdateExpression: 'SET marketShares = :m, updatedAt = :now ADD rev :one',
-        // ⚠ YEAR 0 IS REWRITTEN, SO IT NEEDS A SECOND GUARD. Opening posts arrive
-        // together; a post that read the results before a neighbour's landed
-        // computes a set with fewer teams, and may write after a fuller one.
-        // Never let a smaller opening set replace a larger one.
+        TableName: this.db.table, Key: key,
+        UpdateExpression: 'SET marketSharesByYear.#y = :m, updatedAt = :now ADD rev :one',
+        // ⚠ ONCE PER PLAYED YEAR, AND YEAR 0 NEVER BY A SMALLER SET. Two last
+        // posts racing each other write a played year once; opening posts
+        // arrive together, and one that read the results before a neighbour's
+        // landed computes fewer teams — it must not replace a fuller set.
         ConditionExpression: year === 0
-          ? 'attribute_not_exists(marketShares) OR (marketShares.#yr = :y AND size(marketShares.byTeam) <= :n)'
-          : 'attribute_not_exists(marketShares) OR marketShares.#yr < :y',
-        ExpressionAttributeNames: { '#yr': 'year' },
+          ? 'attribute_not_exists(marketSharesByYear.#y) OR size(marketSharesByYear.#y) <= :n'
+          : 'attribute_not_exists(marketSharesByYear.#y)',
+        ExpressionAttributeNames: { '#y': String(year) },
         ExpressionAttributeValues: {
-          ':m': set, ':y': year, ':now': Date.now(), ':one': 1,
-          ...(year === 0 ? { ':n': Object.keys(set.byTeam).length } : {}),
+          ':m': set.byTeam, ':now': Date.now(), ':one': 1,
+          ...(year === 0 ? { ':n': teams } : {}),
         },
       }));
     } catch (e) {

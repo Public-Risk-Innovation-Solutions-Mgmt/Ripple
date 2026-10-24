@@ -8,6 +8,7 @@
 // ============================================================================
 
 import type { CoverageLine } from '../types/simulation';
+import { latestKnownRoomYear } from '../utils/knownYears';
 import type { RoomMarketShares, TeamMarketShare, TeamYearSummary } from './contract';
 
 /** One team as the share needs it — whatever the transport stores it as. */
@@ -76,11 +77,47 @@ export function roomSharesFor(year: number, teams: ShareTeam[], lines: CoverageL
 }
 
 /**
- * Whether a set for `year` may replace the one stored. Year 0 is recomputed on
- * every opening post until a played year's set exists; a played year's set is
- * written once and never replaced by its own year or an earlier one.
+ * THE STORE: one set per result year, keyed by year as a string, each team's
+ * share keyed by team name. Written once a year as each year completes, so the
+ * room keeps every year's figures and a reader can show the one the
+ * one-year-behind rule allows.
  */
-export function mayStoreShares(stored: RoomMarketShares | undefined, year: number): boolean {
-  if (!stored) return true;
-  return year === 0 ? stored.year === 0 : year > stored.year;
+export type RoomSharesByYear = Record<string, Record<string, TeamMarketShare>>;
+
+/**
+ * Whether a set for `year` may be written. A played year's set is written once
+ * and never replaced. Year 0 (the opening posts, which arrive as teams build
+ * their games) is rewritten as teams post, but never by a set with fewer teams
+ * — a slow post's view of the room must not replace a fuller one.
+ */
+export function mayStoreShares(stored: RoomSharesByYear | undefined, year: number, teams: number): boolean {
+  const held = stored?.[String(year)];
+  if (!held) return true;
+  return year === 0 && Object.keys(held).length <= teams;
+}
+
+/**
+ * THE SET A SCREEN SHOWS: the latest known year's — the room's current year less
+ * two while the game runs (latestKnownRoomYear), the last year once it is over —
+ * so the share follows the same one-year-behind rule as every other result. When
+ * that year's set is not complete yet (a team that locked in has not posted),
+ * the newest complete year before it.
+ *
+ * ⚠ BEFORE THE FIRST ADVANCE THE LATEST KNOWN YEAR IS 2025, A PRE-GAME YEAR THE
+ * TEAMS NEVER POST. Every team plays the same pre-game, so its shares are 1/N
+ * on every line and the pool — exactly the opening posts' (year 0), which stand
+ * in for it.
+ */
+export function shownShares(
+  room: { currentYear: number; yearCount: number },
+  stored: RoomSharesByYear | undefined,
+): RoomMarketShares | undefined {
+  if (!stored) return undefined;
+  const known = Math.max(0, Math.min(latestKnownRoomYear(room), room.currentYear - 1));
+  let best: number | null = null;
+  for (const k of Object.keys(stored)) {
+    const y = Number(k);
+    if (Number.isFinite(y) && y <= known && (best === null || y > best)) best = y;
+  }
+  return best === null ? undefined : { year: best, byTeam: structuredClone(stored[String(best)]) };
 }
