@@ -1204,7 +1204,7 @@ export function processLineYear(
   // ordinary draw (ordinaryLossFromMembers), never into expected loss.
   const bookMovement = bookMode
     ? moveBook(line, lineState.bookExposure ?? 0, lineDecisions, ctx.shockYear?.withdrawal === true, ctx.freezeMembership,
-      yearNumber, lineState.bookQuality ?? 1)
+      yearNumber, lineState.bookQuality ?? 1, lineState.intakeCohorts ?? [])
     : null;
   // ⚠ RETIRED AS A LINE-WIDE FACTOR (simple underwriting): the new-business
   // penalty is inside the book's lossFactor, in the draw. Kept at 1 for the
@@ -3294,6 +3294,9 @@ export function processLineYear(
     // Q written only once it leaves 1, so a oneYear game's state is unchanged.
     ...(bookMovement && (bookMovement.qualityAfter !== 1 || lineState.bookQuality !== undefined)
       ? { bookQuality: bookMovement.qualityAfter } : {}),
+    // The intakes still fading, written only when there are any, so a oneYear game's state is unchanged.
+    ...(bookMovement && (bookMovement.cohortsAfter.length > 0 || lineState.intakeCohorts !== undefined)
+      ? { intakeCohorts: bookMovement.cohortsAfter } : {}),
     // Year 1's quoted exposure, carried unchanged (wip/shocks; utils/shockCost).
     ...(lineState.shockCostBaseExposure !== undefined ? { shockCostBaseExposure: lineState.shockCostBaseExposure } : {}),
 

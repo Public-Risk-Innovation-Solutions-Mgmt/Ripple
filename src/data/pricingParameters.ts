@@ -1631,6 +1631,30 @@ export const NON_RENEWAL_DECAY = 0.5;
 export const NEW_BUSINESS_PENALTY = 0.20;
 
 /**
+ * HOW THE NEW-BUSINESS PENALTY FADES — CHOSEN, a test-build switch with three
+ * options, so each can be run against the others. Each year's intake is
+ * tracked on its own (LinePoolState.intakeCohorts) and carries
+ * NEW_BUSINESS_PENALTY x its schedule's weight for its age:
+ *
+ *   oneYear     1                      20% in the first year only
+ *   twoYear     1, 1/2                 20%, then 10%
+ *   threeYear   1, 2/3, 1/3            20%, then 13.33%, then 6.67%
+ *
+ * An intake shrinks with the rest of the book (non-renewal and withdrawal
+ * take every cohort alike), joins at quality 1 and is not part of Q: the
+ * penalty sits beside the book's quality, not in it. The pre-game's growth is
+ * intake too, and fades the same way. Not in pricing's expected loss.
+ */
+export const NEW_MEMBER_PENALTY_FADE: { mode: 'oneYear' | 'twoYear' | 'threeYear' } = { mode: 'oneYear' };
+
+/** Each option's weights on NEW_BUSINESS_PENALTY by an intake's age, first year first. */
+export const PENALTY_FADE_SCHEDULES = {
+  oneYear: [1],
+  twoYear: [1, 1 / 2],
+  threeYear: [1, 2 / 3, 1 / 3],
+} as const;
+
+/**
  * ⚠ RETIRED: OPENING_SURPLUS, $35M on every line — the interim opening the
  * twenty scenarios replace (commit 9). Each line now opens with its year-1
  * premium at Expected / the scenario's premium-to-surplus ratio
@@ -2903,6 +2927,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: NON_RENEWAL_LOSS_RELIEF, unit: 'x the non-renewal share, off this year\'s loss per unit',
         what: 'How much cheaper the renewing book runs this year for what was declined: 5% non-renewed, 2.5% cheaper.',
         basis: 'CHOSEN', note: 'The brief\'s 0.5. Not in pricing\'s expected loss.',
+      }],
+      ['New-member penalty fade', {
+        value: `${NEW_MEMBER_PENALTY_FADE.mode}: `
+          + PENALTY_FADE_SCHEDULES[NEW_MEMBER_PENALTY_FADE.mode].map(w => `${(100 * NEW_BUSINESS_PENALTY * w).toFixed(2)}%`).join(' · '),
+        unit: 'switch: oneYear · twoYear · threeYear; the penalty by an intake\'s age',
+        what: 'How the new-business penalty fades. Each year\'s intake is tracked on its own and carries the penalty x '
+          + 'its schedule\'s weight for its age: 20% for one year; 20% then 10%; or 20%, 13.33%, 6.67%.',
+        basis: 'CHOSEN',
+        note: 'A test-build switch so all three options can be run. The pre-game\'s growth fades the same way.',
       }],
       ['Non-renewal persistence', {
         value: NON_RENEWAL_PERSISTENCE.mode === 'decaying'

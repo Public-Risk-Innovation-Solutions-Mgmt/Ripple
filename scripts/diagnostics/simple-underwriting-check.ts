@@ -30,16 +30,23 @@
 //      halving; lasting keeps 2.5% for good. Held every year with no new
 //      members, lasting compounds to 0.975^t and decaying settles at 0.951.
 //      New members at 5% a year dilute a lasting improvement by exposure.
+//   6. THE PENALTY FADE, ALL THREE OPTIONS, ON THE BOOK. One 5% intake:
+//      oneYear charges nothing after year 1; twoYear 10% in year 2; threeYear
+//      13.33% then 6.67%; an intake shrinks with the book under non-renewal;
+//      and with both sliders held, overlapping intakes each on their own
+//      schedule, moveBook is the reference year (refYear) in every option.
+//      Sections 1b and 2 read the option in force through the engine — under
+//      a fade the pre-game's last intakes are still charged in years 1 and 2.
 //
 // ⚠ AND IT FAILS WHEN BROKEN — see THE CONTROLS at the foot.
 // ============================================================================
 
 import {
   MEMBER_LEVEL, MEMBER_LUCK_CV, NEW_BUSINESS_PENALTY, NEW_MEMBERS_SLIDER, NON_RENEWAL_LOSS_RELIEF, NON_RENEWAL_SLIDER,
-  NON_RENEWAL_DECAY, NON_RENEWAL_PERSISTENCE, OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH, PRIOR_HISTORY_YEARS,
-  UNDERWRITING_MEMBERS,
+  NEW_MEMBER_PENALTY_FADE, NON_RENEWAL_DECAY, NON_RENEWAL_PERSISTENCE, OPENING_BOOK_EXPOSURE, PRE_GAME_BOOK_GROWTH,
+  PRIOR_HISTORY_YEARS, UNDERWRITING_MEMBERS,
 } from '../../src/data/pricingParameters';
-import { moveBook, persistenceCarry } from '../../src/utils/bookUnderwriting';
+import { moveBook, penaltyFadeWeights, persistenceCarry } from '../../src/utils/bookUnderwriting';
 import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -50,6 +57,32 @@ import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simul
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 // The share of an improvement each version carries a year — stated here, not read from the module.
 const CARRY = { oneYear: 0, decaying: 0.5, lasting: 1 } as const;
+// The penalty's weights by an intake's age under each fade — stated here, not read from the module.
+const FADE = { oneYear: [1], twoYear: [1, 1 / 2], threeYear: [1, 2 / 3, 1 / 3] } as const;
+
+/**
+ * THE REFERENCE YEAR — the brief's rules written out again, independently of
+ * moveBook: renewing book at carried Q x (1 − 0.5 a1); each earlier intake
+ * still fading, shrunk with the book, at 20% x its age's weight; this year's
+ * intake at 1.2. Returns the year's loss factor over `after`, and the book it
+ * leaves.
+ */
+interface RefBook { E: number; Q: number; cohorts: number[] }
+function refYear(b: RefBook, a1: number, a2: number, carry: number, w: readonly number[]) {
+  const s = 1 - a1, renewing = b.E * s, written = a2 * b.E, after = renewing + written;
+  const rq = (1 - carry * (1 - b.Q)) * (1 - NON_RENEWAL_LOSS_RELIEF * a1);
+  let load = 0;
+  b.cohorts.forEach((c, k) => { if (k + 1 < w.length) load += c * s * NEW_BUSINESS_PENALTY * w[k + 1]; });
+  return {
+    lf: (renewing * rq + load + (1 + NEW_BUSINESS_PENALTY) * written) / after, after,
+    next: { E: after, Q: (renewing * rq + written) / after, cohorts: [written, ...b.cohorts.map(c => c * s)].slice(0, w.length - 1) },
+  };
+}
+/** The opening book as the pre-game leaves it: its last years' growth still fading. */
+const openingRef = (line: CoverageLine, w: readonly number[]): RefBook => {
+  const O = OPENING_BOOK_EXPOSURE[line], g = 1 + PRE_GAME_BOOK_GROWTH;
+  return { E: O, Q: 1, cohorts: [O - O / g, O / g - O / g ** 2].slice(0, w.length - 1) };
+};
 const failed: string[] = [];
 function check(ok: boolean, label: string, detail = '') {
   if (!ok) failed.push(label);
@@ -112,18 +145,23 @@ const runs = games.map(g => SETTINGS.map(([a1, a2]) => {
 console.log('\n--- 1b. THROUGH THE ENGINE, year 1 against 0/0 ---');
 {
   let worstRatio = 0, worstExpected = 0;
+  const w = FADE[NEW_MEMBER_PENALTY_FADE.mode], carry = CARRY[NON_RENEWAL_PERSISTENCE.mode];
   for (const r of runs) {
     for (let k = 1; k < SETTINGS.length; k++) {
       const [a1, a2] = SETTINGS[k];
       for (const line of LINES) {
         const base = r[0].p1.result.byLine[line]!.newLossEngine!;
         const n = r[k].p1.result.byLine[line]!.newLossEngine!;
-        worstRatio = Math.max(worstRatio, Math.abs(n.ordinaryRealised / base.ordinaryRealised / bracket(a1, a2) - 1));
+        // Same draws, so the ratio is the two reference years' lf x after. With a
+        // one-year penalty it is exactly the bracket; a fade adds the pre-game's last intakes.
+        const ref = refYear(openingRef(line, w), a1, a2, carry, w), ref0 = refYear(openingRef(line, w), 0, 0, carry, w);
+        const want = w.length === 1 ? bracket(a1, a2) : ref.lf * ref.after / (ref0.lf * ref0.after);
+        worstRatio = Math.max(worstRatio, Math.abs(n.ordinaryRealised / base.ordinaryRealised / want - 1));
         worstExpected = Math.max(worstExpected, Math.abs(n.ordinaryExpected / base.ordinaryExpected / (1 - a1 + a2) - 1));
       }
     }
   }
-  check(worstRatio < 1e-9, 'year-1 ordinary realised over the 0/0 game IS the bracket, on every line',
+  check(worstRatio < 1e-9, `year-1 ordinary realised over the 0/0 game IS the bracket (${NEW_MEMBER_PENALTY_FADE.mode}: with the pre-game's fading intakes)`,
     `worst ${worstRatio.toExponential(2)} over ${games.length} games x 3 settings x 3 lines`);
   check(worstExpected < 1e-9, 'and ordinary EXPECTED moves with exposure only: the bracket is not in it',
     `worst ${worstExpected.toExponential(2)}`);
@@ -140,16 +178,16 @@ console.log(`\n--- 2. PERSISTENCE THROUGH THE ENGINE — ${NON_RENEWAL_PERSISTEN
         const n = p2.result.byLine[line]!.newLossEngine!;
         const plain = ordinaryLossFromMembers(line, 100, 2, games[g].instance.seed).factor;
         const [a1, a2] = SETTINGS[k];
-        const q1 = ((1 - a1) * (1 - NON_RENEWAL_LOSS_RELIEF * a1) + a2) / (1 - a1 + a2);
-        const carried = 1 - CARRY[NON_RENEWAL_PERSISTENCE.mode] * (1 - q1);
+        const w = FADE[NEW_MEMBER_PENALTY_FADE.mode], carry = CARRY[NON_RENEWAL_PERSISTENCE.mode];
+        const y2 = refYear(refYear(openingRef(line, w), a1, a2, carry, w).next, 0, 0, carry, w);
         worstPlain = Math.max(worstPlain,
-          Math.abs(n.ordinaryRealised / (n.ordinaryExpected * (1 + n.uplift)) / (plain * carried) - 1));
+          Math.abs(n.ordinaryRealised / (n.ordinaryExpected * (1 + n.uplift)) / (plain * y2.lf) - 1));
         worstExposure = Math.max(worstExposure,
           Math.abs((p2.updatedPoolState.lines[line].bookExposure ?? 0) / (p1.updatedPoolState.lines[line].bookExposure ?? 0) - 1));
       }
     }
   }
-  check(worstPlain < 1e-9, `year 2 at 0/0: actual over expected is the plain draw x what ${NON_RENEWAL_PERSISTENCE.mode} carries`,
+  check(worstPlain < 1e-9, `year 2 at 0/0: actual over expected is the plain draw x what ${NON_RENEWAL_PERSISTENCE.mode} carries and ${NEW_MEMBER_PENALTY_FADE.mode} still charges`,
     `worst ${worstPlain.toExponential(2)}`);
   check(worstExposure < 1e-12, 'and the book stays where year 1 left it', `worst ${worstExposure.toExponential(2)}`);
 }
@@ -239,6 +277,46 @@ console.log('\n--- 5. ALL THREE VERSIONS, ON THE BOOK ---');
     `year 10 ${play('decaying', held, 0)[9].toFixed(4)}`);
 }
 
+// --------------------------------------------------------------------------
+console.log('\n--- 6. THE PENALTY FADE, ALL THREE OPTIONS, ON THE BOOK ---');
+{
+  const inForce = NEW_MEMBER_PENALTY_FADE.mode;
+  check(penaltyFadeWeights().length === FADE[inForce].length && penaltyFadeWeights().every((x, i) => Math.abs(x - FADE[inForce][i]) < 1e-15),
+    `the option in force (${inForce}) charges ${FADE[inForce].map(x => (100 * NEW_BUSINESS_PENALTY * x).toFixed(2) + '%').join(', ')}`);
+  // Ten years of moveBook on one line under a fade, against the reference.
+  const play = (fade: keyof typeof FADE, a1At: (t: number) => number, a2At: (t: number) => number) => {
+    NEW_MEMBER_PENALTY_FADE.mode = fade;
+    let E = OPENING_BOOK_EXPOSURE.GL, Q = 1, cohorts: number[] = [];
+    let ref: RefBook = { E, Q, cohorts: [] };
+    let worst = 0;
+    const loads: number[] = [];
+    for (let t = 1; t <= 10; t++) {
+      const m = moveBook('GL', E, { nonRenewal: a1At(t), newMembers: a2At(t) }, false, false, t, Q, cohorts);
+      const r = refYear(ref, a1At(t), a2At(t), persistenceCarry(), FADE[fade]);
+      worst = Math.max(worst, Math.abs(m.lossFactor / r.lf - 1));
+      loads.push(m.fadingLoad);
+      E = m.after; Q = m.qualityAfter; cohorts = m.cohortsAfter; ref = r.next;
+    }
+    NEW_MEMBER_PENALTY_FADE.mode = inForce;
+    return { worst, loads };
+  };
+  const once = (t: number) => (t === 1 ? 0.05 : 0), held = () => 0.05, none = () => 0;
+  const E0 = OPENING_BOOK_EXPOSURE.GL, c = 0.05 * E0;
+  // One 5% intake in year 1, then nothing: the penalty's dollars-of-exposure load in years 2-4.
+  const loadsOf = (fade: keyof typeof FADE) => play(fade, none, once).loads.slice(1, 4);
+  const near = (a: number[], b: number[]) => Math.max(...a.map((x, i) => Math.abs(x - b[i]))) / c;
+  check(near(loadsOf('oneYear'), [0, 0, 0]) < 1e-12, 'oneYear: a year-1 intake carries nothing from year 2');
+  check(near(loadsOf('twoYear'), [0.10 * c, 0, 0]) < 1e-12, 'twoYear: 10% in year 2, nothing after');
+  check(near(loadsOf('threeYear'), [0.2 * 2 / 3 * c, 0.2 / 3 * c, 0]) < 1e-12, 'threeYear: 13.33%, then 6.67%, nothing after');
+  // Shrinking with the book: non-renewal 5% a year after the intake takes the cohort with it.
+  const shrunk = play('threeYear', t => (t === 1 ? 0 : 0.05), once).loads.slice(1, 3);
+  check(near(shrunk, [0.2 * 2 / 3 * c * 0.95, 0.2 / 3 * c * 0.95 ** 2]) < 1e-12, 'an intake shrinks with the book: non-renewal takes it alike');
+  // Overlapping intakes, both sliders held, every option against the reference.
+  const worstAll = Math.max(...(['oneYear', 'twoYear', 'threeYear'] as const).map(f => play(f, held, held).worst));
+  check(worstAll < 1e-12, 'each year\'s intake on its own schedule, both sliders held: moveBook IS the reference, every option',
+    `worst ${worstAll.toExponential(2)}`);
+}
+
 console.log(`\n${failed.length === 0 ? 'ALL OK' : `${failed.length} FAILED`}`);
 
 // ============================================================================
@@ -264,5 +342,12 @@ console.log(`\n${failed.length === 0 ? 'ALL OK' : `${failed.length} FAILED`}`);
 //   6. DILUTION: Q at year end left at the renewing book's, new members not
 //      blended in at 1: EXIT 1 — section 2 (worst 6.33e-4) and section 5's
 //      dilution check fail.
+//   7. THE FADE, AT THE WRONG AGE: an intake charged its own year's weight a
+//      year late (w[k] for w[k + 1]): EXIT 1 — section 6's twoYear, threeYear,
+//      shrinking and reference checks fail (worst 6.33e-3).
+//   8. THE FADE, NOT SHRINKING: earlier intakes kept whole while the book is
+//      non-renewed: EXIT 1 — section 6's shrinking and reference checks fail
+//      (worst 6.75e-4).
+//   Sections 1b and 2 were also run with twoYear and threeYear in force: green.
 // ============================================================================
 process.exit(failed.length === 0 ? 0 : 1);
