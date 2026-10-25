@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import App from '../App';
 import { onRouteChange, parseRoute, type Route } from './client/navigation';
+import AdminScreen from './screens/AdminScreen';
 import HostScreen from './screens/HostScreen';
 import LobbyScreen from './screens/LobbyScreen';
 import PlayScreen from './screens/PlayScreen';
@@ -44,5 +45,7 @@ export default function SessionRouter() {
       return <LobbyScreen />;
     case 'solo':
       return <App />;
+    case 'admin':
+      return <AdminScreen />;
   }
 }
