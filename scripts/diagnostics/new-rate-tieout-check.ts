@@ -52,7 +52,6 @@ import { AGGREGATE_STOP, NEW_RATE_STACK, STOP_RECOVERY_OFF_CLAIMS_COST } from '.
 import { quoteNewRateStack, newStackAsLineRateQuote } from '../../src/utils/linePricing';
 import type { CoverageLine, GameState, LinePoolState } from '../../src/types/simulation';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
-import { lineBookRisk } from '../../src/utils/bookUnits';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const GAMES = Number(process.env.GAMES ?? 3);
@@ -113,7 +112,7 @@ function play(): Row[] {
           // A book (MEMBER_LEVEL off) is priced on its exposure, as the engine
           // prices it; a roster on its members.
           members: (gs.poolState.lines[line] as LinePoolState).bookExposure !== undefined
-            ? { exposure, risk: lineBookRisk(gs.instance, line, gs.poolState.bookUnits, gs.poolState.bookLedger) ?? 1 }
+            ? { exposure, risk: 1 }
             : (gs.poolState.lines[line] as LinePoolState).members ?? [],
           exposure, layersPlaced: placementFor(line, ld.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED,
           reinsuranceOption: ld.reinsuranceOption,

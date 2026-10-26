@@ -303,8 +303,9 @@ export interface ExpectedLossBreakdown {
  */
 export function expectedLossBreakdown(
   line: CoverageLine, exposure: number, yearNumber: number, routineOn = ROUTINE_LARGE_LOSSES.enabled,
-  // THE BOOK'S SIZE-WEIGHTED MEAN TRUE RISK (bookOrdinaryRisk), since book
-  // units commit 3: each unit's ordinary loss is its exposure x its risk x the
+  // THE BOOK'S RISK — 1 on every caller since simple underwriting (the book's
+  // 100 equal members carry no risk score); kept as the seam book units used
+  // from their commit 3: each unit's ordinary loss is its exposure x its risk x the
   // line's cost, so the book's expected ordinary loss — and the uplift on it —
   // carries its risk. 1 is the market's, and what a reader with no book means.
   // ⚠ AND ITS ROUTINE LARGE LOSSES SINCE BOOK UNITS COMMIT 5: they land on the

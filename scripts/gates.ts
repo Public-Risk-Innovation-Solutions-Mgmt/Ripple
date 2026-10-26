@@ -177,8 +177,9 @@ const FAST: string[] = [
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
                                      //         trend per line, booked up front; older years undeveloped for
                                      //         trend; six controls
-  'pregame-growth-check',            //   5s   the pre-game book grows 2% a year into exactly the opening book, new
-                                     //         business at market risk, 2021 writing none; four controls
+  'simple-underwriting-check',       //   5s   simple underwriting: the year's expected ordinary loss is the brief's
+                                     //         formula, one year only, 100 equal members, the pre-game's 2% at the
+                                     //         penalty; four controls
   'reserve-inflation-check',         //  10s   open years inflate by the line's trend on the start-of-year
                                      //         outstanding, booked as development, paid untouched; priced for
                                      //         the first 2 years; contingency per line; four controls. Replaced
@@ -208,29 +209,10 @@ const FAST: string[] = [
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls
-  'book-units-penalty-check',        //   3s   the new-business penalty: actual ordinary losses load the units written
-                                     //         that year, first year and new units only; expected carries none;
-                                     //         three controls
-  'book-units-large-loss-check',     //   3s   large losses on units: routine claims spread by size x risk, a regional
-                                     //         T only in its region, the routine count carries the book's risk, no
-                                     //         unit in the claims workbook; four controls
-  'book-units-underwriting-check',   //   6s   underwriting on units: selection random at visibility 0, perfect at 1,
-                                     //         improving between; renewal and intake shares; withdrawal blind to
-                                     //         risk; one book in every world; four controls
-  'book-units-ordinary-check',       //   7s   ordinary losses from units: each unit and the line at their closed-form
-                                     //         mean and CV, expected = exposure x book risk x cost, every world on
-                                     //         one book; three controls
   'baseline-cv-table-check',         //   4s   one BASELINE_CV per line, read by both: the funding table in force is the
                                      //         one filed under it and its stops are that CV's closed form, the engine's
                                      //         year factor is the draw at it bit for bit, and the slider and required
                                      //         capital read that table; two controls
-  'book-units-market-check',         //   3s   each line's market of units and the opening book: sizes to the full
-                                     //         market, size and risk CVs, risk centred at 1.0, regions by share,
-                                     //         the 30% book, determinism, kept once per game; six controls
-  // ⚠ THREE GATES FORKED BACK FROM DORMANT onto the new engine (book mode).
-  // Their member-path originals stay dormant as *-member-check; these cover
-  // what the new engine uses — pooled fields and the reinsurance tower — each
-  // with controls, and each confirmed red against a real break in the engine.
   'pool-aggregation-check',          //   2s   every pooled field classified, the additive classes add, no
                                      //         members on a book, cededByLayer cells line up, solo = its line
   'reinsurance-tower-check',         //   4s   cession arithmetic, the tower's shape and price on a book, the
@@ -859,7 +841,6 @@ const PROBES: Record<string, string> = {
   'pregame-years-report': 'the pre-game and what follows, by line: every scenario\'s solved margin (range, and those below zero), the pre-game rates 2021-2025 and year 1 with their year-on-year swing, the Annual Statement\'s columns at game start, and played ten years at the defaults — investment income y1-5, surplus at 5 and 10, cumulative combined ratio on scenarios 1, 10, 20. No threshold [20 min]',
   'paid-in-capital-solve-report': 'per line, the paid-in capital (STARTING_CAPITAL) at which the mean over the twenty scenarios of the 2026 rate change from 2025 equals the line\'s severity trend, found by bisection; at it, the change\'s range and the solved pre-game margin\'s range with those below zero. No threshold [2 min]',
   'opening-position-report': 'each line\'s opening at the start of year 1 over the twenty scenarios — net and LAE reserve, required capital, surplus, the solved pre-game margin, year-1 premium and the oldest open accident year; mean and range. A reading to compare one commit against another, no threshold [30s]',
-  'uw-applications-dial-report': 'uw-hybrid: scenario 18 Property, five years at Expected, four underwriting arms — exposure, loss ratio, combined ratio and surplus at year 5; run once per NEW_BUSINESS_APPLICATIONS with --set. A design reading with no threshold [60s]',
   'investment-dominance-report': 'underwriting against investment income, per line, with the implied return. A design reading with no threshold — see its header [12s]',
   'ibner-clf-basis-report': 'reports the IBNER/CLF basis pairing; no threshold. Renamed from -check [17s]',
   'ibner-pregame-report': 'pre-game IBNER state report [64s]',

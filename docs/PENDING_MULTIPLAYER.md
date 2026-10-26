@@ -11,7 +11,7 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
-## The shocks landing (save key v30) — owed checks CLEARED, save the render review
+## The shocks landing (save key v30) — owed checks CLEARED
 
 Landed on multiplayer for play-testing without the full checks; those were run
 on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
@@ -43,14 +43,16 @@ on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
 5. **`gate-timings.json`**: `shock-effects-check` entered at 60 from the sweep.
 6. **Every session driver** with the admin-token hook, the contract harness
    (local, http, DynamoDB, the built Lambda handler) and the race probes: green.
+7. **The render attribution review** (cleared by the simple underwriting
+   landing, recorded at RENDER_IDENTITY_v89 in render-identity-check.ts): the 89
+   moves v87 absorbed are the cover list alone (31), WC and GL year-2 expected
+   losses (10) and Property's figures (48). One was a defect: the Calculation
+   Audit's reserve risk margin check read Review by exactly the retained
+   catastrophe on Property; the audit now recalculates it, and
+   audit-formula-check section 6 fails when the term is left out.
 
 **Still owed:**
 
-- **The render attribution review**: RENDER_IDENTITY_v87 absorbed this
-  landing's 89 render moves against v86 (Calculation Audit 26, Decisions 18,
-  Rate Indication 10, Results 8, Financial Statements 8, Result Spreadsheet 7,
-  Annual Statement 4, Decision History 4, the header 2, Introduction 2) without
-  attributing them. The owed-checks commits move no value, so no screen.
 - **The shadow's cost** (`SHOCK_FREE_PRICING`): years after a shock run their
   worlds twice; measured only through the drivers' and the report's run times.
 - **Known approximations, stated not fixed**: expected losses grow T by trend

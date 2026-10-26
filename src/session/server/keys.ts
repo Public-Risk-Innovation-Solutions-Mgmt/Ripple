@@ -594,7 +594,8 @@ export function nameSk(teamName: string): string {
 
 /**
  * One team's decisions for one year. ⚠ uw-hybrid: the per-line block carries
- * renewalsDeclined and newBusinessRejection in place of renewalCut and
+ * nonRenewal and newMembers (simple underwriting; uw-hybrid's renewalsDeclined
+ * and newBusinessRejection before them) in place of renewalCut and
  * intakeLevel — two scalars for two, so the item's size and every figure above
  * are unchanged. Stored whole; nothing here reads them.
  */

@@ -220,8 +220,8 @@ export default function HostDecisionsTab({ room }: Props) {
                 <th className="px-5 py-2 font-medium">Team</th>
                 <th className="px-3 py-2 font-medium">Funding</th>
                 <th className="px-3 py-2 font-medium">Reinsurance</th>
-                <th className="px-3 py-2 font-medium">Renewals declined</th>
-                <th className="px-3 py-2 font-medium">New Business, rejection rate</th>
+                <th className="px-3 py-2 font-medium">Non-renewal</th>
+                <th className="px-3 py-2 font-medium">New members</th>
                 <th className="px-3 py-2 font-medium">Risk control</th>
                 <th className="px-3 py-2 font-medium">Dividend / assessment</th>
                 <th className="px-3 py-2 font-medium">Investments</th>
@@ -287,8 +287,8 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
         </span>
       </td>
       {/* A row written before uw-hybrid carries the old fields: 0% for both. */}
-      <td className="px-3 py-2 text-slate-600">{formatPct(d.renewalsDeclined ?? 0, 0)}</td>
-      <td className="px-3 py-2 text-slate-600">{formatPct(d.newBusinessRejection ?? 0, 0)}</td>
+      <td className="px-3 py-2 text-slate-600">{formatPct(d.nonRenewal ?? 0, 0)}</td>
+      <td className="px-3 py-2 text-slate-600">{formatPct(d.newMembers ?? 0, 0)}</td>
       <td className="px-3 py-2 text-slate-600">{formatPct(d.riskControlPct, 1)}</td>
       <td className="px-3 py-2">
         {d.dividendPct === 0 && d.assessmentPct === 0 ? (

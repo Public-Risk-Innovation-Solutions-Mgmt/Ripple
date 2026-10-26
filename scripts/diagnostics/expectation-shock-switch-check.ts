@@ -24,7 +24,9 @@
 //      covers are offered instead); 3 holds its still-built code to the switch.
 //   4. A SOLO GAME. ⚠ RESTATED FOR THE SHOCKS LANDING: with SOLO_SHOCKS off
 //      (switched off at runtime here) each year's Expected Losses (averaged)
-//      is within 1% of its Simulated Losses, as it was. With SOLO_SHOCKS on
+//      is within 1% of its Simulated Losses, as it was — once the game's
+//      member risk is divided out (simple underwriting: the risk scores are
+//      the game's, so the worlds' average keeps them). With SOLO_SHOCKS on
 //      (shipped) the game's shocks are on, so its Expected Losses keeps them
 //      (above the ordinary-only, as 5) — Simulated no longer averages them,
 //      every world sharing the game seed's events — and a T cover it holds is
@@ -46,6 +48,8 @@
 //      a scheduled room, carries one in every year.
 // Each with a control that must fail.
 // ============================================================================
+import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
+import { marketSeedOf } from '../../src/utils/bookUnits';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -56,7 +60,7 @@ import { gameShocksOn } from '../../src/utils/shockLosses';
 import { drawShockSchedule } from '../../src/utils/shockSchedule';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, FULL_SAVINGS_AT, SHOCK_COST_TREND, SOLO_SHOCKS } from '../../src/data/pricingParameters';
+import { AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, SHOCK_COST_TREND, SOLO_SHOCKS } from '../../src/data/pricingParameters';
 import { shockCostFactor } from '../../src/utils/shockCost';
 import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
 import type { GameInstance, GameSetupSettings, GameState } from '../../src/types/simulation';
@@ -133,15 +137,10 @@ function gradeCover(quotes: typeof stopQuotes, tag: string) {
 gradeCover(stopQuotes, '');
 
 // ---------------------------------------------------------------- games
-// ⚠ AT FULL SAVINGS ON NEW BUSINESS (rejection FULL_SAVINGS_AT): the default
-// writes new business at the 20% first-year penalty, which by design is not
-// in expected loss, so Simulated would sit about newShare x 20% above Expected
-// for a reason that is not the shock switch. At full savings the penalty is 1.
-const decide = (y: number) => {
-  const d = defaultDecisionSet(y);
-  d.byLine.WC.newBusinessRejection = FULL_SAVINGS_AT;
-  return d;
-};
+// ⚠ AT THE DEFAULTS, WHICH ADD NO NEW MEMBERS (simple underwriting): the
+// first-year penalty is not in expected loss, so a book that grew would sit
+// about newShare x 20% above Expected for a reason that is not the shock switch.
+const decide = (y: number) => defaultDecisionSet(y);
 // ⚠ THE SHOCKS LANDING: `cover` is the WC option held each year (the default,
 // None, unless a T cover is named), and `quoted` is the price the switch-on
 // game owes for it — its table price x shockCostFactor (trend from year 1 x
@@ -167,8 +166,17 @@ const T_COVER = '$38M xs $2M';
 const soloOffGame = withSoloShocks(false, () => play(soloOff.setup, soloOff.instance, 4));
 const soloGame = play(solo.setup, solo.instance, 4, T_COVER);
 function gradeSolo(offRows: typeof soloGame.rows, onRows: typeof soloGame.rows, struck: number[], quoted: number[], tag: string) {
-  const gaps = offRows.map(r => (r.aggregateMemberLoss ?? r.grossUltimateLoss) / r.expectedLoss - 1);
-  check(gaps.every(g => Math.abs(g) < 0.01), `${tag}4a. a solo game with SOLO_SHOCKS off: each year's Expected Losses is within 1% of its Simulated Losses`,
+  // ⚠ WITH THE GAME'S MEMBER RISK DIVIDED OUT (simple underwriting). Each
+  // member's yearly risk score is the GAME's (MEMBER_RISK_CV, off its seed), so
+  // averaging the worlds removes the year factor and the luck but not the
+  // risk: a year's Simulated sits at Expected x the members' mean score (about
+  // 3% either way). The 1% is the switch's, on what is left.
+  const riskOf = (y: number) => {
+    const r = ordinaryLossFromMembers('WC', 1, y, 1, 1, 1, false, marketSeedOf(soloOff.instance)).risk;
+    return r.reduce((a, b) => a + b, 0) / r.length;
+  };
+  const gaps = offRows.map(r => (r.aggregateMemberLoss ?? r.grossUltimateLoss) / (r.expectedLoss * riskOf(r.yearNumber)) - 1);
+  check(gaps.every(g => Math.abs(g) < 0.01), `${tag}4a. a solo game with SOLO_SHOCKS off: each year's Expected Losses (x the game's member risk) is within 1% of its Simulated Losses`,
     gaps.map(g => `${(100 * g).toFixed(2)}%`).join(' '));
   const over = onRows.map(r => r.expectedLoss / expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, false).total);
   // Year 2 on, the cover's price must have grown (the trend), so a flat table price shows.

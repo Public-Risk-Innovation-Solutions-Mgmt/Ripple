@@ -1701,8 +1701,17 @@ export function buildSupportingRows(
       ? 'No pool CLF exists: each line prices off its OWN static table, and this figure is one line\'s value kept as a placeholder. Select a line tab for the real one.'
       : `FUNDING_CLF_TABLE[${formatPct(lineRow!.selectedFundingConfidenceLevel, 0)}] — see Default Assumptions`;
 
-  const reserveRiskMarginCheck =
-    result.expectedNetUnpaidLoss * (reserveMarginCLFForLine - 1);
+  // ⚠ WITH THE RETAINED CATASTROPHE, as the engine stores it
+  // (simulationEngine: max(0, expectedNetUnpaidLoss x (CLF − 1) + catCapitalNeeded)).
+  // The term arrived with the shocks landing — a game with shocks on and no
+  // cover retains its catastrophe, Property's above all — and this
+  // recalculation was left without it, so the check read Review by exactly the
+  // term ($12,082,474 on a Property opening) while the formula row above
+  // already showed both. audit-formula-check section 6 fails when it is left out.
+  const reserveRiskMarginCheck = Math.max(
+    0,
+    result.expectedNetUnpaidLoss * (reserveMarginCLFForLine - 1) + (result.catCapitalNeeded ?? 0),
+  );
 
   const reserveRiskMarginDifference =
     result.reserveRiskMarginNeeded - reserveRiskMarginCheck;

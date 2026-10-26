@@ -70,7 +70,6 @@ import { hasStaticClf, staticClf } from '../../src/data/clfTables';
 
 import type { CoverageLine, GameState, LinePoolState, LineResultSet } from '../../src/types/simulation';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
-import { lineBookRisk } from '../../src/utils/bookUnits';
 
 // ============================================================================
 // ⚠ FORKED FOR THE ONE-BOOK ENGINE (loss engine commit 3). With MEMBER_LEVEL
@@ -85,7 +84,7 @@ const BOOK_MODE = !MEMBER_LEVEL.enabled;
 /** What the panel prices: the book as derivations.ts builds it — with its risk — or the roster. */
 const panelBook = (gs: GameState, line: CoverageLine, y: number): Book => {
   const ls: LinePoolState = gs.poolState.lines[line];
-  const risk = lineBookRisk(gs.instance, line, gs.poolState.bookUnits, gs.poolState.bookLedger);
+  const risk = 1;
   return ls.bookExposure !== undefined
     ? { exposure: ls.bookExposure * exposureFactor(line, y), ...(risk !== undefined ? { risk } : {}) }
     : ls.members.filter(m => m.status === 'active');
@@ -340,7 +339,7 @@ console.log('\n--- 1b. PANEL vs THE ENGINE\'S STORED FIELDS ---');
             // towerMembers is `{ exposure: activeExposure }` in book mode, so
             // the stored tower fields are the post-movement book's.
             // With the moved book's risk, as towerMembers carries it (book units commit 5).
-            members: BOOK_MODE ? { exposure, risk: lineBookRisk(inst, line, p.updatedPoolState.bookUnits, p.updatedPoolState.bookLedger) ?? 1 } : pre[line].members,
+            members: BOOK_MODE ? { exposure, risk: 1 } : pre[line].members,
             exposure,
             layersPlaced: placementFor(line, dec.reinsuranceOption), reinsuranceOption: dec.reinsuranceOption,
             aggregateStopLevel: AGGREGATE_NOT_OFFERED,

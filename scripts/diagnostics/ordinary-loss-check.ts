@@ -11,12 +11,12 @@
 // WHAT IT ASSERTS, in order:
 //
 //   1. THE TWO FACTORS, DIRECTLY. Across 400,000 draws each, the mean is 1
-//      and the CV is each line's BASELINE_CV / UNIT_ORDINARY_OWN_CV, each within
+//      and the CV is each line's BASELINE_CV / MEMBER_LUCK_CV, each within
 //      four standard errors (book units commit 3; it was one 2.2% factor).
 //      This is the distribution on its own, at a sample large enough to see a
 //      missing -sigma^2/2 (a 2.4e-4 bias, about seven standard errors here).
 //   2. THROUGH THE LABELLED STREAMS. The line's two moments over 6,000 instance
-//      seeds x 10 accident years on a fixed book, drawn by ordinaryLossFromUnits — so the
+//      seeds x 10 accident years on the book, drawn by ordinaryLossFromMembers — so the
 //      stream keying, the trend and the exposure scaling are in the loop.
 //   3. THROUGH THE ENGINE. Played games, flag on: ORDINARY actual over
 //      ordinary expected per line-year — the uplift in force taken out —
@@ -37,16 +37,14 @@
 // ⚠ AND IT FAILS WHEN BROKEN — see THE CONTROL at the foot.
 // ============================================================================
 
-import { BASELINE_CV, MEMBER_LEVEL, ROUTINE_LARGE_LOSSES, UNIT_ORDINARY_OWN_CV } from '../../src/data/pricingParameters';
+import { BASELINE_CV, MEMBER_LEVEL, MEMBER_LUCK_CV, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { newEngineLayerMoments } from '../../src/utils/shockExpectation';
 import { bookExposureOf } from '../../src/utils/lineHelpers';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { heldUnits, newBusinessPenaltyFactor } from '../../src/utils/bookUnderwriting';
-import { bookOrdinaryCv, drawOrdinaryFactor, ordinaryLossFromUnits } from '../../src/utils/ordinaryLoss';
-import { marketSeedOf, openingBookUnits, unitsOf } from '../../src/utils/bookUnits';
+import { drawOrdinaryFactor, ordinaryLossFromMembers, typicalBookOrdinaryCv } from '../../src/utils/ordinaryLoss';
 import { allLayerRiskMoments } from '../../src/utils/towerMoments';
 import { SeededRandom } from '../../src/utils/random';
 import { getPredefinedMarketMembers } from '../../src/data/memberCatalog';
@@ -93,10 +91,10 @@ try {
   console.log('\n--- 1. THE TWO FACTORS, 400,000 draws each ---');
   // The year factor at each line's own BASELINE_CV (since the funding tables wiring).
   const factors: [string, number][] = [
-    ...LINES.map((l): [string, number] => [`${l} year`, BASELINE_CV[l]]), ['unit', UNIT_ORDINARY_OWN_CV],
+    ...LINES.map((l): [string, number] => [`${l} year`, BASELINE_CV[l]]), ['member luck', MEMBER_LUCK_CV],
   ];
   for (const [name, cv] of factors) {
-    const rng = new SeededRandom(9_100_000 + (name === 'unit' ? 1 : 0));
+    const rng = new SeededRandom(9_100_000 + (name === 'member luck' ? 1 : 0));
     const xs = Array.from({ length: 400_000 }, () => drawOrdinaryFactor(rng, cv));
     const m = moments(xs);
     check(Math.abs(m.mean - 1) < Z * m.seMean, `${name} factor: mean is 1`,
@@ -107,15 +105,14 @@ try {
 
   // --------------------------------------------------------------------------
   console.log('\n--- 2. THROUGH THE LABELLED STREAMS, 6,000 seeds x 10 years ---');
-  // One fixed book of units per line, so the ratio isolates the draw; its CV
-  // is that book's own (bookOrdinaryCv).
+  // The book of 100 equal members, so the ratio isolates the draw; its CV is
+  // the closed form over them (typicalBookOrdinaryCv).
   for (const line of LINES) {
-    const units = unitsOf(4_242_424, line, openingBookUnits(4_242_424, line));
-    const want = bookOrdinaryCv(units, line);
+    const want = typicalBookOrdinaryCv(line);
     const ratios: number[] = [];
     for (let s = 0; s < 6_000; s++) {
       for (let y = 1; y <= 10; y++) {
-        const o = ordinaryLossFromUnits(line, units, 100, y, 1_000_000 + s * 7919);
+        const o = ordinaryLossFromMembers(line, 100, y, 1_000_000 + s * 7919);
         if (o.expected > 0) ratios.push(o.realised / o.expected);
       }
     }
@@ -153,15 +150,9 @@ try {
         // 4. the draw's own scale, recomputed from the same streams on the
         // year's book, after the year's movement (withdrawal, renewal, intake)
         // — scale-free, so any exposure gives the factor
-        // ⚠ AT HELD SHARES, AND WITH THIS YEAR'S NEW BUSINESS LOADED: the
-        // default writes new business, whose first-year actual carries the
-        // penalty (newBusinessPenaltyFactor) and its expected does not, so the
-        // draw's own scale includes it.
-        const ledger = p.updatedPoolState.bookLedger?.[line];
-        const units = heldUnits(marketSeedOf(instance), line, p.updatedPoolState.bookUnits?.[line] ?? [], ledger);
-        const fresh = new Set(units.filter(u => ledger?.joined[String(u.index)] === y).map(u => u.index));
-        const pen = newBusinessPenaltyFactor(defaultDecisionSet(y).byLine[line].newBusinessRejection) - 1;
-        const factor = ordinaryLossFromUnits(line, units, 100, y, instance.seed, fresh, pen).factor;
+        // At the defaults the book does not move, so underwriting's loss
+        // factor is 1 (bookUnderwriting.moveBook).
+        const factor = ordinaryLossFromMembers(line, 100, y, instance.seed).factor;
         worstScale = Math.max(worstScale, Math.abs(ratio / factor - 1), Math.abs(n.ordinaryFactor / factor - 1));
         // the record adds up to the line's gross: ordinary + T + routine excess
         worstRecord = Math.max(worstRecord,

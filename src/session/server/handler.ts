@@ -28,7 +28,8 @@
 // contract-and-transport change, not a handler one. It is named here because
 // "the handler was not touched" is a thing a reader should be able to confirm
 // deliberately rather than infer from a silent file. The same holds for
-// uw-hybrid's two sliders (renewalsDeclined, newBusinessRejection), which
+// the two underwriting sliders (nonRenewal and newMembers since simple
+// underwriting; renewalsDeclined and newBusinessRejection on uw-hybrid), which
 // replaced renewalCut and intakeLevel inside that block: no code here.
 //
 // ⚠ IT STILL SHIPS FIRST. The handler carries no new code but the DEPLOY ORDER

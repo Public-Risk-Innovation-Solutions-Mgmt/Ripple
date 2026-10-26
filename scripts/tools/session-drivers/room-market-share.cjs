@@ -3,8 +3,9 @@
 // In a hosted game a team's market share is its share of the ROOM: per line,
 // its exposure over every team's exposure on the line; on the pool, its premium
 // over the room's (RoomMarketShares, contract.ts). Each team plays different
-// underwriting (Harbour Mutual at the defaults, Cedar Valley declining 10% of
-// renewals, Tri-County rejecting 15% of new business, on every line). Checked:
+// underwriting (Harbour Mutual at the defaults, Cedar Valley not renewing 5%
+// of its book, Tri-County adding 5% new members, on every line — the most each
+// slider allows since simple underwriting). Checked:
 //
 //   - before year 1, every team reads one third on every line and the pool;
 //   - nothing changes until the host advances, even after every team locks in;
@@ -160,9 +161,9 @@ function expectedShares(rec, year) {
 
   // Different underwriting, every line.
   for (const v of LINES) {
-    // The sliders' on-screen names since the Decisions layout: renewalsDeclined
-    // and newBusinessRejection underneath, as before.
-    for (const [t, label, presses] of [['Cedar Valley', 'Existing Book: Non-Renewal Assumption', 10], ['Tri-County', 'New Business: Growth Assumption', 15]]) {
+    // The sliders' on-screen names since simple underwriting: nonRenewal and
+    // newMembers underneath, each 0-5% in 1% steps.
+    for (const [t, label, presses] of [['Cedar Valley', 'Existing Book: Non-Renewal Assumption', 5], ['Tri-County', 'New Members: Growth Assumption', 5]]) {
       const p = players[t];
       await decisionsTab(p);
       await p.getByRole('button', { name: VIEW[v], exact: true }).first().click();
