@@ -20,7 +20,11 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
     const cells = [...r.children].map(c => c.textContent.trim());
     return [cells[0], cells.slice(1)];
   })));
-const COLUMNS = ['Team', 'Market share', 'Combined ratio', 'Surplus', 'Premium to surplus', 'Rate', 'Funding', 'Ripple Score'];
+const COLUMNS = ['Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio', 'Net surplus', 'Market share'];
+const PCT = /^\d+\.\d%$/;
+// The combined ratio's own scale (colorForCombinedRatio): emerald, amber or red —
+// never the loss-ratio scale's sky.
+const CR_CLASS = /\btext-(emerald|amber|red)-600\b/;
 const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
 
 (async () => {
@@ -146,8 +150,11 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
       ok(!/^0|—$/.test(pnd), `pending "${pnd}" is a state, not a number`);
       const rate = (await host.textContent('[data-testid="rate-Harbour Mutual"]')).trim();
       ok(RATE.test(rate) && /\(/.test(rate), `WC view: the rate per $100 with this year's change beside it ("${rate}")`);
-      const fund = (await host.textContent('[data-testid="funding-Harbour Mutual"]')).trim();
-      ok(fund === 'Expected', `WC view: a team funding at Expected reads "Expected", not its slider's 60% ("${fund}")`);
+      const admin = (await host.textContent('[data-testid="admin-Harbour Mutual"]')).trim();
+      ok(PCT.test(admin), `WC view: the year's admin expense as a share of premium ("${admin}")`);
+      ok(await host.$('[data-testid^="funding-"]') === null, 'WC view: no Funding column');
+      const cells = (await readTable(host))['Harbour Mutual'];
+      ok(cells.at(-1) === (await host.textContent('[data-testid="share-Harbour Mutual"]')).trim(), 'WC view: market share is the last column');
     }
     if (label === 'GL') {
       ok(await host.$('[data-testid="absent-Harbour Mutual"]') === null, 'GL view: no team is ABSENT either');
@@ -168,8 +175,10 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
       const rates = await host.$$eval('[data-testid="rate-Harbour Mutual"] span.block', els => els.map(e => e.textContent.trim()));
       ok(rates.length === 2 && rates.every((r, i) => r.startsWith(['WC ', 'GL '][i]) && RATE.test(r.slice(3))),
         `Pool view: the rate shows each line's, the lines' units differing (${rates.join(' · ')})`);
-      const fund = (await host.textContent('[data-testid="funding-Harbour Mutual"]')).trim();
-      ok(fund === 'Expected', `Pool view: funding at Expected on every line reads "Expected" ("${fund}")`);
+      const admin = (await host.textContent('[data-testid="admin-Harbour Mutual"]')).trim();
+      ok(PCT.test(admin) && parseFloat(admin) > 0 && parseFloat(admin) < 50, `Pool view: the year's admin expense as a share of premium ("${admin}")`);
+      const crClass = await host.getAttribute('[data-testid="cr-Harbour Mutual"]', 'class');
+      ok(CR_CLASS.test(crClass), `Pool view: the combined ratio on the combined-ratio colour scale ("${crClass.match(/text-\w+-\d+/)?.[0]}")`);
       const ripple = (await host.textContent('[data-testid="ripple-Harbour Mutual"]')).trim();
       ok(ripple === '—' && /Ripple Score is coming/.test(await host.textContent('[data-testid="teams-table"] >> xpath=ancestor::div[1]')),
         `Pool view: the Ripple Score is a placeholder, with its note ("${ripple}")`);

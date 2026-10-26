@@ -91,11 +91,13 @@ function poolFiguresOf(r: ResultSet, lineFigures: TeamYearFigures[]): TeamYearFi
  * are real rows of the ledger; they are just not plottable.
  */
 /**
- * THE HOST'S TEAMS-TABLE FIGURES (TeamYearFigures' optional four), off the
+ * THE HOST'S TEAMS-TABLE FIGURES (TeamYearFigures' optional five), off the
  * team's own Annual Statement as it stood at year `r` — so a tab catching up
  * several years posts each one as it was, not as it is now. The combined ratio
  * is the statement's cumulative one, the team's top-bar figure; premium to
- * surplus is its balance sheet's row for the year. A line also carries its rate
+ * surplus is its balance sheet's row for the year; the admin expense ratio is
+ * the operating section's "% of Premium" under the two admin rows, for the
+ * year. A line also carries its rate
  * and the change on the year before.
  */
 function statementFiguresOf(gs: GameState, r: ResultSet, scope: 'pool' | CoverageLine): Partial<TeamYearFigures> {
@@ -103,10 +105,14 @@ function statementFiguresOf(gs: GameState, r: ResultSet, scope: 'pool' | Coverag
   const row = st.sections.find(s => s.key === 'balance')?.rows.find(x => x.label === 'Premium to Surplus');
   // The year shown is the last column before Total.
   const pts = row?.cells[row.cells.length - 2];
+  const op = st.sections.find(s => s.key === 'operating')?.rows ?? [];
+  const adminRow = op[op.findIndex(x => x.label === 'Additional Admin Expense (risk control)') + 1];
+  const admin = adminRow?.label === '% of Premium' ? adminRow.cells[adminRow.cells.length - 2] : undefined;
   const combined = topCombinedRatio(st);
   const out: Partial<TeamYearFigures> = {
     ...(combined !== undefined && Number.isFinite(combined) ? { combinedRatio: combined } : {}),
     ...(pts?.kind === 'value' ? { premiumToSurplus: pts.v } : {}),
+    ...(admin?.kind === 'value' && Number.isFinite(admin.v) ? { adminExpenseRatio: admin.v } : {}),
   };
   if (scope !== 'pool') {
     const rate = r.byLine[scope]?.finalRatePer100;
