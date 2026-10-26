@@ -14,12 +14,14 @@ async function join(ctx, code, name, line) {
   return p;
 }
 
-// Read the Teams table as {team: cells}
+// Read the Teams table as {team: cells}. The first cell is the team's name alone.
 const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   Object.fromEntries(rows.map(r => {
     const cells = [...r.children].map(c => c.textContent.trim());
-    return [cells[0].split(/\s{2,}|(?=[A-Z]{2,}\+?)/)[0].trim(), cells.slice(1)];
+    return [cells[0], cells.slice(1)];
   })));
+const COLUMNS = ['Team', 'Market share', 'Combined ratio', 'Surplus', 'Premium to surplus', 'Rate', 'Funding', 'Ripple Score'];
+const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
 
 (async () => {
   await requireServer();
@@ -86,7 +88,7 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   await host.click('[data-testid="host-tab-teams"]');
   await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length >= 1, null, { timeout: 30000 });
   const y1 = await host.textContent('[data-testid="teams-year"]');
-  ok(/^2026 — the latest known year/.test(y1.trim()), `after one advance the opening, 2026, is the latest known year: "${y1.trim()}"`);
+  ok(/^Results for 2026$/.test(y1.trim()), `after one advance the opening, 2026, is the latest known year: "${y1.trim()}"`);
   ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'and the teams show its figures — the opening they posted');
 
   // A second year: the two live teams lock and post year 2, and year 1 becomes known.
@@ -111,7 +113,10 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length >= 1,
     null, { timeout: 30000 });
   const yr = await host.textContent('[data-testid="teams-year"]');
-  ok(/^2027 — the latest known year/.test(yr.trim()), `after the second advance it shows the latest KNOWN year, 2027: "${yr.trim()}"`);
+  ok(/^Results for 2027$/.test(yr.trim()), `after the second advance one heading line names the latest KNOWN year: "${yr.trim()}"`);
+  const heads = await host.$$eval('[data-testid="teams-table"]', ([t]) => [...t.closest('table').querySelectorAll('thead th')].map(h => h.textContent.trim()));
+  ok(JSON.stringify(heads) === JSON.stringify(COLUMNS), `the columns, in order: ${heads.join(' · ')}`);
+  ok(await host.$('[data-testid="teams-shares-year"]') === null, 'and no second heading line');
 
   const views = await host.$$eval('nav button, [role="tablist"] button', b => b.map(x => x.textContent.trim()));
   console.log('  line-view bar :', views.filter(v => /Pool|Compensation|Liability|Property/.test(v)));
@@ -134,6 +139,10 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
       ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'WC view: the reporting team shows figures');
       const pnd = (await host.textContent('[data-testid="pending-Tri-County"]')).trim();
       ok(!/^0|—$/.test(pnd), `pending "${pnd}" is a state, not a number`);
+      const rate = (await host.textContent('[data-testid="rate-Harbour Mutual"]')).trim();
+      ok(RATE.test(rate) && /\(/.test(rate), `WC view: the rate per $100 with this year's change beside it ("${rate}")`);
+      const fund = (await host.textContent('[data-testid="funding-Harbour Mutual"]')).trim();
+      ok(fund === 'Expected', `WC view: a team funding at Expected reads "Expected", not its slider's 60% ("${fund}")`);
     }
     if (label === 'GL') {
       ok(await host.$('[data-testid="absent-Harbour Mutual"]') === null, 'GL view: no team is ABSENT either');
@@ -141,14 +150,24 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
     }
     if (label === 'Pool') {
       ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'Pool view: reporting teams show the aggregate');
-      // THE WORST WORLD BESIDE THE AVERAGE (loss engine commit 4b): the team's
-      // minimum ending surplus across its worlds, a currency at or below the
-      // average it sits next to.
-      const money = s2 => { const m = s2.replace(/[$,\s]/g, ''); const v = parseFloat(m); return /K$/.test(m) ? v * 1e3 : /M$/.test(m) ? v * 1e6 : /B$/.test(m) ? v * 1e9 : v; };
-      const avgTxt = (await host.textContent('[data-testid="surplus-Harbour Mutual"]')).trim();
-      const minTxt = (await host.textContent('[data-testid="minsurplus-Harbour Mutual"]')).trim();
-      ok(/^-?\$/.test(minTxt) && money(minTxt) <= money(avgTxt),
-        `Pool view: the minimum across the team's worlds sits beside the average (${minTxt} beside ${avgTxt})`);
+      // THE NAME ALONE — a team once read "TWC+GL+Property", its lines run onto its name.
+      const name = (await host.textContent('[data-testid="name-Harbour Mutual"]')).trim();
+      ok(name === 'Harbour Mutual', `Pool view: the team column is the name alone ("${name}")`);
+      const cr = (await host.textContent('[data-testid="cr-Harbour Mutual"]')).trim();
+      ok(/^\d+\.\d%$/.test(cr), `Pool view: the combined ratio since the game began ("${cr}")`);
+      // AND IT IS THE TEAM'S OWN: its top bar stands at the same latest known year.
+      const teamCr = (await wcTeam.locator('header').innerText()).match(/Combined Ratio\s+(\S+)/)?.[1];
+      ok(teamCr === cr, `Pool view: the host's combined ratio is the team's own top-bar figure (${cr} vs ${teamCr})`);
+      const pts = (await host.textContent('[data-testid="pts-Harbour Mutual"]')).trim();
+      ok(/^\d+\.\d{2}$/.test(pts), `Pool view: premium to surplus ("${pts}")`);
+      const rates = await host.$$eval('[data-testid="rate-Harbour Mutual"] span.block', els => els.map(e => e.textContent.trim()));
+      ok(rates.length === 2 && rates.every((r, i) => r.startsWith(['WC ', 'GL '][i]) && RATE.test(r.slice(3))),
+        `Pool view: the rate shows each line's, the lines' units differing (${rates.join(' · ')})`);
+      const fund = (await host.textContent('[data-testid="funding-Harbour Mutual"]')).trim();
+      ok(fund === 'Expected', `Pool view: funding at Expected on every line reads "Expected" ("${fund}")`);
+      const ripple = (await host.textContent('[data-testid="ripple-Harbour Mutual"]')).trim();
+      ok(ripple === '—' && /Ripple Score is coming/.test(await host.textContent('[data-testid="teams-table"] >> xpath=ancestor::div[1]')),
+        `Pool view: the Ripple Score is a placeholder, with its note ("${ripple}")`);
       ok(await host.$('[data-testid="pending-Tri-County"]') !== null, 'Pool view: the non-reporter is still pending');
     }
   }
