@@ -22,7 +22,7 @@
 // six and what each one read.
 // ============================================================================
 
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, asPlayer, asAdmin } = require('./_shared.cjs');
 
 const EVENT = `Lobby Walk ${Math.floor(Math.random() * 9000 + 1000)}`;
 const LEADER = 'Harbour Mutual';
@@ -125,6 +125,10 @@ async function lobbyRows(page) {
     + `${await player.isVisible('[data-testid="create-room"]')}`);
 
   // ---- 3. join as a team leader, from the lobby ---------------------------
+  // ⚠ AS A PLAYER, NOT AN ADMIN: since aws's admin accounts an admin's event
+  // row offers host and delete, a player's offers join. The steps above ran
+  // as the admin (ADMIN_TOKEN); everything from here is a team's.
+  if (process.env.ADMIN_TOKEN) { await asPlayer(player); await player.reload(); }
   await lobbyRows(player);
   await player.click(`[data-testid="join-${code}"]`);
   await player.waitForSelector('[data-testid="role-choice"]');
@@ -156,6 +160,8 @@ async function lobbyRows(page) {
     'the viewer never reached the session strip after choosing a team');
 
   // ---- 5. the host advances: OPEN -> IN PROGRESS --------------------------
+  // The host is the admin again (one context: asPlayer above logged it out).
+  await asAdmin(host);
   await host.reload();
   await host.waitForSelector('[data-testid="advance"]');
   await host.click('[data-testid="advance"]');
@@ -206,6 +212,7 @@ async function lobbyRows(page) {
     'the viewer was refused on an in-progress event');
 
   // ---- 7. hide it ---------------------------------------------------------
+  await asAdmin(host);
   await host.reload();
   await host.waitForSelector('[data-testid="hide-toggle"]');
   await host.click('[data-testid="hide-toggle"]');

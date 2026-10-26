@@ -35,12 +35,16 @@ export interface RoomIdentity {
   teamToken?: string;
   teamName?: string;
   role?: 'player' | 'viewer';
+  /** A player's own viewer PIN — see JoinResponse.pin. Absent for a viewer. */
+  pin?: string;
 }
 
 export interface HeldCredential {
   teamToken: string;
   teamName: string;
   role: 'player' | 'viewer';
+  /** A player's own viewer PIN — see JoinResponse.pin. Absent for a viewer. */
+  pin?: string;
 }
 
 export interface HeldCredentials {

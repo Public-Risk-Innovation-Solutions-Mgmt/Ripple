@@ -39,6 +39,16 @@ export interface RosterEntry {
   joined: boolean;
   lockedYear: number | null;
   tokenHash: string;
+  /**
+   * ⚠ PLAIN, NOT HASHED — AND DELIBERATELY SO, UNLIKE tokenHash. A PIN is not a
+   * secret in that sense: its only power is letting a viewer watch, the same
+   * authority a name-based viewer join already grants with no secret at all.
+   * It is kept here so a rejoining player's JoinResponse can return it again
+   * without a second lookup. Never copied into TeamView or CallerView —
+   * buildTeamView below builds its output field by field and does not include
+   * it; JoinResponse.pin is the only place this ever leaves the header.
+   */
+  pin?: string;
   /** Year (as a string) -> true, for every year this team has a result posted. */
   posted: Record<string, boolean>;
   /**
