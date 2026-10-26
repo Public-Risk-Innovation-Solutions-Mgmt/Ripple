@@ -205,6 +205,12 @@
 // Same expiresAtSec as every other item. scripts/tools/session-race-probe.ts
 // probe A fails without it.
 //
+// ⚠ AND A THIRD ITEM THAT IS NOT IN A ROOM'S PARTITION — THE VIEWER-PIN INDEX.
+// A viewer's PIN resolves to a room+team from the Lobby itself, with no code
+// in hand yet, so — same reasoning as CREATE# — it cannot be keyed under
+// ROOM#<code>. See pinPk below for the key, item shape and why a PIN is not
+// treated as a secret the way a bearer token is.
+//
 // WHY THIS SHAPE, point by point:
 //
 //   * THE ROSTER IS IN THE HEADER because every `read` fetches the header
@@ -291,14 +297,23 @@
 //   createRoom, index   Put CREATE#<hash>                       attribute_not_exists(pk)
 //                                                               — ⚠ CORRECTED, see below
 //   join, new team      Transact: Put NAME#, Put TOKEN#,        NAME# not exists; TOKEN#
-//                       ConditionCheck VIEW#, Update ROOM       not exists; VIEW# not
-//                       (roster entry, ADD rev)                 exists; ROOM exists.
-//                                                               On failure RE-READ and
-//                                                               decide again — ⚠ CORRECTED
+//                       ConditionCheck VIEW#, Update ROOM,      not exists; VIEW# not
+//                       Put PIN# (roster entry, ADD rev)        exists; ROOM exists; PIN#
+//                                                               not exists. A failed PIN#
+//                                                               ALONE just mints a fresh
+//                                                               PIN and retries the whole
+//                                                               transaction (the room-code
+//                                                               collision's own shape); any
+//                                                               OTHER failure RE-READS and
+//                                                               decides again — ⚠ CORRECTED
 //   join, rejoin        none                                    token hash matches the
 //                                                               roster. (The lines
 //                                                               check is GONE: a join
 //                                                               carries none.)
+//   join, by PIN         GetItem PIN# FIRST — resolves to        none (a read, not a write)
+//                        {code, teamId}, then proceeds as the
+//                        viewer-joins-an-existing-team path
+//                        above, unchanged.
 //   join, viewer        Transact: Put VIEW#, ConditionCheck     VIEW# not exists; TOKEN#
 //                       TOKEN#. No rev bump — viewers are not   not exists (the token
 //                       in RoomView                             claim, above)
@@ -655,3 +670,26 @@ export function tokenSk(tokenHash: string): string {
   if (tokenHash.length === 0) throw new RangeError('A token hash must be non-empty.');
   return checkSortKey(`TOKEN#${tokenHash}`);
 }
+
+/**
+ * THE VIEWER-PIN INDEX — a third item outside any room's partition, same
+ * reasoning as CREATE#: a viewer's PIN must resolve to a room+team from the
+ * Lobby itself, before a room code is in hand, so it cannot be keyed under
+ * ROOM#<code>. Holds `{ code, teamId }`, stamped with the room's own
+ * expiresAtSec (same reasoning as CREATE# — a PIN must not outlive the room it
+ * names, and must not expire before it either). Written in the SAME
+ * TransactWriteItems call as the new team (rooms.ts), conditioned on
+ * attribute_not_exists(pk); a collision mints a fresh PIN and retries the
+ * whole join, the same shape the room-code collision at createRoom already
+ * has. Unlike a team name (unique only within its own room), a PIN is NOT a
+ * secret the way a bearer token is — its only power is "let me watch", the
+ * same authority a name-based viewer join already grants — but it is still
+ * never exposed anywhere except JoinResponse.pin to the team's own player.
+ */
+export function pinPk(pin: string): string {
+  if (pin.length === 0) throw new RangeError('A PIN must be non-empty.');
+  return `PIN#${pin}`;
+}
+
+/** The PIN index item's sort-key VALUE. */
+export const PIN_SK = 'PIN';

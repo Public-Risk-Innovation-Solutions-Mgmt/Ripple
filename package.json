@@ -17,7 +17,10 @@
     "build:handler": "npx tsx scripts/tools/build-handler.ts",
     "contract:dynamo": "npx tsx scripts/tools/session-contract-check.ts --dynamo",
     "contract:races": "npx tsx scripts/tools/session-race-probe.ts",
-    "contract:built": "npm run build:handler && npx tsx scripts/tools/session-contract-check.ts --dynamo --built"
+    "contract:built": "npm run build:handler && npx tsx scripts/tools/session-contract-check.ts --dynamo --built",
+    "build:admin-handler": "npx tsx scripts/tools/build-admin-handler.ts",
+    "contract:admin": "npx tsx scripts/tools/admin-contract-check.ts",
+    "dev:admin-server": "npx tsx scripts/tools/dev-admin-server.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1148.0",

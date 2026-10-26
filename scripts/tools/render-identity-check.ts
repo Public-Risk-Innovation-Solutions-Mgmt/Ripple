@@ -1317,7 +1317,15 @@ const BASELINE = process.env.RENDER_BASELINE
 // played for). Every key that showed the chip: each single-line game's line
 // view and view-less screens, at y0 and y2, and every line view of the
 // multi-line games. The pool views had no chip before. Nothing else moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v87.json');
+// v88: NO MARKET SHARE ON SINGLE PLAYER'S RESULTS AND CALCULATION AUDIT. The
+// control ran first: bfe8eb1 built in its own worktree reproduced v87 236 of
+// 236. 52 move, and in every one the only change is that page's market-share
+// row deleted (both sides' text word-diffed): the Results page's
+// "Exposure-Based Market Share" and the audit's "Market Share" with its
+// enrolled-over-market-exposure formula, on all 13 of each at y0 and y2. A
+// hosted game would show the room share there, but both tabs are hidden in
+// multiplayer and the render harness plays single player.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v88.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1458,7 +1466,7 @@ async function startGame(page: Page, cfg: Cfg): Promise<void> {
     const checked = await btn.evaluate(el => el.className.includes('ring-1'));
     if (on !== checked) await btn.click();
   }
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await settle(page);
 }
 

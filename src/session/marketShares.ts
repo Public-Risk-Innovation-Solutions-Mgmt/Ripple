@@ -9,7 +9,7 @@
 
 import type { CoverageLine } from '../types/simulation';
 import { latestKnownRoomYear } from '../utils/knownYears';
-import type { RoomMarketShares, TeamMarketShare, TeamYearSummary } from './contract';
+import type { RoomMarketShares, TeamMarketShare, TeamMarketShareOfYear, TeamYearSummary } from './contract';
 
 /** One team as the share needs it — whatever the transport stores it as. */
 export interface ShareTeam {
@@ -120,4 +120,23 @@ export function shownShares(
     if (Number.isFinite(y) && y <= known && (best === null || y > best)) best = y;
   }
   return best === null ? undefined : { year: best, byTeam: structuredClone(stored[String(best)]) };
+}
+
+/**
+ * A HOSTED TEAM'S ROOM SHARE FOR ONE YEAR ON ONE VIEW, as a result screen shows
+ * it — the same figure as the top-bar chip and the host's Market share column.
+ * The team holds its share for the latest known year only (CallerView), so a
+ * screen showing another year has none: undefined. A pre-game year takes the
+ * opening set — every team plays the same pre-game, so the shares are 1/N in
+ * every one of them.
+ */
+export function roomShareFor(
+  share: TeamMarketShareOfYear | null | undefined,
+  yearNumber: number,
+  view: CoverageLine | 'pool',
+): number | undefined {
+  if (!share) return undefined;
+  const matches = yearNumber === share.year || (yearNumber <= 0 && share.year === 0);
+  if (!matches) return undefined;
+  return view === 'pool' ? share.pool : share.byLine[view];
 }
