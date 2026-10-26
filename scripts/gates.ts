@@ -1262,7 +1262,16 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
   // ==========================================================================
   'cession-uplift-basis': {
     code: 2,
-    why: 'THE UPLIFT LIMITS WERE CALIBRATED ON A BOOK THAT DID NOT DEVELOP, AND THE HOST\'S '
+    why: 'RESTATED AT THE SHOCKS LANDING\'S OWED CHECKS: until then every arm bought None, ceded '
+      + 'nothing, read 0/0 and passed while printing NaN — vacuous. Every arm now buys $38M xs $2M '
+      + 'and reads WC 23.8%, GL 24.8%, Property 1.8%, pool 10.0%. With ROUTINE_LARGE_LOSSES off a '
+      + 'shock\'s one T claim is the only claim a layer reaches, and it sits wholly above the $2M '
+      + 'attachment, so every dollar it develops by is ceded — the denominator is that claim\'s '
+      + 'inception cession alone. MEASURED, NOT A ROUTING DEFECT: over 12 twenty-year games the T '
+      + 'claims develop with their cohorts (GL +31% against the untracked book\'s +38%, Property '
+      + '+2.5% against +2.6%) under the per-claim revision law; nothing concentrates the cohort\'s '
+      + 'development onto them. The deferral below stands. '
+      + 'THE UPLIFT LIMITS WERE CALIBRATED ON A BOOK THAT DID NOT DEVELOP, AND THE HOST\'S '
       + 'DEVELOPMENT % NOW MAKES THEM WRONG — but I am NOT raising them, and the reason is the '
       + 'number itself. GL reads 10.1% against a 6.0% line limit and the pool 3.7% against 1.5%. '
       + 'AT LOSS ENGINE COMMIT 3a GL reads 16.7% and the pool 1.1% (now inside its limit): the inception '

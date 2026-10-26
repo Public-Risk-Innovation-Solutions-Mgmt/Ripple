@@ -1378,7 +1378,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   paying inflation by the pattern whatever FORWARD_BOOKING says (the
 //   shipped game has the flag on) or the gate restatements. Exposure moves in
 //   none of them.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v83.json');
+// v84: THE SHOCKS PLAY-TEST LANDING, OWED (landed on multiplayer without the
+// full checks; recaptured with them, wip/shocks-owed-checks). The control is
+// multiplayer 19b6f17, captured here: against v83 it moves 21,101 of 39,600
+// values in 94 fields on all 24 configurations and every year; none added or
+// removed. All of it is the landing itself — the new loss engine's shocks
+// (catalogue firings, A on the whole line for one year, one T claim per
+// event-line), the T covers with None the default (tri Y1 pool reinsurance
+// cost $5.22M -> $0) and the shock-free pricing shadow (tri Y1 rates WC 3.632
+// -> 3.532, GL 5.665 -> 5.379, Property 0.3082 -> 0.2858 per $100). Head was
+// then captured at each owed-checks commit in turn: 3fdae5e (Property cat
+// cession capped at the ceiling, five gates restated) and a4a841b (shock
+// records per firing, the stop's samples grown, eleven gates restated) each
+// reproduce the control bit for bit — no baselined game repeats an event in
+// force, cedes Property cat or prices the dormant stop.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v84.json');
 
 function seedOf(id: string) {
   let h = 5381;

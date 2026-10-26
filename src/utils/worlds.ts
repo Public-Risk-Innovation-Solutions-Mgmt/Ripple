@@ -46,7 +46,7 @@ import type {
 import type { ShockRecord } from '../types/shocks';
 import { rangeOf, summarizeWorlds, type SurplusRange } from './worldAudit';
 import { simulateMarketReturns, type MarketReturns } from './investmentEngine';
-import { applyMarketShock, gameShocksOn, resolveShockYear, shockTimingOf } from './shockLosses';
+import { applyMarketShock, gameShocksOn, resolveShockYear, shockRecordKeys, shockTimingOf } from './shockLosses';
 export { rangeOf, type SurplusRange };
 
 /** Worlds per team-year for the engine in force: WORLD_COUNT on the new engine, one on the member path. */
@@ -446,12 +446,14 @@ function averageSplitRows(perWorld: AccidentYearSplit[][]): AccidentYearSplit[] 
   });
 }
 
-/** One row per event: dollars and claim counts averaged over ALL worlds, with the count it fired in. */
+/** One row per firing: dollars and claim counts averaged over ALL worlds, with the count it fired in. */
 export function averageShockEvents(perWorld: (ShockRecord[] | undefined)[], n: number): ShockRecord[] | undefined {
   const merged = new Map<string, { rec: ShockRecord; fired: number; region: string | undefined; regionSame: boolean }>();
   for (const recs of perWorld) {
-    for (const rec of recs ?? []) {
-      const key = `${rec.shockId}|${rec.yearFired}`;
+    // Per firing (shockRecordKeys): a host's same event twice in one year stays two rows.
+    const keys = shockRecordKeys(recs ?? []);
+    for (const [i, rec] of (recs ?? []).entries()) {
+      const key = keys[i];
       const m = merged.get(key);
       if (!m) {
         merged.set(key, {

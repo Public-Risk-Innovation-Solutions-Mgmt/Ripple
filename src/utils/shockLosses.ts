@@ -132,6 +132,25 @@ export interface EventFiring {
 
 const firingKey = (f: EventFiring) => `${f.event.index}_${f.ordinal}`;
 
+// ⚠ ONE RECORD PER FIRING, NOT PER EVENT. An event that fires again while its
+// earlier firing is still in force (a host's Recession in years 2 and 3) is two
+// rows, each costing what IT added: keyed by event alone, the year-3 dollars
+// were credited to both rows and the pool merge then summed them twice
+// (shock-record-key-check). The key is the event, the year it fired and which
+// firing of that year it is — a result's records carry the first two, and
+// come in firing order, so the third is their position among equals.
+export const firingRecordKey = (f: Pick<EventFiring, 'event' | 'firedYear' | 'ordinal'>) =>
+  `${f.event.id}@${f.firedYear}#${f.ordinal}`;
+export function shockRecordKeys(recs: readonly { shockId: string; yearFired: number }[]): string[] {
+  const seen = new Map<string, number>();
+  return recs.map(r => {
+    const base = `${r.shockId}@${r.yearFired}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}#${n}`;
+  });
+}
+
 /**
  * THE GAME'S SEED, which every shock draw is keyed on (wip/shocks test build):
  * a world's instance carries its own seed and the game's as marketSeed
