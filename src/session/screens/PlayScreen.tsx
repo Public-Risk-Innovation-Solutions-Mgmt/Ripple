@@ -435,6 +435,8 @@ export default function PlayScreen({ code, role }: Props) {
       onSelectTab={setActiveTab}
       // The multiplayer version: hides the tabs in GameShell's MULTIPLAYER_HIDDEN_TABS.
       multiplayer
+      // The team's share of the ROOM, its own figure only (CallerView).
+      roomMarketShare={you.marketShare ?? null}
       lineView={lineView}
       onSelectLineView={setLineView}
       // A viewer passes no advance handler at all, so no button renders.

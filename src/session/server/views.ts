@@ -22,10 +22,11 @@
 // ============================================================================
 
 import type {
-  CallerRole, CallerView, JsonValue, PriorDevelopment, RoomStatus, RoomView,
+  CallerRole, CallerView, JsonValue, PriorDevelopment, RoomMarketShares, RoomStatus, RoomView,
   ScheduledShockSpec, TeamView, TeamYearSummary,
 } from '../contract';
 import type { CoverageLine } from '../../types/simulation';
+import { shownShares, type RoomSharesByYear } from '../marketShares';
 
 /** Canonical order, and the fallback for a header written before the host
  *  picked the lines. Mirrors rooms.ts's own copy. */
@@ -50,6 +51,13 @@ export interface RosterEntry {
   pin?: string;
   /** Year (as a string) -> true, for every year this team has a result posted. */
   posted: Record<string, boolean>;
+  /**
+   * Year (as a string) -> true, for every year this team locked decisions for.
+   * lockedYear holds only the newest, and the room market share needs to know
+   * whether a team locked a PARTICULAR year (a team that did not is stopped).
+   * Absent on an entry written before it existed; read as lockedYear alone.
+   */
+  lockedYears?: Record<string, boolean>;
   /**
    * Epoch millis of the join that created the team.
    *
@@ -84,6 +92,8 @@ export interface RoomHeader {
   currentYear: number;
   shocks: ScheduledShockSpec[];
   roster: Record<string, RosterEntry>;
+  /** Every year's room market shares, as each year completed — see RoomMarketShares. */
+  marketSharesByYear?: RoomSharesByYear;
   createdAt: number;
   updatedAt: number;
   rev: number;
@@ -189,6 +199,9 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
     teams: orderedRoster(header).map(([teamId, entry]) =>
       buildTeamView(entry, header.currentYear, fetched.results.get(teamId), role)),
+    // Host only, the latest known year's, as in localTransport: a player gets its own on CallerView.
+    ...(role === 'host' && shownShares(header, header.marketSharesByYear)
+      ? { marketShares: shownShares(header, header.marketSharesByYear) } : {}),
     createdAt: header.createdAt,
     updatedAt: header.updatedAt,
     rev: header.rev,
@@ -206,9 +219,13 @@ export function buildCallerView(
   teamId: string | null,
   entry: RosterEntry | null,
   fetched: Fetched,
+  shares?: RoomMarketShares,
 ): CallerView {
   const view: CallerView = { role };
   if (!teamId || !entry) return view;
+
+  const share = shares?.byTeam[entry.name];
+  if (share) view.marketShare = { year: shares!.year, pool: share.pool, byLine: { ...share.byLine } };
 
   view.teamName = entry.name;
   view.lines = [...entry.lines];
