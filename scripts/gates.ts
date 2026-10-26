@@ -174,6 +174,9 @@ const FAST: string[] = [
                                      //         unchanged; no routine claim drawn; a simulated pre-game; five controls
   'pool-loss-cost-check',            //   3s   WC and GL priced on the pool's layered loss costs, the shocks off the
                                      //         $0 - $1M layer, required capital at 80%; four controls
+  'pricing-window-check',            //  45s   results show the year just completed, pricing keeps its lag: year P
+                                     //         reads accident years P-6 to P-2, each trended to P; two controls;
+                                     //         RATES_OUT dumps every struck rate to compare two commits by
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
                                      //         trend per line, booked up front; older years undeveloped for
                                      //         trend; six controls

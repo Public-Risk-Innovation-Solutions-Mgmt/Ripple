@@ -11,9 +11,9 @@ import { RESULT_METRICS } from '../utils/resultMetrics';
 interface ResultSpreadsheetPageProps {
   lockedResults: ResultSet[];
   // ⚠ THE KNOWN PRE-GAME YEARS, oldest first, for the table and the Results
-  // download. Results run one year behind (utils/knownYears): after the first
-  // lock the newest known year is 2026, a pre-game year, and a page of played
-  // years alone would show nothing. Not passed to the Claims download, which
+  // download. Before the first lock the newest known year is 2026, a pre-game
+  // year (utils/knownYears), and a page of played years alone would show
+  // nothing. Not passed to the Claims download, which
   // reads the pre-game itself (priorHistory) and would count it twice.
   preGameResults: ResultSet[];
   // The pre-game bootstrap's three years. Accident years -2, -1 and 0 have real

@@ -500,12 +500,12 @@ export type TeamMarketShareOfYear = TeamMarketShare & { year: number };
  * before Y) stay in the totals. A team that locked in and has not yet posted
  * is waited for.
  *
- * ⚠ SHOWN FOR THE LATEST KNOWN YEAR, ONE YEAR BEHIND LIKE EVERY OTHER RESULT:
- * with the room deciding year N the set shown is year N - 2's (the year before
- * the one in progress), the last year's once the game is over — see
- * marketShares.ts's shownShares. Before the first advance that year is 2025,
- * which no team posts; every team played the same pre-game, so the opening
- * posts (year 0) stand in, at 1/N each.
+ * ⚠ SHOWN FOR THE LATEST KNOWN YEAR, LIKE EVERY OTHER RESULT: with the room
+ * deciding year N the set shown is year N - 1's (the year just completed), the
+ * last year's once the game is over — see marketShares.ts's shownShares.
+ * Before the first advance that year is 0, the opening posts, at 1/N each
+ * (every team plays the same pre-game). It was one year behind (N - 2) until
+ * results stopped running a year behind.
  *
  * ⚠ HOST ONLY ON RoomView. A player or viewer gets its own team's figure on
  * CallerView.marketShare and never another team's.
@@ -516,7 +516,7 @@ export type TeamMarketShareOfYear = TeamMarketShare & { year: number };
  * keeps what it showed. Deploy the handler first.
  */
 export interface RoomMarketShares {
-  /** The result year the figures are from: 0 is the opening books (and stands in for 2025). */
+  /** The result year the figures are from: 0 is the opening books. */
   year: number;
   /** Keyed by team name. A team with no result yet is absent. */
   byTeam: Record<string, TeamMarketShare>;

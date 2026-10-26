@@ -216,11 +216,10 @@ export function eventSentence(ev: YearEvent): string {
 
 // ============================================================================
 // THE NEWS — what a player is told the moment a year in which an event began
-// is played, before that year's results come in (they run one year behind,
-// utils/knownYears). The event's name and region, one plain line saying what it
-// is, and which of the team's own lines it touched: NOTHING ELSE. No size, no
-// level, no dollars, no claim count — those arrive with the year's results,
-// as they always did. The line list is the team's: a result carries only the
+// is played. The event's name and region, one plain line saying what it is,
+// and which of the team's own lines it touched: NOTHING ELSE. No size, no
+// level, no dollars, no claim count — those are in the year's results, which
+// show at the same time (utils/knownYears). The line list is the team's: a result carries only the
 // lines its team writes, so a hosted team never learns another's.
 //
 // ⚠ ONE LINE PER EVENT NAME, AND IT IS THE PLAYER'S NAME, so a scheduled

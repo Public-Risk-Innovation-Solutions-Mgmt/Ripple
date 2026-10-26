@@ -372,9 +372,8 @@ function sheetFor(results: LineResultSet[], metrics: SpreadsheetMetric[]): XLSX.
  * A result year's label, played or pre-game — the Financial Statements'
  * convention: "Year 2 / 2028" for a played year, "Year 0 / 2026 (Opening)" for
  * the last pre-game year, "2025 (History)" before it. Pre-game years are listed
- * because results run one year behind (utils/knownYears): after the first lock
- * the newest known year is 2026, the opening, and a page of played years only
- * would show nothing.
+ * because before the first lock the newest known year is 2026, the opening
+ * (utils/knownYears), and a page of played years only would show nothing.
  */
 export function resultYearLabel(r: { yearNumber: number; calendarYear: number }): string {
   return r.yearNumber > 0 ? `Year ${r.yearNumber} / ${r.calendarYear}`

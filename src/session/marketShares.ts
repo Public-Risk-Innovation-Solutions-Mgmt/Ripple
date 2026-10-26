@@ -79,8 +79,7 @@ export function roomSharesFor(year: number, teams: ShareTeam[], lines: CoverageL
 /**
  * THE STORE: one set per result year, keyed by year as a string, each team's
  * share keyed by team name. Written once a year as each year completes, so the
- * room keeps every year's figures and a reader can show the one the
- * one-year-behind rule allows.
+ * room keeps every year's figures and a reader shows the latest known year's.
  */
 export type RoomSharesByYear = Record<string, Record<string, TeamMarketShare>>;
 
@@ -97,16 +96,12 @@ export function mayStoreShares(stored: RoomSharesByYear | undefined, year: numbe
 }
 
 /**
- * THE SET A SCREEN SHOWS: the latest known year's — the room's current year less
- * two while the game runs (latestKnownRoomYear), the last year once it is over —
- * so the share follows the same one-year-behind rule as every other result. When
- * that year's set is not complete yet (a team that locked in has not posted),
- * the newest complete year before it.
- *
- * ⚠ BEFORE THE FIRST ADVANCE THE LATEST KNOWN YEAR IS 2025, A PRE-GAME YEAR THE
- * TEAMS NEVER POST. Every team plays the same pre-game, so its shares are 1/N
- * on every line and the pool — exactly the opening posts' (year 0), which stand
- * in for it.
+ * THE SET A SCREEN SHOWS: the latest known year's — the year just completed,
+ * the room's current year less one (latestKnownRoomYear), the last year once
+ * the game is over — the same rule as every other result. Before the first
+ * advance that is year 0, the opening posts. When that year's set is not
+ * complete yet (a team that locked in has not posted), the newest complete year
+ * before it.
  */
 export function shownShares(
   room: { currentYear: number; yearCount: number },
