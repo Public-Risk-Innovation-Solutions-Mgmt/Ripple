@@ -116,7 +116,7 @@ const adminTokenIn = page => page.evaluate(() => localStorage.getItem('ripple.ad
       'Test player: the room-only fields (event name, team count) are not shown');
     ok(await page.locator('[data-testid="create-room"]').count() === 0, 'Test player: no Create room button');
     ok(await page.locator('[data-testid="seed"]').inputValue() === SCENARIO, 'Test player: opens on the start screen\'s scenario');
-    ok(await page.locator('[data-testid^="dev-level-"]').count() === 3, 'Test player: the host\'s adverse development level, per line');
+    ok(await page.locator('select[data-testid^="dev-level-"]').count() === 3, 'Test player: the host\'s adverse development level, per line');
     ok(await page.locator('[data-testid^="prior-dev-pct-"]').count() === 0, 'Test player: no prior-development percentages');
     const opts = await page.locator('[data-testid="dev-level-WC"] option').allInnerTexts();
     ok(JSON.stringify(opts) === JSON.stringify(['Low', 'Mid', 'High']), 'Test player: Low, Mid and High offered', opts.join('/'));
@@ -175,7 +175,7 @@ const adminTokenIn = page => page.evaluate(() => localStorage.getItem('ripple.ad
     await page.waitForSelector('[data-testid="create-room"]', { timeout: 20000 });
     ok(await page.locator('[data-testid="event-name"]').count() === 1 && await page.locator('[data-testid="expected-teams"]').count() === 1,
       'Host: event name and team count still there');
-    ok(await page.locator('[data-testid^="dev-level-"]').count() === 3 && await page.locator('[data-testid^="prior-dev-pct-"]').count() === 0,
+    ok(await page.locator('select[data-testid^="dev-level-"]').count() === 3 && await page.locator('[data-testid^="prior-dev-pct-"]').count() === 0,
       'Host: a level per line, no prior-development percentages');
     ok(await page.locator('[data-testid="start-test-player"]').count() === 0, 'Host: no Start test game button');
     await browser.close();
