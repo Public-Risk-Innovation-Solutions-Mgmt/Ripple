@@ -1379,7 +1379,26 @@ const BASELINE = process.env.RENDER_BASELINE
 // higher (GL y2 $6.94M -> $11.62M) so no line takes an inter-line loan — the
 // loan rows, the repayment control and the audit's loan-transfer lines go —
 // and a dividend no longer reads "(blocked)". No fixed wording moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v90.json');
+// v91: RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (no one-year delay).
+// ⚠ THE CONTROL DID NOT REPRODUCE v90, and neither did v90's own commit:
+// 4ac52b5, cc90a58 and 696a63b (the merge that wrote v90), each built in its
+// own worktree, move the same 13 of 236 against it — GL and Property y2
+// figures on Financial Statements and the Calculation Audit, and the Result
+// Spreadsheet at y0 and y2 — and the instrument is unchanged since. So v90
+// was captured from a build that is not its commit; the 13 predate this
+// change. The control was therefore captured to its own file and reproduced
+// itself 236 of 236, and this change was measured against that, word-diffed
+// (RENDER_TEXT_DIR both sides). 196 of 236 move. The five results screens
+// (Annual Statement, Financial Statements, Results, Result Spreadsheet,
+// Calculation Audit — 114) gain the year just completed as their newest
+// column: Opening 2026 at y0, 2028 at y2. Every other moved screen (82:
+// _header, Introduction, Rate Indication, Decisions, Decision History) moves
+// in the top bar only — its surplus and combined ratio are now the year just
+// completed's ($9.59M / 98.3% -> $10.70M / 99.3% on WC at y0); the calendar
+// and program years in it are unchanged, and no rate or decision figure
+// moves. The 40 unmoved are the unplayed views and fixed documents. The Low
+// adverse-development default moves none: this harness plays single player.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v91.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
