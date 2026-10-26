@@ -37,6 +37,7 @@ import type {
 } from '../types/simulation';
 import { endingPosition } from '../utils/endingPosition';
 import { LINE_FULL_NAME } from '../utils/lineDisplay';
+import { EventNewsBanner, EventsPanel } from '../components/EventNews';
 import { useGameDerivations } from './derivations';
 import { claimsPoolStateAsOf, knownGameState, latestKnownYearNumber } from '../utils/knownYears';
 import { selectResultView } from '../utils/lineHelpers';
@@ -215,6 +216,12 @@ export default function GameShell({
 
       {statusStrip}
 
+      {/* THE NEWS OF AN EVENT (components/EventNews): the year just played, off
+          the whole game — results run a year behind, the news does not. */}
+      {isStarted && gameState && (
+        <EventNewsBanner played={gameState.lockedResults} startingYear={gameState.setup.startingYear} />
+      )}
+
       <main>
         {shownTab === 'setup' && setupPage}
 
@@ -258,6 +265,9 @@ export default function GameShell({
           <ResultsStatementPage gameState={known} lineView={lineView} />
         )}
 
+        {shownTab === 'decisions' && gameState && (
+          <EventsPanel played={gameState.lockedResults} startingYear={gameState.setup.startingYear} />
+        )}
         {shownTab === 'decisions' && gameState && (
           <DecisionsPage
             /* ⚠ priorProgramIds AND activeLines ARE NO LONGER PASSED. The
