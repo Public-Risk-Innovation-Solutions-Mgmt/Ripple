@@ -34,7 +34,6 @@
 
 import { exposureFactor } from '../data/exposureTrend';
 import type {
-  BookLedger,
   CoverageLine,
   DecisionSet,
   GameInstance,
@@ -51,13 +50,11 @@ import type {
   StartingFinancials,
 } from '../types/simulation';
 import { generateStartingPoolState } from './instanceGenerator';
-import { marketSeedOf, openingBookUnits } from './bookUnits';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { OPENING_SURPLUS_BAND } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults, strikeBookRate } from './simulationEngine';
 import { scenarioOf } from './scenarios';
 import { gameShocksOn } from './shockLosses';
-import { lineBookRisk } from './bookUnits';
 import {
   satisfactionAnchor, memberLossStanding, surplusBandOf, SATISFACTION,
 } from './memberSatisfaction';
@@ -152,8 +149,6 @@ interface LinePreGame {
   members: Member[];              // this line's ending roster
   membershipHistory: MembershipHistory; // this line's pre-game enrollment ledger
   memberLossHistory: MemberLossHistory; // this line's pre-game marketplace loss record
-  /** This line's underwriting ledger after the pre-game — its units' loss history (bookUnderwriting.ts). */
-  bookLedger?: BookLedger;
   attempt: number;
   /**
    * The prior board's margin over expected, every pre-game year — solved on
@@ -456,13 +451,15 @@ function runLinePreGame(
  * rate stack (the dormant member path), the last pre-game year's charge.
  */
 export function openingYear1Premium(
-  instance: GameInstance, line: CoverageLine, lineState: LinePoolState, lastPreGame?: LineResultSet,
+  // Unread since simple underwriting (the book carries no risk to look up);
+  // kept so every caller's signature stands.
+  _instance: GameInstance, line: CoverageLine, lineState: LinePoolState, lastPreGame?: LineResultSet,
   /** The game's shock switch (shockLosses.gameShocksOn) — year 1's cover is priced on it. Absent is on. */
   shocks = true,
 ): number {
   const struck = strikeBookRate(line, lineState, defaultDecisionSet(1, shocks).byLine[line], 1,
     { allMarketMembers: [], membershipHistory: {} },
-    MEMBER_LEVEL.enabled ? undefined : lineBookRisk(instance, line, { [line]: openingBookUnits(marketSeedOf(instance), line) }),
+    MEMBER_LEVEL.enabled ? undefined : 1,
     shocks);
   return struck ? struck.quote.finalRatePer100 * struck.exposure * 10_000 : lastPreGame?.totalMemberCharge ?? 0;
 }
@@ -598,7 +595,6 @@ function finalizeLine(
     members: c.poolState.lines[line].members,
     membershipHistory: c.poolState.membershipHistory,
     memberLossHistory: c.poolState.memberLossHistory ?? {},
-    ...(c.poolState.bookLedger?.[line] ? { bookLedger: c.poolState.bookLedger[line] } : {}),
     attempt,
   };
 }
@@ -840,14 +836,6 @@ export function runPriorHistory(
     interLineLoans: [],
     membershipHistory,
     memberLossHistory,
-    // The book of units, ONCE, from the GAME's seed — whatever attempt a line's
-    // pre-game was accepted on (bookUnits.ts). Never shown.
-    ...(MEMBER_LEVEL.enabled ? {} : {
-      bookUnits: Object.fromEntries(setup.activeLines.map(l => [l, openingBookUnits(marketSeedOf(instance), l)])),
-      // ⚠ AND THE PRE-GAME'S LOSS HISTORY BY UNIT, so year 1's renewals read
-      // the years the players inherit — the accepted attempt's, whatever it was.
-      bookLedger: Object.fromEntries(perLine.flatMap(p => (p.bookLedger ? [[p.line, p.bookLedger]] : []))),
-    }),
   };
 
   // Pool-level pre-game history = per-year aggregate across the active lines.

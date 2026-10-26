@@ -1392,21 +1392,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // records per firing, the stop's samples grown, eleven gates restated) each
 // reproduce the control bit for bit — no baselined game repeats an event in
 // force, cedes Property cat or prices the dormant stop.
-// v85: THE ADVERSE-DEVELOPMENT BRANCH (wip/adverse-development, not landed),
-// on multiplayer ee1ea6c. The control is ee1ea6c's own baseline, v84, which
-// that commit reproduces here. Against it 20,137 of 39,600 values move across
-// 74 fields on all 300 instances; none added or removed. With BOTH switches
-// turned back in process — reserve inflation restored at the severity trend,
-// adverse development off — the branch reproduces v84 exactly (VALUE IDENTITY
-// HOLDS), so those two are the only movers:
-//   reserve inflation off (unbooked and unpriced), alone: 20,155 across 74 —
+// v85: THE SIMPLE UNDERWRITING LANDING (100 equal members, each with a yearly
+// risk score; non-renewal and new members, 0-5%, one year each; every game on
+// the standard opening book; the audit's retained catastrophe). The control ran
+// first: multiplayer ee1ea6c, in its own worktree, reproduced v84 39,600 of
+// 39,600 (and export v92 24 of 24). 25,272 of 39,600 values differ at head,
+// across 91 fields; none added or removed. Attributed by a null test: with
+// MEMBER_RISK_CV set to 0 the head reproduces, bit for bit, its own capture
+// taken before member risk existed — so the two parts separate exactly:
+//   the book, 25,278 values across 91 fields against the control: every game
+//     opens on the standard opening book (OPENING_BOOK_EXPOSURE; WC-solo Y1
+//     exposure 968.74 -> 916.11) and the defaults no longer grow it
+//     (newBusinessExposure to 0 on all 300; Y5 1,177.51 -> 916.11), so
+//     exposure, written and billed exposure, market share, premium, the
+//     per-exposure admin, and every loss, reserve, rate, cash and capital
+//     field after them; ordinary losses drawn on 100 equal members at risk 1;
+//     the T claims landing on the line by region share.
+//   member risk, 22,246 values across 81 fields against that: the ordinary
+//     loss draw and what it feeds — ultimates, reserves, LAE, the rate as it
+//     learns, cash, surplus, capital. No exposure, admin or premium-at-opening
+//     field moves by it.
+//   The audit fix is display only and the two merges moved nothing. Float
+//   order only: investmentReturnRate, 23 values within 3.6e-16; the surplus
+//   tie-out stays within $5e-8.
+// v86: THE ADVERSE-DEVELOPMENT LANDING, on multiplayer ebc3b4a (simple
+// underwriting). The control ran first: ebc3b4a reproduces v85 here. Against
+// it 20,136 of 39,600 values move across 74 fields on all 300 instances; none
+// added or removed. With BOTH switches turned back in process — reserve
+// inflation restored at the severity trend, ADVERSE_DEVELOPMENT off — the
+// landing reproduces v85 exactly, so those two are the only movers:
+//   reserve inflation off (unbooked and unpriced), alone: 20,142 across 74 —
 //     every rate (the priced inflation gone), reserves, development, IBNR;
-//   adverse development (Mid on every line, the harness's default level; none
-//     in the pre-game, so the host's lifetime percentages leave the openings),
-//     alone: 17,288 across 74.
-// The paid true-up widened to adverse development (7127acc) moves none: the
-// shipped game has FORWARD_BOOKING on.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v85.json');
+//   adverse development, alone: 17,269 across 74. These games are built here,
+//     not as single player builds them, and set no level, so each line plays
+//     the harness default, Mid; and the host's lifetime percentages are
+//     retired, so the openings carry none.
+// Single player itself (SOLO_ADVERSE_DEVELOPMENT off) develops nothing — see
+// SOLO_EXPORT_GUARD_v94, whose games are built as the app builds them.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v86.json');
 
 function seedOf(id: string) {
   let h = 5381;

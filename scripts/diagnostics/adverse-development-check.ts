@@ -13,11 +13,18 @@
 // Property Low), no shocks scheduled — so the only development on prior years
 // is adverse development (R is 0, reserve inflation is off, the host's
 // percentages are retired).
+//
+// 5. SINGLE PLAYER HAS NONE (SOLO_ADVERSE_DEVELOPMENT off): the solo game the
+// app opens stores every line Off, draws no level, and books no adverse
+// development in any world in any year, while a Test player game opened the
+// same way keeps the levels chosen. Section 1's level draw is what single
+// player would use switched on.
 // ============================================================================
 
 import {
-  ADVERSE_DEVELOPMENT, ADVERSE_DEVELOPMENT_RANGE, RESERVE_INFLATION_PER_YEAR,
+  ADVERSE_DEVELOPMENT, ADVERSE_DEVELOPMENT_RANGE, RESERVE_INFLATION_PER_YEAR, SOLO_ADVERSE_DEVELOPMENT,
 } from '../../src/data/pricingParameters';
+import { openSoloInstance } from '../../src/utils/soloGame';
 import { adverseDevelopmentRate, adverseDevelopmentUniform, drawDevelopmentLevels } from '../../src/utils/adverseDevelopment';
 import { developmentBaseOf } from '../../src/utils/hostDevelopment';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -89,7 +96,7 @@ function sectionDraws(): string[] {
   // Each (line, valuation year, accident year) its own draw: not one λ for the whole year.
   const u = new Set([1, 2, 3, 4].map(a => adverseDevelopmentUniform(7, 'WC', 5, a)));
   if (u.size !== 4) out.push('accident years share a λ');
-  // Single player's levels: each of Low / Mid / High about a third.
+  // Single player's levels, were SOLO_ADVERSE_DEVELOPMENT on: each of Low / Mid / High about a third.
   const counts: Record<string, number> = { Low: 0, Mid: 0, High: 0 };
   for (let k = 0; k < 3000; k++) for (const v of Object.values(drawDevelopmentLevels(`s${k}`))) counts[v]++;
   for (const [k, c] of Object.entries(counts)) if (Math.abs(c / 9000 - 1 / 3) > 0.02) out.push(`single player draws ${k} ${(c / 90).toFixed(1)}% of the time`);
@@ -180,6 +187,35 @@ function sectionPreGame(): string[] {
   return out;
 }
 
+// ---- 5. SINGLE PLAYER HAS NONE ----------------------------------------------
+function playSolo(test: boolean, years: number): { setup: GameSetupSettings; booked: number[] } {
+  const settings = { poolName: 'S', gameLength: 10, startingYear: 2027, instanceId: ID, activeLines: LINES,
+    ...(test ? { developmentLevels: LEVELS } : {}) } as GameSetupSettings;
+  const { setup, instance } = openSoloInstance(settings, test ? { schedule: [] } : undefined);
+  const { poolState, priorHistory } = runPriorHistory(instance, setup);
+  let gs: GameState = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
+    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
+  const booked: number[] = [];
+  for (let y = 1; y <= years; y++) {
+    const played = playWorldsYear(gs, defaultDecisionSet(y));
+    // Every world's every line: what adverse development booked this year.
+    booked.push(played.perWorld.reduce((a, p) => a + p.lineResults.reduce((b, r) => b + Math.abs(r.result.newLossEngine?.adverseDevelopment ?? 0), 0), 0));
+    gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, played, [])), currentYearNumber: y + 1 };
+  }
+  return { setup, booked };
+}
+function sectionSolo(): string[] {
+  const out: string[] = [];
+  const solo = playSolo(false, 3);
+  const lv = solo.setup.developmentLevels ?? {};
+  if (JSON.stringify(lv) !== JSON.stringify({ WC: 'Off', GL: 'Off', Property: 'Off' })) out.push(`single player's setup holds ${JSON.stringify(lv)}, not every line Off`);
+  solo.booked.forEach((b, i) => { if (b !== 0) out.push(`single player year ${i + 1}: $${b.toFixed(0)} of adverse development booked across the worlds`); });
+  const test = playSolo(true, 2);
+  if (JSON.stringify(test.setup.developmentLevels) !== JSON.stringify(LEVELS)) out.push(`Test player's setup holds ${JSON.stringify(test.setup.developmentLevels)}, not the levels chosen`);
+  if (!(test.booked[0] > 0)) out.push('Test player books no adverse development — nothing measured');
+  return out;
+}
+
 // ---- run -------------------------------------------------------------------
 console.log('adverse-development-check\n');
 check(sectionDraws(), '1. λ: uniform within the brief\'s range per level, one draw per line, valuation and accident year; levels a third each');
@@ -195,6 +231,9 @@ control('a restated paid', () => {
 check(sectionPreGame(), '4. no development in the pre-game years');
 control('reserve inflation left on, in the pre-game', () => { const r = RESERVE_INFLATION_PER_YEAR as Record<string, number>; const o = r.GL; r.GL = 0.08; return () => { r.GL = o; }; }, sectionPreGame);
 control('the host\'s percentages back on', () => { const o = ADVERSE_DEVELOPMENT.enabled; ADVERSE_DEVELOPMENT.enabled = false; return () => { ADVERSE_DEVELOPMENT.enabled = o; }; }, sectionPreGame);
+
+check(sectionSolo(), '5. single player has none: every line Off, no level drawn, nothing booked in any world; Test player keeps its levels and develops');
+control('single player\'s adverse development switched on', () => { const o = SOLO_ADVERSE_DEVELOPMENT.enabled; SOLO_ADVERSE_DEVELOPMENT.enabled = true; return () => { SOLO_ADVERSE_DEVELOPMENT.enabled = o; }; }, sectionSolo);
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');
 process.exit(failures.length ? 1 : 0);

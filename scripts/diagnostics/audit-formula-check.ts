@@ -659,6 +659,17 @@ let repaymentYears = 0;
 let loanBearingScopes = 0;
 const coverageFailures: string[] = [];
 const pageCheckFailures: string[] = [];
+// SECTION 6 — THE RESERVE RISK MARGIN CHECK, WHERE A CATASTROPHE IS RETAINED.
+// The engine's margin carries the retained catastrophe (catCapitalNeeded) since
+// the shocks landing; the page's recalculation did not, so on every line scope
+// that retains one the check read Review by exactly the term ($12,082,474 on a
+// Property opening). Every such scope must read OK, and enough must be reached
+// for that to mean anything. CONTROL, RUN AND RECORDED: the term dropped from
+// the page's recalculation — EXIT 1, 192 of 192 line scopes read Review, each
+// short by exactly its retained catastrophe ($12,082,474 on the first Property
+// year). Restored: 192 reached, 0 Review, exit 0.
+const catMarginFailures: string[] = [];
+let catMarginScopes = 0;
 
 console.log('=== AUDIT PAGE FORMULA RECONCILIATION ===\n');
 
@@ -739,6 +750,13 @@ for (const { lines, name } of CONFIGS) {
         handAudit('Ratios', sup.ratioRows, ctx);
         auditRows('Capital and Reserve Confidence', sup.capitalRows, ctx);
         handAudit('Capital and Reserve Confidence', sup.capitalRows, ctx);
+        if (!isPoolView && (result.catCapitalNeeded ?? 0) > 0) {
+          catMarginScopes++;
+          const row = sup.capitalRows.find(r => r.metric === 'Reserve Risk Margin Check Difference');
+          if (!row || row.status === 'fail') {
+            catMarginFailures.push(`${arm.name}/${name}/${id} Y${y} ${String(scope)}: ${row ? row.value : 'no row'} with $${Math.round(result.catCapitalNeeded)} retained`);
+          }
+        }
 
         const revExp = buildRevExpRows(poolResult, scope, checks);
         const netPos = buildNetPositionRows(poolResult, scope, checks);
@@ -1186,6 +1204,10 @@ for (const c of coverageFailures) console.log(`\n⚠ COVERAGE FAILURE: ${c}`);
 // line that tells you to go and look, and at what.
 // ============================================================================
 const RULE = '='.repeat(72);
+console.log('\n--- 6. THE RESERVE RISK MARGIN CHECK WITH A RETAINED CATASTROPHE ---');
+console.log(`  ${catMarginScopes} line scopes retain a catastrophe; ${catMarginFailures.length} read Review`);
+for (const f of catMarginFailures.slice(0, 8)) console.log(`  FAIL  ${f}`);
+if (catMarginScopes < 20) coverageFailures.push(`section 6 reached only ${catMarginScopes} line scopes with a retained catastrophe`);
 const tally: [string, number][] = [
   ['DEFECTS (formula does not produce the stated value)', defects.length],
   ['HAND-CHECK FINDINGS (row does not reproduce from its printed operands)', handFindings.length],
@@ -1193,6 +1215,7 @@ const tally: [string, number][] = [
   ['EXPORT IDENTITY FAILURES', failures],
   ['COVERAGE FAILURES (a check never got to run)', coverageFailures.length],
   ['PAGE CHECK FAILURES (a reconciliation the page itself reads as unexpected)', pageCheckFailures.length],
+  ['RESERVE RISK MARGIN CHECK WITHOUT ITS RETAINED CATASTROPHE (section 6)', catMarginFailures.length],
 ];
 if (pageCheckFailures.length > 0) {
   console.log(`\n--- PAGE CHECK FAILURES — ${pageCheckFailures.length} ---`);
@@ -1220,4 +1243,4 @@ if (nonEmpty.length === 0) {
 process.exitCode =
   (coverageFailures.length === 0
     && defects.length === 0 && handFindings.length === 0 && proseFindings.length === 0 && failures === 0
-    && pageCheckFailures.length === 0) ? 0 : 1;
+    && pageCheckFailures.length === 0 && catMarginFailures.length === 0) ? 0 : 1;

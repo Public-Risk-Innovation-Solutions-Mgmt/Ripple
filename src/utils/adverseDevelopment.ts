@@ -12,7 +12,7 @@
 // ============================================================================
 
 import {
-  ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, ADVERSE_DEVELOPMENT_RANGE, DEVELOPMENT_LEVELS, type DevelopmentLevel,
+  ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, ADVERSE_DEVELOPMENT_RANGE, DEVELOPMENT_LEVELS, type DevelopmentLevel, type DevelopmentSetting,
 } from '../data/pricingParameters';
 import { deriveSubRng } from './random';
 import { seedFromInstanceId } from '../seedHash';
@@ -30,9 +30,14 @@ export function adverseDevelopmentRate(
   return lo + adverseDevelopmentUniform(gameSeed, line, valuationYear, accidentYear) * (hi - lo);
 }
 
-/** The level a game develops a line at: the setup's, or the default. */
-export const developmentLevelOf = (setup: Pick<GameSetupSettings, 'developmentLevels'>, line: CoverageLine): DevelopmentLevel =>
-  setup.developmentLevels?.[line] ?? ADVERSE_DEVELOPMENT_DEFAULT_LEVEL;
+/** The level a game develops a line at: the setup's, or the default — null where the setup says Off (single player). */
+export const developmentLevelOf = (setup: Pick<GameSetupSettings, 'developmentLevels'>, line: CoverageLine): DevelopmentLevel | null => {
+  const s = setup.developmentLevels?.[line] ?? ADVERSE_DEVELOPMENT_DEFAULT_LEVEL;
+  return s === 'Off' ? null : s;
+};
+
+/** Single player's setting with SOLO_ADVERSE_DEVELOPMENT off: every line Off. */
+export const NO_DEVELOPMENT: Record<CoverageLine, DevelopmentSetting> = { WC: 'Off', GL: 'Off', Property: 'Off' };
 
 /**
  * SINGLE PLAYER'S LEVELS, drawn once at the start from the seed string on

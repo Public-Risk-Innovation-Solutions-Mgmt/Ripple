@@ -11,7 +11,7 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
-## The shocks landing (save key v30) — owed checks CLEARED, save the render review
+## The shocks landing (save key v30) — owed checks CLEARED
 
 Landed on multiplayer for play-testing without the full checks; those were run
 on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
@@ -39,7 +39,12 @@ on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
    lands, re-derive its limits (6% per line, 1.5% pool) for the new design —
    one T claim per event-line above the attachment, developing with adverse
    development — and take it off the EXPECTED_RED list in `scripts/gates.ts`
-   then.**
+   then.** **DONE with the adverse-development landing:** the gate now grades
+   lifetime development cession against what the ceded claims' own cohort
+   development would cede (ratio <= 1.10 a line, <= 1.05 pooled). Measured
+   1.0000 on every line — with full-cost booking the only development left is
+   adverse development, allocated proportionally — against 2.4x-12x for the
+   concentration controls. It is off the EXPECTED_RED list and green.
 4. **Value and export baselines** recaptured as VALUE_IDENTITY_v84 and
    SOLO_EXPORT_GUARD_v92: the control (19b6f17) moves 21,101 of 39,600 values
    and all 24 exports, the landing's own movement; the owed-checks commits move
@@ -47,14 +52,16 @@ on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
 5. **`gate-timings.json`**: `shock-effects-check` entered at 60 from the sweep.
 6. **Every session driver** with the admin-token hook, the contract harness
    (local, http, DynamoDB, the built Lambda handler) and the race probes: green.
+7. **The render attribution review** (cleared by the simple underwriting
+   landing, recorded at RENDER_IDENTITY_v89 in render-identity-check.ts): the 89
+   moves v87 absorbed are the cover list alone (31), WC and GL year-2 expected
+   losses (10) and Property's figures (48). One was a defect: the Calculation
+   Audit's reserve risk margin check read Review by exactly the retained
+   catastrophe on Property; the audit now recalculates it, and
+   audit-formula-check section 6 fails when the term is left out.
 
 **Still owed:**
 
-- **The render attribution review**: RENDER_IDENTITY_v87 absorbed this
-  landing's 89 render moves against v86 (Calculation Audit 26, Decisions 18,
-  Rate Indication 10, Results 8, Financial Statements 8, Result Spreadsheet 7,
-  Annual Statement 4, Decision History 4, the header 2, Introduction 2) without
-  attributing them. The owed-checks commits move no value, so no screen.
 - **The shadow's cost** (`SHOCK_FREE_PRICING`): years after a shock run their
   worlds twice; measured only through the drivers' and the report's run times.
 - **Known approximations, stated not fixed**: expected losses grow T by trend
@@ -65,6 +72,29 @@ on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
 
 The figures this landing was read on are in `scripts/tools/shocks-report.ts`
 (sections 1-5 and `--growth`).
+
+---
+
+## The adverse-development landing (save key v32)
+
+Landed on multiplayer with the full checks: FAST 78/78, SLOW 4/4, the manifest,
+every session driver with the admin-token hook (test-player 31/31), the contract
+harness on every pass, and baselines VALUE_IDENTITY_v86, SOLO_EXPORT_GUARD_v94
+and RENDER_IDENTITY_v90 attributed against multiplayer ebc3b4a. Reserve
+inflation is off; hosted and Test player games choose Low / Mid / High adverse
+development per line; single player has none (`SOLO_ADVERSE_DEVELOPMENT`).
+
+**Still owed:**
+
+- **The race probe's "No room with code …" failure** (`npm run contract:races`,
+  `scripts/tools/session-race-probe.ts`, section J's `advance` on a room created
+  a moment before). It failed on the FIRST run after the session drivers and a
+  Docker restart, twice (the adverse-development merge rounds); 6 of 6 reruns
+  then passed, 3 at the landing's head and 3 at multiplayer ebc3b4a. Suspected:
+  the local DynamoDB container's clock or a room expiry read just after a
+  restart (`live()` in `src/session/server/rooms.ts` reads a missing header and
+  one past `expiresAtSec` alike) — not yet confirmed. Treated as a flake for
+  this landing by the project lead's ruling.
 
 ---
 

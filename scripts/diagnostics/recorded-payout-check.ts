@@ -228,8 +228,10 @@ for (let g = 0; g < GAMES; g++) {
           // The step k -> k + 1 is valuation year firstValuationYear + k + 1;
           // only a PLAYED year (>= 1) develops.
           const v = r.firstValuationYear + k + 1;
-          const lambda = ADVERSE_DEVELOPMENT.enabled && v >= 1
-            ? adverseDevelopmentRate(marketSeedOf(inst), line, developmentLevelOf(setup as never, line), v, r.yearNumber) : 0;
+          // A line set Off (single player) develops nothing: λ 0.
+          const level = developmentLevelOf(setup as never, line);
+          const lambda = ADVERSE_DEVELOPMENT.enabled && v >= 1 && level
+            ? adverseDevelopmentRate(marketSeedOf(inst), line, level, v, r.yearNumber) : 0;
           lamNum[line][age] += gross[k] * lambda;
           den[line][age] += gross[k];
           num[line][age] += gross[k + 1];

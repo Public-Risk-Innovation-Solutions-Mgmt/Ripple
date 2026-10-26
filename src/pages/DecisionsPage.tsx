@@ -23,7 +23,7 @@ import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import { REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import {
-  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_BUSINESS_REJECTION_SLIDER, RENEWALS_DECLINED_SLIDER, RISK_CONTROL,
+  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, RISK_CONTROL,
 } from '../data/pricingParameters';
 
 export interface LineLoanInfo {
@@ -220,29 +220,29 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
               members={lastLineResult?.memberList ?? []}
               history={memberLossHistory}
               yearNumber={yearNumber}
-              value={d.renewalsDeclined ?? 0}
-              onChange={v => set('renewalsDeclined', v)}
+              value={d.nonRenewal ?? 0}
+              onChange={v => set('nonRenewal', v)}
               disabled={disabled}
             />
           ) : (
             <>
-              {/* ONE BOOK PER LINE: the two sliders move the book's units. See
-                  bookUnderwriting.ts. */}
+              {/* ONE BOOK PER LINE: the two sliders move the book's exposure,
+                  and this year's loss per unit. See bookUnderwriting.ts. */}
               <UnderwritingSlider
                 label="Existing Book: Non-Renewal Assumption"
-                range={RENEWALS_DECLINED_SLIDER}
-                value={d.renewalsDeclined ?? RENEWALS_DECLINED_SLIDER.default}
-                onChange={v => set('renewalsDeclined', v)}
+                range={NON_RENEWAL_SLIDER}
+                value={d.nonRenewal ?? NON_RENEWAL_SLIDER.default}
+                onChange={v => set('nonRenewal', v)}
                 disabled={disabled}
                 result={underwriting && { testId: 'uw-non-renewed', text: 'Premium not renewed', dollars: underwriting.nonRenewedPremium }}
               />
               <UnderwritingSlider
-                label="New Business: Growth Assumption"
-                range={NEW_BUSINESS_REJECTION_SLIDER}
-                value={d.newBusinessRejection ?? NEW_BUSINESS_REJECTION_SLIDER.default}
-                onChange={v => set('newBusinessRejection', v)}
+                label="New Members: Growth Assumption"
+                range={NEW_MEMBERS_SLIDER}
+                value={d.newMembers ?? NEW_MEMBERS_SLIDER.default}
+                onChange={v => set('newMembers', v)}
                 disabled={disabled}
-                result={underwriting && { testId: 'uw-new-business', text: 'Premium from new business accepted', dollars: underwriting.newBusinessPremium }}
+                result={underwriting && { testId: 'uw-new-business', text: 'Premium from new members', dollars: underwriting.newBusinessPremium }}
               />
             </>
           )}
@@ -864,7 +864,7 @@ function PropertyNoSignalNote() {
 // ============================================================================
 // ⚠ PLAYERS SEE EACH SLIDER'S NAME AND VALUE ONLY — no help text, no end
 // labels, no forecast. The ranges, steps and defaults are the parameters
-// file's (RENEWALS_DECLINED_SLIDER, NEW_BUSINESS_REJECTION_SLIDER).
+// file's (NON_RENEWAL_SLIDER, NEW_MEMBERS_SLIDER).
 function UnderwritingSlider({ label, range, value, onChange, disabled, result }: {
   label: string;
   range: { min: number; max: number; step: number };

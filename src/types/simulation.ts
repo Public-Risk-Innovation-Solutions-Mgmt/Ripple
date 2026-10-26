@@ -402,11 +402,6 @@ export interface Claim {
   // they show the event's name (see utils/yearEvents.ts), which reads the same
   // for a scheduled event and a drawn one.
   shockId?: string;
-  // THE BOOK UNIT the claim landed on (book units commit 5) — its index in the
-  // line's market (bookUnits.ts). Internal: NEVER SHOWN on any screen, export
-  // or workbook, which read the line. Absent on the member path and on
-  // claims from before book units.
-  unit?: number;
   // The rating GROUP the claim arose from (WC: county / schools / highSafety /
   // lowSafety). Was a rating CLASS before the severity rebuild.
   ratingClass?: string;
@@ -617,11 +612,12 @@ export interface GameSetupSettings {
   priorDevelopment?: Partial<Record<CoverageLine, number>>;
   /**
    * ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development;
-   * ADVERSE_DEVELOPMENT). A room sets it from the host; single player draws it
-   * from the seed at the start and stores it here; Test player takes the
-   * chosen levels. A line absent reads ADVERSE_DEVELOPMENT_DEFAULT_LEVEL.
+   * ADVERSE_DEVELOPMENT). A room sets it from the host; Test player takes the
+   * chosen levels; single player stores every line 'Off' (SOLO_ADVERSE_DEVELOPMENT),
+   * which develops nothing — a room never carries 'Off'. A line absent reads
+   * ADVERSE_DEVELOPMENT_DEFAULT_LEVEL.
    */
-  developmentLevels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High'>>;
+  developmentLevels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>;
   /**
    * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
    * 'host' — the room's schedule. A solo game sets 'solo' — the schedule it drew
@@ -675,23 +671,24 @@ export interface LineDecisionSet {
   dividendPct: number;            // 0.00 to 0.15 of premium
   assessmentPct: number;          // 0.00 to 0.25 of premium
   /**
-   * "RENEWALS DECLINED": the share of this line's renewing exposure the pool
-   * declines this year, worst loss ratio first (bookUnderwriting.ts). 0–0.10
-   * in 0.01 steps, default 0 (RENEWALS_DECLINED_SLIDER). Absent reads as 0.
+   * "NON-RENEWAL": the share of this line's book at the start of the year the
+   * pool does not renew (bookUnderwriting.ts) — exposure falls by it, and this
+   * year's ordinary loss per unit falls by NON_RENEWAL_LOSS_RELIEF x it. 0–0.05
+   * in 0.01 steps, default 0 (NON_RENEWAL_SLIDER). Absent reads as 0.
    *
-   * ⚠ REPLACES renewalCut (0–5%, on a noisy view of true risk). The save key
-   * moved with it, so no save carries the old field.
+   * ⚠ REPLACES renewalsDeclined (0–10%, worst loss ratio first on units).
    */
-  renewalsDeclined?: number;
+  nonRenewal?: number;
   /**
-   * "NEW BUSINESS, REJECTION RATE": the share of this year's applicants turned
-   * away, at random. 0–0.15 in 0.01 steps, default 0
-   * (NEW_BUSINESS_REJECTION_SLIDER). Absent reads as 0. Buys down the
-   * first-year new-business penalty.
+   * "NEW MEMBERS": the share of the book at the start of the year added as new
+   * members — exposure rises by it, and that exposure's ordinary losses carry
+   * NEW_BUSINESS_PENALTY this year. 0–0.05 in 0.01 steps, default 0
+   * (NEW_MEMBERS_SLIDER). Absent reads as 0.
    *
-   * ⚠ REPLACES intakeLevel and the four intake positions, retired.
+   * ⚠ REPLACES newBusinessRejection: there is no rejection rate, and no
+   * applicants arrive unless the team adds them.
    */
-  newBusinessRejection?: number;
+  newMembers?: number;
   // ⚠ underwritingStrictness IS DELETED, NOT DEPRECATED. Above 6 it sorted
   // candidates by riskQuality descending and kept the top 60% — exact
   // selection on an attribute the player can no longer see. See
@@ -2417,39 +2414,9 @@ export interface PoolState {
   // membershipHistory, and discarding a save over an additive field would be a
   // worse trade.
   memberLossHistory?: MemberLossHistory;
-  /**
-   * THE BOOK OF UNITS EACH LINE HOLDS — indices into the line's market
-   * (bookUnits.ts), which is regenerated from the game seed and never stored.
-   * ONCE PER GAME: on the game's own pool state, never on a world's or in a
-   * year's record — every world holds the same book. Absent with MEMBER_LEVEL
-   * on, and on saves from before book units. Never shown.
-   */
-  bookUnits?: Partial<Record<CoverageLine, number[]>>;
-  /**
-   * WHAT UNDERWRITING KNOWS OF EACH LINE'S BOOK BEYOND ITS INDICES — the share
-   * held of a partly held unit, the year each unit joined, and each unit's loss
-   * history AVERAGED ACROSS THE WORLDS. Like bookUnits, ONCE PER GAME on the
-   * game's pool state, never on a world's. Never shown. See bookUnderwriting.ts.
-   */
-  bookLedger?: Partial<Record<CoverageLine, BookLedger>>;
-}
-
-/** One accident year of a unit's record: its losses for the history, and the premium it paid, $. */
-export interface UnitYearRecord {
-  year: number;
-  /** Ordinary (with the year's uplift and any penalty), routine large excess, shock claims capped. */
-  loss: number;
-  premium: number;
-}
-
-/** A line's underwriting ledger — keys are unit indices, as strings (JSON). */
-export interface BookLedger {
-  /** The share held of a unit held only in part; absent is wholly held. */
-  share: Record<string, number>;
-  /** The year a unit joined; absent is the opening book. */
-  joined: Record<string, number>;
-  /** The last LOSS_HISTORY_YEARS records of every held unit, oldest first. */
-  history: Record<string, UnitYearRecord[]>;
+  // ⚠ bookUnits and bookLedger — the book of units and its underwriting
+  // ledger — are RETIRED with simple underwriting. A save written before may
+  // still carry them; nothing reads them.
 }
 
 // Top-level game state

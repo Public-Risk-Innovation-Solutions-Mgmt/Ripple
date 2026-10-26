@@ -108,8 +108,8 @@ const lineDecisions = (): TeamLineDecisions => ({
   // would fail the read-back below.
   reinsuranceOption: 'working',
   // Not the defaults (0 and 0), so a transport that substituted one fails.
-  renewalsDeclined: 0.07,
-  newBusinessRejection: 0.12,
+  nonRenewal: 0.03,
+  newMembers: 0.04,
   riskControlPct: 0.03,
   dividendPct: 0.05,
   assessmentPct: 0,
@@ -706,8 +706,8 @@ async function main(): Promise<void> {
     eq(seen?.reinsuranceOption, 'working', 'and the reinsurance cover the team bought');
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
-    eq(seen?.renewalsDeclined, 0.07, 'and the share of renewals declined');
-    eq(seen?.newBusinessRejection, 0.12, 'and the new-business rejection rate');
+    eq(seen?.nonRenewal, 0.03, 'and the non-renewal share');
+    eq(seen?.newMembers, 0.04, 'and the new members share');
     ok(seen !== undefined && !('renewalCut' in seen) && !('intakeLevel' in seen),
        'and nothing of the retired renewal cut or intake position (uw-hybrid)');
     eq(seen?.dividendPct, 0.05, 'and the dividend');

@@ -1325,21 +1325,61 @@ const BASELINE = process.env.RENDER_BASELINE
 // enrolled-over-market-exposure formula, on all 13 of each at y0 and y2. A
 // hosted game would show the room share there, but both tabs are hidden in
 // multiplayer and the render harness plays single player.
-// v89: THE ADVERSE-DEVELOPMENT BRANCH (wip/adverse-development, not landed),
-// on multiplayer ee1ea6c. ⚠ THE CONTROL DID NOT REPRODUCE v88 IN THIS
-// CONTAINER, and it is the environment, as at this branch's first capture:
-// ee1ea6c against its own v88 moves 17 of 236, all Calculation Audit (11) and
-// Result Spreadsheet (6), this container's Chromium in the last places. So the
-// reference is the control's own capture here. Against it, word-diffed
-// (RENDER_TEXT_DIR both sides), 206 of 236 move, every one a values screen
-// (the 30 unmoved are the Introduction's documents and the unplayed views):
-// 133 in figures only; 73 with wording, every sentence following the figures
-// — the "adverse" label on prior-year development now $0 (nothing develops in
-// the pre-game), the Results narrative's adverse/loss sentences, the
-// Calculation Audit's numerator-identity line where the gap closes, and the
-// inter-line loan repayment control where a world now carries a loan. No fixed
-// wording moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v89.json');
+// v89: THE SIMPLE UNDERWRITING LANDING (see VALUE_IDENTITY_v85).
+// ⚠ CAPTURED ON CHROMIUM 1243, NOT 1194, AND THE CONTROL'S OWN CAPTURE IS THE
+// REFERENCE. This container ships chromium 1243. The control, multiplayer
+// ee1ea6c built and served in its own worktree, differs from v88 on 17 screens
+// it does not touch — Calculation Audit (Pool, WC and GL views, y2, and the tri
+// Pool at y0) and Result Spreadsheet (y0 and y2) on every configuration with WC
+// or GL — and identically so at bfe8eb1 against v87 and at 6d45f49 against
+// v86, run after run, while the value baseline (Node, no browser) reproduces
+// exactly. That is the browser, not the build. So the control was captured
+// here (236 of 236 the same on a second run) and the head compared with that
+// capture; a run on chromium 1194 would read those 17 as moved.
+// Against the control, 216 of 236 move; the 20 unmoved are How to Play and the
+// Investment Memorandum on every configuration. Word-diffed (RENDER_TEXT_DIR on
+// both sides), every one is attributed:
+//   figures, on every screen that shows one (216): exposure, premium and
+//     losses move as VALUE_IDENTITY_v85 sets out — the header's surplus and
+//     combined ratio, the statements, Results, the audit, the Rate Indication
+//     and Decisions panels, the Welcome Memorandum's year-1 premium, and the T
+//     covers' prices, which grow with the book;
+//   labels: Decisions' "New Members: Growth Assumption" and "Premium from new
+//     members" (16), Decision History's NON-RENEWAL and NEW MEMBERS columns
+//     (26), and the rewritten Underwriting Memorandum (10);
+//   the audit: the Reserve Risk Margin Check now reads OK where a catastrophe
+//     is retained — Review on 4 of the control's screens, on none of the head's.
+// AND THE SHOCKS LANDING'S 89, OWED SINCE v87, ATTRIBUTED HERE: 6d45f49 and
+// 2ae5c1a, each built and rendered in its own worktree on this chromium, differ
+// on exactly the 89 v87 absorbed (Calculation Audit 26, Decisions 18, Rate
+// Indication 10, Results 8, Financial Statements 8, Result Spreadsheet 7,
+// Annual Statement 4, Decision History 4, the header 2, Introduction 2):
+//   31, the cover list alone: the aggregate stop's options ("Low attachment",
+//     its description) replaced by the four T covers and their prices, grown
+//     by trend and book at y2;
+//   10, WC and GL at y2: expected losses up (WC 23.59M -> 24.34M, GL 22.93M ->
+//     24.17M) as the expected T claim grows with trend and the book;
+//   48, Property: the retained catastrophe in the required reserve margin with
+//     no cover (+$12,082,474 at the opening; excess capital 1929.9% -> 65.5%,
+//     Strong -> Adequate), the fold no longer net of the uplift, and the rate
+//     and surplus after them — and the audit's reserve risk margin check
+//     reading Review by exactly the retained catastrophe, which this landing
+//     fixes (above).
+// v90: THE ADVERSE-DEVELOPMENT LANDING, on multiplayer ebc3b4a. The control
+// ran first: ebc3b4a built in its own worktree reproduced v89 236 of 236 in
+// this container. Against it, word-diffed (RENDER_TEXT_DIR both sides), 206
+// of 236 move, every one a values screen; the 30 unmoved are the
+// Introduction's documents and the unplayed views. 125 move in figures only;
+// 81 with wording, every sentence following the figures. The harness plays
+// single player, which now develops nothing: reserve inflation is off and
+// unpriced (every rate moves), and the host's prior-development percentages
+// it played at their defaults are retired (SOLO_ADVERSE_DEVELOPMENT off). So
+// prior-year development is $0 and its "adverse" labels go, the Results
+// narrative drops "prior year reserves developed adversely", surplus is
+// higher (GL y2 $6.94M -> $11.62M) so no line takes an inter-line loan — the
+// loan rows, the repayment control and the audit's loan-transfer lines go —
+// and a dividend no longer reads "(blocked)". No fixed wording moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v90.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

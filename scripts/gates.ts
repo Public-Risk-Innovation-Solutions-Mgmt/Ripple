@@ -177,8 +177,9 @@ const FAST: string[] = [
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
                                      //         trend per line, booked up front; older years undeveloped for
                                      //         trend; six controls
-  'pregame-growth-check',            //   5s   the pre-game book grows 2% a year into exactly the opening book, new
-                                     //         business at market risk, 2021 writing none; four controls
+  'simple-underwriting-check',       //   5s   simple underwriting: the year's expected ordinary loss is the brief's
+                                     //         formula, one year only, 100 equal members, the pre-game's 2% at the
+                                     //         penalty; four controls
   'reserve-inflation-check',         //  10s   open years inflate by the line's trend on the start-of-year
                                      //         outstanding, booked as development, paid untouched; priced for
                                      //         the first 2 years; contingency per line; four controls. Replaced
@@ -208,29 +209,10 @@ const FAST: string[] = [
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls
-  'book-units-penalty-check',        //   3s   the new-business penalty: actual ordinary losses load the units written
-                                     //         that year, first year and new units only; expected carries none;
-                                     //         three controls
-  'book-units-large-loss-check',     //   3s   large losses on units: routine claims spread by size x risk, a regional
-                                     //         T only in its region, the routine count carries the book's risk, no
-                                     //         unit in the claims workbook; four controls
-  'book-units-underwriting-check',   //   6s   underwriting on units: selection random at visibility 0, perfect at 1,
-                                     //         improving between; renewal and intake shares; withdrawal blind to
-                                     //         risk; one book in every world; four controls
-  'book-units-ordinary-check',       //   7s   ordinary losses from units: each unit and the line at their closed-form
-                                     //         mean and CV, expected = exposure x book risk x cost, every world on
-                                     //         one book; three controls
   'baseline-cv-table-check',         //   4s   one BASELINE_CV per line, read by both: the funding table in force is the
                                      //         one filed under it and its stops are that CV's closed form, the engine's
                                      //         year factor is the draw at it bit for bit, and the slider and required
                                      //         capital read that table; two controls
-  'book-units-market-check',         //   3s   each line's market of units and the opening book: sizes to the full
-                                     //         market, size and risk CVs, risk centred at 1.0, regions by share,
-                                     //         the 30% book, determinism, kept once per game; six controls
-  // ⚠ THREE GATES FORKED BACK FROM DORMANT onto the new engine (book mode).
-  // Their member-path originals stay dormant as *-member-check; these cover
-  // what the new engine uses — pooled fields and the reinsurance tower — each
-  // with controls, and each confirmed red against a real break in the engine.
   'pool-aggregation-check',          //   2s   every pooled field classified, the additive classes add, no
                                      //         members on a book, cededByLayer cells line up, solo = its line
   'reinsurance-tower-check',         //   4s   cession arithmetic, the tower's shape and price on a book, the
@@ -862,7 +844,6 @@ const PROBES: Record<string, string> = {
   'pregame-years-report': 'the pre-game and what follows, by line: every scenario\'s solved margin (range, and those below zero), the pre-game rates 2021-2025 and year 1 with their year-on-year swing, the Annual Statement\'s columns at game start, and played ten years at the defaults — investment income y1-5, surplus at 5 and 10, cumulative combined ratio on scenarios 1, 10, 20. No threshold [20 min]',
   'paid-in-capital-solve-report': 'per line, the paid-in capital (STARTING_CAPITAL) at which the mean over the twenty scenarios of the 2026 rate change from 2025 equals the line\'s severity trend, found by bisection; at it, the change\'s range and the solved pre-game margin\'s range with those below zero. No threshold [2 min]',
   'opening-position-report': 'each line\'s opening at the start of year 1 over the twenty scenarios — net and LAE reserve, required capital, surplus, the solved pre-game margin, year-1 premium and the oldest open accident year; mean and range. A reading to compare one commit against another, no threshold [30s]',
-  'uw-applications-dial-report': 'uw-hybrid: scenario 18 Property, five years at Expected, four underwriting arms — exposure, loss ratio, combined ratio and surplus at year 5; run once per NEW_BUSINESS_APPLICATIONS with --set. A design reading with no threshold [60s]',
   'investment-dominance-report': 'underwriting against investment income, per line, with the implied return. A design reading with no threshold — see its header [12s]',
   'ibner-clf-basis-report': 'reports the IBNER/CLF basis pairing; no threshold. Renamed from -check [17s]',
   'ibner-pregame-report': 'pre-game IBNER state report [64s]',
@@ -1280,38 +1261,13 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
   //                                    new rate replaces; the experience path
   //                                    no longer lags the trend.
   //
-  // ONE REMAINS, and its open item is now the LOSS ENGINE rather than the rate.
+  // ONE REMAINED, and its open item was the LOSS ENGINE rather than the rate:
   // ==========================================================================
-  'cession-uplift-basis': {
-    code: 2,
-    why: 'RESTATED AT THE SHOCKS LANDING\'S OWED CHECKS: until then every arm bought None, ceded '
-      + 'nothing, read 0/0 and passed while printing NaN — vacuous. Every arm now buys $38M xs $2M '
-      + 'and reads WC 23.8%, GL 24.8%, Property 1.8%, pool 10.0%. With ROUTINE_LARGE_LOSSES off a '
-      + 'shock\'s one T claim is the only claim a layer reaches, and it sits wholly above the $2M '
-      + 'attachment, so every dollar it develops by is ceded — the denominator is that claim\'s '
-      + 'inception cession alone. MEASURED, NOT A ROUTING DEFECT: over 12 twenty-year games the T '
-      + 'claims develop with their cohorts (GL +31% against the untracked book\'s +38%, Property '
-      + '+2.5% against +2.6%) under the per-claim revision law; nothing concentrates the cohort\'s '
-      + 'development onto them. The deferral below stands. '
-      + 'THE UPLIFT LIMITS WERE CALIBRATED ON A BOOK THAT DID NOT DEVELOP, AND THE HOST\'S '
-      + 'DEVELOPMENT % NOW MAKES THEM WRONG — but I am NOT raising them, and the reason is the '
-      + 'number itself. GL reads 10.1% against a 6.0% line limit and the pool 3.7% against 1.5%. '
-      + 'AT LOSS ENGINE COMMIT 3a GL reads 16.7% and the pool 1.1% (now inside its limit): the inception '
-      + 'cession under the new engine is the large losses alone, so the same development is measured '
-      + 'against a much smaller denominator. Same failure, same deferral. '
-      + 'Those limits were set "above the measured value and below the defect": 4.1% measured on WC '
-      + 'against 9.9% under the retired asymmetric routing. GL\'s 10.1% is PAST the figure that used '
-      + 'to signal the defect, so raising the bar to admit it would put the limit above the only '
-      + 'reading anyone has that says what a defect looks like. ⚠ THE RISE IS EXPECTED AND IS THE '
-      + 'COMMISSIONED BEHAVIOUR: adverse development lands on each occurrence and the tower answers '
-      + 'it under that accident year\'s own cover, so "adverse development makes reinsurance worth '
-      + 'more" is the brief\'s own sentence and the uplift is that sentence measured. What is NOT '
-      + 'yet known is how much of 10.1% is that intended effect and how much is option value the '
-      + 'routing is still handing over for free, because this gate\'s denominator is the inception '
-      + 'cession and development was zero when it was chosen. DEFERRED: re-derive the basis against '
-      + 'a developing book — the measurement is a day\'s work and guessing a new limit is five '
-      + 'minutes, which is the whole argument for deferring rather than tuning.',
-  },
+  // ⚠ cession-uplift-basis LEFT THIS LIST WITH ADVERSE DEVELOPMENT
+  // (wip/adverse-development), as ruled: its limits were re-derived for the
+  // design — lifetime development cession graded against what the ceded
+  // claims' own cohort development would cede (ratio <= 1.10 a line, 1.05
+  // pooled; measured 1.0000 everywhere), so it is green and runs as any gate.
   // ==========================================================================
   // ⚠ THE FIVE BELOW ARE ONE DEFECT, NOT FIVE, AND IT IS A RETIRED PREMISE.
   //

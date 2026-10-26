@@ -1,11 +1,100 @@
 // ============================================================================
 // THE DEVELOPMENT-CESSION UPLIFT — A GATE, AND THE SINGLE-ARM ASSERTION.
 //
-// ⚠ THIS EXITS NON-ZERO. It began as the test of whether the uplift a
-// developed-register price would need is decision-dependent (it is not; the
-// apparent dependence was the give-back on the wrong side of the decomposition),
-// and it now also carries the SINGLE-ARM DOLLAR ASSERTION that development
-// cession is not a free lunch.
+// Exit 0 green, 1 on ANY failure (a limit, a NOT MEASURED line, the basis
+// check, or a control). There is no exit 2 and no EXPECTED_RED entry: the
+// re-derivation below is what that entry deferred, and it is done.
+//
+// It began as the test of whether the uplift a developed-register price would
+// need is decision-dependent (it is not; the apparent dependence was the
+// give-back on the wrong side of the decomposition), and it carries the
+// SINGLE-ARM DOLLAR ASSERTION that development cession is not a free lunch.
+//
+// ============================================================================
+// ⚠ RE-DERIVED FOR A DEVELOPING BOOK (wip/adverse-development). THE GATE NO
+// LONGER GRADES THE UPLIFT; IT GRADES DEVELOPMENT CESSION AGAINST A BENCHMARK.
+//
+// WHY THE OLD LIMITS COULD NOT STAND. They bounded UPLIFT = lifetime
+// development cession / inception cession at 6% per line and 1.5% pooled, set
+// "above the measured value (4.1% WC) and below the defect (9.9% under the
+// retired asymmetric routing)" on a book whose development was mean-one noise.
+// The book now DEVELOPS: ADVERSE_DEVELOPMENT grows every open prior year's
+// outstanding by its λ, booked on the reserve-inflation route, allocated
+// PROPORTIONALLY across the register and ceded under the year's own cover.
+// Every arm buys '$38M xs $2M', and with ROUTINE_LARGE_LOSSES off the only
+// claims a layer reaches are the shocks' T claims ($1M-$40M, usually wholly
+// inside the layer), so nearly every dollar a T claim develops by is ceded.
+// The uplift then measures HOW MUCH THE BOOK DEVELOPED, not whether cession is
+// routed fairly: 30 games x 20 years, matured cohorts, defaults —
+//
+//     uplift   WC 60.6%   GL 22.7%   Property 5.8%   pool 14.6%
+//
+// all of it the cover answering real development (the whole register grows
+// 1.517x / 1.331x / 1.088x over those cohorts' lives). No absolute uplift
+// limit separates that from a defect: a book that develops more cedes more.
+//
+// THE BASIS. For each cohort, the cession its ceded claims' development WOULD
+// produce if each developed at its own cohort's rate:
+//
+//     F          = whole-register gross at the last valuation seen
+//                  / whole-register gross at inception
+//                  (sum of developingClaims.current + untrackedTotal, against
+//                   sum of .original + untrackedTotal as written — it agrees
+//                   with grossPaid + grossUnpaid to the cent)
+//     BENCHMARK  = sum over the INCEPTION tracked claims of
+//                  cede(original x F) - cede(original)
+//                  through placedAtInception, each claim's own deductible —
+//                  cedeDevelopment's arithmetic exactly (cedeAbove per layer)
+//     ACTUAL     = lifetime development cession = final cededDevelopmentToDate
+//                  less the opening give-back (the increments; the benchmark
+//                  starts from `original`, the booked value, so the give-back is
+//                  not on its side. It is zero in every arm today.)
+//     RATIO      = sum ACTUAL / sum BENCHMARK, per line and pooled, over
+//                  matured cohorts in the default arm.
+//
+// The tracked claims at inception ARE the ceded set: the gate first checks that
+// cede(original) summed over them reproduces the year's cededByLayer (BASIS
+// CHECK, exit 1 if it does not — the benchmark would be on the wrong claims).
+//
+// MEASURED (30 games x 20 years, defaults, runlogs/cub-*.log):
+//
+//     ratio    WC 1.0000   GL 1.0000   Property 1.0000   pool 1.0000
+//     per-game spread: min = max = 1.0000 on every line (WC 2 games carry
+//     matured ceded cohorts, GL 13, Property 13); largest per-cohort
+//     |actual - benchmark| $0.00; game-jackknife 95% interval [1.0000, 1.0000].
+//
+// It is an IDENTITY on the shipped design, not a statistic, and that is the
+// finding: FULL_COST_BOOKING gates off the stochastic step, the unwind, the
+// per-claim revision law (reviseDevelopingSet) and the settlement true-up
+// (processIbner's gates 1-3), so the only development left is adverse
+// development, and the proportional allocation moves every occurrence by the
+// cohort's own factor. The T claims develop EXACTLY with their cohorts
+// (tracked factor = whole factor to four places on every line).
+//
+// THE LIMIT: ratio <= 1.10 per line, <= 1.05 pooled. Above the measured 1.0000
+// with room for the legitimate sources of a gap that are switched off or
+// unexercised today (a mean-one per-claim revision if FULL_COST_BOOKING is ever
+// lifted, promoted bench claims crossing the attachment, the GL pool-limit trim
+// — which only pushes the ratio DOWN); far below the defect. One-sided: a
+// ratio below 1 is development the reinsurer did NOT pay for, which is not the
+// free lunch this gate exists to forbid.
+//
+// CONTROLS (section 6), each fed the figures it guards against:
+//   DEVELOPING ROUTING — the defect class: the cohort's whole development
+//     landed on its tracked claims (each tracked claim takes ΔW x its share of
+//     the tracked originals). Reads WC 2.55x, GL 12.19x, Property 4.16x, pool
+//     6.99x — every line and the pool CAUGHT.
+//   TILT — the T claims develop 1.25x as fast as their cohort: reads WC 1.25x,
+//     GL 1.23x (a few claims saturate at the layer top), Property 1.25x, pool
+//     1.24x — CAUGHT on every line and the pool (asserted on the pool).
+//   RETIRED ASYMMETRIC ROUTING — 9.9% against 4.1%, i.e. 2.41x the benchmark:
+//     CAUGHT on every line and the pool.
+//   NONE — no cover placed: benchmark 0/0 on every line, caught as NOT
+//     MEASURED (exit 1), never passed vacuously.
+//   NOTHING CEDED — development that cedes nothing reads ratio 0 and PASSES.
+// Clean run: exit 0, ~15s at GAMES=30 YEARS=20 (the uplift gate it replaces
+// ran ~15s here and exited 2).
+// ============================================================================
 //
 // ⚠ WHY THE ASSERTION IS HERE AND NOT IN development-sign-symmetry. That script
 // measures recovery per dollar of movement over a fixed WINDOW, and a window is
@@ -19,7 +108,8 @@
 // expected cession by Jensen — that is the option value of an excess-of-loss
 // treaty on a claim that is still moving, and it is real. What the gate forbids
 // is the ROUTING asymmetry that manufactured recovery on top of it: WC read
-// +9.9% before symmetric routing and +4.1% after, against a limit of 6%.
+// +9.9% before symmetric routing and +4.1% after, against the then limit of
+// 6% (retired; the gate now grades against a benchmark — see the top).
 //
 // READ-ONLY on the engine. Nothing here changes it.
 //
@@ -76,10 +166,10 @@
 // reach. At defaults nothing ceded, every ratio was 0/0, and the gate printed
 // NaN% and passed — vacuous. So every arm now BUYS '$38M xs $2M' on every line
 // and the games' catalogue shocks supply the T claims; and the gate FAILS
-// LOUDLY (exit 1, not the expected 2) on a line with no inception cession or a
-// non-finite uplift. CONTROLS (section 6): the None figures (0/0) are caught as
-// not measured; a book whose development cedes nothing passes, one whose
-// development cedes 10% of inception is caught by the limits.
+// LOUDLY (exit 1) on a line with nothing to measure. (The controls of that
+// commit — None as NOT MEASURED, nothing-ceded passes, 10%-of-inception caught
+// — are carried onto the benchmark basis in section 6; the last is replaced by
+// the routing controls the header lists.)
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -87,8 +177,10 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
-import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simulation';
+import type { CoverageLine, DecisionSet, GameState, ReserveCohort } from '../../src/types/simulation';
 import { AGGREGATE_STOP } from '../../src/data/pricingParameters';
+import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
+import { cedeAbove } from '../../src/utils/reinsuranceTower';
 
 // ⚠ THIS MEASURES THE PER-OCCURRENCE TOWER'S DEVELOPMENT CESSION, dormant behind
 // AGGREGATE_STOP from stable-scenarios commit 6 (with the stop on, nothing is
@@ -96,12 +188,18 @@ import { AGGREGATE_STOP } from '../../src/data/pricingParameters';
 // stop is off as shipped and the tower carries the T covers; held off here.
 AGGREGATE_STOP.enabled = false;
 
-// GATE THRESHOLDS, set above the measured value and below the defect.
-//   pool-wide, defaults:  0.3% now, 2.8% under the retired asymmetric routing.
-//   worst line, defaults: 4.1% (WC) now, 9.9% then. WC is where the tower is
-//   most convex, so it carries most of the irreducible option value.
-const MAX_POOL_UPLIFT = 0.015;
-const MAX_LINE_UPLIFT = 0.06;
+// GATE THRESHOLDS on ACTUAL / BENCHMARK development cession — see the header.
+// Measured 1.0000 on every line and pooled, zero spread across games; the
+// defect class reads 2.5x-12x and the retired asymmetric routing 2.4x.
+// (The retired absolute limits were 6% per line and 1.5% pooled on the uplift.)
+const MAX_LINE_RATIO = 1.10;
+const MAX_POOL_RATIO = 1.05;
+// The basis check: inception cession recomputed from the tracked originals must
+// reproduce the engine's cededByLayer to this relative tolerance.
+const BASIS_TOLERANCE = 1e-6;
+// The defect-class multipliers the controls apply.
+const TILT = 1.25;
+const RETIRED_ASYMMETRY = 0.099 / 0.041;
 
 const GAMES = Number(process.env.GAMES ?? 30);
 const YEARS = Number(process.env.YEARS ?? 20);
@@ -155,8 +253,19 @@ interface Cohort {
   finalCededDev: number;       // giveBack + lifetime development increments
   registerSum: number;
   horizon: number; lastAge: number; matured: boolean;
+  // --- THE BENCHMARK'S INPUTS (section 6) ---
+  tracked: { original: number; deductible: number }[];  // the INCEPTION tracked set
+  placed: boolean[];           // placedAtInception
+  wholeAtInception: number;    // sum(original) + untrackedTotal as written
+  wholeNow: number;            // sum(current) + untrackedTotal at the last valuation seen
 }
 const cohorts: Cohort[] = [];
+
+// THE COHORT'S WHOLE GROSS REGISTER: every tracked occurrence at its current
+// value plus the untracked mass. Its ratio over the cohort's life is the
+// cohort's own development factor F.
+const wholeGross = (c: ReserveCohort) =>
+  (c.developingClaims ?? []).reduce((s, d) => s + d.current, 0) + (c.untrackedTotal ?? 0);
 
 // Book size, so the enrolment confound is visible.
 const book: Record<string, { members: number; gross: number; n: number }> = {};
@@ -194,6 +303,10 @@ for (const arm of ARMS) {
             finalCededDev: born.cededDevelopmentToDate ?? 0,
             registerSum: born.registerSum,
             horizon: born.horizon, lastAge: born.age, matured: false,
+            tracked: (born.developingClaims ?? []).map(d => ({ original: d.original, deductible: d.deductible ?? 0 })),
+            placed: born.placedAtInception ?? [],
+            wholeAtInception: wholeGross(born),
+            wholeNow: wholeGross(born),
           });
         }
 
@@ -211,6 +324,7 @@ for (const arm of ARMS) {
           rec.finalCededDev = c.cededDevelopmentToDate ?? 0;
           rec.lastAge = c.age;
           rec.matured = c.age >= c.horizon;
+          rec.wholeNow = wholeGross(c);
         }
       }
 
@@ -381,99 +495,168 @@ for (const line of LINES) {
 
 
 // ============================================================================
-// 6. THE GATE.
+// 6. THE GATE: ACTUAL DEVELOPMENT CESSION AGAINST THE PROPORTIONAL BENCHMARK.
 // ============================================================================
-// The verdict is fenced so no neighbouring paragraph can be read as covering it.
+// See the header for the derivation. The verdict is fenced so no neighbouring
+// paragraph can be read as covering it.
 const RULE = '='.repeat(72);
-console.log('\n--- 6. GATE: LIFETIME DEVELOPMENT CESSION AGAINST INCEPTION CESSION, AT DEFAULTS ---');
-/** The gate on a cohort set: the named failures, and the readings. */
-function gateOf(all: Cohort[], print: boolean): string[] {
-  // ⚠ NAMED, NOT COUNTED — see WORKING_PRACTICES. "N GATE FAILURE(S)" told the
-  // reader a number and left them to find which line it was.
+console.log('\n--- 6. GATE: DEVELOPMENT CESSION AGAINST WHAT THE CEDED CLAIMS\' OWN DEVELOPMENT WOULD CEDE, AT DEFAULTS ---');
+
+/** What the year's own placement cedes on one occurrence at value v —
+ *  cedeDevelopment's arithmetic: cedeAbove per placed, purchasable layer. */
+function cedeOf(line: CoverageLine, v: number, placed: boolean[], deductible: number): number {
+  return REINSURANCE_TOWER[line as TowerLine].reduce(
+    (s, l, i) => s + (placed[i] && l.purchasable ? cedeAbove(Math.max(0, v), l, deductible) : 0), 0);
+}
+/** A ROUTING: each inception tracked claim's developed value. */
+type Routing = (c: Cohort) => number[];
+const factorOf = (c: Cohort) => (c.wholeAtInception > 0 ? c.wholeNow / c.wholeAtInception : 1);
+// THE BENCHMARK'S ROUTING: every ceded claim develops at its cohort's own rate.
+const proportional: Routing = c => c.tracked.map(t => t.original * factorOf(c));
+// THE DEFECT CLASS: the cohort's whole development lands on its tracked claims,
+// shared by their originals — 'developing' routing with every tracked claim a carrier.
+const concentrated: Routing = c => {
+  const t0 = c.tracked.reduce((s, t) => s + t.original, 0);
+  const dW = c.wholeNow - c.wholeAtInception;
+  return c.tracked.map(t => t.original + (t0 > 0 ? (dW * t.original) / t0 : 0));
+};
+// A MILDER ONE: the tracked claims develop TILT times as fast as their cohort.
+const tilted: Routing = c => c.tracked.map(t => t.original * (1 + TILT * (factorOf(c) - 1)));
+
+const inceptionOf = (c: Cohort) => c.tracked.reduce((s, t) => s + cedeOf(c.line, t.original, c.placed, t.deductible), 0);
+function benchmarkOf(c: Cohort, routing: Routing = proportional): number {
+  const dev = routing(c);
+  return c.tracked.reduce((s, t, i) =>
+    s + cedeOf(c.line, dev[i], c.placed, t.deductible) - cedeOf(c.line, t.original, c.placed, t.deductible), 0);
+}
+// ACTUAL: lifetime development increments (the give-back is not on the
+// benchmark's side; it is zero in every arm today).
+const actualOf = (c: Cohort) => c.finalCededDev - c.giveBack;
+
+interface Graded { line: CoverageLine; game: number; actual: number; bench: number }
+const graded = (cs: Cohort[], actual: (c: Cohort) => number = actualOf, bench: (c: Cohort) => number = benchmarkOf): Graded[] =>
+  cs.map(c => ({ line: c.line, game: c.game, actual: actual(c), bench: bench(c) }));
+
+/** Ratio of sums, its per-game spread and a game-jackknife 95% interval. */
+function readRatio(rows: Graded[]) {
+  const A = sum(rows, r => r.actual), B = sum(rows, r => r.bench);
+  const ratio = A / B;
+  const games = new Map<number, { a: number; b: number }>();
+  for (const r of rows) {
+    const g = games.get(r.game) ?? { a: 0, b: 0 };
+    g.a += r.actual; g.b += r.bench; games.set(r.game, g);
+  }
+  const gs = [...games.values()].filter(g => g.b > 0);
+  const per = gs.map(g => g.a / g.b);
+  let lo = NaN, hi = NaN;
+  if (gs.length >= 2) {
+    const loo = gs.map(g => (A - g.a) / (B - g.b)).filter(Number.isFinite);
+    const mean = loo.reduce((s, v) => s + v, 0) / loo.length;
+    const se = Math.sqrt(((loo.length - 1) / loo.length) * loo.reduce((s, v) => s + (v - mean) ** 2, 0));
+    lo = ratio - 1.96 * se; hi = ratio + 1.96 * se;
+  }
+  return { A, B, ratio, n: gs.length, min: Math.min(...per), max: Math.max(...per), lo, hi };
+}
+const r4 = (v: number) => (Number.isFinite(v) ? v.toFixed(4) : 'n/a');
+
+/** The gate on a graded set: the named failures, and the readings. */
+function gateOf(rows: Graded[], print: boolean): { failed: string[]; ratios: Record<string, number> } {
+  // ⚠ NAMED, NOT COUNTED — see WORKING_PRACTICES.
   const failed: string[] = [];
-  const cs = all.filter(c => c.matured && c.arm === 'def');
-  // ⚠ NOT MEASURED IS A FAILURE, AND NOT AN EXPECTED ONE (shocks landing): a
-  // line with no inception cession reads 0/0, and NaN > limit is false — the
-  // way this gate passed while measuring nothing. Named so the exit is 1.
-  const measure = (name: string, t: Cohort[], limit: number) => {
-    const inc = sum(t, c => c.inceptionCeded);
-    const u = sum(t, c => c.finalCededDev) / inc;
-    const unmeasured = !(inc > 0) || !Number.isFinite(u);
-    const bad = !unmeasured && Math.abs(u) > limit;
-    if (unmeasured) failed.push(`NOT MEASURED: ${name} has no inception cession over ${t.length} matured cohort(s) (uplift ${p1(u)})`);
-    if (bad) failed.push(`${name} uplift ${p1(u)} exceeds the ${name === 'POOL' ? 'pool' : 'line'} limit ${p1(limit)}`);
+  const ratios: Record<string, number> = {};
+  // ⚠ NOT MEASURED IS A FAILURE: a line whose ceded claims would cede nothing
+  // on their own development reads 0/0, and NaN > limit is false — the way this
+  // gate once passed while measuring nothing.
+  const measure = (name: string, t: Graded[], limit: number) => {
+    const r = readRatio(t);
+    ratios[name] = r.ratio;
+    const unmeasured = !(r.B > 0) || !Number.isFinite(r.ratio);
+    const bad = !unmeasured && r.ratio > limit;
+    if (unmeasured) failed.push(`NOT MEASURED: ${name} has no benchmark development cession over ${t.length} matured cohort(s) (ratio ${r4(r.ratio)})`);
+    if (bad) failed.push(`${name} development cession is ${r4(r.ratio)}x what its ceded claims' own development cedes (limit ${limit.toFixed(2)}x)`);
     if (print) {
-      console.log(`  ${name.padEnd(9)} uplift ${p1(u).padStart(7)}   `
-        + `${unmeasured ? 'FAIL — NOT MEASURED' : bad ? `FAIL (limit ${p1(limit)})` : 'ok'}`);
+      console.log(`  ${name.padEnd(9)} actual ${m(r.A).padStart(9)}  benchmark ${m(r.B).padStart(9)}  ratio ${r4(r.ratio)}  `
+        + `95% CI [${r4(r.lo)}, ${r4(r.hi)}]  per-game ${r4(r.min)}-${r4(r.max)} (n=${r.n})   `
+        + `${unmeasured ? 'FAIL — NOT MEASURED' : bad ? `FAIL (limit ${limit.toFixed(2)})` : `ok (limit ${limit.toFixed(2)})`}`);
     }
   };
-  for (const line of LINES) measure(line, cs.filter(c => c.line === line), MAX_LINE_UPLIFT);
-  measure('POOL', cs, MAX_POOL_UPLIFT);
-  return failed;
+  for (const line of LINES) measure(line, rows.filter(r => r.line === line), MAX_LINE_RATIO);
+  measure('POOL', rows, MAX_POOL_RATIO);
+  return { failed, ratios };
 }
-{
-  const failed = gateOf(cohorts, true);
-  const fails = failed.length;
 
-  // CONTROLS — fed the figures each guards against; not counted in the exit.
+{
+  const def = cohorts.filter(c => c.arm === 'def');
+  const mat = def.filter(c => c.matured);
+  const failed: string[] = [];
+
+  // --- THE BASIS CHECK: the tracked set at inception IS the ceded set. -------
+  console.log('  BASIS CHECK — cede(tracked originals) against the year\'s cededByLayer, every default-arm cohort');
+  for (const line of LINES) {
+    const cs = def.filter(c => c.line === line);
+    const eng = sum(cs, c => c.inceptionCeded), re = sum(cs, c => inceptionOf(c));
+    const worst = Math.max(0, ...cs.map(c => Math.abs(inceptionOf(c) - c.inceptionCeded)));
+    const ok = Math.abs(re - eng) <= BASIS_TOLERANCE * Math.max(1, eng) && worst <= BASIS_TOLERANCE * Math.max(1, eng);
+    console.log(`    ${line.padEnd(9)} engine ${m(eng).padStart(9)}  recomputed ${m(re).padStart(9)}  worst cohort |diff| ${m(worst)}  ${ok ? 'ok' : 'FAIL'}`);
+    if (!ok) failed.push(`BASIS: ${line} inception cession recomputed from the tracked claims (${m(re)}) does not reproduce the engine's ${m(eng)}`);
+  }
+
+  // --- WHAT THE BENCHMARK STANDS ON: the cohorts' own factors. -------------
+  console.log('\n  THE COHORTS\' OWN DEVELOPMENT, matured default-arm cohorts');
+  for (const line of LINES) {
+    const cs = mat.filter(c => c.line === line);
+    const W0 = sum(cs, c => c.wholeAtInception), W = sum(cs, c => c.wholeNow);
+    const inc = sum(cs, c => c.inceptionCeded), act = sum(cs, c => actualOf(c));
+    console.log(`    ${line.padEnd(9)} whole register ${(W / W0).toFixed(3)}x   uplift (the retired measure) ${p1(act / inc)}`);
+  }
+  {
+    const inc = sum(mat, c => c.inceptionCeded), act = sum(mat, c => actualOf(c));
+    console.log(`    ${'POOL'.padEnd(9)} uplift ${p1(act / inc)}`);
+  }
+
+  console.log('\n  THE GATE — ratio = sum actual / sum benchmark, matured default-arm cohorts');
+  const main = gateOf(graded(mat), true);
+  failed.push(...main.failed);
+  {
+    const worst = Math.max(0, ...mat.map(c => Math.abs(actualOf(c) - benchmarkOf(c))));
+    console.log(`  largest per-cohort |actual - benchmark| $${worst.toFixed(2)}`);
+  }
+
+  // CONTROLS — each fed the figures it guards against; a control that does not
+  // react is a failure (exit 1).
   console.log('\n  CONTROLS');
   const controlFailed: string[] = [];
   const control = (label: string, ok: boolean, detail: string) => {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'}  control: ${label}  — ${detail}`);
     if (!ok) controlFailed.push(`control: ${label}`);
   };
-  const noneArm = gateOf(cohorts.map(c => ({ ...c, inceptionCeded: 0, finalCededDev: 0, giveBack: 0 })), false);
-  control('the None figures (0/0, what the defaults ceded) are caught as NOT MEASURED',
-    noneArm.length === LINES.length + 1 && noneArm.every(f => f.startsWith('NOT MEASURED')), `${noneArm.length} not measured`);
-  const flat = gateOf(cohorts.map(c => ({ ...c, finalCededDev: 0, giveBack: 0 })), false);
-  control('a book whose development cedes nothing passes the limits', flat.length === 0, `${flat.length} failure(s)`);
-  const ahead = gateOf(cohorts.map(c => ({ ...c, finalCededDev: 0.1 * c.inceptionCeded, giveBack: 0 })), false);
-  control('a book whose development cedes 10% of inception is caught by the limits',
-    ahead.length > 0 && ahead.every(f => !f.startsWith('NOT MEASURED')), `${ahead.length} failure(s)`);
-  console.log(fails === 0
-    ? '\nDEVELOPMENT CESSION IS NOT A FREE LUNCH. Over complete cohort lives at defaults, where the'
-      + '\nbooking bias is zero and the gross walk has no drift, the reinsurer pays a small positive'
-      + '\namount that is the convexity of its own treaty and nothing more.'
-    : `\n${RULE}\n${fails} GATE FAILURE(S) — development cession is running ahead of the losses`
-      + `\nit is paid on:\n  ${failed.join('\n  ')}\n${RULE}`);
+  const show = (r: Record<string, number>) => Object.entries(r).map(([k, v]) => `${k} ${r4(v)}`).join('  ');
+  const isLimit = (f: string) => !f.startsWith('NOT MEASURED');
 
-  // ==========================================================================
-  // ⚠ THE DENOMINATOR IS THE WRONG QUANTITY NOW, AND THE NUMERATOR IS FINE.
-  //
-  // This divides lifetime development cession by INCEPTION cession. Under a
-  // mean-one law that was scale-free and meaningful: development was noise about
-  // the register, so anything the reinsurer paid on it was option value, and 6%
-  // bounded it. Forward booking books at the CONTRACTED register, so inception
-  // cession is computed on a deliberately small number and the whole climb back
-  // to the register — 2.33x / 3.38x / 1.31x — arrives as development. The ratio
-  // reads 374% / 408% / 57% and 242% pooled, and none of it is a free lunch: it
-  // is the same treaty applied to the loss the cohort always had, just recognised
-  // later. PAIRED CONTROL: flag off, same ten-year book, 0.0% / 1.1%, passes.
-  //
-  // THE SUCCESSOR, NAMED SO IT IS NOT REDISCOVERED: normalise by the cession the
-  // tower would pay on the MATURED register — cede(full register) minus
-  // cede(contracted register) — so the denominator is the cession the development
-  // is honestly earning rather than the cession of the marked-down opening. That
-  // ratio is ~1 under symmetric routing and the existing 6% reads directly onto
-  // it as option value on top. It needs the tower re-run over each cohort's
-  // matured register, which this file does not currently carry, and that is a
-  // measurement commit rather than a re-pointing.
-  //
-  // ⚠ EXIT 2 UNTIL THEN, NEVER 1. The four uplift limits are the only assertions
-  // in this file, so a generic exit would make the whole file unwatchable behind
-  // one expectation. Anything that is NOT one of those four — a harness throw, a
-  // cohort set that fails to mature, a line appearing that should not — still
-  // exits 1. The classifier is the four names, nothing wider.
-  const KNOWN = new Set(['WC', 'GL', 'Property', 'POOL']);
-  const unexpectedList = [...failed.filter(f => !KNOWN.has(f.split(' ')[0])), ...controlFailed];
-  const unexpected = unexpectedList.length;
-  if (unexpected > 0) console.log(`\n${RULE}\nUNEXPECTED — exit 1:\n  ${unexpectedList.join('\n  ')}\n${RULE}`);
-  if (fails > 0 && unexpected === 0) {
-    // Shocks landing: the reading is now the T covers' (one T claim per
-    // event-line, the host's development landing on it); the limits are the
-    // ones scripts/gates.ts's EXPECTED_RED entry defers re-deriving.
-    console.log('\nEXPECTED RED — the failures are only the uplift limits, calibrated on a book that did');
-    console.log('not develop (scripts/gates.ts EXPECTED_RED). Exit 2, so any OTHER failure here exits 1.');
-  }
-  process.exit(unexpected > 0 ? 1 : fails === 0 ? 0 : 2);
+  const conc = gateOf(graded(mat, c => benchmarkOf(c, concentrated)), false);
+  control('DEVELOPING ROUTING (the cohort\'s whole development on its tracked claims) is caught on every line and the pool',
+    conc.failed.length === LINES.length + 1 && conc.failed.every(isLimit), show(conc.ratios));
+
+  const tilt = gateOf(graded(mat, c => benchmarkOf(c, tilted)), false);
+  control(`TILT (tracked claims develop ${TILT}x as fast as their cohort) is caught on the pool`,
+    tilt.failed.some(f => f.startsWith('POOL')) && tilt.failed.every(isLimit), show(tilt.ratios));
+
+  const retired = gateOf(graded(mat, c => RETIRED_ASYMMETRY * benchmarkOf(c)), false);
+  control(`the RETIRED ASYMMETRIC ROUTING's ${RETIRED_ASYMMETRY.toFixed(2)}x is caught on every line and the pool`,
+    retired.failed.length === LINES.length + 1 && retired.failed.every(isLimit), show(retired.ratios));
+
+  const none = gateOf(graded(mat.map(c => ({ ...c, placed: c.placed.map(() => false), finalCededDev: 0, giveBack: 0, inceptionCeded: 0 }))), false);
+  control('the None figures (no cover placed, 0/0) are caught as NOT MEASURED',
+    none.failed.length === LINES.length + 1 && none.failed.every(f => f.startsWith('NOT MEASURED')), `${none.failed.length} not measured`);
+
+  const flat = gateOf(graded(mat, () => 0), false);
+  control('a book whose development cedes nothing passes', flat.failed.length === 0, `${flat.failed.length} failure(s); ${show(flat.ratios)}`);
+
+  const all = [...failed, ...controlFailed];
+  console.log(all.length === 0
+    ? '\nDEVELOPMENT CESSION IS NOT A FREE LUNCH. Over complete cohort lives at defaults, the reinsurer'
+      + '\npays on development exactly what the ceded claims\' own development at their cohort\'s rate'
+      + '\ncedes — nothing routed onto them beyond it.'
+    : `\n${RULE}\n${all.length} FAILURE(S) — exit 1:\n  ${all.join('\n  ')}\n${RULE}`);
+  process.exit(all.length > 0 ? 1 : 0);
 }

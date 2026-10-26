@@ -9,28 +9,28 @@
 // adding an arm to one file alone would grade a table on a population it was
 // not fitted on.
 //
-//   open        0% declined, 0% rejected    — every applicant joins: grows
-//   reject 15   0% declined, 15% rejected   — grows more slowly
-//   renew 5     5% declined, 0% rejected    — about level
-//   both        10% declined, 15% rejected  — both strictest: shrinks
+//   open        0% non-renewed, 5% new members  — grows 5% a year
+//   steady      0% non-renewed, 0% new members  — level (the defaults)
+//   renew 5     5% non-renewed, 0% new members  — shrinks 5% a year
+//   both        5% non-renewed, 5% new members  — about level, churning
 //
-// On the member path the rejection rate admits a random (1 − rate) share of
-// that year's applicants (membershipEngine); renewals decline the worst
-// members on their own loss run.
+// Since simple underwriting (the sliders move exposure; see bookUnderwriting.ts).
+// The member path reads nonRenewal as its renewal cut and admits every
+// applicant.
 // ============================================================================
 
 import type { CoverageLine, DecisionSet } from '../../src/types/simulation';
 
-export interface UwArm { name: string; renewalsDeclined: number; newBusinessRejection: number }
+export interface UwArm { name: string; nonRenewal: number; newMembers: number }
 
 export const UW_ARMS: readonly UwArm[] = [
-  { name: 'open', renewalsDeclined: 0, newBusinessRejection: 0 },
-  { name: 'reject 15', renewalsDeclined: 0, newBusinessRejection: 0.15 },
-  { name: 'renew 5', renewalsDeclined: 0.05, newBusinessRejection: 0 },
-  { name: 'both', renewalsDeclined: 0.10, newBusinessRejection: 0.15 },
+  { name: 'open', nonRenewal: 0, newMembers: 0.05 },
+  { name: 'steady', nonRenewal: 0, newMembers: 0 },
+  { name: 'renew 5', nonRenewal: 0.05, newMembers: 0 },
+  { name: 'both', nonRenewal: 0.05, newMembers: 0.05 },
 ];
 
-/** Arm indices, in UW_ARMS order. */
+/** Arm indices, in UW_ARMS order. ARM_REJECT keeps its name from uw-hybrid: it is the steady arm now. */
 export const ARM_OPEN = 0, ARM_REJECT = 1, ARM_RENEW = 2, ARM_BOTH = 3;
 
 export const armLabel = (arm: number): string => UW_ARMS[arm].name;
@@ -38,7 +38,7 @@ export const armLabel = (arm: number): string => UW_ARMS[arm].name;
 /** Set every given line's two sliders to the arm's. */
 export function applyArm(d: DecisionSet, lines: readonly CoverageLine[], arm: number): void {
   for (const l of lines) {
-    d.byLine[l].renewalsDeclined = UW_ARMS[arm].renewalsDeclined;
-    d.byLine[l].newBusinessRejection = UW_ARMS[arm].newBusinessRejection;
+    d.byLine[l].nonRenewal = UW_ARMS[arm].nonRenewal;
+    d.byLine[l].newMembers = UW_ARMS[arm].newMembers;
   }
 }

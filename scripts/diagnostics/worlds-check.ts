@@ -57,7 +57,7 @@ import {
   averageLedger, commitSettledYear, deriveLineRatios, LINE_RATIO_FIELDS, openWorlds, playWorldsYear,
   pricingLineState, settleWorldsYear, strikeRates, worldInstance, worldCount,
 } from '../../src/utils/worlds';
-import { lineBookRisk, marketSeedOf } from '../../src/utils/bookUnits';
+import { marketSeedOf } from '../../src/utils/bookUnits';
 import { SHOCK_FREE_PRICING, WORLD_COUNT } from '../../src/data/pricingParameters';
 import { firingsStartingIn } from '../../src/utils/shockLosses';
 import { exposureFactor } from '../../src/data/exposureTrend';
@@ -92,6 +92,11 @@ function decisionsFor(y: number): DecisionSet {
   d.byLine.GL.reinsuranceOption = '$18M xs $2M';
   d.byLine.GL.fundingAtExpected = false;
   d.byLine.GL.fundingConfidenceLevel = 0.75;
+  // ⚠ A BOOK THAT MOVES (simple underwriting): the defaults now add no new
+  // members, so the book before and after a year's movement would be one
+  // book and the moved-book controls below could not fire. 5% new members a
+  // year on every line is the growth the old default wrote by itself.
+  for (const l of Object.keys(d.byLine) as (keyof typeof d.byLine)[]) d.byLine[l].newMembers = 0.05;
   return d;
 }
 
@@ -319,7 +324,7 @@ function section2() {
       const book = start.worlds!.reduce((s, w) => s + (w.poolState.lines[l].bookExposure ?? 0), 0) / start.worlds!.length;
       const mine = strikeBookRate(l, { ...start.poolState.lines[l], reserveDevelopment: ledger, bookExposure: book },
         decisionsFor(y).byLine[l], y, { allMarketMembers: [], membershipHistory: {} },
-        lineBookRisk(start.instance, l, start.poolState.bookUnits, start.poolState.bookLedger));
+        1);
       const problems = mine ? billedFrom(mine.quote, mine.quote.reinsuranceCost, movedExposure(y, l), W[0].lockedResults[y - 1].byLine[l]) : ['no rate struck'];
       if (problems.length) { struckOk = false; struckBad.push(`Y${y} ${l}: ${problems.join(', ')}`); }
     }
@@ -337,10 +342,10 @@ function section2() {
     // struck here on the moved book's exposure and risk, as the engine does.
     const moved = { ...one.poolState.lines[l], bookExposure: p1.updatedPoolState.lines[l].bookExposure };
     const s = strikeBookRate(l, moved, decisionsFor(1).byLine[l], 1, { allMarketMembers: [], membershipHistory: {} },
-      lineBookRisk(one.instance, l, p1.updatedPoolState.bookUnits, p1.updatedPoolState.bookLedger));
+      1);
     // ⚠ THE COVER IS QUOTED ON THE BOOK BEFORE MOVEMENT (the shocks landing).
     const pre = strikeBookRate(l, one.poolState.lines[l], decisionsFor(1).byLine[l], 1, { allMarketMembers: [], membershipHistory: {} },
-      lineBookRisk(one.instance, l, one.poolState.bookUnits, one.poolState.bookLedger));
+      1);
     tried++;
     const problems = s && pre ? oneWorldBill(s.quote, pre.quote.reinsuranceCost, s.exposure, r) : ['no rate struck'];
     if (problems.length === 0) ok++;
@@ -359,7 +364,7 @@ function section2() {
       const d = decisionsFor(y).byLine[l];
       const exposure = (ls.bookExposure ?? 0) * exposureFactor(l, y);
       const c = computeFundingConsequence(d.fundingConfidenceLevel, ls.ratePer100, l, d.fundingAtExpected, {
-        yearNumber: y, members: { exposure, risk: lineBookRisk(start.instance, l, start.poolState.bookUnits, start.poolState.bookLedger) ?? 1, ...panelBase(ls) }, exposure,
+        yearNumber: y, members: { exposure, risk: 1, ...panelBase(ls) }, exposure,
         layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
         pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
         lossTrend: start.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
@@ -512,7 +517,7 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const ls = A.starts[2].poolState.lines.GL;
   const exposure = (ls.bookExposure ?? 0) * exposureFactor('GL', 3);
   const wrong = computeFundingConsequence(0.75, ls.ratePer100, 'GL', false, {
-    yearNumber: 3, members: { exposure, risk: lineBookRisk(gs.instance, 'GL', A.starts[2].poolState.bookUnits, A.starts[2].poolState.bookLedger) ?? 1 }, exposure,
+    yearNumber: 3, members: { exposure, risk: 1 }, exposure,
     layersPlaced: placementFor('GL', 'none'), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: 'none',
     pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
     lossTrend: gs.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
