@@ -857,7 +857,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // opening, the credit off at 5%, the admin overrun, and the per-line profit
 // and contingency, priced years and capital each move all 24; the probes,
 // panel-driver, audit-row, inflation-routing and gate commits move none.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v91.json');
+// v92: THE ADVERSE-DEVELOPMENT LANDING, and the shocks landing's owed
+// recapture (see VALUE_IDENTITY_v84). 6d45f49 reproduces v91 24 of 24; the
+// shocks landing 2ae5c1a moves all 24; bfe8eb1 matches 2ae5c1a 24 of 24 — the
+// control. Against it all 24 move; with reserve inflation restored and
+// adverse development off, all 24 are byte-identical to the control again.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v92.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

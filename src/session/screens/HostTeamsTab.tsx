@@ -132,6 +132,11 @@ export default function HostTeamsTab({ room }: Props) {
           <p className="text-sm font-medium text-slate-700">
             {effectiveView === 'pool' ? 'Pool' : LINE_FULL_NAME[effectiveView]}
           </p>
+          <p data-testid="teams-shares-year" className="text-xs text-slate-400">
+            {room.marketShares === undefined ? 'Market share: none yet'
+              : room.marketShares.year === 0 ? 'Market share: the opening books'
+              : `Market share: ${room.startingYear + room.marketShares.year - 1}`}
+          </p>
           <p data-testid="teams-year" className="text-xs text-slate-400">
             {reportingYear < 0
               ? 'No results known yet'
@@ -143,6 +148,7 @@ export default function HostTeamsTab({ room }: Props) {
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
               <th className="px-5 py-2 font-medium">Team</th>
+              <th className="px-5 py-2 font-medium" title="Share of the room: exposure on a line, premium on the pool">Market share</th>
               <th className="px-5 py-2 font-medium">Surplus (avg)</th>
               <th className="px-5 py-2 font-medium">Min</th>
               <th className="px-5 py-2 font-medium">Loss ratio</th>
@@ -159,6 +165,20 @@ export default function HostTeamsTab({ room }: Props) {
                   <td className="px-5 py-2.5">
                     <span className="text-slate-700">{t.name}</span>
                     <span className="ml-2 font-mono text-xs text-slate-400">{t.lines.join('+')}</span>
+                  </td>
+                  {/* THE ROOM'S SET FOR THE LATEST KNOWN YEAR — the row's own year
+                      (shownShares). Worked out once a year, when the last team
+                      that locked in has posted; while a locked team has not, the
+                      newest complete year before it. On a line, the team's
+                      exposure over the room's on the line; on the pool, its
+                      premium over the room's. */}
+                  <td data-testid={`share-${t.name}`} className="px-5 py-2.5 font-mono text-sky-700">
+                    {(() => {
+                      const share = room.marketShares?.byTeam[t.name];
+                      const v = share === undefined ? undefined
+                        : effectiveView === 'pool' ? share.pool : share.byLine[effectiveView];
+                      return v === undefined ? <span className="text-slate-300">—</span> : formatPct(v);
+                    })()}
                   </td>
 
                   {state.kind === 'absent' && (

@@ -33,6 +33,15 @@ was checked with: typecheck and lint at baseline (21 pre-existing problems),
    (`baselines/`). None was recaptured, so each is expected to differ: solo
    games now draw shocks, the reinsurance options and prices changed, and the
    pure premium is struck from the shock-free shadow once a shock fires.
+   ⚠ **The render baseline was recaptured (v87) by the room-market-share
+   landing**, because that change moved 121 screens of its own and 60 of them
+   are among this landing's. v87 therefore absorbs this landing's 89 render
+   moves against v86 (Calculation Audit 26, Decisions 18, Rate Indication 10,
+   Results 8, Financial Statements 8, Result Spreadsheet 7, Annual Statement 4,
+   Decision History 4, the header 2, Introduction 2) **without attributing
+   them** — that review is still owed here. The value and export baselines were
+   not recaptured; the room-market-share landing is byte-identical to this
+   landing's actual output on both.
 3. **`gate-timings.json`**: `shock-effects-check` is entered by hand at 10s;
    with section 7 (two eight-year games plus the shadow) it measures longer and
    should be re-recorded, and checked against `TIER_THRESHOLD_SECONDS`.

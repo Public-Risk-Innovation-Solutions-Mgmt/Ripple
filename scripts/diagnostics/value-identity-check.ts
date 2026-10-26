@@ -1378,7 +1378,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   paying inflation by the pattern whatever FORWARD_BOOKING says (the
 //   shipped game has the flag on) or the gate restatements. Exposure moves in
 //   none of them.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v83.json');
+// v84: THE ADVERSE-DEVELOPMENT LANDING, and with it the shocks landing's owed
+// recapture. ⚠ THE CONTROL DID NOT REPRODUCE v83, AND THAT IS ATTRIBUTED:
+// 6d45f49 (before the shocks landing) reproduces v83 exactly; 2ae5c1a (the
+// shocks landing, which landed with its recapture owed) moves 21,101 of 39,600
+// across 94 fields — reinsurance (the aggregate stop's cost to $0 with the T
+// covers defaulting to None), expected losses and everything after; and
+// multiplayer bfe8eb1 (room market share) is byte-identical to 2ae5c1a. So the
+// control is 2ae5c1a's capture. This change against it: 20,137 values across
+// 74 fields move, all 300 instances. With BOTH of its switches turned back —
+// reserve inflation restored at the severity trend, adverse development off —
+// it reproduces the control exactly, so those two are the only movers:
+//   reserve inflation off (unbooked and unpriced), alone: 20,155 across 74 —
+//     every rate (the priced inflation gone), reserves, development, IBNR;
+//   adverse development (Mid on every line, the harness's default level; none
+//     in the pre-game, so the host's lifetime percentages leave the openings),
+//     alone: 17,288 across 74.
+// No field added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v84.json');
 
 function seedOf(id: string) {
   let h = 5381;

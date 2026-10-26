@@ -1301,7 +1301,40 @@ const BASELINE = process.env.RENDER_BASELINE
 //     table and both downloads;
 //   Result Spreadsheet, y2 (5): the 2021-2026 columns before the played years.
 // Nothing else moves.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v86.json');
+// v87: THE ROOM MARKET SHARE LANDING. ⚠ THE CONTROL DID NOT REPRODUCE v86:
+// 2ae5c1a (multiplayer's head, the shocks landing, which landed with every
+// baseline recapture owed — docs/PENDING_MULTIPLAYER.md, OWED item 2), built
+// and served in its own worktree, moved 89 of 236 against v86 by itself
+// (Calculation Audit 26, Decisions 18, Rate Indication 10, Results 8,
+// Financial Statements 8, Result Spreadsheet 7, Annual Statement 4, Decision
+// History 4, the header 2, Introduction 2). THOSE 89 ARE THE SHOCKS LANDING'S
+// AND ARE NOT ATTRIBUTED HERE; v87 absorbs them because no recapture could
+// keep them out (60 of them also carry this change's move).
+// This change against that control, word-diffed (RENDER_TEXT_DIR on both
+// sides): 121 move, and in every one the only change is the header's Market
+// Share chip, removed — single player has no room to share (the share of the
+// whole market of potential members it showed was not a share of anything
+// played for). Every key that showed the chip: each single-line game's line
+// view and view-less screens, at y0 and y2, and every line view of the
+// multi-line games. The pool views had no chip before. Nothing else moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v88.json');
+// v88: THE ADVERSE-DEVELOPMENT LANDING. ⚠ THE CONTROL DID NOT REPRODUCE v87
+// IN THIS CONTAINER, AND IT IS THE ENVIRONMENT, NOT THE CODE: multiplayer
+// bfe8eb1 differs from v87's commit (67369d4) only in a session driver, yet
+// moved 17 of 236 — deterministically, the same hashes on two runs — all on
+// Calculation Audit (12) and Result Spreadsheet (5), the two screens that print
+// figures to many places; nothing else. Read as this container's Chromium
+// (chromium-1243) computing the engine's floating point differently in the
+// last places. So the reference is the control's OWN capture here, not v87.
+// This change against that capture, word-diffed (RENDER_TEXT_DIR both sides):
+// 204 of 236 move (+2 header keys counted by the run), every one a values
+// screen; the 32 unmoved are the Introduction's documents. 156 move in
+// figures only; the 48 with wording move by sentences that follow the
+// figures — the Calculation Audit's line for a factor of exactly 1.000 (no
+// priced inflation), the "adverse" label on prior-year development now $0
+// (nothing develops in the pre-game), the Results narrative's adverse/loss
+// sentences, and the inter-line loan repayment control where a world now
+// carries a loan. No fixed wording moved.
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

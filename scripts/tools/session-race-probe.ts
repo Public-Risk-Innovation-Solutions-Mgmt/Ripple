@@ -252,7 +252,17 @@ try {
     const after = await t.read({ code, token: hostToken });
     const held = after.room.teams.filter(x => x.resultsByYear?.['0'] !== undefined).length;
     check(posts.every(x => x.ok), `F: 20 simultaneous result posts all succeed (${posts.filter(x => !x.ok).length} refused)`);
-    check(after.room.rev === before + 20, `F: rev counts them exactly (${after.room.rev - before} of 20)`);
+    // ⚠ EACH OPENING POST MAY ALSO WRITE THE ROOM'S YEAR-0 MARKET SHARES (room
+    // market share), and that write bumps rev too — a poller must see it, and an
+    // HTTP client is answered 304 on an unchanged rev. So rev counts the twenty
+    // posts plus between one and twenty share writes, never fewer and never more;
+    // and the opening set left standing covers all twenty teams — a slow post's
+    // smaller set never replaces a fuller one.
+    const shareWrites = after.room.rev - before - 20;
+    check(shareWrites >= 1 && shareWrites <= 20,
+      `F: rev counts the 20 posts plus 1 to 20 share writes (${after.room.rev - before} = 20 + ${shareWrites})`);
+    check(after.room.marketShares?.year === 0 && Object.keys(after.room.marketShares.byTeam).length === 20,
+      `F: the opening market shares cover all 20 teams (${Object.keys(after.room.marketShares?.byTeam ?? {}).length})`);
     check(held === 20, `F: the host sees all 20 (${held})`);
     results.push(`info DynamoDB Local raised ${conflicts - conflictsBefore} TransactionConflict(s) during F`
       + (conflicts - conflictsBefore === 0 ? ' — the conflict-retry path was NOT exercised' : ' — the retry path ran'));
