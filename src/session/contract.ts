@@ -261,6 +261,25 @@ export interface TeamYearFigures {
    */
   selectedFundingConfidenceLevel?: number;
   netUltimateLoss: number;
+  /**
+   * ⚠ THE HOST'S TEAMS TABLE, AND EACH IS THE TEAM'S OWN FIGURE — read off its
+   * Annual Statement as it stood at this year, so the host prints exactly what
+   * the team sees. OPTIONAL: a row posted before these existed has none, and the
+   * host renders a dash. The handler stores the summary whole, so no handler
+   * change; across a deploy gap either side reads what it knows.
+   *
+   *   combinedRatio      cumulative since the game began — the statement's
+   *                      first row's Total, the team's top-bar figure (over the
+   *                      pre-game years before year 1 is played)
+   *   premiumToSurplus   the balance sheet's Premium to Surplus for this year
+   *   ratePer100         a LINE's rate charged this year, per $100 of exposure;
+   *                      absent on the pool, whose lines have different units
+   *   rateChange         that rate against the year before's, as a fraction
+   */
+  combinedRatio?: number;
+  premiumToSurplus?: number;
+  ratePer100?: number;
+  rateChange?: number;
 }
 
 /**

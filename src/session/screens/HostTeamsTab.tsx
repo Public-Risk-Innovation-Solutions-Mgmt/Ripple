@@ -1,9 +1,13 @@
 // ============================================================================
 // THE TEAMS TAB — one row per team, scanned for outliers.
 //
-// ⚠ A SUMMARY, NOT THE TEAM'S PAGES. Five figures and a name. The host is
-// looking for who is in trouble, not diagnosing why; the per-team drill-down is
-// a later tab and deliberately not this one.
+// ⚠ A SUMMARY, NOT THE TEAM'S PAGES. The host is looking for who is in
+// trouble, not diagnosing why. Per line and for the pool: Team · Market share ·
+// Combined ratio (cumulative since the game began) · Surplus · Premium to
+// surplus · Rate (per $100, with the year's change) · Funding · Ripple Score (a
+// placeholder, "—" until it exists). The combined ratio, premium to surplus and
+// rate are the team's own Annual Statement figures, posted with its results
+// (TeamYearFigures); a row posted before they existed shows dashes.
 //
 // ⚠ THE LINE VIEW IS WHAT MAKES THE TABLE COMPARABLE AT ALL. Teams pick their
 // own lines, so a pooled surplus blends a WC-only book with a three-line book
@@ -37,9 +41,9 @@ import { latestKnownRoomYear } from '../../utils/knownYears';
 import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
-import { colorForRatio, colorForSurplus, formatCurrency, formatMillions, formatPct } from '../../utils/formatters';
+import { colorForRatio, colorForSurplus, formatCurrency, formatPct } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
-import type { RoomView, TeamYearFigures, TeamView } from '../index';
+import type { RoomView, TeamYearDecisions, TeamYearFigures, TeamYearSummary, TeamView } from '../index';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -53,7 +57,7 @@ const LINE_VIEW_ICONS: Record<LineView, React.ReactNode> = {
 type RowState =
   | { kind: 'absent' }
   | { kind: 'pending' }
-  | { kind: 'reported'; figures: TeamYearFigures; minSurplus?: number };
+  | { kind: 'reported'; figures: TeamYearFigures; pool?: TeamYearSummary['byLine']; decisions?: TeamYearDecisions };
 
 /**
  * ⚠ THE WHOLE POINT OF THIS FUNCTION IS THE ORDER OF ITS CHECKS. Absence is
@@ -81,11 +85,36 @@ function rowState(team: TeamView, view: LineView, reportingYear: number): RowSta
   // A team that writes the line but whose posted summary has no slice for it is
   // pending rather than absent — the summary predates the line, not the team.
   if (!figures) return { kind: 'pending' };
-  // THE WORST WORLD (loss engine commit 4b): the figures are the average across
-  // the team's worlds, and the pool's minimum ending surplus sits beside it. Pool
-  // scope only — the spread is posted for the pool.
-  const minSurplus = view === 'pool' ? posted.surplusRange?.min : undefined;
-  return { kind: 'reported', figures, ...(minSurplus !== undefined ? { minSurplus } : {}) };
+  // The pool's rate cell lists each line's, so the pool row carries the lines' figures.
+  return { kind: 'reported', figures, pool: view === 'pool' ? posted.byLine : undefined, decisions: posted.decisions };
+}
+
+/**
+ * FUNDING, OFF THE TEAM'S OWN CHOICE: "Expected" when it funds at Expected,
+ * otherwise its level. ⚠ NOT selectedFundingConfidenceLevel, WHICH IS WHY A
+ * DEFAULT TEAM READ "60%": funding at Expected leaves the slider's stop where it
+ * was — 60% by default — and that stored stop is what the figures carry. The
+ * posted decisions say which is in force. On the pool, one answer only when
+ * every line gives the same one; a dash when they differ, and before year 1
+ * (the opening was the prior board's, not the team's).
+ */
+function fundingOf(decisions: TeamYearDecisions | undefined, view: LineView, lines: CoverageLine[]): string {
+  const one = (l: CoverageLine) => {
+    const d = decisions?.[l];
+    if (!d) return undefined;
+    return d.atExpected ? 'Expected' : formatPct(d.confidenceLevel, 0);
+  };
+  if (view !== 'pool') return one(view) ?? '—';
+  const each = lines.map(one);
+  return each.length > 0 && each.every(x => x !== undefined && x === each[0]) ? each[0]! : '—';
+}
+
+/** "$3.20 (+2.1%)": a line's rate per $100 and its change on the year before. */
+function rateText(f: TeamYearFigures | undefined): string | undefined {
+  if (f?.ratePer100 === undefined) return undefined;
+  const change = f.rateChange === undefined ? ''
+    : ` (${f.rateChange >= 0 ? '+' : '−'}${Math.abs(f.rateChange * 100).toFixed(1)}%)`;
+  return `$${f.ratePer100.toFixed(2)}${change}`;
 }
 
 interface Props {
@@ -132,15 +161,8 @@ export default function HostTeamsTab({ room }: Props) {
           <p className="text-sm font-medium text-slate-700">
             {effectiveView === 'pool' ? 'Pool' : LINE_FULL_NAME[effectiveView]}
           </p>
-          <p data-testid="teams-shares-year" className="text-xs text-slate-400">
-            {room.marketShares === undefined ? 'Market share: none yet'
-              : room.marketShares.year === 0 ? 'Market share: the opening books'
-              : `Market share: ${room.startingYear + room.marketShares.year - 1}`}
-          </p>
           <p data-testid="teams-year" className="text-xs text-slate-400">
-            {reportingYear < 0
-              ? 'No results known yet'
-              : `${room.startingYear + reportingYear - 1} — the latest known year`}
+            {reportingYear < 0 ? 'No results known yet' : `Results for ${room.startingYear + reportingYear - 1}`}
           </p>
         </div>
 
@@ -149,12 +171,12 @@ export default function HostTeamsTab({ room }: Props) {
             <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
               <th className="px-5 py-2 font-medium">Team</th>
               <th className="px-5 py-2 font-medium" title="Share of the room: exposure on a line, premium on the pool">Market share</th>
-              <th className="px-5 py-2 font-medium">Surplus (avg)</th>
-              <th className="px-5 py-2 font-medium">Min</th>
-              <th className="px-5 py-2 font-medium">Loss ratio</th>
-              <th className="px-5 py-2 font-medium">Premium</th>
-              <th className="px-5 py-2 font-medium">Exposure</th>
+              <th className="px-5 py-2 font-medium" title="Cumulative since the game began">Combined ratio</th>
+              <th className="px-5 py-2 font-medium">Surplus</th>
+              <th className="px-5 py-2 font-medium">Premium to surplus</th>
+              <th className="px-5 py-2 font-medium" title="Per $100 of exposure, with this year's change">Rate</th>
               <th className="px-5 py-2 font-medium">Funding</th>
+              <th className="px-5 py-2 font-medium">Ripple Score</th>
             </tr>
           </thead>
           <tbody data-testid="teams-table">
@@ -162,10 +184,10 @@ export default function HostTeamsTab({ room }: Props) {
               const state = rowState(t, effectiveView, reportingYear);
               return (
                 <tr key={t.name} className="border-t border-slate-50">
-                  <td className="px-5 py-2.5">
-                    <span className="text-slate-700">{t.name}</span>
-                    <span className="ml-2 font-mono text-xs text-slate-400">{t.lines.join('+')}</span>
-                  </td>
+                  {/* ⚠ THE NAME ALONE. The team's lines used to follow it in a second
+                      span with no space between them in the text, so a team named
+                      "T" read "TWC+GL+Property"; the line view shows the lines. */}
+                  <td data-testid={`name-${t.name}`} className="px-5 py-2.5 text-slate-700">{t.name}</td>
                   {/* THE ROOM'S SET FOR THE LATEST KNOWN YEAR — the row's own year
                       (shownShares). Worked out once a year, when the last team
                       that locked in has posted; while a locked team has not, the
@@ -177,7 +199,12 @@ export default function HostTeamsTab({ room }: Props) {
                       const share = room.marketShares?.byTeam[t.name];
                       const v = share === undefined ? undefined
                         : effectiveView === 'pool' ? share.pool : share.byLine[effectiveView];
-                      return v === undefined ? <span className="text-slate-300">—</span> : formatPct(v);
+                      if (v === undefined) return <span className="text-slate-300">—</span>;
+                      // The heading names the results' year; a share worked out for an
+                      // earlier one (a locked team not yet posted) says which.
+                      const sy = room.marketShares!.year;
+                      return sy === reportingYear ? formatPct(v)
+                        : <>{formatPct(v)} <span className="text-[10px] text-slate-400">({room.startingYear + sy - 1})</span></>;
                     })()}
                   </td>
 
@@ -197,31 +224,31 @@ export default function HostTeamsTab({ room }: Props) {
 
                   {state.kind === 'reported' && (
                     <>
+                      <td data-testid={`cr-${t.name}`}
+                        className={`px-5 py-2.5 font-mono ${state.figures.combinedRatio !== undefined ? colorForRatio(state.figures.combinedRatio) : 'text-slate-300'}`}>
+                        {state.figures.combinedRatio !== undefined ? formatPct(state.figures.combinedRatio) : '—'}
+                      </td>
                       <td data-testid={`surplus-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForSurplus(state.figures.endingSurplus)}`}>
                         {formatCurrency(state.figures.endingSurplus, true)}
                       </td>
-                      <td data-testid={`minsurplus-${t.name}`}
-                        className={`px-5 py-2.5 font-mono ${state.minSurplus !== undefined ? colorForSurplus(state.minSurplus) : 'text-slate-300'}`}>
-                        {state.minSurplus !== undefined ? formatCurrency(state.minSurplus, true) : '—'}
+                      <td data-testid={`pts-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
+                        {state.figures.premiumToSurplus !== undefined ? state.figures.premiumToSurplus.toFixed(2) : <span className="text-slate-300">—</span>}
                       </td>
-                      <td data-testid={`ratio-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForRatio(state.figures.actualLossRatioPricingBasis)}`}>
-                        {formatPct(state.figures.actualLossRatioPricingBasis)}
+                      <td data-testid={`rate-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
+                        {effectiveView !== 'pool'
+                          ? (rateText(state.figures) ?? <span className="text-slate-300">—</span>)
+                          // THE POOL: each line's rate, since the lines' units differ.
+                          : t.lines.length === 0 ? <span className="text-slate-300">—</span>
+                          : t.lines.map(l => (
+                            <span key={l} className="block whitespace-nowrap text-xs">
+                              {l} {rateText(state.pool?.[l]) ?? <span className="text-slate-300">—</span>}
+                            </span>
+                          ))}
                       </td>
-                      <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {formatCurrency(state.figures.poolPremium, true)}
+                      <td data-testid={`funding-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
+                        {fundingOf(state.decisions, effectiveView, t.lines)}
                       </td>
-                      <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {formatMillions(state.figures.activeExposure, 1)}
-                      </td>
-                      <td className="px-5 py-2.5 font-mono text-slate-700">
-                        {/* ⚠ A DASH MEANS THE TEAM'S LINES CHOSE DIFFERENT STOPS, not zero
-                            and not missing. The pool only has a funding level when every
-                            line the team writes picked the same one; this column used to
-                            print the first line's regardless. See poolFiguresOf. */}
-                        {state.figures.selectedFundingConfidenceLevel === undefined
-                          ? <span className="text-slate-400" title="Lines chose different funding stops — open the team to see each">—</span>
-                          : formatPct(state.figures.selectedFundingConfidenceLevel, 0)}
-                      </td>
+                      <td data-testid={`ripple-${t.name}`} className="px-5 py-2.5 font-mono text-slate-300">—</td>
                     </>
                   )}
                 </tr>
@@ -234,6 +261,7 @@ export default function HostTeamsTab({ room }: Props) {
           {effectiveView === 'pool'
             ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
             : `Every figure is ${effectiveView}, so the column compares like with like.`}
+          {' '}Ripple Score is coming: a single score for each team, still being designed.
         </p>
       </div>
     </div>

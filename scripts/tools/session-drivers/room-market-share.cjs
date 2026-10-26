@@ -106,7 +106,15 @@ async function hostShares(host) {
     await host.getByRole('button', { name: VIEW[v], exact: true }).first().click();
     await host.waitForTimeout(250);
     out[v] = {};
-    for (const t of TEAMS) out[v][t] = (await host.textContent(`[data-testid="share-${t}"]`)).trim();
+    // ⚠ A SHARE FOR ANOTHER YEAR THAN THE RESULTS' CARRIES ITS YEAR, "33.3%
+    // (2026)": the table's one heading names the results' year, and the shares
+    // can be the opening books' or a year a locked team has not yet posted past.
+    // The figure is read without it; the label is recorded beside it.
+    for (const t of TEAMS) {
+      const text = (await host.textContent(`[data-testid="share-${t}"]`)).trim();
+      out[v][t] = text.replace(/\s*\(\d{4}\)$/, '');
+      (out.labels ??= {})[`${v}|${t}`] = (/\((\d{4})\)$/.exec(text) ?? [])[1] ?? null;
+    }
   }
   return out;
 }
@@ -239,6 +247,11 @@ function expectedShares(rec, year) {
     const s0 = await checkSet('before year 1', 0);
     ok(TEAMS.every(t => Math.abs(s0.byTeam[t].pool - 1 / 3) < 1e-12 && LINES.every(l => Math.abs(s0.byTeam[t].byLine[l] - 1 / 3) < 1e-12)),
       'before year 1 every team holds exactly one third on every line and the pool');
+    // The table's results are not known yet (the heading says so) but the shares
+    // are the opening books', so every share names its year.
+    const lab0 = (await hostShares(host)).labels;
+    ok(Object.values(lab0).length > 0 && Object.values(lab0).every(y => y === '2026'),
+      `before year 1 each host share names its year, the opening books' 2026 (${[...new Set(Object.values(lab0))].join(', ')})`);
     // ⚠ NO PLAYER SEES ANOTHER TEAM'S FIGURES. The wire redaction is the contract
     // harness's (no RoomView.marketShares, no other team's resultsByYear for a
     // player); on screen, a player has no Teams table and one share — its own.
