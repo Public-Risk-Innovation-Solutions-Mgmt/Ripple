@@ -1392,7 +1392,30 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // records per firing, the stop's samples grown, eleven gates restated) each
 // reproduce the control bit for bit — no baselined game repeats an event in
 // force, cedes Property cat or prices the dormant stop.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v84.json');
+// v85: THE SIMPLE UNDERWRITING LANDING (100 equal members, each with a yearly
+// risk score; non-renewal and new members, 0-5%, one year each; every game on
+// the standard opening book; the audit's retained catastrophe). The control ran
+// first: multiplayer ee1ea6c, in its own worktree, reproduced v84 39,600 of
+// 39,600 (and export v92 24 of 24). 25,272 of 39,600 values differ at head,
+// across 91 fields; none added or removed. Attributed by a null test: with
+// MEMBER_RISK_CV set to 0 the head reproduces, bit for bit, its own capture
+// taken before member risk existed — so the two parts separate exactly:
+//   the book, 25,278 values across 91 fields against the control: every game
+//     opens on the standard opening book (OPENING_BOOK_EXPOSURE; WC-solo Y1
+//     exposure 968.74 -> 916.11) and the defaults no longer grow it
+//     (newBusinessExposure to 0 on all 300; Y5 1,177.51 -> 916.11), so
+//     exposure, written and billed exposure, market share, premium, the
+//     per-exposure admin, and every loss, reserve, rate, cash and capital
+//     field after them; ordinary losses drawn on 100 equal members at risk 1;
+//     the T claims landing on the line by region share.
+//   member risk, 22,246 values across 81 fields against that: the ordinary
+//     loss draw and what it feeds — ultimates, reserves, LAE, the rate as it
+//     learns, cash, surplus, capital. No exposure, admin or premium-at-opening
+//     field moves by it.
+//   The audit fix is display only and the two merges moved nothing. Float
+//   order only: investmentReturnRate, 23 values within 3.6e-16; the surplus
+//   tie-out stays within $5e-8.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v85.json');
 
 function seedOf(id: string) {
   let h = 5381;
