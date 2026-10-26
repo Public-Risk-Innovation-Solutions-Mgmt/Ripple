@@ -155,13 +155,82 @@
 // reader can see what it could and could not have caught. At the shipped GAMES
 // it catches a drift of about 6.5% and up; the WC and GL drifts above are inside
 // that range, which is the sensitivity check that matters.
+//
+// ============================================================================
+// ⚠ RESTATED FOR ADVERSE DEVELOPMENT (wip/adverse-development): THE STILL-BOOK
+// ASSERTION READS THE CELL WITH ADVERSE_DEVELOPMENT OFF, AND A SECOND ARM
+// REQUIRES THAT ADVERSE DEVELOPMENT REACHES THE RATE.
+//
+// With ADVERSE_DEVELOPMENT on, every open prior accident year's reserve grows
+// by a λ each played year (Mid: 5% to 15%), and pricing does NOT anticipate
+// it: it reaches the rate only as it emerges in the experience. The head
+// window (years 1-3) prices off experience that is mostly pre-game, where
+// nothing develops; the tail window prices off played years that carry it. So
+// on a still book the rate now climbs by more than the trend, by design, and
+// the gate went red: Property 6.80% against a 4.20% bar. Measured, 24 games x
+// 10 years, Property, shipped cell, flags flipped at runtime on one tree:
+//
+//     ADVERSE_DEVELOPMENT   RESERVE_INFLATION   drift     SE
+//     on  (Mid, shipped)    off (shipped)       +6.80%   1.40%   <- red
+//     off                   off                 +0.82%   1.34%
+//     on  (Mid)             on (severity trend) +6.82%   1.40%
+//     off                   on                  +0.70%   1.34%
+//     Mid range set to Low  (1%-5%)   off       +2.89%   1.36%
+//     Mid range set to High (15%-20%) off      +11.24%   1.47%
+//
+// The drift is adverse development and nothing else: off, it returns to 0.82%
+// (under the bar, as it read before the branch); it rises monotonically with
+// the level; and reserve inflation being off plays no part (+/- 0.12%, well
+// inside one SE). ADVERSE_DEVELOPMENT draws on its own labelled stream and no
+// other stream moves, so the AD-off cell is a twin of the shipped one — same
+// games, same losses — and differencing them is NOT the cross-engine basis
+// hazard warned of above. One thing besides λ differs, and it was measured:
+// switching ADVERSE_DEVELOPMENT off restores the host's prior-development
+// percentages it replaces (PRIOR_DEVELOPMENT_DEFAULTS, Property -2%). With AD
+// on and every λ forced to 0, Property reads +1.25% (on - off +0.43%, paired
+// SE 0.01%), so of the +5.98% about +5.55% is the λ draws and +0.43% the
+// retired percentages — both part of the adverse-development design.
+//
+// So the gate now asks the two questions separately:
+//
+//   THE STILL-BOOK ASSERTION (exit 2) is graded on the AD-off twin: with nothing
+//   developing, the rate must still sit at the trend. That is this file's
+//   original subject, unchanged, and a ramp introduced anywhere else in the
+//   pricing basis still fires it.
+//
+//   THE ADVERSE-DEVELOPMENT ARM (exit 1) requires the shipped cell to drift
+//   ABOVE its AD-off twin, paired per game, by more than 3 paired standard
+//   errors AND by more than DETECTION_FLOOR (the same 2% judgement as the
+//   still-book bar; a 3-SE test alone passes the retired-percentages residue
+//   of +0.43% at a paired SE of 0.01%): adverse development must reach the
+//   rate through the experience. It reads +5.98% (paired SE 0.15%) at the
+//   shipped Mid level. A development that stopped reaching the rate — every λ
+//   0, the experience read before it is booked, or the rate anticipating it —
+//   fails here. (At Low, 1%-5%, it would read about +2.07%, at the floor; the
+//   harness plays Mid. At Low the first in-file control below does NOT fire —
+//   +2.89% sits under a 4.03% bar — and exits 1: it is a statement about the
+//   shipped level, and a lower default needs this gate re-read.)
+//
+// IN-FILE CONTROLS, each must FAIL and is checked every run: the shipped
+// (AD-on) drifts graded by the still-book assertion (a null cell that lost its
+// switch fires), and the AD-off drifts set against themselves in the AD arm (a
+// development that does not reach the rate fails). The cells-agree control
+// below still holds across the PT / FB cells; it was itself red on this branch
+// until 7127acc paid adverse development to pattern with FORWARD_BOOKING off
+// (FB off read 4.74% against 6.80%, a 9.42e-3 per $100 gap), and reads 0 since;
+// 7127acc did not move the shipped cell (6.80% before and after).
+//
+// THE POSITIVE CONTROL, RE-READ: LINE=GL now grades GL's AD-off twin at +8.71%
+// against a 6.88% bar and EXITS 2 (GL's roster no longer moves, 0.000%, so
+// MAX_EXPOSURE_MOVE is not needed for it). The break "AD on, every λ 0" exits 1
+// on the AD arm.
 // ============================================================================
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE } from '../../src/data/defaultAssumptions';
-import { NEW_RATE_STACK } from '../../src/data/pricingParameters';
+import { ADVERSE_DEVELOPMENT, NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import { EXPOSURE_GROWTH_PER_YEAR, SEVERITY_TREND_PER_YEAR } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState } from '../../src/types/simulation';
 
@@ -187,12 +256,15 @@ const DETECTION_FLOOR = 0.02;
  *  how the positive control asserts on a line whose book does move. */
 const MAX_EXPOSURE_MOVE = Number(process.env.MAX_EXPOSURE_MOVE ?? 0.005);
 
-interface Cell { pt: boolean; fb: boolean; name: string }
+interface Cell { pt: boolean; fb: boolean; ad: boolean; name: string }
 const CELLS: Cell[] = [
-  { pt: true, fb: true, name: 'PT on,  FB on   (SHIPPED)' },
-  { pt: false, fb: true, name: 'PT off, FB on   (held path — the in-file control)' },
-  { pt: true, fb: false, name: 'PT on,  FB off  (the cell arm 3 says nothing has measured)' },
+  { pt: true, fb: true, ad: true, name: 'PT on,  FB on   (SHIPPED)' },
+  { pt: false, fb: true, ad: true, name: 'PT off, FB on   (held path — the in-file control)' },
+  { pt: true, fb: false, ad: true, name: 'PT on,  FB off  (the cell arm 3 says nothing has measured)' },
+  { pt: true, fb: true, ad: false, name: 'PT on,  FB on,  ADVERSE_DEVELOPMENT off  (the still-book twin)' },
 ];
+/** Whether the engine as shipped develops at all; if not, every cell is the AD-off cell. */
+const AD_SHIPPED = ADVERSE_DEVELOPMENT.enabled;
 
 const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
 const sd = (a: number[]) => {
@@ -277,9 +349,10 @@ function drift(series: number[], line: string): number {
 interface Acc { drifts: number[]; expMoves: number[]; rateByYear: number[] }
 
 function runCell(cell: Cell): Record<string, Acc> {
-  const wasP = PRICING_TRIANGLE.enabled, wasF = FORWARD_BOOKING.enabled;
+  const wasP = PRICING_TRIANGLE.enabled, wasF = FORWARD_BOOKING.enabled, wasA = ADVERSE_DEVELOPMENT.enabled;
   PRICING_TRIANGLE.enabled = cell.pt;
   FORWARD_BOOKING.enabled = cell.fb;
+  ADVERSE_DEVELOPMENT.enabled = AD_SHIPPED && cell.ad;
   try {
     const acc: Record<string, Acc> = {};
     for (const L of LINES) acc[L] = { drifts: [], expMoves: [], rateByYear: new Array(YEARS).fill(0) };
@@ -293,7 +366,7 @@ function runCell(cell: Cell): Record<string, Acc> {
       }
     }
     return acc;
-  } finally { PRICING_TRIANGLE.enabled = wasP; FORWARD_BOOKING.enabled = wasF; }
+  } finally { PRICING_TRIANGLE.enabled = wasP; FORWARD_BOOKING.enabled = wasF; ADVERSE_DEVELOPMENT.enabled = wasA; }
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +394,7 @@ for (const { cell, acc } of measured) {
 // THE ASSERTION
 // ---------------------------------------------------------------------------
 console.log(`\n${RULE}`);
-console.log(`THE ASSERTION — ${ASSERTED_LINE}, shipped cell`);
+console.log(`THE ASSERTION — ${ASSERTED_LINE}, still-book twin (ADVERSE_DEVELOPMENT off); then the adverse-development arm`);
 console.log(RULE);
 
 const failed: string[] = [];
@@ -330,22 +403,43 @@ const unevaluated: string[] = [];
 const shipped = measured[0].acc[ASSERTED_LINE];
 const control = measured[1].acc[ASSERTED_LINE];
 const noContraction = measured[2].acc[ASSERTED_LINE];
+const stillTwin = measured[3].acc[ASSERTED_LINE];
 
-if (!shipped || !control) {
+/** The still-book verdict: the drift and its bar, or null if it holds. */
+function stillBookFires(drifts: number[]): { m: number; se: number; threshold: number; fires: boolean } {
+  const d = drifts.filter(Number.isFinite);
+  const m = mean(d);
+  const se = sd(d) / Math.sqrt(Math.max(1, d.length));
+  const threshold = Math.max(SIGMA * se, DETECTION_FLOOR);
+  return { m, se, threshold, fires: !(Math.abs(m) <= threshold) };
+}
+/** The adverse-development arm: on minus off, paired per game; it must be
+ *  positive by more than max(SIGMA paired standard errors, DETECTION_FLOOR). */
+function adReaches(on: number[], off: number[]): { m: number; se: number; ok: boolean } {
+  const diff = on.map((x, i) => x - off[i]).filter(Number.isFinite);
+  const m = mean(diff);
+  const se = sd(diff) / Math.sqrt(Math.max(1, diff.length));
+  return { m, se, ok: diff.length > 1 && m > Math.max(SIGMA * se, DETECTION_FLOOR) };
+}
+
+if (!shipped || !control || !stillTwin) {
   console.log(`  ${ASSERTED_LINE} is not a line this run tracked. LINE must be one of ${LINES.join(', ')}.`);
   process.exitCode = 1;
 } else {
-  const d = shipped.drifts.filter(Number.isFinite);
-  const m = mean(d);
-  const se = sd(d) / Math.sqrt(Math.max(1, d.length));
-  const expMove = mean(shipped.expMoves.filter(Number.isFinite));
-  const threshold = Math.max(SIGMA * se, DETECTION_FLOOR);
+  const { m, se, threshold, fires } = stillBookFires(stillTwin.drifts);
+  const d = stillTwin.drifts.filter(Number.isFinite);
+  const expMove = mean(stillTwin.expMoves.filter(Number.isFinite));
   const cd = mean(control.drifts.filter(Number.isFinite));
   const nd = mean(noContraction.drifts.filter(Number.isFinite));
+  const sm = mean(shipped.drifts.filter(Number.isFinite));
+  const ad = adReaches(shipped.drifts, stillTwin.drifts);
 
-  console.log(`  mean drift              ${(100 * m).toFixed(2)}%`);
+  console.log(`  mean drift, AD off      ${(100 * m).toFixed(2)}%   <- graded`);
   console.log(`  standard error          ${(100 * se).toFixed(2)}%  over ${d.length} games`);
   console.log(`  fires above             ${(100 * threshold).toFixed(2)}%  = max(${SIGMA} x SE, floor ${100 * DETECTION_FLOOR}%)`);
+  console.log(`  shipped drift, AD on    ${(100 * sm).toFixed(2)}%   <- not graded against the still-book bar; see the AD arm`);
+  console.log(`  AD arm: on - off        ${(100 * ad.m).toFixed(2)}%  paired SE ${(100 * ad.se).toFixed(2)}%  <- must exceed max(${SIGMA} x SE, floor ${100 * DETECTION_FLOOR}%)`
+    + (AD_SHIPPED ? '' : '  (ADVERSE_DEVELOPMENT is off as shipped: arm not graded)'));
   console.log(`  roster movement         ${(100 * expMove).toFixed(3)}%  (instrument needs < ${(100 * MAX_EXPOSURE_MOVE).toFixed(1)}%)`);
   console.log(`  control, PT off         ${(100 * cd).toFixed(2)}%  <- ${NEW_RATE_STACK.enabled
     ? 'must EQUAL the shipped cell: neither flag is on the new rate\'s path'
@@ -357,8 +451,8 @@ if (!shipped || !control) {
       + `${(100 * MAX_EXPOSURE_MOVE).toFixed(1)}% this instrument needs. A drift reading on a moving book does not mean `
       + 'what it means on a still one, and this arm declines to grade it rather than reporting a number it '
       + 'cannot defend. Raise MAX_EXPOSURE_MOVE only to run the positive control.');
-  } else if (Math.abs(m) > threshold) {
-    failed.push(`${ASSERTED_LINE}'s charged rate drifts ${(100 * m).toFixed(2)}% over ${YEARS} years on a book whose `
+  } else if (fires) {
+    failed.push(`${ASSERTED_LINE}'s charged rate drifts ${(100 * m).toFixed(2)}% over ${YEARS} years, ADVERSE_DEVELOPMENT off, on a book whose `
       + `exposure moves ${(100 * expMove).toFixed(3)}%, against a firing threshold of ${(100 * threshold).toFixed(2)}%. `
       + `PT off reads ${(100 * cd).toFixed(2)}% and FB off reads ${(100 * nd).toFixed(2)}% — read those two before choosing a fix. `
       + '⚠ THIS GATE CANNOT SAY WHICH FIX. A red says the charged rate is unstable on a still book. It does not '
@@ -367,6 +461,27 @@ if (!shipped || !control) {
       + 'and experience-pricing-check arm 1 reads the held arm charging 1.024 / 1.038 / 0.994 of its own realised '
       + 'cost. What the pool would lose is pricing off its own experience, which is the whole reason the flag '
       + 'exists. That trade is a judgement for a human and this file does not make it.');
+  }
+
+  // THE ADVERSE-DEVELOPMENT ARM — see the header. Not a drift verdict, so exit 1.
+  if (AD_SHIPPED && !ad.ok) {
+    failed.push(`ADVERSE DEVELOPMENT DOES NOT REACH THE RATE. ${ASSERTED_LINE}'s drift with it on less its AD-off twin `
+      + `reads ${(100 * ad.m).toFixed(2)}% (paired SE ${(100 * ad.se).toFixed(2)}%), and it must exceed `
+      + `max(${SIGMA} paired SEs, ${100 * DETECTION_FLOOR}%): the rate is meant to pick it up as it emerges in the experience (+5.98% at Mid when this `
+      + 'was restated). Either the experience is read before the development is booked, or the rate now anticipates it.');
+  }
+
+  // IN-FILE CONTROLS on the recorded drifts — each must FAIL (see the header).
+  if (AD_SHIPPED) {
+    const c1 = stillBookFires(shipped.drifts).fires;
+    const c2 = !adReaches(stillTwin.drifts, stillTwin.drifts).ok;
+    console.log(`  control: the AD-on drifts graded as the still book  ${c1 ? 'fires (caught)' : 'DOES NOT FIRE'}`);
+    console.log(`  control: AD-off set against itself in the AD arm    ${c2 ? 'fails (caught)' : 'DOES NOT FAIL'}`);
+    if (!c1 || !c2) {
+      failed.push(`THE CONTROL IS NOT CAUGHT: ${!c1 ? `the shipped AD-on drifts (${(100 * sm).toFixed(2)}%) pass the still-book bar, so that bar can no longer see a ramp of adverse development's size — `
+        + `measured at Mid it fires at 6.80%; at Low (2.89%) it would not, so if ADVERSE_DEVELOPMENT_DEFAULT_LEVEL or its range moved, re-read this control` : ''}`
+        + `${!c1 && !c2 ? '; ' : ''}${!c2 ? 'the AD arm passes a cell against itself' : ''}.`);
+    }
   }
 
   // The in-file control outranks the verdict above: if the held path is not
@@ -428,11 +543,14 @@ if (!shipped || !control) {
     for (const f of failed) console.log(`  - ${f}`);
     console.log('\n⚠ EXIT 2 IS THE DRIFT ASSERTION AND NOTHING ELSE, so that a broken control or a failed');
     console.log('  precondition can never hide behind it. Those exit 1 and block.');
-    process.exitCode = failed.some(f => f.startsWith('THE CONTROL')) ? 1 : 2;
+    // Exit 2 only when the still-book drift is the ONLY failure; a broken
+    // control, the cells disagreeing or the AD arm exit 1.
+    process.exitCode = failed.every(f => f.startsWith(`${ASSERTED_LINE}'s charged rate drifts`)) ? 2 : 1;
   } else if (unevaluated.length) {
     process.exitCode = 1;
   } else {
-    console.log(`NO DRIFT. ${ASSERTED_LINE}'s charged rate is flat on a still book and ${NEW_RATE_STACK.enabled
+    console.log(`NO DRIFT. ${ASSERTED_LINE}'s charged rate is flat on a still book with nothing developing${AD_SHIPPED
+      ? ', adverse development reaches it through the experience,' : ''} and ${NEW_RATE_STACK.enabled
       ? 'the three cells agree exactly' : 'the control is flat'}.`);
     console.log('This is the expected result and the gate is a guard, not an open item — see the header for');
     console.log('why it exists given that it was commissioned as a red and is not one.');
