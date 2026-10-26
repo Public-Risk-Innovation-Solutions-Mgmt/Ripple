@@ -196,12 +196,13 @@ controlFails('a ledger carrying a pre-2021 row', () => gradePricing(os.map(o => 
 // on the year just closed, valued at its end.
 const noLag: Pricer = (line, y, rows) => shipped(line, y + PRICING_DATA_LAG_YEARS, rows);
 controlFails('a window ending on the year just closed (no lag)', () => gradePricing(os, '', noLag), '4.');
-controlFails("a no-history year priced on the opening book's risk", () => gradePricing(os.map(o => ({
-  ...o, years: o.years.map((yr, i) => (i > PRICING_DATA_LAG_YEARS ? yr : {
-    ...yr, newPurePremiumPer100: bookPurePremium(o.line, FIRST + i, { rows: [], allMarketMembers: [], membershipHistory: {} },
-      yr.rateBasis?.pricedExposure ?? yr.activeExposure, o.risk).purePremiumPer100,
-  })),
-})), ''), '4.');
+// ⚠ RETIRED WITH THE BOOK OF UNITS (simple underwriting): "a no-history year
+// priced on the opening book's risk". It caught a year priced at the opening
+// book's size-weighted risk instead of its own; with 100 equal members every
+// book's risk is 1 — the opening's and each year's alike — so the wrong risk
+// and the right one are the same number and the control could not fire. Its
+// subject is gone, not unwatched: section 4 still prices each no-history year
+// on its own figures, exactly.
 controlFails('a window ending on the year just closed (no lag)', () => gradeLag(os, '', noLag), '5.');
 // Valued a year late: every row's valuations relabelled a year earlier, so the
 // index read is the year in progress's.
