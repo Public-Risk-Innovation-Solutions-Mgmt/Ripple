@@ -149,6 +149,24 @@ function chromiumPath() {
 // any page script runs, so the host screens open as a logged-in admin. Unset,
 // nothing changes.
 const ADMIN_TOKEN_KEY = 'ripple.admin.token';
+const AS_PLAYER_KEY = 'ripple.driver.asPlayer';
+
+/**
+ * From here on this page's context is NOT an admin: the admin token is
+ * removed and the launcher stops putting it back. For a driver that plays a
+ * team in the same context it hosted from — on aws's lobby an admin's event
+ * rows offer host and delete, a player's offer join.
+ */
+/** Undo asPlayer: the context is the admin again (ADMIN_TOKEN), for a host step. */
+async function asAdmin(page) {
+  const token = process.env.ADMIN_TOKEN;
+  if (!token) return;
+  await page.evaluate(([k, p, t]) => { localStorage.removeItem(p); localStorage.setItem(k, t); }, [ADMIN_TOKEN_KEY, AS_PLAYER_KEY, token]);
+}
+
+async function asPlayer(page) {
+  await page.evaluate(([k, p]) => { localStorage.setItem(p, '1'); localStorage.removeItem(k); }, [ADMIN_TOKEN_KEY, AS_PLAYER_KEY]);
+}
 
 async function launchBrowser() {
   const executablePath = chromiumPath();
@@ -158,7 +176,10 @@ async function launchBrowser() {
     const newContext = browser.newContext.bind(browser);
     browser.newContext = async (opts) => {
       const ctx = await newContext(opts);
-      await ctx.addInitScript(([k, t]) => { try { localStorage.setItem(k, t); } catch { /* opaque origin */ } }, [ADMIN_TOKEN_KEY, token]);
+      // Skipped while the context is acting as a player (asPlayer below).
+      await ctx.addInitScript(([k, t, p]) => {
+        try { if (localStorage.getItem(p) === null) localStorage.setItem(k, t); } catch { /* opaque origin */ }
+      }, [ADMIN_TOKEN_KEY, token, AS_PLAYER_KEY]);
       return ctx;
     };
   }
@@ -178,4 +199,4 @@ async function requireServer() {
   }
 }
 
-module.exports = { BASE, REPO, launchBrowser, requireServer };
+module.exports = { BASE, REPO, launchBrowser, requireServer, asPlayer, asAdmin };
