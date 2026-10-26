@@ -141,9 +141,28 @@ function chromiumPath() {
   return undefined;
 }
 
+// ⚠ HOSTING NEEDS AN ADMIN SINCE THE ADMIN ACCOUNTS (aws 20efa6e): /host
+// shows a login in place of the create form when nobody is logged in. With
+// ADMIN_TOKEN set (a token from the admin service's adminLogin — locally,
+// scripts/tools/dev-admin-server.ts, with the build's VITE_ADMIN_API pointing
+// at it) every context this browser opens carries it in localStorage before
+// any page script runs, so the host screens open as a logged-in admin. Unset,
+// nothing changes.
+const ADMIN_TOKEN_KEY = 'ripple.admin.token';
+
 async function launchBrowser() {
   const executablePath = chromiumPath();
-  return chromium.launch(executablePath ? { executablePath } : {});
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
+  const token = process.env.ADMIN_TOKEN;
+  if (token) {
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = async (opts) => {
+      const ctx = await newContext(opts);
+      await ctx.addInitScript(([k, t]) => { try { localStorage.setItem(k, t); } catch { /* opaque origin */ } }, [ADMIN_TOKEN_KEY, token]);
+      return ctx;
+    };
+  }
+  return browser;
 }
 
 /** Fail loudly and early if nothing is serving, rather than 30s into a timeout. */
