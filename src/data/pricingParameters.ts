@@ -330,10 +330,14 @@ export const DEVELOPMENT_TAIL = { closed: true } as const;
  * the same value, and tableAtBaselineCv throws on a CV with no table (tables
  * exist at 2, 4, 6, 8, 10, 12 and 15%).
  *
- * ⚠ CHOSEN, NOT SOURCED. WC 6%, Property 8%, GL 10%. In use since the funding
- * tables wiring. Over 100 equal members the line's ordinary loss CV is
- * sqrt((1+B^2)(1+0.10^2 / 100) - 1): 6.0% on WC, 8.0% on Property and 10.0% on
- * GL (6.2%, 8.1% and 10.1% over the retired book of about 60 unequal units).
+ * ⚠ SET DELIBERATELY BY THE PROJECT LEAD: WC 6%, GL 10%, Property 8%. At the R
+ * model's 2% the funding tables were too close together — every funding level
+ * priced almost the same — so the higher, line-specific values make the tables
+ * differ by line and give the funding slider a meaningful range.
+ *
+ * Over 100 equal members, with each member's luck and its yearly risk score
+ * (MEMBER_LUCK_CV, MEMBER_RISK_CV), the line's ordinary loss CV is about 6.8%
+ * on WC, 8.6% on Property and 10.5% on GL (typicalBookOrdinaryCv).
  */
 export const BASELINE_CV: PerLine<number> = { WC: 0.06, GL: 0.10, Property: 0.08 };
 
@@ -470,39 +474,6 @@ export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
   GL: 0.459324,
   Property: 0.018236,
 };
-
-/**
- * HOW MUCH OF THE FIXED ADMIN STAYS FIXED — CHOSEN, a test-build switch: 1
- * (today), 0.5 or 0. The share removed from ADMIN_FIXED_PER_YEAR is charged
- * instead as a per-exposure rate, struck at the opening book
- * (OPENING_BOOK_EXPOSURE, which every game's year 1 bills), so year-1 admin
- * in dollars is unchanged on every line; from then on it moves with exposure.
- *
- * WHY: fixed admin is spread over the book, so growing the book cuts admin
- * per unit and shrinking it raises it. Measured on simple underwriting, that
- * was taken to be what makes adding new members beat non-renewal on WC and
- * GL; this setting tests it. Both parts still trend at ADMIN_TREND_PER_YEAR.
- *
- * ⚠ MEASURED: IT DOES NOT DECIDE THE TRADE-OFF (scripts/probes/simple-uw-
- * report.mts, twenty scenarios, five years, single player, shocks off, at
- * Expected, both underwriting settings one year). At 100%, 50% and 0% the
- * five-year combined ratio and year-5 surplus agree to three decimals and
- * $0.1M on every line and setting; only the rate moves. Admin is booked as
- * charged (operatingExpense is the admin in the rate), so how it is split
- * changes the price, not the result. What does favour growth on WC and GL is
- * PRIOR-YEAR DEVELOPMENT — reserve inflation on older years, fixed in dollars
- * against this year's book: 9.9% of five years' premium on WC and 16.4% on
- * GL, +1.1 / +1.4 points when the book is non-renewed 5% a year and −0.9 /
- * −1.3 when it adds 5%. 100% stays in force.
- */
-export const FIXED_ADMIN_SHARE = { share: 1 };
-
-/** The fixed admin a line charges a year at year 1's level: FIXED_ADMIN_SHARE of ADMIN_FIXED_PER_YEAR. */
-export const adminFixedPerYear = (line: CoverageLine): number => FIXED_ADMIN_SHARE.share * ADMIN_FIXED_PER_YEAR[line];
-
-/** The per-exposure admin rate per $100 at year 1's level, with the moved share of the fixed admin on it. */
-export const adminPerExposurePer100 = (line: CoverageLine): number => ADMIN_PER_EXPOSURE_PER_100[line]
-  + (1 - FIXED_ADMIN_SHARE.share) * ADMIN_FIXED_PER_YEAR[line] / (OPENING_BOOK_EXPOSURE[line] * 10_000);
 
 /**
  * ADMIN GROWS WITH INFLATION — 3% a year on BOTH parts, the fixed dollars a
@@ -1045,19 +1016,44 @@ export const ORDINARY_LOSS_LIMIT: PerLine<number> = {
  * the line's (exposure x the line's cost x underwriting's one-year bracket);
  * each year it is
  *
- *   expected x F x f,   F the year factor every member shares (CV
- *                       BASELINE_CV, the line's own), f the member's own luck
- *                       (CV MEMBER_LUCK_CV)
+ *   expected x F x r x f,   F the year factor every member shares (CV
+ *                           BASELINE_CV, the line's own), r the member's
+ *                           risk score this year (CV MEMBER_RISK_CV, below),
+ *                           f its own luck (CV MEMBER_LUCK_CV)
  *
- * and the line's ordinary loss is the sum. Both factors are LOGNORMAL WITH
- * MEAN EXACTLY 1, so the expected loss IS the mean of the draws by
+ * and the line's ordinary loss is the sum. All three factors are LOGNORMAL
+ * WITH MEAN EXACTLY 1, so the expected loss IS the mean of the draws by
  * construction. Over 100 equal members the line's CV is
- * sqrt((1 + Y^2)(1 + 0.10^2 / 100) − 1): 6.0% (WC), 8.0% (Property), 10.0% (GL)
- * — against 6.2%, 8.1% and 10.1% over the retired book of about 60 unequal units.
+ * sqrt((1 + Y^2)(1 + ((1 + 0.10^2)(1 + 0.30^2) − 1) / 100) − 1): 6.8% (WC),
+ * 8.6% (Property), 10.5% (GL) — 6.1%, 8.0% and 10.0% with luck alone.
  *
  * WHY 10%: the R model's own factor, kept when units were replaced by members.
  */
 export const MEMBER_LUCK_CV = 0.10;
+
+/**
+ * EACH MEMBER'S RISK SCORE — CHOSEN, by the project lead. The 100 members stay
+ * equal in size, but each carries a risk score, REDRAWN EVERY YEAR: lognormal,
+ * mean 1, CV 30%, multiplying that member's expected loss alongside its own
+ * luck. Drawn per member per year from the GAME's seed (marketSeedOf; stream
+ * `member_risk_<line>`, `pregame_` before year 1), so every world holds the
+ * same scores and only the luck is each world's own. A flat pre-game year
+ * draws none.
+ *
+ * WHY: equal members differing only by a 10% luck draw made the book's
+ * ordinary losses nearly as smooth as the year factor alone; a pool's members
+ * differ in how risky they are, and that spread belongs in the year's losses.
+ * 30% is the R model's spread of risk, the same figure the retired book of
+ * units carried (UNIT_RISK_CV). Shared by every world because it is the
+ * book's risk, not the world's luck. Redrawn each year because the book keeps
+ * no record of who its members are (no loss history, no selection), so a
+ * score that persisted could not be acted on.
+ *
+ * Not in pricing's expected loss (mean 1): the rate learns it through the
+ * experience. It raises the line's ordinary CV from 6.1% / 10.0% / 8.0% to
+ * 6.8% / 10.5% / 8.6% on WC / GL / Property (typicalBookOrdinaryCv).
+ */
+export const MEMBER_RISK_CV = 0.30;
 
 /*
  * THE OLD ENGINE'S DERIVED ORDINARY LOSS COST, PER $100, YEAR 1 — SOURCED, AND
@@ -1616,46 +1612,6 @@ export const NEW_MEMBERS_SLIDER = { min: 0, max: 0.05, step: 0.01, default: 0 } 
 export const NON_RENEWAL_LOSS_RELIEF = 0.5;
 
 /**
- * HOW LONG NON-RENEWAL'S IMPROVEMENT LASTS — CHOSEN, a test-build switch with
- * three versions, so each can be run against the others. The existing book
- * carries a quality factor Q (LinePoolState.bookQuality, 1 at the opening):
- * its ordinary loss per unit is f(x) x Q. Each year, before the year's own
- * non-renewal, what last year left is carried as
- *
- *   carried = 1 − carry x (1 − Q)       carry: oneYear 0 · decaying
- *                                       NON_RENEWAL_DECAY · lasting 1
- *
- * the renewing book runs at carried x (1 − NON_RENEWAL_LOSS_RELIEF x a1), and
- * new members join at quality 1 (plus NEW_BUSINESS_PENALTY in their first
- * year), so at year end Q is the two blended by exposure — adding members
- * dilutes the improvement.
- *
- *   oneYear   the improvement is this year's only (the first test build)
- *   decaying  full in the year of non-renewal, then halved each year
- *   lasting   never resets: Q compounds by (1 − 0.5 a1) a year
- *
- * Pricing still learns only from the experience.
- *
- * ⚠ ONEYEAR IS IN FORCE AGAIN, by decision, for the fixed-admin test (decaying
- * was in force from its measurement until then). THAT MEASUREMENT
- * (scripts/probes/simple-uw-report.mts,
- * twenty scenarios, ten years, single player, shocks off, non-renewal held at
- * 5%). oneYear: never beats leaving the book alone on WC or GL (combined
- * ratio worse on 20/20), because the smaller book carries the same fixed
- * admin. lasting: Q compounds without limit (0.776 by year 10, and lower every
- * year after), the year-10 loss ratio 5.9 / 7.4 / 13.5 points below doing
- * nothing on WC / GL / Property and the rate down about 10% — too strong.
- * decaying settles at 0.951 (4.9% cheaper), beats doing nothing on Property
- * (20/20 on surplus and combined ratio), and on WC and GL about breaks even
- * (surplus ahead in 8 and 16 of 20, combined ratio behind): worth using, not
- * dominant.
- */
-export const NON_RENEWAL_PERSISTENCE: { mode: 'oneYear' | 'decaying' | 'lasting' } = { mode: 'oneYear' };
-
-/** The share of the improvement a DECAYING book carries into the next year — CHOSEN, the brief's half. */
-export const NON_RENEWAL_DECAY = 0.5;
-
-/**
  * NEW-BUSINESS PENALTY — CHOSEN, the R model's 20%, now FLAT: the new members'
  * exposure (NEW_MEMBERS_SLIDER) costs this much more per unit than the book on
  * its ordinary losses, in its first year only. Nothing buys it down — the
@@ -1665,39 +1621,42 @@ export const NON_RENEWAL_DECAY = 0.5;
  */
 export const NEW_BUSINESS_PENALTY = 0.20;
 
-/**
- * HOW THE NEW-BUSINESS PENALTY FADES — CHOSEN, a test-build switch with three
- * options, so each can be run against the others. Each year's intake is
- * tracked on its own (LinePoolState.intakeCohorts) and carries
- * NEW_BUSINESS_PENALTY x its schedule's weight for its age:
+/*
+ * ⚠ MEASURED BEFORE LANDING — WHY BOTH EFFECTS ARE ONE YEAR AND FIXED ADMIN IS
+ * UNCHANGED (scripts/probes/simple-uw-report.mts; twenty scenarios, single
+ * player, shocks off, both sliders held every year). Three switches were built
+ * on wip/simple-underwriting to test these and removed at landing; the
+ * findings stand here instead.
  *
- *   oneYear     1                      20% in the first year only
- *   twoYear     1, 1/2                 20%, then 10%
- *   threeYear   1, 2/3, 1/3            20%, then 13.33%, then 6.67%
+ * HOW LONG NON-RENEWAL'S IMPROVEMENT LASTS (ten years, non-renewal 5%). One
+ * year (as landed): never beats leaving the book alone on WC or GL — combined
+ * ratio worse in 20 of 20 — the smaller book carries the same prior-year
+ * development. Halving each year: settles 4.9% cheaper; beats leaving the book
+ * alone on Property (20/20 on surplus and combined ratio) and about breaks even
+ * on WC and GL. Never resetting: compounds without limit (0.776 by year 10),
+ * the year-10 loss ratio 5.9 / 7.4 / 13.5 points below leaving the book alone
+ * on WC / GL / Property and the rate down about 10% — too strong.
  *
- * An intake shrinks with the rest of the book (non-renewal and withdrawal
- * take every cohort alike), joins at quality 1 and is not part of Q: the
- * penalty sits beside the book's quality, not in it. The pre-game's growth is
- * intake too, and fades the same way. Not in pricing's expected loss.
+ * FADING THE NEW-MEMBER PENALTY (ten years, at Expected and 70%): 20% then 10%,
+ * or 20% / 13.33% / 6.67%, each year's intake on its own schedule. It moves the
+ * new-members combined ratio by at most 0.0016, and the rate learns most of it
+ * back. Adding members beats non-renewal on WC and GL in 20 of 20 scenarios
+ * under every option and both funding levels.
  *
- * ⚠ ONEYEAR STAYS IN FORCE — MEASURED, THE FADE CHANGES ALMOST NOTHING
- * (scripts/probes/simple-uw-report.mts: twenty scenarios, ten years, single
- * player, shocks off, decaying non-renewal, at Expected and at 70%). Holding
- * new members at 5%, the ten-year combined ratio moves by at most +0.0016
- * (threeYear on WC and GL) and the rate learns most of it back (+0.6% by
- * year 10). Adding members still beats non-renewal on WC and GL in 20 of 20
- * scenarios under every option and both funding levels, by about 0.02 of
- * combined ratio — growth spreads the fixed admin, which a 0.5-1% extra load
- * a year does not offset. No option here makes the two sliders a trade-off.
+ * FIXED ADMIN AT 100% (as landed), 50% AND 0% (the rest moved onto the
+ * per-exposure rate, year-1 admin dollars unchanged; five years, at Expected):
+ * the five-year combined ratio and year-5 surplus agree to three decimals on
+ * every line and setting; only the rate moves. Admin is booked as charged, so
+ * its split changes the price, not the result.
+ *
+ * WHAT ACTUALLY FAVOURS GROWTH ON WC AND GL is PRIOR-YEAR DEVELOPMENT —
+ * reserve inflation on older years, fixed in dollars against this year's book:
+ * 9.9% of five years' premium on WC and 16.4% on GL, +1.1 / +1.4 points when
+ * the book is non-renewed 5% a year and −0.9 / −1.3 when it adds 5%. A real
+ * trade-off between the two sliders on those lines would need that cost to
+ * scale with the current book, or a larger or longer first-year cost on new
+ * members.
  */
-export const NEW_MEMBER_PENALTY_FADE: { mode: 'oneYear' | 'twoYear' | 'threeYear' } = { mode: 'oneYear' };
-
-/** Each option's weights on NEW_BUSINESS_PENALTY by an intake's age, first year first. */
-export const PENALTY_FADE_SCHEDULES = {
-  oneYear: [1],
-  twoYear: [1, 1 / 2],
-  threeYear: [1, 2 / 3, 1 / 3],
-} as const;
 
 /**
  * ⚠ RETIRED: OPENING_SURPLUS, $35M on every line — the interim opening the
@@ -2441,9 +2400,12 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       ['Baseline CV', {
         value: perLine(BASELINE_CV, 2), unit: 'coefficient of variation',
         what: 'The shared year-to-year wobble in each line\'s ordinary losses: the CV of the year factor every '
-          + 'unit of the book shares.',
+          + 'member of the book shares.',
         basis: 'CHOSEN',
-        note: 'One setting for two things, so they can never disagree: it drives both the engine\'s ordinary '
+        note: 'Set deliberately by the project lead. At the R model\'s 2% the funding tables were too close together — '
+          + 'every funding level priced almost the same — so the higher, line-specific values make the tables differ by '
+          + 'line and give the funding slider a meaningful range. '
+          + 'One setting for two things, so they can never disagree: it drives both the engine\'s ordinary '
           + 'loss draw (replacing the 2% year factor every line shared) and which funding table the line reads. '
           + 'baseline-cv-table-check holds the two to the same value.',
       }],
@@ -2652,15 +2614,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'The same calibration, and as stale: 0.5 x 0.15 x the old opening pure premium per $100. Left as it is '
           + 'until the pool\'s budget is sent.',
       }],
-      ['Fixed admin share', {
-        value: FIXED_ADMIN_SHARE.share, unit: 'of the fixed admin kept fixed; the rest on the per-exposure rate',
-        what: 'How much of the fixed admin stays a fixed dollar amount. The share removed is charged per $100 of '
-          + 'exposure, struck at the opening book so year-1 admin in dollars is unchanged on every line; after that it '
-          + 'moves with exposure.',
-        basis: 'CHOSEN',
-        note: 'A test-build switch (100%, 50% or 0%): fixed admin rewards growth and penalises shrinking, which decides '
-          + 'whether non-renewal or new members does better.',
-      }],
       ['Admin trend', {
         value: ADMIN_TREND_PER_YEAR, unit: 'a year, on both admin parts',
         what: 'Admin grows with inflation: the fixed dollars and the per-exposure rate are each x (1 + this)^(year - the base '
@@ -2810,14 +2763,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
       }],
       ['Ordinary loss factors', {
         value: `year: Baseline CV (WC ${(100 * BASELINE_CV.WC).toFixed(0)}% · GL ${(100 * BASELINE_CV.GL).toFixed(0)}% · `
-          + `Property ${(100 * BASELINE_CV.Property).toFixed(0)}%) · member luck ${(100 * MEMBER_LUCK_CV).toFixed(0)}%`,
+          + `Property ${(100 * BASELINE_CV.Property).toFixed(0)}%) · member risk ${(100 * MEMBER_RISK_CV).toFixed(0)}% · `
+          + `member luck ${(100 * MEMBER_LUCK_CV).toFixed(0)}%`,
         unit: 'CV, each a mean-1 lognormal',
         what: 'Each of the 100 equal members\' ordinary loss is its 1/100 share of the line\'s expected loss times a '
-          + 'year factor every member shares and its own luck; the line\'s ordinary loss is the sum.',
+          + 'year factor every member shares, its risk score this year and its own luck; the line\'s ordinary loss is '
+          + 'the sum.',
         basis: 'CHOSEN',
         note: 'The R model\'s two factors. The year factor\'s CV is the line\'s Baseline CV since the funding '
-          + 'tables wiring (it was 2% on every line); over 100 equal members the line\'s CV is '
-          + '6.0% (WC), 8.0% (Property) and 10.0% (GL) — 6.2%, 8.1% and 10.1% over the retired units.',
+          + 'tables wiring (it was 2% on every line); over 100 equal members with risk and luck the line\'s CV is '
+          + '6.8% (WC), 8.6% (Property) and 10.5% (GL) — 6.1%, 8.0% and 10.0% with luck alone.',
       }],
       ['Pool loss costs', {
         value: 'WC $2.50 + $0.118 · GL $2.50 + $0.95', unit: 'per $100 of payroll, year 1: $0–$1M + $1M–$5M',
@@ -3000,6 +2955,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'SOURCED',
         note: 'The 200-member market (WC 1,300, GL 1,300, Property 59,233.002) x the exposure scale.',
       }],
+      ['Member risk score', {
+        value: MEMBER_RISK_CV, unit: 'CV of a lognormal, mean 1, redrawn every year',
+        what: 'Each of the 100 equal members carries a risk score, redrawn every year, that multiplies its expected '
+          + 'loss alongside its own luck. From the game seed, per member and year, the same in every world.',
+        basis: 'CHOSEN',
+        note: 'Set by the project lead at the R model\'s 30% spread of risk. It raises the line\'s ordinary loss CV '
+          + 'from 6.1% / 10.0% / 8.0% to 6.8% / 10.5% / 8.6% on WC / GL / Property. Not in pricing\'s expected loss.',
+      }],
       ['Underwriting members', {
         value: UNDERWRITING_MEMBERS, unit: 'equal members a line',
         what: 'Each line\'s book is this many equal members sharing its exposure. They exist only for each member\'s '
@@ -3020,27 +2983,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: NON_RENEWAL_LOSS_RELIEF, unit: 'x the non-renewal share, off this year\'s loss per unit',
         what: 'How much cheaper the renewing book runs this year for what was declined: 5% non-renewed, 2.5% cheaper.',
         basis: 'CHOSEN', note: 'The brief\'s 0.5. Not in pricing\'s expected loss.',
-      }],
-      ['New-member penalty fade', {
-        value: `${NEW_MEMBER_PENALTY_FADE.mode}: `
-          + PENALTY_FADE_SCHEDULES[NEW_MEMBER_PENALTY_FADE.mode].map(w => `${(100 * NEW_BUSINESS_PENALTY * w).toFixed(2)}%`).join(' · '),
-        unit: 'switch: oneYear · twoYear · threeYear; the penalty by an intake\'s age',
-        what: 'How the new-business penalty fades. Each year\'s intake is tracked on its own and carries the penalty x '
-          + 'its schedule\'s weight for its age: 20% for one year; 20% then 10%; or 20%, 13.33%, 6.67%.',
-        basis: 'CHOSEN',
-        note: 'A test-build switch so all three options can be run. The pre-game\'s growth fades the same way.',
-      }],
-      ['Non-renewal persistence', {
-        value: NON_RENEWAL_PERSISTENCE.mode === 'decaying'
-          ? `decaying — ${NON_RENEWAL_DECAY} of the improvement carried a year` : NON_RENEWAL_PERSISTENCE.mode,
-        unit: 'switch: oneYear · decaying · lasting',
-        what: 'How long non-renewal\'s improvement lasts. The existing book carries a quality Q (loss per unit = '
-          + 'f(x) x Q): one year only, halved each year, or never reset. New members join at Q = 1 and blend in '
-          + 'by exposure.',
-        basis: 'CHOSEN',
-        note: 'A test-build switch so all three versions can be run. Measured, decaying made non-renewal worth using '
-          + '(settling 4.9% cheaper) without the lasting version\'s unbounded compounding; one year is in force again '
-          + 'for the fixed-admin test.',
       }],
       ['New members — slider', {
         value: `${(100 * NEW_MEMBERS_SLIDER.min).toFixed(0)}–${(100 * NEW_MEMBERS_SLIDER.max).toFixed(0)}%, `

@@ -1204,7 +1204,7 @@ export function processLineYear(
   // ordinary draw (ordinaryLossFromMembers), never into expected loss.
   const bookMovement = bookMode
     ? moveBook(line, lineState.bookExposure ?? 0, lineDecisions, ctx.shockYear?.withdrawal === true, ctx.freezeMembership,
-      yearNumber, lineState.bookQuality ?? 1, lineState.intakeCohorts ?? [])
+      yearNumber)
     : null;
   // ⚠ RETIRED AS A LINE-WIDE FACTOR (simple underwriting): the new-business
   // penalty is inside the book's lossFactor, in the draw. Kept at 1 for the
@@ -1858,11 +1858,12 @@ export function processLineYear(
   let lineShocks: LineShockYear | undefined;
   if (newLossEngineRuns()) {
     // FROM THE BOOK'S 100 EQUAL MEMBERS (simple underwriting): exposure x cost
-    // x underwriting's lossFactor, times the shared year factor and each
-    // member's luck. The member path draws once at the line.
+    // x underwriting's lossFactor, times the shared year factor, each member's
+    // risk score this year (off the GAME's seed, so every world shares it) and
+    // its own luck. The member path draws once at the line.
     ordinaryYear = bookMovement
       ? ordinaryLossFromMembers(line, bookExposureOf(towerMembers, line, yearNumber), yearNumber, instance.seed,
-        bookMovement.lossFactor, preGameLossFactor(instance, yearNumber, line), ctx.flatPreGame)
+        bookMovement.lossFactor, preGameLossFactor(instance, yearNumber, line), ctx.flatPreGame, marketSeedOf(instance))
       : ordinaryLossYear(line, enrolledMembers, yearNumber, instance.seed,
         preGameLossFactor(instance, yearNumber, line), ctx.flatPreGame);
     lineShocks = ctx.shockYear?.byLine[line] ?? { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
@@ -3291,12 +3292,6 @@ export function processLineYear(
     members: enrolledMembersScored,
     // The book, carried forward in base-year exposure. No key with members.
     ...(bookMovement ? { bookExposure: bookMovement.after } : {}),
-    // Q written only once it leaves 1, so a oneYear game's state is unchanged.
-    ...(bookMovement && (bookMovement.qualityAfter !== 1 || lineState.bookQuality !== undefined)
-      ? { bookQuality: bookMovement.qualityAfter } : {}),
-    // The intakes still fading, written only when there are any, so a oneYear game's state is unchanged.
-    ...(bookMovement && (bookMovement.cohortsAfter.length > 0 || lineState.intakeCohorts !== undefined)
-      ? { intakeCohorts: bookMovement.cohortsAfter } : {}),
     // Year 1's quoted exposure, carried unchanged (wip/shocks; utils/shockCost).
     ...(lineState.shockCostBaseExposure !== undefined ? { shockCostBaseExposure: lineState.shockCostBaseExposure } : {}),
 

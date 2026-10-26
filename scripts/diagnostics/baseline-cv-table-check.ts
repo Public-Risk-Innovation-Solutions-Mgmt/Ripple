@@ -73,10 +73,11 @@ function analytic(b: number) {
 }
 
 // The engine's year factor for one line-year, from its own draw on the
-// book's members: realised / expected is the year factor x the members' mean luck.
+// book's members: realised / expected is the year factor x the members' mean
+// of risk score x luck.
 function engineYearFactor(line: StaticClfLine, seed: number, year: number): number {
   const o = ordinaryLossFromMembers(line, 100, year, seed);
-  return o.realised / o.expected / (o.luck.reduce((a, b) => a + b, 0) / o.luck.length);
+  return o.realised / o.expected / (o.luck.reduce((a, f, i) => a + f * o.risk[i], 0) / o.luck.length);
 }
 
 type TableOf = (line: StaticClfLine) => ClfTable;

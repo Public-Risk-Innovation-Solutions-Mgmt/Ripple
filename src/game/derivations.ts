@@ -151,8 +151,7 @@ export function underwritingFigures(
 ): UnderwritingFigures | null {
   if (MEMBER_LEVEL.enabled) return null;
   const { poolState, currentYearNumber } = gameState;
-  const move = moveBook(line, poolState.lines[line].bookExposure ?? 0, d, false, false, currentYearNumber,
-    poolState.lines[line].bookQuality ?? 1, poolState.lines[line].intakeCohorts ?? []);
+  const move = moveBook(line, poolState.lines[line].bookExposure ?? 0, d, false, false, currentYearNumber);
   const dollarsPerUnit = exposureFactor(line, currentYearNumber) * 10_000 * ratePer100;
   return { nonRenewedPremium: move.renewedOff * dollarsPerUnit, newBusinessPremium: move.written * dollarsPerUnit };
 }

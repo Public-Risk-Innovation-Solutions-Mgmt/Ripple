@@ -25,7 +25,7 @@
 // ============================================================================
 
 import {
-  ADMIN_BASE_YEAR, adminFixedPerYear, adminPerExposurePer100, ADMIN_TREND_PER_YEAR,
+  ADMIN_BASE_YEAR, ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR,
 } from '../../src/data/pricingParameters';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -73,7 +73,7 @@ function gradeBooked(games: Played[], trend: Trend, tag: string, overrun: Overru
     const billed = x.billedExposure ?? x.activeExposure;
     const priced = x.ratedExposure ?? billed;
     const [tf, te] = trend(r.yearNumber);
-    const per100 = tf * adminFixedPerYear(l) / (priced * 10_000) + te * adminPerExposurePer100(l);
+    const per100 = tf * ADMIN_FIXED_PER_YEAR[l] / (priced * 10_000) + te * ADMIN_PER_EXPOSURE_PER_100[l];
     const want = billed * per100 / expenseDivisor(effectiveRiskControlIncentivePct(x.decisions), l) * 10_000;
     n++;
     worst = Math.max(worst, Math.abs(x.adminExpense / want - 1));

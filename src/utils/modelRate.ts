@@ -19,7 +19,7 @@
 // ============================================================================
 import { pricingLineState } from './worlds';
 import {
-  ADMIN_BASE_YEAR, adminFixedPerYear, adminPerExposurePer100, ADMIN_TREND_PER_YEAR, PRICING_DATA_LAG_YEARS,
+  ADMIN_BASE_YEAR, ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ADMIN_TREND_PER_YEAR, PRICING_DATA_LAG_YEARS,
   PROFIT_AND_CONTINGENCY_OF_RATE, RESERVE_INFLATION_PRICED_YEARS,
 } from '../data/pricingParameters';
 import { bookPurePremium, lossCostTrendPerYear, type NewPurePremiumResult } from './newPurePremium';
@@ -221,7 +221,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   const ratePer100 = oneWorld ? premium / Math.max(chargedExposure * 10_000, 1) : quote.finalRatePer100;
 
   const rateE = atExpected.firstIndicationPer100;
-  const fixedPer100 = adminTrendFactor(yearNumber) * adminFixedPerYear(line) / Math.max(quotedExposure * 10_000, 1);
+  const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(quotedExposure * 10_000, 1);
   const rc = effectiveRiskControlIncentivePct(d);
   const total = atExpected.adminRatePer100 / rateE + rc + PROFIT_AND_CONTINGENCY_OF_RATE[line];
   const reinsurancePer100 = oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100;
@@ -243,13 +243,13 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     alaeShare: lae.alae, ulaeShare: lae.ulae, alaePer100: pp.alaePer100, ulaePer100: pp.ulaePer100,
     projectedPurePremiumPer100: pp.purePremiumPer100,
     currentLevelPurePremiumPer100: pp.purePremiumPer100 / annualTrend,
-    adminFixed: adminFixedPerYear(line), adminPerExposurePer100: adminPerExposurePer100(line),
+    adminFixed: ADMIN_FIXED_PER_YEAR[line], adminPerExposurePer100: ADMIN_PER_EXPOSURE_PER_100[line],
     adminTrend: {
       perYear: ADMIN_TREND_PER_YEAR, baseYear: calendarOf(gs, ADMIN_BASE_YEAR),
       years: yearNumber - ADMIN_BASE_YEAR, factor: adminTrendFactor(yearNumber),
     },
-    adminFixedTrended: adminFixedPerYear(line) * adminTrendFactor(yearNumber),
-    adminPerExposureTrendedPer100: adminPerExposurePer100(line) * adminTrendFactor(yearNumber),
+    adminFixedTrended: ADMIN_FIXED_PER_YEAR[line] * adminTrendFactor(yearNumber),
+    adminPerExposureTrendedPer100: ADMIN_PER_EXPOSURE_PER_100[line] * adminTrendFactor(yearNumber),
     quotedExposure, adminPer100: adminRatePer100For(line, quotedExposure, yearNumber),
     funding: { label: fundingLabel(d), clf: quote.clf },
     riskControl: rc, divisor: expenseDivisor(rc, line),

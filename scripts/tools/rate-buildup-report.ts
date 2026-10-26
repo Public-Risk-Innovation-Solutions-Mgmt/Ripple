@@ -68,7 +68,7 @@ import { getMemberExposure } from '../../src/utils/lineHelpers';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { layerPremium, expectedCededForLayer } from '../../src/utils/reinsuranceTower';
 import {
-  adminFixedPerYear, adminPerExposurePer100, ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
+  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
   NEW_RATE_STACK, PRICING_WINDOW_YEARS_NEW, PROFIT_AND_CONTINGENCY_OF_RATE,
   REINSURANCE_LOAD,
 } from '../../src/data/pricingParameters';
@@ -224,10 +224,10 @@ console.log(`  = funded retained loss cost per $100                   ${r4(w.quo
 
 // ---------------------------------------------------------------------------
 console.log('\n--- 3. ADMINISTRATION ---');
-console.log(`  fixed per year                                   ${m$(adminFixedPerYear(LINE)).padStart(16)}`);
+console.log(`  fixed per year                                   ${m$(ADMIN_FIXED_PER_YEAR[LINE]).padStart(16)}`);
 console.log(`  over exposure of ${w.exposure.toFixed(2)} $M                        `
-  + `${r4(adminFixedPerYear(LINE) / Math.max(w.exposure * 10_000, 1)).padStart(10)} per $100`);
-console.log(`  + per-exposure rate                                    ${r4(adminPerExposurePer100(LINE)).padStart(10)} per $100`);
+  + `${r4(ADMIN_FIXED_PER_YEAR[LINE] / Math.max(w.exposure * 10_000, 1)).padStart(10)} per $100`);
+console.log(`  + per-exposure rate                                    ${r4(ADMIN_PER_EXPOSURE_PER_100[LINE]).padStart(10)} per $100`);
 console.log(`  = ADMIN RATE per $100                                  ${r4(w.quote.adminRatePer100).padStart(10)}`);
 
 // ---------------------------------------------------------------------------
