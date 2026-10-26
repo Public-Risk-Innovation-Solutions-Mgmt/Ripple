@@ -261,8 +261,11 @@ export const DEVELOPMENT_TAIL = { closed: true } as const;
  * the same value, and tableAtBaselineCv throws on a CV with no table (tables
  * exist at 2, 4, 6, 8, 10, 12 and 15%).
  *
- * ⚠ CHOSEN, NOT SOURCED. WC 6%, Property 8%, GL 10%. In use since the funding
- * tables wiring. Over a book of about 60 units the line's ordinary loss CV is
+ * ⚠ SET DELIBERATELY BY THE PROJECT LEAD: WC 6%, GL 10%, Property 8%. At the R
+ * model's 2% the funding tables were too close together — every funding level
+ * priced almost the same — so the higher, line-specific values make the tables
+ * differ by line and give the funding slider a meaningful range. In use since
+ * the funding tables wiring. Over a book of about 60 units the line's ordinary loss CV is
  * sqrt((1+B^2)(1+0.10^2 H) - 1), H about 0.021: about 6.2% on WC, 8.1% on
  * Property and 10.1% on GL, against 2.5% on every line before.
  */
@@ -1659,7 +1662,10 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'One setting for two things, so they can never disagree: it drives both the engine\'s ordinary '
           + 'loss draw (replacing the 2% year factor every line shared) and which funding table the line reads. '
-          + 'baseline-cv-table-check holds the two to the same value.',
+          + 'baseline-cv-table-check holds the two to the same value. Set deliberately by the project lead: at '
+          + 'the R model\'s 2% the funding tables were too close together — every funding level priced almost the '
+          + 'same — so the higher, line-specific values make the tables differ by line and give the funding slider '
+          + 'a meaningful range.',
       }],
       ['CLF tables', {
         value: 'the BaselineCV tables, in clfTables.ts', unit: 'multiplier on the retained pure premium',
