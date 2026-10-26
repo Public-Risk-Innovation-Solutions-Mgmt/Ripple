@@ -83,7 +83,7 @@ async function solo(browser) {
   await page.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
   await page.locator('[data-testid="scenario"]').selectOption('7');
   await page.locator('input[type="range"]').first().fill(String(LENGTH));
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
 
   async function readExports(known, knownNumber, name, row) {
@@ -205,7 +205,7 @@ async function tClaimsGame(browser) {
     if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
   }
   await page.locator('input[type="range"]').first().fill(String(T_LENGTH));
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
 
   /** The Claims workbook's T claims: its rows whose Event names an event. */

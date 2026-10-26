@@ -668,28 +668,23 @@ export interface TeamView {
 }
 
 /**
- * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE DOES NOT READ IT YET.
+ * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE READS IT.
  *
- * A signed fraction of the opening reserve: POSITIVE IS ADVERSE (prior years
- * develop upward, the pool owes more than it booked) and NEGATIVE IS FAVOURABLE.
- * So 0.03 is "3% adverse" and -0.02 is "2% favourable", which is how the host
- * screen phrases it.
+ * A signed fraction: POSITIVE IS ADVERSE (prior years develop upward, the pool
+ * owes more than it booked) and NEGATIVE IS FAVOURABLE. So 0.03 is "3% adverse"
+ * and -0.02 is "2% favourable", which is how the host screen phrases it.
  *
- * ⚠ STORED, NOT USED. Nothing in the engine reads this field today. It is
- * carried on the room so that a future update can apply it to the opening
- * reserves without a second contract change and without re-creating rooms made
- * before it lands. The host screen says so on screen, in those words, because a
- * number beside a line that quietly does nothing is worse than no number.
- *
- * A line absent from the record takes no development, which is also what an old
- * room record — written before this field existed — reads as.
+ * It is the share of each open older accident year's reserve that develops
+ * over its remaining life, in total, emerging as it pays (utils/hostDevelopment;
+ * setup.priorDevelopment, read by the engine and the pre-game). The host screen
+ * says so on screen. A line absent from the record reads the engine's default
+ * (PRIOR_DEVELOPMENT_DEFAULTS), which is also what an old room record reads as.
  */
 export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
 
 /**
- * The defaults the host screen offers. They are the SCREEN's defaults, not the
- * engine's: the engine has no opinion here yet (see PriorDevelopment), so these
- * are starting points a host is expected to edit, not calibrated constants.
+ * The defaults the host screen offers — the engine's own defaults, the same
+ * values, so a host who changes nothing plays what an unset line plays.
  */
 // ⚠ DEFINED IN src/data/pricingParameters.ts NOW, re-exported here. Same values.
 export { PRIOR_DEVELOPMENT_DEFAULTS as DEFAULT_PRIOR_DEVELOPMENT } from '../data/pricingParameters';
@@ -731,7 +726,7 @@ export interface RoomView {
    * host clicked them.
    */
   lines: CoverageLine[];
-  /** Per-line prior development, stored and not yet read. See PriorDevelopment. */
+  /** Per-line prior development, read by the engine (setup.priorDevelopment). See PriorDevelopment. */
   priorDevelopment: PriorDevelopment;
   /**
    * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding

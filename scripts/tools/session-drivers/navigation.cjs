@@ -39,7 +39,7 @@ const active = page => page.locator('nav').first().locator('button.border-blue-6
   await solo.reload();
   await solo.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
   ok(true, 'solo: a game still starts from the Game Setup page');
-  await solo.getByRole('button', { name: 'Start Simulation' }).click();
+  await solo.getByRole('button', { name: 'Single player', exact: true }).click();
   await solo.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   const s = await bar(solo);
   ok(JSON.stringify(s) === JSON.stringify(SOLO), 'solo: the top bar, in order', s.join(' | '));
