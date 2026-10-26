@@ -34,8 +34,12 @@ on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
    $38M xs $2M and reads WC 23.8%, GL 24.8%, Property 1.8%, pool 10.0%, because
    the one T claim sits wholly above the attachment and all its development is
    ceded. Measured that the T claims develop with their cohorts (GL +31% against
-   +38%), so it is not a routing concentration. The limits' re-derivation stays
-   deferred.
+   +38%), so it is not a routing concentration. **Ruled: it stays on the
+   expected-red list until adverse development lands. When adverse development
+   lands, re-derive its limits (6% per line, 1.5% pool) for the new design —
+   one T claim per event-line above the attachment, developing with adverse
+   development — and take it off the EXPECTED_RED list in `scripts/gates.ts`
+   then.**
 4. **Value and export baselines** recaptured as VALUE_IDENTITY_v84 and
    SOLO_EXPORT_GUARD_v92: the control (19b6f17) moves 21,101 of 39,600 values
    and all 24 exports, the landing's own movement; the owed-checks commits move
