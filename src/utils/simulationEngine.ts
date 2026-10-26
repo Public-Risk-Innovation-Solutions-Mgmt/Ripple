@@ -5646,7 +5646,13 @@ function processIbner(
       // experience-pricing-drift-check forbid it. The shipped game (flag on)
       // is unchanged by construction; only the flag-off arm now pays inflation
       // the same way.
-      if (FORWARD_BOOKING.enabled || reserveInflationRate > 0) {
+      // ⚠ AND WHENEVER ADVERSE DEVELOPMENT RAISES IT (wip/adverse-development),
+      // for the same reason: it raises the ultimate on the same basis and route
+      // as reserve inflation, so gated without it the flag-off arm left the
+      // raise unpaid, the next year's rate compounded on the larger balance,
+      // and FORWARD_BOOKING decided how much developed — ratemaking-loop-check
+      // read the arms 1.01e-2 apart with reserve inflation off.
+      if (FORWARD_BOOKING.enabled || reserveInflationRate > 0 || adverseRateFor !== undefined) {
         const paidTarget = newUltimate * cumulativePaid(LINE_PAYOUT_PATTERN[line], c.age + 2);
         const trueUp = Math.max(0, Math.min(paidTarget - newPaid, newUnpaid));
         if (trueUp > 0) {
