@@ -17,6 +17,16 @@
 //      prices like the engine: on one world, in a year its book does not move,
 //      it reproduces the rate the engine charged. And the Decisions panel, on
 //      the averaged state, shows the player that same rate.
+//      ⚠ RESTATED FOR THE SHOCKS LANDING (2ae5c1a): a T cover is a FIXED
+//      PRICE in dollars, quoted on the book before movement and grown by
+//      shockCost.shockCostFactor, and it is billed as itself — not the struck
+//      per-$100 rate x the book after movement (about 5% over). So the rate a
+//      world is charged is the struck quote with its cover re-spread on the
+//      moved book: struck rate - struck cover rate + cover $ / moved book; its
+//      cover dollars are the struck quote's exactly. On a line with no cover
+//      the two are the struck rate, as before. The ledger this gate averages
+//      is the shock-free shadow's once one runs (SHOCK_FREE_PRICING), and the
+//      panel replica carries the cover's base exposure, as derivations.ts does.
 //   3. AVERAGED DOLLARS ARE THE MEAN OF THE WORLDS, line and pool.
 //   4. RATIOS COME FROM AVERAGED PARTS. Each averaged ratio is its averaged
 //      numerator over its averaged denominator — never the mean of the worlds'
@@ -25,8 +35,13 @@
 //      the engine and not in worlds.ts fails here.
 //   5. TWO TEAMS ON IDENTICAL DECISIONS MATCH EXACTLY — every world and the
 //      average.
-//   6. SHOCKS: a solo game's schedule and a host's both fire in every world,
-//      with severity drawn per world (solo-shock-schedule-check has the rest).
+//   6. SHOCKS: a solo game's schedule and a host's both fire in every world.
+//      ⚠ RESTATED FOR THE SHOCKS LANDING: every shock draw is keyed on the GAME
+//      seed (shockLosses.shockSeedOf), so every world shares the event's size
+//      draws and its T claim — the severity is the game's, not the world's (it
+//      was "drawn per world"); what a world books to it still differs, by the
+//      world's own ordinary year under the A (solo-shock-schedule-check has the
+//      rest).
 //
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over data, and THE
 // CONTROLS at the foot feed each one a deliberately broken input and require it
@@ -40,23 +55,24 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear, strikeBookRate } from '../../src/utils/simulationEngine';
 import {
   averageLedger, commitSettledYear, deriveLineRatios, LINE_RATIO_FIELDS, openWorlds, playWorldsYear,
-  settleWorldsYear, strikeRates, worldInstance, worldCount,
+  pricingLineState, settleWorldsYear, strikeRates, worldInstance, worldCount,
 } from '../../src/utils/worlds';
 import { lineBookRisk, marketSeedOf } from '../../src/utils/bookUnits';
-import { WORLD_COUNT } from '../../src/data/pricingParameters';
+import { SHOCK_FREE_PRICING, WORLD_COUNT } from '../../src/data/pricingParameters';
+import { firingsStartingIn } from '../../src/utils/shockLosses';
 import { exposureFactor } from '../../src/data/exposureTrend';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
 import { bookPurePremium } from '../../src/utils/newPurePremium';
 import { effectiveRiskControlIncentivePct } from '../../src/utils/linePricing';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
 import type {
-  CoverageLine, DecisionSet, GameState, LineResultSet, ResultSet,
+  CoverageLine, DecisionSet, GameInstance, GameState, LineResultSet, ResultSet,
 } from '../../src/types/simulation';
 import { SOLO_SHOCKS } from '../../src/data/pricingParameters';
-// ⚠ SHOCKS ARE OFF IN SINGLE-PLAYER (SOLO_SHOCKS, pending the data scientist),
-// and this gate tests how fired shocks are handled — which hosted games still
-// do — through solo games. Their schedule is switched on here so it has
-// shocks to test, rather than passing on none.
+// ⚠ SHOCKS WERE OFF IN SINGLE-PLAYER (SOLO_SHOCKS), and this gate tests how
+// fired shocks are handled through solo games, so it switched them on. Since
+// the shocks landing SOLO_SHOCKS ships on (the catalogue draw); this stays as
+// a guard should it be switched off again.
 SOLO_SHOCKS.enabled = true;
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -70,7 +86,10 @@ const check = (ok: boolean, label: string, detail = '') => {
 /** A game's decisions by year: defaults, with a non-default cover and funding on GL. */
 function decisionsFor(y: number): DecisionSet {
   const d = defaultDecisionSet(y);
-  d.byLine.GL.reinsuranceOption = 'catastrophe';
+  // ⚠ A T COVER SINCE THE SHOCKS LANDING (2ae5c1a): the aggregate stop's
+  // 'catastrophe' option is retired (AGGREGATE_STOP off); the per-occurrence
+  // T covers are what a team buys, and None is the default.
+  d.byLine.GL.reinsuranceOption = '$18M xs $2M';
   d.byLine.GL.fundingAtExpected = false;
   d.byLine.GL.fundingConfidenceLevel = 0.75;
   return d;
@@ -180,6 +199,34 @@ function worldsDiffer(worldRows: (LineResultSet | ResultSet)[]): boolean {
     && new Set(worldRows.map(r => r.investmentIncome)).size > 1;
 }
 
+/**
+ * THE BILL FROM A QUOTE (the shocks landing): the quote's rate with its fixed
+ * cover — `cover` dollars, quoted before movement — re-spread on the book the
+ * world bills, `moved` exposure. Problems if the row's rate or cover differ.
+ */
+type Quote = { finalRatePer100: number; reinsRatePer100: number };
+function billedFrom(q: Quote, cover: number, moved: number, row: Pick<LineResultSet, 'finalRatePer100' | 'reinsuranceCost'>): string[] {
+  const want = q.finalRatePer100 - q.reinsRatePer100 + cover / Math.max(moved * 10_000, 1);
+  const out: string[] = [];
+  if (!(Math.abs(want - (row.finalRatePer100 ?? NaN)) <= 1e-12 * Math.abs(want))) out.push(`rate ${row.finalRatePer100} vs the quote re-spread ${want}`);
+  if (!(Math.abs(cover - row.reinsuranceCost) <= 1e-9 * Math.max(1, cover))) out.push(`cover $${row.reinsuranceCost} vs quoted $${cover}`);
+  return out;
+}
+
+/** 6. One T claim, the same in every world (each world's claims as JSON). */
+const oneTClaim = (perWorld: string[]) => perWorld.length > 0 && perWorld[0] !== '[]' && new Set(perWorld).size === 1;
+
+/** 6. Every world's draws for each scheduled event are one: the game's (shockSeedOf). */
+function drawsShared(insts: GameInstance[], sched: ReadonlyArray<{ shockId: string; yearNumber: number }>): string[] {
+  const out: string[] = [];
+  for (const s of sched) {
+    const draws = insts.map(i => JSON.stringify(firingsStartingIn(i, 'host', s.yearNumber).filter(f => f.event.id === s.shockId).map(f => f.draws)));
+    if (draws[0] === '[]') out.push(`${s.shockId} in year ${s.yearNumber} does not fire`);
+    else if (new Set(draws).size !== 1) out.push(`${s.shockId} in year ${s.yearNumber}: ${new Set(draws).size} distinct draws in ${draws.length} worlds`);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 console.log(`=== TEN WORLDS — WORLD_COUNT ${WORLD_COUNT}, three-line solo games, ${YEARS} years ===`);
 check(worldCount() === WORLD_COUNT && WORLD_COUNT > 1, `the new engine runs ${WORLD_COUNT} worlds`);
@@ -224,16 +271,30 @@ console.log('\n--- 1. worlds differ only in their draws ---');
     'the opening every world shares is untouched after the game — no world wrote to it');
 }
 
+// The book a world bills in year y: the book after the year's movement — the
+// book the next year opens on (every world shares the game's book) — at year y's
+// exposure factor.
+const movedExposure = (y: number, l: CoverageLine) =>
+  ((y < YEARS ? A.starts[y] : gs).poolState.lines[l].bookExposure ?? 0) * exposureFactor(l, y);
+// One world, not struck: the moved book's quote, its cover the pre-movement quote's.
+let oneWorldBill: (q: Quote, cover: number, moved: number, row: LineResultSet) => string[] = billedFrom;
+// The panel's book carries the cover's base exposure (derivations.ts); dropped by a control.
+let panelBase = (ls: GameState['poolState']['lines'][CoverageLine]) =>
+  (ls.shockCostBaseExposure !== undefined ? { shockBase: ls.shockCostBaseExposure } : {});
+
 console.log('\n--- 2. one rate, identical across worlds, struck from the averaged history ---');
-{
+// A function, so the controls can re-run it with a piece broken.
+function section2() {
   const bad: string[] = [];
-  let struckOk = true;
+  let struckOk = true; const struckBad: string[] = [];
   for (let y = 1; y <= YEARS; y++) {
     const start = A.starts[y - 1];
     for (const l of LINES) {
       bad.push(...rateIdentical(W.map(w => w.lockedResults[y - 1].byLine[l])).map(e => `Y${y} ${l} ${e}`));
-      // The averaged ledger, built here from the worlds' own ledgers.
-      const own = start.worlds!.map(w => w.poolState.lines[l].reserveDevelopment ?? []);
+      // The averaged ledger, built here from the worlds' own ledgers — the
+      // shock-free shadow's once one runs (SHOCK_FREE_PRICING, the shocks landing).
+      const priced = SHOCK_FREE_PRICING.enabled && start.pricingShadow ? start.pricingShadow : start;
+      const own = priced.worlds!.map(w => w.poolState.lines[l].reserveDevelopment ?? []);
       // ⚠ EVERY SERIES, NOT ONLY THE ULTIMATES. The pure premium reads paid-to-date
       // too; this construction once averaged the ultimates alone — the same
       // omission averageLedger had — so it agreed with a rate struck on world
@@ -259,15 +320,15 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
       const mine = strikeBookRate(l, { ...start.poolState.lines[l], reserveDevelopment: ledger, bookExposure: book },
         decisionsFor(y).byLine[l], y, { allMarketMembers: [], membershipHistory: {} },
         lineBookRisk(start.instance, l, start.poolState.bookUnits, start.poolState.bookLedger));
-      const charged = W[0].lockedResults[y - 1].byLine[l].finalRatePer100;
-      if (!mine || Math.abs(mine.quote.finalRatePer100 - (charged ?? NaN)) > 1e-12 * mine.quote.finalRatePer100) struckOk = false;
+      const problems = mine ? billedFrom(mine.quote, mine.quote.reinsuranceCost, movedExposure(y, l), W[0].lockedResults[y - 1].byLine[l]) : ['no rate struck'];
+      if (problems.length) { struckOk = false; struckBad.push(`Y${y} ${l}: ${problems.join(', ')}`); }
     }
   }
   check(bad.length === 0, 'every rate field is bit-identical in every world, every line, every year', bad[0] ?? '');
-  check(struckOk, 'and equals the rate struck on a ledger this gate averages for itself');
+  check(struckOk, 'and equals the rate struck on a ledger this gate averages for itself, its fixed cover re-spread on the moved book', struckBad.slice(0, 3).join('; '));
   // The striking function prices like the engine: one world, a year with no book movement.
   const one = { ...A.starts[0], worlds: undefined };
-  let ok = 0, tried = 0;
+  let ok = 0, tried = 0; const oneBad: string[] = [];
   const p1 = processYear(one, decisionsFor(1));
   for (const l of LINES) {
     const r = p1.result.byLine[l];
@@ -277,22 +338,28 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
     const moved = { ...one.poolState.lines[l], bookExposure: p1.updatedPoolState.lines[l].bookExposure };
     const s = strikeBookRate(l, moved, decisionsFor(1).byLine[l], 1, { allMarketMembers: [], membershipHistory: {} },
       lineBookRisk(one.instance, l, p1.updatedPoolState.bookUnits, p1.updatedPoolState.bookLedger));
+    // ⚠ THE COVER IS QUOTED ON THE BOOK BEFORE MOVEMENT (the shocks landing).
+    const pre = strikeBookRate(l, one.poolState.lines[l], decisionsFor(1).byLine[l], 1, { allMarketMembers: [], membershipHistory: {} },
+      lineBookRisk(one.instance, l, one.poolState.bookUnits, one.poolState.bookLedger));
     tried++;
-    if (s && Math.abs(s.quote.finalRatePer100 - (r.finalRatePer100 ?? NaN)) < 1e-12 * s.quote.finalRatePer100) ok++;
+    const problems = s && pre ? oneWorldBill(s.quote, pre.quote.reinsuranceCost, s.exposure, r) : ['no rate struck'];
+    if (problems.length === 0) ok++;
+    else oneBad.push(`${l}: ${problems.join(', ')}`);
   }
-  check(tried > 0 && ok === tried, `strikeBookRate reproduces the engine's own charge on one world (${ok} of ${tried} lines)`);
+  check(tried > 0 && ok === tried, `strikeBookRate reproduces the engine's own charge on one world (${ok} of ${tried} lines)`, oneBad.join('; '));
   // THE RATE THE PLAYER IS SHOWN IS THE RATE EVERY WORLD IS CHARGED. The
   // Decisions panel, given the averaged state exactly as derivations.ts gives it
   // (a book's exposure and the ledger's pure premium), quotes the struck rate.
-  let panelOk = 0, panelTried = 0, panelWorst = 0;
+  let panelOk = 0, panelTried = 0, panelWorst = 0; const panelBad: string[] = [];
   for (let y = 1; y <= YEARS; y++) {
     const start = A.starts[y - 1];
     for (const l of LINES) {
-      const ls = start.poolState.lines[l];
+      // The pricing state, the shadow's ledger once one runs (as derivations.ts reads it).
+      const ls = pricingLineState(start, l);
       const d = decisionsFor(y).byLine[l];
       const exposure = (ls.bookExposure ?? 0) * exposureFactor(l, y);
       const c = computeFundingConsequence(d.fundingConfidenceLevel, ls.ratePer100, l, d.fundingAtExpected, {
-        yearNumber: y, members: { exposure, risk: lineBookRisk(start.instance, l, start.poolState.bookUnits, start.poolState.bookLedger) ?? 1 }, exposure,
+        yearNumber: y, members: { exposure, risk: lineBookRisk(start.instance, l, start.poolState.bookUnits, start.poolState.bookLedger) ?? 1, ...panelBase(ls) }, exposure,
         layersPlaced: placementFor(l, d.reinsuranceOption), aggregateStopLevel: AGGREGATE_NOT_OFFERED, reinsuranceOption: d.reinsuranceOption,
         pricingAdjustment: ls.rateLevel / 100, priorPurePremiumPer100: ls.purePremiumPer100,
         lossTrend: start.instance.lossEnvironment.lossTrend, priorRcEffectiveness: ls.riskControlEffectiveness,
@@ -303,20 +370,25 @@ console.log('\n--- 2. one rate, identical across worlds, struck from the average
         }, exposure).purePremiumPer100,
         newStackRiskControlPct: effectiveRiskControlIncentivePct(d),
       });
-      const shown = c.newStack?.finalRatePer100;
-      const charged = W[0].lockedResults[y - 1].byLine[l].finalRatePer100;
+      // The panel shows the quote; the world bills it with the cover re-spread
+      // on the moved book (the shocks landing) — the same bill, from the panel.
+      const shown = c.newStack;
+      const charged = W[0].lockedResults[y - 1].byLine[l];
       panelTried++;
-      if (shown !== undefined && charged !== undefined) {
-        const rel = Math.abs(shown / charged - 1);
+      if (shown !== undefined && charged.finalRatePer100 !== undefined) {
+        const rel = Math.abs((shown.finalRatePer100 - shown.reinsRatePer100 + shown.reinsRatePer100 * exposure / movedExposure(y, l)) / charged.finalRatePer100 - 1);
+        const problems = billedFrom(shown, shown.reinsRatePer100 * exposure * 10_000, movedExposure(y, l), charged);
         panelWorst = Math.max(panelWorst, rel);
-        if (rel < 1e-12) panelOk++;
+        if (problems.length === 0) panelOk++;
+        else panelBad.push(`Y${y} ${l} ${problems.join(', ')}`);
       }
     }
   }
   check(panelTried > 0 && panelOk === panelTried,
     `the Decisions panel on the averaged state shows the rate every world is charged (${panelOk} of ${panelTried})`,
-    `worst ${panelWorst.toExponential(2)}`);
+    `worst ${panelWorst.toExponential(2)}${panelBad.length ? `; off: ${panelBad.join(', ')}` : ''}`);
 }
+section2();
 
 console.log('\n--- 3. averaged dollars are the mean of the worlds ---');
 {
@@ -376,6 +448,8 @@ const B = play('WCHK1', 5_150_515);
 check(JSON.stringify(B.gs.lockedResults) === JSON.stringify(gs.lockedResults)
   && JSON.stringify(B.gs.worlds) === JSON.stringify(gs.worlds), 'every world and the average, byte for byte');
 
+let hostDraws: { insts: GameInstance[]; sched: ReadonlyArray<{ shockId: string; yearNumber: number }> } = { insts: [], sched: [] };
+let hostT: string[] = [];
 console.log('\n--- 6. shocks ---');
 {
   const fired = gs.lockedResults.flatMap(r => r.shockEvents ?? []).map(e => e.worlds?.fired ?? 0);
@@ -384,8 +458,20 @@ console.log('\n--- 6. shocks ---');
   const H = play('WCHK2', 7_070_707, { shocks: [{ shockId: '#2', yearNumber: 2 }] });
   const ev = (H.gs.lockedResults[1].shockEvents ?? []).find(e => e.shockId === '#2');
   check(ev?.worlds?.fired === WORLD_COUNT, `a host-scheduled event fires in every world (${ev?.worlds?.fired ?? 0} of ${WORLD_COUNT})`);
+  // ⚠ THE SHOCKS LANDING: the severity is the game's — the same draws and the
+  // same T claim in every world — and the dollars a world books to it differ
+  // only by its own ordinary year under the A.
+  const hostInsts = H.gs.worlds!.map((_, i) => worldInstance(H.gs.instance, i));
+  hostDraws = { insts: hostInsts, sched: H.gs.instance.scheduledShocks ?? [] };
+  const shared = drawsShared(hostInsts, hostDraws.sched);
+  const tClaims = H.gs.worlds!.map(w => JSON.stringify((w.lockedResults[1].byLine.Property.claims ?? [])
+    .filter(c => c.tier === 'shock' && c.accidentYear === 2).map(c => c.grossUltimate)));
+  hostT = tClaims;
+  check(shared.length === 0 && oneTClaim(tClaims),
+    'with its severity the game\'s: the same draws, and the same T claim, in every world',
+    shared[0] ?? `T claim ${tClaims[0]} in ${new Set(tClaims).size} distinct form(s) over ${tClaims.length} worlds`);
   const sev = H.gs.worlds!.map(w => (w.lockedResults[1].shockEvents ?? []).find(e => e.shockId === '#2')?.attributableGrossLoss ?? 0);
-  check(new Set(sev).size === sev.length, 'with its severity drawn per world', `${new Set(sev).size} distinct of ${sev.length}`);
+  check(new Set(sev).size > 1, 'and what each world books to it still differs, by its own ordinary year', `${new Set(sev).size} distinct of ${sev.length}`);
 }
 
 // ============================================================================
@@ -438,6 +524,37 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   });
   check(wrong.newStack?.finalRatePer100 !== W[0].lockedResults[2].byLine.GL.finalRatePer100,
     'control: a panel quoting a package the team did not buy does not match the charged rate');
+  // ⚠ THE SHOCKS LANDING'S BILL — each fails when broken.
+  // A world billed the struck per-$100 rate on its moved book (the retired bill: the cover ~5% over).
+  {
+    const yy = 2, row = W[0].lockedResults[yy - 1].byLine.GL;
+    const q = strikeRates(A.starts[yy - 1], decisionsFor(yy)).GL!.quote;
+    const old = { finalRatePer100: q.finalRatePer100, reinsuranceCost: q.reinsRatePer100 * movedExposure(yy, 'GL') * 10_000 };
+    check(billedFrom(q, q.reinsuranceCost, movedExposure(yy, 'GL'), row).length === 0
+      && billedFrom(q, q.reinsuranceCost, movedExposure(yy, 'GL'), old).length > 0,
+      'control: a T cover billed as the struck rate x the moved book is caught');
+  }
+  // The section 2 checks re-run with a piece broken; each must add a failure.
+  const rerun2 = (name: string, breakIt: () => () => void) => {
+    const restore = breakIt();
+    const before = failures.length;
+    const saved = console.log; console.log = () => {};
+    try { section2(); } finally { console.log = saved; restore(); }
+    const caught = failures.splice(before).length;
+    check(caught > 0, `control: ${name} is caught by 2`, `${caught} check(s) failed`);
+  };
+  rerun2('a one-world bill whose cover is quoted on the moved book', () => {
+    const was = oneWorldBill;
+    oneWorldBill = (q, _cover, moved, row) => billedFrom(q, (q as { reinsuranceCost?: number }).reinsuranceCost ?? 0, moved, row);
+    return () => { oneWorldBill = was; };
+  });
+  rerun2('a panel whose cover is not grown by the book (no base exposure)', () => {
+    const was = panelBase; panelBase = () => ({}); return () => { panelBase = was; };
+  });
+  // Severity drawn per world (the retired design): every world's instance keyed on its own seed.
+  check(drawsShared(hostDraws.insts.map(i => ({ ...i, marketSeed: undefined })), hostDraws.sched).length > 0,
+    'control: severity drawn per world (shocks keyed on the world\'s seed) is caught');
+  check(oneTClaim(hostT) && !oneTClaim([...hostT.slice(0, -1), JSON.stringify([1e6])]), 'control: a T claim that differs in one world is caught');
   // Two teams that do not match.
   const C = play('WCHK3', 5_150_516);
   check(JSON.stringify(C.gs.lockedResults) !== JSON.stringify(gs.lockedResults),

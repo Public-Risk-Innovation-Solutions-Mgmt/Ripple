@@ -39,6 +39,29 @@
 //   6. THE FEEDBACK GAIN: how far the reinsurance rate per $100 moves when the
 //      book moves. Well below 1 damps.
 //
+// ⚠ RESTATED FOR THE SHOCKS LANDING (wip/shocks, 2ae5c1a). The tower no longer
+// prices from its moments: occurrenceProgramCost charges each layer's FIXED
+// price (REINSURANCE_PRICE, solved per layer) x shockCost.shockCostFactor —
+// the line's trend from year 1 x the book's exposure against year 1's
+// (`shockBase`). The moments stay, as the expected ceded "for the record", on
+// T claims of fixed dollars grown by the trend only (an expectation has no
+// year-1 base). So:
+//   1. PURITY is asked of the PRICE a team is charged, on a book that carries
+//      its year-1 base: cold === warm, a distinct price every year (the trend)
+//      and for a larger book (the exposure ratio). The moments do not move
+//      with the book any more — by design, shockExpectation.conditionalEventMoments.
+//   2. the seam still routes the moments to newEngineLayerMoments; its control
+//      is now a tower read a year late (a book 1% off no longer reaches them).
+//   3. a T claim is the event's own dollars, so the shocks' SD/E is flat in
+//      the book: it still "settles on a floor no higher than at the market".
+//   4. GL's $25M pool limit is gone (POOL_LIMIT_PER_OCCURRENCE null on every
+//      line), so the above-tower band is asserted EXACTLY: each occurrence's
+//      excess over the $40M top, and no pool limit on any line.
+//   5. a pricing pass is now ~2-4% of a game-year (fixed prices; the moments
+//      are the record): the budget is restated to 8%, its control to five
+//      times as slow.
+//   6. the gain is measured on a book with its year-1 base, as the game runs.
+//
 // ⚠ AND EACH FAILS WHEN BROKEN — every assertion is a predicate, and THE
 // CONTROLS feed each one what it guards against.
 // ============================================================================
@@ -47,12 +70,12 @@ import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../../src/data/rei
 import { MEMBER_LEVEL, POOL_LIMIT_PER_OCCURRENCE, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { layerRiskMoments, resetTowerMomentCache } from '../../src/utils/towerMoments';
 import { newEngineLayerMoments } from '../../src/utils/shockExpectation';
-import { occurrenceProgramCost } from '../../src/utils/reinsuranceTower';
+import { occurrenceProgramCost, occurrenceTotals } from '../../src/utils/reinsuranceTower';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import type { CoverageLine, GameState, ResultSet } from '../../src/types/simulation';
+import type { Claim, CoverageLine, GameState, Occurrence, ResultSet } from '../../src/types/simulation';
 
 const LINES: TowerLine[] = ['WC', 'GL', 'Property'];
 const failed: string[] = [];
@@ -84,7 +107,10 @@ console.log(`  opening books: ${LINES.map(l => `${l} $${MARKET[l].toFixed(0)}M`)
 
 // ---------------------------------------------------------------- predicates
 type Price = (line: TowerLine, layer: number, exposure: number, year: number) => number;
-const truePrice: Price = (line, layer, exposure, year) => layerRiskMoments(line, layer, { exposure }, year).expected;
+// The price a team is charged for one layer, on a book whose year-1 base is the
+// market's (shocks landing: the fixed price x the trend x exposure / base).
+const truePrice: Price = (line, layer, exposure, year) =>
+  occurrenceProgramCost(line, REINSURANCE_TOWER[line].map((_l, i) => i === layer), { exposure, shockBase: MARKET[line] }, year).premium;
 const YEARS = 15;
 /** Cold (cache cleared before every year) against warm (out of order, with repeats). */
 function purity(price: Price): { coldEqualsWarm: boolean; yearsDistinct: boolean; sizesDistinct: boolean } {
@@ -123,18 +149,21 @@ function shocksOnly(line: TowerLine, layer: number, exposure: number) {
 /** The routine part (total less shocks) at 1x and 10x: both its mean and its variance scale by exactly 10. */
 const linearInBook = (m1: number, m10: number, v1: number, v10: number) =>
   Math.abs(m10 / m1 - 10) < 1e-6 && Math.abs(v10 / v1 - 10) < 1e-6;
-const aboveTowerOk = (line: CoverageLine, rows: { retainedAboveTower: number; occurrences?: unknown[] }[]) => {
-  const limit = POOL_LIMIT_PER_OCCURRENCE[line];
-  const band = limit === null ? null : Math.max(0, limit - TOWER_TOP[line as TowerLine]);
-  return rows.every(r => r.retainedAboveTower >= 0
-    && (band === null || r.retainedAboveTower <= (r.occurrences ?? []).length * band + 1e-6));
-};
-// ⚠ 40%, AND THE MEASURED FIGURE IS 14-18%. One pricing pass over the three
-// lines is a fifth of a game-year on the new engine (the member gate's warm path
-// was 0.13%): Property's catastrophe convolution is most of it. The budget is a
-// guard against a doubling, set with headroom for FAST's three parallel jobs,
-// not a statement that a fifth is cheap.
-const BUDGET = 0.4;
+// Shocks landing: no pool limit on any line, so a year's above-tower band is
+// exactly each occurrence's excess over the line's $40M top.
+type AboveRow = { retainedAboveTower: number; claims?: Claim[]; occurrences?: Occurrence[] };
+const aboveTowerOk = (line: CoverageLine, rows: AboveRow[]) => POOL_LIMIT_PER_OCCURRENCE[line] === null
+  && rows.every(r => r.retainedAboveTower >= 0
+    && Math.abs(r.retainedAboveTower - occurrenceTotals(r.claims ?? [], r.occurrences ?? [])
+      .reduce((a, x) => a + Math.max(0, x - TOWER_TOP[line as TowerLine]), 0)) < 1);
+// ⚠ 40%, AND THE MEASURED FIGURE WAS 14-18% — until the shocks landing, when
+// the price became the T covers' fixed price and a pass fell to about 2% of a
+// game-year alone and 2.5-3.7% with four runs in parallel (the moments it
+// still computes are the record). RESTATED TO 8%: about 2x headroom over the
+// loaded figure for FAST's parallel jobs, and a pass five times as slow (the
+// control; four was the old one) is still caught at the quiet 1.9%.
+const BUDGET = 0.08;
+const SLOWER = 5;
 const loopGain = (cost: (exposure: number) => number, base: number) => {
   const shrunk = base * 0.9;
   const rateDelta = (cost(shrunk) / shrunk) / (cost(base) / base) - 1;
@@ -151,11 +180,11 @@ console.log('\n--- 1. PURITY: the memo key\'s successor ---');
 }
 
 console.log('\n--- 2. THE SEAM ROUTES TO THE NEW ENGINE ---');
-/** Worst gap between what the tower prices from and newEngineLayerMoments at `scale` x the book. */
-function seamGap(scale: number): number {
+/** Worst gap between the tower's moments and newEngineLayerMoments at `scale` x the book, `late` years on. */
+function seamGap(scale: number, late = 0): number {
   let worst = 0;
   for (const line of LINES) for (const y of [1, 4, 9]) {
-    const direct = newEngineLayerMoments(line, MARKET[line] * scale, y);
+    const direct = newEngineLayerMoments(line, MARKET[line] * scale, y + late);
     REINSURANCE_TOWER[line].forEach((_l, i) => {
       const m = layerRiskMoments(line, i, { exposure: MARKET[line] }, y);
       worst = Math.max(worst, Math.abs(m.expected - direct[i].expected), Math.abs(m.sd - direct[i].sd));
@@ -165,7 +194,7 @@ function seamGap(scale: number): number {
 }
 {
   const g = seamGap(1);
-  check(g === 0, '2. the tower prices from newEngineLayerMoments, exactly', `worst ${g}`);
+  check(g === 0, '2. the tower\'s moments (its expected ceded) are newEngineLayerMoments, exactly', `worst ${g}`);
   console.log('  (the algebra against the draw: shock-loss-check, every event and routine large losses, layer by layer)');
 }
 
@@ -201,7 +230,7 @@ const live = ['TWR0', 'TWR1', 'TWR2', 'TWR3', 'TWR4', 'TWR5', 'TWR6', 'TWR7'].fl
   for (const line of LINES) {
     const rows = live.map(r => r.byLine[line]);
     const above = rows.reduce((a, r) => a + r.retainedAboveTower, 0);
-    check(aboveTowerOk(line, rows), `4. ${line}: above-tower never negative${POOL_LIMIT_PER_OCCURRENCE[line] !== null ? ', and never past the pool limit per occurrence' : ''}`,
+    check(aboveTowerOk(line, rows), `4. ${line}: no pool limit, and above-tower is exactly each occurrence's excess over the $${TOWER_TOP[line] / 1e6}M top`,
       `$${(above / 1e6).toFixed(2)}M over ${rows.length} years`);
   }
   check(live.some(r => LINES.some(l => r.byLine[l].retainedAboveTower > 0)), '4. some year carries a loss above the tower (not vacuous)');
@@ -223,7 +252,8 @@ const timeUs = (f: () => void, n: number) => { const t = process.hrtime.bigint()
 }
 
 console.log('\n--- 6. THE FEEDBACK GAIN ---');
-const towerCost = (line: TowerLine) => (exposure: number) => occurrenceProgramCost(line, REINSURANCE_TOWER[line].map(() => true), { exposure }, 1).premium;
+const towerCost = (line: TowerLine) => (exposure: number) =>
+  occurrenceProgramCost(line, REINSURANCE_TOWER[line].map(() => true), { exposure, shockBase: MARKET[line] }, 1).premium;
 {
   for (const line of LINES) {
     const g = loopGain(towerCost(line), MARKET[line]);
@@ -245,7 +275,7 @@ console.log('\nCONTROLS — each must be caught');
   };
   const p = purity(badKey);
   check(!p.coldEqualsWarm || !p.yearsDistinct, 'control: a price cache that leaves the year out of its key is caught by 1');
-  check(seamGap(1.01) > 0, 'control: a tower priced on a book 1% off is caught by 2');
+  check(seamGap(1, 1) > 0, 'control: a tower\'s moments read a year late are caught by 2');
   const diversifying = SIZES.map(f => 4 / Math.sqrt(f));
   const fl = floorHolds(diversifying);
   check(!(fl.settles && fl.positive && fl.notAboveMarket), 'control: an SD/E that diversifies away like independent risks is caught by 3');
@@ -253,8 +283,17 @@ console.log('\nCONTROLS — each must be caught');
   const rising = floorHolds(SIZES.map(f => 4 + Math.log10(f * 2)));
   check(!(rising.settles && rising.positive && rising.notAboveMarket), 'control: an SD/E that grows with the book is caught by 3');
   check(!aboveTowerOk('GL', [{ retainedAboveTower: -1, occurrences: [] }]), 'control: a negative above-tower year is caught by 4');
-  check(!aboveTowerOk('GL', [{ retainedAboveTower: 10e6 + 1, occurrences: [{}] }]), 'control: GL above-tower past $25M less the $15M top is caught by 4');
-  check(!(shareMeasured * 4 < BUDGET), 'control: pricing four times as slow is caught by 5');
+  const glRows = live.map(r => r.byLine.GL);
+  check(!aboveTowerOk('GL', glRows.map((r, i) => (i === 0 ? { ...r, retainedAboveTower: r.retainedAboveTower + 1e6 } : r))),
+    'control: a GL year $1M off its excess over the top is caught by 4');
+  {
+    const lim = POOL_LIMIT_PER_OCCURRENCE as Record<CoverageLine, number | null>;
+    lim.GL = 25e6;
+    const caught = !aboveTowerOk('GL', glRows);
+    lim.GL = null;
+    check(caught, 'control: GL\'s $25M pool limit restored at runtime is caught by 4');
+  }
+  check(!(shareMeasured * SLOWER < BUDGET), `control: pricing ${SLOWER} times as slow is caught by 5`);
   check(loopGain(e => towerCost('GL')(MARKET.GL) * (e / MARKET.GL) ** 5, MARKET.GL) >= 0.5, 'control: a price that steepens with the book is caught by 6');
 }
 
