@@ -1,15 +1,21 @@
 # How the game calculates its numbers
 
-Read from the executable code on `multiplayer` at commit **6f4dc56** (26 Oct 2026), not from comments or earlier documents. Where a comment disagrees with the code, this document follows the code and lists the disagreement under **Flags** at the end. All constants live in `src/data/pricingParameters.ts` unless another file is named.
+Read from the executable code on `multiplayer` at commit **cc90a58** (26 Oct 2026), the head with adverse development landed. It is not read from comments or earlier documents. Where a comment disagrees with the code, this document follows the code and lists the disagreement under **Flags** at the end. All constants live in `src/data/pricingParameters.ts` unless another file is named.
 
 ## How to read this
 
-**The live engine.** `MEMBER_LEVEL = { enabled: false }`, so `newLossEngineRuns()` is true. Since *simple underwriting* (merged at ebc3b4a), each line is **one book of 100 equal members**. There is no market of units, no unit sizes or risks, and no loss history by unit. The book moves only as **exposure**. Ordinary losses are drawn member by member, and large losses are individual shock claims that land on the line, never on a member. This document leaves out code behind switches that are off and that nothing live reads, but lists the switches themselves.
+**The live engine.** `MEMBER_LEVEL = { enabled: false }`, so `newLossEngineRuns()` is true.
+- **The book.** Each line is **one book of 100 equal members** (simple underwriting). The book moves only as **exposure**. Ordinary losses are drawn member by member, and large losses are shock claims that land on the line.
+- **Development.** Since adverse development landed, **prior accident years develop only by adverse development at a level (Low / Mid / High), and by shock R**. Reserve inflation is off, and the prior-development percentages are retired. Single player has no adverse development.
+- **What is left out.** This document leaves out code behind switches that are off and that nothing live reads, but lists the switches themselves.
 
 | Switch | Value | What it means today |
 |---|---|---|
 | `MEMBER_LEVEL` | off | New loss engine: one book of 100 equal members per line |
 | `NEW_RATE_STACK` | on | The rate is built by `quoteNewRateStack` |
+| `ADVERSE_DEVELOPMENT` | **on** | Each played year, every open prior accident year's outstanding grows by its own λ at the line's level |
+| `SOLO_ADVERSE_DEVELOPMENT` | **off** | Single player stores every line "Off": no adverse development |
+| `RESERVE_INFLATION` | **off** | `RESERVE_INFLATION_PER_YEAR` is 0 on every line; pricing anticipates none |
 | `SOLO_SHOCKS` / `SOLO_SHOCK_DRAW` | on / `'catalogue'` | Single player draws a shock schedule at the start |
 | `SHOCK_FREE_PRICING`, `SHOCKS_OUT_OF_EXPERIENCE` | on, on | Shocks never reach the pure premium |
 | `CATASTROPHE_LOAD` | off | The rate carries no shock allowance |
@@ -24,7 +30,7 @@ Read from the executable code on `multiplayer` at commit **6f4dc56** (26 Oct 202
 
 **Worlds.** Each year runs in 100 worlds (`src/utils/worlds.ts`).
 - **Each world draws its own:** ordinary-loss year factor, each member's luck, and investment market.
-- **All worlds share:** the book and its movement, each member's yearly risk score, the shock schedule and shock sizes, the ALAE ratio, the admin overrun, and the one rate per team-year.
+- **All worlds share:** the book and its movement, each member's yearly risk score, every adverse-development λ, the shock schedule and shock sizes, the ALAE ratio, the admin overrun, and the one rate per team-year.
 - **Every dollar figure on screen is the average across the 100 worlds**, and every ratio is recomputed from the averaged dollars.
 
 **Units.** Exposure is in $M: payroll for WC, payroll or revenue for GL, insured value for Property. Premium = exposure × rate per $100 × 10,000.
@@ -34,7 +40,9 @@ Read from the executable code on `multiplayer` at commit **6f4dc56** (26 Oct 202
 - **Seed:** `seedFromInstanceId('1')` = 177556.
 - **The first priced year** is year 1, 2027.
 - **Default decisions:** funding at Expected, non-renewal 0%, new members 0%, no reinsurance, no dividend, allocation 10/80/10.
-- **The same numbers elsewhere.** A hosted room on seed 1 produces the same WC year 1 to the dollar; it was run through `buildTeamGame` → `replayTeamYears`. With all three lines active, WC is also the same, except for a GL loan offer in 1 of the 100 worlds (5.3).
+- **Development:** every line Off, so no prior year develops.
+- **The same game with adverse development.** It is also run as a **Test player** at WC **Low**, **Mid** and **High**, on the same shock schedule (#5 WC Reform in year 3). Year 1 then differs from Single player only by adverse development.
+- **Hosted.** A hosted room on seed 1, which plays **Mid** by default, gives exactly the Test player Mid figures. With all three lines active, Single player's WC is unchanged.
 
 ---
 
@@ -61,8 +69,9 @@ Read from the executable code on `multiplayer` at commit **6f4dc56** (26 Oct 202
 - **How many.** `PRIOR_HISTORY_YEARS = 6`: years −5 … 0, which are calendar 2021–2026. The last three are returned as `priorHistory` and the first three as `earlyPreGameHistory`. All six are played by the same engine (`processYear`).
 - **Each line separately.** `runPriorHistory` → `runLinePreGame` runs per active line, so a line's pre-game does not depend on the other lines.
 - **Decisions each year** (`preGameDecisionSet`): the defaults, plus `fundingCushion = margin` (CLF 1 + margin), and a cash and bonds allocation of 11.1% / 88.9%.
-- **The book grows on a set path** (1.6). There is no underwriting decision in the pre-game, and host development is 0.
+- **The book grows on a set path** (1.6). There is no underwriting decision in the pre-game.
 - **Losses** are drawn as in play (2.4), on separate `pregame_` streams, × the scenario's loss multiplier. Each year's growth carries the new-business penalty.
+- **No development of any kind.** Adverse development runs in played years only (`developmentLevel` is null below year 1), reserve inflation is 0, and the prior-development percentage is forced to 0 (`runLinePreGame`, `processYear`). Every pre-game accident year therefore sits at its first-year ultimate.
 - **No shocks** fire before year 1.
 - **Pricing.** Each pre-game year is priced by the normal rate (section 4) at the margin's CLF.
   - 2021 and 2022 have no usable history and price on expected loss.
@@ -73,12 +82,13 @@ Read from the executable code on `multiplayer` at commit **6f4dc56** (26 Oct 202
 The prior board funds every pre-game year at one margin over expected (CLF = 1 + margin). `runLinePreGame` solves it per scenario and line:
 
 1. **Designed run.** The pre-game is replayed with every ordinary loss at exactly expected × the scenario multiplier (no draws), and the market at its expected return (3.28% on the cash/bond mix). A secant search (`solvePreGameMargin`, tolerance $0.01, up to 40 steps) finds the margin at which the 2026 year-end surplus equals **year-1 premium at Expected ÷ the target P/S**.
-2. **Floor.** `PRE_GAME_MARGIN_FLOOR = 0`. It now binds in **WC scenario 4 and GL scenario 19**, both of which open at a 0% margin.
+2. **Floor.** `PRE_GAME_MARGIN_FLOOR = 0`. It binds for **GL in all 20 scenarios** and for **WC scenarios 4, 9, 11 and 16**, all of which open at a 0% margin.
 3. **Played run.** The real, drawn pre-game is played at that margin. **The opening surplus is wherever the played 2026 year-end lands.**
 4. **Guardrails** (`OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.0, max: 3.5 }`).
    - If surplus ≤ 0 or played P/S > 3.5, the margin is re-solved on the played history to land exactly on 3.5.
    - If P/S < 1.0, it is re-solved to land on 1.0, but not below the floor.
-   - Today only **scenario 3 WC** trips one: it opens at P/S 3.50 on a 4.27% margin.
+   - **Scenario 3 WC** trips the upper bound: it opens at P/S 3.50 on a 4.35% margin.
+   - **GL scenario 20** would trip the lower one, but the floor wins: it opens at P/S **0.984** at a 0% margin.
 5. **In year 1** the player's default is funding at Expected, so the prior board's margin comes off the rate.
 
 Year-1 premium at Expected is `openingYear1Premium`: the engine's own year-1 quote (`strikeBookRate`, default decisions) × the opening book.
@@ -108,12 +118,12 @@ Year-1 premium at Expected is `openingYear1Premium`: the engine's own year-1 quo
 ### 1.7 Opening reserves and the balance sheet
 
 - **Reserves** are the cohorts the pre-game wrote (2021–2026), net of reinsurance. There are no bulk years.
-- **Host development.** Each cohort is given its lifetime host-development total once, at the opening (2.8).
+- **No development is set at the opening.** Nothing is struck on the opening cohorts; from year 1 they develop at the line's adverse-development level, if it has one (2.7).
 - **Invested assets** = surplus + net reserve + LAE reserve − cash.
 
 ### 1.8 Single player, Test player and hosted
 
-The opening is the same function in all three modes (`runPriorHistory`). Pricing and the pre-game see no shocks, so every team in a room and a single player of the same scenario inherit the same opening. One thing differs: a Test player or a host can set prior development (2.8, 7). That changes emergence after year 1, not the opening.
+The opening is the same function in all three modes (`runPriorHistory`). The pre-game has no development and sees no shocks, so every team in a room, a Test player and a Single player of the same scenario inherit the same opening. The modes differ only from year 1: in the shock schedule (section 7) and in each line's adverse-development level (2.7).
 
 ### Worked example — 1. The opening (scenario 1, WC)
 
@@ -124,31 +134,36 @@ The opening is the same function in all three modes (`runPriorHistory`). Pricing
 | Pre-game loss multiplier | 1 + (1 − 2.25/1.9737) × 0.3 = **0.9580** | `preGameLossMultiplier` |
 | Paid-in capital | **$3,000,000** | `STARTING_CAPITAL.WC` |
 | Opening book | **916.113** ($M), 30.09% of 3,044.6 | `OPENING_BOOK_EXPOSURE.WC` |
-| Designed surplus aimed at | $32,317,386 ÷ 1.9737 = $16,374,142 | 1.4 step 1 |
-| Designed margin = final margin | **+0.966%** (CLF 1.009664); no floor, no guardrail | `solvePreGameMargin` |
+| Designed surplus aimed at | $30,409,735 ÷ 1.9737 = $15,407,599 | 1.4 step 1 |
+| Designed margin = final margin | **+0.870%** (CLF 1.008698); no floor, no guardrail | `solvePreGameMargin` |
 
-Pre-game years, played at the 0.966% margin. The rate is the member charge ÷ (billed exposure × 10,000).
+Pre-game years, played at the 0.870% margin. The rate is the member charge ÷ (billed exposure × 10,000). Prior-year development is $0 in every pre-game year.
 
 | Year | Exposure $M | Rate /$100 | Premium | Net ultimate loss | Inv. income | Net income | Ending surplus | Ending net reserve |
 |---|---|---|---|---|---|---|---|---|
-| 2021 | 829.75 | 2.8404 | $23.57M | $16.79M | $0 | $0.67M | $3.67M | $14.01M |
-| 2022 | 846.35 | 2.9483 | $24.95M | $17.96M | $0.86M | $0.79M | $4.46M | $25.78M |
-| 2023 | 863.27 | 3.2081 | $27.69M | $17.67M | $0.69M | $2.92M | $7.38M | $34.93M |
-| 2024 | 880.54 | 3.3375 | $29.39M | $19.19M | $1.77M | $4.12M | $11.51M | $43.74M |
-| 2025 | 898.15 | 3.3985 | $30.52M | $18.28M | $2.47M | $6.62M | $18.12M | $50.42M |
-| 2026 | 916.11 | 3.4987 | $32.05M | $22.80M | $1.28M | $0.05M | **$18.17M** | **$59.99M** |
+| 2021 | 829.75 | 2.6989 | $22.39M | $16.79M | $0 | −$0.50M | $2.50M | $14.01M |
+| 2022 | 846.35 | 2.8012 | $23.71M | $17.96M | $0.81M | $0.16M | $2.66M | $25.43M |
+| 2023 | 863.27 | 3.0468 | $26.30M | $17.67M | $0.65M | $2.71M | $5.37M | $34.08M |
+| 2024 | 880.54 | 3.1693 | $27.91M | $19.19M | $1.66M | $4.20M | $9.57M | $42.33M |
+| 2025 | 898.15 | 3.2273 | $28.99M | $18.28M | $2.33M | $7.00M | $16.56M | $48.41M |
+| 2026 | 916.11 | 3.3078 | $30.30M | $22.80M | $1.22M | $0.59M | **$17.15M** | **$57.40M** |
 
 The opening, at the start of 2027:
 
 | Item | Value |
 |---|---|
-| Opening surplus | **$18,173,463** |
-| Year-1 premium at Expected (3.5277 × 916.113) | **$32,317,386** |
-| Opening P/S | **1.778**, against a target of 1.974 |
-| Net unpaid reserve | **$59,989,996** |
-| LAE reserve | **$10,643,488** |
-| Invested assets / cash | $83,999,130 / $4,807,816 |
-| Host development set at the opening (3% of $59.99M) | $1,799,700 in total, to emerge during play |
+| Opening surplus | **$17,149,106** |
+| Year-1 premium at Expected (3.3194 × 916.113) | **$30,409,735** |
+| Opening P/S | **1.773**, against a target of 1.974 |
+| Net unpaid reserve | **$57,399,087** |
+| LAE reserve | **$10,188,931** |
+| Invested assets / cash | $80,191,589 / $4,545,535 |
+
+Gross outstanding by accident year at the opening, which is the base the first year of adverse development is drawn on:
+
+| AY | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 | Total |
+|---|---|---|---|---|---|---|---|
+| Outstanding | $4,763,631 | $5,968,490 | $6,943,468 | $9,326,147 | $11,374,141 | $19,023,210 | **$57,399,087** |
 
 ---
 
@@ -220,29 +235,43 @@ These are both one-year factors on the year's actual ordinary loss, and are cove
 - **ALAE default.** `ALAE_OF_LOSS_COST` (the midpoints **11%, 15%, 3.5%**) is used only where no drawn ratio exists.
 - **ULAE.** `ULAE_OF_LOSS_COST` = **5%** on all lines.
 - **Booking** (`src/utils/lossExpense.ts`). Both are shares of the gross loss:
-  - **incurred** = share × the change in each cohort's gross ultimate, so development and reserve inflation on old years attract LAE too, at those years' ratios;
+  - **incurred** = share × the change in each cohort's gross ultimate, so adverse development and shock R on old years attract LAE too, at those years' ratios;
   - **paid** = share × gross paid;
   - **LAE reserve** = share × gross unpaid.
 
-### 2.7 Reserve inflation
+### 2.7 Adverse development
 
-`RESERVE_INFLATION_PER_YEAR` is a copy of the severity trend (**WC 4%, GL 8%, Property 5%**). Each year, for every open prior accident year (`processIbner`, `src/utils/simulationEngine.ts`):
-- inflation = rate × the cohort's gross unpaid at the start of the year;
-- it is added after that year's payment and paid out in later years;
-- it is reported inside prior-year development.
+This replaces reserve inflation and the prior-development percentages (`ADVERSE_DEVELOPMENT = { enabled: true }`; `src/utils/adverseDevelopment.ts`; applied in `processIbner`, `simulationEngine.ts`).
 
-The current accident year gets none in its own year. Pricing anticipates part of it (4.3).
+- **Levels.** Each line has a level from `DEVELOPMENT_LEVELS`: **Low, Mid or High**, or **Off** (Single player only). The level sets the range λ is drawn from (`ADVERSE_DEVELOPMENT_RANGE`):
 
-### 2.8 Prior development: the host's, or the Test player's
+  | Level | λ per year, uniform in |
+  |---|---|
+  | Low | **1%–5%** |
+  | Mid | **5%–15%** |
+  | High | **15%–20%** |
+  | Off | none |
 
-- **Settings.** `PRIOR_DEVELOPMENT_DEFAULTS` = **WC +3%, GL +10%, Property −2%**. Positive is adverse.
-- **Who sets it.** Single player always uses the defaults. A Test player and a host each start at the defaults and may set each line to 0–100%, adverse or favourable, in whole percent (`HostCreateScreen`). The value rides on `setup.priorDevelopment`, and an unset line reads the default.
-- **A lifetime total, not a yearly rate** (`src/utils/hostDevelopment.ts`). Each accident year gets total = pct × its gross unpaid at a base date. The base date is the game start for the opening cohorts, and the end of its own first year for a played year.
-- **Emergence.** The total emerges in step with payments: each year's share is that year's paid share over the share unpaid at the base. Exactly pct × base has emerged by run-off.
-- **Pre-game.** None emerges during the pre-game.
-- **Nothing else develops.** `FULL_COST_BOOKING` is on, so no other routine development runs.
+- **The draw.** Each **played** year (year ≥ 1), every open **prior** accident year draws its own λ = lo + u × (hi − lo) (`adverseDevelopmentRate`).
+  - u comes from the **game's** seed (`marketSeedOf`), on stream `adverse_dev_<line>_<accident year>`, keyed by the valuation year. All 100 worlds share it.
+  - u does not depend on the level, so for the same year Low, Mid and High rank the accident years alike.
+- **The amount.** added = λ × the accident year's **gross outstanding at the start of the year** (`developmentBaseOf`). It is booked as prior-year development, ceded under that accident year's own cover, and attracts ALAE at that year's drawn ratio and 5% ULAE (2.6).
+  - Paid to date is not restated. The ultimate rises by the amount.
+  - This year's payment on the cohort is trued up to the payout pattern on the new ultimate (`paidTarget = newUltimate × cumulativePaid(age + 2)`), so a large part is paid in the same year. The rest follows the pattern.
+- **When it does not apply.**
+  - The current accident year gets none in its own year.
+  - The pre-game gets none at all.
+  - Shock R development runs on top of it (2.10).
+- **Not priced.** No term in the rate anticipates it. It reaches the rate only through the experience, which, with a one-year data lag, first sees year 1's development when pricing year 3 (4.2). The shock-free pricing shadow develops at the same level.
+- **Which level a game plays** (`developmentLevelOf`): the setup's `developmentLevels[line]`, or `ADVERSE_DEVELOPMENT_DEFAULT_LEVEL` = **Mid** when the line has none.
+  - **Single player:** `SOLO_ADVERSE_DEVELOPMENT = { enabled: false }`, so `openSoloInstance` stores **Off on every line** (`NO_DEVELOPMENT`) and nothing develops. With the switch on, it would draw each line's level from the seed, equally likely (`drawDevelopmentLevels`, unused).
+  - **Test player and hosted:** the level chosen per line on the setup screen, defaulting to Mid. A room keeps only valid levels (`isDevelopmentLevel`); a line without one reads Mid.
 
-**Sign.** The result field `priorYearDevelopment` is negative when development is adverse.
+### 2.8 Retired: reserve inflation and the prior-development percentages
+
+- **Reserve inflation.** `RESERVE_INFLATION = { enabled: false }`, so `RESERVE_INFLATION_PER_YEAR` = **0 / 0 / 0**. Trend sets each new accident year's cost only (2.3); open reserves do not inflate, and pricing's inflation-to-come is 1 (4.3).
+- **The prior-development percentages.** `PRIOR_DEVELOPMENT_DEFAULTS` (WC +3%, GL +10%, Property −2%) and `src/utils/hostDevelopment.ts` are inert: `developmentPct` is forced to 0 whenever `ADVERSE_DEVELOPMENT` is on, in the pre-game and in play. A room still stores `priorDevelopment` (the server copies it from the request), but the host screen no longer sends one and the engine does not read it.
+- **Sign.** The result field `priorYearDevelopment` is negative when development is adverse.
 
 ### 2.9 Payout patterns and speed; case and IBNR
 
@@ -269,10 +298,10 @@ The current accident year gets none in its own year. Pricing anticipates part of
 - **T, one large claim** in the firing year. Its size is a uniform draw in `SHOCK_T_CLAIM_RANGE[line][level]` × `shockCostFactor`.
   - `shockCostFactor` = (1 + severity trend)^(year − 1) × this year's exposure ÷ the year-1 exposure (`src/utils/shockCost.ts`).
   - Each T claim is its own occurrence and lands **on the line**, in a region: a regional event's claim lands in the struck region, any other event's lands in a region drawn by `REGION_EXPOSURE_SHARE`. A book always has all four regions, so a T claim always lands.
-- **R, adverse development.** Each year the event is in force, R adds rate × 0.65^age (`R_MODEL.shockDecayRate`) × each prior accident year's start-of-year outstanding. It is added on top of prior development and ceded under that year's cover.
+- **R, adverse development.** Each year the event is in force, R adds rate × 0.65^age (`R_MODEL.shockDecayRate`) × each prior accident year's start-of-year outstanding. It is added on top of adverse development and ceded under that year's cover.
 - **Record keys.** Each firing is recorded under its own key (`firingRecordKey` = event@year#ordinal), so the same event fired twice is two rows.
 
-**Levels.** Each event's Low / Mid / High level for A, T and R is fixed in the catalogue. **No mode lets anyone set a shock's level**; a host or Test player chooses only which events fire and in which years.
+**Levels.** Each event's Low / Mid / High level for A, T and R is fixed in the catalogue. These are shock levels, not the adverse-development levels of 2.7. **No mode lets anyone set a shock's level**; a host or Test player chooses only which events fire and in which years.
 
 | Level | A, WC | A, GL | A, Property | T, WC | T, GL | T, Property | R (all lines) |
 |---|---|---|---|---|---|---|---|
@@ -352,29 +381,54 @@ The current accident year gets none in its own year. Pricing anticipates part of
 **Payout of accident year 2027 in 2027.** The unpaid share is 0.834357.
 - Paid **$3,760,176**; unpaid **$18,940,253** (case $7,255,670, IBNR $11,684,582, an IBNR share of 61.7%).
 
-**Prior accident years in 2027.**
-- Reserve inflation: 4% × $59,989,996 = **$2,399,600**.
-- Prior development emerging (3% default): **$359,603**.
-- `priorYearDevelopment` = **−$2,759,203** (adverse).
-- Net paid on all years: **$17,247,161**.
+**Prior accident years in 2027, Single player (Off).** No reserve inflation, no adverse development, no shock R.
+- `priorYearDevelopment` = **$0**.
+- Net paid on all years: **$15,331,116**.
 
-**Net incurred loss.** $22,700,428 + $2,759,203 = **$25,459,631**.
+**Net incurred loss.** **$22,700,428**: the current year only.
 
 **LAE.**
 
 | Item | Amount |
 |---|---|
-| ALAE incurred: 14.3127% × $22,700,428 = $3,249,042, plus $351,581 on prior years' development at their own ratios | $3,600,623 |
-| ULAE incurred: 5% × $25,459,631 | $1,272,982 |
-| LAE incurred | **$4,873,604** |
-| LAE paid | $3,117,572 |
-| LAE reserve | $10,643,488 → **$12,399,521** |
+| ALAE incurred: 14.3127% × $22,700,428 | $3,249,042 |
+| ULAE incurred: 5% × $22,700,428 | $1,135,021 |
+| LAE incurred | **$4,384,063** |
+| LAE paid | $2,781,722 |
+| LAE reserve | $10,188,931 → **$11,791,272** |
 
 **Admin overrun.** Drawn at 0.935%: admin charged $3,672,614 → booked **$3,706,949**.
 
 **Reinsurance.** None: cost $0, recovery $0.
 
-**Investment income.** On $83,999,130 at 10/80/10. World 0's market returns 0.0745% ($62,618). The 100-world mean is 2.5998%, giving **$2,183,794**.
+**Investment income.** On $80,191,589 at 10/80/10. World 0's market returns 0.0745% ($59,780). The 100-world mean is 2.5998%, giving **$2,084,806**.
+
+**The same year with adverse development (Test player, WC at each level).** The λ draws for valuation year 1, applied to the opening outstanding by accident year (1, worked example):
+
+| AY | Outstanding | λ Low | Added | λ Mid | Added | λ High | Added |
+|---|---|---|---|---|---|---|---|
+| 2021 | $4,763,631 | 1.388% | $66,136 | 5.971% | $284,432 | 15.485% | $737,670 |
+| 2022 | $5,968,490 | 3.413% | $203,727 | 11.033% | $658,530 | 18.017% | $1,075,326 |
+| 2023 | $6,943,468 | 4.591% | $318,765 | 13.977% | $970,500 | 19.489% | $1,353,184 |
+| 2024 | $9,326,147 | 3.755% | $350,168 | 11.887% | $1,108,573 | 18.443% | $1,720,055 |
+| 2025 | $11,374,141 | 2.257% | $256,720 | 8.143% | $926,153 | 16.571% | $1,884,844 |
+| 2026 | $19,023,210 | 3.132% | $595,883 | 10.331% | $1,965,287 | 17.665% | $3,360,545 |
+| **Total** | $57,399,087 | 3.12% | **$1,791,399** | 10.30% | **$5,913,475** | 17.65% | **$10,131,623** |
+
+Each total equals the engine's `priorYearDevelopment` for the year, to the dollar:
+
+| 2027, WC | Off (Single player) | Low | Mid (hosted default) | High |
+|---|---|---|---|---|
+| Prior-year development | $0 | −$1,791,399 | **−$5,913,475** | −$10,131,623 |
+| Net incurred loss | $22,700,428 | $24,491,827 | **$28,613,903** | $32,832,052 |
+| Net paid, all years | $15,331,116 | $16,308,805 | $18,554,347 | $20,837,779 |
+| ALAE / ULAE incurred | $3,249,042 / $1,135,021 | $3,480,131 / $1,224,591 | $4,009,739 / $1,430,695 | $4,544,262 / $1,641,603 |
+| LAE incurred | $4,384,063 | $4,704,722 | **$5,440,434** | $6,185,865 |
+| Net income | +$1,703,102 | −$408,957 | **−$5,266,744** | −$10,230,324 |
+| Ending surplus | $18,852,208 | $16,740,149 | **$11,882,362** | $6,918,782 |
+| Combined ratio | 101.3% | 108.2% | **124.2%** | 140.5% |
+
+At Mid, $3,223,231 of the $5,913,475 is paid in 2027 itself (net paid $18,554,347 against $15,331,116), because each cohort's payment is trued up to the pattern on its new ultimate.
 
 ---
 
@@ -407,18 +461,19 @@ expected ordinary loss this year (what is drawn around) = f(x) × before × [ (1
 - **Defaults move nothing.** The default is **0% / 0%**, so a team that touches nothing plays a constant book.
 - **The Decisions screen previews** ("Premium not renewed", "Premium from new members") call the same `moveBook` without a withdrawal, and price the result at the quoted rate (`underwritingFigures`, `src/game/derivations.ts`).
 
-### Worked example — 3. Underwriting (scenario 1, WC, 2027)
+### Worked example — 3. Underwriting (scenario 1, WC, 2027, Single player)
 
 | Setting | Book after ($M) | lossFactor | Ordinary actual (100-world mean) | Member charge | Combined ratio | Ending surplus |
 |---|---|---|---|---|---|---|
-| **0% / 0% (default)** | **916.113** | **1.0000** | **$22,700,428** | **$32,317,386** | **105.33%** | **$18,634,459** |
-| Non-renewal 5% | 870.307 | 0.975 | $21,026,272 | $30,701,517 | 103.76% | $19,201,419 |
-| New members 5% | 961.919 | 1.009524 | $24,062,454 | $33,933,256 | 105.65% | $18,439,912 |
-| Both at 5% | 916.113 | 0.98625 | $22,388,297 | $32,317,386 | 104.18% | $19,006,871 |
+| **0% / 0% (default)** | **916.113** | **1.0000** | **$22,700,428** | **$30,409,735** | **101.26%** | **$18,852,208** |
+| Non-renewal 5% | 870.307 | 0.975 | $21,026,272 | $28,889,248 | 99.03% | $19,514,549 |
+| New members 5% | 961.919 | 1.009524 | $24,062,454 | $31,930,222 | 102.10% | $18,562,277 |
+| Both at 5% | 916.113 | 0.98625 | $22,388,297 | $30,409,735 | 100.03% | $19,224,619 |
 
-- **Previews at 5%.** Each slider at 5% shows 45.806 × 10,000 × 3.52766 = **$1,615,869**.
+- **Previews at 5%.** Each slider at 5% shows 45.806 × 10,000 × 3.31943 = **$1,520,487**.
 - **The ratio tie-out.** Each row's ordinary actual ÷ (book after × 10,000 × 2.493333) = 0.993813 × lossFactor: the same draws scaled by the bracket.
-- **The rate does not move.** The rate is struck on the book before movement (916.113), so every row charges 3.5277 per $100. It is billed on the book after.
+- **The rate does not move.** The rate is struck on the book before movement (916.113), so every row charges 3.3194 per $100. It is billed on the book after.
+- **No prior development in any row.** Single player develops nothing, so a smaller or larger book carries no fixed development cost. With adverse development on, that cost is fixed in dollars against the book, so it favours growth: in the Mid room of section 8, team B's 5% new members has a lower combined ratio than team A's defaults.
 
 ---
 
@@ -437,12 +492,13 @@ expected ordinary loss this year (what is drawn around) = f(x) × before × [ (1
 - **Window.** The last `PRICING_WINDOW_YEARS_NEW` = **5** accident years up to the latest data year, all valued at its end. For 2027 that is accident years **2021–2025 valued at 12/31/2025**; 2026 is not used.
 - **Basis.** Ground-up gross paid, on each year's own recorded exposure.
 - **Weighting.** Equal weights, hard-coded.
-- **No-history fallback.** Expected ordinary loss × reserve inflation to come. Only the first two pre-game years use it.
+- **No-history fallback.** Expected ordinary loss × reserve inflation to come (1 today). Only the first two pre-game years use it.
 
 ### 4.3 Development to ultimate, and inflation priced in
 
 - **Development.** developed = paid × the **paid** age-to-ultimate LDF from the recorded pattern, compressed by `DEVELOPMENT_SPEED` and closed (`recordedPaidLdf`). WC: **6.0371** at 12 months, 2.6478 at 24, 1.9458 at 36, 1.6472 at 48, 1.4979 at 60.
-- **Inflation priced in.** Each window year is multiplied by `reserveInflationToCome` = Π (1 + reserve inflation × unpaid share) over its remaining development years. Only the newest `RESERVE_INFLATION_PRICED_YEARS` (**WC 2, GL 1, Property 2**) window years get it. WC: 1.0591 on the newest year, 1.0249 on the next, 1 on the rest.
+- **Inflation priced in: none.** `reserveInflationToCome` = Π (1 + `RESERVE_INFLATION_PER_YEAR` × unpaid share) over the newest `RESERVE_INFLATION_PRICED_YEARS` (WC 2, GL 1, Property 2). With the rate at 0 it is **1.0000** on every window year, so `RESERVE_INFLATION_PRICED_YEARS` is inert.
+- **Adverse development is not anticipated.** It enters only as it shows in paid. The LDFs are the pattern's, so a developed year's paid, which is trued up to the pattern on the raised ultimate, is developed to that raised ultimate.
 
 ### 4.4 Trend
 
@@ -455,7 +511,7 @@ There is none: `bookRisk` is 1 on every line. The experience carries whatever th
 
 ### 4.6 How shocks are kept out
 
-- `SHOCK_FREE_PRICING`: once a shock is first in force, a shock-free shadow game runs beside the real one, and every pure premium is struck from the shadow's ledger.
+- `SHOCK_FREE_PRICING`: once a shock is first in force, a shock-free shadow game runs beside the real one, and every pure premium is struck from the shadow's ledger. The shadow has the same setup, so it develops at the same adverse-development level.
 - `SHOCKS_OUT_OF_EXPERIENCE` removes shock dollars from paid before development.
 - `CATASTROPHE_LOAD` is off, so the rate carries no shock allowance.
 
@@ -541,40 +597,43 @@ The "Indicated" rate (`firstIndicationPer100`) is the same formula at CLF 1 with
 
 | Accident year | Age (months) | Paid at 12/31/2025 | LDF | Inflation to come | Exposure $M | Loss cost /$100 | Trend | Trended | ALAE ratio |
 |---|---|---|---|---|---|---|---|---|---|
-| 2021 | 60 | 12,290,142 | 1.4979 | 1.0000 | 829.75 | 2.2187 | 1.2653 | 2.8073 | 14.17% |
-| 2022 | 48 | 11,768,987 | 1.6472 | 1.0000 | 846.35 | 2.2906 | 1.2167 | 2.7869 | 13.75% |
-| 2023 | 36 | 9,618,406 | 1.9458 | 1.0000 | 863.27 | 2.1680 | 1.1699 | 2.5362 | 14.41% |
-| 2024 | 24 | 7,488,169 | 2.6478 | 1.0249 | 880.54 | 2.3077 | 1.1249 | 2.5959 | 10.14% |
-| 2025 | 12 | 3,027,441 | 6.0371 | 1.0591 | 898.15 | 2.1552 | 1.0816 | 2.3311 | 9.22% |
+| 2021 | 60 | 11,206,889 | 1.4979 | 1.0000 | 829.75 | 2.0231 | 1.2653 | 2.5599 | 14.17% |
+| 2022 | 48 | 10,900,339 | 1.6472 | 1.0000 | 846.35 | 2.1215 | 1.2167 | 2.5812 | 13.75% |
+| 2023 | 36 | 9,081,696 | 1.9458 | 1.0000 | 863.27 | 2.0470 | 1.1699 | 2.3947 | 14.41% |
+| 2024 | 24 | 7,246,328 | 2.6478 | 1.0000 | 880.54 | 2.1790 | 1.1249 | 2.4510 | 10.14% |
+| 2025 | 12 | 3,027,441 | 6.0371 | 1.0000 | 898.15 | 2.0349 | 1.0816 | 2.2010 | 9.22% |
+
+With nothing developing in the pre-game, each year's paid × LDF is exactly its booked ultimate: for example, 2021's $11,206,889 × 1.4979 = $16,786,946.
 
 | Piece | Calculation | Per $100 |
 |---|---|---|
-| Loss cost | mean of the five trended figures | **2.6115** |
-| ALAE | 2.6115 × 12.337% | 0.3222 |
-| ULAE | 2.6115 × 5% | 0.1306 |
-| **Pure premium** (ground-up = retained) | | **3.0642** |
+| Loss cost | mean of the five trended figures | **2.4376** |
+| ALAE | 2.4376 × 12.337% | 0.3007 |
+| ULAE | 2.4376 × 5% | 0.1219 |
+| **Pure premium** (ground-up = retained) | | **2.8602** |
 | Admin | 1,078,586 ÷ 9,161,131 + 0.275138 = 0.117735 + 0.275138 | **0.3929** |
-| CLF | Expected = 1.000 (at the 60% stop it would be 1.0140, rate 3.5714) | |
+| CLF | Expected = 1.000 (at the 60% stop it would be 1.0140, rate 3.3603) | |
 | Divisor | 1 − 0 − 0.02 | 0.98 |
-| P&C inside the loaded base | | 0.0706 |
+| P&C inside the loaded base | | 0.0664 |
 | Reinsurance | None | 0.0000 |
-| **Rate** | (3.0642 + 0.3929) ÷ 0.98 | **3.5277** |
+| **Rate** | (2.8602 + 0.3929) ÷ 0.98 | **3.3194** |
 
-- **Struck and charged on the same book at the defaults.** 3.5277 × 916.113 × 10,000 = **$32,317,386**: pool premium $28,644,773 (3.0642/0.98 × 9,161,131) plus admin $3,672,614.
+- **Struck and charged on the same book at the defaults.** 3.3194 × 916.113 × 10,000 = **$30,409,735**: pool premium $26,737,122 (2.8602/0.98 × 9,161,131) plus admin $3,672,614.
+- **The level does not change this rate.** The 2027 rate is the same at Off, Low, Mid and High, and so is 2028's (**3.4589**): 2028 prices accident years 2022–2026 valued at 12/31/2026, before any development has emerged. The first rate to see adverse development is 2029's. In the Mid room that is **3.7271** (+7.8%).
 - **Rate Indication.**
-  - Projected pure premium 3.064, and 2026-level 2.946 (trended average losses $26,992,190 on 916.113).
-  - Total expense ratio 13.1%: fixed admin 3.3%, per-exposure admin 7.8%, P&C 2.0%. Permissible loss ratio 86.9%.
+  - Projected pure premium 2.860, and 2026-level 2.750 (trended average losses $25,194,595 on 916.113).
+  - Total expense ratio 13.8%: fixed admin 3.5%, per-exposure admin 8.3%, P&C 2.0%. Permissible loss ratio 86.2%.
 
-  | | Rate | Change vs 2026's 3.499 |
+  | | Rate | Change vs 2026's 3.308 |
   |---|---|---|
-  | Expected | 3.528 | +0.8% |
-  | 70% | 3.625 | +3.6% |
-  | 80% | 3.688 | +5.4% |
-  | 90% | 3.778 | +8.0% |
+  | Expected | 3.319 | +0.4% |
+  | 70% | 3.410 | +3.1% |
+  | 80% | 3.469 | +4.9% |
+  | 90% | 3.553 | +7.4% |
 
   Single player, with shocks on, lists cover prices of 0.043 / 0.032 / 0.043 / 0.064 per $100. A hosted room with no shocks scheduled lists only None.
-- **Decisions panel.** Pure premium $3.06 + admin $0.39 + risk control $0.00 + P&C $0.08 (absorbing the rounding of 0.0706) + reinsurance $0.00 = **$3.53**, +0.8% vs last year. Expected to surplus is **+$646,348** (0.07055 × 9,161,131).
-- **Tie-out.** The struck quote, the charged row, the Rate Indication at Expected and the hosted Teams table all give 3.5276633203138.
+- **Decisions panel.** Pure premium $2.86 + admin $0.39 + risk control $0.00 + P&C $0.07 (absorbing the rounding of 0.0664) + reinsurance $0.00 = **$3.32**, +0.4% vs last year. Expected to surplus is **+$608,195** (0.06639 × 9,161,131).
+- **Tie-out.** The struck quote, the charged row, the Rate Indication at Expected and the hosted Teams table all give 3.3194301761176.
 
 ---
 
@@ -606,11 +665,11 @@ The "Indicated" rate (`firstIndicationPer100`) is the same formula at CLF 1 with
 
 ### Worked example — 5. Dividends and assessments (scenario 1, WC, 2027)
 
-- **Basis.** WC's opening surplus, **$18,173,463**; not blocked.
+- **Basis.** WC's opening surplus, **$17,149,106**; not blocked.
 - **At the default 0%.** Nothing is paid or collected.
-- **At +5%.** The dividend is **$908,673**. Net income falls from $460,997 to −$447,676, and ending surplus to $17,725,786. The loss ratio stays at 78.8% and the combined ratio at 105.3%.
-- **At −5%.** The same $908,673 is collected. Net income is $1,369,670 and ending surplus $19,543,132.
-- **Loans.** The default game is WC only, so no loan can arise. With all three lines active, GL ends 2027 negative in 1 of the 100 worlds. Single player then shows a GL prompt: an average deficit of $103,916, lenders WC 38.0% and Property 62.0%, at a 0% rate. Authorising it moves an average **$395** of WC surplus to GL, so WC ends at $18,634,064.
+- **At +5%.** The dividend is **$857,455**. Net income falls from $1,703,102 to $845,646, and ending surplus to $17,994,752. The loss ratio stays at 74.6% and the combined ratio at 101.3%.
+- **At −5%.** The same $857,455 is collected. Net income is $2,560,557 and ending surplus $19,709,663.
+- **Loans.** The default game is WC only, so no loan can arise. With all three lines active, no line ends 2027 negative in any of the 100 worlds, so there is no prompt and WC is unchanged at $18,852,208. The GL loan offer the last version showed no longer arises. A hosted room at Mid or High drives lines negative within a few years (7, worked example), and hosted declines every loan.
 
 ---
 
@@ -633,19 +692,21 @@ required = max(0, net unpaid reserve × (CLF at `RESERVE_MARGIN_CONFIDENCE_PARAM
 
 ### Worked example — 6. Capital (scenario 1, WC)
 
-| | Opening (end 2026) | After 2027, defaults |
-|---|---|---|
-| Net unpaid reserve | $59,989,996 | $68,202,466 |
-| Required = reserve × 0.0513 | **$3,077,487** | **$3,498,786** |
-| Ending surplus | $18,173,463 | $18,634,459 |
-| Excess capital ratio | **4.91** | **4.33** |
-| Status | Strong | Strong |
+| | Opening (end 2026) | After 2027, Single player | After 2027, Mid | After 2027, High |
+|---|---|---|---|---|
+| Net unpaid reserve | $57,399,087 | $64,768,399 | $67,458,643 | $69,393,359 |
+| Required = reserve × 0.0513 | **$2,944,573** | **$3,322,619** | $3,460,628 | $3,559,879 |
+| Ending surplus | $17,149,106 | $18,852,208 | $11,882,362 | $6,918,782 |
+| Excess capital ratio | **4.82** | **4.67** | 2.43 | 0.94 |
+| Status | Strong | Strong | Strong | Strong |
+
+Required capital takes no account of the line's adverse-development level. At High the line loses $10.2M in one year and is still "Strong".
 
 ---
 
 ## 7. Game modes
 
-The Setup page (`src/pages/SetupPage.tsx`) offers **Single player** and **Test player**. Hosting is a separate route (`/host`, behind an admin sign-in). All three build the game the same way: `generateGameInstance` → `runPriorHistory` → `openWorlds`. They differ only in what goes into the setup and the shock schedule.
+The Setup page (`src/pages/SetupPage.tsx`) offers **Single player** and **Test player**. Hosting is a separate route (`/host`, behind an admin sign-in). All three build the game the same way: `generateGameInstance` → `runPriorHistory` → `openWorlds`. They differ only in what goes into the setup: the shock schedule and each line's adverse-development level.
 
 ### 7.1 Single player
 
@@ -656,10 +717,11 @@ The Setup page (`src/pages/SetupPage.tsx`) offers **Single player** and **Test p
 | First program year | any year | 2027 |
 | Scenario | 1–20 | a random scenario |
 | Lines | any of WC, GL, Property | **WC only** |
-| Prior development | **not settable**: `PRIOR_DEVELOPMENT_DEFAULTS` (WC +3%, GL +10%, Property −2%) | |
+| Adverse development | **not settable, and none**: every line is stored "Off" (`SOLO_ADVERSE_DEVELOPMENT` off) | Off |
 | Shocks | **not settable** | see below |
 
-- **The shock draw.** At start, `openSoloInstance` draws `drawCatalogueSchedule(seed, gameLength, 'solo_shock_schedule')`. Each of the 12 events fires independently at its scaled probability in each year from **year 2** on, so year 1 never has a shock. Repeats and several events in one year are possible. Game length is part of the stream key, so the same scenario draws a different schedule at a different length.
+- **No development of any kind.** With adverse development Off, reserve inflation off and the percentages retired, a Single player's prior years never develop, except through a shock's R.
+- **The shock draw.** At start, `openSoloInstance` draws `drawCatalogueSchedule(seed, gameLength, 'solo_shock_schedule')`. Each of the 12 events fires independently at its scaled probability in each year from **year 2** on, so year 1 never has a shock. Repeats and several events in one year are possible. Game length is part of the stream key.
 - **Scenario 1's draws:**
   - at 3 years, #4 Legislation and #6 Recession, both in year 2;
   - at 5 years, #5 WC Reform in year 3;
@@ -670,18 +732,19 @@ The Setup page (`src/pages/SetupPage.tsx`) offers **Single player** and **Test p
 
 ### 7.2 Test player
 
-"Test player" opens the host's own setup screen (`HostCreateScreen` with `soloTest`), starting from the Setup page's values, and plays the result solo. Nothing is sent to a server and no admin sign-in is needed.
+"Test player" opens the host's own setup screen (`HostCreateScreen` with `soloTest`, built from the shared `GameRulesFields`), starting from the Setup page's values, and plays the result solo. Nothing is sent to a server and no admin sign-in is needed.
 
 | Setting | What the player can set |
 |---|---|
 | Pool name (required), seed 1–20, first program year, lines | as the host |
 | Years | **3–10** (the Start button is disabled outside that range) |
-| Prior development | **per line, 0–100% in whole percent, adverse or favourable**; it starts at WC 3% adverse, GL 10% adverse, Property 2% favourable |
+| **Adverse development** | **per line, Low / Mid / High** (`DevelopmentLevelSelect`); each starts at **Mid**. Off is not offered. |
 | Shock schedule | a hand-built list (any of the 12 events, any year from 1 to the game length, repeats allowed), or **Randomise** |
 | Not shown | event name, number of teams |
 
-- **Randomise** replaces the list with `drawShockSchedule(seed, years, 'host_shock_schedule')`, the **host's** rule (7.3), not Single player's catalogue draw. For seed 1 over 5 years it gives #4 Legislation in year 3 and #2 Winterstorm in year 5. The screen marks a draw as stale once the seed or the year count changes.
-- **Start.** On Start, entries outside years 1 to the game length are dropped, and the game fires exactly that list (`openSoloInstance(settings, { schedule })`). Its prior development rides on `settings.priorDevelopment`.
+- **Under the level picker** the screen prints the ranges: "Low 1–5%, Mid 5–15%, High 15–20%".
+- **Start.** On Start, the levels of the chosen lines go into `settings.developmentLevels`. Shock entries outside years 1 to the game length are dropped, and the game fires exactly the remaining list (`openSoloInstance(settings, { schedule })`).
+- **Randomise** replaces the list with `drawShockSchedule(seed, years, 'host_shock_schedule')`, the **host's** rule (7.3), not Single player's catalogue draw. For seed 1 over 5 years it gives #4 Legislation in year 3 and #2 Winterstorm in year 5.
 - **Shocks are "on" even with an empty list.** Test player sets `shockTiming = 'solo'` (Flags).
 - **Loans** prompt as in Single player.
 
@@ -698,29 +761,41 @@ The host's create screen (`HostCreateScreen`) sets:
 | First program year | 2000–2100 (input bounds) |
 | Number of teams | an expectation only; it limits nothing |
 | Lines | at least one; **every team plays exactly these** (`RoomView.lines`) |
-| Prior development | per line, 0–100% adverse or favourable, as for Test player |
+| **Adverse development** | **per line, Low / Mid / High**, each starting at **Mid**; the same control as Test player |
 | Shock schedule | a hand-built list, or Randomise |
 
 - **Randomise** (`drawShockSchedule`, `src/utils/shockSchedule.ts`) works like this:
   - count = round(0.3 × years) + a uniform offset of −1, 0 or +1 (`SHOCK_SCHEDULE_SPREAD`), clamped to between 1 and max(1, years − 1);
   - distinct years from year 2 (year 1 only for a 1-year game);
   - events weighted by probability, without replacement.
-- **The server's checks.** It requires only a list of `{shockId: string, yearNumber: integer}`. It does not check the year range, duplicates or that the id exists.
-- **Every team builds the same game** (`buildTeamGame`, `src/session/client/buildGame.ts`) with `shockTiming = 'host'`. Shocks are on only if the list is non-empty; with an empty list only None is offered and expected loss excludes shocks.
-- **Prior development** comes from the room (`setup.priorDevelopment`).
+- **The server's checks.**
+  - **Levels:** it keeps a level only for the room's lines and only if it is Low, Mid or High (`isDevelopmentLevel`); anything else is dropped. A dropped or missing line plays Mid (`ADVERSE_DEVELOPMENT_DEFAULT_LEVEL`), and a room can never be Off.
+  - **Shocks:** it requires only a list of `{shockId: string, yearNumber: integer}`.
+- **Every team builds the same game** (`buildTeamGame`, `src/session/client/buildGame.ts`) with `shockTiming = 'host'` and the room's `developmentLevels`, so every team develops alike. Shocks are on only if the list is non-empty; with an empty list only None is offered and expected loss excludes shocks.
+- **Players are not told their level.** It appears only on the host's create screen.
 - **Loans are always declined.**
 - **Results run one year behind** (`latestKnownRoomYear` = the room's current year − 2), as in solo.
-- **Each player's own screens** show the team's **room market share** (Results, Calculation Audit, and the top-bar chip), never another team's. Single player shows no market share.
+- **Each player's own screens** show the team's **room market share**, never another team's.
 
 ### Worked example — 7. Modes (scenario 1, WC)
 
-| | Single player | Test player, list left empty | Hosted, no shocks |
+| | Single player | Test player, defaults (Mid), list left empty | Hosted, defaults (Mid), no shocks |
 |---|---|---|---|
 | Shock schedule | #5 WC Reform, year 3 | none | none |
 | Shocks on? | yes | **yes** | no |
 | Covers offered | 4 + None | 4 + None | None only |
-| Prior development, WC | 3% (fixed) | as set; default 3% | as set; default 3% |
-| 2027 rate / ending surplus | 3.5277 / $18,634,459 | the same | the same |
+| Adverse development, WC | **Off** | Mid | Mid |
+| 2027 rate | 3.3194 | 3.3194 | 3.3194 |
+| 2027 prior-year development | $0 | −$5,913,475 | −$5,913,475 |
+| 2027 ending surplus | **$18,852,208** | **$11,882,362** | **$11,882,362** |
+
+The same scenario on its defaults, five years, all three lines, surplus at each year end ($M). The first column is the opening; hosted declines every loan:
+
+| Level | WC | GL | Property |
+|---|---|---|---|
+| Low | 17.1 → 16.7, 18.1, 19.6, 22.8, 24.8 | 12.5 → 11.9, 12.1, 13.1, 15.3, 21.2 | 24.1 → 22.9, 22.0, 19.8, 20.1, 20.8 |
+| **Mid (default)** | 17.1 → 11.9, 7.2, 3.4, 0.5, **−3.6** | 12.5 → 8.3, 3.4, 1.0, **−0.9**, 2.8 | 24.1 → 21.6, 19.6, 16.5, 16.0, 16.2 |
+| High | 17.1 → 6.9, **−4.1**, −15.0, −24.8, −36.4 | 12.5 → 4.1, **−5.2**, −12.8, −18.6, −19.2 | 24.1 → 20.7, 17.2, 12.6, 10.6, 9.6 |
 
 ---
 
@@ -770,131 +845,136 @@ Each row is one team. Every figure is the team's own, read off its own Annual St
 - **At the opening** every team holds the same book, so N teams read 1/N each.
 - **Who sees it.** The host sees every team's share on `RoomView`; a player or viewer gets only its own on `CallerView.marketShare`.
 
-### Worked example — 8. The Teams table (a room on seed 1, WC only, no shocks, default prior development)
+### Worked example — 8. The Teams table (a room on seed 1, WC only, no shocks, adverse development at the default Mid)
 
-Three teams lock year 1 (2027) as follows:
+Three teams lock year 1 (2027) as follows, and carry the same choices forward:
 - **A** keeps the defaults.
 - **B** sets new members to 5%.
 - **C** sets non-renewal to 5% and funds at 80%.
 
-Team A's year is exactly section 2's. Each posted figure:
+Team A's 2027 is the Mid column of section 2. Each team's posted 2027 figures:
 
-| Team | Exposure ($M) | Pool premium | Member charge | Ending surplus | Rate struck (on 916.113) |
-|---|---|---|---|---|---|
-| A | 916.11 | $28,644,773 | $32,317,386 | $18,634,459 | 3.5277 |
-| B | 961.92 | $30,077,011 | $33,933,256 | $18,439,912 | 3.5277 |
-| C | 870.31 | $28,608,537 | $32,097,520 | $20,597,422 | 3.6881 (80% CLF 1.0513) |
+| Team | Exposure ($M) | Pool premium | Member charge | Prior-year development | Ending surplus | Rate struck (on 916.113) |
+|---|---|---|---|---|---|---|
+| A | 916.11 | $26,737,122 | $30,409,735 | −$5,913,475 | $11,882,362 | 3.3194 |
+| B | 961.92 | $28,073,978 | $31,930,222 | −$5,913,475 | $11,592,432 | 3.3194 |
+| C | 870.31 | $26,703,299 | $30,192,282 | −$5,913,475 | $13,847,737 | 3.4692 (80% CLF 1.0513) |
+
+The development is the same $5,913,475 for every team. It falls on the opening reserves, which every team inherits alike, whatever its book does in 2027.
 
 **While deciding 2029 (current year 3),** the host's **WC** view reads "Results for 2027":
 
 | Team | Market share | Combined ratio | Surplus | Premium to surplus | Rate | Funding | Ripple Score |
 |---|---|---|---|---|---|---|---|
-| A | **33.3%** (916.11 ÷ 2,748.34) | **105.3%** | $18.6M | **1.73** | $3.53 (+0.8%) | Expected | — |
-| B | **35.0%** | **105.7%** | $18.4M | **1.84** | $3.53 (+0.8%) | Expected | — |
-| C | **31.7%** | **99.3%** | $20.6M | **1.56** | $3.69 (+5.4%) | 80% | — |
+| A | **33.3%** (916.11 ÷ 2,748.34) | **124.2%** | $11.9M | **2.56** | $3.32 (+0.4%) | Expected | — |
+| B | **35.0%** | **123.9%** | $11.6M | **2.75** | $3.32 (+0.4%) | Expected | — |
+| C | **31.7%** | **117.8%** | $13.8M | **2.18** | $3.47 (+4.9%) | 80% | — |
 
-On the **Pool** view the share column reads A **32.8%**, B **34.4%** and C **32.8%** (pool premium ÷ $87,330,321).
+On the **Pool** view the share column reads A **32.8%**, B **34.4%** and C **32.8%** (pool premium ÷ $81,514,398).
 
-**While deciding 2028 (current year 2),** the table shows 2026, the opening. Every team reads share 33.3%, combined ratio **95.2%** (cumulative over 2021–2026), surplus $18.2M, P/S **1.76** ($32,052,108 ÷ $18,173,463), rate $3.50 (+2.9%), and funding "—".
+**While deciding 2028 (current year 2),** the table shows 2026, the opening. Every team reads share 33.3%, combined ratio **95.3%** (cumulative over 2021–2026), surplus $17.1M, P/S **1.77** ($30,303,567 ÷ $17,149,106), rate $3.31 (+2.5%), and funding "—".
+
+**Two years on (2029's results),** A's surplus is $3.4M at P/S 10.0 on a cumulative combined ratio of 123.8%, and B's is $2.4M at P/S 16.3. Team A's rate rises to $3.46 (+4.2%) in 2028 and $3.73 (+7.8%) in 2029, once the development reaches the experience.
 
 ---
 
 ## The year carried through: scenario 1, WC, 2027
 
-| Line of the statement | Amount | Section |
-|---|---|---|
-| Member charge (premium): 3.5277/$100 × 916.113 × 10,000 | **$32,317,386** | 4 |
-| − Net incurred loss: current year $22,700,428 + prior development $2,759,203 | −$25,459,631 | 2.4, 2.7, 2.8 |
-| − LAE incurred | −$4,873,604 | 2.6 |
-| − Operating (admin) expense, with the 0.935% overrun | −$3,706,949 | 4.8, 2.14 |
-| **= Underwriting income** | **−$1,722,797** | |
-| + Investment income | +$2,183,794 | 2.13 |
-| **= Net income** | **+$460,997** | |
-| ± Dividends / assessments | $0 | 5 |
-| Opening surplus | $18,173,463 | 1 |
-| **Ending surplus** | **$18,634,459** | 6 |
+Single player, with no development. The last column is the same year as a Test player or hosted team at the default Mid.
 
-| Ratio | Calculation | Value |
-|---|---|---|
-| Loss ratio | 25,459,631 ÷ 32,317,386 | 78.8% |
-| LAE ratio | 4,873,604 ÷ 32,317,386 | 15.1% |
-| Expense ratio | 3,706,949 ÷ 32,317,386 | 11.5% |
-| Combined ratio | | **105.3%** |
-| Premium to surplus | 32,317,386 ÷ 18,634,459 | 1.73 |
-| Capital status | | **Strong, 4.33** |
+| Line of the statement | Single player (Off) | Mid | Section |
+|---|---|---|---|
+| Member charge (premium): 3.3194/$100 × 916.113 × 10,000 | **$30,409,735** | $30,409,735 | 4 |
+| − Net incurred loss: current year $22,700,428 + prior development | −$22,700,428 (+$0) | −$28,613,903 (+$5,913,475) | 2.4, 2.7 |
+| − LAE incurred | −$4,384,063 | −$5,440,434 | 2.6 |
+| − Operating (admin) expense, with the 0.935% overrun | −$3,706,949 | −$3,706,949 | 4.8, 2.14 |
+| **= Underwriting income** | **−$381,705** | −$7,351,550 | |
+| + Investment income | +$2,084,806 | +$2,084,806 | 2.13 |
+| **= Net income** | **+$1,703,102** | −$5,266,744 | |
+| ± Dividends / assessments | $0 | $0 | 5 |
+| Opening surplus | $17,149,106 | $17,149,106 | 1 |
+| **Ending surplus** | **$18,852,208** | $11,882,362 | 6 |
 
-| Balance sheet, end 2027 | |
+| Ratio | Single player | Mid |
+|---|---|---|
+| Loss ratio | 22,700,428 ÷ 30,409,735 = 74.6% | 94.1% |
+| LAE ratio | 14.4% | 17.9% |
+| Expense ratio | 12.2% | 12.2% |
+| Combined ratio | **101.3%** | **124.2%** |
+| Premium to surplus | 30,409,735 ÷ 18,852,208 = 1.61 | 2.56 |
+| Capital status | **Strong, 4.67** | Strong, 2.43 |
+
+| Balance sheet, end 2027 (Single player) | |
 |---|---|
-| Invested / cash | $94,388,838 / $4,847,608 |
-| Net loss reserve (case $42,258,603 + IBNR $25,943,862) | $68,202,466 |
-| LAE reserve | $12,399,521 |
-| Surplus | $18,634,459 |
+| Invested / cash | $90,850,418 / $4,561,460 |
+| Net loss reserve (case $39,737,597 + IBNR $25,030,802) | $64,768,399 |
+| LAE reserve | $11,791,272 |
+| Surplus | $18,852,208 |
 
-Every figure above is the 100-world average the game shows, from the engine's own functions on the instance described at the top. The hosted room's team A shows the same figures.
+Every figure above is the 100-world average the game shows, from the engine's own functions on the instance described at the top. The Mid column is a Test player game on the same schedule, and equals the hosted room's team A.
 
 ---
 
 ## Flags
 
-### Fixed since the last version (2ae5c1a)
+### What changed since the last version (6f4dc56)
 
-- **Old flag 2, struck on one book and charged on another: fixed at the defaults.** The default no longer grows the book, so the rate is struck and billed on 916.113, and the Model tab's premium is what is charged. It still happens whenever a slider moves the book (new flag N4).
-- **Old flag 4, the default always paid the penalty: fixed.** Default play no longer grows the book 5% a year at ×1.20. The penalty is still never priced (still open).
-- **Old flag 8, part 3, a regional T claim could vanish: fixed.** T claims land on the line by region and always land.
-- **Old flag 12, near-perfect renewal selection: moot.** There is no selection; non-renewal is a fixed relief of 0.5 × a₁.
-- **Old flag 17, partly fixed.** `OPENING_BOOK_EXPOSURE` is live again as the opening book, and `noiseZ` and the unit market are gone.
-- **Shock records were double-counted** when an event fired again while in force. They are now kept one per firing (`firingRecordKey`).
-- **Property catastrophe capital** now caps the cover's cession at its ceiling.
+- **Prior development is now adverse development by level.** The host's and Test player's lifetime percentages and reserve inflation are both gone (2.7, 2.8).
+- **Single player no longer develops at all.** It used the 3% / 10% / −2% defaults plus reserve inflation; it now has no development.
+- **The opening moved.** The pre-game no longer inflates reserves, so scenario 1 WC opens at $17,149,106 (was $18,173,463), with a 2027 rate of 3.3194 (was 3.5277).
+- **Fixed:** the `App.tsx` comment that said the solo schedule is drawn "by the host's Randomise rule" now just says it is drawn once.
+- **Fixed:** the old flag "`PRIOR_DEVELOPMENT_DEFAULTS` is the live single-player value" no longer applies; nothing reads the percentages.
+- **Unchanged and still fixed:** the default book does not move, so the rate is struck and billed on one book at the defaults; T claims always land; shock records are kept per firing; Property catastrophe capital is capped at the cover's ceiling.
 
 ### Inconsistent or surprising: behaviour
 
-1. **Openings land far from their scenario targets** (still).
-   - Scenario 1 WC targets 1.97 and opens at 1.78.
-   - Rank correlation of target with actual across the 20 scenarios: **WC 0.64, GL 0.02, Property 0.22**. On GL the thin-to-rich order is lost.
-   - Scenario 3 WC trips the 3.5 guardrail (margin 4.27%).
-   - **New:** the 0% margin floor now binds for **WC 4 and GL 19**.
-   - Year-1 premium at Expected now spans $27.5M–$35.7M on WC across scenarios, although every scenario has the same opening book.
-2. **Using both sliders at 5% is a free lunch, every year.** Exposure is unchanged (−5% + 5%), but lossFactor is 0.95 × 0.975 + 0.05 × 1.2 = **0.98625**, so ordinary losses are 1.4% lower at the same premium. In scenario 1 that moves the combined ratio from 105.3% to 104.2% and adds $372k of surplus in year 1. Nothing limits doing it every year. The relief applies to the renewing book with no selection behind it.
-3. **Non-renewal's effect is mostly price, not risk.** At 5% non-renewal, premium falls $1.62M, ordinary loss falls $1.67M (5% exposure plus 2.5% relief), and prior-year development stays the same in dollars. A 5% non-renewal team's combined ratio still improves (103.8% vs 105.3%) only because of the relief. The landing note in `pricingParameters.ts` says this was measured as intended.
-4. **New flag N4: the rate is struck before movement and billed after,** whenever a slider is used (B and C in section 8). Fixed admin is then over- or under-collected by the movement, and "Expected to surplus" uses the rated exposure.
-5. **Part of P&C is booked as expense** (still). The 2% P&C loading on the admin part, **$73,452** on WC in 2027, is billed inside admin ÷ divisor and booked as admin expense. "Expected to surplus" counts it as surplus.
-6. **The new-business penalty and the non-renewal relief are never priced** (still). The rate learns both only through the experience.
-7. **The 100-world average barely shows the year factor; the member risk scores now dominate the averaged noise.** F is drawn per world, so its 6% CV averages to about 0.6% across 100 worlds. The members' risk scores are shared by every world: they move the averaged ordinary loss with a CV of about 3% (0.30/√100), redrawn each year (2027: 0.9979). The funding tables are built at 6% / 10% / 8% and leave out both member terms (`typicalBookOrdinaryCv` says 6.8% / 10.5% / 8.6%).
-8. **The capital standard is light, and the screen mislabels it** (still). Required capital uses the 80% stop on ordinary-loss-only tables, about 5% of reserves on WC, so "Strong" is nearly automatic (4.91 at the opening). `DecisionsPage.tsx:750` still says "90% confidence" next to the 80% factor.
-9. **Ordinary losses run up to $5M on WC and GL** (still). `ORDINARY_LOSS_LIMIT` is not applied to them; it is read only by the routine-large-loss basis behind Property's fold. The per-occurrence covers can recover only on shock T claims.
-10. **No GL pool limit** (still). `POOL_LIMIT_PER_OCCURRENCE` is `null` on every line.
-11. **Shock behaviour** (still):
-    - A regional event's A applies to the whole line.
-    - Recession and Pandemic have no effect in their second year (`SHOCK_A_YEARS = 1`).
-    - Investment Loss is added after the market clamp, so equities can reach −80%.
-    - A T claim's region now affects nothing but its label and Property's catastrophe flag.
-12. **Shocks are "on" in Single player and Test player whatever the schedule holds.**
-    - A Test player who leaves the list empty, or a Single player whose draw is empty (scenario 1 over 10 years), is offered four covers that can never recover. That player's expected loss also carries the catalogue (+$724k on WC in 2027).
-    - A hosted room with an empty list has shocks off.
-    - Test player's Randomise uses the **host's** rule, so it does not reproduce what Single player would draw for the same seed.
-13. **Schedules are not validated** (still, and Test player now has the same gaps).
-    - The host and Test player can add year 1 and duplicates.
-    - The server accepts any id (an unknown one throws in the engine) and any year. Test player drops years outside 1 to the game length.
-    - The host's year count goes to 20 while solo allows 3–10.
-14. **Loans differ by mode** (still). Single player and Test player prompt if 1 of 100 worlds needs a loan; hosted declines all. A borrower lands at exactly $0 and is not dividend-blocked the next year. The screen's dividend block reads the averaged prior surplus, while the engine blocks per world.
-15. **The pool-level starting surplus omits the LAE reserve** (still). `StartingFinancials.surplus` shows $28.82M for scenario 1 against a true $18.17M ($18.17M + $10.64M LAE reserve). Only a Dashboard fallback reads it.
-16. **WC's first pre-game year earns no investment income** (still): 2021 shows $0.
-17. **The Rate Indication's year-1 change nets the prior board's cushion** (still). Its "+0.8%" is +1.7% of experience less the 0.97% margin coming off.
-18. **Two development notes** (still):
-    - GL's LDFs describe a limited layer, but the engine's GL losses are not limited (`GL_LAYER_MISMATCH = true`).
-    - `FREQUENCY_TREND_PER_YEAR` is read by pricing and not by the loss draw.
-19. **The host's Teams table:**
-    - **The combined ratio is coloured on the loss-ratio scale** (`colorForRatio`). A team at 99.3% reads blue, not the green `colorForCombinedRatio` gives the team's own header.
-    - **The combined ratio's basis changes after the opening.** At year 0 it is cumulative over the six pre-game years (95.2%); from year 1 it covers played years only.
-    - **Before the first advance** every row says "no results known yet", but the Market share column already shows 33.3% (2026).
-    - **Line shares use `activeExposure` rounded to two decimals:** A reads 33.33321%, not 1/3.
-    - **The pool share is pool premium** (no admin), while every other premium on the table is the member charge.
-    - **Ripple Score** is always "—".
-20. **Single player's default is WC only.** The previous version of this document said three lines.
+1. **Mid, the default for every hosted room and Test player game, is ruinous on WC and GL.**
+   - Mid adds 5–15% of all open prior reserves every year: $5.91M on scenario 1 WC in 2027, 19% of premium, taking the combined ratio from 101% to 124%.
+   - Over five years at the defaults, WC goes from +$17.1M to **−$3.6M** and GL dips to −$0.9M in year 4. At High, WC is −$4.1M by year 2 and −$36.4M by year 5.
+   - Hosted declines every loan, so these lines simply run negative.
+   - Low still grows surplus on WC and GL.
+   - A host who changes nothing gets Mid.
+2. **Adverse development reaches the rate two years late, and only as experience.** The 2027 and 2028 rates are identical at Off, Low, Mid and High (3.3194, 3.4589). The first rate to move is 2029's (+7.8% at Mid). Nothing in the rate anticipates the level, though the level is fixed and known to the host when the room is created.
+3. **Players are never told their level.** No player screen, memo or event notice shows it; only the host's create screen does. A team sees it only as prior-year development in its results.
+4. **Single player has no development at all.** With adverse development Off, reserve inflation off and the percentages retired, Single player's prior years never move except through a shock's R. Its reserves are exactly adequate, and "prior-year development" is $0 every year without a shock. Single player is therefore a different game from Test player and hosted at any level, not just a milder one.
+5. **The same development falls on every team, whatever it does.** It is λ × the outstanding on the opening reserves, which every team inherits alike. Teams A, B and C each take −$5,913,475 in 2027. It is fixed in dollars, so a growing book dilutes it: B's 5% new members beats A's defaults on combined ratio (123.9% vs 124.2%).
+6. **Much of each year's development is paid at once.** The cohort's payment is trued up to the pattern on its raised ultimate, so at Mid $3.22M of 2027's $5.91M is paid in 2027. The comment's "later payments follow the pattern" is true, but most of the cash leaves immediately on old WC years.
+7. **The capital standard ignores the level.** Required capital is reserve × 0.0513 at every level. At High, WC loses $10.2M in 2027 and still reads "Strong" (0.94). `DecisionsPage.tsx:750` still labels the factor "90% confidence" next to the 80% stop.
+8. **Openings land far from their targets, and the margin floor now overrides a guardrail.**
+   - Scenario 1 WC targets 1.97 and opens at 1.77.
+   - Rank correlation of target with actual across the 20 scenarios: WC 0.64, GL −0.02, Property 0.24.
+   - The 0% margin floor now binds for **GL in all 20 scenarios** and for WC 4, 9, 11 and 16. On those lines, the designed run would need a negative margin to land on the target.
+   - **GL scenario 20 opens at P/S 0.984, below the 1.0 guardrail**, because the re-solve may not go below the floor.
+   - Scenario 3 WC still trips the 3.5 guardrail (margin 4.35%).
+9. **Using both sliders at 5% is a free lunch, every year** (still). Exposure is unchanged, but lossFactor is 0.98625. In Single player that moves the combined ratio from 101.3% to 100.0% and adds $372,412 of surplus in 2027.
+10. **The rate is struck before movement and billed after** whenever a slider is used (B and C in section 8). Fixed admin is then over- or under-collected.
+11. **Part of P&C is booked as expense** (still): $73,452 on WC in 2027.
+12. **The new-business penalty and the non-renewal relief are never priced** (still).
+13. **The 100-world average barely shows the year factor** (still). The shared member risk scores (CV about 3% on the average) dominate the averaged ordinary noise, against funding tables built at 6% / 10% / 8%.
+14. **Ordinary losses run up to $5M on WC and GL** (still), and no GL pool limit applies (still).
+15. **Shock behaviour** (still): a regional A applies to the whole line; Recession and Pandemic do nothing in their second year; Investment Loss is added after the clamp.
+16. **Shocks are "on" in Single player and Test player whatever the schedule holds** (still). An empty schedule still offers four covers and carries +$724k of catalogue expectation on WC in 2027. Test player's Randomise uses the host's rule.
+17. **Schedules are not validated** (still). Year 1, duplicates and unknown ids pass the host screen and the server. The host's year count reaches 20; solo allows 3–10. Levels, by contrast, are validated.
+18. **Loans differ by mode** (still). Solo prompts if 1 of 100 worlds needs a loan; hosted declines all. This matters more now that Mid and High drive hosted lines negative.
+19. **The pool-level starting surplus omits the LAE reserve** (still): $27.34M shown against a true $17.15M.
+20. **WC's first pre-game year earns no investment income** (still), and 2021 now shows a net loss of −$0.50M.
+21. **The Rate Indication's year-1 change nets the prior board's cushion** (still). "+0.4%" is +1.1% of experience less the 0.87% margin coming off.
+22. **Two development notes** (still): GL's LDFs describe a limited layer the engine does not limit, and `FREQUENCY_TREND_PER_YEAR` is read by pricing only.
+23. **The host's Teams table** (still):
+    - the combined ratio is coloured on the loss-ratio scale;
+    - year 0's combined ratio is over the pre-game, while later years cover played years only;
+    - the share column shows 33.3% before any row has results;
+    - line shares use exposure rounded to two decimals;
+    - the pool share is pool premium (no admin);
+    - Ripple Score is always "—".
+    It does not show the room's adverse-development level, the one setting that now most decides the column values.
 
 ### Settings that are read by nothing, or overridden
 
-21. These have no effect on the game:
+24. These have no effect on the game:
+    - **New:** `PRIOR_DEVELOPMENT_DEFAULTS`, `src/utils/hostDevelopment.ts`, the room's stored `priorDevelopment`, and `GameSetupSettings.priorDevelopment` (all forced to 0 by `ADVERSE_DEVELOPMENT`)
+    - **New:** `RESERVE_INFLATION_PRICED_YEARS` and `reserveInflationToCome` (the rate is 0)
+    - **New:** `drawDevelopmentLevels` (`SOLO_ADVERSE_DEVELOPMENT` is off)
     - `SUPPLIED_PURE_PREMIUM_INCLUDES_ULAE` (the ÷1.05 is hard-wired)
     - `PRICING_WINDOW_WEIGHTING_NEW`
     - `RATE_CHANGE_CAP_NEW`, `RESERVE_BASIS_NEW`, `PRIOR_HISTORY_YEARS_NEW`
@@ -913,21 +993,23 @@ Every figure above is the 100-world average the game shows, from the engine's ow
 
 The code is described above; this is a selection.
 
-22. New since simple underwriting:
-    - The UNDERWRITING block in `pricingParameters.ts` says "No risk scores" and "They exist ONLY for each member's own luck draw"; `MEMBER_RISK_CV = 0.30` gives every member a yearly risk score.
-    - `UNDERWRITING_MEMBERS`'s CV formula leaves out the risk score.
-    - The `HostTeamsTab.tsx` header says "Teams pick their own lines"; the room fixes the lines.
-    - `App.tsx` says the solo schedule is drawn "by the host's Randomise rule"; it is the catalogue draw. It also says "3-year pre-game"; the pre-game is 6 years.
-    - `buildGame.ts` says single player "leaves this absent and draws from the catalogue"; it sets `shockTiming: 'solo'`.
-23. Still wrong from before:
-    - "Ten worlds" (it is 100).
-    - "Trended at 5%" (4/8/5%).
+25. New with adverse development:
+    - `SetupPage.tsx` (prop note and button comment) says Single player draws "each line's development level from the seed"; `SOLO_ADVERSE_DEVELOPMENT` is off and every line is stored Off.
+    - `buildGame.ts` says of `priorDevelopment` "It is no longer stored-and-inert: the engine reads it per line"; with `ADVERSE_DEVELOPMENT` on it is not read.
+    - The `ADVERSE_DEVELOPMENT` note gives its stream as `'adverse_dev'`; the code's stream is `adverse_dev_<line>_<accident year>`.
+    - 17 comments still say "(wip/adverse-development)"; the code is on multiplayer.
+    - `App.tsx` still says "3-year pre-game"; the pre-game is 6 years.
+26. Still wrong from before:
+    - The UNDERWRITING block's "No risk scores" (`MEMBER_RISK_CV = 0.30`).
+    - The `HostTeamsTab.tsx` header's "Teams pick their own lines" (the room fixes them).
+    - `buildGame.ts`'s "singleplayer leaves this absent" (it sets `shockTiming: 'solo'`).
+    - "Ten worlds" (100).
     - "5% P&C on every line" (2/0/0).
     - "ALAE 5%" (drawn at 7–15/10–20/2–5%).
     - `PRIOR_HISTORY_YEARS` "five" (6).
-    - The `STARTING_CAPITAL` narrative ($5M/$12.5M/$17.5M; the code is 3/12/12.5).
-    - `ROUTINE_LARGE_LOSSES` "a switch, now on" (off).
-    - The `newPurePremium.ts` header "shadow mode, read by nothing that prices" (it is the live pure premium).
-    - The reinsurance tower header ($4M/$5M packages, $25M GL limit).
+    - The `STARTING_CAPITAL` narrative (3/12/12.5).
+    - `ROUTINE_LARGE_LOSSES` "now on" (off).
+    - The `newPurePremium.ts` header's "shadow mode" (live).
+    - The reinsurance tower header ($25M GL limit).
     - The default cover "the middle option" (None).
     - The reserve margin "CLF90" (the 80% stop).
