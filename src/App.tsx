@@ -164,9 +164,8 @@ export default function App() {
   }
 
   const handleStartGame = useCallback((settings: GameSetupSettings, test?: { schedule: ScheduledShock[] }) => {
-    // THE SHOCK SCHEDULE IS DRAWN HERE, ONCE, by the host's Randomise rule on the
-    // solo stream (or, for Test player, is the one set on the host's screen), and
-    // rides on the instance into the save and every world.
+    // THE SHOCK SCHEDULE IS DRAWN HERE, ONCE (or, for Test player, is the one the
+    // player set), and rides on the instance into the save and every world.
     const { setup, instance } = openSoloInstance(settings, test);
     // Stage 2.10: each active line simulates its own 3-year pre-game past
     // through the real engine; the ending state is the Year 1 opening position.

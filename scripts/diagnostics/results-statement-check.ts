@@ -530,11 +530,15 @@ for (const k of Object.keys(labels)) check((agg[k] ?? []).length === 0, `${k}. $
     return (num(ced[0]) ?? 0) + (num(ced.at(-1)!) ?? 0);
   };
   const recovered = recoveredBy(snaps[YEARS]);
-  check(recovered > 0, 'the game recovered from its reinsurers, so the ceded block is tested on real figures', `ceded ultimates, every program year $${(recovered / 1e6).toFixed(2)}M`);
+  check(recovered > 1, 'the game recovered from its reinsurers, so the ceded block is tested on real figures', `ceded ultimates, every program year $${(recovered / 1e6).toFixed(2)}M`);
   // THE CONTROL (the shocks landing): the same game holding no cover — the
   // default decisions — recovers nothing, so the check above must fail on it.
+  // ⚠ "NOTHING" IS UNDER A DOLLAR (wip/adverse-development): the ceded cell is
+  // gross less net, and with adverse development on both sides the difference
+  // of two equal figures reads 5.8e-11, not 0. The check above is held to the
+  // same dollar, so the control still fails it.
   const bare = recoveredBy(playSnapshots(GAME, YEARS, defaultDecisionSet)[YEARS]);
-  check(!(bare > 0), 'control: the same game holding no cover (the defaults) recovers nothing, and the check fails on it', `ceded ultimates $${(bare / 1e6).toFixed(2)}M`);
+  check(!(bare > 1), 'control: the same game holding no cover (the defaults) recovers nothing, and the check fails on it', `ceded ultimates $${(bare / 1e6).toFixed(2)}M (${bare})`);
 }
 
 // ============================================================================

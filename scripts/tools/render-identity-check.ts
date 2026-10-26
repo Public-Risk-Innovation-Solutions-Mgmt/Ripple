@@ -1365,7 +1365,21 @@ const BASELINE = process.env.RENDER_BASELINE
 //     and surplus after them — and the audit's reserve risk margin check
 //     reading Review by exactly the retained catastrophe, which this landing
 //     fixes (above).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v89.json');
+// v90: THE ADVERSE-DEVELOPMENT LANDING, on multiplayer ebc3b4a. The control
+// ran first: ebc3b4a built in its own worktree reproduced v89 236 of 236 in
+// this container. Against it, word-diffed (RENDER_TEXT_DIR both sides), 206
+// of 236 move, every one a values screen; the 30 unmoved are the
+// Introduction's documents and the unplayed views. 125 move in figures only;
+// 81 with wording, every sentence following the figures. The harness plays
+// single player, which now develops nothing: reserve inflation is off and
+// unpriced (every rate moves), and the host's prior-development percentages
+// it played at their defaults are retired (SOLO_ADVERSE_DEVELOPMENT off). So
+// prior-year development is $0 and its "adverse" labels go, the Results
+// narrative drops "prior year reserves developed adversely", surplus is
+// higher (GL y2 $6.94M -> $11.62M) so no line takes an inter-line loan — the
+// loan rows, the repayment control and the audit's loan-transfer lines go —
+// and a dividend no longer reads "(blocked)". No fixed wording moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v90.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

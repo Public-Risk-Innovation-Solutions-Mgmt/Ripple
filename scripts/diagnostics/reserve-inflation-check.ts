@@ -31,10 +31,37 @@
 // ⚠ AND EACH FAILS WHEN BROKEN: the controls feed 1 the END-of-year base
 // (after the paydown), 2 a year whose payments fell, 3 a factor that runs to
 // the end of the pattern and GL priced for 2 years, and 4 the 5% on every line.
+//
+// ⚠ RESTATED FOR wip/adverse-development: reserve inflation is OFF as shipped
+// (RESERVE_INFLATION.enabled false, RESERVE_INFLATION_PER_YEAR 0 on every
+// line) — adverse development by level (ADVERSE_DEVELOPMENT) replaces it, and
+// pricing anticipates neither. As shipped, 1 booked $0 on every line-year and
+// so failed its own "something was booked", and the two controls on 3 could
+// no longer fail, because every factor they substitute is 1 at a rate of 0.
+// So this gate now does both, the way aggregate-stop-check does for its
+// dormant stop:
+//
+//   0. THE DORMANCY, as shipped: the switch off and every line's rate 0
+//      (written out here, not read from the parameter); every played
+//      line-year books exactly $0 of reserve inflation; reserveInflationToCome
+//      is exactly 1 at every age, every priced window point carries exactly 1
+//      and a rate with no history carries exactly 1 — nothing booked, nothing
+//      priced. (Adverse development, which replaced it, is held by
+//      adverse-development-check; its total is printed here for reference.)
+//
+// and then SWITCHES RESERVE INFLATION ON INSIDE ITS OWN PROCESS — the switch
+// and the rate at the severity trend, what the parameter's "on" restores — and
+// grades 1-4 on the dormant code, with adverse development running beside it
+// as shipped, so it stays correct for the day it is switched back on. Safe
+// only because every gate runs in its own process; restored before exit.
+// 0's CONTROLS grade the dormancy on the games played with the switch on,
+// which must fail — once as switched on, and once with the switch and rates
+// read back off, so the booked-dollars count alone must catch it.
 // ============================================================================
 
 import {
-  PROFIT_AND_CONTINGENCY_OF_RATE, RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS,
+  PROFIT_AND_CONTINGENCY_OF_RATE, RESERVE_INFLATION, RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS,
+  SEVERITY_TREND_PER_YEAR,
 } from '../../src/data/pricingParameters';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
 import { unpaidShare, conditionalPaydown } from '../../src/utils/payoutPattern';
@@ -163,7 +190,46 @@ function gradeContingency(divisor: (rc: number, line: CoverageLine) => number, t
     `${LINES.map(l => `${l} ${(PROFIT_AND_CONTINGENCY_OF_RATE[l] * 100).toFixed(1)}%`).join(', ')}; worst ${worst.toExponential(2)}`);
 }
 
+// ---------------------------------------------------------------- 0
+// THE DORMANCY (wip/adverse-development): off, and nothing booked or priced.
+function gradeDormancy(games: Game[], tag: string) {
+  const off = !RESERVE_INFLATION.enabled && LINES.every(l => RESERVE_INFLATION_PER_YEAR[l] === 0);
+  let lineYears = 0, booked = 0, adverse = 0, points = 0, unpriced = 0;
+  for (const g of games) for (const x of g.years) {
+    lineYears++;
+    const n = x.row.newLossEngine;
+    if (!n || n.reserveInflation !== 0) booked++;
+    adverse += n?.adverseDevelopment ?? 0;
+  }
+  for (const l of LINES) for (let age = 1; age <= 12; age++) { points++; if (reserveInflationToCome(l, age) !== 1) unpriced++; }
+  for (const g of games) for (const p of g.priced) {
+    const ledger = p.gs.poolState.lines[p.line].reserveDevelopment ?? [];
+    const pp = bookPurePremium(p.line, p.y, { rows: ledger, allMarketMembers: p.gs.poolState.allMarketMembers, membershipHistory: p.gs.poolState.membershipHistory }, p.exposure, p.risk);
+    for (const pt of pp.points) { points++; if (pt.reserveInflation !== 1) unpriced++; }
+    if (pp.points.length === 0) { points++; if (pp.reserveInflation !== 1) unpriced++; }
+  }
+  for (const l of LINES) {
+    points++;
+    if (bookPurePremium(l, 1, { rows: [], allMarketMembers: [], membershipHistory: {} }, 1000, 1).reserveInflation !== 1) unpriced++;
+  }
+  check(off && booked === 0 && unpriced === 0 && lineYears > 0,
+    `${tag}0. reserve inflation is OFF as shipped: the switch off, every line's rate 0, nothing booked on any played line-year and nothing priced (every factor exactly 1)`,
+    `RESERVE_INFLATION ${RESERVE_INFLATION.enabled ? 'ON' : 'off'}, rates ${LINES.map(l => `${l} ${RESERVE_INFLATION_PER_YEAR[l]}`).join(' / ')}; `
+    + `${booked} of ${lineYears} line-years booked some; ${unpriced} of ${points} priced factors not 1; `
+    + `adverse development booked in its place $${(adverse / 1e6).toFixed(1)}M (graded by adverse-development-check)`);
+}
+
 console.log(`RESERVE INFLATION — scenarios ${SCENARIOS.join(', ')}, the pre-game and ${YEARS} played years, three lines, one world`);
+console.log('AS SHIPPED (wip/adverse-development): off');
+const shipped = SCENARIOS.map(play);
+gradeDormancy(shipped, '');
+
+// SWITCHED ON INSIDE THIS PROCESS: the switch and the severity trend, what
+// "on" restores. Restored at the foot.
+const shippedRate = { ...rate };
+RESERVE_INFLATION.enabled = true;
+for (const l of LINES) rate[l] = SEVERITY_TREND_PER_YEAR[l];
+console.log(`\nSWITCHED ON IN THIS PROCESS: rates ${LINES.map(l => `${l} ${rate[l]}`).join(' / ')}, adverse development running beside it as shipped`);
 const games = SCENARIOS.map(play);
 gradeBooked(games, startBase, '');
 gradePaid(games, '');
@@ -193,10 +259,26 @@ controlFails('GL priced for 2 years', () => gradePriced(games, (l, age) => {
   return f;
 }, ''), '3.');
 controlFails('the 5% on every line', () => gradeContingency(rc => 1 - rc - 0.05, ''), '4.');
+// 0's control: the dormancy graded while the switch is on, on the games it played.
+controlFails('reserve inflation switched on, booked and priced', () => gradeDormancy(games, ''), '0.');
+// And the booking alone: the switch read off and the rates 0, but the games
+// are the ones that booked inflation — the line-year count must catch it.
+controlFails('inflation booked on the played years, the switch and rates read off', () => {
+  RESERVE_INFLATION.enabled = false;
+  for (const l of LINES) rate[l] = 0;
+  try { gradeDormancy(games, ''); } finally {
+    RESERVE_INFLATION.enabled = true;
+    for (const l of LINES) rate[l] = SEVERITY_TREND_PER_YEAR[l];
+  }
+}, '0.');
+
+// Restore the shipped switch.
+RESERVE_INFLATION.enabled = false;
+Object.assign(rate, shippedRate);
 
 console.log('');
 if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — open years inflate before payments, booked as development; pricing carries WC 2, GL 1 and Property 2 years of it; contingency WC 2%, GL 0%, Property 0%.');
+console.log('PASS — reserve inflation is off as shipped, nothing booked or priced; switched on, open years inflate on the start-of-year outstanding, booked as development, and pricing carries WC 2, GL 1 and Property 2 years of it; contingency WC 2%, GL 0%, Property 0%.');
