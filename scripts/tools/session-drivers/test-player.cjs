@@ -14,7 +14,7 @@
 //    and not the one a replay at Mid books — so the game developed nothing.
 // 2. Test player: opens the HOST'S OWN setup screen (HostCreateScreen, solo
 //    mode) with no admin sign-in, offering Low / Mid / High per line in place of
-//    the percentages. Setting WC High and GL Low (Property left at Mid), and
+//    the percentages. Setting WC High and GL Low (Property left at the default, Low), and
 //    scheduling #7 in year 3 and #2 in year 4, starts a solo game whose save
 //    holds exactly those levels and exactly that schedule.
 // 3. After locking year 1 and RELOADING, the game is restored (not the start
@@ -161,6 +161,10 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(await page.locator('[data-testid^="prior-dev-pct-"]').count() === 0, 'Test player: no prior-development percentages');
     const opts = await page.locator('[data-testid="dev-level-WC"] option').allInnerTexts();
     ok(JSON.stringify(opts) === JSON.stringify(['Low', 'Mid', 'High']), 'Test player: Low, Mid and High offered', opts.join('/'));
+    // ⚠ LOW IS THE DEFAULT ON EVERY LINE (ADVERSE_DEVELOPMENT_DEFAULT_LEVEL), was
+    // Mid: a line the tester does not touch plays Low.
+    const opening = await Promise.all(['WC', 'GL', 'Property'].map(l => page.locator(`[data-testid="dev-level-${l}"]`).inputValue()));
+    ok(opening.every(v => v === 'Low'), 'Test player: every line opens on Low', opening.join('/'));
     const note = await page.locator('[data-testid="dev-level-note"]').innerText().catch(() => '');
     ok(/grows by a rate drawn in its line's range/.test(note), 'Test player: the levels\' note says what they do', note);
 
@@ -175,7 +179,8 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     await page.click('[data-testid="start-test-player"]');
     await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
 
-    const want = { levels: { WC: 'High', GL: 'Low', Property: 'Mid' }, schedule: [['#7', 3], ['#2', 4]] };
+    // Property is left at the default, Low (it was Mid).
+    const want = { levels: { WC: 'High', GL: 'Low', Property: 'Low' }, schedule: [['#7', 3], ['#2', 4]] };
     const check = (save, when) => {
       const lv = save?.setup?.developmentLevels ?? {};
       ok(JSON.stringify(lv) === JSON.stringify(want.levels), `Test player ${when}: the levels set`, JSON.stringify(lv));

@@ -406,11 +406,17 @@ export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readon
   Low: [0.01, 0.05], Mid: [0.05, 0.15], High: [0.15, 0.20],
 };
 /**
- * What a game with no level set plays: a hosted room and Test player set each
- * line's level; single player sets every line Off (SOLO_ADVERSE_DEVELOPMENT).
- * A harness that sets none reads Mid.
+ * What a game with no level chosen plays, on every line: a hosted room's or a
+ * Test player game's line with no level picked (the host's create screen also
+ * opens on it), and any harness that sets none. Single player sets every line
+ * Off (SOLO_ADVERSE_DEVELOPMENT) and never reads this.
+ *
+ * ⚠ LOW, WAS MID. At Mid (5-15% of each open prior year's outstanding a year,
+ * compounding on what is still open), WC — the long tail — fails in most
+ * scenarios within five years. Low (1-5%) is the default a host gets without
+ * choosing; Mid and High stay one pick away for a room that wants them.
  */
-export const ADVERSE_DEVELOPMENT_DEFAULT_LEVEL: DevelopmentLevel = 'Mid';
+export const ADVERSE_DEVELOPMENT_DEFAULT_LEVEL: DevelopmentLevel = 'Low';
 /** A line's setting on a game's setup: a level, or Off — single player's, never a room's. */
 export type DevelopmentSetting = DevelopmentLevel | 'Off';
 
@@ -2579,7 +2585,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: `Draws from the game seed ('adverse_dev' stream), shared by every world. Hosts choose a level per line; Test `
           + `player takes the host's setup; single player has none (Single player adverse development, below). `
-          + `A harness with none reads ${ADVERSE_DEVELOPMENT_DEFAULT_LEVEL}.`,
+          + `A hosted or Test player game with no level chosen, and a harness with none, reads `
+          + `${ADVERSE_DEVELOPMENT_DEFAULT_LEVEL} on every line — Low since Mid failed WC in most scenarios within five years.`,
       }],
       ['Single player adverse development', {
         value: SOLO_ADVERSE_DEVELOPMENT.enabled ? 'on' : 'off', unit: 'switch',
