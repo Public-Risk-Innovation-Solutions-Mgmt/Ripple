@@ -79,26 +79,41 @@ const MIN_STOP: Record<string, number> = {
   GL: SLIDER_RANGES.fundingConfidenceLevel.min,
   Property: SLIDER_RANGES.fundingConfidenceLevel.min,
 };
-interface Arm { name: string; why: string; decisions: (d: DecisionSet, l: CoverageLine[]) => DecisionSet }
+// ⚠ RESTATED FOR THE SHOCKS LANDING (2ae5c1a). The default decisions buy NO
+// cover now (REINSURANCE_DEFAULT_OPTION 'none' on every line), and the only
+// claims there are are the shocks' T claims (ROUTINE_LARGE_LOSSES off), so the
+// 'defaults' and 'squeezed' arms ceded nothing — not because development failed
+// to reach the tower but because no arm bought one, and the coverage assertion
+// below went red on a game that could not cede. The two arms that are meant to
+// cede now BUY the widest T cover, $38M xs $2M, on every line; their bare
+// instances fire the catalogue's shocks at its odds (shockTimingOf 'catalogue'),
+// so over GAMES x YEARS the T claims arrive and develop. 'no-tower' holds None,
+// which is now also the default — it is the arm the default decisions play.
+const T_COVER = '$38M xs $2M';
+const withCover = (d: DecisionSet, lines: CoverageLine[], option: string): DecisionSet => ({
+  ...d, byLine: Object.fromEntries(lines.map(l => [l, { ...d.byLine[l], reinsuranceOption: option }])) as never,
+});
+interface Arm {
+  name: string; why: string; decisions: (d: DecisionSet, l: CoverageLine[]) => DecisionSet;
+  /** Assert that no game-born accident year cedes — the declined arm's rule. */
+  declined?: boolean;
+}
 const ARMS: Arm[] = [
-  { name: 'defaults', why: 'bookingBias 0 — development is pure lognormal noise', decisions: d => d },
+  { name: 'defaults', why: `bookingBias 0, ${T_COVER} bought — development is pure lognormal noise`, decisions: (d, l) => withCover(d, l, T_COVER) },
   {
     name: 'squeezed',
-    why: 'every line at its own minimum stop — the unwind is live and adverse development is common',
-    decisions: (d, lines) => ({
+    why: `every line at its own minimum stop, ${T_COVER} bought — the unwind is live and adverse development is common`,
+    decisions: (d, lines) => withCover({
       ...d,
       byLine: Object.fromEntries(lines.map(l =>
         [l, { ...d.byLine[l], fundingConfidenceLevel: MIN_STOP[l], fundingAtExpected: false }])) as never,
-    }),
+    }, lines, T_COVER),
   },
   {
     name: 'no-tower',
-    why: 'every occurrence layer DECLINED — cession must be identically zero',
-    decisions: (d, lines) => ({
-      ...d,
-      byLine: Object.fromEntries(lines.map(l =>
-        [l, { ...d.byLine[l], reinsuranceOption: 'none' }])) as never,
-    }),
+    why: 'every occurrence layer DECLINED (None, the default) — cession must be identically zero',
+    decisions: (d, lines) => withCover(d, lines, 'none'),
+    declined: true,
   },
 ];
 
@@ -339,9 +354,10 @@ console.log('\n--- RESELECTION CONTRACT (direct) ---');
 }
 
 // ---------------------------------------------------------------- game checks
-for (const arm of ARMS) {
-  for (let g = 0; g < GAMES; g++) {
-    const id = `DCC${arm.name}${g}`;
+function playArm(arm: Arm, nGames: number, idName = arm.name) {
+  perArmCeded[arm.name] ??= 0;
+  for (let g = 0; g < nGames; g++) {
+    const id = `DCC${idName}${g}`;
     const inst = generateGameInstance(id, 5_200_000 + g * 6301);
     const setup = { poolName: 'A', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES as CoverageLine[] };
     const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
@@ -391,7 +407,7 @@ for (const arm of ARMS) {
         // the pre-game run and did buy it. An earlier version asserted zero
         // cession pool-wide and failed on exactly that — correctly, in the sense
         // that the engine was right and the assertion was wrong.
-        if (arm.name === 'no-tower') {
+        if (arm.declined) {
           for (const b of before[line]) {
             if (b.closed || b.yearNumber < 1) continue;
             const a2 = afterBy.get(b.yearNumber);
@@ -696,6 +712,52 @@ for (const arm of ARMS) {
     }
   }
 }
+for (const arm of ARMS) playArm(arm, GAMES);
+
+// ---------------------------------------------------------------- controls
+// ⚠ ADDED WITH THE SHOCKS LANDING'S RESTATEMENT: the two assertions it leans
+// on, each fed the break it guards against at runtime and required to FAIL.
+// A control game runs through the same playArm; its findings and counters are
+// snapshotted and restored so the report above reads the real arms only.
+const controlFailures: string[] = [];
+function inControl<T>(body: () => T): { out: T; findings: Finding[]; ceded: number } {
+  const f0 = findings.length;
+  const snap = { ...cover, zeroedOccIds: new Set(cover.zeroedOccIds),
+    reinflatedAboveRetention: new Set(cover.reinflatedAboveRetention), zeroedAboveRetention: new Set(cover.zeroedAboveRetention) };
+  const out = body();
+  const got = findings.splice(f0);
+  const ceded = cover.cededDollars - snap.cededDollars;
+  Object.assign(cover, snap);
+  return { out, findings: got, ceded };
+}
+const CONTROL_GAMES = Math.min(GAMES, 3);
+console.log('\n--- CONTROLS (shocks landing restatement) ---');
+{
+  // (a) THE COVERED ARM CEDES ON DEVELOPMENT — and stops when the tower does not
+  // answer. Every layer made unpurchasable at runtime, the same games as the
+  // 'defaults' arm's first three: what they cede must go to zero, which is the
+  // state the coverage assertion below refuses.
+  const live = inControl(() => playArm({ ...ARMS[0], name: 'ctl-live' }, CONTROL_GAMES, 'defaults'));
+  const broken = inControl(() => {
+    const was = LINES.map(l => REINSURANCE_TOWER[l].map(x => x.purchasable));
+    LINES.forEach(l => REINSURANCE_TOWER[l].forEach(x => { x.purchasable = false; }));
+    try { playArm({ ...ARMS[0], name: 'ctl-broken' }, CONTROL_GAMES, 'defaults'); } finally {
+      LINES.forEach((l, i) => REINSURANCE_TOWER[l].forEach((x, k) => { x.purchasable = was[i][k]; }));
+    }
+  });
+  const okA = live.ceded !== 0 && broken.ceded === 0;
+  if (!okA) controlFailures.push('a tower that does not answer development is not caught');
+  console.log(`  ${okA ? 'OK  ' : 'FAIL'}  control: a tower that does not answer development leaves the covered arm ceding nothing  — `
+    + `${money0(live.ceded)} ceded live, ${money0(broken.ceded)} with every layer unpurchasable`);
+  // (b) THE DECLINED ARM'S ZERO-CESSION RULE FIRES ON A GAME THAT DID CEDE: the
+  // same rule, applied to games that bought the cover, must report findings.
+  const covered = inControl(() => playArm({ ...ARMS[0], name: 'ctl-declined-but-covered', declined: true }, CONTROL_GAMES, 'defaults'));
+  const nB = covered.findings.filter(f => f.what === 'ceded with every layer declined').length;
+  if (nB === 0) controlFailures.push('a declined year that cedes is not caught');
+  console.log(`  ${nB > 0 ? 'OK  ' : 'FAIL'}  control: the declined arm's zero-cession rule, run on games that bought ${T_COVER}, is caught  — ${nB} finding(s)`);
+  for (const k of Object.keys(perArmCeded)) if (k.startsWith('ctl-')) delete perArmCeded[k];
+}
+function money0(v: number) { return `$${(v / 1e6).toFixed(2)}M`; }
 
 // ---------------------------------------------------------------- report
 const money = (v: number) => `$${(v / 1e6).toFixed(2)}M`;
@@ -753,11 +815,19 @@ const coverageErrors: string[] = [];
 // assertion that it CANNOT is retired rather than loosened: what is asserted
 // instead is that it DOES, which is the statement that would catch the path
 // going quiet again.
+// ⚠ SHOCKS LANDING: EACH arm that buys the T cover must cede on development,
+// not merely the run as a whole — a squeezed arm that went quiet would hide
+// behind the defaults arm's cessions.
+for (const a of ARMS) if (!a.declined && perArmCeded[a.name] === 0) {
+  coverageErrors.push(`the '${a.name}' arm bought ${T_COVER} on every line and ceded nothing on development`);
+}
+for (const c of controlFailures) coverageErrors.push(`CONTROL: ${c}`);
 if (FULL_COST_BOOKING.enabled) {
   if (cover.cededEvents === 0) coverageErrors.push('no cession event occurred on development. The host\'s development % reaches the register and the tower answers it, so the end-to-end arm must exercise this path — zero events means the development is not reaching the cession, which is the defect this file exists for');
-  console.log('\n  ⚠ NAMED COVERAGE GAP: the end-to-end development-cession path has no input');
-  console.log('    reaching it while FULL_COST_BOOKING is on. The direct allocator fixtures above');
-  console.log('    still exercise it; the played-game arm does not.');
+  // ⚠ SHOCKS LANDING: this printed the retired NAMED COVERAGE GAP on every run,
+  // contradicting the paragraph above. What it reports now is what is asserted.
+  console.log('\n  Under FULL_COST_BOOKING the development that cedes is the host\'s development %');
+  console.log(`    on the T claims of the arms that bought ${T_COVER}; the stochastic walk stays off.`);
 } else {
   if (cover.cededEvents === 0) coverageErrors.push('no cession occurred anywhere — the mechanism never fired');
 }
