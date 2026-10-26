@@ -2279,6 +2279,19 @@ const rLevels = (l: { Low: readonly number[]; Mid: readonly number[]; High: read
   `Low ${rRange(l.Low, pct)} · Mid ${rRange(l.Mid, pct)} · High ${rRange(l.High, pct)}`;
 
 // ============================================================================
+// MULTIPLAYER
+// ============================================================================
+
+/**
+ * HOW OFTEN A SESSION SCREEN READS THE ROOM, in milliseconds — the poller's
+ * floor, which every change resets it to (src/session/client/pollSchedule.ts
+ * backs off from here towards its ceiling while the room is still). One
+ * setting: the host's screen, every player's and every viewer's read on it.
+ * Kept at 3 seconds for now; 5_000 here moves every screen to 5 seconds.
+ */
+export const SESSION_POLL_INTERVAL_MS = 3_000;
+
+// ============================================================================
 // THE REGISTRY — what the page is generated from.
 //
 // ⚠ IT IS A SECOND DESCRIPTION OF THE CONSTANTS ABOVE AND THAT IS THE ONE PLACE
@@ -2482,6 +2495,32 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         unit: 'share of the line\'s premium',
         what: 'Per-line risk control incentives.', basis: 'CHOSEN',
         note: 'Stored and not read by the engine; awaiting the new rate indication.',
+      }],
+    ],
+  },
+  {
+    title: 'Multiplayer',
+    entries: [
+      ['Session poll interval', {
+        value: `${SESSION_POLL_INTERVAL_MS / 1000} seconds`,
+        unit: 'between reads of the room, at the fastest',
+        what: 'How often the host\'s, every player\'s and every viewer\'s screen reads the room. It is the poller\'s '
+          + 'floor: a change resets to it, and a still room backs off from it towards ten seconds.',
+        basis: 'CHOSEN',
+        note: 'One setting for every session screen. Kept at today\'s 3 seconds; set to 5 to move them all.',
+      }],
+      ['Room market share', {
+        value: 'per line: own exposure / the room\'s exposure on the line · pool: own premium / the room\'s premium',
+        unit: 'share of the room, hosted games only',
+        what: 'In a hosted game a team\'s market share is its share of the room, not of the full market. Per line, '
+          + 'its exposure over the total exposure of every team in the room that writes the line; for the pool, its '
+          + 'premium over the room\'s, since the lines\' exposures are in different units. Before year 1 it comes '
+          + 'from the opening books, so N teams each read 1/N.',
+        basis: 'CHOSEN',
+        note: 'Worked out once a year and stored with the room, in the submit that brings in the last result from '
+          + 'the teams that locked in that year; fixed until the next set. A team that did not lock in a year counts '
+          + 'as stopped: nobody waits for it and its last reported figures stay in the totals. Each player sees its '
+          + 'own team\'s; the host sees every team\'s. Single player keeps the share of the full market.',
       }],
     ],
   },

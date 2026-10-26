@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
+import type { TeamMarketShare } from '../session/contract';
 import { buildAnnualStatement, topCombinedRatio, topSurplus } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
 import { RippleMark } from '../assets/RippleLogo';
@@ -22,10 +23,17 @@ interface HeaderProps {
   advanceLabel?: string;
   /** The view on screen — the combined ratio is the pool's or that line's. Defaults to the pool. */
   lineView?: LineView;
+  /**
+   * A HOSTED GAME'S MARKET SHARE: the team's share of the ROOM for the latest
+   * known year (CallerView.marketShare) — its line's on a line view, its
+   * premium share on the pool view. Passed only by a session screen; null
+   * there means the room holds no share for this team (an older handler sends
+   * none), and the chip is left out. Absent (single player): no chip.
+   */
+  roomMarketShare?: TeamMarketShare | null;
 }
 
-export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool' }: HeaderProps) {
-  const lastResult = gameState?.lockedResults?.[gameState.lockedResults.length - 1];
+export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool', roomMarketShare }: HeaderProps) {
 
   // ============================================================================
   // THE COMBINED RATIO, CUMULATIVE SINCE GAME START, READ OFF THE ANNUAL STATEMENT.
@@ -59,15 +67,18 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
   // ============================================================================
   const surplus = (statement ? topSurplus(statement) : undefined) ?? 0;
   // ============================================================================
-  // THE MARKET SHARE FOLLOWS THE VIEW, LIKE THE SURPLUS: a line's own
-  // exposure share on its view, read off the latest year there is — the last
-  // pre-game year before year 1, the last played year after — the same result
-  // the Calculation Audit's Market Share opens on. ⚠ NONE ON THE POOL VIEW:
-  // the three lines' markets are not comparable (WC and GL payroll, Property
-  // TIV), so the chip is left out rather than showing a blend of them.
+  // THE MARKET SHARE IS THE TEAM'S SHARE OF THE ROOM, AND ONLY IN A HOSTED GAME.
+  // Its exposure over every team's in the room on a line view, its premium over
+  // the room's on the pool view, for the latest known year — the room's own
+  // figure for this team (CallerView.marketShare), worked out where the room
+  // is kept so every screen in it reads the same number. ⚠ SINGLE PLAYER HAS NO
+  // CHIP: there is no room to share, and the share of the whole market of
+  // potential members (which a hosted team used to see as ~30% in a room of
+  // eight) is not a share of anything the player competes for.
   // ============================================================================
-  const latestResult = lastResult ?? gameState?.priorHistory?.at(-1);
-  const marketShare = lineView === 'pool' ? undefined : latestResult?.byLine[lineView]?.marketShare;
+  const marketShare = roomMarketShare
+    ? (lineView === 'pool' ? roomMarketShare.pool : roomMarketShare.byLine[lineView])
+    : undefined;
   const poolName = gameState?.setup?.poolName ?? 'Ripple Public Entity Risk Pool';
   const instanceId = gameState?.instance?.instanceId ?? '—';
   const yearNumber = gameState?.currentYearNumber ?? 1;

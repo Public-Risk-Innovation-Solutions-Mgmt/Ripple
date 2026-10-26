@@ -17,6 +17,7 @@ import HostTeamsTab from './HostTeamsTab';
 import HostChartsTab from './HostChartsTab';
 import HostDecisionsTab from './HostDecisionsTab';
 import { useRoom } from '../client/useRoom';
+import { SESSION_POLL_INTERVAL_MS } from '../../data/pricingParameters';
 import { loadActive, loadHeld } from '../client/identity';
 
 interface Props {
@@ -31,7 +32,7 @@ export default function HostScreen({ code }: Props) {
   // every action. A second reader is cheap (the poll is shared per code) and
   // keeps the chrome from having to be told what the room is called.
   const hostToken = code ? (loadActive(code).hostToken ?? loadHeld(code).hostToken) : undefined;
-  const { room } = useRoom(code ?? '', hostToken, code ? 3000 : 3_600_000);
+  const { room } = useRoom(code ?? '', hostToken, code ? SESSION_POLL_INTERVAL_MS : 3_600_000);
 
   return (
     <HostShell

@@ -9,11 +9,10 @@
 // before year 1 and after years 1 and 2, checks the chip against the
 // statement's latest-year Ending Surplus.
 //
-// The "Market Share" chip is a line's own exposure share on its view — the
-// same figure the Calculation Audit's Market Share row shows for that line at
-// the latest year — and absent on the pool view, where the three lines'
-// markets are not comparable. Checked at the same points, on the Calculation
-// Audit tab.
+// ⚠ AND NO "Market Share" CHIP AT ALL, ON ANY VIEW: single player has no room
+// to share. (In a hosted game the chip is the team's share of the room —
+// room-market-share.cjs.) Checked at the same points, on the Calculation Audit
+// tab, where the full-market share used to be compared.
 //
 // The chip is in $M to two places and the statement in thousands, so the two
 // are equal when they agree within the chip's own rounding (half a cent of a
@@ -91,22 +90,8 @@ const ok = (cond, label, detail = '') => {
         await page.waitForTimeout(500);
         const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
         const chip = (head.match(/Market Share\s+([\d.]+%)/) || [])[1];
-        if (view === 'Pool') {
-          ok(chip === undefined && !/Market Share/.test(head),
-            `scenario ${scenario}, ${phase}, Pool: no market share chip — the lines' markets are not comparable`, chip ? `chip ${chip}` : '');
-          continue;
-        }
-        const audit = await page.evaluate(() => {
-          for (const tr of document.querySelectorAll('main tr')) {
-            const tds = [...tr.querySelectorAll('td, th')].map(td => td.textContent.trim());
-            const i = tds.indexOf('Market Share');
-            if (i >= 0 && tds[i + 1]) return tds[i + 1];
-          }
-          return null;
-        });
-        ok(chip !== undefined && chip === audit,
-          `scenario ${scenario}, ${phase}, ${view}: the market share chip is the line's own, as the Calculation Audit shows it`,
-          `chip ${chip} · audit ${audit}`);
+        ok(chip === undefined && !/Market Share/.test(head),
+          `scenario ${scenario}, ${phase}, ${view}: no market share chip — single player has no room to share`, chip ? `chip ${chip}` : '');
       }
     }
 
