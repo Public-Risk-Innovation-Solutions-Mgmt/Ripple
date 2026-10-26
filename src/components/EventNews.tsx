@@ -43,7 +43,7 @@ export function EventNewsBanner({ played, startingYear }: { played: ResultSet[];
               <span className="text-amber-700">Your lines affected: {linesText(n)}.</span>
             </p>
           ))}
-          <p className="text-xs text-amber-700">Its effect on your results will show when {year}&rsquo;s results come in.</p>
+          <p className="text-xs text-amber-700">Its effect is in your {year} results.</p>
         </div>
         <button data-testid="event-news-dismiss" onClick={() => setDismissed(latest.yearNumber)}
           className="rounded p-1 text-amber-600 hover:bg-amber-100" aria-label="Dismiss">
