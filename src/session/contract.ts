@@ -468,6 +468,9 @@ export interface TeamMarketShare {
   byLine: Partial<Record<CoverageLine, number>>;
 }
 
+/** One team's room share with the result year it is from — CallerView.marketShare. */
+export type TeamMarketShareOfYear = TeamMarketShare & { year: number };
+
 /**
  * ⚠ WORKED OUT ONCE PER YEAR AND STORED WITH THE ROOM, so the host and every
  * player read the same figures. The set for year Y is computed in the SUBMIT
@@ -797,7 +800,7 @@ export interface CallerView {
    * one figure of RoomView.marketShares a player (or a viewer of that player)
    * may see. Absent until the team has a share in the stored set.
    */
-  marketShare?: TeamMarketShare & { year: number };
+  marketShare?: TeamMarketShareOfYear;
 }
 
 // ---------------------------------------------------------------- requests
