@@ -68,7 +68,7 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
     const btn = page.locator('button', { hasText: label }).first();
     if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
   }
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   for (const y of [1, 2]) {
     await tab('Decisions');

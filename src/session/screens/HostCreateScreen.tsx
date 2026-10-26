@@ -25,7 +25,8 @@ import { newSessionToken } from '../contract';
 import { Shuffle, Trash2, Zap } from 'lucide-react';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
 import { DEFAULT_PRIOR_DEVELOPMENT, type PriorDevelopment } from '../contract';
-import type { CoverageLine } from '../../types/simulation';
+import type { CoverageLine, GameSetupSettings } from '../../types/simulation';
+import { GAME_LENGTH_YEARS } from '../../data/defaultAssumptions';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { rememberHostToken, saveActive } from '../client/identity';
 import { drawShockSchedule, drawableShocks } from '../shockDraw';
@@ -69,20 +70,35 @@ function randomSeed(): string {
   return randomScenarioId();
 }
 
-export default function HostCreateScreen() {
+/**
+ * TEST PLAYER (start screen): THIS SCREEN, played solo. Not a copy — the same
+ * fields the host sets (seed, years, first program year, lines, each line's
+ * prior development, the shock schedule, fixed or randomised), minus what only
+ * a room has (event name, team count), and a start button in place of Create
+ * room. Nothing is sent to a transport and no admin sign-in is asked for: the
+ * game is the player's own, built by utils/soloGame on exactly these settings.
+ */
+export interface SoloTestMode {
+  /** The start screen's values, so the player does not set them twice. */
+  initial: Pick<GameSetupSettings, 'poolName' | 'gameLength' | 'startingYear' | 'instanceId' | 'activeLines'>;
+  onStart: (settings: GameSetupSettings, schedule: ScheduledShockSpec[]) => void;
+  onBack: () => void;
+}
+
+export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode } = {}) {
   // ⚠ OPENS EMPTY, NOT 'Ripple Game'. The field is REQUIRED now and the lobby
   // lists it, so a default would be the name most events end up called — a
   // lobby of identical rows, each needing its code read to tell apart. An empty
   // required field asks the one question the lobby cannot answer for itself.
   const [eventName, setEventName] = useState('');
-  const [poolName, setPoolName] = useState('');
-  const [seed, setSeed] = useState(() => randomSeed());
-  const [yearCount, setYearCount] = useState(5);
-  const [startingYear, setStartingYear] = useState(2027);
+  const [poolName, setPoolName] = useState(soloTest?.initial.poolName ?? '');
+  const [seed, setSeed] = useState(() => soloTest?.initial.instanceId ?? randomSeed());
+  const [yearCount, setYearCount] = useState(soloTest?.initial.gameLength ?? 5);
+  const [startingYear, setStartingYear] = useState(soloTest?.initial.startingYear ?? 2027);
   const [expectedTeams, setExpectedTeams] = useState(3);
   // ⚠ ALL THREE LINES ON BY DEFAULT, which is what every room played when teams
   // chose for themselves — so a host who changes nothing gets the old game.
-  const [lines, setLines] = useState<CoverageLine[]>([...LINE_ORDER]);
+  const [lines, setLines] = useState<CoverageLine[]>(() => soloTest ? [...soloTest.initial.activeLines] : [...LINE_ORDER]);
   // Kept for ALL THREE lines even while one is unticked, so toggling a line off
   // and back on does not silently reset a factor the host had edited. The
   // transport drops entries for lines the room does not play.
@@ -118,6 +134,21 @@ export default function HostCreateScreen() {
   // lists rooms by it, so a nameless event is a row nobody can choose.
   const canCreate = eventName.trim().length > 0
     && yearCount >= 1 && expectedTeams >= 1 && lines.length >= 1 && !busy;
+  // Test player: a solo game's length is the start screen's range, and its pool
+  // name is required there too.
+  const soloYearsOk = yearCount >= GAME_LENGTH_YEARS.min && yearCount <= GAME_LENGTH_YEARS.max;
+  const canStartSolo = poolName.trim().length > 0 && soloYearsOk && lines.length >= 1;
+
+  function handleStartSolo() {
+    if (!soloTest || !canStartSolo) return;
+    // Only the lines played, as the transport keeps them for a room.
+    const priorDevelopment: PriorDevelopment = {};
+    for (const l of lines) if (priorDev[l] !== undefined) priorDevelopment[l] = priorDev[l];
+    soloTest.onStart(
+      { poolName: poolName.trim(), gameLength: yearCount, startingYear, instanceId: seed, activeLines: [...lines], priorDevelopment },
+      shocks.filter(s => s.yearNumber >= 1 && s.yearNumber <= yearCount).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
+    );
+  }
 
   async function handleCreate() {
     setBusy(true);
@@ -157,9 +188,21 @@ export default function HostCreateScreen() {
   return (
     <>
       <div className="w-full">
-        <p className="text-sm text-slate-500">
-          Every team plays the same instance. Teams name themselves when they join; you choose the coverage lines below.
-        </p>
+        {soloTest ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-slate-500">
+              The host&rsquo;s game setup, played solo: set each line&rsquo;s prior development and the shock schedule, then start.
+            </p>
+            <button type="button" data-testid="test-player-back" onClick={soloTest.onBack}
+              className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
+              Back
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            Every team plays the same instance. Teams name themselves when they join; you choose the coverage lines below.
+          </p>
+        )}
 
         {error && (
           <div data-testid="create-error" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -167,7 +210,7 @@ export default function HostCreateScreen() {
           </div>
         )}
 
-        <div className="mt-5 space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div data-testid={soloTest ? 'test-player-setup' : undefined} className="mt-5 space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           {/* ⚠ MOVED TO THE TOP AND MADE REQUIRED — THE SAME FIELD, NOT A NEW
               ONE. It sat in the two-column grid below sharing a row with the
               seed, optional, defaulting to 'Ripple Game'. The lobby lists
@@ -175,7 +218,7 @@ export default function HostCreateScreen() {
               asked and the room cannot be created without it. The mockup drew a
               SECOND field above the existing one; that was wrong, and there is
               one field here. */}
-          <label className="block">
+          {!soloTest && <label className="block">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
               Event name <span className="text-red-500">*</span>
             </span>
@@ -189,7 +232,7 @@ export default function HostCreateScreen() {
             <span className="mt-1 block text-xs text-slate-400">
               Required. This is how the event appears in the lobby and on every player&rsquo;s screen.
             </span>
-          </label>
+          </label>}
 
           <label className="block">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Pool name</span>
@@ -201,7 +244,9 @@ export default function HostCreateScreen() {
               placeholder="e.g. Harbour Public Entity Risk Pool"
             />
             <span className="mt-1 block text-xs text-slate-400">
-              The pool every team runs, as the welcome memo and each team&rsquo;s screens name it. Left blank, the event name is used.
+              {soloTest
+                ? 'Required. The pool you run, as the welcome memo and your screens name it.'
+                : <>The pool every team runs, as the welcome memo and each team&rsquo;s screens name it. Left blank, the event name is used.</>}
             </span>
           </label>
 
@@ -221,12 +266,14 @@ export default function HostCreateScreen() {
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Years</span>
               <input
                 data-testid="year-count"
-                type="number" min={1} max={20}
+                type="number" min={soloTest ? GAME_LENGTH_YEARS.min : 1} max={soloTest ? GAME_LENGTH_YEARS.max : 20}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 value={yearCount}
                 onChange={e => setYearCount(Number(e.target.value))}
               />
-              <span className="mt-1 block text-xs text-slate-400">How many rounds the game will run.</span>
+              <span className={`mt-1 block text-xs ${soloTest && !soloYearsOk ? 'text-amber-700' : 'text-slate-400'}`}>
+                {soloTest ? `How many rounds the game will run: ${GAME_LENGTH_YEARS.min} to ${GAME_LENGTH_YEARS.max}.` : 'How many rounds the game will run.'}
+              </span>
             </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">First program year</span>
@@ -240,7 +287,7 @@ export default function HostCreateScreen() {
             </label>
           </div>
 
-          <div>
+          {!soloTest && <div>
             <label className="block max-w-[220px]">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Number of Teams</span>
               <input
@@ -258,7 +305,7 @@ export default function HostCreateScreen() {
               How many to expect, so you know when everyone has arrived. It does not limit who can join, and
               teams name themselves at join and play the coverage lines you pick below.
             </p>
-          </div>
+          </div>}
 
           {/* ---- coverage lines, and their prior development ---- */}
           <div>
@@ -268,7 +315,7 @@ export default function HostCreateScreen() {
                 different games; the lines are a property of the EVENT, like the
                 seed and the year count. */}
             <p className="mt-1 text-xs text-slate-400">
-              Every team plays these lines. At least one.
+              {soloTest ? 'The lines you play. At least one.' : 'Every team plays these lines. At least one.'}
             </p>
             <div className="mt-2 space-y-2">
               {LINE_ORDER.map(l => {
@@ -337,7 +384,9 @@ export default function HostCreateScreen() {
           <div>
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Shock schedule</span>
             <p className="mt-1 text-xs text-slate-400">
-              The same schedule reaches every team. Randomise draws it once, here, from the seed.
+              {soloTest
+                ? 'Your game fires exactly this schedule. Randomise draws it once, here, from the seed.'
+                : 'The same schedule reaches every team. Randomise draws it once, here, from the seed.'}
             </p>
             <div className="mt-2 flex items-end gap-2">
               <label className="flex-1 block">
@@ -425,7 +474,17 @@ export default function HostCreateScreen() {
             )}
           </div>
 
-          <button
+          {soloTest ? (
+            <button
+              type="button"
+              data-testid="start-test-player"
+              disabled={!canStartSolo}
+              onClick={handleStartSolo}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
+            >
+              Start test game
+            </button>
+          ) : <button
             type="button"
             data-testid="create-room"
             disabled={!canCreate}
@@ -433,7 +492,7 @@ export default function HostCreateScreen() {
             className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white disabled:bg-slate-300"
           >
             {busy ? 'Creating…' : 'Create room'}
-          </button>
+          </button>}
         </div>
       </div>
     </>

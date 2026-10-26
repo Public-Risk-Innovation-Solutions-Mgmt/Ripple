@@ -34,7 +34,7 @@ function renderBlock(block: WelcomeBlock, i: number) {
 
 // Explains the setup screen and the three coverage lines before a player
 // fills anything in. Purely informational — dismissible any way, never
-// gates Start Simulation.
+// gates Single player or Test player.
 export default function WelcomeModal({ onClose }: WelcomeModalProps) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {

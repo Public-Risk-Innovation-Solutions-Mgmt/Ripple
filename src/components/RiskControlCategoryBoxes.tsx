@@ -144,7 +144,7 @@ const SCOPE_STYLE: Record<string, string> = {
 // ⚠ "Safety & Return-to-Work" was checked against the drivers' button queries
 // the way "Law Enforcement Analytics" was: none is unanchored on a string it
 // contains — /Workers' Compensation|General Liability|^Property$/, /Lock Program Year/,
-// /Start/i, /Decline/i, 'Start Simulation'.
+// /Start/i, /Decline/i, 'Single player', 'Test player'.
 //
 // ⚠ THE ACCESSIBLE NAME IS THE PROGRAM'S TILE NAME AND NOTHING ELSE, which is
 // what keeps it out of the drivers' way. Two session drivers query this page by

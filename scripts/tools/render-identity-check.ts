@@ -1466,7 +1466,7 @@ async function startGame(page: Page, cfg: Cfg): Promise<void> {
     const checked = await btn.evaluate(el => el.className.includes('ring-1'));
     if (on !== checked) await btn.click();
   }
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await settle(page);
 }
 
