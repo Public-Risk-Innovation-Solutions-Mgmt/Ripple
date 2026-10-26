@@ -687,23 +687,35 @@ export interface TeamView {
 }
 
 /**
- * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE READS IT.
+ * ⚠ PRIOR DEVELOPMENT, PER LINE — READ WITH ADVERSE_DEVELOPMENT OFF, AND NOT
+ * READ WITH IT ON (wip/adverse-development, where the levels below replace it).
  *
  * A signed fraction: POSITIVE IS ADVERSE (prior years develop upward, the pool
  * owes more than it booked) and NEGATIVE IS FAVOURABLE. So 0.03 is "3% adverse"
- * and -0.02 is "2% favourable", which is how the host screen phrases it.
+ * and -0.02 is "2% favourable".
  *
- * It is the share of each open older accident year's reserve that develops
+ * Off, it is the share of each open older accident year's reserve that develops
  * over its remaining life, in total, emerging as it pays (utils/hostDevelopment;
- * setup.priorDevelopment, read by the engine and the pre-game). The host screen
- * says so on screen. A line absent from the record reads the engine's default
- * (PRIOR_DEVELOPMENT_DEFAULTS), which is also what an old room record reads as.
+ * setup.priorDevelopment, read by the engine and the pre-game). A line absent
+ * from the record reads the engine's default (PRIOR_DEVELOPMENT_DEFAULTS),
+ * which is also what an old room record reads as. On, the room still carries
+ * it, so a record written either way reads the same.
  */
 export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
 
 /**
- * The defaults the host screen offers — the engine's own defaults, the same
- * values, so a host who changes nothing plays what an unset line plays.
+ * ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development;
+ * ADVERSE_DEVELOPMENT) — what the host sets in place of PriorDevelopment, which
+ * the engine no longer reads with the switch on. A line absent reads
+ * ADVERSE_DEVELOPMENT_DEFAULT_LEVEL; an old room record, absent throughout.
+ */
+export type DevelopmentLevels = Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High'>>;
+/** Is `v` a level? The transports keep only these. */
+export const isDevelopmentLevel = (v: unknown): v is 'Low' | 'Mid' | 'High' => v === 'Low' || v === 'Mid' || v === 'High';
+
+/**
+ * The prior-development defaults — the engine's own, the same values, so a line
+ * left unset plays what the default plays (with ADVERSE_DEVELOPMENT off).
  */
 // ⚠ DEFINED IN src/data/pricingParameters.ts NOW, re-exported here. Same values.
 export { PRIOR_DEVELOPMENT_DEFAULTS as DEFAULT_PRIOR_DEVELOPMENT } from '../data/pricingParameters';
@@ -745,8 +757,10 @@ export interface RoomView {
    * host clicked them.
    */
   lines: CoverageLine[];
-  /** Per-line prior development, read by the engine (setup.priorDevelopment). See PriorDevelopment. */
+  /** Per-line prior development, stored and not read with ADVERSE_DEVELOPMENT on. See PriorDevelopment. */
   priorDevelopment: PriorDevelopment;
+  /** Per-line adverse development level, set by the host. See DevelopmentLevels. */
+  developmentLevels?: DevelopmentLevels;
   /**
    * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding
    * existed, which reads as false — not hidden, which is what those rooms were.
@@ -853,6 +867,8 @@ export interface CreateRoomRequest {
    * entries for lines the room does not play are dropped rather than refused.
    */
   priorDevelopment?: PriorDevelopment;
+  /** Per-line adverse development level (DevelopmentLevels); entries for lines not played are dropped. */
+  developmentLevels?: DevelopmentLevels;
   shocks: ScheduledShockSpec[];
   /**
    * ⚠ THE HOST'S TOKEN, MINTED BY THE CLIENT, AND IT DOUBLES AS THE

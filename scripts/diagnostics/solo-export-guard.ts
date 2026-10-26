@@ -867,7 +867,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // as CSV has the same rows, in the same order, under the same labels, with the
 // same number of columns as the control's (GUARD_TEXT_DIR on both sides). The
 // values move with exposure and member risk, attributed in VALUE_IDENTITY_v85.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v93.json');
+// v94: THE ADVERSE-DEVELOPMENT LANDING (see VALUE_IDENTITY_v86), on
+// multiplayer ebc3b4a, which reproduces v93 here 24 of 24. All 24 move; with
+// reserve inflation restored and ADVERSE_DEVELOPMENT off all 24 are
+// byte-identical to the control again. Each switch alone moves all 24. These
+// are single player games (openSoloInstance), so every line is Off and no
+// level is drawn: adverse development's whole effect here is that the host's
+// prior-development percentages, which single player played at their defaults
+// (WC 3%, GL 10%, Property -2%), are retired — single player's older years no
+// longer develop at all. No file added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v94.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -34,7 +34,7 @@ import { decisionsForYear } from './decisions';
 import { gameShocksOn } from '../../utils/shockLosses';
 
 export type RoomBuildInputs = Pick<RoomView,
-  'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'poolName' | 'shocks' | 'priorDevelopment'>;
+  'seed' | 'yearCount' | 'startingYear' | 'eventName' | 'poolName' | 'shocks' | 'priorDevelopment' | 'developmentLevels'>;
 
 export interface BuiltTeamGame {
   gameState: GameState;
@@ -60,6 +60,9 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
     // longer stored-and-inert: the engine reads it per line, falling back to
     // PRIOR_DEVELOPMENT_DEFAULTS for any line the host did not set.
     priorDevelopment: r.priorDevelopment,
+    // The room's adverse development levels (wip/adverse-development): every
+    // team develops alike; a line absent reads the default.
+    ...(r.developmentLevels ? { developmentLevels: { ...r.developmentLevels } } : {}),
     // ⚠ THE HOST SCHEDULES THE SHOCKS. On the new loss engine a session fires
     // only what the room scheduled and consults no probability; singleplayer
     // leaves this absent and draws from the catalogue. Read by nothing with

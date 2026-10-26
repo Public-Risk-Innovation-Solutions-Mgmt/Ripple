@@ -10,9 +10,10 @@ import type { ScheduledShock } from '../types/shocks';
 
 interface SetupPageProps {
   /**
-   * Start a solo game. SINGLE PLAYER passes no `test`: the shock schedule is
-   * drawn from the seed (utils/soloGame). TEST PLAYER passes the schedule set on
-   * the host's own setup screen; its prior development rides on the settings.
+   * Start a solo game. SINGLE PLAYER passes no `test`: the shock schedule and
+   * each line's development level are drawn from the seed (utils/soloGame).
+   * TEST PLAYER passes the schedule set on the host's own setup screen; its
+   * development levels ride on the settings (wip/adverse-development).
    */
   onStart: (settings: GameSetupSettings, test?: { schedule: ScheduledShock[] }) => void;
 }
@@ -239,9 +240,9 @@ export default function SetupPage({ onStart }: SetupPageProps) {
               </div>
             </div>
 
-            {/* ⚠ TWO WAYS TO PLAY SOLO. Single player is the game as it was: the
-                shock schedule drawn from the scenario. Test player opens the
-                host's setup screen first and plays exactly what is set there. */}
+            {/* ⚠ TWO WAYS TO PLAY SOLO. Single player draws the shock schedule and
+                each line's development level from the scenario. Test player opens
+                the host's setup screen first and plays exactly what is set there. */}
             <div className="grid grid-cols-2 gap-3">
               <button
                 data-testid="start-single-player"

@@ -76,6 +76,7 @@ import type { SessionTransport } from '../../src/session/contract';
 import { isSessionError, newSessionToken, type SessionErrorCode, type JsonValue } from '../../src/session/contract';
 import type { CoverageLine } from '../../src/types/simulation';
 import { decisionsForYear, governingYear } from '../../src/session/client/decisions';
+import { buildTeamGame } from '../../src/session/client/buildGame';
 import type {
   RoomView, TeamLineDecisions, TeamYearFigures, TeamYearSummary,
 } from '../../src/session/contract';
@@ -828,6 +829,29 @@ async function main(): Promise<void> {
     const bareRead = await t.read({ code: bare.code, token: bare.hostToken });
     eq(JSON.stringify(bareRead.room.priorDevelopment), '{}',
       'a room created without prior development carries none');
+
+    // ⚠ ADVERSE DEVELOPMENT'S LEVELS (wip/adverse-development) — what the host
+    // now sets per line. Carried on the room; a level for a line the room does
+    // not play, or a value that is not a level, is DROPPED, not refused; a room
+    // without them carries none (the engine then reads its default); and a
+    // team's game, built from the room, plays exactly the room's levels.
+    const lv = await t.createRoom({
+      hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026,
+      eventName: 'p', expectedTeams: 1, shocks: [], lines: ['WC', 'GL'],
+      developmentLevels: { WC: 'High', GL: 'Extreme', Property: 'Low' } as never,
+    });
+    const lvRead = await t.read({ code: lv.code, token: lv.hostToken });
+    eq(JSON.stringify(lvRead.room.developmentLevels), JSON.stringify({ WC: 'High' }),
+      'the room carries the levels the host set; a non-level and an unplayed line are dropped');
+    const lvJoin = await t.join({ code: lv.code, teamName: 'Levels', role: 'player' });
+    const lvTeam = await t.read({ code: lv.code, token: lvJoin.teamToken });
+    eq(JSON.stringify(lvTeam.room.developmentLevels), JSON.stringify({ WC: 'High' }),
+      'a team reads the room\'s levels');
+    const built = buildTeamGame(lvTeam.room, lvJoin.lines);
+    eq(JSON.stringify(built.gameState.setup.developmentLevels), JSON.stringify({ WC: 'High' }),
+      'a team\'s game, built from the room, plays the room\'s levels');
+    eq(bareRead.room.developmentLevels === undefined || JSON.stringify(bareRead.room.developmentLevels) === '{}', true,
+      'a room created without levels carries none');
 
     // THE POOL NAME. The host sets it apart from the event name; a room created
     // without one — by a client older than the handler, or before it existed —

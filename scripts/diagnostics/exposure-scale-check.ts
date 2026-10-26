@@ -14,7 +14,7 @@
 //      of the market.
 //   3. YEAR-1 PREMIUM AT EXPECTED IN ITS BAND: each line's year-1 premium at
 //      the default decisions, averaged over seeds, is within 10% of the line's
-//      centre — WC $32.56M, GL $31.92M, Property $28.27M (see BAND).
+//      centre — WC $30.65M, GL $28.81M, Property $27.40M (see BAND).
 //
 // ⚠ THE MULTIPLIERS ARE PINNED, AND NO LONGER RE-SCALED WHEN PRICING CHANGES
 // (after the expectation followed the shock switch): a pricing change moves
@@ -55,6 +55,25 @@
 // And in the source: GL's standard opening book raised 12% (OPENING_BOOK_EXPOSURE
 // .GL x 1.12) — EXIT 1, check 3 fails, GL $35.55M above its $35.11M ceiling;
 // restored, PASS.
+//
+// ⚠ AND RE-CENTRED AGAIN WITH ADVERSE DEVELOPMENT (wip/adverse-development,
+// merged onto simple underwriting). RESERVE_INFLATION is off, so reserve
+// inflation is neither booked nor priced (reserveInflationToCome is 1), and
+// ADVERSE_DEVELOPMENT replaces it — which the rate does not anticipate, and
+// which single player (these games) does not have at all. On the standard
+// opening book, over these twelve seeds:
+//
+//     reserve inflation priced (multiplayer, simple underwriting)  WC $32.56M  GL $31.92M  Property $28.27M
+//     reserve inflation off (this landing)                         WC $30.65M  GL $28.81M  Property $27.40M
+//
+// The whole move is reserve inflation leaving the rate (measured on the book
+// of units before simple underwriting: restoring it moved WC $32.82M -> $34.87M,
+// GL $31.92M -> $35.39M, Property $29.45M -> $30.38M, and adverse development
+// moved none). The band is re-centred on the as-shipped figures, per line, at
+// the same +/- 10%. CONTROLS, each today's premiums scaled to another build's:
+// the premiums with reserve inflation still priced (multiplayer's centre; GL
+// +10.8% leaves its band) and the premiums on the book of units' opening with
+// reserve inflation priced (GL +24.0%).
 // ============================================================================
 
 import { EXPOSURE_SCALE, FULL_MARKET_EXPOSURE } from '../../src/data/pricingParameters';
@@ -68,12 +87,14 @@ const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const BASE: Record<CoverageLine, number> = { WC: 1300, GL: 1300, Property: 59233.002 };
 const CALIBRATED: Record<CoverageLine, number> = { WC: 2.342, GL: 1.640, Property: 0.546 };
 /** Year-1 premium at Expected, each line's mean over seeds: within 10% of the line's centre. */
-const CENTRE: Record<CoverageLine, number> = { WC: 32.56e6, GL: 31.92e6, Property: 28.27e6 };
+const CENTRE: Record<CoverageLine, number> = { WC: 30.65e6, GL: 28.81e6, Property: 27.40e6 };
 const BAND_WIDTH = 0.10;
 const BAND: Record<CoverageLine, [number, number]> = Object.fromEntries(
   LINES.map(l => [l, [CENTRE[l] * (1 - BAND_WIDTH), CENTRE[l] * (1 + BAND_WIDTH)]])) as Record<CoverageLine, [number, number]>;
-/** Year-1 premium on the book of units' opening, as a share of today's, by line (a control). */
-const BEFORE_LANDING: Record<CoverageLine, number> = { WC: 34.92 / 32.56, GL: 35.71 / 31.92, Property: 30.53 / 28.27 };
+/** Year-1 premium on the book of units' opening, reserve inflation priced, as a share of today's, by line (a control). */
+const BEFORE_LANDING: Record<CoverageLine, number> = { WC: 34.92 / 30.65, GL: 35.71 / 28.81, Property: 30.53 / 27.40 };
+/** Year-1 premium with reserve inflation still priced (simple underwriting's centre), as a share of today's (a control). */
+const RESERVE_INFLATION_PRICED: Record<CoverageLine, number> = { WC: 32.56 / 30.65, GL: 31.92 / 28.81, Property: 28.27 / 27.40 };
 const failures: string[] = [];
 const check = (ok: boolean, label: string, detail = '') => {
   if (!ok) failures.push(label);
@@ -134,6 +155,7 @@ const scaled = (f: (l: CoverageLine) => number) =>
 controlFails('premiums 20% over', () => gradePremium(scaled(() => 1.2), ''), '3.');
 controlFails('premiums 20% under', () => gradePremium(scaled(() => 0.8), ''), '3.');
 controlFails('the premiums on the book of units\' opening', () => gradePremium(scaled(l => BEFORE_LANDING[l]), ''), '3.');
+controlFails('the premiums with reserve inflation still priced', () => gradePremium(scaled(l => RESERVE_INFLATION_PRICED[l]), ''), '3.');
 
 console.log('');
 if (failures.length) {

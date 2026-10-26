@@ -29,6 +29,43 @@
 // wide margin — WC at 12 months read 4.671 against the recorded 12.777 before
 // this change. A tolerance that this passes and that does not is the whole
 // point; see the printed table for the margin on each line.
+//
+// ⚠ RESTATED FOR wip/adverse-development: reserve inflation is OFF
+// (RESERVE_INFLATION_PER_YEAR 0) and ADVERSE DEVELOPMENT (ADVERSE_DEVELOPMENT)
+// replaces it: each played year every open prior accident year's start-of-
+// year outstanding grows by its own λ, drawn from the game seed per line,
+// valuation year and accident year in the line's level's range (these games
+// set no level, so Mid, 5-15%). It runs on the same route reserve inflation
+// did, so the allowance below is the same product with the rate replaced by
+// the λ the engine DREW — no shock schedule turns it off, so "nothing
+// develops" no longer holds in a no-shocks game. Unallowed, the ledger read
+// WC's 12-month factor 48.5% above the recorded one and GL's 25.6%, ten ages
+// outside 12%, every one on the long-tailed lines and falling with age — the
+// shape of compounding on what is still open — while section 3 put paid
+// against the CURRENT ultimate on the pattern to the digit on every line. The
+// payment is right; the ultimate under it grows by design. So:
+//
+//   growth(a -> L) = product over ledger ages k = a .. L-1 of
+//                    (1 + (inflation rate + λ̄_k) x unpaid share at pattern age k + 1)
+//
+// where λ̄_k is the λ the engine drew for each row stepping from ledger age k
+// to k + 1 (adverseDevelopmentRate at that valuation year and the row's
+// accident year; 0 on a pre-game step, where nothing develops), weighted by
+// the row's gross paid at k — the same weights the chain ladder's link ratio
+// at k uses. The bar stays 12%. Reserve inflation's term is kept, at its
+// shipped 0, so the allowance stays right if it is switched back on.
+//
+// THE CONTROLS: the recorded factors with no allowance at all (the failure
+// above); every λ doubled, which must also fail — the allowance has to be the
+// λ the engine drew, not merely some growth; and the ledger's valuation years
+// must be where the allowance reads λ (firstValuationYear == accident year +
+// ageAtFirstValuation on every row), asserted, since a λ read a year off would
+// be a different uniform.
+//
+// GAINED, 2b: with the drawn λ allowed the ratio came out 1 to 7e-16 at every
+// age, so with no shocks the identity is also held EXACTLY (1e-9), with
+// controls the 12% bar cannot see — the λ read one valuation year late, and 5%
+// high. With SHOCKS=catalogue 2b is reported, not asserted.
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -38,7 +75,9 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { paidLdfAt, PAID_DEVELOPMENT_PATTERN } from '../../src/data/paidDevelopmentPatterns';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
 import { unpaidShare } from '../../src/utils/payoutPattern';
-import { newLossEngineRuns, RESERVE_INFLATION_PER_YEAR } from '../../src/data/pricingParameters';
+import { ADVERSE_DEVELOPMENT, newLossEngineRuns, RESERVE_INFLATION_PER_YEAR } from '../../src/data/pricingParameters';
+import { adverseDevelopmentRate, developmentLevelOf } from '../../src/utils/adverseDevelopment';
+import { marketSeedOf } from '../../src/utils/bookUnits';
 import type { CoverageLine, GameState, ReserveDevelopmentRow } from '../../src/types/simulation';
 
 // ============================================================================
@@ -86,9 +125,11 @@ const YEARS = Number(process.env.YEARS ?? 10);
 // one, GL's 32.1%, every line inside 12% at the ages past three years. With it,
 // see the table. The control holds the ledger to the recorded factors with no
 // allowance, which is that failure.
-const inflationGrowth = (line: CoverageLine, fromAge: number, toAge: number, rate = RESERVE_INFLATION_PER_YEAR[line]): number => {
+// (RESTATED: + λ̄_k, adverse development's drawn rate — see the header.)
+const inflationGrowth = (line: CoverageLine, fromAge: number, toAge: number, lambda: (line: CoverageLine, k: number) => number,
+  rate = RESERVE_INFLATION_PER_YEAR[line]): number => {
   let g = 1;
-  for (let k = fromAge; k < toAge; k++) g *= 1 + rate * unpaidShare(LINE_PAYOUT_PATTERN[line], k + 1);
+  for (let k = fromAge; k < toAge; k++) g *= 1 + (rate + lambda(line, k)) * unpaidShare(LINE_PAYOUT_PATTERN[line], k + 1);
   return g;
 };
 
@@ -135,8 +176,13 @@ if (failures === 0) console.log('  OK    all three lines resolve to their own re
 const num: Record<string, number[]> = {};
 const den: Record<string, number[]> = {};
 const obs: Record<string, number[]> = {};
+// Σ gross[k] x the λ drawn for the step k -> k + 1, per ledger age: over
+// den, the paid-weighted λ̄ the allowance uses.
+const lamNum: Record<string, number[]> = {};
+let misdatedRows = 0;
 const MAX_AGE = 40;
 for (const l of LINES) {
+  lamNum[l] = new Array(MAX_AGE).fill(0);
   num[l] = new Array(MAX_AGE).fill(0);
   den[l] = new Array(MAX_AGE).fill(0);
   obs[l] = new Array(MAX_AGE).fill(0);
@@ -174,10 +220,19 @@ for (let g = 0; g < GAMES; g++) {
       if (!gross || gross.length < 2) { skippedRows++; continue; }
       usedRows++;
       const a0 = r.ageAtFirstValuation ?? 0;
+      if (r.firstValuationYear !== r.yearNumber + a0) misdatedRows++;
       for (let k = 0; k + 1 < gross.length; k++) {
         const age = a0 + k;
         if (age + 1 >= MAX_AGE) continue;
         if (gross[k] > 0) {
+          // The step k -> k + 1 is valuation year firstValuationYear + k + 1;
+          // only a PLAYED year (>= 1) develops.
+          const v = r.firstValuationYear + k + 1;
+          // A line set Off (single player) develops nothing: λ 0.
+          const level = developmentLevelOf(setup as never, line);
+          const lambda = ADVERSE_DEVELOPMENT.enabled && v >= 1 && level
+            ? adverseDevelopmentRate(marketSeedOf(inst), line, level, v, r.yearNumber) : 0;
+          lamNum[line][age] += gross[k] * lambda;
           den[line][age] += gross[k];
           num[line][age] += gross[k + 1];
           obs[line][age] += 1;
@@ -189,6 +244,12 @@ for (let g = 0; g < GAMES; g++) {
 
 console.log(`\n--- 1. THE LEDGER: ${GAMES} games x ${YEARS} years, ${usedRows} rows used, ${skippedRows} skipped for want of a ground-up series ---`);
 if (usedRows === 0) fail('no ledger rows carried grossPaidByValuation — nothing was measured');
+if (misdatedRows > 0) fail(`${misdatedRows} row(s) whose first valuation year is not accident year + age at first valuation — the allowance would read λ off the wrong year`);
+else console.log(`  OK    every row's valuation years are accident year + age, where the allowance reads λ`);
+// The paid-weighted λ̄ per ledger age (see the header).
+const drawnLambda = (line: CoverageLine, k: number) => (den[line][k] > 0 ? lamNum[line][k] / den[line][k] : 0);
+console.log(`  adverse development ${ADVERSE_DEVELOPMENT.enabled ? 'on' : 'OFF'}; λ̄ drawn at ledger ages 0-4: `
+  + LINES.map(l => `${l} ${[0, 1, 2, 3, 4].map(k => drawnLambda(l, k).toFixed(3)).join('/')}`).join(', '));
 
 // --------------------------------------------------------------------------
 // ⚠ BOTH SIDES ARE CUT AT THE LAST AGE THE LEDGER OBSERVES, AND THAT
@@ -214,14 +275,16 @@ if (usedRows === 0) fail('no ledger rows carried grossPaidByValuation — nothin
 // age-to-L factor is compared against. Nothing is extrapolated on either side.
 // The age-to-ultimate column is printed beside it so the tail that cannot be
 // observed is visible rather than quietly dropped.
-// `growth` is the reserve inflation allowed between two ledger ages; the
-// control passes none. Returns the failures, printing only when `show`.
+// `growth` is the reserve inflation and adverse development allowed between
+// two ledger ages; the controls pass none, and the drawn λ doubled. Returns the
+// failures, printing only when `show`; `worstRatio` keeps the worst |ratio - 1| (2b).
+let worstRatio = 0;
 function gradeLedger(growth: (line: CoverageLine, a: number, L: number) => number, show: boolean): string[] {
 const out: string[] = [];
 const log = (x: string) => { if (show) console.log(x); };
-log('\n--- 2. THE POOL\'S OWN PAID LDF AGAINST THE RECORDED ONE x RESERVE INFLATION, BY LINE AND AGE ---');
+log('\n--- 2. THE POOL\'S OWN PAID LDF AGAINST THE RECORDED ONE x RESERVE INFLATION AND ADVERSE DEVELOPMENT, BY LINE AND AGE ---');
 log('  Both sides cut at the last age the ledger reaches. age-to-ULT is printed for reference only.');
-log('  line      age(mo)   recorded a->L   x inflation   pool\'s own   ratio   rows    recorded a->ULT');
+log('  line      age(mo)   recorded a->L   x inf+adv     pool\'s own   ratio   rows    recorded a->ULT');
 for (const line of LINES) {
   const link = num[line].map((_, a) => (den[line][a] > 0 ? num[line][a] / den[line][a] : 1));
   const lastRecorded = PAID_DEVELOPMENT_PATTERN[line][PAID_DEVELOPMENT_PATTERN[line].length - 1].ageMonths;
@@ -247,6 +310,7 @@ for (const line of LINES) {
     const inflation = growth(line, age, lastObserved);
     const own = ownToL(age);
     const ratio = own / (recordedToL * inflation);
+    worstRatio = Math.max(worstRatio, Math.abs(ratio - 1));
     const ok = Math.abs(ratio - 1) <= TOLERANCE;
     checked++;
     log(`  ${line.padEnd(9)} ${String(ageMonths).padStart(7)} ${recordedToL.toFixed(4).padStart(15)} `
@@ -255,7 +319,7 @@ for (const line of LINES) {
       + `${ok ? '' : '   <-- OUTSIDE TOLERANCE'}`);
     if (!ok) {
       out.push(`${line} at ${ageMonths}mo: the pool's own age-to-${(lastObserved + 1) * 12}mo factor ${own.toFixed(4)} is `
-        + `${((ratio - 1) * 100).toFixed(1)}% from the recorded ${recordedToL.toFixed(4)} x inflation ${inflation.toFixed(4)} — `
+        + `${((ratio - 1) * 100).toFixed(1)}% from the recorded ${recordedToL.toFixed(4)} x inflation and adverse development ${inflation.toFixed(4)} — `
         + 'the engine is not paying the way pricing develops');
     }
   }
@@ -263,14 +327,45 @@ for (const line of LINES) {
 }
 return out;
 }
-for (const f of gradeLedger((line, a, L) => inflationGrowth(line, a, L), true)) fail(f);
+worstRatio = 0;
+for (const f of gradeLedger((line, a, L) => inflationGrowth(line, a, L, drawnLambda), true)) fail(f);
 
-// THE CONTROL: the same ledger held to the recorded factors with no allowance
-// for reserve inflation must fail.
+// 2b. EXACT, WITH NO SHOCKS (gained on wip/adverse-development). Measured: with
+// the drawn λ allowed, every ratio above is 1 to 7e-16 — in a no-shocks game
+// nothing but the pattern and adverse development moves the gross paid. So
+// the identity is held to 1e-9 as well as the 12% bar, which cannot see a λ
+// read a year late (0.9% at worst) or 5% high (1.9%). With the catalogue's
+// shocks the R development is real movement on top and this is reported only.
+const EXACT = 1e-9;
+const exactWorst = (growth: (line: CoverageLine, a: number, L: number) => number) => { worstRatio = 0; gradeLedger(growth, false); return worstRatio; };
 {
-  const caught = gradeLedger(() => 1, false);
-  if (caught.length === 0) fail('control: the recorded factors with no reserve inflation allowed are NOT caught');
-  else console.log(`\n  OK    control: the recorded factors with no reserve inflation allowed are caught (${caught.length} ages outside ${(TOLERANCE * 100).toFixed(0)}%)`);
+  const w = exactWorst((line, a, L) => inflationGrowth(line, a, L, drawnLambda));
+  if (NO_SHOCKS && !(w < EXACT)) fail(`2b. with no shocks the ledger is not EXACTLY the recorded factors x the drawn development: worst |ratio - 1| ${w.toExponential(2)}`);
+  else console.log(`\n  ${NO_SHOCKS ? 'OK   ' : 'INFO '} 2b. exact with no shocks: worst |ratio - 1| ${w.toExponential(2)} against ${EXACT.toExponential(0)}${NO_SHOCKS ? '' : ' (shocks on — reported, not asserted)'}`);
+}
+
+// THE CONTROLS: the same ledger held to the recorded factors with no
+// allowance for development must fail the 12% bar; and so must an allowance
+// of twice the λ the engine drew. The exact bar must catch a λ read one
+// valuation year late, and one 5% high.
+console.log('');
+for (const [name, growth] of [
+  ['the recorded factors with no reserve inflation or adverse development allowed', () => 1],
+  ['the allowance at twice the λ the engine drew', (line: CoverageLine, a: number, L: number) => inflationGrowth(line, a, L, (l, k) => 2 * drawnLambda(l, k))],
+] as [string, (line: CoverageLine, a: number, L: number) => number][]) {
+  const caught = gradeLedger(growth, false);
+  if (caught.length === 0) fail(`control: ${name} are NOT caught`);
+  else console.log(`  OK    control: ${name} — caught (${caught.length} ages outside ${(TOLERANCE * 100).toFixed(0)}%)`);
+}
+if (NO_SHOCKS) {
+  for (const [name, growth] of [
+    ['the λ read one valuation year late', (line: CoverageLine, a: number, L: number) => inflationGrowth(line, a, L, (l, k) => drawnLambda(l, k + 1))],
+    ['the λ 5% high', (line: CoverageLine, a: number, L: number) => inflationGrowth(line, a, L, (l, k) => 1.05 * drawnLambda(l, k))],
+  ] as [string, (line: CoverageLine, a: number, L: number) => number][]) {
+    const w = exactWorst(growth);
+    if (w < EXACT) fail(`control: ${name} is NOT caught by 2b (worst ${w.toExponential(2)})`);
+    else console.log(`  OK    control: ${name} — caught by 2b (worst |ratio - 1| ${w.toExponential(2)})`);
+  }
 }
 
 // --------------------------------------------------------------------------

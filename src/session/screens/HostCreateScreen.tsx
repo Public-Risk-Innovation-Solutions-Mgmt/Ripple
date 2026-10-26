@@ -22,21 +22,15 @@
 import { SCENARIO_OPTIONS, randomScenarioId } from '../../utils/scenarios';
 import { useRef, useState } from 'react';
 import { newSessionToken } from '../contract';
-import { Shuffle, Trash2, Zap } from 'lucide-react';
 import { sessionTransport, isSessionError, type ScheduledShockSpec, type SessionError } from '../index';
-import { DEFAULT_PRIOR_DEVELOPMENT, type PriorDevelopment } from '../contract';
+import type { DevelopmentLevels } from '../contract';
+import { DevelopmentLevelSelect, ShockScheduleFields } from '../../components/GameRulesFields';
+import { ADVERSE_DEVELOPMENT_RANGE, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL } from '../../data/pricingParameters';
 import type { CoverageLine, GameSetupSettings } from '../../types/simulation';
 import { GAME_LENGTH_YEARS } from '../../data/defaultAssumptions';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { rememberHostToken, saveActive } from '../client/identity';
-import { drawShockSchedule, drawableShocks } from '../shockDraw';
 import { navigate } from '../client/navigation';
-
-// ⚠ EVERY ONE OF THE R MODEL'S TWELVE EVENTS IS OFFERED, AND EVERY ONE RUNS.
-// Loss engine commit 3b retired the old catalogue, which only built six of
-// them; the new engine runs all twelve. The list is the same one Randomise
-// draws from (session/shockDraw.ts), so the two cannot offer different events.
-const SCHEDULABLE = drawableShocks();
 
 // ⚠ THE SEED IS THE SCENARIO, 1 TO 20, AND IT IS STILL A STRING. The contract's
 // `seed: string` is untouched — these are the strings '1' to '20', the same
@@ -46,26 +40,11 @@ const SEED_OPTIONS = SCENARIO_OPTIONS;
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
-// ⚠ THE FACTOR IS SIGNED AND THE SCREEN IS NOT. Stored as a fraction where
-// POSITIVE IS ADVERSE (see PriorDevelopment), but a host reads "3% adverse",
-// never "0.03". These two convert between the two readings and nothing else
-// does, so the sign convention lives in one place.
-const pctOf = (v: number) => Math.round(Math.abs(v) * 1000) / 10;
-const signedFrom = (pct: number, adverse: boolean) => (adverse ? 1 : -1) * (Math.abs(pct) / 100);
-
 // ⚠ THE DEFAULT IS STILL RANDOM, DELIBERATELY. The free-text field it replaces
 // defaulted to a fresh eight-character draw, so two hosts who changed nothing got
 // different games. Defaulting the menu to '1' would quietly undo that and make
 // every unconsidered room identical. A random option keeps the old behaviour
 // inside the new, smaller set.
-// ⚠ THE SCHEDULED LIST READS AS A SENTENCE, NOT AN ID: '#2 Winterstorm/Rainstorm'.
-// An id that is not one of the twelve shows as itself.
-function shockLabel(id: string): string {
-  const name = SCHEDULABLE.find(s => s.id === id)?.name;
-  if (!name) return id;
-  return id.startsWith('#') ? `${id} ${name}` : name;
-}
-
 function randomSeed(): string {
   return randomScenarioId();
 }
@@ -102,29 +81,19 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
   // Kept for ALL THREE lines even while one is unticked, so toggling a line off
   // and back on does not silently reset a factor the host had edited. The
   // transport drops entries for lines the room does not play.
-  const [priorDev, setPriorDev] = useState<PriorDevelopment>({ ...DEFAULT_PRIOR_DEVELOPMENT });
+  // ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development), replacing
+  // the prior-development percentages.
+  const [devLevels, setDevLevels] = useState<Required<DevelopmentLevels>>({
+    WC: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, GL: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, Property: ADVERSE_DEVELOPMENT_DEFAULT_LEVEL,
+  });
   const [shocks, setShocks] = useState<ScheduledShockSpec[]>([]);
-  const [shockId, setShockId] = useState(SCHEDULABLE[0]?.id ?? '');
-  const [shockYear, setShockYear] = useState(2);
-  // What the last Randomise drew FOR. The draw is a pure function of the seed
-  // and the year count, so the list is reproducible from the room record only
-  // while both still match — and only if the host has not edited the list since.
-  const [drawnFor, setDrawnFor] = useState<{ seed: string; yearCount: number } | null>(null);
-
-  // ⚠ THE DRAW HAPPENS HERE, ONCE, ON THE HOST'S CLICK, AND NOWHERE ELSE. The
-  // result is written into the room as concrete entries by handleCreate below,
-  // and every team builds from those entries — see session/shockDraw.ts. The
-  // host SEES what was drawn (ruled): it lands in the same list a hand-picked
-  // shock does, and can be edited like one.
-  function handleRandomise() {
-    // A blank seed would be replaced at creation, and the schedule would then
-    // have been drawn from a seed the room does not carry. So fill it first.
+  // A blank seed would be replaced at creation, and a schedule drawn from it
+  // would not be the room's — so Randomise fills it first.
+  function ensureSeed() {
     const s = seed.trim() || randomSeed();
     if (s !== seed) setSeed(s);
-    setShocks(drawShockSchedule(s, yearCount));
-    setDrawnFor({ seed: s, yearCount });
+    return s;
   }
-  const drawStale = drawnFor !== null && (drawnFor.seed !== seed.trim() || drawnFor.yearCount !== yearCount);
 
   const hostTokenRef = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -141,11 +110,12 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
 
   function handleStartSolo() {
     if (!soloTest || !canStartSolo) return;
-    // Only the lines played, as the transport keeps them for a room.
-    const priorDevelopment: PriorDevelopment = {};
-    for (const l of lines) if (priorDev[l] !== undefined) priorDevelopment[l] = priorDev[l];
+    // Only the lines played, as the transport keeps them for a room. The levels
+    // ride on the setup (setup.developmentLevels), as Single player's draw does.
+    const developmentLevels: DevelopmentLevels = {};
+    for (const l of lines) developmentLevels[l] = devLevels[l];
     soloTest.onStart(
-      { poolName: poolName.trim(), gameLength: yearCount, startingYear, instanceId: seed, activeLines: [...lines], priorDevelopment },
+      { poolName: poolName.trim(), gameLength: yearCount, startingYear, instanceId: seed, activeLines: [...lines], developmentLevels },
       shocks.filter(s => s.yearNumber >= 1 && s.yearNumber <= yearCount).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),
     );
   }
@@ -169,7 +139,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
         ...(poolName.trim() ? { poolName: poolName.trim() } : {}),
         expectedTeams,
         lines,
-        priorDevelopment: priorDev,
+        developmentLevels: devLevels,
         shocks,
       });
       // ⚠ PERSIST THE HOST TOKEN BEFORE NAVIGATING. The room exists the moment
@@ -320,8 +290,6 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
             <div className="mt-2 space-y-2">
               {LINE_ORDER.map(l => {
                 const on = lines.includes(l);
-                const v = priorDev[l] ?? 0;
-                const adverse = v >= 0;
                 return (
                   <div key={l} className="flex items-center gap-3">
                     <label className="flex w-56 items-center gap-2 text-sm text-slate-700">
@@ -338,40 +306,19 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                       {LINE_FULL_NAME[l]}
                     </label>
                     <div className={`flex items-center gap-1.5 ${on ? '' : 'opacity-40'}`}>
-                      <input
-                        type="number" min={0} max={100} step={1}
-                        disabled={!on}
-                        data-testid={`prior-dev-pct-${l}`}
-                        className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm"
-                        value={pctOf(v)}
-                        onChange={e => setPriorDev(prev => ({
-                          ...prev, [l]: signedFrom(Number(e.target.value), adverse),
-                        }))}
-                      />
-                      <span className="text-sm text-slate-500">%</span>
-                      <select
-                        disabled={!on}
-                        data-testid={`prior-dev-dir-${l}`}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
-                        value={adverse ? 'adverse' : 'favourable'}
-                        onChange={e => setPriorDev(prev => ({
-                          ...prev, [l]: signedFrom(pctOf(prev[l] ?? 0), e.target.value === 'adverse'),
-                        }))}
-                      >
-                        <option value="adverse">adverse</option>
-                        <option value="favourable">favourable</option>
-                      </select>
+                      <span className="text-sm text-slate-500">Adverse development</span>
+                      <DevelopmentLevelSelect line={l} value={devLevels[l]} disabled={!on}
+                        onChange={v => setDevLevels(prev => ({ ...prev, [l]: v }))} />
                     </div>
                   </div>
                 );
               })}
             </div>
-            {/* ⚠ SAID PLAINLY, AND IT IS USED: the engine reads each line's
-                percentage (setup.priorDevelopment) as a lifetime total on the open
-                older years' reserves, emerging as they pay — utils/hostDevelopment. */}
-            <p data-testid="prior-dev-note" className="mt-2 text-xs text-slate-400">
-              Prior development is the share of open older years&rsquo; reserves that develops adversely over their
-              remaining life (favourable develops them down).
+            <p data-testid="dev-level-note" className="mt-2 text-xs text-slate-400">
+              Each played year every open prior year's reserve grows by a rate drawn in its line's range —
+              Low {Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[1] * 100)}%,
+              Mid {Math.round(ADVERSE_DEVELOPMENT_RANGE.Mid[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Mid[1] * 100)}%,
+              High {Math.round(ADVERSE_DEVELOPMENT_RANGE.High[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.High[1] * 100)}%.
             </p>
             {lines.length === 0 && (
               <p data-testid="no-lines" className="mt-1.5 text-xs text-amber-700">
@@ -381,98 +328,12 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
           </div>
 
           {/* ---- shocks ---- */}
-          <div>
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Shock schedule</span>
-            <p className="mt-1 text-xs text-slate-400">
-              {soloTest
-                ? 'Your game fires exactly this schedule. Randomise draws it once, here, from the seed.'
-                : 'The same schedule reaches every team. Randomise draws it once, here, from the seed.'}
-            </p>
-            <div className="mt-2 flex items-end gap-2">
-              <label className="flex-1 block">
-                <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Event</span>
-              <select
-                data-testid="shock-id"
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                value={shockId}
-                onChange={e => setShockId(e.target.value)}
-              >
-                {SCHEDULABLE.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.id} — {s.name}
-                  </option>
-                ))}
-              </select>
-              </label>
-              <label className="block">
-                <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Year of Event</span>
-                <input
-                  data-testid="shock-year"
-                  type="number" min={1} max={yearCount}
-                  className="mt-1 w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  value={shockYear}
-                  onChange={e => setShockYear(Number(e.target.value))}
-                />
-              </label>
-              <button
-                type="button"
-                data-testid="add-shock"
-                onClick={() => { setShocks(prev => [...prev, { shockId, yearNumber: shockYear }]); setDrawnFor(null); }}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600"
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                data-testid="randomise-shocks"
-                onClick={handleRandomise}
-                disabled={yearCount < 1}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 disabled:text-slate-300"
-                title="Replace the list with a draw from the catalog: about three events per ten years, never year 1, milder events more likely"
-              >
-                <Shuffle size={13} />
-                Randomise
-              </button>
-            </div>
-            {drawnFor && !drawStale && (
-              <p data-testid="shock-drawn-note" className="mt-1.5 text-xs text-slate-400">
-                Drawn from seed <span className="font-mono">{drawnFor.seed}</span> over {drawnFor.yearCount} years.
-              </p>
-            )}
-            {drawStale && (
-              <p data-testid="shock-drawn-stale" className="mt-1.5 text-xs text-amber-700">
-                The seed or year count changed after this was drawn. Randomise again to draw for the current settings.
-              </p>
-            )}
-            {shocks.length > 0 && (
-              <ul data-testid="shock-list" className="mt-2 space-y-1">
-                {shocks.map((s, i) => (
-                  // ⚠ THE ID AND YEAR STAY IN THE DOM AS ATTRIBUTES, not because the
-                  // screen needs them but because the LABEL is now prose and the
-                  // catalog is about to be renumbered 1-12. A driver matching the
-                  // room record against rendered text would be re-broken by that
-                  // rename; matching these is stable and reads the same fact.
-                  <li
-                    key={i}
-                    data-shock-id={s.shockId}
-                    data-shock-year={s.yearNumber}
-                    className="flex items-center gap-2 text-sm text-slate-600"
-                  >
-                    <Zap size={13} className="text-amber-500" />
-                    <span>{shockLabel(s.shockId)} — Year {s.yearNumber}</span>
-                    <button
-                      type="button"
-                      onClick={() => { setShocks(prev => prev.filter((_, j) => j !== i)); setDrawnFor(null); }}
-                      className="text-slate-400 hover:text-red-600"
-                      aria-label={`Remove shock ${i + 1}`}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <ShockScheduleFields
+            seed={seed} ensureSeed={ensureSeed} yearCount={yearCount} shocks={shocks} setShocks={setShocks}
+            note={soloTest
+              ? 'Your game fires exactly this schedule. Randomise draws it once, here, from the seed.'
+              : 'The same schedule reaches every team. Randomise draws it once, here, from the seed.'}
+          />
 
           {soloTest ? (
             <button

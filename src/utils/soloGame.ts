@@ -13,27 +13,35 @@
 //
 // ⚠ WITH SOLO_SHOCKS OFF (pending the data scientist) NO SCHEDULE IS DRAWN: the
 // instance carries none, its timing is still 'solo', and so nothing fires.
-import { SOLO_SHOCK_DRAW, SOLO_SHOCKS } from '../data/pricingParameters';
+import { SOLO_ADVERSE_DEVELOPMENT, SOLO_SHOCK_DRAW, SOLO_SHOCKS } from '../data/pricingParameters';
 import { generateGameInstance } from './instanceGenerator';
 import { drawCatalogueSchedule, drawShockSchedule, SOLO_SHOCK_STREAM } from './shockSchedule';
 import { seedFromInstanceId } from '../seedHash';
 import type { GameInstance, GameSetupSettings } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
+import { drawDevelopmentLevels, NO_DEVELOPMENT } from './adverseDevelopment';
 
-// ⚠ TEST PLAYER passes `test`: the host's setup played solo, its schedule set on
-// the host's own screen (fixed or randomised there) in place of the draw. Its
-// prior development rides on `settings.priorDevelopment`, as a room's does. The
-// save carries both (setup and instance), so a reload rebuilds the same game.
 export function openSoloInstance(
   settings: GameSetupSettings,
+  // TEST PLAYER (wip/adverse-development): the host's setup, played solo — its
+  // own shock schedule, fixed or randomised on the host screen, in place of the
+  // draw. Its development levels ride on `settings.developmentLevels`. The save
+  // carries setup and instance, so a reload rebuilds the same game.
   test?: { schedule: ScheduledShock[] },
 ): { setup: GameSetupSettings; instance: GameInstance } {
   const draw = SOLO_SHOCK_DRAW === 'catalogue' ? drawCatalogueSchedule : drawShockSchedule;
   const schedule = test
     ? test.schedule
     : SOLO_SHOCKS.enabled ? draw(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
+  // THE DEVELOPMENT LEVELS, stored on the setup so the save carries them. Test
+  // player brings the ones chosen on the host's screen. SINGLE PLAYER HAS NONE
+  // (SOLO_ADVERSE_DEVELOPMENT off): every line Off and no level drawn — single
+  // player is for learning the game, development a tool for hosted and test
+  // games. Switched on, it would draw each line's level from the seed.
+  const developmentLevels = settings.developmentLevels
+    ?? (SOLO_ADVERSE_DEVELOPMENT.enabled ? drawDevelopmentLevels(settings.instanceId) : { ...NO_DEVELOPMENT });
   return {
-    setup: { ...settings, shockTiming: 'solo' },
+    setup: { ...settings, shockTiming: 'solo', developmentLevels },
     instance: generateGameInstance(settings.instanceId, seedFromInstanceId(settings.instanceId), schedule),
   };
 }

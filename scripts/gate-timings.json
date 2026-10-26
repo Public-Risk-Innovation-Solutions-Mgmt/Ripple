@@ -91,6 +91,7 @@
     "development-emergence-check": 20,
     "ordinary-loss-check": 10,
     "shock-effects-check": 60,
+    "adverse-development-check": 10,
     "result-size-check": 40,
     "worlds-check": 36,
     "solo-shock-schedule-check": 88,

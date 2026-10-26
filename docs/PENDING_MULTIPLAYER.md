@@ -34,8 +34,17 @@ on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
    $38M xs $2M and reads WC 23.8%, GL 24.8%, Property 1.8%, pool 10.0%, because
    the one T claim sits wholly above the attachment and all its development is
    ceded. Measured that the T claims develop with their cohorts (GL +31% against
-   +38%), so it is not a routing concentration. The limits' re-derivation stays
-   deferred.
+   +38%), so it is not a routing concentration. **Ruled: it stays on the
+   expected-red list until adverse development lands. When adverse development
+   lands, re-derive its limits (6% per line, 1.5% pool) for the new design —
+   one T claim per event-line above the attachment, developing with adverse
+   development — and take it off the EXPECTED_RED list in `scripts/gates.ts`
+   then.** **DONE with the adverse-development landing:** the gate now grades
+   lifetime development cession against what the ceded claims' own cohort
+   development would cede (ratio <= 1.10 a line, <= 1.05 pooled). Measured
+   1.0000 on every line — with full-cost booking the only development left is
+   adverse development, allocated proportionally — against 2.4x-12x for the
+   concentration controls. It is off the EXPECTED_RED list and green.
 4. **Value and export baselines** recaptured as VALUE_IDENTITY_v84 and
    SOLO_EXPORT_GUARD_v92: the control (19b6f17) moves 21,101 of 39,600 values
    and all 24 exports, the landing's own movement; the owed-checks commits move
@@ -63,6 +72,29 @@ on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
 
 The figures this landing was read on are in `scripts/tools/shocks-report.ts`
 (sections 1-5 and `--growth`).
+
+---
+
+## The adverse-development landing (save key v32)
+
+Landed on multiplayer with the full checks: FAST 78/78, SLOW 4/4, the manifest,
+every session driver with the admin-token hook (test-player 31/31), the contract
+harness on every pass, and baselines VALUE_IDENTITY_v86, SOLO_EXPORT_GUARD_v94
+and RENDER_IDENTITY_v90 attributed against multiplayer ebc3b4a. Reserve
+inflation is off; hosted and Test player games choose Low / Mid / High adverse
+development per line; single player has none (`SOLO_ADVERSE_DEVELOPMENT`).
+
+**Still owed:**
+
+- **The race probe's "No room with code …" failure** (`npm run contract:races`,
+  `scripts/tools/session-race-probe.ts`, section J's `advance` on a room created
+  a moment before). It failed on the FIRST run after the session drivers and a
+  Docker restart, twice (the adverse-development merge rounds); 6 of 6 reruns
+  then passed, 3 at the landing's head and 3 at multiplayer ebc3b4a. Suspected:
+  the local DynamoDB container's clock or a room expiry read just after a
+  restart (`live()` in `src/session/server/rooms.ts` reads a missing header and
+  one past `expiresAtSec` alike) — not yet confirmed. Treated as a flake for
+  this landing by the project lead's ruling.
 
 ---
 

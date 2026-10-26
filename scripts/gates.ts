@@ -256,6 +256,9 @@ const FAST: string[] = [
                                      //         own scale; nothing cedes. ⚠ IT HOLDS MEMBER_LEVEL OFF
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
+  'adverse-development-check',       //  ~8s   wip/adverse-development: the λ draws, compounding on
+                                     //         outstanding only, paid untouched, no pre-game
+                                     //         development — each with a control.
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
                                      //         asset class — each with a control. (Replaces
@@ -1258,38 +1261,13 @@ const EXPECTED_RED: Record<string, { code: number; why: string }> = {
   //                                    new rate replaces; the experience path
   //                                    no longer lags the trend.
   //
-  // ONE REMAINS, and its open item is now the LOSS ENGINE rather than the rate.
+  // ONE REMAINED, and its open item was the LOSS ENGINE rather than the rate:
   // ==========================================================================
-  'cession-uplift-basis': {
-    code: 2,
-    why: 'RESTATED AT THE SHOCKS LANDING\'S OWED CHECKS: until then every arm bought None, ceded '
-      + 'nothing, read 0/0 and passed while printing NaN — vacuous. Every arm now buys $38M xs $2M '
-      + 'and reads WC 23.8%, GL 24.8%, Property 1.8%, pool 10.0%. With ROUTINE_LARGE_LOSSES off a '
-      + 'shock\'s one T claim is the only claim a layer reaches, and it sits wholly above the $2M '
-      + 'attachment, so every dollar it develops by is ceded — the denominator is that claim\'s '
-      + 'inception cession alone. MEASURED, NOT A ROUTING DEFECT: over 12 twenty-year games the T '
-      + 'claims develop with their cohorts (GL +31% against the untracked book\'s +38%, Property '
-      + '+2.5% against +2.6%) under the per-claim revision law; nothing concentrates the cohort\'s '
-      + 'development onto them. The deferral below stands. '
-      + 'THE UPLIFT LIMITS WERE CALIBRATED ON A BOOK THAT DID NOT DEVELOP, AND THE HOST\'S '
-      + 'DEVELOPMENT % NOW MAKES THEM WRONG — but I am NOT raising them, and the reason is the '
-      + 'number itself. GL reads 10.1% against a 6.0% line limit and the pool 3.7% against 1.5%. '
-      + 'AT LOSS ENGINE COMMIT 3a GL reads 16.7% and the pool 1.1% (now inside its limit): the inception '
-      + 'cession under the new engine is the large losses alone, so the same development is measured '
-      + 'against a much smaller denominator. Same failure, same deferral. '
-      + 'Those limits were set "above the measured value and below the defect": 4.1% measured on WC '
-      + 'against 9.9% under the retired asymmetric routing. GL\'s 10.1% is PAST the figure that used '
-      + 'to signal the defect, so raising the bar to admit it would put the limit above the only '
-      + 'reading anyone has that says what a defect looks like. ⚠ THE RISE IS EXPECTED AND IS THE '
-      + 'COMMISSIONED BEHAVIOUR: adverse development lands on each occurrence and the tower answers '
-      + 'it under that accident year\'s own cover, so "adverse development makes reinsurance worth '
-      + 'more" is the brief\'s own sentence and the uplift is that sentence measured. What is NOT '
-      + 'yet known is how much of 10.1% is that intended effect and how much is option value the '
-      + 'routing is still handing over for free, because this gate\'s denominator is the inception '
-      + 'cession and development was zero when it was chosen. DEFERRED: re-derive the basis against '
-      + 'a developing book — the measurement is a day\'s work and guessing a new limit is five '
-      + 'minutes, which is the whole argument for deferring rather than tuning.',
-  },
+  // ⚠ cession-uplift-basis LEFT THIS LIST WITH ADVERSE DEVELOPMENT
+  // (wip/adverse-development), as ruled: its limits were re-derived for the
+  // design — lifetime development cession graded against what the ceded
+  // claims' own cohort development would cede (ratio <= 1.10 a line, 1.05
+  // pooled; measured 1.0000 everywhere), so it is green and runs as any gate.
   // ==========================================================================
   // ⚠ THE FIVE BELOW ARE ONE DEFECT, NOT FIVE, AND IT IS A RETIRED PREMISE.
   //

@@ -22,7 +22,7 @@
 // ============================================================================
 
 import type {
-  CallerRole, CallerView, JsonValue, PriorDevelopment, RoomMarketShares, RoomStatus, RoomView,
+  CallerRole, CallerView, JsonValue, PriorDevelopment, DevelopmentLevels, RoomMarketShares, RoomStatus, RoomView,
   ScheduledShockSpec, TeamView, TeamYearSummary,
 } from '../contract';
 import type { CoverageLine } from '../../types/simulation';
@@ -87,6 +87,7 @@ export interface RoomHeader {
   // buildRoomView defaults them rather than returning a room with no game.
   lines?: CoverageLine[];
   priorDevelopment?: PriorDevelopment;
+  developmentLevels?: DevelopmentLevels;
   /** Taken off the lobby by the host. Absent reads as false. */
   hidden?: boolean;
   currentYear: number;
@@ -194,6 +195,7 @@ export function buildRoomView(header: RoomHeader, fetched: Fetched, role: Caller
     expectedTeams: header.expectedTeams,
     lines: [...(header.lines ?? LINE_ORDER)],
     priorDevelopment: { ...(header.priorDevelopment ?? {}) },
+    ...(header.developmentLevels ? { developmentLevels: { ...header.developmentLevels } } : {}),
     hidden: header.hidden ?? false,
     currentYear: header.currentYear,
     shocks: (header.shocks ?? []).map(s => ({ shockId: s.shockId, yearNumber: s.yearNumber })),

@@ -1415,7 +1415,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   The audit fix is display only and the two merges moved nothing. Float
 //   order only: investmentReturnRate, 23 values within 3.6e-16; the surplus
 //   tie-out stays within $5e-8.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v85.json');
+// v86: THE ADVERSE-DEVELOPMENT LANDING, on multiplayer ebc3b4a (simple
+// underwriting). The control ran first: ebc3b4a reproduces v85 here. Against
+// it 20,136 of 39,600 values move across 74 fields on all 300 instances; none
+// added or removed. With BOTH switches turned back in process — reserve
+// inflation restored at the severity trend, ADVERSE_DEVELOPMENT off — the
+// landing reproduces v85 exactly, so those two are the only movers:
+//   reserve inflation off (unbooked and unpriced), alone: 20,142 across 74 —
+//     every rate (the priced inflation gone), reserves, development, IBNR;
+//   adverse development, alone: 17,269 across 74. These games are built here,
+//     not as single player builds them, and set no level, so each line plays
+//     the harness default, Mid; and the host's lifetime percentages are
+//     retired, so the openings carry none.
+// Single player itself (SOLO_ADVERSE_DEVELOPMENT off) develops nothing — see
+// SOLO_EXPORT_GUARD_v94, whose games are built as the app builds them.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v86.json');
 
 function seedOf(id: string) {
   let h = 5381;
