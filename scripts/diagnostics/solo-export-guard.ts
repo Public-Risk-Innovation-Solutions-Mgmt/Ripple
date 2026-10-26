@@ -857,7 +857,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // opening, the credit off at 5%, the admin overrun, and the per-line profit
 // and contingency, priced years and capital each move all 24; the probes,
 // panel-driver, audit-row, inflation-routing and gate commits move none.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v91.json');
+// v92: THE SHOCKS PLAY-TEST LANDING, OWED (see VALUE_IDENTITY_v84). The control
+// is multiplayer 19b6f17, captured here: all 24 differ from v91, the landing's
+// own movement. No file added or removed. 3fdae5e and a4a841b (the owed-checks
+// fixes and restatements) each reproduce the control 24 of 24.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v92.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
