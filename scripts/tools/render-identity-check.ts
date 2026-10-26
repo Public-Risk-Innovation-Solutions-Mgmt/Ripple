@@ -1317,7 +1317,55 @@ const BASELINE = process.env.RENDER_BASELINE
 // played for). Every key that showed the chip: each single-line game's line
 // view and view-less screens, at y0 and y2, and every line view of the
 // multi-line games. The pool views had no chip before. Nothing else moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v87.json');
+// v88: NO MARKET SHARE ON SINGLE PLAYER'S RESULTS AND CALCULATION AUDIT. The
+// control ran first: bfe8eb1 built in its own worktree reproduced v87 236 of
+// 236. 52 move, and in every one the only change is that page's market-share
+// row deleted (both sides' text word-diffed): the Results page's
+// "Exposure-Based Market Share" and the audit's "Market Share" with its
+// enrolled-over-market-exposure formula, on all 13 of each at y0 and y2. A
+// hosted game would show the room share there, but both tabs are hidden in
+// multiplayer and the render harness plays single player.
+// v89: THE SIMPLE UNDERWRITING LANDING (see VALUE_IDENTITY_v85).
+// ⚠ CAPTURED ON CHROMIUM 1243, NOT 1194, AND THE CONTROL'S OWN CAPTURE IS THE
+// REFERENCE. This container ships chromium 1243. The control, multiplayer
+// ee1ea6c built and served in its own worktree, differs from v88 on 17 screens
+// it does not touch — Calculation Audit (Pool, WC and GL views, y2, and the tri
+// Pool at y0) and Result Spreadsheet (y0 and y2) on every configuration with WC
+// or GL — and identically so at bfe8eb1 against v87 and at 6d45f49 against
+// v86, run after run, while the value baseline (Node, no browser) reproduces
+// exactly. That is the browser, not the build. So the control was captured
+// here (236 of 236 the same on a second run) and the head compared with that
+// capture; a run on chromium 1194 would read those 17 as moved.
+// Against the control, 216 of 236 move; the 20 unmoved are How to Play and the
+// Investment Memorandum on every configuration. Word-diffed (RENDER_TEXT_DIR on
+// both sides), every one is attributed:
+//   figures, on every screen that shows one (216): exposure, premium and
+//     losses move as VALUE_IDENTITY_v85 sets out — the header's surplus and
+//     combined ratio, the statements, Results, the audit, the Rate Indication
+//     and Decisions panels, the Welcome Memorandum's year-1 premium, and the T
+//     covers' prices, which grow with the book;
+//   labels: Decisions' "New Members: Growth Assumption" and "Premium from new
+//     members" (16), Decision History's NON-RENEWAL and NEW MEMBERS columns
+//     (26), and the rewritten Underwriting Memorandum (10);
+//   the audit: the Reserve Risk Margin Check now reads OK where a catastrophe
+//     is retained — Review on 4 of the control's screens, on none of the head's.
+// AND THE SHOCKS LANDING'S 89, OWED SINCE v87, ATTRIBUTED HERE: 6d45f49 and
+// 2ae5c1a, each built and rendered in its own worktree on this chromium, differ
+// on exactly the 89 v87 absorbed (Calculation Audit 26, Decisions 18, Rate
+// Indication 10, Results 8, Financial Statements 8, Result Spreadsheet 7,
+// Annual Statement 4, Decision History 4, the header 2, Introduction 2):
+//   31, the cover list alone: the aggregate stop's options ("Low attachment",
+//     its description) replaced by the four T covers and their prices, grown
+//     by trend and book at y2;
+//   10, WC and GL at y2: expected losses up (WC 23.59M -> 24.34M, GL 22.93M ->
+//     24.17M) as the expected T claim grows with trend and the book;
+//   48, Property: the retained catastrophe in the required reserve margin with
+//     no cover (+$12,082,474 at the opening; excess capital 1929.9% -> 65.5%,
+//     Strong -> Adequate), the fold no longer net of the uplift, and the rate
+//     and surplus after them — and the audit's reserve risk margin check
+//     reading Review by exactly the retained catastrophe, which this landing
+//     fixes (above).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v89.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1458,7 +1506,7 @@ async function startGame(page: Page, cfg: Cfg): Promise<void> {
     const checked = await btn.evaluate(el => el.className.includes('ring-1'));
     if (on !== checked) await btn.click();
   }
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await settle(page);
 }
 

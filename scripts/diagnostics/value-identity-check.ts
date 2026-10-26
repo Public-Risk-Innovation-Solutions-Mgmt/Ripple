@@ -1378,7 +1378,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   paying inflation by the pattern whatever FORWARD_BOOKING says (the
 //   shipped game has the flag on) or the gate restatements. Exposure moves in
 //   none of them.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v83.json');
+// v84: THE SHOCKS PLAY-TEST LANDING, OWED (landed on multiplayer without the
+// full checks; recaptured with them, wip/shocks-owed-checks). The control is
+// multiplayer 19b6f17, captured here: against v83 it moves 21,101 of 39,600
+// values in 94 fields on all 24 configurations and every year; none added or
+// removed. All of it is the landing itself — the new loss engine's shocks
+// (catalogue firings, A on the whole line for one year, one T claim per
+// event-line), the T covers with None the default (tri Y1 pool reinsurance
+// cost $5.22M -> $0) and the shock-free pricing shadow (tri Y1 rates WC 3.632
+// -> 3.532, GL 5.665 -> 5.379, Property 0.3082 -> 0.2858 per $100). Head was
+// then captured at each owed-checks commit in turn: 3fdae5e (Property cat
+// cession capped at the ceiling, five gates restated) and a4a841b (shock
+// records per firing, the stop's samples grown, eleven gates restated) each
+// reproduce the control bit for bit — no baselined game repeats an event in
+// force, cedes Property cat or prices the dormant stop.
+// v85: THE SIMPLE UNDERWRITING LANDING (100 equal members, each with a yearly
+// risk score; non-renewal and new members, 0-5%, one year each; every game on
+// the standard opening book; the audit's retained catastrophe). The control ran
+// first: multiplayer ee1ea6c, in its own worktree, reproduced v84 39,600 of
+// 39,600 (and export v92 24 of 24). 25,272 of 39,600 values differ at head,
+// across 91 fields; none added or removed. Attributed by a null test: with
+// MEMBER_RISK_CV set to 0 the head reproduces, bit for bit, its own capture
+// taken before member risk existed — so the two parts separate exactly:
+//   the book, 25,278 values across 91 fields against the control: every game
+//     opens on the standard opening book (OPENING_BOOK_EXPOSURE; WC-solo Y1
+//     exposure 968.74 -> 916.11) and the defaults no longer grow it
+//     (newBusinessExposure to 0 on all 300; Y5 1,177.51 -> 916.11), so
+//     exposure, written and billed exposure, market share, premium, the
+//     per-exposure admin, and every loss, reserve, rate, cash and capital
+//     field after them; ordinary losses drawn on 100 equal members at risk 1;
+//     the T claims landing on the line by region share.
+//   member risk, 22,246 values across 81 fields against that: the ordinary
+//     loss draw and what it feeds — ultimates, reserves, LAE, the rate as it
+//     learns, cash, surplus, capital. No exposure, admin or premium-at-opening
+//     field moves by it.
+//   The audit fix is display only and the two merges moved nothing. Float
+//   order only: investmentReturnRate, 23 values within 3.6e-16; the surplus
+//   tie-out stays within $5e-8.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v85.json');
 
 function seedOf(id: string) {
   let h = 5381;

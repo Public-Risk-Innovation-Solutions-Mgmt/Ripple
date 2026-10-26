@@ -11,48 +11,55 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
-## OWED — the shocks landing (save key v30), landed for play-testing
+## The shocks landing (save key v30) — owed checks CLEARED
 
-**Landed on multiplayer for play-testing without the full checks.** What it
-was checked with: typecheck and lint at baseline (21 pre-existing problems),
-`scripts/diagnostics/shock-effects-check.ts`, and every session driver in
-`scripts/tools/session-drivers/`. Single-player shocks are ON (`SOLO_SHOCKS`).
-**Still owed before this is treated as checked:**
+Landed on multiplayer for play-testing without the full checks; those were run
+on `wip/shocks-owed-checks` (cut from multiplayer 19b6f17) and landed with it.
 
-1. **The FAST gate sweep** (`npm run gates`) and **the SLOW tier**
-   (`npm run gates:slow`). Neither was run on this landing. Expect gates that
-   assert the old shock design to need restating, not the code: anything reading
-   the aggregate stop as live (`AGGREGATE_STOP` is now off), GL's $25M pool
-   limit (removed), several lognormal T claims scaled to the book (now one claim
-   per event-line, grown by trend and exposure), A decaying over its duration
-   (now its firing year only), the routine fold net of the uplift
-   (`ROUTINE_FOLD_NET_OF_UPLIFT` off), and solo games drawing 2-4 events
-   (`SOLO_SHOCK_DRAW` 'catalogue'). Each red gate is to be read as restate or
-   fix; `shock-loss-check` was replaced by `shock-effects-check`.
-2. **Every baseline recaptured**: the value baselines and the render baseline
-   (`baselines/`). None was recaptured, so each is expected to differ: solo
-   games now draw shocks, the reinsurance options and prices changed, and the
-   pure premium is struck from the shock-free shadow once a shock fires.
-   ⚠ **The render baseline was recaptured (v87) by the room-market-share
-   landing**, because that change moved 121 screens of its own and 60 of them
-   are among this landing's. v87 therefore absorbs this landing's 89 render
-   moves against v86 (Calculation Audit 26, Decisions 18, Rate Indication 10,
-   Results 8, Financial Statements 8, Result Spreadsheet 7, Annual Statement 4,
-   Decision History 4, the header 2, Introduction 2) **without attributing
-   them** — that review is still owed here. The value and export baselines were
-   not recaptured; the room-market-share landing is byte-identical to this
-   landing's actual output on both.
-3. **`gate-timings.json`**: `shock-effects-check` is entered by hand at 10s;
-   with section 7 (two eight-year games plus the shadow) it measures longer and
-   should be re-recorded, and checked against `TIER_THRESHOLD_SECONDS`.
-4. **The shadow's cost** (`SHOCK_FREE_PRICING`): years after a shock run their
-   worlds twice. Measured only through the drivers' and the report's run
-   times, not by `result-size-check`/turn-time gates.
-5. **Known approximations, stated not fixed**: expected losses grow T by trend
-   only (no year-1 base in hand); with shocks off Property sits slightly below
-   the pre-landing build (Y10 $38.2M vs $39.1M over 20 scenarios) because the
-   fold no longer divides by the uplift; the T covers' brief prices do not follow
-   from the catalogue's odds (WC's expected loss ratio 16-27%).
+**Cleared:**
+
+1. **FAST and SLOW** (`npx tsx scripts/gates.ts --all`): 85 of 86 green and
+   `cession-uplift-basis` expected red. 16 gates were red on 19b6f17; 15 were
+   restated to the shock design, each with a control that fails when broken.
+   `property-cat-check` needed no restatement: it was red on a defect.
+2. **Real defects fixed, each with a control:** Property catastrophe cession
+   went negative when a class attached above the layer's ceiling (attachment now
+   capped at the ceiling; `property-cat-check`); a shock's dollars were keyed by
+   event, so an event fired again while in force credited the year's whole cost
+   to both firings and the pool summed it twice (now one record per firing;
+   `shock-effects-check` 8); the dormant aggregate stop sampled T claims at table
+   size while its basis grew them by trend (`aggregate-stop-check` 2).
+3. **`cession-uplift-basis` stays expected red**, its reason restated. With
+   None every arm ceded nothing and it passed printing NaN; it now buys
+   $38M xs $2M and reads WC 23.8%, GL 24.8%, Property 1.8%, pool 10.0%, because
+   the one T claim sits wholly above the attachment and all its development is
+   ceded. Measured that the T claims develop with their cohorts (GL +31% against
+   +38%), so it is not a routing concentration. The limits' re-derivation stays
+   deferred.
+4. **Value and export baselines** recaptured as VALUE_IDENTITY_v84 and
+   SOLO_EXPORT_GUARD_v92: the control (19b6f17) moves 21,101 of 39,600 values
+   and all 24 exports, the landing's own movement; the owed-checks commits move
+   none.
+5. **`gate-timings.json`**: `shock-effects-check` entered at 60 from the sweep.
+6. **Every session driver** with the admin-token hook, the contract harness
+   (local, http, DynamoDB, the built Lambda handler) and the race probes: green.
+7. **The render attribution review** (cleared by the simple underwriting
+   landing, recorded at RENDER_IDENTITY_v89 in render-identity-check.ts): the 89
+   moves v87 absorbed are the cover list alone (31), WC and GL year-2 expected
+   losses (10) and Property's figures (48). One was a defect: the Calculation
+   Audit's reserve risk margin check read Review by exactly the retained
+   catastrophe on Property; the audit now recalculates it, and
+   audit-formula-check section 6 fails when the term is left out.
+
+**Still owed:**
+
+- **The shadow's cost** (`SHOCK_FREE_PRICING`): years after a shock run their
+  worlds twice; measured only through the drivers' and the report's run times.
+- **Known approximations, stated not fixed**: expected losses grow T by trend
+  only (no year-1 base in hand); with shocks off Property sits slightly below
+  the pre-landing build (Y10 $38.2M vs $39.1M over 20 scenarios) because the
+  fold no longer divides by the uplift; the T covers' brief prices do not follow
+  from the catalogue's odds (WC's expected loss ratio 16-27%).
 
 The figures this landing was read on are in `scripts/tools/shocks-report.ts`
 (sections 1-5 and `--growth`).

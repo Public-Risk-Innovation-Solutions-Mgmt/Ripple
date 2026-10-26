@@ -18,10 +18,20 @@ import { generateGameInstance } from './instanceGenerator';
 import { drawCatalogueSchedule, drawShockSchedule, SOLO_SHOCK_STREAM } from './shockSchedule';
 import { seedFromInstanceId } from '../seedHash';
 import type { GameInstance, GameSetupSettings } from '../types/simulation';
+import type { ScheduledShock } from '../types/shocks';
 
-export function openSoloInstance(settings: GameSetupSettings): { setup: GameSetupSettings; instance: GameInstance } {
+// ⚠ TEST PLAYER passes `test`: the host's setup played solo, its schedule set on
+// the host's own screen (fixed or randomised there) in place of the draw. Its
+// prior development rides on `settings.priorDevelopment`, as a room's does. The
+// save carries both (setup and instance), so a reload rebuilds the same game.
+export function openSoloInstance(
+  settings: GameSetupSettings,
+  test?: { schedule: ScheduledShock[] },
+): { setup: GameSetupSettings; instance: GameInstance } {
   const draw = SOLO_SHOCK_DRAW === 'catalogue' ? drawCatalogueSchedule : drawShockSchedule;
-  const schedule = SOLO_SHOCKS.enabled ? draw(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
+  const schedule = test
+    ? test.schedule
+    : SOLO_SHOCKS.enabled ? draw(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
   return {
     setup: { ...settings, shockTiming: 'solo' },
     instance: generateGameInstance(settings.instanceId, seedFromInstanceId(settings.instanceId), schedule),

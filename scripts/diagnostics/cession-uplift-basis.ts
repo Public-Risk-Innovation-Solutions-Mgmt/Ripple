@@ -69,6 +69,17 @@
 // The aggregate stop-loss is excluded throughout: it attaches to current-year
 // retained loss and development never reaches it. This is the occurrence tower's
 // price and nothing else.
+//
+// ⚠ RESTATED FOR THE SHOCKS LANDING (wip/shocks, 2ae5c1a). The tower now
+// carries the per-occurrence T covers, the default is None, and with
+// ROUTINE_LARGE_LOSSES off a shock's ONE T claim is the only claim a layer can
+// reach. At defaults nothing ceded, every ratio was 0/0, and the gate printed
+// NaN% and passed — vacuous. So every arm now BUYS '$38M xs $2M' on every line
+// and the games' catalogue shocks supply the T claims; and the gate FAILS
+// LOUDLY (exit 1, not the expected 2) on a line with no inception cession or a
+// non-finite uplift. CONTROLS (section 6): the None figures (0/0) are caught as
+// not measured; a book whose development cedes nothing passes, one whose
+// development cedes 10% of inception is caught by the limits.
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -80,8 +91,9 @@ import type { CoverageLine, DecisionSet, GameState } from '../../src/types/simul
 import { AGGREGATE_STOP } from '../../src/data/pricingParameters';
 
 // ⚠ THIS MEASURES THE PER-OCCURRENCE TOWER'S DEVELOPMENT CESSION, dormant behind
-// AGGREGATE_STOP since stable-scenarios commit 6: with the stop on, nothing is
-// ceded at inception and every ratio here is 0/0. Held with the stop off.
+// AGGREGATE_STOP from stable-scenarios commit 6 (with the stop on, nothing is
+// ceded at inception and every ratio here is 0/0). Since the shocks landing the
+// stop is off as shipped and the tower carries the T covers; held off here.
 AGGREGATE_STOP.enabled = false;
 
 // GATE THRESHOLDS, set above the measured value and below the defect.
@@ -125,6 +137,16 @@ const ARMS: Arm[] = [
   },
 ];
 
+// ⚠ EVERY ARM BUYS THE WIDEST T COVER ON EVERY LINE (shocks landing). The
+// default is None, which cedes nothing at inception or in development: every
+// ratio below was 0/0 and the gate printed NaN% and passed. With the cover the
+// tower cedes on the T claims, the only claims there are, and on the
+// development that lands on them.
+const COVER = '$38M xs $2M';
+const withCover = (d: DecisionSet): DecisionSet => ({
+  ...d, byLine: Object.fromEntries(LINES.map(l => [l, { ...d.byLine[l], reinsuranceOption: COVER }])) as never,
+});
+
 // ONE ACCIDENT YEAR, FOLLOWED FROM INCEPTION TO WHEREVER IT GETS TO.
 interface Cohort {
   arm: string; game: number; line: CoverageLine; ay: number;
@@ -154,7 +176,7 @@ for (const arm of ARMS) {
     const open = new Map<string, Cohort>();
 
     for (let y = 1; y <= YEARS; y++) {
-      const p = processYear(gs, arm.decisions(defaultDecisionSet(y)));
+      const p = processYear(gs, arm.decisions(withCover(defaultDecisionSet(y))));
 
       for (const line of LINES) {
         const lr = p.result.byLine[line];
@@ -226,7 +248,7 @@ for (const line of LINES) {
   const d = book[`def|${line}`];
   const s = book[`sqz|${line}`];
   console.log(`  ${line.padEnd(9)} mean enrolled  def ${(d.members / d.n).toFixed(1).padStart(6)}  `
-    + `sqz ${(s.members / s.n).toFixed(1).padStart(6)}  (${((s.members / d.members - 1) * 100).toFixed(1)}%)   `
+    + `sqz ${(s.members / s.n).toFixed(1).padStart(6)}  (${d.members > 0 ? `${((s.members / d.members - 1) * 100).toFixed(1)}%` : 'n/a — no member roster on a book'})   `
     + `gross loss  def ${m(d.gross).padStart(10)}  sqz ${m(s.gross).padStart(10)}  `
     + `(${((s.gross / d.gross - 1) * 100).toFixed(1)}%)`);
 }
@@ -364,25 +386,50 @@ for (const line of LINES) {
 // The verdict is fenced so no neighbouring paragraph can be read as covering it.
 const RULE = '='.repeat(72);
 console.log('\n--- 6. GATE: LIFETIME DEVELOPMENT CESSION AGAINST INCEPTION CESSION, AT DEFAULTS ---');
-{
-  let fails = 0;
+/** The gate on a cohort set: the named failures, and the readings. */
+function gateOf(all: Cohort[], print: boolean): string[] {
   // ⚠ NAMED, NOT COUNTED — see WORKING_PRACTICES. "N GATE FAILURE(S)" told the
   // reader a number and left them to find which line it was.
   const failed: string[] = [];
-  const cs = cohorts.filter(c => c.matured && c.arm === 'def');
-  for (const line of LINES) {
-    const t = cs.filter(c => c.line === line);
-    const u = sum(t, c => c.finalCededDev) / sum(t, c => c.inceptionCeded);
-    const bad = Math.abs(u) > MAX_LINE_UPLIFT;
-    if (bad) { fails++; failed.push(`${line} uplift ${p1(u)} exceeds the line limit ${p1(MAX_LINE_UPLIFT)}`); }
-    console.log(`  ${line.padEnd(9)} uplift ${p1(u).padStart(7)}   `
-      + `${bad ? `FAIL (limit ${p1(MAX_LINE_UPLIFT)})` : 'ok'}`);
-  }
-  const uAll = sum(cs, c => c.finalCededDev) / sum(cs, c => c.inceptionCeded);
-  const badAll = Math.abs(uAll) > MAX_POOL_UPLIFT;
-  if (badAll) { fails++; failed.push(`POOL uplift ${p1(uAll)} exceeds the pool limit ${p1(MAX_POOL_UPLIFT)}`); }
-  console.log(`  ${'POOL'.padEnd(9)} uplift ${p1(uAll).padStart(7)}   `
-    + `${badAll ? `FAIL (limit ${p1(MAX_POOL_UPLIFT)})` : 'ok'}`);
+  const cs = all.filter(c => c.matured && c.arm === 'def');
+  // ⚠ NOT MEASURED IS A FAILURE, AND NOT AN EXPECTED ONE (shocks landing): a
+  // line with no inception cession reads 0/0, and NaN > limit is false — the
+  // way this gate passed while measuring nothing. Named so the exit is 1.
+  const measure = (name: string, t: Cohort[], limit: number) => {
+    const inc = sum(t, c => c.inceptionCeded);
+    const u = sum(t, c => c.finalCededDev) / inc;
+    const unmeasured = !(inc > 0) || !Number.isFinite(u);
+    const bad = !unmeasured && Math.abs(u) > limit;
+    if (unmeasured) failed.push(`NOT MEASURED: ${name} has no inception cession over ${t.length} matured cohort(s) (uplift ${p1(u)})`);
+    if (bad) failed.push(`${name} uplift ${p1(u)} exceeds the ${name === 'POOL' ? 'pool' : 'line'} limit ${p1(limit)}`);
+    if (print) {
+      console.log(`  ${name.padEnd(9)} uplift ${p1(u).padStart(7)}   `
+        + `${unmeasured ? 'FAIL — NOT MEASURED' : bad ? `FAIL (limit ${p1(limit)})` : 'ok'}`);
+    }
+  };
+  for (const line of LINES) measure(line, cs.filter(c => c.line === line), MAX_LINE_UPLIFT);
+  measure('POOL', cs, MAX_POOL_UPLIFT);
+  return failed;
+}
+{
+  const failed = gateOf(cohorts, true);
+  const fails = failed.length;
+
+  // CONTROLS — fed the figures each guards against; not counted in the exit.
+  console.log('\n  CONTROLS');
+  const controlFailed: string[] = [];
+  const control = (label: string, ok: boolean, detail: string) => {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'}  control: ${label}  — ${detail}`);
+    if (!ok) controlFailed.push(`control: ${label}`);
+  };
+  const noneArm = gateOf(cohorts.map(c => ({ ...c, inceptionCeded: 0, finalCededDev: 0, giveBack: 0 })), false);
+  control('the None figures (0/0, what the defaults ceded) are caught as NOT MEASURED',
+    noneArm.length === LINES.length + 1 && noneArm.every(f => f.startsWith('NOT MEASURED')), `${noneArm.length} not measured`);
+  const flat = gateOf(cohorts.map(c => ({ ...c, finalCededDev: 0, giveBack: 0 })), false);
+  control('a book whose development cedes nothing passes the limits', flat.length === 0, `${flat.length} failure(s)`);
+  const ahead = gateOf(cohorts.map(c => ({ ...c, finalCededDev: 0.1 * c.inceptionCeded, giveBack: 0 })), false);
+  control('a book whose development cedes 10% of inception is caught by the limits',
+    ahead.length > 0 && ahead.every(f => !f.startsWith('NOT MEASURED')), `${ahead.length} failure(s)`);
   console.log(fails === 0
     ? '\nDEVELOPMENT CESSION IS NOT A FREE LUNCH. Over complete cohort lives at defaults, where the'
       + '\nbooking bias is zero and the gross walk has no drift, the reinsurer pays a small positive'
@@ -418,10 +465,15 @@ console.log('\n--- 6. GATE: LIFETIME DEVELOPMENT CESSION AGAINST INCEPTION CESSI
   // cohort set that fails to mature, a line appearing that should not — still
   // exits 1. The classifier is the four names, nothing wider.
   const KNOWN = new Set(['WC', 'GL', 'Property', 'POOL']);
-  const unexpected = failed.filter(f => !KNOWN.has(f.split(' ')[0])).length;
+  const unexpectedList = [...failed.filter(f => !KNOWN.has(f.split(' ')[0])), ...controlFailed];
+  const unexpected = unexpectedList.length;
+  if (unexpected > 0) console.log(`\n${RULE}\nUNEXPECTED — exit 1:\n  ${unexpectedList.join('\n  ')}\n${RULE}`);
   if (fails > 0 && unexpected === 0) {
-    console.log('\nEXPECTED RED — all four are the uplift limits on a denominator forward booking');
-    console.log('retired. Exit 2, so any OTHER failure in this file still exits 1.');
+    // Shocks landing: the reading is now the T covers' (one T claim per
+    // event-line, the host's development landing on it); the limits are the
+    // ones scripts/gates.ts's EXPECTED_RED entry defers re-deriving.
+    console.log('\nEXPECTED RED — the failures are only the uplift limits, calibrated on a book that did');
+    console.log('not develop (scripts/gates.ts EXPECTED_RED). Exit 2, so any OTHER failure here exits 1.');
   }
-  process.exit(fails === 0 ? 0 : (unexpected > 0 ? 1 : 2));
+  process.exit(unexpected > 0 ? 1 : fails === 0 ? 0 : 2);
 }

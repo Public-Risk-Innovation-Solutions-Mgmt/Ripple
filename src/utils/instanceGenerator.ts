@@ -23,8 +23,7 @@ import {
 import type { CoverageLine } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
 import { SHOCK_EVENTS } from './shockLosses';
-import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, regionByShare } from '../data/pricingParameters';
-import { bookSizeOf, marketSeedOf, openingBookUnits } from './bookUnits';
+import { FULL_MARKET_EXPOSURE, MEMBER_LEVEL, OPENING_BOOK_EXPOSURE, regionByShare } from '../data/pricingParameters';
 import { exposureFactor } from '../data/exposureTrend';
 
 // Each active line independently enrolls its own starting members. First it
@@ -210,11 +209,10 @@ export function generateStartingPoolState(
   // skipping them moves nothing else.
   const bookMode = !MEMBER_LEVEL.enabled;
   const allMarketMembers = bookMode ? [] : getPredefinedMarketMembers();
-  // ⚠ A LINE OPENS ON ITS BOOK OF UNITS SINCE BOOK UNITS COMMIT 3: their sizes
-  // summed (about 30% of the market plus the last unit, different in every
-  // game), where it opened on OPENING_BOOK_EXPOSURE, one figure for all.
-  const openingExposure = (line: CoverageLine) =>
-    bookSizeOf(marketSeedOf(instance), line, openingBookUnits(marketSeedOf(instance), line));
+  // ⚠ A LINE OPENS ON OPENING_BOOK_EXPOSURE, ONE FIGURE FOR ALL, AGAIN since
+  // simple underwriting retired the book of units (which opened on its units'
+  // sizes summed, different in every game). The pre-game grows into it.
+  const openingExposure = (line: CoverageLine) => OPENING_BOOK_EXPOSURE[line];
 
   // Each active line draws its OWN starting roster (different but overlapping
   // sets) from its own derived stream — enrollment happens here, BEFORE the
@@ -474,11 +472,6 @@ export function generateStartingPoolState(
     // through processYear (see priorHistoryEngine), which is why members carry
     // history at Year 1 rather than starting blank.
     memberLossHistory: {},
-    // The opening book of units, from the game's seed (bookUnits.ts). On its
-    // own labelled streams: drawing it moves no other draw.
-    ...(bookMode ? {
-      bookUnits: Object.fromEntries(activeLines.map(l => [l, openingBookUnits(marketSeedOf(instance), l)])),
-    } : {}),
   };
 
   const startingFinancials: StartingFinancials = {

@@ -139,8 +139,8 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
       reinsuranceOption: d.reinsuranceOption,
       // Absent reads as 0 on the engine side; each is written as 0 here so the
       // host renders 0% rather than an empty cell.
-      renewalsDeclined: d.renewalsDeclined ?? 0,
-      newBusinessRejection: d.newBusinessRejection ?? 0,
+      nonRenewal: d.nonRenewal ?? 0,
+      newMembers: d.newMembers ?? 0,
       riskControlPct: d.riskControlPct,
       dividendPct: d.dividendPct,
       assessmentPct: d.assessmentPct,

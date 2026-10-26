@@ -64,7 +64,7 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { FORWARD_BOOKING, PRICING_TRIANGLE, TRIANGLE_HISTORY_YEARS, FULL_COST_BOOKING } from '../../src/data/defaultAssumptions';
-import { newLossEngineRuns, NEW_RATE_STACK } from '../../src/data/pricingParameters';
+import { newLossEngineRuns, NEW_MEMBERS_SLIDER, NEW_RATE_STACK } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, PricingTriangleState, ReserveDevelopmentRow } from '../../src/types/simulation';
 
 const RULE = '='.repeat(72);
@@ -163,9 +163,9 @@ function decisionsFor(y: number) {
   const d = defaultDecisionSet(y);
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
-      // uw-hybrid: the intake positions are retired; new business arrives at
-      // NEW_BUSINESS_APPLICATIONS and the default rejects nobody.
-      d.byLine[l].newBusinessRejection = 0;
+      // Simple underwriting: the book grows only when the team adds members —
+      // the open arm adds the most the slider allows.
+      d.byLine[l].newMembers = NEW_MEMBERS_SLIDER.max;
     }
   }
   return d;

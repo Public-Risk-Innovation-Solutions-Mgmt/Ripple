@@ -124,7 +124,7 @@ async function checkUnderwriting(page, s, mode) {
     const btn = page.locator('button', { hasText: label }).first();
     if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
   }
-  await page.getByRole('button', { name: 'Start Simulation' }).click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   const s = intro(page, 'solo');
 

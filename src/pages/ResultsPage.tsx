@@ -26,10 +26,14 @@ import { placementSummary, hasTractableCeded, towerTopLabel, RETAINED_ABOVE_TOWE
 import { lineDisplayName } from '../utils/lineDisplay';
 import { eventLabel, yearEvents } from '../utils/yearEvents';
 import { MEMBER_LEVEL } from '../data/pricingParameters';
+import type { TeamMarketShareOfYear } from '../session/contract';
+import { roomShareFor } from '../session/marketShares';
 
 interface ResultsPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
   lineView: LineView;
+  /** A hosted team's room share and its year; absent in single player (no market share shown). */
+  roomMarketShare?: TeamMarketShareOfYear | null;
   /** Ending surplus across the worlds, by played year, at this view's scope (loss engine commit 4b). */
 }
 
@@ -123,7 +127,7 @@ function formatMetricValue(kind: MetricKind, value: number): string {
   return kind === 'ratio' ? formatPct(value) : formatCurrency(value);
 }
 
-export default function ResultsPage({ lockedResults, lineView }: ResultsPageProps) {
+export default function ResultsPage({ lockedResults, lineView, roomMarketShare }: ResultsPageProps) {
   const [selectedYear, setSelectedYear] = useState<number>(
     lockedResults.length > 0 ? lockedResults[lockedResults.length - 1].yearNumber : 1
   );
@@ -339,7 +343,15 @@ export default function ResultsPage({ lockedResults, lineView }: ResultsPageProp
               <Row label="Combined Ratio" value={formatPct(result.actualCombinedRatio)} />
               <Row label="Payroll Exposure ($M)" value={formatMillions(result.activeExposure)} />
               <Row label="Total Market Payroll ($M)" value={formatMillions(result.totalMarketExposure)} />
-              <Row label="Exposure-Based Market Share" value={formatPct(result.marketShare)} valueColor="text-sky-600" />
+              {/* ⚠ THE ROOM SHARE IN A HOSTED GAME, NONE IN SINGLE PLAYER — the
+                  top bar's figure and the host's column, for the latest known
+                  year (a dash on another year). The engine's marketShare is
+                  the share of the whole market of potential members, not of
+                  anything a player competes for. */}
+              {roomMarketShare !== undefined && (() => {
+                const v = roomShareFor(roomMarketShare, result.yearNumber, lineView);
+                return <Row label="Market Share (of the room)" value={v === undefined ? '—' : formatPct(v)} valueColor="text-sky-600" />;
+              })()}
             </ResultCard>
 
             <ResultCard title="Premium & Losses" icon={<DollarSign size={16} />}>

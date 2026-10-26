@@ -1,5 +1,5 @@
 import { defaultReinsuranceOption } from './reinsuranceOptions';
-import { NEW_BUSINESS_REJECTION_SLIDER, RENEWALS_DECLINED_SLIDER } from '../data/pricingParameters';
+import { NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER } from '../data/pricingParameters';
 // Single source of truth for default decisions. Used by the App (new game /
 // next year), the Decisions page (per-line reset), and the Stage 2.10 pre-game
 // history simulation — so the "steadily managed before the player took over"
@@ -20,19 +20,11 @@ export function defaultLineDecisionSet(line: CoverageLine, shocks = true): LineD
     // did nothing; its derived table crosses at 52.8%, not 60%, so it now
     // carries the same meaning here as on WC and GL.
     fundingAtExpected: true,
-    // Renew everyone. A pool that declines by default would be making an
-    // underwriting decision nobody took.
-    renewalsDeclined: RENEWALS_DECLINED_SLIDER.default,
-    /**
-     * ⚠ REJECT NOBODY — AND SO, UNLIKE THE INTAKE POSITIONS THIS REPLACES, THE
-     * BOOK GROWS BY DEFAULT. Applicants arrive at NEW_BUSINESS_APPLICATIONS of
-     * the book a year whatever the team decides; the slider only turns a share
-     * of them away. At 0% every applicant joins and carries the full 20%
-     * first-year penalty. The old default wrote nobody, so a player who touched
-     * nothing played a frozen book; on uw-hybrid they play a growing one.
-     * The pre-game is unaffected: it moves nothing (freezeMembership).
-     */
-    newBusinessRejection: NEW_BUSINESS_REJECTION_SLIDER.default,
+    // Renew everyone, add no one. A pool that moves its book by default would
+    // be making an underwriting decision nobody took — so, unlike uw-hybrid's
+    // 0% rejection, the book stands still unless the team moves it.
+    nonRenewal: NON_RENEWAL_SLIDER.default,
+    newMembers: NEW_MEMBERS_SLIDER.default,
     dividendPct: SLIDER_RANGES.dividendPct.default,
     assessmentPct: SLIDER_RANGES.assessmentPct.default,
     riskControlPct: SLIDER_RANGES.riskControlPct.default,

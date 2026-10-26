@@ -9,6 +9,18 @@
 // beside a net value (38-73% apart on WC/GL). This asserts the one identity
 // that justifies storing them: poolPremium is reconstructable from STORED
 // fields alone, to float precision.
+//
+// ⚠ RESTATED FOR THE SHOCKS LANDING (wip/shocks, 2ae5c1a). Reinsurance is the
+// per-occurrence T covers at a fixed price, and on the new engine NOTHING NETS
+// off the claims cost (linePricing.expectedCededPer100For returns 0): buying
+// cover never lowers the pure premium. Section 3 asserted that Property's
+// default placed a layer and so netted on every line-year — the retired design
+// (the default is now None, which places nothing). So the games now BUY THE
+// WIDEST COVER ('$38M xs $2M') on every line — under None "nothing nets" would
+// hold for want of a cover — and 3 asserts expectedCededPer100 is zero on every
+// line-year WITH the cover bought. Its CONTROL switches the dormant netting
+// path on at runtime (AGGREGATE_STOP with STOP_RECOVERY_OFF_CLAIMS_COST) and
+// must see 3 fail. 1 and 2 are unchanged and still hold, on net == gross.
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
@@ -16,11 +28,40 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { AGGREGATE_STOP, NEW_RATE_STACK, RISK_CONTROL_INCENTIVE_RANGE, STOP_RECOVERY_OFF_CLAIMS_COST } from '../../src/data/pricingParameters';
 import { expenseDivisor } from '../../src/utils/linePricing';
+import type { DecisionSet } from '../../src/types/simulation';
 import type { CoverageLine, GameState, LineResultSet } from '../../src/types/simulation';
 
 const GAMES = Number(process.env.GAMES ?? 30);
 const YEARS = 8;
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
+// The cover every game buys (shocks landing), so that a netting would show.
+const COVER = '$38M xs $2M';
+const decide = (y: number, option: string): DecisionSet => {
+  const d = defaultDecisionSet(y);
+  for (const l of LINES) d.byLine[l] = { ...d.byLine[l], reinsuranceOption: option };
+  return d;
+};
+/** Line-years of `games` games x `years` years, all defaults but the cover. */
+function playLineYears(games: number, years: number, option: string, visit: (l: CoverageLine, r: LineResultSet) => void) {
+  for (let g = 0; g < games; g++) {
+    const id = `NFF${g}`;
+    const inst = generateGameInstance(id, 4_400_000 + g * 7331);
+    const setup = { poolName: 'N', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES };
+    const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
+    let gs: GameState = {
+      setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
+      poolState, lockedResults: [], currentDecisions: decide(1, option), priorHistory,
+    };
+    for (let y = 1; y <= years; y++) {
+      const p = processYear(gs, decide(y, option));
+      for (const l of LINES) {
+        const r = (p.result as never as { byLine: Record<string, LineResultSet> }).byLine[l];
+        if (r) visit(l, r);
+      }
+      gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
+    }
+  }
+}
 
 // ⚠ THE VERDICT NAMES WHAT FAILED. IT USED TO COUNT. A bare "N CHECK(S) FAILED"
 // at the end of a long report makes the reader scroll back for the FAIL lines,
@@ -48,25 +89,12 @@ const worstReconstructVsBound: Record<string, number> = { WC: 0, GL: 0, Property
 const worstIdentity: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
 // The control: the same identity with the credit ignored — the rule before ff57131.
 const worstIdentityCredited: Record<string, number> = { WC: 0, GL: 0, Property: 0 };
-let propertyZero = 0, nettedLineYears = 0;
+let nettedLineYears = 0, coverCharged = 0;
 let floorBound = 0;
 let n = 0;
 const cededShare: Record<string, number[]> = { WC: [], GL: [], Property: [] };
 
-for (let g = 0; g < GAMES; g++) {
-  const id = `NFF${g}`;
-  const inst = generateGameInstance(id, 4_400_000 + g * 7331);
-  const setup = { poolName: 'N', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
-  const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
-  let gs: GameState = {
-    setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
-    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
-  };
-  for (let y = 1; y <= YEARS; y++) {
-    const p = processYear(gs, defaultDecisionSet(y));
-    for (const l of LINES) {
-      const r = (p.result as never as { byLine: Record<string, LineResultSet> }).byLine[l];
-      if (!r) continue;
+playLineYears(GAMES, YEARS, COVER, (l, r) => {
       n++;
 
       // 1. THE IDENTITY THE COMMIT EXISTS FOR: poolPremium from stored fields alone.
@@ -106,19 +134,16 @@ for (let g = 0; g < GAMES; g++) {
       worstIdentityCredited[l] = Math.max(worstIdentityCredited[l],
         Math.abs((r.netPurePremiumPer100 + r.expectedCededPer100) - r.purePremiumPer100 * (1 - 0.03)));
 
-      if (l === 'Property' && r.expectedCededPer100 === 0) propertyZero++;
       if (r.expectedCededPer100 !== 0) nettedLineYears++;
+      if (r.reinsuranceCost > 0) coverCharged++;
 
       const floored = r.netPurePremiumPer100 === 0 && r.expectedCededPer100 > 0;
       if (floored) floorBound++;
 
       if (r.purePremiumPer100 > 0) cededShare[l].push(r.expectedCededPer100 / r.purePremiumPer100);
-    }
-    gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
-  }
-}
+});
 
-console.log(`${n} line-years across ${GAMES} games x ${YEARS} years.\n`);
+console.log(`${n} line-years across ${GAMES} games x ${YEARS} years, ${COVER} bought on every line.\n`);
 
 console.log('--- 1. poolPremium RECONSTRUCTED FROM STORED FIELDS ALONE ---');
 console.log(NEW_RATE_STACK.enabled
@@ -151,14 +176,28 @@ for (const l of LINES) {
     `worst |sum - grossPurePremium x 0.97| ${worstIdentityCredited[l].toExponential(2)}`);
 }
 
-console.log('\n--- 3. WHAT NETS: Property by its own layer and aggregate; nothing under the stop ---');
-// ⚠ UNDER THE AGGREGATE STOP NOTHING NETS (STOP_RECOVERY_OFF_CLAIMS_COST off):
-// the claims cost is the experience's alone and the cover's full price is the
-// reinsurance, so expected ceded is ZERO on every line-year rather than nonzero.
-if (AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled) {
-  check(nettedLineYears === 0, 'under the aggregate stop, expectedCededPer100 is zero on every line-year: nothing nets off the claims cost', `${nettedLineYears} counterexample(s)`);
-} else {
-  check(propertyZero === 0, 'expectedCededPer100 is nonzero on every Property line-year (the default: layer placed)', `${propertyZero} counterexample(s)`);
+console.log(`\n--- 3. WHAT NETS: NOTHING — ${COVER} bought on every line (the shocks landing) ---`);
+// ⚠ RESTATED: it asserted Property's default layer netted on every line-year.
+// Since the shocks landing nothing nets on the new engine — the cover's fixed
+// price is the reinsurance, and the T claims it recovers on are out of the
+// experience — so with a cover bought, expected ceded is ZERO on every
+// line-year. The cover is charged on every one (not vacuous).
+const nothingNets = (netted: number, charged: number, of: number) => of > 0 && netted === 0 && charged === of;
+check(nothingNets(nettedLineYears, coverCharged, n),
+  `with ${COVER} bought, expectedCededPer100 is zero on every line-year: nothing nets off the claims cost`,
+  `${nettedLineYears} netted, ${coverCharged} of ${n} charged for the cover`);
+// CONTROL — must FAIL: the engine's dormant netting path switched on at
+// runtime (the aggregate stop, its expected recovery off the claims cost), on
+// a few games; restored after.
+{
+  const was = [AGGREGATE_STOP.enabled, STOP_RECOVERY_OFF_CLAIMS_COST.enabled];
+  let netted = 0, charged = 0, of = 0;
+  AGGREGATE_STOP.enabled = true; STOP_RECOVERY_OFF_CLAIMS_COST.enabled = true;
+  try {
+    playLineYears(3, 4, 'working', (_l, r) => { of++; if (r.expectedCededPer100 !== 0) netted++; if (r.reinsuranceCost > 0) charged++; });
+  } finally { [AGGREGATE_STOP.enabled, STOP_RECOVERY_OFF_CLAIMS_COST.enabled] = was; }
+  check(!nothingNets(netted, charged, of), 'control: the netting path switched on (the stop, its recovery off the claims cost) is caught by 3',
+    `${netted} of ${of} line-years netted`);
 }
 
 console.log('\n--- 4. DOES THE max(0, ...) FLOOR EVER BIND? ---');

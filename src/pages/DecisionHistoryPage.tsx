@@ -4,7 +4,7 @@ import { ScrollText, ArrowUpDown } from 'lucide-react';
 import type { LineResultSet, ResultSet, LineView , CoverageLine} from '../types/simulation';
 import { isPoolRow } from '../utils/lineHelpers';
 import { lineDisplayName } from '../utils/lineDisplay';
-import { declinedShare, rejectionShare } from '../utils/bookUnderwriting';
+import { newMembersShare, nonRenewalShare } from '../utils/bookUnderwriting';
 import { RISK_CONTROL } from '../data/pricingParameters';
 
 interface DecisionHistoryPageProps {
@@ -44,7 +44,7 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
         'Reinsurance Program',
         // Underwriting and risk control, as percentages: the two sliders by their
         // names, and risk control — 0% while it is disabled.
-        'Renewals declined', 'New Business, rejection rate', 'Risk Control',
+        'Non-renewal', 'New members', 'Risk Control',
         ...(showLoanColumn ? ['Loan Repayment Aggressiveness'] : []),
       ];
 
@@ -115,8 +115,8 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
                         <td className="px-4 py-3">{pctDisplay(r.decisions.assessmentPct)}</td>
                         <td className="px-4 py-3">{placementSummary(lineView as CoverageLine, r.decisions)}</td>
                         {/* Read through the engine's own readings of the recorded decisions. */}
-                        <td className="px-4 py-3">{pctDisplay(declinedShare(r.decisions.renewalsDeclined), 0)}</td>
-                        <td className="px-4 py-3">{pctDisplay(rejectionShare(r.decisions.newBusinessRejection), 0)}</td>
+                        <td className="px-4 py-3">{pctDisplay(nonRenewalShare(r.decisions.nonRenewal), 0)}</td>
+                        <td className="px-4 py-3">{pctDisplay(newMembersShare(r.decisions.newMembers), 0)}</td>
                         <td className="px-4 py-3">{pctDisplay(RISK_CONTROL.enabled ? r.decisions.riskControlPct : 0)}</td>
                         {showLoanColumn && (
                           <td className="px-4 py-3">

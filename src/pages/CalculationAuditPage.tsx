@@ -54,6 +54,8 @@ import { ADMIN_OVERRUN_RANGE, AGGREGATE_STOP, DEVELOPMENT_SPEED, FREQUENCY_TREND
 import { placementFor } from '../utils/reinsuranceOptions';
 import { adminRatePer100For, effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
+import type { TeamMarketShareOfYear } from '../session/contract';
+import { roomShareFor } from '../session/marketShares';
 
 interface CalculationAuditPageProps {
   // Pool-level results, UNFILTERED by line view: the page selects its own
@@ -69,6 +71,8 @@ interface CalculationAuditPageProps {
   /** The game's instance and shock timing — the investment check applies the year's Investment Loss. */
   instance?: GameInstance;
   shockTiming?: ShockTiming;
+  /** A hosted team's room share and its year; absent in single player. See GameShell. */
+  roomMarketShare?: TeamMarketShareOfYear | null;
 }
 
 // Three-state check outcome. 'variance' is a DOCUMENTED, bounded modelling
@@ -368,7 +372,7 @@ const CLAIMS_VARIANCE_CAP = 10_000;
 const CLAIMS_VARIANCE_REASON =
   'a prior-year reserve cohort closed and its residual balance was floored to zero in the rollforward rather than absorbed into the development figure';
 
-export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming }: CalculationAuditPageProps) {
+export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming, roomMarketShare }: CalculationAuditPageProps) {
   // Chronological order: earliest pre-game year first, Year 0 (opening) last
   // among prior years, then live Year 1 onward — same convention as the
   // Financial Statements tab, so the audit reaches pre-game history too.
@@ -423,7 +427,7 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
   // buildRevExpRows / buildNetPositionRows pattern below) so a regression
   // script can evaluate every formula without rendering the page.
   const { exposureRows, rateRows, lossRows, reserveRows, ratioRows, capitalRows } =
-    buildSupportingRows(poolResult, lineView);
+    buildSupportingRows(poolResult, lineView, roomMarketShare);
 
   // The two statement-mirroring cards, built from exported pure functions so a
   // regression script can assert their correspondence to the statements.
@@ -1531,6 +1535,8 @@ function formatSliderPct(range: { min: number; max: number; step: number; defaul
 export function buildSupportingRows(
   poolResult: ResultSet,
   lineView: LineView,
+  /** A hosted team's room share (undefined in single player: no market-share row). */
+  roomShare?: TeamMarketShareOfYear | null,
 ): { exposureRows: AuditRow[]; rateRows: AuditRow[]; lossRows: AuditRow[]; reserveRows: AuditRow[]; ratioRows: AuditRow[]; capitalRows: AuditRow[] } {
   const lineKeysHere = Object.keys(poolResult.byLine) as CoverageLine[];
   const result: ResultSet | LineResultSet =
@@ -1695,8 +1701,17 @@ export function buildSupportingRows(
       ? 'No pool CLF exists: each line prices off its OWN static table, and this figure is one line\'s value kept as a placeholder. Select a line tab for the real one.'
       : `FUNDING_CLF_TABLE[${formatPct(lineRow!.selectedFundingConfidenceLevel, 0)}] — see Default Assumptions`;
 
-  const reserveRiskMarginCheck =
-    result.expectedNetUnpaidLoss * (reserveMarginCLFForLine - 1);
+  // ⚠ WITH THE RETAINED CATASTROPHE, as the engine stores it
+  // (simulationEngine: max(0, expectedNetUnpaidLoss x (CLF − 1) + catCapitalNeeded)).
+  // The term arrived with the shocks landing — a game with shocks on and no
+  // cover retains its catastrophe, Property's above all — and this
+  // recalculation was left without it, so the check read Review by exactly the
+  // term ($12,082,474 on a Property opening) while the formula row above
+  // already showed both. audit-formula-check section 6 fails when it is left out.
+  const reserveRiskMarginCheck = Math.max(
+    0,
+    result.expectedNetUnpaidLoss * (reserveMarginCLFForLine - 1) + (result.catCapitalNeeded ?? 0),
+  );
 
   const reserveRiskMarginDifference =
     result.reserveRiskMarginNeeded - reserveRiskMarginCheck;
@@ -1904,47 +1919,29 @@ export function buildSupportingRows(
       value: exposureDisplay(result.totalMarketExposure),
       formula: { kind: 'text', text: 'The full simulated market total — no on-page breakdown by member exists.' },
     },
-    {
-      metric: 'Market Share',
-      value: formatPct(result.marketShare),
-      numericValue: result.marketShare,
-      // ⚠ THE POOL FORMULA WAS THE RETIRED ONE. activeExposure /
-      // totalMarketExposure stopped being how marketShare is computed at pool
-      // scope when that ratio was found to add WC/GL payroll to Property TIV —
-      // a mixed-unit fraction. The engine replaced it with the CHARGE-WEIGHTED
-      // average of each line's own (dimensionless) share; the formula here was
-      // not replaced with it, so the row stated one number and derived another
-      // for a full release, in EVERY arm.
-      //
-      // Shown as the real weighted average rather than gated to n/a: unlike a
-      // pool CLF, this quantity genuinely exists at pool scope — it is exactly
-      // what the engine computes — so declining to explain it would hide a
-      // derivation that is available and correct. The per-line build-up is
-      // beneath it.
-      //
-      // LINE SCOPE IS UNCHANGED: there the exposure ratio IS the definition, one
-      // clean unit, and it reconciles exactly.
-      formula: isPoolView && perLine && perLine.length > 0
-        ? {
-            kind: 'ratio',
-            numerator: curTerm(perLine.reduce((sum, pl) => sum + pl.marketShare * pl.totalMemberCharge, 0), 'charge-weighted share'),
-            denominator: curTerm(perLine.reduce((sum, pl) => sum + pl.totalMemberCharge, 0), 'total member charge'),
-          }
-        : { kind: 'ratio', numerator: expTerm(result.activeExposure, 'enrolled exposure, $M'), denominator: expTerm(result.totalMarketExposure, 'market exposure, $M') },
-      subFormula: isPoolView && perLine && perLine.length > 0
-        ? {
-            label: 'charge-weighted share',
-            value: perLine.reduce((sum, pl) => sum + pl.marketShare * pl.totalMemberCharge, 0),
-            spec: { kind: 'sum', terms: perLine.map(pl => ({
-              product: [pctTerm(pl.marketShare, 'its own share'), curTerm(pl.totalMemberCharge, 'its member charge')],
-              label: pl.line,
-            })) },
-          }
-        : undefined,
-      explain: isPoolView
-        ? 'Each line\'s own share, weighted by what its members actually pay. NOT summed exposure over summed market exposure — that adds payroll to insured value and is not a ratio of anything.'
-        : undefined,
-    },
+    // ⚠ THE ROOM SHARE IN A HOSTED GAME, NONE IN SINGLE PLAYER. The engine's
+    // marketShare is the share of the whole market of potential members, which
+    // is no one's share of anything a player competes for (a hosted team saw
+    // ~30% in a room of eight). A hosted team's share is the room's figure for
+    // it — the top bar's chip and the host's Market share column — held for the
+    // latest known year only; another year reads a dash. The room's totals are
+    // not shown: they would carry other teams' figures.
+    ...(roomShare === undefined ? [] : [{
+      metric: 'Market Share (of the room)',
+      value: (() => {
+        const v = roomShareFor(roomShare, result.yearNumber, lineView);
+        return v === undefined ? '—' : formatPct(v);
+      })(),
+      formula: {
+        kind: 'text' as const,
+        text: (isPoolView
+          ? 'This team\'s premium over the total premium of every team in the room'
+          : 'This team\'s exposure on the line over the total exposure on it of every team in the room')
+          + (roomShare ? `, for ${roomShare.year <= 0 ? 'the opening books (every team alike)' : `year ${roomShare.year}`}` : '')
+          + ' — worked out where the room is kept, so it is the top bar\'s and the host\'s figure. '
+          + 'Shown for the latest known year only; the room\'s totals are not shown, since they carry other teams\' figures.',
+      },
+    }]),
   ];
 
   // ⚠ EMPTY AT POOL SCOPE. Every row below reads a per-line quantity — a

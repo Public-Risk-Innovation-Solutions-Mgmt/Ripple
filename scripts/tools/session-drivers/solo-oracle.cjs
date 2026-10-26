@@ -33,7 +33,7 @@ const normalise = s => s.replace(/\s+/g, ' ').trim();
   await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
   if (await page.locator('[data-testid="scenario"]').count() > 0) await page.locator('[data-testid="scenario"]').selectOption('7');
   else await page.locator('input[placeholder="e.g. ABC12345"]').fill('MAMC6EA4');
-  await page.getByRole('button', { name: /Start/i }).last().click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 30000 });
 
   const fingerprints = {};

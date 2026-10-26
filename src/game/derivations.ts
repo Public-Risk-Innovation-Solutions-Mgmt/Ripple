@@ -36,9 +36,8 @@ import { pricingExperienceBasis } from '../utils/pricingTriangle';
 import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEngine';
 import { bookExposureOf, bookRiskOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
-import { lineBookRisk, marketSeedOf } from '../utils/bookUnits';
-import { moveBook, moveBookUnits } from '../utils/bookUnderwriting';
-import { MEMBER_LEVEL, newLossEngineRuns, RISK_CONTROL } from '../data/pricingParameters';
+import { moveBook } from '../utils/bookUnderwriting';
+import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
 import type { LinePoolState } from '../types/simulation';
 
 /** A line's exposure this year — its book, or its active roster. */
@@ -63,10 +62,8 @@ import type { NewPurePremiumResult } from '../utils/newPurePremium';
  */
 export function pricingBookFor(gameState: GameState, line: CoverageLine): Book {
   const lineState = gameState.poolState.lines[line];
-  // With the book's own risk, which its tower's price carries (book units commit 5).
-  const risk = lineBookRisk(gameState.instance, line, gameState.poolState.bookUnits, gameState.poolState.bookLedger);
   return lineState.bookExposure !== undefined
-    ? { exposure: lineBookExposure(lineState, line, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}),
+    ? { exposure: lineBookExposure(lineState, line, gameState.currentYearNumber),
       // The shock cost base (wip/shocks), so the cover's price grows with the book as the engine's does.
       ...(lineState.shockCostBaseExposure !== undefined ? { shockBase: lineState.shockCostBaseExposure } : {}) }
     : lineState.members.filter(m => m.status === 'active');
@@ -130,8 +127,7 @@ export function fundingConsequenceInput(
 // ⚠ ONE FUNCTION EACH, CALLED BY THE PAGE AND BY decision-figures-check, and
 // every one is the engine's own pricing or movement function applied to the
 // engine's own inputs — none is a second sum. Underwriting calls the same
-// movement function processLineYear calls (moveBookUnits, or moveBook on a
-// book with no units) and multiplies by the rate the panel already quotes;
+// movement function processLineYear calls (moveBook) and multiplies by the rate the panel already quotes;
 // the risk control cost reads quoteNewRateStack's own riskControlPer100.
 // DISPLAY ONLY: nothing here is read by the engine.
 // ============================================================================
@@ -139,7 +135,7 @@ export function fundingConsequenceInput(
 export interface UnderwritingFigures {
   /** Premium on the book the renewal slider turns away, at this year's rate. Dollars. */
   nonRenewedPremium: number;
-  /** Premium on the new business the rejection slider lets in, at this year's rate. Dollars. */
+  /** Premium on the new members' exposure the New members slider adds, at this year's rate. Dollars. */
   newBusinessPremium: number;
 }
 
@@ -154,12 +150,8 @@ export function underwritingFigures(
   gameState: GameState, line: CoverageLine, d: LineDecisionSet, ratePer100: number,
 ): UnderwritingFigures | null {
   if (MEMBER_LEVEL.enabled) return null;
-  const { poolState, instance, currentYearNumber } = gameState;
-  const units = newLossEngineRuns() ? poolState.bookUnits?.[line] : undefined;
-  // The engine's own choice (processLineYear): units where the state has them.
-  const move = units
-    ? moveBookUnits(line, marketSeedOf(instance), units, poolState.bookLedger?.[line], d, false, false, currentYearNumber)
-    : moveBook(line, poolState.lines[line].bookExposure ?? 0, d, false, false);
+  const { poolState, currentYearNumber } = gameState;
+  const move = moveBook(line, poolState.lines[line].bookExposure ?? 0, d, false, false, currentYearNumber);
   const dollarsPerUnit = exposureFactor(line, currentYearNumber) * 10_000 * ratePer100;
   return { nonRenewedPremium: move.renewedOff * dollarsPerUnit, newBusinessPremium: move.written * dollarsPerUnit };
 }
@@ -412,10 +404,8 @@ export function useGameDerivations(
   const decisionLineBook: Book = React.useMemo(() => {
     if (!gameState) return [];
     const lineState = gameState.poolState.lines[decisionLine];
-    // With the book's own risk, which its tower's price carries (book units commit 5).
-    const risk = lineBookRisk(gameState.instance, decisionLine, gameState.poolState.bookUnits, gameState.poolState.bookLedger);
     return lineState.bookExposure !== undefined
-      ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber), ...(risk !== undefined ? { risk } : {}),
+      ? { exposure: lineBookExposure(lineState, decisionLine, gameState.currentYearNumber),
         ...(lineState.shockCostBaseExposure !== undefined ? { shockBase: lineState.shockCostBaseExposure } : {}) }
       : decisionLineActiveMembers;
   }, [gameState, decisionLine, decisionLineActiveMembers]);

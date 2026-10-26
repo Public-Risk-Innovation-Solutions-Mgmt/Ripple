@@ -6,8 +6,15 @@
 // With ROUTINE_LARGE_LOSSES off and FLAT_PRE_GAME off:
 //
 //   1. COST-NEUTRAL: every line-year's expected loss equals what it was with
-//      routine large claims ON and no fold — ordinary x (1 + uplift) + shock
-//      large + routine — to float precision, years -10 to 15. ON THE LINES
+//      routine large claims ON and no fold, to float precision, years -10 to
+//      15. ⚠ RESTATED FOR THE SHOCKS LANDING (2ae5c1a; ROUTINE_FOLD_NET_OF_UPLIFT
+//      off): the fold is the routine claims' cost, NOT divided by (1 + the
+//      expected uplift), and the shocks land wholly on top of it. So: with the
+//      game's shocks off, the folded expectation is today's (ordinary +
+//      routine) exactly, whatever the shock catalogue; with them on, it is
+//      (today's ordinary + routine) x (1 + uplift) + today's shock large. (It
+//      was: the folded total with shocks on equals today's total, the fold
+//      giving the uplift back.) ON THE LINES
 //      STILL ON THEIR DERIVED COST (Property): since commit 2, WC and GL are
 //      priced on the pool's layered loss costs, and pool-loss-cost-check holds
 //      them.
@@ -22,13 +29,14 @@
 //      stream; and no shock fires. (It was flat — the multiple exactly, and
 //      PRE_GAME_INVESTMENT_RETURN.)
 //
-// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold without the uplift
-// divisor, T scaled off the folded cost, a routine claim slipped in, a flat
+// ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold divided by the uplift
+// (the retired design), a fold that moves with the shock catalogue in a
+// shocks-off game, T scaled off the folded cost, a routine claim slipped in, a flat
 // pre-game, a pre-game drawn on the played years' streams, and a pre-game on
 // one market draw.
 // ============================================================================
 
-import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, PRE_GAME_MARKET_DRAWS, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, ROUTINE_FOLD_NET_OF_UPLIFT, PRE_GAME_MARKET_DRAWS, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
 import { blendInvestmentReturn, simulateMarketReturns, type MarketReturns } from '../../src/utils/investmentEngine';
 import { deriveSubRng } from '../../src/utils/random';
@@ -41,10 +49,10 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
 import type { CoverageLine, GameSetupSettings, GameState, LineResultSet, ResultSet } from '../../src/types/simulation';
 import { SOLO_SHOCKS } from '../../src/data/pricingParameters';
-// ⚠ SHOCKS ARE OFF IN SINGLE-PLAYER (SOLO_SHOCKS, pending the data scientist),
-// and this gate tests how fired shocks are handled — which hosted games still
-// do — through solo games. Their schedule is switched on here so it has
-// shocks to test, rather than passing on none.
+// ⚠ SHOCKS WERE OFF IN SINGLE-PLAYER (SOLO_SHOCKS), and this gate tests how
+// fired shocks are handled through solo games, so it switched them on. Since
+// the shocks landing SOLO_SHOCKS ships on (the catalogue draw); this stays as
+// a guard should it be switched off again.
 SOLO_SHOCKS.enabled = true;
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -66,19 +74,20 @@ if (ROUTINE_LARGE_LOSSES.enabled || FLAT_PRE_GAME.enabled) {
 
 // "Today": routine claims ON and no fold — read with the switch flipped, which
 // zeroes the fold (routineFoldPer100) and restores the routine claims.
-interface Today { total: number; shockLarge: number }
+interface Today { total: number; ordinary: number; routine: number; shockLarge: number; offTotal: number }
 const today = new Map<string, Today>();
 ROUTINE_LARGE_LOSSES.enabled = true;
 for (const l of FOLDED) for (const y of YEARS) {
   const b = expectedLossBreakdown(l, E, y);
-  today.set(`${l}|${y}`, { total: b.total, shockLarge: b.shockLarge });
+  const off = expectedLossBreakdown(l, E, y, true, 1, false);
+  today.set(`${l}|${y}`, { total: b.total, ordinary: b.ordinary, routine: b.routineLarge, shockLarge: b.shockLarge, offTotal: off.total });
 }
 ROUTINE_LARGE_LOSSES.enabled = false;
 
 // ---------------------------------------------------------------- 1 & 2
 type Fold = (l: CoverageLine, y: number) => number;
 function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
-  let worstTotal = 0, worstT = 0;
+  let worstTotal = 0, worstOff = 0, worstT = 0;
   for (const l of FOLDED) for (const y of YEARS) {
     const b = expectedLossBreakdown(l, E, y);
     // Rebuilt from its parts with the fold under test, so a wrong fold shows.
@@ -89,10 +98,17 @@ function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
       : b.shockLarge;
     const total = ordinary * (1 + u) + shockLarge;
     const t = today.get(`${l}|${y}`)!;
-    worstTotal = Math.max(worstTotal, rel(total, t.total));
+    // Shocks on: the routine claims' cost, folded, takes the uplift with the
+    // ordinary losses (it is normal loss now), and the shocks land on top.
+    worstTotal = Math.max(worstTotal, rel(total, (t.ordinary + t.routine) * (1 + u) + t.shockLarge));
+    // Shocks off (the shocks landing): the folded normal losses are today's
+    // shocks-off expectation exactly — nothing in them moves with the catalogue.
+    worstOff = Math.max(worstOff, rel(ordinary, t.offTotal));
     worstT = Math.max(worstT, rel(shockLarge, t.shockLarge));
   }
-  check(worstTotal < 1e-12, `${tag}1. every line-year's expected loss is today's, years -10 to 15 (${FOLDED.join(', ')})`, `worst relative ${worstTotal.toExponential(2)}`);
+  check(worstTotal < 1e-12 && worstOff < 1e-12,
+    `${tag}1. every line-year's expected loss is today's, the fold the routine claims' cost with the shocks on top, years -10 to 15 (${FOLDED.join(', ')})`,
+    `worst relative ${worstTotal.toExponential(2)} shocks on, ${worstOff.toExponential(2)} shocks off`);
   check(worstT < 1e-12, `${tag}2. the shocks' large losses do not grow with the fold`, `worst relative ${worstT.toExponential(2)}`);
 }
 
@@ -157,7 +173,13 @@ const controlFails = (name: string, run: () => void, expect: string) => {
   const caught = failures.splice(before).filter(f => f.startsWith(expect));
   check(caught.length > 0, `control: ${name} is caught by ${expect}`);
 };
-controlFails('a fold without the uplift divisor', () => gradeExpected((l, y) => routineFoldPer100(l, y) * (1 + upliftMoments(l, y).mean), false, ''), '1.');
+// The retired design (ROUTINE_FOLD_NET_OF_UPLIFT on): the fold divided by (1 + the uplift).
+controlFails('a fold divided by the uplift (the retired design)', () => gradeExpected((l, y) => routineFoldPer100(l, y) / (1 + upliftMoments(l, y).mean), false, ''), '1.');
+// And through the engine: the switch flipped on at runtime, the shipped fold read again.
+controlFails('the engine\'s fold with ROUTINE_FOLD_NET_OF_UPLIFT switched on', () => {
+  ROUTINE_FOLD_NET_OF_UPLIFT.enabled = true;
+  try { gradeExpected(routineFoldPer100, false, ''); } finally { ROUTINE_FOLD_NET_OF_UPLIFT.enabled = false; }
+}, '1.');
 controlFails('T scaled off the folded cost', () => gradeExpected(shipped, true, ''), '2.');
 controlFails('a routine claim slipped in', () => gradeGames(r => [...claimsOf(r), { shock: false }], drawOf, marketOf, ''), '3.');
 controlFails('a flat pre-game (no draw)', () => gradeGames(claimsOf, () => 1, marketOf, ''), '4.');

@@ -48,6 +48,7 @@
 
 // THE MEMBER PATH — first, before anything reads a switch. It tests code the member
 // path keeps: see engine-mode/member-level.ts.
+import { NEW_MEMBERS_SLIDER } from '../../src/data/pricingParameters';
 import '../tools/engine-mode/member-level';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
@@ -112,9 +113,9 @@ function decisionsFor(y: number) {
   const d = defaultDecisionSet(y);
   if (APPETITE_OPEN) {
     for (const l of Object.keys(d.byLine) as Array<keyof typeof d.byLine>) {
-      // uw-hybrid: the intake positions are retired; new business arrives at
-      // NEW_BUSINESS_APPLICATIONS and the default rejects nobody.
-      d.byLine[l].newBusinessRejection = 0;
+      // Simple underwriting: the book grows only when the team adds members —
+      // the open arm adds the most the slider allows.
+      d.byLine[l].newMembers = NEW_MEMBERS_SLIDER.max;
     }
   }
   return d;

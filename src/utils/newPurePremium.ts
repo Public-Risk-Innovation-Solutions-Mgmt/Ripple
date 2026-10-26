@@ -400,7 +400,7 @@ export function newPurePremiumFromLossCost(
  * two cannot price a book differently.
  *
  * ⚠ THE EXPECTATION IS THE BOOK'S OWN, AT ITS TRUE RISK (`bookRisk`, its
- * size-weighted mean — bookOrdinaryRisk / lineBookRisk), like every other
+ * size-weighted mean when books had units; 1 since simple underwriting), like every other
  * expected loss the engine reads. It first carried none, so the market's 1.0:
  * harmless while bulk years gave the ledger a history from the start, but
  * since the pool's history begins in 2021 this is what prices 2021, and 2022
