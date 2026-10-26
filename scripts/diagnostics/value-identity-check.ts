@@ -1392,7 +1392,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // records per firing, the stop's samples grown, eleven gates restated) each
 // reproduce the control bit for bit — no baselined game repeats an event in
 // force, cedes Property cat or prices the dormant stop.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v84.json');
+// v85: THE ADVERSE-DEVELOPMENT BRANCH (wip/adverse-development, not landed),
+// on multiplayer ee1ea6c. The control is ee1ea6c's own baseline, v84, which
+// that commit reproduces here. Against it 20,137 of 39,600 values move across
+// 74 fields on all 300 instances; none added or removed. With BOTH switches
+// turned back in process — reserve inflation restored at the severity trend,
+// adverse development off — the branch reproduces v84 exactly (VALUE IDENTITY
+// HOLDS), so those two are the only movers:
+//   reserve inflation off (unbooked and unpriced), alone: 20,155 across 74 —
+//     every rate (the priced inflation gone), reserves, development, IBNR;
+//   adverse development (Mid on every line, the harness's default level; none
+//     in the pre-game, so the host's lifetime percentages leave the openings),
+//     alone: 17,288 across 74.
+// The paid true-up widened to adverse development (7127acc) moves none: the
+// shipped game has FORWARD_BOOKING on.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v85.json');
 
 function seedOf(id: string) {
   let h = 5381;

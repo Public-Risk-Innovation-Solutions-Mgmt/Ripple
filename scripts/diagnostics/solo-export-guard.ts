@@ -861,7 +861,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // is multiplayer 19b6f17, captured here: all 24 differ from v91, the landing's
 // own movement. No file added or removed. 3fdae5e and a4a841b (the owed-checks
 // fixes and restatements) each reproduce the control 24 of 24.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v92.json');
+// v93: THE ADVERSE-DEVELOPMENT BRANCH (see VALUE_IDENTITY_v85), on multiplayer
+// ee1ea6c, whose v92 it reproduces with reserve inflation restored and adverse
+// development off, 24 of 24. As shipped all 24 move; each switch alone moves
+// all 24. No file added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v93.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
