@@ -372,7 +372,8 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   const after = onLine.yearNumber + 1 + PRICING_DATA_LAG_YEARS;
   const withoutOnLine = generateGameInstance(ID, seedFromInstanceId(ID), schedule.filter(s => s !== onLine));
   {
-    const shipped = playTo(open(solo.setup, solo.instance), 1, after);
+    // A is this very game, shipped, already played to the last year.
+    const shipped = A;
     const shippedWithout = playTo(open(solo.setup, withoutOnLine), 1, after);
     check(pricingOf(shippedWithout, after) === pricingOf(shipped, after),
       `5. and in year ${after}, after ${onLine.shockId} (year ${onLine.yearNumber}) has landed: the same rate and reinsurance, shipped`);
