@@ -1325,7 +1325,21 @@ const BASELINE = process.env.RENDER_BASELINE
 // enrolled-over-market-exposure formula, on all 13 of each at y0 and y2. A
 // hosted game would show the room share there, but both tabs are hidden in
 // multiplayer and the render harness plays single player.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v88.json');
+// v89: THE ADVERSE-DEVELOPMENT BRANCH (wip/adverse-development, not landed),
+// on multiplayer ee1ea6c. ⚠ THE CONTROL DID NOT REPRODUCE v88 IN THIS
+// CONTAINER, and it is the environment, as at this branch's first capture:
+// ee1ea6c against its own v88 moves 17 of 236, all Calculation Audit (11) and
+// Result Spreadsheet (6), this container's Chromium in the last places. So the
+// reference is the control's own capture here. Against it, word-diffed
+// (RENDER_TEXT_DIR both sides), 206 of 236 move, every one a values screen
+// (the 30 unmoved are the Introduction's documents and the unplayed views):
+// 133 in figures only; 73 with wording, every sentence following the figures
+// — the "adverse" label on prior-year development now $0 (nothing develops in
+// the pre-game), the Results narrative's adverse/loss sentences, the
+// Calculation Audit's numerator-identity line where the gap closes, and the
+// inter-line loan repayment control where a world now carries a loan. No fixed
+// wording moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v89.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
