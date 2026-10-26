@@ -903,9 +903,11 @@ async function main(): Promise<void> {
   // Stored once a year, in the submit that brings in the last result from the
   // teams that locked in that year; a team that did not lock in a year is
   // stopped and counts on its last reported figures. SHOWN FOR THE LATEST KNOWN
-  // YEAR, one year behind like every other result: with the room deciding
-  // year N, year N - 2's set (the opening posts before that year exists); the
-  // last year's once the game is over. Host sees every team's
+  // YEAR like every other result — the year just completed: with the room
+  // deciding year N, year N - 1's set (the opening posts before the first
+  // advance), as soon as it completes; the last year's once the game is over.
+  // (It was one year behind, N - 2, until results stopped running a year
+  // behind.) Host sees every team's
   // (RoomView.marketShares); a player its own (CallerView.marketShare) and
   // nothing of another team's.
   {
@@ -945,18 +947,21 @@ async function main(): Promise<void> {
       near(m?.byTeam[name]?.pool, 1 / 3, `opening: ${name} holds a third of the room's premium`);
     }
 
-    // Year 1: all three lock; the advance; all three post. Year 1 is complete
-    // but not yet KNOWN — the room is deciding year 2, so year 0 is the latest.
+    // Year 1: all three lock; the advance; all three post. Year 1 is the year
+    // just completed — known — so its set shows the moment the last locked team posts.
     await lockAll(1, [a, b, c]);
     await step(t, code, hostToken);
-    for (const [p, x] of [[a, 120], [b, 90], [c, 90]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 1, result: post(1, x) });
-    eq((await shares())?.year, 0, 'year 1 completed in the room deciding year 2: still the opening set — one year behind');
+    await t.submit({ code, token: a.teamToken, yearNumber: 1, result: post(1, 120) });
+    await t.submit({ code, token: b.teamToken, yearNumber: 1, result: post(1, 90) });
+    eq((await shares())?.year, 0, 'two of three locked teams posted year 1: still the opening set — the third is waited for');
+    await t.submit({ code, token: c.teamToken, yearNumber: 1, result: post(1, 90) });
+    eq((await shares())?.year, 1, 'year 1 completed in the room deciding year 2: its set shows at once — the year just completed is known');
 
-    // Year 2: A and B lock; C does not — it has stopped. The advance makes year 1 known.
+    // Year 2: A and B lock; C does not — it has stopped. The advance alone changes nothing.
     await lockAll(2, [a, b]);
     await step(t, code, hostToken);
     m = await shares();
-    eq(m?.year, 1, 'the advance into year 3 makes year 1 the latest known year');
+    eq(m?.year, 1, 'the advance into year 3 alone changes nothing: year 2 has no results yet');
     near(m?.byTeam[TEAMS[0]]?.byLine.WC, 120 / 300, 'year 1: own WC exposure / the room\'s');
     near(m?.byTeam[TEAMS[0]]?.byLine.GL, 240 / 600, 'year 1: own GL exposure / the room\'s');
     near(m?.byTeam[TEAMS[1]]?.pool, 9 / 30, 'year 1: own premium / the room\'s');
@@ -997,7 +1002,7 @@ async function main(): Promise<void> {
     // Year 3's results, then the last advance: the game is over and the last year shows.
     await t.submit({ code, token: a.teamToken, yearNumber: 3, result: post(3, 160) });
     await t.submit({ code, token: b.teamToken, yearNumber: 3, result: post(3, 110) });
-    eq((await shares())?.year, 2, 'year 3 complete in the room deciding year 4: year 2 still the latest known');
+    eq((await shares())?.year, 3, 'year 3 complete in the room deciding year 4: its set shows at once');
     await lockAll(4, [a, b]);
     await step(t, code, hostToken);
     m = await shares();
