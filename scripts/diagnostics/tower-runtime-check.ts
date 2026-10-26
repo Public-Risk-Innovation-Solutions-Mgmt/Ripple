@@ -67,7 +67,7 @@
 // ============================================================================
 
 import { REINSURANCE_TOWER, TOWER_TOP, type TowerLine } from '../../src/data/reinsuranceTower';
-import { MEMBER_LEVEL, POOL_LIMIT_PER_OCCURRENCE, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { MEMBER_LEVEL, NEW_MEMBERS_SLIDER, POOL_LIMIT_PER_OCCURRENCE, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
 import { layerRiskMoments, resetTowerMomentCache } from '../../src/utils/towerMoments';
 import { newEngineLayerMoments } from '../../src/utils/shockExpectation';
 import { occurrenceProgramCost, occurrenceTotals } from '../../src/utils/reinsuranceTower';
@@ -86,14 +86,21 @@ const check = (ok: boolean, label: string, detail = '') => {
 };
 const seedOf = (id: string) => { let h = 5381; for (let i = 0; i < id.length; i++) { h = ((h << 5) + h) ^ id.charCodeAt(i); h = h >>> 0; } return h; };
 
-function play(id: string, years: number): { rows: ResultSet[]; gs: GameState } {
+// `grow`: every line adds NEW_MEMBERS_SLIDER.max of new members a year (simple
+// underwriting's defaults add none).
+const decide = (y: number, grow: boolean) => {
+  const d = defaultDecisionSet(y);
+  if (grow) for (const l of LINES as CoverageLine[]) d.byLine[l].newMembers = NEW_MEMBERS_SLIDER.max;
+  return d;
+};
+function play(id: string, years: number, grow = false): { rows: ResultSet[]; gs: GameState } {
   const instance = generateGameInstance(id, seedOf(id));
   const setup = { poolName: 'R', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES as CoverageLine[] };
   const { poolState, priorHistory } = runPriorHistory(instance, setup as never);
-  let gs: GameState = { setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory };
+  let gs: GameState = { setup: setup as never, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: decide(1, grow), priorHistory };
   const start = gs;
   for (let y = 1; y <= years; y++) {
-    const p = processYear(gs, defaultDecisionSet(y));
+    const p = processYear(gs, decide(y, grow));
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
   }
   return { rows: gs.lockedResults, gs: start };
@@ -225,7 +232,13 @@ let routineLayers = 0;
 }
 
 console.log('\n--- 4. THE ABOVE-TOWER BAND, IN LIVE GAMES ---');
-const live = ['TWR0', 'TWR1', 'TWR2', 'TWR3', 'TWR4', 'TWR5', 'TWR6', 'TWR7'].flatMap(id => play(id, 10).rows);
+// ⚠ ON GROWING BOOKS (simple underwriting): a T claim grows with the book
+// (shockCost), and the old defaults grew it 5% a year, which is what carried
+// some claims past the $40M top. At today's defaults the book stands still and
+// these 80 years reached nothing above it ($0.00M on every line), so the
+// not-vacuous check below failed; the games add 5% new members a year — the
+// old default's growth — so the band this section checks is reached again.
+const live = ['TWR0', 'TWR1', 'TWR2', 'TWR3', 'TWR4', 'TWR5', 'TWR6', 'TWR7'].flatMap(id => play(id, 10, true).rows);
 {
   for (const line of LINES) {
     const rows = live.map(r => r.byLine[line]);
