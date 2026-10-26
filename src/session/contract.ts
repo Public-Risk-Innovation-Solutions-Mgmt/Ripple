@@ -275,11 +275,15 @@ export interface TeamYearFigures {
    *   ratePer100         a LINE's rate charged this year, per $100 of exposure;
    *                      absent on the pool, whose lines have different units
    *   rateChange         that rate against the year before's, as a fraction
+   *   adminExpenseRatio  this year's booked admin expense (general and risk
+   *                      control) over its premium, the member charge — the
+   *                      statement's "% of Premium" row under the admin rows
    */
   combinedRatio?: number;
   premiumToSurplus?: number;
   ratePer100?: number;
   rateChange?: number;
+  adminExpenseRatio?: number;
 }
 
 /**
