@@ -112,6 +112,9 @@ const adminTokenIn = page => page.evaluate(() => localStorage.getItem('ripple.ad
     ok(await page.locator('[data-testid="create-room"]').count() === 0, 'Test player: no Create room button');
     ok(await page.locator('[data-testid="seed"]').inputValue() === SCENARIO, 'Test player: opens on the start screen\'s scenario');
     ok(await page.locator('[data-testid^="prior-dev-pct-"]').count() === 3, 'Test player: the host\'s prior development, per line');
+    const note = await page.locator('[data-testid="prior-dev-note"]').innerText().catch(() => '');
+    ok(/develops adversely over their remaining life/.test(note) && !/not yet used/.test(note),
+      'Test player: the prior-development note says what it does', note);
 
     await page.fill('[data-testid="prior-dev-pct-WC"]', '7');
     await page.selectOption('[data-testid="prior-dev-dir-WC"]', 'favourable');

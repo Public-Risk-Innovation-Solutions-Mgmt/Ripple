@@ -366,12 +366,12 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 );
               })}
             </div>
-            {/* ⚠ SAID PLAINLY, BECAUSE A NUMBER THAT DOES NOTHING IS WORSE THAN NO
-                NUMBER. The engine does not read these yet; they are carried on the
-                room so a later update can apply them without re-creating rooms. */}
-            <p className="mt-2 text-xs text-slate-400">
-              Prior development is <span className="font-medium">stored for a future update, not yet used</span> —
-              it does not change the game today.
+            {/* ⚠ SAID PLAINLY, AND IT IS USED: the engine reads each line's
+                percentage (setup.priorDevelopment) as a lifetime total on the open
+                older years' reserves, emerging as they pay — utils/hostDevelopment. */}
+            <p data-testid="prior-dev-note" className="mt-2 text-xs text-slate-400">
+              Prior development is the share of open older years&rsquo; reserves that develops adversely over their
+              remaining life (favourable develops them down).
             </p>
             {lines.length === 0 && (
               <p data-testid="no-lines" className="mt-1.5 text-xs text-amber-700">
