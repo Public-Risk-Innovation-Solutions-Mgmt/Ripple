@@ -1,11 +1,12 @@
 // ============================================================================
-// THE NEW LOSS ENGINE'S ORDINARY LOSSES — the sum of the book's units.
+// THE NEW LOSS ENGINE'S ORDINARY LOSSES — the sum of the book's 100 members.
 //
-// ⚠ FROM BOOK UNITS SINCE BOOK UNITS COMMIT 3 (ordinaryLossFromUnits). Each
-// unit's expected loss is its exposure x its true risk x the line's cost, and
-// each year it is that x the year factor every unit shares x its own factor,
-// both mean-1 lognormals (the line's BASELINE_CV, UNIT_ORDINARY_OWN_CV). The
-// line's ordinary loss is the sum. The header below describes the one-draw
+// ⚠ FROM 100 EQUAL MEMBERS SINCE SIMPLE UNDERWRITING (ordinaryLossFromMembers).
+// Each member's expected loss is its 1/100 share of the line's, and each year
+// it is that x the year factor every member shares x its own luck, both mean-1
+// lognormals (the line's BASELINE_CV, MEMBER_LUCK_CV). The line's ordinary
+// loss is the sum. (Book units — unequal sizes and risks — came before.)
+// The header below describes the one-draw
 // form it replaced, which ordinaryLossYear still draws for the member path.
 //
 // Part of the new loss engine, which runs whenever MEMBER_LEVEL is off. See pricingParameters.ts for the parameters and
@@ -33,15 +34,14 @@
 // ============================================================================
 
 import {
-  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, FLAT_PRE_GAME, preGameLossMultiplier, SEVERITY_TREND_PER_YEAR, SHOCK_T_BASIS_PER_100, UNIT_MARKET_COUNT,
-  UNIT_ORDINARY_OWN_CV, UNIT_POOL_SHARE, UNIT_RISK_CV, UNIT_SIZE_CV,
+  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, FLAT_PRE_GAME, MEMBER_LUCK_CV, MEMBER_RISK_CV, preGameLossMultiplier, SEVERITY_TREND_PER_YEAR,
+  SHOCK_T_BASIS_PER_100, UNDERWRITING_MEMBERS,
 } from '../data/pricingParameters';
 // ⚠ A CALL-TIME CYCLE, AND SAFE AS ONE: shockExpectation imports this module,
 // and the routine fold it computes is read here only inside functions, never
 // while either module is loading.
 import { routineFoldPer100 } from './shockExpectation';
 import { upFrontTrendFactor } from '../data/paidDevelopmentPatterns';
-import type { BookUnit } from './bookUnits';
 import { deriveSubRng, type SeededRandom } from './random';
 import { bookExposureOf, getMemberExposure, type Book } from './lineHelpers';
 import { primaryShare } from './memberExperienceMod';
@@ -138,39 +138,21 @@ export interface OrdinaryLossYear {
   expected: number;
   realised: number;
   factor: number;
-  /** The year factor every unit shares — the line's draw before each unit's own. Absent on the one-draw member path. */
+  /** The year factor every member shares — the line's draw before each member's luck. Absent on the one-draw member path. */
   yearFactor?: number;
 }
 
 /**
- * THE LINE-LEVEL CV OF A TYPICAL BOOK'S ORDINARY LOSSES — sqrt((1+Y^2)(1+U^2 H) − 1),
- * Y the line's year CV
- * with H, the sum of the units' squared shares of expected loss, at its
- * expectation for a book of UNIT_POOL_SHARE x UNIT_MARKET_COUNT units of the
- * market's size and risk spread: (1 + size CV^2)(1 + risk CV^2) / n. About
- * 6.2% (WC), 8.1% (Property), 10.1% (GL); 2.47% on every line while the year
- * CV was 2%. For readers with no book in hand — the member path's records and
- * the aggregate's retained SD. A book's own is bookOrdinaryCv.
+ * THE LINE-LEVEL CV OF THE BOOK'S ORDINARY LOSSES —
+ * sqrt((1+Y^2)(1 + ((1+U^2)(1+R^2) − 1)/n) − 1), Y the line's year CV, U the
+ * members' luck CV, R their yearly risk score's CV, n UNDERWRITING_MEMBERS
+ * equal members: 6.8% (WC), 8.6% (Property), 10.5% (GL); 6.1% / 8.0% / 10.0%
+ * before member risk. Exact for the product of independent mean-1 factors.
+ * Read by the member path's records and the aggregate's retained SD.
  */
 export function typicalBookOrdinaryCv(line: CoverageLine): number {
-  const h = (1 + UNIT_SIZE_CV ** 2) * (1 + UNIT_RISK_CV ** 2) / (UNIT_POOL_SHARE * UNIT_MARKET_COUNT);
-  return Math.sqrt((1 + ordinaryYearCv(line) ** 2) * (1 + UNIT_ORDINARY_OWN_CV ** 2 * h) - 1);
-}
-
-/** A book's own line-level ordinary CV, from its units' shares of expected loss (exact for the two lognormals' product to first order). */
-export function bookOrdinaryCv(units: readonly Pick<BookUnit, 'size' | 'risk'>[], line: CoverageLine): number {
-  const e = units.map(u => u.size * u.risk);
-  const total = e.reduce((a, b) => a + b, 0);
-  const h = total > 0 ? e.reduce((a, x) => a + (x / total) ** 2, 0) : 0;
-  // Var(F x sum w f) / mean^2 for independent mean-1 factors, exactly.
-  const y2 = ordinaryYearCv(line) ** 2, u2 = UNIT_ORDINARY_OWN_CV ** 2;
-  return Math.sqrt((1 + y2) * (1 + u2 * h) - 1);
-}
-
-/** The book's size-weighted mean true risk: what its expected ordinary loss carries over the line's cost. */
-export function bookOrdinaryRisk(units: readonly Pick<BookUnit, 'size' | 'risk'>[]): number {
-  const size = units.reduce((a, u) => a + u.size, 0);
-  return size > 0 ? units.reduce((a, u) => a + u.size * u.risk, 0) / size : 1;
+  const member = (1 + MEMBER_LUCK_CV ** 2) * (1 + MEMBER_RISK_CV ** 2) - 1;
+  return Math.sqrt((1 + ordinaryYearCv(line) ** 2) * (1 + member / UNDERWRITING_MEMBERS) - 1);
 }
 
 /** Draw a line's ordinary loss for one accident year on a given book — one draw at the line (the member path). */
@@ -188,56 +170,65 @@ export function ordinaryLossYear(
   return { exposure, expected, realised: expected * factor, factor };
 }
 
-/** The year's own factor for every unit of the market, in index order, from its own stream. */
-export const unitOrdinaryRng = (seed: number, yearNumber: number, line: CoverageLine): SeededRandom =>
-  deriveSubRng(seed, yearNumber, streamLabel(yearNumber, `ordinary_unit_${line}`));
+/** The stream every member's luck is drawn from, in member order. */
+export const memberLuckRng = (seed: number, yearNumber: number, line: CoverageLine): SeededRandom =>
+  deriveSubRng(seed, yearNumber, streamLabel(yearNumber, `ordinary_member_${line}`));
 
-export interface UnitOrdinaryYear extends OrdinaryLossYear {
-  /** The book's size-weighted mean true risk — expected over exposure x cost. */
-  risk: number;
-  /** Per unit of the book: its expected and realised ordinary loss, in book order. */
-  byUnit: { index: number; expected: number; realised: number }[];
+/**
+ * The stream every member's risk score is drawn from, in member order — off
+ * the GAME's seed (marketSeedOf), so every world holds the same scores.
+ */
+export const memberRiskRng = (gameSeed: number, yearNumber: number, line: CoverageLine): SeededRandom =>
+  deriveSubRng(gameSeed, yearNumber, streamLabel(yearNumber, `member_risk_${line}`));
+
+export interface MemberOrdinaryYear extends OrdinaryLossYear {
+  /** Underwriting's one-year factor on the loss per unit (BookMovement.lossFactor); 1 unmoved. */
+  lossFactor: number;
+  /** Each member's luck, in member order — UNDERWRITING_MEMBERS of them. */
+  luck: number[];
+  /** Each member's risk score this year, in member order — the game's, the same in every world. */
+  risk: number[];
 }
 
 /**
- * THE LINE'S ORDINARY LOSS FROM ITS UNITS — the year factor every unit shares
- * (the line's `ordinary_<line>` stream) times each unit's own (one draw per
- * MARKET unit, in index order, so a unit's factor does not depend on which
- * other units the book holds). Each unit's exposure is its size scaled to the
- * line's active exposure this year, so exposure trend — and, until units move
- * one by one, the book's scalar movement — reach every unit alike.
+ * THE LINE'S ORDINARY LOSS FROM ITS 100 EQUAL MEMBERS — the year factor every
+ * member shares (the line's `ordinary_<line>` stream) times each member's
+ * risk score this year (`member_risk_<line>` off the GAME's seed,
+ * MEMBER_RISK_CV) and its own luck (`ordinary_member_<line>`, the world's),
+ * one draw each per member, on each member's equal share of exposure x cost x
+ * underwriting's `lossFactor`:
+ *
+ *   realised = exposure x cost x lossFactor x F x mean(risk x luck)
+ *
+ * ⚠ `expected` IS PRICING'S — exposure x cost, WITHOUT lossFactor — so the
+ * year's actual over expected shows what underwriting did, as the old
+ * new-business penalty did. The mean of the draws is expected x lossFactor.
  */
-export function ordinaryLossFromUnits(
-  line: CoverageLine, units: readonly BookUnit[], activeExposure: number, yearNumber: number, seed: number,
-  // THE NEW-BUSINESS PENALTY (book units commit 6): the units written this
-  // year, whose ACTUAL loss carries 1 + `penalty` in this, their first year.
-  // Their EXPECTED loss does not — see NEW_BUSINESS_PENALTY.
-  newUnits: ReadonlySet<number> = new Set(), penalty = 0,
-  // A flat pre-game year's multiple of expected — the scenario's
-  // (preGameLossFactor), one figure on every unit.
+export function ordinaryLossFromMembers(
+  line: CoverageLine, activeExposure: number, yearNumber: number, seed: number,
+  lossFactor = 1,
+  // A flat pre-game year's multiple of expected — the scenario's (preGameLossFactor).
   preGameLoss = 1,
   // Whether a pre-game year runs flat (flatPreGameYear).
   flatRun: boolean = FLAT_PRE_GAME.enabled,
-): UnitOrdinaryYear {
-  const size = units.reduce((a, u) => a + u.size, 0);
-  const scale = size > 0 ? activeExposure / size : 0;
-  const cost = 10_000 * ordinaryLossCostPer100(line, yearNumber);
-  // A flat pre-game year draws neither factor: every unit at exactly expected.
+  // The GAME's seed (marketSeedOf), which the risk scores are drawn from so
+  // every world shares them. Absent: `seed` — the same thing in a one-world game.
+  gameSeed: number = seed,
+): MemberOrdinaryYear {
+  const expected = activeExposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
+  // A flat pre-game year draws neither factor: every member at exactly expected.
   const flat = flatPreGameYear(yearNumber, flatRun);
-  // Simulated, a pre-game year carries the scenario's multiple on its drawn year factor.
   const year = flat ? preGameLoss : preGameLoss * drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ordinaryYearCv(line));
-  const own = unitOrdinaryRng(seed, yearNumber, line);
-  const ownFactors = Array.from({ length: UNIT_MARKET_COUNT }, () => (flat ? 1 : drawOrdinaryFactor(own, UNIT_ORDINARY_OWN_CV)));
-  const byUnit = units.map(u => {
-    const expected = u.size * scale * u.risk * cost;
-    const load = newUnits.has(u.index) ? 1 + penalty : 1;
-    return { index: u.index, expected, realised: expected * year * ownFactors[u.index] * load };
-  });
-  const expected = byUnit.reduce((a, u) => a + u.expected, 0);
-  const realised = byUnit.reduce((a, u) => a + u.realised, 0);
+  const own = memberLuckRng(seed, yearNumber, line);
+  const luck = Array.from({ length: UNDERWRITING_MEMBERS }, () => (flat ? 1 : drawOrdinaryFactor(own, MEMBER_LUCK_CV)));
+  // A flat pre-game year draws no risk either: every member at 1.
+  const riskRng = memberRiskRng(gameSeed, yearNumber, line);
+  const risk = Array.from({ length: UNDERWRITING_MEMBERS }, () => (flat ? 1 : drawOrdinaryFactor(riskRng, MEMBER_RISK_CV)));
+  const share = expected * lossFactor / UNDERWRITING_MEMBERS;
+  const realised = luck.reduce((a, f, i) => a + share * year * risk[i] * f, 0);
   return {
     exposure: activeExposure, expected, realised, factor: expected > 0 ? realised / expected : 1, yearFactor: year,
-    risk: bookOrdinaryRisk(units), byUnit,
+    lossFactor, luck, risk,
   };
 }
 

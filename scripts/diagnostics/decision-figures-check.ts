@@ -51,7 +51,6 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear, selectedClfFor, strikeBookRate } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { RISK_CONTROL } from '../../src/data/pricingParameters';
-import { lineBookRisk } from '../../src/utils/bookUnits';
 import { gameShocksOn } from '../../src/utils/shockLosses';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
 import { fundingConsequenceInput, pieceCents, pricingBookFor, ratePieces, riskControlCost, underwritingFigures, type RatePieceColumn } from '../../src/game/derivations';
@@ -89,7 +88,7 @@ function struck(gs: GameState, line: CoverageLine, d: LineDecisionSet) {
   const s = strikeBookRate(
     line, ps.lines[line], d, gs.currentYearNumber,
     { allMarketMembers: ps.allMarketMembers, membershipHistory: ps.membershipHistory },
-    lineBookRisk(gs.instance, line, ps.bookUnits, ps.bookLedger), gameShocksOn(gs.setup, gs.instance),
+    1, gameShocksOn(gs.setup, gs.instance),
   );
   if (!s) throw new Error('strikeBookRate returned null — the new loss engine and rate stack are expected on');
   return s;
@@ -112,16 +111,16 @@ const games = Array.from({ length: GAMES }, (_, g) => openGame(g));
 
 // --------------------------------------------------------------------------
 console.log('--- 1. UNDERWRITING: THE EXPOSURE MOVEMENT IS THE ENGINE\'S, THE RATE IS THE ENGINE\'S ---');
-const UW_SETTINGS: Array<[number, number]> = [[0, 0], [0.05, 0], [0, 0.1], [0.05, 0.1], [0.1, 0.15]];
+const UW_SETTINGS: Array<[number, number]> = [[0, 0], [0.05, 0], [0, 0.05], [0.03, 0.02], [0.05, 0.05]];
 let uwChecked = 0, worstExposure = 0;
 for (const gs of games) {
   for (const line of LINES) {
-    for (const [ren, rej] of UW_SETTINGS) {
-      const ds = withLine(defaultDecisionSet(1), line, { renewalsDeclined: ren, newBusinessRejection: rej });
+    for (const [ren, add] of UW_SETTINGS) {
+      const ds = withLine(defaultDecisionSet(1), line, { nonRenewal: ren, newMembers: add });
       const d = ds.byLine[line];
       const rate = panel(gs, line, ds).finalRatePer100;
       check(rate === struck(gs, line, d).quote.finalRatePer100,
-        `${line} ren ${ren} rej ${rej}: the panel's rate is not strikeBookRate's`);
+        `${line} ren ${ren} add ${add}: the panel's rate is not strikeBookRate's`);
       const figs = underwritingFigures(stateOf(gs, ds), line, d, rate);
       if (!figs) { fail(`${line}: no underwriting figures on the book path`); continue; }
       const before = pricingBookFor(gs, line);
@@ -134,15 +133,16 @@ for (const gs of games) {
       const gap = Math.abs(afterPage - engine);
       worstExposure = Math.max(worstExposure, gap);
       uwChecked++;
-      check(gap <= 0.0051, `${line} ren ${ren} rej ${rej}: page's post-movement exposure ${afterPage.toFixed(4)} vs engine ${engine}`);
+      check(gap <= 0.0051, `${line} ren ${ren} add ${add}: page's post-movement exposure ${afterPage.toFixed(4)} vs engine ${engine}`);
       if (ren === 0) check(figs.nonRenewedPremium === 0, `${line}: a 0% non-renewal shows $${figs.nonRenewedPremium}`);
-      if (rej < 0.15 && ren === 0 && rej === 0) check(figs.newBusinessPremium > 0, `${line}: nothing is written at 0% rejection`);
+      if (add === 0) check(figs.newBusinessPremium === 0, `${line}: 0% new members shows $${figs.newBusinessPremium}`);
+      else check(figs.newBusinessPremium > 0, `${line}: nothing is written at ${add} new members`);
       check(figs.nonRenewedPremium >= 0 && figs.newBusinessPremium >= 0, `${line}: a negative premium`);
     }
-    // More rejection brings in less, more non-renewal turns away more.
-    const lo = underwritingFigures(stateOf(gs, defaultDecisionSet(1)), line, withLine(defaultDecisionSet(1), line, { newBusinessRejection: 0 }).byLine[line], 1)!;
-    const hi = underwritingFigures(stateOf(gs, defaultDecisionSet(1)), line, withLine(defaultDecisionSet(1), line, { newBusinessRejection: 0.15 }).byLine[line], 1)!;
-    check(hi.newBusinessPremium < lo.newBusinessPremium, `${line}: rejecting more does not bring in less`);
+    // More new members brings in more.
+    const lo = underwritingFigures(stateOf(gs, defaultDecisionSet(1)), line, withLine(defaultDecisionSet(1), line, { newMembers: 0.01 }).byLine[line], 1)!;
+    const hi = underwritingFigures(stateOf(gs, defaultDecisionSet(1)), line, withLine(defaultDecisionSet(1), line, { newMembers: 0.05 }).byLine[line], 1)!;
+    check(hi.newBusinessPremium > lo.newBusinessPremium, `${line}: adding more members does not bring in more`);
   }
 }
 console.log(`  ${uwChecked} line x setting cases; worst exposure gap against processYear ${worstExposure.toExponential(2)} $M (stored to 0.01)`);

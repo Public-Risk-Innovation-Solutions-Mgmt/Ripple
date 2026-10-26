@@ -29,6 +29,8 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
+import { processYear } from '../../src/utils/simulationEngine';
+import { shockRecordKeys } from '../../src/utils/shockLosses';
 import { drawCatalogueSchedule, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
 import { seedFromInstanceId } from '../../src/seedHash';
 import { exposureFactor } from '../../src/data/exposureTrend';
@@ -410,6 +412,69 @@ function sectionPurePremium(): string[] {
   return out;
 }
 
+// ---- 8. ONE RECORD PER FIRING ----------------------------------------------
+// A host's Recession in years 2 AND 3: in year 3 both firings are in force, the
+// year-2 one spent (A is one year), so the year-3 dollars belong to the year-3
+// row alone. Keyed by event, both rows carried the year's whole uplift and the
+// pool summed them twice. Each line row must cost its own firing's share of the
+// year's uplift (newLossEngine.events), and each pool row the sum of its lines'.
+type Rec = { shockId: string; yearFired: number; attributableGrossLoss: number };
+function firingRecords(): { lines: { recs: Rec[]; uplift: number[] }[]; pool: Rec[] } {
+  const setup = { poolName: 'P', gameLength: 4, startingYear: 2026, instanceId: 'FIRING', activeLines: ['WC'], shockTiming: 'host' } as GameSetupSettings;
+  const instance = generateGameInstance('FIRING', seedFromInstanceId('FIRING'), [{ shockId: '#6', yearNumber: 2 }, { shockId: '#6', yearNumber: 3 }]);
+  const { poolState, priorHistory } = runPriorHistory(instance, setup);
+  let gs = { setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory } as GameState;
+  let last!: ReturnType<typeof processYear>;
+  for (let y = 1; y <= 3; y++) {
+    last = processYear(gs, defaultDecisionSet(y));
+    gs = { ...gs, currentYearNumber: y + 1, poolState: last.updatedPoolState, lockedResults: [...gs.lockedResults, last.result] };
+  }
+  const lines = Object.values(last.result.byLine).filter(Boolean).map(r => {
+    const recs = (r!.shockEvents ?? []) as Rec[];
+    const ev = r!.newLossEngine?.events ?? [];
+    const evKeys = shockRecordKeys(ev.map(e => ({ shockId: e.id, yearFired: e.firedYear })));
+    const recKeys = shockRecordKeys(recs);
+    // A spent firing (its one A year past) has no entry: it adds nothing this year.
+    return { recs, uplift: recKeys.map(k => ev[evKeys.indexOf(k)]?.uplift ?? 0) };
+  });
+  return { lines, pool: (last.result.shockEvents ?? []) as Rec[] };
+}
+function sectionFiringRecords(view = firingRecords()): string[] {
+  const out: string[] = [];
+  const firings = new Set<string>();
+  for (const { recs, uplift } of view.lines) {
+    const total = recs.reduce((a, r) => a + r.attributableGrossLoss, 0), u = uplift.reduce((a, b) => a + b, 0);
+    if (!(total > 0) || !(u > 0)) { out.push(`no shock dollars on the line (${total}, uplift ${u}) — nothing measured`); continue; }
+    recs.forEach((r, i) => {
+      firings.add(`${r.shockId}@${r.yearFired}`);
+      const want = total * uplift[i] / u;
+      if (Math.abs(r.attributableGrossLoss - want) > 1) out.push(`line row ${r.shockId}@${r.yearFired}: $${r.attributableGrossLoss.toFixed(0)}, its firing's share is $${want.toFixed(0)}`);
+    });
+  }
+  if (firings.size !== 2) out.push(`${firings.size} firing(s) recorded, 2 in force`);
+  if (view.pool.length !== 2) out.push(`${view.pool.length} pool row(s), 2 firings in force`);
+  for (const p of view.pool) {
+    const want = view.lines.flatMap(l => l.recs).filter(r => r.shockId === p.shockId && r.yearFired === p.yearFired).reduce((a, r) => a + r.attributableGrossLoss, 0);
+    if (Math.abs(p.attributableGrossLoss - want) > 1) out.push(`pool row ${p.shockId}@${p.yearFired}: $${p.attributableGrossLoss.toFixed(0)}, its lines sum to $${want.toFixed(0)}`);
+  }
+  return out;
+}
+/** The keying this replaced: every row of an event credited with all of it, the pool merged by event. */
+function keyedByEvent(): ReturnType<typeof firingRecords> {
+  const v = firingRecords();
+  const lines = v.lines.map(l => {
+    const byId = new Map<string, number>();
+    l.recs.forEach(r => byId.set(r.shockId, (byId.get(r.shockId) ?? 0) + r.attributableGrossLoss));
+    return { ...l, recs: l.recs.map(r => ({ ...r, attributableGrossLoss: byId.get(r.shockId)! })) };
+  });
+  const pool = new Map<string, Rec>();
+  for (const r of lines.flatMap(l => l.recs)) {
+    const p = pool.get(r.shockId);
+    if (p) p.attributableGrossLoss += r.attributableGrossLoss; else pool.set(r.shockId, { ...r });
+  }
+  return { lines, pool: [...pool.values()] };
+}
+
 // ---- run -------------------------------------------------------------------
 console.log(`shock-effects-check (${WORLD_COUNT} worlds)\n`);
 check(sectionA(), '1. A: uniform within the brief\'s range, the firing year only, the whole line');
@@ -435,6 +500,8 @@ check(sectionInvestGame(), '5b. in a game: the loss follows the pool\'s allocati
 control('cash hit, in a game', () => { const o = INVESTMENT_LOSS_BY_ASSET.cash; (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = -0.02; return () => { (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = o; }; }, sectionInvestGame);
 check(sectionPurePremium(), '7. shocks never reach the pure premium: the same game with and without six shocks prices identically, every line, every year');
 control('the shadow off — the deduction alone, R development left in', () => { const o = SHOCK_FREE_PRICING.enabled; SHOCK_FREE_PRICING.enabled = false; return () => { SHOCK_FREE_PRICING.enabled = o; }; }, sectionPurePremium);
+check(sectionFiringRecords(), '8. one record per firing: an event fired again while in force is its own row, each costing its own share');
+control('keyed by event, as before', () => () => {}, () => sectionFiringRecords(keyedByEvent()));
 check(sectionSolo(), '6. single player: catalogue odds, about 0.3 a year, year 1 shock-free');
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');

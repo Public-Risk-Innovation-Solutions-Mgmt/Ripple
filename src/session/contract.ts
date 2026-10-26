@@ -261,6 +261,25 @@ export interface TeamYearFigures {
    */
   selectedFundingConfidenceLevel?: number;
   netUltimateLoss: number;
+  /**
+   * ⚠ THE HOST'S TEAMS TABLE, AND EACH IS THE TEAM'S OWN FIGURE — read off its
+   * Annual Statement as it stood at this year, so the host prints exactly what
+   * the team sees. OPTIONAL: a row posted before these existed has none, and the
+   * host renders a dash. The handler stores the summary whole, so no handler
+   * change; across a deploy gap either side reads what it knows.
+   *
+   *   combinedRatio      cumulative since the game began — the statement's
+   *                      first row's Total, the team's top-bar figure (over the
+   *                      pre-game years before year 1 is played)
+   *   premiumToSurplus   the balance sheet's Premium to Surplus for this year
+   *   ratePer100         a LINE's rate charged this year, per $100 of exposure;
+   *                      absent on the pool, whose lines have different units
+   *   rateChange         that rate against the year before's, as a fraction
+   */
+  combinedRatio?: number;
+  premiumToSurplus?: number;
+  ratePer100?: number;
+  rateChange?: number;
 }
 
 /**
@@ -350,18 +369,18 @@ export interface TeamLineDecisions {
    */
   reinsuranceOption: string;
   /**
-   * "Renewals declined": the share of renewing exposure declined, a FRACTION
-   * 0–0.10. Absent on the engine side reads as 0.
+   * "Non-renewal": the share of the book at the start of the year not renewed,
+   * a FRACTION 0–0.05. Absent on the engine side reads as 0.
    *
-   * ⚠ uw-hybrid: this and newBusinessRejection REPLACE `renewalCut` and
-   * `intakeLevel`, which are gone from the wire. The shape is still scalars the
-   * server stores without reading, so the handler, both transports and keys.ts
-   * change only in their notes; a row written before carries the old names and
-   * the host reads 0% for both.
+   * ⚠ simple underwriting: this and newMembers REPLACE uw-hybrid's
+   * `renewalsDeclined` and `newBusinessRejection` (which replaced `renewalCut`
+   * and `intakeLevel`). Still two scalars the server stores without reading, so
+   * the handler, both transports and keys.ts change only in their notes; a row
+   * written before carries the old names and the host reads 0% for both.
    */
-  renewalsDeclined: number;
-  /** "New Business, rejection rate": the share of applicants turned away, a FRACTION 0–0.15. */
-  newBusinessRejection: number;
+  nonRenewal: number;
+  /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.05. */
+  newMembers: number;
   riskControlPct: number;
   dividendPct: number;
   assessmentPct: number;
@@ -447,6 +466,60 @@ export interface TeamYearSummary {
    * CHANGE — deploy the handler first; see docs/handoff/AWS_HANDLER_HANDOFF.md.
    */
   surplusRange?: { min: number; median: number; max: number };
+}
+
+// ---------------------------------------------------------------- market share
+
+/**
+ * A TEAM'S SHARE OF THE ROOM — multiplayer only, and a different measure from
+ * single player's share of the full market.
+ *
+ *   per line  the team's exposure on the line / the total exposure on that line
+ *             of every team in the room that writes it
+ *   pool      the team's total premium / the room's total premium — the lines'
+ *             exposures are in different units (payroll, TIV), premium is not
+ *
+ * Fractions, not percentages. At the opening every team holds the same book, so
+ * N teams each read 1/N on every line and the pool.
+ */
+export interface TeamMarketShare {
+  pool: number;
+  byLine: Partial<Record<CoverageLine, number>>;
+}
+
+/** One team's room share with the result year it is from — CallerView.marketShare. */
+export type TeamMarketShareOfYear = TeamMarketShare & { year: number };
+
+/**
+ * ⚠ WORKED OUT ONCE PER YEAR AND STORED WITH THE ROOM, so the host and every
+ * player read the same figures. The set for year Y is computed in the SUBMIT
+ * that brings in the last year-Y result from the teams that locked in year Y
+ * (results are computed by the clients after the host advances, so no advance
+ * call ever holds them). A team that did not lock in year Y counts as stopped:
+ * nobody waits for it, and its last reported figures (its newest result at or
+ * before Y) stay in the totals. A team that locked in and has not yet posted
+ * is waited for.
+ *
+ * ⚠ SHOWN FOR THE LATEST KNOWN YEAR, ONE YEAR BEHIND LIKE EVERY OTHER RESULT:
+ * with the room deciding year N the set shown is year N - 2's (the year before
+ * the one in progress), the last year's once the game is over — see
+ * marketShares.ts's shownShares. Before the first advance that year is 2025,
+ * which no team posts; every team played the same pre-game, so the opening
+ * posts (year 0) stand in, at 1/N each.
+ *
+ * ⚠ HOST ONLY ON RoomView. A player or viewer gets its own team's figure on
+ * CallerView.marketShare and never another team's.
+ *
+ * ⚠ OPTIONAL ON THE WIRE BOTH WAYS. A handler older than this sends neither
+ * field, and a front end older than it ignores them: the newer front end then
+ * shows no chip (never the old share of the whole market), and the older one
+ * keeps what it showed. Deploy the handler first.
+ */
+export interface RoomMarketShares {
+  /** The result year the figures are from: 0 is the opening books (and stands in for 2025). */
+  year: number;
+  /** Keyed by team name. A team with no result yet is absent. */
+  byTeam: Record<string, TeamMarketShare>;
 }
 
 // ---------------------------------------------------------------- views
@@ -614,28 +687,23 @@ export interface TeamView {
 }
 
 /**
- * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE DOES NOT READ IT YET.
+ * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE READS IT.
  *
- * A signed fraction of the opening reserve: POSITIVE IS ADVERSE (prior years
- * develop upward, the pool owes more than it booked) and NEGATIVE IS FAVOURABLE.
- * So 0.03 is "3% adverse" and -0.02 is "2% favourable", which is how the host
- * screen phrases it.
+ * A signed fraction: POSITIVE IS ADVERSE (prior years develop upward, the pool
+ * owes more than it booked) and NEGATIVE IS FAVOURABLE. So 0.03 is "3% adverse"
+ * and -0.02 is "2% favourable", which is how the host screen phrases it.
  *
- * ⚠ STORED, NOT USED. Nothing in the engine reads this field today. It is
- * carried on the room so that a future update can apply it to the opening
- * reserves without a second contract change and without re-creating rooms made
- * before it lands. The host screen says so on screen, in those words, because a
- * number beside a line that quietly does nothing is worse than no number.
- *
- * A line absent from the record takes no development, which is also what an old
- * room record — written before this field existed — reads as.
+ * It is the share of each open older accident year's reserve that develops
+ * over its remaining life, in total, emerging as it pays (utils/hostDevelopment;
+ * setup.priorDevelopment, read by the engine and the pre-game). The host screen
+ * says so on screen. A line absent from the record reads the engine's default
+ * (PRIOR_DEVELOPMENT_DEFAULTS), which is also what an old room record reads as.
  */
 export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
 
 /**
- * The defaults the host screen offers. They are the SCREEN's defaults, not the
- * engine's: the engine has no opinion here yet (see PriorDevelopment), so these
- * are starting points a host is expected to edit, not calibrated constants.
+ * The defaults the host screen offers — the engine's own defaults, the same
+ * values, so a host who changes nothing plays what an unset line plays.
  */
 // ⚠ DEFINED IN src/data/pricingParameters.ts NOW, re-exported here. Same values.
 export { PRIOR_DEVELOPMENT_DEFAULTS as DEFAULT_PRIOR_DEVELOPMENT } from '../data/pricingParameters';
@@ -677,7 +745,7 @@ export interface RoomView {
    * host clicked them.
    */
   lines: CoverageLine[];
-  /** Per-line prior development, stored and not yet read. See PriorDevelopment. */
+  /** Per-line prior development, read by the engine (setup.priorDevelopment). See PriorDevelopment. */
   priorDevelopment: PriorDevelopment;
   /**
    * TAKEN OFF THE LOBBY BY THE HOST. Absent on a room written before hiding
@@ -689,6 +757,8 @@ export interface RoomView {
   currentYear: number;
   shocks: ScheduledShockSpec[];
   teams: TeamView[];
+  /** Every team's room market share — HOST ONLY; absent for every other caller. */
+  marketShares?: RoomMarketShares;
   createdAt: number;
   updatedAt: number;
   // Monotonic per write. A poller compares this to know something moved without
@@ -739,6 +809,12 @@ export interface CallerView {
    * landed, the opening position included. Sorted ascending, year 0 included.
    */
   postedYears?: number[];
+  /**
+   * THIS CALLER'S TEAM'S ROOM MARKET SHARE, from the room's stored set — the
+   * one figure of RoomView.marketShares a player (or a viewer of that player)
+   * may see. Absent until the team has a share in the stored set.
+   */
+  marketShare?: TeamMarketShareOfYear;
 }
 
 // ---------------------------------------------------------------- requests
@@ -818,15 +894,32 @@ export interface CreateRoomResponse {
 // a server must handle both. The note survived into this branch because the gap
 // was recorded here and closed on another.
 export interface JoinRequest {
-  code: string;
+  /** Omit when `pin` is given — the pin resolves both this and `teamName`. */
+  code?: string;
   /**
    * A PLAYER NAMES ITS OWN TEAM HERE and the name must be free in this room; a
    * VIEWER names an existing team to watch. The host no longer pre-registers a
    * roster, because the name is part of the team's own game setup — the same
    * act as choosing its lines, and set at the same single moment.
+   *
+   * Omit when `pin` is given.
    */
-  teamName: string;
+  teamName?: string;
   role: 'player' | 'viewer';
+  /**
+   * ⚠ A SHORTCUT TO ONE TEAM, NOT A SECOND WAY TO ADDRESS A ROOM. Minted once,
+   * for the team, when it is created (JoinResponse.pin) — a viewer who has it
+   * can jump straight to watching that team from the Lobby, with no room code
+   * in hand at all. `code`/`teamName` are not needed when `pin` is given; it
+   * resolves both.
+   *
+   * ⚠ VIEWER-ONLY, REFUSED OTHERWISE (INVALID_REQUEST). A pin never creates or
+   * claims a team — it only names one to watch — so it carries exactly the
+   * authority a name-based viewer join already has, nothing more. It is
+   * globally unique (keys.ts's PIN# index, outside any room's partition),
+   * unlike a team name, which is only unique within its own room.
+   */
+  pin?: string;
   /**
    * ⚠ THERE IS NO `lines` FIELD ANY MORE, AND ITS ABSENCE IS THE POINT.
    * A player used to send its coverage lines here, required on a first join and
@@ -866,6 +959,13 @@ export interface JoinResponse {
    *  the host fixed at creation, returned here so a client can build its game
    *  from the join response alone. */
   lines: CoverageLine[];
+  /**
+   * ⚠ PRESENT ONLY FOR THE PLAYER THAT OWNS THIS TEAM — on create, and on every
+   * rejoin. This is the ONLY way a team ever learns its own PIN: it is never in
+   * `RoomView`, never in another caller's `CallerView`, same treatment as the
+   * team's bearer token. A viewer's `JoinResponse` never carries one.
+   */
+  pin?: string;
   rejoined: boolean;
   room: RoomView;
 }

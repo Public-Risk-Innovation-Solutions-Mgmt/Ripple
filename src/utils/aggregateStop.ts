@@ -36,6 +36,7 @@ import {
 import { DECAY, SHOCK_EVENTS, eventLines, poolShare, type ShockLevel } from './shockLosses';
 import { ordinaryFactorParams, ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
 import { expectedLossBreakdown } from './shockExpectation';
+import { shockTrendFactor } from './shockCost';
 import { deriveSubRng } from './random';
 import type { CoverageLine } from '../types/simulation';
 
@@ -169,9 +170,14 @@ export function sampledYearTotals(
   }
   const ages = Math.min(MAX_AGES, Math.max(1, yearNumber)) - 1;
   const u = s.uplift[ages];
+  // ⚠ THE T SIZES ARE THE TABLE'S, GROWN HERE BY THE LINE'S TREND as the
+  // expectation grows them (shockExpectation.conditionalEventMoments): unscaled,
+  // the stop was struck on a year up to 7% lighter than its own attachment
+  // basis by year 10 (aggregate-stop-check 2).
+  const g = shockTrendFactor(line, yearNumber);
   for (let i = 0; i < out.length; i++) {
     let large = 0;
-    for (let k = s.start[i]; k < s.start[i + 1]; k++) large += poolShare(line, s.sizes[k]);
+    for (let k = s.start[i]; k < s.start[i + 1]; k++) large += poolShare(line, s.sizes[k] * g);
     out[i] = ordinary * s.factor[i] * (1 + u[i]) + large;
   }
   return out;

@@ -31,7 +31,7 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   // The same route solo-oracle takes — /solo, start, then the Decisions tab.
   await page.goto('/solo');
   await page.waitForSelector('[data-testid="scenario"], input[placeholder="e.g. ABC12345"]', { timeout: 20000 });
-  await page.getByRole('button', { name: /Start/i }).last().click();
+  await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
   await page.getByRole('button', { name: /^Decisions$/ }).first().click();
   await page.waitForTimeout(1500);

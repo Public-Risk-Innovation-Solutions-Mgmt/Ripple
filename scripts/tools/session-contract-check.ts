@@ -107,8 +107,8 @@ const lineDecisions = (): TeamLineDecisions => ({
   // would fail the read-back below.
   reinsuranceOption: 'working',
   // Not the defaults (0 and 0), so a transport that substituted one fails.
-  renewalsDeclined: 0.07,
-  newBusinessRejection: 0.12,
+  nonRenewal: 0.03,
+  newMembers: 0.04,
   riskControlPct: 0.03,
   dividendPct: 0.05,
   assessmentPct: 0,
@@ -155,6 +155,18 @@ class MemoryStorage {
 }
 
 (globalThis as unknown as { localStorage: unknown }).localStorage = new MemoryStorage();
+
+// ⚠ NODE'S OWN navigator.locks IS SHUT OFF HERE, DELIBERATELY. localTransport's
+// withRoomLock already falls back to running synchronously when no lock
+// manager exists — the comment there says "the harness runs under a DOM-less
+// Node". That was true until Node started shipping navigator.locks itself
+// (confirmed present as of Node v24.21.0, this harness's target), which is
+// where the fallback stopped applying. Node's implementation does not release
+// the lock when the callback throws, so the very first validation rejection in
+// this file wedges every withRoomLock call after it: no error, no output, a
+// clean process exit with the hung promise simply abandoned. One process runs
+// every pass here, so blanking it once at the top is enough.
+Object.defineProperty(globalThis, 'navigator', { value: undefined, configurable: true });
 
 // ---------------------------------------------------------------- asserts
 
@@ -693,8 +705,8 @@ async function main(): Promise<void> {
     eq(seen?.reinsuranceOption, 'working', 'and the reinsurance cover the team bought');
     ok(seen !== undefined && !('layersPlaced' in seen) && !('aggregateStopLevel' in seen),
        'and nothing of the retired per-band placement or aggregate level');
-    eq(seen?.renewalsDeclined, 0.07, 'and the share of renewals declined');
-    eq(seen?.newBusinessRejection, 0.12, 'and the new-business rejection rate');
+    eq(seen?.nonRenewal, 0.03, 'and the non-renewal share');
+    eq(seen?.newMembers, 0.04, 'and the new members share');
     ok(seen !== undefined && !('renewalCut' in seen) && !('intakeLevel' in seen),
        'and nothing of the retired renewal cut or intake position (uw-hybrid)');
     eq(seen?.dividendPct, 0.05, 'and the dividend');
@@ -860,6 +872,116 @@ async function main(): Promise<void> {
     eq((asWatcher.you.lines ?? []).join(','), 'WC,GL,Property', 'read gives a viewer those lines');
     const asPlayer = await t.read({ code: room.code, token: one.teamToken });
     eq((asPlayer.you.lines ?? []).join(','), 'WC,GL,Property', 'read gives a player its own lines');
+  }
+
+  // ---- THE ROOM MARKET SHARE --------------------------------------------
+  //
+  // Stored once a year, in the submit that brings in the last result from the
+  // teams that locked in that year; a team that did not lock in a year is
+  // stopped and counts on its last reported figures. SHOWN FOR THE LATEST KNOWN
+  // YEAR, one year behind like every other result: with the room deciding
+  // year N, year N - 2's set (the opening posts before that year exists); the
+  // last year's once the game is over. Host sees every team's
+  // (RoomView.marketShares); a player its own (CallerView.marketShare) and
+  // nothing of another team's.
+  {
+    const t = transport();
+    const LINES2: CoverageLine[] = ['WC', 'GL'];
+    const { code, hostToken } = await t.createRoom({
+      hostToken: newSessionToken(), seed: '7', yearCount: 4, startingYear: 2027,
+      eventName: 'Share Room', expectedTeams: 3, lines: LINES2, shocks: [],
+    });
+    const [a, b, c] = [
+      await t.join({ code, teamName: TEAMS[0], role: 'player' }),
+      await t.join({ code, teamName: TEAMS[1], role: 'player' }),
+      await t.join({ code, teamName: TEAMS[2], role: 'player' }),
+    ];
+    // A team's posted figures: WC exposure x, GL exposure 2x, premium 0.1x.
+    const post = (year: number, x: number): TeamYearSummary => {
+      const s = summaryFor(year, 1_000_000, LINES2);
+      s.byLine.WC = { ...s.byLine.WC!, activeExposure: x };
+      s.byLine.GL = { ...s.byLine.GL!, activeExposure: 2 * x };
+      s.pool = { ...s.pool, poolPremium: x * 100_000 };
+      return s;
+    };
+    const near = (v: number | undefined, want: number, what: string) =>
+      ok(v !== undefined && Math.abs(v - want) < 1e-12, `${what}: expected ${want}, got ${v}`);
+    const shares = async () => (await t.read({ code, token: hostToken })).room.marketShares;
+    const lockAll = async (year: number, who: typeof a[]) => {
+      for (const p of who) await t.submit({ code, token: p.teamToken, yearNumber: year, decisions: decisionsFor(year, `y${year}`) });
+    };
+
+    eq(await shares(), undefined, 'no market shares before any opening post');
+    for (const p of [a, b, c]) await t.submit({ code, token: p.teamToken, yearNumber: 0, result: post(0, 100) });
+    let m = await shares();
+    eq(m?.year, 0, 'before the first advance the opening posts stand in for 2025 — every team plays the same pre-game');
+    for (const name of TEAMS) {
+      near(m?.byTeam[name]?.byLine.WC, 1 / 3, `opening: ${name} holds a third of the room's WC`);
+      near(m?.byTeam[name]?.byLine.GL, 1 / 3, `opening: ${name} holds a third of the room's GL`);
+      near(m?.byTeam[name]?.pool, 1 / 3, `opening: ${name} holds a third of the room's premium`);
+    }
+
+    // Year 1: all three lock; the advance; all three post. Year 1 is complete
+    // but not yet KNOWN — the room is deciding year 2, so year 0 is the latest.
+    await lockAll(1, [a, b, c]);
+    await step(t, code, hostToken);
+    for (const [p, x] of [[a, 120], [b, 90], [c, 90]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 1, result: post(1, x) });
+    eq((await shares())?.year, 0, 'year 1 completed in the room deciding year 2: still the opening set — one year behind');
+
+    // Year 2: A and B lock; C does not — it has stopped. The advance makes year 1 known.
+    await lockAll(2, [a, b]);
+    await step(t, code, hostToken);
+    m = await shares();
+    eq(m?.year, 1, 'the advance into year 3 makes year 1 the latest known year');
+    near(m?.byTeam[TEAMS[0]]?.byLine.WC, 120 / 300, 'year 1: own WC exposure / the room\'s');
+    near(m?.byTeam[TEAMS[0]]?.byLine.GL, 240 / 600, 'year 1: own GL exposure / the room\'s');
+    near(m?.byTeam[TEAMS[1]]?.pool, 9 / 30, 'year 1: own premium / the room\'s');
+    near(Object.values(m!.byTeam).reduce((x, v) => x + v.pool, 0), 1, 'year 1: the pool shares sum to 100%');
+
+    // A player sees its own share and nothing of another team's.
+    const asA = await t.read({ code, token: a.teamToken });
+    near(asA.you.marketShare?.pool, 12 / 30, 'a player reads its own pool share');
+    eq(asA.you.marketShare?.year, 1, 'and the year it is from');
+    eq(asA.room.marketShares, undefined, 'a player gets no RoomView.marketShares');
+    ok(asA.room.teams.filter(x => x.name !== TEAMS[0]).every(x => x.resultsByYear === undefined),
+       "a player receives no other team's results");
+    ok(asA.room.teams.find(x => x.name === TEAMS[0])?.resultsByYear?.['1'] !== undefined,
+       'a player still receives its own results');
+    const anon = await t.read({ code });
+    ok(anon.room.marketShares === undefined && anon.you.marketShare === undefined
+       && anon.room.teams.every(x => x.resultsByYear === undefined), 'an anonymous caller gets no shares and no results');
+
+    // A re-post of a year already stored changes nothing: it was worked out once.
+    await t.submit({ code, token: a.teamToken, yearNumber: 1, result: post(1, 500) });
+    near((await shares())?.byTeam[TEAMS[0]]?.byLine.WC, 120 / 300, 'a re-posted year-1 result leaves the stored set alone');
+
+    // Year 2's results: A posts, B (locked in) has not. Year 3 locks; the advance makes year 2 the latest known.
+    await t.submit({ code, token: a.teamToken, yearNumber: 2, result: post(2, 150) });
+    await lockAll(3, [a, b]);
+    await step(t, code, hostToken);
+    eq((await shares())?.year, 1, 'year 2 known but a locked team has not posted it: waited for — year 1 still shows');
+    await t.submit({ code, token: b.teamToken, yearNumber: 2, result: post(2, 100) });
+    m = await shares();
+    eq(m?.year, 2, 'the last locked team posting completes year 2, without waiting for the stopped team');
+    near(m?.byTeam[TEAMS[2]]?.byLine.WC, 90 / 340, 'the stopped team counts on its last reported figures (its year 1)');
+    near(m?.byTeam[TEAMS[0]]?.byLine.WC, 150 / 340, 'and stays in the totals of the teams still playing');
+    near(Object.values(m!.byTeam).reduce((x, v) => x + v.byLine.WC!, 0), 1, 'year 2: the WC shares sum to 100%');
+    // The stopped team's client still processes year 2 on carry-forward and posts it late.
+    await t.submit({ code, token: c.teamToken, yearNumber: 2, result: post(2, 80) });
+    near((await shares())?.byTeam[TEAMS[2]]?.byLine.WC, 90 / 340, 'a late post from the stopped team changes no stored share');
+
+    // Year 3's results, then the last advance: the game is over and the last year shows.
+    await t.submit({ code, token: a.teamToken, yearNumber: 3, result: post(3, 160) });
+    await t.submit({ code, token: b.teamToken, yearNumber: 3, result: post(3, 110) });
+    eq((await shares())?.year, 2, 'year 3 complete in the room deciding year 4: year 2 still the latest known');
+    await lockAll(4, [a, b]);
+    await step(t, code, hostToken);
+    m = await shares();
+    eq(m?.year, 3, 'once the game is over, the newest complete year shows');
+    near(m?.byTeam[TEAMS[2]]?.byLine.WC, 80 / 350, 'the stopped team stays in the totals on its newest post');
+    near(m?.byTeam[TEAMS[2]]?.pool, 8 / 35, 'and on the pool, by premium');
+    for (const [p, x] of [[a, 170], [b, 120]] as const) await t.submit({ code, token: p.teamToken, yearNumber: 4, result: post(4, x) });
+    eq((await shares())?.year, 4, 'and the final year shows when it completes');
   }
 
   // ---- completion ------------------------------------------------------
@@ -1088,6 +1210,46 @@ async function main(): Promise<void> {
     await rejects(
       t.join({ code: a.code, teamName: 'Far Too Late', role: 'player' }),
       'EVENT_IN_PROGRESS', 'a finished event takes no new teams');
+  }
+
+  // ---- VIEWER JOIN BY PIN -----------------------------------------------
+  //
+  // ⚠ VIEWER-ONLY, AND RESOLVED GLOBALLY. A PIN never creates or claims a team
+  // — it only tells join() which existing team to watch, which is why a PIN
+  // plus role: 'player' is refused outright rather than silently downgraded.
+  // And it resolves with no room code in hand at all, which is the one new
+  // kind of lookup this feature adds — see keys.ts's pinPk.
+  {
+    const t = transport();
+    const { code } = await freshRoom(t);
+    const driver = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+
+    ok(typeof driver.pin === 'string' && driver.pin.length > 0,
+      'a player creating a team gets back a PIN for it');
+    ok(!JSON.stringify(await t.read({ code })).includes(driver.pin as string),
+      'the PIN is never carried on a room view, for anyone');
+
+    const watcher = await t.join({ pin: driver.pin, role: 'viewer' } as never);
+    eq(watcher.role, 'viewer', 'joining by PIN lands as a viewer');
+    eq(watcher.teamName, TEAMS[0], 'and resolves to the team the PIN was minted for');
+    ok(watcher.pin === undefined, 'a viewer never receives a PIN of its own — only a player does');
+    eq(watcher.lines.join(','), driver.lines.join(','), 'a PIN-joined viewer gets the watched team\'s lines');
+
+    // ⚠ SAME REDACTION A NAME-BASED VIEWER JOIN ALREADY GETS. Resolving by PIN
+    // changes how the team is FOUND, not what the caller is handed back.
+    const asWatcher = await t.read({ code, token: watcher.teamToken });
+    eq(asWatcher.you.role, 'viewer', 'a PIN-minted viewer token reads back as a viewer');
+    eq(asWatcher.you.teamName, TEAMS[0], 'bound to the watched team, same as a name-based viewer join');
+
+    const rejoinedPlayer = await t.join({ code, teamName: TEAMS[0], role: 'player', token: driver.teamToken });
+    eq(rejoinedPlayer.pin, driver.pin, 'a rejoining player is handed the same PIN again');
+
+    await rejects(
+      t.join({ pin: '000000', role: 'viewer' } as never),
+      'TEAM_NOT_FOUND', 'an unknown PIN resolves to no team');
+    await rejects(
+      t.join({ pin: driver.pin, role: 'player' } as never),
+      'INVALID_REQUEST', 'a PIN combined with role: player is refused — a PIN never claims a team');
   }
 
 }

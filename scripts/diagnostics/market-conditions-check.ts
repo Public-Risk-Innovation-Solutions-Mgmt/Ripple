@@ -65,6 +65,7 @@
 // and this says so.
 // ============================================================================
 
+import { NEW_MEMBERS_SLIDER } from '../../src/data/pricingParameters';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -493,7 +494,7 @@ function playRates(g: number, decide?: (d: DecisionSet) => void): Record<string,
 
 /** The arm the assertion runs on: a player who is actually underwriting. */
 const DECIDING = (d: DecisionSet) => {
-  for (const l of LINES) d.byLine[l].newBusinessRejection = 0;   // uw-hybrid: intake positions retired
+  for (const l of LINES) d.byLine[l].newMembers = NEW_MEMBERS_SLIDER.max;   // simple underwriting: a growing book
 };
 
 const poolChange: Record<string, number[]> = { WC: [], GL: [], Property: [] };

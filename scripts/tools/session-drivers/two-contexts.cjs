@@ -154,7 +154,7 @@ const anyKeys = page => page.evaluate(() =>
       const tick = async () => {
         const r = await (await fetch(`${API}/read`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, token: hostHeld.hostToken }),
         })).json();
         const done = r.room.teams.filter(t => (t.resultsByYear || {})[String(year)]).length === TEAMS.length;
         if (done || Date.now() > deadline) resolve();
@@ -193,7 +193,7 @@ const anyKeys = page => page.evaluate(() =>
   for (;;) {
     const r = await (await fetch(`${API}/read`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, token: hostHeld.hostToken }),
     })).json();
     if (r.room.teams.every(t => (t.resultsByYear || {})[String(reportingYear)])) { t0 = Date.now(); break; }
     await new Promise(r2 => setTimeout(r2, 200));
@@ -208,15 +208,23 @@ const anyKeys = page => page.evaluate(() =>
   // ---- what the host reads back ----------------------------------------
   const wire = await (await fetch(`${API}/read`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, token: hostHeld.hostToken }),
   })).json();
   for (const t of wire.room.teams) {
     const years = Object.keys(t.resultsByYear || {}).map(Number).sort((a, b) => a - b);
     ok(JSON.stringify(years) === JSON.stringify([0, 1, 2, 3, 4]),
        `${t.name} reported every year across the wire ([${years.join(',')}])`);
   }
-  ok(wire.room.teams.every(t => t.decisionsByYear === undefined),
-     'and a read with no token still redacts every team\'s decisions');
+  // ⚠ READ AS THE HOST SINCE THE ROOM MARKET SHARE: an anonymous read no longer
+  // carries any team's results (the localStorage transport's over-send is
+  // closed, matching DynamoDB), so the scoreboard is read with the host token
+  // and the no-token read is checked for redaction on its own.
+  const anonWire = await (await fetch(`${API}/read`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })).json();
+  ok(anonWire.room.teams.every(t => t.decisionsByYear === undefined && t.resultsByYear === undefined),
+     'and a read with no token carries no team\'s decisions and no team\'s results');
 
   await host.click('[data-testid="host-tab-teams"]');
   await host.waitForTimeout(1200);

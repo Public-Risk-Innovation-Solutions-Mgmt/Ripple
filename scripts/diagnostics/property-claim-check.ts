@@ -35,6 +35,7 @@ import {
   PROPERTY_CAT_MODEL, PROPERTY_LOSS_MODEL, PROPERTY_HELD_PURE_PREMIUM_PER_100, PROPERTY_PURE_PREMIUM_SPLIT,
 } from '../../src/data/defaultAssumptions';
 import { PROPERTY_TOWER_TOP, REINSURANCE_TOWER, TOWER_TOP } from '../../src/data/reinsuranceTower';
+import { REINSURANCE_OPTIONS } from '../../src/data/pricingParameters';
 import {
   computeKPr, deriveNeutralPropertyPurePremiumPer100, deriveNeutralPropertyPurePremiumSplit,
   expectedPropertyAttritionalLoss, expectedPropertyGrossLoss,
@@ -106,19 +107,68 @@ check(Math.abs(PROPERTY_MEAN_SEVERITY - 418_289) < 500,
   check(allSame && caps[0] === M.severityCap,
     'Property ceiling is FLAT — stated in every year\'s dollars, as GL\'s is',
     `$${(caps[0] / 1e6).toFixed(1)}M`);
-  const L = REINSURANCE_TOWER.Property;
-  // ⚠ RE-CUT BY LOSS ENGINE COMMIT 4a. Property was ONE layer from the $5M
-  // retention to a $1B top; the tower is now cut at the packages' edges —
-  // retention to $25M, then $25M xs $25M — and tops out at the highest
-  // package edge, $50M. Above it is retained on every package.
-  check(L.length === 2 && L[0].attachment === M.perRiskRetention && L[1].attachment === 25e6
-      && L[0].attachment + L[0].limit === L[1].attachment && L[1].attachment + L[1].limit === PROPERTY_TOWER_TOP
-      && PROPERTY_TOWER_TOP === 50e6,
-    'Property is TWO layers, the $5M retention to $25M and $25M xs $25M, to a $50M top',
-    L.map(l => `${l.name}`).join(', '));
-  check(TOWER_TOP.Property === PROPERTY_TOWER_TOP && PROPERTY_TOWER_TOP !== M.severityCap,
-    'TOWER_TOP.Property is the $50M package top, decoupled from severityCap',
-    `$${(TOWER_TOP.Property / 1e6).toFixed(0)}M vs cap $${(M.severityCap / 1e6).toFixed(0)}M`);
+  // ⚠ RESTATED FOR THE SHOCKS LANDING (2ae5c1a). What stood here asserted the
+  // loss-engine-4a cut — Property as TWO layers, the $5M retention to $25M and
+  // $25M xs $25M, to a $50M top, with TOWER_TOP.Property that package top. The
+  // landing cut EVERY line at the T covers' edges, $1M / $2M / $10M / $20M /
+  // $40M (REINSURANCE_OPTIONS: 9 xs 1, 8 xs 2, 18 xs 2, 38 xs 2), and moved
+  // TOWER_TOP.Property to $40M, the widest cover's top. PROPERTY_TOWER_TOP stays
+  // $50M — the old engine's catastrophe ceiling, read only by
+  // propertyCatastrophe — so the two are now DIFFERENT numbers, and that is
+  // asserted. What carries over is the spirit: the tower is contiguous, cut
+  // where the products a team buys are cut, its top is a product edge, and none
+  // of it is the severity cap. The edges are WRITTEN OUT here, not read from
+  // REINSURANCE_OPTIONS, so a check cannot pass by grading a parameter against
+  // itself; the options are then checked to be whole layers of it.
+  const T_EDGES = [1e6, 2e6, 10e6, 20e6, 40e6];
+  const towerProblems = (): string[] => {
+    const out: string[] = [];
+    const L = REINSURANCE_TOWER.Property;
+    const edges = L.length ? [L[0].attachment, ...L.map(l => l.attachment + l.limit)] : [];
+    if (edges.join('|') !== T_EDGES.join('|')) out.push(`edges ${edges.map(e => e / 1e6).join('/')}M, want 1/2/10/20/40M`);
+    for (let k = 1; k < L.length; k++) if (L[k].attachment !== L[k - 1].attachment + L[k - 1].limit) out.push(`gap before ${L[k].name}`);
+    for (const line of ['WC', 'GL'] as const) {
+      if (REINSURANCE_TOWER[line].map(l => l.name).join('|') !== L.map(l => l.name).join('|')) out.push(`${line} is not cut where Property is`);
+    }
+    for (const o of REINSURANCE_OPTIONS.Property) {
+      if (o.limit === 0) continue;
+      if (!edges.includes(o.attachment) || !edges.includes(o.attachment + o.limit)) out.push(`cover ${o.id} is not whole layers`);
+    }
+    if (TOWER_TOP.Property !== 40e6 || TOWER_TOP.Property !== edges[edges.length - 1]) out.push(`TOWER_TOP.Property $${TOWER_TOP.Property / 1e6}M, want the $40M top of the widest T cover`);
+    if (TOWER_TOP.Property === M.severityCap) out.push('TOWER_TOP.Property coincides with the severity cap');
+    if (PROPERTY_TOWER_TOP !== 50e6 || PROPERTY_TOWER_TOP === TOWER_TOP.Property) out.push(`PROPERTY_TOWER_TOP $${PROPERTY_TOWER_TOP / 1e6}M, want the old engine's $50M, apart from TOWER_TOP`);
+    return out;
+  };
+  const tp = towerProblems();
+  check(tp.length === 0,
+    'Property is cut at the T covers\' edges, $1M/$2M/$10M/$20M/$40M, as every line is; each cover is whole layers',
+    tp.length ? tp.join('; ') : REINSURANCE_TOWER.Property.map(l => l.name).join(', '));
+  check(TOWER_TOP.Property === 40e6 && PROPERTY_TOWER_TOP === 50e6 && TOWER_TOP.Property !== M.severityCap,
+    'TOWER_TOP.Property is the $40M top of the widest T cover, decoupled from severityCap; PROPERTY_TOWER_TOP stays the old engine\'s $50M',
+    `$${(TOWER_TOP.Property / 1e6).toFixed(0)}M vs cap $${(M.severityCap / 1e6).toFixed(0)}M, old top $${(PROPERTY_TOWER_TOP / 1e6).toFixed(0)}M`);
+  // CONTROLS: break the tower at runtime, the section must now find a problem.
+  const towerControl = (label: string, breakIt: () => () => void) => {
+    const restore = breakIt();
+    let n: number;
+    try { n = towerProblems().length; } finally { restore(); }
+    check(n > 0, `control: ${label} is caught`, `${n} problem(s) when broken`);
+  };
+  towerControl('the retired $5M-to-$25M + $25M xs $25M cut', () => {
+    const was = REINSURANCE_TOWER.Property;
+    REINSURANCE_TOWER.Property = [
+      { name: '$20M xs $5M', attachment: 5e6, limit: 20e6, purchasable: true },
+      { name: '$25M xs $25M', attachment: 25e6, limit: 25e6, purchasable: true }];
+    return () => { REINSURANCE_TOWER.Property = was; };
+  });
+  towerControl('a gap in the tower ($10M-$20M missing)', () => {
+    const was = REINSURANCE_TOWER.Property;
+    REINSURANCE_TOWER.Property = was.filter(l => l.attachment !== 10e6);
+    return () => { REINSURANCE_TOWER.Property = was; };
+  });
+  towerControl('TOWER_TOP.Property back at the $50M package top', () => {
+    const was = TOWER_TOP.Property; TOWER_TOP.Property = 50e6;
+    return () => { TOWER_TOP.Property = was; };
+  });
 
   // ⚠ THE MOMENT MUST MOVE WITH THE YEAR, and this is the assertion that fails
   // against the old behaviour — it was `momentSame` and it was true.
