@@ -1044,10 +1044,9 @@ export const MEMBER_LUCK_CV = 0.10;
  * ordinary losses nearly as smooth as the year factor alone; a pool's members
  * differ in how risky they are, and that spread belongs in the year's losses.
  * 30% is the R model's spread of risk, the same figure the retired book of
- * units carried (UNIT_RISK_CV). Shared by every world because it is the
- * book's risk, not the world's luck. Redrawn each year because the book keeps
- * no record of who its members are (no loss history, no selection), so a
- * score that persisted could not be acted on.
+ * units carried (UNIT_RISK_CV). Redrawn every year by the project lead's
+ * choice. Shared by every world because it is the book's risk, not the
+ * world's luck.
  *
  * Not in pricing's expected loss (mean 1): the rate learns it through the
  * experience. It raises the line's ordinary CV from 6.1% / 10.0% / 8.0% to
@@ -2960,7 +2959,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each of the 100 equal members carries a risk score, redrawn every year, that multiplies its expected '
           + 'loss alongside its own luck. From the game seed, per member and year, the same in every world.',
         basis: 'CHOSEN',
-        note: 'Set by the project lead at the R model\'s 30% spread of risk. It raises the line\'s ordinary loss CV '
+        note: 'The R model\'s 30% spread of risk, redrawn every year by the project lead\'s choice. It raises the '
+          + 'line\'s ordinary loss CV '
           + 'from 6.1% / 10.0% / 8.0% to 6.8% / 10.5% / 8.6% on WC / GL / Property. Not in pricing\'s expected loss.',
       }],
       ['Underwriting members', {
