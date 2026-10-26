@@ -63,9 +63,15 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
   const slow   = await join(ctx, code, 'Tri-County', 'WC');
 
   await host.waitForFunction(() => document.querySelectorAll('[data-testid="teams-table"] tr').length === 3, null, { timeout: 30000 });
+  // ⚠ RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (utils/knownYears): before
+  // any advance that is 2026, the opening every team posts when it builds its
+  // game — so the table shows it from the start. (It said "No results known
+  // yet" while results ran a year behind.)
+  await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length === 3, null, { timeout: 60000 });
   const y0 = await host.textContent('[data-testid="teams-year"]');
-  ok(/No results known yet/.test(y0), `before any advance: "${y0.trim()}"`);
-  ok(await host.$('[data-testid="pending-Harbour Mutual"]') !== null, 'and every team reads pending, not zero');
+  ok(/^Results for 2026$/.test(y0.trim()), `before any advance the opening, 2026, is the latest known year: "${y0.trim()}"`);
+  ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null && await host.$('[data-testid="pending-Harbour Mutual"]') === null,
+    'and every team shows its opening figures, not pending');
 
   // Two teams lock and play; the third is closed so it never computes or posts.
   for (const p of [wcTeam, glTeam]) {
@@ -82,16 +88,15 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
     await p.waitForFunction(() => /year 1 result posted/.test(document.querySelector('[data-testid="posted-year"]')?.textContent || ''), null, { timeout: 180000 });
   }
 
-  // ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): the first advance
-  // completes 2026 — the opening, a pre-game year — and that is now the latest
-  // known year, so the table shows it: year 1 is posted but not yet known.
+  // The first advance completes 2027, year 1, and it is the latest known year
+  // at once: the two teams that played it show it.
   await host.click('[data-testid="host-tab-teams"]');
   await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length >= 1, null, { timeout: 30000 });
   const y1 = await host.textContent('[data-testid="teams-year"]');
-  ok(/^Results for 2026$/.test(y1.trim()), `after one advance the opening, 2026, is the latest known year: "${y1.trim()}"`);
-  ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'and the teams show its figures — the opening they posted');
+  ok(/^Results for 2027$/.test(y1.trim()), `after one advance the year just played, 2027, is the latest known year: "${y1.trim()}"`);
+  ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'and the teams that played it show its figures');
 
-  // A second year: the two live teams lock and post year 2, and year 1 becomes known.
+  // A second year: the two live teams lock and post year 2, known at once.
   for (const p of [wcTeam, glTeam]) {
     await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
@@ -113,7 +118,7 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
   await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length >= 1,
     null, { timeout: 30000 });
   const yr = await host.textContent('[data-testid="teams-year"]');
-  ok(/^Results for 2027$/.test(yr.trim()), `after the second advance one heading line names the latest KNOWN year: "${yr.trim()}"`);
+  ok(/^Results for 2028$/.test(yr.trim()), `after the second advance one heading line names the latest KNOWN year, the one just played: "${yr.trim()}"`);
   const heads = await host.$$eval('[data-testid="teams-table"]', ([t]) => [...t.closest('table').querySelectorAll('thead th')].map(h => h.textContent.trim()));
   ok(JSON.stringify(heads) === JSON.stringify(COLUMNS), `the columns, in order: ${heads.join(' · ')}`);
   ok(await host.$('[data-testid="teams-shares-year"]') === null, 'and no second heading line');

@@ -8,16 +8,17 @@
 // Nuclear Verdict (#7) scheduled in year 2 and an Earthquake (#1) in year 3:
 //
 //   1. after the first lock (into 2027, a quiet year) there is no banner;
-//   2. on the lock into 2028 the banner appears AT ONCE — before 2028's results
-//      come in (they run a year behind) — naming the event, saying in one line
-//      what it is and which of the team's lines it touches, and showing no
-//      dollars, no other figure and no level;
+//   2. on the lock into 2028 the banner appears AT ONCE — with 2028's results,
+//      which show at once too (utils/knownYears: the year just completed is
+//      known) — naming the event, saying in one line what it is and which of
+//      the team's lines it touches, and showing no dollars, no other figure
+//      and no level; the statement stands at 2028;
 //   3. the Decisions page lists it under "Events so far", and it stays listed
 //      after the banner is dismissed;
 //   4. the lock into 2029 brings the Earthquake's banner; both are listed;
-//   5. when 2028's results come in (the lock after), the Results page's own
-//      event block for 2028 names the same event on exactly the lines the
-//      banner named — the banner told the truth, without the figures.
+//   5. the Results page's own event block for 2028 names the same event on
+//      exactly the lines the banner named — the banner told the truth, without
+//      the figures. (Read after the later locks: 2028 stays on the page.)
 //
 // Hosted (only with ADMIN_TOKEN — hosting needs the sign-in): a room playing WC
 // and GL only, an Earthquake scheduled in year 2, one team. No banner after the
@@ -97,11 +98,11 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   const text = (await banner().innerText()).trim();
   ok(!/\$/.test(text) && !/\b\d[\d,.]*\b/.test(text.replace(/\b2028\b/g, '')), 'no dollars and no other figure — the year alone', text.replace(/\s+/g, ' '));
   ok(!/\b(severe|high|moderate|low|mid|level|band|size)\b/i.test(text), 'no level, band or size', '');
-  // The year's results are not in yet: the newest result year is still 2027.
+  // The year's results are in at once, beside the news: the newest result year is 2028.
   await page.getByRole('button', { name: 'Annual Statement', exact: true }).first().click();
   await page.waitForTimeout(600);
   const cols = (await page.locator('[data-testid="statement-operating"] thead th').allInnerTexts()).map(c => c.trim()).filter(c => /^\d{4}$/.test(c));
-  ok(cols.at(-1) === '2027', 'while 2028\'s results are not in yet — the statement stands at 2027', cols.join(' '));
+  ok(cols.at(-1) === '2028', 'and 2028\'s results are in at once — the statement stands at 2028', cols.join(' '));
 
   // 3. Listed on the Decisions page; dismissing the banner keeps it listed.
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
@@ -124,7 +125,7 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   ok(listed.length === 2 && /^2028\s+Nuclear Verdict/.test(listed[0]) && /^2029\s+Earthquake/.test(listed[1]),
     'both are listed, by year', listed.join(' | '));
 
-  // 5. 2028's results come in: its event block names the same lines.
+  // 5. 2028's event block on the Results page names the same lines.
   await lock(2031);
   await page.getByRole('button', { name: 'Results', exact: true }).first().click();
   await page.waitForTimeout(600);
@@ -134,7 +135,7 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   const block = await page.locator('main').innerText();
   const at = block.indexOf('Nuclear Verdict');
   const resultLines = at < 0 ? [] : linesIn(block.slice(at, at + 400).split(/\n(?=[A-Z][a-z]+ ?[A-Za-z]* —|\S+ events? this year)/)[0]);
-  ok(at >= 0, 'when 2028\'s results come in, the Results page shows the event with its figures');
+  ok(at >= 0, 'the Results page shows 2028\'s event with its figures');
   ok(JSON.stringify(resultLines) === JSON.stringify(bannerLines),
     'on exactly the lines the banner named', `results ${resultLines.join(', ')} / banner ${bannerLines.join(', ')}`);
 

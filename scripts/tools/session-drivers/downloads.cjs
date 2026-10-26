@@ -68,10 +68,11 @@ const BUTTONS = [
   await page.getByRole('button', { name: 'Single player', exact: true }).click();
   await page.waitForSelector('text=Lock Program Year', { timeout: 30000 });
 
-  // ⚠ TWO LOCKED YEARS, BECAUSE RESULTS RUN ONE YEAR BEHIND (utils/knownYears):
-  // a played year's results — and the spreadsheet's downloads with them — first
-  // show at the advance after it completes. One played year that is KNOWN is all
-  // the exports need; a third would only make the driver slower.
+  // ⚠ TWO LOCKED YEARS. A played year's results — and the spreadsheet's
+  // downloads with them — show as soon as it is locked (utils/knownYears: the
+  // year just completed is known), so one would do; two give the exports a
+  // played year with a year after it, as they had while results ran a year
+  // behind. A third would only make the driver slower.
   for (const next of [2028, 2029]) {
     await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForTimeout(2500);
