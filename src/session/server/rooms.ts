@@ -139,11 +139,13 @@ import { Faults } from '../faults';
 import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import {
-  CREATE_SK, LOBBY_PK, LOBBY_SK, RESULT_PREFIX, ROOM_HEADER_SK,
-  createPk, decisionPrefix, decisionSk, lobbyEventPath, nameSk, resultPrefix, resultSk, roomPk,
+  CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
+  createPk, decisionPrefix, decisionSk, lobbyEventPath, nameSk, pinPk, resultPrefix, resultSk, roomPk,
   tokenSk, viewerSk,
 } from './keys';
-import { dynamoFromEnv, hashToken, newRoomCode, newTeamId, type Dynamo, type DynamoConfig } from './dynamo';
+import {
+  dynamoFromEnv, hashToken, newRoomCode, newTeamId, newViewerPin, type Dynamo, type DynamoConfig,
+} from './dynamo';
 import {
   buildCallerView, buildRoomView, orderedRoster, type Fetched, type RoomHeader, type RosterEntry, type YearItem,
 } from './views';
@@ -292,6 +294,23 @@ export class DynamoSessionTransport implements SessionTransport {
       ConsistentRead: true,
     }));
     return (res.Item as { teamId?: string } | undefined)?.teamId ?? null;
+  }
+
+  /**
+   * A viewer PIN resolved to the room+team it names, or null — never throws.
+   * join() still re-reads the room header itself afterward (header first,
+   * items second), so an expired room is caught there as ROOM_NOT_FOUND
+   * whether or not this index item has been swept by TTL yet — see keys.ts.
+   */
+  private async resolvePin(pin: string): Promise<{ code: string; teamId: string } | null> {
+    const res = await this.db.doc.send(new GetCommand({
+      TableName: this.db.table,
+      Key: { pk: pinPk(pin), sk: PIN_SK },
+      ConsistentRead: true,
+    }));
+    const item = res.Item as { code?: string; teamId?: string } | undefined;
+    if (!item?.code || !item.teamId) return null;
+    return { code: item.code, teamId: item.teamId };
   }
 
   private async queryPrefix(pk: string, prefix: string): Promise<YearItem[]> {
@@ -587,12 +606,32 @@ export class DynamoSessionTransport implements SessionTransport {
 
   join(req: JoinRequest): Promise<JoinResponse> {
     return this.call(async () => {
-      const code = requireString(req.code, 'code');
-      const rawName = requireString(req.teamName, 'teamName');
       if (req.role !== 'player' && req.role !== 'viewer') {
         throw new SessionError('INVALID_REQUEST', "role must be 'player' or 'viewer'.");
       }
       if (req.token !== undefined) requireString(req.token, 'token');
+
+      // ⚠ A PIN RESOLVES code AND teamName BOTH, BEFORE ANY OF THE RETRY LOGIC
+      // BELOW. Viewer-only — see JoinRequest.pin — so a player request never
+      // reaches this branch. The lookup is a plain read, not a write, and does
+      // not need to be inside the retry loop: it names a target, the loop below
+      // still re-reads the room fresh on every attempt.
+      let code: string;
+      let rawName: string | undefined;
+      let resolvedTeamId: string | null = null;
+      if (req.pin !== undefined) {
+        if (req.role !== 'viewer') {
+          throw new SessionError('INVALID_REQUEST', 'pin may only be used to join as a viewer.');
+        }
+        const pin = requireString(req.pin, 'pin');
+        const resolved = await this.resolvePin(pin);
+        if (!resolved) throw new SessionError('TEAM_NOT_FOUND', 'No team with that PIN.');
+        code = resolved.code;
+        resolvedTeamId = resolved.teamId;
+      } else {
+        code = requireString(req.code, 'code');
+        rawName = requireString(req.teamName, 'teamName');
+      }
 
       // ⚠ EACH PASS READS AND DECIDES FROM SCRATCH. A failed condition means the
       // room changed between this pass's read and its write; the next pass sees
@@ -601,23 +640,33 @@ export class DynamoSessionTransport implements SessionTransport {
       let lastFailure: SessionError | null = null;
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         const header = await this.getHeader(code);
-        const name = rawName.trim();
-        if (name.length === 0) {
+        const name = rawName !== undefined ? rawName.trim() : undefined;
+        if (name !== undefined && name.length === 0) {
           throw new SessionError('INVALID_REQUEST', 'A team needs a name.');
         }
-        const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+        // ⚠ RESOLVED BY ID WHEN A PIN NAMED THE TEAM, BY NAME OTHERWISE. Both
+        // land on the same [teamId, team] shape, so every branch below reads
+        // exactly as it did before a PIN could ever reach this method.
+        const found = resolvedTeamId
+          ? (header.roster?.[resolvedTeamId] ? ([resolvedTeamId, header.roster[resolvedTeamId]] as const) : null)
+          : Object.entries(header.roster ?? {}).find(([, t]) => t.name === name) ?? null;
         const [teamId, team] = found ?? [null, null];
         const pk = roomPk(code);
 
         // ⚠ A VIEWER WATCHES SOMETHING THAT EXISTS; A PLAYER MAY CREATE IT.
         if (req.role === 'viewer') {
           if (!team || !teamId) {
-            throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+            throw new SessionError(
+              'TEAM_NOT_FOUND',
+              resolvedTeamId ? 'No team with that PIN.' : `${name} is not a team in this room.`,
+            );
           }
           if (req.token) {
             const watching = await this.getViewerTeamId(code, hashToken(req.token));
             if (watching === teamId) {
               const view = await this.viewFor(header, 'viewer', teamId);
+              // ⚠ NO pin HERE — a viewer's JoinResponse never carries one. See
+              // JoinResponse.pin: only the team's own player ever learns it.
               return { teamToken: req.token, teamName: team.name, lines: [...team.lines], role: 'viewer' as const, rejoined: true, room: view.room };
             }
             await this.assertTokenFree(header, req.token);
@@ -654,7 +703,11 @@ export class DynamoSessionTransport implements SessionTransport {
             // for a different set; a join carries no lines now, so the team
             // holds the room's set on the first join and on every return.
             const view = await this.viewFor(header, 'player', teamId);
-            return { teamToken: req.token, teamName: team.name, lines: [...team.lines], role: 'player' as const, rejoined: true, room: view.room };
+            // ⚠ pin, AGAIN, EVERY REJOIN — not only on create. A reloaded
+            // player's screen needs it to show the PIN again without a second
+            // lookup; team.pin is absent only for a team created before this
+            // field existed.
+            return { teamToken: req.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: view.room };
           }
           throw new SessionError('TEAM_TAKEN', `A team called ${team.name} is already in this room.`);
         }
@@ -685,14 +738,25 @@ export class DynamoSessionTransport implements SessionTransport {
         const token = req.token ?? newSessionToken();
         const h = hashToken(token);
         const newId = newTeamId();
+        // ⚠ name IS DEFINED HERE, ALWAYS. Reaching this line means req.pin was
+        // not given (a pin forces role 'viewer', which returns above this
+        // point), so this is the code/teamName path, where teamName is
+        // required and already validated.
+        const teamName = name as string;
+        // A PIN lets a viewer jump straight to this team from the Lobby with
+        // no room code in hand — see keys.ts's PIN# index. Minted fresh each
+        // attempt; a collision below (vanishingly unlikely at 10^6 PINs) just
+        // retries with a new one, the room-code collision's own shape.
+        const pin = newViewerPin();
         const entry: RosterEntry = {
-          name,
+          name: teamName,
           // The room's set, already canonical — copied onto the roster entry so
           // the host's table and a viewer read it from the team row as before.
           lines: [...lines],
           joined: true,
           lockedYear: null,
           tokenHash: h,
+          pin,
           posted: {},
           lockedYears: {},
           joinedAt: Date.now(),
@@ -701,7 +765,7 @@ export class DynamoSessionTransport implements SessionTransport {
           // 0 — the name is claimed once.
           { Put: {
             TableName: this.db.table,
-            Item: { pk, sk: nameSk(name), teamId: newId, expiresAtSec: header.expiresAtSec },
+            Item: { pk, sk: nameSk(teamName), teamId: newId, expiresAtSec: header.expiresAtSec },
             ConditionExpression: 'attribute_not_exists(sk)',
           } },
           // 1 — the token is claimed once, across players...
@@ -725,17 +789,33 @@ export class DynamoSessionTransport implements SessionTransport {
             ExpressionAttributeNames: { '#tid': newId },
             ExpressionAttributeValues: { ':entry': entry, ':now': Date.now(), ':one': 1 },
           } },
+          // 4 — the PIN is claimed once, globally (outside this room's
+          // partition — keys.ts's pinPk).
+          { Put: {
+            TableName: this.db.table,
+            Item: { pk: pinPk(pin), sk: PIN_SK, code, teamId: newId, expiresAtSec: header.expiresAtSec },
+            ConditionExpression: 'attribute_not_exists(pk)',
+          } },
         ]);
         if (!tx.ok) {
+          // ⚠ A PIN COLLISION, ALONE, IS NOT ONE OF THE THREE USER-FACING
+          // FAILURES BELOW — it says nothing about the name or the token, so
+          // it is not reported if the OTHERS also failed; it just means this
+          // attempt's PIN was already in use somewhere, and the next attempt
+          // mints a fresh one.
+          if (tx.failed.length === 1 && tx.failed[0] === 4) {
+            lastFailure = new SessionError('TRANSPORT_FAILURE', 'Could not allocate a viewer PIN.', true);
+            continue;
+          }
           lastFailure = tx.failed.includes(0)
-            ? new SessionError('TEAM_TAKEN', `A team called ${name} is already in this room.`)
+            ? new SessionError('TEAM_TAKEN', `A team called ${teamName} is already in this room.`)
             : tx.failed.includes(3)
               ? new SessionError('ROOM_NOT_FOUND', `No room with code ${code}.`)
               : new SessionError('BAD_TOKEN', 'That token is already in use in this room.');
           continue;
         }
         const view = await this.freshView(code, 'player', newId);
-        return { teamToken: token, teamName: entry.name, lines: [...entry.lines], role: 'player' as const, rejoined: false, room: view.room };
+        return { teamToken: token, teamName: entry.name, lines: [...entry.lines], pin, role: 'player' as const, rejoined: false, room: view.room };
       }
       // Lost the race MAX_ATTEMPTS times in a row and the re-read never settled
       // it. Only reachable under sustained contention on one name or token.

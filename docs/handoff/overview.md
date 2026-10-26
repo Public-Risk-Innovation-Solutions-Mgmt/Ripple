@@ -234,3 +234,4 @@ Summarised here; the full, unsoftened list is in `known-issues.md`.
 | How it got here | `history.md` |
 | What was next | `wishlist.md` |
 | The AWS session handler: what was built, how it is verified, what is next | `AWS_HANDLER_HANDOFF.md` |
+| Admin accounts: the real (Option B) backend that's built, and what Mike still has to provision | `ADMIN_ACCOUNTS_HANDOFF.md` |

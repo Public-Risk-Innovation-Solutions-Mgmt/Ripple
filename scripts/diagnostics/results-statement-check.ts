@@ -57,17 +57,26 @@
 //
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over a statement, and
 // THE CONTROLS feed each one a statement broken the way it guards against.
+//
+// ⚠ THE SHOCKS LANDING (2ae5c1a): a solo game now draws shocks, and the only
+// thing a cover pays is a T claim (per-occurrence T covers, default None; the
+// aggregate stop, which recovered on an ordinary bad year, is off). So the
+// ceded block is real only in a game that buys cover AND carries a T claim:
+// the game is STMT7 (GL's Nuclear Verdict in year 2, Property's Earthquake in
+// year 6), every line holding the widest T cover every year. Its control: the
+// same game on the default decisions (no cover) must recover nothing.
 // ============================================================================
 
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
+import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 import {
   buildAnnualStatement, cellText, COMBINED_RATIO_LABEL, notYetAvailable, num, statementYears, topCombinedRatio,
   type AnnualStatement, type Cell, type CellFormat, type StatementRow, type StatementSection,
 } from '../../src/utils/resultsStatement';
-import type { CoverageLine, GameSetupSettings, GameState, LineView, ResultSet } from '../../src/types/simulation';
+import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineView, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const SCOPES: LineView[] = ['pool', ...LINES];
@@ -83,13 +92,20 @@ const check = (ok: boolean, label: string, detail = '') => {
 const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
 
 /** One game, its state at game start and after every year. */
-function playSnapshots(id: string, years: number): GameState[] {
+/** The year's decisions: the defaults, with the widest T cover bought on every line (the shocks landing). */
+function covered(y: number): DecisionSet {
+  const d = defaultDecisionSet(y);
+  for (const l of LINES) d.byLine[l].reinsuranceOption = fullTowerOption(l);
+  return d;
+}
+
+function playSnapshots(id: string, years: number, decide: (y: number) => DecisionSet = covered): GameState[] {
   const { setup, instance } = openSoloInstance({ poolName: 'S', gameLength: years, startingYear: 2027, instanceId: id, activeLines: LINES } as GameSetupSettings);
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory });
   const out = [gs];
   for (let y = 1; y <= years; y++) {
-    const s = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
+    const s = settleWorldsYear(gs, playWorldsYear(gs, decide(y)), []);
     gs = { ...gs, ...commitSettledYear(gs, s), currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1) };
     out.push(gs);
   }
@@ -450,7 +466,9 @@ function selector(st: AnnualStatement, gs: GameState, year: number): string[] {
 
 // ---------------------------------------------------------------------------
 console.log(`=== THE ANNUAL STATEMENT — a solo ten-world game, three lines, game start and every year to ${YEARS}, pool and every line ===`);
-const snaps = playSnapshots('STMT1', YEARS);
+// STMT7, not STMT1, since the shocks landing: STMT1 draws no T claim, so no cover would pay.
+const GAME = 'STMT7';
+const snaps = playSnapshots(GAME, YEARS);
 const agg: Record<string, string[]> = {};
 const note = (k: string, xs: string[]) => { (agg[k] ??= []).push(...xs); };
 let statements = 0;
@@ -507,9 +525,16 @@ for (const k of Object.keys(labels)) check((agg[k] ?? []).length === 0, `${k}. $
   const cols = (n: number) => sec(buildAnnualStatement(snaps[n], 'pool'), 'operating').columns.join(' · ');
   console.log(`\n  game start    ${cols(0)}\n  after year 1  ${cols(1)}\n  after year 2  ${cols(2)}\n  after year 5  ${cols(5)}\n  after year 6  ${cols(6)}`);
   // Over every program year — Prior and the five — not the latest five alone.
-  const ced = cellsOf(buildAnnualStatement(snaps[YEARS], 'pool'), 'ceded', 'Ultimates');
-  const recovered = (num(ced[0]) ?? 0) + (num(ced.at(-1)!) ?? 0);
+  const recoveredBy = (gs: GameState) => {
+    const ced = cellsOf(buildAnnualStatement(gs, 'pool'), 'ceded', 'Ultimates');
+    return (num(ced[0]) ?? 0) + (num(ced.at(-1)!) ?? 0);
+  };
+  const recovered = recoveredBy(snaps[YEARS]);
   check(recovered > 0, 'the game recovered from its reinsurers, so the ceded block is tested on real figures', `ceded ultimates, every program year $${(recovered / 1e6).toFixed(2)}M`);
+  // THE CONTROL (the shocks landing): the same game holding no cover — the
+  // default decisions — recovers nothing, so the check above must fail on it.
+  const bare = recoveredBy(playSnapshots(GAME, YEARS, defaultDecisionSet)[YEARS]);
+  check(!(bare > 0), 'control: the same game holding no cover (the defaults) recovers nothing, and the check fails on it', `ceded ultimates $${(bare / 1e6).toFixed(2)}M`);
 }
 
 // ============================================================================

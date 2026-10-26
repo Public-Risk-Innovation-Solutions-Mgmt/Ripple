@@ -468,6 +468,9 @@ export interface TeamMarketShare {
   byLine: Partial<Record<CoverageLine, number>>;
 }
 
+/** One team's room share with the result year it is from — CallerView.marketShare. */
+export type TeamMarketShareOfYear = TeamMarketShare & { year: number };
+
 /**
  * ⚠ WORKED OUT ONCE PER YEAR AND STORED WITH THE ROOM, so the host and every
  * player read the same figures. The set for year Y is computed in the SUBMIT
@@ -665,21 +668,19 @@ export interface TeamView {
 }
 
 /**
- * ⚠ PRIOR DEVELOPMENT, PER LINE, AND THE ENGINE DOES NOT READ IT YET.
+ * ⚠ PRIOR DEVELOPMENT, PER LINE — READ WITH ADVERSE_DEVELOPMENT OFF, AND NOT
+ * READ WITH IT ON (wip/adverse-development, where the levels below replace it).
  *
- * A signed fraction of the opening reserve: POSITIVE IS ADVERSE (prior years
- * develop upward, the pool owes more than it booked) and NEGATIVE IS FAVOURABLE.
- * So 0.03 is "3% adverse" and -0.02 is "2% favourable", which is how the host
- * screen phrases it.
+ * A signed fraction: POSITIVE IS ADVERSE (prior years develop upward, the pool
+ * owes more than it booked) and NEGATIVE IS FAVOURABLE. So 0.03 is "3% adverse"
+ * and -0.02 is "2% favourable".
  *
- * ⚠ STORED, NOT USED. Nothing in the engine reads this field today. It is
- * carried on the room so that a future update can apply it to the opening
- * reserves without a second contract change and without re-creating rooms made
- * before it lands. The host screen says so on screen, in those words, because a
- * number beside a line that quietly does nothing is worse than no number.
- *
- * A line absent from the record takes no development, which is also what an old
- * room record — written before this field existed — reads as.
+ * Off, it is the share of each open older accident year's reserve that develops
+ * over its remaining life, in total, emerging as it pays (utils/hostDevelopment;
+ * setup.priorDevelopment, read by the engine and the pre-game). A line absent
+ * from the record reads the engine's default (PRIOR_DEVELOPMENT_DEFAULTS),
+ * which is also what an old room record reads as. On, the room still carries
+ * it, so a record written either way reads the same.
  */
 export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
 
@@ -694,9 +695,8 @@ export type DevelopmentLevels = Partial<Record<CoverageLine, 'Low' | 'Mid' | 'Hi
 export const isDevelopmentLevel = (v: unknown): v is 'Low' | 'Mid' | 'High' => v === 'Low' || v === 'Mid' || v === 'High';
 
 /**
- * The defaults the host screen offers. They are the SCREEN's defaults, not the
- * engine's: the engine has no opinion here yet (see PriorDevelopment), so these
- * are starting points a host is expected to edit, not calibrated constants.
+ * The prior-development defaults — the engine's own, the same values, so a line
+ * left unset plays what the default plays (with ADVERSE_DEVELOPMENT off).
  */
 // ⚠ DEFINED IN src/data/pricingParameters.ts NOW, re-exported here. Same values.
 export { PRIOR_DEVELOPMENT_DEFAULTS as DEFAULT_PRIOR_DEVELOPMENT } from '../data/pricingParameters';
@@ -809,7 +809,7 @@ export interface CallerView {
    * one figure of RoomView.marketShares a player (or a viewer of that player)
    * may see. Absent until the team has a share in the stored set.
    */
-  marketShare?: TeamMarketShare & { year: number };
+  marketShare?: TeamMarketShareOfYear;
 }
 
 // ---------------------------------------------------------------- requests
@@ -891,15 +891,32 @@ export interface CreateRoomResponse {
 // a server must handle both. The note survived into this branch because the gap
 // was recorded here and closed on another.
 export interface JoinRequest {
-  code: string;
+  /** Omit when `pin` is given — the pin resolves both this and `teamName`. */
+  code?: string;
   /**
    * A PLAYER NAMES ITS OWN TEAM HERE and the name must be free in this room; a
    * VIEWER names an existing team to watch. The host no longer pre-registers a
    * roster, because the name is part of the team's own game setup — the same
    * act as choosing its lines, and set at the same single moment.
+   *
+   * Omit when `pin` is given.
    */
-  teamName: string;
+  teamName?: string;
   role: 'player' | 'viewer';
+  /**
+   * ⚠ A SHORTCUT TO ONE TEAM, NOT A SECOND WAY TO ADDRESS A ROOM. Minted once,
+   * for the team, when it is created (JoinResponse.pin) — a viewer who has it
+   * can jump straight to watching that team from the Lobby, with no room code
+   * in hand at all. `code`/`teamName` are not needed when `pin` is given; it
+   * resolves both.
+   *
+   * ⚠ VIEWER-ONLY, REFUSED OTHERWISE (INVALID_REQUEST). A pin never creates or
+   * claims a team — it only names one to watch — so it carries exactly the
+   * authority a name-based viewer join already has, nothing more. It is
+   * globally unique (keys.ts's PIN# index, outside any room's partition),
+   * unlike a team name, which is only unique within its own room.
+   */
+  pin?: string;
   /**
    * ⚠ THERE IS NO `lines` FIELD ANY MORE, AND ITS ABSENCE IS THE POINT.
    * A player used to send its coverage lines here, required on a first join and
@@ -939,6 +956,13 @@ export interface JoinResponse {
    *  the host fixed at creation, returned here so a client can build its game
    *  from the join response alone. */
   lines: CoverageLine[];
+  /**
+   * ⚠ PRESENT ONLY FOR THE PLAYER THAT OWNS THIS TEAM — on create, and on every
+   * rejoin. This is the ONLY way a team ever learns its own PIN: it is never in
+   * `RoomView`, never in another caller's `CallerView`, same treatment as the
+   * team's bearer token. A viewer's `JoinResponse` never carries one.
+   */
+  pin?: string;
   rejoined: boolean;
   room: RoomView;
 }

@@ -157,6 +157,18 @@ class MemoryStorage {
 
 (globalThis as unknown as { localStorage: unknown }).localStorage = new MemoryStorage();
 
+// ⚠ NODE'S OWN navigator.locks IS SHUT OFF HERE, DELIBERATELY. localTransport's
+// withRoomLock already falls back to running synchronously when no lock
+// manager exists — the comment there says "the harness runs under a DOM-less
+// Node". That was true until Node started shipping navigator.locks itself
+// (confirmed present as of Node v24.21.0, this harness's target), which is
+// where the fallback stopped applying. Node's implementation does not release
+// the lock when the callback throws, so the very first validation rejection in
+// this file wedges every withRoomLock call after it: no error, no output, a
+// clean process exit with the hung promise simply abandoned. One process runs
+// every pass here, so blanking it once at the top is enough.
+Object.defineProperty(globalThis, 'navigator', { value: undefined, configurable: true });
+
 // ---------------------------------------------------------------- asserts
 
 const failures: string[] = [];
@@ -1222,6 +1234,46 @@ async function main(): Promise<void> {
     await rejects(
       t.join({ code: a.code, teamName: 'Far Too Late', role: 'player' }),
       'EVENT_IN_PROGRESS', 'a finished event takes no new teams');
+  }
+
+  // ---- VIEWER JOIN BY PIN -----------------------------------------------
+  //
+  // ⚠ VIEWER-ONLY, AND RESOLVED GLOBALLY. A PIN never creates or claims a team
+  // — it only tells join() which existing team to watch, which is why a PIN
+  // plus role: 'player' is refused outright rather than silently downgraded.
+  // And it resolves with no room code in hand at all, which is the one new
+  // kind of lookup this feature adds — see keys.ts's pinPk.
+  {
+    const t = transport();
+    const { code } = await freshRoom(t);
+    const driver = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+
+    ok(typeof driver.pin === 'string' && driver.pin.length > 0,
+      'a player creating a team gets back a PIN for it');
+    ok(!JSON.stringify(await t.read({ code })).includes(driver.pin as string),
+      'the PIN is never carried on a room view, for anyone');
+
+    const watcher = await t.join({ pin: driver.pin, role: 'viewer' } as never);
+    eq(watcher.role, 'viewer', 'joining by PIN lands as a viewer');
+    eq(watcher.teamName, TEAMS[0], 'and resolves to the team the PIN was minted for');
+    ok(watcher.pin === undefined, 'a viewer never receives a PIN of its own — only a player does');
+    eq(watcher.lines.join(','), driver.lines.join(','), 'a PIN-joined viewer gets the watched team\'s lines');
+
+    // ⚠ SAME REDACTION A NAME-BASED VIEWER JOIN ALREADY GETS. Resolving by PIN
+    // changes how the team is FOUND, not what the caller is handed back.
+    const asWatcher = await t.read({ code, token: watcher.teamToken });
+    eq(asWatcher.you.role, 'viewer', 'a PIN-minted viewer token reads back as a viewer');
+    eq(asWatcher.you.teamName, TEAMS[0], 'bound to the watched team, same as a name-based viewer join');
+
+    const rejoinedPlayer = await t.join({ code, teamName: TEAMS[0], role: 'player', token: driver.teamToken });
+    eq(rejoinedPlayer.pin, driver.pin, 'a rejoining player is handed the same PIN again');
+
+    await rejects(
+      t.join({ pin: '000000', role: 'viewer' } as never),
+      'TEAM_NOT_FOUND', 'an unknown PIN resolves to no team');
+    await rejects(
+      t.join({ pin: driver.pin, role: 'player' } as never),
+      'INVALID_REQUEST', 'a PIN combined with role: player is refused — a PIN never claims a team');
   }
 
 }

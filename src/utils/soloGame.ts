@@ -25,7 +25,8 @@ export function openSoloInstance(
   settings: GameSetupSettings,
   // TEST PLAYER (wip/adverse-development): the host's setup, played solo — its
   // own shock schedule, fixed or randomised on the host screen, in place of the
-  // draw. Its development levels ride on `settings.developmentLevels`.
+  // draw. Its development levels ride on `settings.developmentLevels`. The save
+  // carries setup and instance, so a reload rebuilds the same game.
   test?: { schedule: ScheduledShock[] },
 ): { setup: GameSetupSettings; instance: GameInstance } {
   const draw = SOLO_SHOCK_DRAW === 'catalogue' ? drawCatalogueSchedule : drawShockSchedule;

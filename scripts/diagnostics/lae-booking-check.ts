@@ -40,7 +40,8 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { laeShares, lossExpenseReserve } from '../../src/utils/lossExpense';
 import { ALAE_OF_LOSS_COST, ALAE_RATIO_RANGE, ULAE_OF_LOSS_COST } from '../../src/data/pricingParameters';
-import type { CoverageLine, GameSetupSettings, GameState, LineResultSet, PoolState, ReserveCohort } from '../../src/types/simulation';
+import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineResultSet, PoolState, ReserveCohort } from '../../src/types/simulation';
+import type { ScheduledShock } from '../../src/types/shocks';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const failures: string[] = [];
@@ -52,14 +53,20 @@ const near = (a: number, b: number, rel = 1e-9) => Math.abs(a - b) <= rel * Math
 
 interface Played { gs: GameState; starts: GameState[]; opening: PoolState }
 
-function play(id: string, years: number, shocks: 'on' | 'off'): Played {
+// ⚠ SHOCKS LANDING (2ae5c1a): `shocks` may now be a SCHEDULE, played as the
+// solo game plays its catalogue draw, and `edit` sets the year's decisions — the
+// default decisions buy no cover (REINSURANCE_DEFAULT_OPTION 'none'), so a game
+// that is to cede anything must buy a T cover and meet a T claim.
+function play(id: string, years: number, shocks: 'on' | 'off' | ScheduledShock[], edit: (d: DecisionSet) => void = () => {}): Played {
   const settings = { poolName: 'L', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES } as GameSetupSettings;
   const solo = openSoloInstance(settings);
-  const instance = shocks === 'on' ? solo.instance : generateGameInstance(id, seedFromInstanceId(id), []);
+  const instance = shocks === 'on' ? solo.instance
+    : generateGameInstance(id, seedFromInstanceId(id), shocks === 'off' ? [] : shocks);
+  const decisions = (y: number) => { const d = defaultDecisionSet(y); edit(d); return d; };
   const { poolState, priorHistory } = runPriorHistory(instance, solo.setup);
   let gs = openWorlds({
     setup: solo.setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
-    poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
+    poolState, lockedResults: [], currentDecisions: decisions(1), priorHistory,
   });
   const starts: GameState[] = [];
   // Every world's rows, collected as each year settles: a world keeps only its
@@ -67,8 +74,8 @@ function play(id: string, years: number, shocks: 'on' | 'off'): Played {
   const full: GameState['lockedResults'][] = (gs.worlds ?? []).map(() => []);
   for (let y = 1; y <= years; y++) {
     starts.push(gs);
-    const s = settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), []);
-    gs = { ...gs, ...commitSettledYear(gs, s), currentYearNumber: y + 1, currentDecisions: defaultDecisionSet(y + 1) };
+    const s = settleWorldsYear(gs, playWorldsYear(gs, decisions(y)), []);
+    gs = { ...gs, ...commitSettledYear(gs, s), currentYearNumber: y + 1, currentDecisions: decisions(y + 1) };
     gs.worlds?.forEach((w, i) => full[i].push(w.lockedResults[w.lockedResults.length - 1]));
   }
   return { gs: gs.worlds ? { ...gs, worlds: gs.worlds.map((w, i) => ({ ...w, lockedResults: full[i] })) } : gs, starts, opening: poolState };
@@ -157,7 +164,19 @@ for (const l of LINES) {
 }
 const sharesFor = (l: CoverageLine): Shares => c => laeShares(l, c.alaeRatio);
 
-const games = [play('LAE1', 6, 'on'), play('LAE2', 6, 'on')];
+// ⚠ SHOCKS LANDING (2ae5c1a): THE THIRD GAME BUYS COVER AND MEETS T CLAIMS.
+// The two solo games hold the default cover, None, and with ROUTINE_LARGE_LOSSES
+// off a T claim is the only claim a cover can answer — so they cede nothing and
+// their gross and net ledgers are the same numbers. The net-basis control below
+// was then vacuous ("0 of 0 line-years"). This game buys the widest T cover,
+// $38M xs $2M, on every line and schedules a T claim on each that is sure to
+// pierce $2M: Pandemic in year 2 (GL Mid $3-7M, WC High $6-40M), Wildfire in
+// year 3 (Property High $12-40M), Nuclear Verdict in year 4 (GL High $7-40M).
+const COVER = '$38M xs $2M';
+const COVERED_SCHEDULE: ScheduledShock[] = [
+  { shockId: '#9', yearNumber: 2 }, { shockId: '#3', yearNumber: 3 }, { shockId: '#7', yearNumber: 4 }];
+const games = [play('LAE1', 6, 'on'), play('LAE2', 6, 'on'),
+  play('LAE3', 6, COVERED_SCHEDULE, d => { for (const l of LINES) d.byLine[l].reinsuranceOption = COVER; })];
 const bad2: string[] = [], bad3: string[] = [], bad4: string[] = [];
 let bad5 = 0, rows = 0, worstOpening = 0;
 for (const g of games) {
@@ -212,16 +231,36 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   // bases apart; it must be caught wherever cover responded.
   const glRow = g.gs.worlds![0].lockedResults[2].byLine.GL;
   const toNet = (cs: readonly ReserveCohort[]) => cs.map(c => ({ ...c, grossPaid: c.netPaid, grossUnpaid: c.netUnpaid }));
+  // ⚠ SHOCKS LANDING: the ceded line-years now come from the covered game; the
+  // scan must find one on EVERY line, each scheduled T claim having pierced $2M,
+  // or the control is reporting on less than it says.
   let caughtNet = 0, cededYears = 0;
+  const cededLines = new Set<CoverageLine>();
   for (const gg of games) gg.gs.worlds!.forEach((w, wi) => LINES.forEach(l => w.lockedResults.forEach((row, y) => {
     const b0 = gg.starts[y].worlds![wi].poolState.lines[l].reserveCohorts ?? [];
     const a0 = (y + 1 < gg.starts.length ? gg.starts[y + 1].worlds![wi] : w).poolState.lines[l].reserveCohorts ?? [];
-    if (Math.abs(gross(a0, false).unpaid - gross(toNet(a0), false).unpaid) < 1) return;
-    cededYears++;
+    if (Math.abs(gross(a0, false).unpaid - gross(toNet(a0), false).unpaid) < 1
+      && Math.abs(gross(a0, false).paid - gross(toNet(a0), false).paid) < 1) return;
+    cededYears++; cededLines.add(l);
     if (laeAgainstLosses(sharesFor(l), toNet(b0), toNet(a0), row.byLine[l]).length > 0) caughtNet++;
   })));
-  check(cededYears > 0 && caughtNet === cededYears, 'control: LAE on the net loss rather than the ground-up is caught',
-    `${caughtNet} of ${cededYears} line-years whose gross and net differ`);
+  check(cededLines.size === LINES.length && caughtNet === cededYears, 'control: LAE on the net loss rather than the ground-up is caught',
+    `${caughtNet} of ${cededYears} line-years whose gross and net differ, on ${[...cededLines].join(', ') || 'no line'}`);
+  // AND THE SCAN'S OWN GUARD FAILS WHEN THE COVER IS NOT BOUGHT: the same
+  // schedule at the default decisions (None) cedes nothing, which is exactly the
+  // vacuous "0 of 0" the guard above exists to refuse.
+  {
+    const bare = play('LAE3', 4, COVERED_SCHEDULE);
+    const bareLines = new Set<CoverageLine>();
+    // A ceded cohort stays in the ledger, so the year-4 close shows any cession in the game.
+    bare.gs.worlds!.forEach(w => LINES.forEach(l => {
+      const a0 = w.poolState.lines[l].reserveCohorts ?? [];
+      if (Math.abs(gross(a0, false).unpaid - gross(toNet(a0), false).unpaid) >= 1
+        || Math.abs(gross(a0, false).paid - gross(toNet(a0), false).paid) >= 1) bareLines.add(l);
+    }));
+    check(bareLines.size < LINES.length, 'control: the same shocks with no T cover bought leave the net-basis control without its ceded line-years',
+      `ceded on ${[...bareLines].join(', ') || 'no line'}`);
+  }
   // GL booking ULAE alone, as under the old rule.
   check(laeAgainstLosses(() => ({ alae: 0, total: ULAE_OF_LOSS_COST.GL }),
     g.starts[2].worlds![0].poolState.lines.GL.reserveCohorts ?? [], g.starts[3].worlds![0].poolState.lines.GL.reserveCohorts ?? [], glRow).length > 0,

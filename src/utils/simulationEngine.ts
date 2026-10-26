@@ -83,7 +83,7 @@ function newLossEngineRecord(
   };
 }
 
-// Collapse the per-line shock records into one row per EVENT for the pool
+// Collapse the per-line shock records into one row per FIRING for the pool
 // result, summing each cost across the lines that event touched and unioning
 // the lines it affected. Returns undefined when no line recorded anything, so
 // the pool result carries no empty array.
@@ -91,7 +91,8 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
   const merged = new Map<string, ShockRecord>();
   for (const r of lineResults) {
     const line = r.line as CoverageLine;
-    for (const rec of r.shockEvents ?? []) {
+    const keys = shockRecordKeys(r.shockEvents ?? []);
+    for (const [i, rec] of (r.shockEvents ?? []).entries()) {
       // What THIS line contributed, kept as it is summed in — the per-line split
       // the Results card and the narrative show.
       const own = {
@@ -99,9 +100,9 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
         attributableClaims: rec.attributableClaims,
         expectedGrossLossAdded: rec.expectedGrossLossAdded,
       };
-      const existing = merged.get(rec.shockId);
+      const existing = merged.get(keys[i]);
       if (!existing) {
-        merged.set(rec.shockId, { ...rec, linesAffected: [...rec.linesAffected], byLine: { [line]: own } });
+        merged.set(keys[i], { ...rec, linesAffected: [...rec.linesAffected], byLine: { [line]: own } });
         continue;
       }
       existing.attributableGrossLoss += rec.attributableGrossLoss;
@@ -167,7 +168,7 @@ import {
   type OrdinaryLossYear, type UnitOrdinaryYear,
 } from './ordinaryLoss';
 import { marketSeedOf, type BookUnit } from './bookUnits';
-import { applyMarketShock, drawLargeLosses, firingKey, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, shockRecordKeys, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
@@ -1931,14 +1932,15 @@ export function processLineYear(
     if (!isWcClaimLine) glClaimCount = draw.claims.length;
     // What each event cost this year: its uplift on the ordinary year, plus its
     // T losses. Both are exact — specific dollars, not an estimate.
+    // Keyed per FIRING (firingRecordKey), so a repeat of an event in force is its own row.
     for (const { firing, uplift } of lineShocks.byFiring) {
-      shockAttributableLoss[firing.event.id] = (shockAttributableLoss[firing.event.id] ?? 0)
-        + uplift * ordinaryYear.realised;
+      const key = firingRecordKey(firing);
+      shockAttributableLoss[key] = (shockAttributableLoss[key] ?? 0) + uplift * ordinaryYear.realised;
     }
     for (const arrival of lineShocks.arrivals) {
       const t = draw.tByFiring.get(firingKey(arrival.firing));
       if (!t) continue;
-      const id = arrival.firing.event.id;
+      const id = firingRecordKey(arrival.firing);
       shockAttributableLoss[id] = (shockAttributableLoss[id] ?? 0) + t.gross;
       shockAttributableClaims[id] = (shockAttributableClaims[id] ?? 0) + t.claims;
     }
@@ -3154,12 +3156,15 @@ export function processLineYear(
     bookedGrossUltimate,
     ...(drawnCatastrophes.length > 0 ? { drawnCatastrophes } : {}),
     shockEvents: ctx.shockFirings?.length
-      ? ctx.shockFirings.map((f): ShockRecord => ({
-          ...f,
-          attributableGrossLoss: shockAttributableLoss[f.shockId] ?? 0,
-          attributableClaims: shockAttributableClaims[f.shockId] ?? 0,
-          expectedGrossLossAdded: shockExpectedAdded[f.shockId] ?? 0,
-        }))
+      ? (() => {
+          const keys = shockRecordKeys(ctx.shockFirings);
+          return ctx.shockFirings.map((f, i): ShockRecord => ({
+            ...f,
+            attributableGrossLoss: shockAttributableLoss[keys[i]] ?? 0,
+            attributableClaims: shockAttributableClaims[keys[i]] ?? 0,
+            expectedGrossLossAdded: shockExpectedAdded[keys[i]] ?? 0,
+          }));
+        })()
       : undefined,
     reinsuranceCost,
     retainedCoverMargin,

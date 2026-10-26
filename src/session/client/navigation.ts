@@ -22,7 +22,8 @@ export type Route =
   | { kind: 'host-create' }
   | { kind: 'host-room'; code: string }
   | { kind: 'join'; code: string }
-  | { kind: 'view'; code: string };
+  | { kind: 'view'; code: string }
+  | { kind: 'admin' };
 
 const NAV_EVENT = 'ripple:navigate';
 
@@ -49,6 +50,7 @@ export function parseRoute(pathname: string): Route {
   }
   if (parts[0] === 'join' && parts.length >= 2) return { kind: 'join', code: parts[1].toUpperCase() };
   if (parts[0] === 'view' && parts.length >= 2) return { kind: 'view', code: parts[1].toUpperCase() };
+  if (parts[0] === 'admin' && parts.length === 1) return { kind: 'admin' };
 
   // Anything else is the existing single-player game, untouched.
   return { kind: 'solo' };

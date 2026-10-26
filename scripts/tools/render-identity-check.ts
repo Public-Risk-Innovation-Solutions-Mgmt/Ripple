@@ -1317,24 +1317,15 @@ const BASELINE = process.env.RENDER_BASELINE
 // played for). Every key that showed the chip: each single-line game's line
 // view and view-less screens, at y0 and y2, and every line view of the
 // multi-line games. The pool views had no chip before. Nothing else moved.
+// v88: NO MARKET SHARE ON SINGLE PLAYER'S RESULTS AND CALCULATION AUDIT. The
+// control ran first: bfe8eb1 built in its own worktree reproduced v87 236 of
+// 236. 52 move, and in every one the only change is that page's market-share
+// row deleted (both sides' text word-diffed): the Results page's
+// "Exposure-Based Market Share" and the audit's "Market Share" with its
+// enrolled-over-market-exposure formula, on all 13 of each at y0 and y2. A
+// hosted game would show the room share there, but both tabs are hidden in
+// multiplayer and the render harness plays single player.
   ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v88.json');
-// v88: THE ADVERSE-DEVELOPMENT LANDING. ⚠ THE CONTROL DID NOT REPRODUCE v87
-// IN THIS CONTAINER, AND IT IS THE ENVIRONMENT, NOT THE CODE: multiplayer
-// bfe8eb1 differs from v87's commit (67369d4) only in a session driver, yet
-// moved 17 of 236 — deterministically, the same hashes on two runs — all on
-// Calculation Audit (12) and Result Spreadsheet (5), the two screens that print
-// figures to many places; nothing else. Read as this container's Chromium
-// (chromium-1243) computing the engine's floating point differently in the
-// last places. So the reference is the control's OWN capture here, not v87.
-// This change against that capture, word-diffed (RENDER_TEXT_DIR both sides):
-// 204 of 236 move (+2 header keys counted by the run), every one a values
-// screen; the 32 unmoved are the Introduction's documents. 156 move in
-// figures only; the 48 with wording move by sentences that follow the
-// figures — the Calculation Audit's line for a factor of exactly 1.000 (no
-// priced inflation), the "adverse" label on prior-year development now $0
-// (nothing develops in the pre-game), the Results narrative's adverse/loss
-// sentences, and the inter-line loan repayment control where a world now
-// carries a loan. No fixed wording moved.
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

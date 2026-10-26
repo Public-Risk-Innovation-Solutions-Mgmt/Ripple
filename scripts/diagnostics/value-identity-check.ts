@@ -1378,23 +1378,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //   paying inflation by the pattern whatever FORWARD_BOOKING says (the
 //   shipped game has the flag on) or the gate restatements. Exposure moves in
 //   none of them.
-// v84: THE ADVERSE-DEVELOPMENT LANDING, and with it the shocks landing's owed
-// recapture. ⚠ THE CONTROL DID NOT REPRODUCE v83, AND THAT IS ATTRIBUTED:
-// 6d45f49 (before the shocks landing) reproduces v83 exactly; 2ae5c1a (the
-// shocks landing, which landed with its recapture owed) moves 21,101 of 39,600
-// across 94 fields — reinsurance (the aggregate stop's cost to $0 with the T
-// covers defaulting to None), expected losses and everything after; and
-// multiplayer bfe8eb1 (room market share) is byte-identical to 2ae5c1a. So the
-// control is 2ae5c1a's capture. This change against it: 20,137 values across
-// 74 fields move, all 300 instances. With BOTH of its switches turned back —
-// reserve inflation restored at the severity trend, adverse development off —
-// it reproduces the control exactly, so those two are the only movers:
-//   reserve inflation off (unbooked and unpriced), alone: 20,155 across 74 —
-//     every rate (the priced inflation gone), reserves, development, IBNR;
-//   adverse development (Mid on every line, the harness's default level; none
-//     in the pre-game, so the host's lifetime percentages leave the openings),
-//     alone: 17,288 across 74.
-// No field added or removed.
+// v84: THE SHOCKS PLAY-TEST LANDING, OWED (landed on multiplayer without the
+// full checks; recaptured with them, wip/shocks-owed-checks). The control is
+// multiplayer 19b6f17, captured here: against v83 it moves 21,101 of 39,600
+// values in 94 fields on all 24 configurations and every year; none added or
+// removed. All of it is the landing itself — the new loss engine's shocks
+// (catalogue firings, A on the whole line for one year, one T claim per
+// event-line), the T covers with None the default (tri Y1 pool reinsurance
+// cost $5.22M -> $0) and the shock-free pricing shadow (tri Y1 rates WC 3.632
+// -> 3.532, GL 5.665 -> 5.379, Property 0.3082 -> 0.2858 per $100). Head was
+// then captured at each owed-checks commit in turn: 3fdae5e (Property cat
+// cession capped at the ceiling, five gates restated) and a4a841b (shock
+// records per firing, the stop's samples grown, eleven gates restated) each
+// reproduce the control bit for bit — no baselined game repeats an event in
+// force, cedes Property cat or prices the dormant stop.
 const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v84.json');
 
 function seedOf(id: string) {

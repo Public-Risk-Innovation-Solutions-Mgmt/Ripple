@@ -22,18 +22,42 @@
 //  5. Admin is unchanged and still on the GROSS expected loss.
 //
 // Reported, plus hard assertions where the quantity is bounded.
+//
+// ⚠ RESTATED FOR THE SHOCKS LANDING (wip/shocks, 2ae5c1a): THE NET BASIS IS
+// RETIRED ON THE NEW ENGINE. Reinsurance is the per-occurrence T covers, at a
+// fixed price, on shock T claims only — and the shocks are out of the
+// experience the pure premium is struck from — so expected ceded is NOT
+// netted off the claims cost (linePricing.expectedCededPer100For returns 0):
+// buying cover never lowers the pure premium, and the cover's price is added
+// as reinsurance outside the CLF and the divisor. With the default now None,
+// "net" and "gross" were the same figure for want of a cover, and 1 and 6
+// asserted the retired design. So this gate now plays every game WITH THE
+// WIDEST COVER ('$38M xs $2M' on every line), and asserts in place of 1, 4
+// and 6:
+//
+//  1. poolPremium funds the GROSS pure premium at CLF / divisor, a cover bought
+//     — nothing nets off — and the covers DO recover in these games.
+//  4. E[UW income] is reported against the cover's recorded expected ceded.
+//  6. A COVER'S NET COST TO MEMBERS IS ITS FULL PRICE: the same games with
+//     None and with the cover charge identical pool premiums and pure premiums,
+//     and member charges that differ by exactly the cover's reinsurance cost.
+//
+// 2 and 3 are unchanged. CONTROLS: a netted premium fed to 1; the dormant
+// netting path (AGGREGATE_STOP + STOP_RECOVERY_OFF_CLAIMS_COST) switched on at
+// runtime and caught by 1; and to 6 a cover whose expected ceded came off the
+// pool premium, and a cover that charged nothing.
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { REINSURANCE_TOWER, RISK_LOAD_LAMBDA } from '../../src/data/reinsuranceTower';
+import { type TowerLine } from '../../src/data/reinsuranceTower';
 import { AGGREGATE_STOP, NEW_RATE_STACK, RISK_CONTROL_INCENTIVE_RANGE, STOP_RECOVERY_OFF_CLAIMS_COST } from '../../src/data/pricingParameters';
 import { adminRatePer100For, expenseDivisor } from '../../src/utils/linePricing';
 import { occurrenceProgramCost } from '../../src/utils/reinsuranceTower';
-import { REINSURANCE_LOAD } from '../../src/data/pricingParameters';
+import { placementFor } from '../../src/utils/reinsuranceOptions';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM } from '../../src/data/defaultAssumptions';
-import type { CoverageLine, GameState, Member } from '../../src/types/simulation';
+import type { CoverageLine, GameState, ResultSet } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const GAMES = 60, YEARS = 10;
@@ -62,63 +86,85 @@ function check(ok: boolean, label: string, detail = '') {
 }
 
 interface Row {
-  poolPremium: number; adminExpense: number; expectedLoss: number; reinsuranceCost: number;
+  poolPremium: number; adminExpense: number; expectedLoss: number; reinsuranceCost: number; reinsuranceRecovery: number;
   totalMemberCharge: number; netIncurredLoss: number; laeIncurred: number; underwritingIncome: number; operatingExpense: number;
   activeExposure: number; purePremiumPer100: number; ratePer100: number; clf: number;
-  netPurePremiumPer100: number; rcIncentive: number; year: number;
+  netPurePremiumPer100: number; expectedCededPer100: number; rcIncentive: number; year: number;
 }
-const rows: Record<string, Row[]> = { WC: [], GL: [], Property: [] };
-const cededPriced: Record<string, number[]> = { WC: [], GL: [], Property: [] };
+// THE COVER EVERY GAME BUYS (shocks landing): the widest, on every line, so a
+// netting of its expected ceded would show. The default (None) nets nothing
+// because it places nothing.
+const COVER = '$38M xs $2M';
 
-for (let g = 0; g < GAMES; g++) {
+function play(g: number, years: number, option: string): ResultSet[] {
   const id = `FBC${g}`;
   const inst = generateGameInstance(id, 6_300_000 + g * 4441);
-  const setup = { poolName: 'F', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
+  const setup = { poolName: 'F', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   let gs = {
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory,
   } as never as GameState;
-
-  for (let y = 1; y <= YEARS; y++) {
+  for (let y = 1; y <= years; y++) {
     const d = defaultDecisionSet(y);
-    // The expected ceded the engine itself priced on: same pre-movement book,
-    // same placement, same function.
-    for (const l of ['WC', 'GL', 'Property'] as const) {
-      const book = (gs.poolState as never as {
-        lines: Record<string, { members: Member[] }>
-      }).lines[l].members.filter(m => m.status === 'active');
-      const placed = REINSURANCE_TOWER[l].map(x => x.purchasable);
-      cededPriced[l].push(occurrenceProgramCost(l, placed, book, y).expectedCeded);
-    }
-
+    for (const l of LINES) d.byLine[l] = { ...d.byLine[l], reinsuranceOption: option };
     const p = processYear(gs, d);
+    gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
+  }
+  return gs.lockedResults;
+}
+function rowsOf(results: ResultSet[]): Record<string, Row[]> {
+  const out: Record<string, Row[]> = { WC: [], GL: [], Property: [] };
+  results.forEach(res => {
     for (const line of LINES) {
-      const r = (p.result as never as { byLine: Record<string, Record<string, number>> }).byLine[line];
+      const r = (res as never as { byLine: Record<string, Record<string, number>> }).byLine[line];
       if (!r) continue;
-      rows[line].push({
+      out[line].push({
         poolPremium: r.poolPremium, adminExpense: r.adminExpense, expectedLoss: r.expectedLoss,
-        reinsuranceCost: r.reinsuranceCost, totalMemberCharge: r.totalMemberCharge,
+        reinsuranceCost: r.reinsuranceCost, reinsuranceRecovery: r.reinsuranceRecovery, totalMemberCharge: r.totalMemberCharge,
         netIncurredLoss: r.netIncurredLoss, laeIncurred: r.laeIncurred, underwritingIncome: r.underwritingIncome, operatingExpense: r.operatingExpense,
         activeExposure: r.activeExposure, purePremiumPer100: r.purePremiumPer100,
         ratePer100: r.ratePer100, clf: r.selectedFundingCLF,
-        netPurePremiumPer100: r.netPurePremiumPer100,
+        netPurePremiumPer100: r.netPurePremiumPer100, expectedCededPer100: r.expectedCededPer100,
         // ⚠ READ FROM THE SLIDER'S DEFAULT, NOT THE RESULT. This gate plays
         // all-defaults by construction (see the header), so the per-line risk
         // control incentive is its default throughout; taking it from the
         // parameter rather than the row keeps that assumption visible.
         rcIncentive: RISK_CONTROL_INCENTIVE_RANGE.default,
-        year: y,
+        year: res.yearNumber,
       });
     }
-    gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
+  });
+  return out;
+}
+
+const rows: Record<string, Row[]> = { WC: [], GL: [], Property: [] };
+// The cover's expected ceded, for the record (the tower's moments): what a net
+// basis WOULD have taken off, reported in 1 and 4 and fed to the controls.
+const cededPriced: Record<string, number[]> = { WC: [], GL: [], Property: [] };
+for (let g = 0; g < GAMES; g++) {
+  const r = rowsOf(play(g, YEARS, COVER));
+  for (const l of LINES) {
+    rows[l].push(...r[l]);
+    for (const x of r[l]) cededPriced[l].push(occurrenceProgramCost(l as TowerLine, placementFor(l, COVER), { exposure: x.activeExposure }, x.year).expectedCeded);
   }
 }
 
-console.log('=== NET FUNDING BASIS CHECK — 60 games x 10 years, all defaults ===');
-console.log('All-defaults = CLF 1.000 on WC/GL and the FULL occurrence tower placed.\n');
+// THE PREDICATE FOR 1 (shocks landing): the pool premium is the GROSS pure
+// premium x exposure x CLF / divisor (to the 1e-4 the identity carries through
+// the stored exposure), the stored net equals the gross — to the half unit in
+// the fourth place the gross is stored to (net is stored unrounded) — and no
+// expected ceded is on the row.
+const grossBasisOf = (rs: Row[], l: CoverageLine) => rs.map(r =>
+  (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1)) / (r.clf / expenseDivisor(r.rcIncentive, l)));
+const grossFunded = (rs: Row[], l: CoverageLine) => rs.length > 0
+  && Math.abs(mean(grossBasisOf(rs, l)) - 1) < 1e-4
+  && rs.every(r => r.expectedCededPer100 === 0 && Math.abs(r.netPurePremiumPer100 - r.purePremiumPer100) <= 5e-5 + 1e-12);
 
-console.log('--- 1. poolPremium FUNDS NET, NOT GROSS ---');
+console.log('=== NET FUNDING BASIS CHECK — 60 games x 10 years, all defaults ===');
+console.log(`All-defaults = CLF 1.000 on WC/GL, with ${COVER} bought on every line (the shocks landing's default is None).\n`);
+
+console.log('--- 1. poolPremium FUNDS THE GROSS PURE PREMIUM, A COVER BOUGHT — NOTHING NETS OFF (shocks landing) ---');
 for (const l of ['WC', 'GL', 'Property'] as const) {
   const gross = rows[l].map(r => r.poolPremium / Math.max(r.expectedLoss, 1));
   const net = rows[l].map((r, i) => r.poolPremium / Math.max(r.expectedLoss - cededPriced[l][i], 1));
@@ -168,9 +214,6 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   // the SAME identity on the gross pure premium — poolPremium / (gross pure
   // premium x exposure) == CLF / divisor — so that ratio must sit away from 1,
   // by the ceded share, which no rounding produces.
-  const grossBasis = rows[l].map(r =>
-    (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1))
-    / (r.clf / expenseDivisor(r.rcIncentive, l)));
   // ⚠ THE BAR IS THE IDENTITY'S OWN PRECISION, NOT 2%, SINCE STABLE-SCENARIOS
   // COMMIT 1. With routine large losses folded below every retention, the
   // ceded share of the pure premium fell to 0.4% on WC and about 2% on GL and
@@ -183,22 +226,45 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   // (STOP_RECOVERY_OFF_CLAIMS_COST off): the claims cost is the experience's
   // alone and nothing nets off it, so the ratio sits exactly at 1 — the
   // retained share — and the cover's full price is charged as reinsurance.
-  const retainedShare = rows[l].map(r => r.netPurePremiumPer100 / Math.max(r.purePremiumPer100, 1e-12));
-  const unnetted = AGGREGATE_STOP.enabled && !STOP_RECOVERY_OFF_CLAIMS_COST.enabled;
-  check(NEW_RATE_STACK.enabled
-    ? Math.abs(mean(grossBasis) - mean(retainedShare)) < 1e-4
-      // Under the stop the claims basis IS the gross figure (it was the gross
-      // less the investment income credit while there was one; investment
-      // income no longer touches the rate). On the means, as before: the row's
-      // pure premium is stored to four places, which is 2e-4 of Property's on
-      // a single row.
-      && (unnetted ? Math.abs(mean(grossBasis) - 1) < 1e-4
-        : Math.abs(mean(grossBasis) - 1) > 1e-3)
-    : mean(gross) < 0.95,
-    unnetted ? `${l}: and under the stop it IS the gross figure — nothing nets off the claims cost`
+  //
+  // ⚠ AND SINCE THE SHOCKS LANDING IT IS THE GROSS FIGURE, BY DESIGN, ON THE
+  // NEW ENGINE: nothing nets off the claims cost (expectedCededPer100For
+  // returns 0), so with a cover bought the ratio sits exactly at 1 — and the
+  // cover's full price is charged as reinsurance. It used to assert "NO LONGER
+  // the gross figure", which was the retired net basis. grossFunded is the
+  // predicate; its controls follow section 1.
+  check(NEW_RATE_STACK.enabled ? grossFunded(rows[l], l) : mean(gross) < 0.95,
+    NEW_RATE_STACK.enabled ? `${l}: and it IS the gross figure with ${COVER} bought — nothing nets off the claims cost`
       : `${l}: and it is NO LONGER the gross figure`,
-    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasis).toFixed(4)}, the retained share ${mean(retainedShare).toFixed(4)} (gross expected loss ${mean(gross).toFixed(4)})`
+    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasisOf(rows[l], l)).toFixed(6)}, expected ceded per $100 max `
+      + `${Math.max(...rows[l].map(r => r.expectedCededPer100))}, recorded ceded $${(mean(cededPriced[l]) / M).toFixed(3)}M/yr, `
+      + `${rows[l].filter(r => r.reinsuranceRecovery > 0).length} recovering year(s), cost $${(mean(rows[l].map(r => r.reinsuranceCost)) / M).toFixed(3)}M/yr`
       : `gross ratio ${mean(gross).toFixed(4)}`);
+}
+// Not vacuous: the cover is charged every year, and recovers somewhere.
+check(LINES.every(l => rows[l].every(r => r.reinsuranceCost > 0)) && LINES.some(l => rows[l].some(r => r.reinsuranceRecovery > 0)),
+  `1. ${COVER} is charged on every line-year and recovers in some (not vacuous)`,
+  LINES.map(l => `${l} ${rows[l].filter(r => r.reinsuranceRecovery > 0).length}`).join(', ') + ' recovering line-years');
+
+// CONTROLS for 1 — each must FAIL.
+{
+  // (a) the figures a net basis would give: each premium less its cover's
+  // recorded expected ceded at the same load.
+  const netted = (l: CoverageLine) => rows[l].map((r, i) => ({
+    ...r, poolPremium: r.poolPremium * (1 - cededPriced[l][i] / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1)),
+  }));
+  check(LINES.some(l => !grossFunded(netted(l), l)), 'control: a premium netted of the cover\'s expected ceded is caught by 1');
+  // (b) THE DORMANT NETTING PATH, SWITCHED ON AT RUNTIME: the aggregate stop
+  // with its expected recovery taken off the claims cost — the engine's own
+  // net basis — on a few games; restored after.
+  const was = [AGGREGATE_STOP.enabled, STOP_RECOVERY_OFF_CLAIMS_COST.enabled];
+  AGGREGATE_STOP.enabled = true; STOP_RECOVERY_OFF_CLAIMS_COST.enabled = true;
+  let broken: Record<string, Row[]>;
+  try { broken = rowsOf([0, 1, 2].flatMap(g => play(g, 4, 'working'))); }
+  finally { [AGGREGATE_STOP.enabled, STOP_RECOVERY_OFF_CLAIMS_COST.enabled] = was; }
+  check(LINES.some(l => !grossFunded(broken[l], l)),
+    'control: the engine\'s netting path switched on (the stop, its recovery off the claims cost) is caught by 1',
+    LINES.map(l => `${l} ${mean(grossBasisOf(broken[l], l)).toFixed(4)}`).join(', '));
 }
 
 console.log(`\n--- 2. ADMIN ${NEW_RATE_STACK.enabled
@@ -251,8 +317,8 @@ for (const l of LINES) {
   check(Math.max(...without) > 1, `control: ${l}: the identity without the overrun is caught`, `max abs diff $${Math.max(...without).toExponential(2)}`);
 }
 
-console.log('\n--- 4. E[UW INCOME] AT CLF 1.000 IS NOW ~ZERO, NOT E[CEDED] ---');
-console.log('  line       E[UW income]$M   95% CI +/-$M   E[ceded]$M (what it USED to be)   CLF');
+console.log('\n--- 4. E[UW INCOME] AT CLF 1.000, BESIDE THE COVER\'S RECORDED E[CEDED] ---');
+console.log('  line       E[UW income]$M   95% CI +/-$M   E[ceded]$M (the cover\'s record, not netted)   CLF');
 for (const l of LINES) {
   const uw = rows[l].map(r => r.underwritingIncome);
   console.log(`  ${l.padEnd(10)} ${(mean(uw) / M).toFixed(3).padStart(14)} ${(ci95(uw) / M).toFixed(3).padStart(14)} ` +
@@ -286,48 +352,39 @@ for (const l of LINES) {
     `${(mean(rows[l].map(r => r.totalMemberCharge)) / e).toFixed(3).padStart(11)}`);
 }
 
-console.log('\n--- 6. DECLINING A LAYER: the net cost is the RISK LOAD alone ---');
-console.log('  Placing a layer costs its premium but SAVES its expected ceded from the pool');
-console.log('  premium, so the net member cost of any layer is lambda x SD[ceded].');
-console.log(`  Checked analytically on the full canonical roster at lambda ${RISK_LOAD_LAMBDA}.\n`);
-{
-  const { getPredefinedMarketMembers } = await import('../../src/data/memberCatalog');
-  const book = getPredefinedMarketMembers();
-  for (const l of ['WC', 'GL'] as const) {
-    const none = REINSURANCE_TOWER[l].map(() => false);
-    const all = REINSURANCE_TOWER[l].map(x => x.purchasable);
-    const qAll = occurrenceProgramCost(l, all, book, 1);
-    const qNone = occurrenceProgramCost(l, none, book, 1);
-    const netCost = (qAll.premium - qAll.expectedCeded) - (qNone.premium - qNone.expectedCeded);
-    console.log(`  ${l}: full tower premium $${(qAll.premium / M).toFixed(3)}M, expected ceded ` +
-      `$${(qAll.expectedCeded / M).toFixed(3)}M, NET cost to members $${(netCost / M).toFixed(3)}M/yr`);
-    // ⚠ REWRITTEN AT COMMIT 4, AND THE OLD ASSERTION IS RECORDED BECAUSE IT WAS
-    // TRUE AND IS NOW FALSE BY DESIGN. The price was E[ceded] + lambda x SD and
-    // REINSURANCE_RISK_LOAD_LAMBDA is 0, so the tower was actuarially FREE:
-    // placing a layer cost its premium and saved exactly its expected ceded,
-    // and this asserted the net cost was zero to within $1. It held.
-    //
-    // The price is now expected layer loss x the line's CLF multiplier at 70%,
-    // so the net cost is expected x (CLF - 1) — a real, intended margin. The
-    // old assertion would report the new price working as a defect, which is
-    // the stale-assertion trap this project keeps meeting. It is FORKED rather
-    // than loosened: the claim is still an exact identity, just a different
-    // one, and a `netCost > 0` would have waved through any load at all.
-    const impliedLoad = qAll.expectedCeded * REINSURANCE_LOAD;
-    check(Math.abs(netCost - impliedLoad) < Math.max(1, qAll.expectedCeded * 1e-9),
-      `${l}: net cost is exactly expected ceded x REINSURANCE_LOAD`,
-      `$${(netCost / M).toFixed(3)}M against $${(impliedLoad / M).toFixed(3)}M at load ${REINSURANCE_LOAD}`);
-    if (RISK_LOAD_LAMBDA > 0) {
-      check(netCost > 0 && netCost < qAll.premium,
-        `${l}: net cost is positive but below the gross premium`,
-        `${((netCost / qAll.premium) * 100).toFixed(1)}% of premium`);
-    } else {
-      check(netCost > 0,
-        `${l}: the tower is no longer actuarially free — the CLF load is real`,
-        `$${netCost.toFixed(2)} against a $1 tolerance`);
-    }
-  }
+console.log(`\n--- 6. BUYING A COVER: its net cost to members is its FULL PRICE ---`);
+// ⚠ RESTATED FOR THE SHOCKS LANDING. This section held that placing a layer
+// SAVED its expected ceded from the pool premium, so a layer's net cost was its
+// load alone — last as "net cost is exactly expected ceded x REINSURANCE_LOAD".
+// True of the net basis, retired with it: the cover's expected ceded no longer
+// comes off, so the net cost of a cover is its whole fixed price. Asserted in
+// games, the same ones played with None and with the cover, every line-year:
+// the pool premium and the pure premium are identical, and the member charge
+// differs by exactly the cover's reinsurance cost.
+const SAME_GAMES = 20;
+type Pair = { none: Row; cover: Row };
+const costIsFullPrice = (pairs: Pair[]) => pairs.length > 0 && pairs.every(({ none, cover }) =>
+  cover.reinsuranceCost > 0 && none.reinsuranceCost === 0
+  && cover.poolPremium === none.poolPremium && cover.purePremiumPer100 === none.purePremiumPer100
+  && Math.abs((cover.totalMemberCharge - cover.reinsuranceCost) - none.totalMemberCharge) < 1e-6);
+const pairs: Record<string, Pair[]> = { WC: [], GL: [], Property: [] };
+for (let g = 0; g < SAME_GAMES; g++) {
+  const none = rowsOf(play(g, YEARS, 'none'));
+  for (const l of LINES) none[l].forEach((r, i) => pairs[l].push({ none: r, cover: rows[l][g * YEARS + i] }));
 }
+for (const l of LINES) {
+  const ps = pairs[l];
+  console.log(`  ${l}: ${COVER} at $${(mean(ps.map(p => p.cover.reinsuranceCost)) / M).toFixed(3)}M/yr, recorded expected ceded `
+    + `$${(mean(cededPriced[l].slice(0, SAME_GAMES * YEARS)) / M).toFixed(3)}M/yr — none of it off the pool premium`);
+  check(costIsFullPrice(ps), `${l}: same games, None vs ${COVER}: pool and pure premium identical, the charge differs by exactly the cover's cost`,
+    `${ps.length} line-years`);
+}
+// CONTROLS for 6 — each must FAIL.
+check(!costIsFullPrice(pairs.GL.map((p, i) => ({ ...p, cover: { ...p.cover,
+  poolPremium: p.cover.poolPremium - cededPriced.GL[i], totalMemberCharge: p.cover.totalMemberCharge - cededPriced.GL[i] } }))),
+'control: a cover whose expected ceded came off the pool premium is caught by 6');
+check(!costIsFullPrice(pairs.WC.map(p => ({ ...p, cover: { ...p.cover, reinsuranceCost: 0, totalMemberCharge: p.none.totalMemberCharge } }))),
+  'control: a cover that charged nothing is caught by 6');
 
 console.log(failures === 0 ? '\nALL FUNDING-BASIS CHECKS PASS.'
   : `\n${RULE}\n${failures} CHECK(S) FAILED:\n  ${failed.join('\n  ')}\n${RULE}`);
