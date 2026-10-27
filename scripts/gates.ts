@@ -290,7 +290,7 @@ const FAST: string[] = [
                                      //         latest year otherwise; the five-year window rolls,
                                      //         Prior + the five reconcile to the full history, the
                                      //         pre-game columns are the engine's — each with a control
-  'annual-statement-template-check', //  14s   the Annual Statement as the template: every figure ties to
+  'annual-statement-template-check', //  26s   the Annual Statement as the template: every figure ties to
                                      //         what the engine books on four games (the ceded block real
                                      //         on one), the Excel file is the template cell for cell less
                                      //         "Profit and Contigency", borders included, the operating ratio by hand on
