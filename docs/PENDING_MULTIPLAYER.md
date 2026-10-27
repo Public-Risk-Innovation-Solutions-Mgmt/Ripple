@@ -101,8 +101,9 @@ development per line; single player has none (`SOLO_ADVERSE_DEVELOPMENT`).
 ## The Annual Statement laid out as the template
 
 The Annual Statement page and its new **Download Annual Statement (Excel)** button
-follow the template cell for cell: every title, label and blank row in place,
-Prior plus the five years shown. The template is now **the Pool sheet of
+follow the template cell for cell, but for a short list of deliberate
+differences (below): every title, label and blank row in place, the five years
+shown, and Prior and All Years in the program-year sections. The template is now **the Pool sheet of
 `docs/Annual Statement Example v2.xlsx`**; the first, `docs/Annual Statement
 Example.xlsx`, is kept only as a control in the gate. v1's row 15, "Profit and
 Contigency", is gone, because it is a margin in the rate, not an expense; v2
@@ -123,13 +124,34 @@ one per line, with numbers in the cells.
 - **Spacing.** One blank row, not two, between the Contributions' Written
   Premium and "Previous Reported Claims", so the statement is 155 rows.
 
-**Two headings differ from the template, on purpose** (`RENAMED_HEADINGS`). The
-template file keeps its own wording; the gate expects these two cells renamed,
-and only these.
-- "Net Income Statement" becomes **"Net Income Statement For The Year"**, so it
-  is clear its columns are what was booked in each calendar year.
-- "Reinsurance Information - Policy Year Totals" becomes **"Reinsurance
-  Information - Program Year Totals"**, to match "Program Year Totals - Net".
+**Every deliberate difference from the template** is listed in one place,
+`annualStatementTemplate.ts` (`LABEL_CHANGES`, the inserted row, `showsPrior`,
+`cellBorders`, `shownFigure`); the page, the download and the gate all read it.
+The template file keeps its own wording. The gate prints the list, checks each
+entry against the template, and fails on any other cell that differs.
+- **Seven columns, the years aligned.** Every table is seven columns wide. Net
+  Income Statement For The Year, Balance Sheet at Year-End and Underwriting
+  leave C (Prior) and I blank, with their lines kept, so every box is the same
+  width; column I is drawn with H's lines there. Contributions, Program Year
+  Totals and the Gross, Ceded and Net blocks keep Prior, the five years and All
+  Years. Underwriting's first year "Change from Prior" and "% Change Over Prior"
+  are blank, as there is no Prior beside them.
+- **Headings.** "Net Income Statement" becomes **"Net Income Statement For The
+  Year"**, so it is clear its columns are what was booked in each calendar year.
+  "Reinsurance Information - Policy Year Totals" becomes **"Reinsurance
+  Information - Program Year Totals"**. "Contributions To The Current Calendar
+  Year - Net" and "Program Year Totals - Net" end **"- Net of Reinsurance"**.
+  Gross, Ceded and Net head their blocks in bold, on the left in the label
+  column (a cell style, not compared by the gate; `downloads.cjs` checks it on
+  screen).
+- **Net Income Statement rows.** "Premium" becomes **"Written Premium"**.
+  "Additional Admin Expense (risk control)" becomes **"Other Admin Expense"**.
+  The admin rows are General Admin Expense / % of Premium / Other Admin Expense
+  / % of Premium; **one row is inserted** for General Admin's own share, so the
+  statement is 156 rows, and each "% of Premium" is that row's own share of
+  Written Premium. The template's single "% of Premium" there covered both. All
+  three "% of Premium" rows in the section are indented and left-aligned, like
+  "% Increase over Prior".
 
 **Decided in the build, recorded here so nobody re-decides them:**
 
@@ -151,6 +173,25 @@ and only these.
   The current program year's claims are all newly arising. Case vs IBNR is the
   presentation split (`reserveSplit.ts`). The split is computed accident year by
   accident year and line by line before it is summed into the columns.
+- **The Contributions variance.** Two re-splits, presentation only. Each
+  accident year's total paid and Total Net Incurred are unchanged by them, and
+  the gate checks both, with failing controls.
+  - **Newly reported claims are paid in part.** Of an older accident year's
+    newly reported amount, the share a new accident year pays in its first year
+    is paid: by line, the current program year's paid ÷ reported, held between 0
+    and the year's payments. Previously Reported Payments take the rest.
+  - **Settlement differences.** A draw per line, accident year and year: mean
+    zero, standard deviation `SETTLEMENT_SPREAD` (3%, a setting) of the
+    previously reported payments. It comes from the game's seed, so every world
+    draws the same. It adds to Previously Reported Reserve Changes and comes off
+    Change in IBNR. ⚠ So the Contributions' Change in IBNR and Reserve Changes no
+    longer equal the Program Year Totals' movement in IBNR and case: they differ
+    by the draw. Reported, incurred and paid all still agree.
+  - **Not built: LAE paid half at report, half at close.** LAE paid is the
+    engine's own figure (`laePaid` = LAE share × gross paid): it is cash, it
+    earns investment income, and the LAE reserve is the balance sheet's Loss
+    Expense Reserves. Scheduling it would change engine figures, not only how the
+    statement splits them.
 - **The Contributions' Written Premium is each program year's own written
   premium** (net), with Prior the sum of the older years, so no column reads 0.
 - **Underwriting's Change from Prior is a percentage** (the template's C60 is
@@ -166,19 +207,24 @@ and only these.
   and shows its line's figures.
 - **The header's combined-ratio chip is unchanged** (cumulative since game
   start). The statement has no Total column now, so `combined-ratio.cjs` works
-  the cumulative ratio out from the statement's own cells.
+  the cumulative ratio out from the statement's own cells. ⚠ It does so after
+  years 1 and 2 only. Before year 1 the chip covers every pre-game year, and
+  with Prior off the Net Income Statement the older years are on no cell.
 
 **Borders, copied from the template cell for cell.** The template's lines are
 the boxed year headers, the thin vertical lines on every row (label column
 included), the line closing each section and the balance sheet's lines under each
 group. They are read from the file by `scripts/tools/generate-statement-borders.ts`
 into `src/utils/annualStatementBorders.ts`, generated and never edited by hand:
-now from v2's Pool sheet, nine columns A to I, row for row. The table includes
-the template's last row (155), which carries the Net block's closing line. The page draws them in CSS and the download writes them
+now from v2's Pool sheet, nine columns A to I, one entry per template row
+(`TEMPLATE_BORDERS`). The statement's own lines are those through its
+differences (`cellBorders`): the inserted row draws row 13's lines, and above
+the Contributions column I draws H's. The table includes the template's last row
+(155), which carries the Net block's closing line. The page draws them in CSS and the download writes them
 with **exceljs** (SheetJS community writes no borders). exceljs is a dynamic
 import: about 940 kB, fetched only when the button is pressed. The gate reads
 the template file itself and compares every cell's border in the downloaded
-file, A–I on all 155 rows. `downloads.cjs` does the same for the screen and
+file, A–I on all 156 rows, through the list. `downloads.cjs` does the same for the screen and
 checks that exceljs is not loaded with the page. Re-run the generator if the
 template's lines ever change; the gate fails until you do.
 

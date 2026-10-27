@@ -4,12 +4,15 @@
 //
 // TEMPLATE_ROWS is the template transcribed row by row from row 1: every
 // section title and row label exactly as written there (leading and trailing
-// spaces included) in column B — but for the two headings RENAMED_HEADINGS
-// names, which differ on purpose — every blank row where it is, and the figures in
-// C (Prior) to H (the five years shown). In the four kinds of program-year
-// section — Contributions To The Current Calendar Year, Program Year Totals and
-// the Gross, Ceded and Net blocks — column I is ALL YEARS: the sum of Prior and
-// the five years on every dollar row, blank on the ratio rows (allYearsCell).
+// spaces included) in column B — but for the DELIBERATE DIFFERENCES listed below
+// (LABEL_CHANGES and one inserted row), and only those — every blank row where it
+// is, and the figures in D to H (the five years shown). In the four kinds of
+// program-year section — Contributions To The Current Calendar Year, Program Year
+// Totals and the Gross, Ceded and Net blocks — C is Prior and column I is ALL
+// YEARS: the sum of Prior and the five years on every dollar row, blank on the
+// ratio rows (allYearsCell). The first three sections (Net Income Statement For
+// The Year, Balance Sheet at Year-End, Underwriting) leave C and I blank with
+// their lines kept, so every table is seven columns wide, the years aligned.
 //
 // v2 is the first template with "Profit and Contigency" already gone (the v1
 // file's row 15 — a margin in the rate, not an expense — which this list used
@@ -17,7 +20,7 @@
 // Written Premium and "Previous Reported Claims". annual-statement-template-check
 // reads v2 and holds this list to it label for label and blank for blank — and
 // the downloaded file to its BORDERS and its All Years formulas cell for cell
-// (STATEMENT_BORDERS, generated from v2, row for row with this).
+// (TEMPLATE_BORDERS, generated from v2, through cellBorders), through that list.
 //
 // ⚠ EVERY FIGURE IS READ, NEVER RESTATED. The calendar sections and the program-
 // year blocks are buildAnnualStatement's own cells (resultsStatement.ts), so the
@@ -40,8 +43,13 @@
 //     between claims newly arising (IBNR emerging to reported, plus IBNR's share
 //     of the year's development) and claims previously reported (the year's
 //     payments and the rest of the development), with Change in IBNR balancing
-//     them. The current program year's claims are all newly arising. Its Written
+//     them. The current program year's claims are all newly arising. Two
+//     variances then re-split it without moving any accident year's payments or
+//     Total Net Incurred: newly reported claims paid in part, and settlement
+//     differences drawn from the game's seed (SETTLEMENT_SPREAD). Its Written
 //     Premium row is each program year's own written premium.
+//   · General and Other Admin Expense's "% of Premium" — each row over Written
+//     Premium.
 //
 // A ROW WITH NO FIGURE shows "—", never zero; noFigureRows lists them.
 // ============================================================================
@@ -51,6 +59,9 @@ import {
   type AnnualStatement, type StatementSection,
 } from './resultsStatement';
 import { lineDisplayName } from './lineDisplay';
+import { TEMPLATE_BORDERS } from './annualStatementBorders';
+import { marketSeedOf } from './bookUnits';
+import { deriveSubRng } from './random';
 import type { CoverageLine, GameState, LineResultSet, LineView, ResultSet } from '../types/simulation';
 
 export type FigureFormat = 'dollars' | 'pct' | 'ratio' | 'exposure' | 'rate';
@@ -91,17 +102,20 @@ const programBlock = (k: string): TemplateRow[] => [
 ];
 
 /**
- * THE STATEMENT'S TWO HEADINGS THAT DIFFER FROM THE TEMPLATE, deliberately — the
- * template's wording on the left. Every other title and label is the template's
- * exactly; the gate holds the statement to the file with these two cells, and
- * only these, read as renamed.
+ * THE STATEMENT'S HEADINGS THAT DIFFER FROM THE TEMPLATE, deliberately — the
+ * template's wording on the left. They are part of TEMPLATE_DIFFERENCES below,
+ * which lists every cell the statement differs from the template in.
  *   · "Net Income Statement For The Year": its columns are what was booked in
  *     each calendar year (the template's own text has a trailing space).
  *   · "… - Program Year Totals": to match "Program Year Totals - Net".
+ *   · "… - Net of Reinsurance", on the Contributions and Program Year Totals:
+ *     what "Net" is net of.
  */
 export const RENAMED_HEADINGS: Readonly<Record<string, string>> = {
   'Net Income Statement ': 'Net Income Statement For The Year',
   'Reinsurance Information - Policy Year Totals': 'Reinsurance Information - Program Year Totals',
+  'Contributions To The Current Calendar Year - Net': 'Contributions To The Current Calendar Year - Net of Reinsurance',
+  'Program Year Totals - Net': 'Program Year Totals - Net of Reinsurance',
 };
 
 /** The template, row 1 first. Index i is spreadsheet row i + 1. */
@@ -111,22 +125,26 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   B,
   H('Program Year:   '),
   B,
-  F('Premium', 'premium', 'dollars'),
+  F('Written Premium', 'premium', 'dollars'),
   B,
   F('Incurred Losses', 'losses', 'dollars'),
   F('Incurred Loss Adjustment Expense', 'lae', 'dollars'),
   F('Total Incurred Loss & LAE', 'lossLae', 'dollars'),
-  F('% of Premium', 'lossLaePct', 'pct'),
+  F(`${IN}% of Premium`, 'lossLaePct', 'pct'),
   B,
+  // Each admin row, then its own share of Written Premium (the template had one
+  // "% of Premium" for both, under them): the statement's one inserted row is
+  // General Admin Expense's.
   F('General Admin Expense', 'admin', 'dollars'),
-  F('Additional Admin Expense (risk control)', 'riskControl', 'dollars'),
+  F(`${IN}% of Premium`, 'adminPct', 'pct'),
+  F('Other Admin Expense', 'riskControl', 'dollars'),
   // ⚠ "Profit and Contigency" stood here in the v1 template (its row 15): gone, a margin in the rate, not an expense.
-  F('% of Premium', 'expensePct', 'pct'),
+  F(`${IN}% of Premium`, 'otherAdminPct', 'pct'),
   B,
   F('Combined Ratio', 'combinedRatio', 'pct'),
   B,
   F('Net Underwriting Income', 'nui', 'dollars'),
-  F('% of Premium', 'nuiPct', 'pct'),
+  F(`${IN}% of Premium`, 'nuiPct', 'pct'),
   B,
   F('Assessments/Dividends', 'assessDiv', 'dollars'),
   B,
@@ -173,7 +191,7 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   F(`${IN}% Change Over Prior`, 'rateChange', 'pct'),
   ...blanks(3),
 
-  T('Contributions To The Current Calendar Year - Net'),
+  T(RENAMED_HEADINGS['Contributions To The Current Calendar Year - Net']),
   B,
   HA('Program Year:   '),
   F('Written Premium', 'cy.premium', 'dollars'),
@@ -194,7 +212,7 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   F('Total Net Incurred', 'cy.incurred', 'dollars'),
   ...blanks(3),
 
-  T('Program Year Totals - Net'),
+  T(RENAMED_HEADINGS['Program Year Totals - Net']),
   B,
   HA('Program Year:   '),
   ...programBlock('py'),
@@ -210,15 +228,82 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   ...blanks(2),
   HA('Net'),
   ...programBlock('net'),
-  // The template's last row (155): blank, and the one that carries the Net block's closing line.
+  // The template's last row (155; the statement's 156): blank, and the one that carries the Net block's closing line.
   B,
 ];
+
+// ============================================================================
+// EVERY DELIBERATE DIFFERENCE FROM THE TEMPLATE — one list, read by the page, the
+// Excel file and the gate. The gate builds the template's expected grid through
+// exactly these and fails on any other cell that differs.
+// ============================================================================
+
+/** The statement's one inserted row: General Admin Expense's own "% of Premium", after template row 13 (1-based). Its lines are that row's. */
+export const INSERTED_AFTER_TEMPLATE_ROW = 13;
+
+/** Each statement row's template row (1-based); the inserted row takes the row above's, for its borders. */
+export const TEMPLATE_ROW_OF: readonly number[] = TEMPLATE_ROWS.map((_, i) =>
+  (i + 1 <= INSERTED_AFTER_TEMPLATE_ROW ? i + 1 : i + 1 === INSERTED_AFTER_TEMPLATE_ROW + 1 ? INSERTED_AFTER_TEMPLATE_ROW : i));
+export const isInsertedRow = (i: number) => i + 1 === INSERTED_AFTER_TEMPLATE_ROW + 1;
+
+export interface LabelChange { templateRow: number; from: string; to: string; why: string }
+/** Every column-B text the statement changes, by the template row it stands on (1-based). */
+export const LABEL_CHANGES: readonly LabelChange[] = [
+  { templateRow: 2, from: 'Net Income Statement ', to: RENAMED_HEADINGS['Net Income Statement '], why: 'its columns are what was booked in each calendar year' },
+  { templateRow: 6, from: 'Premium', to: 'Written Premium', why: 'the premium written that year, as the program-year tables name it' },
+  { templateRow: 11, from: '% of Premium', to: `${IN}% of Premium`, why: 'indented like the other tables\' sub-rows, not right-aligned' },
+  { templateRow: 14, from: 'Additional Admin Expense (risk control)', to: 'Other Admin Expense', why: 'the admin beyond general admin' },
+  { templateRow: 15, from: '% of Premium', to: `${IN}% of Premium`, why: 'now Other Admin Expense\'s own share (General Admin Expense has its own, the inserted row)' },
+  { templateRow: 20, from: '% of Premium', to: `${IN}% of Premium`, why: 'indented like the other tables\' sub-rows' },
+  { templateRow: 70, from: 'Contributions To The Current Calendar Year - Net', to: RENAMED_HEADINGS['Contributions To The Current Calendar Year - Net'], why: 'what Net is net of' },
+  { templateRow: 91, from: 'Program Year Totals - Net', to: RENAMED_HEADINGS['Program Year Totals - Net'], why: 'what Net is net of' },
+  { templateRow: 110, from: 'Reinsurance Information - Policy Year Totals', to: RENAMED_HEADINGS['Reinsurance Information - Policy Year Totals'], why: 'to match Program Year Totals' },
+];
+/** The inserted row's label. */
+export const INSERTED_LABEL = `${IN}% of Premium`;
 
 export const ALL_YEARS_LABEL = 'All Years';
 /** The first row of the sections that carry All Years: Contributions, then everything below it. */
 const FIRST_ALL_YEARS_ROW = TEMPLATE_ROWS.findIndex(r => r.kind === 'title' && r.label.startsWith('Contributions To The Current Calendar Year'));
-/** Whether template row i (0-based) is in a section with the All Years column. */
+/**
+ * Whether statement row i (0-based) is in a section with the All Years column —
+ * the program-year sections, which are also the only ones that show Prior. The
+ * first three (Net Income Statement For The Year, Balance Sheet at Year-End and
+ * Underwriting) leave C and I blank, their lines kept, so every table's box is
+ * the same seven columns wide and the years line up down the page.
+ */
 export const hasAllYears = (i: number): boolean => i > FIRST_ALL_YEARS_ROW;
+export const showsPrior = hasAllYears;
+
+/** The Reinsurance blocks' names, which head their blocks in bold in the label column. */
+export const isBlockName = (label: string) => ['Gross', 'Ceded', 'Net'].includes(label.trim());
+
+/** Rows whose first year's cell is blank — a change from Prior, now that Prior is not shown beside it. */
+const BLANK_FIRST_YEAR = new Set(['exposureChange', 'rateChange']);
+
+/**
+ * WHAT A FIGURE CELL SHOWS: column k (0 Prior, 1–5 the years) of statement row i.
+ * undefined is BLANK — Prior in the first three sections, and the first year of
+ * Underwriting's two changes; a figure (null is "—") otherwise.
+ */
+export function shownFigure(row: TemplateRow, i: number, k: number, ts: TemplateStatement): Figure | undefined {
+  if (row.kind !== 'figure') return undefined;
+  if (k === 0 && !showsPrior(i)) return undefined;
+  if (k === 1 && BLANK_FIRST_YEAR.has(row.key)) return undefined;
+  return ts.figures[row.key][k];
+}
+
+/**
+ * A STATEMENT CELL'S LINES: column c (1 = A … 9 = I) of statement row i, as 'LRTB'
+ * sides — the template's, through TEMPLATE_ROW_OF (the inserted row takes the
+ * row above's), with column I given column H's lines in the first three
+ * sections, which have no All Years, so every table's box is the same width.
+ */
+export function cellBorders(i: number, c: number): string {
+  const t = TEMPLATE_BORDERS[TEMPLATE_ROW_OF[i] - 1];
+  if (c === 9 && !hasAllYears(i)) return t[7];
+  return t[c - 1];
+}
 /**
  * A row's All Years cell: on a dollar row of an All Years section, the sum of
  * Prior and the five years — the cells with a figure, as Excel's SUM reads them;
@@ -300,7 +385,9 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   figures.lossLaePct = sixOf(op, 'Loss & LAE Ratio');
   figures.admin = sixOf(op, 'General Admin Expense');
   figures.riskControl = sixOf(op, 'Additional Admin Expense (risk control)');
-  figures.expensePct = sixOf(op, '% of Premium', 0);
+  // Each admin row's own share of Written Premium (the template's one "% of Premium" covered both).
+  figures.adminPct = zip(figures.admin, figures.premium, ratio);
+  figures.otherAdminPct = zip(figures.riskControl, figures.premium, ratio);
   figures.combinedRatio = sixOf(op, COMBINED_RATIO_LABEL);
   figures.nui = sixOf(op, 'Net Underwriting Income');
   figures.nuiPct = sixOf(op, '% of Premium', 1);
@@ -426,15 +513,42 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   //   Change in IBNR    ΔIBNR, which balances it: the three sum to D, so Total Net
   //                     Incurred is the year's movement exactly as before.
   // The current program year's own claims are all newly arising, as they arise.
+  //
+  // Then TWO VARIANCES, both only how the statement splits a year's movement —
+  // each accident year's payments (Δpaid) and Total Net Incurred (D) are what
+  // they were, and no engine figure moves:
+  //   · NEWLY REPORTED CLAIMS ARE PAID IN PART. Of an older accident year's newly
+  //     reported amount, the share a new accident year pays in its first year
+  //     (that line's current program year: Δpaid ÷ (Δpaid + Δcase)) is paid —
+  //     held between 0 and the year's payments. Previously Reported Payments are
+  //     the rest, so the accident year's payments total as before; each group's
+  //     Reserve Changes are its reported amount less its payments.
+  //   · SETTLEMENT DIFFERENCES. Claims settle for a little more or less than
+  //     they were reserved at: a draw per line, accident year and calendar year
+  //     of mean zero, SETTLEMENT_SPREAD (a standard deviation, as a share of the
+  //     previously reported payments) — from the GAME's seed, so every world and
+  //     every reading draws the same. It adds to Previously Reported's Reserve
+  //     Changes and comes off Change in IBNR, which balances it.
+  //     ⚠ So Contributions' Change in IBNR and Reserve Changes no longer equal
+  //     the Program Year Totals' movement in IBNR and case by the draw: the
+  //     statement attributes part of the year's movement to settlement that the
+  //     engine carries as IBNR. The totals — reported, incurred, paid — agree.
+  // (A third, LAE paid half at report and half at close, is NOT drawn: LAE paid
+  // is the engine's own figure — it is cash, and earns investment income — so
+  // scheduling it would change the engine's figures, not only the statement's.)
   const asOfResult = full[full.length - 1];
   const before = full.length >= 2 ? full[full.length - 2] : undefined;
   const firstAy = windowYears[0];
   const colOf = (ay: number) => (ay < firstAy ? 0 : windowYears.indexOf(ay) + 1);
   type Split = { prevPaid: number; prevCase: number; newPaid: number; newCase: number; ibnr: number; incurred: number };
   const cols: Split[] = columnsZero(1 + windowYears.length);
+  const seed = marketSeedOf(gs.instance);
   for (const l of uwLines) {
     if (!before) break;
     const now = programYearsOf(gs, l, asOfResult), then = programYearsOf(gs, l, before);
+    const firstYear = now.get(st.asOf)?.net;
+    const firstYearReported = firstYear ? firstYear.paid + firstYear.case_ : 0;
+    const paidShare = firstYear && firstYearReported > 0 ? Math.min(1, Math.max(0, firstYear.paid / firstYearReported)) : 0;
     for (const ay of new Set([...now.keys(), ...then.keys()])) {
       const i = colOf(ay);
       if (i < 0) continue;
@@ -448,9 +562,18 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
       } else {
         const outstanding = b.case_ + b.ibnr;
         const share = outstanding > 0 ? Math.min(1, Math.max(0, b.ibnr / outstanding)) : 0;
-        c.newCase += -dIbnr + share * d;
-        c.prevPaid += dPaid;
-        c.prevCase += (1 - share) * d - dPaid;
+        const newReported = -dIbnr + share * d;
+        const newPaid = Math.min(Math.max(0, dPaid), Math.max(0, paidShare * newReported));
+        const prevPaid = dPaid - newPaid;
+        const settlement = settlementDraw(seed, st.asOf, l, ay) * prevPaid;
+        const prevReported = (1 - share) * d + settlement;
+        c.newPaid += newPaid;
+        c.newCase += newReported - newPaid;
+        c.prevPaid += prevPaid;
+        c.prevCase += prevReported - prevPaid;
+        c.ibnr += dIbnr - settlement;
+        c.incurred += d;
+        continue;
       }
       c.ibnr += dIbnr;
       c.incurred += d;
@@ -478,16 +601,30 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   };
 }
 
+/**
+ * SETTLEMENT DIFFERENCES' SPREAD: the standard deviation of the draw by which an
+ * older accident year's claims settle above or below their reserve in a year, as
+ * a share of what is paid on them that year (the Contributions' settlement
+ * variance, above). A setting — 0 draws none.
+ */
+export const SETTLEMENT_SPREAD: number = 0.03;
+
+/** A year's settlement draw for one line's accident year, as a share of its payments: mean 0, SETTLEMENT_SPREAD, the game's seed. */
+export function settlementDraw(gameSeed: number, yearNumber: number, line: CoverageLine, accidentYear: number): number {
+  if (SETTLEMENT_SPREAD === 0) return 0;
+  return deriveSubRng(gameSeed, yearNumber, `statement-settlement:${line}:${accidentYear}`).normal(0, 1) * SETTLEMENT_SPREAD;
+}
+
 /** Every figure row that shows "—" in some column, as "Section — Row (column)". */
 export function noFigureRows(ts: TemplateStatement): string[] {
   const out: string[] = [];
   let section = '';
-  for (const r of TEMPLATE_ROWS) {
+  TEMPLATE_ROWS.forEach((r, i) => {
     if (r.kind === 'title') section = r.label.trim();
     if (r.kind === 'header' && r.label.trim()) section = section.startsWith('Reinsurance') ? `Reinsurance ${r.label.trim()}` : section;
-    if (r.kind !== 'figure') continue;
-    ts.figures[r.key].forEach((x, i) => { if (x === null) out.push(`${section} — ${r.label.trim()} (${ts.columns[i]})`); });
-  }
+    if (r.kind !== 'figure') return;
+    ts.figures[r.key].forEach((_, k) => { if (shownFigure(r, i, k, ts) === null) out.push(`${section} — ${r.label.trim()} (${ts.columns[k]})`); });
+  });
   return out;
 }
 

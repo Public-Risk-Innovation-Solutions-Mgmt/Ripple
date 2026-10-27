@@ -2,10 +2,12 @@
 // THE ANNUAL STATEMENT AS AN EXCEL FILE — one sheet for the pool and one for
 // each line the team writes, each laid out cell for cell as the template
 // (docs/Annual Statement Example v2.xlsx, through TEMPLATE_ROWS): labels in column
-// B, Prior in C, the five years in D to H, All Years in I in the program-year
-// sections (a SUM formula over the row, as the template writes it), every blank
-// row where it is, and every cell's BORDER as the template draws it
-// (STATEMENT_BORDERS, generated from the template file).
+// B, the five years in D to H; in the program-year sections Prior in C and All
+// Years in I (a SUM formula over the row, as the template writes it), and in the
+// first three C and I blank, their lines kept, so every table is seven columns
+// wide; every blank row where it is, and every cell's BORDER as the template
+// draws it through the statement's deliberate differences (cellBorders, and the
+// list beside it in annualStatementTemplate.ts).
 //
 // Every figure is a NUMBER, in the statement's units — dollars in thousands, a
 // percentage as its fraction under a percent format — with negatives shown red
@@ -24,9 +26,9 @@
 // ============================================================================
 import type { Borders, Worksheet } from 'exceljs';
 import {
-  ALL_YEARS_LABEL, allYearsCell, DOLLARS_PER_UNIT, TEMPLATE_ROWS, templateStatements, type FigureFormat, type TemplateStatement,
+  ALL_YEARS_LABEL, allYearsCell, cellBorders, DOLLARS_PER_UNIT, isBlockName, showsPrior, shownFigure, TEMPLATE_ROWS, templateStatements,
+  type FigureFormat, type TemplateStatement,
 } from './annualStatementTemplate';
-import { STATEMENT_BORDERS } from './annualStatementBorders';
 import type { GameState } from '../types/simulation';
 
 /** The figures' Excel number formats: the screen's units and decimals, negatives red. */
@@ -61,11 +63,14 @@ function fillSheet(ws: Worksheet, ts: TemplateStatement): void {
     const r = i + 1;
     // Every cell's border first, blank rows included — the template draws its
     // vertical lines down the blank rows and closes sections on them.
-    STATEMENT_BORDERS[i].forEach((sides, c) => { if (sides) ws.getCell(r, c + 1).border = borderOf(sides); });
+    for (let c = 1; c <= STATEMENT_COLUMNS; c++) { const sides = cellBorders(i, c); if (sides) ws.getCell(r, c).border = borderOf(sides); }
     if (row.kind === 'blank') return;
     if (row.label !== '') ws.getCell(r, 2).value = row.label;
+    // The Reinsurance blocks' names — Gross, Ceded, Net — head their blocks in bold, in the label column.
+    if (row.kind === 'header' && isBlockName(row.label)) ws.getCell(r, 2).font = { bold: true };
     if (row.kind === 'header') {
-      ws.getCell(r, 3).value = 'Prior';
+      // Prior only where the section shows it; the first three sections leave C blank.
+      if (showsPrior(i)) ws.getCell(r, 3).value = 'Prior';
       ts.years.forEach((y, k) => {
         const cell = ws.getCell(r, 4 + k);
         // A real date: 12/31 of the year, as the template's mm-dd-yy cells.
@@ -75,7 +80,9 @@ function fillSheet(ws: Worksheet, ts: TemplateStatement): void {
     }
     if (row.kind !== 'figure') return;
     const written: number[] = [];
-    ts.figures[row.key].forEach((x, k) => {
+    ts.figures[row.key].forEach((_, k) => {
+      const x = shownFigure(row, i, k, ts);
+      if (x === undefined) return; // blank: Prior in the first three sections, a first-year change
       const cell = ws.getCell(r, 3 + k);
       if (x === null) { cell.value = '—'; return; }
       // A dollar figure within half a cent of zero is zero: it is arithmetic's

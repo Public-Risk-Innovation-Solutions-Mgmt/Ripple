@@ -936,7 +936,29 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (GUARD_TEXT_DIR): every statement file is v98's character for character once
 // those two headings are read back to the template's wording. No key added or
 // removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v99.json');
+// v100: SEVEN COLUMNS, THE NET INCOME STATEMENT'S ROWS, THE CONTRIBUTIONS
+// VARIANCE. All 24 `stmt|...` keys move; all 24 Results-workbook keys are
+// byte-identical to v99. Text-diffed against v99's own text (GUARD_TEXT_DIR,
+// shown and raw), every moved line is one of these, and none is unexplained:
+//   · Prior blank in the Net Income Statement, Balance Sheet and Underwriting —
+//     4,440 lines lose their C cell; 240 lose the first year's "Change from
+//     Prior" / "% Change Over Prior".
+//   · the labels: "Premium" → "Written Premium", "Additional Admin Expense (risk
+//     control)" → "Other Admin Expense", the three "% of Premium" indented, the
+//     Contributions and Program Year Totals "- Net of Reinsurance" (120 each,
+//     360 for the indents).
+//   · one row inserted, General Admin Expense's own "% of Premium" (120 lines),
+//     and the old admin "% of Premium" now Other Admin Expense's own (120).
+//   · the Contributions variance: Previously Reported and Newly Arising
+//     Payments and Reserve Changes, Previously Reported Net Reported and Change
+//     in IBNR (120 lines each); Newly Arising Net Reported in 30 raw lines, at
+//     the last digit — newly reported is the same amount, re-split. Written
+//     Premium and Total Net Incurred do not move.
+//   · borders: 3,660 bordered cells added — column I drawn as H above the
+//     Contributions, and the inserted row drawn as row 13; with rows below the
+//     inserted one aligned, no other border moved.
+// No key added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v100.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

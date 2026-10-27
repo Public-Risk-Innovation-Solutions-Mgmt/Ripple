@@ -3,19 +3,25 @@
 // The header's one "Combined Ratio" chip is the builder's first row's Total
 // (resultsStatement.topCombinedRatio) — cumulative since game start, or over
 // the pre-game years before year 1 — for the view on screen. The Annual
-// Statement is laid out as the template now (annualStatementTemplate.ts), with
-// Prior and five years and NO TOTAL COLUMN, so the cumulative is not a cell on
-// it: this driver works it out FROM THE STATEMENT'S OWN CELLS — every cost
-// (Total Incurred Loss & LAE, General Admin Expense, Additional Admin Expense
-// (risk control), and the reinsurance cost, which is the Ceded block's Written
-// Premium) over what members were charged (Premium, which is net of
-// reinsurance, plus that same cost), summed over the played columns, or over
-// Prior and every column before year 1. This drives a solo game on scenario 7,
+// Statement is laid out as the template now (annualStatementTemplate.ts), its
+// Net Income Statement the five years alone (C and I blank) and NO TOTAL COLUMN,
+// so the cumulative is not a cell on it: this driver works it out FROM THE
+// STATEMENT'S OWN CELLS — every cost (Total Incurred Loss & LAE, General Admin
+// Expense, Other Admin Expense, and the reinsurance cost, which is the Ceded
+// block's Written Premium) over what members were charged (Written Premium,
+// which is net of reinsurance, plus that same cost), summed over the played
+// columns.
+//
+// ⚠ NOT BEFORE YEAR 1. There the chip is cumulative over every pre-game year,
+// and the statement shows only the last five: with Prior taken off the Net
+// Income Statement (the seven-column layout), the older years are on no cell,
+// so before year 1 this driver checks the header's chips and the statement's one
+// combined ratio, not the chip's value. This drives a solo game on scenario 7,
 // three lines, through the real setup screen and, on the Annual Statement tab,
 // for the pool and every line, before year 1 and after years 1 and 2:
 //
-//   - the chip is the statement's cumulative combined ratio, to the rounding of
-//     the statement's thousands and the chip's one decimal;
+//   - after years 1 and 2 the chip is the statement's cumulative combined ratio,
+//     to the rounding of the statement's thousands and the chip's one decimal;
 //   - after year 1 it is the 2027 column's Combined Ratio exactly;
 //   - the header carries one ratio chip: no "Cumulative", no latest-year chip,
 //     no old "Loss Ratio (prem + admin)";
@@ -70,23 +76,24 @@ const ok = (cond, label, detail = '') => {
       const named = rows.filter(l => /combined ratio/i.test(l || ''));
       ok(named.length === 1 && named[0] === ROW, `${phase}, ${view}: the statement has one combined ratio`, named.join(' | '));
       const heads = (await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts()).map(t => t.trim());
-      // A row's figure cells, by section: [Prior, five years] in thousands.
+      // A row's figure cells, by section: [C, five years, I] in thousands — C and I blank on the Net Income Statement.
       const fig = async (sel, label) => (await page.locator(`${sel} tr[data-row-label="${label}"] td`).allInnerTexts()).slice(1).map(thousandsOf);
       const op = '[data-testid="statement-operating"]';
       const [lossLae, admin, rc, prem, ceded] = await Promise.all([
-        fig(op, 'Total Incurred Loss & LAE'), fig(op, 'General Admin Expense'), fig(op, 'Additional Admin Expense (risk control)'),
-        fig(op, 'Premium'), fig('[data-testid="statement-ceded"]', 'Written Premium')]);
-      // heads: the label cell, Prior, then the years. Played columns are 2027 on.
-      const cols = heads.slice(1).map((h, i) => ({ h, i })).filter(c => (playedYears === 0 ? true : /^\d{4}$/.test(c.h) && Number(c.h) >= 2027));
+        fig(op, 'Total Incurred Loss & LAE'), fig(op, 'General Admin Expense'), fig(op, 'Other Admin Expense'),
+        fig(op, 'Written Premium'), fig('[data-testid="statement-ceded"]', 'Written Premium')]);
+      // heads: the label cell, C (blank), the years, I (blank). Played columns are 2027 on.
+      const cols = heads.slice(1).map((h, i) => ({ h, i })).filter(c => /^\d{4}$/.test(c.h) && (playedYears === 0 || Number(c.h) >= 2027));
       const sum = xs => cols.reduce((a, c) => a + xs[c.i], 0);
       const cumulative = 100 * (sum(lossLae) + sum(admin) + sum(rc) + sum(ceded)) / (sum(prem) + sum(ceded));
       // Each thousand rounds by up to half a thousand, over a denominator of tens of thousands; the chip shows one decimal.
-      ok(pct(chip) !== null && Number.isFinite(cumulative) && Math.abs(pct(chip) - cumulative) <= 0.15,
-        `${phase}, ${view}: the chip is the statement's cumulative combined ratio${playedYears === 0 ? ' (over the pre-game years)' : ' (since game start)'}`,
+      if (playedYears > 0) ok(pct(chip) !== null && Number.isFinite(cumulative) && Math.abs(pct(chip) - cumulative) <= 0.15,
+        `${phase}, ${view}: the chip is the statement's cumulative combined ratio (since game start)`,
         `chip ${chip} · from the statement ${cumulative.toFixed(2)}% over ${cols.map(c => c.h).join(', ')}`);
       if (playedYears === 1) {
         const cr = (await page.locator(`${op} tr[data-row-label="${ROW}"] td`).allInnerTexts()).map(t => t.trim());
-        ok(cr.at(-1) === (chip || '').trim(), `${phase}, ${view}: after one played year the chip is the 2027 column's Combined Ratio`, `chip ${chip} · 2027 ${cr.at(-1)}`);
+        // The last cell is I, blank on the Net Income Statement: 2027 is the one before it.
+        ok(cr.at(-2) === (chip || '').trim() && cr.at(-1) === '', `${phase}, ${view}: after one played year the chip is the 2027 column's Combined Ratio`, `chip ${chip} · 2027 ${cr.at(-2)}`);
       }
     }
   }
