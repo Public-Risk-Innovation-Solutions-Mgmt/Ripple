@@ -1424,7 +1424,23 @@ const BASELINE = process.env.RENDER_BASELINE
 // instrument that sees them is downloads.cjs, which compares every statement
 // cell's drawn sides on screen with the template file's, row for row, and fails
 // when one is missing (its control: the bottom lines dropped, C4 red first).
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v92.json');
+// v93: THE STATEMENT'S BLANKS FILLED (underwriting, the Contributions' Written
+// Premium and its newly arising / previously reported split). Against v92,
+// reproduced 236 of 236 by multiplayer cf8e9c1 in this container, and text-diffed
+// row by row (RENDER_TEXT_DIR both sides): 26 of 236 move, EXACTLY the 26 Annual
+// Statement screens; nothing above the statement, and no other screen.
+//   all 26  Contributions: Written Premium (each program year's own now, not 0),
+//           and both groups' Reserve Changes and Net Reported — previously
+//           reported claims now carry their payments' reserve release and newly
+//           arising the IBNR emerging to reported. Their Payments, Change in IBNR
+//           and Total Net Incurred are unchanged on every screen.
+//   8       the Pool view of the WC, GL, PR and WC+GL configurations, at both year
+//           points: all seven Underwriting rows, "—" before, the lines' sums now
+//           (one unit in each). WC+GL+PR's pool view does not move: it mixes
+//           payroll and TIV, and stays "—".
+//   8       Retained % on every line view at y0: Prior (2021) reads "—", not
+//           100.0% — under Renewal ÷ last year's Written it has no year before it.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v93.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
