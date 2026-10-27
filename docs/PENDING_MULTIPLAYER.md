@@ -101,12 +101,27 @@ development per line; single player has none (`SOLO_ADVERSE_DEVELOPMENT`).
 ## The Annual Statement laid out as the template
 
 The Annual Statement page and its new **Download Annual Statement (Excel)** button
-follow `docs/Annual Statement Example.xlsx` cell for cell: every title, label and
-blank row in place, Prior plus the five years shown. One row is removed, "Profit
-and Contigency" (template row 15): it is a margin in the rate, not an expense. The
-layout is `TEMPLATE_ROWS` in `src/utils/annualStatementTemplate.ts`; its header
-says where every figure comes from. The Excel file (`annualStatementExport.ts`)
-has one sheet for the pool and one per line, with numbers in the cells.
+follow the template cell for cell: every title, label and blank row in place,
+Prior plus the five years shown. The template is now **the Pool sheet of
+`docs/Annual Statement Example v2.xlsx`**; the first, `docs/Annual Statement
+Example.xlsx`, is kept only as a control in the gate. v1's row 15, "Profit and
+Contigency", is gone, because it is a margin in the rate, not an expense; v2
+carries that removal itself. The layout is `TEMPLATE_ROWS` in
+`src/utils/annualStatementTemplate.ts`; its header says where every figure comes
+from. The Excel file (`annualStatementExport.ts`) has one sheet for the pool and
+one per line, with numbers in the cells.
+
+**v2's two changes.**
+- **All Years.** Column I is a new **All Years** column in Contributions To The
+  Current Calendar Year, Program Year Totals and the Gross, Ceded and Net blocks,
+  headed "All Years". On every dollar row it is the sum of Prior and the five
+  years, written in Excel as `=SUM(C:H)` over its own row, as the template does,
+  with the value cached. The ratio rows ("% Increase over Prior", "Loss & LAE
+  Ratio") are blank there. The Contributions' All Years Total Net Incurred is the
+  calendar year's Total Incurred Loss & LAE on the Net Income Statement, and the
+  gate asserts it.
+- **Spacing.** One blank row, not two, between the Contributions' Written
+  Premium and "Previous Reported Claims", so the statement is 155 rows.
 
 **Decided in the build, recorded here so nobody re-decides them:**
 
@@ -149,14 +164,13 @@ has one sheet for the pool and one per line, with numbers in the cells.
 the boxed year headers, the thin vertical lines on every row (label column
 included), the line closing each section and the balance sheet's lines under each
 group. They are read from the file by `scripts/tools/generate-statement-borders.ts`
-into `src/utils/annualStatementBorders.ts`, generated and never edited by hand,
-with row 15 removed and the rows below closed up. The table includes the
-template's last row (157), which carries the Net block's closing line, so the
-statement has 156 rows. The page draws them in CSS and the download writes them
+into `src/utils/annualStatementBorders.ts`, generated and never edited by hand:
+now from v2's Pool sheet, nine columns A to I, row for row. The table includes
+the template's last row (155), which carries the Net block's closing line. The page draws them in CSS and the download writes them
 with **exceljs** (SheetJS community writes no borders). exceljs is a dynamic
 import: about 940 kB, fetched only when the button is pressed. The gate reads
 the template file itself and compares every cell's border in the downloaded
-file, A–H on all 156 rows. `downloads.cjs` does the same for the screen and
+file, A–I on all 155 rows. `downloads.cjs` does the same for the screen and
 checks that exceljs is not loaded with the page. Re-run the generator if the
 template's lines ever change; the gate fails until you do.
 
@@ -164,10 +178,10 @@ template's lines ever change; the gate fails until you do.
 tied to the engine on four games, the Excel file against the template, and the
 operating ratio by hand on scenario 1 WC 2027 (94.40%), each with a failing
 control, now including the borders. Also VALUE_IDENTITY_v87 unchanged,
-SOLO_EXPORT_GUARD_v97 (24 Results hashes unchanged since v94; the 24 statement
-hashes carry the borders from v96 and the filled blanks from v97, each
-attributed in `solo-export-guard.ts`), RENDER_IDENTITY_v93 (exactly the 26
-Annual Statement screens moved at v92 and again at v93, each attributed in
+SOLO_EXPORT_GUARD_v98 (24 Results hashes unchanged since v94; the 24 statement
+hashes carry the borders from v96, the filled blanks from v97 and All Years from
+v98, each attributed in `solo-export-guard.ts`), RENDER_IDENTITY_v94 (exactly the
+26 Annual Statement screens moved at v92, v93 and v94, each attributed in
 `render-identity-check.ts`; the borders move none, since it fingerprints text),
 and every session driver with the admin-token hook. Screenshots are in
 `docs/screenshots/annual-statement/`.

@@ -1440,7 +1440,18 @@ const BASELINE = process.env.RENDER_BASELINE
 //           payroll and TIV, and stays "—".
 //   8       Retained % on every line view at y0: Prior (2021) reads "—", not
 //           100.0% — under Renewal ÷ last year's Written it has no year before it.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v93.json');
+// v94: THE v2 TEMPLATE — ALL YEARS. Against v93's own text, captured from the
+// code at 2107e9d (9f4fa9c, multiplayer's head, adds only the template file),
+// text-diffed row by row: 26 of 236 move, EXACTLY
+// the 26 Annual Statement screens; nothing above the statement, no other screen.
+// On each, the only change is the All Years column: 33 dollar rows (9 in the
+// Contributions, 6 in each of Program Year Totals and the Gross, Ceded and Net
+// blocks) gain exactly one cell, and the section's 5 header rows gain "All
+// Years" — 858 and 130 rows across the 26. The other 1,352 rows read the same;
+// the ratio rows are blank in All Years and do not move. v2's one blank row
+// fewer after the Contributions' Written Premium carries no text, so it moves
+// no fingerprint; downloads.cjs sees it, through the rows' lines.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v94.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

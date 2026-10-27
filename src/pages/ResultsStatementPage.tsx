@@ -1,5 +1,5 @@
 // THE ANNUAL STATEMENT — the players' results page, replacing Pool History.
-// Laid out as the template (docs/Annual Statement Example.xlsx) row for row:
+// Laid out as the template (docs/Annual Statement Example v2.xlsx) row for row:
 // TEMPLATE_ROWS (utils/annualStatementTemplate) gives every title, label and
 // blank row, buildTemplateStatement every figure — read from buildAnnualStatement
 // (utils/resultsStatement), which reads the engine — and STATEMENT_BORDERS every
@@ -10,7 +10,7 @@ import { Download } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
 import { statementYears } from '../utils/resultsStatement';
 import {
-  buildTemplateStatement, figureText, TEMPLATE_ROWS, type TemplateRow, type TemplateStatement,
+  ALL_YEARS_LABEL, allYearsCell, buildTemplateStatement, figureText, hasAllYears, TEMPLATE_ROWS, type TemplateRow, type TemplateStatement,
 } from '../utils/annualStatementTemplate';
 import { STATEMENT_BORDERS } from '../utils/annualStatementBorders';
 import { annualStatementFilename, buildAnnualStatementXlsx } from '../utils/annualStatementExport';
@@ -51,7 +51,7 @@ const yearEnd = (calendarYear: number) => `12/31/${String(calendarYear % 100).pa
 const indented = (label: string) => /^\s/.test(label);
 
 /**
- * A cell's lines, as the template draws them: column c (B = 1 … H = 7) of
+ * A cell's lines, as the template draws them: column c (B = 1 … H = 7, I = 8) of
  * template row i. The tables collapse their borders, so a line two neighbours
  * both carry is one line, as in Excel.
  */
@@ -67,9 +67,12 @@ function edges(i: number, c: number): CSSProperties {
 }
 
 function Row({ at: { row, i }, ts }: { at: At; ts: TemplateStatement }) {
-  // Every row has all seven cells, B to H, so the vertical lines run down blank rows and headings too.
-  const cols = ts.columns.length;
+  // Every row has all its cells, B to H — and I, All Years, in the program-year
+  // sections — so the vertical lines run down blank rows and headings too.
+  const allYears = hasAllYears(i);
+  const cols = ts.columns.length + (allYears ? 1 : 0);
   const data = { 'data-template-row': i + 1 };
+  const ay = 1 + ts.columns.length + 1; // All Years' border column: I
   switch (row.kind) {
     case 'blank': case 'title':
       return (
@@ -86,6 +89,9 @@ function Row({ at: { row, i }, ts }: { at: At; ts: TemplateStatement }) {
               {k > 0 && row.dates ? yearEnd(ts.years[k - 1]) : c}
             </th>
           ))}
+          {allYears && (
+            <th className="px-3 py-1 text-center font-semibold text-black whitespace-nowrap" style={edges(i, ay)}>{row.allYears ? ALL_YEARS_LABEL : ''}</th>
+          )}
         </tr>
       );
     case 'heading':
@@ -109,10 +115,22 @@ function Row({ at: { row, i }, ts }: { at: At; ts: TemplateStatement }) {
               </td>
             );
           })}
+          {allYears && <AllYearsCell row={row} i={i} ts={ts} style={edges(i, ay)} />}
         </tr>
       );
     }
   }
+}
+
+/** A row's All Years cell: the total on a dollar row, blank on a ratio row (allYearsCell). */
+function AllYearsCell({ row, i, ts, style }: { row: TemplateRow; i: number; ts: TemplateStatement; style: CSSProperties }) {
+  const total = allYearsCell(row, i, ts);
+  const text = total === undefined || row.kind !== 'figure' ? '' : figureText(total, row.format);
+  return (
+    <td data-all-years="" className={`px-3 py-1 text-right tabular-nums whitespace-nowrap ${text.startsWith('−') ? 'text-red-600' : 'text-black'}`} style={style}>
+      {text}
+    </td>
+  );
 }
 
 /** One section's rows; a header row opens a new body, so each reinsurance block is its own. */
@@ -131,6 +149,7 @@ function SectionTable({ title, rows, ts }: { title: string; rows: At[]; ts: Temp
         <colgroup>
           <col className="w-[340px]" />
           {ts.columns.map(c => <col key={c} className="w-[110px]" />)}
+          {rows.some(at => hasAllYears(at.i)) && <col className="w-[110px]" />}
         </colgroup>
         {bodies.map((b, k) => (
           <tbody key={k} data-testid={b.header ? BLOCK_ID[b.header] : undefined}>
