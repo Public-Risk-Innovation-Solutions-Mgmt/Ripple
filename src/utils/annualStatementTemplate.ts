@@ -56,7 +56,7 @@
 
 import {
   buildAnnualStatement, num, programYearsOf, COMBINED_RATIO_LABEL, ENDING_SURPLUS_LABEL,
-  type AnnualStatement, type StatementSection,
+  type AnnualStatement, type AyBlock, type StatementSection,
 } from './resultsStatement';
 import { lineDisplayName } from './lineDisplay';
 import { TEMPLATE_BORDERS } from './annualStatementBorders';
@@ -370,6 +370,45 @@ function windowResults(gs: GameState, asOf: number, windowYears: number[]) {
   };
 }
 
+/** One accident year's movement in a year, split as the Contributions show it (buildTemplateStatement). */
+interface AySplit { newPaid: number; newCase: number; prevPaid: number; prevCase: number; ibnr: number; incurred: number; settlement: number }
+
+/**
+ * ONE LINE'S YEAR, ACCIDENT YEAR BY ACCIDENT YEAR: the movement from `then` to
+ * `now` (programYearsOf at the two valuations), `yearNumber` the later, split
+ * between newly arising and previously reported claims with both variances —
+ * newly reported claims paid in part, and the settlement draw. The current
+ * program year's own claims are all newly arising, with no draw.
+ */
+function yearSplits(now: Map<number, AyBlock>, then: Map<number, AyBlock>, yearNumber: number, line: CoverageLine, seed: number): Map<number, AySplit> {
+  const out = new Map<number, AySplit>();
+  const firstYear = now.get(yearNumber)?.net;
+  const firstYearReported = firstYear ? firstYear.paid + firstYear.case_ : 0;
+  const paidShare = firstYear && firstYearReported > 0 ? Math.min(1, Math.max(0, firstYear.paid / firstYearReported)) : 0;
+  const z = { paid: 0, case_: 0, ibnr: 0 };
+  for (const ay of new Set([...now.keys(), ...then.keys()])) {
+    const a = now.get(ay)?.net ?? z, b = then.get(ay)?.net ?? z;
+    const dPaid = a.paid - b.paid, dCase = a.case_ - b.case_, dIbnr = a.ibnr - b.ibnr;
+    const d = dPaid + dCase + dIbnr;
+    if (ay === yearNumber) {
+      out.set(ay, { newPaid: dPaid, newCase: dCase, prevPaid: 0, prevCase: 0, ibnr: dIbnr, incurred: d, settlement: 0 });
+      continue;
+    }
+    const outstanding = b.case_ + b.ibnr;
+    const share = outstanding > 0 ? Math.min(1, Math.max(0, b.ibnr / outstanding)) : 0;
+    const newReported = -dIbnr + share * d;
+    const newPaid = Math.min(Math.max(0, dPaid), Math.max(0, paidShare * newReported));
+    const prevPaid = dPaid - newPaid;
+    const settlement = settlementDraw(seed, yearNumber, line, ay) * prevPaid;
+    const prevReported = (1 - share) * d + settlement;
+    out.set(ay, {
+      newPaid, newCase: newReported - newPaid, prevPaid, prevCase: prevReported - prevPaid,
+      ibnr: dIbnr - settlement, incurred: d, settlement,
+    });
+  }
+  return out;
+}
+
 export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?: number): TemplateStatement {
   const st = buildAnnualStatement(gs, scope, asOfYear);
   const op = sec(st, 'operating'), bal = sec(st, 'balance');
@@ -529,54 +568,47 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   //     previously reported payments) — from the GAME's seed, so every world and
   //     every reading draws the same. It adds to Previously Reported's Reserve
   //     Changes and comes off Change in IBNR, which balances it.
-  //     ⚠ So Contributions' Change in IBNR and Reserve Changes no longer equal
-  //     the Program Year Totals' movement in IBNR and case by the draw: the
-  //     statement attributes part of the year's movement to settlement that the
-  //     engine carries as IBNR. The totals — reported, incurred, paid — agree.
+  //     The program-year blocks carry the same draws (every year's to date,
+  //     moved from IBNR to case), so Contributions' Change in IBNR and Reserve
+  //     Changes are exactly the movement in Program Year Totals' IBNR and Case
+  //     Reserves; incurred and paid, and the reserves' total, are the engine's.
   // (A third, LAE paid half at report and half at close, is NOT drawn: LAE paid
   // is the engine's own figure — it is cash, and earns investment income — so
   // scheduling it would change the engine's figures, not only the statement's.)
-  const asOfResult = full[full.length - 1];
   const before = full.length >= 2 ? full[full.length - 2] : undefined;
   const firstAy = windowYears[0];
   const colOf = (ay: number) => (ay < firstAy ? 0 : windowYears.indexOf(ay) + 1);
   type Split = { prevPaid: number; prevCase: number; newPaid: number; newCase: number; ibnr: number; incurred: number };
   const cols: Split[] = columnsZero(1 + windowYears.length);
+  // Every year's split, line by line, from the timeline's first year to this
+  // one: the Contributions take this year's, and the program-year blocks carry
+  // every year's settlement differences so far (settledCase, below).
   const seed = marketSeedOf(gs.instance);
+  const settled = columnsZero(1 + windowYears.length).map(() => 0);
   for (const l of uwLines) {
-    if (!before) break;
-    const now = programYearsOf(gs, l, asOfResult), then = programYearsOf(gs, l, before);
-    const firstYear = now.get(st.asOf)?.net;
-    const firstYearReported = firstYear ? firstYear.paid + firstYear.case_ : 0;
-    const paidShare = firstYear && firstYearReported > 0 ? Math.min(1, Math.max(0, firstYear.paid / firstYearReported)) : 0;
-    for (const ay of new Set([...now.keys(), ...then.keys()])) {
-      const i = colOf(ay);
-      if (i < 0) continue;
-      const z = { paid: 0, case_: 0, ibnr: 0 };
-      const a = now.get(ay)?.net ?? z, b = then.get(ay)?.net ?? z;
-      const dPaid = a.paid - b.paid, dCase = a.case_ - b.case_, dIbnr = a.ibnr - b.ibnr;
-      const d = dPaid + dCase + dIbnr;
-      const c = cols[i];
-      if (ay === st.asOf) {
-        c.newPaid += dPaid; c.newCase += dCase;
-      } else {
-        const outstanding = b.case_ + b.ibnr;
-        const share = outstanding > 0 ? Math.min(1, Math.max(0, b.ibnr / outstanding)) : 0;
-        const newReported = -dIbnr + share * d;
-        const newPaid = Math.min(Math.max(0, dPaid), Math.max(0, paidShare * newReported));
-        const prevPaid = dPaid - newPaid;
-        const settlement = settlementDraw(seed, st.asOf, l, ay) * prevPaid;
-        const prevReported = (1 - share) * d + settlement;
-        c.newPaid += newPaid;
-        c.newCase += newReported - newPaid;
-        c.prevPaid += prevPaid;
-        c.prevCase += prevReported - prevPaid;
-        c.ibnr += dIbnr - settlement;
-        c.incurred += d;
-        continue;
+    const valued = full.map(r => programYearsOf(gs, l, r));
+    for (let k = 1; k < full.length; k++) {
+      const splits = yearSplits(valued[k], valued[k - 1], full[k].yearNumber, l, seed);
+      for (const [ay, x] of splits) {
+        const i = colOf(ay);
+        if (i < 0) continue;
+        settled[i] += x.settlement;
+        if (k !== full.length - 1) continue;
+        const c = cols[i];
+        c.newPaid += x.newPaid; c.newCase += x.newCase; c.prevPaid += x.prevPaid; c.prevCase += x.prevCase;
+        c.ibnr += x.ibnr; c.incurred += x.incurred;
       }
-      c.ibnr += dIbnr;
-      c.incurred += d;
+    }
+  }
+  // THE SETTLEMENT DIFFERENCES ON THE PROGRAM-YEAR BLOCKS. Each accident year's
+  // draws to date move from IBNR to case — and so into Reported — in Program
+  // Year Totals and the Gross and Net blocks (Ceded carries none: the draw is on
+  // the retained claims, so Net = Gross − Ceded holds), so each year's Change in
+  // IBNR and Reserve Changes in the Contributions are exactly the movement in
+  // these rows. Paid and Total Incurred do not move, nor the reserves' total.
+  for (const k of ['py', 'gross', 'net']) {
+    for (const [row, sign] of [['case', 1], ['reported', 1], ['ibnr', -1]] as const) {
+      figures[`${k}.${row}`] = figures[`${k}.${row}`].map((x, i) => (x === null ? null : x + sign * settled[i]));
     }
   }
   const cy = (f: (c: Split) => number): Figure[] => cols.map(c => (before ? f(c) : null));

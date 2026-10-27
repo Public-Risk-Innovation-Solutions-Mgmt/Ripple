@@ -195,9 +195,17 @@ entry against the template, and fails on any other cell that differs.
     zero, standard deviation `SETTLEMENT_SPREAD` (3%, a setting) of the
     previously reported payments. It comes from the game's seed, so every world
     draws the same. It adds to Previously Reported Reserve Changes and comes off
-    Change in IBNR. ⚠ So the Contributions' Change in IBNR and Reserve Changes no
-    longer equal the Program Year Totals' movement in IBNR and case: they differ
-    by the draw. Reported, incurred and paid all still agree.
+    Change in IBNR. **The program-year blocks carry the same draws:** each
+    accident year's draws to date move from IBNR Reserves to Case Reserves (and
+    so Reported) in Program Year Totals and the Gross and Net blocks. Ceded
+    carries none, since the draw is on the retained claims, so Net = Gross −
+    Ceded holds. Each year's Change in IBNR and Reserve Changes in the
+    Contributions are therefore exactly the movement in those rows; the gate ties
+    them, every column, against the statement a year earlier. Paid, Total
+    Incurred and the reserves' total are the engine's. ⚠ On old accident years
+    with little IBNR left, the draws can take IBNR below zero: 48 of 1,404
+    program-year IBNR cells across three test games, the worst −$288K (scenario
+    7, Property, Prior, at year 1).
   - **Not built: LAE paid half at report, half at close.** LAE paid is the
     engine's own figure (`laePaid` = LAE share × gross paid): it is cash, it
     earns investment income, and the LAE reserve is the balance sheet's Loss
@@ -244,13 +252,14 @@ tied to the engine on six games, the Excel file against the template through the
 list of deliberate differences (which it prints), the admin "% of Premium" ties,
 the Contributions variance's invariants, and the operating ratio by hand on
 scenario 1 WC 2027 (94.40%), each with a failing control. Also
-VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v100 (24 Results hashes
+VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v101 (24 Results hashes
 unchanged since v94; the 24 statement hashes carry the borders from v96, the
 filled blanks from v97, All Years from v98, the two renamed headings from v99,
-and the seven columns, row changes and variance from v100, each attributed in
-`solo-export-guard.ts`), RENDER_IDENTITY_v97 (exactly the 26 Annual Statement
-screens moved at each of v92 to v95 and at v97 — v96 was development pricing's,
-reverted with it — each attributed in
+the seven columns, row changes and variance from v100, and the draws on the
+program-year blocks from v101, each attributed in
+`solo-export-guard.ts`), RENDER_IDENTITY_v98 (exactly the 26 Annual Statement
+screens moved at each of v92 to v95, v97 and v98 — v96 was development
+pricing's, reverted with it — each attributed in
 `render-identity-check.ts`; borders move none, since it fingerprints text), and
 all 24 session drivers with the admin-token hook. Screenshots are in
 `docs/screenshots/annual-statement/`.

@@ -1473,7 +1473,13 @@ const BASELINE = process.env.RENDER_BASELINE
 //     Previously Reported and Newly Arising), Previously Reported Net Reported and
 //     Change in IBNR (26 each). Written Premium and Total Net Incurred do not move.
 // Bold block names, alignment and the blank C and I cells carry no text.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v97.json');
+// v98: THE SETTLEMENT DRAWS ON THE PROGRAM-YEAR BLOCKS. Against v97's own text
+// (RENDER_TEXT_DIR), row by row: 26 of 236 move, EXACTLY the 26 Annual Statement
+// screens, nothing above the statement on any, and on each only Case Reserves,
+// IBNR Reserves and Reported Loss & LAE in Program Year Totals and the Gross and
+// Net blocks (26 each, nine rows) — each accident year's draws to date moved from
+// IBNR to case. The Contributions, Ceded, Paid and Total Incurred do not move.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v98.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

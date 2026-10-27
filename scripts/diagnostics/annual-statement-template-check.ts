@@ -320,6 +320,31 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
       if (!near(x, f[`py.${r}`][i]!)) out.push(`Program Year Totals - Net ≠ Net: ${r} [${i}]`);
     });
   }
+  // THE BLOCKS AGAINST THE ENGINE, column by column: Paid and Total Incurred are
+  // the engine's (programYearsOf), and so is the reserve, Case + IBNR — the
+  // settlement draws only move it from IBNR to Case; the Ceded block is the
+  // engine's row for row.
+  {
+    const nowR = timelineOf(gs).find(r => r.yearNumber === ts.asOf)!;
+    const calOf = (yn: number) => yn + nowR.calendarYear - nowR.yearNumber;
+    const engine = { gross: [] as number[][], ceded: [] as number[][], net: [] as number[][] };
+    const n = 1 + ts.years.length;
+    for (const k of ['gross', 'ceded', 'net'] as const) engine[k] = Array.from({ length: n }, () => [0, 0, 0]);
+    for (const l of scope === 'pool' ? gs.setup.activeLines : [scope as CoverageLine]) for (const [ay, b] of programYearsOf(gs, l, nowR)) {
+      const y = calOf(ay);
+      const i = y < ts.years[0] ? 0 : ts.years.indexOf(y) + 1;
+      if (i < 0) continue;
+      for (const k of ['gross', 'ceded', 'net'] as const) { engine[k][i][0] += b[k].paid; engine[k][i][1] += b[k].case_; engine[k][i][2] += b[k].ibnr; }
+    }
+    const v = (x: Figure) => x ?? 0;
+    for (const k of ['gross', 'ceded', 'net'] as const) for (let i = 0; i < n; i++) {
+      const [paid, case_, ibnr] = engine[k][i];
+      if (!near(v(f[`${k}.paid`][i]), paid)) out.push(`${k} paid [${i}] ${f[`${k}.paid`][i]} ≠ the engine's ${paid}`);
+      if (!near(v(f[`${k}.case`][i]) + v(f[`${k}.ibnr`][i]), case_ + ibnr)) out.push(`${k} case + IBNR [${i}] ≠ the engine's ${case_ + ibnr}`);
+      if (!near(v(f[`${k}.incurred`][i]), paid + case_ + ibnr)) out.push(`${k} Total Incurred [${i}] ≠ the engine's ${paid + case_ + ibnr}`);
+      if (k === 'ceded' && (!near(v(f['ceded.case'][i]), case_) || !near(v(f['ceded.ibnr'][i]), ibnr))) out.push(`ceded case / IBNR [${i}] ≠ the engine's: the draw is on the retained claims`);
+    }
+  }
   // A column with no program year in it (Prior, before the pool has older years) holds none.
   const held = (xs: Figure[]) => xs.reduce<number>((t, x) => t + (x ?? 0), 0);
   const reserves = held(f['net.case']) + held(f['net.ibnr']);
@@ -379,10 +404,46 @@ for (const g of games) for (const [y, gs] of g.snaps.entries()) for (const scope
 check(tieFails.length === 0, `A. ${statements} statements tie to the engine (${games.length} games × ${YEARS + 1} points × every scope)`, tieFails.slice(0, 3).join(' · '));
 check(ceded > 0, 'A. the covered game cedes, so the ceded block is exercised', `Σ |ceded incurred| ${ceded.toFixed(0)}`);
 
+/**
+ * A program-year row's movement over the year, column by column of `ts`: each
+ * column's accident years as `ts` values them, less the same accident years in
+ * `prev`, the statement a year earlier (its Prior and its older columns fold
+ * into `ts`'s Prior; the year's own program year was not there).
+ */
+function movement(ts: TemplateStatement, prev: TemplateStatement, key: string): number[] {
+  const v = (t: TemplateStatement, k: number) => t.figures[key][k] ?? 0;
+  return ts.figures[key].map((_, k) => {
+    if (k === 0) return v(ts, 0) - (v(prev, 0) + prev.years.reduce((t, y, j) => t + (y < ts.years[0] ? v(prev, j + 1) : 0), 0));
+    const j = prev.years.indexOf(ts.years[k - 1]);
+    return v(ts, k) - (j >= 0 ? v(prev, j + 1) : 0);
+  });
+}
+/**
+ * THE CONTRIBUTIONS ARE THE PROGRAM YEAR TOTALS' MOVEMENT, settlement draws
+ * included: Change in IBNR = Δ IBNR Reserves, Reserve Changes (both groups) =
+ * Δ Case Reserves, Payments = Δ Paid, Total Net Incurred = Δ Total Incurred —
+ * every column.
+ */
+function programYearTie(ts: TemplateStatement, prev: TemplateStatement): string[] {
+  const out: string[] = [];
+  const f = ts.figures;
+  const sum2 = (a: Figure[], b: Figure[]) => a.map((x, i) => (x ?? 0) + (b[i] ?? 0));
+  for (const [name, got, key] of [
+    ['Change in IBNR = the movement in IBNR Reserves', f['cy.ibnr'].map(x => x ?? 0), 'py.ibnr'],
+    ['Reserve Changes = the movement in Case Reserves', sum2(f['cy.prev.case'], f['cy.new.case']), 'py.case'],
+    ['Payments = the movement in Paid Loss & LAE', sum2(f['cy.prev.paid'], f['cy.new.paid']), 'py.paid'],
+    ['Total Net Incurred = the movement in Total Incurred Loss & LAE', f['cy.incurred'].map(x => x ?? 0), 'py.incurred'],
+  ] as const) {
+    const want = movement(ts, prev, key);
+    got.forEach((g, i) => { if (!near(g, want[i])) out.push(`${name} [${i}]: ${g} ≠ ${want[i]}`); });
+  }
+  return out;
+}
+
 // EVERY YEAR THE STATEMENT CAN STAND AT: each game's last point, at every year
 // its selector offers, every scope — the contributions recomputed and footed at each.
-let everyYear = 0;
-const yearFails: string[] = [];
+let everyYear = 0, pyTies = 0;
+const yearFails: string[] = [], pyFails: string[] = [];
 for (const g of games) {
   const gs = g.snaps[YEARS];
   for (const { yearNumber } of statementYears(gs)) for (const scope of scopesOf(gs)) {
@@ -390,8 +451,13 @@ for (const g of games) {
     if (ts.figures['cy.incurred'].every(x => x === null)) continue; // the pool's first year has no year before it
     everyYear++;
     for (const e of tieOut(gs, ts, scope)) yearFails.push(`${g.id} as of ${yearNumber} ${scope}: ${e}`);
+    if (!statementYears(gs).some(y => y.yearNumber === yearNumber - 1)) continue;
+    const prev = buildTemplateStatement(gs, scope, yearNumber - 1);
+    pyTies++;
+    for (const e of programYearTie(ts, prev)) pyFails.push(`${g.id} as of ${yearNumber} ${scope}: ${e}`);
   }
 }
+check(pyTies > 0 && pyFails.length === 0, `A. the Contributions are the Program Year Totals' movement, settlement differences included — Change in IBNR = Δ IBNR Reserves, Reserve Changes = Δ Case Reserves, Payments = Δ Paid, Total Net Incurred = Δ Total Incurred — every column (${pyTies} statements against the year before)`, pyFails.slice(0, 3).join(' · '));
 check(yearFails.length === 0, `A. at every year each game's statement can stand at, every scope (${everyYear} statements): Total Net Incurred is the year's movement, unchanged, and Newly Arising + Previously Reported + Change in IBNR = Total Net Incurred`, yearFails.slice(0, 3).join(' · '));
 check(A3_EXERCISE.ibnrShareOfDevelopment > 0, 'A. the split is exercised: older accident years develop, and IBNR\'s share of it moves to newly arising', `Σ |s·D| ${A3_EXERCISE.ibnrShareOfDevelopment.toFixed(0)}`);
 check(A3_EXERCISE.newlyReportedPaid > 0, 'A. the variance is exercised: newly reported claims on older accident years are paid in part', `Σ newly reported paid ${A3_EXERCISE.newlyReportedPaid.toFixed(0)}`);
@@ -451,6 +517,43 @@ check(A3_EXERCISE.underwritingFigures > 0, 'A. the pool\'s underwriting rows are
     t.figures['cy.incurred'][0]! += 50_000;
     const errs = tieOut(gs, t, 'WC').filter(e => e.startsWith('All Years Total Net Incurred'));
     check(errs.length === 1, 'A control — Prior\'s Total Net Incurred moved: All Years no longer meets the Net Income Statement, and that check fails', errs[0] ?? 'NOTHING FIRED');
+  }
+}
+
+// THE PROGRAM YEAR TIE'S CONTROLS, on the adverse-development game's last point,
+// WC, against the year before.
+{
+  const gs = games[4].snaps[YEARS];
+  const base = buildTemplateStatement(gs, 'WC'), prev = buildTemplateStatement(gs, 'WC', base.asOf - 1);
+  check(programYearTie(base, prev).length === 0, 'A. (the tie\'s controls start from a statement that ties)');
+  const tie: { name: string; breakIt: (t: TemplateStatement, gs: GameState) => void }[] = [
+    { name: 'the blocks without the settlement differences (the engine\'s case and IBNR, as before)', breakIt: (t, gs) => {
+      const nowR = timelineOf(gs).find(r => r.yearNumber === t.asOf)!;
+      const off = nowR.calendarYear - nowR.yearNumber;
+      for (const k of ['py', 'gross', 'net']) { t.figures[`${k}.case`] = t.figures[`${k}.case`].map(x => (x === null ? null : 0)); t.figures[`${k}.ibnr`] = t.figures[`${k}.ibnr`].map(x => (x === null ? null : 0)); }
+      for (const [ay, b] of programYearsOf(gs, 'WC', nowR)) {
+        const i = ay + off < t.years[0] ? 0 : t.years.indexOf(ay + off) + 1;
+        if (i < 0) continue;
+        for (const [k, side] of [['py', 'net'], ['gross', 'gross'], ['net', 'net']] as const) { t.figures[`${k}.case`][i]! += b[side].case_; t.figures[`${k}.ibnr`][i]! += b[side].ibnr; }
+      }
+    } },
+    { name: 'case moved from IBNR on one column of the blocks (totals hold)', breakIt: t => {
+      for (const k of ['py', 'gross', 'net']) { t.figures[`${k}.case`][3]! += 10_000; t.figures[`${k}.ibnr`][3]! -= 10_000; t.figures[`${k}.reported`][3]! += 10_000; }
+    } },
+  ];
+  for (const c of tie) {
+    const t = clone(base);
+    c.breakIt(t, gs);
+    const errs = programYearTie(t, prev);
+    // The draws only move case and IBNR: the engine's totals hold either way, so only the tie may catch it.
+    check(errs.length > 0 && tieOut(gs, t, 'WC').filter(e => /case \+ IBNR|Total Incurred|paid \[/.test(e)).length === 0,
+      `A control — ${c.name}: the Program Year tie fails, and the engine's totals still hold`, errs[0] ?? 'NOTHING FIRED');
+  }
+  {
+    const t = clone(base);
+    t.figures['ceded.case'][3]! += 10_000; t.figures['ceded.ibnr'][3]! -= 10_000;
+    const errs = tieOut(gs, t, 'WC').filter(e => e.startsWith('ceded case / IBNR'));
+    check(errs.length > 0, 'A control — a settlement difference put on the Ceded block: the engine check fails', errs[0] ?? 'NOTHING FIRED');
   }
 }
 

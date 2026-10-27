@@ -958,7 +958,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     Contributions, and the inserted row drawn as row 13; with rows below the
 //     inserted one aligned, no other border moved.
 // No key added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v100.json');
+// v101: THE SETTLEMENT DRAWS ON THE PROGRAM-YEAR BLOCKS. All 24 `stmt|...`
+// keys move; all 24 Results-workbook keys are byte-identical to v100.
+// Text-diffed against v100's own text (GUARD_TEXT_DIR, shown and raw): every
+// moved line is Case Reserves, IBNR Reserves or Reported Loss & LAE in Program
+// Year Totals or the Gross or Net block (120 lines each, nine rows) — each
+// accident year's draws to date moved from IBNR to case. Ceded, Paid, Total
+// Incurred, the Contributions and the borders do not move. No key added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v101.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
