@@ -1,6 +1,7 @@
 // ============================================================================
 // ADVERSE DEVELOPMENT (wip/adverse-development) — the λ draws, the compounding
-// on outstanding only, paid untouched and no pre-game development.
+// on outstanding only, paid untouched, and the pre-game developing at the level
+// and by nothing else (restated for wip/development-pricing: PRE_GAME_ADVERSE_DEVELOPMENT).
 //
 //   npx tsx scripts/diagnostics/adverse-development-check.ts
 //
@@ -22,7 +23,7 @@
 // ============================================================================
 
 import {
-  ADVERSE_DEVELOPMENT, ADVERSE_DEVELOPMENT_RANGE, RESERVE_INFLATION_PER_YEAR, SOLO_ADVERSE_DEVELOPMENT,
+  ADVERSE_DEVELOPMENT, ADVERSE_DEVELOPMENT_RANGE, PRE_GAME_ADVERSE_DEVELOPMENT, RESERVE_INFLATION_PER_YEAR, SOLO_ADVERSE_DEVELOPMENT,
 } from '../../src/data/pricingParameters';
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { adverseDevelopmentRate, adverseDevelopmentUniform, drawDevelopmentLevels } from '../../src/utils/adverseDevelopment';
@@ -166,15 +167,21 @@ function sectionPaid(g: Played | null = game): string[] {
   return out;
 }
 
-// ---- 4. NO DEVELOPMENT IN THE PRE-GAME ---------------------------------------
+// ---- 4. THE PRE-GAME DEVELOPS AT THE LEVEL, AND BY NOTHING ELSE --------------
+// RESTATED (wip/development-pricing). It read "no development in the pre-game";
+// the pre-game now develops at the game's level (PRE_GAME_ADVERSE_DEVELOPMENT)
+// so the history shows the development pricing learns. Every pre-game year
+// with a prior accident year open books adverse development on every line;
+// none books reserve inflation; and no host percentage is struck at the
+// opening. Controls: reserve inflation left on, and the pre-game switch off.
 function sectionPreGame(): string[] {
   const out: string[] = [];
   const g = playGame();
+  const first = Math.min(...g.pre.map(r => r.yearNumber));
   for (const r of g.pre) {
     const ad = r.newLossEngine?.adverseDevelopment ?? 0, ri = r.newLossEngine?.reserveInflation ?? 0;
-    if (ad !== 0 || ri !== 0 || Math.abs(r.priorYearDevelopment ?? 0) > 1e-6) {
-      out.push(`pre-game ${r.line} y${r.yearNumber}: adverse ${ad.toFixed(0)}, inflation ${ri.toFixed(0)}, prior-year development ${(r.priorYearDevelopment ?? 0).toFixed(0)}`);
-    }
+    if (ri !== 0) out.push(`pre-game ${r.line} y${r.yearNumber}: reserve inflation ${ri.toFixed(0)}`);
+    if (r.yearNumber > first && !(ad > 0)) out.push(`pre-game ${r.line} y${r.yearNumber}: no adverse development booked`);
   }
   if (g.pre.length === 0) out.push('no pre-game rows');
   // And nothing struck at the opening to emerge later: the host's lifetime
@@ -228,7 +235,8 @@ control('a restated paid', () => {
   const row = rows.find(r => (r.grossPaidByValuation?.length ?? 0) > 1)!; const o = row.grossPaidByValuation![0];
   row.grossPaidByValuation![0] = o + 1000; return () => { row.grossPaidByValuation![0] = o; };
 }, () => sectionPaid(game));
-check(sectionPreGame(), '4. no development in the pre-game years');
+check(sectionPreGame(), '4. the pre-game develops at the level, and by nothing else');
+control('the pre-game switch off', () => { PRE_GAME_ADVERSE_DEVELOPMENT.enabled = false; return () => { PRE_GAME_ADVERSE_DEVELOPMENT.enabled = true; }; }, sectionPreGame);
 control('reserve inflation left on, in the pre-game', () => { const r = RESERVE_INFLATION_PER_YEAR as Record<string, number>; const o = r.GL; r.GL = 0.08; return () => { r.GL = o; }; }, sectionPreGame);
 control('the host\'s percentages back on', () => { const o = ADVERSE_DEVELOPMENT.enabled; ADVERSE_DEVELOPMENT.enabled = false; return () => { ADVERSE_DEVELOPMENT.enabled = o; }; }, sectionPreGame);
 

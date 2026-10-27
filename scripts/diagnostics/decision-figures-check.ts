@@ -49,6 +49,7 @@
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear, selectedClfFor, strikeBookRate } from '../../src/utils/simulationEngine';
+import { learnsDevelopment } from '../../src/utils/adverseDevelopment';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { RISK_CONTROL } from '../../src/data/pricingParameters';
 import { gameShocksOn } from '../../src/utils/shockLosses';
@@ -87,7 +88,9 @@ function struck(gs: GameState, line: CoverageLine, d: LineDecisionSet) {
   const ps = gs.poolState;
   const s = strikeBookRate(
     line, ps.lines[line], d, gs.currentYearNumber,
-    { allMarketMembers: ps.allMarketMembers, membershipHistory: ps.membershipHistory },
+    // The game's own learning switch, as the engine's struck rate passes it (worlds.strikeRates).
+    { allMarketMembers: ps.allMarketMembers, membershipHistory: ps.membershipHistory,
+      ...(learnsDevelopment(gs.setup, line) ? { learnDevelopment: true } : {}) },
     1, gameShocksOn(gs.setup, gs.instance),
   );
   if (!s) throw new Error('strikeBookRate returned null — the new loss engine and rate stack are expected on');
