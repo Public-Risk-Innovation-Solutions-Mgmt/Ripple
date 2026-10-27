@@ -293,7 +293,7 @@ const FAST: string[] = [
   'annual-statement-template-check', //  14s   the Annual Statement as the template: every figure ties to
                                      //         what the engine books on four games (the ceded block real
                                      //         on one), the Excel file is the template cell for cell less
-                                     //         "Profit and Contigency", the operating ratio by hand on
+                                     //         "Profit and Contigency", borders included, the operating ratio by hand on
                                      //         scenario 1 WC 2027 — each with a failing control
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
                                      //         and dividends across all six years and into year 1,

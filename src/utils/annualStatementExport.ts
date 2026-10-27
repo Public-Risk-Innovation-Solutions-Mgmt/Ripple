@@ -2,7 +2,9 @@
 // THE ANNUAL STATEMENT AS AN EXCEL FILE — one sheet for the pool and one for
 // each line the team writes, each laid out cell for cell as the template
 // (docs/Annual Statement Example.xlsx, through TEMPLATE_ROWS): labels in column
-// B, Prior in C, the five years in D to H, every blank row where it is.
+// B, Prior in C, the five years in D to H, every blank row where it is, and
+// every cell's BORDER as the template draws it (STATEMENT_BORDERS, generated
+// from the template file).
 //
 // Every figure is a NUMBER, in the statement's units — dollars in thousands, a
 // percentage as its fraction under a percent format — with negatives shown red
@@ -10,14 +12,20 @@
 // calendar years as numbers, and the balance sheet's its 12/31 year-ends as dates,
 // as the template does.
 //
+// ⚠ WRITTEN WITH exceljs, LOADED ONLY WHEN THE FILE IS BUILT. The SheetJS build
+// the rest of the app uses writes no borders, so this file needs a library that
+// does — and exceljs is large, so it is a dynamic import: it is fetched the first
+// time the button is pressed and is in no page's bundle.
+//
 // Tab names keep the short WC / GL / Property convention (lineDisplay.ts).
-// annual-statement-template-check reads a workbook built here back against the
-// template, and the export guard (solo-export-guard.ts) hashes it.
+// annual-statement-template-check reads a file built here back against the
+// template, borders included, and the export guard (solo-export-guard.ts) hashes it.
 // ============================================================================
-import * as XLSX from 'xlsx';
+import type { Borders, Worksheet } from 'exceljs';
 import {
   DOLLARS_PER_UNIT, TEMPLATE_ROWS, templateStatements, type FigureFormat, type TemplateStatement,
 } from './annualStatementTemplate';
+import { STATEMENT_BORDERS } from './annualStatementBorders';
 import type { GameState } from '../types/simulation';
 
 /** The figures' Excel number formats: the screen's units and decimals, negatives red. */
@@ -29,32 +37,48 @@ export const STATEMENT_NUMBER_FORMAT: Record<FigureFormat, string> = {
   rate: '0.000;[Red]-0.000',
 };
 
-/** The statement's sheet, row for row as TEMPLATE_ROWS. */
-export function statementSheet(ts: TemplateStatement): XLSX.WorkSheet {
-  const ws: XLSX.WorkSheet = {};
-  const put = (r: number, c: number, cell: XLSX.CellObject) => { ws[XLSX.utils.encode_cell({ r, c })] = cell; };
-  TEMPLATE_ROWS.forEach((row, r) => {
+/** The columns a statement row spans, A to H: the template's own. */
+export const STATEMENT_COLUMNS = 8;
+
+/** A cell's border from its sides ('LRTB'), every line thin as the template's. */
+function borderOf(sides: string): Partial<Borders> {
+  const thin = { style: 'thin' as const };
+  return {
+    ...(sides.includes('L') ? { left: thin } : {}),
+    ...(sides.includes('R') ? { right: thin } : {}),
+    ...(sides.includes('T') ? { top: thin } : {}),
+    ...(sides.includes('B') ? { bottom: thin } : {}),
+  };
+}
+
+/** Fill one sheet with a statement, row for row as TEMPLATE_ROWS. */
+function fillSheet(ws: Worksheet, ts: TemplateStatement): void {
+  TEMPLATE_ROWS.forEach((row, i) => {
+    const r = i + 1;
+    // Every cell's border first, blank rows included — the template draws its
+    // vertical lines down the blank rows and closes sections on them.
+    STATEMENT_BORDERS[i].forEach((sides, c) => { if (sides) ws.getCell(r, c + 1).border = borderOf(sides); });
     if (row.kind === 'blank') return;
-    if (row.label !== '') put(r, 1, { t: 's', v: row.label });
+    if (row.label !== '') ws.getCell(r, 2).value = row.label;
     if (row.kind === 'header') {
-      put(r, 2, { t: 's', v: 'Prior' });
-      ts.years.forEach((y, i) => put(r, 3 + i, row.dates
+      ws.getCell(r, 3).value = 'Prior';
+      ts.years.forEach((y, k) => {
+        const cell = ws.getCell(r, 4 + k);
         // A real date: 12/31 of the year, as the template's mm-dd-yy cells.
-        ? { t: 'n', v: dateSerial(y, 12, 31), z: 'mm-dd-yy' }
-        : { t: 'n', v: y }));
+        if (row.dates) { cell.value = dateSerial(y, 12, 31); cell.numFmt = 'mm-dd-yy'; } else cell.value = y;
+      });
     }
     if (row.kind !== 'figure') return;
-    ts.figures[row.key].forEach((x, i) => {
-      if (x === null) { put(r, 2 + i, { t: 's', v: '—' }); return; }
+    ts.figures[row.key].forEach((x, k) => {
+      const cell = ws.getCell(r, 3 + k);
+      if (x === null) { cell.value = '—'; return; }
       // A dollar figure within half a cent of zero is zero: it is arithmetic's
       // residue (a balance less its own parts), and would show as a red "-0".
-      const v = row.format === 'dollars' ? (Math.abs(x) < 0.005 ? 0 : x / DOLLARS_PER_UNIT) : x;
-      put(r, 2 + i, { t: 'n', v, z: STATEMENT_NUMBER_FORMAT[row.format] });
+      cell.value = row.format === 'dollars' ? (Math.abs(x) < 0.005 ? 0 : x / DOLLARS_PER_UNIT) : x;
+      cell.numFmt = STATEMENT_NUMBER_FORMAT[row.format];
     });
   });
-  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: TEMPLATE_ROWS.length - 1, c: 2 + ts.years.length } });
-  ws['!cols'] = [{ wch: 2 }, { wch: 42 }, ...Array.from({ length: 1 + ts.years.length }, () => ({ wch: 12 }))];
-  return ws;
+  ws.columns = [{ width: 2 }, { width: 42 }, ...Array.from({ length: 1 + ts.years.length }, () => ({ width: 12 }))];
 }
 
 /** Excel's serial day number for a calendar date (the 1900 system, past its leap-year bug). */
@@ -64,11 +88,20 @@ function dateSerial(y: number, m: number, d: number): number {
 
 const SHEET_NAME = (ts: TemplateStatement) => (ts.scope === 'pool' ? 'Pool' : ts.scope);
 
-/** The workbook: the pool's statement, then each line's, as of a year (the latest by default). */
-export function buildAnnualStatementWorkbook(gs: GameState, asOfYear?: number): XLSX.WorkBook {
-  const wb = XLSX.utils.book_new();
-  for (const ts of templateStatements(gs, asOfYear)) XLSX.utils.book_append_sheet(wb, statementSheet(ts), SHEET_NAME(ts));
-  return wb;
+/** exceljs, fetched on first use. The module is CommonJS in Node and a UMD bundle in the browser; either way the classes are on its default. */
+async function loadExcelJS(): Promise<typeof import('exceljs')> {
+  const mod = await import('exceljs') as unknown as { default?: typeof import('exceljs') } & typeof import('exceljs');
+  return mod.default ?? mod;
+}
+
+/** The .xlsx file: the pool's statement, then each line's, as of a year (the latest by default). */
+export async function buildAnnualStatementXlsx(gs: GameState, asOfYear?: number): Promise<ArrayBuffer> {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  for (const ts of templateStatements(gs, asOfYear)) fillSheet(wb.addWorksheet(SHEET_NAME(ts)), ts);
+  // Copied into its own buffer of exactly the file's length: in Node, writeBuffer
+  // hands back a Buffer that may be a slice of a larger shared pool.
+  return new Uint8Array(await wb.xlsx.writeBuffer()).buffer as ArrayBuffer;
 }
 
 export function annualStatementFilename(instanceId: string, calendarYear: number): string {

@@ -9,7 +9,8 @@
 // "Profit and Contigency", is removed and the rows below it close up by one — it
 // is a margin in the rate, not an expense. annual-statement-template-check reads
 // the template file and holds this list to it, label for label and blank for
-// blank, apart from that row.
+// blank, apart from that row — and the downloaded file to its BORDERS cell for
+// cell (STATEMENT_BORDERS, generated from the template, row for row with this).
 //
 // ⚠ EVERY FIGURE IS READ, NEVER RESTATED. The calendar sections and the program-
 // year blocks are buildAnnualStatement's own cells (resultsStatement.ts), so the
@@ -183,6 +184,8 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   ...blanks(2),
   H('Net'),
   ...programBlock('net'),
+  // The template's last row, 157: blank, and the one that carries the Net block's closing line.
+  B,
 ];
 
 /** The section each template row belongs to, by the title above it — for the page's tables and their test ids. */

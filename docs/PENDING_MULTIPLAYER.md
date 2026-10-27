@@ -125,12 +125,29 @@ has one sheet for the pool and one per line, with numbers in the cells.
   start). The statement has no Total column now, so `combined-ratio.cjs` works
   the cumulative ratio out from the statement's own cells.
 
+**Borders, copied from the template cell for cell.** The template's lines are
+the boxed year headers, the thin vertical lines on every row (label column
+included), the line closing each section and the balance sheet's lines under each
+group. They are read from the file by `scripts/tools/generate-statement-borders.ts`
+into `src/utils/annualStatementBorders.ts`, generated and never edited by hand,
+with row 15 removed and the rows below closed up. The table includes the
+template's last row (157), which carries the Net block's closing line, so the
+statement has 156 rows. The page draws them in CSS and the download writes them
+with **exceljs** (SheetJS community writes no borders). exceljs is a dynamic
+import: about 940 kB, fetched only when the button is pressed. The gate reads
+the template file itself and compares every cell's border in the downloaded
+file, A–H on all 156 rows. `downloads.cjs` does the same for the screen and
+checks that exceljs is not loaded with the page. Re-run the generator if the
+template's lines ever change; the gate fails until you do.
+
 **Landed with:** `annual-statement-template-check` (new, in FAST): every figure
 tied to the engine on four games, the Excel file against the template, and the
 operating ratio by hand on scenario 1 WC 2027 (94.40%), each with a failing
-control. Also VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v95 (24 Results
-hashes unchanged, 24 statement hashes added), RENDER_IDENTITY_v92 (exactly the
-26 Annual Statement screens moved; attributed in `render-identity-check.ts`),
+control, now including the borders. Also VALUE_IDENTITY_v87 unchanged,
+SOLO_EXPORT_GUARD_v96 (24 Results hashes unchanged since v94; the 24 statement
+hashes carry the borders from v96, attributed in `solo-export-guard.ts`),
+RENDER_IDENTITY_v92 (exactly the 26 Annual Statement screens moved, attributed
+in `render-identity-check.ts`; the borders move none, since it fingerprints text),
 and every session driver with the admin-token hook. Screenshots are in
 `docs/screenshots/annual-statement/`.
 

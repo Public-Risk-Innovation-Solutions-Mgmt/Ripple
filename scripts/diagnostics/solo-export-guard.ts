@@ -222,7 +222,23 @@ import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from 
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { buildResultsWorkbook } from '../../src/utils/resultsExport';
-import { buildAnnualStatementWorkbook } from '../../src/utils/annualStatementExport';
+import { buildAnnualStatementXlsx } from '../../src/utils/annualStatementExport';
+import ExcelJS from 'exceljs';
+
+/** Every bordered cell of a statement file, sheet by sheet: "A1:LRTB" lines, in order. */
+async function readBorders(bytes: ArrayBuffer): Promise<string> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(bytes);
+  return wb.worksheets.map(ws => {
+    const cells: string[] = [];
+    ws.eachRow({ includeEmpty: true }, row => row.eachCell({ includeEmpty: true }, c => {
+      const b = c.border ?? {};
+      const s = (['left', 'right', 'top', 'bottom'] as const).filter(k => b[k]?.style).map(k => `${k[0].toUpperCase()}${b[k]!.style}`).join('');
+      if (s) cells.push(`${c.address}:${s}`);
+    }));
+    return `${ws.name} ${cells.join(' ')}`;
+  }).join('\n');
+}
 import { RESULT_METRICS } from '../../src/utils/resultMetrics';
 import type { DecisionSet, GameState, CoverageLine } from '../../src/types/simulation';
 import { SLIDER_RANGES, WC_FUNDING_CONFIDENCE_RANGE } from '../../src/data/defaultAssumptions';
@@ -882,7 +898,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // same two ways; NONE of the 24 Results-workbook hashes moved — all 24 are
 // byte-identical to v94, so the template statement leaked nothing into the
 // Results export. No other key added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v95.json');
+// v96: THE STATEMENT'S BORDERS. The Annual Statement file is now written with
+// exceljs, with every cell's border copied from the template, and its hash now
+// carries those borders (readBorders). All 24 `stmt|...` keys move; all 24
+// Results-workbook keys are byte-identical to v95. Text-diffed (GUARD_TEXT_DIR
+// against multiplayer 38628e4): apart from the borders, both CSV renderings of
+// all 24 files are identical except for three things. The used range now starts
+// at B2, where the first cell is, rather than A1; every cell keeps its address.
+// The year-ends display as 12/31/26, not 12-31-26: "mm-dd-yy" is now written as
+// Excel's built-in format 14, which is what the template's own date cells carry.
+// And each sheet has one more row, 156: the template's last row (157), blank,
+// which carries the Net block's closing line. No key added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v96.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
@@ -990,12 +1017,16 @@ for (const id of SEEDS) {
     }
     // THE ANNUAL STATEMENT WORKBOOK (v95), the same game, hashed the same two
     // ways under its own key — the template-laid-out statement, one sheet for the
-    // pool and one per line (annualStatementExport.ts).
-    const swb = buildAnnualStatementWorkbook(game);
+    // pool and one per line (annualStatementExport.ts). From v96 it is the FILE a
+    // player downloads (exceljs), read back: the two CSV renderings as above, and
+    // every cell's border, which no CSV carries (readBorders below).
+    const bytes = await buildAnnualStatementXlsx(game);
+    const swb = XLSX.read(new Uint8Array(bytes), { type: 'array' });
     const sShown = swb.SheetNames.map(s => XLSX.utils.sheet_to_csv(swb.Sheets[s])).join('\n#SHEET#\n');
     const sRaw = swb.SheetNames.map(s => XLSX.utils.sheet_to_csv(swb.Sheets[s], { rawNumbers: true })).join('\n#SHEET#\n');
-    out[`stmt|${arm.name}|${id}|${name}`] = sha(Buffer.from(`${sShown}\n#RAW#\n${sRaw}`, 'utf8'));
-    if (process.env.GUARD_TEXT_DIR) fs.writeFileSync(path.join(process.env.GUARD_TEXT_DIR, `stmt-${arm.name}-${id}-${name}.txt`), `${sShown}\n#RAW#\n${sRaw}`);
+    const sLines = await readBorders(bytes);
+    out[`stmt|${arm.name}|${id}|${name}`] = sha(Buffer.from(`${sShown}\n#RAW#\n${sRaw}\n#BORDERS#\n${sLines}`, 'utf8'));
+    if (process.env.GUARD_TEXT_DIR) fs.writeFileSync(path.join(process.env.GUARD_TEXT_DIR, `stmt-${arm.name}-${id}-${name}.txt`), `${sShown}\n#RAW#\n${sRaw}\n#BORDERS#\n${sLines}`);
   }
 }
 }

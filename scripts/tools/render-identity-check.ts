@@ -1417,6 +1417,13 @@ const BASELINE = process.env.RENDER_BASELINE
 // and the ~42 new are the template's own rows (Operating Ratio, Assets,
 // Liabilities, Reserve to Surplus beside Net Worth, the Contributions section,
 // % Increase over Prior, Prior's loss ratio) and "—" where a row has no figure.
+// ⚠ THE STATEMENT'S BORDERS (the template's lines, in CSS) MOVE NONE OF THE 236,
+// and cannot: a fingerprint is the screen's TEXT, and a line is not text. They
+// were measured against v92 and left it identical, 236 of 236 — which says the
+// lines changed no wording and no figure, and nothing about the lines. The
+// instrument that sees them is downloads.cjs, which compares every statement
+// cell's drawn sides on screen with the template file's, row for row, and fails
+// when one is missing (its control: the bottom lines dropped, C4 red first).
   ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v92.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';

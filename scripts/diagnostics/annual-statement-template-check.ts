@@ -31,10 +31,14 @@
 //           over every column, net case + IBNR is the balance sheet's loss and
 //           loss expense reserves — the blocks meet the engine's reserves.
 //        A5 Underwriting (lines): written exposure and the rate the engine's.
-//   B. THE EXCEL FILE IS THE TEMPLATE CELL FOR CELL: on every sheet, every label
-//      in column B and every blank row is the template's, row for row, with the
-//      template's row 15 ("Profit and Contigency") removed and nothing else; the
-//      figure cells are numbers; the header rows carry Prior and the five years.
+//   B. THE EXCEL FILE IS THE TEMPLATE CELL FOR CELL — the file a player
+//      downloads, built and read back: on every sheet, every label in column B
+//      and every blank row is the template's, row for row, with the template's
+//      row 15 ("Profit and Contigency") removed and nothing else; the figure cells
+//      are numbers in their formats; the header rows carry Prior and the five
+//      years; and EVERY CELL'S BORDER, A to H on every row, is the template's —
+//      each side and its style, read from the template file itself (exceljs),
+//      never from the table the app draws from.
 //   C. THE OPERATING RATIO BY HAND, scenario 1, WC, 2027: its parts printed and
 //      the ratio recomputed from them.
 //
@@ -42,7 +46,8 @@
 // figure off the engine's (premium gross of reinsurance; the operating ratio over
 // the net premium; contributions measured against the same valuation; a reserve
 // dropped from the blocks), and B a workbook with the removed row kept, one
-// blank row dropped and one label altered.
+// blank row dropped, one label altered, one border missing (which must fail on
+// exactly that cell) and the borders left unshifted when row 15 closes up.
 // ============================================================================
 
 import * as fs from 'fs';
@@ -55,7 +60,8 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 import { buildTemplateStatement, TEMPLATE_ROWS, type Figure, type TemplateStatement } from '../../src/utils/annualStatementTemplate';
-import { buildAnnualStatementWorkbook, statementSheet } from '../../src/utils/annualStatementExport';
+import ExcelJS from 'exceljs';
+import { buildAnnualStatementXlsx, STATEMENT_COLUMNS, STATEMENT_NUMBER_FORMAT } from '../../src/utils/annualStatementExport';
 import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineResultSet, LineView, ResultSet } from '../../src/types/simulation';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -247,9 +253,9 @@ for (const c of controls) {
 }
 
 // ---------------------------------------------------------------------------
-// B. The Excel file against the template.
+// B. The Excel file against the template: labels, blank rows and borders.
 // ---------------------------------------------------------------------------
-console.log('\nB. the Excel file is the template cell for cell, less "Profit and Contigency"');
+console.log('\nB. the Excel file is the template cell for cell, borders included, less "Profit and Contigency"');
 const tpl = XLSX.read(fs.readFileSync(TEMPLATE), { type: 'buffer' });
 const tws = tpl.Sheets[tpl.SheetNames[0]];
 const tRange = XLSX.utils.decode_range(tws['!ref']!);
@@ -258,10 +264,9 @@ const labelAt = (ws: XLSX.WorkSheet, r: number) => { const c = cellOf(ws, r, 1);
 const blankAt = (ws: XLSX.WorkSheet, r: number) => [1, 2, 3, 4, 5, 6, 7].every(c => { const x = cellOf(ws, r, c); return !x || x.v === undefined || x.v === ''; });
 const REMOVED = 14; // template row 15, zero-based
 check(labelAt(tws, REMOVED) === 'Profit and Contigency', 'B. the template\'s row 15 is "Profit and Contigency" — the one row removed', String(labelAt(tws, REMOVED)));
-/** The template's rows as the statement keeps them: every row through its last, row 15 removed. */
-const expectedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r).filter(r => r !== REMOVED)
-  // The template's used range runs one blank row past its last label; the statement ends at its last row.
-  .filter(r => r <= tRange.e.r - 1 || !blankAt(tws, r));
+/** The template's rows as the statement keeps them: every row through its last (157, which carries the Net block's closing line), row 15 removed. */
+const expectedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r).filter(r => r !== REMOVED);
+check(TEMPLATE_ROWS.length === expectedRows.length, `B. the statement has the template's rows less one: ${TEMPLATE_ROWS.length} of ${tRange.e.r + 1}`);
 
 function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement): string[] {
   const out: string[] = [];
@@ -280,39 +285,93 @@ function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement): string[] {
       const c = cellOf(ws, r, 2 + i);
       if (x !== null && c?.t !== 'n') out.push(`row ${r + 1} col ${i}: a figure stored as ${c?.t}`);
       if (x === null && c?.v !== '—') out.push(`row ${r + 1} col ${i}: no figure, not "—"`);
+      if (x !== null && c?.z !== STATEMENT_NUMBER_FORMAT[row.format]) out.push(`row ${r + 1} col ${i}: format ${c?.z}`);
     });
   });
   return out;
 }
 
-for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEARS]]) {
-  // Through the file: written and read back as a player's download would be.
-  const wb = XLSX.read(XLSX.write(buildAnnualStatementWorkbook(gs), { type: 'buffer', bookType: 'xlsx' }), { type: 'buffer' });
-  check(wb.SheetNames.join(',') === 'Pool,WC,GL,Property', `B. ${g.id}, year ${gs.lockedResults.length}: a sheet for the pool and one per line`, wb.SheetNames.join(','));
-  const diffs = wb.SheetNames.flatMap((s, i) => layoutDiffs(wb.Sheets[s], buildTemplateStatement(gs, SCOPES[i])).map(d => `${s} ${d}`));
-  check(diffs.length === 0, `B. ${g.id}, year ${gs.lockedResults.length}: every sheet matches the template label for label and blank for blank (${expectedRows.length} rows)`, diffs.slice(0, 3).join(' · '));
+// BORDERS — read from the template file itself with exceljs, never from the
+// generated table the app draws from, so a stale table fails here.
+type BorderSheet = { getCell(r: number, c: number): { border?: Partial<Record<'left' | 'right' | 'top' | 'bottom', { style?: string }>> } };
+const sidesOf = (ws: BorderSheet, r: number, c: number) => {
+  const b = ws.getCell(r, c).border ?? {};
+  return (['left', 'right', 'top', 'bottom'] as const).map(k => (b[k]?.style ? `${k[0].toUpperCase()}:${b[k]!.style}` : '')).join('');
+};
+const texcel = new ExcelJS.Workbook();
+await texcel.xlsx.readFile(TEMPLATE);
+const tBorders = texcel.worksheets[0];
+let templateLines = 0;
+for (const tr of expectedRows) for (let c = 1; c <= STATEMENT_COLUMNS; c++) templateLines += sidesOf(tBorders, tr + 1, c).split(':').length - 1;
+check(templateLines > 0, 'B. the template draws borders to compare against', `${templateLines} cell sides`);
+check(sidesOf(tBorders, REMOVED + 1, 2) === 'L:thinR:thin', 'B. the removed row carries only its vertical lines — nothing closes on it', sidesOf(tBorders, REMOVED + 1, 2));
+
+/** Every cell, A to H on every statement row, whose border is not the template's row for row (row 15 removed). */
+function borderDiffs(ws: BorderSheet): string[] {
+  const out: string[] = [];
+  expectedRows.forEach((tr, r) => {
+    for (let c = 1; c <= STATEMENT_COLUMNS; c++) {
+      const want = sidesOf(tBorders, tr + 1, c), got = sidesOf(ws, r + 1, c);
+      if (want !== got) out.push(`${String.fromCharCode(64 + c)}${r + 1}: "${got}" ≠ template ${String.fromCharCode(64 + c)}${tr + 1} "${want}"`);
+    }
+  });
+  return out;
 }
 
-// The controls: the removed row kept, a blank row dropped, a label altered.
+for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEARS]]) {
+  // THE FILE a player downloads, read back two ways: SheetJS for values and formats, exceljs for borders.
+  const bytes = await buildAnnualStatementXlsx(gs);
+  const wb = XLSX.read(new Uint8Array(bytes), { type: 'array', cellNF: true });
+  const ex = new ExcelJS.Workbook();
+  await ex.xlsx.load(bytes);
+  const tag = `${g.id}, year ${gs.lockedResults.length}`;
+  check(wb.SheetNames.join(',') === 'Pool,WC,GL,Property', `B. ${tag}: a sheet for the pool and one per line`, wb.SheetNames.join(','));
+  const diffs = wb.SheetNames.flatMap((s, i) => layoutDiffs(wb.Sheets[s], buildTemplateStatement(gs, SCOPES[i])).map(d => `${s} ${d}`));
+  check(diffs.length === 0, `B. ${tag}: every sheet matches the template label for label and blank for blank (${expectedRows.length} rows), figures numbers in their formats`, diffs.slice(0, 3).join(' · '));
+  const bdiffs = ex.worksheets.flatMap(ws => borderDiffs(ws).map(d => `${ws.name} ${d}`));
+  check(bdiffs.length === 0, `B. ${tag}: every sheet's borders are the template's, cell for cell (A–H × ${expectedRows.length} rows, ${templateLines} sides a sheet)`, bdiffs.slice(0, 3).join(' · '));
+}
+
+// The controls. Layout: the removed row kept, a blank row dropped, a label altered.
+// Borders: one line missing, and the lines left where they were when row 15 closed up.
 {
   const ts = buildTemplateStatement(g1, 'WC');
+  const bytes = await buildAnnualStatementXlsx(g1);
+  const base = XLSX.read(new Uint8Array(bytes), { type: 'array', cellNF: true }).Sheets.WC;
   const shifted = (rows: number[]) => {
-    const ws = statementSheet(ts);
     const out: XLSX.WorkSheet = {};
-    rows.forEach((src, dst) => { for (let c = 0; c < 8; c++) { const x = cellOf(ws, src, c); if (x) out[XLSX.utils.encode_cell({ r: dst, c })] = x; } });
+    rows.forEach((src, dst) => { for (let c = 0; c < 8; c++) { const x = cellOf(base, src, c); if (x) out[XLSX.utils.encode_cell({ r: dst, c })] = x; } });
     out['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length - 1, c: 7 } });
     return out;
   };
   const all = TEMPLATE_ROWS.map((_, r) => r);
-  const kept = statementSheet(ts);
   // "Profit and Contigency" put back at row 15 and the rest pushed down a row.
   const withRow = shifted([...all.slice(0, 14), -1, ...all.slice(14)]);
   withRow[XLSX.utils.encode_cell({ r: 14, c: 1 })] = { t: 's', v: 'Profit and Contigency' };
   check(layoutDiffs(withRow, ts).length > 0, 'B control — the removed row kept: the layout check fails');
   const dropped = shifted(all.filter(r => r !== 29));
   check(layoutDiffs(dropped, ts).length > 0, 'B control — one blank row dropped: the layout check fails', layoutDiffs(dropped, ts)[0]);
-  kept[XLSX.utils.encode_cell({ r: 38, c: 1 })] = { t: 's', v: 'Invested' };
-  check(layoutDiffs(kept, ts).length > 0, 'B control — a label altered ("      Invested" → "Invested"): the layout check fails', layoutDiffs(kept, ts)[0]);
+  const altered = shifted(all);
+  altered[XLSX.utils.encode_cell({ r: 38, c: 1 })] = { t: 's', v: 'Invested' };
+  check(layoutDiffs(altered, ts).length > 0, 'B control — a label altered ("      Invested" → "Invested"): the layout check fails', layoutDiffs(altered, ts)[0]);
+
+  // One line missing: the bottom line that closes the Net Income Statement (statement row 29, template 30), on H.
+  const ex = new ExcelJS.Workbook();
+  await ex.xlsx.load(bytes);
+  const ws = ex.getWorksheet('WC')!;
+  // ⚠ ITS OWN STYLE OBJECT: exceljs shares one style among every loaded cell that
+  // had the same style, so setting this cell's border in place would take the
+  // closing line off every section at once (it did, the first time).
+  const h29 = ws.getCell(29, 8);
+  const rest = { ...(h29.border ?? {}) };
+  delete rest.bottom;
+  h29.style = { ...h29.style, border: rest };
+  const missing = borderDiffs(ws);
+  check(missing.length === 1, 'B control — one border missing (H29\'s closing line): the border check fails, on exactly that cell', missing.join(' · ') || 'NOTHING FIRED');
+  // Not closed up: every row's lines taken from the template row of the SAME number, as if row 15 were still there.
+  const stale: BorderSheet = { getCell: (r, c) => tBorders.getCell(r, c) };
+  const notClosed = borderDiffs(stale);
+  check(notClosed.length > 0, 'B control — the borders left in place when row 15 closes up: the border check fails', `${notClosed.length} cells, first ${notClosed[0]}`);
 }
 
 // ---------------------------------------------------------------------------
