@@ -95,7 +95,10 @@ async function olderYearsIncurred(page) {
   const rows = (await page.locator('[data-testid="statement-contributions"] tr').allInnerTexts()).map(r => r.replace(/\s+/g, ' ').trim());
   const total = rows.find(r => r.startsWith('Total Net Incurred'));
   const cells = (total ?? '').replace('Total Net Incurred', '').trim().split(' ').map(x => Number(x.replace(/,/g, '').replace('−', '-')) * 1000);
-  return cells.slice(0, -1);
+  // The row ends with the statement's own program year and then All Years (the
+  // v2 template's column I, the row's total): both are dropped, leaving Prior
+  // and the older window years.
+  return cells.slice(0, -2);
 }
 // Prior-year development by year, every line, from the save.
 const pydByYear = save => (save?.lockedResults ?? []).map(r => ['WC', 'GL', 'Property'].reduce((a, l) => a + Math.abs(r.byLine?.[l]?.priorYearDevelopment ?? 0), 0));
