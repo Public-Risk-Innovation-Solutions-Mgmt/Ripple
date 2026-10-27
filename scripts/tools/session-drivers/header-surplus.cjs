@@ -1,13 +1,14 @@
 // THE SURPLUS AT THE TOP MATCHES THE STATEMENT'S, AND THE MARKET SHARE
 // FOLLOWS THE VIEW — what a player sees.
 //
-// The header's "Surplus" chip is the Annual Statement's balance-sheet Ending
-// Surplus for the latest year (resultsStatement.topSurplus): the opening before
+// The header's "Surplus" chip is the Annual Statement's balance-sheet Net Worth
+// (the builder's Ending Surplus, resultsStatement.topSurplus, laid out as the
+// template's "Net Worth") for the latest year: the opening before
 // year 1, each played year's year-end after it, for the view on screen. This
 // drives a solo game, three lines, through the real setup screen on scenarios
 // 1, 7 and 12 and, on the Annual Statement tab, for the pool and every line,
 // before year 1 and after years 1 and 2, checks the chip against the
-// statement's latest-year Ending Surplus.
+// statement's latest-year Net Worth.
 //
 // ⚠ AND NO "Market Share" CHIP AT ALL, ON ANY VIEW: single player has no room
 // to share. (In a hosted game the chip is the team's share of the room —
@@ -24,7 +25,7 @@
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
 const SCENARIOS = ['1', '7', '12'];
-const ROW = 'Ending Surplus';
+const ROW = 'Net Worth';
 const VIEWS = ['Pool', "Workers' Compensation", 'General Liability', 'Property'];
 const TOLERANCE_M = 0.0055;
 // "$26.17M", "-$1.20M", "$950.0K"; the statement's "26,170" or "(1,200)" in thousands.
@@ -77,10 +78,10 @@ const ok = (cond, label, detail = '') => {
         const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
         const chip = (head.match(/Surplus\s+(-?\$[-\d,.]+[MKB]?)/) || [])[1];
         const cells = await page.locator(`[data-testid="statement-balance"] tr[data-row-label="${ROW}"] td`).allInnerTexts();
-        const latest = cells[cells.length - 2];   // the last column is Total
+        const latest = cells[cells.length - 1];   // Prior and the five years; the newest is last (no Total)
         const a = chipM(chip), b = thousandsM(latest);
         ok(a !== null && b !== null && Math.abs(a - b) <= TOLERANCE_M,
-          `scenario ${scenario}, ${phase}, ${view}: the chip is the statement's latest Ending Surplus`,
+          `scenario ${scenario}, ${phase}, ${view}: the chip is the statement's latest Net Worth`,
           `chip ${chip} · statement ${latest} (thousands)`);
       }
       await page.getByRole('button', { name: /^Calculation Audit$/ }).first().click();

@@ -234,8 +234,8 @@ interface TeamSeries {
  * that does not write GL is not "late on GL" and never will be.
  */
 // `lastShown` is the newest year results may show — the latest known year
-// (utils/knownYears: the room's current year less two, every year once the
-// event is over). A later post exists but stays unseen, and the developed
+// (utils/knownYears: the year just completed, the room's current year less one;
+// every year once the event is over). Nothing later is posted, and the developed
 // column is the one posted AT that year: every post is kept, never rewritten.
 function seriesFor(team: TeamView, color: string, view: LineView, years: number[], lastShown: number): TeamSeries {
   if (view !== 'pool' && !team.lines.includes(view)) {
@@ -546,8 +546,8 @@ export default function HostChartsTab({ room }: Props) {
   // space, which is the honest rendering of a team that has not reported.
   const years: number[] = [];
   for (let y = 0; y <= room.yearCount; y++) years.push(y);
-  // The newest year results show — the latest known year, a year behind the
-  // last one played until the event is over — and what "behind" is measured against.
+  // The newest year results show — the latest known year, the year just
+  // completed (the opening before the first advance).
   const lastPlayable = Math.min(latestKnownRoomYear(room), room.currentYear - 1);
 
   if (room.teams.length === 0) {

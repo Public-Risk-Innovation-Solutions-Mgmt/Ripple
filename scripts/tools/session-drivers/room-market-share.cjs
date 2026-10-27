@@ -9,11 +9,10 @@
 //
 //   - before year 1, every team reads one third on every line and the pool;
 //   - nothing changes until the host advances, even after every team locks in;
-//   - after each advance the shares shown are the LATEST KNOWN year's — one
-//     year behind, like every other result (the year just completed is stored
-//     once its last locked team posts, and shows at the next advance; at game
-//     end the final year shows) — each the team's figure / the room's total,
-//     summing to 100%;
+//   - after each advance the shares shown are the LATEST KNOWN year's — the
+//     year just completed, like every other result (stored once its last
+//     locked team posts, and shown at once) — each the team's figure / the
+//     room's total, summing to 100%;
 //   - the host's Teams table and each player's chip agree, view by view;
 //   - a player's screen has no other team's figures: no Teams table, and the
 //     one share it shows is its own.
@@ -182,12 +181,13 @@ function expectedShares(rec, year) {
     }
   }
 
-  // ⚠ SHOWN ONE YEAR BEHIND, like every other result (marketShares.ts's
-  // shownShares): the room deciding year N shows year N - 2's set, the opening
-  // posts standing in before that year exists; the newest once the game is over.
+  // ⚠ SHOWN FOR THE YEAR JUST COMPLETED, like every other result
+  // (marketShares.ts's shownShares): the room deciding year N shows year N -
+  // 1's set as soon as it completes — the opening posts before the first
+  // advance; the newest once the game is over. (It was one year behind.)
   const shownYearOf = rec => {
     const held = Object.keys(rec.marketSharesByYear ?? {}).map(Number);
-    const known = rec.currentYear > rec.yearCount ? rec.currentYear - 1 : Math.max(0, rec.currentYear - 2);
+    const known = Math.max(0, rec.currentYear - 1);
     const ok1 = held.filter(y => y <= known);
     return ok1.length ? Math.max(...ok1) : undefined;
   };
@@ -247,11 +247,11 @@ function expectedShares(rec, year) {
     const s0 = await checkSet('before year 1', 0);
     ok(TEAMS.every(t => Math.abs(s0.byTeam[t].pool - 1 / 3) < 1e-12 && LINES.every(l => Math.abs(s0.byTeam[t].byLine[l] - 1 / 3) < 1e-12)),
       'before year 1 every team holds exactly one third on every line and the pool');
-    // The table's results are not known yet (the heading says so) but the shares
-    // are the opening books', so every share names its year.
+    // The table's results are the opening's (2026, the heading's year) and so
+    // are the shares — the same year, so no share names a year of its own.
     const lab0 = (await hostShares(host)).labels;
-    ok(Object.values(lab0).length > 0 && Object.values(lab0).every(y => y === '2026'),
-      `before year 1 each host share names its year, the opening books' 2026 (${[...new Set(Object.values(lab0))].join(', ')})`);
+    ok(Object.values(lab0).length > 0 && Object.values(lab0).every(y => y === null),
+      `before year 1 the shares are the heading's year, the opening's 2026, and name no other (${[...new Set(Object.values(lab0))].join(', ')})`);
     // ⚠ NO PLAYER SEES ANOTHER TEAM'S FIGURES. The wire redaction is the contract
     // harness's (no RoomView.marketShares, no other team's resultsByYear for a
     // player); on screen, a player has no Teams table and one share — its own.
@@ -304,10 +304,10 @@ function expectedShares(rec, year) {
     if (!TIMING) {
       // The year just completed is stored; what shows is the latest KNOWN year —
       // the one before it while the game runs, this one once it is over.
-      const showing = y === YEARS ? y : y - 1;
+      const showing = y;
       const rec = await roomRecord(host, code);
       ok(shownYearOf(rec) === Math.max(0, showing),
-        `after advance ${y}: year ${y}'s shares are stored, and year ${Math.max(0, showing)}'s show — one year behind${y === YEARS ? ' until the game ends' : ''}`,
+        `after advance ${y}: year ${y}'s shares are stored and show at once — the year just completed`,
         `shown ${shownYearOf(rec)}`);
       const s = { byTeam: rec.marketSharesByYear[String(Math.max(0, showing))] };
       for (const t of TEAMS) if (!players[t].isClosed()) await waitChip(players[t], pct(s.byTeam[t].pool));

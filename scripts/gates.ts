@@ -174,6 +174,9 @@ const FAST: string[] = [
                                      //         unchanged; no routine claim drawn; a simulated pre-game; five controls
   'pool-loss-cost-check',            //   3s   WC and GL priced on the pool's layered loss costs, the shocks off the
                                      //         $0 - $1M layer, required capital at 80%; four controls
+  'pricing-window-check',            //  45s   results show the year just completed, pricing keeps its lag: year P
+                                     //         reads accident years P-6 to P-2, each trended to P; two controls;
+                                     //         RATES_OUT dumps every struck rate to compare two commits by
   'no-tail-trend-check',             //   2s   no tail: patterns closed at the last row in pricing and the engine;
                                      //         trend per line, booked up front; older years undeveloped for
                                      //         trend; six controls
@@ -287,6 +290,11 @@ const FAST: string[] = [
                                      //         latest year otherwise; the five-year window rolls,
                                      //         Prior + the five reconcile to the full history, the
                                      //         pre-game columns are the engine's — each with a control
+  'annual-statement-template-check', //  14s   the Annual Statement as the template: every figure ties to
+                                     //         what the engine books on four games (the ceded block real
+                                     //         on one), the Excel file is the template cell for cell less
+                                     //         "Profit and Contigency", borders included, the operating ratio by hand on
+                                     //         scenario 1 WC 2027 — each with a failing control
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
                                      //         and dividends across all six years and into year 1,
                                      //         with no reset before 2023 or at the opening, and year 1

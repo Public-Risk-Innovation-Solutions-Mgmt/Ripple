@@ -35,7 +35,7 @@
 // replaces it: each played year every open prior accident year's start-of-
 // year outstanding grows by its own λ, drawn from the game seed per line,
 // valuation year and accident year in the line's level's range (these games
-// set no level, so Mid, 5-15%). It runs on the same route reserve inflation
+// set Mid, 5-15%, explicitly — the default is Low; see the setup). It runs on the same route reserve inflation
 // did, so the allowance below is the same product with the rate replaced by
 // the λ the engine DREW — no shock schedule turns it off, so "nothing
 // develops" no longer holds in a no-shocks game. Unallowed, the ledger read
@@ -200,6 +200,11 @@ for (let g = 0; g < GAMES; g++) {
   const setup = {
     poolName: 'A', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES,
     ...(NO_SHOCKS ? { shockTiming: 'host' as const } : {}),
+    // Mid, set rather than defaulted: the default became Low (1-5%), where a
+    // doubled λ stays inside the 12% bar and the doubling control could not
+    // fail. At Mid (5-15%) it does, so the allowance is still shown to be the
+    // λ the engine drew and not merely some growth.
+    developmentLevels: { WC: 'Mid', GL: 'Mid', Property: 'Mid' } as const,
   };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   let gs: GameState = {

@@ -2,12 +2,13 @@
 // THE NEWS OF AN EVENT — a banner the moment it happens, and a list to look
 // back on.
 //
-// ⚠ AT ONCE, NOT A YEAR LATER. Results run one year behind (utils/knownYears),
-// so a year's financial effect — its claims, its dollars — appears when its
-// results come in, as it always did. The NEWS does not wait: when a player
-// advances into a year in which an event begins, the banner names it, says in
-// one line what it is, and which of the team's own lines it touches. Nothing
-// about its size (utils/yearEvents' eventNews holds that line).
+// ⚠ AT ONCE. When a player advances into a year in which an event begins, the
+// banner names it, says in one line what it is, and which of the team's own
+// lines it touches — nothing about its size (utils/yearEvents' eventNews holds
+// that line). The year's results now show at once too (utils/knownYears: the
+// year just completed is known), so its claims and dollars are on the result
+// screens beside the news; the banner stays the headline, not the figures.
+// (It was written when results ran a year behind and the news came first.)
 //
 // Read off the WHOLE game, not the known view: the year just played is the one
 // the news is about. The same component in single-player, Test player and a
@@ -42,7 +43,7 @@ export function EventNewsBanner({ played, startingYear }: { played: ResultSet[];
               <span className="text-amber-700">Your lines affected: {linesText(n)}.</span>
             </p>
           ))}
-          <p className="text-xs text-amber-700">Its effect on your results will show when {year}&rsquo;s results come in.</p>
+          <p className="text-xs text-amber-700">Its effect is in your {year} results.</p>
         </div>
         <button data-testid="event-news-dismiss" onClick={() => setDismissed(latest.yearNumber)}
           className="rounded p-1 text-amber-600 hover:bg-amber-100" aria-label="Dismiss">

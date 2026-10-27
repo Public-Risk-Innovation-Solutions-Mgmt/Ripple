@@ -1,16 +1,18 @@
 // ============================================================================
-// RESULTS RUN ONE YEAR BEHIND — what a player and a host can see, a driver.
+// RESULTS SHOW THROUGH THE YEAR JUST COMPLETED — what a player and a host can
+// see, a driver.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/known-years.cjs
 //
 // The pool sits in the current year while the board prices the next, and
-// results stop at the LATEST KNOWN YEAR — the current year less one
-// (utils/knownYears). A solo game of four years, scenario 7, from Program Year
-// 2027: at the start the pool is in 2026, pricing 2027, and the newest result
-// is 2025; each lock completes a year, which then shows — 2026 after the first
-// (the opening, a pre-game year), 2027 after the second, 2028 after the third;
-// at game end the final year, 2030, since it is complete.
+// results stop at the LATEST KNOWN YEAR — the year just completed, which is the
+// top bar's year (utils/knownYears). A solo game of four years, scenario 7,
+// from Program Year 2027: at the start the pool is in 2026, pricing 2027, and
+// the newest result is 2026 (the prior board's last year, the opening); each
+// lock completes a year, which shows at once — 2027 after the first, 2028
+// after the second, 2029 after the third; at game end the final year, 2030.
+// (Until this change results ran a year behind: 2025 at the start.)
 //
 // At each of those points, on every screen that shows results — the Annual
 // Statement, Financial Statements, Results, Result Spreadsheet, Calculation
@@ -21,13 +23,13 @@
 // as surely as one that shows too many. The Annual Statement's newest column
 // and its selector's last option are that year; the Results workbook's newest
 // column is that year, and the Claims workbook stops there. The top bar shows
-// the CURRENT year — 2026 at the start, 2027 after the first lock — and its
-// surplus and combined ratio move with every lock.
+// the CURRENT year — 2026 at the start, 2027 after the first lock — which is
+// the newest year shown, and its surplus and combined ratio move with every lock.
 //
 // Hosted (a room of four years, one team): the host's Teams tab names the
-// latest known year — nothing before the first advance, the opening (2026)
-// after it — and its Charts tab draws a point for every known year, one more at
-// every advance; the team's own top bar moves 2026 -> 2027 on the first.
+// latest known year — the opening (2026) from the start, then each year as it
+// is played — and its Charts tab draws a point for every known year, one more
+// at every advance; the team's own top bar moves 2026 -> 2027 on the first.
 //
 // The pages about pricing — Decisions, Decision History, the Rate Indication
 // and the Model tab's rate — are not read: they name the program year priced.
@@ -141,7 +143,7 @@ async function solo(browser) {
       row[t] = newest;
       ok(newest === known, `${name}, ${t}: the newest year shown is ${known} — the year just completed is there, nothing later`, `newest ${newest ?? 'none'}`);
       if (t === 'Annual Statement') {
-        const cols = await page.locator('[data-testid="statement-operating"] thead th').allInnerTexts();
+        const cols = await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts();
         const yearCols = cols.map(c => c.trim()).filter(c => /^\d{4}$/.test(c)).map(Number);
         ok(yearCols.at(-1) === known, `${name}, Annual Statement: its newest column is ${known}`, yearCols.join(' '));
         const opts = await page.locator('[data-testid="statement-year"] option').allInnerTexts();
@@ -162,7 +164,7 @@ async function solo(browser) {
   for (let n = 1; n <= LENGTH; n++) {
     const locks = n - 1;
     const name = locks === 0 ? 'start' : `after ${locks} lock${locks > 1 ? 's' : ''}`;
-    await check(name, START + n - 3, n - 2, START + n - 2, START + n - 1);
+    await check(name, START + n - 2, n - 1, START + n - 2, START + n - 1);
     await lockAndDecline(page);
     if (n < LENGTH) await page.waitForSelector(`text=Lock Program Year ${START + n}`, { timeout: 120000 });
     else await page.waitForSelector('text=Game Complete', { timeout: 120000 });
@@ -181,9 +183,9 @@ async function solo(browser) {
 // by name rather than passing on an empty workbook. At every point the Claims
 // workbook's T claims (its rows with an Event) are exactly the game's T claims
 // from known years — every one, none from after the latest known year — and at
-// game end the final year's appears. THE CONTROL: after the second lock year 2
-// is played and is the year in progress; its claim exists (the end workbook
-// has it) but must be absent, and must appear after the third.
+// game end the final year's appears. THE CONTROL: after the first lock year 2
+// is not yet played; its claim exists (the end workbook has it) but must be
+// absent, and must appear at once after the second lock, when year 2 is played.
 // ============================================================================
 const T_SCENARIO = '16', T_LENGTH = 5;
 const T_EXPECTED = [{ sheet: /Property/, ay: 2 }, { sheet: /General Liability|GL/, ay: 5 }];
@@ -246,7 +248,7 @@ async function tClaimsGame(browser) {
 
   const points = [];   // after each lock: the latest known year (number) and the T claims listed
   for (let n = 1; n <= T_LENGTH; n++) {
-    points.push({ name: `T game, after ${n - 1} lock${n - 1 === 1 ? '' : 's'}`, known: n - 2, claims: await tClaims() });
+    points.push({ name: `T game, after ${n - 1} lock${n - 1 === 1 ? '' : 's'}`, known: n - 1, claims: await tClaims() });
     await lockDecliningAll();
     if (n < T_LENGTH) await page.waitForSelector(`text=Lock Program Year ${START + n}`, { timeout: 120000 });
     else await page.waitForSelector('text=Game Complete', { timeout: 120000 });
@@ -276,9 +278,9 @@ async function tClaimsGame(browser) {
   const y2 = all.filter(c => c.ay === 2).map(key);
   const inProgress = points.find(p => p.known === 1), next = points.find(p => p.known === 2);
   ok(y2.length === 1 && !!inProgress?.claims && !inProgress.claims.some(c => y2.includes(key(c))),
-    'control: after the second lock, year 2 is the year in progress and its T claim is absent');
+    'control: after the first lock, year 2 is not yet played and its T claim is absent');
   ok(y2.length === 1 && !!next?.claims && next.claims.some(c => y2.includes(key(c))),
-    'control: after the third, year 2 is known and its T claim appears');
+    'control: after the second, year 2 is played and its T claim appears at once');
   ok(errors.length === 0, 'T game: no page errors', errors[0] ?? '');
   await ctx.close();
 }
@@ -334,7 +336,7 @@ async function hosted(browser) {
   for (let n = 1; n <= LENGTH; n++) {
     const locks = n - 1;
     const name = locks === 0 ? 'start' : `after ${locks} lock${locks > 1 ? 's' : ''}`;
-    await check(name, START + n - 3, START + n - 2);
+    await check(name, START + n - 2, START + n - 2);
     await team.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await team.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     await host.click('[data-testid="host-tab-setup"]');

@@ -27,6 +27,7 @@
     "@aws-sdk/lib-dynamodb": "^3.1148.0",
     "@aws-sdk/util-dynamodb": "^3.996.9",
     "@supabase/supabase-js": "^2.57.4",
+    "exceljs": "4.4.0",
     "fflate": "^0.8.3",
     "lucide-react": "^0.344.0",
     "marked": "^18.0.10",

@@ -1429,7 +1429,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //     retired, so the openings carry none.
 // Single player itself (SOLO_ADVERSE_DEVELOPMENT off) develops nothing — see
 // SOLO_EXPORT_GUARD_v94, whose games are built as the app builds them.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v86.json');
+// v87: ADVERSE DEVELOPMENT DEFAULTS TO LOW (was Mid). This harness's games set
+// no development level, so they play the default. The control ran first:
+// 4ac52b5 reproduced v86 exactly. Each commit against the one before: the
+// results-delay commits moved nothing (display only — byte-identical); the
+// default's commit moved 17,248 instances across 74 fields, every one
+// downstream of less development on the open prior years (1-5% a year where
+// Mid drew 5-15%): prior-year development, net incurred and paid losses, the
+// reserves, IBNR and case, the funding target and reserve risk margin, LAE,
+// and the income, surplus and capital that follow (first instance's
+// priorYearDevelopment -$5.17M -> -$1.47M, net incurred $27.34M -> $23.65M).
+// No field added or removed. No rate moved: the pure premium reads development
+// only as it emerges, and these are year-1 rows struck before any.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v87.json');
 
 function seedOf(id: string) {
   let h = 5381;

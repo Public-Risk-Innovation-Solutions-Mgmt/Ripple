@@ -140,18 +140,20 @@ export default function GameShell({
 
   const d = useGameDerivations(gameState, lineView, currentDecisions);
 
-  // ⚠ RESULTS RUN ONE YEAR BEHIND (utils/knownYears): every screen that shows
-  // results reads the KNOWN view — cut at the latest known year, the current
-  // year less one — and only Decisions, Decision History, the Rate Indication
-  // and the Model tab's rate read the whole game. At game end they are the same.
+  // ⚠ RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (utils/knownYears): every
+  // screen that shows results reads the KNOWN view — cut at the latest known
+  // year, the top bar's year — and only Decisions, Decision History, the Rate
+  // Indication and the Model tab's rate read the whole game. Since the year in
+  // progress is never played until it is locked, the two cut at the same year;
+  // the known view stays so the rule has one home.
   const known = React.useMemo(() => (gameState ? knownGameState(gameState) : null), [gameState]);
   const knownYear = gameState ? latestKnownYearNumber(gameState) : Number.POSITIVE_INFINITY;
   const knownViewResults = React.useMemo(() => d.viewResults.filter(r => r.yearNumber <= knownYear), [d.viewResults, knownYear]);
   const knownPriorResults = React.useMemo(() => d.viewPriorResults.filter(r => r.yearNumber <= knownYear), [d.viewPriorResults, knownYear]);
   // ⚠ EVERY KNOWN YEAR, PRE-GAME INCLUDED, for the pages that listed played
-  // years alone. After the first lock the newly known year is 2026 — the
-  // opening, a pre-game year — and a list of played years would be empty, so
-  // the game would look stuck. Oldest first: the early pre-game, then the rest.
+  // years alone. Before the first lock the newest known year is 2026 — the
+  // opening, a pre-game year — and a list of played years would be empty.
+  // Oldest first: the early pre-game, then the rest.
   const knownPreGame = React.useMemo(() => (known ? [...(known.earlyPreGameHistory ?? []), ...known.priorHistory] : []), [known]);
   const knownPreGameView = React.useMemo(() => selectResultView(knownPreGame, lineView), [knownPreGame, lineView]);
   // The claims workbook reads the live reserve cohorts, so it is handed them as
@@ -217,7 +219,7 @@ export default function GameShell({
       {statusStrip}
 
       {/* THE NEWS OF AN EVENT (components/EventNews): the year just played, off
-          the whole game — results run a year behind, the news does not. */}
+          the whole game — the same year the result screens now show. */}
       {isStarted && gameState && (
         <EventNewsBanner played={gameState.lockedResults} startingYear={gameState.setup.startingYear} />
       )}

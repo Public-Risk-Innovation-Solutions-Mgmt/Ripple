@@ -1379,7 +1379,52 @@ const BASELINE = process.env.RENDER_BASELINE
 // higher (GL y2 $6.94M -> $11.62M) so no line takes an inter-line loan — the
 // loan rows, the repayment control and the audit's loan-transfer lines go —
 // and a dividend no longer reads "(blocked)". No fixed wording moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v90.json');
+// v91: RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (no one-year delay).
+// ⚠ THE CONTROL DID NOT REPRODUCE v90, and neither did v90's own commit:
+// 4ac52b5, cc90a58 and 696a63b (the merge that wrote v90), each built in its
+// own worktree, move the same 13 of 236 against it — GL and Property y2
+// figures on Financial Statements and the Calculation Audit, and the Result
+// Spreadsheet at y0 and y2 — and the instrument is unchanged since. So v90
+// was captured from a build that is not its commit; the 13 predate this
+// change. The control was therefore captured to its own file and reproduced
+// itself 236 of 236, and this change was measured against that, word-diffed
+// (RENDER_TEXT_DIR both sides). 196 of 236 move. The five results screens
+// (Annual Statement, Financial Statements, Results, Result Spreadsheet,
+// Calculation Audit — 114) gain the year just completed as their newest
+// column: Opening 2026 at y0, 2028 at y2. Every other moved screen (82:
+// _header, Introduction, Rate Indication, Decisions, Decision History) moves
+// in the top bar only — its surplus and combined ratio are now the year just
+// completed's ($9.59M / 98.3% -> $10.70M / 99.3% on WC at y0); the calendar
+// and program years in it are unchanged, and no rate or decision figure
+// moves. The 40 unmoved are the unplayed views and fixed documents. The Low
+// adverse-development default moves none: this harness plays single player.
+// v92: THE ANNUAL STATEMENT LAID OUT AS THE TEMPLATE (docs/Annual Statement
+// Example.xlsx, annualStatementTemplate.ts). ⚠ THE CONTROL DID NOT REPRODUCE
+// v91, AND NEITHER DID v91'S OWN COMMIT: multiplayer 155a0b4 and 4ad7cef (which
+// wrote v91), each built in its own worktree on this chromium, move the SAME 50
+// of 236 against it with the SAME hashes — Calculation Audit 22, Results 14,
+// Financial Statements 8, Result Spreadsheet 6, none on the Annual Statement —
+// so no commit since v91 moved a screen; the 50 are this container against the
+// one v91 was captured in. VALUE_IDENTITY_v87 holds at head. The control was
+// captured to its own file and reproduced itself 236 of 236, and this change
+// was measured against it, text-diffed (RENDER_TEXT_DIR both sides): 26 of 236
+// move, EXACTLY the 26 Annual Statement screens (every configuration, line
+// view and year-point); no other screen and not the header. On each, about 82%
+// of the old screen's figures are still on it; every figure that is not belongs
+// to a row or column the template does not have — the Total column, the Loss
+// Ratio row, Premium to Reserve, the absolute Change from Prior and % of Prior
+// rows (now % changes), and the old Prior headings with their year ranges —
+// and the ~42 new are the template's own rows (Operating Ratio, Assets,
+// Liabilities, Reserve to Surplus beside Net Worth, the Contributions section,
+// % Increase over Prior, Prior's loss ratio) and "—" where a row has no figure.
+// ⚠ THE STATEMENT'S BORDERS (the template's lines, in CSS) MOVE NONE OF THE 236,
+// and cannot: a fingerprint is the screen's TEXT, and a line is not text. They
+// were measured against v92 and left it identical, 236 of 236 — which says the
+// lines changed no wording and no figure, and nothing about the lines. The
+// instrument that sees them is downloads.cjs, which compares every statement
+// cell's drawn sides on screen with the template file's, row for row, and fails
+// when one is missing (its control: the bottom lines dropped, C4 red first).
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v92.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

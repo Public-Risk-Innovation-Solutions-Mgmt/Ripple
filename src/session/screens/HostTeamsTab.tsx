@@ -69,10 +69,10 @@ type RowState =
 function rowState(team: TeamView, view: LineView, reportingYear: number): RowState {
   if (view !== 'pool' && !team.lines.includes(view)) return { kind: 'absent' };
 
-  // ⚠ YEAR 0 COUNTS ONCE IT IS KNOWN. Results run one year behind
-  // (utils/knownYears): the first advance completes 2026, the opening, and it is
-  // then the latest known year — the table shows it rather than nothing. Before
-  // that advance nothing is known, though the opening is already posted.
+  // ⚠ YEAR 0 COUNTS, AND FROM THE START. Results show through the year just
+  // completed (utils/knownYears), so before the first advance the latest known
+  // year is 2026, the opening — the table shows it rather than nothing. A year
+  // before 0 is never known (no room keeps one).
   if (reportingYear < 0) return { kind: 'pending' };
 
   // ⚠ THE EXACT YEAR, NOT "THE LATEST ONE, IF IT HAPPENS TO BE THIS YEAR". The
@@ -110,8 +110,8 @@ export default function HostTeamsTab({ room }: Props) {
   const linesInPlay = LINE_ORDER.filter(l => room.teams.some(t => t.lines.includes(l)));
   const effectiveView: LineView = view !== 'pool' && !linesInPlay.includes(view) ? 'pool' : view;
 
-  // The latest known year (utils/knownYears): results run a year behind the
-  // last year played, until the event is over and the final year shows.
+  // The latest known year (utils/knownYears): the year just completed — the
+  // opening before the first advance, then each year as it is played.
   const reportingYear = Math.min(latestKnownRoomYear(room), room.currentYear - 1);
   const teams = room.teams;
 

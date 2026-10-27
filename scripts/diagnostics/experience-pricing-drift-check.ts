@@ -278,7 +278,13 @@ type Track = Record<string, { rate: number[]; exposure: number[] }>;
 function playOne(seed: number): Track {
   const id = `EPD${seed}`;
   const inst = generateGameInstance(id, 6_100_000 + seed * 7919);
-  const setup = { poolName: 'Drift', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES };
+  // ⚠ MID ON EVERY LINE, EXPLICITLY. The adverse-development arm measures
+  // whether the rate picks up a ramp of a known size, and its control was
+  // tuned on Mid (6.80%; Low's 2.89% would not fire it). The default moved to
+  // Low (ADVERSE_DEVELOPMENT_DEFAULT_LEVEL), so the arm names its level rather
+  // than inheriting it. With adverse development off the levels are not read.
+  const setup = { poolName: 'Drift', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES,
+    developmentLevels: { WC: 'Mid', GL: 'Mid', Property: 'Mid' } as const };
   const { poolState, priorHistory } = runPriorHistory(inst, setup as never);
   let gs: GameState = {
     setup: setup as never, instance: inst, currentYearNumber: 1, isStarted: true, isComplete: false,
@@ -479,7 +485,7 @@ if (!shipped || !control || !stillTwin) {
     console.log(`  control: AD-off set against itself in the AD arm    ${c2 ? 'fails (caught)' : 'DOES NOT FAIL'}`);
     if (!c1 || !c2) {
       failed.push(`THE CONTROL IS NOT CAUGHT: ${!c1 ? `the shipped AD-on drifts (${(100 * sm).toFixed(2)}%) pass the still-book bar, so that bar can no longer see a ramp of adverse development's size — `
-        + `measured at Mid it fires at 6.80%; at Low (2.89%) it would not, so if ADVERSE_DEVELOPMENT_DEFAULT_LEVEL or its range moved, re-read this control` : ''}`
+        + `measured at Mid it fires at 6.80%; at Low (2.89%) it would not — the games set Mid explicitly, so if Mid's range moved, re-read this control` : ''}`
         + `${!c1 && !c2 ? '; ' : ''}${!c2 ? 'the AD arm passes a cell against itself' : ''}.`);
     }
   }
