@@ -98,6 +98,17 @@ development per line; single player has none (`SOLO_ADVERSE_DEVELOPMENT`).
 
 ---
 
+## Development pricing — reverted on multiplayer; its build is 00b45eb
+
+Development pricing (the pre-game developing at the chosen level, learned
+development in pricing, Test player taking the host's shock switch, its gate,
+restatements, baselines and save key v33) is reverted on multiplayer, commit by
+commit (3e9639d … ca3f57e), so it does not go to aws with the Annual Statement.
+**The build with development pricing is commit 00b45eb**: multiplayer before the
+revert, with the Annual Statement and test-player work as of e3bc035 merged in.
+Build and test development pricing from there; to bring it back, revert the
+reverts.
+
 ## The Annual Statement laid out as the template
 
 The Annual Statement page and its new **Download Annual Statement (Excel)** button
