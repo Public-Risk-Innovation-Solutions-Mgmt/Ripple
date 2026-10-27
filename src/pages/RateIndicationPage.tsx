@@ -58,6 +58,11 @@ function LineCard({ ri }: { ri: RateIndication }) {
             testId={`ri-${l}-losses`} value={p.trendedAverageLosses} window={p.windowYears}>
             {p.windowYears > 0 ? formatCurrency(p.trendedAverageLosses, true) : '—'}
           </Row>
+          {p.learnedDevelopment !== undefined && (
+            <Row label="Learned Development to Come (in the losses above)" testId={`ri-${l}-learned-dev`} value={p.learnedDevelopment}>
+              {factor(p.learnedDevelopment)}
+            </Row>
+          )}
           <Row label={`${p.rateLevelYear} Exposure`} testId={`ri-${l}-exposure`} value={p.exposure}>
             {p.windowYears > 0 ? formatMillions(p.exposure, 1) : '—'}
           </Row>
