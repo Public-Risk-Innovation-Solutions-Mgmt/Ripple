@@ -18,6 +18,11 @@
 //    book prior-year development in the save, and the statement's Total Net
 //    Incurred is above 0 on every older year — the levels chosen on its setup
 //    screen are the game's (a tester read them as 0; this holds them).
+// 2b. LEARNED DEVELOPMENT ON THE SCREENS (wip/development-pricing): in that
+//    Test player game the Rate Indication shows "Learned Development to Come"
+//    on every line, at a factor of at least 1, and the Model tab's section A
+//    lists the learned factors; in the Single player game neither appears —
+//    single player prices as before.
 // 2. Test player: opens the HOST'S OWN setup screen (HostCreateScreen, solo
 //    mode) with no admin sign-in, offering Low / Mid / High per line in place of
 //    the percentages. Setting WC High and GL Low (Property left at the default, Low), and
@@ -97,6 +102,23 @@ async function olderYearsIncurred(page) {
   const cells = (total ?? '').replace('Total Net Incurred', '').trim().split(' ').map(x => Number(x.replace(/,/g, '').replace('−', '-')) * 1000);
   return cells.slice(0, -1);
 }
+// The learned development step on the screens: the Rate Indication's row per
+// line (its data-value) and whether the Model tab lists learned factors.
+async function learnedOnScreens(page) {
+  const tab = async name => { await page.getByRole('button', { name: new RegExp(`^${name}$`) }).first().click(); await page.waitForTimeout(500); };
+  await tab('Rate Indication');
+  await page.waitForSelector('[data-testid="rate-indication"]', { timeout: 20000 });
+  const ri = {};
+  for (const l of ['WC', 'GL', 'Property']) {
+    const el = page.locator(`[data-testid="ri-${l}-learned-dev"]`);
+    ri[l] = (await el.count()) > 0 ? Number(await el.first().getAttribute('data-value')) : null;
+  }
+  await tab('Model');
+  await page.waitForSelector('[data-testid="model"]', { timeout: 20000 });
+  const model = await page.locator('[data-testid="model-a-learned"]').count();
+  const factors = await page.locator('[data-testid^="model-a-learned-"]').count();
+  return { ri, model, factors };
+}
 // Prior-year development by year, every line, from the save.
 const pydByYear = save => (save?.lockedResults ?? []).map(r => ['WC', 'GL', 'Property'].reduce((a, l) => a + Math.abs(r.byLine?.[l]?.priorYearDevelopment ?? 0), 0));
 // Year 1's prior-year development by line, replayed out of the browser on the
@@ -167,6 +189,9 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(older.length > 0 && older.every(x => x === 0) && pydByYear(second).every(x => Math.abs(x) < 1),
       'Single player: by the second lock no older year develops — the statement\'s older years read 0 Total Net Incurred, the save no prior-year development',
       `statement ${JSON.stringify(older)}; save ${JSON.stringify(pydByYear(second).map(Math.round))}`);
+    const shown = await learnedOnScreens(page);
+    ok(Object.values(shown.ri).every(v => v === null) && shown.model === 0,
+      'Single player: no learned development on the Rate Indication or the Model tab', JSON.stringify(shown));
     await page.context().close();
   }
 
@@ -190,6 +215,10 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(older.length > 0 && older.every(x => Number.isFinite(x) && x > 0),
       'Test player at Mid: by the second lock every older year shows development on the statement (Total Net Incurred above 0)',
       JSON.stringify(older));
+    const shown = await learnedOnScreens(page);
+    ok(Object.values(shown.ri).every(v => Number.isFinite(v) && v >= 1) && shown.model === 1 && shown.factors > 0,
+      'Test player at Mid: the Rate Indication shows Learned Development to Come on every line (at least 1), and the Model tab lists the learned factors',
+      JSON.stringify(shown));
     await page.context().close();
   }
 
