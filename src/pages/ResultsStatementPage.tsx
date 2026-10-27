@@ -1,12 +1,18 @@
 // THE ANNUAL STATEMENT — the players' results page, replacing Pool History.
-// Every figure comes from buildAnnualStatement (utils/resultsStatement), which
-// reads the engine and recomputes ratios from averaged parts; this file only
-// lays the cells out. results-statement-check holds the figures together.
+// Laid out as the template (docs/Annual Statement Example.xlsx) row for row:
+// TEMPLATE_ROWS (utils/annualStatementTemplate) gives every title, label and
+// blank row, buildTemplateStatement every figure — read from buildAnnualStatement
+// (utils/resultsStatement), which reads the engine. This file only lays the
+// cells out, and the Excel download writes the same rows (annualStatementExport).
 import { useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { Download } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
+import { statementYears } from '../utils/resultsStatement';
 import {
-  buildAnnualStatement, cellText, statementYears, type Cell, type CellFormat, type StatementSection,
-} from '../utils/resultsStatement';
+  buildTemplateStatement, figureText, TEMPLATE_ROWS, type TemplateRow, type TemplateStatement,
+} from '../utils/annualStatementTemplate';
+import { annualStatementFilename, buildAnnualStatementWorkbook } from '../utils/annualStatementExport';
 import { lineDisplayName } from '../utils/lineDisplay';
 
 interface Props {
@@ -14,52 +20,99 @@ interface Props {
   lineView: LineView;
 }
 
-// The text is the statement's own (cellText — a cell with no source is BLANK);
-// only the colour is decided here.
-function show(c: Cell, format: CellFormat): { text: string; className?: string } {
-  const text = cellText(c, format);
-  switch (c.kind) {
-    case 'na': return { text };
-    case 'none': return { text, className: 'text-gray-300' };
-    case 'byLine': return { text, className: 'text-gray-400 italic text-xs' };
-    case 'range': return { text, className: 'text-xs text-gray-500' };
-    case 'value': return { text, className: c.v < 0 && format !== 'rate' ? 'text-red-600' : undefined };
+/** The test id of the table each title opens; the reinsurance blocks take their own by their header. */
+const SECTION_ID: Record<string, string> = {
+  'Net Income Statement': 'statement-operating',
+  'Balance Sheet at Year-End': 'statement-balance',
+  'Underwriting': 'statement-underwriting',
+  'Contributions To The Current Calendar Year - Net': 'statement-contributions',
+  'Program Year Totals - Net': 'statement-program',
+  'Reinsurance Information - Policy Year Totals': 'statement-reinsurance',
+};
+const BLOCK_ID: Record<string, string> = { Gross: 'statement-gross', Ceded: 'statement-ceded', Net: 'statement-net' };
+
+/** The template's rows, cut at each title: [title, rows under it]. Row 1, above the first title, opens the page. */
+function sections(): { title: string; rows: TemplateRow[] }[] {
+  const out: { title: string; rows: TemplateRow[] }[] = [];
+  for (const r of TEMPLATE_ROWS) {
+    if (r.kind === 'title') out.push({ title: r.label.trim(), rows: [] });
+    else if (out.length > 0) out[out.length - 1].rows.push(r);
+  }
+  return out;
+}
+const SECTIONS = sections();
+
+const yearEnd = (calendarYear: number) => `12/31/${String(calendarYear % 100).padStart(2, '0')}`;
+/** The template indents a sub-item by leading spaces; the screen indents it. */
+const indented = (label: string) => /^\s/.test(label);
+
+function Row({ row, ts }: { row: TemplateRow; ts: TemplateStatement }) {
+  const width = 1 + ts.columns.length;
+  switch (row.kind) {
+    case 'blank': case 'title':
+      return <tr data-row-kind="blank" aria-hidden="true"><td colSpan={width} className="h-5" /></tr>;
+    case 'header':
+      return (
+        <tr data-row-kind="header">
+          <th className="px-3 py-1 text-right font-semibold text-black whitespace-pre">{row.label.trim()}</th>
+          {ts.columns.map((c, i) => (
+            <th key={c} className="px-3 py-1 text-center font-semibold text-black whitespace-nowrap">
+              {i > 0 && row.dates ? yearEnd(ts.years[i - 1]) : c}
+            </th>
+          ))}
+        </tr>
+      );
+    case 'heading':
+      return (
+        <tr data-row-kind="heading">
+          <td colSpan={width} className="px-3 py-1 text-black">{row.label.trim()}</td>
+        </tr>
+      );
+    case 'figure': {
+      const right = row.label.trim() === '% of Premium';
+      return (
+        <tr data-row-label={row.label.trim()} data-row-key={row.key}>
+          <td className={`px-3 py-1 text-black ${indented(row.label) ? 'pl-10' : ''} ${right ? 'text-right' : ''}`}>{row.label.trim()}</td>
+          {ts.figures[row.key].map((x, i) => {
+            // Red by the figure AS SHOWN: a few cents below zero shows 0, in black.
+            const text = figureText(x, row.format);
+            return (
+              <td key={i} className={`px-3 py-1 text-right tabular-nums whitespace-nowrap ${text.startsWith('−') ? 'text-red-600' : 'text-black'}`}>
+                {text}
+              </td>
+            );
+          })}
+        </tr>
+      );
+    }
   }
 }
 
-function SectionTable({ section }: { section: StatementSection }) {
+/** One section's rows; a header row opens a new body, so each reinsurance block is its own. */
+function SectionTable({ title, rows, ts }: { title: string; rows: TemplateRow[]; ts: TemplateStatement }) {
+  const bodies: { header?: string; rows: TemplateRow[] }[] = [{ rows: [] }];
+  for (const r of rows) {
+    if (r.kind === 'header' && bodies[bodies.length - 1].rows.some(x => x.kind === 'header')) bodies.push({ header: r.label.trim(), rows: [] });
+    else if (r.kind === 'header') bodies[bodies.length - 1].header = r.label.trim();
+    bodies[bodies.length - 1].rows.push(r);
+  }
   return (
-    <div data-testid={`statement-${section.key}`} className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
-      <div className="px-5 py-3 border-b border-gray-100 flex items-baseline gap-3">
-        <h2 className="text-sm font-semibold text-gray-800">{section.title}</h2>
-        <span className="text-xs text-gray-400">{section.basis}</span>
-      </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-100">
-            <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide min-w-[240px]"></th>
-            {section.columns.map(c => (
-              <th key={c} className="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{c}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {section.rows.map((r, i) => (
-            <tr key={`${r.label}-${i}`} data-row-label={r.label} className={`border-b border-gray-50 ${r.emphasis ? 'bg-gray-50 font-medium' : ''}`}>
-              <td className={`px-4 py-1.5 text-gray-700 ${r.indent ? 'pl-8' : ''}`}>{r.label}</td>
-              {r.cells.map((c, j) => {
-                const s = show(c, r.format);
-                return <td key={j} className={`px-4 py-1.5 text-right font-mono whitespace-nowrap ${s.className ?? 'text-gray-800'}`}>{s.text}</td>;
-              })}
-            </tr>
-          ))}
-        </tbody>
+    <section data-testid={SECTION_ID[title]} className="overflow-x-auto">
+      <h2 className="px-3 text-base font-semibold text-black">{title}</h2>
+      <table className="text-sm text-black">
+        <colgroup>
+          <col className="w-[340px]" />
+          {ts.columns.map(c => <col key={c} className="w-[110px]" />)}
+        </colgroup>
+        {bodies.map((b, i) => (
+          <tbody key={i} data-testid={b.header ? BLOCK_ID[b.header] : undefined}>
+            {b.rows.map((r, j) => <Row key={j} row={r} ts={ts} />)}
+          </tbody>
+        ))}
       </table>
-    </div>
+    </section>
   );
 }
-
-const yearEnd = (calendarYear: number) => `12/31/${String(calendarYear % 100).padStart(2, '0')}`;
 
 export default function ResultsStatementPage({ gameState, lineView }: Props) {
   // The year the statement stands at; null follows the latest year as the game moves on.
@@ -67,7 +120,7 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
   const years = useMemo(() => statementYears(gameState), [gameState]);
   const latest = years.at(-1)?.yearNumber ?? 0;
   const asOf = chosen !== null && years.some(y => y.yearNumber === chosen) ? chosen : latest;
-  const st = useMemo(() => buildAnnualStatement(gameState, lineView, asOf), [gameState, lineView, asOf]);
+  const ts = useMemo(() => buildTemplateStatement(gameState, lineView, asOf), [gameState, lineView, asOf]);
   const scope = lineView === 'pool' ? 'Pool' : lineDisplayName(lineView);
   // The same choices as the Financial Statements tab's selector, latest last.
   const options = years.map(y => ({
@@ -76,40 +129,40 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
       : y.yearNumber === 0 ? `Year 0 — ${yearEnd(y.calendarYear)} (Opening)`
       : `${yearEnd(y.calendarYear)} (History)`,
   }));
+  const download = () => {
+    const wb = buildAnnualStatementWorkbook(gameState, asOf);
+    XLSX.writeFile(wb, annualStatementFilename(gameState.setup.instanceId, ts.years.at(-1) ?? gameState.setup.startingYear));
+  };
   return (
-    <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6" data-testid="annual-statement">
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Annual Statement — {scope}</h1>
-          <p className="text-xs text-gray-500 mt-1">Dollars in thousands. Exposure in $M; rates per $100 of exposure.</p>
+    <div className="max-w-screen-2xl mx-auto px-4 py-6" data-testid="annual-statement">
+      <div className="bg-white text-black border border-gray-300 rounded-lg p-6 space-y-2">
+        <div className="flex items-end justify-between flex-wrap gap-3 px-3">
+          <div>
+            <h1 className="text-lg font-semibold text-black">Annual Statement — {scope}</h1>
+            <p className="text-xs text-black mt-1">Dollars in thousands. Exposure in $M; rates per $100 of exposure.</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              data-testid="statement-year"
+              value={String(asOf)}
+              onChange={e => { const y = parseInt(e.target.value); setChosen(y === latest ? null : y); }}
+              className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-black bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <button
+              type="button"
+              data-testid="statement-download"
+              onClick={download}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              <Download size={16} />
+              Download Annual Statement (Excel)
+            </button>
+          </div>
         </div>
-        <select
-          data-testid="statement-year"
-          value={String(asOf)}
-          onChange={e => { const y = parseInt(e.target.value); setChosen(y === latest ? null : y); }}
-          className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        {SECTIONS.map(s => <SectionTable key={s.title} title={s.title} rows={s.rows} ts={ts} />)}
       </div>
-      {st.sections.map(s => <SectionTable key={s.key} section={s} />)}
-      {/*
-        ⚠ HIDDEN FROM PLAYERS — the explanatory notes and the "Not yet available"
-        list that stood here. The text is kept in the statement (st.notes, and
-        notYetAvailable(st) in utils/resultsStatement), so this block can be
-        restored as it was, or shown in a testing view:
-
-      <div className="bg-white rounded-lg border border-gray-200 px-5 py-4 text-xs text-gray-600 space-y-1.5">
-        {st.notes.map(n => <p key={n}>{n}</p>)}
-        {missing.length > 0 && (
-          <p data-testid="statement-not-available">
-            <span className="font-medium">Not yet available:</span> {missing.join('; ')}.
-          </p>
-        )}
-      </div>
-
-        with `const missing = notYetAvailable(st);` above the return.
-      */}
     </div>
   );
 }

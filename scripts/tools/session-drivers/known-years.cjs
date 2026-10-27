@@ -143,7 +143,7 @@ async function solo(browser) {
       row[t] = newest;
       ok(newest === known, `${name}, ${t}: the newest year shown is ${known} — the year just completed is there, nothing later`, `newest ${newest ?? 'none'}`);
       if (t === 'Annual Statement') {
-        const cols = await page.locator('[data-testid="statement-operating"] thead th').allInnerTexts();
+        const cols = await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts();
         const yearCols = cols.map(c => c.trim()).filter(c => /^\d{4}$/.test(c)).map(Number);
         ok(yearCols.at(-1) === known, `${name}, Annual Statement: its newest column is ${known}`, yearCols.join(' '));
         const opts = await page.locator('[data-testid="statement-year"] option').allInnerTexts();

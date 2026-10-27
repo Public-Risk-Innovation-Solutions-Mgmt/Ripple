@@ -116,10 +116,12 @@ async function tabText(page, tab) {
   // every program year shown, to the statement's own thousand. The driver moves
   // its funding each year, so the replay is checked on decisions that differ.
   const room = () => host.evaluate(c => JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
+  // The Net block of Reinsurance Information, laid out as the template: its
+  // header row ("Net", Prior, the five years) and its Total Incurred Loss & LAE —
+  // the builder's Net Ultimates, loss + LAE.
   const netUltimates = p => p.$eval('[data-testid="statement-net"]', el => ({
-    // The years are the header's only row: the "Current / Year n" row above them is gone.
-    heads: [...el.querySelectorAll('thead tr:last-child th')].map(t => t.textContent.trim()),
-    cells: [...el.querySelector('tr[data-row-label="Ultimates"]').querySelectorAll('td')].map(t => t.textContent.trim()),
+    heads: [...el.querySelectorAll('tr[data-row-kind="header"] th')].map(t => t.textContent.trim()),
+    cells: [...el.querySelector('tr[data-row-label="Total Incurred Loss & LAE"]').querySelectorAll('td')].map(t => t.textContent.trim()),
   }));
   const thousands = x => { const r = Math.round(x / 1000); return `${r < 0 ? '−' : ''}${Math.abs(r).toLocaleString('en-US')}`; };
 
@@ -173,7 +175,7 @@ async function tabText(page, tab) {
     const year0Calendar = rec.startingYear - 1;
     const compared = [];
     st.heads.forEach((head, i) => {
-      if (!/^\d{4}$/.test(head)) return;               // Prior and Total are not one year
+      if (!/^\d{4}$/.test(head)) return;               // the block's name and Prior are not one year
       const ay = Number(head) - year0Calendar;
       if (ay < 0) return;                               // pre-game years are off the session's axis
       compared.push({ ay, screen: st.cells[i], host: thousands(posted.developed.pool[String(ay)]) });

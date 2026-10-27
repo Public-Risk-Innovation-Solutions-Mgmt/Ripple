@@ -30,6 +30,7 @@
 // ============================================================================
 const { launchBrowser, requireServer, BASE } = require('./_shared.cjs');
 const fs = require('node:fs');
+const XLSX = require('xlsx');
 
 const fails = [];
 let checks = 0;
@@ -37,10 +38,13 @@ function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + 
 
 // Every download the app offers. A new one belongs here the day it ships.
 const BUTTONS = [
-  { name: 'Download Results (.xlsx)', min: 10_000 },
+  { name: 'Download Results (.xlsx)', min: 10_000, tab: 'Result Spreadsheet' },
   // ⚠ NO LONGER NAMES ITS WORLD: the workbook is still world 1's (an averaged
   // year has no claims of its own), but players are never told about the worlds.
-  { name: 'Download Claims (.xlsx)', min: 10_000 },
+  { name: 'Download Claims (.xlsx)', min: 10_000, tab: 'Result Spreadsheet' },
+  // The template-laid-out statement (annualStatementExport.ts), on its own page:
+  // the file must open as a workbook whose first sheet is the pool's.
+  { name: 'Download Annual Statement (Excel)', min: 5_000, tab: 'Annual Statement', sheets: true },
   // ⚠ 'Download Members CSV' CAME OFF. The button is hidden with the other
   // member-level views (SHOW_MEMBER_VIEWS in ResultSpreadsheetPage); buildMemberCsv
   // still runs, so restoring the flag restores the download and this row.
@@ -85,11 +89,14 @@ const BUTTONS = [
     await page.waitForSelector(`text=Lock Program Year ${next}`, { timeout: 120000 });
   }
 
-  await page.getByRole('button', { name: 'Result Spreadsheet', exact: true }).first().click();
-  await page.waitForTimeout(1200);
-  console.log('\n  on the Result Spreadsheet page\n');
-
-  for (const { name, min } of BUTTONS) {
+  let onTab = null;
+  for (const { name, min, tab, sheets } of BUTTONS) {
+    if (tab !== onTab) {
+      await page.getByRole('button', { name: tab, exact: true }).first().click();
+      await page.waitForTimeout(1200);
+      console.log(`\n  on the ${tab} page\n`);
+      onTab = tab;
+    }
     const before = errs.length;
     const btn = page.getByRole('button', { name, exact: false }).first();
     if (await btn.count() === 0) { ok(false, `${name}: the button is not on the page`); continue; }
@@ -108,6 +115,10 @@ const BUTTONS = [
     const path = await dl.path().catch(() => null);
     const size = path && fs.existsSync(path) ? fs.statSync(path).size : 0;
     ok(size >= min, `${name}: ${dl.suggestedFilename()}, ${size} bytes (>= ${min})`);
+    if (sheets && size > 0) {
+      const names = XLSX.read(fs.readFileSync(path), { type: 'buffer' }).SheetNames;
+      ok(names[0] === 'Pool' && names.length >= 2, `${name}: opens as a workbook, the pool's sheet first and one per line (${names.join(', ')})`);
+    }
     ok(thrown.length === 0, `${name}: no page error${thrown.length ? ` — ${thrown.join('; ')}` : ''}`);
   }
 

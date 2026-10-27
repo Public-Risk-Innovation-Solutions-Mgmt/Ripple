@@ -158,10 +158,10 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       const c = cal[i];
       await page.selectOption('[data-testid="statement-year"]', String(opts[i].value));
       await page.waitForTimeout(250);
-      // The statement's asOf year is its last column before Total.
+      // The statement's asOf year is its last column (Prior and the five years; no Total).
       const cell = async rowLabel => page.$eval(`[data-testid="annual-statement"] tr[data-row-label="${rowLabel}"]`,
-        tr => { const tds = [...tr.querySelectorAll('td')]; return tds[tds.length - 2].textContent.trim(); }).catch(() => null);
-      const got = { cr: await cell('Combined Ratio'), inv: await cell('Investment Income'), surplus: await cell('Ending Surplus') };
+        tr => { const tds = [...tr.querySelectorAll('td')]; return tds[tds.length - 1].textContent.trim(); }).catch(() => null);
+      const got = { cr: await cell('Combined Ratio'), inv: await cell('Investment Income'), surplus: await cell('Net Worth') };
       const s = sim[l][c];
       const want = { cr: pct1(s.cr), inv: thousands(s.inv), surplus: thousands(s.surplus) };
       for (const k of ['cr', 'inv', 'surplus']) {

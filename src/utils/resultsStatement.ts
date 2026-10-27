@@ -397,8 +397,8 @@ function underwritingRows(scope: LineView, timeline: (Scoped | undefined)[], fir
 // years carry neither). LAE is the rate's share of the GROUND-UP loss
 // (lossExpense.ts): paid with the paid loss, its reserve in IBNR; the reinsurer reimburses none, so it is in gross and net alike.
 // ---------------------------------------------------------------------------
-interface AyLoss { paid: number; case_: number; ibnr: number }
-interface AyBlock { gross: AyLoss; ceded: AyLoss; net: AyLoss }
+export interface AyLoss { paid: number; case_: number; ibnr: number }
+export interface AyBlock { gross: AyLoss; ceded: AyLoss; net: AyLoss }
 const zero = (): AyLoss => ({ paid: 0, case_: 0, ibnr: 0 });
 const addLoss = (a: AyLoss, b: AyLoss): AyLoss => ({ paid: a.paid + b.paid, case_: a.case_ + b.case_, ibnr: a.ibnr + b.ibnr });
 
@@ -408,7 +408,7 @@ const addLoss = (a: AyLoss, b: AyLoss): AyLoss => ({ paid: a.paid + b.paid, case
  * year's own reserve split and the ledger's paid at its valuation, over the
  * accident years it had.
  */
-function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet): Map<number, AyBlock> {
+export function programYearsOf(gs: GameState, line: CoverageLine, asOf: ResultSet): Map<number, AyBlock> {
   const out = new Map<number, AyBlock>();
   const ls = gs.poolState.lines[line];
   // The opening — the last pre-game year — stands at the opening's own cohorts

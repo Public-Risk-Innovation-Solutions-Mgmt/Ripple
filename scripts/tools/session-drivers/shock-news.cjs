@@ -101,7 +101,7 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   // The year's results are in at once, beside the news: the newest result year is 2028.
   await page.getByRole('button', { name: 'Annual Statement', exact: true }).first().click();
   await page.waitForTimeout(600);
-  const cols = (await page.locator('[data-testid="statement-operating"] thead th').allInnerTexts()).map(c => c.trim()).filter(c => /^\d{4}$/.test(c));
+  const cols = (await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts()).map(c => c.trim()).filter(c => /^\d{4}$/.test(c));
   ok(cols.at(-1) === '2028', 'and 2028\'s results are in at once — the statement stands at 2028', cols.join(' '));
 
   // 3. Listed on the Decisions page; dismissing the banner keeps it listed.

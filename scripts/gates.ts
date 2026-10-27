@@ -290,6 +290,11 @@ const FAST: string[] = [
                                      //         latest year otherwise; the five-year window rolls,
                                      //         Prior + the five reconcile to the full history, the
                                      //         pre-game columns are the engine's — each with a control
+  'annual-statement-template-check', //  14s   the Annual Statement as the template: every figure ties to
+                                     //         what the engine books on four games (the ceded block real
+                                     //         on one), the Excel file is the template cell for cell less
+                                     //         "Profit and Contigency", the operating ratio by hand on
+                                     //         scenario 1 WC 2027 — each with a failing control
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
                                      //         and dividends across all six years and into year 1,
                                      //         with no reset before 2023 or at the opening, and year 1
