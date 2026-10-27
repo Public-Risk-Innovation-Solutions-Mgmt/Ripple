@@ -2113,12 +2113,6 @@ export interface RateBasis {
   risk?: number;
   /** The accident years in the pricing window. */
   windowYears: number;
-  /**
-   * The learned development to come in the window (LEARNED_DEVELOPMENT): its
-   * trended loss cost with it over the same without. Absent where the line does
-   * not learn, and on a row stored before it was kept.
-   */
-  learnedDevelopment?: number;
   /** Their mean exposure, $M. */
   windowExposure: number;
   /**

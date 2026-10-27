@@ -155,8 +155,8 @@ import {
 import { simulateMarketReturns, blendInvestmentReturn, expectedMarketReturns, preGameMarketReturns } from './investmentEngine';
 import { cohortCloseBelow, conditionalPaydown, cumulativePaid, unpaidShare } from './payoutPattern';
 import { newStackAsLineRateQuote, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR, ADVERSE_DEVELOPMENT, PRE_GAME_ADVERSE_DEVELOPMENT, type DevelopmentLevel } from '../data/pricingParameters';
-import { adverseDevelopmentRate, developmentLevelOf, learnsDevelopment } from './adverseDevelopment';
+import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR, ADVERSE_DEVELOPMENT, type DevelopmentLevel } from '../data/pricingParameters';
+import { adverseDevelopmentRate, developmentLevelOf } from './adverseDevelopment';
 import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
@@ -638,8 +638,6 @@ interface LineYearContext {
    * none runs: the pre-game, and the switch off. Resolved in processYear.
    */
   developmentLevel?: DevelopmentLevel | null;
-  /** Does pricing learn this line's development (adverseDevelopment.learnsDevelopment)? Resolved in processYear. */
-  learnsDevelopment?: boolean;
   allMarketMembers: Member[];
   // The authoritative per-line enrollment ledger (as of this year's entry,
   // plus earlier-processed lines' same-year updates — irrelevant to this
@@ -757,7 +755,7 @@ export function strikeBookRate(
   lineState: LinePoolState,
   lineDecisions: LineDecisionSet,
   yearNumber: number,
-  basis: { allMarketMembers: Member[]; membershipHistory: MembershipHistory; learnDevelopment?: boolean },
+  basis: { allMarketMembers: Member[]; membershipHistory: MembershipHistory },
   // The book's risk, which its tower's price carries as the engine's does — 1
   // since simple underwriting (equal members, no risk scores); absent reads 1.
   bookRisk?: number,
@@ -770,7 +768,6 @@ export function strikeBookRate(
     rows: lineState.reserveDevelopment ?? [],
     allMarketMembers: basis.allMarketMembers,
     membershipHistory: basis.membershipHistory,
-    ...(basis.learnDevelopment ? { learnDevelopment: true } : {}),
   }, exposure, bookRisk ?? 1);
   const quote = quoteNewRateStack({
     line,
@@ -1049,7 +1046,6 @@ export function processLineYear(
     rows: lineState.reserveDevelopment ?? [],
     allMarketMembers: ctx.allMarketMembers,
     membershipHistory: ctx.membershipHistory,
-    ...(ctx.learnsDevelopment ? { learnDevelopment: true } : {}),
   };
   const newPp = struck
     ? struck.newPp
@@ -2331,7 +2327,7 @@ export function processLineYear(
     lineShocks?.rRate ?? 0,
     RESERVE_INFLATION_PER_YEAR[line],
     // ADVERSE DEVELOPMENT: each open prior year's own λ, from the game seed.
-    ctx.developmentLevel && (yearNumber >= 1 || PRE_GAME_ADVERSE_DEVELOPMENT.enabled)
+    ctx.developmentLevel && yearNumber >= 1
       ? (accidentYear: number) => adverseDevelopmentRate(marketSeedOf(instance), line, ctx.developmentLevel!, yearNumber, accidentYear)
       : undefined,
   );
@@ -3083,7 +3079,6 @@ export function processLineYear(
         windowExposure: newPp.points.length > 0 ? newPp.points.reduce((a, p) => a + p.exposure, 0) / newPp.points.length : 0,
         ...(newPp.points.length > 0 ? { latestExposure: newPp.points[newPp.points.length - 1].exposure } : {}),
         pricedExposure: estimatedExposure,
-        ...(newPp.learned ? { learnedDevelopment: newPp.learned.windowFactor } : {}),
       },
     } : {}),
     writtenExposure: parseFloat(writtenExposure.toFixed(2)),
@@ -3657,11 +3652,9 @@ export function processYear(
       developmentPct: overrides?.freezeMembership === true || ADVERSE_DEVELOPMENT.enabled
         ? 0
         : gameState.setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line],
-      // Played years, and the pre-game's too while PRE_GAME_ADVERSE_DEVELOPMENT is on
-      // (runPriorHistory plays the pre-game through processYear).
-      developmentLevel: ADVERSE_DEVELOPMENT.enabled && (yearNumber >= 1 || PRE_GAME_ADVERSE_DEVELOPMENT.enabled)
+      // Played years only; the pre-game never reaches processYear.
+      developmentLevel: ADVERSE_DEVELOPMENT.enabled && yearNumber >= 1
         ? developmentLevelOf(gameState.setup, line) : null,
-      learnsDevelopment: learnsDevelopment(gameState.setup, line),
       allMarketMembers: currentAllMarketMembers,
       membershipHistory,
       // Ends at yearNumber - 1 — see the field's note on LineYearContext.
