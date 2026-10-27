@@ -37,7 +37,7 @@
 // ============================================================================
 const zlib = require('node:zlib');
 const { execFileSync } = require('node:child_process');
-const { BASE, REPO, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, REPO, launchBrowser, requireServer, statementPdfDiffs } = require('./_shared.cjs');
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -193,6 +193,9 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(older.length > 0 && older.every(x => Number.isFinite(x) && x > 0),
       'Test player at Mid: by the second lock every older year shows development on the statement (Total Net Incurred above 0)',
       JSON.stringify(older));
+    // The PDF download in a Test player game: the statement the screen shows, at the year it stands at.
+    const pdf = await statementPdfDiffs(page);
+    ok(pdf.length === 0, 'Test player: "Download Annual Statement (PDF)" gives the screen\'s statement, at the year it stands at', pdf.slice(0, 2).join(' · '));
     await page.context().close();
   }
 

@@ -1486,7 +1486,11 @@ const BASELINE = process.env.RENDER_BASELINE
 // Reported and Change in IBNR, and Case Reserves, IBNR Reserves and Reported
 // Loss & LAE in Program Year Totals and the Gross and Net blocks. Payments,
 // Total Net Incurred, Ceded, Paid and Total Incurred do not move.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v99.json');
+// v100: THE PDF BUTTON. Against v99's own text (RENDER_TEXT_DIR): 26 of 236
+// move, EXACTLY the 26 Annual Statement screens, and each is v99's text
+// character for character once "Download Annual Statement (PDF)", the new
+// button beside the Excel one, is taken out. Nothing else on any screen.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v100.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

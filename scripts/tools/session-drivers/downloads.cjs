@@ -47,6 +47,11 @@ const BUTTONS = [
   // The template-laid-out statement (annualStatementExport.ts), on its own page:
   // the file must open as a workbook whose first sheet is the pool's.
   { name: 'Download Annual Statement (Excel)', min: 5_000, tab: 'Annual Statement', sheets: true },
+  // The same statement as a PDF (annualStatementPdf.ts), its library (jsPDF)
+  // fetched only on the press: the file must open as a PDF, landscape Letter,
+  // one statement per sheet in the workbook's order, each page headed with the
+  // year the statement stands at and numbered.
+  { name: 'Download Annual Statement (PDF)', min: 5_000, tab: 'Annual Statement', pdf: true },
   // ⚠ 'Download Members CSV' CAME OFF. The button is hidden with the other
   // member-level views (SHOW_MEMBER_VIEWS in ResultSpreadsheetPage); buildMemberCsv
   // still runs, so restoring the flag restores the download and this row.
@@ -159,7 +164,8 @@ async function screenBordersMatchTemplate(page) {
   }
 
   let onTab = null;
-  for (const { name, min, tab, sheets } of BUTTONS) {
+  let workbookSheets = null, statementYear = null;
+  for (const { name, min, tab, sheets, pdf } of BUTTONS) {
     if (tab !== onTab) {
       await page.getByRole('button', { name: tab, exact: true }).first().click();
       await page.waitForTimeout(1200);
@@ -167,6 +173,9 @@ async function screenBordersMatchTemplate(page) {
       onTab = tab;
       if (tab === 'Annual Statement') {
         ok(!scripts.some(u => /exceljs/i.test(u)), 'Annual Statement: its Excel library (exceljs) is not loaded with the page');
+        ok(!scripts.some(u => /jspdf/i.test(u)), 'Annual Statement: its PDF library (jsPDF) is not loaded with the page');
+        const heads = (await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts()).map(t => t.trim()).filter(t => /^\d{4}$/.test(t));
+        statementYear = heads.at(-1);
         await screenBordersMatchTemplate(page);
       }
     }
@@ -185,13 +194,35 @@ async function screenBordersMatchTemplate(page) {
       ok(false, `${name}: no file arrived${thrown.length ? ` — ${thrown[0]}` : ''}`);
       continue;
     }
-    const path = await dl.path().catch(() => null);
-    const size = path && fs.existsSync(path) ? fs.statSync(path).size : 0;
+    const dlPath = await dl.path().catch(() => null);
+    const size = dlPath && fs.existsSync(dlPath) ? fs.statSync(dlPath).size : 0;
     ok(size >= min, `${name}: ${dl.suggestedFilename()}, ${size} bytes (>= ${min})`);
     if (sheets) ok(scripts.some(u => /exceljs/i.test(u)), `${name}: its Excel library (exceljs) was fetched for the file`);
     if (sheets && size > 0) {
-      const names = XLSX.read(fs.readFileSync(path), { type: 'buffer' }).SheetNames;
+      const names = XLSX.read(fs.readFileSync(dlPath), { type: 'buffer' }).SheetNames;
       ok(names[0] === 'Pool' && names.length >= 2, `${name}: opens as a workbook, the pool's sheet first and one per line (${names.join(', ')})`);
+      workbookSheets = names;
+    }
+    if (pdf) ok(scripts.some(u => /jspdf/i.test(u)), `${name}: its PDF library (jsPDF) was fetched for the file`);
+    if (pdf && size > 0) {
+      const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const fonts = path.join(REPO, 'node_modules', 'pdfjs-dist', 'standard_fonts') + path.sep;
+      const doc = await getDocument({ data: new Uint8Array(fs.readFileSync(dlPath)), standardFontDataUrl: fonts, isEvalSupported: false }).promise;
+      const pages = [];
+      for (let p = 1; p <= doc.numPages; p++) {
+        const pg = await doc.getPage(p);
+        const vp = pg.getViewport({ scale: 1 });
+        const text = (await pg.getTextContent()).items.map(it => it.str).join(' ');
+        pages.push({ w: vp.width, h: vp.height, scope: (text.match(/ - (Pool|Workers' Compensation|General Liability|Property) - Annual Statement as of 12\/31\/(\d{4})/) || []), text });
+      }
+      ok(pages.length > 0 && pages.every(p => p.w === 792 && p.h === 612), `${name}: opens as a PDF, ${pages.length} pages, landscape Letter`);
+      // The sheets, in order of first appearance, are the workbook's: Pool, then each line.
+      const SHORT = { Pool: 'Pool', "Workers' Compensation": 'WC', 'General Liability': 'GL', Property: 'Property' };
+      const order = []; for (const p of pages) { const s = SHORT[p.scope[1]]; if (s && order.at(-1) !== s) order.push(s); }
+      ok(workbookSheets && order.join(',') === workbookSheets.join(','), `${name}: one statement per sheet, in the workbook's order (${order.join(', ')})`, `workbook ${workbookSheets && workbookSheets.join(', ')}`);
+      ok(pages.every(p => p.scope[2] === statementYear), `${name}: every page's header names the year the statement stands at (${statementYear})`, [...new Set(pages.map(p => p.scope[2]))].join(', '));
+      ok(pages.every((p, k) => p.text.includes(`Page ${k + 1} of ${pages.length}`)), `${name}: every page numbered "Page n of ${pages.length}"`);
+      ok(pages[0].text.includes('Written Premium') && pages[0].text.includes('Net Income Statement For The Year'), `${name}: the first page opens with the pool's Net Income Statement`);
     }
     ok(thrown.length === 0, `${name}: no page error${thrown.length ? ` — ${thrown.join('; ')}` : ''}`);
   }
