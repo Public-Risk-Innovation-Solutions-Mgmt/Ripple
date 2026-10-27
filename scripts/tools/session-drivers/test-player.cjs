@@ -100,7 +100,10 @@ async function olderYearsIncurred(page) {
   const rows = (await page.locator('[data-testid="statement-contributions"] tr').allInnerTexts()).map(r => r.replace(/\s+/g, ' ').trim());
   const total = rows.find(r => r.startsWith('Total Net Incurred'));
   const cells = (total ?? '').replace('Total Net Incurred', '').trim().split(' ').map(x => Number(x.replace(/,/g, '').replace('−', '-')) * 1000);
-  return cells.slice(0, -1);
+  // The row ends with the statement's own program year and then All Years (the
+  // v2 template's column I, the row's total): both are dropped, leaving Prior
+  // and the older window years.
+  return cells.slice(0, -2);
 }
 // The learned development step on the screens: the Rate Indication's row per
 // line (its data-value) and whether the Model tab lists learned factors.
