@@ -909,7 +909,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Excel's built-in format 14, which is what the template's own date cells carry.
 // And each sheet has one more row, 156: the template's last row (157), blank,
 // which carries the Net block's closing line. No key added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v96.json');
+// v97: THE STATEMENT'S BLANKS FILLED. All 24 `stmt|...` keys move; all 24
+// Results-workbook keys are byte-identical to v96, and every statement file's
+// borders are identical. Text-diffed row by row (GUARD_TEXT_DIR against
+// multiplayer cf8e9c1): the Contributions' Written Premium (each program year's
+// own), Reserve Changes and Net Reported in both claim groups (the newly arising
+// / previously reported split), and Underwriting — every row on the single-line
+// and WC+GL pools' sheets, and Retained % and the Prior column's change rows on
+// line sheets. As displayed, Payments, Change in IBNR and Total Net Incurred are
+// identical in all 24; in the full-precision rendering they differ by at most
+// 7.3e-11 (thousands of dollars) — the split is now summed accident year by
+// accident year rather than column by column, which reorders the additions.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v97.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

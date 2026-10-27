@@ -24,22 +24,24 @@
 //     the combined ratio's (resultsStatement's combinedRatioRow).
 //   · Reserve to Surplus Ratio — (Loss Reserves + Loss Expense Reserves) over
 //     Net Worth.
+//   · Underwriting — each line's own written, new and renewal exposure, Retained
+//     % as Renewal Business over last year's Written Exposures, and its rate; at
+//     pool scope the lines' sum where their exposures share a unit (see below).
 //   · Contributions To The Current Calendar Year — each program year's net loss
 //     and LAE valued at the year the statement stands at, less the same valued a
-//     year earlier (programYearsOf at both). The engine books every claim at full
-//     cost in its accident year — there is no unreported inventory — so the
-//     claims NEWLY ARISING in a calendar year are exactly its own program year's,
-//     and every older program year's are PREVIOUSLY REPORTED. Case and IBNR are
-//     the engine's presentation split (reserveSplit.ts): Reserve Changes is the
-//     case reserve's change, Change in IBNR the IBNR's (the loss expense reserve
-//     included, as in the blocks).
+//     year earlier (programYearsOf at both), split for each older accident year
+//     between claims newly arising (IBNR emerging to reported, plus IBNR's share
+//     of the year's development) and claims previously reported (the year's
+//     payments and the rest of the development), with Change in IBNR balancing
+//     them. The current program year's claims are all newly arising. Its Written
+//     Premium row is each program year's own written premium.
 //
 // A ROW WITH NO FIGURE shows "—", never zero; noFigureRows lists them.
 // ============================================================================
 
 import {
   buildAnnualStatement, num, programYearsOf, COMBINED_RATIO_LABEL, ENDING_SURPLUS_LABEL,
-  type AnnualStatement, type AyBlock, type AyLoss, type StatementSection,
+  type AnnualStatement, type StatementSection,
 } from './resultsStatement';
 import { lineDisplayName } from './lineDisplay';
 import type { CoverageLine, GameState, LineResultSet, LineView, ResultSet } from '../types/simulation';
@@ -229,6 +231,7 @@ function sixOf(s: StatementSection, label: string, nth = 0): Figure[] {
 const zip = (a: Figure[], b: Figure[], f: (x: number, y: number) => number | null): Figure[] =>
   a.map((x, i) => (x === null || b[i] === null ? null : f(x, b[i]!)));
 const ratio = (n: number, d: number) => (d === 0 ? null : n / d);
+const columnsZero = (n: number) => Array.from({ length: n }, () => ({ prevPaid: 0, prevCase: 0, newPaid: 0, newCase: 0, ibnr: 0, incurred: 0 }));
 
 /** Prior and each window year's results, at the scope: Prior is every year before the window, combined. */
 function windowResults(gs: GameState, asOf: number, windowYears: number[]) {
@@ -243,7 +246,7 @@ function windowResults(gs: GameState, asOf: number, windowYears: number[]) {
 
 export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?: number): TemplateStatement {
   const st = buildAnnualStatement(gs, scope, asOfYear);
-  const op = sec(st, 'operating'), bal = sec(st, 'balance'), uw = sec(st, 'underwriting');
+  const op = sec(st, 'operating'), bal = sec(st, 'balance');
   const windowYears = op.windowYears;
   const { rolled, window, full } = windowResults(gs, st.asOf, windowYears);
   const figures: Record<string, Figure[]> = {};
@@ -289,14 +292,61 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   figures.resToSurplus = zip(zip(figures.lossRes, figures.laeRes, (a, b) => a + b), figures.netWorth, ratio);
 
   // --- Underwriting ---------------------------------------------------------
-  figures.exposure = sixOf(uw, 'Written Exposure');
-  // The template's Change from Prior is a percentage: the statement's change over the year before.
-  figures.exposureChange = zip(sixOf(uw, 'Change from Prior'), figures.exposure, (d, x) => ratio(d, x - d));
-  figures.newBusiness = sixOf(uw, 'New Business');
-  figures.renewal = sixOf(uw, 'Renewal');
-  figures.retained = sixOf(uw, 'Retained %');
-  figures.rate = sixOf(uw, 'Current Rate');
-  figures.rateChange = sixOf(uw, '% Change Over Prior');
+  // Read off each line's own result. At pool scope a figure is the lines' sum —
+  // only where their exposures are in one unit: WC and GL share the payroll base
+  // ($M of payroll); Property's is building value ($M of TIV), so a pool writing
+  // Property beside WC or GL shows "—" in every row here (exposures, their
+  // change, new and renewal business, retained %, and the rate per $100 of
+  // exposure and its change). A pool of Property alone is in one unit, and sums.
+  const uwLines: CoverageLine[] = scope === 'pool' ? gs.setup.activeLines : [scope];
+  const unitOf = (l: CoverageLine) => (l === 'Property' ? 'TIV' : 'payroll');
+  const addable = new Set(uwLines.map(unitOf)).size <= 1;
+  const prevOf = (r: ResultSet): ResultSet | undefined => full[full.indexOf(r) - 1];
+  const lineSum = (r: ResultSet | undefined, f: (x: LineResultSet) => number | undefined): Figure => {
+    if (!r || !addable) return null;
+    let sum = 0;
+    for (const l of uwLines) {
+      const x = r.byLine[l];
+      const v = x ? f(x) : undefined;
+      if (v === undefined || !Number.isFinite(v)) return null;
+      sum += v;
+    }
+    return sum;
+  };
+  const exposureAt = (r?: ResultSet) => lineSum(r, x => x.writtenExposure);
+  const rateOf = (x: LineResultSet) => x.finalRatePer100 ?? x.ratePer100;
+  // One line's rate is its own; the pool's (payroll lines only) is weighted by each line's exposure.
+  const rateAt = (r?: ResultSet): Figure => {
+    const w = lineSum(r, x => rateOf(x) * x.writtenExposure), e = exposureAt(r);
+    return w === null || e === null ? null : ratio(w, e);
+  };
+  const lastRolled = rolled.at(-1);
+  const pointRow = (f: (r?: ResultSet) => Figure): Figure[] => [f(lastRolled), ...window.map(r => f(r))];
+  const changeRow = (f: (r?: ResultSet) => Figure): Figure[] => pointRow(r => {
+    const a = f(r), b = r ? f(prevOf(r)) : null;
+    return a === null || b === null ? null : ratio(a, b) === null ? null : a / b - 1;
+  });
+  const flowRow = (f: (r?: ResultSet) => Figure): Figure[] => {
+    const xs = rolled.map(r => f(r));
+    return [xs.length === 0 || xs.some(x => x === null) ? null : xs.reduce<number>((t, x) => t + x!, 0), ...window.map(r => f(r))];
+  };
+  figures.exposure = pointRow(exposureAt);
+  figures.exposureChange = changeRow(exposureAt);
+  figures.newBusiness = flowRow(r => lineSum(r, x => x.newBusinessExposure));
+  figures.renewal = flowRow(r => lineSum(r, x => x.renewalExposure));
+  // Retained %: the business renewed over LAST year's written exposures. Prior's is
+  // over every year in it that has a year before it — the first year the pool has
+  // (2021) has none.
+  const renewedOver = (rs: ResultSet[]): Figure => {
+    const ok = rs.filter(r => prevOf(r) !== undefined);
+    if (ok.length === 0) return null;
+    const ren = ok.map(r => lineSum(r, x => x.renewalExposure)), base = ok.map(r => exposureAt(prevOf(r)));
+    if ([...ren, ...base].some(x => x === null)) return null;
+    return ratio(ren.reduce<number>((t, x) => t + x!, 0), base.reduce<number>((t, x) => t + x!, 0));
+  };
+  figures.retained = [renewedOver(rolled), ...window.map(r => renewedOver([r]))];
+  figures.rate = pointRow(rateAt);
+  figures.rateChange = changeRow(rateAt);
 
   // --- Program-year blocks: Program Year Totals - Net, and Gross / Ceded / Net --
   const block = (prefix: string, s: StatementSection) => {
@@ -320,36 +370,62 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   block('net', sec(st, 'net'));
 
   // --- Contributions To The Current Calendar Year - Net ----------------------
-  const lines: CoverageLine[] = scope === 'pool' ? gs.setup.activeLines : [scope];
+  // Each program year's net loss and LAE valued at the year the statement stands
+  // at, less the same a year earlier, accident year by accident year and line by
+  // line, then summed into the columns. For an OLDER accident year, with D its
+  // movement this year (Δpaid + Δcase + ΔIBNR) and s its IBNR share of the
+  // reserve outstanding at the start of the year (IBNR ÷ (case + IBNR)):
+  //   Newly Arising     Reserve Changes −ΔIBNR + s·D — the claims moving from IBNR
+  //                     to reported (the reported pattern's emergence), plus the
+  //                     share of this year's development that falls on IBNR;
+  //                     Payments 0 (a claim newly reported is reserved, not yet paid).
+  //   Previously Rep'd  Payments: the year's payments; Reserve Changes: (1 − s)·D
+  //                     less them — the rest of the development, on claims already
+  //                     reported, net of what was paid on them.
+  //   Change in IBNR    ΔIBNR, which balances it: the three sum to D, so Total Net
+  //                     Incurred is the year's movement exactly as before.
+  // The current program year's own claims are all newly arising, as they arise.
   const asOfResult = full[full.length - 1];
   const before = full.length >= 2 ? full[full.length - 2] : undefined;
-  const valued = (r: ResultSet | undefined) => lines.map(l => (r ? programYearsOf(gs, l, r) : new Map<number, AyBlock>()));
-  const now = valued(asOfResult), then = before ? valued(before) : null;
   const firstAy = windowYears[0];
-  const netAt = (ms: Map<number, AyBlock>[], pick: (ay: number) => boolean): AyLoss =>
-    ms.reduce((acc, m) => [...m.entries()].filter(([ay]) => pick(ay))
-      .reduce((a, [, b]) => ({ paid: a.paid + b.net.paid, case_: a.case_ + b.net.case_, ibnr: a.ibnr + b.net.ibnr }), acc),
-    { paid: 0, case_: 0, ibnr: 0 });
-  const columnPicks: ((ay: number) => boolean)[] = [ay => ay < firstAy, ...windowYears.map(y => (ay: number) => ay === y)];
-  const delta = columnPicks.map(pick => {
-    if (!then) return null;
-    const a = netAt(now, pick), b = netAt(then, pick);
-    return { paid: a.paid - b.paid, case_: a.case_ - b.case_, ibnr: a.ibnr - b.ibnr };
-  });
-  // Newly arising is the calendar year's own program year; every older one is previously reported.
-  const isNew = (i: number) => i > 0 && windowYears[i - 1] === st.asOf;
-  const cy = (f: (d: AyLoss) => number, group: 'prev' | 'new' | 'all'): Figure[] => delta.map((d, i) =>
-    (d === null ? null : group === 'all' || (group === 'new') === isNew(i) ? f(d) : 0));
-  const netPremium = figures['py.premium'];
-  figures['cy.premium'] = columnPicks.map((_, i) => (isNew(i) ? netPremium[i] : 0));
-  figures['cy.prev.paid'] = cy(d => d.paid, 'prev');
-  figures['cy.prev.case'] = cy(d => d.case_, 'prev');
-  figures['cy.prev.reported'] = cy(d => d.paid + d.case_, 'prev');
-  figures['cy.new.paid'] = cy(d => d.paid, 'new');
-  figures['cy.new.case'] = cy(d => d.case_, 'new');
-  figures['cy.new.reported'] = cy(d => d.paid + d.case_, 'new');
-  figures['cy.ibnr'] = cy(d => d.ibnr, 'all');
-  figures['cy.incurred'] = cy(d => d.paid + d.case_ + d.ibnr, 'all');
+  const colOf = (ay: number) => (ay < firstAy ? 0 : windowYears.indexOf(ay) + 1);
+  type Split = { prevPaid: number; prevCase: number; newPaid: number; newCase: number; ibnr: number; incurred: number };
+  const cols: Split[] = columnsZero(1 + windowYears.length);
+  for (const l of uwLines) {
+    if (!before) break;
+    const now = programYearsOf(gs, l, asOfResult), then = programYearsOf(gs, l, before);
+    for (const ay of new Set([...now.keys(), ...then.keys()])) {
+      const i = colOf(ay);
+      if (i < 0) continue;
+      const z = { paid: 0, case_: 0, ibnr: 0 };
+      const a = now.get(ay)?.net ?? z, b = then.get(ay)?.net ?? z;
+      const dPaid = a.paid - b.paid, dCase = a.case_ - b.case_, dIbnr = a.ibnr - b.ibnr;
+      const d = dPaid + dCase + dIbnr;
+      const c = cols[i];
+      if (ay === st.asOf) {
+        c.newPaid += dPaid; c.newCase += dCase;
+      } else {
+        const outstanding = b.case_ + b.ibnr;
+        const share = outstanding > 0 ? Math.min(1, Math.max(0, b.ibnr / outstanding)) : 0;
+        c.newCase += -dIbnr + share * d;
+        c.prevPaid += dPaid;
+        c.prevCase += (1 - share) * d - dPaid;
+      }
+      c.ibnr += dIbnr;
+      c.incurred += d;
+    }
+  }
+  const cy = (f: (c: Split) => number): Figure[] => cols.map(c => (before ? f(c) : null));
+  // Written Premium: each program year's own net written premium — Prior every older one's.
+  figures['cy.premium'] = [...figures['py.premium']];
+  figures['cy.prev.paid'] = cy(c => c.prevPaid);
+  figures['cy.prev.case'] = cy(c => c.prevCase);
+  figures['cy.prev.reported'] = cy(c => c.prevPaid + c.prevCase);
+  figures['cy.new.paid'] = cy(c => c.newPaid);
+  figures['cy.new.case'] = cy(c => c.newCase);
+  figures['cy.new.reported'] = cy(c => c.newPaid + c.newCase);
+  figures['cy.ibnr'] = cy(c => c.ibnr);
+  figures['cy.incurred'] = cy(c => c.incurred);
 
   return {
     scope,

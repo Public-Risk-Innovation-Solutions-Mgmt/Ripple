@@ -113,14 +113,34 @@ has one sheet for the pool and one per line, with numbers in the cells.
 - **Operating Ratio's denominator is the member charge**, the combined ratio's
   own, because the reinsurance cost is a cost in its numerator. The Premium row
   is net of reinsurance, and dividing by it would count reinsurance twice.
-- **Previously reported vs newly arising** (Contributions section): the engine
-  books every claim at full cost in its accident year, so newly arising claims
-  are exactly the current program year's and every older year's are previously
-  reported. Case vs IBNR is the presentation split (`reserveSplit.ts`).
+- **Previously reported vs newly arising** (Contributions section), as specified
+  in the request that asked for it. For each OLDER accident year, with D its movement this
+  year and s its IBNR share of the reserve outstanding at the start of the year:
+  - Newly Arising Reserve Changes = −ΔIBNR + s·D: claims moving from IBNR to
+    reported (the reported pattern's emergence), plus IBNR's share of the year's
+    development. Its Payments are 0, because a newly reported claim is reserved,
+    not yet paid.
+  - Previously Reported Payments are the year's payments, and its Reserve
+    Changes are (1 − s)·D less them.
+  - Change in IBNR is ΔIBNR. The three sum to D, so Total Net Incurred did not
+    change.
+
+  The current program year's claims are all newly arising. Case vs IBNR is the
+  presentation split (`reserveSplit.ts`). The split is computed accident year by
+  accident year and line by line before it is summed into the columns.
+- **The Contributions' Written Premium is each program year's own written
+  premium** (net), with Prior the sum of the older years, so no column reads 0.
 - **Underwriting's Change from Prior is a percentage** (the template's C60 is
-  "%"); the old statement showed the change in $M.
-- **At pool scope the underwriting rows show "—"**: exposure is payroll on WC and
-  GL and building value on Property, so there is no pool sum.
+  "%"); the old statement showed the change in $M. **Retained %** is Renewal
+  Business over last year's Written Exposures; Prior's covers the years in it
+  that have a year before them (2021, the pool's first, has none).
+- **At pool scope the underwriting rows are the lines' sums only where the
+  lines share a unit.** WC and GL are both payroll; Property is building value
+  (TIV). A pool writing Property beside WC or GL shows "—" in all seven underwriting rows:
+  Written Exposures, Change from Prior, New Business, Renewal Business, Retained
+  %, Current Rate and % Change Over Prior. A WC and GL pool shows their sums, and
+  its rate is the exposure-weighted rate. A Property-only pool is in one unit
+  and shows its line's figures.
 - **The header's combined-ratio chip is unchanged** (cumulative since game
   start). The statement has no Total column now, so `combined-ratio.cjs` works
   the cumulative ratio out from the statement's own cells.
@@ -144,10 +164,11 @@ template's lines ever change; the gate fails until you do.
 tied to the engine on four games, the Excel file against the template, and the
 operating ratio by hand on scenario 1 WC 2027 (94.40%), each with a failing
 control, now including the borders. Also VALUE_IDENTITY_v87 unchanged,
-SOLO_EXPORT_GUARD_v96 (24 Results hashes unchanged since v94; the 24 statement
-hashes carry the borders from v96, attributed in `solo-export-guard.ts`),
-RENDER_IDENTITY_v92 (exactly the 26 Annual Statement screens moved, attributed
-in `render-identity-check.ts`; the borders move none, since it fingerprints text),
+SOLO_EXPORT_GUARD_v97 (24 Results hashes unchanged since v94; the 24 statement
+hashes carry the borders from v96 and the filled blanks from v97, each
+attributed in `solo-export-guard.ts`), RENDER_IDENTITY_v93 (exactly the 26
+Annual Statement screens moved at v92 and again at v93, each attributed in
+`render-identity-check.ts`; the borders move none, since it fingerprints text),
 and every session driver with the admin-token hook. Screenshots are in
 `docs/screenshots/annual-statement/`.
 

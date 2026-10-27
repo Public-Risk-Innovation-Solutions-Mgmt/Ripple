@@ -4,10 +4,12 @@
 //   npx tsx scripts/diagnostics/annual-statement-template-check.ts
 //
 // The statement the page shows and the Excel file carries (utils/
-// annualStatementTemplate, utils/annualStatementExport), on four solo three-line
-// ten-world games — scenarios 1, 7 and 12 on the defaults, and STMT7 holding the
-// widest T cover on every line every year so the ceded block is real — at game
-// start and after each of three years, at the pool and on every line:
+// annualStatementTemplate, utils/annualStatementExport), on six solo ten-world
+// games — scenarios 1, 7 and 12 on the defaults; STMT7 holding the widest T
+// cover on every line every year so the ceded block is real; scenario 1 with Mid
+// adverse development on every line, so older years develop; and scenario 1 on
+// WC and GL alone, so the pool's underwriting rows are sums — at game start and
+// after each of three years, at the pool and on every line:
 //
 //   A. EVERY FIGURE TIES TO WHAT THE ENGINE BOOKS. Each window year is read off
 //      its own result, and Prior is the sum (flows) or the last year (balances)
@@ -21,16 +23,25 @@
 //           engine's year-end (the opening's at year 0); Assets − Liabilities =
 //           Net Worth = Paid in Capital + Earned Surplus; Reserve to Surplus =
 //           (Loss + Loss Expense Reserves) / Net Worth.
-//        A3 Contributions To The Current Calendar Year: summed over every column,
-//           Total Net Incurred is the year's booked net loss + LAE and Written
-//           Premium its net premium; per column, previously reported + newly
-//           arising + the IBNR change is the total; newly arising only in the
-//           current program year.
+//        A3 Contributions To The Current Calendar Year, RECOMPUTED here accident
+//           year by accident year: Total Net Incurred is each column's movement
+//           this year, Δ(paid + case + IBNR) — unchanged — and sums to the year's
+//           booked net loss + LAE; Newly Arising Reserve Changes on an older year
+//           is −ΔIBNR + s·D (s its IBNR share of the reserve outstanding at the
+//           start of the year, D its movement), Previously Reported takes the
+//           year's payments and (1 − s)·D less them, the current program year is
+//           all newly arising; Newly Arising + Previously Reported + Change in
+//           IBNR = Total Net Incurred in every column — at EVERY year each game's
+//           statement can stand at, every scope; Written Premium is each program
+//           year's own.
 //        A4 Program years: reported = paid + case, incurred = reported + IBNR,
 //           net = gross − ceded, Program Year Totals - Net = the Net block; summed
 //           over every column, net case + IBNR is the balance sheet's loss and
 //           loss expense reserves — the blocks meet the engine's reserves.
-//        A5 Underwriting (lines): written exposure and the rate the engine's.
+//        A5 Underwriting: written, new and renewal exposure and the rate the
+//           engine's; Retained % = renewal over last year's written; written =
+//           new + renewal; the pool's their sums when its lines share one unit
+//           (WC and GL payroll, or Property alone) and "—" in every row otherwise.
 //   B. THE EXCEL FILE IS THE TEMPLATE CELL FOR CELL — the file a player
 //      downloads, built and read back: on every sheet, every label in column B
 //      and every blank row is the template's, row for row, with the template's
@@ -45,7 +56,9 @@
 // ⚠ AND EACH FAILS WHEN BROKEN — the controls feed A a statement with one
 // figure off the engine's (premium gross of reinsurance; the operating ratio over
 // the net premium; contributions measured against the same valuation; a reserve
-// dropped from the blocks), and B a workbook with the removed row kept, one
+// dropped from the blocks; newly arising short of IBNR's share of development;
+// Total Net Incurred moved with its parts; the old all-previously-reported
+// split), and B a workbook with the removed row kept, one
 // blank row dropped, one label altered, one border missing (which must fail on
 // exactly that cell) and the borders left unshifted when row 15 closes up.
 // ============================================================================
@@ -60,6 +73,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 import { buildTemplateStatement, TEMPLATE_ROWS, type Figure, type TemplateStatement } from '../../src/utils/annualStatementTemplate';
+import { programYearsOf, statementYears } from '../../src/utils/resultsStatement';
 import ExcelJS from 'exceljs';
 import { buildAnnualStatementXlsx, STATEMENT_COLUMNS, STATEMENT_NUMBER_FORMAT } from '../../src/utils/annualStatementExport';
 import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineResultSet, LineView, ResultSet } from '../../src/types/simulation';
@@ -74,6 +88,9 @@ const check = (ok: boolean, label: string, detail = '') => {
   if (!ok) failures.push(label);
   console.log(`  ${ok ? 'OK  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
+const clone = (ts: TemplateStatement): TemplateStatement => ({ ...ts, figures: Object.fromEntries(Object.entries(ts.figures).map(([k, v]) => [k, [...v]])) });
+/** What the run exercised, so a check that could only pass vacuously says so. */
+const A3_EXERCISE = { ibnrShareOfDevelopment: 0, underwritingFigures: 0 };
 const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
 
 function covered(y: number): DecisionSet {
@@ -82,8 +99,11 @@ function covered(y: number): DecisionSet {
   return d;
 }
 
-function playSnapshots(id: string, decide: (y: number) => DecisionSet): GameState[] {
-  const { setup, instance } = openSoloInstance({ poolName: 'S', gameLength: YEARS, startingYear: 2027, instanceId: id, activeLines: LINES } as GameSetupSettings);
+function playSnapshots(id: string, decide: (y: number) => DecisionSet,
+  opts: { lines?: CoverageLine[]; development?: GameSetupSettings['developmentLevels'] } = {}): GameState[] {
+  const lines = opts.lines ?? LINES;
+  const { setup, instance } = openSoloInstance({ poolName: 'S', gameLength: YEARS, startingYear: 2027, instanceId: id, activeLines: lines,
+    ...(opts.development ? { developmentLevels: opts.development } : {}) } as GameSetupSettings);
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
   let gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory, earlyPreGameHistory });
   const out = [gs];
@@ -172,17 +192,52 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
     if (!near(f.resToSurplus[i]!, (f.lossRes[i]! + f.laeRes[i]!) / f.netWorth[i]!)) out.push(`reserve to surplus [${i}]`);
   });
 
-  // A3. Contributions to the current calendar year.
+  // A3. Contributions to the current calendar year — recomputed here accident
+  // year by accident year from programYearsOf at the two valuations, never read
+  // off the statement's own split.
   const last = ts.figures.premium.length - 1;
   const sum = (xs: Figure[]) => (xs.some(x => x === null) ? NaN : xs.reduce<number>((s, x) => s + x!, 0));
-  if (timelineOf(gs).length >= 2) {
+  rowTies('contributions Written Premium = the program year\'s', f['cy.premium'], f['py.premium'], out);
+  const tl = timelineOf(gs).filter(r => r.yearNumber <= ts.asOf);
+  if (tl.length >= 2) {
     const booked = window[window.length - 1];
     if (!near(sum(f['cy.incurred']), booked.netIncurredLoss + booked.laeIncurred)) out.push(`Σ Total Net Incurred ${sum(f['cy.incurred'])} ≠ booked ${booked.netIncurredLoss + booked.laeIncurred}`);
-    if (!near(sum(f['cy.premium']), booked.totalMemberCharge - booked.reinsuranceCost)) out.push('Σ contributions Written Premium ≠ the year\'s net premium');
+    const [nowR, thenR] = [tl[tl.length - 1], tl[tl.length - 2]];
+    const firstAy = windowResults[0].yearNumber;
+    const n = 1 + ts.years.length;
+    const want = Array.from({ length: n }, () => ({ total: 0, prevPaid: 0, prevCase: 0, newPaid: 0, newCase: 0, ibnr: 0 }));
+    for (const l of scope === 'pool' ? gs.setup.activeLines : [scope as CoverageLine]) {
+      const now = programYearsOf(gs, l, nowR), then = programYearsOf(gs, l, thenR);
+      for (const ay of new Set([...now.keys(), ...then.keys()])) {
+        const i = ay < firstAy ? 0 : windowResults.findIndex(r => r.yearNumber === ay) + 1;
+        if (i < 0) continue;
+        const z = { paid: 0, case_: 0, ibnr: 0 };
+        const a = now.get(ay)?.net ?? z, b = then.get(ay)?.net ?? z;
+        const dP = a.paid - b.paid, dC = a.case_ - b.case_, dI = a.ibnr - b.ibnr, d = dP + dC + dI;
+        const w = want[i];
+        w.total += d; w.ibnr += dI;
+        if (ay === ts.asOf) { w.newPaid += dP; w.newCase += dC; continue; }
+        // The specification: IBNR's share of the reserve outstanding at the start of the year.
+        const share = b.case_ + b.ibnr > 0 ? Math.min(1, Math.max(0, b.ibnr / (b.case_ + b.ibnr))) : 0;
+        w.newCase += -dI + share * d;
+        w.prevPaid += dP;
+        w.prevCase += (1 - share) * d - dP;
+        A3_EXERCISE.ibnrShareOfDevelopment += Math.abs(share * d);
+      }
+    }
+    // TOTAL NET INCURRED UNCHANGED: each column is the year's movement, Δ(paid + case + IBNR).
+    rowTies('Total Net Incurred (the year\'s movement)', f['cy.incurred'], want.map(w => w.total), out);
+    rowTies('Change in IBNR', f['cy.ibnr'], want.map(w => w.ibnr), out);
+    rowTies('Newly Arising Payments', f['cy.new.paid'], want.map(w => w.newPaid), out);
+    rowTies('Newly Arising Reserve Changes', f['cy.new.case'], want.map(w => w.newCase), out);
+    rowTies('Previously Reported Payments', f['cy.prev.paid'], want.map(w => w.prevPaid), out);
+    rowTies('Previously Reported Reserve Changes', f['cy.prev.case'], want.map(w => w.prevCase), out);
+    // AND IT FOOTS: Newly Arising + Previously Reported + Change in IBNR = Total Net Incurred, every column.
     f['cy.incurred'].forEach((x, i) => {
       const parts = f['cy.prev.reported'][i]! + f['cy.new.reported'][i]! + f['cy.ibnr'][i]!;
-      if (!near(x!, parts)) out.push(`contributions don't foot [${i}]`);
-      if (i !== last && (f['cy.new.paid'][i] !== 0 || f['cy.new.case'][i] !== 0)) out.push(`newly arising outside the current program year [${i}]`);
+      if (x === null || !near(x, parts)) out.push(`contributions don't foot [${i}]: ${f['cy.new.reported'][i]} + ${f['cy.prev.reported'][i]} + ${f['cy.ibnr'][i]} ≠ ${x}`);
+      if (!near(f['cy.new.reported'][i]!, f['cy.new.paid'][i]! + f['cy.new.case'][i]!)) out.push(`newly arising net reported ≠ payments + reserve changes [${i}]`);
+      if (!near(f['cy.prev.reported'][i]!, f['cy.prev.paid'][i]! + f['cy.prev.case'][i]!)) out.push(`previously reported net reported ≠ payments + reserve changes [${i}]`);
       if (i === last && (f['cy.prev.paid'][i] !== 0 || f['cy.prev.case'][i] !== 0)) out.push('previously reported in the current program year');
     });
   }
@@ -201,40 +256,112 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
       if (!near(x, f[`py.${r}`][i]!)) out.push(`Program Year Totals - Net ≠ Net: ${r} [${i}]`);
     });
   }
-  const reserves = sum(f['net.case']) + sum(f['net.ibnr']);
+  // A column with no program year in it (Prior, before the pool has older years) holds none.
+  const held = (xs: Figure[]) => xs.reduce<number>((t, x) => t + (x ?? 0), 0);
+  const reserves = held(f['net.case']) + held(f['net.ibnr']);
   if (!near(reserves, f.lossRes[last]! + f.laeRes[last]!)) out.push(`Σ net case + IBNR ${reserves} ≠ loss + loss expense reserves ${f.lossRes[last]! + f.laeRes[last]!}`);
 
-  // A5. Underwriting, on a line (the pool's exposure has no sum and shows —).
-  if (scope !== 'pool') {
-    rowTies('exposure', f.exposure, [null, ...window.map(x => x.writtenExposure)], out);
-    const rate = (x: Scoped) => (x as LineResultSet).finalRatePer100 ?? (x as LineResultSet).ratePer100;
-    rowTies('rate', f.rate, [null, ...window.map(rate)], out);
-  } else if (f.exposure.some(x => x !== null)) out.push('pool exposure shows a figure');
+  // A5. Underwriting: each line's own exposures and rate; the pool's their sum
+  // where every line is on payroll (WC, GL), and "—" in every row with Property.
+  const uwLines = scope === 'pool' ? gs.setup.activeLines : [scope as CoverageLine];
+  const tlAll = timelineOf(gs).filter(r => r.yearNumber <= ts.asOf);
+  if (scope === 'pool' && new Set(uwLines.map(l => (l === 'Property' ? 'TIV' : 'payroll'))).size > 1) {
+    for (const k of ['exposure', 'exposureChange', 'newBusiness', 'renewal', 'retained', 'rate', 'rateChange']) if (f[k].some(x => x !== null)) out.push(`pool ${k} shows a figure with Property in it`);
+  } else {
+    const ln = (r: ResultSet | undefined, fn: (x: LineResultSet) => number | undefined) =>
+      (r ? uwLines.reduce((t, l) => t + (fn(r.byLine[l]!) ?? NaN), 0) : NaN);
+    const prevOf = (r: ResultSet) => tlAll[tlAll.indexOf(r) - 1];
+    const rolledR = tlAll.filter(r => r.yearNumber < windowResults[0].yearNumber);
+    const cols = [rolledR.at(-1), ...windowResults];
+    const val = (x: number) => (Number.isFinite(x) ? x : null);
+    rowTies('written exposure', f.exposure, cols.map(r => val(ln(r, x => x.writtenExposure))), out);
+    rowTies('new business', f.newBusiness, [rolledR.length ? val(rolledR.reduce((t, r) => t + ln(r, x => x.newBusinessExposure), 0)) : null,
+      ...windowResults.map(r => val(ln(r, x => x.newBusinessExposure)))], out);
+    rowTies('renewal business', f.renewal, [rolledR.length ? val(rolledR.reduce((t, r) => t + ln(r, x => x.renewalExposure), 0)) : null,
+      ...windowResults.map(r => val(ln(r, x => x.renewalExposure)))], out);
+    rowTies('retained % = renewal ÷ last year\'s written', f.retained, windowResults.map(r => (prevOf(r) ? val(ln(r, x => x.renewalExposure) / ln(prevOf(r), x => x.writtenExposure)) : null)).reduce<(number | null)[]>((a, x) => [...a, x], [null]), out);
+    // The template's own identity: Written Exposures = New Business + Renewal Business, every year shown.
+    // To the engine's own rounding: it records written exposure to two decimals
+    // ($M, so to $5,000) and the renewal and new business it is made of unrounded.
+    windowResults.forEach((_, j) => { const i = j + 1; if (Math.abs(f.exposure[i]! - f.newBusiness[i]! - f.renewal[i]!) > 0.005 * uwLines.length + 1e-9) out.push(`written ≠ new + renewal [${i}]: ${f.exposure[i]} vs ${f.newBusiness[i]! + f.renewal[i]!}`); });
+    const rate = (x: LineResultSet) => x.finalRatePer100 ?? x.ratePer100;
+    rowTies('rate', f.rate, cols.map(r => (r ? val(ln(r, x => rate(x) * x.writtenExposure) / ln(r, x => x.writtenExposure)) : null)), out);
+    A3_EXERCISE.underwritingFigures += f.exposure.filter(x => x !== null).length;
+  }
   return out;
 }
 
 const games: { id: string; snaps: GameState[] }[] = [
   ...['1', '7', '12'].map(id => ({ id, snaps: playSnapshots(id, defaultDecisionSet) })),
   { id: 'STMT7 (covered)', snaps: playSnapshots('STMT7', covered) },
+  // Adverse development on every line (as a hosted or Test player game plays it), so older
+  // accident years move and the newly arising / previously reported split has development to divide.
+  { id: '1 (adverse Mid)', snaps: playSnapshots('1', defaultDecisionSet, { development: { WC: 'Mid', GL: 'Mid', Property: 'Mid' } }) },
+  // Payroll lines only, so the pool's underwriting rows are sums rather than "—".
+  { id: '1 (WC+GL)', snaps: playSnapshots('1', defaultDecisionSet, { lines: ['WC', 'GL'] }) },
 ];
+const scopesOf = (gs: GameState): LineView[] => ['pool', ...gs.setup.activeLines];
 
 console.log('\nA. every figure ties to what the engine books');
 let statements = 0;
 const tieFails: string[] = [];
 let ceded = 0;
-for (const g of games) for (const [y, gs] of g.snaps.entries()) for (const scope of SCOPES) {
+for (const g of games) for (const [y, gs] of g.snaps.entries()) for (const scope of scopesOf(gs)) {
   const ts = buildTemplateStatement(gs, scope);
   statements++;
   ceded += Math.abs(ts.figures['ceded.incurred'].reduce<number>((s, x) => s + (x ?? 0), 0));
   for (const e of tieOut(gs, ts, scope)) tieFails.push(`${g.id} after ${y} ${scope}: ${e}`);
 }
-check(tieFails.length === 0, `A. ${statements} statements tie to the engine (4 games × 4 points × 4 scopes)`, tieFails.slice(0, 3).join(' · '));
+check(tieFails.length === 0, `A. ${statements} statements tie to the engine (${games.length} games × ${YEARS + 1} points × every scope)`, tieFails.slice(0, 3).join(' · '));
 check(ceded > 0, 'A. the covered game cedes, so the ceded block is exercised', `Σ |ceded incurred| ${ceded.toFixed(0)}`);
+
+// EVERY YEAR THE STATEMENT CAN STAND AT: each game's last point, at every year
+// its selector offers, every scope — the contributions recomputed and footed at each.
+let everyYear = 0;
+const yearFails: string[] = [];
+for (const g of games) {
+  const gs = g.snaps[YEARS];
+  for (const { yearNumber } of statementYears(gs)) for (const scope of scopesOf(gs)) {
+    const ts = buildTemplateStatement(gs, scope, yearNumber);
+    if (ts.figures['cy.incurred'].every(x => x === null)) continue; // the pool's first year has no year before it
+    everyYear++;
+    for (const e of tieOut(gs, ts, scope)) yearFails.push(`${g.id} as of ${yearNumber} ${scope}: ${e}`);
+  }
+}
+check(yearFails.length === 0, `A. at every year each game's statement can stand at, every scope (${everyYear} statements): Total Net Incurred is the year's movement, unchanged, and Newly Arising + Previously Reported + Change in IBNR = Total Net Incurred`, yearFails.slice(0, 3).join(' · '));
+check(A3_EXERCISE.ibnrShareOfDevelopment > 0, 'A. the split is exercised: older accident years develop, and IBNR\'s share of it moves to newly arising', `Σ |s·D| ${A3_EXERCISE.ibnrShareOfDevelopment.toFixed(0)}`);
+check(A3_EXERCISE.underwritingFigures > 0, 'A. the pool\'s underwriting rows are checked as sums on a payroll-only pool, and on every line', `${A3_EXERCISE.underwritingFigures} exposure figures`);
+
+// THE CONTRIBUTIONS' CONTROLS, on the adverse-development game's last point, on WC.
+{
+  const gs = games[4].snaps[YEARS];
+  const base = buildTemplateStatement(gs, 'WC');
+  // The older column where IBNR's share of the development is largest.
+  const i = [1, 2, 3, 4].reduce((a, k) => (Math.abs(base.figures['cy.new.case'][k]! + base.figures['cy.ibnr'][k]!) > Math.abs(base.figures['cy.new.case'][a]! + base.figures['cy.ibnr'][a]!) ? k : a), 1);
+  const cc: { name: string; breakIt: (t: TemplateStatement) => void }[] = [
+    { name: 'newly arising short of IBNR\'s share of the development (the identity breaks)', breakIt: t => {
+      const sd = t.figures['cy.new.case'][i]! + t.figures['cy.ibnr'][i]!; // s·D
+      t.figures['cy.new.case'][i]! -= sd; t.figures['cy.new.reported'][i]! -= sd; } },
+    { name: 'Total Net Incurred changed, its parts moved with it (the identity holds)', breakIt: t => {
+      t.figures['cy.incurred'][i]! += 50_000; t.figures['cy.ibnr'][i]! += 50_000; } },
+    { name: 'the old split: every older year\'s movement previously reported (totals hold)', breakIt: t => {
+      for (let k = 0; k < t.figures['cy.new.case'].length - 1; k++) {
+        const na = t.figures['cy.new.case'][k]!;
+        t.figures['cy.prev.case'][k]! += na; t.figures['cy.prev.reported'][k]! += na;
+        t.figures['cy.new.case'][k] = 0; t.figures['cy.new.reported'][k] = 0;
+      } } },
+  ];
+  for (const c of cc) {
+    const t = clone(base);
+    c.breakIt(t);
+    const errs = tieOut(gs, t, 'WC');
+    check(errs.length > 0, `A control — ${c.name}: the tie-out fails`, errs[0] ?? 'NOTHING FIRED');
+  }
+}
 
 // The controls: each a statement with one figure off the engine's, on the covered
 // game after two years, where the reinsurance cost is real.
 const g1 = games[3].snaps[2];
-const clone = (ts: TemplateStatement): TemplateStatement => ({ ...ts, figures: Object.fromEntries(Object.entries(ts.figures).map(([k, v]) => [k, [...v]])) });
 const controls: { name: string; breakIt: (ts: TemplateStatement, gs: GameState, scope: LineView) => void }[] = [
   { name: 'premium gross of reinsurance', breakIt: (ts, gs, scope) => { ts.figures.premium[5] = at(gs.lockedResults.at(-1)!, scope).totalMemberCharge; } },
   { name: 'operating ratio over the net premium', breakIt: (ts, gs, scope) => {
