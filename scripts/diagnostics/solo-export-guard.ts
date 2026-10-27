@@ -920,7 +920,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // identical in all 24; in the full-precision rendering they differ by at most
 // 7.3e-11 (thousands of dollars) — the split is now summed accident year by
 // accident year rather than column by column, which reorders the additions.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v97.json');
+// v98: THE v2 TEMPLATE — ALL YEARS. All 24 `stmt|...` keys move; all 24
+// Results-workbook keys are byte-identical to v97. Text-diffed against the code at
+// 2107e9d (GUARD_TEXT_DIR), every moved line is one of three things. One blank
+// row fewer after each sheet's Contributions Written Premium (v2's spacing). Column
+// I added: 4,560 lines gain their All Years SUM (the dollar rows of the
+// Contributions, Program Year Totals, Gross, Ceded and Net blocks), and every
+// other line gains one empty field, as the sheet is now nine columns wide; the
+// ratio rows are blank there. And 4,380 bordered cells added, all in column I;
+// no border elsewhere moved once the rows below the dropped blank are aligned.
+// No key added or removed.
+// v99: TWO HEADINGS RENAMED — "Net Income Statement For The Year" and
+// "Reinsurance Information - Program Year Totals". All 24 `stmt|...` keys move;
+// all 24 Results-workbook keys are byte-identical to v98. Text-diffed
+// (GUARD_TEXT_DIR): every statement file is v98's character for character once
+// those two headings are read back to the template's wording. No key added or
+// removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v99.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

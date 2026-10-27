@@ -76,6 +76,12 @@ export interface RateIndication {
     annualTrend: number;
     /** Pricing's own projected pure premium for the priced year: the above x one year's trend. */
     projectedPer100: number;
+    /**
+     * The learned development to come (LEARNED_DEVELOPMENT), already in the
+     * losses above: the window's trended loss cost with it over the same
+     * without. Absent where the line does not learn.
+     */
+    learnedDevelopment?: number;
   };
   /** The rate at Expected (projected pure premium / permissible loss ratio) over the current year's rate, - 1; null with none. */
   indicatedRateChange: number | null;
@@ -169,6 +175,7 @@ export function buildRateIndication(
   let exposure: number;
   let windowYears: number;
   let reinsuranceAt: FundingPosition;
+  let learnedDevelopment: number | undefined;
 
   if (coming) {
     const d = decisions.byLine[line];
@@ -183,6 +190,7 @@ export function buildRateIndication(
     exposure = book.exposure;
     windowYears = purePremium.points.length;
     reinsuranceAt = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
+    learnedDevelopment = purePremium.learned?.windowFactor;
   } else {
     const past = pastPricer(gs, line, yearNumber);
     if (!past) return null;
@@ -191,6 +199,7 @@ export function buildRateIndication(
     exposure = past.ratedExposure;
     windowYears = past.rateBasis.windowYears;
     reinsuranceAt = past.chosen;
+    learnedDevelopment = past.rateBasis.learnedDevelopment;
   }
 
   const atExpected = price('expected', 'none');
@@ -241,6 +250,7 @@ export function buildRateIndication(
       purePremiumPer100,
       annualTrend,
       projectedPer100: projected,
+      ...(learnedDevelopment !== undefined ? { learnedDevelopment } : {}),
     },
     indicatedRateChange: positions[0].change,
     indicatedRatePer100: projected / (1 - totalAdmin),

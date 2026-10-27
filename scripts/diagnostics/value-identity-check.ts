@@ -1441,7 +1441,29 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // priorYearDevelopment -$5.17M -> -$1.47M, net incurred $27.34M -> $23.65M).
 // No field added or removed. No rate moved: the pure premium reads development
 // only as it emerges, and these are year-1 rows struck before any.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v87.json');
+// v88: DEVELOPMENT PRICING (wip/development-pricing), on multiplayer e6997b4.
+// The control ran first: e6997b4 reproduces v87 here. Each commit against the
+// one before, every one captured in its own worktree:
+//   9e6f6fb  Test player takes the host's shock switch — moves nothing (these
+//            games are not built through openSoloInstance).
+//   a1ff61e  the pre-game develops at the level — 19,816 of 39,600 across 74
+//            fields on all 24 instance-configurations, Y1 to Y5. These games set
+//            no level, so they play the default, Low: the six pre-game years now
+//            develop, so the opening reserves, the prior board's solved margin and
+//            surplus, and year 1's prior-year development move (first instance,
+//            WC: priorYearDevelopment -$1.473M -> -$1.538M, Y1 pool premium
+//            $27.32M -> $28.43M).
+//   9e69f21  pricing learns the pool's own development — 13,527 across 52, every
+//            rate and what follows from it (WC's Y1 rate $3.383 -> $3.597 per
+//            $100 over both commits; ending surplus $21.49M -> $24.43M); no
+//            reserve or development field moves.
+//   6c1003d, ad92033 (gates, save key) — nothing.
+// No field added or removed. NULL TESTS, in process at head: with both switches
+// off (PRE_GAME_ADVERSE_DEVELOPMENT, LEARNED_DEVELOPMENT) the landing
+// reproduces v87 exactly; with learning alone off it reproduces a1ff61e's
+// capture exactly — so those two switches are the only movers. Single player
+// (every line Off) moves nothing: SOLO_EXPORT_GUARD_v97 holds unchanged.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v88.json');
 
 function seedOf(id: string) {
   let h = 5381;

@@ -262,6 +262,11 @@ const FAST: string[] = [
   'adverse-development-check',       //  ~8s   wip/adverse-development: the λ draws, compounding on
                                      //         outstanding only, paid untouched, no pre-game
                                      //         development — each with a control.
+  'development-pricing-check',       // ~20s   wip/development-pricing: the pre-game develops at the
+                                     //         level, pricing learns the pool's own age-to-age
+                                     //         factors under the data lag, single player is
+                                     //         byte-identical, Test player is a hosted team — each
+                                     //         with a control.
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
                                      //         asset class — each with a control. (Replaces

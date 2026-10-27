@@ -47,6 +47,7 @@ import type { ShockRecord } from '../types/shocks';
 import { rangeOf, summarizeWorlds, type SurplusRange } from './worldAudit';
 import { simulateMarketReturns, type MarketReturns } from './investmentEngine';
 import { applyMarketShock, gameShocksOn, resolveShockYear, shockRecordKeys, shockTimingOf } from './shockLosses';
+import { learnsDevelopment } from './adverseDevelopment';
 export { rangeOf, type SurplusRange };
 
 /** Worlds per team-year for the engine in force: WORLD_COUNT on the new engine, one on the member path. */
@@ -126,6 +127,7 @@ export function strikeRates(gs: GameState, decisions: DecisionSet): Partial<Reco
     const struck = strikeBookRate(line, pricingLineState(gs, line), decisions.byLine[line], gs.currentYearNumber, {
       allMarketMembers: gs.poolState.allMarketMembers,
       membershipHistory: gs.poolState.membershipHistory,
+      ...(learnsDevelopment(gs.setup, line) ? { learnDevelopment: true } : {}),
     }, 1, gameShocksOn(gs.setup, gs.instance));
     if (struck) out[line] = struck;
   }
@@ -251,6 +253,7 @@ function withRateBasis(result: ResultSet, struck: WorldsYear['struckRates']): Re
       windowExposure: pts.length > 0 ? pts.reduce((a, p) => a + p.exposure, 0) / pts.length : 0,
       ...(pts.length > 0 ? { latestExposure: pts[pts.length - 1].exposure } : {}),
       pricedExposure: s.exposure,
+      ...(s.newPp.learned ? { learnedDevelopment: s.newPp.learned.windowFactor } : {}),
     };
     byLine[line] = { ...row, rateBasis };
   }

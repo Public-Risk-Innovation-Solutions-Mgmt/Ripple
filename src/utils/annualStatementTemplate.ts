@@ -1,16 +1,23 @@
 // ============================================================================
 // THE ANNUAL STATEMENT, LAID OUT AS THE TEMPLATE — docs/Annual Statement
-// Example.xlsx, cell for cell.
+// Example v2.xlsx (its Pool sheet), cell for cell.
 //
 // TEMPLATE_ROWS is the template transcribed row by row from row 1: every
 // section title and row label exactly as written there (leading and trailing
-// spaces included) in column B, every blank row where it is, and the figures in
-// C (Prior) to H (the five years shown). ONE CHANGE: the template's row 15,
-// "Profit and Contigency", is removed and the rows below it close up by one — it
-// is a margin in the rate, not an expense. annual-statement-template-check reads
-// the template file and holds this list to it, label for label and blank for
-// blank, apart from that row — and the downloaded file to its BORDERS cell for
-// cell (STATEMENT_BORDERS, generated from the template, row for row with this).
+// spaces included) in column B — but for the two headings RENAMED_HEADINGS
+// names, which differ on purpose — every blank row where it is, and the figures in
+// C (Prior) to H (the five years shown). In the four kinds of program-year
+// section — Contributions To The Current Calendar Year, Program Year Totals and
+// the Gross, Ceded and Net blocks — column I is ALL YEARS: the sum of Prior and
+// the five years on every dollar row, blank on the ratio rows (allYearsCell).
+//
+// v2 is the first template with "Profit and Contigency" already gone (the v1
+// file's row 15 — a margin in the rate, not an expense — which this list used
+// to drop itself), and with ONE blank row, not two, between the Contributions'
+// Written Premium and "Previous Reported Claims". annual-statement-template-check
+// reads v2 and holds this list to it label for label and blank for blank — and
+// the downloaded file to its BORDERS and its All Years formulas cell for cell
+// (STATEMENT_BORDERS, generated from v2, row for row with this).
 //
 // ⚠ EVERY FIGURE IS READ, NEVER RESTATED. The calendar sections and the program-
 // year blocks are buildAnnualStatement's own cells (resultsStatement.ts), so the
@@ -52,8 +59,8 @@ export type FigureFormat = 'dollars' | 'pct' | 'ratio' | 'exposure' | 'rate';
 export type TemplateRow =
   | { kind: 'blank' }
   | { kind: 'title'; label: string }
-  /** The column header: Prior and the five years — calendar years, or 12/31 year-ends on the balance sheet. */
-  | { kind: 'header'; label: string; dates?: boolean }
+  /** The column header: Prior and the five years — calendar years, or 12/31 year-ends on the balance sheet — and "All Years" where the section has it. */
+  | { kind: 'header'; label: string; dates?: boolean; allYears?: boolean }
   /** A heading with no figures of its own (the Contributions' two claim groups). */
   | { kind: 'heading'; label: string }
   | { kind: 'figure'; label: string; key: string; format: FigureFormat };
@@ -62,6 +69,8 @@ const B: TemplateRow = { kind: 'blank' };
 const blanks = (n: number): TemplateRow[] => Array.from({ length: n }, () => B);
 const T = (label: string): TemplateRow => ({ kind: 'title', label });
 const H = (label: string, dates = false): TemplateRow => ({ kind: 'header', label, ...(dates ? { dates } : {}) });
+/** A program-year section's header: its columns end in All Years. */
+const HA = (label: string): TemplateRow => ({ kind: 'header', label, allYears: true });
 const F = (label: string, key: string, format: FigureFormat): TemplateRow => ({ kind: 'figure', label, key, format });
 const IN = '      ';
 
@@ -81,10 +90,24 @@ const programBlock = (k: string): TemplateRow[] => [
   F('Loss & LAE Ratio', `${k}.ratio`, 'pct'),
 ];
 
+/**
+ * THE STATEMENT'S TWO HEADINGS THAT DIFFER FROM THE TEMPLATE, deliberately — the
+ * template's wording on the left. Every other title and label is the template's
+ * exactly; the gate holds the statement to the file with these two cells, and
+ * only these, read as renamed.
+ *   · "Net Income Statement For The Year": its columns are what was booked in
+ *     each calendar year (the template's own text has a trailing space).
+ *   · "… - Program Year Totals": to match "Program Year Totals - Net".
+ */
+export const RENAMED_HEADINGS: Readonly<Record<string, string>> = {
+  'Net Income Statement ': 'Net Income Statement For The Year',
+  'Reinsurance Information - Policy Year Totals': 'Reinsurance Information - Program Year Totals',
+};
+
 /** The template, row 1 first. Index i is spreadsheet row i + 1. */
 export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   B,
-  T('Net Income Statement '),
+  T(RENAMED_HEADINGS['Net Income Statement ']),
   B,
   H('Program Year:   '),
   B,
@@ -97,7 +120,7 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   B,
   F('General Admin Expense', 'admin', 'dollars'),
   F('Additional Admin Expense (risk control)', 'riskControl', 'dollars'),
-  // ⚠ "Profit and Contigency" stood here (template row 15): removed, a margin in the rate, not an expense.
+  // ⚠ "Profit and Contigency" stood here in the v1 template (its row 15): gone, a margin in the rate, not an expense.
   F('% of Premium', 'expensePct', 'pct'),
   B,
   F('Combined Ratio', 'combinedRatio', 'pct'),
@@ -152,9 +175,10 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
 
   T('Contributions To The Current Calendar Year - Net'),
   B,
-  H('Program Year:   '),
+  HA('Program Year:   '),
   F('Written Premium', 'cy.premium', 'dollars'),
-  ...blanks(2),
+  // ONE blank row here, as v2 has it (the v1 template had two).
+  B,
   { kind: 'heading', label: 'Previous Reported Claims (Loss & LAE)' },
   F(`${IN}Payments`, 'cy.prev.paid', 'dollars'),
   F(`${IN}Reserve Changes`, 'cy.prev.case', 'dollars'),
@@ -172,23 +196,40 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
 
   T('Program Year Totals - Net'),
   B,
-  H('Program Year:   '),
+  HA('Program Year:   '),
   ...programBlock('py'),
   ...blanks(4),
 
-  T('Reinsurance Information - Policy Year Totals'),
+  T(RENAMED_HEADINGS['Reinsurance Information - Policy Year Totals']),
   B,
-  H('Gross'),
+  HA('Gross'),
   ...programBlock('gross'),
   ...blanks(2),
-  H('Ceded'),
+  HA('Ceded'),
   ...programBlock('ceded'),
   ...blanks(2),
-  H('Net'),
+  HA('Net'),
   ...programBlock('net'),
-  // The template's last row, 157: blank, and the one that carries the Net block's closing line.
+  // The template's last row (155): blank, and the one that carries the Net block's closing line.
   B,
 ];
+
+export const ALL_YEARS_LABEL = 'All Years';
+/** The first row of the sections that carry All Years: Contributions, then everything below it. */
+const FIRST_ALL_YEARS_ROW = TEMPLATE_ROWS.findIndex(r => r.kind === 'title' && r.label.startsWith('Contributions To The Current Calendar Year'));
+/** Whether template row i (0-based) is in a section with the All Years column. */
+export const hasAllYears = (i: number): boolean => i > FIRST_ALL_YEARS_ROW;
+/**
+ * A row's All Years cell: on a dollar row of an All Years section, the sum of
+ * Prior and the five years — the cells with a figure, as Excel's SUM reads them;
+ * "—" (null) when none has one. Everything else — the ratio rows above all —
+ * is BLANK there (undefined).
+ */
+export function allYearsCell(row: TemplateRow, i: number, ts: TemplateStatement): Figure | undefined {
+  if (row.kind !== 'figure' || row.format !== 'dollars' || !hasAllYears(i)) return undefined;
+  const xs = ts.figures[row.key].filter((x): x is number => x !== null);
+  return xs.length === 0 ? null : xs.reduce((t, x) => t + x, 0);
+}
 
 /** The section each template row belongs to, by the title above it — for the page's tables and their test ids. */
 export const TEMPLATE_SECTION_KEYS = ['operating', 'balance', 'underwriting', 'contributions', 'programYears', 'reinsurance'] as const;
