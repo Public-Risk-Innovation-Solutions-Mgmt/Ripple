@@ -11,18 +11,7 @@
 //    utils/soloGame draws from the scenario (computed here independently with
 //    tsx, not read back from the page). After year 1 is locked, the saved
 //    prior-year development is the one a replay with every line Off books,
-//    and not the one a replay at Mid books — so the game developed nothing;
-//    by the second lock the Annual Statement's "Contributions To The Current
-//    Calendar Year - Net" reads 0 Total Net Incurred on every older year.
-// 2a. Test player at Mid on every line: by the second lock both played years
-//    book prior-year development in the save, and the statement's Total Net
-//    Incurred is above 0 on every older year — the levels chosen on its setup
-//    screen are the game's (a tester read them as 0; this holds them).
-// 2b. LEARNED DEVELOPMENT ON THE SCREENS (wip/development-pricing): in that
-//    Test player game the Rate Indication shows "Learned Development to Come"
-//    on every line, at a factor of at least 1, and the Model tab's section A
-//    lists the learned factors; in the Single player game neither appears —
-//    single player prices as before.
+//    and not the one a replay at Mid books — so the game developed nothing.
 // 2. Test player: opens the HOST'S OWN setup screen (HostCreateScreen, solo
 //    mode) with no admin sign-in, offering Low / Mid / High per line in place of
 //    the percentages. Setting WC High and GL Low (Property left at the default, Low), and
@@ -78,9 +67,7 @@ async function fresh(page) {
   }
 }
 const adminTokenIn = page => page.evaluate(() => localStorage.getItem('ripple.admin.token'));
-async function lockYear1(page) { return lockYear(page, 2); }
-// Lock the current year; `next` is the year number the game then stands in (calendar 2026 + next).
-async function lockYear(page, next) {
+async function lockYear1(page) {
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
   await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
   await page.waitForTimeout(2500);
@@ -88,42 +75,9 @@ async function lockYear(page, next) {
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
   const confirm = page.getByRole('button', { name: /Confirm & Continue/ }).first();
   if (await confirm.count() > 0) { await confirm.click(); await page.waitForTimeout(800); }
-  await page.waitForSelector(`text=Lock Program Year ${2026 + next}`, { timeout: 120000 });
-  return waitForSave(page, s => s?.currentYearNumber === next);
+  await page.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
+  return waitForSave(page, s => s?.currentYearNumber === 2);
 }
-// The Annual Statement's "Contributions To The Current Calendar Year - Net":
-// Total Net Incurred for each OLDER program year (Prior and every window year
-// before the statement's own), read off the screen, in dollars.
-async function olderYearsIncurred(page) {
-  await page.getByRole('button', { name: 'Annual Statement', exact: true }).first().click();
-  await page.waitForSelector('[data-testid="statement-contributions"]', { timeout: 30000 });
-  const rows = (await page.locator('[data-testid="statement-contributions"] tr').allInnerTexts()).map(r => r.replace(/\s+/g, ' ').trim());
-  const total = rows.find(r => r.startsWith('Total Net Incurred'));
-  const cells = (total ?? '').replace('Total Net Incurred', '').trim().split(' ').map(x => Number(x.replace(/,/g, '').replace('−', '-')) * 1000);
-  // The row ends with the statement's own program year and then All Years (the
-  // v2 template's column I, the row's total): both are dropped, leaving Prior
-  // and the older window years.
-  return cells.slice(0, -2);
-}
-// The learned development step on the screens: the Rate Indication's row per
-// line (its data-value) and whether the Model tab lists learned factors.
-async function learnedOnScreens(page) {
-  const tab = async name => { await page.getByRole('button', { name: new RegExp(`^${name}$`) }).first().click(); await page.waitForTimeout(500); };
-  await tab('Rate Indication');
-  await page.waitForSelector('[data-testid="rate-indication"]', { timeout: 20000 });
-  const ri = {};
-  for (const l of ['WC', 'GL', 'Property']) {
-    const el = page.locator(`[data-testid="ri-${l}-learned-dev"]`);
-    ri[l] = (await el.count()) > 0 ? Number(await el.first().getAttribute('data-value')) : null;
-  }
-  await tab('Model');
-  await page.waitForSelector('[data-testid="model"]', { timeout: 20000 });
-  const model = await page.locator('[data-testid="model-a-learned"]').count();
-  const factors = await page.locator('[data-testid^="model-a-learned-"]').count();
-  return { ri, model, factors };
-}
-// Prior-year development by year, every line, from the save.
-const pydByYear = save => (save?.lockedResults ?? []).map(r => ['WC', 'GL', 'Property'].reduce((a, l) => a + Math.abs(r.byLine?.[l]?.priorYearDevelopment ?? 0), 0));
 // Year 1's prior-year development by line, replayed out of the browser on the
 // solo game's own setup with the given levels: as App opens it and plays the
 // default decisions.
@@ -186,42 +140,6 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(sameDev(got, off) && !sameDev(got, mid),
       'Single player: year 1 develops the older years by nothing — its prior-year development is the Off replay\'s, not the Mid replay\'s',
       `played ${JSON.stringify(got)}; Off ${JSON.stringify(off)}; Mid ${JSON.stringify(mid)}`);
-    // And by the second lock, on the statement a player reads: every older year's Total Net Incurred is 0.
-    const second = await lockYear(page, 3);
-    const older = await olderYearsIncurred(page);
-    ok(older.length > 0 && older.every(x => x === 0) && pydByYear(second).every(x => Math.abs(x) < 1),
-      'Single player: by the second lock no older year develops — the statement\'s older years read 0 Total Net Incurred, the save no prior-year development',
-      `statement ${JSON.stringify(older)}; save ${JSON.stringify(pydByYear(second).map(Math.round))}`);
-    const shown = await learnedOnScreens(page);
-    ok(Object.values(shown.ri).every(v => v === null) && shown.model === 0,
-      'Single player: no learned development on the Rate Indication or the Model tab', JSON.stringify(shown));
-    await page.context().close();
-  }
-
-  // ---- 2a. Test player at Mid develops the older years, on the statement too ----
-  {
-    const page = await (await solo.newContext({ baseURL: BASE })).newPage();
-    page.on('pageerror', e => errors.push(e.message));
-    await fresh(page);
-    await page.getByRole('button', { name: 'Test player', exact: true }).click();
-    await page.waitForSelector('[data-testid="test-player-setup"]', { timeout: 20000 });
-    for (const l of ['WC', 'GL', 'Property']) await page.selectOption(`[data-testid="dev-level-${l}"]`, 'Mid');
-    await page.click('[data-testid="start-test-player"]');
-    await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
-    await lockYear(page, 2);
-    const second = await lockYear(page, 3);
-    const lv = second?.setup?.developmentLevels ?? {};
-    const older = await olderYearsIncurred(page);
-    ok(JSON.stringify(lv) === JSON.stringify({ WC: 'Mid', GL: 'Mid', Property: 'Mid' }) && pydByYear(second).length === 2 && pydByYear(second).every(x => x > 1000),
-      'Test player at Mid: the levels chosen are the game\'s, and both played years book prior-year development',
-      `levels ${JSON.stringify(lv)}; save ${JSON.stringify(pydByYear(second).map(Math.round))}`);
-    ok(older.length > 0 && older.every(x => Number.isFinite(x) && x > 0),
-      'Test player at Mid: by the second lock every older year shows development on the statement (Total Net Incurred above 0)',
-      JSON.stringify(older));
-    const shown = await learnedOnScreens(page);
-    ok(Object.values(shown.ri).every(v => Number.isFinite(v) && v >= 1) && shown.model === 1 && shown.factors > 0,
-      'Test player at Mid: the Rate Indication shows Learned Development to Come on every line (at least 1), and the Model tab lists the learned factors',
-      JSON.stringify(shown));
     await page.context().close();
   }
 

@@ -54,40 +54,36 @@ const BUTTONS = [
 
 /**
  * THE SCREEN'S LINES ARE THE TEMPLATE'S. Every rendered statement row carries
- * its row in the file (data-template-row); each of its cells — B to H, and I
- * (All Years) in the program-year sections — must draw exactly the sides the
- * TEMPLATE FILE draws on that cell: the Pool sheet of docs/Annual Statement
- * Example v2.xlsx, read here itself, not from the table the page draws from. And
- * every template row that carries a line must be on the screen, with a cell for
- * every bordered column.
+ * its row in the file (data-template-row); each of its seven cells, B to H, must
+ * draw exactly the sides the TEMPLATE FILE draws on that cell — read here from
+ * docs/Annual Statement Example.xlsx itself, not from the table the page draws
+ * from — with the template's row 15 removed and the rows below closed up. And
+ * every template row that carries a line must be on the screen.
  */
 async function screenBordersMatchTemplate(page) {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(path.join(REPO, 'docs', 'Annual Statement Example v2.xlsx'));
-  const tws = wb.getWorksheet('Pool');
-  const sidesAt = (r, c) => { const b = tws.getCell(r, c).border || {}; return ['left', 'right', 'top', 'bottom'].filter(k => b[k] && b[k].style).map(k => k[0].toUpperCase()).join(''); };
+  await wb.xlsx.readFile(path.join(REPO, 'docs', 'Annual Statement Example.xlsx'));
+  const tws = wb.worksheets[0];
+  const sidesAt = (tr, c) => { const b = tws.getCell(tr, c).border || {}; return ['left', 'right', 'top', 'bottom'].filter(k => b[k] && b[k].style).map(k => k[0].toUpperCase()).join(''); };
   const rows = await page.$$eval('[data-testid="annual-statement"] tr[data-template-row]', trs => trs.map(tr => ({
     r: Number(tr.dataset.templateRow),
     cells: [...tr.children].map(td => { const s = getComputedStyle(td); return [['L', s.borderLeftWidth], ['R', s.borderRightWidth], ['T', s.borderTopWidth], ['B', s.borderBottomWidth]].filter(([, w]) => w !== '0px').map(([k]) => k).join(''); }),
   })));
   const bad = [];
   for (const { r, cells } of rows) {
-    // B..H always; I wherever the template draws a line in it on this row.
-    const want = [2, 3, 4, 5, 6, 7, 8, 9].map(c => sidesAt(r, c));
-    // Seven cells, B to H — and an eighth wherever the template draws in I. A
-    // blank row of a program-year section may carry an I cell with no line,
-    // exactly as the template's empty I is there.
-    if (cells.length < 7 || cells.length > 8 || (want[7] && cells.length !== 8)) bad.push(`row ${r}: ${cells.length} cells`);
-    cells.forEach((got, c) => { if (got !== want[c]) bad.push(`${String.fromCharCode(66 + c)}${r}: "${got}" ≠ template "${want[c]}"`); });
+    const tr = r < 15 ? r : r + 1;
+    if (cells.length !== 7) bad.push(`row ${r}: ${cells.length} cells, not 7`);
+    cells.forEach((got, c) => { const want = sidesAt(tr, c + 2); if (got !== want) bad.push(`${String.fromCharCode(66 + c)}${r}: "${got}" ≠ template "${want}"`); });
   }
   const shown = new Set(rows.map(x => x.r));
   const unshown = [];
-  for (let r = 1; r <= tws.rowCount; r++) if (!shown.has(r) && [2, 3, 4, 5, 6, 7, 8, 9].some(c => sidesAt(r, c))) unshown.push(r);
-  const allYearsCells = rows.filter(x => x.cells.length === 8).length;
-  ok(rows.length > 0 && bad.length === 0, `Annual Statement: every cell on screen draws the v2 template's lines (${rows.length} rows, ${allYearsCells} with All Years)`, bad.slice(0, 3).join(' · '));
+  for (let tr = 1; tr <= tws.rowCount; tr++) {
+    if (tr === 15) continue;
+    const r = tr < 15 ? tr : tr - 1;
+    if (!shown.has(r) && [2, 3, 4, 5, 6, 7, 8].some(c => sidesAt(tr, c))) unshown.push(r);
+  }
+  ok(rows.length > 0 && bad.length === 0, `Annual Statement: every cell on screen draws the template's lines (${rows.length} rows × 7 cells)`, bad.slice(0, 3).join(' · '));
   ok(unshown.length === 0, 'Annual Statement: every template row with a line is on the screen', unshown.join(', '));
-  const heads = await page.$$eval('[data-testid="annual-statement"] tr[data-row-kind="header"]', trs => trs.map(tr => tr.lastElementChild.textContent.trim()));
-  ok(heads.filter(h => h === 'All Years').length === 5, 'Annual Statement: "All Years" heads Contributions, Program Year Totals and the Gross, Ceded and Net blocks', heads.join(' | '));
 }
 
 (async () => {

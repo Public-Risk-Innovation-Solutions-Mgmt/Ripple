@@ -1440,37 +1440,7 @@ const BASELINE = process.env.RENDER_BASELINE
 //           payroll and TIV, and stays "—".
 //   8       Retained % on every line view at y0: Prior (2021) reads "—", not
 //           100.0% — under Renewal ÷ last year's Written it has no year before it.
-// v94: THE v2 TEMPLATE — ALL YEARS. Against v93's own text, captured from the
-// code at 2107e9d (9f4fa9c, multiplayer's head, adds only the template file),
-// text-diffed row by row: 26 of 236 move, EXACTLY
-// the 26 Annual Statement screens; nothing above the statement, no other screen.
-// On each, the only change is the All Years column: 33 dollar rows (9 in the
-// Contributions, 6 in each of Program Year Totals and the Gross, Ceded and Net
-// blocks) gain exactly one cell, and the section's 5 header rows gain "All
-// Years" — 858 and 130 rows across the 26. The other 1,352 rows read the same;
-// the ratio rows are blank in All Years and do not move. v2's one blank row
-// fewer after the Contributions' Written Premium carries no text, so it moves
-// no fingerprint; downloads.cjs sees it, through the rows' lines.
-// v95: TWO HEADINGS RENAMED — "Net Income Statement For The Year" and
-// "Reinsurance Information - Program Year Totals" (RENAMED_HEADINGS). Against
-// v94's own text: 26 of 236 move, EXACTLY the 26 Annual Statement screens, and
-// each is v94's text character for character once those two headings are read
-// back to their old wording. Nothing else on any screen.
-// v96: DEVELOPMENT PRICING (wip/development-pricing) MOVES NO SCREEN: this
-// harness plays single player, every line Off, which develops and learns
-// nothing. ⚠ BUT v95 DOES NOT REPRODUCE IN THIS CONTAINER — the split v92
-// recorded, the other way round: multiplayer e3bc035, built in its own
-// worktree, moves the SAME 50 of 236 against v95 (Calculation Audit 22,
-// Results 14, Financial Statements 8, Result Spreadsheet 6, no Annual
-// Statement screen), and all 50 hashes are EXACTLY v91's; e6997b4 and the
-// commits that wrote v93 and v92 do the same here. Source, lockfile and
-// node_modules match; VALUE_IDENTITY_v87 and SOLO_EXPORT_GUARD_v99 held at the
-// control. So two containers render those 50 two ways, and this one renders
-// them as v91's did. v96 is the control's capture here (reproduced by it in
-// compare mode); every commit of the branch, captured in its own worktree
-// against e6997b4, and the merge with e3bc035 against e3bc035, moved none of
-// the 236.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v96.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v93.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
