@@ -1456,10 +1456,25 @@ const BASELINE = process.env.RENDER_BASELINE
 // v94's own text: 26 of 236 move, EXACTLY the 26 Annual Statement screens, and
 // each is v94's text character for character once those two headings are read
 // back to their old wording. Nothing else on any screen.
-// v96: SEVEN COLUMNS, THE NET INCOME STATEMENT'S ROWS, THE CONTRIBUTIONS
-// VARIANCE. Against v95's own text (RENDER_TEXT_DIR), parsed row by row: 26 of
-// 236 move, EXACTLY the 26 Annual Statement screens, nothing above the statement
-// on any, and every moved row is one of these — none unexplained:
+// v96: DEVELOPMENT PRICING (wip/development-pricing) MOVES NO SCREEN: this
+// harness plays single player, every line Off, which develops and learns
+// nothing. ⚠ BUT v95 DOES NOT REPRODUCE IN THIS CONTAINER — the split v92
+// recorded, the other way round: multiplayer e3bc035, built in its own
+// worktree, moves the SAME 50 of 236 against v95 (Calculation Audit 22,
+// Results 14, Financial Statements 8, Result Spreadsheet 6, no Annual
+// Statement screen), and all 50 hashes are EXACTLY v91's; e6997b4 and the
+// commits that wrote v93 and v92 do the same here. Source, lockfile and
+// node_modules match; VALUE_IDENTITY_v87 and SOLO_EXPORT_GUARD_v99 held at the
+// control. So two containers render those 50 two ways, and this one renders
+// them as v91's did. v96 is the control's capture here (reproduced by it in
+// compare mode); every commit of the branch, captured in its own worktree
+// against e6997b4, and the merge with e3bc035 against e3bc035, moved none of
+// the 236.
+// v97: SEVEN COLUMNS, THE NET INCOME STATEMENT'S ROWS, THE CONTRIBUTIONS
+// VARIANCE. Against v95's own text in THIS container (RENDER_TEXT_DIR) — which
+// reproduces v95 here, unlike v96's (see v96) — parsed row by row: 26 of 236
+// move, EXACTLY the 26 Annual Statement screens, nothing above the statement on
+// any, and every moved row is one of these — none unexplained:
 //   · Prior off the Net Income Statement, Balance Sheet and Underwriting: 832
 //     rows and 52 headers lose their Prior cell; 52 (Underwriting's two changes)
 //     lose Prior and the first year's change.
@@ -1470,8 +1485,14 @@ const BASELINE = process.env.RENDER_BASELINE
 //   · the Contributions variance: Payments and Reserve Changes (52 each,
 //     Previously Reported and Newly Arising), Previously Reported Net Reported and
 //     Change in IBNR (26 each). Written Premium and Total Net Incurred do not move.
-// Bold block names, alignment and the blank C and I cells carry no text.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v96.json');
+// Bold block names, alignment and the blank C and I cells carry no text. On the
+// code merged with development pricing, captured here, all 236 read character
+// for character as before the merge: it moves no screen in this container either.
+// Against v96 itself, 76 move here: these 26, and EXACTLY the 50 v96 records as
+// rendering two ways in two containers (Calculation Audit 22, Results 14,
+// Financial Statements 8, Result Spreadsheet 6) — so v97 is this container's,
+// as v95 was.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v97.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

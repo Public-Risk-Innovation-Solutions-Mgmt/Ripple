@@ -434,6 +434,85 @@ export type DevelopmentSetting = DevelopmentLevel | 'Off';
  */
 export const SOLO_ADVERSE_DEVELOPMENT = { enabled: false };
 
+/**
+ * THE PRE-GAME DEVELOPS AT THE GAME'S LEVEL. The six pre-game years' open
+ * accident years develop each year exactly as played years' do (ADVERSE_DEVELOPMENT:
+ * the line's level, one λ per accident year and valuation year from the game
+ * seed), so the history the game opens on already shows the development the
+ * game will have. A line with no level (single player, every line Off) develops
+ * nothing, in the pre-game or after, so single player is unchanged.
+ *
+ * WHY: pricing learns development from the pool's own history
+ * (LEARNED_DEVELOPMENT). With a pre-game that never developed, the first played
+ * years' development sat among six flat years of 1.0 and learning trailed it:
+ * at Mid, WC's first-age factor read 1.033 by 2031 against a real 1.080.
+ *
+ * THE OPENING IT GIVES (hosted, twenty scenarios, shocks off). The prior board's
+ * margin is solved to land the scenario's opening on a developing book, so it
+ * runs higher, and none sits on the zero floor on WC or Property:
+ *
+ *            margin (on the floor)                          2027 rate change, drops (over 2%)
+ *            WC              GL              Property       WC             GL            Property
+ *   Low      1.5-6.6% (0)    0.0-2.2% (6)    2.5-4.0% (0)   2 (none)       0             2 (none)
+ *   Mid      6.4-11.8% (0)   2.5-9.2% (0)    4.4-6.7% (0)   8 (3, to -4.3%) 0            10 (1, -2.5%)
+ *   High     13.7-17.6% (0)  8.0-14.5% (0)   6.9-8.8% (0)   20 (14, to -6.6%) 6 (1, -3.0%) 16 (9, to -3.8%)
+ *
+ * (Before: WC 0-4.4% with 4 on the floor, GL on the floor in all 20, Property
+ * 1.4-3.0%, and no 2027 drop at any level.) The drops are that margin coming
+ * off when 2027 funds at Expected. Openings stay inside the guardrails, one
+ * WC scenario on the 3.5 bound as before.
+ */
+export const PRE_GAME_ADVERSE_DEVELOPMENT = { enabled: true };
+
+/**
+ * PRICING LEARNS THE POOL'S OWN DEVELOPMENT, on every line that develops (a
+ * level set: hosted and Test player games; never single player).
+ *
+ *   THE ESTIMATE    each accident year's ultimate at each valuation: its
+ *                   ground-up paid x the recorded paid factor at its age — the
+ *                   estimate pricing already makes, which equals the booked
+ *                   ultimate (the engine pays every year the pattern's share of
+ *                   the booked ultimate, adverse development included).
+ *   THE FACTORS     for each age, the plain mean across accident years of that
+ *                   estimate's growth from one year-end to the next, over every
+ *                   pair of valuations pricing may see: both at or before the
+ *                   latest data year (the one-year lag, PRICING_DATA_LAG_YEARS),
+ *                   the pre-game's included.
+ *   THE PROJECTION  each window year's estimate x the product of those factors
+ *                   from its age at the valuation read to the pattern's last
+ *                   age. An age with no observation yet reads 1.0. No level-based
+ *                   starting factors: the rate learns only what the ledger shows.
+ *
+ * A line with no level never learns, so its pure premium is today's to the bit.
+ *
+ * MEASURED, with the pre-game developing (PRE_GAME_ADVERSE_DEVELOPMENT): hosted
+ * teams, twenty scenarios, shocks off, default decisions, every line at one
+ * level; before (multiplayer e6997b4) -> after. Five-year combined ratio;
+ * surplus at year 5, mean (lowest), $M; scenarios below zero by year 5.
+ *
+ *            WC                            GL                            Property
+ *   Low   105.8% -> 99.5%                104.1% -> 99.2%                101.8% -> 100.0%
+ *         22.1 (9.0) -> 34.6 (19.7), 0   25.5 (12.1) -> 33.1 (17.9), 0  24.1 (18.5) -> 27.4 (21.6), 0
+ *   Mid   121.1% -> 99.8%                113.8% -> 97.6%                105.2% -> 99.8%
+ *         -3.2 (-12.3) -> 38.1 (22.4)    7.6 (-4.1) -> 39.9 (23.8)      15.7 (8.8) -> 29.0 (22.0)
+ *         16 -> 0 below zero             2 -> 0                         0 -> 0
+ *   High  137.9% -> 99.9%                124.4% -> 95.9%                108.9% -> 99.3%
+ *         -32.3 (-40.4) -> 42.8 (27.4)   -12.1 (-23.7) -> 49.1 (32.3)   4.8 (-0.6) -> 31.2 (25.1)
+ *         20 -> 0                        20 -> 0                        2 -> 0
+ *
+ * The rate moves no more than it did: the largest yearly change 13.9% on WC at
+ * Mid, as before. The opening rate carries the development the history shows
+ * (Mid: WC 3.21 -> 4.05, GL 4.34 -> 5.32, Property 0.275 -> 0.301 per $100).
+ * The 2027 rate can dip as the prior board's larger margin comes off (see
+ * PRE_GAME_ADVERSE_DEVELOPMENT). Measured against two alternatives and not
+ * chosen: starting the factors from the level's expected development (WC ran
+ * 88% at Mid and 79% at High: it prices WC's whole 26-year tail, most of which
+ * lands after a game ends, and jumps the 2027 rate 37%), and that start with
+ * the pre-game developing too (every line rich, WC opening on $52M of surplus
+ * against $14M).
+ */
+export const LEARNED_DEVELOPMENT = { enabled: true };
+
 // ============================================================================
 // THE NEW PRICING PARAMETERS — read by the new rate stack, except where an
 // entry says it is not. Every one is CHOSEN and is a STARTING VALUE TO BE TUNED.
@@ -2580,13 +2659,37 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         unit: 'λ a year, uniform in the level\'s range',
         what: 'Each played year every open PRIOR accident year draws its own λ in its line\'s level\'s range and its '
           + 'outstanding reserve grows by λ, booked as prior-year development. Paid to date is never restated; the ultimate '
-          + 'rises by the amount and later payments follow the payout pattern. None on the current year in its own year, '
-          + 'none in the pre-game. Pricing does not anticipate it; it reaches the rate through the experience. Shock R runs on top.',
+          + 'rises by the amount and later payments follow the payout pattern. None on the current year in its own year. '
+          + 'The pre-game develops too (Pre-game adverse development, below), and pricing learns it from the pool\'s own history '
+          + '(Learned development). Shock R runs on top.',
         basis: 'CHOSEN',
         note: `Draws from the game seed ('adverse_dev' stream), shared by every world. Hosts choose a level per line; Test `
           + `player takes the host's setup; single player has none (Single player adverse development, below). `
           + `A hosted or Test player game with no level chosen, and a harness with none, reads `
           + `${ADVERSE_DEVELOPMENT_DEFAULT_LEVEL} on every line — Low since Mid failed WC in most scenarios within five years.`,
+      }],
+      ['Pre-game adverse development', {
+        value: PRE_GAME_ADVERSE_DEVELOPMENT.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'On: the six pre-game years develop each year at the game\'s level exactly as played years do, so the history the '
+          + 'game opens on already shows its development. A line with no level (single player) develops nothing either way.',
+        basis: 'CHOSEN',
+        note: 'So pricing can learn development from the start (Learned development): with a flat pre-game, learning trailed the '
+          + 'real factors for years (WC Mid\'s first-age factor 1.033 by 2031 against 1.080). The prior board\'s margin solves '
+          + 'higher on a developing book (Mid: WC 6.4-11.8%, GL 2.5-9.2%, Property 4.4-6.7%), and comes off when 2027 funds at '
+          + 'Expected: 2027 drops over 2% in 3 WC and 1 Property scenario at Mid, 14 WC, 1 GL and 9 Property at High (to -6.6%); none at Low.',
+      }],
+      ['Learned development', {
+        value: LEARNED_DEVELOPMENT.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'On, for every line that develops: pricing projects each window year\'s ultimate to the pattern\'s end with the pool\'s '
+          + 'own age-to-age factors — the mean growth of each accident year\'s estimated ultimate (paid x the recorded paid factor) '
+          + 'from one year-end to the next, by age, over every year-end the one-year data lag lets it see, the pre-game\'s included. '
+          + 'An age not yet observed reads 1.0. No level-based starting factors.',
+        basis: 'CHOSEN',
+        note: 'Hosted, twenty scenarios, shocks off, before -> after, five-year combined ratio: Low WC 105.8 -> 99.5%, GL 104.1 -> 99.2%, '
+          + 'Property 101.8 -> 100.0%; Mid 121.1 -> 99.8%, 113.8 -> 97.6%, 105.2 -> 99.8%; High 137.9 -> 99.9%, 124.4 -> 95.9%, '
+          + '108.9 -> 99.3%. Scenarios below zero by year 5 at Mid: WC 16 -> 0, GL 2 -> 0; at High 20 -> 0 on both. The largest yearly '
+          + 'rate change is no larger than before. Single player never learns and is unchanged to the bit. The Rate Indication and the '
+          + 'Model tab show the learned step.',
       }],
       ['Single player adverse development', {
         value: SOLO_ADVERSE_DEVELOPMENT.enabled ? 'on' : 'off', unit: 'switch',

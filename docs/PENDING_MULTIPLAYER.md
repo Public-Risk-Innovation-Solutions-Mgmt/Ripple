@@ -232,13 +232,13 @@ template's lines ever change; the gate fails until you do.
 tied to the engine on six games, the Excel file against the template through the
 list of deliberate differences (which it prints), the admin "% of Premium" ties,
 the Contributions variance's invariants, and the operating ratio by hand on
-scenario 1 WC 2027 (94.40%), each with a failing control. Also
-VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v100 (24 Results hashes
+scenario 1 WC 2027 (94.40%), each with a failing control. Also the
+value baseline unchanged by it (VALUE_IDENTITY_v87, and v88 after development pricing), SOLO_EXPORT_GUARD_v100 (24 Results hashes
 unchanged since v94; the 24 statement hashes carry the borders from v96, the
 filled blanks from v97, All Years from v98, the two renamed headings from v99,
 and the seven columns, row changes and variance from v100, each attributed in
-`solo-export-guard.ts`), RENDER_IDENTITY_v96 (exactly the 26 Annual Statement
-screens moved at each of v92 to v96, each attributed in
+`solo-export-guard.ts`), RENDER_IDENTITY_v97 (exactly the 26 Annual Statement
+screens moved at each of v92 to v95 and at v97 — v96 is development pricing's, each attributed in
 `render-identity-check.ts`; borders move none, since it fingerprints text), and
 all 24 session drivers with the admin-token hook. Screenshots are in
 `docs/screenshots/annual-statement/`.

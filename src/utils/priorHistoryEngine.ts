@@ -71,6 +71,7 @@ import { preGameAllocation } from './investmentEngine';
 import { confidenceAtClf, hasStaticClf } from '../data/clfTables';
 import { withLifetimeDevelopment } from './hostDevelopment';
 import { defaultDecisionSet } from './decisionDefaults';
+import { learnsDevelopment } from './adverseDevelopment';
 
 export const PRE_GAME_YEARS = 3; // yearNumbers -2, -1, 0
 
@@ -397,11 +398,12 @@ function runLinePreGame(
   const developmentPct = ADVERSE_DEVELOPMENT.enabled ? 0 : setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line];
   const ratio = SCENARIO_PREMIUM_TO_SURPLUS[line][scenarioOf(instance)];
   const shocks = gameShocksOn(setup, instance);
+  const learn = learnsDevelopment(setup, line);
   // One pre-game of a given kind at a given margin, and how far its last
   // year-end misses an opening at premium to surplus `target`.
   const run = (kind: PreGameRun, target = ratio) => (margin: number) => {
     const c = simulateLineCandidate(instance, setup, line, 0, STARTING_CAPITAL[line], margin, kind);
-    const opened = finalizeLine(c, line, 0, developmentPct, instance, target, margin, shocks);
+    const opened = finalizeLine(c, line, 0, developmentPct, instance, target, margin, shocks, undefined, learn);
     return { start: margin, gap: c.poolState.lines[line].surplus - opened.lineState.surplus, opened };
   };
   // ⚠ THE MARGIN IS SET ON THE DESIGNED HISTORY, NOT SOLVED TO THE OPENING
@@ -418,7 +420,7 @@ function runLinePreGame(
   // need the board to charge under expected is charged at expected.
   const playAt = (margin: number) => {
     const c = simulateLineCandidate(instance, setup, line, 0, STARTING_CAPITAL[line], margin, 'simulated');
-    return finalizeLine(c, line, 0, developmentPct, instance, ratio, margin, shocks, () => c.poolState.lines[line].surplus);
+    return finalizeLine(c, line, 0, developmentPct, instance, ratio, margin, shocks, () => c.poolState.lines[line].surplus, learn);
   };
   const designed = Math.max(PRE_GAME_MARGIN_FLOOR, solvePreGameMargin(run('designed'), line).start);
   const played = playAt(designed);
@@ -427,7 +429,7 @@ function runLinePreGame(
   // nearest bound; inside them, the designed margin stands. The secant reads
   // the opening's own year-1 premium at every trial margin.
   const premium = openingYear1Premium(instance, line, played.lineState,
-    played.lineResults[played.lineResults.length - 1], shocks);
+    played.lineResults[played.lineResults.length - 1], shocks, learn);
   const ps = premium / played.lineState.surplus;
   const { min, max } = OPENING_PREMIUM_TO_SURPLUS_BOUNDS;
   // A surplus at or below zero is thinner than any bound; raising the margin
@@ -456,9 +458,11 @@ export function openingYear1Premium(
   _instance: GameInstance, line: CoverageLine, lineState: LinePoolState, lastPreGame?: LineResultSet,
   /** The game's shock switch (shockLosses.gameShocksOn) — year 1's cover is priced on it. Absent is on. */
   shocks = true,
+  /** Does pricing learn the line's development (adverseDevelopment.learnsDevelopment)? Absent, no. */
+  learnDevelopment = false,
 ): number {
   const struck = strikeBookRate(line, lineState, defaultDecisionSet(1, shocks).byLine[line], 1,
-    { allMarketMembers: [], membershipHistory: {} },
+    { allMarketMembers: [], membershipHistory: {}, ...(learnDevelopment ? { learnDevelopment: true } : {}) },
     MEMBER_LEVEL.enabled ? undefined : 1,
     shocks);
   return struck ? struck.quote.finalRatePer100 * struck.exposure * 10_000 : lastPreGame?.totalMemberCharge ?? 0;
@@ -574,6 +578,8 @@ function finalizeLine(
   // premium at Expected / its ratio. The designed-margin rule passes the
   // played pre-game's own last year-end (PRE_GAME_MARGIN_ON_DESIGN).
   surplusOf?: (opened: LinePoolState) => number,
+  // Does pricing learn the line's development (adverseDevelopment.learnsDevelopment)?
+  learn = false,
 ): LinePreGame {
   // Stamp the accepted attempt onto each pre-game year's result so the
   // effective seed (instance.seed + attempt x 997) that produced it is
@@ -588,7 +594,7 @@ function finalizeLine(
     lineResults,
     earlyLineResults,
     lineState: applySetOpening(line, c.poolState.lines[line], c.poolState.cash, developmentPct,
-      surplusOf ?? (opened => openingYear1Premium(instance, line, opened, lineResults[lineResults.length - 1], shocks) / ratio)),
+      surplusOf ?? (opened => openingYear1Premium(instance, line, opened, lineResults[lineResults.length - 1], shocks, learn) / ratio)),
     solvedMargin: margin,
     cash: c.poolState.cash,
     unearnedPremium: c.poolState.unearnedPremium,

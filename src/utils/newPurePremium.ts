@@ -65,7 +65,7 @@ import {
   ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
   FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, EXPOSURE_GROWTH_PER_YEAR,
   CATASTROPHE_LOAD, CATASTROPHE_LOAD_STEADY_YEAR, SHOCKS_OUT_OF_EXPERIENCE,
-  RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS,
+  RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS, LEARNED_DEVELOPMENT,
 } from '../data/pricingParameters';
 import { LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { unpaidShare } from './payoutPattern';
@@ -125,8 +125,14 @@ export interface NewPurePremiumPoint {
   developed: number;
   /** The reserve inflation still to come for the year within the priced years (reserveInflationToCome); 1 past them. */
   reserveInflation: number;
+  /**
+   * The development still to come, learned from the pool's own ledger
+   * (LEARNED_DEVELOPMENT): the learned factors from the year's age to the
+   * pattern's last. Absent where the line does not learn.
+   */
+  learnedDevelopment?: number;
   exposure: number;
-  /** developed x reserveInflation / exposure, per $100. */
+  /** developed x reserveInflation (x learnedDevelopment) / exposure, per $100. */
   lossCostPer100: number;
   trendFactor: number;
   trendedLossCostPer100: number;
@@ -154,6 +160,22 @@ export interface NewPurePremiumResult {
    * the experience path, where each window year carries its own.
    */
   reserveInflation: number | null;
+  /**
+   * The learned development (LEARNED_DEVELOPMENT), where the line learns: the
+   * age-to-age factors and their observations, and the window's factor — its
+   * trended loss cost with the development over the same without it. Absent
+   * where the line does not learn, and on the no-history path.
+   */
+  learned?: { factors: LearnedFactor[]; windowFactor: number };
+}
+
+/** One age's learned factor: the mean growth of the ultimate from this age's year-end to the next. */
+export interface LearnedFactor {
+  /** Ledger age (0 = the accident year's own year-end). */
+  age: number;
+  factor: number;
+  /** Accident years with both valuations in the data pricing may see. */
+  observations: number;
 }
 
 /**
@@ -182,6 +204,50 @@ export interface NewPurePremiumBasis {
   rows: ReserveDevelopmentRow[];
   allMarketMembers: Member[];
   membershipHistory: MembershipHistory;
+  /**
+   * Does this line learn its development (LEARNED_DEVELOPMENT)? True where the
+   * game develops the line (adverseDevelopment.learnsDevelopment); absent, false.
+   */
+  learnDevelopment?: boolean;
+}
+
+/** The last ledger age the line's recorded paid pattern reaches. */
+const lastLedgerAge = (line: CoverageLine): number => {
+  const rows = PAID_DEVELOPMENT_PATTERN[line];
+  return Math.round(rows[rows.length - 1].ageMonths / 12) - 1;
+};
+
+/**
+ * THE POOL'S OWN AGE-TO-AGE FACTORS (LEARNED_DEVELOPMENT), as pricing for
+ * `pricingYear` may see them: each accident year's estimated ultimate (ground-up
+ * paid x the recorded paid factor at its age) at each valuation, its growth to
+ * the next, both valuations at or before the latest data year; averaged by age.
+ */
+export function learnedDevelopmentFactors(line: CoverageLine, rows: ReserveDevelopmentRow[], pricingYear: number): LearnedFactor[] {
+  const latestDataYear = pricingYear - 1 - PRICING_DATA_LAG_YEARS;
+  const byAge = new Map<number, number[]>();
+  for (const r of rows) {
+    const paid = r.grossPaidByValuation ?? [];
+    const a0 = r.ageAtFirstValuation ?? 0;
+    for (let k = 0; k + 1 < paid.length && r.firstValuationYear + k + 1 <= latestDataYear; k++) {
+      const from = paid[k] * recordedPaidLdf(line, (a0 + k + 1) * 12);
+      const to = paid[k + 1] * recordedPaidLdf(line, (a0 + k + 2) * 12);
+      if (!(from > 0)) continue;
+      const list = byAge.get(a0 + k) ?? [];
+      list.push(to / from);
+      byAge.set(a0 + k, list);
+    }
+  }
+  return [...byAge.entries()].sort((a, b) => a[0] - b[0])
+    .map(([age, xs]) => ({ age, factor: xs.reduce((s, x) => s + x, 0) / xs.length, observations: xs.length }));
+}
+
+/** The learned development still to come from ledger age `age`: the factors to the pattern's last age, 1.0 where none. */
+export function learnedDevelopmentToCome(line: CoverageLine, factors: LearnedFactor[], age: number): number {
+  const at = new Map(factors.map(f => [f.age, f.factor]));
+  let f = 1;
+  for (let a = age; a < lastLedgerAge(line); a++) f *= at.get(a) ?? 1;
+  return f;
 }
 
 /**
@@ -290,6 +356,9 @@ export function newPurePremiumPer100(
 
   const trendPerYear = lossCostTrendPerYear(line);
   const points: NewPurePremiumPoint[] = [];
+  // THE LEARNED DEVELOPMENT (LEARNED_DEVELOPMENT), where the line learns.
+  const learning = LEARNED_DEVELOPMENT.enabled && basis.learnDevelopment === true;
+  const factors = learning ? learnedDevelopmentFactors(line, basis.rows, pricingYear) : [];
   let skipped = 0;
 
   for (const r of windowed) {
@@ -324,7 +393,10 @@ export function newPurePremiumPer100(
     // The inflation the year has still to pick up in the priced years — from
     // its age at the valuation read (ledgerAge + 1, the pattern's clock).
     const reserveInflation = reserveInflationToCome(line, ledgerAge + 1);
-    const lossCostPer100 = developed * reserveInflation / (exposure * 10_000);
+    const learnedDevelopment = learning ? learnedDevelopmentToCome(line, factors, ledgerAge) : undefined;
+    const lossCostPer100 = learnedDevelopment === undefined
+      ? developed * reserveInflation / (exposure * 10_000)
+      : developed * reserveInflation * learnedDevelopment / (exposure * 10_000);
 
     // Trend from the accident year to the year being priced: to the latest
     // data year and then forward 1 + PRICING_DATA_LAG_YEARS years, which is
@@ -333,7 +405,8 @@ export function newPurePremiumPer100(
     const trendFactor = Math.pow(trendPerYear, years);
 
     points.push({
-      accidentYear: r.yearNumber, ageMonths, groundUpPaid, shockPaid, ldf, developed, reserveInflation, exposure,
+      accidentYear: r.yearNumber, ageMonths, groundUpPaid, shockPaid, ldf, developed, reserveInflation,
+      ...(learnedDevelopment !== undefined ? { learnedDevelopment } : {}), exposure,
       lossCostPer100, trendFactor, trendedLossCostPer100: lossCostPer100 * trendFactor,
     });
   }
@@ -368,6 +441,13 @@ export function newPurePremiumPer100(
     points,
     skipped,
     reserveInflation: null,
+    ...(learning ? {
+      learned: {
+        factors,
+        windowFactor: points.reduce((s, p) => s + p.trendedLossCostPer100, 0)
+          / points.reduce((s, p) => s + p.trendedLossCostPer100 / (p.learnedDevelopment ?? 1), 0),
+      },
+    } : {}),
   };
 }
 
