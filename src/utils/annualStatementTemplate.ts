@@ -4,7 +4,8 @@
 //
 // TEMPLATE_ROWS is the template transcribed row by row from row 1: every
 // section title and row label exactly as written there (leading and trailing
-// spaces included) in column B, every blank row where it is, and the figures in
+// spaces included) in column B — but for the two headings RENAMED_HEADINGS
+// names, which differ on purpose — every blank row where it is, and the figures in
 // C (Prior) to H (the five years shown). In the four kinds of program-year
 // section — Contributions To The Current Calendar Year, Program Year Totals and
 // the Gross, Ceded and Net blocks — column I is ALL YEARS: the sum of Prior and
@@ -89,10 +90,24 @@ const programBlock = (k: string): TemplateRow[] => [
   F('Loss & LAE Ratio', `${k}.ratio`, 'pct'),
 ];
 
+/**
+ * THE STATEMENT'S TWO HEADINGS THAT DIFFER FROM THE TEMPLATE, deliberately — the
+ * template's wording on the left. Every other title and label is the template's
+ * exactly; the gate holds the statement to the file with these two cells, and
+ * only these, read as renamed.
+ *   · "Net Income Statement For The Year": its columns are what was booked in
+ *     each calendar year (the template's own text has a trailing space).
+ *   · "… - Program Year Totals": to match "Program Year Totals - Net".
+ */
+export const RENAMED_HEADINGS: Readonly<Record<string, string>> = {
+  'Net Income Statement ': 'Net Income Statement For The Year',
+  'Reinsurance Information - Policy Year Totals': 'Reinsurance Information - Program Year Totals',
+};
+
 /** The template, row 1 first. Index i is spreadsheet row i + 1. */
 export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   B,
-  T('Net Income Statement '),
+  T(RENAMED_HEADINGS['Net Income Statement ']),
   B,
   H('Program Year:   '),
   B,
@@ -185,7 +200,7 @@ export const TEMPLATE_ROWS: readonly TemplateRow[] = [
   ...programBlock('py'),
   ...blanks(4),
 
-  T('Reinsurance Information - Policy Year Totals'),
+  T(RENAMED_HEADINGS['Reinsurance Information - Policy Year Totals']),
   B,
   HA('Gross'),
   ...programBlock('gross'),

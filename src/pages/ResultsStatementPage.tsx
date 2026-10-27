@@ -23,12 +23,12 @@ interface Props {
 
 /** The test id of the table each title opens; the reinsurance blocks take their own by their header. */
 const SECTION_ID: Record<string, string> = {
-  'Net Income Statement': 'statement-operating',
+  'Net Income Statement For The Year': 'statement-operating',
   'Balance Sheet at Year-End': 'statement-balance',
   'Underwriting': 'statement-underwriting',
   'Contributions To The Current Calendar Year - Net': 'statement-contributions',
   'Program Year Totals - Net': 'statement-program',
-  'Reinsurance Information - Policy Year Totals': 'statement-reinsurance',
+  'Reinsurance Information - Program Year Totals': 'statement-reinsurance',
 };
 const BLOCK_ID: Record<string, string> = { Gross: 'statement-gross', Ceded: 'statement-ceded', Net: 'statement-net' };
 

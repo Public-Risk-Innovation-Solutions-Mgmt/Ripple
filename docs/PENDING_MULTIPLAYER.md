@@ -123,6 +123,14 @@ one per line, with numbers in the cells.
 - **Spacing.** One blank row, not two, between the Contributions' Written
   Premium and "Previous Reported Claims", so the statement is 155 rows.
 
+**Two headings differ from the template, on purpose** (`RENAMED_HEADINGS`). The
+template file keeps its own wording; the gate expects these two cells renamed,
+and only these.
+- "Net Income Statement" becomes **"Net Income Statement For The Year"**, so it
+  is clear its columns are what was booked in each calendar year.
+- "Reinsurance Information - Policy Year Totals" becomes **"Reinsurance
+  Information - Program Year Totals"**, to match "Program Year Totals - Net".
+
 **Decided in the build, recorded here so nobody re-decides them:**
 
 - **Operating Ratio's denominator is the member charge**, the combined ratio's
@@ -178,10 +186,11 @@ template's lines ever change; the gate fails until you do.
 tied to the engine on four games, the Excel file against the template, and the
 operating ratio by hand on scenario 1 WC 2027 (94.40%), each with a failing
 control, now including the borders. Also VALUE_IDENTITY_v87 unchanged,
-SOLO_EXPORT_GUARD_v98 (24 Results hashes unchanged since v94; the 24 statement
-hashes carry the borders from v96, the filled blanks from v97 and All Years from
-v98, each attributed in `solo-export-guard.ts`), RENDER_IDENTITY_v94 (exactly the
-26 Annual Statement screens moved at v92, v93 and v94, each attributed in
+SOLO_EXPORT_GUARD_v99 (24 Results hashes unchanged since v94; the 24 statement
+hashes carry the borders from v96, the filled blanks from v97, All Years from
+v98 and the two renamed headings from v99, each attributed in
+`solo-export-guard.ts`), RENDER_IDENTITY_v95 (exactly the 26 Annual Statement
+screens moved at each of v92 to v95, each attributed in
 `render-identity-check.ts`; the borders move none, since it fingerprints text),
 and every session driver with the admin-token hook. Screenshots are in
 `docs/screenshots/annual-statement/`.

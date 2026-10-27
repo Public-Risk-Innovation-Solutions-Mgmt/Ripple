@@ -46,7 +46,9 @@
 //   B. THE EXCEL FILE IS THE TEMPLATE CELL FOR CELL — the v2 template's Pool
 //      sheet, against the file a player downloads, built and read back: on every
 //      sheet, every label in column B and every blank row is the template's, row
-//      for row; column I (All Years) holds the template's header and its SUM(C:H)
+//      for row — but for the two headings the statement renames on purpose
+//      (RENAMED_HEADINGS: "Net Income Statement For The Year", "Reinsurance
+//      Information - Program Year Totals"), and only those; column I (All Years) holds the template's header and its SUM(C:H)
 //      formula wherever the template does, cached at its row's sum, and nothing
 //      where it holds nothing (the ratio rows); the figure cells are numbers in
 //      their formats; the header rows carry Prior and the five years; and EVERY
@@ -77,7 +79,7 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
-import { allYearsCell, buildTemplateStatement, TEMPLATE_ROWS, type Figure, type TemplateStatement } from '../../src/utils/annualStatementTemplate';
+import { allYearsCell, buildTemplateStatement, RENAMED_HEADINGS, TEMPLATE_ROWS, type Figure, type TemplateStatement } from '../../src/utils/annualStatementTemplate';
 import { programYearsOf, statementYears } from '../../src/utils/resultsStatement';
 import ExcelJS from 'exceljs';
 import { ALL_YEARS_COLUMN, allYearsFormula, buildAnnualStatementXlsx, STATEMENT_COLUMNS, STATEMENT_NUMBER_FORMAT } from '../../src/utils/annualStatementExport';
@@ -419,6 +421,14 @@ const allYearsAt = (ws: XLSX.WorkSheet, r: number): string => {
   if (c.f) return `=${c.f.replace(/^=/, '')}`;
   return c.v === undefined || c.v === '' ? '' : String(c.v);
 };
+// THE TWO HEADINGS THE STATEMENT RENAMES ON PURPOSE (RENAMED_HEADINGS): every
+// other label is the template's exactly. Both must be found in the template,
+// each once, and each a section title.
+const expectedLabel = (r: number) => { const t = labelAt(tws, r); return t !== null && t in RENAMED_HEADINGS ? RENAMED_HEADINGS[t] : t; };
+const renamedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r).filter(r => labelAt(tws, r) !== expectedLabel(r));
+check(renamedRows.length === 2 && renamedRows.every(r => TEMPLATE_ROWS[r]?.kind === 'title' && 'label' in TEMPLATE_ROWS[r] && (TEMPLATE_ROWS[r] as { label: string }).label === expectedLabel(r)),
+  'B. the statement renames exactly two template cells, both section titles: "Net Income Statement For The Year" and "Reinsurance Information - Program Year Totals"',
+  renamedRows.map(r => `B${r + 1} "${labelAt(tws, r)}" → "${expectedLabel(r)}"`).join(' · '));
 check(!Array.from({ length: tRange.e.r + 1 }, (_, r) => labelAt(tws, r)).includes('Profit and Contigency'),
   'B. v2 carries no "Profit and Contigency" — the v1 row the statement removed is gone from the template itself');
 const expectedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r);
@@ -432,7 +442,7 @@ function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement): string[] {
   const range = XLSX.utils.decode_range(ws['!ref']!);
   if (range.e.r + 1 !== expectedRows.length) out.push(`${range.e.r + 1} rows, template ${expectedRows.length}`);
   expectedRows.forEach(r => {
-    if (labelAt(ws, r) !== labelAt(tws, r)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ template "${labelAt(tws, r)}"`);
+    if (labelAt(ws, r) !== expectedLabel(r)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${expectedLabel(r)}" (template "${labelAt(tws, r)}")`);
     if (blankAt(ws, r) !== blankAt(tws, r)) out.push(`row ${r + 1}: ${blankAt(ws, r) ? 'blank' : 'not blank'}, template ${blankAt(tws, r) ? 'blank' : 'not blank'}`);
     // ALL YEARS: the same header, the same formula, or nothing — cell for cell.
     if (allYearsAt(ws, r) !== allYearsAt(tws, r)) out.push(`I${r + 1}: "${allYearsAt(ws, r)}" ≠ template "${allYearsAt(tws, r)}"`);
@@ -524,6 +534,15 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   check(layoutDiffs(v1Spacing, ts).length > 0, 'B control — v1\'s two blank rows after Written Premium: the layout check fails', layoutDiffs(v1Spacing, ts)[0]);
   const dropped = shifted(all.filter(r => r !== 29));
   check(layoutDiffs(dropped, ts).length > 0, 'B control — one blank row dropped: the layout check fails', layoutDiffs(dropped, ts)[0]);
+  // The template's old wording kept, and a third heading renamed: both must fail.
+  for (const [name, r, v] of [
+    ['the template\'s old wording kept ("Net Income Statement ")', renamedRows[0], labelAt(tws, renamedRows[0])],
+    ['a third heading renamed ("Underwriting" → "Underwriting Results")', TEMPLATE_ROWS.findIndex(x => x.kind === 'title' && x.label === 'Underwriting'), 'Underwriting Results'],
+  ] as const) {
+    const t = shifted(all);
+    t[XLSX.utils.encode_cell({ r, c: 1 })] = { t: 's', v: String(v) };
+    check(layoutDiffs(t, ts).length > 0, `B control — ${name}: the layout check fails`, layoutDiffs(t, ts)[0]);
+  }
   const altered = shifted(all);
   altered[XLSX.utils.encode_cell({ r: 38, c: 1 })] = { t: 's', v: 'Invested' };
   check(layoutDiffs(altered, ts).length > 0, 'B control — a label altered ("      Invested" → "Invested"): the layout check fails', layoutDiffs(altered, ts)[0]);

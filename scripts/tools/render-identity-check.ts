@@ -1451,7 +1451,12 @@ const BASELINE = process.env.RENDER_BASELINE
 // the ratio rows are blank in All Years and do not move. v2's one blank row
 // fewer after the Contributions' Written Premium carries no text, so it moves
 // no fingerprint; downloads.cjs sees it, through the rows' lines.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v94.json');
+// v95: TWO HEADINGS RENAMED — "Net Income Statement For The Year" and
+// "Reinsurance Information - Program Year Totals" (RENAMED_HEADINGS). Against
+// v94's own text: 26 of 236 move, EXACTLY the 26 Annual Statement screens, and
+// each is v94's text character for character once those two headings are read
+// back to their old wording. Nothing else on any screen.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v95.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -930,7 +930,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ratio rows are blank there. And 4,380 bordered cells added, all in column I;
 // no border elsewhere moved once the rows below the dropped blank are aligned.
 // No key added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v98.json');
+// v99: TWO HEADINGS RENAMED — "Net Income Statement For The Year" and
+// "Reinsurance Information - Program Year Totals". All 24 `stmt|...` keys move;
+// all 24 Results-workbook keys are byte-identical to v98. Text-diffed
+// (GUARD_TEXT_DIR): every statement file is v98's character for character once
+// those two headings are read back to the template's wording. No key added or
+// removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v99.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
