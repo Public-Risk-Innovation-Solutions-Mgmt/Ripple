@@ -34,7 +34,8 @@
 //           paid at the line's first-year paid share (held between 0 and the
 //           year's payments), taken off Previously Reported Payments, and the
 //           settlement draw (the game's seed, mean 0, SETTLEMENT_SPREAD of the
-//           previously reported payments) added to Previously Reported and taken
+//           previously reported payments, capped at the IBNR the accident year has
+//           left, nothing carried over) added to Previously Reported and taken
 //           off Change in IBNR — with each accident year's payments and Total Net
 //           Incurred unchanged by them; Newly Arising + Previously Reported + Change in
 //           IBNR = Total Net Incurred in every column — at EVERY year each game's
@@ -125,7 +126,54 @@ const check = (ok: boolean, label: string, detail = '') => {
 };
 const clone = (ts: TemplateStatement): TemplateStatement => ({ ...ts, figures: Object.fromEntries(Object.entries(ts.figures).map(([k, v]) => [k, [...v]])) });
 /** What the run exercised, so a check that could only pass vacuously says so. */
-const A3_EXERCISE = { ibnrShareOfDevelopment: 0, underwritingFigures: 0, newlyReportedPaid: 0, settlement: 0 };
+const A3_EXERCISE = { ibnrShareOfDevelopment: 0, underwritingFigures: 0, newlyReportedPaid: 0, settlement: 0, capped: 0 };
+
+/** One accident year's year, as the gate recomputes it from the specification. */
+interface GateYear { current: boolean; dP: number; dC: number; dI: number; d: number; share: number; newPaid: number; newReported: number; prevPaid: number; raw: number; settle: number }
+/**
+ * THE GATE'S OWN SPLIT AND DRAWS, one line, every year of the timeline `tl` to
+ * its last: each older accident year's newly reported share paid at the line's
+ * first-year paid share, and its settlement draw (the game's seed, mean 0,
+ * SETTLEMENT_SPREAD of the previously reported payments) — CAPPED, when
+ * `capped`, at the IBNR it has left (its IBNR now less its draws before), the
+ * excess dropped. Returns the last year's rows and every accident year's draws
+ * to date.
+ */
+function drawsOf(gs: GameState, l: CoverageLine, tl: ResultSet[], capped: boolean): { last: Map<number, GateYear>; settled: Map<number, number> } {
+  const settled = new Map<number, number>();
+  let last = new Map<number, GateYear>();
+  const valued = tl.map(r => programYearsOf(gs, l, r));
+  for (let k = 1; k < tl.length; k++) {
+    const now = valued[k], then = valued[k - 1], yn = tl[k].yearNumber;
+    const fy = now.get(yn)?.net;
+    const paidShare = fy && fy.paid + fy.case_ > 0 ? Math.min(1, Math.max(0, fy.paid / (fy.paid + fy.case_))) : 0;
+    const year = new Map<number, GateYear>();
+    for (const ay of new Set([...now.keys(), ...then.keys()])) {
+      const z = { paid: 0, case_: 0, ibnr: 0 };
+      const a = now.get(ay)?.net ?? z, b = then.get(ay)?.net ?? z;
+      const dP = a.paid - b.paid, dC = a.case_ - b.case_, dI = a.ibnr - b.ibnr, d = dP + dC + dI;
+      if (ay === yn) { year.set(ay, { current: true, dP, dC, dI, d, share: 0, newPaid: 0, newReported: 0, prevPaid: 0, raw: 0, settle: 0 }); continue; }
+      // The specification: IBNR's share of the reserve outstanding at the start of the year.
+      const share = b.case_ + b.ibnr > 0 ? Math.min(1, Math.max(0, b.ibnr / (b.case_ + b.ibnr))) : 0;
+      const newReported = -dI + share * d;
+      const newPaid = Math.min(Math.max(0, dP), Math.max(0, paidShare * newReported));
+      const prevPaid = dP - newPaid;
+      const raw = (SETTLEMENT_SPREAD === 0 ? 0 : deriveSubRng(marketSeedOf(gs.instance), yn, `statement-settlement:${l}:${ay}`).normal(0, 1) * SETTLEMENT_SPREAD) * prevPaid;
+      const settle = capped ? Math.min(raw, a.ibnr - (settled.get(ay) ?? 0)) : raw;
+      settled.set(ay, (settled.get(ay) ?? 0) + settle);
+      year.set(ay, { current: false, dP, dC, dI, d, share, newPaid, newReported, prevPaid, raw, settle });
+    }
+    last = year;
+  }
+  return { last, settled };
+}
+
+/** Every IBNR cell of the program-year blocks below zero (to the cent). */
+function negativeIbnr(ts: TemplateStatement): string[] {
+  const out: string[] = [];
+  for (const k of ['py', 'gross', 'ceded', 'net']) ts.figures[`${k}.ibnr`].forEach((x, i) => { if (x !== null && x < -0.01) out.push(`${k} IBNR [${i}] ${x.toFixed(0)} below zero`); });
+  return out;
+}
 const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
 
 function covered(y: number): DecisionSet {
@@ -241,38 +289,25 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
   if (tl.length >= 2) {
     const booked = window[window.length - 1];
     if (!near(sum(f['cy.incurred']), booked.netIncurredLoss + booked.laeIncurred)) out.push(`Σ Total Net Incurred ${sum(f['cy.incurred'])} ≠ booked ${booked.netIncurredLoss + booked.laeIncurred}`);
-    const [nowR, thenR] = [tl[tl.length - 1], tl[tl.length - 2]];
     const firstAy = windowResults[0].yearNumber;
     const n = 1 + ts.years.length;
     const want = Array.from({ length: n }, () => ({ total: 0, paid: 0, prevPaid: 0, prevCase: 0, newPaid: 0, newCase: 0, ibnr: 0 }));
     for (const l of scope === 'pool' ? gs.setup.activeLines : [scope as CoverageLine]) {
-      const now = programYearsOf(gs, l, nowR), then = programYearsOf(gs, l, thenR);
-      // What a new accident year pays in its first year, on this line: the current program year's paid ÷ reported.
-      const fy = now.get(ts.asOf)?.net;
-      const paidShare = fy && fy.paid + fy.case_ > 0 ? Math.min(1, Math.max(0, fy.paid / (fy.paid + fy.case_))) : 0;
-      for (const ay of new Set([...now.keys(), ...then.keys()])) {
+      for (const [ay, x] of drawsOf(gs, l, tl, true).last) {
         const i = ay < firstAy ? 0 : windowResults.findIndex(r => r.yearNumber === ay) + 1;
         if (i < 0) continue;
-        const z = { paid: 0, case_: 0, ibnr: 0 };
-        const a = now.get(ay)?.net ?? z, b = then.get(ay)?.net ?? z;
-        const dP = a.paid - b.paid, dC = a.case_ - b.case_, dI = a.ibnr - b.ibnr, d = dP + dC + dI;
         const w = want[i];
-        w.total += d; w.paid += dP;
-        if (ay === ts.asOf) { w.newPaid += dP; w.newCase += dC; w.ibnr += dI; continue; }
-        // The specification: IBNR's share of the reserve outstanding at the start of the year.
-        const share = b.case_ + b.ibnr > 0 ? Math.min(1, Math.max(0, b.ibnr / (b.case_ + b.ibnr))) : 0;
-        const newReported = -dI + share * d;
-        const newPaid = Math.min(Math.max(0, dP), Math.max(0, paidShare * newReported));
-        const prevPaid = dP - newPaid;
-        const settle = (SETTLEMENT_SPREAD === 0 ? 0 : deriveSubRng(marketSeedOf(gs.instance), ts.asOf, `statement-settlement:${l}:${ay}`).normal(0, 1) * SETTLEMENT_SPREAD) * prevPaid;
-        w.newPaid += newPaid;
-        w.newCase += newReported - newPaid;
-        w.prevPaid += prevPaid;
-        w.prevCase += (1 - share) * d + settle - prevPaid;
-        w.ibnr += dI - settle;
-        A3_EXERCISE.ibnrShareOfDevelopment += Math.abs(share * d);
-        A3_EXERCISE.newlyReportedPaid += newPaid;
-        A3_EXERCISE.settlement += Math.abs(settle);
+        w.total += x.d; w.paid += x.dP;
+        if (x.current) { w.newPaid += x.dP; w.newCase += x.dC; w.ibnr += x.dI; continue; }
+        w.newPaid += x.newPaid;
+        w.newCase += x.newReported - x.newPaid;
+        w.prevPaid += x.prevPaid;
+        w.prevCase += (1 - x.share) * x.d + x.settle - x.prevPaid;
+        w.ibnr += x.dI - x.settle;
+        A3_EXERCISE.ibnrShareOfDevelopment += Math.abs(x.share * x.d);
+        A3_EXERCISE.newlyReportedPaid += x.newPaid;
+        A3_EXERCISE.settlement += Math.abs(x.settle);
+        if (x.settle < x.raw - 1e-9) A3_EXERCISE.capped++;
       }
     }
     // TOTAL NET INCURRED UNCHANGED: each column is the year's movement, Δ(paid + case + IBNR).
@@ -345,6 +380,8 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
       if (k === 'ceded' && (!near(v(f['ceded.case'][i]), case_) || !near(v(f['ceded.ibnr'][i]), ibnr))) out.push(`ceded case / IBNR [${i}] ≠ the engine's: the draw is on the retained claims`);
     }
   }
+  // NO IBNR BELOW ZERO: the settlement draws are capped at the IBNR left.
+  out.push(...negativeIbnr(ts));
   // A column with no program year in it (Prior, before the pool has older years) holds none.
   const held = (xs: Figure[]) => xs.reduce<number>((t, x) => t + (x ?? 0), 0);
   const reserves = held(f['net.case']) + held(f['net.ibnr']);
@@ -462,6 +499,37 @@ check(yearFails.length === 0, `A. at every year each game's statement can stand 
 check(A3_EXERCISE.ibnrShareOfDevelopment > 0, 'A. the split is exercised: older accident years develop, and IBNR\'s share of it moves to newly arising', `Σ |s·D| ${A3_EXERCISE.ibnrShareOfDevelopment.toFixed(0)}`);
 check(A3_EXERCISE.newlyReportedPaid > 0, 'A. the variance is exercised: newly reported claims on older accident years are paid in part', `Σ newly reported paid ${A3_EXERCISE.newlyReportedPaid.toFixed(0)}`);
 check(A3_EXERCISE.settlement > 0, `A. the variance is exercised: settlement differences are drawn (SETTLEMENT_SPREAD ${SETTLEMENT_SPREAD})`, `Σ |settlement| ${A3_EXERCISE.settlement.toFixed(0)}`);
+check(A3_EXERCISE.capped > 0, 'A. the cap is exercised: some draws are held to the IBNR left', `${A3_EXERCISE.capped} capped draws`);
+{
+  // THE CAP'S CONTROL: every game's statements at every year, with the draws
+  // uncapped (the rule before), must show an IBNR cell below zero — and the
+  // no-negative check must catch it.
+  let caught = 0, first = '';
+  for (const g of games) {
+    const gs = g.snaps[YEARS];
+    for (const { yearNumber } of statementYears(gs)) for (const scope of scopesOf(gs)) {
+      const ts = clone(buildTemplateStatement(gs, scope, yearNumber));
+      const tl = timelineOf(gs).filter(r => r.yearNumber <= ts.asOf);
+      const nowR = tl[tl.length - 1];
+      const off = nowR.calendarYear - nowR.yearNumber;
+      for (const l of scope === 'pool' ? gs.setup.activeLines : [scope as CoverageLine]) {
+        const capped = drawsOf(gs, l, tl, true).settled, uncapped = drawsOf(gs, l, tl, false).settled;
+        for (const [ay, s] of uncapped) {
+          const i = ay + off < ts.years[0] ? 0 : ts.years.indexOf(ay + off) + 1;
+          if (i < 0) continue;
+          const extra = s - (capped.get(ay) ?? 0);
+          for (const k of ['py', 'gross', 'net']) {
+            if (ts.figures[`${k}.ibnr`][i] === null) continue;
+            ts.figures[`${k}.ibnr`][i]! -= extra; ts.figures[`${k}.case`][i]! += extra; ts.figures[`${k}.reported`][i]! += extra;
+          }
+        }
+      }
+      const errs = tieOut(gs, ts, scope).filter(e => / below zero$/.test(e));
+      if (errs.length) { caught++; first ||= `${g.id} as of ${yearNumber} ${scope}: ${errs[0]}`; }
+    }
+  }
+  check(caught > 0, 'A control — the settlement draws uncapped: an IBNR cell goes below zero and the no-negative check fails', `${caught} statements, first ${first || 'NOTHING FIRED'}`);
+}
 {
   // On a solo game with no adverse development — where an older year's own
   // development is small — Previously Reported still moves, by the settlement draw.

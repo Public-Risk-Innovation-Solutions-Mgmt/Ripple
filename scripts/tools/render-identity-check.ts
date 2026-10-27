@@ -1479,7 +1479,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // IBNR Reserves and Reported Loss & LAE in Program Year Totals and the Gross and
 // Net blocks (26 each, nine rows) — each accident year's draws to date moved from
 // IBNR to case. The Contributions, Ceded, Paid and Total Incurred do not move.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v98.json');
+// v99: THE SETTLEMENT DRAW CAPPED AT THE IBNR LEFT. Against v98's own text
+// (RENDER_TEXT_DIR), row by row: 8 of 236 move — the Annual Statement screens of
+// the PR and WC+GL+PR configurations, where the cap binds — nothing above the
+// statement on any; on each only the Contributions' Reserve Changes, Net
+// Reported and Change in IBNR, and Case Reserves, IBNR Reserves and Reported
+// Loss & LAE in Program Year Totals and the Gross and Net blocks. Payments,
+// Total Net Incurred, Ceded, Paid and Total Incurred do not move.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v99.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

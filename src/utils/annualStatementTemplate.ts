@@ -377,10 +377,13 @@ interface AySplit { newPaid: number; newCase: number; prevPaid: number; prevCase
  * ONE LINE'S YEAR, ACCIDENT YEAR BY ACCIDENT YEAR: the movement from `then` to
  * `now` (programYearsOf at the two valuations), `yearNumber` the later, split
  * between newly arising and previously reported claims with both variances —
- * newly reported claims paid in part, and the settlement draw. The current
- * program year's own claims are all newly arising, with no draw.
+ * newly reported claims paid in part, and the settlement draw, capped so the
+ * accident year's IBNR stays at or above zero (`settledBefore`: each accident
+ * year's draws in the years before). The current program year's own claims
+ * are all newly arising, with no draw.
  */
-function yearSplits(now: Map<number, AyBlock>, then: Map<number, AyBlock>, yearNumber: number, line: CoverageLine, seed: number): Map<number, AySplit> {
+function yearSplits(now: Map<number, AyBlock>, then: Map<number, AyBlock>, yearNumber: number, line: CoverageLine, seed: number,
+  settledBefore: ReadonlyMap<number, number>): Map<number, AySplit> {
   const out = new Map<number, AySplit>();
   const firstYear = now.get(yearNumber)?.net;
   const firstYearReported = firstYear ? firstYear.paid + firstYear.case_ : 0;
@@ -399,7 +402,10 @@ function yearSplits(now: Map<number, AyBlock>, then: Map<number, AyBlock>, yearN
     const newReported = -dIbnr + share * d;
     const newPaid = Math.min(Math.max(0, dPaid), Math.max(0, paidShare * newReported));
     const prevPaid = dPaid - newPaid;
-    const settlement = settlementDraw(seed, yearNumber, line, ay) * prevPaid;
+    // CAPPED AT THE IBNR LEFT: the draw moves IBNR to case, so it may take no more
+    // than the accident year has this year — its IBNR now, less the draws already
+    // moved — and what it would have taken beyond that is dropped, not carried.
+    const settlement = Math.min(settlementDraw(seed, yearNumber, line, ay) * prevPaid, a.ibnr - (settledBefore.get(ay) ?? 0));
     const prevReported = (1 - share) * d + settlement;
     out.set(ay, {
       newPaid, newCase: newReported - newPaid, prevPaid, prevCase: prevReported - prevPaid,
@@ -565,7 +571,8 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   //   · SETTLEMENT DIFFERENCES. Claims settle for a little more or less than
   //     they were reserved at: a draw per line, accident year and calendar year
   //     of mean zero, SETTLEMENT_SPREAD (a standard deviation, as a share of the
-  //     previously reported payments) — from the GAME's seed, so every world and
+  //     previously reported payments), capped at the IBNR the accident year has
+  //     left (nothing carried over), so no IBNR goes below zero — from the GAME's seed, so every world and
   //     every reading draws the same. It adds to Previously Reported's Reserve
   //     Changes and comes off Change in IBNR, which balances it.
   //     The program-year blocks carry the same draws (every year's to date,
@@ -587,9 +594,11 @@ export function buildTemplateStatement(gs: GameState, scope: LineView, asOfYear?
   const settled = columnsZero(1 + windowYears.length).map(() => 0);
   for (const l of uwLines) {
     const valued = full.map(r => programYearsOf(gs, l, r));
+    const settledBefore = new Map<number, number>();
     for (let k = 1; k < full.length; k++) {
-      const splits = yearSplits(valued[k], valued[k - 1], full[k].yearNumber, l, seed);
+      const splits = yearSplits(valued[k], valued[k - 1], full[k].yearNumber, l, seed, settledBefore);
       for (const [ay, x] of splits) {
+        settledBefore.set(ay, (settledBefore.get(ay) ?? 0) + x.settlement);
         const i = colOf(ay);
         if (i < 0) continue;
         settled[i] += x.settlement;

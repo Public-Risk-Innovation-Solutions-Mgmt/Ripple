@@ -202,10 +202,12 @@ entry against the template, and fails on any other cell that differs.
     Ceded holds. Each year's Change in IBNR and Reserve Changes in the
     Contributions are therefore exactly the movement in those rows; the gate ties
     them, every column, against the statement a year earlier. Paid, Total
-    Incurred and the reserves' total are the engine's. ⚠ On old accident years
-    with little IBNR left, the draws can take IBNR below zero: 48 of 1,404
-    program-year IBNR cells across three test games, the worst −$288K (scenario
-    7, Property, Prior, at year 1).
+    Incurred and the reserves' total are the engine's. **Each year's draw is
+    capped at the IBNR the accident year has left** (its IBNR that year less the
+    draws already moved); what it would take beyond that is dropped, not carried
+    over, so no IBNR cell goes below zero. The gate checks every IBNR cell, with
+    a control that, uncapped, goes negative (48 of 1,404 cells across three test
+    games did, the worst −$288K).
   - **Not built: LAE paid half at report, half at close.** LAE paid is the
     engine's own figure (`laePaid` = LAE share × gross paid): it is cash, it
     earns investment income, and the LAE reserve is the balance sheet's Loss
@@ -252,13 +254,13 @@ tied to the engine on six games, the Excel file against the template through the
 list of deliberate differences (which it prints), the admin "% of Premium" ties,
 the Contributions variance's invariants, and the operating ratio by hand on
 scenario 1 WC 2027 (94.40%), each with a failing control. Also
-VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v101 (24 Results hashes
+VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v102 (24 Results hashes
 unchanged since v94; the 24 statement hashes carry the borders from v96, the
 filled blanks from v97, All Years from v98, the two renamed headings from v99,
-the seven columns, row changes and variance from v100, and the draws on the
-program-year blocks from v101, each attributed in
-`solo-export-guard.ts`), RENDER_IDENTITY_v98 (exactly the 26 Annual Statement
-screens moved at each of v92 to v95, v97 and v98 — v96 was development
+the seven columns, row changes and variance from v100, the draws on the
+program-year blocks from v101 and their cap from v102, each attributed in
+`solo-export-guard.ts`), RENDER_IDENTITY_v99 (exactly the 26 Annual Statement
+screens moved at each of v92 to v95, v97 and v98, and 8 of them at v99 — v96 was development
 pricing's, reverted with it — each attributed in
 `render-identity-check.ts`; borders move none, since it fingerprints text), and
 all 24 session drivers with the admin-token hook. Screenshots are in

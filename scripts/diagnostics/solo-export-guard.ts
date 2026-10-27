@@ -965,7 +965,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Year Totals or the Gross or Net block (120 lines each, nine rows) — each
 // accident year's draws to date moved from IBNR to case. Ceded, Paid, Total
 // Incurred, the Contributions and the borders do not move. No key added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v101.json');
+// v102: THE SETTLEMENT DRAW CAPPED AT THE IBNR LEFT. 12 `stmt|...` keys move —
+// the statements where the cap binds; the other 12 and all 24 Results keys are
+// byte-identical to v101. Text-diffed against v101's own text (GUARD_TEXT_DIR,
+// shown and raw): every moved line is Previously Reported Reserve Changes or
+// Net Reported, or Change in IBNR, in the Contributions, or Case Reserves, IBNR
+// Reserves or Reported Loss & LAE in Program Year Totals or the Gross or Net
+// block (48 lines each). Payments, Total Net Incurred, Ceded, Paid and Total
+// Incurred do not move. No key added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v102.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
