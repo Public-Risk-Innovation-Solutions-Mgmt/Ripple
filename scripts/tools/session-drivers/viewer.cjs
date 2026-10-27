@@ -1,6 +1,6 @@
 // THE VIEWER IS THE PLAYER'S SCREEN, READ-ONLY — and its numbers are the
 // driver's numbers because they are the same computation, not a copy.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, statementPdfDiffs } = require('./_shared.cjs');
 const crypto = require('crypto');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley'];
 // Three played years, checked after each; the room runs one more so year 3 is not its last.
@@ -169,6 +169,12 @@ async function tabText(page, tab) {
     // year's post — valued then — that it must match, over accident years 0 to
     // y. (It was year y - 1's while results ran a year behind.)
     await tabText(driver, 'Annual Statement');
+    // The PDF download in a hosted game, after the last played year: the
+    // statement the team's screen shows, at the year it stands at.
+    if (y === PLAYED) {
+      const pdf = await statementPdfDiffs(driver);
+      ok(pdf.length === 0, `year ${y}: a hosted team's "Download Annual Statement (PDF)" gives the screen's statement, at the year it stands at${pdf.length ? ` — ${pdf.slice(0, 2).join(' · ')}` : ''}`);
+    }
     const st = await netUltimates(driver);
     const rec = await room();
     const posted = rec.teams.find(t => t.name === TEAMS[0]).resultsByYear[String(y)];

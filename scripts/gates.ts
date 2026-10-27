@@ -295,6 +295,10 @@ const FAST: string[] = [
                                      //         on one), the Excel file is the template cell for cell less
                                      //         "Profit and Contigency", borders included, the operating ratio by hand on
                                      //         scenario 1 WC 2027 — each with a failing control
+  'annual-statement-pdf-check',      //  15s   the Annual Statement PDF read back with pdf.js on six games:
+                                     //         every sheet in the workbook's order from its own page,
+                                     //         headers and page numbers, every row and figure the
+                                     //         statement's, negatives red — each with a failing control
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
                                      //         and dividends across all six years and into year 1,
                                      //         with no reset before 2023 or at the opening, and year 1

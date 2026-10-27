@@ -249,6 +249,23 @@ file, A–I on all 156 rows, through the list. `downloads.cjs` does the same for
 checks that exceljs is not loaded with the page. Re-run the generator if the
 template's lines ever change; the gate fails until you do.
 
+**The PDF** (`annualStatementPdf.ts`, the **Download Annual Statement (PDF)**
+button beside the Excel one) draws the same statement cell for cell: every
+section, row label, blank row, heading and border (`TEMPLATE_ROWS`,
+`cellBorders`), Prior where shown, the five years, All Years, each figure as
+the page writes it, negatives in red. One statement per sheet in the
+workbook's order, each from a new page, landscape Letter, a header on every
+page (pool, line, the year the statement stands at) and "Page n of N" in the
+footer. Text is 9pt; blank rows are half height, as they only space the
+sections; a section stays on one page where it fits, so a statement runs to
+three pages. It is built in the browser with **jsPDF**, a dynamic import
+fetched only on the press, like exceljs; the page's own bundle grows 4 kB (the
+drawing code). Standard Helvetica has no "−", so negatives print "-" (still
+red). `annual-statement-pdf-check` (FAST) reads the file back with pdf.js on
+six games against the statements, with three failing controls;
+`downloads.cjs` presses the button and opens the file, and `test-player.cjs`
+and `viewer.cjs` press it in a Test player and a hosted game.
+
 **Landed with:** `annual-statement-template-check` (new, in FAST): every figure
 tied to the engine on six games, the Excel file against the template through the
 list of deliberate differences (which it prints), the admin "% of Premium" ties,
@@ -259,8 +276,8 @@ unchanged since v94; the 24 statement hashes carry the borders from v96, the
 filled blanks from v97, All Years from v98, the two renamed headings from v99,
 the seven columns, row changes and variance from v100, the draws on the
 program-year blocks from v101 and their cap from v102, each attributed in
-`solo-export-guard.ts`), RENDER_IDENTITY_v99 (exactly the 26 Annual Statement
-screens moved at each of v92 to v95, v97 and v98, and 8 of them at v99 — v96 was development
+`solo-export-guard.ts`), RENDER_IDENTITY_v100 (exactly the 26 Annual Statement
+screens moved at each of v92 to v95, v97, v98 and v100 — the PDF button — and 8 of them at v99 — v96 was development
 pricing's, reverted with it — each attributed in
 `render-identity-check.ts`; borders move none, since it fingerprints text), and
 all 24 session drivers with the admin-token hook. Screenshots are in

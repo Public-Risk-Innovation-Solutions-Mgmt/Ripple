@@ -3,8 +3,10 @@
 // TEMPLATE_ROWS (utils/annualStatementTemplate) gives every title, label and
 // blank row, buildTemplateStatement every figure — read from buildAnnualStatement
 // (utils/resultsStatement), which reads the engine — and cellBorders every
-// cell's lines, the template's through the statement's deliberate differences. This file only lays the cells
-// out, and the Excel download writes the same rows and lines (annualStatementExport).
+// cell's lines, the template's through the statement's deliberate differences.
+// This file only lays the cells out; the Excel download writes the same rows and
+// lines (annualStatementExport), and the PDF download draws them
+// (annualStatementPdf). Each file's library is fetched only on its button's press.
 import { useMemo, useState, type CSSProperties } from 'react';
 import { Download } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
@@ -14,6 +16,7 @@ import {
   TEMPLATE_ROWS, type TemplateRow, type TemplateStatement,
 } from '../utils/annualStatementTemplate';
 import { annualStatementFilename, buildAnnualStatementXlsx } from '../utils/annualStatementExport';
+import { annualStatementPdfFilename, buildAnnualStatementPdf } from '../utils/annualStatementPdf';
 import { lineDisplayName } from '../utils/lineDisplay';
 
 interface Props {
@@ -178,22 +181,25 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
       : y.yearNumber === 0 ? `Year 0 — ${yearEnd(y.calendarYear)} (Opening)`
       : `${yearEnd(y.calendarYear)} (History)`,
   }));
-  // The file is built on demand: its library (exceljs) is fetched on the first press, not with the page.
-  const [building, setBuilding] = useState(false);
-  const download = async () => {
-    setBuilding(true);
+  // Each file is built on demand: its library (exceljs, jsPDF) is fetched on the first press, not with the page.
+  const [building, setBuilding] = useState<'xlsx' | 'pdf' | null>(null);
+  const download = async (kind: 'xlsx' | 'pdf') => {
+    setBuilding(kind);
     try {
-      const bytes = await buildAnnualStatementXlsx(gameState, asOf);
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const year = ts.years.at(-1) ?? gameState.setup.startingYear;
+      const [bytes, type, name] = kind === 'xlsx'
+        ? [await buildAnnualStatementXlsx(gameState, asOf), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', annualStatementFilename(gameState.setup.instanceId, year)]
+        : [await buildAnnualStatementPdf(gameState, asOf), 'application/pdf', annualStatementPdfFilename(gameState.setup.instanceId, year)];
+      const url = URL.createObjectURL(new Blob([bytes], { type }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = annualStatementFilename(gameState.setup.instanceId, ts.years.at(-1) ?? gameState.setup.startingYear);
+      a.download = name;
       document.body.appendChild(a);
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 0);
     } finally {
-      setBuilding(false);
+      setBuilding(null);
     }
   };
   return (
@@ -216,12 +222,22 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
             <button
               type="button"
               data-testid="statement-download"
-              onClick={() => { void download(); }}
-              disabled={building}
+              onClick={() => { void download('xlsx'); }}
+              disabled={building !== null}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
               <Download size={16} />
               Download Annual Statement (Excel)
+            </button>
+            <button
+              type="button"
+              data-testid="statement-download-pdf"
+              onClick={() => { void download('pdf'); }}
+              disabled={building !== null}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              <Download size={16} />
+              Download Annual Statement (PDF)
             </button>
           </div>
         </div>

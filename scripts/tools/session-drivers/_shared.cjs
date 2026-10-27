@@ -199,4 +199,48 @@ async function requireServer() {
   }
 }
 
-module.exports = { BASE, REPO, launchBrowser, requireServer, asPlayer, asAdmin };
+/**
+ * THE ANNUAL STATEMENT PDF AGAINST THE SCREEN, from a page on the Annual
+ * Statement: on the Pool view, it presses "Download Annual Statement (PDF)",
+ * reads the file with pdf.js, and returns what differs — the file landscape
+ * Letter, the pool's sheet first, every page's header the year the screen
+ * stands at, its first page's Written Premium row the screen's. Empty when it
+ * matches. The statement's results rule (utils/knownYears) is the page's, so the
+ * file follows it in any mode the page runs in.
+ */
+async function statementPdfDiffs(page) {
+  const out = [];
+  const pool = page.getByRole('button', { name: 'Pool', exact: true }).first();
+  if (await pool.count() > 0) { await pool.click(); await page.waitForTimeout(400); }
+  const heads = (await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts()).map(t => t.trim()).filter(t => /^\d{4}$/.test(t));
+  const premium = (await page.locator('[data-testid="statement-operating"] tr[data-row-label="Written Premium"] td').allInnerTexts()).map(t => t.trim().replace(/−/g, '-')).filter(Boolean).slice(1);
+  const [dl] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
+    page.getByRole('button', { name: 'Download Annual Statement (PDF)' }).first().click(),
+  ]);
+  if (!dl) return ['no PDF arrived'];
+  const file = await dl.path();
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const fonts = path.join(REPO, 'node_modules', 'pdfjs-dist', 'standard_fonts') + path.sep;
+  const doc = await getDocument({ data: new Uint8Array(fs.readFileSync(file)), standardFontDataUrl: fonts, isEvalSupported: false }).promise;
+  for (let p = 1; p <= doc.numPages; p++) {
+    const pg = await doc.getPage(p);
+    const vp = pg.getViewport({ scale: 1 });
+    const items = (await pg.getTextContent()).items;
+    const text = items.map(it => it.str).join(' ');
+    if (vp.width !== 792 || vp.height !== 612) out.push(`page ${p}: ${vp.width}x${vp.height}`);
+    const m = text.match(/ - ([^-]+?) - Annual Statement as of 12\/31\/(\d{4})/);
+    if (!m || m[2] !== heads.at(-1)) out.push(`page ${p}: header "${m ? m[0] : 'none'}", the screen stands at ${heads.at(-1)}`);
+    if (p === 1) {
+      if (!m || m[1] !== 'Pool') out.push('the first page is not the pool\'s');
+      // The Written Premium row: the item and the figures on its baseline, left to right.
+      const label = items.find(it => it.str === 'Written Premium');
+      const row = label ? items.filter(it => Math.abs(it.transform[5] - label.transform[5]) < 0.5 && it !== label).sort((a, b) => a.transform[4] - b.transform[4]).map(it => it.str.trim()).filter(Boolean) : [];
+      if (row.join(' ') !== premium.join(' ')) out.push(`Written Premium: the PDF's ${row.join(' ')} ≠ the screen's ${premium.join(' ')}`);
+    }
+  }
+  if (doc.numPages === 0) out.push('no pages');
+  return out;
+}
+
+module.exports = { BASE, REPO, launchBrowser, requireServer, asPlayer, asAdmin, statementPdfDiffs };
