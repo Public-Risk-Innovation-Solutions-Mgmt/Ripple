@@ -54,6 +54,7 @@ import { pricingLineState, surplusRange, type SurplusRange } from '../utils/worl
 import { gameShocksOn } from '../utils/shockLosses';
 import type { FundingConsequenceBook } from '../utils/fundingConsequence';
 import type { NewPurePremiumResult } from '../utils/newPurePremium';
+import { learnsDevelopment } from '../utils/adverseDevelopment';
 
 /**
  * WHAT A LINE'S RATE IS PRICED ON FOR THE COMING YEAR — the roster, or with
@@ -87,6 +88,7 @@ export function fundingConsequenceInput(
     rows: pricingLineState(gameState, line)?.reserveDevelopment ?? [],
     allMarketMembers: gameState.poolState.allMarketMembers,
     membershipHistory: gameState.poolState.membershipHistory,
+    ...(learnsDevelopment(gameState.setup, line) ? { learnDevelopment: true } : {}),
   };
   // A book takes the engine's own book rule — the ledger's figure, or the
   // engine's expectation before the ledger has one.
