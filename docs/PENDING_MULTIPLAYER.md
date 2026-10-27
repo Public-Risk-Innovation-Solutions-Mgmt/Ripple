@@ -229,16 +229,18 @@ checks that exceljs is not loaded with the page. Re-run the generator if the
 template's lines ever change; the gate fails until you do.
 
 **Landed with:** `annual-statement-template-check` (new, in FAST): every figure
-tied to the engine on four games, the Excel file against the template, and the
-operating ratio by hand on scenario 1 WC 2027 (94.40%), each with a failing
-control, now including the borders. Also VALUE_IDENTITY_v87 unchanged,
-SOLO_EXPORT_GUARD_v99 (24 Results hashes unchanged since v94; the 24 statement
-hashes carry the borders from v96, the filled blanks from v97, All Years from
-v98 and the two renamed headings from v99, each attributed in
-`solo-export-guard.ts`), RENDER_IDENTITY_v95 (exactly the 26 Annual Statement
-screens moved at each of v92 to v95, each attributed in
-`render-identity-check.ts`; the borders move none, since it fingerprints text),
-and every session driver with the admin-token hook. Screenshots are in
+tied to the engine on six games, the Excel file against the template through the
+list of deliberate differences (which it prints), the admin "% of Premium" ties,
+the Contributions variance's invariants, and the operating ratio by hand on
+scenario 1 WC 2027 (94.40%), each with a failing control. Also
+VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v100 (24 Results hashes
+unchanged since v94; the 24 statement hashes carry the borders from v96, the
+filled blanks from v97, All Years from v98, the two renamed headings from v99,
+and the seven columns, row changes and variance from v100, each attributed in
+`solo-export-guard.ts`), RENDER_IDENTITY_v96 (exactly the 26 Annual Statement
+screens moved at each of v92 to v96, each attributed in
+`render-identity-check.ts`; borders move none, since it fingerprints text), and
+all 24 session drivers with the admin-token hook. Screenshots are in
 `docs/screenshots/annual-statement/`.
 
 ---
