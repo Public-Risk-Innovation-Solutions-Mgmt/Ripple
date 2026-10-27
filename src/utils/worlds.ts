@@ -253,7 +253,6 @@ function withRateBasis(result: ResultSet, struck: WorldsYear['struckRates']): Re
       windowExposure: pts.length > 0 ? pts.reduce((a, p) => a + p.exposure, 0) / pts.length : 0,
       ...(pts.length > 0 ? { latestExposure: pts[pts.length - 1].exposure } : {}),
       pricedExposure: s.exposure,
-      ...(s.newPp.learned ? { learnedDevelopment: s.newPp.learned.windowFactor } : {}),
     };
     byLine[line] = { ...row, rateBasis };
   }

@@ -33,7 +33,6 @@ import { blendInvestmentReturn, expectedMarketReturns } from './investmentEngine
 import { buildAnnualStatement, COMBINED_RATIO_LABEL } from './resultsStatement';
 import { fundingConsequenceInput } from '../game/derivations';
 import type { CoverageLine, DecisionSet, GameState, LineDecisionSet, LineResultSet } from '../types/simulation';
-import { learnsDevelopment } from './adverseDevelopment';
 
 const calendarOf = (gs: GameState, y: number) => gs.setup.startingYear + y - 1;
 
@@ -54,8 +53,6 @@ export interface ModelWindowRow {
   developed: number;
   /** The reserve inflation the year has still to pick up in the priced years (newPurePremium.reserveInflationToCome). */
   reserveInflation: number;
-  /** The development still to come, learned from the pool's own ledger (LEARNED_DEVELOPMENT); absent where the line does not learn. */
-  learnedDevelopment?: number;
   /** $M. */
   exposure: number;
   lossCostPer100: number;
@@ -76,8 +73,6 @@ export interface ModelRate {
   noHistory: { startingPer100: number; reserveInflation: number; lossCostPer100: number } | null;
   /** RESERVE_INFLATION_PRICED_YEARS. */
   reserveInflationYears: number;
-  /** The learned development (LEARNED_DEVELOPMENT) — its age-to-age factors and the window's factor; absent where the line does not learn. */
-  learned?: NonNullable<NewPurePremiumResult['learned']>;
   averageTrendedToLatestPer100: number | null;
   bookRisk: number;
   annualTrend: number;
@@ -133,8 +128,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   const row: LineResultSet | undefined = gameHistory(gs).find(r => r.yearNumber === yearNumber)?.byLine[line];
   // The pricing ledger — the shock-free shadow's once a shock has fired (SHOCK_FREE_PRICING).
   const ledger = pricingLineState(gs, line)?.reserveDevelopment ?? [];
-  const basis = { rows: ledger, allMarketMembers: gs.poolState.allMarketMembers, membershipHistory: gs.poolState.membershipHistory,
-    ...(learnsDevelopment(gs.setup, line) ? { learnDevelopment: true } : {}) };
+  const basis = { rows: ledger, allMarketMembers: gs.poolState.allMarketMembers, membershipHistory: gs.poolState.membershipHistory };
 
   let pp: NewPurePremiumResult | null;
   let d: LineDecisionSet;
@@ -176,7 +170,6 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     return {
       accidentYear: calendarOf(gs, p.accidentYear), valuationDate, paid: p.groundUpPaid, shockPaid: p.shockPaid,
       ageMonths: p.ageMonths, ldf: p.ldf, developed: p.developed, reserveInflation: p.reserveInflation,
-      ...(p.learnedDevelopment !== undefined ? { learnedDevelopment: p.learnedDevelopment } : {}),
       exposure: p.exposure, lossCostPer100: p.lossCostPer100,
       yearsToLatest, trendToLatest, trendedToLatestPer100: p.lossCostPer100 * trendToLatest,
       alaeRatio: pp!.alaeRatios[i],
@@ -242,7 +235,6 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
       lossCostPer100: pp.lossCostPer100 - pp.catastropheLoadPer100,
     } : null,
     reserveInflationYears: RESERVE_INFLATION_PRICED_YEARS[line],
-    ...(pp.learned ? { learned: pp.learned } : {}),
     averageTrendedToLatestPer100: average,
     bookRisk: risk,
     annualTrend, trendYears, trendToPriced: Math.pow(annualTrend, trendYears),

@@ -511,7 +511,7 @@ export const PRE_GAME_ADVERSE_DEVELOPMENT = { enabled: true };
  * the pre-game developing too (every line rich, WC opening on $52M of surplus
  * against $14M).
  */
-export const LEARNED_DEVELOPMENT = { enabled: true };
+export const LEARNED_DEVELOPMENT = { enabled: false };
 
 // ============================================================================
 // THE NEW PRICING PARAMETERS — read by the new rate stack, except where an
