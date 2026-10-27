@@ -18,6 +18,15 @@ staging step and no approval between the push and the live site.
 This rule was being followed and was written down nowhere — it was recorded here when the property and
 risk-control work was merged forward, after a search of the repository found no trace of it.
 
+## Check scope — what a change has to run
+
+- **Display-only changes** — labels, layout, wording, styling, a new view of existing figures: typecheck
+  and lint, the value and export baselines unchanged, the render baseline for the moved screens, and only
+  the session drivers that open the changed screens. No FAST sweep, no SLOW tier, no full driver run.
+- **Anything that changes figures, pricing, the engine, saves, sessions or the handler:** the full checks
+  as today (the list in the section above).
+- **When unsure which applies, say so in the report and run the full checks.**
+
 ## Verification
 - **`npm run gates` is the sweep, and the sweep is the complete set.** There used to be no sweep — just a
   dozen script names carried by hand from one commit message to the next. Two gates went red inside that
