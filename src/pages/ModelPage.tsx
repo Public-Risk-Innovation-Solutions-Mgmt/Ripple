@@ -50,8 +50,7 @@ function SectionA({ m }: { m: ModelRate }) {
             <thead>
               <tr className="border-b border-gray-200 text-xs text-gray-500">
                 {['Accident year', 'Valued', 'Paid losses as valued', 'Paid LDF', 'Developed losses',
-                  `Reserve inflation to come (first ${m.reserveInflationYears} years)`,
-                  ...(m.learned ? ['Learned development to come'] : []), 'Exposure ($M)', 'Loss cost per $100',
+                  `Reserve inflation to come (first ${m.reserveInflationYears} years)`, 'Exposure ($M)', 'Loss cost per $100',
                   `Years to ${m.latestDataYear}`, 'Trend factor', `Trended loss cost (${m.latestDataYear} level)`, 'ALAE ratio drawn'].map(h => (
                   <th key={h} className="px-2 py-1 text-right font-semibold whitespace-nowrap">{h}</th>
                 ))}
@@ -66,9 +65,6 @@ function SectionA({ m }: { m: ModelRate }) {
                   <td className="px-2 py-1" data-value={w.ldf}>× {f4(w.ldf)}</td>
                   <td className="px-2 py-1" data-value={w.developed}>{f4(w.developed)}</td>
                   <td className="px-2 py-1" data-testid={`model-a-window-${w.accidentYear}-inflation`} data-value={w.reserveInflation}>× {f4(w.reserveInflation)}</td>
-                  {m.learned && (
-                    <td className="px-2 py-1" data-testid={`model-a-window-${w.accidentYear}-learned`} data-value={w.learnedDevelopment}>× {f4(w.learnedDevelopment ?? 1)}</td>
-                  )}
                   <td className="px-2 py-1" data-value={w.exposure}>÷ {f4(w.exposure)}</td>
                   <td className="px-2 py-1" data-value={w.lossCostPer100}>{f4(w.lossCostPer100)}</td>
                   <td className="px-2 py-1">{w.yearsToLatest}</td>
@@ -79,18 +75,6 @@ function SectionA({ m }: { m: ModelRate }) {
               ))}
             </tbody>
           </table>
-        )}
-        {m.learned && (
-          <p data-testid="model-a-learned" className="text-xs text-gray-600 pt-1">
-            Learned development — the pool&rsquo;s own growth of each year&rsquo;s ultimate from one year-end to the next, averaged by age
-            over every year valued by 12/31/{m.latestDataYear}:{' '}
-            {m.learned.factors.slice(0, 6).map(f => (
-              <span key={f.age} className="font-mono" data-testid={`model-a-learned-${f.age}`} data-value={f.factor} data-n={f.observations}>
-                {(f.age + 1) * 12}→{(f.age + 2) * 12} mo × {f4(f.factor)} ({f.observations}){' '}
-              </span>
-            ))}
-            — each window year&rsquo;s losses carry these to the pattern&rsquo;s end; an age not yet seen reads 1.
-          </p>
         )}
         {m.window.some(w => w.shockPaid > 0) && (
           <p className="text-xs text-gray-500 pt-1">Paid losses are shown with the year&rsquo;s shock dollars taken out on the paid basis.</p>

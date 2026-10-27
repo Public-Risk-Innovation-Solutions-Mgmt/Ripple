@@ -12,14 +12,6 @@
 //      (the contract harness drives it on DynamoDB and the built zip).
 //   3. THE SCENARIO IS THE ONLY SEED: a solo game and a hosted room on the same
 //      number build the same instance — scenario, seed and opening alike.
-//      ⚠ RESTATED FOR wip/development-pricing: the pre-game now develops at
-//      the game's level, and single player is every line Off while a hosted
-//      room defaults to Low, so their openings differ BY DESIGN ($10.70M
-//      against $11.86M on scenario 7's WC). 3 now holds the seed on the same
-//      levels: single player against a hosted room set Off, and a Test player
-//      game against a hosted room at the default Low — one instance and one
-//      opening each. New control: the hosted room at Low against single
-//      player, which must fail — the level reaches the opening.
 //   4. THE TABLE, PER LINE: twenty premium-to-surplus ratios evenly spaced,
 //      in the briefed order, from scenario 12 (thinnest) to scenario 16
 //      (richest) — WC 3.0 to 1.5, GL 2.3 to 1.3, Property 1.7 to 1.2. (One
@@ -134,11 +126,10 @@ function gradeHandler(outcome: Outcome, serverSource: string, tag: string) {
 }
 
 // ---------------------------------------------------------------- 3
-function gradeOneSeed(solo: GameInstance, hosted: GameInstance, soloOpen: number, hostedOpen: number, testOpen: number, hostedLowOpen: number, tag: string) {
-  check(solo.scenario === 7 && hosted.scenario === 7 && solo.seed === hosted.seed && soloOpen === hostedOpen && testOpen === hostedLowOpen,
-    `${tag}3. scenario 7 solo and hosted on the same development levels: one instance and one opening`,
-    `scenario ${solo.scenario}/${hosted.scenario}, seed ${solo.seed}/${hosted.seed}; opening, single player / hosted Off $${(soloOpen / 1e6).toFixed(4)}M/$${(hostedOpen / 1e6).toFixed(4)}M, `
-    + `Test player / hosted at Low $${(testOpen / 1e6).toFixed(4)}M/$${(hostedLowOpen / 1e6).toFixed(4)}M`);
+function gradeOneSeed(solo: GameInstance, hosted: GameInstance, soloOpen: number, hostedOpen: number, tag: string) {
+  check(solo.scenario === 7 && hosted.scenario === 7 && solo.seed === hosted.seed && soloOpen === hostedOpen,
+    `${tag}3. scenario 7 solo and hosted: one instance and one opening`,
+    `scenario ${solo.scenario}/${hosted.scenario}, seed ${solo.seed}/${hosted.seed}, opening $${(soloOpen / 1e6).toFixed(4)}M/$${(hostedOpen / 1e6).toFixed(4)}M`);
 }
 
 // ---------------------------------------------------------------- 4
@@ -303,13 +294,9 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
   gradeHandler(outcome, serverSource, '');
   // The hosted room's instance, built as session/client/buildGame builds it.
   const hosted = generateGameInstance('7', seedFromInstanceId('7'), []);
-  const OFF = { WC: 'Off', GL: 'Off', Property: 'Off' } as const, LOW = { WC: 'Low', GL: 'Low', Property: 'Low' } as const;
-  const hostedOpen = open('7', hosted, { ...settings('7'), shockTiming: 'host', developmentLevels: OFF }).opened[0].surplus;
-  const hostedLowOpen = open('7', hosted, { ...settings('7'), shockTiming: 'host' }).opened[0].surplus;
-  const test = openSoloInstance({ ...settings('7'), developmentLevels: LOW }, { schedule: [] });
-  const testOpen = open('7', test.instance, test.setup).opened[0].surplus;
+  const hostedOpen = open('7', hosted, { ...settings('7'), shockTiming: 'host' }).opened[0].surplus;
   const soloOpen = all.find(r => r.n === 7 && r.line === 'WC')!.surplus;
-  gradeOneSeed(soloInstances['7'], hosted, soloOpen, hostedOpen, testOpen, hostedLowOpen, '');
+  gradeOneSeed(soloInstances['7'], hosted, soloOpen, hostedOpen, '');
   gradeTable(SCENARIO_PREMIUM_TO_SURPLUS, SCENARIOS_THIN_TO_RICH, '');
   const ratioOf = (n: number, l: CoverageLine) => SCENARIO_PREMIUM_TO_SURPLUS[l][n];
   // The midpoint, rebuilt from the briefed range rather than read from the engine.
@@ -344,8 +331,7 @@ function gradeReturn(rows: Opened[], marketOf: (seed: number, year: number) => M
     setupSource.replace('SCENARIO_OPTIONS.map(', 'OPTIONS.map(') + '<input type="text" value={instanceId} />', hostSource, ''), '1.');
   controlFails('a handler accepting "21"', () => gradeHandler({ ...outcome, '21': 'accepted' }, serverSource, ''), '2.');
   const hashed = generateGameInstance('MAMC6EA4', seedFromInstanceId('MAMC6EA4'), []);
-  controlFails('a hosted room built from a hashed code', () => gradeOneSeed(soloInstances['7'], hashed, soloOpen, hostedOpen, testOpen, hostedLowOpen, ''), '3.');
-  controlFails('the hosted room at Low against single player', () => gradeOneSeed(soloInstances['7'], hosted, soloOpen, hostedLowOpen, testOpen, hostedLowOpen, ''), '3.');
+  controlFails('a hosted room built from a hashed code', () => gradeOneSeed(soloInstances['7'], hashed, soloOpen, hostedOpen, ''), '3.');
   controlFails('the ratio order reversed', () => gradeTable(
     { ...SCENARIO_PREMIUM_TO_SURPLUS, WC: Object.fromEntries(BRIEF_ORDER.map((n, k) => [n, 1.5 + k * 1.5 / 19])) }, [...BRIEF_ORDER].reverse(), ''), '4.');
   controlFails('one table for every line', () => gradeTable(

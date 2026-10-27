@@ -66,14 +66,6 @@
 // age, so with no shocks the identity is also held EXACTLY (1e-9), with
 // controls the 12% bar cannot see — the λ read one valuation year late, and 5%
 // high. With SHOCKS=catalogue 2b is reported, not asserted.
-//
-// ⚠ RESTATED FOR wip/development-pricing: THE PRE-GAME NOW DEVELOPS AT THE
-// GAME'S LEVEL (PRE_GAME_ADVERSE_DEVELOPMENT), so "0 on a pre-game step" no
-// longer mirrors the engine: a step into a pre-game valuation year draws its
-// λ like a played one. Left at 0 there, 2b read 5.24e-2. The allowance now
-// reads the drawn λ on every step the engine develops — a played year, or any
-// year while the pre-game switch is on — and is otherwise unchanged. New
-// control: the old allowance (nothing on a pre-game step), which must fail 2b.
 // ============================================================================
 
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
@@ -83,7 +75,7 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { paidLdfAt, PAID_DEVELOPMENT_PATTERN } from '../../src/data/paidDevelopmentPatterns';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
 import { unpaidShare } from '../../src/utils/payoutPattern';
-import { ADVERSE_DEVELOPMENT, newLossEngineRuns, PRE_GAME_ADVERSE_DEVELOPMENT, RESERVE_INFLATION_PER_YEAR } from '../../src/data/pricingParameters';
+import { ADVERSE_DEVELOPMENT, newLossEngineRuns, RESERVE_INFLATION_PER_YEAR } from '../../src/data/pricingParameters';
 import { adverseDevelopmentRate, developmentLevelOf } from '../../src/utils/adverseDevelopment';
 import { marketSeedOf } from '../../src/utils/bookUnits';
 import type { CoverageLine, GameState, ReserveDevelopmentRow } from '../../src/types/simulation';
@@ -187,13 +179,10 @@ const obs: Record<string, number[]> = {};
 // Σ gross[k] x the λ drawn for the step k -> k + 1, per ledger age: over
 // den, the paid-weighted λ̄ the allowance uses.
 const lamNum: Record<string, number[]> = {};
-// The same with nothing on a pre-game step — the old allowance, a control.
-const lamNumPlayedOnly: Record<string, number[]> = {};
 let misdatedRows = 0;
 const MAX_AGE = 40;
 for (const l of LINES) {
   lamNum[l] = new Array(MAX_AGE).fill(0);
-  lamNumPlayedOnly[l] = new Array(MAX_AGE).fill(0);
   num[l] = new Array(MAX_AGE).fill(0);
   den[l] = new Array(MAX_AGE).fill(0);
   obs[l] = new Array(MAX_AGE).fill(0);
@@ -242,15 +231,13 @@ for (let g = 0; g < GAMES; g++) {
         if (age + 1 >= MAX_AGE) continue;
         if (gross[k] > 0) {
           // The step k -> k + 1 is valuation year firstValuationYear + k + 1;
-          // a played year (>= 1) develops, and a pre-game one while the
-          // pre-game switch is on (restated, see the header).
+          // only a PLAYED year (>= 1) develops.
           const v = r.firstValuationYear + k + 1;
           // A line set Off (single player) develops nothing: λ 0.
           const level = developmentLevelOf(setup as never, line);
-          const drawn = ADVERSE_DEVELOPMENT.enabled && level ? adverseDevelopmentRate(marketSeedOf(inst), line, level, v, r.yearNumber) : 0;
-          const lambda = v >= 1 || PRE_GAME_ADVERSE_DEVELOPMENT.enabled ? drawn : 0;
+          const lambda = ADVERSE_DEVELOPMENT.enabled && v >= 1 && level
+            ? adverseDevelopmentRate(marketSeedOf(inst), line, level, v, r.yearNumber) : 0;
           lamNum[line][age] += gross[k] * lambda;
-          lamNumPlayedOnly[line][age] += gross[k] * (v >= 1 ? drawn : 0);
           den[line][age] += gross[k];
           num[line][age] += gross[k + 1];
           obs[line][age] += 1;
@@ -266,7 +253,6 @@ if (misdatedRows > 0) fail(`${misdatedRows} row(s) whose first valuation year is
 else console.log(`  OK    every row's valuation years are accident year + age, where the allowance reads λ`);
 // The paid-weighted λ̄ per ledger age (see the header).
 const drawnLambda = (line: CoverageLine, k: number) => (den[line][k] > 0 ? lamNum[line][k] / den[line][k] : 0);
-const playedOnlyLambda = (line: CoverageLine, k: number) => (den[line][k] > 0 ? lamNumPlayedOnly[line][k] / den[line][k] : 0);
 console.log(`  adverse development ${ADVERSE_DEVELOPMENT.enabled ? 'on' : 'OFF'}; λ̄ drawn at ledger ages 0-4: `
   + LINES.map(l => `${l} ${[0, 1, 2, 3, 4].map(k => drawnLambda(l, k).toFixed(3)).join('/')}`).join(', '));
 
@@ -380,7 +366,6 @@ if (NO_SHOCKS) {
   for (const [name, growth] of [
     ['the λ read one valuation year late', (line: CoverageLine, a: number, L: number) => inflationGrowth(line, a, L, (l, k) => drawnLambda(l, k + 1))],
     ['the λ 5% high', (line: CoverageLine, a: number, L: number) => inflationGrowth(line, a, L, (l, k) => 1.05 * drawnLambda(l, k))],
-    ['the old allowance, nothing on a pre-game step', (line: CoverageLine, a: number, L: number) => inflationGrowth(line, a, L, playedOnlyLambda)],
   ] as [string, (line: CoverageLine, a: number, L: number) => number][]) {
     const w = exactWorst(growth);
     if (w < EXACT) fail(`control: ${name} is NOT caught by 2b (worst ${w.toExponential(2)})`);

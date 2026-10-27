@@ -40,13 +40,8 @@ export function openSoloInstance(
   // games. Switched on, it would draw each line's level from the seed.
   const developmentLevels = settings.developmentLevels
     ?? (SOLO_ADVERSE_DEVELOPMENT.enabled ? drawDevelopmentLevels(settings.instanceId) : { ...NO_DEVELOPMENT });
-  // ⚠ TEST PLAYER TAKES THE HOST'S SHOCK SWITCH ('host'), so a Test player
-  // game and a hosted team on the same seed, levels and schedule are the same
-  // game. 'solo' turns shocks on whatever the schedule (SOLO_SHOCKS); with an
-  // empty schedule that priced the catalogue's load and opened on the default
-  // cover where a hosted room, shocks off, opens on None.
   return {
-    setup: { ...settings, shockTiming: test ? 'host' : 'solo', developmentLevels },
+    setup: { ...settings, shockTiming: 'solo', developmentLevels },
     instance: generateGameInstance(settings.instanceId, seedFromInstanceId(settings.instanceId), schedule),
   };
 }

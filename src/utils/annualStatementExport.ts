@@ -1,11 +1,10 @@
 // ============================================================================
 // THE ANNUAL STATEMENT AS AN EXCEL FILE — one sheet for the pool and one for
 // each line the team writes, each laid out cell for cell as the template
-// (docs/Annual Statement Example v2.xlsx, through TEMPLATE_ROWS): labels in column
-// B, Prior in C, the five years in D to H, All Years in I in the program-year
-// sections (a SUM formula over the row, as the template writes it), every blank
-// row where it is, and every cell's BORDER as the template draws it
-// (STATEMENT_BORDERS, generated from the template file).
+// (docs/Annual Statement Example.xlsx, through TEMPLATE_ROWS): labels in column
+// B, Prior in C, the five years in D to H, every blank row where it is, and
+// every cell's BORDER as the template draws it (STATEMENT_BORDERS, generated
+// from the template file).
 //
 // Every figure is a NUMBER, in the statement's units — dollars in thousands, a
 // percentage as its fraction under a percent format — with negatives shown red
@@ -24,7 +23,7 @@
 // ============================================================================
 import type { Borders, Worksheet } from 'exceljs';
 import {
-  ALL_YEARS_LABEL, allYearsCell, DOLLARS_PER_UNIT, TEMPLATE_ROWS, templateStatements, type FigureFormat, type TemplateStatement,
+  DOLLARS_PER_UNIT, TEMPLATE_ROWS, templateStatements, type FigureFormat, type TemplateStatement,
 } from './annualStatementTemplate';
 import { STATEMENT_BORDERS } from './annualStatementBorders';
 import type { GameState } from '../types/simulation';
@@ -38,11 +37,8 @@ export const STATEMENT_NUMBER_FORMAT: Record<FigureFormat, string> = {
   rate: '0.000;[Red]-0.000',
 };
 
-/** The columns a statement row spans, A to I — I is All Years: the template's own. */
-export const STATEMENT_COLUMNS = 9;
-/** All Years' column (I), and the range its SUM covers: Prior (C) to the last year (H). */
-export const ALL_YEARS_COLUMN = 9;
-export const allYearsFormula = (r: number) => `SUM(C${r}:H${r})`;
+/** The columns a statement row spans, A to H: the template's own. */
+export const STATEMENT_COLUMNS = 8;
 
 /** A cell's border from its sides ('LRTB'), every line thin as the template's. */
 function borderOf(sides: string): Partial<Borders> {
@@ -71,32 +67,18 @@ function fillSheet(ws: Worksheet, ts: TemplateStatement): void {
         // A real date: 12/31 of the year, as the template's mm-dd-yy cells.
         if (row.dates) { cell.value = dateSerial(y, 12, 31); cell.numFmt = 'mm-dd-yy'; } else cell.value = y;
       });
-      if (row.allYears) ws.getCell(r, ALL_YEARS_COLUMN).value = ALL_YEARS_LABEL;
     }
     if (row.kind !== 'figure') return;
-    const written: number[] = [];
     ts.figures[row.key].forEach((x, k) => {
       const cell = ws.getCell(r, 3 + k);
       if (x === null) { cell.value = '—'; return; }
       // A dollar figure within half a cent of zero is zero: it is arithmetic's
       // residue (a balance less its own parts), and would show as a red "-0".
-      const v = row.format === 'dollars' ? (Math.abs(x) < 0.005 ? 0 : x / DOLLARS_PER_UNIT) : x;
-      cell.value = v;
+      cell.value = row.format === 'dollars' ? (Math.abs(x) < 0.005 ? 0 : x / DOLLARS_PER_UNIT) : x;
       cell.numFmt = STATEMENT_NUMBER_FORMAT[row.format];
-      written.push(v);
     });
-    // ALL YEARS, as the template writes it: a SUM over the row's own cells, Prior
-    // to the last year, its value cached so a reader that does not recalculate
-    // sees the total. A ratio row leaves it blank; a row with no figure at all
-    // shows "—", as on the screen, rather than a SUM of nothing.
-    const total = allYearsCell(row, i, ts);
-    if (total === undefined) return;
-    const cell = ws.getCell(r, ALL_YEARS_COLUMN);
-    if (total === null) { cell.value = '—'; return; }
-    cell.value = { formula: allYearsFormula(r), result: written.reduce((t, x) => t + x, 0) };
-    cell.numFmt = STATEMENT_NUMBER_FORMAT.dollars;
   });
-  ws.columns = [{ width: 2 }, { width: 42 }, ...Array.from({ length: 2 + ts.years.length }, () => ({ width: 12 }))];
+  ws.columns = [{ width: 2 }, { width: 42 }, ...Array.from({ length: 1 + ts.years.length }, () => ({ width: 12 }))];
 }
 
 /** Excel's serial day number for a calendar date (the 1900 system, past its leap-year bug). */

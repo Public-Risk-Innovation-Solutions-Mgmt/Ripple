@@ -12,7 +12,7 @@
 // ============================================================================
 
 import {
-  ADVERSE_DEVELOPMENT, LEARNED_DEVELOPMENT, ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, ADVERSE_DEVELOPMENT_RANGE, DEVELOPMENT_LEVELS, type DevelopmentLevel, type DevelopmentSetting,
+  ADVERSE_DEVELOPMENT_DEFAULT_LEVEL, ADVERSE_DEVELOPMENT_RANGE, DEVELOPMENT_LEVELS, type DevelopmentLevel, type DevelopmentSetting,
 } from '../data/pricingParameters';
 import { deriveSubRng } from './random';
 import { seedFromInstanceId } from '../seedHash';
@@ -35,14 +35,6 @@ export const developmentLevelOf = (setup: Pick<GameSetupSettings, 'developmentLe
   const s = setup.developmentLevels?.[line] ?? ADVERSE_DEVELOPMENT_DEFAULT_LEVEL;
   return s === 'Off' ? null : s;
 };
-
-/**
- * DOES PRICING LEARN THIS LINE'S DEVELOPMENT (LEARNED_DEVELOPMENT)? Where the
- * game develops it: adverse development on and a level set. Never single
- * player, whose lines are all Off — so its pricing is today's to the bit.
- */
-export const learnsDevelopment = (setup: Pick<GameSetupSettings, 'developmentLevels'>, line: CoverageLine): boolean =>
-  LEARNED_DEVELOPMENT.enabled && ADVERSE_DEVELOPMENT.enabled && developmentLevelOf(setup, line) !== null;
 
 /** Single player's setting with SOLO_ADVERSE_DEVELOPMENT off: every line Off. */
 export const NO_DEVELOPMENT: Record<CoverageLine, DevelopmentSetting> = { WC: 'Off', GL: 'Off', Property: 'Off' };

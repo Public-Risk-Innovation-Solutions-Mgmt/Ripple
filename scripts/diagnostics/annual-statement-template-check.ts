@@ -33,8 +33,7 @@
 //           all newly arising; Newly Arising + Previously Reported + Change in
 //           IBNR = Total Net Incurred in every column — at EVERY year each game's
 //           statement can stand at, every scope; Written Premium is each program
-//           year's own; and the All Years Total Net Incurred is the calendar
-//           year's Total Incurred Loss & LAE on the Net Income Statement.
+//           year's own.
 //        A4 Program years: reported = paid + case, incurred = reported + IBNR,
 //           net = gross − ceded, Program Year Totals - Net = the Net block; summed
 //           over every column, net case + IBNR is the balance sheet's loss and
@@ -43,18 +42,14 @@
 //           engine's; Retained % = renewal over last year's written; written =
 //           new + renewal; the pool's their sums when its lines share one unit
 //           (WC and GL payroll, or Property alone) and "—" in every row otherwise.
-//   B. THE EXCEL FILE IS THE TEMPLATE CELL FOR CELL — the v2 template's Pool
-//      sheet, against the file a player downloads, built and read back: on every
-//      sheet, every label in column B and every blank row is the template's, row
-//      for row — but for the two headings the statement renames on purpose
-//      (RENAMED_HEADINGS: "Net Income Statement For The Year", "Reinsurance
-//      Information - Program Year Totals"), and only those; column I (All Years) holds the template's header and its SUM(C:H)
-//      formula wherever the template does, cached at its row's sum, and nothing
-//      where it holds nothing (the ratio rows); the figure cells are numbers in
-//      their formats; the header rows carry Prior and the five years; and EVERY
-//      CELL'S BORDER, A to I on every row, is the template's — each side and its
-//      style, read from the template file itself (exceljs), never from the table
-//      the app draws from.
+//   B. THE EXCEL FILE IS THE TEMPLATE CELL FOR CELL — the file a player
+//      downloads, built and read back: on every sheet, every label in column B
+//      and every blank row is the template's, row for row, with the template's
+//      row 15 ("Profit and Contigency") removed and nothing else; the figure cells
+//      are numbers in their formats; the header rows carry Prior and the five
+//      years; and EVERY CELL'S BORDER, A to H on every row, is the template's —
+//      each side and its style, read from the template file itself (exceljs),
+//      never from the table the app draws from.
 //   C. THE OPERATING RATIO BY HAND, scenario 1, WC, 2027: its parts printed and
 //      the ratio recomputed from them.
 //
@@ -63,11 +58,9 @@
 // the net premium; contributions measured against the same valuation; a reserve
 // dropped from the blocks; newly arising short of IBNR's share of development;
 // Total Net Incurred moved with its parts; the old all-previously-reported
-// split; Prior's Total Net Incurred moved, which the All Years check must catch),
-// and B a workbook with "Profit and Contigency" kept, v1's two blank rows after
-// Written Premium, a blank row dropped, a label altered, an All Years total
-// written as a number and one summed short a column, one border missing (which
-// must fail on exactly that cell) and the v1 template's lines.
+// split), and B a workbook with the removed row kept, one
+// blank row dropped, one label altered, one border missing (which must fail on
+// exactly that cell) and the borders left unshifted when row 15 closes up.
 // ============================================================================
 
 import * as fs from 'fs';
@@ -79,18 +72,14 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
-import { allYearsCell, buildTemplateStatement, RENAMED_HEADINGS, TEMPLATE_ROWS, type Figure, type TemplateStatement } from '../../src/utils/annualStatementTemplate';
+import { buildTemplateStatement, TEMPLATE_ROWS, type Figure, type TemplateStatement } from '../../src/utils/annualStatementTemplate';
 import { programYearsOf, statementYears } from '../../src/utils/resultsStatement';
 import ExcelJS from 'exceljs';
-import { ALL_YEARS_COLUMN, allYearsFormula, buildAnnualStatementXlsx, STATEMENT_COLUMNS, STATEMENT_NUMBER_FORMAT } from '../../src/utils/annualStatementExport';
+import { buildAnnualStatementXlsx, STATEMENT_COLUMNS, STATEMENT_NUMBER_FORMAT } from '../../src/utils/annualStatementExport';
 import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineResultSet, LineView, ResultSet } from '../../src/types/simulation';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATE = path.join(__dirname, '../../docs/Annual Statement Example v2.xlsx');
-/** v2's template is its Pool sheet (it also carries a filled WC example). */
-const TEMPLATE_SHEET = 'Pool';
-/** The first template — read only by a control, so v1's layout must fail against v2. */
-const TEMPLATE_V1 = path.join(__dirname, '../../docs/Annual Statement Example.xlsx');
+const TEMPLATE = path.join(__dirname, '../../docs/Annual Statement Example.xlsx');
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 const SCOPES: LineView[] = ['pool', ...LINES];
 const YEARS = 3;
@@ -243,12 +232,6 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
     rowTies('Newly Arising Reserve Changes', f['cy.new.case'], want.map(w => w.newCase), out);
     rowTies('Previously Reported Payments', f['cy.prev.paid'], want.map(w => w.prevPaid), out);
     rowTies('Previously Reported Reserve Changes', f['cy.prev.case'], want.map(w => w.prevCase), out);
-    // ALL YEARS: the Contributions' Total Net Incurred over every program year is
-    // the calendar year's Total Incurred Loss & LAE on the Net Income Statement.
-    const cyRow = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'cy.incurred');
-    const allYearsIncurred = allYearsCell(TEMPLATE_ROWS[cyRow], cyRow, ts);
-    if (allYearsIncurred == null || f.lossLae[last] === null || !near(allYearsIncurred, f.lossLae[last]!))
-      out.push(`All Years Total Net Incurred ${allYearsIncurred} ≠ the Net Income Statement's Total Incurred Loss & LAE ${f.lossLae[last]}`);
     // AND IT FOOTS: Newly Arising + Previously Reported + Change in IBNR = Total Net Incurred, every column.
     f['cy.incurred'].forEach((x, i) => {
       const parts = f['cy.prev.reported'][i]! + f['cy.new.reported'][i]! + f['cy.ibnr'][i]!;
@@ -374,13 +357,6 @@ check(A3_EXERCISE.underwritingFigures > 0, 'A. the pool\'s underwriting rows are
     const errs = tieOut(gs, t, 'WC');
     check(errs.length > 0, `A control — ${c.name}: the tie-out fails`, errs[0] ?? 'NOTHING FIRED');
   }
-  // All Years: one column's Total Net Incurred moved, nothing else — the All Years check itself must fire.
-  {
-    const t = clone(base);
-    t.figures['cy.incurred'][0]! += 50_000;
-    const errs = tieOut(gs, t, 'WC').filter(e => e.startsWith('All Years Total Net Incurred'));
-    check(errs.length === 1, 'A control — Prior\'s Total Net Incurred moved: All Years no longer meets the Net Income Statement, and that check fails', errs[0] ?? 'NOTHING FIRED');
-  }
 }
 
 // The controls: each a statement with one figure off the engine's, on the covered
@@ -404,48 +380,28 @@ for (const c of controls) {
 }
 
 // ---------------------------------------------------------------------------
-// B. The Excel file against the template (v2's Pool sheet): labels, blank rows,
-// borders and the All Years formulas.
+// B. The Excel file against the template: labels, blank rows and borders.
 // ---------------------------------------------------------------------------
-console.log('\nB. the Excel file is the v2 template cell for cell: labels, blanks, borders and the All Years formulas');
-const tpl = XLSX.read(fs.readFileSync(TEMPLATE), { type: 'buffer', cellFormula: true });
-const tws = tpl.Sheets[TEMPLATE_SHEET];
+console.log('\nB. the Excel file is the template cell for cell, borders included, less "Profit and Contigency"');
+const tpl = XLSX.read(fs.readFileSync(TEMPLATE), { type: 'buffer' });
+const tws = tpl.Sheets[tpl.SheetNames[0]];
 const tRange = XLSX.utils.decode_range(tws['!ref']!);
 const cellOf = (ws: XLSX.WorkSheet, r: number, c: number) => ws[XLSX.utils.encode_cell({ r, c })] as XLSX.CellObject | undefined;
 const labelAt = (ws: XLSX.WorkSheet, r: number) => { const c = cellOf(ws, r, 1); return c && c.v !== undefined && c.v !== '' ? String(c.v) : null; };
 const blankAt = (ws: XLSX.WorkSheet, r: number) => [1, 2, 3, 4, 5, 6, 7].every(c => { const x = cellOf(ws, r, c); return !x || x.v === undefined || x.v === ''; });
-/** Column I (All Years) as a template or a statement holds it: its header, its formula, or nothing. */
-const allYearsAt = (ws: XLSX.WorkSheet, r: number): string => {
-  const c = cellOf(ws, r, ALL_YEARS_COLUMN - 1);
-  if (!c) return '';
-  if (c.f) return `=${c.f.replace(/^=/, '')}`;
-  return c.v === undefined || c.v === '' ? '' : String(c.v);
-};
-// THE TWO HEADINGS THE STATEMENT RENAMES ON PURPOSE (RENAMED_HEADINGS): every
-// other label is the template's exactly. Both must be found in the template,
-// each once, and each a section title.
-const expectedLabel = (r: number) => { const t = labelAt(tws, r); return t !== null && t in RENAMED_HEADINGS ? RENAMED_HEADINGS[t] : t; };
-const renamedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r).filter(r => labelAt(tws, r) !== expectedLabel(r));
-check(renamedRows.length === 2 && renamedRows.every(r => TEMPLATE_ROWS[r]?.kind === 'title' && 'label' in TEMPLATE_ROWS[r] && (TEMPLATE_ROWS[r] as { label: string }).label === expectedLabel(r)),
-  'B. the statement renames exactly two template cells, both section titles: "Net Income Statement For The Year" and "Reinsurance Information - Program Year Totals"',
-  renamedRows.map(r => `B${r + 1} "${labelAt(tws, r)}" → "${expectedLabel(r)}"`).join(' · '));
-check(!Array.from({ length: tRange.e.r + 1 }, (_, r) => labelAt(tws, r)).includes('Profit and Contigency'),
-  'B. v2 carries no "Profit and Contigency" — the v1 row the statement removed is gone from the template itself');
-const expectedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r);
-check(TEMPLATE_ROWS.length === expectedRows.length, `B. the statement has the template's rows: ${TEMPLATE_ROWS.length} of ${tRange.e.r + 1}`);
-const templateFormulas = expectedRows.filter(r => allYearsAt(tws, r).startsWith('=')).length;
-check(templateFormulas > 0 && expectedRows.every(r => { const a = allYearsAt(tws, r); return !a.startsWith('=') || a === `=${allYearsFormula(r + 1)}`; }),
-  'B. every All Years cell in the template is SUM(C:H) over its own row', `${templateFormulas} formulas`);
+const REMOVED = 14; // template row 15, zero-based
+check(labelAt(tws, REMOVED) === 'Profit and Contigency', 'B. the template\'s row 15 is "Profit and Contigency" — the one row removed', String(labelAt(tws, REMOVED)));
+/** The template's rows as the statement keeps them: every row through its last (157, which carries the Net block's closing line), row 15 removed. */
+const expectedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r).filter(r => r !== REMOVED);
+check(TEMPLATE_ROWS.length === expectedRows.length, `B. the statement has the template's rows less one: ${TEMPLATE_ROWS.length} of ${tRange.e.r + 1}`);
 
 function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement): string[] {
   const out: string[] = [];
   const range = XLSX.utils.decode_range(ws['!ref']!);
   if (range.e.r + 1 !== expectedRows.length) out.push(`${range.e.r + 1} rows, template ${expectedRows.length}`);
-  expectedRows.forEach(r => {
-    if (labelAt(ws, r) !== expectedLabel(r)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${expectedLabel(r)}" (template "${labelAt(tws, r)}")`);
-    if (blankAt(ws, r) !== blankAt(tws, r)) out.push(`row ${r + 1}: ${blankAt(ws, r) ? 'blank' : 'not blank'}, template ${blankAt(tws, r) ? 'blank' : 'not blank'}`);
-    // ALL YEARS: the same header, the same formula, or nothing — cell for cell.
-    if (allYearsAt(ws, r) !== allYearsAt(tws, r)) out.push(`I${r + 1}: "${allYearsAt(ws, r)}" ≠ template "${allYearsAt(tws, r)}"`);
+  expectedRows.forEach((tr, r) => {
+    if (labelAt(ws, r) !== labelAt(tws, tr)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ template row ${tr + 1} "${labelAt(tws, tr)}"`);
+    if (blankAt(ws, r) !== blankAt(tws, tr)) out.push(`row ${r + 1}: ${blankAt(ws, r) ? 'blank' : 'not blank'}, template row ${tr + 1} ${blankAt(tws, tr) ? 'blank' : 'not blank'}`);
   });
   TEMPLATE_ROWS.forEach((row, r) => {
     if (row.kind === 'header') {
@@ -458,12 +414,6 @@ function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement): string[] {
       if (x === null && c?.v !== '—') out.push(`row ${r + 1} col ${i}: no figure, not "—"`);
       if (x !== null && c?.z !== STATEMENT_NUMBER_FORMAT[row.format]) out.push(`row ${r + 1} col ${i}: format ${c?.z}`);
     });
-    // The formula's cached value is its row's sum, so a reader that does not recalculate sees the total.
-    const ay = cellOf(ws, r, ALL_YEARS_COLUMN - 1);
-    if (ay?.f) {
-      const rowSum = [2, 3, 4, 5, 6, 7].reduce((t, c) => { const x = cellOf(ws, r, c); return t + (x?.t === 'n' ? Number(x.v) : 0); }, 0);
-      if (ay.t !== 'n' || !near(Number(ay.v), rowSum)) out.push(`I${r + 1}: cached ${ay.v} ≠ its row's sum ${rowSum}`);
-    }
   });
   return out;
 }
@@ -477,85 +427,62 @@ const sidesOf = (ws: BorderSheet, r: number, c: number) => {
 };
 const texcel = new ExcelJS.Workbook();
 await texcel.xlsx.readFile(TEMPLATE);
-const tBorders = texcel.getWorksheet(TEMPLATE_SHEET)!;
-let templateLines = 0, allYearsLines = 0;
-for (const r of expectedRows) for (let c = 1; c <= STATEMENT_COLUMNS; c++) {
-  const n = sidesOf(tBorders, r + 1, c).split(':').length - 1;
-  templateLines += n;
-  if (c === ALL_YEARS_COLUMN) allYearsLines += n;
-}
-check(templateLines > 0 && allYearsLines > 0, 'B. the template draws borders to compare against, All Years included', `${templateLines} cell sides, ${allYearsLines} in column I`);
+const tBorders = texcel.worksheets[0];
+let templateLines = 0;
+for (const tr of expectedRows) for (let c = 1; c <= STATEMENT_COLUMNS; c++) templateLines += sidesOf(tBorders, tr + 1, c).split(':').length - 1;
+check(templateLines > 0, 'B. the template draws borders to compare against', `${templateLines} cell sides`);
+check(sidesOf(tBorders, REMOVED + 1, 2) === 'L:thinR:thin', 'B. the removed row carries only its vertical lines — nothing closes on it', sidesOf(tBorders, REMOVED + 1, 2));
 
-/** Every cell, A to I on every statement row, whose border is not the template's, row for row. */
+/** Every cell, A to H on every statement row, whose border is not the template's row for row (row 15 removed). */
 function borderDiffs(ws: BorderSheet): string[] {
   const out: string[] = [];
-  expectedRows.forEach(r => {
+  expectedRows.forEach((tr, r) => {
     for (let c = 1; c <= STATEMENT_COLUMNS; c++) {
-      const want = sidesOf(tBorders, r + 1, c), got = sidesOf(ws, r + 1, c);
-      if (want !== got) out.push(`${String.fromCharCode(64 + c)}${r + 1}: "${got}" ≠ template "${want}"`);
+      const want = sidesOf(tBorders, tr + 1, c), got = sidesOf(ws, r + 1, c);
+      if (want !== got) out.push(`${String.fromCharCode(64 + c)}${r + 1}: "${got}" ≠ template ${String.fromCharCode(64 + c)}${tr + 1} "${want}"`);
     }
   });
   return out;
 }
 
 for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEARS]]) {
-  // THE FILE a player downloads, read back two ways: SheetJS for values, formats and formulas, exceljs for borders.
+  // THE FILE a player downloads, read back two ways: SheetJS for values and formats, exceljs for borders.
   const bytes = await buildAnnualStatementXlsx(gs);
-  const wb = XLSX.read(new Uint8Array(bytes), { type: 'array', cellNF: true, cellFormula: true });
+  const wb = XLSX.read(new Uint8Array(bytes), { type: 'array', cellNF: true });
   const ex = new ExcelJS.Workbook();
   await ex.xlsx.load(bytes);
   const tag = `${g.id}, year ${gs.lockedResults.length}`;
   check(wb.SheetNames.join(',') === 'Pool,WC,GL,Property', `B. ${tag}: a sheet for the pool and one per line`, wb.SheetNames.join(','));
   const diffs = wb.SheetNames.flatMap((s, i) => layoutDiffs(wb.Sheets[s], buildTemplateStatement(gs, SCOPES[i])).map(d => `${s} ${d}`));
-  check(diffs.length === 0, `B. ${tag}: every sheet matches the template label for label, blank for blank and All Years formula for formula (${expectedRows.length} rows, ${templateFormulas} formulas), figures numbers in their formats`, diffs.slice(0, 3).join(' · '));
+  check(diffs.length === 0, `B. ${tag}: every sheet matches the template label for label and blank for blank (${expectedRows.length} rows), figures numbers in their formats`, diffs.slice(0, 3).join(' · '));
   const bdiffs = ex.worksheets.flatMap(ws => borderDiffs(ws).map(d => `${ws.name} ${d}`));
-  check(bdiffs.length === 0, `B. ${tag}: every sheet's borders are the template's, cell for cell (A–I × ${expectedRows.length} rows, ${templateLines} sides a sheet)`, bdiffs.slice(0, 3).join(' · '));
+  check(bdiffs.length === 0, `B. ${tag}: every sheet's borders are the template's, cell for cell (A–H × ${expectedRows.length} rows, ${templateLines} sides a sheet)`, bdiffs.slice(0, 3).join(' · '));
 }
 
-// The controls. Layout: the v1 row kept, v1's two blanks after Written Premium, a
-// blank row dropped, a label altered, an All Years total written as a number, and
-// one summed over the wrong range. Borders: one line missing, and v1's lines.
+// The controls. Layout: the removed row kept, a blank row dropped, a label altered.
+// Borders: one line missing, and the lines left where they were when row 15 closed up.
 {
   const ts = buildTemplateStatement(g1, 'WC');
   const bytes = await buildAnnualStatementXlsx(g1);
-  const base = XLSX.read(new Uint8Array(bytes), { type: 'array', cellNF: true, cellFormula: true }).Sheets.WC;
+  const base = XLSX.read(new Uint8Array(bytes), { type: 'array', cellNF: true }).Sheets.WC;
   const shifted = (rows: number[]) => {
     const out: XLSX.WorkSheet = {};
-    rows.forEach((src, dst) => { for (let c = 0; c < STATEMENT_COLUMNS; c++) { const x = cellOf(base, src, c); if (x) out[XLSX.utils.encode_cell({ r: dst, c })] = x; } });
-    out['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length - 1, c: STATEMENT_COLUMNS - 1 } });
+    rows.forEach((src, dst) => { for (let c = 0; c < 8; c++) { const x = cellOf(base, src, c); if (x) out[XLSX.utils.encode_cell({ r: dst, c })] = x; } });
+    out['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length - 1, c: 7 } });
     return out;
   };
   const all = TEMPLATE_ROWS.map((_, r) => r);
+  // "Profit and Contigency" put back at row 15 and the rest pushed down a row.
   const withRow = shifted([...all.slice(0, 14), -1, ...all.slice(14)]);
   withRow[XLSX.utils.encode_cell({ r: 14, c: 1 })] = { t: 's', v: 'Profit and Contigency' };
-  check(layoutDiffs(withRow, ts).length > 0, 'B control — "Profit and Contigency" kept: the layout check fails');
-  // v1's spacing: a second blank row after the Contributions' Written Premium (statement row 74).
-  const v1Spacing = shifted([...all.slice(0, 74), -1, ...all.slice(74, -1)]);
-  check(layoutDiffs(v1Spacing, ts).length > 0, 'B control — v1\'s two blank rows after Written Premium: the layout check fails', layoutDiffs(v1Spacing, ts)[0]);
+  check(layoutDiffs(withRow, ts).length > 0, 'B control — the removed row kept: the layout check fails');
   const dropped = shifted(all.filter(r => r !== 29));
   check(layoutDiffs(dropped, ts).length > 0, 'B control — one blank row dropped: the layout check fails', layoutDiffs(dropped, ts)[0]);
-  // The template's old wording kept, and a third heading renamed: both must fail.
-  for (const [name, r, v] of [
-    ['the template\'s old wording kept ("Net Income Statement ")', renamedRows[0], labelAt(tws, renamedRows[0])],
-    ['a third heading renamed ("Underwriting" → "Underwriting Results")', TEMPLATE_ROWS.findIndex(x => x.kind === 'title' && x.label === 'Underwriting'), 'Underwriting Results'],
-  ] as const) {
-    const t = shifted(all);
-    t[XLSX.utils.encode_cell({ r, c: 1 })] = { t: 's', v: String(v) };
-    check(layoutDiffs(t, ts).length > 0, `B control — ${name}: the layout check fails`, layoutDiffs(t, ts)[0]);
-  }
   const altered = shifted(all);
   altered[XLSX.utils.encode_cell({ r: 38, c: 1 })] = { t: 's', v: 'Invested' };
   check(layoutDiffs(altered, ts).length > 0, 'B control — a label altered ("      Invested" → "Invested"): the layout check fails', layoutDiffs(altered, ts)[0]);
-  // All Years, row 87 (the Contributions' Total Net Incurred): its total as a plain number, then a SUM short a column.
-  const ayRow = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'cy.incurred');
-  const asValue = shifted(all);
-  asValue[XLSX.utils.encode_cell({ r: ayRow, c: ALL_YEARS_COLUMN - 1 })] = { t: 'n', v: Number(cellOf(base, ayRow, ALL_YEARS_COLUMN - 1)?.v) };
-  check(layoutDiffs(asValue, ts).length > 0, `B control — an All Years total written as a number, not a formula (I${ayRow + 1}): the check fails`, layoutDiffs(asValue, ts)[0]);
-  const shortRange = shifted(all);
-  shortRange[XLSX.utils.encode_cell({ r: ayRow, c: ALL_YEARS_COLUMN - 1 })] = { ...cellOf(base, ayRow, ALL_YEARS_COLUMN - 1)!, f: `SUM(C${ayRow + 1}:G${ayRow + 1})` };
-  check(layoutDiffs(shortRange, ts).length > 0, `B control — an All Years SUM short a column (C:G): the check fails`, layoutDiffs(shortRange, ts)[0]);
 
-  // One line missing: the bottom line that closes the Net Income Statement (row 29), on H.
+  // One line missing: the bottom line that closes the Net Income Statement (statement row 29, template 30), on H.
   const ex = new ExcelJS.Workbook();
   await ex.xlsx.load(bytes);
   const ws = ex.getWorksheet('WC')!;
@@ -568,12 +495,10 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   h29.style = { ...h29.style, border: rest };
   const missing = borderDiffs(ws);
   check(missing.length === 1, 'B control — one border missing (H29\'s closing line): the border check fails, on exactly that cell', missing.join(' · ') || 'NOTHING FIRED');
-  // v1's lines, row for row: no All Years column, and its rows unshifted by the row v2 dropped.
-  const v1 = new ExcelJS.Workbook();
-  await v1.xlsx.readFile(TEMPLATE_V1);
-  const v1ws = v1.worksheets[0];
-  const v1Lines = borderDiffs({ getCell: (r, c) => v1ws.getCell(r < 15 ? r : r + 1, c) });
-  check(v1Lines.length > 0, 'B control — the v1 template\'s lines: the border check fails', `${v1Lines.length} cells, first ${v1Lines[0]}`);
+  // Not closed up: every row's lines taken from the template row of the SAME number, as if row 15 were still there.
+  const stale: BorderSheet = { getCell: (r, c) => tBorders.getCell(r, c) };
+  const notClosed = borderDiffs(stale);
+  check(notClosed.length > 0, 'B control — the borders left in place when row 15 closes up: the border check fails', `${notClosed.length} cells, first ${notClosed[0]}`);
 }
 
 // ---------------------------------------------------------------------------
