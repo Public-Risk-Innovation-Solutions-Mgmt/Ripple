@@ -1456,7 +1456,22 @@ const BASELINE = process.env.RENDER_BASELINE
 // v94's own text: 26 of 236 move, EXACTLY the 26 Annual Statement screens, and
 // each is v94's text character for character once those two headings are read
 // back to their old wording. Nothing else on any screen.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v95.json');
+// v96: SEVEN COLUMNS, THE NET INCOME STATEMENT'S ROWS, THE CONTRIBUTIONS
+// VARIANCE. Against v95's own text (RENDER_TEXT_DIR), parsed row by row: 26 of
+// 236 move, EXACTLY the 26 Annual Statement screens, nothing above the statement
+// on any, and every moved row is one of these — none unexplained:
+//   · Prior off the Net Income Statement, Balance Sheet and Underwriting: 832
+//     rows and 52 headers lose their Prior cell; 52 (Underwriting's two changes)
+//     lose Prior and the first year's change.
+//   · the labels "Written Premium", "Other Admin Expense", "- Net of Reinsurance"
+//     (read back to v95's wording, the rows' figures as they were); one row
+//     inserted on each screen, General Admin Expense's own "% of Premium", and the
+//     old admin "% of Premium" now Other Admin Expense's own (26 each).
+//   · the Contributions variance: Payments and Reserve Changes (52 each,
+//     Previously Reported and Newly Arising), Previously Reported Net Reported and
+//     Change in IBNR (26 each). Written Premium and Total Net Incurred do not move.
+// Bold block names, alignment and the blank C and I cells carry no text.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v96.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
