@@ -920,7 +920,60 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // identical in all 24; in the full-precision rendering they differ by at most
 // 7.3e-11 (thousands of dollars) — the split is now summed accident year by
 // accident year rather than column by column, which reorders the additions.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v97.json');
+// v98: THE v2 TEMPLATE — ALL YEARS. All 24 `stmt|...` keys move; all 24
+// Results-workbook keys are byte-identical to v97. Text-diffed against the code at
+// 2107e9d (GUARD_TEXT_DIR), every moved line is one of three things. One blank
+// row fewer after each sheet's Contributions Written Premium (v2's spacing). Column
+// I added: 4,560 lines gain their All Years SUM (the dollar rows of the
+// Contributions, Program Year Totals, Gross, Ceded and Net blocks), and every
+// other line gains one empty field, as the sheet is now nine columns wide; the
+// ratio rows are blank there. And 4,380 bordered cells added, all in column I;
+// no border elsewhere moved once the rows below the dropped blank are aligned.
+// No key added or removed.
+// v99: TWO HEADINGS RENAMED — "Net Income Statement For The Year" and
+// "Reinsurance Information - Program Year Totals". All 24 `stmt|...` keys move;
+// all 24 Results-workbook keys are byte-identical to v98. Text-diffed
+// (GUARD_TEXT_DIR): every statement file is v98's character for character once
+// those two headings are read back to the template's wording. No key added or
+// removed.
+// v100: SEVEN COLUMNS, THE NET INCOME STATEMENT'S ROWS, THE CONTRIBUTIONS
+// VARIANCE. All 24 `stmt|...` keys move; all 24 Results-workbook keys are
+// byte-identical to v99. Text-diffed against v99's own text (GUARD_TEXT_DIR,
+// shown and raw), every moved line is one of these, and none is unexplained:
+//   · Prior blank in the Net Income Statement, Balance Sheet and Underwriting —
+//     4,440 lines lose their C cell; 240 lose the first year's "Change from
+//     Prior" / "% Change Over Prior".
+//   · the labels: "Premium" → "Written Premium", "Additional Admin Expense (risk
+//     control)" → "Other Admin Expense", the three "% of Premium" indented, the
+//     Contributions and Program Year Totals "- Net of Reinsurance" (120 each,
+//     360 for the indents).
+//   · one row inserted, General Admin Expense's own "% of Premium" (120 lines),
+//     and the old admin "% of Premium" now Other Admin Expense's own (120).
+//   · the Contributions variance: Previously Reported and Newly Arising
+//     Payments and Reserve Changes, Previously Reported Net Reported and Change
+//     in IBNR (120 lines each); Newly Arising Net Reported in 30 raw lines, at
+//     the last digit — newly reported is the same amount, re-split. Written
+//     Premium and Total Net Incurred do not move.
+//   · borders: 3,660 bordered cells added — column I drawn as H above the
+//     Contributions, and the inserted row drawn as row 13; with rows below the
+//     inserted one aligned, no other border moved.
+// No key added or removed.
+// v101: THE SETTLEMENT DRAWS ON THE PROGRAM-YEAR BLOCKS. All 24 `stmt|...`
+// keys move; all 24 Results-workbook keys are byte-identical to v100.
+// Text-diffed against v100's own text (GUARD_TEXT_DIR, shown and raw): every
+// moved line is Case Reserves, IBNR Reserves or Reported Loss & LAE in Program
+// Year Totals or the Gross or Net block (120 lines each, nine rows) — each
+// accident year's draws to date moved from IBNR to case. Ceded, Paid, Total
+// Incurred, the Contributions and the borders do not move. No key added or removed.
+// v102: THE SETTLEMENT DRAW CAPPED AT THE IBNR LEFT. 12 `stmt|...` keys move —
+// the statements where the cap binds; the other 12 and all 24 Results keys are
+// byte-identical to v101. Text-diffed against v101's own text (GUARD_TEXT_DIR,
+// shown and raw): every moved line is Previously Reported Reserve Changes or
+// Net Reported, or Change in IBNR, in the Contributions, or Case Reserves, IBNR
+// Reserves or Reported Loss & LAE in Program Year Totals or the Gross or Net
+// block (48 lines each). Payments, Total Net Incurred, Ceded, Paid and Total
+// Incurred do not move. No key added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v102.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
