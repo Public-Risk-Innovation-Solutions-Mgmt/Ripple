@@ -30,7 +30,13 @@
 //           is −ΔIBNR + s·D (s its IBNR share of the reserve outstanding at the
 //           start of the year, D its movement), Previously Reported takes the
 //           year's payments and (1 − s)·D less them, the current program year is
-//           all newly arising; Newly Arising + Previously Reported + Change in
+//           all newly arising; then the two variances — newly reported claims
+//           paid at the line's first-year paid share (held between 0 and the
+//           year's payments), taken off Previously Reported Payments, and the
+//           settlement draw (the game's seed, mean 0, SETTLEMENT_SPREAD of the
+//           previously reported payments) added to Previously Reported and taken
+//           off Change in IBNR — with each accident year's payments and Total Net
+//           Incurred unchanged by them; Newly Arising + Previously Reported + Change in
 //           IBNR = Total Net Incurred in every column — at EVERY year each game's
 //           statement can stand at, every scope; Written Premium is each program
 //           year's own; and the All Years Total Net Incurred is the calendar
@@ -43,18 +49,24 @@
 //           engine's; Retained % = renewal over last year's written; written =
 //           new + renewal; the pool's their sums when its lines share one unit
 //           (WC and GL payroll, or Property alone) and "—" in every row otherwise.
-//   B. THE EXCEL FILE IS THE TEMPLATE CELL FOR CELL — the v2 template's Pool
-//      sheet, against the file a player downloads, built and read back: on every
-//      sheet, every label in column B and every blank row is the template's, row
-//      for row — but for the two headings the statement renames on purpose
-//      (RENAMED_HEADINGS: "Net Income Statement For The Year", "Reinsurance
-//      Information - Program Year Totals"), and only those; column I (All Years) holds the template's header and its SUM(C:H)
-//      formula wherever the template does, cached at its row's sum, and nothing
-//      where it holds nothing (the ratio rows); the figure cells are numbers in
-//      their formats; the header rows carry Prior and the five years; and EVERY
-//      CELL'S BORDER, A to I on every row, is the template's — each side and its
-//      style, read from the template file itself (exceljs), never from the table
-//      the app draws from.
+//   B. THE EXCEL FILE IS THE TEMPLATE CELL FOR CELL, BUT FOR A LIST — the v2
+//      template's Pool sheet, against the file a player downloads, built and read
+//      back. The statement differs from the template on purpose, and only as
+//      annualStatementTemplate.ts lists it (printed here): the label changes
+//      (LABEL_CHANGES — four headings, "Written Premium", "Other Admin Expense",
+//      the three "% of Premium" indented), one row inserted (General Admin
+//      Expense's own "% of Premium"), Prior and All Years blank in the first
+//      three sections with column I drawn as H, and the first year's two
+//      Underwriting changes blank. The expected grid is the template's through
+//      exactly that list, so ANY OTHER CELL THAT DIFFERS FAILS: on every sheet,
+//      every label in column B and every blank row; column I (All Years) the
+//      template's header and its SUM(C:H) formula wherever the template has one,
+//      cached at its row's sum, and nothing where it holds nothing; the figure
+//      cells numbers in their formats, blank where the statement shows a blank;
+//      the header rows Prior where the section shows it and the five years; and
+//      EVERY CELL'S BORDER, A to I on every row — each side and its style, read
+//      from the template file itself (exceljs), never from the table the app
+//      draws from. Each listed label change must be one the template has.
 //   C. THE OPERATING RATIO BY HAND, scenario 1, WC, 2027: its parts printed and
 //      the ratio recomputed from them.
 //
@@ -63,11 +75,18 @@
 // the net premium; contributions measured against the same valuation; a reserve
 // dropped from the blocks; newly arising short of IBNR's share of development;
 // Total Net Incurred moved with its parts; the old all-previously-reported
-// split; Prior's Total Net Incurred moved, which the All Years check must catch),
-// and B a workbook with "Profit and Contigency" kept, v1's two blank rows after
-// Written Premium, a blank row dropped, a label altered, an All Years total
-// written as a number and one summed short a column, one border missing (which
-// must fail on exactly that cell) and the v1 template's lines.
+// split; Prior's Total Net Incurred moved, which the All Years check must catch;
+// newly reported claims paid twice, or left unpaid; a settlement difference not
+// balanced through Change in IBNR; an admin "% of Premium" over the gross
+// premium, a year out, or swapped), and B a workbook with "Profit and
+// Contigency" kept, v1's two blank rows after Written Premium, a blank row
+// dropped, the inserted row left out, each label change undone in turn, a label
+// altered and a heading renamed off the list, Prior back in the first three
+// sections (a header and a figure), a first year's change filled, a value in a
+// blank column I, an All Years total written as a number and one summed short a
+// column, one border missing and one added column-I line missing (each must fail
+// on exactly that cell), the template's lines with no column I added, and the
+// v1 template's lines.
 // ============================================================================
 
 import * as fs from 'fs';
@@ -79,7 +98,12 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
-import { allYearsCell, buildTemplateStatement, RENAMED_HEADINGS, TEMPLATE_ROWS, type Figure, type TemplateStatement } from '../../src/utils/annualStatementTemplate';
+import {
+  allYearsCell, buildTemplateStatement, hasAllYears, INSERTED_AFTER_TEMPLATE_ROW, INSERTED_LABEL, isInsertedRow, LABEL_CHANGES, SETTLEMENT_SPREAD,
+  showsPrior, shownFigure, TEMPLATE_ROW_OF, TEMPLATE_ROWS, type Figure, type TemplateStatement,
+} from '../../src/utils/annualStatementTemplate';
+import { deriveSubRng } from '../../src/utils/random';
+import { marketSeedOf } from '../../src/utils/bookUnits';
 import { programYearsOf, statementYears } from '../../src/utils/resultsStatement';
 import ExcelJS from 'exceljs';
 import { ALL_YEARS_COLUMN, allYearsFormula, buildAnnualStatementXlsx, STATEMENT_COLUMNS, STATEMENT_NUMBER_FORMAT } from '../../src/utils/annualStatementExport';
@@ -101,7 +125,7 @@ const check = (ok: boolean, label: string, detail = '') => {
 };
 const clone = (ts: TemplateStatement): TemplateStatement => ({ ...ts, figures: Object.fromEntries(Object.entries(ts.figures).map(([k, v]) => [k, [...v]])) });
 /** What the run exercised, so a check that could only pass vacuously says so. */
-const A3_EXERCISE = { ibnrShareOfDevelopment: 0, underwritingFigures: 0 };
+const A3_EXERCISE = { ibnrShareOfDevelopment: 0, underwritingFigures: 0, newlyReportedPaid: 0, settlement: 0 };
 const near = (a: number, b: number) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
 
 function covered(y: number): DecisionSet {
@@ -175,6 +199,10 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
   rowTies('nui + assessDiv', f.nui.map((x, i) => (x === null || f.assessDiv[i] === null ? null : x + f.assessDiv[i]!)), flow(x => x.underwritingIncome), out);
   rowTies('combinedRatio', f.combinedRatio, ratioOf(costs, x => x.totalMemberCharge), out);
   rowTies('operatingRatio', f.operatingRatio, ratioOf(x => costs(x) - x.investmentIncome, x => x.totalMemberCharge), out);
+  // Each admin row's "% of Premium" is that row's own share of Written Premium, column by column.
+  const shareOf = (xs: Figure[]) => xs.map((x, i) => (x === null || f.premium[i] === null || f.premium[i] === 0 ? null : x / f.premium[i]!));
+  rowTies('General Admin Expense % of Premium = admin ÷ Written Premium', f.adminPct, shareOf(f.admin), out);
+  rowTies('Other Admin Expense % of Premium = other admin ÷ Written Premium', f.otherAdminPct, shareOf(f.riskControl), out);
 
   // A2. Balance sheet: each window year's year-end; year 0's is the opening — year 1's beginning, or the pool state before it.
   const pos = (r: ResultSet) => {
@@ -216,9 +244,12 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
     const [nowR, thenR] = [tl[tl.length - 1], tl[tl.length - 2]];
     const firstAy = windowResults[0].yearNumber;
     const n = 1 + ts.years.length;
-    const want = Array.from({ length: n }, () => ({ total: 0, prevPaid: 0, prevCase: 0, newPaid: 0, newCase: 0, ibnr: 0 }));
+    const want = Array.from({ length: n }, () => ({ total: 0, paid: 0, prevPaid: 0, prevCase: 0, newPaid: 0, newCase: 0, ibnr: 0 }));
     for (const l of scope === 'pool' ? gs.setup.activeLines : [scope as CoverageLine]) {
       const now = programYearsOf(gs, l, nowR), then = programYearsOf(gs, l, thenR);
+      // What a new accident year pays in its first year, on this line: the current program year's paid ÷ reported.
+      const fy = now.get(ts.asOf)?.net;
+      const paidShare = fy && fy.paid + fy.case_ > 0 ? Math.min(1, Math.max(0, fy.paid / (fy.paid + fy.case_))) : 0;
       for (const ay of new Set([...now.keys(), ...then.keys()])) {
         const i = ay < firstAy ? 0 : windowResults.findIndex(r => r.yearNumber === ay) + 1;
         if (i < 0) continue;
@@ -226,18 +257,34 @@ function tieOut(gs: GameState, ts: TemplateStatement, scope: LineView): string[]
         const a = now.get(ay)?.net ?? z, b = then.get(ay)?.net ?? z;
         const dP = a.paid - b.paid, dC = a.case_ - b.case_, dI = a.ibnr - b.ibnr, d = dP + dC + dI;
         const w = want[i];
-        w.total += d; w.ibnr += dI;
-        if (ay === ts.asOf) { w.newPaid += dP; w.newCase += dC; continue; }
+        w.total += d; w.paid += dP;
+        if (ay === ts.asOf) { w.newPaid += dP; w.newCase += dC; w.ibnr += dI; continue; }
         // The specification: IBNR's share of the reserve outstanding at the start of the year.
         const share = b.case_ + b.ibnr > 0 ? Math.min(1, Math.max(0, b.ibnr / (b.case_ + b.ibnr))) : 0;
-        w.newCase += -dI + share * d;
-        w.prevPaid += dP;
-        w.prevCase += (1 - share) * d - dP;
+        const newReported = -dI + share * d;
+        const newPaid = Math.min(Math.max(0, dP), Math.max(0, paidShare * newReported));
+        const prevPaid = dP - newPaid;
+        const settle = (SETTLEMENT_SPREAD === 0 ? 0 : deriveSubRng(marketSeedOf(gs.instance), ts.asOf, `statement-settlement:${l}:${ay}`).normal(0, 1) * SETTLEMENT_SPREAD) * prevPaid;
+        w.newPaid += newPaid;
+        w.newCase += newReported - newPaid;
+        w.prevPaid += prevPaid;
+        w.prevCase += (1 - share) * d + settle - prevPaid;
+        w.ibnr += dI - settle;
         A3_EXERCISE.ibnrShareOfDevelopment += Math.abs(share * d);
+        A3_EXERCISE.newlyReportedPaid += newPaid;
+        A3_EXERCISE.settlement += Math.abs(settle);
       }
     }
     // TOTAL NET INCURRED UNCHANGED: each column is the year's movement, Δ(paid + case + IBNR).
     rowTies('Total Net Incurred (the year\'s movement)', f['cy.incurred'], want.map(w => w.total), out);
+    // EACH ACCIDENT YEAR'S PAYMENTS UNCHANGED BY THE VARIANCE: Newly Arising +
+    // Previously Reported Payments is the year's Δpaid, column by column — read off
+    // the statement's own rows, so a variance that pays twice fails here.
+    rowTies('total paid (Newly Arising + Previously Reported Payments = Δpaid)',
+      f['cy.new.paid'].map((x, i) => (x === null || f['cy.prev.paid'][i] === null ? null : x + f['cy.prev.paid'][i]!)), want.map(w => w.paid), out);
+    // And Total Net Incurred, likewise from the statement's own parts: reported + Change in IBNR = Δ(paid + case + IBNR).
+    rowTies('Total Net Incurred from its parts (= the year\'s movement)',
+      f['cy.incurred'].map((_, i) => f['cy.new.reported'][i]! + f['cy.prev.reported'][i]! + f['cy.ibnr'][i]!), want.map(w => w.total), out);
     rowTies('Change in IBNR', f['cy.ibnr'], want.map(w => w.ibnr), out);
     rowTies('Newly Arising Payments', f['cy.new.paid'], want.map(w => w.newPaid), out);
     rowTies('Newly Arising Reserve Changes', f['cy.new.case'], want.map(w => w.newCase), out);
@@ -347,6 +394,15 @@ for (const g of games) {
 }
 check(yearFails.length === 0, `A. at every year each game's statement can stand at, every scope (${everyYear} statements): Total Net Incurred is the year's movement, unchanged, and Newly Arising + Previously Reported + Change in IBNR = Total Net Incurred`, yearFails.slice(0, 3).join(' · '));
 check(A3_EXERCISE.ibnrShareOfDevelopment > 0, 'A. the split is exercised: older accident years develop, and IBNR\'s share of it moves to newly arising', `Σ |s·D| ${A3_EXERCISE.ibnrShareOfDevelopment.toFixed(0)}`);
+check(A3_EXERCISE.newlyReportedPaid > 0, 'A. the variance is exercised: newly reported claims on older accident years are paid in part', `Σ newly reported paid ${A3_EXERCISE.newlyReportedPaid.toFixed(0)}`);
+check(A3_EXERCISE.settlement > 0, `A. the variance is exercised: settlement differences are drawn (SETTLEMENT_SPREAD ${SETTLEMENT_SPREAD})`, `Σ |settlement| ${A3_EXERCISE.settlement.toFixed(0)}`);
+{
+  // On a solo game with no adverse development — where an older year's own
+  // development is small — Previously Reported still moves, by the settlement draw.
+  const ts = buildTemplateStatement(games[0].snaps[YEARS], 'WC');
+  const moved = ts.figures['cy.prev.reported'].slice(0, -1).filter(x => x !== null && Math.abs(x) >= 0.5);
+  check(moved.length > 0, 'A. single player, no adverse development: Previously Reported Net Reported is not zero on the older years', ts.figures['cy.prev.reported'].map(x => x?.toFixed(0)).join(' / '));
+}
 check(A3_EXERCISE.underwritingFigures > 0, 'A. the pool\'s underwriting rows are checked as sums on a payroll-only pool, and on every line', `${A3_EXERCISE.underwritingFigures} exposure figures`);
 
 // THE CONTRIBUTIONS' CONTROLS, on the adverse-development game's last point, on WC.
@@ -368,6 +424,21 @@ check(A3_EXERCISE.underwritingFigures > 0, 'A. the pool\'s underwriting rows are
         t.figures['cy.new.case'][k] = 0; t.figures['cy.new.reported'][k] = 0;
       } } },
   ];
+  // The variance's own: paid twice, and a settlement draw not balanced through Change in IBNR.
+  cc.push(
+    { name: 'newly reported claims paid without taking it off Previously Reported Payments (an accident year paid twice)', breakIt: t => {
+      const x = 10_000;
+      t.figures['cy.new.paid'][i]! += x; t.figures['cy.new.case'][i]! -= x; } },
+    { name: 'a settlement difference not balanced through Change in IBNR (Total Net Incurred moves)', breakIt: t => {
+      const x = 10_000;
+      t.figures['cy.prev.case'][i]! += x; t.figures['cy.prev.reported'][i]! += x; t.figures['cy.incurred'][i]! += x; } },
+    { name: 'newly reported claims left unpaid, as before the variance (totals hold)', breakIt: t => {
+      for (let k = 0; k < t.figures['cy.new.paid'].length - 1; k++) {
+        const np = t.figures['cy.new.paid'][k]!;
+        t.figures['cy.prev.paid'][k]! += np; t.figures['cy.prev.case'][k]! -= np;
+        t.figures['cy.new.paid'][k] = 0; t.figures['cy.new.case'][k]! += np;
+      } } },
+  );
   for (const c of cc) {
     const t = clone(base);
     c.breakIt(t);
@@ -394,6 +465,12 @@ const controls: { name: string; breakIt: (ts: TemplateStatement, gs: GameState, 
       / (x.totalMemberCharge - x.reinsuranceCost);
   } },
   { name: 'contributions against the same valuation', breakIt: ts => { for (const k of ['cy.prev.paid', 'cy.prev.case', 'cy.prev.reported', 'cy.new.paid', 'cy.new.case', 'cy.new.reported', 'cy.ibnr', 'cy.incurred']) ts.figures[k] = ts.figures[k].map(() => 0); } },
+  { name: 'General Admin Expense % of Premium over the premium before reinsurance', breakIt: (ts, gs, scope) => {
+    const x = at(gs.lockedResults.at(-1)!, scope);
+    ts.figures.adminPct[5] = x.operatingExpense / x.totalMemberCharge;
+  } },
+  { name: 'General Admin Expense % of Premium a year out (the year before\'s share)', breakIt: ts => { ts.figures.adminPct[5] = ts.figures.adminPct[4]; } },
+  { name: 'Other Admin Expense % of Premium swapped for General Admin\'s', breakIt: ts => { ts.figures.otherAdminPct = [...ts.figures.adminPct]; } },
   { name: 'a reserve dropped from the blocks', breakIt: ts => { for (const k of ['py', 'gross', 'net']) { ts.figures[`${k}.ibnr`][1] = 0; ts.figures[`${k}.incurred`][1] = ts.figures[`${k}.reported`][1]; } } },
 ];
 for (const c of controls) {
@@ -421,39 +498,69 @@ const allYearsAt = (ws: XLSX.WorkSheet, r: number): string => {
   if (c.f) return `=${c.f.replace(/^=/, '')}`;
   return c.v === undefined || c.v === '' ? '' : String(c.v);
 };
-// THE TWO HEADINGS THE STATEMENT RENAMES ON PURPOSE (RENAMED_HEADINGS): every
-// other label is the template's exactly. Both must be found in the template,
-// each once, and each a section title.
-const expectedLabel = (r: number) => { const t = labelAt(tws, r); return t !== null && t in RENAMED_HEADINGS ? RENAMED_HEADINGS[t] : t; };
-const renamedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r).filter(r => labelAt(tws, r) !== expectedLabel(r));
-check(renamedRows.length === 2 && renamedRows.every(r => TEMPLATE_ROWS[r]?.kind === 'title' && 'label' in TEMPLATE_ROWS[r] && (TEMPLATE_ROWS[r] as { label: string }).label === expectedLabel(r)),
-  'B. the statement renames exactly two template cells, both section titles: "Net Income Statement For The Year" and "Reinsurance Information - Program Year Totals"',
-  renamedRows.map(r => `B${r + 1} "${labelAt(tws, r)}" → "${expectedLabel(r)}"`).join(' · '));
+// EVERY DELIBERATE DIFFERENCE FROM THE TEMPLATE (annualStatementTemplate.ts:
+// LABEL_CHANGES, the inserted row, Prior and All Years blank in the first three
+// sections with column I drawn as H, a first year's change blank). The expected
+// grid is the template's through exactly these, so ANY OTHER CELL THAT DIFFERS
+// fails below — and each listed difference must be one the template really has
+// (its old text is the template's), so a stale entry fails too.
+/** The template row (0-based) each statement row stands on; the inserted row stands on the row above's. */
+const tRowOf = (r: number) => TEMPLATE_ROW_OF[r] - 1;
+const changeAt = (r: number) => (isInsertedRow(r) ? undefined : LABEL_CHANGES.find(c => c.templateRow === TEMPLATE_ROW_OF[r]));
+const expectedLabel = (r: number) => (isInsertedRow(r) ? INSERTED_LABEL : changeAt(r)?.to ?? labelAt(tws, tRowOf(r)));
+const staleChanges = LABEL_CHANGES.filter(c => labelAt(tws, c.templateRow - 1) !== c.from || c.from === c.to);
+console.log('  The statement\'s deliberate differences from the template:');
+for (const c of LABEL_CHANGES) console.log(`        B${c.templateRow}  "${c.from}" → "${c.to.replace(/^\s+/, m => '·'.repeat(m.length))}" — ${c.why}`);
+console.log(`        a row inserted after template row ${INSERTED_AFTER_TEMPLATE_ROW}: "${INSERTED_LABEL.trim()}" (General Admin Expense's own share), its lines the row above's`);
+console.log('        Net Income Statement, Balance Sheet and Underwriting: Prior (C) blank, no All Years (I); I drawn with H\'s lines');
+console.log('        Underwriting: the first year\'s "Change from Prior" and "% Change Over Prior" blank');
+console.log('        Reinsurance Gross / Ceded / Net: bold (cell styles, not compared)');
+check(staleChanges.length === 0, `B. every listed label change is one the template has (${LABEL_CHANGES.length}), its old text the template's`,
+  staleChanges.map(c => `B${c.templateRow} template "${labelAt(tws, c.templateRow - 1)}", listed "${c.from}"`).join(' · '));
 check(!Array.from({ length: tRange.e.r + 1 }, (_, r) => labelAt(tws, r)).includes('Profit and Contigency'),
   'B. v2 carries no "Profit and Contigency" — the v1 row the statement removed is gone from the template itself');
-const expectedRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r);
-check(TEMPLATE_ROWS.length === expectedRows.length, `B. the statement has the template's rows: ${TEMPLATE_ROWS.length} of ${tRange.e.r + 1}`);
-const templateFormulas = expectedRows.filter(r => allYearsAt(tws, r).startsWith('=')).length;
-check(templateFormulas > 0 && expectedRows.every(r => { const a = allYearsAt(tws, r); return !a.startsWith('=') || a === `=${allYearsFormula(r + 1)}`; }),
+const templateRows = Array.from({ length: tRange.e.r + 1 }, (_, r) => r);
+/** The statement's rows: the template's, and the one inserted. */
+const expectedRows = Array.from({ length: templateRows.length + 1 }, (_, r) => r);
+check(TEMPLATE_ROWS.length === expectedRows.length && expectedRows.every(r => isInsertedRow(r) || TEMPLATE_ROW_OF[r] === (r < INSERTED_AFTER_TEMPLATE_ROW ? r + 1 : r)),
+  `B. the statement has the template's rows and the one inserted: ${TEMPLATE_ROWS.length} of ${templateRows.length} + 1`);
+const templateFormulas = templateRows.filter(r => allYearsAt(tws, r).startsWith('=')).length;
+check(templateFormulas > 0 && templateRows.every(r => { const a = allYearsAt(tws, r); return !a.startsWith('=') || a === `=${allYearsFormula(r + 1)}`; }),
   'B. every All Years cell in the template is SUM(C:H) over its own row', `${templateFormulas} formulas`);
+/** Column I as the statement must hold it: the template's, its SUM over the statement's own row. */
+const expectedAllYears = (r: number) => {
+  if (isInsertedRow(r)) return '';
+  const a = allYearsAt(tws, tRowOf(r));
+  return a.startsWith('=') ? `=${allYearsFormula(r + 1)}` : a;
+};
 
 function layoutDiffs(ws: XLSX.WorkSheet, ts: TemplateStatement): string[] {
   const out: string[] = [];
   const range = XLSX.utils.decode_range(ws['!ref']!);
   if (range.e.r + 1 !== expectedRows.length) out.push(`${range.e.r + 1} rows, template ${expectedRows.length}`);
   expectedRows.forEach(r => {
-    if (labelAt(ws, r) !== expectedLabel(r)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${expectedLabel(r)}" (template "${labelAt(tws, r)}")`);
-    if (blankAt(ws, r) !== blankAt(tws, r)) out.push(`row ${r + 1}: ${blankAt(ws, r) ? 'blank' : 'not blank'}, template ${blankAt(tws, r) ? 'blank' : 'not blank'}`);
+    if (labelAt(ws, r) !== expectedLabel(r)) out.push(`row ${r + 1}: "${labelAt(ws, r)}" ≠ "${expectedLabel(r)}" (template "${isInsertedRow(r) ? '' : labelAt(tws, tRowOf(r))}")`);
+    const wantBlank = !isInsertedRow(r) && blankAt(tws, tRowOf(r));
+    if (blankAt(ws, r) !== wantBlank) out.push(`row ${r + 1}: ${blankAt(ws, r) ? 'blank' : 'not blank'}, template ${wantBlank ? 'blank' : 'not blank'}`);
     // ALL YEARS: the same header, the same formula, or nothing — cell for cell.
-    if (allYearsAt(ws, r) !== allYearsAt(tws, r)) out.push(`I${r + 1}: "${allYearsAt(ws, r)}" ≠ template "${allYearsAt(tws, r)}"`);
+    if (allYearsAt(ws, r) !== expectedAllYears(r)) out.push(`I${r + 1}: "${allYearsAt(ws, r)}" ≠ template "${expectedAllYears(r)}"`);
   });
   TEMPLATE_ROWS.forEach((row, r) => {
+    // Nothing in C, D–H or I of a blank, title or heading row.
+    if (row.kind === 'blank' || row.kind === 'title' || row.kind === 'heading') for (let c = 2; c < STATEMENT_COLUMNS; c++) {
+      const x = cellOf(ws, r, c);
+      if (x && x.v !== undefined && x.v !== '') out.push(`${String.fromCharCode(65 + c)}${r + 1}: "${x.v}" where the template holds nothing`);
+    }
     if (row.kind === 'header') {
-      if (cellOf(ws, r, 2)?.v !== 'Prior') out.push(`row ${r + 1}: no Prior`);
+      // Prior only where the section shows it: the first three leave C blank.
+      const prior = cellOf(ws, r, 2)?.v;
+      if (showsPrior(r) ? prior !== 'Prior' : prior !== undefined && prior !== '') out.push(`C${r + 1}: "${prior ?? ''}", ${showsPrior(r) ? 'not Prior' : 'Prior where the section shows none'}`);
       ts.years.forEach((_, i) => { if (cellOf(ws, r, 3 + i)?.t !== 'n') out.push(`row ${r + 1}: year ${i} not a number or date`); });
     }
-    if (row.kind === 'figure') ts.figures[row.key].forEach((x, i) => {
+    if (row.kind === 'figure') ts.figures[row.key].forEach((_, i) => {
+      const x = shownFigure(row, r, i, ts);
       const c = cellOf(ws, r, 2 + i);
+      if (x === undefined) { if (c && c.v !== undefined && c.v !== '') out.push(`${String.fromCharCode(67 + i)}${r + 1}: "${c.v}" where the statement shows a blank`); return; }
       if (x !== null && c?.t !== 'n') out.push(`row ${r + 1} col ${i}: a figure stored as ${c?.t}`);
       if (x === null && c?.v !== '—') out.push(`row ${r + 1} col ${i}: no figure, not "—"`);
       if (x !== null && c?.z !== STATEMENT_NUMBER_FORMAT[row.format]) out.push(`row ${r + 1} col ${i}: format ${c?.z}`);
@@ -479,19 +586,31 @@ const texcel = new ExcelJS.Workbook();
 await texcel.xlsx.readFile(TEMPLATE);
 const tBorders = texcel.getWorksheet(TEMPLATE_SHEET)!;
 let templateLines = 0, allYearsLines = 0;
-for (const r of expectedRows) for (let c = 1; c <= STATEMENT_COLUMNS; c++) {
+for (const r of templateRows) for (let c = 1; c <= STATEMENT_COLUMNS; c++) {
   const n = sidesOf(tBorders, r + 1, c).split(':').length - 1;
   templateLines += n;
   if (c === ALL_YEARS_COLUMN) allYearsLines += n;
 }
 check(templateLines > 0 && allYearsLines > 0, 'B. the template draws borders to compare against, All Years included', `${templateLines} cell sides, ${allYearsLines} in column I`);
 
-/** Every cell, A to I on every statement row, whose border is not the template's, row for row. */
+/**
+ * A statement cell's lines as the template draws them, through the deliberate
+ * differences: the template row it stands on (the inserted row the row above's),
+ * and column I as column H where the section has no All Years.
+ */
+const expectedSides = (r: number, c: number) => sidesOf(tBorders, tRowOf(r) + 1, c === ALL_YEARS_COLUMN && !hasAllYears(r) ? ALL_YEARS_COLUMN - 1 : c);
+let addedLines = 0;
+for (const r of expectedRows) {
+  if (!hasAllYears(r)) addedLines += expectedSides(r, ALL_YEARS_COLUMN).split(':').length - 1 - (sidesOf(tBorders, tRowOf(r) + 1, ALL_YEARS_COLUMN).split(':').length - 1);
+}
+check(addedLines > 0, 'B. the first three sections\' column I is drawn — the lines the statement adds to the template', `${addedLines} cell sides added`);
+
+/** Every cell, A to I on every statement row, whose border is not the template's through the deliberate differences. */
 function borderDiffs(ws: BorderSheet): string[] {
   const out: string[] = [];
   expectedRows.forEach(r => {
     for (let c = 1; c <= STATEMENT_COLUMNS; c++) {
-      const want = sidesOf(tBorders, r + 1, c), got = sidesOf(ws, r + 1, c);
+      const want = expectedSides(r, c), got = sidesOf(ws, r + 1, c);
       if (want !== got) out.push(`${String.fromCharCode(64 + c)}${r + 1}: "${got}" ≠ template "${want}"`);
     }
   });
@@ -529,23 +648,46 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   const withRow = shifted([...all.slice(0, 14), -1, ...all.slice(14)]);
   withRow[XLSX.utils.encode_cell({ r: 14, c: 1 })] = { t: 's', v: 'Profit and Contigency' };
   check(layoutDiffs(withRow, ts).length > 0, 'B control — "Profit and Contigency" kept: the layout check fails');
-  // v1's spacing: a second blank row after the Contributions' Written Premium (statement row 74).
-  const v1Spacing = shifted([...all.slice(0, 74), -1, ...all.slice(74, -1)]);
+  // v1's spacing: a second blank row after the Contributions' Written Premium.
+  const afterCyPremium = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'cy.premium') + 2;
+  const v1Spacing = shifted([...all.slice(0, afterCyPremium), -1, ...all.slice(afterCyPremium, -1)]);
   check(layoutDiffs(v1Spacing, ts).length > 0, 'B control — v1\'s two blank rows after Written Premium: the layout check fails', layoutDiffs(v1Spacing, ts)[0]);
-  const dropped = shifted(all.filter(r => r !== 29));
+  const firstBlank = TEMPLATE_ROWS.findIndex((r, i) => i > 5 && r.kind === 'blank');
+  const dropped = shifted(all.filter(r => r !== firstBlank));
   check(layoutDiffs(dropped, ts).length > 0, 'B control — one blank row dropped: the layout check fails', layoutDiffs(dropped, ts)[0]);
-  // The template's old wording kept, and a third heading renamed: both must fail.
+  const noInserted = shifted(all.filter(r => !isInsertedRow(r)));
+  check(layoutDiffs(noInserted, ts).length > 0, 'B control — General Admin Expense\'s own "% of Premium" row left out: the layout check fails', layoutDiffs(noInserted, ts)[0]);
+  // Each deliberate label change undone (the template's old text kept), and an undeclared one: every one must fail.
+  const rowOfTemplate = (t: number) => TEMPLATE_ROW_OF.findIndex((x, i) => x === t && !isInsertedRow(i));
+  const undone = LABEL_CHANGES.map(c => {
+    const t = shifted(all);
+    t[XLSX.utils.encode_cell({ r: rowOfTemplate(c.templateRow), c: 1 })] = { t: 's', v: c.from };
+    return layoutDiffs(t, ts).length > 0;
+  });
+  check(undone.every(Boolean), `B control — each of the ${LABEL_CHANGES.length} label changes undone, one at a time: the layout check fails on every one`,
+    LABEL_CHANGES.filter((_, k) => !undone[k]).map(c => `B${c.templateRow} NOTHING FIRED`).join(' · '));
   for (const [name, r, v] of [
-    ['the template\'s old wording kept ("Net Income Statement ")', renamedRows[0], labelAt(tws, renamedRows[0])],
-    ['a third heading renamed ("Underwriting" → "Underwriting Results")', TEMPLATE_ROWS.findIndex(x => x.kind === 'title' && x.label === 'Underwriting'), 'Underwriting Results'],
+    ['a heading renamed that is not on the list ("Underwriting" → "Underwriting Results")', TEMPLATE_ROWS.findIndex(x => x.kind === 'title' && x.label === 'Underwriting'), 'Underwriting Results'],
+    ['a label altered ("      Invested" → "Invested")', TEMPLATE_ROWS.findIndex(x => x.kind === 'figure' && x.key === 'invested'), 'Invested'],
   ] as const) {
     const t = shifted(all);
     t[XLSX.utils.encode_cell({ r, c: 1 })] = { t: 's', v: String(v) };
     check(layoutDiffs(t, ts).length > 0, `B control — ${name}: the layout check fails`, layoutDiffs(t, ts)[0]);
   }
-  const altered = shifted(all);
-  altered[XLSX.utils.encode_cell({ r: 38, c: 1 })] = { t: 's', v: 'Invested' };
-  check(layoutDiffs(altered, ts).length > 0, 'B control — a label altered ("      Invested" → "Invested"): the layout check fails', layoutDiffs(altered, ts)[0]);
+  // The columns: Prior back in a first-three-sections header, a figure in their Prior, a first year's change filled, a stray value in a blank I.
+  const nisHeader = TEMPLATE_ROWS.findIndex(r => r.kind === 'header');
+  const premiumRow = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'premium');
+  const changeRow = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'exposureChange');
+  for (const [name, r, c, cell] of [
+    ['"Prior" written over the Net Income Statement', nisHeader, 2, { t: 's', v: 'Prior' }],
+    ['a Prior figure under the Net Income Statement', premiumRow, 2, { t: 'n', v: 1, z: STATEMENT_NUMBER_FORMAT.dollars }],
+    ['the first year\'s Change from Prior filled', changeRow, 3, { t: 'n', v: 0.05, z: STATEMENT_NUMBER_FORMAT.pct }],
+    ['a value in the Net Income Statement\'s blank column I', premiumRow, ALL_YEARS_COLUMN - 1, { t: 'n', v: 1 }],
+  ] as const) {
+    const t = shifted(all);
+    t[XLSX.utils.encode_cell({ r, c })] = { ...cell } as XLSX.CellObject;
+    check(layoutDiffs(t, ts).length > 0, `B control — ${name}: the layout check fails`, layoutDiffs(t, ts)[0] ?? 'NOTHING FIRED');
+  }
   // All Years, row 87 (the Contributions' Total Net Incurred): its total as a plain number, then a SUM short a column.
   const ayRow = TEMPLATE_ROWS.findIndex(r => r.kind === 'figure' && r.key === 'cy.incurred');
   const asValue = shifted(all);
@@ -555,24 +697,34 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   shortRange[XLSX.utils.encode_cell({ r: ayRow, c: ALL_YEARS_COLUMN - 1 })] = { ...cellOf(base, ayRow, ALL_YEARS_COLUMN - 1)!, f: `SUM(C${ayRow + 1}:G${ayRow + 1})` };
   check(layoutDiffs(shortRange, ts).length > 0, `B control — an All Years SUM short a column (C:G): the check fails`, layoutDiffs(shortRange, ts)[0]);
 
-  // One line missing: the bottom line that closes the Net Income Statement (row 29), on H.
+  // One line missing: the bottom line that closes the Net Income Statement (statement row 30 — template 29, below the inserted row), on H.
   const ex = new ExcelJS.Workbook();
   await ex.xlsx.load(bytes);
   const ws = ex.getWorksheet('WC')!;
   // ⚠ ITS OWN STYLE OBJECT: exceljs shares one style among every loaded cell that
   // had the same style, so setting this cell's border in place would take the
   // closing line off every section at once (it did, the first time).
-  const h29 = ws.getCell(29, 8);
-  const rest = { ...(h29.border ?? {}) };
-  delete rest.bottom;
-  h29.style = { ...h29.style, border: rest };
+  const unline = (r: number, c: number, side: 'bottom' | 'right') => {
+    const cell = ws.getCell(r, c);
+    const rest = { ...(cell.border ?? {}) };
+    delete rest[side];
+    cell.style = { ...cell.style, border: rest };
+  };
+  unline(30, 8, 'bottom');
   const missing = borderDiffs(ws);
-  check(missing.length === 1, 'B control — one border missing (H29\'s closing line): the border check fails, on exactly that cell', missing.join(' · ') || 'NOTHING FIRED');
+  check(missing.length === 1 && missing[0].startsWith('H30'), 'B control — one border missing (H30\'s closing line): the border check fails, on exactly that cell', missing.join(' · ') || 'NOTHING FIRED');
+  // Column I's line, the one the statement adds, taken off one cell of the Net Income Statement.
+  unline(10, ALL_YEARS_COLUMN, 'right');
+  const missingI = borderDiffs(ws).filter(d => !d.startsWith('H30'));
+  check(missingI.length === 1 && missingI[0].startsWith('I10'), 'B control — the added column I line missing on I10: the border check fails, on exactly that cell', missingI.join(' · ') || 'NOTHING FIRED');
   // v1's lines, row for row: no All Years column, and its rows unshifted by the row v2 dropped.
   const v1 = new ExcelJS.Workbook();
   await v1.xlsx.readFile(TEMPLATE_V1);
   const v1ws = v1.worksheets[0];
-  const v1Lines = borderDiffs({ getCell: (r, c) => v1ws.getCell(r < 15 ? r : r + 1, c) });
+  const v1Lines = borderDiffs({ getCell: (r, c) => v1ws.getCell(TEMPLATE_ROW_OF[r - 1] < 15 ? TEMPLATE_ROW_OF[r - 1] : TEMPLATE_ROW_OF[r - 1] + 1, c) });
+  // And the template's own lines, unmapped: column I left as the template draws it (no line) in the first three sections.
+  const rawTemplate = borderDiffs({ getCell: (r, c) => tBorders.getCell(TEMPLATE_ROW_OF[r - 1], c) });
+  check(rawTemplate.length > 0 && rawTemplate.every(d => d.startsWith('I')), 'B control — the template\'s lines with no column I added: the border check fails, on column I only', `${rawTemplate.length} cells, first ${rawTemplate[0]}`);
   check(v1Lines.length > 0, 'B control — the v1 template\'s lines: the border check fails', `${v1Lines.length} cells, first ${v1Lines[0]}`);
 }
 

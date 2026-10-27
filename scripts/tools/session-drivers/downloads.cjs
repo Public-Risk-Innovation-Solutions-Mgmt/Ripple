@@ -53,41 +53,67 @@ const BUTTONS = [
 ];
 
 /**
- * THE SCREEN'S LINES ARE THE TEMPLATE'S. Every rendered statement row carries
- * its row in the file (data-template-row); each of its cells — B to H, and I
- * (All Years) in the program-year sections — must draw exactly the sides the
- * TEMPLATE FILE draws on that cell: the Pool sheet of docs/Annual Statement
- * Example v2.xlsx, read here itself, not from the table the page draws from. And
- * every template row that carries a line must be on the screen, with a cell for
- * every bordered column.
+ * THE SCREEN'S LINES ARE THE TEMPLATE'S, THROUGH ITS TWO LINE DIFFERENCES. Every
+ * rendered statement row carries its row in the file (data-template-row); each
+ * of its eight cells, B to I, must draw exactly the sides the TEMPLATE FILE
+ * draws on that cell — the Pool sheet of docs/Annual Statement Example v2.xlsx,
+ * read here itself, not from the table the page draws from — but for the
+ * statement's deliberate differences: the row it inserts after template row 13
+ * (General Admin Expense's own "% of Premium") draws row 13's lines, and every
+ * row after it stands on the template row one above; and above the Contributions
+ * the sections have no All Years, so I draws H's lines, every box the same
+ * width. And every template row that carries a line must be on the screen.
  */
 async function screenBordersMatchTemplate(page) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(path.join(REPO, 'docs', 'Annual Statement Example v2.xlsx'));
   const tws = wb.getWorksheet('Pool');
   const sidesAt = (r, c) => { const b = tws.getCell(r, c).border || {}; return ['left', 'right', 'top', 'bottom'].filter(k => b[k] && b[k].style).map(k => k[0].toUpperCase()).join(''); };
+  const INSERTED_AFTER = 13;
+  const templateRowOf = r => (r <= INSERTED_AFTER ? r : r === INSERTED_AFTER + 1 ? INSERTED_AFTER : r - 1);
+  let contributionsRow = 0;
+  for (let r = 1; r <= tws.rowCount; r++) if (String(tws.getCell(r, 2).value || '').startsWith('Contributions To The Current Calendar Year')) { contributionsRow = r; break; }
   const rows = await page.$$eval('[data-testid="annual-statement"] tr[data-template-row]', trs => trs.map(tr => ({
-    r: Number(tr.dataset.templateRow),
+    s: Number(tr.dataset.templateRow),
     cells: [...tr.children].map(td => { const s = getComputedStyle(td); return [['L', s.borderLeftWidth], ['R', s.borderRightWidth], ['T', s.borderTopWidth], ['B', s.borderBottomWidth]].filter(([, w]) => w !== '0px').map(([k]) => k).join(''); }),
   })));
   const bad = [];
-  for (const { r, cells } of rows) {
-    // B..H always; I wherever the template draws a line in it on this row.
-    const want = [2, 3, 4, 5, 6, 7, 8, 9].map(c => sidesAt(r, c));
-    // Seven cells, B to H — and an eighth wherever the template draws in I. A
-    // blank row of a program-year section may carry an I cell with no line,
-    // exactly as the template's empty I is there.
-    if (cells.length < 7 || cells.length > 8 || (want[7] && cells.length !== 8)) bad.push(`row ${r}: ${cells.length} cells`);
-    cells.forEach((got, c) => { if (got !== want[c]) bad.push(`${String.fromCharCode(66 + c)}${r}: "${got}" ≠ template "${want[c]}"`); });
+  for (const { s, cells } of rows) {
+    const r = templateRowOf(s);
+    // B..I; above the Contributions, I is drawn as H.
+    const want = [2, 3, 4, 5, 6, 7, 8, r < contributionsRow ? 8 : 9].map(c => sidesAt(r, c));
+    if (cells.length !== 8) bad.push(`row ${s}: ${cells.length} cells`);
+    cells.forEach((got, c) => { if (got !== want[c]) bad.push(`${String.fromCharCode(66 + c)}${s} (template ${r}): "${got}" ≠ template "${want[c]}"`); });
   }
-  const shown = new Set(rows.map(x => x.r));
+  ok(contributionsRow > 0, 'Annual Statement: the template\'s Contributions title found, where All Years begins', `row ${contributionsRow}`);
+  const shown = new Set(rows.map(x => templateRowOf(x.s)));
   const unshown = [];
   for (let r = 1; r <= tws.rowCount; r++) if (!shown.has(r) && [2, 3, 4, 5, 6, 7, 8, 9].some(c => sidesAt(r, c))) unshown.push(r);
-  const allYearsCells = rows.filter(x => x.cells.length === 8).length;
-  ok(rows.length > 0 && bad.length === 0, `Annual Statement: every cell on screen draws the v2 template's lines (${rows.length} rows, ${allYearsCells} with All Years)`, bad.slice(0, 3).join(' · '));
+  const allYearsRows = rows.filter(x => templateRowOf(x.s) > contributionsRow).length;
+  ok(rows.length > 0 && bad.length === 0, `Annual Statement: every cell on screen draws the v2 template's lines through the statement's differences (${rows.length} rows, ${allYearsRows} with All Years)`, bad.slice(0, 3).join(' · '));
   ok(unshown.length === 0, 'Annual Statement: every template row with a line is on the screen', unshown.join(', '));
   const heads = await page.$$eval('[data-testid="annual-statement"] tr[data-row-kind="header"]', trs => trs.map(tr => tr.lastElementChild.textContent.trim()));
   ok(heads.filter(h => h === 'All Years').length === 5, 'Annual Statement: "All Years" heads Contributions, Program Year Totals and the Gross, Ceded and Net blocks', heads.join(' | '));
+  // THE COLUMNS AND HEADINGS AS ASKED: every table seven columns wide (label, C,
+  // five years, I); the first three sections' C and I blank; "% of Premium"
+  // indented and left-aligned; the Reinsurance blocks' names bold, on the left.
+  const layout = await page.evaluate(() => {
+    const sec = id => document.querySelector(`[data-testid="${id}"]`);
+    const headOf = id => [...sec(id).querySelector('tr[data-row-kind="header"]').children].map(th => th.textContent.trim());
+    const pct = [...sec('statement-operating').querySelectorAll('tr[data-row-label="% of Premium"] td:first-child')].map(td => getComputedStyle(td).textAlign);
+    const blocks = ['statement-gross', 'statement-ceded', 'statement-net'].map(id => { const th = sec(id).querySelector('tr[data-row-kind="header"] th'); const st = getComputedStyle(th); return { t: th.textContent.trim(), w: Number(st.fontWeight), a: st.textAlign }; });
+    const titles = [...document.querySelectorAll('[data-testid="annual-statement"] section h2')].map(h => h.textContent.trim());
+    const labels = [...sec('statement-operating').querySelectorAll('tr[data-row-label]')].map(tr => tr.dataset.rowLabel);
+    return { op: headOf('statement-operating'), bal: headOf('statement-balance'), uw: headOf('statement-underwriting'), cy: headOf('statement-contributions'), pct, blocks, titles, labels };
+  });
+  const sevenWide = h => h.length === 8;
+  ok([layout.op, layout.bal, layout.uw].every(h => sevenWide(h) && h[1] === '' && h[7] === ''), 'Annual Statement: the first three tables are seven columns wide, C and I blank', [layout.op, layout.bal, layout.uw].map(h => h.join('|')).join(' / '));
+  ok(sevenWide(layout.cy) && layout.cy[1] === 'Prior' && layout.cy[7] === 'All Years', 'Annual Statement: the Contributions keep Prior and All Years, the years in the same columns', layout.cy.join('|'));
+  ok(layout.pct.length === 4 && layout.pct.every(a => a === 'left' || a === 'start'), 'Annual Statement: the four "% of Premium" rows are left-aligned', layout.pct.join(' '));
+  ok(layout.blocks.map(b => b.t).join() === 'Gross,Ceded,Net' && layout.blocks.every(b => b.w >= 700 && (b.a === 'left' || b.a === 'start')), 'Annual Statement: Gross, Ceded and Net head their blocks in bold, on the left', JSON.stringify(layout.blocks));
+  ok(layout.titles.includes('Contributions To The Current Calendar Year - Net of Reinsurance') && layout.titles.includes('Program Year Totals - Net of Reinsurance'), 'Annual Statement: the two "- Net of Reinsurance" headings', layout.titles.join(' | '));
+  const adminRows = layout.labels.slice(layout.labels.indexOf('General Admin Expense'), layout.labels.indexOf('General Admin Expense') + 4);
+  ok(layout.labels[0] === 'Written Premium' && adminRows.join('|') === 'General Admin Expense|% of Premium|Other Admin Expense|% of Premium', 'Annual Statement: Written Premium, and the admin rows General / % / Other / %', `${layout.labels[0]} · ${adminRows.join('|')}`);
 }
 
 (async () => {
