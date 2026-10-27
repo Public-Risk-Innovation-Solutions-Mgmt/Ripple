@@ -1398,7 +1398,26 @@ const BASELINE = process.env.RENDER_BASELINE
 // and program years in it are unchanged, and no rate or decision figure
 // moves. The 40 unmoved are the unplayed views and fixed documents. The Low
 // adverse-development default moves none: this harness plays single player.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v91.json');
+// v92: THE ANNUAL STATEMENT LAID OUT AS THE TEMPLATE (docs/Annual Statement
+// Example.xlsx, annualStatementTemplate.ts). ⚠ THE CONTROL DID NOT REPRODUCE
+// v91, AND NEITHER DID v91'S OWN COMMIT: multiplayer 155a0b4 and 4ad7cef (which
+// wrote v91), each built in its own worktree on this chromium, move the SAME 50
+// of 236 against it with the SAME hashes — Calculation Audit 22, Results 14,
+// Financial Statements 8, Result Spreadsheet 6, none on the Annual Statement —
+// so no commit since v91 moved a screen; the 50 are this container against the
+// one v91 was captured in. VALUE_IDENTITY_v87 holds at head. The control was
+// captured to its own file and reproduced itself 236 of 236, and this change
+// was measured against it, text-diffed (RENDER_TEXT_DIR both sides): 26 of 236
+// move, EXACTLY the 26 Annual Statement screens (every configuration, line
+// view and year-point); no other screen and not the header. On each, about 82%
+// of the old screen's figures are still on it; every figure that is not belongs
+// to a row or column the template does not have — the Total column, the Loss
+// Ratio row, Premium to Reserve, the absolute Change from Prior and % of Prior
+// rows (now % changes), and the old Prior headings with their year ranges —
+// and the ~42 new are the template's own rows (Operating Ratio, Assets,
+// Liabilities, Reserve to Surplus beside Net Worth, the Contributions section,
+// % Increase over Prior, Prior's loss ratio) and "—" where a row has no figure.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v92.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -98,6 +98,44 @@ development per line; single player has none (`SOLO_ADVERSE_DEVELOPMENT`).
 
 ---
 
+## The Annual Statement laid out as the template
+
+The Annual Statement page and its new **Download Annual Statement (Excel)** button
+follow `docs/Annual Statement Example.xlsx` cell for cell: every title, label and
+blank row in place, Prior plus the five years shown. One row is removed, "Profit
+and Contigency" (template row 15): it is a margin in the rate, not an expense. The
+layout is `TEMPLATE_ROWS` in `src/utils/annualStatementTemplate.ts`; its header
+says where every figure comes from. The Excel file (`annualStatementExport.ts`)
+has one sheet for the pool and one per line, with numbers in the cells.
+
+**Decided in the build, recorded here so nobody re-decides them:**
+
+- **Operating Ratio's denominator is the member charge**, the combined ratio's
+  own, because the reinsurance cost is a cost in its numerator. The Premium row
+  is net of reinsurance, and dividing by it would count reinsurance twice.
+- **Previously reported vs newly arising** (Contributions section): the engine
+  books every claim at full cost in its accident year, so newly arising claims
+  are exactly the current program year's and every older year's are previously
+  reported. Case vs IBNR is the presentation split (`reserveSplit.ts`).
+- **Underwriting's Change from Prior is a percentage** (the template's C60 is
+  "%"); the old statement showed the change in $M.
+- **At pool scope the underwriting rows show "—"**: exposure is payroll on WC and
+  GL and building value on Property, so there is no pool sum.
+- **The header's combined-ratio chip is unchanged** (cumulative since game
+  start). The statement has no Total column now, so `combined-ratio.cjs` works
+  the cumulative ratio out from the statement's own cells.
+
+**Landed with:** `annual-statement-template-check` (new, in FAST): every figure
+tied to the engine on four games, the Excel file against the template, and the
+operating ratio by hand on scenario 1 WC 2027 (94.40%), each with a failing
+control. Also VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v95 (24 Results
+hashes unchanged, 24 statement hashes added), RENDER_IDENTITY_v92 (exactly the
+26 Annual Statement screens moved; attributed in `render-identity-check.ts`),
+and every session driver with the admin-token hook. Screenshots are in
+`docs/screenshots/annual-statement/`.
+
+---
+
 ## 0. Rules for the player-facing documents
 
 - **The welcome memo never mentions funding levels, cushions, confidence
