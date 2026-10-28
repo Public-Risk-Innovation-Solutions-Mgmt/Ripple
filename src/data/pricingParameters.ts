@@ -531,6 +531,17 @@ export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property
  * ⚠ LIVE — read by linePricing.expenseDivisor and quoteNewRateStack; the
  * pre-game prices through the same quote, so its history, the prior board's
  * margins and the openings follow from it.
+ *
+ * ⚠ MEASURED AT LANDING (scripts/probes/pricing-rework-probe.mts and
+ * pricing-rework-summ.py; twenty scenarios, five played years, default
+ * decisions; multiplayer 8a4dae4 -> this): the 2027 rate WC $3.306 -> $3.559,
+ * GL $4.665 -> $4.902, Property $0.2816 -> $0.2850; 2027 admin WC $3.67M ->
+ * $6.52M, GL $4.58M -> $6.03M, Property $5.15M -> $5.48M; the pure premium
+ * bit-identical in every scenario. WC's prior-board margin rises (designed
+ * 2.73-5.22%, none at the floor, from -0.21-2.26%, four at the floor), because
+ * the 2% contingency's surplus is gone and the margin replaces it — so WC's
+ * 2027 rate is below 2026's in 8 of 20 scenarios, 3 by more than 2% (worst
+ * -3.15%). GL and Property have no 2027 drop over 2%.
  */
 export const ADMIN_SHARE_OF_PREMIUM: PerLine<number> = { WC: 0.20, GL: 0.20, Property: 0.20 };
 

@@ -109,6 +109,34 @@ revert, with the Annual Statement and test-player work as of e3bc035 merged in.
 Build and test development pricing from there; to bring it back, revert the
 reverts.
 
+## Admin as a share of premium (save key v34) — wip/pricing-rework
+
+Admin is 20% of premium on every line (`ADMIN_SHARE_OF_PREMIUM`, per line so it
+can be set later): rate = pure premium x CLF / (1 - 20%) + reinsurance, the
+permissible loss ratio 80%, booked admin = that admin x (1 + the year's 0-2%
+overrun). Profit and contingency, the fixed and per-exposure admin and the admin
+trend are removed; the pre-game prices the same way. The Rate Indication, the
+Decisions panel and the Model tab show admin 20% and the permissible loss ratio
+80% every year. Save key v34 (v33 retired with it: the reverted development
+pricing's key, live on aws for a while).
+
+**Landed with:** FAST 81/81 and SLOW 4/4 (the manifest held); typecheck clean;
+lint identical to 8a4dae4 (its 14 errors and 7 warnings, none in a changed
+file); `admin-share-check` (new, replacing `admin-trend-check`) and seven gates
+and three drivers restated, each failing on a planted defect (WC's old 2% back in
+the divisor, WC's share at 19%, admin on the rate including reinsurance);
+baselines VALUE_IDENTITY_v89, SOLO_EXPORT_GUARD_v103 and RENDER_IDENTITY_v101,
+each attributed against multiplayer 8a4dae4 (which reproduced v87/v102/v100),
+no loss, claim, reserve or pure-premium figure moved; all 24 session drivers
+with the admin-token hook; the contract harness on every pass (local, http,
+DynamoDB, built handler, admin, race probes).
+
+**Flagged:** WC's 2027 rate falls from 2026's in 8 of 20 scenarios, 3 by more
+than 2% (worst -3.15%) — the prior board's margin now carries what the 2%
+contingency did (figures at `ADMIN_SHARE_OF_PREMIUM`).
+**Pre-existing, not fixed:** `scripts/tools/rate-buildup-report.ts` (a tool, not
+a gate) fails its tie-out on 8a4dae4 too (its walk's exposure reads 0).
+
 ## The Annual Statement laid out as the template
 
 The Annual Statement page and its new **Download Annual Statement (Excel)** button
