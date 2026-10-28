@@ -1534,7 +1534,23 @@ const BASELINE = process.env.RENDER_BASELINE
 // version, the scenario, the codes, the draws and the eleven steps). Single
 // player shows no seed: scenario 7's fixed seed appears in no screen's text.
 // No key added or removed. v103 is captured here.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v103.json');
+// v104: THE REINSURANCE LAYERS AND EVENT LIKELIHOODS (wip/reinsurance-layers),
+// on multiplayer d0b3855. The control ran first: d0b3855, built in its own
+// worktree, reproduced v103 236 of 236 here. Against it, word-diffed
+// (RENDER_TEXT_DIR both sides), 52 move:
+//   every Decisions screen (16) and every Rate Indication (10), the two that
+//   list the T covers: the four new layers appear — 19, 29 and 39 xs 1, 28 xs
+//   2 — and every cover is priced by the workbook's method on the game's own
+//   claims (WC 9 xs 1 $390,000 -> $461,250, 38 xs 2 $590,000 -> $724,500; the
+//   Rate Indication's per-$100 cover rates likewise); and on the Rate
+//   Indication the "Event Likelihoods" block beside each line's cover prices —
+//   its heading, note, and 1 in 10 to 1 in 200 years, "—" where the line's T
+//   events are rarer;
+//   every Calculation Audit (26): the Year Walkthrough's save version only,
+//   riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's key —
+//   nothing else on them.
+// The harness holds None, so no other figure changes.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v104.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

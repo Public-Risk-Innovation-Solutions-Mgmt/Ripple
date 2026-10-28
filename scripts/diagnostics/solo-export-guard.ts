@@ -1005,7 +1005,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the version and no seed. The 24 Results keys move for that sheet alone — with
 // the guard's call passing no sheet, all 48 reproduce v105 byte for byte, so no
 // other sheet and no figure moved — and the 24 `stmt|...` keys do not move.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v106.json');
+// v107: THE REINSURANCE LAYERS (wip/reinsurance-layers), on multiplayer
+// d0b3855, which reproduces v106 here 24 of 24. All 24 move, and in every one
+// the only change (both sides' text, GUARD_TEXT_DIR) is the export's Version
+// row: riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's save
+// key. The 24 statements match. The guard's games hold None,
+// so no cover, price or recovery reaches them. No file added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v107.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
