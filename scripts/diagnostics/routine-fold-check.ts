@@ -22,9 +22,10 @@
 //      the fold as without it — scaled off the unfolded ordinary cost.
 //   3. NO ROUTINE CLAIM IS DRAWN: across played games, every large claim comes
 //      from a shock.
-//   4. A SIMULATED PRE-GAME: every pre-game year's year factor is the
-//      scenario's multiple (preGameLossMultiplier) x the factor drawn on the
-//      pre-game's own stream from the game's seed; it earns its allocation on
+//   4. A SIMULATED PRE-GAME AT TRUE COST: every pre-game year's year factor is
+//      the factor drawn on the pre-game's own stream from the game's seed, and
+//      nothing else (restated for the fixed-seed scenarios: it was the
+//      scenario's multiple x that draw; the multiple is retired); it earns its allocation on
 //      the average of PRE_GAME_MARKET_DRAWS markets, each on its own pre-game
 //      stream; and no shock fires. (It was flat — the multiple exactly, and
 //      PRE_GAME_INVESTMENT_RETURN.)
@@ -32,15 +33,14 @@
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold divided by the uplift
 // (the retired design), a fold that moves with the shock catalogue in a
 // shocks-off game, T scaled off the folded cost, a routine claim slipped in, a flat
-// pre-game, a pre-game drawn on the played years' streams, and a pre-game on
-// one market draw.
+// pre-game, a pre-game drawn on the played years' streams, a pre-game on
+// one market draw, and the retired scenario multiple put back on the draw.
 // ============================================================================
 
-import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, ROUTINE_FOLD_NET_OF_UPLIFT, PRE_GAME_MARKET_DRAWS, preGameLossMultiplier, ROUTINE_LARGE_LOSSES } from '../../src/data/pricingParameters';
+import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, ROUTINE_FOLD_NET_OF_UPLIFT, PRE_GAME_MARKET_DRAWS, ROUTINE_LARGE_LOSSES, SCENARIO_COUNT, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_RATIO_RANGE } from '../../src/data/pricingParameters';
 import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
 import { blendInvestmentReturn, simulateMarketReturns, type MarketReturns } from '../../src/utils/investmentEngine';
 import { deriveSubRng } from '../../src/utils/random';
-import { scenarioOf } from '../../src/utils/scenarios';
 import { baseOrdinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
 import { expectedLossBreakdown, routineFoldPer100, upliftMoments } from '../../src/utils/shockExpectation';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -113,7 +113,7 @@ function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
 }
 
 // ---------------------------------------------------------------- 3 & 4
-interface Played { pre: ResultSet[]; game: ResultSet[]; seed: number; scenario: number }
+interface Played { pre: ResultSet[]; game: ResultSet[]; seed: number }
 function play(id: string, years: number): Played {
   const { setup, instance } = openSoloInstance({ poolName: 'F', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES } as GameSetupSettings);
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
@@ -124,7 +124,7 @@ function play(id: string, years: number): Played {
     game.push(p.result);
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
   }
-  return { pre: [...(earlyPreGameHistory ?? []), ...priorHistory], game, seed: instance.seed, scenario: scenarioOf(instance) };
+  return { pre: [...(earlyPreGameHistory ?? []), ...priorHistory], game, seed: instance.seed };
 }
 const games = ['RFC1', 'RFC2', 'RFC3', 'RFC4'].map(id => play(id, 10));
 type Claims = (r: LineResultSet) => { shock: boolean }[];
@@ -140,14 +140,14 @@ function gradeGames(claims: Claims, drawOf: DrawOf, marketOf: MarketOf, tag: str
     const x = r.byLine[l]!;
     const n = x.newLossEngine!;
     years++;
-    const want = preGameLossMultiplier(g.scenario, l) * drawOf(g.seed, r.yearNumber, l);
+    const want = drawOf(g.seed, r.yearNumber, l);
     worstFactor = Math.max(worstFactor, Math.abs(x.commonLossFactor / want - 1));
     const rate = blendInvestmentReturn(1, x.assetAllocation, marketOf(g.seed, r.yearNumber)).returnRate;
     worstReturn = Math.max(worstReturn, Math.abs(x.investmentReturnRate - rate));
     shocks += n.shockLargeClaims + (n.uplift !== 0 ? 1 : 0);
   }
   check(worstFactor < 1e-12 && worstReturn < 1e-12 && shocks === 0,
-    `${tag}4. a simulated pre-game: the scenario's multiple x its draw, the market drawn, on the pre-game's own streams; no shock`,
+    `${tag}4. a simulated pre-game at true cost: its own draw and nothing else, the market drawn, on the pre-game's own streams; no shock`,
     `${years} pre-game line-years; worst factor off ${worstFactor.toExponential(2)}, worst return off ${worstReturn.toExponential(2)}, ${shocks} shocks`);
 }
 
@@ -187,6 +187,14 @@ controlFails('a pre-game drawn on the played years\' streams', () => gradeGames(
   (seed, y, l) => drawOrdinaryFactor(deriveSubRng(seed, y, `ordinary_${l}`), ordinaryYearCv(l)),
   (seed, y) => simulateMarketReturns(deriveSubRng(seed, y, 'invest')), ''), '4.');
 controlFails('a pre-game on one market draw', () => gradeGames(claimsOf, drawOf, avgOf(['pregame_invest_0']), ''), '4.');
+// The retired scenario multiple, rebuilt here: 1 + (1 - the line's midpoint /
+// the target) x 0.3, on the scenario a bare id used to fall on (seed % 20 + 1).
+const retiredMultiple = (seed: number, l: CoverageLine) => {
+  const mid = (SCENARIO_RATIO_RANGE[l].thinnest + SCENARIO_RATIO_RANGE[l].richest) / 2;
+  return 1 + (1 - mid / SCENARIO_PREMIUM_TO_SURPLUS[l][(seed % SCENARIO_COUNT) + 1]) * 0.3;
+};
+controlFails('the retired scenario multiple put back on the draw', () => gradeGames(claimsOf,
+  (seed, y, l) => retiredMultiple(seed, l) * drawOf(seed, y, l), marketOf, ''), '4.');
 
 console.log('');
 if (failures.length) {

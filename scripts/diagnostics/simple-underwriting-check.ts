@@ -173,17 +173,17 @@ console.log('\n--- 3. 100 EQUAL MEMBERS ---');
 console.log('\n--- 3b. MEMBER RISK ---');
 {
   const scores: number[] = [];
-  for (let s = 0; s < 4000; s++) scores.push(...ordinaryLossFromMembers('GL', 100, 2, 1, 1, 1, false, 700_000 + s * 7919).risk);
+  for (let s = 0; s < 4000; s++) scores.push(...ordinaryLossFromMembers('GL', 100, 2, 1, 1, false, 700_000 + s * 7919).risk);
   const n = scores.length, m = scores.reduce((a, b) => a + b, 0) / n;
   const sd = Math.sqrt(scores.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1)), cv = sd / m;
   // SE of the mean is sd / sqrt(n); of a lognormal's sample CV, wider than normal — 4% of the CV is about 10 SE here.
   check(Math.abs(m - 1) < 4 * sd / Math.sqrt(n) && Math.abs(cv / MEMBER_RISK_CV - 1) < 0.04,
     `the scores are mean 1, CV ${MEMBER_RISK_CV}`, `mean ${m.toFixed(5)}, CV ${cv.toFixed(4)} over ${n.toLocaleString('en-US')}`);
-  const w1 = ordinaryLossFromMembers('WC', 100, 4, 111, 1, 1, false, 4242);
-  const w2 = ordinaryLossFromMembers('WC', 100, 4, 222, 1, 1, false, 4242);
+  const w1 = ordinaryLossFromMembers('WC', 100, 4, 111, 1, false, 4242);
+  const w2 = ordinaryLossFromMembers('WC', 100, 4, 222, 1, false, 4242);
   check(w1.risk.every((r, i) => r === w2.risk[i]) && w1.luck.some((f, i) => f !== w2.luck[i]),
     'two worlds of one game: the same risk scores, different luck');
-  const y5 = ordinaryLossFromMembers('WC', 100, 5, 111, 1, 1, false, 4242);
+  const y5 = ordinaryLossFromMembers('WC', 100, 5, 111, 1, false, 4242);
   check(y5.risk.every((r, i) => r !== w1.risk[i]), 'redrawn every year: no member keeps its score');
   check(new Set(w1.risk).size === UNDERWRITING_MEMBERS, 'and every member draws its own');
   // Through the engine: world 1 of a game, its seed not the game's.
@@ -192,8 +192,8 @@ console.log('\n--- 3b. MEMBER RISK ---');
   let worst = 0, wrong = 0;
   for (const line of LINES) {
     const n1 = pw.result.byLine[line]!.newLossEngine!;
-    const onGame = ordinaryLossFromMembers(line, 100, 1, wi.seed, 1, 1, false, g.instance.seed).factor;
-    const onWorld = ordinaryLossFromMembers(line, 100, 1, wi.seed, 1, 1, false, wi.seed).factor;
+    const onGame = ordinaryLossFromMembers(line, 100, 1, wi.seed, 1, false, g.instance.seed).factor;
+    const onWorld = ordinaryLossFromMembers(line, 100, 1, wi.seed, 1, false, wi.seed).factor;
     const got = n1.ordinaryRealised / (n1.ordinaryExpected * (1 + n1.uplift));
     worst = Math.max(worst, Math.abs(got / onGame - 1));
     wrong = Math.max(wrong, Math.abs(got / onWorld - 1));
