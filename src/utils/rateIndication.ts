@@ -28,28 +28,30 @@
 // — pricing's own figure, shown as pricing struck it.
 //
 // ⚠ THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS RATIO, the
-// permissible loss ratio being 100% less the total expense ratio — fixed admin,
-// per-exposure admin, risk control and profit and contingency (5%) as shares of
-// the rate at Expected (PROFIT_AND_CONTINGENCY_OF_RATE). At Expected with no
-// cover the two are the same figure exactly. NO INVESTMENT INCOME LINE:
-// investment income does not touch the rate. Other funding levels scale the
-// claims by their CLF and not admin, so each is the quote's own rate.
+// permissible loss ratio being 100% less the total expense ratio — admin at its
+// share of premium (ADMIN_SHARE_OF_PREMIUM, 20%, the same every year) and risk
+// control (off). At Expected with no cover the two are the same figure exactly.
+// NO INVESTMENT INCOME LINE: investment income does not touch the rate. Other
+// funding levels scale the claims by their CLF, and admin stays its share of
+// the rate that results, so each is the quote's own rate.
 //
 // ⚠ NOTHING HERE IS SHOWN AS METHOD. The page prints labels and figures only
 // (docs/PENDING_MULTIPLAYER.md: players never see how the engine works).
 // ============================================================================
-import {
-  ADMIN_FIXED_PER_YEAR, AGGREGATE_STOP_OPTIONS, PROFIT_AND_CONTINGENCY_OF_RATE, RATE_INDICATION_FUNDING_LEVELS,
-} from '../data/pricingParameters';
+import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_STOP_OPTIONS, RATE_INDICATION_FUNDING_LEVELS } from '../data/pricingParameters';
 import { gameHistory } from './gameHistory';
 import { computeFundingConsequence } from './fundingConsequence';
-import { adminTrendFactor, effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
+import { effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
 import { lossCostTrendPerYear } from './newPurePremium';
 import { AGGREGATE_NOT_OFFERED, placementFor, reinsuranceOptionIds } from './reinsuranceOptions';
 import { gameShocksOn } from './shockLosses';
 import { selectedClfFor } from './simulationEngine';
 import { fundingConsequenceInput } from '../game/derivations';
 import type { CoverageLine, DecisionSet, GameState, LineDecisionSet, LineResultSet } from '../types/simulation';
+import { eventLikelihoods } from './eventLikelihoods';
+import { pricedGrowthFactor } from './reinsuranceTower';
+import type { Book } from './lineHelpers';
+import type { TowerLine } from '../data/reinsuranceTower';
 
 /** A funding position: Expected, or a confidence level. */
 export type FundingPosition = 'expected' | number;
@@ -83,12 +85,18 @@ export interface RateIndication {
   indicatedRatePer100: number;
   /** Shares of the rate at Expected. */
   expenses: {
-    fixedAdmin: number; perExposureAdmin: number; riskControl: number; contingency: number;
+    admin: number; riskControl: number;
     totalAdmin: number; permissibleLossRatio: number;
   };
   currentPer100: number | null;
   positions: { position: FundingPosition; ratePer100: number; change: number | null }[];
   reinsurance: { id: string; name: string; pricePer100: number }[];
+  /**
+   * EVENT LIKELIHOODS (utils/eventLikelihoods): the size of a single large (T)
+   * claim at 1 in 10 to 1 in 200 years for the year priced, at the growth
+   * factor its cover prices use; null when the game's shocks are off.
+   */
+  eventLikelihoods: { years: number; size: number | null }[] | null;
 }
 
 export interface IndicationYear { yearNumber: number; calendarYear: number }
@@ -130,7 +138,7 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
   const price = (p: FundingPosition, option: string): Priced => quoteNewRateStack({
     line,
     yearNumber,
-    members: { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) },
+    members: { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) } as Book,
     exposure: ratedExposure,
     groundUpPurePremiumPer100: newPurePremiumPer100,
     clf: selectedClfFor(line, asDecision(d, p)),
@@ -141,7 +149,8 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
     shocks,
   });
   const chosen: FundingPosition = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
-  return { lr, rateBasis, ratedExposure, newPurePremiumPer100, d, price, chosen };
+  const members: Book = { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) };
+  return { lr, rateBasis, ratedExposure, newPurePremiumPer100, d, price, chosen, members };
 }
 
 /**
@@ -166,9 +175,10 @@ export function buildRateIndication(
 
   let price: (p: FundingPosition, option: string) => Priced | null;
   let projected: number;
-  let exposure: number;
   let windowYears: number;
   let reinsuranceAt: FundingPosition;
+  // The book the cover prices are quoted on, so the likelihoods grow by its factor.
+  let coverBook: Book;
 
   if (coming) {
     const d = decisions.byLine[line];
@@ -177,20 +187,20 @@ export function buildRateIndication(
       p === 'expected' ? d.fundingConfidenceLevel : p, prior, line, p === 'expected',
       fundingConsequenceInput(gs, line, decisions, option).book,
     ).newStack ?? null;
-    const { book, purePremium } = fundingConsequenceInput(gs, line, decisions, 'none');
+    const { purePremium } = fundingConsequenceInput(gs, line, decisions, 'none');
     if (!purePremium) return null;
     projected = purePremium.purePremiumPer100;
-    exposure = book.exposure;
     windowYears = purePremium.points.length;
     reinsuranceAt = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
+    coverBook = fundingConsequenceInput(gs, line, decisions, 'none').book;
   } else {
     const past = pastPricer(gs, line, yearNumber);
     if (!past) return null;
     price = past.price;
     projected = past.newPurePremiumPer100;
-    exposure = past.ratedExposure;
     windowYears = past.rateBasis.windowYears;
     reinsuranceAt = past.chosen;
+    coverBook = past.members;
   }
 
   const atExpected = price('expected', 'none');
@@ -204,16 +214,12 @@ export function buildRateIndication(
   const currentRow = gameHistory(gs).find(x => x.yearNumber === yearNumber - 1)?.byLine[line];
   const currentExposure = currentRow ? (currentRow.billedExposure ?? currentRow.activeExposure) : 0;
 
-  // THE EXPENSES, as shares of the rate at Expected.
-  const rateE = atExpected.finalRatePer100;
-  // The fixed part's share, trended to the year as the rate charges it.
-  const fixedPer100 = adminTrendFactor(yearNumber) * ADMIN_FIXED_PER_YEAR[line] / Math.max(exposure * 10_000, 1);
+  // THE EXPENSES, as shares of the rate at Expected: admin's share of premium —
+  // the parameter itself, the same every year — and risk control.
+  const admin = ADMIN_SHARE_OF_PREMIUM[line];
   const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
     : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
-  const contingency = PROFIT_AND_CONTINGENCY_OF_RATE[line];
-  // The total expense ratio, at Expected: admin's share of the rate, risk
-  // control and profit and contingency.
-  const totalAdmin = atExpected.adminRatePer100 / rateE + riskControl + contingency;
+  const totalAdmin = admin + riskControl;
 
   const currentPer100 = currentRate(gs, line, yearNumber);
   const change = (rate: number) => (currentPer100 && currentPer100 > 0 ? rate / currentPer100 - 1 : null);
@@ -245,12 +251,11 @@ export function buildRateIndication(
     indicatedRateChange: positions[0].change,
     indicatedRatePer100: projected / (1 - totalAdmin),
     expenses: {
-      fixedAdmin: fixedPer100 / rateE,
-      perExposureAdmin: (atExpected.adminRatePer100 - fixedPer100) / rateE,
-      riskControl, contingency, totalAdmin, permissibleLossRatio: 1 - totalAdmin,
+      admin, riskControl, totalAdmin, permissibleLossRatio: 1 - totalAdmin,
     },
     currentPer100,
     positions,
     reinsurance,
+    eventLikelihoods: shocks ? eventLikelihoods(line, pricedGrowthFactor(line as TowerLine, coverBook, yearNumber)) : null,
   };
 }

@@ -14,9 +14,9 @@
 // ⚠ WITH SOLO_SHOCKS OFF (pending the data scientist) NO SCHEDULE IS DRAWN: the
 // instance carries none, its timing is still 'solo', and so nothing fires.
 import { SOLO_ADVERSE_DEVELOPMENT, SOLO_SHOCK_DRAW, SOLO_SHOCKS } from '../data/pricingParameters';
-import { generateGameInstance } from './instanceGenerator';
+import { scenarioInstance } from './instanceGenerator';
+import { gameIdentity } from './scenarios';
 import { drawCatalogueSchedule, drawShockSchedule, SOLO_SHOCK_STREAM } from './shockSchedule';
-import { seedFromInstanceId } from '../seedHash';
 import type { GameInstance, GameSetupSettings } from '../types/simulation';
 import type { ScheduledShock } from '../types/shocks';
 import { drawDevelopmentLevels, NO_DEVELOPMENT } from './adverseDevelopment';
@@ -30,18 +30,21 @@ export function openSoloInstance(
   test?: { schedule: ScheduledShock[] },
 ): { setup: GameSetupSettings; instance: GameInstance } {
   const draw = SOLO_SHOCK_DRAW === 'catalogue' ? drawCatalogueSchedule : drawShockSchedule;
+  // ⚠ DRAWN ON THE GAME'S IDENTITY — a scenario's fixed seed (scenarios.ts),
+  // never the number the player picked — like everything else in the game.
+  const { gameId } = gameIdentity(settings.instanceId);
   const schedule = test
     ? test.schedule
-    : SOLO_SHOCKS.enabled ? draw(settings.instanceId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
+    : SOLO_SHOCKS.enabled ? draw(gameId, settings.gameLength, SOLO_SHOCK_STREAM) : [];
   // THE DEVELOPMENT LEVELS, stored on the setup so the save carries them. Test
   // player brings the ones chosen on the host's screen. SINGLE PLAYER HAS NONE
   // (SOLO_ADVERSE_DEVELOPMENT off): every line Off and no level drawn — single
   // player is for learning the game, development a tool for hosted and test
   // games. Switched on, it would draw each line's level from the seed.
   const developmentLevels = settings.developmentLevels
-    ?? (SOLO_ADVERSE_DEVELOPMENT.enabled ? drawDevelopmentLevels(settings.instanceId) : { ...NO_DEVELOPMENT });
+    ?? (SOLO_ADVERSE_DEVELOPMENT.enabled ? drawDevelopmentLevels(gameId) : { ...NO_DEVELOPMENT });
   return {
-    setup: { ...settings, shockTiming: 'solo', developmentLevels },
-    instance: generateGameInstance(settings.instanceId, seedFromInstanceId(settings.instanceId), schedule),
+    setup: { ...settings, shockTiming: 'solo', developmentLevels, ...(test ? { testPlayer: true } : {}) },
+    instance: scenarioInstance(settings.instanceId, schedule),
   };
 }

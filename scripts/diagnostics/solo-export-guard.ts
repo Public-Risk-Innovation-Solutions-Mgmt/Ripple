@@ -222,6 +222,7 @@ import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from 
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { buildResultsWorkbook } from '../../src/utils/resultsExport';
+import { walkthroughHeader, walkthroughSheetRows } from '../../src/utils/yearWalkthrough';
 import { buildAnnualStatementXlsx } from '../../src/utils/annualStatementExport';
 import ExcelJS from 'exceljs';
 
@@ -920,7 +921,103 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // identical in all 24; in the full-precision rendering they differ by at most
 // 7.3e-11 (thousands of dollars) — the split is now summed accident year by
 // accident year rather than column by column, which reorders the additions.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v97.json');
+// v98: THE v2 TEMPLATE — ALL YEARS. All 24 `stmt|...` keys move; all 24
+// Results-workbook keys are byte-identical to v97. Text-diffed against the code at
+// 2107e9d (GUARD_TEXT_DIR), every moved line is one of three things. One blank
+// row fewer after each sheet's Contributions Written Premium (v2's spacing). Column
+// I added: 4,560 lines gain their All Years SUM (the dollar rows of the
+// Contributions, Program Year Totals, Gross, Ceded and Net blocks), and every
+// other line gains one empty field, as the sheet is now nine columns wide; the
+// ratio rows are blank there. And 4,380 bordered cells added, all in column I;
+// no border elsewhere moved once the rows below the dropped blank are aligned.
+// No key added or removed.
+// v99: TWO HEADINGS RENAMED — "Net Income Statement For The Year" and
+// "Reinsurance Information - Program Year Totals". All 24 `stmt|...` keys move;
+// all 24 Results-workbook keys are byte-identical to v98. Text-diffed
+// (GUARD_TEXT_DIR): every statement file is v98's character for character once
+// those two headings are read back to the template's wording. No key added or
+// removed.
+// v100: SEVEN COLUMNS, THE NET INCOME STATEMENT'S ROWS, THE CONTRIBUTIONS
+// VARIANCE. All 24 `stmt|...` keys move; all 24 Results-workbook keys are
+// byte-identical to v99. Text-diffed against v99's own text (GUARD_TEXT_DIR,
+// shown and raw), every moved line is one of these, and none is unexplained:
+//   · Prior blank in the Net Income Statement, Balance Sheet and Underwriting —
+//     4,440 lines lose their C cell; 240 lose the first year's "Change from
+//     Prior" / "% Change Over Prior".
+//   · the labels: "Premium" → "Written Premium", "Additional Admin Expense (risk
+//     control)" → "Other Admin Expense", the three "% of Premium" indented, the
+//     Contributions and Program Year Totals "- Net of Reinsurance" (120 each,
+//     360 for the indents).
+//   · one row inserted, General Admin Expense's own "% of Premium" (120 lines),
+//     and the old admin "% of Premium" now Other Admin Expense's own (120).
+//   · the Contributions variance: Previously Reported and Newly Arising
+//     Payments and Reserve Changes, Previously Reported Net Reported and Change
+//     in IBNR (120 lines each); Newly Arising Net Reported in 30 raw lines, at
+//     the last digit — newly reported is the same amount, re-split. Written
+//     Premium and Total Net Incurred do not move.
+//   · borders: 3,660 bordered cells added — column I drawn as H above the
+//     Contributions, and the inserted row drawn as row 13; with rows below the
+//     inserted one aligned, no other border moved.
+// No key added or removed.
+// v101: THE SETTLEMENT DRAWS ON THE PROGRAM-YEAR BLOCKS. All 24 `stmt|...`
+// keys move; all 24 Results-workbook keys are byte-identical to v100.
+// Text-diffed against v100's own text (GUARD_TEXT_DIR, shown and raw): every
+// moved line is Case Reserves, IBNR Reserves or Reported Loss & LAE in Program
+// Year Totals or the Gross or Net block (120 lines each, nine rows) — each
+// accident year's draws to date moved from IBNR to case. Ceded, Paid, Total
+// Incurred, the Contributions and the borders do not move. No key added or removed.
+// v102: THE SETTLEMENT DRAW CAPPED AT THE IBNR LEFT. 12 `stmt|...` keys move —
+// the statements where the cap binds; the other 12 and all 24 Results keys are
+// byte-identical to v101. Text-diffed against v101's own text (GUARD_TEXT_DIR,
+// shown and raw): every moved line is Previously Reported Reserve Changes or
+// Net Reported, or Change in IBNR, in the Contributions, or Case Reserves, IBNR
+// Reserves or Reported Loss & LAE in Program Year Totals or the Gross or Net
+// block (48 lines each). Payments, Total Net Incurred, Ceded, Paid and Total
+// Incurred do not move. No key added or removed.
+// v103: THE DOWNLOADS FOLLOW THE VIEW (statementsForView). The guard builds the
+// Pool view's file; a team writing one line now gets the pool's statement alone
+// there, its pool statement being that line's. 18 `stmt|...` keys move —
+// exactly the one-line games' (WC-solo, GL-solo, PR-solo, both arms, three
+// instances) — and each file is v102's character for character with its line's
+// sheet taken out: the Pool sheet's shown and raw text and its borders are
+// v102's. The three-line files and all 24 Results keys are byte-identical. No
+// key added or removed.
+// v104: ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). The control ran
+// first: multiplayer 3686296 reproduced v103 on all 48 keys. All 48 move — every
+// statement and Results workbook carries a rate and an admin figure. Text-diffed
+// against 3686296's own text (GUARD_TEXT_DIR, shown, raw and sheet): every moved
+// line is Written Premium, Current Rate and its change, General Admin Expense,
+// Net Underwriting / Operating Income, Investment Income, the Loss & LAE,
+// Combined, Operating, Premium-to-Surplus and Reserve-to-Surplus ratios, % of
+// Premium, or the balance sheet's Assets, Invested, Uninvested, Earned Surplus,
+// Paid in Capital and Net Worth (the pre-game's margin re-solves, so the opening
+// does). No loss, reserve, IBNR, case, paid, ceded, claim or exposure line moves
+// in any file, and no line was added or removed.
+// v105: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios), against
+// multiplayer 985f365, which reproduces v104 here. 4effbc3 (each scenario on a
+// fixed seed) moves none: these games are bare ids. 12e7c54 (every run-time
+// fitting removed) moves all 48: a bare id no longer falls on a scenario, so
+// its pre-game runs at true cost with the prior board at Expected and opens
+// where that history ends — every file's figures follow. The gates and the
+// save key move none. No file added or removed.
+// v106: THE YEAR WALKTHROUGH SHEET. The Results workbook gains one sheet, last,
+// "Year Walkthrough" (utils/yearWalkthrough), built as single player builds it:
+// the version and no seed. The 24 Results keys move for that sheet alone — with
+// the guard's call passing no sheet, all 48 reproduce v105 byte for byte, so no
+// other sheet and no figure moved — and the 24 `stmt|...` keys do not move.
+// v107: THE REINSURANCE LAYERS (wip/reinsurance-layers), on multiplayer
+// d0b3855, which reproduces v106 here 24 of 24. All 24 move, and in every one
+// the only change (both sides' text, GUARD_TEXT_DIR) is the export's Version
+// row: riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's save
+// key. The 24 statements match. The guard's games hold None,
+// so no cover, price or recovery reaches them. No file added or removed.
+// v108: THE YEAR WALKTHROUGH REWORKED (every stage the engine goes through,
+// each with how decisions reach it and its working), on multiplayer e698c79.
+// The Results workbook's Year Walkthrough sheet moves, so the 24 Results keys
+// move; with the walkthrough sheet left out, all 48 hash identically on
+// e698c79 and on this change (both run here), so no other sheet and no figure
+// moved, and the 24 `stmt|...` keys do not move.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v108.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
@@ -997,7 +1094,9 @@ for (const arm of ARMS) {
 for (const id of SEEDS) {
   for (const { lines, name } of CONFIGS) {
     const game = play(id, lines, 5, arm.decisions);
-    const wb = buildResultsWorkbook(game.lockedResults, lines, RESULT_METRICS);
+    // The Year Walkthrough sheet as single player's download carries it (v106).
+    const wb = buildResultsWorkbook(game.lockedResults, lines, RESULT_METRICS,
+      walkthroughSheetRows(game, walkthroughHeader(game.instance, false)));
     // ============================================================================
     // ⚠ TWO RENDERINGS, HASHED TOGETHER, AND THE SECOND ONE IS NEW.
     //

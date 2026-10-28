@@ -9,11 +9,14 @@
 //                       by step IS the rate the game charged that year, and
 //                       its premium the premium charged; for the coming year,
 //                       the rate the Decisions panel quotes. Its rows — pure
-//                       premium x CLF, admin, Risk Control, profit &
-//                       contingency, reinsurance — add to that rate; the
-//                       indicated rate at Expected is the projected pure
-//                       premium / the permissible loss ratio; profit &
-//                       contingency is the line's (WC 2%, GL 0%, Property 0%); every window year shows its reserve
+//                       premium x CLF, admin, Risk Control, reinsurance — add
+//                       to that rate; the indicated rate at Expected is the
+//                       projected pure premium / the permissible loss ratio;
+//                       admin is 20% and the permissible loss ratio 80% on
+//                       every line and every year, with no profit &
+//                       contingency row (restated at wip/pricing-rework from
+//                       the line's contingency, WC 2%, GL 0%, Property 0%,
+//                       and the trended fixed and per-exposure admin); every window year shows its reserve
 //                       inflation still to come (1 past the priced years), and
 //                       there is no investment income credit
 //   section B           every KNOWN year's simulated combined ratio,
@@ -31,8 +34,8 @@
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
-// Profit and contingency by line (pricingParameters' PROFIT_AND_CONTINGENCY_OF_RATE), written out.
-const CONTINGENCY = { WC: 0.02, GL: 0, Property: 0 };
+// Admin's share of premium by line (pricingParameters' ADMIN_SHARE_OF_PREMIUM), written out.
+const ADMIN = { WC: 0.2, GL: 0.2, Property: 0.2 };
 const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
 
 let passed = 0, failed = 0;
@@ -110,24 +113,27 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       const chargedPremium = await value('[data-testid="model-a-charged-premium"]');
       const coming = o.value === opts[opts.length - 1].value;
       const want = coming ? panel[l] : charged;
-      const pieces = await Promise.all(['pure-premium', 'admin', 'risk-control', 'contingency', 'reins'].map(k => value(`[data-testid="model-a-piece-${k}"]`)));
+      const pieces = await Promise.all(['pure-premium', 'admin', 'risk-control', 'reins'].map(k => value(`[data-testid="model-a-piece-${k}"]`)));
       const projected = await value('[data-testid="model-a-projected"]');
       const plr = await value('[data-testid="model-a-plr"]');
       const indicated = await value('[data-testid="model-a-indicated"]');
-      const contingency = await value('[data-testid="model-a-exp-contingency"]');
+      const admin = await value('[data-testid="model-a-exp-admin"]');
+      const adminShare = await value('[data-testid="model-a-admin-share"]');
+      const retired = await page.locator('[data-testid="model-a-exp-contingency"], [data-testid="model-a-piece-contingency"], [data-testid="model-a-exp-fixed"], [data-testid="model-a-exp-exposure"], [data-testid="model-a-admin-trend"]').count();
       const inflation = await page.$$eval('[data-testid$="-inflation"]', els => els.map(e => Number(e.getAttribute('data-value'))));
       const credit = await page.locator('[data-testid="model-a-credit"]').count();
       const sum = pieces.reduce((x, y) => x + y, 0);
-      const structure = near(sum, rate) && near(indicated, projected / plr) && near(contingency, CONTINGENCY[l]) && credit === 0
+      const structure = near(sum, rate) && near(indicated, projected / plr) && near(admin, ADMIN[l]) && near(adminShare, ADMIN[l])
+        && near(plr, 1 - ADMIN[l]) && retired === 0 && near(pieces[1], ADMIN[l] * (rate - pieces[3])) && credit === 0
         && inflation.length > 0 && inflation.every(x => x >= 1);
-      if (!structure && !bad) bad = `${o.text}: rows ${sum} vs rate ${rate}; indicated ${indicated} vs ${projected / plr}; contingency ${contingency}; ${inflation.length} inflation cells; credit rows ${credit}`;
+      if (!structure && !bad) bad = `${o.text}: rows ${sum} vs rate ${rate}; indicated ${indicated} vs ${projected / plr}; admin ${admin} (share ${adminShare}, row ${pieces[1]}), permissible ${plr}; ${retired} retired rows; ${inflation.length} inflation cells; credit rows ${credit}`;
       const good = structure && (coming ? near(rate, panel[l]) : near(rate, charged) && near(premium, chargedPremium));
       n++;
       if (!good && !bad) bad = `${o.text}: ${rate} vs ${want}${coming ? ' (panel)' : `, premium ${premium} vs ${chargedPremium}`}`;
       if (!good) worst++;
     }
     ok(worst === 0 && n === opts.length,
-      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged; its rows add to it, the indicated rate is pure premium / permissible loss ratio, the line's contingency, inflation shown, no credit`,
+      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged; its rows add to it, the indicated rate is pure premium / permissible loss ratio, admin 20% and the permissible loss ratio 80% every year, no contingency, inflation shown, no credit`,
       bad || `${n} years`);
 
     // Section B's simulated figures, by calendar year: every year but the
@@ -158,9 +164,9 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       const c = cal[i];
       await page.selectOption('[data-testid="statement-year"]', String(opts[i].value));
       await page.waitForTimeout(250);
-      // The statement's asOf year is its last column (Prior and the five years; no Total).
+      // The statement's asOf year is its last year column — the cell before I, blank in these sections (no Total).
       const cell = async rowLabel => page.$eval(`[data-testid="annual-statement"] tr[data-row-label="${rowLabel}"]`,
-        tr => { const tds = [...tr.querySelectorAll('td')]; return tds[tds.length - 1].textContent.trim(); }).catch(() => null);
+        tr => { const tds = [...tr.querySelectorAll('td')]; return tds[tds.length - 2].textContent.trim(); }).catch(() => null);
       const got = { cr: await cell('Combined Ratio'), inv: await cell('Investment Income'), surplus: await cell('Net Worth') };
       const s = sim[l][c];
       const want = { cr: pct1(s.cr), inv: thousands(s.inv), surplus: thousands(s.surplus) };

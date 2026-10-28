@@ -78,13 +78,13 @@ const ok = (cond, label, detail = '') => {
         const head = (await page.locator('header').innerText()).replace(/\s+/g, ' ');
         const chip = (head.match(/Surplus\s+(-?\$[-\d,.]+[MKB]?)/) || [])[1];
         const cells = await page.locator(`[data-testid="statement-balance"] tr[data-row-label="${ROW}"] td`).allInnerTexts();
-        const latest = cells[cells.length - 1];   // Prior and the five years; the newest is last (no Total)
+        const latest = cells[cells.length - 2];   // C and I blank on the balance sheet: the newest year is the cell before I
         const a = chipM(chip), b = thousandsM(latest);
         ok(a !== null && b !== null && Math.abs(a - b) <= TOLERANCE_M,
           `scenario ${scenario}, ${phase}, ${view}: the chip is the statement's latest Net Worth`,
           `chip ${chip} · statement ${latest} (thousands)`);
       }
-      await page.getByRole('button', { name: /^Calculation Audit$/ }).first().click();
+      await page.getByRole('button', { name: /^Year Walkthrough$/ }).first().click();
       await page.waitForTimeout(800);
       for (const view of VIEWS) {
         await page.getByRole('button', { name: view, exact: true }).first().click();

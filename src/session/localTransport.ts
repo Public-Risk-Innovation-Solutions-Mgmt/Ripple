@@ -600,8 +600,9 @@ export class LocalSessionTransport implements SessionTransport {
         const v = req.priorDevelopment?.[l];
         if (typeof v === 'number' && Number.isFinite(v)) roomPriorDev[l] = v;
       }
-      // Adverse development levels (wip/adverse-development): a real level per
-      // played line is kept; anything else is dropped, and reads the default.
+      // Adverse development levels (wip/adverse-development): a real level, or
+      // None ('Off'), per played line is kept; anything else is dropped, and
+      // reads the default.
       const roomDevLevels: DevelopmentLevels = {};
       for (const l of roomLines) {
         const v = req.developmentLevels?.[l];

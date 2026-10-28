@@ -712,10 +712,16 @@ export type PriorDevelopment = Partial<Record<CoverageLine, number>>;
  * ADVERSE_DEVELOPMENT) — what the host sets in place of PriorDevelopment, which
  * the engine no longer reads with the switch on. A line absent reads
  * ADVERSE_DEVELOPMENT_DEFAULT_LEVEL; an old room record, absent throughout.
+ *
+ * 'Off' is the host's NONE: no adverse development on that line — the setting
+ * plain Single player stores on every line (SOLO_ADVERSE_DEVELOPMENT), so a
+ * None line plays exactly what Single player plays. The screens label it None;
+ * the record carries 'Off', the engine's own word for it.
  */
-export type DevelopmentLevels = Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High'>>;
-/** Is `v` a level? The transports keep only these. */
-export const isDevelopmentLevel = (v: unknown): v is 'Low' | 'Mid' | 'High' => v === 'Low' || v === 'Mid' || v === 'High';
+export type DevelopmentLevels = Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>;
+/** Is `v` a level (or None, 'Off')? The transports keep only these. */
+export const isDevelopmentLevel = (v: unknown): v is 'Low' | 'Mid' | 'High' | 'Off' =>
+  v === 'Low' || v === 'Mid' || v === 'High' || v === 'Off';
 
 /**
  * The prior-development defaults — the engine's own, the same values, so a line

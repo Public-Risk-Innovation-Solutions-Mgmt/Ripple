@@ -31,6 +31,8 @@ interface ResultSpreadsheetPageProps {
   poolState: PoolState;
   /** A multi-world game's world 1 — the claims workbook's source. Absent on one world. */
   claimsWorld?: { lockedResults: ResultSet[]; poolState: PoolState };
+  /** The Results download's Year Walkthrough sheet, built on click (utils/yearWalkthrough). */
+  walkthroughRows?: () => (string | number)[][];
 }
 
 // ⚠ ONE SWITCH FOR THE TWO MEMBER-LEVEL VIEWS ON THIS PAGE: the Active Member
@@ -40,7 +42,7 @@ interface ResultSpreadsheetPageProps {
 // Typed, not a literal, so it reads as a setting rather than dead code.
 const SHOW_MEMBER_VIEWS: boolean = false;
 
-export default function ResultSpreadsheetPage({ lockedResults, preGameResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld }: ResultSpreadsheetPageProps) {
+export default function ResultSpreadsheetPage({ lockedResults, preGameResults, priorHistory, instance, activeLines, instanceId, poolState, claimsWorld, walkthroughRows }: ResultSpreadsheetPageProps) {
   // Every known year the table and the Results download show: pre-game, then played.
   const shown = useMemo(() => [...preGameResults, ...lockedResults], [preGameResults, lockedResults]);
   const [selectedYear, setSelectedYear] = useState<number>(
@@ -136,7 +138,7 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
               // the line tabs came out with 81 rows instead of 92 even once the
               // accessors were made reversible. The pooled list above is for the
               // on-screen pool table, which is the only thing it is correct for.
-              const wb = buildResultsWorkbook(shown, activeLines, RESULT_METRICS);
+              const wb = buildResultsWorkbook(shown, activeLines, RESULT_METRICS, walkthroughRows?.());
               XLSX.writeFile(wb, exportFilename);
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
@@ -157,7 +159,10 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
               // development. The button does not say so: players are never told
               // about the worlds.
               const src = claimsWorld ?? { lockedResults, poolState };
-              const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instanceId);
+              // The closure draws key on the INSTANCE's id, as the engine's do
+              // (a scenario's is its fixed seed); the file name keeps the
+              // scenario number the player chose.
+              const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instance.instanceId);
               XLSX.writeFile(wb, claimsExportFilename);
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"

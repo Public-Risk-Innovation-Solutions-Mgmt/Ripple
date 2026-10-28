@@ -1440,7 +1440,129 @@ const BASELINE = process.env.RENDER_BASELINE
 //           payroll and TIV, and stays "—".
 //   8       Retained % on every line view at y0: Prior (2021) reads "—", not
 //           100.0% — under Renewal ÷ last year's Written it has no year before it.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v93.json');
+// v94: THE v2 TEMPLATE — ALL YEARS. Against v93's own text, captured from the
+// code at 2107e9d (9f4fa9c, multiplayer's head, adds only the template file),
+// text-diffed row by row: 26 of 236 move, EXACTLY
+// the 26 Annual Statement screens; nothing above the statement, no other screen.
+// On each, the only change is the All Years column: 33 dollar rows (9 in the
+// Contributions, 6 in each of Program Year Totals and the Gross, Ceded and Net
+// blocks) gain exactly one cell, and the section's 5 header rows gain "All
+// Years" — 858 and 130 rows across the 26. The other 1,352 rows read the same;
+// the ratio rows are blank in All Years and do not move. v2's one blank row
+// fewer after the Contributions' Written Premium carries no text, so it moves
+// no fingerprint; downloads.cjs sees it, through the rows' lines.
+// v95: TWO HEADINGS RENAMED — "Net Income Statement For The Year" and
+// "Reinsurance Information - Program Year Totals" (RENAMED_HEADINGS). Against
+// v94's own text: 26 of 236 move, EXACTLY the 26 Annual Statement screens, and
+// each is v94's text character for character once those two headings are read
+// back to their old wording. Nothing else on any screen.
+// v96 WAS DEVELOPMENT PRICING'S (00b45eb), REVERTED WITH IT (3e9639d); the
+// number is not reused.
+// v97: SEVEN COLUMNS, THE NET INCOME STATEMENT'S ROWS, THE CONTRIBUTIONS
+// VARIANCE. Against v95's own text (RENDER_TEXT_DIR), parsed row by row: 26 of
+// 236 move, EXACTLY the 26 Annual Statement screens, nothing above the statement
+// on any, and every moved row is one of these — none unexplained:
+//   · Prior off the Net Income Statement, Balance Sheet and Underwriting: 832
+//     rows and 52 headers lose their Prior cell; 52 (Underwriting's two changes)
+//     lose Prior and the first year's change.
+//   · the labels "Written Premium", "Other Admin Expense", "- Net of Reinsurance"
+//     (read back to v95's wording, the rows' figures as they were); one row
+//     inserted on each screen, General Admin Expense's own "% of Premium", and the
+//     old admin "% of Premium" now Other Admin Expense's own (26 each).
+//   · the Contributions variance: Payments and Reserve Changes (52 each,
+//     Previously Reported and Newly Arising), Previously Reported Net Reported and
+//     Change in IBNR (26 each). Written Premium and Total Net Incurred do not move.
+// Bold block names, alignment and the blank C and I cells carry no text.
+// v98: THE SETTLEMENT DRAWS ON THE PROGRAM-YEAR BLOCKS. Against v97's own text
+// (RENDER_TEXT_DIR), row by row: 26 of 236 move, EXACTLY the 26 Annual Statement
+// screens, nothing above the statement on any, and on each only Case Reserves,
+// IBNR Reserves and Reported Loss & LAE in Program Year Totals and the Gross and
+// Net blocks (26 each, nine rows) — each accident year's draws to date moved from
+// IBNR to case. The Contributions, Ceded, Paid and Total Incurred do not move.
+// v99: THE SETTLEMENT DRAW CAPPED AT THE IBNR LEFT. Against v98's own text
+// (RENDER_TEXT_DIR), row by row: 8 of 236 move — the Annual Statement screens of
+// the PR and WC+GL+PR configurations, where the cap binds — nothing above the
+// statement on any; on each only the Contributions' Reserve Changes, Net
+// Reported and Change in IBNR, and Case Reserves, IBNR Reserves and Reported
+// Loss & LAE in Program Year Totals and the Gross and Net blocks. Payments,
+// Total Net Incurred, Ceded, Paid and Total Incurred do not move.
+// v100: THE PDF BUTTON. Against v99's own text (RENDER_TEXT_DIR): 26 of 236
+// move, EXACTLY the 26 Annual Statement screens, and each is v99's text
+// character for character once "Download Annual Statement (PDF)", the new
+// button beside the Excel one, is taken out. Nothing else on any screen.
+// v101: ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). The control ran first:
+// multiplayer 8a4dae4 reproduced v100, 236 of 236. Against its own text
+// (RENDER_TEXT_DIR), word-diffed: 197 of 236 move, every one a pricing screen
+// or one carrying a rate, premium, admin or surplus figure. 151 move in numbers
+// only — Annual Statement (26), Financial Statements (26), Decision History
+// (22), Introduction (17), Result Spreadsheet (10), the header (9), Results
+// (23 of 26) and Decisions (9 of 25). Wording moves only where this change put
+// it: the Decisions panel loses "+ Profit & contingency" and gains "Admin (20%
+// of premium)" and a Permissible loss ratio row (16); the Rate Indication loses
+// Fixed admin, Per-exposure admin and Profit & contingency for one Admin row (10);
+// the Calculation Audit's admin assumption, admin row and divisor labels state
+// the share of premium (26). Two moves are text the screens choose from the
+// figures: three GL Results narratives now read "with margin to spare", and the
+// WC+GL+PR pool Audit at y2 shows the "Zero when ... agree" explanation because
+// no line borrows inter-line there any more (interLineTransfer 0). No key added
+// or removed.
+// v102: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios). ⚠ v101 DOES NOT
+// REPRODUCE IN THIS CONTAINER, the split v92 recorded: multiplayer 985f365,
+// built in its own worktree, moves the same kind of 50 of 236 against it
+// (Calculation Audit 20, Results 14, Financial Statements 8, Result
+// Spreadsheet 8) with no change to its code. So each commit was measured
+// against the control's own capture here. 4effbc3 (each scenario on a fixed
+// seed) moves 206 of 236: this harness plays Scenario 7, which now plays its
+// fixed seed, so every values screen and the header's surplus and combined
+// ratio move (Annual Statement, Calculation Audit, Decision History,
+// Decisions, Financial Statements and Results 26 each, Introduction 20, Rate
+// Indication 10, Result Spreadsheet 10, header 10); the 30 unmoved are the
+// fixed documents and unplayed views. 12e7c54 (every run-time fitting
+// removed) moves the same 206 again: the pre-game now runs at true cost at
+// Expected. The gates and the save key move none. Searched: none of the
+// twenty fixed seeds appears in any screen's text; the header reads
+// "Scenario 7". No key added or removed.
+// v103: THE YEAR WALKTHROUGH on the Calculation Audit (utils/yearWalkthrough).
+// ⚠ v102 DOES NOT REPRODUCE IN THIS CONTAINER, the same split again:
+// multiplayer 4226d2e, built in its own worktree, moves 47 of 236 against it
+// with no change to its code (Calculation Audit 18, Financial Statements 14,
+// Result Spreadsheet 8, Results 7), the same on a second serial run. So the
+// change was measured against the control's own capture here: it moves 26 of
+// 236 — every Calculation Audit screen, all five configurations, both
+// year-points and every view, and nothing else — as the panel sits under the
+// page's header (at y0, "Complete a year to walk through it."; at y2, the
+// version, the scenario, the codes, the draws and the eleven steps). Single
+// player shows no seed: scenario 7's fixed seed appears in no screen's text.
+// No key added or removed. v103 is captured here.
+// v104: THE REINSURANCE LAYERS AND EVENT LIKELIHOODS (wip/reinsurance-layers),
+// on multiplayer d0b3855. The control ran first: d0b3855, built in its own
+// worktree, reproduced v103 236 of 236 here. Against it, word-diffed
+// (RENDER_TEXT_DIR both sides), 52 move:
+//   every Decisions screen (16) and every Rate Indication (10), the two that
+//   list the T covers: the four new layers appear — 19, 29 and 39 xs 1, 28 xs
+//   2 — and every cover is priced by the workbook's method on the game's own
+//   claims (WC 9 xs 1 $390,000 -> $461,250, 38 xs 2 $590,000 -> $724,500; the
+//   Rate Indication's per-$100 cover rates likewise); and on the Rate
+//   Indication the "Event Likelihoods" block beside each line's cover prices —
+//   its heading, note, and 1 in 10 to 1 in 200 years, "—" where the line's T
+//   events are rarer;
+//   every Calculation Audit (26): the Year Walkthrough's save version only,
+//   riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's key —
+//   nothing else on them.
+// The harness holds None, so no other figure changes.
+// v105: THE YEAR WALKTHROUGH IS THE WHOLE TAB, RENAMED. The control ran
+// first: multiplayer e698c79, built in its own worktree, reproduced v104 236 of
+// 236 here. The harness's tab 'Calculation Audit' is now 'Year Walkthrough', so
+// the key set maps across one for one. 186 of 236 move, for two causes and no
+// other: every screen with the tab bar reads "Year Walkthrough" where it read
+// "Calculation Audit" (160 — Annual Statement, Decision History, Decisions,
+// Financial Statements and Results 26 each, Introduction, Rate Indication and
+// Result Spreadsheet 10 each: every one's text, RENDER_TEXT_DIR both sides, is
+// the control's exactly once the label is swapped back), and the 26
+// walkthrough screens, which are the reworked page (every stage, its working,
+// the download). The 50 unmoved are the screens without the bar. Scenario 7's
+// fixed seed is in no screen's text. No key added or removed beyond the rename.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v105.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1481,7 +1603,7 @@ const LINE_LABEL: Record<string, string> = {
 // came off too: its memorandum is one of the Introduction tab's documents.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-  'Calculation Audit'];
+  'Year Walkthrough'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
 // OF THIS FILE LISTED IT. That was a real mistake and it is recorded because it
 // is instructive: the list was App.tsx's LINE_VIEW_PAGES as of 750ce12, which

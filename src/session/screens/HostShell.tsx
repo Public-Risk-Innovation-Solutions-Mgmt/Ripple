@@ -20,6 +20,7 @@ import React from 'react';
 import { Home, Shield } from 'lucide-react';
 import { HOST_TABS, type HostTabId } from './hostTabs';
 import { navigate } from '../client/navigation';
+import type { WalkthroughHeader } from '../../utils/yearWalkthrough';
 
 interface Props {
   activeTab: HostTabId;
@@ -29,10 +30,16 @@ interface Props {
   /** The room code, shown in the bar once there is one. */
   code?: string;
   eventName?: string;
+  /**
+   * The game's version and the room's fixed seed, once there is a room — the
+   * host sees the seed, as Test player does (utils/yearWalkthrough); a team
+   * never does.
+   */
+  version?: WalkthroughHeader;
   children: React.ReactNode;
 }
 
-export default function HostShell({ activeTab, onSelectTab, hasRoom, code, eventName, children }: Props) {
+export default function HostShell({ activeTab, onSelectTab, hasRoom, code, eventName, version, children }: Props) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
       <header className="border-b border-slate-200 bg-white">
@@ -44,6 +51,17 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
             {code && (
               <span className="text-sm text-slate-600">
                 room <span className="font-mono font-medium text-slate-600">{code}</span>
+              </span>
+            )}
+            {version && (
+              <span data-testid="host-version-header" className="text-sm text-slate-400">
+                version <span data-testid="host-version" className="font-mono text-slate-600">{version.version}</span>
+                {version.scenario !== undefined && (
+                  <> · scenario <span data-testid="host-scenario" className="font-mono text-slate-600">{version.scenario}</span></>
+                )}
+                {version.seed !== undefined && (
+                  <> · seed <span data-testid="host-seed" className="font-mono text-slate-600">{version.seed}</span></>
+                )}
               </span>
             )}
           </div>

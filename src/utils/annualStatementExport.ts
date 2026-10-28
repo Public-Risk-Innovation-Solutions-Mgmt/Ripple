@@ -1,10 +1,13 @@
 // ============================================================================
 // THE ANNUAL STATEMENT AS AN EXCEL FILE — one sheet for the pool and one for
 // each line the team writes, each laid out cell for cell as the template
-// (docs/Annual Statement Example.xlsx, through TEMPLATE_ROWS): labels in column
-// B, Prior in C, the five years in D to H, every blank row where it is, and
-// every cell's BORDER as the template draws it (STATEMENT_BORDERS, generated
-// from the template file).
+// (docs/Annual Statement Example v2.xlsx, through TEMPLATE_ROWS): labels in column
+// B, the five years in D to H; in the program-year sections Prior in C and All
+// Years in I (a SUM formula over the row, as the template writes it), and in the
+// first three C and I blank, their lines kept, so every table is seven columns
+// wide; every blank row where it is, and every cell's BORDER as the template
+// draws it through the statement's deliberate differences (cellBorders, and the
+// list beside it in annualStatementTemplate.ts).
 //
 // Every figure is a NUMBER, in the statement's units — dollars in thousands, a
 // percentage as its fraction under a percent format — with negatives shown red
@@ -23,10 +26,10 @@
 // ============================================================================
 import type { Borders, Worksheet } from 'exceljs';
 import {
-  DOLLARS_PER_UNIT, TEMPLATE_ROWS, templateStatements, type FigureFormat, type TemplateStatement,
+  ALL_YEARS_LABEL, allYearsCell, cellBorders, DOLLARS_PER_UNIT, isBlockName, showsPrior, shownFigure, statementsForView, TEMPLATE_ROWS,
+  type FigureFormat, type TemplateStatement,
 } from './annualStatementTemplate';
-import { STATEMENT_BORDERS } from './annualStatementBorders';
-import type { GameState } from '../types/simulation';
+import type { GameState, LineView } from '../types/simulation';
 
 /** The figures' Excel number formats: the screen's units and decimals, negatives red. */
 export const STATEMENT_NUMBER_FORMAT: Record<FigureFormat, string> = {
@@ -37,8 +40,11 @@ export const STATEMENT_NUMBER_FORMAT: Record<FigureFormat, string> = {
   rate: '0.000;[Red]-0.000',
 };
 
-/** The columns a statement row spans, A to H: the template's own. */
-export const STATEMENT_COLUMNS = 8;
+/** The columns a statement row spans, A to I — I is All Years: the template's own. */
+export const STATEMENT_COLUMNS = 9;
+/** All Years' column (I), and the range its SUM covers: Prior (C) to the last year (H). */
+export const ALL_YEARS_COLUMN = 9;
+export const allYearsFormula = (r: number) => `SUM(C${r}:H${r})`;
 
 /** A cell's border from its sides ('LRTB'), every line thin as the template's. */
 function borderOf(sides: string): Partial<Borders> {
@@ -57,28 +63,47 @@ function fillSheet(ws: Worksheet, ts: TemplateStatement): void {
     const r = i + 1;
     // Every cell's border first, blank rows included — the template draws its
     // vertical lines down the blank rows and closes sections on them.
-    STATEMENT_BORDERS[i].forEach((sides, c) => { if (sides) ws.getCell(r, c + 1).border = borderOf(sides); });
+    for (let c = 1; c <= STATEMENT_COLUMNS; c++) { const sides = cellBorders(i, c); if (sides) ws.getCell(r, c).border = borderOf(sides); }
     if (row.kind === 'blank') return;
     if (row.label !== '') ws.getCell(r, 2).value = row.label;
+    // The Reinsurance blocks' names — Gross, Ceded, Net — head their blocks in bold, in the label column.
+    if (row.kind === 'header' && isBlockName(row.label)) ws.getCell(r, 2).font = { bold: true };
     if (row.kind === 'header') {
-      ws.getCell(r, 3).value = 'Prior';
+      // Prior only where the section shows it; the first three sections leave C blank.
+      if (showsPrior(i)) ws.getCell(r, 3).value = 'Prior';
       ts.years.forEach((y, k) => {
         const cell = ws.getCell(r, 4 + k);
         // A real date: 12/31 of the year, as the template's mm-dd-yy cells.
         if (row.dates) { cell.value = dateSerial(y, 12, 31); cell.numFmt = 'mm-dd-yy'; } else cell.value = y;
       });
+      if (row.allYears) ws.getCell(r, ALL_YEARS_COLUMN).value = ALL_YEARS_LABEL;
     }
     if (row.kind !== 'figure') return;
-    ts.figures[row.key].forEach((x, k) => {
+    const written: number[] = [];
+    ts.figures[row.key].forEach((_, k) => {
+      const x = shownFigure(row, i, k, ts);
+      if (x === undefined) return; // blank: Prior in the first three sections, a first-year change
       const cell = ws.getCell(r, 3 + k);
       if (x === null) { cell.value = '—'; return; }
       // A dollar figure within half a cent of zero is zero: it is arithmetic's
       // residue (a balance less its own parts), and would show as a red "-0".
-      cell.value = row.format === 'dollars' ? (Math.abs(x) < 0.005 ? 0 : x / DOLLARS_PER_UNIT) : x;
+      const v = row.format === 'dollars' ? (Math.abs(x) < 0.005 ? 0 : x / DOLLARS_PER_UNIT) : x;
+      cell.value = v;
       cell.numFmt = STATEMENT_NUMBER_FORMAT[row.format];
+      written.push(v);
     });
+    // ALL YEARS, as the template writes it: a SUM over the row's own cells, Prior
+    // to the last year, its value cached so a reader that does not recalculate
+    // sees the total. A ratio row leaves it blank; a row with no figure at all
+    // shows "—", as on the screen, rather than a SUM of nothing.
+    const total = allYearsCell(row, i, ts);
+    if (total === undefined) return;
+    const cell = ws.getCell(r, ALL_YEARS_COLUMN);
+    if (total === null) { cell.value = '—'; return; }
+    cell.value = { formula: allYearsFormula(r), result: written.reduce((t, x) => t + x, 0) };
+    cell.numFmt = STATEMENT_NUMBER_FORMAT.dollars;
   });
-  ws.columns = [{ width: 2 }, { width: 42 }, ...Array.from({ length: 1 + ts.years.length }, () => ({ width: 12 }))];
+  ws.columns = [{ width: 2 }, { width: 42 }, ...Array.from({ length: 2 + ts.years.length }, () => ({ width: 12 }))];
 }
 
 /** Excel's serial day number for a calendar date (the 1900 system, past its leap-year bug). */
@@ -94,16 +119,17 @@ async function loadExcelJS(): Promise<typeof import('exceljs')> {
   return mod.default ?? mod;
 }
 
-/** The .xlsx file: the pool's statement, then each line's, as of a year (the latest by default). */
-export async function buildAnnualStatementXlsx(gs: GameState, asOfYear?: number): Promise<ArrayBuffer> {
+/**
+ * The .xlsx file for a view, as of a year (the latest by default): one sheet per
+ * statement the view's download holds (statementsForView) — a line's alone on
+ * its view; the pool's, then each line's, on the Pool view.
+ */
+export async function buildAnnualStatementXlsx(gs: GameState, asOfYear?: number, view: LineView = 'pool'): Promise<ArrayBuffer> {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
-  for (const ts of templateStatements(gs, asOfYear)) fillSheet(wb.addWorksheet(SHEET_NAME(ts)), ts);
+  for (const ts of statementsForView(gs, view, asOfYear)) fillSheet(wb.addWorksheet(SHEET_NAME(ts)), ts);
   // Copied into its own buffer of exactly the file's length: in Node, writeBuffer
   // hands back a Buffer that may be a slice of a larger shared pool.
   return new Uint8Array(await wb.xlsx.writeBuffer()).buffer as ArrayBuffer;
 }
 
-export function annualStatementFilename(instanceId: string, calendarYear: number): string {
-  return `Annual_Statement_${instanceId}_${calendarYear}.xlsx`;
-}

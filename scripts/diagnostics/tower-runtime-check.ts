@@ -62,6 +62,27 @@
 //      times as slow.
 //   6. the gain is measured on a book with its year-1 base, as the game runs.
 //
+// ⚠ RESTATED FOR wip/reinsurance-layers. The fixed price table is gone and
+// prices no longer add across the tower's layers: a cover's price belongs to
+// an OPTION — reinsuranceOptions.tCoverPrice, the pricing workbook's method on
+// mean T claims grown by shockCost.shockCostFactor (30M layers 1.25x the 20M,
+// 40M layers 1.2x the unmultiplied 30M) — and occurrenceProgramCost refuses
+// (throws) a placement that is not exactly one option's layers. The tower is
+// now cut at $1/2/10/20/30/40M (five layers) for the EIGHT covers. So:
+//   1. PURITY is asked of each OPTION's charge (placementFor, all eight, every
+//      line), not of a lone layer, which is no longer something a team can be
+//      charged for: cold === warm, a distinct price every year and for a
+//      larger book. And the seam of the price over book and year is now
+//      asserted outright: the charge IS tCoverPrice at shockCostFactor(line,
+//      year, exposure, year-1 base), exactly — for every option, year and two
+//      book sizes. Controls: the year left out of a cache key (as before), the
+//      factor read a year late, and the retired additive rule (an option
+//      charged the sum of its layers' expected costs).
+//   5./6. the pricing pass and the feedback gain buy '$39M xs $1M' by name —
+//      the option that places all five layers, which the all-true placement
+//      they used already was.
+//   2.-4. are about moments and cession, not price, and are unchanged.
+//
 // ⚠ AND EACH FAILS WHEN BROKEN — every assertion is a predicate, and THE
 // CONTROLS feed each one what it guards against.
 // ============================================================================
@@ -75,6 +96,8 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
+import { placementFor, reinsuranceOptionIds, tCoverPrice, tLayerExpectedCost } from '../../src/utils/reinsuranceOptions';
+import { shockCostFactor } from '../../src/utils/shockCost';
 import type { Claim, CoverageLine, GameState, Occurrence, ResultSet } from '../../src/types/simulation';
 
 const LINES: TowerLine[] = ['WC', 'GL', 'Property'];
@@ -113,17 +136,30 @@ const MARKET = Object.fromEntries(LINES.map(l => [l, opening.poolState.lines[l].
 console.log(`  opening books: ${LINES.map(l => `${l} $${MARKET[l].toFixed(0)}M`).join(', ')}`);
 
 // ---------------------------------------------------------------- predicates
-type Price = (line: TowerLine, layer: number, exposure: number, year: number) => number;
-// The price a team is charged for one layer, on a book whose year-1 base is the
-// market's (shocks landing: the fixed price x the trend x exposure / base).
-const truePrice: Price = (line, layer, exposure, year) =>
-  occurrenceProgramCost(line, REINSURANCE_TOWER[line].map((_l, i) => i === layer), { exposure, shockBase: MARKET[line] }, year).premium;
+type Price = (line: TowerLine, optionId: string, exposure: number, year: number) => number;
+// wip/reinsurance-layers: the price a team is charged for an OPTION (a lone
+// layer is not one, and is refused), on a book whose year-1 base is the
+// market's: tCoverPrice at the T claims' growth factor.
+const optionIds = (line: TowerLine) => reinsuranceOptionIds(line, true).filter(id => id !== 'none');
+const truePrice: Price = (line, optionId, exposure, year) =>
+  occurrenceProgramCost(line, placementFor(line, optionId), { exposure, shockBase: MARKET[line] }, year).premium;
+// The growth factor the T claims use, on that book.
+const factorOf = (line: TowerLine, exposure: number, year: number) => shockCostFactor(line, year, exposure, MARKET[line]);
+/** Worst relative gap, over every option, year and two book sizes, between `price` and tCoverPrice at the factor. */
+function seamOfPrice(price: Price, factor: typeof factorOf = factorOf): number {
+  let worst = 0;
+  for (const line of LINES) for (const id of optionIds(line)) for (const y of [1, 4, 9, 15]) for (const f of [1, 1.5]) {
+    const e = MARKET[line] * f, want = tCoverPrice(line, id, factor(line, e, y));
+    worst = Math.max(worst, Math.abs(price(line, id, e, y) - want) / Math.max(1, want));
+  }
+  return worst;
+}
 const YEARS = 15;
 /** Cold (cache cleared before every year) against warm (out of order, with repeats). */
 function purity(price: Price): { coldEqualsWarm: boolean; yearsDistinct: boolean; sizesDistinct: boolean } {
   let coldEqualsWarm = true, yearsDistinct = true, sizesDistinct = true;
   for (const line of LINES) {
-    for (let li = 0; li < REINSURANCE_TOWER[line].length; li++) {
+    for (const li of optionIds(line)) {
       const cold: number[] = [];
       for (let y = 1; y <= YEARS; y++) { resetTowerMomentCache(); cold.push(price(line, li, MARKET[line], y)); }
       resetTowerMomentCache();
@@ -181,9 +217,14 @@ const loopGain = (cost: (exposure: number) => number, base: number) => {
 console.log('\n--- 1. PURITY: the memo key\'s successor ---');
 {
   const p = purity(truePrice);
-  check(p.coldEqualsWarm, `1. cold === warm, ${YEARS} years x every layer x 3 lines, evaluated out of order`);
-  check(p.yearsDistinct, '1. every year gives a distinct price on every layer that cedes');
+  check(optionIds('WC').length === 8 && LINES.every(l => optionIds(l).join() === optionIds('WC').join()),
+    '1. the eight T covers are priced on every line', optionIds('WC').join(', '));
+  check(p.coldEqualsWarm, `1. cold === warm, ${YEARS} years x every option x 3 lines, evaluated out of order`);
+  check(p.yearsDistinct, '1. every year gives a distinct price on every option');
   check(p.sizesDistinct, '1. a larger book gives a different price (the exposure reaches it)');
+  const seam = seamOfPrice(truePrice);
+  check(seam < 1e-12, '1. the charge IS the option\'s price (tCoverPrice) at the T claims\' growth factor, every option, years 1/4/9/15, two book sizes',
+    `worst relative ${seam.toExponential(2)}`);
 }
 
 console.log('\n--- 2. THE SEAM ROUTES TO THE NEW ENGINE ---');
@@ -251,7 +292,7 @@ const live = ['TWR0', 'TWR1', 'TWR2', 'TWR3', 'TWR4', 'TWR5', 'TWR6', 'TWR7'].fl
 
 console.log('\n--- 5. THE RUNTIME COST OF A PRICING PASS ---');
 let shareMeasured = 0;
-const pricingPass = () => { for (const l of LINES) occurrenceProgramCost(l, REINSURANCE_TOWER[l].map(() => true), { exposure: MARKET[l] }, 3); };
+const pricingPass = () => { for (const l of LINES) occurrenceProgramCost(l, placementFor(l, '$39M xs $1M'), { exposure: MARKET[l] }, 3); };
 const timeUs = (f: () => void, n: number) => { const t = process.hrtime.bigint(); for (let i = 0; i < n; i++) f(); return Number(process.hrtime.bigint() - t) / 1000 / n; };
 {
   for (let i = 0; i < 300; i++) pricingPass();
@@ -266,7 +307,7 @@ const timeUs = (f: () => void, n: number) => { const t = process.hrtime.bigint()
 
 console.log('\n--- 6. THE FEEDBACK GAIN ---');
 const towerCost = (line: TowerLine) => (exposure: number) =>
-  occurrenceProgramCost(line, REINSURANCE_TOWER[line].map(() => true), { exposure, shockBase: MARKET[line] }, 1).premium;
+  occurrenceProgramCost(line, placementFor(line, '$39M xs $1M'), { exposure, shockBase: MARKET[line] }, 1).premium;
 {
   for (const line of LINES) {
     const g = loopGain(towerCost(line), MARKET[line]);
@@ -277,17 +318,24 @@ const towerCost = (line: TowerLine) => (exposure: number) =>
 // ---------------------------------------------------------------- controls
 console.log('\nCONTROLS — each must be caught');
 {
-  // A cache keyed on (line, layer) alone — the year left out of the key.
+  // A cache keyed on (line, option) alone — the year left out of the key.
   // It survives resetTowerMomentCache, as a module-level cache the reset did not
   // know about would.
   const memo = new Map<string, number>();
-  const badKey: Price = (line, layer, exposure, year) => {
-    const k = `${line}|${layer}`;
-    if (!memo.has(k)) memo.set(k, truePrice(line, layer, exposure, year));
+  const badKey: Price = (line, optionId, exposure, year) => {
+    const k = `${line}|${optionId}`;
+    if (!memo.has(k)) memo.set(k, truePrice(line, optionId, exposure, year));
     return memo.get(k)!;
   };
   const p = purity(badKey);
   check(!p.coldEqualsWarm || !p.yearsDistinct, 'control: a price cache that leaves the year out of its key is caught by 1');
+  // The price's seam: the factor read a year late, and the retired additive rule.
+  check(seamOfPrice(truePrice, (l, e, y) => factorOf(l, e, y + 1)) > 1e-12, 'control: an option priced at the growth factor a year late is caught by 1');
+  const additive: Price = (line, id, exposure, year) => {
+    const placed = placementFor(line, id), g = factorOf(line, exposure, year);
+    return REINSURANCE_TOWER[line].reduce((a, l, i) => a + (placed[i] ? tLayerExpectedCost(line, l.attachment, l.limit, g) : 0), 0);
+  };
+  check(seamOfPrice(additive) > 1e-12, 'control: an option charged the sum of its layers (prices adding across layers) is caught by 1');
   check(seamGap(1, 1) > 0, 'control: a tower\'s moments read a year late are caught by 2');
   const diversifying = SIZES.map(f => 4 / Math.sqrt(f));
   const fl = floorHolds(diversifying);

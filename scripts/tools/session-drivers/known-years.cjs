@@ -58,7 +58,7 @@ function yearsIn(text) {
 }
 const newestOf = ys => (ys.length ? Math.max(...ys) : null);
 
-const RESULT_TABS = ['Annual Statement', 'Financial Statements', 'Results', 'Result Spreadsheet', 'Calculation Audit'];
+const RESULT_TABS = ['Annual Statement', 'Financial Statements', 'Results', 'Result Spreadsheet', 'Year Walkthrough'];
 const table = [];
 
 async function lockAndDecline(p) {
@@ -141,7 +141,10 @@ async function solo(browser) {
       const options = await main.locator('select option').allInnerTexts();
       const newest = newestOf([...yearsIn(text), ...options.flatMap(yearsIn)]);
       row[t] = newest;
-      ok(newest === known, `${name}, ${t}: the newest year shown is ${known} — the year just completed is there, nothing later`, `newest ${newest ?? 'none'}`);
+      // ⚠ THE YEAR WALKTHROUGH WALKS PLAYED YEARS ONLY: before the first lock it
+      // shows none, and from then on the newest is the year just completed.
+      const want = t === 'Year Walkthrough' && knownNumber < 1 ? null : known;
+      ok(newest === want, `${name}, ${t}: the newest year shown is ${want ?? 'none (no played year yet)'} — the year just completed is there, nothing later`, `newest ${newest ?? 'none'}`);
       if (t === 'Annual Statement') {
         const cols = await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts();
         const yearCols = cols.map(c => c.trim()).filter(c => /^\d{4}$/.test(c)).map(Number);
@@ -176,19 +179,23 @@ async function solo(browser) {
 }
 
 // ============================================================================
-// T CLAIMS (wip/shocks) — a shocks-on solo game CERTAIN to have them. Scenario
-// 16 over five years draws (single player, catalogue odds) a Wildfire in year
-// 2 — ONE Property T claim — and a Social Inflation in year 5 — one GL T
-// claim; the end workbook must hold exactly those, so a changed draw fails here
-// by name rather than passing on an empty workbook. At every point the Claims
+// T CLAIMS (wip/shocks) — a shocks-on solo game CERTAIN to have them.
+// Scenario 14 over four years draws (single player, catalogue odds, on its
+// fixed seed) a Winterstorm in year 2 and another in year 4 — ONE Property T
+// claim each; the end workbook must hold exactly those, so a changed draw
+// fails here by name rather than passing on an empty workbook. (Restated for
+// the fixed-seed scenarios: on the old mapping scenario 16 over five years
+// drew a Wildfire in year 2 and a Social Inflation in year 5; on its fixed
+// seed it draws none, and scenario 14 at four years is the one that again
+// has a T claim in year 2, for the control, and one in the final year.) At every point the Claims
 // workbook's T claims (its rows with an Event) are exactly the game's T claims
 // from known years — every one, none from after the latest known year — and at
 // game end the final year's appears. THE CONTROL: after the first lock year 2
 // is not yet played; its claim exists (the end workbook has it) but must be
 // absent, and must appear at once after the second lock, when year 2 is played.
 // ============================================================================
-const T_SCENARIO = '16', T_LENGTH = 5;
-const T_EXPECTED = [{ sheet: /Property/, ay: 2 }, { sheet: /General Liability|GL/, ay: 5 }];
+const T_SCENARIO = '14', T_LENGTH = 4;
+const T_EXPECTED = [{ sheet: /Property/, ay: 2 }, { sheet: /Property/, ay: 4 }];
 
 async function tClaimsGame(browser) {
   const ctx = await browser.newContext({ baseURL: BASE, acceptDownloads: true });

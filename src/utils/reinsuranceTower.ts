@@ -28,7 +28,7 @@ import { quotePropertyAggregate } from './propertyAggregate';
 import { allLayerRiskMoments, layerRiskMoments, retainedRiskMoments } from './towerMoments';
 import { newLossEngineRuns, REINSURANCE_LOAD } from '../data/pricingParameters';
 import { retainedSd } from './shockExpectation';
-import { fixedPlacementPrice } from './reinsuranceOptions';
+import { placementPrice } from './reinsuranceOptions';
 import { bookExposureOf, isRoster, rosterOf, shockBaseOf, type Book } from './lineHelpers';
 import { shockCostFactor } from './shockCost';
 import type { Claim, Occurrence } from '../types/simulation';
@@ -200,6 +200,16 @@ export interface OccurrenceProgramQuote {
   expectedCeded: number;
 }
 
+/**
+ * The growth factor a book's cover is priced at in a year — the T claims' own
+ * (shockCost.shockCostFactor): the line's trend since year 1 x the book's
+ * growth, where the book carries a year-1 base. The one figure the cover
+ * prices (occurrenceProgramCost) and the Rate Indication's Event Likelihoods
+ * both read.
+ */
+export const pricedGrowthFactor = (line: TowerLine, members: Book, yearNumber: number): number =>
+  shockCostFactor(line, yearNumber, isRoster(members) ? undefined : bookExposureOf(members, line, yearNumber), shockBaseOf(members));
+
 // ONE pass over the book for the whole program, not one per layer — see
 // allLayerRiskMoments. Pricing three layers separately walked the member list
 // three times and re-resolved each member's rating group and lambda each time.
@@ -213,13 +223,12 @@ export function occurrenceProgramCost(
     premium += layerPriceFrom(moments[i].expected);
     expectedCeded += moments[i].expected;
   });
-  // ⚠ THE NEW ENGINE CHARGES THE T COVERS' FIXED PRICES (wip/shocks:
-  // REINSURANCE_PRICE), whatever the book or year; expected ceded stays the
-  // moments' own, for the record.
-  // Grown by the line's trend and the book (shockCost.shockCostFactor).
+  // ⚠ THE NEW ENGINE CHARGES THE T COVERS' PRICES (reinsuranceOptions.tCoverPrice),
+  // re-worked each year on that year's claims at the growth factor the T claims
+  // use (shockCost.shockCostFactor); expected ceded stays the moments' own, for
+  // the record.
   if (newLossEngineRuns()) {
-    premium = fixedPlacementPrice(line, placed)
-      * shockCostFactor(line, yearNumber, isRoster(members) ? undefined : bookExposureOf(members, line, yearNumber), shockBaseOf(members));
+    premium = placementPrice(line, placed, pricedGrowthFactor(line, members, yearNumber));
   }
   return { premium, expectedCeded };
 }

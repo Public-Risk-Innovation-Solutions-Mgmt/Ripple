@@ -316,6 +316,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
             </div>
             <p data-testid="dev-level-note" className="mt-2 text-xs text-slate-600">
               Each played year every open prior year's reserve grows by a rate drawn in its line's range —
+              None 0%,
               Low {Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[1] * 100)}%,
               Mid {Math.round(ADVERSE_DEVELOPMENT_RANGE.Mid[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Mid[1] * 100)}%,
               High {Math.round(ADVERSE_DEVELOPMENT_RANGE.High[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.High[1] * 100)}%.

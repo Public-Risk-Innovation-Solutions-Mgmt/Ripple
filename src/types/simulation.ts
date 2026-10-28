@@ -507,11 +507,11 @@ export interface GameInstance {
    */
   marketSeed?: number;
   /**
-   * THE SCENARIO, 1 TO 20, the game plays (stable-scenarios commit 9): its
-   * opening premium to surplus, its pre-game's experience and so its prior
-   * board's margin (pricingParameters' SCENARIO_PREMIUM_TO_SURPLUS). Set by
-   * generateGameInstance from the instance id (utils/scenarios.ts), and carried
-   * by every world's and every pre-game attempt's copy.
+   * THE SCENARIO, 1 TO 20, the game was set up as — the number players and
+   * hosts see. The game itself plays the scenario's fixed seed (the instance's
+   * id and seed, pricingParameters' SCENARIO_SEEDS); nothing reads this to
+   * scale or fit anything. Set by scenarioInstance (utils/instanceGenerator),
+   * absent on a harness's bare instance, and carried by every world's copy.
    */
   scenario?: number;
   lossEnvironment: {
@@ -614,10 +614,18 @@ export interface GameSetupSettings {
    * ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development;
    * ADVERSE_DEVELOPMENT). A room sets it from the host; Test player takes the
    * chosen levels; single player stores every line 'Off' (SOLO_ADVERSE_DEVELOPMENT),
-   * which develops nothing — a room never carries 'Off'. A line absent reads
+   * which develops nothing. A room or Test player carries 'Off' on a line the
+   * host set to None — the same setting, so the same play. A line absent reads
    * ADVERSE_DEVELOPMENT_DEFAULT_LEVEL.
    */
   developmentLevels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>;
+  /**
+   * A TEST PLAYER GAME (the host's setup played solo). Read by the display
+   * alone — the Year Walkthrough shows the scenario's fixed seed in a Test
+   * player game and never in single player. Nothing in the engine reads it;
+   * absent in single player, a hosted team and every save written before it.
+   */
+  testPlayer?: boolean;
   /**
    * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
    * 'host' — the room's schedule. A solo game sets 'solo' — the schedule it drew
@@ -1475,7 +1483,7 @@ interface ResultRowFields {
   finalRatePer100?: number;
   priorFirstIndicationPer100?: number;
   priorFinalRatePer100?: number;
-  /** Underwriting only: the CLF cushion plus the contingency provision, in dollars. */
+  /** Underwriting only: the CLF cushion, in dollars. */
   expectedToSurplus?: number;
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;
@@ -2089,13 +2097,6 @@ interface ResultRowFields {
   // Narrative
   narrativeExplanation: string;
 
-  // Provenance of the pre-game reject-and-redraw bootstrap (priorHistoryEngine).
-  // Set only on pre-game years (yearNumber <= 0), per line, so the exact
-  // effective seed that produced that line's history — instance.seed +
-  // pregameAttempt x 997 — is derivable from saved state. Undefined for live
-  // years and for the pool-level aggregate (each line can carry a different
-  // attempt, so there is no single pool-level value).
-  pregameAttempt?: number;
 
 }
 

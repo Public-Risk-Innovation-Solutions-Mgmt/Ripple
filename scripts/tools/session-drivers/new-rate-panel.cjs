@@ -65,23 +65,34 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(/\+ Reinsurance\s*—/.test(body) || body.includes('+ Reinsurance —'),
      'the Indicated column shows a dash for reinsurance, not $0.00');
 
-  ok(/Pure premium/.test(body) && /\+ Admin/.test(body) && /\+ Risk Control/.test(body)
-    && /\+ Profit & contingency/.test(body) && /\+ Reinsurance/.test(body) && /= Rate/.test(body)
-    && !/Risk control & contingency/.test(body),
-     'each piece its own row: Pure premium, Admin, Risk Control, Profit & contingency, Reinsurance, = Rate');
+  // RESTATED at wip/pricing-rework: Profit & contingency is retired, admin is
+  // 20% of premium and labelled so, and the permissible loss ratio (80%) is
+  // printed under the rate.
+  ok(/Pure premium/.test(body) && /\+ Admin \(20% of premium\)/.test(body) && /\+ Risk Control/.test(body)
+    && /\+ Reinsurance/.test(body) && /= Rate/.test(body)
+    && !/contingency/i.test(body),
+     'each piece its own row: Pure premium, Admin (20% of premium), Risk Control, Reinsurance, = Rate — no Profit & contingency');
   // ⚠ EACH COLUMN ADDS EXACTLY TO ITS RATE, in the cents printed; Risk Control
   // reads $0.00 in both while risk control is off.
   {
     const cents = async id => { const t = await page.textContent(`[data-testid="${id}"]`); return Math.round(money(t) * 100); };
-    const rows = ['pure-premium', 'admin', 'risk-control', 'contingency'];
+    const rows = ['pure-premium', 'admin', 'risk-control'];
     const ind = await Promise.all(rows.map(r => cents(`new-rate-indicated-${r}`)));
     const yours = await Promise.all([...rows, 'reins'].map(r => cents(`new-rate-yours-${r}`)));
     const indRate = await cents('new-rate-indicated'), yourRate = await cents('new-rate-final');
     ok(ind.reduce((a, b) => a + b, 0) === indRate, `the Indicated rows add to the Indicated rate (${ind.join(' + ')} = ${indRate} cents)`);
     ok(yours.reduce((a, b) => a + b, 0) === yourRate, `Your rate's rows add to Your rate (${yours.join(' + ')} = ${yourRate} cents)`);
     ok(ind[2] === 0 && yours[2] === 0, 'Risk Control reads $0.00 in both columns while risk control is off');
-    // The panel is on Workers' Compensation, which carries 2% (GL and Property carry none).
-    ok(ind[3] > 0 && yours[3] > 0, 'Profit & contingency is charged in both columns (WC, 2%)');
+    // Admin is 20% of the rate before reinsurance in both columns, to the cent
+    // the printed rows can carry (admin takes the rounding, a cent at most).
+    const yourBefore = yourRate - yours[3];
+    ok(Math.abs(ind[1] - Math.round(indRate * 0.2)) <= 1 && Math.abs(yours[1] - Math.round(yourBefore * 0.2)) <= 1,
+      `Admin is 20% of the rate before reinsurance in both columns (${ind[1]} of ${indRate}, ${yours[1]} of ${yourBefore} cents)`);
+    const plrI = Number(await page.getAttribute('[data-testid="new-rate-indicated-plr"]', 'data-value'));
+    const plrY = Number(await page.getAttribute('[data-testid="new-rate-yours-plr"]', 'data-value'));
+    ok(Math.abs(plrI - 0.8) < 1e-12 && Math.abs(plrY - 0.8) < 1e-12
+      && /Permissible loss ratio\s*80%\s*80%/.test(body),
+      `the permissible loss ratio reads 80% in both columns (${plrI}, ${plrY})`);
   }
   ok(/vs last year/.test(body), 'the vs-last-year row renders');
 
@@ -176,13 +187,15 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   // four covers are offered, None the default; each shows its name and price.
   // Choosing one moves only the Reinsurance row: the pure premium is never
   // lowered by cover.
-  const T_COVERS = ['$9M xs $1M', '$8M xs $2M', '$18M xs $2M', '$38M xs $2M'];
+  const T_COVERS = ['$9M xs $1M', '$19M xs $1M', '$29M xs $1M', '$39M xs $1M', '$8M xs $2M', '$18M xs $2M', '$28M xs $2M', '$38M xs $2M'];
   ok(await chosen('none'), 'WC opens on the default cover, None');
   const offered = [];
   for (const id of T_COVERS) if (await page.$(`[data-testid="reins-option-WC-${id}"]`) !== null) offered.push(id);
-  ok(offered.length === 4, `all four T covers are offered (${offered.join(', ')})`);
+  ok(offered.length === 8, `all eight T covers are offered (${offered.join(', ')})`);
   const wcPrice = (await page.textContent('[data-testid="reins-option-WC-$38M xs $2M"]')).replace(/\s+/g, ' ');
-  ok(/\$590,000\/yr/.test(wcPrice), `38 xs 2 on WC shows its fixed price ("${wcPrice}")`);
+  // wip/reinsurance-layers: priced by the workbook's method on the year's claims —
+  // year 1, growth 1: WC 38 xs 2 = 1.2 x (5.25% x $2.5M + 2.25% x $21M) = $724,500.
+  ok(/\$724,500\/yr/.test(wcPrice), `38 xs 2 on WC shows its year-1 price by the method ("${wcPrice}")`);
   const ppLine = t => (t.match(/Pure premium[^+]*/) || [''])[0];
   const atDefault = await panelText();
   await page.click('[data-testid="reins-option-WC-$38M xs $2M"]');

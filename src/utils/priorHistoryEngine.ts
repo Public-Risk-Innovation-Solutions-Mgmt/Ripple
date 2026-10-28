@@ -5,10 +5,9 @@
 // preceded by MATURATION_YEARS further simulated years that are NOT part of the
 // declared past and exist only to leave a ten-accident-year book behind. See
 // MATURATION_YEARS for why. Surplus is not re-pinned anywhere inside it: the
-// line starts from STARTING_CAPITAL, funded at the prior board's margin — set
-// on the scenario's DESIGNED history (PRE_GAME_MARGIN_ON_DESIGN), so the
-// opening falls where the played history takes it — and moves only by its own
-// income from there. Each
+// line starts from STARTING_CAPITAL, funded at Expected by the prior board,
+// and moves only by its own income from there; the opening is the last
+// year-end, whatever the scenario's fixed seed makes it. Each
 // line is simulated IN ISOLATION (a single-line pre-game), so its history is
 // config-independent: WC's pre-game is byte-identical whether the game is
 // WC-only, WC+GL, or WC+GL+Property. There is no shared roster fold and no
@@ -19,18 +18,9 @@
 //
 // Seeding: every engine draw is deriveSubRng(seed, yearNumber, label), a pure
 // stateless function; each line's streams are label-keyed to that line, so a
-// line at attempt 0 uses the true instance seed and is unaffected by whether
-// other lines exist or needed a redraw.
-//
-// Opening band (PER-LINE reject-and-redraw, NO clamping): each active line
-// must end its pre-game with opening surplus inside that line's own
-// OPENING_SURPLUS_BAND — [min, max] × its own opening POOL PREMIUM on a
-// 'premium' line, or × its own opening NET RESERVE on a 'reserve' line
-// (two-sided: too weak AND too strong both redraw). If a line lands outside,
-// ONLY that line re-simulates on a deterministically derived alternate seed
-// (seed + attempt * 997) until it lands in-band — one line's redraw never
-// reseeds another. Deterministic: same seed -> same per-line redraw path
-// -> same history, every config. The accepted history is real and ties out.
+// line's pre-game is the game seed's and is unaffected by whether other lines
+// exist. There is one pre-game per line and seed: no band, no re-draw on an
+// alternate seed (the per-line reject-and-redraw is retired), no solve.
 
 import { exposureFactor } from '../data/exposureTrend';
 import type {
@@ -53,7 +43,6 @@ import { generateStartingPoolState } from './instanceGenerator';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
 import { OPENING_SURPLUS_BAND } from '../data/defaultAssumptions';
 import { processYear, aggregateLineResults, strikeBookRate } from './simulationEngine';
-import { scenarioOf } from './scenarios';
 import { gameShocksOn } from './shockLosses';
 import {
   satisfactionAnchor, memberLossStanding, surplusBandOf, SATISFACTION,
@@ -63,9 +52,7 @@ import { OPENING_SATISFACTION } from '../data/memberCatalog';
 import { emptyLinePoolState } from './lineHelpers';
 import { lossExpenseReserve } from './lossExpense';
 import {
-  FLAT_PRE_GAME, MEMBER_LEVEL, OPENING_PREMIUM_TO_SURPLUS_BOUNDS, PRE_GAME_MARGIN_FLOOR, PRE_GAME_MARGIN_ON_DESIGN,
-  PRIOR_DEVELOPMENT_DEFAULTS, ADVERSE_DEVELOPMENT,
-  PRIOR_HISTORY_YEARS, SCENARIO_PREMIUM_TO_SURPLUS, STARTING_CAPITAL,
+  FLAT_PRE_GAME, MEMBER_LEVEL, PRIOR_DEVELOPMENT_DEFAULTS, ADVERSE_DEVELOPMENT, PRIOR_HISTORY_YEARS, STARTING_CAPITAL,
 } from '../data/pricingParameters';
 import { preGameAllocation } from './investmentEngine';
 import { confidenceAtClf, hasStaticClf } from '../data/clfTables';
@@ -133,7 +120,6 @@ export interface PriorHistoryResult {
   earlyPreGameHistory: ResultSet[];
   poolState: PoolState;           // ending state after year 0 = Year 1 opening
   startingFinancials: StartingFinancials;
-  historyAttempt: number;         // max accepted per-line attempt (0 = all lines passed on base seed)
 }
 
 // One line's accepted solo pre-game: the 3 per-line yearly results plus its
@@ -149,12 +135,6 @@ interface LinePreGame {
   members: Member[];              // this line's ending roster
   membershipHistory: MembershipHistory; // this line's pre-game enrollment ledger
   memberLossHistory: MemberLossHistory; // this line's pre-game marketplace loss record
-  attempt: number;
-  /**
-   * The prior board's margin over expected, every pre-game year — solved on
-   * the DESIGNED history (PRE_GAME_MARGIN_ON_DESIGN) or on the history played.
-   */
-  solvedMargin: number;
 }
 
 // Run one line's pre-game IN ISOLATION (single-line sim) on a given candidate
@@ -169,29 +149,21 @@ interface LinePreGame {
 // duplicate is now gone instead. A gate that reproduces the thing it measures
 // can silently stop measuring it.
 /** Which pre-game a run plays — see simulateLineCandidate's `run`. */
-export type PreGameRun = 'flat' | 'designed' | 'simulated';
+export type PreGameRun = 'flat' | 'simulated';
 
 export function simulateLineCandidate(
   instance: GameInstance,
   setup: GameSetupSettings,
   line: CoverageLine,
-  attempt: number,
   // The surplus the line enters its first pre-game year with. Omitted, it is
   // the bootstrap's own pin; runLinePreGame passes STARTING_CAPITAL.
   startingSurplus?: number,
-  // The prior board's funding margin over expected, every pre-game year — the
-  // solved one from runLinePreGame (solvePreGameMargin). 0 is expected.
-  margin = 0,
-  // Which pre-game: 'flat' (FLAT_PRE_GAME on — exactly the scenario's multiple
-  // of expected, at PRE_GAME_INVESTMENT_RETURN), 'designed' (the same losses at
-  // the market's expected return — the history the margin is set on,
-  // PRE_GAME_MARGIN_ON_DESIGN) or 'simulated' (drawn, as the game plays it).
+  // Which pre-game: 'flat' (FLAT_PRE_GAME on — exactly expected, at
+  // PRE_GAME_INVESTMENT_RETURN) or 'simulated' (drawn, as the game plays it).
   run: PreGameRun = FLAT_PRE_GAME.enabled ? 'flat' : 'simulated',
 ): { lineResults: LineResultSet[]; poolState: PoolState; pooled: ResultSet[] } {
-  const candidateInstance: GameInstance = attempt === 0
-    ? instance
-    // Its own draws; the game's book of units (marketSeed).
-    : { ...instance, seed: (instance.seed + attempt * 997) >>> 0, marketSeed: instance.marketSeed ?? instance.seed };
+  // ⚠ THE GAME'S OWN SEED, ALWAYS. There is no alternate seed and no re-draw.
+  const candidateInstance: GameInstance = instance;
 
   const soloSetup: GameSetupSettings = { ...setup, activeLines: [line] };
   const { poolState: bootstrap } = generateStartingPoolState(
@@ -242,7 +214,7 @@ export function simulateLineCandidate(
     isComplete: false,
     poolState: bootstrap,
     lockedResults: [],
-    currentDecisions: preGameDecisionSet(-(PRE_GAME_DEPTH - 1), margin, gameShocksOn(setup, instance)),
+    currentDecisions: preGameDecisionSet(-(PRE_GAME_DEPTH - 1), gameShocksOn(setup, instance)),
     priorHistory: [],
   };
 
@@ -262,10 +234,10 @@ export function simulateLineCandidate(
     // 200 marketplace members every year — the member loss ledger depends on it
     // and the appetite bar reads it — and the loss history, the reserve build
     // and the maturation years are untouched.
-    const processed = processYear(gs, preGameDecisionSet(y, margin, gameShocksOn(setup, instance)), {
+    const processed = processYear(gs, preGameDecisionSet(y, gameShocksOn(setup, instance)), {
       freezeMembership: true,
-      flatPreGame: run !== 'simulated',
-      preGameMarket: run === 'flat' ? 'flat' : run === 'designed' ? 'expected' : 'drawn',
+      flatPreGame: run === 'flat',
+      preGameMarket: run === 'flat' ? 'flat' : 'drawn',
     });
     gs = {
       ...gs,
@@ -286,6 +258,10 @@ export function simulateLineCandidate(
   };
 }
 
+// ⚠ RETIRED IN THE GAME: nothing re-simulates or redraws a line any more (the
+// fixed-seed scenarios). openingBandRatio below is kept for the diagnostics
+// that grade an opening against the band; the game reads neither.
+//
 // Per-line reject-and-redraw: re-simulate ONLY this line until its opening
 // surplus lands inside OPENING_SURPLUS_BAND (two-sided), on that line's basis.
 //
@@ -344,30 +320,24 @@ export function openingBandRatio(
 }
 
 /**
- * THE DECLARED YEARS' DECISIONS — the player's defaults in every respect but
- * one: the board before them funded at its own margin over expected, solved
- * per scenario and line (solvePreGameMargin), rather than at expected.
+ * THE DECLARED YEARS' DECISIONS — the player's defaults, with the prior board
+ * funding every pre-game year at Expected: a margin of exactly 0, on every
+ * scenario and line. Nothing solves it.
  *
- * ⚠ IT IS THE ONLY DIFFERENCE, AND THAT IS THE POINT. Everything else about
- * the pre-game — renewals, intake, risk control, the cover — stays on
- * `defaultDecisionSet`, so the handed-over pool is one that was run on the
- * same settings the player starts from.
- *
- * ⚠ AND THE PLAYER'S OWN DEFAULT IS UNCHANGED: `fundingAtExpected` is still
- * true from year 1. So year 1's rate steps up or down from the declared year
- * before it, by whether the scenario's solved margin sat below or above
- * expected. The welcome memo does not name the margin.
+ * ⚠ Everything else about the pre-game — renewals, intake, risk control, the
+ * cover — stays on `defaultDecisionSet`, so the handed-over pool is one that
+ * was run on the same settings the player starts from.
  */
 // `shocks`: the game's switch — the prior board holds None while it is off.
-function preGameDecisionSet(yearNumber: number, margin: number, shocks: boolean): DecisionSet {
+function preGameDecisionSet(yearNumber: number, shocks: boolean): DecisionSet {
   const d = defaultDecisionSet(yearNumber, shocks);
   for (const line of Object.keys(d.byLine) as CoverageLine[]) {
-    // The margin prices; no table is read for it. The confidence level is what
-    // it amounts to on the line's own table, recorded on the pre-game years'
-    // results for display and read for nothing else.
+    // A margin of 0 prices at Expected; no table is read for it. The confidence
+    // level is what it amounts to on the line's own table, recorded on the
+    // pre-game years' results for display and read for nothing else.
     d.byLine[line].fundingAtExpected = false;
-    d.byLine[line].fundingCushion = margin;
-    if (hasStaticClf(line)) d.byLine[line].fundingConfidenceLevel = confidenceAtClf(line, 1 + margin);
+    d.byLine[line].fundingCushion = 0;
+    if (hasStaticClf(line)) d.byLine[line].fundingConfidenceLevel = confidenceAtClf(line, 1);
     // ⚠ THE PRE-GAME HOLDS CASH AND BONDS ONLY (PRE_GAME_MARKET_DRAWS).
     d.byLine[line].assetAllocation = preGameAllocation();
   }
@@ -375,18 +345,18 @@ function preGameDecisionSet(yearNumber: number, margin: number, shocks: boolean)
   return d;
 }
 
-// ⚠ NO SEARCH, NO BAND, NO REDRAW — THE OPENING IS SET, AND THE PRIOR BOARD'S
-// MARGIN IS SOLVED TO LAND ON IT (stable-scenarios commit 9).
+// ⚠ NO SEARCH, NO BAND, NO REDRAW, NO SOLVE — THE OPENING IS WHERE THE
+// SCENARIO'S FIXED SEED TAKES IT (wip/fixed-seed-scenarios).
 //
-// Each line starts the pre-game with STARTING_CAPITAL, paid in, and the board
-// funds every pre-game year at one margin over expected. The opening is the
-// scenario's: the line's year-1 premium at Expected, struck on the book the
-// pre-game leaves, / the scenario's premium-to-surplus ratio. That premium
-// reads only the ledger and the book — losses, not funding — so it is the same
-// at every margin, and the margin is solved so the last year-end lands on it.
+// Each line starts the pre-game with STARTING_CAPITAL, paid in, and the prior
+// board funds every pre-game year at Expected (preGameDecisionSet). Its losses
+// are drawn at true cost — no scenario multiple. Whatever surplus the last
+// year ends with is the opening: nothing is re-solved, re-drawn, floored,
+// guarded or set at run time. A scenario's character comes from its fixed seed
+// (SCENARIO_SEEDS), chosen once, by search, for the opening that seed produces.
 //
-// The pre-game still RUNS because pricing reads the loss history it produces;
-// what is gone is accepting or rejecting the result, and any reset.
+// The pre-game RUNS because it is the pool's history: pricing reads the loss
+// history it produces, and its last year-end is the opening balance sheet.
 function runLinePreGame(
   instance: GameInstance,
   setup: GameSetupSettings,
@@ -395,53 +365,7 @@ function runLinePreGame(
   // ⚠ NONE IN THE PRE-GAME WITH ADVERSE_DEVELOPMENT ON: it replaces the host's
   // percentages and runs in played years only.
   const developmentPct = ADVERSE_DEVELOPMENT.enabled ? 0 : setup.priorDevelopment?.[line] ?? PRIOR_DEVELOPMENT_DEFAULTS[line];
-  const ratio = SCENARIO_PREMIUM_TO_SURPLUS[line][scenarioOf(instance)];
-  const shocks = gameShocksOn(setup, instance);
-  // One pre-game of a given kind at a given margin, and how far its last
-  // year-end misses an opening at premium to surplus `target`.
-  const run = (kind: PreGameRun, target = ratio) => (margin: number) => {
-    const c = simulateLineCandidate(instance, setup, line, 0, STARTING_CAPITAL[line], margin, kind);
-    const opened = finalizeLine(c, line, 0, developmentPct, instance, target, margin, shocks);
-    return { start: margin, gap: c.poolState.lines[line].surplus - opened.lineState.surplus, opened };
-  };
-  // ⚠ THE MARGIN IS SET ON THE DESIGNED HISTORY, NOT SOLVED TO THE OPENING
-  // (PRE_GAME_MARGIN_ON_DESIGN). It is the margin that lands the FLAT pre-game
-  // — exactly expected x the scenario's experience multiple, at the pre-game
-  // return — on the scenario's premium to surplus. The pre-game as the game
-  // plays it then runs at that margin, and the opening is wherever its last
-  // year-end falls: richer after good luck, thinner after bad. Flat, the two
-  // runs are one and the opening lands exactly on the ratio, as before.
-  if (!PRE_GAME_MARGIN_ON_DESIGN.enabled || FLAT_PRE_GAME.enabled) {
-    return solvePreGameMargin(run(FLAT_PRE_GAME.enabled ? 'flat' : 'simulated'), line).opened;
-  }
-  // ⚠ NEVER BELOW ZERO (PRE_GAME_MARGIN_FLOOR): a designed history that would
-  // need the board to charge under expected is charged at expected.
-  const playAt = (margin: number) => {
-    const c = simulateLineCandidate(instance, setup, line, 0, STARTING_CAPITAL[line], margin, 'simulated');
-    return finalizeLine(c, line, 0, developmentPct, instance, ratio, margin, shocks, () => c.poolState.lines[line].surplus);
-  };
-  const designed = Math.max(PRE_GAME_MARGIN_FLOOR, solvePreGameMargin(run('designed'), line).start);
-  const played = playAt(designed);
-  // ⚠ THE GUARDRAILS (OPENING_PREMIUM_TO_SURPLUS_BOUNDS). An opening outside
-  // them has its margin re-solved on the played history to land JUST on the
-  // nearest bound; inside them, the designed margin stands. The secant reads
-  // the opening's own year-1 premium at every trial margin.
-  const premium = openingYear1Premium(instance, line, played.lineState,
-    played.lineResults[played.lineResults.length - 1], shocks);
-  const ps = premium / played.lineState.surplus;
-  const { min, max } = OPENING_PREMIUM_TO_SURPLUS_BOUNDS;
-  // A surplus at or below zero is thinner than any bound; raising the margin
-  // to the thin bound never takes it below the floor.
-  if (!(played.lineState.surplus > 0) || ps > max) return solvePreGameMargin(run('simulated', max), line).opened;
-  if (ps < min) {
-    // Too rich: lower the margin to land on the rich bound — but not below the
-    // floor. Where the bound needs a negative margin, the board charges at the
-    // floor and the opening lands where that history takes it.
-    const guarded = solvePreGameMargin(run('simulated', min), line);
-    return guarded.start >= PRE_GAME_MARGIN_FLOOR ? guarded.opened
-      : designed === PRE_GAME_MARGIN_FLOOR ? played : playAt(PRE_GAME_MARGIN_FLOOR);
-  }
-  return played;
+  return finalizeLine(simulateLineCandidate(instance, setup, line, STARTING_CAPITAL[line]), line, developmentPct);
 }
 
 /**
@@ -465,53 +389,9 @@ export function openingYear1Premium(
 }
 
 // ============================================================================
-// THE PRIOR BOARD'S MARGIN, SOLVED — one funding level over expected across the
-// six pre-game years, per line, so the last year-end of a given history lands
-// exactly on a given opening from STARTING_CAPITAL (stable-scenarios commit 9;
-// runLinePreGame solves it on the DESIGNED history and, for the guardrails, on
-// the played one — PRE_GAME_MARGIN_ON_DESIGN). It
-// replaced the fixed 14% cushion, whose ending surplus was closed instead by
-// solving the STARTING surplus (solvePreGameStart, now gone).
-//
-// A secant on the margin. The year-end is affine in it — premium is linear in
-// the CLF, and the investment return on what that premium adds is too — so
-// the second step lands; the loop keeps going while anything nonlinear
-// (dividends or assessments on a surplus basis) leaves a gap, and refuses to
-// hand over a pre-game that does not close. The margin is not floored: a
-// scenario may solve below expected.
-// ============================================================================
-const PRE_GAME_MARGIN_MAX_STEPS = 40;
-
-export function solvePreGameMargin<T extends { start: number; gap: number }>(
-  run: (margin: number) => T,
-  line: CoverageLine,
-): T {
-  let a = run(0);
-  if (Math.abs(a.gap) <= PRE_GAME_START_TOLERANCE) return a;
-  let b = run(0.1);
-  for (let step = 0; step < PRE_GAME_MARGIN_MAX_STEPS && Math.abs(b.gap) > PRE_GAME_START_TOLERANCE; step++) {
-    const slope = (b.gap - a.gap) / (b.start - a.start);
-    if (!Number.isFinite(slope) || Math.abs(slope) < 1e-6) {
-      throw new Error(`pre-game ${line}: year-end does not respond to the margin (slope ${slope})`);
-    }
-    a = b;
-    b = run(b.start - b.gap / slope);
-  }
-  if (Math.abs(b.gap) > PRE_GAME_START_TOLERANCE) {
-    throw new Error(`pre-game ${line}: the prior board's margin did not converge (gap ${b.gap})`);
-  }
-  return b;
-}
-
-// How close the pre-game's last year-end must land on the opening.
-const PRE_GAME_START_TOLERANCE = 0.01; // dollars
-
-// ============================================================================
-// THE SET OPENING, APPLIED. The pre-game's ending book IS the opening book:
-// the years it played, 2021 on, as they stand — the pool's whole history.
-// Surplus is the ruled multiple of required capital on that reserve — and the
-// pre-game started from the surplus that lands its last year-end exactly there
-// (solvePreGameMargin), so setting it moves nothing.
+// THE OPENING, APPLIED. The pre-game's ending book IS the opening book: the
+// years it played, 2021 on, as they stand — the pool's whole history — and its
+// surplus is the last year-end's, exactly as played. Nothing sets it.
 //
 // ⚠ NOTHING IS SWAPPED IN AND NOTHING IS FILTERED. The pool's history begins
 // in 2021, the first pre-game year: there are no accident years before it, so
@@ -524,14 +404,11 @@ const PRE_GAME_START_TOLERANCE = 0.01; // dollars
 // invested - netReserve - LAE reserve, so invested = surplus + netReserve + LAE
 // reserve - cash.
 // ============================================================================
-function applySetOpening(
+function applyOpening(
   line: CoverageLine,
   ls: LinePoolState,
   lineCash: number,
   developmentPct: number,
-  // The opening surplus, from the opened book (the scenario's: year-1 premium
-  // at Expected / its ratio).
-  surplusOf: (opened: LinePoolState) => number,
 ): LinePoolState {
   const open = ls.reserveCohorts ?? [];
   // ⚠ EVERY COHORT THE POOL OPENS WITH IS BASED HERE on its outstanding AT
@@ -546,9 +423,8 @@ function applySetOpening(
   ));
   const netUnpaidReserve = reserveCohorts.reduce((a, c) => a + c.netUnpaid, 0);
   const reserveDevelopment = ls.reserveDevelopment ?? [];
-  // SET at the scenario's opening, read off the opened book — never off
-  // required capital (funding tables wiring) — see runLinePreGame.
-  const surplus = surplusOf({ ...ls, reserveCohorts, reserveDevelopment, netUnpaidReserve });
+  // The played pre-game's own last year-end — see runLinePreGame.
+  const surplus = ls.surplus;
   return {
     ...ls,
     reserveCohorts,
@@ -556,7 +432,7 @@ function applySetOpening(
     netUnpaidReserve,
     surplus,
     // ⚠ THE LOSS EXPENSE RESERVE IS A LIABILITY TOO, so the opening holds assets
-    // for it: the ruled surplus is surplus OVER both reserves.
+    // for it: the surplus is surplus OVER both reserves.
     investedAssets: surplus + netUnpaidReserve + lossExpenseReserve(line, reserveCohorts) - lineCash,
   };
 }
@@ -564,38 +440,20 @@ function applySetOpening(
 function finalizeLine(
   c: ReturnType<typeof simulateLineCandidate>,
   line: CoverageLine,
-  attempt: number,
   developmentPct: number,
-  instance: GameInstance,
-  ratio: number,
-  margin: number,
-  shocks = true,
-  // The opening surplus from the opened book. Absent, the scenario's: year-1
-  // premium at Expected / its ratio. The designed-margin rule passes the
-  // played pre-game's own last year-end (PRE_GAME_MARGIN_ON_DESIGN).
-  surplusOf?: (opened: LinePoolState) => number,
 ): LinePreGame {
-  // Stamp the accepted attempt onto each pre-game year's result so the
-  // effective seed (instance.seed + attempt x 997) that produced it is
-  // recoverable later from saved state, not just during this simulation run.
-  const lineResults = c.lineResults.map(r => ({ ...r, pregameAttempt: attempt }));
-  // The same accepted attempt's earlier years — every pre-game year before the
-  // declared three, off the single-line pooled results it already returns.
-  const earlyLineResults = c.pooled.slice(0, -PRE_GAME_YEARS)
-    .map(r => ({ ...r.byLine[line], pregameAttempt: attempt }));
   return {
     line,
-    lineResults,
-    earlyLineResults,
-    lineState: applySetOpening(line, c.poolState.lines[line], c.poolState.cash, developmentPct,
-      surplusOf ?? (opened => openingYear1Premium(instance, line, opened, lineResults[lineResults.length - 1], shocks) / ratio)),
-    solvedMargin: margin,
+    lineResults: c.lineResults,
+    // Every pre-game year before the declared three, off the single-line
+    // pooled results it already returns.
+    earlyLineResults: c.pooled.slice(0, -PRE_GAME_YEARS).map(r => r.byLine[line]),
+    lineState: applyOpening(line, c.poolState.lines[line], c.poolState.cash, developmentPct),
     cash: c.poolState.cash,
     unearnedPremium: c.poolState.unearnedPremium,
     members: c.poolState.lines[line].members,
     membershipHistory: c.poolState.membershipHistory,
     memberLossHistory: c.poolState.memberLossHistory ?? {},
-    attempt,
   };
 }
 
@@ -858,7 +716,6 @@ export function runPriorHistory(
     earlyPreGameHistory,
     poolState,
     startingFinancials: deriveStartingFinancials(poolState, priorHistory),
-    historyAttempt: Math.max(0, ...perLine.map(p => p.attempt)),
   };
 }
 

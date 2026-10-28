@@ -1,6 +1,6 @@
 // THE VIEWER IS THE PLAYER'S SCREEN, READ-ONLY — and its numbers are the
 // driver's numbers because they are the same computation, not a copy.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, statementPdfDiffs } = require('./_shared.cjs');
 const crypto = require('crypto');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley'];
 // Three played years, checked after each; the room runs one more so year 3 is not its last.
@@ -64,12 +64,13 @@ async function tabText(page, tab) {
   // ---- IT IS THE SAME SCREEN ----------------------------------------------
   // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool in
   // aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial Statements
-  // and Calculation Audit from players and viewers alike (GameShell's
-  // MULTIPLAYER_HIDDEN_TABS). The PAGES are intact. Dashboard and Departments
-  // are hidden in both (src/game/tabs.tsx), and Investments; Rate Indication joined.
+  // from players and viewers alike (GameShell's MULTIPLAYER_HIDDEN_TABS). The
+  // PAGES are intact. Dashboard and Departments are hidden in both
+  // (src/game/tabs.tsx), and Investments; Rate Indication joined. The
+  // Year Walkthrough (once the Calculation Audit) is on the bar.
   const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                'Decision History', 'Result Spreadsheet'];
-  const HIDDEN = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments', 'Investments'];
+                'Decision History', 'Result Spreadsheet', 'Year Walkthrough'];
+  const HIDDEN = ['Financial Statements', 'Results', 'Dashboard', 'Departments', 'Investments'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
   ok(present === TABS.length, `viewer has all ${TABS.length} multiplayer tabs (${present}/${TABS.length})`);
@@ -169,6 +170,12 @@ async function tabText(page, tab) {
     // year's post — valued then — that it must match, over accident years 0 to
     // y. (It was year y - 1's while results ran a year behind.)
     await tabText(driver, 'Annual Statement');
+    // The PDF download in a hosted game, after the last played year: the
+    // statement the team's screen shows, at the year it stands at.
+    if (y === PLAYED) {
+      const pdf = await statementPdfDiffs(driver);
+      ok(pdf.length === 0, `year ${y}: a hosted team's "Download Annual Statement (PDF)" gives the screen's statement, at the year it stands at${pdf.length ? ` — ${pdf.slice(0, 2).join(' · ')}` : ''}`);
+    }
     const st = await netUltimates(driver);
     const rec = await room();
     const posted = rec.teams.find(t => t.name === TEAMS[0]).resultsByYear[String(y)];

@@ -29,7 +29,8 @@ export const TAB_DEFS: Record<TabId, { label: string; icon: React.ReactNode }> =
   financials: { label: 'Financial Statements', icon: <FileText size={16} /> },
   results: { label: 'Results', icon: <BarChart2 size={16} /> },
   spreadsheet: { label: 'Result Spreadsheet', icon: <Table size={16} /> },
-  audit: { label: 'Calculation Audit', icon: <Calculator size={16} /> },
+  // The Year Walkthrough, in the slot the Calculation Audit held (the id stays 'audit').
+  audit: { label: 'Year Walkthrough', icon: <Calculator size={16} /> },
   // Hidden by being absent from TAB_ORDER — see the note there.
   history: { label: 'Pool History', icon: <HistoryIcon size={16} /> },
   membership: { label: 'Membership', icon: <Users size={16} /> },
@@ -73,7 +74,7 @@ export const HIDDEN_TABS: readonly TabId[] = [
 export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = [
   'results',
   'financials',
-  'audit',
+  // ⚠ 'audit' — THE YEAR WALKTHROUGH — IS SHOWN IN A HOSTED SESSION TOO.
   // ⚠ THE MODEL TAB IS SOLO ONLY, NEVER MULTIPLAYER: it shows every input to
   // the rate and every expectation against the simulation, for checking the
   // indication by hand. To hide it in solo as well, add 'model' to HIDDEN_TABS.

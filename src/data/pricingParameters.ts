@@ -191,7 +191,7 @@ export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = RESERVE_INFLATION.ena
  * within a few years, so with no investment income credit and no contingency
  * one year is enough: at two GL ran a ten-year combined ratio of 95.4% (against
  * 100.2% before the correction), at one 98.9%, with no 2027 drop. Measured with
- * the per-line profit and contingency and the admin overrun.
+ * the per-line profit and contingency (since retired) and the admin overrun.
  */
 export const RESERVE_INFLATION_PRICED_YEARS: PerLine<number> = { WC: 2, GL: 1, Property: 2 };
 
@@ -417,7 +417,7 @@ export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readon
  * choosing; Mid and High stay one pick away for a room that wants them.
  */
 export const ADVERSE_DEVELOPMENT_DEFAULT_LEVEL: DevelopmentLevel = 'Low';
-/** A line's setting on a game's setup: a level, or Off — single player's, never a room's. */
+/** A line's setting on a game's setup: a level, or Off — single player's on every line, and the host's None on a line. */
 export type DevelopmentSetting = DevelopmentLevel | 'Off';
 
 /**
@@ -510,128 +510,62 @@ export const ALAE_OF_LOSS_COST: PerLine<number> = {
 export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property: 0.05 };
 
 /**
- * ADMIN, FIXED — dollars a year, per line.
+ * ADMIN — A SHARE OF PREMIUM, PER LINE: 20% on every line.
  *
- * ⚠ CALIBRATED SO THE OPENING ADMIN EQUALS TODAY'S 15% LOAD, HALF OF IT FIXED.
- * Measured over 12 games at year 1 on default decisions: admin today is
- * `expectedLoss x 0.15`, so half of that is the fixed figure and the other half
- * is the per-exposure rate below. Means: WC admin $2,157,173 on $392.90M of
- * exposure at a 3.6685 pure premium; GL $3,502,043 on $382.30M at 6.1243;
- * Property $6,797,634 on $18,639.78M at 0.2431.
+ * THE RATE IS THE PURE PREMIUM x CLF / (1 - THIS), plus the cover's price. So
+ * admin is exactly this share of the premium before reinsurance, every year and
+ * on every book, and the permissible loss ratio is 1 - this (80%). What goes to
+ * losses — the pure premium x CLF — is unchanged by it: admin is a pass-through
+ * on top, and the cover's price is added after the divisor, never loaded by it.
+ * With risk control on (RISK_CONTROL, off) the divisor is 1 - risk control -
+ * this.
  *
- * ⚠ LIVE — read by the new rate stack (linePricing.adminRatePer100For).
- * ⚠ AND ITS CALIBRATION IS STALE: it was set before the stable-scenarios
- * build, on the old loss costs and exposure, and now runs 16-39% of the
- * supplied cost. Left as it is until the pool's budget is sent.
+ * ⚠ WHY A SHARE OF PREMIUM (wip/pricing-rework). It replaced a fixed amount per
+ * line plus a per-exposure rate, both trended 3% a year from a 2027 base, whose
+ * calibration was stale (16-39% of the supplied cost), and a profit and
+ * contingency provision (WC 2%, GL and Property 0%). A pool's administration is
+ * budgeted as a share of what it collects; one figure per line, the same every
+ * year, is what the Rate Indication, the Decisions panel and the Model tab show.
+ *
+ * ⚠ PER LINE so it can be set line by line later; every line is 20% today.
+ * ⚠ LIVE — read by linePricing.expenseDivisor and quoteNewRateStack; the
+ * pre-game prices through the same quote, so its history, the prior board's
+ * margins and the openings follow from it.
+ *
+ * ⚠ MEASURED AT LANDING (scripts/probes/pricing-rework-probe.mts and
+ * pricing-rework-summ.py; twenty scenarios, five played years, default
+ * decisions; multiplayer 8a4dae4 -> this): the 2027 rate WC $3.306 -> $3.559,
+ * GL $4.665 -> $4.902, Property $0.2816 -> $0.2850; 2027 admin WC $3.67M ->
+ * $6.52M, GL $4.58M -> $6.03M, Property $5.15M -> $5.48M; the pure premium
+ * bit-identical in every scenario. WC's prior-board margin rises (designed
+ * 2.73-5.22%, none at the floor, from -0.21-2.26%, four at the floor), because
+ * the 2% contingency's surplus is gone and the margin replaces it — so WC's
+ * 2027 rate is below 2026's in 8 of 20 scenarios, 3 by more than 2% (worst
+ * -3.15%). GL and Property have no 2027 drop over 2%.
  */
-export const ADMIN_FIXED_PER_YEAR: PerLine<number> = {
-  WC: 1_078_586,
-  GL: 1_751_022,
-  Property: 3_398_817,
-};
-
-/**
- * ADMIN, PER EXPOSURE — dollars per $100 of exposure, per line.
- *
- * ⚠ THE OTHER HALF OF THE SAME CALIBRATION, and it is an identity rather than a
- * second measurement: half the load as a RATE is
- * `0.5 x 0.15 x openingPurePremiumPer100`, so WC is 0.075 x 3.6685 = 0.275138,
- * GL 0.075 x 6.1243 = 0.459324, Property 0.075 x 0.2431 = 0.018236. Multiplied
- * back by the opening exposure each lands within 0.3% of half the measured
- * admin — the residual is the spread of pure premium across the 12 games, not
- * an error in the split.
- *
- * ⚠ LIVE — read by the new rate stack (linePricing.adminRatePer100For).
- * ⚠ AND ITS CALIBRATION IS STALE: it was set before the stable-scenarios
- * build, on the old loss costs and exposure, and now runs 16-39% of the
- * supplied cost. Left as it is until the pool's budget is sent.
- */
-export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
-  WC: 0.275138,
-  GL: 0.459324,
-  Property: 0.018236,
-};
-
-/**
- * ADMIN GROWS WITH INFLATION — 3% a year on BOTH parts, the fixed dollars a
- * year (ADMIN_FIXED_PER_YEAR) and the per-exposure rate
- * (ADMIN_PER_EXPOSURE_PER_100), compounding each year from ADMIN_BASE_YEAR and
- * discounted the same way for earlier years, the pre-game's included: a year's
- * admin is the parameters x (1 + 3%)^(year - base year). The rate charges the
- * trended admin for the year it prices, and the engine books that same admin
- * as the year's expense (operatingExpense is the admin charged), so admin
- * neither drifts against the rate nor is under-charged as costs rise.
- *
- * WHY: admin was flat while losses trend 4-8% a year, so its share of the rate
- * fell every year — an administrative budget that never rises is not one any
- * pool runs on. 0 restores flat admin.
- */
-export const ADMIN_TREND_PER_YEAR = 0.03;
-
-/**
- * THE YEAR THE ADMIN PARAMETERS ARE SET FOR — the game's year number, 1: the
- * first played year (2027). The two admin parameters were calibrated at year
- * 1, so they stand there unchanged; 2021 (year -5) is six years of trend
- * below them, 2031 (year 5) four above.
- */
-export const ADMIN_BASE_YEAR = 1;
+export const ADMIN_SHARE_OF_PREMIUM: PerLine<number> = { WC: 0.20, GL: 0.20, Property: 0.20 };
 
 /**
  * ACTUAL ADMIN RUNS OVER WHAT WAS PRICED — by a share drawn each year,
  * uniformly between 0% and 2%, per line, from the game's seed on its own
  * labelled stream (adminOverrun.ts), the same in every world. Pricing still
- * charges the expected trended admin; only the admin booked (operatingExpense)
+ * charges admin at its share of premium (ADMIN_SHARE_OF_PREMIUM); only the
+ * admin booked (operatingExpense = that admin x (1 + the overrun))
  * and the year's result carry it.
  *
  * ⚠ WHY: a pool's expenses do not come in exactly at budget, and when they miss
  * they mostly miss high — salaries, systems and claims handling run ahead of the
  * plan the rate was set on. Charged at expected and booked a little above, admin
  * is a small, steady drag on the underwriting result that the rate never
- * recovers, beside the profit and contingency provision that is there to absorb
- * such things. 0% to 2% keeps it a drag and not a shock: a mean 1% of admin.
+ * recovers. 0% to 2% keeps it a drag and not a shock: a mean 1% of admin.
  */
 export const ADMIN_OVERRUN_RANGE = { min: 0, max: 0.02 } as const;
 
-/**
- * PROFIT AND CONTINGENCY — A SHARE OF THE RATE, PER LINE, in the expense
- * provision: WC 2%, GL 0%, Property 0%. THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS
- * RATIO, where the permissible loss ratio is 100% less the total expense ratio
- * — fixed admin, per-exposure admin, risk control and this — and the cover's
- * price is added on top.
- *
- * ⚠ 5% ON EVERY LINE, AND NO INVESTMENT INCOME CREDIT (reserve-inflation
- * build). Investment income does not affect the rate in any way; it flows into
- * surplus only. The credit that took last year's return off the pure premium
- * (INVESTMENT_INCOME_CREDIT, retired) and the per-line contingency that briefly
- * stood beside it (WC 3%, GL 0%, Property 0%) are both gone: a pool prices for
- * its losses and expenses with a margin for the unexpected, and leaves what
- * its investments earn to its surplus, so the rate does not move with a year's
- * markets and every line carries the same provision.
- *
- * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor): (claims x CLF
- * + admin) / (1 - risk control - this) + the cover's price. At Expected and with
- * no cover that is exactly the projected pure premium / the permissible loss
- * ratio, admin being its share of that rate.
- *
- * HISTORY: 5% until stable-scenarios, then 0 on every line (under default play
- * with shocks off pool surplus more than tripled over ten years, $61.6M ->
- * $194M, and the exposure was re-scaled with the 5.3% fall in year-1 premium,
- * EXPOSURE_SCALE — NOT re-scaled back now); then WC 3%, GL and Property 0%
- * beside the credit, with reserve inflation; now 5% on every line again, the
- * credit gone.
- */
-export const PROFIT_AND_CONTINGENCY_OF_RATE: PerLine<number> = { WC: 0.02, GL: 0, Property: 0 };
-// ⚠ WC 2%, GL 0%, PROPERTY 0% — NOT 5% ON EVERY LINE (reserve-inflation build;
-// twenty scenarios, ten years, the defaults, with the admin overrun). With the
-// investment income credit gone every pure premium rose about 3%, and 5% on top
-// made every line too rich: ten-year combined ratios WC 99.2%, GL 92.7%,
-// Property 95.4% against 104.4%, 100.2% and 102.7% before the correction, and
-// the prior board's designed margin below zero on almost every scenario — the
-// pre-game overshot every target. 2% everywhere still left GL and Property 4.6
-// to 4.8 points rich. WC keeps 2%: its long tail inflates longest after the two
-// years pricing anticipates. GL and Property need none: GL's experience catches
-// its inflation within a few years, and Property's tail is short. Measured:
-// WC 102.1%, GL 98.9%, Property 99.7% (see STARTING_CAPITAL).
+// ⚠ PROFIT AND CONTINGENCY IS GONE (wip/pricing-rework). It was a share of the
+// rate in the expense divisor — WC 2%, GL 0%, Property 0% at the end, 5% on every
+// line before that. The rate now carries the pure premium x CLF, admin at its
+// share of premium (ADMIN_SHARE_OF_PREMIUM) and the cover's price, and nothing
+// else; the CLF's margin over Expected is the only provision for the unexpected.
 
 /**
  * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
@@ -790,25 +724,27 @@ export const POOL_LIMIT_PER_OCCURRENCE: PerLine<number | null> = {
 };
 
 // ============================================================================
-// THE TWENTY SCENARIOS (stable-scenarios commit 9).
+// THE TWENTY SCENARIOS — FIXED SEEDS (wip/fixed-seed-scenarios; first built
+// as stable-scenarios commit 9).
 //
-// The scenario number, 1 to 20, is the game's ONLY seed: the market, the book,
-// the pre-game and the worlds, solo and hosted, all derive from it
-// (scenarioInstance). Each carries a target premium-to-surplus ratio ON EACH
-// LINE, and that figure sets three things on the line:
+// A game is set up as Scenario 1 to 20, which is all a player or host sees.
+// Scenario N PLAYS ONE FIXED SEED (SCENARIO_SEEDS), with the same paid-in
+// capital (STARTING_CAPITAL), a pre-game drawn at TRUE COST and a prior board
+// that funds every pre-game year at Expected. Whatever opening that seed
+// produces IS the scenario's opening: nothing is re-rolled, re-searched,
+// re-solved, scaled, floored, guarded or set at run time.
 //
-//   1. THE OPENING: each line opens with surplus = its year-1 premium at
-//      Expected / the ratio.
-//   2. THE PRE-GAME'S EXPERIENCE: its ordinary losses run at expected x
-//      (1 + (1 - f) x PRE_GAME_EXPERIENCE_WEIGHT), f = the line's
-//      PRE_GAME_EXPERIENCE_BASE / ratio — a thin scenario inherits a worse
-//      record as well as less surplus.
-//   3. THE PRIOR BOARD'S MARGIN: one funding level per line across the six
-//      pre-game years, set on the scenario's DESIGNED history so that from
-//      STARTING_CAPITAL that history would end exactly at the opening
-//      (PRE_GAME_MARGIN_ON_DESIGN), floored at zero, with the opening falling
-//      where the simulated history takes it inside the guardrails. It replaces
-//      the fixed 14% cushion (PRE_GAME_FUNDING_CUSHION, retired).
+// What a scenario used to be — a target premium to surplus per line that set
+// the opening directly, scaled the pre-game's losses by an experience multiple,
+// and solved the prior board's margin to land there, with a floor and
+// guardrails — is RETIRED. The targets remain (SCENARIO_PREMIUM_TO_SURPLUS) as
+// what the seeds were chosen against; the game reads them nowhere.
+//
+// ⚠ WHY: a scenario's opening should come from its history, not be fitted to
+// it. Fitted, a thin scenario's board had to price above expected to land its
+// target, and that margin came off in 2027 — WC's rate dropped in 8 scenarios,
+// three by over 2%. Chosen by seed, the opening is what the drawn history
+// left, the prior board priced at expected, and no 2027 rate drops.
 // ============================================================================
 
 export const SCENARIO_COUNT = 20;
@@ -817,7 +753,65 @@ export const SCENARIO_COUNT = 20;
 export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 15, 11, 20, 6, 9, 5, 4, 1, 18, 7, 17, 2, 13, 16];
 
 /**
- * EACH LINE'S THINNEST AND RICHEST TARGET PREMIUM-TO-SURPLUS RATIOS; its twenty
+ * EACH SCENARIO'S FIXED SEED — kept here, in the code, and never shown to a
+ * player or a host, who see only "Scenario N". The game plays the seed's own
+ * text as its identity and that text's hash as its numeric seed
+ * (utils/scenarios.gameIdentity), in single player, Test player and a hosted
+ * room alike. PERMANENT: chosen once, by search, and never re-picked at run
+ * time; scenario-opening-drift-check reports any change that moves an opening.
+ *
+ * ⚠ HOW THEY WERE CHOSEN (the Measurements chat, on multiplayer 985f365). Every
+ * seed 1 to 20,000 was run through the pre-game — capital WC $3.0M, GL $12.0M,
+ * Property $12.5M, history at true cost, the prior board at Expected, no
+ * guardrails — and each line's opening premium to surplus recorded (shocks
+ * off: year-1 premium at Expected, as the room and Test player price it). Each
+ * scenario takes the seed closest on ALL THREE lines at once to its design
+ * targets (SCENARIO_PREMIUM_TO_SURPLUS), keeping today's thin-to-rich order;
+ * no seed is used twice.
+ *
+ *   The openings, measured on this build (premium to surplus, shocks off;
+ *   target, actual, miss):
+ *
+ *   scen  seed    WC                    GL                    Property
+ *    12   8095   3.00 3.00  +0.2%   2.30 2.30  +0.0%   1.70 1.67  -1.8%
+ *    19   9401   2.92 2.92  -0.1%   2.25 2.27  +0.8%   1.67 1.68  +0.4%
+ *    10  11168   2.84 2.82  -0.8%   2.19 2.21  +0.8%   1.65 1.65  +0.3%
+ *    14   1428   2.76 2.70  -2.1%   2.14 2.19  +2.3%   1.62 1.65  +1.7%
+ *     3   8310   2.68 2.64  -1.6%   2.09 2.07  -0.9%   1.59 1.63  +2.1%
+ *     8  12312   2.61 2.62  +0.4%   2.04 2.05  +0.8%   1.57 1.54  -1.7%
+ *    15   1105   2.53 2.45  -3.0%   1.98 2.01  +1.1%   1.54 1.59  +2.9%
+ *    11  16179   2.45 2.40  -1.9%   1.93 1.95  +0.9%   1.52 1.51  -0.7%
+ *    20   7068   2.37 2.40  +1.5%   1.88 1.90  +1.3%   1.49 1.51  +1.2%
+ *     6   4886   2.29 2.32  +1.1%   1.83 1.81  -1.0%   1.46 1.45  -0.8%
+ *     9   1018   2.21 2.25  +1.9%   1.77 1.77  -0.2%   1.44 1.47  +2.2%
+ *     5  11220   2.13 2.17  +1.9%   1.72 1.70  -1.3%   1.41 1.43  +1.7%
+ *     4  13073   2.05 2.06  +0.3%   1.67 1.69  +1.3%   1.38 1.39  +0.5%
+ *     1   4109   1.97 2.00  +1.2%   1.62 1.60  -0.9%   1.36 1.40  +3.1%
+ *    18  13548   1.89 1.89  -0.0%   1.56 1.53  -1.9%   1.33 1.36  +1.9%
+ *     7   9719   1.82 1.76  -2.8%   1.51 1.54  +2.2%   1.31 1.35  +3.2%
+ *    17   3895   1.74 1.68  -3.1%   1.46 1.46  +0.2%   1.28 1.34  +4.4%
+ *     2   1681   1.66 1.68  +1.5%   1.41 1.43  +1.8%   1.25 1.22  -2.7%
+ *    13  14577   1.58 1.72  +8.8%   1.35 1.44  +6.2%   1.23 1.21  -1.1%
+ *    16   2812   1.50 1.61  +7.2%   1.30 1.16 -11.0%   1.20 1.18  -1.5%
+ *
+ * ⚠ THE TWO RICHEST MISS, ACCEPTED. Eighteen scenarios land within 5% on every
+ * line. Scenarios 13 and 16 miss their WC targets by about 9% and 7% (and GL by
+ * +6% and -11%): at $3.0M WC's opening premium to surplus has its 1st
+ * percentile at 1.89 across the 20,000 seeds, so a 1.5-1.6 WC opening that
+ * also matches GL and Property was not drawn — no seed came within 5% on all
+ * three lines for either. Raising WC's capital to about $8-9M would make every
+ * slot reachable (estimated: opening surplus rises about $1.13-1.25M per $1M
+ * paid in); not taken — the capital is the brief's.
+ */
+export const SCENARIO_SEEDS: Readonly<Record<number, number>> = {
+  12: 8095, 19: 9401, 10: 11168, 14: 1428, 3: 8310, 8: 12312, 15: 1105, 11: 16179, 20: 7068, 6: 4886,
+  9: 1018, 5: 11220, 4: 13073, 1: 4109, 18: 13548, 7: 9719, 17: 3895, 2: 1681, 13: 14577, 16: 2812,
+};
+
+/**
+ * EACH LINE'S THINNEST AND RICHEST DESIGN TARGET, PREMIUM TO SURPLUS — the
+ * openings the fixed seeds were CHOSEN against, and nothing more: no game code
+ * reads them (the drift and seed gates and the parameters page do). Its twenty
  * are evenly spaced between, in the one scenario order (SCENARIOS_THIN_TO_RICH):
  * scenario 12 is the thinnest on every line and scenario 16 the richest.
  *
@@ -846,26 +840,16 @@ export const SCENARIO_RATIO_RANGE: PerLine<{ thinnest: number; richest: number }
 
 const lineMap = <T>(f: (l: CoverageLine) => T): PerLine<T> => ({ WC: f('WC'), GL: f('GL'), Property: f('Property') });
 
-/** Each line's target premium-to-surplus ratio, by scenario number. */
+/**
+ * Each line's DESIGN TARGET premium to surplus, by scenario number — what the
+ * fixed seeds were chosen against. READ BY NO GAME CODE: the opening is the
+ * seed's (SCENARIO_SEEDS), never set or solved to this.
+ */
 export const SCENARIO_PREMIUM_TO_SURPLUS: PerLine<Readonly<Record<number, number>>> = lineMap(l => Object.fromEntries(
   SCENARIOS_THIN_TO_RICH.map((n, k) => [n,
     SCENARIO_RATIO_RANGE[l].thinnest
       - k * (SCENARIO_RATIO_RANGE[l].thinnest - SCENARIO_RATIO_RANGE[l].richest) / (SCENARIO_COUNT - 1)]),
 ));
-
-/**
- * The pre-game's experience factor is this / the scenario's ratio: 1 at the
- * line's MIDPOINT, so the middle scenario's pre-game runs at expected on every
- * line. Property 1.45 (it was 1.5 for the shared 1.2-1.7 range, near but not on
- * its middle), WC 2.25, GL 1.8.
- */
-export const PRE_GAME_EXPERIENCE_BASE: PerLine<number> = lineMap(l => (SCENARIO_RATIO_RANGE[l].thinnest + SCENARIO_RATIO_RANGE[l].richest) / 2);
-/** How far the experience factor moves the pre-game's ordinary losses: x (1 + (1 - factor) x this). */
-export const PRE_GAME_EXPERIENCE_WEIGHT = 0.3;
-
-/** The pre-game's ordinary losses on a line, as a multiple of expected, in a scenario. */
-export const preGameLossMultiplier = (scenario: number, line: CoverageLine): number =>
-  1 + (1 - PRE_GAME_EXPERIENCE_BASE[line] / SCENARIO_PREMIUM_TO_SURPLUS[line][scenario]) * PRE_GAME_EXPERIENCE_WEIGHT;
 
 /**
  * STARTING CAPITAL — PER LINE (WC $3.0M, GL $12.0M, Property $12.5M; see the
@@ -925,6 +909,13 @@ export const preGameLossMultiplier = (scenario: number, line: CoverageLine): num
  * kept every designed margin above the floor at the cost of two more drops.
  */
 export const STARTING_CAPITAL: PerLine<number> = { WC: 3_000_000, GL: 12_000_000, Property: 12_500_000 };
+// ⚠ THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios): WC $3.0M, GL $12.0M,
+// PROPERTY $12.5M, UNCHANGED, FOR EVERY SCENARIO — the capital the seeds were
+// chosen at (SCENARIO_SEEDS). There is no margin to solve any more: the prior
+// board funds at Expected and the opening is where the history ends, so this
+// is simply what the pool was paid in. Moving it moves every opening, and
+// scenario-opening-drift-check reports it. The notes below are the history of
+// how it was set while the margin was solved; they no longer drive anything.
 // ⚠ WC $3.0M, GL $12.0M, PROPERTY $12.5M (reserve-inflation build: no
 // investment income credit; profit and contingency WC 2%, GL 0%, Property 0%;
 // inflation priced WC 2 years, GL 1, Property 2; the admin overrun; twenty
@@ -970,9 +961,9 @@ export const STARTING_CAPITAL: PerLine<number> = { WC: 3_000_000, GL: 12_000_000
 
 /**
  * THE PRE-GAME'S INVESTMENT RETURN — 3% A YEAR on its invested assets, every
- * asset class alike, no draw — READ BY THE FLAT PRE-GAME: with FLAT_PRE_GAME
- * off, only by the DESIGNED run the prior board's margin is set on
- * (PRE_GAME_MARGIN_ON_DESIGN); the played pre-game draws its market. A
+ * asset class alike, no draw — READ BY THE FLAT PRE-GAME ONLY; with
+ * FLAT_PRE_GAME off the pre-game draws its market (and the designed run that
+ * also read this is retired with the margin solve). A
  * realistic return for a public pool's
  * bond-heavy portfolio. Most of the pre-game's growth comes from the prior
  * board's margin, not from this. The played years draw their market as before.
@@ -981,8 +972,8 @@ export const PRE_GAME_INVESTMENT_RETURN = 0.03;
 
 // ⚠ RETIRED: INVESTMENT_INCOME_CREDIT, which took last year's realised return
 // off the pure premium (policy-year build). INVESTMENT INCOME DOES NOT AFFECT
-// THE RATE IN ANY WAY; it flows into surplus only. See
-// PROFIT_AND_CONTINGENCY_OF_RATE for what replaced it in the rate.
+// THE RATE IN ANY WAY; it flows into surplus only. (The profit and contingency
+// that replaced it in the rate is retired too — see ADMIN_SHARE_OF_PREMIUM.)
 
 /**
  * ⚠ RETIRED: PRE_GAME_FUNDING_CUSHION, the prior board's fixed 14% cushion
@@ -1268,20 +1259,19 @@ export const ROUTINE_LARGE_LOSSES = { enabled: false };
 
 /**
  * A FLAT PRE-GAME — OFF: THE PRE-GAME IS SIMULATED (wip/simulated-pregame, a
- * test build). On, the six pre-game years (2021-2026) ran at exactly expected: each asset
- * class at PRE_GAME_INVESTMENT_RETURN, and ordinary losses at exactly the
- * scenario's multiple of expected (preGameLossMultiplier), no year or unit
- * factor (stable-scenarios build, commit 1).
+ * test build). On, the six pre-game years (2021-2026) run at exactly expected: each asset
+ * class at PRE_GAME_INVESTMENT_RETURN, and ordinary losses at exactly expected,
+ * no year or unit factor (stable-scenarios build, commit 1; the scenario's
+ * multiple is retired with the fixed seeds).
  *
  * OFF, each pre-game year is DRAWN THE WAY A PLAYED YEAR IS: the line's year
  * factor and each member's own luck at their settings (BASELINE_CV,
- * MEMBER_LUCK_CV), on the scenario's multiple, as a played year draws them. No shock fires in the pre-game, as before. Every draw
+ * MEMBER_LUCK_CV), at true cost, as a played year draws them. No shock fires in the pre-game, as before. Every draw
  * comes from the game's seed on a stream of its own (`pregame_ordinary_<line>`,
  * `pregame_ordinary_unit_<line>`, `pregame_invest`), so every team in a room
  * and any takeover inherit the identical history, and the played years' draws
- * do not shift. The prior board's margin is set on the scenario's DESIGNED
- * history (PRE_GAME_MARGIN_ON_DESIGN, below), so the opening falls where the
- * simulated history takes it.
+ * do not shift. The prior board funds every pre-game year at Expected, and the
+ * opening is where the simulated history ends (the fixed-seed scenarios).
  *
  * ⚠ WHY: a flat pre-game made the inherited history — six years of the
  * Annual Statement, and the window year 1 is priced on — read as a straight
@@ -1292,48 +1282,6 @@ export const ROUTINE_LARGE_LOSSES = { enabled: false };
  * line, against 0-1 flat) and year 1's rate change from -6% to +18%.
  */
 export const FLAT_PRE_GAME = { enabled: false };
-
-/**
- * THE PRIOR BOARD'S MARGIN, SET ON THE DESIGNED HISTORY — ON (wip/simulated-
- * pregame, a test build). The margin is the one that would land the pre-game
- * on the scenario's target premium to surplus if it ran as DESIGNED: ordinary
- * losses at exactly expected x the scenario's experience multiple
- * (preGameLossMultiplier), at the EXPECTED return of the pre-game's cash-and-
- * bond portfolio (each class's expected return net of fee, about 3.28% —
- * see PRE_GAME_MARKET_DRAWS; it was a flat 3%, which ran about $1.5M under the
- * drawn market and biased every opening up). The simulated pre-game is then
- * played at that margin,
- * and the opening surplus falls wherever its history takes it: richer after
- * good luck, thinner after bad. Off, the margin is solved on the history as
- * played, so the opening lands exactly on the ratio.
- *
- * ⚠ WHY: solved on the played history, the margin absorbs the luck. With the
- * pre-game simulated (FLAT_PRE_GAME off) the luck is as large as the scenarios'
- * designed differences, so a run of bad years forced the prior board to
- * undercharge to land on its opening — the margin fell below zero on 7-12 of
- * the twenty scenarios a line, and the 2026 rate dropped on 2-6. A board does
- * not price to hit a surplus it cannot see coming; it prices for the risk it
- * expects, and its surplus is the outcome.
- *
- * Flat (FLAT_PRE_GAME on) the designed and played histories are one run, and
- * either setting opens exactly on the ratio.
- *
- * Outside OPENING_PREMIUM_TO_SURPLUS_BOUNDS, the guardrails move the margin
- * just enough to land on the nearest bound.
- *
- * ⚠ MEASURED, with the pre-game market at ten draws on cash and bonds. Against
- * the designed run the opening moves with an SD of WC $3.4M, GL $3.3M,
- * Property $2.5M, and investments are now under a tenth of it (variance share
- * 10% / 8% / 4%; one equity-bearing draw made them most of it). Opening
- * premium to surplus WC 1.06-2.22, GL 1.06-2.77, Property 1.06-1.90, all
- * inside the guardrails (1.0-3.0) with none needing them; rank correlation
- * with the designed order 0.46 / 0.19 / 0.52. With the margin floored at zero
- * (PRE_GAME_MARGIN_FLOOR) it runs WC 0.0% to 2.0%, GL 0.0% to 3.7%, Property
- * 0.7% to 5.1%; 6 WC and 3 GL scenarios sit on the floor, their designed
- * history needing less than nothing. No year-1 rate drops on WC or GL; three
- * on Property.
- */
-export const PRE_GAME_MARGIN_ON_DESIGN = { enabled: true };
 
 /**
  * THE PRE-GAME'S MARKET — THE AVERAGE OF 10 DRAWS, ON CASH AND BONDS ONLY.
@@ -1353,48 +1301,6 @@ export const PRE_GAME_MARGIN_ON_DESIGN = { enabled: true };
  * loss history, not the stock market, to give each scenario its character.
  */
 export const PRE_GAME_MARKET_DRAWS = 10;
-
-/**
- * THE OPENING'S GUARDRAILS — PREMIUM TO SURPLUS BETWEEN 1.0 AND 3.5.
- *
- * With the margin set on the designed history (PRE_GAME_MARGIN_ON_DESIGN),
- * the opening falls where the simulated history takes it. If it would open a
- * line outside these bounds, that scenario's prior-board margin on that line
- * is adjusted JUST ENOUGH to land it on the nearest bound — solved on the
- * played history, so the opening is exactly the bound. Every other scenario
- * keeps its designed margin and lands where its history takes it.
- *
- * ⚠ WHY: a pool opening thinner than 3x premium to surplus is close to
- * failing before a team has made a decision, and one richer than 1.0x has
- * well more capital than any of the designed scenarios (1.2-1.7) intends.
- *
- * ⚠ THE RICH BOUND WAS 1.2 AND IS 1.0. At 1.2 it sat on the richest designed
- * scenario's own target, so any good luck there tripped it, and pulling those
- * openings down took margins below zero (WC scenario 9: +1.1% -> -1.4%). The
- * margin is now floored at zero (PRE_GAME_MARGIN_FLOOR): where landing on 1.0
- * would need a negative margin, the board charges at zero and the opening
- * lands where that history takes it.
- */
-export const OPENING_PREMIUM_TO_SURPLUS_BOUNDS = { min: 1.0, max: 3.5 } as const;
-// ⚠ THE THIN BOUND WAS 3.0 AND IS 3.5, with WC's targets running to 3.0
-// (SCENARIO_RATIO_RANGE). At 3.0 the bound sat on the thinnest target, so any
-// bad luck there tripped it and raised that board's margin — as high as 6.7% —
-// which then came off in 2027: 17 of 60 line-scenario openings hit it at
-// 2.0-3.0 targets. At 3.5 the hits fell to 6 (scripts/probes/ri-ps-probe.mts).
-
-/**
- * THE PRIOR BOARD'S MARGIN IS NEVER BELOW ZERO. Whether set on the designed
- * history or moved by the guardrails, a margin that would come out negative is
- * zero: the board charges at expected and the opening lands where that
- * history takes it.
- *
- * ⚠ WHY: a negative margin is the board pricing under its own expected loss.
- * With the designed history earning the cash-and-bond mix's expected return
- * (about 3.28%), the designed margin fell below zero on 8 WC and 4 GL
- * scenarios, and the rich guardrail took some lower still. A board that funds
- * below expectation is an odd history to hand a team.
- */
-export const PRE_GAME_MARGIN_FLOOR = 0;
 
 /**
  * CLAIMS ABOVE THE ORDINARY LIMIT, PER $1M OF EXPOSURE A YEAR — SOURCED.
@@ -1482,16 +1388,17 @@ export const SHOCK_T_CLAIM_RANGE: PerLine<Readonly<Record<'Low' | 'Mid' | 'High'
 export const SHOCK_A_YEARS = 1;
 
 /**
- * T CLAIMS AND COVER PRICES GROW WITH THE LINE'S TREND AND ITS BOOK
- * (wip/shocks). Each year's figure is the table figure (SHOCK_T_CLAIM_RANGE's
- * ranges, REINSURANCE_PRICE's prices) x
+ * T CLAIMS GROW WITH THE LINE'S TREND AND ITS BOOK (wip/shocks), AND COVER
+ * PRICES ARE RE-WORKED ON THE GROWN CLAIMS (wip/reinsurance-layers). Each
+ * year's T range is the table's (SHOCK_T_CLAIM_RANGE) x
  *
  *     (1 + SHOCK_COST_TREND[line]) ^ (years since SHOCK_COST_BASE_YEAR)
  *       x (this year's exposure / the base year's exposure)
  *
- * The layers themselves (9 xs 1, 8 xs 2, 18 xs 2, 38 xs 2) stay fixed in
- * dollars, so a growing claim pierces them further and a cover's price rises
- * with what it covers.
+ * and each cover's price is its method's (REINSURANCE_OPTIONS,
+ * T_COVER_FREQUENCY) on mean claims grown by the SAME factor — one function,
+ * shockCostFactor, feeds both. The layers themselves stay fixed in dollars,
+ * so a growing claim pierces them further.
  *
  * WHY: the tables are year-1 figures. A claim in year 8 that cost what it
  * cost in year 1 would shrink against a book whose losses trend at 4-8% a
@@ -1581,7 +1488,8 @@ export const SHOCK_FREE_PRICING = { enabled: true };
  * of the market. Everything that scales with exposure —
  * ordinary losses, the shocks' large losses (their T scale is exposure x cost),
  * the stop's terms — scales with it; what is fixed in dollars does not: the
- * fixed admin, the GL pool limit, the peril deductibles, the opening surplus.
+ * GL pool limit, the peril deductibles, the opening surplus. (Admin is a share
+ * of premium since wip/pricing-rework, so it scales with the book too.)
  *
  * ⚠ RE-SCALED ONCE, from WC 1.797 / GL 1.258 / Property 0.430, after the
  * catastrophe load was removed and year-1 pricing moved onto the pool's pure
@@ -1866,22 +1774,30 @@ export const DEVELOPMENT_IS_LIFETIME_TOTAL = true;
 // stays as the written-down statement of WHICH convention is in force.
 
 /**
- * THE REINSURANCE A TEAM BUYS — PER OCCURRENCE, ON T CLAIMS ONLY (wip/shocks
- * test build). One option per line, from None and these four, each a layer in
- * $M — limit xs attachment — on the single T claim (SHOCK_T_CLAIM_RANGE):
+ * THE REINSURANCE A TEAM BUYS — PER OCCURRENCE, ON T CLAIMS ONLY. One option
+ * per line, from None and these eight, each a layer in $M — limit xs
+ * attachment — on the single T claim (SHOCK_T_CLAIM_RANGE):
  *
- *   9 xs 1    8 xs 2    18 xs 2    38 xs 2       — the same four on every line
+ *   9 xs 1    19 xs 1    29 xs 1    39 xs 1
+ *   8 xs 2    18 xs 2    28 xs 2    38 xs 2      — the same eight on every line
+ *
+ * (wip/reinsurance-layers; the wip/shocks build offered 9 xs 1, 8 xs 2, 18 xs 2
+ * and 38 xs 2.) None stays the default. THE LAYERS ARE FIXED IN DOLLARS AND
+ * NEVER GROW: the T claims grow with trend and the book (shockCost), so as
+ * they grow more of each large claim lands above a pool's layer — a player
+ * moves up a layer or keeps that risk. That is the reason for offering the
+ * tops at $10M, $20M, $30M and $40M from both attachments.
  *
  * A layer pays min(max(claim - attachment, 0), limit) on each T claim. An A
  * surge and normal losses never reach it: they are an aggregate, not claims,
  * and with ROUTINE_LARGE_LOSSES off the T claims are the only claims there are.
- * Priced at fixed dollars a year (REINSURANCE_PRICE), not by the tower's
- * moments.
+ * Priced each year by the pricing workbook's method on that year's claims
+ * (T_COVER_FREQUENCY and the multipliers below), not by the tower's moments.
  *
- * ⚠ THE TOWER IS CUT AT EVERY OPTION'S EDGES — $1M, $2M, $10M, $20M, $40M on
- * every line (data/reinsuranceTower.ts) — so each option is exactly a set of
- * whole tower layers, checked at load (reinsuranceOptions.ts). They overlap
- * (all but 9 xs 1 share the $2M–$10M layer), which a set of layers allows.
+ * ⚠ THE TOWER IS CUT AT EVERY OPTION'S EDGES — $1M, $2M, $10M, $20M, $30M and
+ * $40M on every line (data/reinsuranceTower.ts) — so each option is exactly a
+ * set of whole tower layers, checked at load (reinsuranceOptions.ts). They
+ * overlap, which a set of layers allows.
  *
  * WHY: the brief replaces the aggregate stop with cover written on the event
  * that hurts a pool — one large claim — in four sizes a player can compare.
@@ -1891,7 +1807,9 @@ export interface ReinsuranceOption { id: string; attachment: number; limit: numb
 const xs = (limitM: number, attachmentM: number): ReinsuranceOption =>
   ({ id: `$${limitM}M xs $${attachmentM}M`, attachment: attachmentM * 1e6, limit: limitM * 1e6 });
 const NONE: ReinsuranceOption = { id: 'none', attachment: 0, limit: 0 };
-const T_COVERS: readonly ReinsuranceOption[] = [NONE, xs(9, 1), xs(8, 2), xs(18, 2), xs(38, 2)];
+const T_COVERS: readonly ReinsuranceOption[] = [
+  NONE, xs(9, 1), xs(19, 1), xs(29, 1), xs(39, 1), xs(8, 2), xs(18, 2), xs(28, 2), xs(38, 2),
+];
 export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
   WC: T_COVERS,
   GL: T_COVERS,
@@ -1899,21 +1817,37 @@ export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
 };
 
 /**
- * EACH OPTION'S PRICE, DOLLARS A YEAR — FIXED (wip/shocks test build). What a
- * team pays for the option on a line, whatever its book or year; None costs
- * nothing. Players see each option's name and this price only.
+ * EACH OPTION'S PRICE, RE-WORKED EVERY YEAR BY THE PRICING WORKBOOK'S METHOD ON
+ * THAT YEAR'S CLAIMS (wip/reinsurance-layers; reinsuranceOptions.tCoverPrice).
+ * What a team pays a year for the option on a line; None costs nothing.
+ * Players see each option's name and this price only.
  *
- * WHY FIXED: the brief's. Per the brief each is each level's annual chance x
- * the layer's recovery at the top of the level's range. The prices add across
- * the tower's layers — on GL $1–2M is $100K, $2–10M $330K, $10–20M $100K,
- * $20–40M $200K — so each layer carries a fixed price of its own, derived and
- * checked at load (reinsuranceOptions.ts).
+ *   mean claim, per level = the midpoint of the line's T range
+ *                           (SHOCK_T_CLAIM_RANGE) x the year's growth factor
+ *   expected cost         = sum over Low / Mid / High of
+ *                           T_COVER_FREQUENCY x min(max(mean claim - attachment, 0), limit)
+ *   the 30M layers        (29 xs 1, 28 xs 2) = T_COVER_30M_MULTIPLIER x the 20M
+ *                           layer from the same attachment (19 xs 1, 18 xs 2)
+ *   the 40M layers        (39 xs 1, 38 xs 2) = T_COVER_40M_MULTIPLIER x the
+ *                           UNMULTIPLIED 30M layer from the same attachment
+ *   every other layer     = its expected cost
+ *
+ * THE GROWTH FACTOR IS THE ONE THE T CLAIMS USE (shockCost.shockCostFactor:
+ * the line's trend x the book's growth since year 1, 2027), so claims and
+ * prices grow together; in 2027 it is 1 and the prices start from the game's
+ * own claim sizes — WC 9 xs 1 $461K, GL $488K, Property $784K. The layers do
+ * not grow, so a layer's price rises more slowly than the claims once the
+ * mean claim passes its top.
+ *
+ * WHY: the pricing workbook's method, on the game's own claims, so a price
+ * follows the claims a player can see rather than a fixed table that drifts
+ * from them as they grow. The multipliers load the high layers, where a mean
+ * claim says least about the tail: a 30M layer costs 1.25x its 20M neighbour,
+ * a 40M layer 1.2x the 30M layer's own expected cost.
  */
-export const REINSURANCE_PRICE: PerLine<Readonly<Record<string, number>>> = {
-  GL: { '$9M xs $1M': 430_000, '$8M xs $2M': 330_000, '$18M xs $2M': 430_000, '$38M xs $2M': 630_000 },
-  WC: { '$9M xs $1M': 390_000, '$8M xs $2M': 290_000, '$18M xs $2M': 390_000, '$38M xs $2M': 590_000 },
-  Property: { '$9M xs $1M': 650_000, '$8M xs $2M': 550_000, '$18M xs $2M': 730_000, '$38M xs $2M': 930_000 },
-};
+export const T_COVER_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', number>> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
+export const T_COVER_30M_MULTIPLIER = 1.25;
+export const T_COVER_40M_MULTIPLIER = 1.2;
 
 /**
  * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn): only None is
@@ -2428,7 +2362,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Admin load', {
         value: ADMIN_LOAD_OF_EXPECTED_LOSS, unit: 'share of gross expected loss',
-        what: 'The pool\'s administration charge.', basis: 'CHOSEN',
+        what: 'The OLD rate stack\'s administration charge — read only where the new stack has no pure premium to price '
+          + 'from, which a book never reaches. The live admin is Admin share of premium.', basis: 'CHOSEN',
         note: 'Applied to EXPECTED LOSS, not to premium, so it does not move with the funding level.',
       }],
       ['Reinsurance risk load (lambda)', {
@@ -2604,24 +2539,25 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
   },
   {
     title: 'The twenty scenarios',
-    blurb: 'The scenario number is the game\'s only seed — market, book, pre-game and worlds, solo and hosted. Each '
-      + 'sets each line\'s opening premium to surplus, the pre-game\'s experience and, through the solved margin, how the '
-      + 'prior board ran the pool. Evenly spaced per line, in one order, from thinnest to richest: '
+    blurb: 'Each scenario plays one FIXED SEED (SCENARIO_SEEDS, never shown to players or hosts), chosen once by '
+      + 'search, with the same paid-in capital, a pre-game at true cost and a prior board at Expected; whatever opening '
+      + 'that seed produces is the opening. Nothing is solved, scaled, floored or guarded at run time. The design '
+      + 'targets the seeds were chosen against, evenly spaced per line from thinnest to richest: '
       + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_RATIO_RANGE[l].thinnest} to ${SCENARIO_RATIO_RANGE[l].richest}`).join(', ')
-      + '. Experience factor = the line\'s midpoint (' + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${PRE_GAME_EXPERIENCE_BASE[l]}`).join(', ')
-      + `) / ratio; the pre-game's ordinary losses = expected x (1 + (1 - factor) x ${PRE_GAME_EXPERIENCE_WEIGHT}).`,
+      + '. Scenarios 13 and 16 miss their WC targets by about 9% and 7% (GL +6% and -11%), accepted.',
     entries: Array.from({ length: SCENARIO_COUNT }, (_, i) => i + 1).map(n => [`Scenario ${n}`, {
-      value: (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_PREMIUM_TO_SURPLUS[l][n].toFixed(4)}`).join(' · '),
-      unit: 'premium to surplus at the opening',
-      what: `${SCENARIOS_THIN_TO_RICH.indexOf(n) + 1} of ${SCENARIO_COUNT}, thinnest first. Pre-game ordinary losses x `
-        + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${preGameLossMultiplier(n, l).toFixed(4)}`).join(', ') + ' of expected.',
+      value: `seed ${SCENARIO_SEEDS[n]}`,
+      unit: 'fixed seed',
+      what: `${SCENARIOS_THIN_TO_RICH.indexOf(n) + 1} of ${SCENARIO_COUNT}, thinnest first. Design target premium to surplus `
+        + (['WC', 'GL', 'Property'] as const).map(l => `${l} ${SCENARIO_PREMIUM_TO_SURPLUS[l][n].toFixed(4)}`).join(' · ')
+        + '; the opening is the seed\'s (see SCENARIO_SEEDS for the measured openings).',
       basis: 'CHOSEN',
     }] as const),
   },
   {
     title: 'The opening',
-    blurb: 'The SET opening — no acceptance band, no pin, no search, and no reset: the pre-game starts '
-      + 'from its starting capital, and the prior board\'s margin is solved so its last year-end lands on the opening.',
+    blurb: 'The opening as played — no acceptance band, no pin, no search, no solve and no reset: the pre-game starts '
+      + 'from its starting capital, the prior board funds every year at Expected, and the last year-end is the opening.',
     entries: [
       ['Prior history years', {
         value: PRIOR_HISTORY_YEARS, unit: 'accident years',
@@ -2692,43 +2628,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'year over year. Property is not supplied: its cost is the old engine\'s figure, loss only, with ALAE and '
           + 'ULAE on top.',
       }],
-      ['Admin, fixed', {
-        value: perLine(ADMIN_FIXED_PER_YEAR, 0), unit: 'dollars per year',
-        what: 'The fixed half of administration. Live in the rate.', basis: 'CHOSEN',
-        note: 'Calibrated so opening admin equalled the old 15% load, half of it fixed, measured over 12 games at year 1 — '
-          + 'before the stable-scenarios build, on the old loss costs and exposure, so it is STALE: it now runs 16-39% of '
-          + 'the supplied cost. Left as it is until the pool\'s budget is sent.',
-      }],
-      ['Admin, per exposure', {
-        value: perLine(ADMIN_PER_EXPOSURE_PER_100), unit: 'dollars per $100 of exposure',
-        what: 'The variable half of administration. Live in the rate.', basis: 'CHOSEN',
-        note: 'The same calibration, and as stale: 0.5 x 0.15 x the old opening pure premium per $100. Left as it is '
-          + 'until the pool\'s budget is sent.',
-      }],
-      ['Admin trend', {
-        value: ADMIN_TREND_PER_YEAR, unit: 'a year, on both admin parts',
-        what: 'Admin grows with inflation: the fixed dollars and the per-exposure rate are each x (1 + this)^(year - the base '
-          + 'year), compounding after it and discounted before it, the pre-game\'s years included. The rate charges the '
-          + 'trended admin for the year it prices, and the engine books that admin as the year\'s expense.',
+      ['Admin share of premium', {
+        value: perLine(ADMIN_SHARE_OF_PREMIUM, 2), unit: 'share of premium before reinsurance',
+        what: 'Administration, the same share every year on every book. Rate = pure premium x CLF / (1 - this) + the '
+          + 'cover\'s price, so admin is exactly this share of the premium before reinsurance and the permissible loss '
+          + 'ratio is 1 - this. What goes to losses is unchanged by it; the cover\'s price is not loaded by it. Booked '
+          + 'admin is this admin x (1 + the year\'s overrun).',
         basis: 'CHOSEN',
-        note: 'Admin was flat while losses trend 4-8% a year, so its share of the rate fell every year. 0 restores flat admin.',
-      }],
-      ['Admin base year', {
-        value: ADMIN_BASE_YEAR, unit: 'game year (2027, the first played year)',
-        what: 'The year the two admin parameters are set for: they stand unchanged there; 2021 is six years of trend below '
-          + 'them and 2031 four above.',
-        basis: 'CHOSEN',
-      }],
-      ['Profit and contingency', {
-        value: perLine(PROFIT_AND_CONTINGENCY_OF_RATE, 2), unit: 'share of rate',
-        what: 'In the expense provision. Rate = projected pure premium / permissible loss ratio, the permissible loss ratio '
-          + 'being 100% less the total expense ratio (fixed admin, per-exposure admin, risk control and this); the cover\'s '
-          + 'price on top. As a divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance.',
-        basis: 'CHOSEN',
-        note: 'WC 2%, GL 0%, Property 0%, with no investment income credit: investment income does not affect the rate in '
-          + 'any way and flows into surplus only. 5% on every line made every line too rich once the credit was gone '
-          + '(ten-year combined ratios 92.7-99.2% against 100.2-104.4% before), and 2% everywhere left GL and Property 4.6-4.8 '
-          + 'points rich. WC keeps 2% for its long tail\'s inflation beyond the two years priced.',
+        note: 'Per line so it can be set line by line; 20% on every line. Replaced (wip/pricing-rework) a fixed amount per '
+          + 'line plus a per-exposure rate, both trended 3% a year from 2027, and the profit and contingency provision '
+          + '(WC 2%, GL 0%, Property 0%), all removed.',
       }],
       ['Reinsurance load', {
         value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
@@ -2784,7 +2693,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Each line begins the pre-game with this paid-in capital and no earned surplus. The Annual Statement\'s '
           + 'paid-in capital is this; earned surplus is everything the pre-game adds.',
         basis: 'CHOSEN',
-        note: 'WC $3.0M and GL $12.0M: the largest amount, in $0.5M steps, that keeps every scenario\'s designed '
+        note: 'The same for every scenario since the fixed seeds, which were chosen at it; with no margin to solve, it is '
+          + 'simply what the pool was paid in, and moving it moves every opening. Before, while the margin was solved: '
+          + 'WC $3.0M and GL $12.0M: the largest amount, in $0.5M steps, that keeps every scenario\'s designed '
           + 'margin above zero (WC +0.12% to +2.22%, GL +0.20% to +4.34%; the step above takes the lowest to -0.29% and '
           + '-0.22%). They were $5.0M and $10.0M with the investment income credit; removing it raised every pure premium. '
           + 'Property $12.5M: the rule gives $11.0M, where 2027\'s rate drops in 3 scenarios as the margin comes off at '
@@ -2806,19 +2717,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'imaginary pre-2021 reserves earned investment income; those years are retired.',
       }],
       ['Prior board\'s margin', {
-        value: 'solved, per scenario and line', unit: 'over expected (CLF 1 + this)',
-        what: 'One funding level across the six pre-game years, per line, set on the scenario\'s designed history '
-          + '(PRE_GAME_MARGIN_ON_DESIGN) and floored at zero; the opening falls where the simulated history takes it, '
-          + 'inside the guardrails.',
+        value: 0, unit: 'over expected (CLF 1 + this)',
+        what: 'The prior board funds every pre-game year at Expected, on every scenario and line. Nothing solves it.',
         basis: 'CHOSEN',
-        note: 'Replaces the fixed 14% cushion. A team that locks year 1 untouched funds at Expected, so year 1\'s rate '
-          + 'on WC and GL may step up or down from last year\'s, depending on the scenario\'s solved margin. No '
-          + 'player-facing text names it.',
+        note: 'It was solved per scenario and line to land the opening on a target, floored at zero and moved by '
+          + 'guardrails; retired with the fixed seeds. With no margin to come off, 2027 at Expected follows 2026.',
       }],
       ['Pre-game investment return', {
         value: PRE_GAME_INVESTMENT_RETURN, unit: 'a year, on invested assets',
         what: 'What the pre-game\'s invested assets earn each year, every asset class alike, no draw — read by the '
-          + 'flat pre-game, and with it off by the designed history the prior board\'s margin is set on.',
+          + 'flat pre-game only.',
         basis: 'CHOSEN',
         note: 'A realistic return for a public pool\'s bond-heavy portfolio; most of the pre-game\'s growth comes '
           + 'from the prior board\'s margin. With the flat pre-game off (as now), the pre-game as played draws its '
@@ -2903,17 +2811,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'shocks\' large losses stay scaled off the ordinary cost without the fold. It was ON from Prompt A '
           + 'commit 1, routine large claims every year with the shocks on top.',
       }],
-      ['Prior board\'s margin on the designed history', {
-        value: PRE_GAME_MARGIN_ON_DESIGN.enabled ? 'on' : 'off', unit: 'switch',
-        what: 'On: the pre-game\'s margin is the one that lands the DESIGNED history (flat: exactly expected x the '
-          + 'scenario\'s experience multiple, at the pre-game return) on the scenario\'s premium to surplus; the '
-          + 'simulated pre-game plays at it and the opening falls where its history takes it. Off: the margin is '
-          + 'solved on the history as played, so the opening lands exactly on the ratio.',
-        basis: 'CHOSEN',
-        note: 'On (test build) because, solved on the played history, the margin absorbed the luck: it fell below zero '
-          + 'on 7-12 of the twenty scenarios a line and the 2026 rate dropped on 2-6. A board prices for the risk it '
-          + 'expects; its surplus is the outcome.',
-      }],
       ['Pre-game market draws', {
         value: PRE_GAME_MARKET_DRAWS, unit: 'draws averaged, each pre-game year',
         what: 'Each simulated pre-game year\'s market is the average of this many markets drawn as a played year\'s, '
@@ -2923,25 +2820,6 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'One equity-bearing market a year drove most of the opening\'s scatter once the margin was set on the '
           + 'designed history; the loss history, not the stock market, is meant to give each scenario its character.',
-      }],
-      ['Prior board\'s margin floor', {
-        value: PRE_GAME_MARGIN_FLOOR, unit: 'margin over expected',
-        what: 'No prior-board margin is below this: a designed history or a guardrail that would need a negative '
-          + 'margin uses zero, and the opening lands where that history takes it.',
-        basis: 'CHOSEN',
-        note: 'A negative margin is the board pricing under its own expected loss; it had fallen below zero on 8 WC '
-          + 'and 4 GL scenarios, and the rich guardrail took some lower still.',
-      }],
-      ['Opening premium-to-surplus guardrails', {
-        value: `${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.min} to ${OPENING_PREMIUM_TO_SURPLUS_BOUNDS.max}`,
-        unit: 'premium to surplus at the opening',
-        what: 'A line whose simulated history would open outside this range has its prior-board margin adjusted just '
-          + 'enough to land on the nearest bound; every other line keeps its designed margin.',
-        basis: 'CHOSEN',
-        note: 'Thinner than 3.5 is a pool near failure before a team decides anything; richer than 1.0 is well more '
-          + 'capital than any designed scenario intends. The thin bound was 3.0, WC\'s thinnest target, which bad luck '
-          + 'tripped in 17 of 60 line-scenario openings and whose raised margins then came off in 2027; at 3.5, 6. The '
-          + 'rich bound was 1.2, then the richest scenario\'s own target; lowering openings to it took margins below zero.',
       }],
       ['Flat pre-game', {
         value: FLAT_PRE_GAME.enabled ? 'on' : 'off', unit: 'switch',
@@ -3034,7 +2912,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the mean over seeds). It multiplies the whole market, so the book keeps about 30% of it.',
         basis: 'CHOSEN',
         note: 'Scales everything tied to exposure — ordinary losses, the shocks\' large losses, the stop\'s terms — '
-          + 'and nothing fixed in dollars: the fixed admin, the GL pool limit, the peril deductibles, the opening surplus. '
+          + 'and nothing fixed in dollars: the GL pool limit, the peril deductibles, the opening surplus. '
           + 'Last re-set from WC 2.211 / GL 1.549 / Property 0.515 when profit and contingency went to 0. NO LONGER '
           + 'RE-SCALED WHEN PRICING CHANGES: the multipliers are pinned, and year-1 premium at Expected may sit '
           + 'anywhere from $27M to $33M on each line (WC $29.1M, GL $28.5M, Property $27.9M once the covers were '
@@ -3099,18 +2977,24 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'attachment, 0), limit). An A surge and normal losses never reach it. Players see each option\'s name '
           + 'and price only.',
         basis: 'CHOSEN',
-        note: 'wip/shocks test build. The tower is cut at $1M, $2M, $10M, $20M and $40M on every line, so each '
-          + 'option is whole layers. Replaces the aggregate stop, which stays dormant behind its switch.',
+        note: 'The layers are fixed in dollars and never grow: as the T claims grow, more of each lands above a '
+          + 'pool\'s layer, so a player moves up a layer or keeps that risk. The tower is cut at $1M, $2M, $10M, $20M, '
+          + '$30M and $40M on every line, so each option is whole layers. Replaces the aggregate stop, which stays '
+          + 'dormant behind its switch.',
       }],
       ['Reinsurance prices', {
-        value: (['GL', 'WC', 'Property'] as const).map(l => `${l} ${Object.entries(REINSURANCE_PRICE[l])
-          .map(([id, p]) => `${id} $${p / 1000}K`).join(', ')}`).join(' · '),
-        unit: '$ a year, fixed',
-        what: 'What each option costs a year, whatever the book or year. Charged as reinsurance in the rate, not '
-          + 'multiplied by the CLF.',
+        value: `frequencies Low ${T_COVER_FREQUENCY.Low * 100}% · Mid ${T_COVER_FREQUENCY.Mid * 100}% · High `
+          + `${T_COVER_FREQUENCY.High * 100}% a year; 30M layers x${T_COVER_30M_MULTIPLIER} the 20M; 40M layers `
+          + `x${T_COVER_40M_MULTIPLIER} the unmultiplied 30M`,
+        unit: '$ a year, re-worked each year',
+        what: 'Each year, for each level, the mean claim is the midpoint of the line\'s T range x the year\'s growth '
+          + 'factor (the T claims\' own: trend x book growth since 2027); a layer\'s expected cost is the sum over the '
+          + 'levels of frequency x min(max(mean claim − attachment, 0), limit). The 30M layers (29 xs 1, 28 xs 2) are '
+          + '1.25 x the 20M layer from the same attachment; the 40M layers (39 xs 1, 38 xs 2) 1.2 x the unmultiplied '
+          + '30M layer. Charged as reinsurance in the rate, not multiplied by the CLF.',
         basis: 'CHOSEN',
-        note: 'The brief\'s: each level\'s annual chance x the recovery at the top of its range. The prices add '
-          + 'across the tower\'s layers, which is checked at load.',
+        note: 'The pricing workbook\'s method, on the game\'s own claims, so prices follow the claims a player sees. '
+          + 'In 2027 the factor is 1: WC 9 xs 1 $461K, GL $488K, Property $784K.',
       }],
       ['Aggregate stop', {
         value: !AGGREGATE_STOP.enabled ? 'off — dormant; the T covers are offered' : AGGREGATE_STOP.enabled
@@ -3345,7 +3229,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: R_MODEL.expenseRatio, unit: 'of premium', basis: 'CHOSEN', notYetUsed: true,
         status: 'SUPERSEDED',
         what: 'Operating expense as a flat share of premium.',
-        note: 'The game charges a fixed amount plus a per-exposure admin load.',
+        note: 'The game charges admin as a share of premium, per line (ADMIN_SHARE_OF_PREMIUM, 20% on every line), not of operating expense as a whole.',
       }],
       ['Random seeds', {
         value: R_MODEL.seeds, unit: '—', basis: 'CHOSEN', notYetUsed: true, status: 'NOT USED',

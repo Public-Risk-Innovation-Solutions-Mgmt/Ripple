@@ -185,7 +185,7 @@ const FAST: string[] = [
                                      //         penalty; four controls
   'reserve-inflation-check',         //  10s   open years inflate by the line's trend on the start-of-year
                                      //         outstanding, booked as development, paid untouched; priced for
-                                     //         the first 2 years; contingency per line; four controls. Replaced
+                                     //         the first 2 years; no profit and contingency in the divisor; four controls. Replaced
                                      //         adverse-rate-placeholder-check when YEARLY_ADVERSE_RATE was wired
   'shock-rate-check',                //   2s   the catalogue scaled to 0.3 events a year, weights kept and priced so;
                                      //         the schedule's count round(0.3 x years) ± 1, at least one, never year
@@ -206,9 +206,14 @@ const FAST: string[] = [
   'exposure-scale-check',            //   4s   one exposure multiplier per line on the whole market, a 30% book, and
                                      //         about $30M of year-1 premium at Expected; three controls
   'scenarios-check',                 //   5s   the twenty scenarios: setup offers 1-20, the handler refuses others, one
-                                     //         seed solo and hosted, the ratio table, every opening at year-1 premium /
-                                     //         its ratio from the starting capital, the pre-game's drawn experience and
-                                     //         return on its own streams; ten controls
+                                     //         fixed seed solo and hosted, the design targets, every opening the
+                                     //         seed's from the starting capital at Expected, the pre-game's experience
+                                     //         at true cost and return on its own streams; seventeen controls
+  'fixed-seed-scenarios-check',      //   8s   each scenario plays its fixed seed in every mode, nothing fits the
+                                     //         opening (no solve, floor, guardrail, scaling, re-draw or fallback), and
+                                     //         the opening is identical run to run and across modes; six controls
+  'scenario-opening-drift-check',    //   2s   each scenario's opening per line against its record; REPORTS any move,
+                                     //         never re-picks or adjusts; two controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls
@@ -236,7 +241,7 @@ const FAST: string[] = [
   'alae-ratio-check',                //  50s   ALAE drawn by line and year on the game seed (the same in
                                      //         every world), booked at the draw, priced on the window's
                                      //         mean, replayed identically; four controls
-  'admin-trend-check',               //  30s   admin trended 3% a year on both parts from the base year
+  'admin-share-check',               //  30s   admin exactly 20% of premium every year; pure premium unchanged by it
                                      //         (2027), priced and booked alike, pre-game included;
                                      //         three controls
   'decision-figures-check',          //   8s   the Decisions page's dollar figures are the engine's: the
@@ -259,9 +264,19 @@ const FAST: string[] = [
                                      //         own scale; nothing cedes. ⚠ IT HOLDS MEMBER_LEVEL OFF
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
+  'year-walkthrough-check',          // ~21s   the Year Walkthrough: every stage tied to the engine,
+                                     //         identical games give identical codes, a changed
+                                     //         decision moves only the stages after it, the seed
+                                     //         only where shown — each with a control.
   'adverse-development-check',       //  ~8s   wip/adverse-development: the λ draws, compounding on
                                      //         outstanding only, paid untouched, no pre-game
                                      //         development — each with a control.
+  'event-likelihoods-check',         //  ~5s   wip/reinsurance-layers: the Rate Indication's Event
+                                     //        Likelihoods recomputed exactly from the catalogue, at the
+                                     //        claims' growth; none with shocks off
+  't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
+                                     //        recovery on every claim size, each year's price by the
+                                     //        workbook's method at the T claims' own growth factor
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
                                      //         asset class — each with a control. (Replaces
@@ -295,6 +310,10 @@ const FAST: string[] = [
                                      //         on one), the Excel file is the template cell for cell less
                                      //         "Profit and Contigency", borders included, the operating ratio by hand on
                                      //         scenario 1 WC 2027 — each with a failing control
+  'annual-statement-pdf-check',      //  15s   the Annual Statement PDF read back with pdf.js on six games:
+                                     //         every sheet in the workbook's order from its own page,
+                                     //         headers and page numbers, every row and figure the
+                                     //         statement's, negatives red — each with a failing control
   'pregame-surplus-flow-check',      //   2s   the pre-game's surplus moves only by income, assessments
                                      //         and dividends across all six years and into year 1,
                                      //         with no reset before 2023 or at the opening, and year 1

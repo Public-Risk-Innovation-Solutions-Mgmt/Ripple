@@ -52,7 +52,8 @@ import DecisionHistoryPage from '../pages/DecisionHistoryPage';
 import FinancialsPage from '../pages/FinancialsPage';
 import ResultsPage from '../pages/ResultsPage';
 import MembershipPage from '../pages/MembershipPage';
-import CalculationAuditPage from '../pages/CalculationAuditPage';
+import YearWalkthroughPanel from '../components/YearWalkthroughPanel';
+import { walkthroughHeader, walkthroughSheetRows } from '../utils/yearWalkthrough';
 import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
 import ResultsStatementPage from '../pages/ResultsStatementPage';
 import IntroductionPage from '../pages/IntroductionPage';
@@ -61,7 +62,6 @@ import InvestmentsPage from '../pages/InvestmentsPage';
 import RateIndicationPage from '../pages/RateIndicationPage';
 import ModelPage from '../pages/ModelPage';
 import { isHiddenTab, topBarTabs } from './tabs';
-import { shockTimingOf } from '../utils/shockLosses';
 import type { TeamMarketShareOfYear } from '../session/contract';
 
 const AUDIT_TAB: TabId = 'audit';
@@ -127,13 +127,19 @@ export interface GameShellProps {
    * shows no market share anywhere.
    */
   roomMarketShare?: TeamMarketShareOfYear | null;
+  /**
+   * Whether the Year Walkthrough — on screen and in the Results download — may
+   * show the scenario's fixed seed. ⚠ TEST PLAYER ONLY: single player and a
+   * hosted team leave it unset and see the version alone.
+   */
+  showSeed?: boolean;
 }
 
 export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
   const activeLines = gameState?.setup.activeLines ?? [];
@@ -324,19 +330,19 @@ export default function GameShell({
             instanceId={known.setup.instanceId}
             poolState={knownClaimsPool ?? known.poolState}
             claimsWorld={knownClaimsWorld}
+            walkthroughRows={gameState
+              ? () => walkthroughSheetRows(gameState, walkthroughHeader(gameState.instance, !multiplayer && !!showSeed), roomMarketShare)
+              : undefined}
           />
         )}
 
+        {/* ⚠ THE YEAR WALKTHROUGH IS THE WHOLE TAB, IN EVERY MODE. The old
+            Calculation Audit page (pages/CalculationAuditPage) is unrouted; its
+            derivations are still held to the engine by audit-formula-check. The
+            seed is Test player's alone — never a team's or single player's. */}
         {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && (
-          <CalculationAuditPage
-            lockedResults={known?.lockedResults ?? gameState.lockedResults}
-            priorHistory={known?.priorHistory ?? gameState.priorHistory}
-            instanceSeed={gameState.instance.seed}
-            lineView={lineView}
-            instance={gameState.instance}
-            shockTiming={shockTimingOf(gameState.setup)}
-            roomMarketShare={roomMarketShare}
-          />
+          <YearWalkthroughPanel gameState={gameState} lineView={lineView}
+            showSeed={!multiplayer && !!showSeed} roomMarketShare={roomMarketShare} />
         )}
 
         {shownTab === 'membership' && gameState && startingFinancials && (

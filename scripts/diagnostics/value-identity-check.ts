@@ -1441,7 +1441,40 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // priorYearDevelopment -$5.17M -> -$1.47M, net incurred $27.34M -> $23.65M).
 // No field added or removed. No rate moved: the pure premium reads development
 // only as it emerges, and these are year-1 rows struck before any.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v87.json');
+// v89: ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). v88 is skipped: it
+// was the reverted development-pricing build's. Admin is 20% of premium on every
+// line; profit and contingency, the fixed and per-exposure admin and the admin
+// trend are gone. The control ran first: multiplayer 8a4dae4 reproduced v87
+// exactly. The rework moved 12,937 instances across 49 fields, every one a
+// price, admin, or downstream of them: adminExpense, operatingExpense, the
+// member charge and grossPremium, the rates (ratePer100, firstIndication,
+// finalRate and their priors), poolPremium, expectedToSurplus (now the CLF
+// cushion alone: 0 at Expected), the loss, expense and combined ratios
+// (expectedLossRatio 0.8815 -> 0.8 and expectedExpenseRatio 0.1185 -> 0.2 on
+// the first instance — the permissible loss ratio and admin's share), and the
+// income, cash, investments, surplus and capital that follow (first instance's
+// adminExpense $3.67M -> $6.69M, member charge $30.99M -> $33.47M). marketShare
+// (36) and investmentReturnRate (22) move by an ulp — a premium-weighted share
+// and an income/assets ratio on the moved figures. NO LOSS, CLAIM, RESERVE OR
+// PURE PREMIUM FIELD MOVED, and no field was added or removed.
+// v90: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios), on multiplayer
+// 985f365. The control ran first: 985f365 reproduces v89 here. Each commit
+// against the one before, each captured in its own worktree:
+//   4effbc3  each scenario plays a fixed seed — moves nothing: this harness's
+//            games are bare ids (MAMC6EA4, 6KA6WGLJ, ZZTEST99), not scenarios.
+//   12e7c54  every run-time fitting removed — 19,963 of 39,600 across 76
+//            fields on all 24 instance-configurations, Y1 to Y5. A bare id used
+//            to fall on scenario seed % 20 + 1 (the retired fallback) and play
+//            that scenario's scaled pre-game at a solved margin; it now plays
+//            its own seed at true cost with the prior board at Expected and
+//            opens where that history ends. So the pre-game's losses, the
+//            opening balance sheet and everything priced or earned on them
+//            move: first instance's WC year-1 rate $3.6530 -> $3.6342, pool
+//            ending surplus $45.20M -> $34.48M, WC prior-year development
+//            -$1.473M -> -$1.466M. 69 fields do not move (counts, exposure,
+//            membership, the cover's terms). No field added or removed.
+//   854ed47, 083e5c0 (gates, save key) — nothing.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v90.json');
 
 function seedOf(id: string) {
   let h = 5381;
