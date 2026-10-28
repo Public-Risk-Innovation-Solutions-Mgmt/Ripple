@@ -217,11 +217,14 @@ function layer(attachment: number, limit: number): TowerLayer {
   return { name: `$${limit / 1e6}M xs $${attachment / 1e6}M`, attachment, limit, purchasable: true };
 }
 
-// ⚠ wip/shocks TEST BUILD: EVERY LINE IS CUT AT $1M, $2M, $10M, $20M AND $40M —
-// the edges of the four T covers (pricingParameters REINSURANCE_OPTIONS: 9 xs 1,
-// 8 xs 2, 18 xs 2, 38 xs 2), so each cover is whole layers. The cuts the earlier
-// packages needed, and the notes on them, are in this file's history.
-const T_COVER_TOWER = (): TowerLayer[] => [layer(1e6, 1e6), layer(2e6, 8e6), layer(10e6, 10e6), layer(20e6, 20e6)];
+// ⚠ EVERY LINE IS CUT AT $1M, $2M, $10M, $20M, $30M AND $40M — the edges of the
+// eight T covers (pricingParameters REINSURANCE_OPTIONS: 9, 19, 29 and 39 xs 1;
+// 8, 18, 28 and 38 xs 2), so each cover is whole layers (wip/reinsurance-layers
+// added the $30M cut). The cuts the earlier packages needed, and the notes on
+// them, are in this file's history.
+const T_COVER_TOWER = (): TowerLayer[] => [
+  layer(1e6, 1e6), layer(2e6, 8e6), layer(10e6, 10e6), layer(20e6, 10e6), layer(30e6, 10e6),
+];
 export const REINSURANCE_TOWER: Record<TowerLine, TowerLayer[]> = {
   WC: T_COVER_TOWER(),
   GL: T_COVER_TOWER(),

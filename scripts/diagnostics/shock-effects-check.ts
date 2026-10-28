@@ -14,7 +14,7 @@
 // ============================================================================
 
 import {
-  INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REINSURANCE_PRICE, SHOCK_COST_TREND, SHOCK_FREE_PRICING,
+  INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, SHOCK_COST_TREND, SHOCK_FREE_PRICING, T_COVER_FREQUENCY,
   SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS, WORLD_COUNT,
 } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
@@ -79,10 +79,25 @@ const BRIEF_MATRIX: Record<string, Partial<Record<CoverageLine, [string, string,
   'Pandemic': { GL: ['-', 'Mid', '-'], WC: ['High', 'High', '-'] },
   'Economic Inflation': {}, 'Investment Loss': {}, 'Member Withdrawal': {},
 };
-const BRIEF_COVERS: [string, number, number][] = [['$9M xs $1M', 1, 9], ['$8M xs $2M', 2, 8], ['$18M xs $2M', 2, 18], ['$38M xs $2M', 2, 38]];
-const BRIEF_PRICE: Record<CoverageLine, number[]> = {
-  GL: [430e3, 330e3, 430e3, 630e3], WC: [390e3, 290e3, 390e3, 590e3], Property: [650e3, 550e3, 730e3, 930e3],
-};
+// ⚠ RESTATED FOR wip/reinsurance-layers: eight layers, and each price is the
+// pricing workbook's method on the year's claims, not a fixed table. The
+// method is written out here (t-cover-layers-check holds it in full); BRIEF_PRICE
+// is its 2027 figure in dollars, and briefPriceAt the same at growth g.
+const BRIEF_COVERS: [string, number, number][] = [
+  ['$9M xs $1M', 1, 9], ['$19M xs $1M', 1, 19], ['$29M xs $1M', 1, 29], ['$39M xs $1M', 1, 39],
+  ['$8M xs $2M', 2, 8], ['$18M xs $2M', 2, 18], ['$28M xs $2M', 2, 28], ['$38M xs $2M', 2, 38],
+];
+const MID: Record<CoverageLine, number[]> = { GL: [2, 5, 23.5], WC: [2, 4.5, 23], Property: [3.5, 8.5, 26] };
+const FREQ = [0.075, 0.0525, 0.0225];
+function briefPriceAt(l: CoverageLine, k: number, g: number): number {
+  const [, att, lim] = BRIEF_COVERS[k];
+  const cost = (a: number, w: number) => MID[l].reduce((s, m, i) => s + FREQ[i] * Math.min(Math.max(g * m - a, 0), w), 0) * 1e6;
+  const top = att + lim;
+  return top === 30 ? 1.25 * cost(att, 20 - att) : top === 40 ? 1.2 * cost(att, 30 - att) : cost(att, lim);
+}
+const BRIEF_PRICE: Record<CoverageLine, number[]> = Object.fromEntries((['GL', 'WC', 'Property'] as CoverageLine[])
+  .map(l => [l, BRIEF_COVERS.map((_, k) => briefPriceAt(l, k, 1))])) as Record<CoverageLine, number[]>;
+const TOP = BRIEF_COVERS.findIndex(c => c[0] === '$38M xs $2M');
 const BRIEF_INVEST = { cash: 0, bonds: -0.05, equities: -0.20 };
 
 const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
@@ -192,7 +207,7 @@ function sectionCoverTerms(): string[] {
     if (offered.join('|') !== ids.join('|')) out.push(`${l} offers ${offered.join(', ')}`);
     if (reinsuranceOptionIds(l, false).join('|') !== 'none') out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
     BRIEF_COVERS.forEach(([id, att, lim], k) => {
-      if (optionPrice(l, id) !== BRIEF_PRICE[l][k]) out.push(`${l} ${id}: price ${optionPrice(l, id)}, brief ${BRIEF_PRICE[l][k]}`);
+      if (!near(optionPrice(l, id), BRIEF_PRICE[l][k], 1e-12)) out.push(`${l} ${id}: price ${optionPrice(l, id)}, the method's ${BRIEF_PRICE[l][k]}`);
       const placed = placementFor(l, id);
       for (const x of [0.5, 1, 1.5, 2, 3, 9.99, 10, 12, 20, 25, 39, 40, 41, 60].map(v => v * M)) {
         const want = Math.min(Math.max(x - att * M, 0), lim * M);
@@ -259,10 +274,10 @@ function sectionCoverInGame(): string[] {
     if (!near(t[0].grossUltimate, table * g, 1e-9)) out.push(`world ${w + 1}: T claim ${t[0].grossUltimate}, table ${table} x factor ${g.toFixed(4)}`);
     const want = Math.min(Math.max(t[0].grossUltimate - 2 * M, 0), 38 * M);
     if (!near(r.reinsuranceRecovery, want, 1e-9)) out.push(`world ${w + 1}: recovery ${r.reinsuranceRecovery}, layer on the claim ${want}`);
-    if (!near(r.reinsuranceCost, BRIEF_PRICE.Property[3] * g, 1e-9)) out.push(`world ${w + 1}: cost ${r.reinsuranceCost}, brief x factor ${BRIEF_PRICE.Property[3] * g}`);
+    if (!near(r.reinsuranceCost, briefPriceAt('Property', TOP, g), 1e-9)) out.push(`world ${w + 1}: cost ${r.reinsuranceCost}, the method at factor ${g.toFixed(4)} ${briefPriceAt('Property', TOP, g)}`);
     // Year 1: the table price exactly — the base year.
     const y1 = lineOf(withCover[0][w], 'Property');
-    if (!near(y1.reinsuranceCost, BRIEF_PRICE.Property[3], 1e-9)) out.push(`world ${w + 1}: year-1 cost ${y1.reinsuranceCost}, the table's ${BRIEF_PRICE.Property[3]}`);
+    if (!near(y1.reinsuranceCost, BRIEF_PRICE.Property[TOP], 1e-9)) out.push(`world ${w + 1}: year-1 cost ${y1.reinsuranceCost}, the method's 2027 ${BRIEF_PRICE.Property[TOP]}`);
     const n = lineOf(without[1][w], 'Property');
     if (n.reinsuranceRecovery !== 0 || n.reinsuranceCost !== 0) out.push(`world ${w + 1}: None recovered ${n.reinsuranceRecovery} at ${n.reinsuranceCost}`);
     // The rate panel's rule: reinsurance never lowers the pure premium; the
@@ -283,7 +298,7 @@ function sectionCoverInGame(): string[] {
 // ---- 4c. THE RATE PANEL ---------------------------------------------------
 // Pure premium = normal expected losses x CLF (never lowered by cover), admin
 // (its share of the rate before reinsurance, which the cover does not move),
-// risk control, reinsurance = the price grown by the trend (not x CLF, not
+// risk control, reinsurance = the method's price at the trend's growth (not x CLF, not
 // loaded); the four rows add to the rate exactly. (Profit & contingency was the
 // fifth row until wip/pricing-rework retired it.)
 function sectionRatePanel(): string[] {
@@ -295,14 +310,14 @@ function sectionRatePanel(): string[] {
       layersPlaced: placementFor(l, opt), aggregateStopLevel: -1, reinsuranceOption: opt, shocks: true,
     });
     const none = q('none');
-    for (const [id] of BRIEF_COVERS) {
+    for (const [k, [id]] of BRIEF_COVERS.entries()) {
       const c = q(id);
       const rows = [c.retainedPurePremiumPer100 * c.clf, c.adminRatePer100, c.riskControlPer100, c.reinsRatePer100];
       if (!near(rows[0], 2.5 * clf, 1e-12)) out.push(`${l} ${id} CLF ${clf}: pure premium ${rows[0]}, expected x CLF ${2.5 * clf}`);
       // Admin is a share of the rate BEFORE reinsurance, so the cover must not move it.
       if (!near(c.adminRatePer100, none.adminRatePer100, 1e-12)) out.push(`${l} ${id}: the cover moved admin`);
-      // Year 3 with no year-1 base on the book: the table price x the trend for two years.
-      const want = optionPrice(l, id) * Math.pow(1 + BRIEF_TREND[l], 2);
+      // Year 3 with no year-1 base on the book: the method on claims grown by the trend for two years.
+      const want = briefPriceAt(l, k, Math.pow(1 + BRIEF_TREND[l], 2));
       if (!near(c.reinsuranceCost, want, 1e-9)) out.push(`${l} ${id} CLF ${clf}: reinsurance ${c.reinsuranceCost}, price ${want}`);
       const sum = rows.reduce((x, y) => x + y, 0);
       if (!near(sum, c.finalRatePer100, 1e-12)) out.push(`${l} ${id}: rows ${sum} vs rate ${c.finalRatePer100}`);
@@ -489,14 +504,14 @@ control('a map row changed', () => {
   const map = R_MODEL.shockMap as unknown as string[][]; const i = map.findIndex(r => r[0] === 'Wildfire'); const o = map[i];
   map[i] = ['Wildfire', 'Property', 'Low', 'Low', 'None']; return () => { map[i] = o; };
 }, sectionMatrix);
-check(sectionCoverTerms(), '4a. T covers: offered, priced at the brief, ceding min(max(x - att, 0), limit)');
-control('a price changed', () => { const p = REINSURANCE_PRICE.GL as Record<string, number>; const o = p['$8M xs $2M']; p['$8M xs $2M'] = 331e3; return () => { p['$8M xs $2M'] = o; }; }, sectionCoverTerms);
+check(sectionCoverTerms(), '4a. T covers: the eight offered, priced by the method, ceding min(max(x - att, 0), limit)');
+control('a frequency changed', () => { const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Mid; f.Mid = 0.06; return () => { f.Mid = o; }; }, sectionCoverTerms);
 control('a tower layer moved', () => { const L = REINSURANCE_TOWER.WC[1]; const o = L.attachment; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = o; L.limit = 8e6; }; }, sectionCoverTerms);
 check(sectionCoverInGame(), '4b. in a game: the T claim\'s recovery, size and price grown by the trend and book, the charge, A never ceded, one claim in every world');
 control('the trend changed', () => { const t = SHOCK_COST_TREND as Record<string, number>; const o = t.Property; t.Property = 0.07; return () => { t.Property = o; }; }, sectionCoverInGame);
 control('the $2M layer moved', () => { const L = REINSURANCE_TOWER.Property[1]; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = 2e6; L.limit = 8e6; }; }, sectionCoverInGame);
 check(sectionRatePanel(), '4c. rate panel: pure premium = expected x CLF whatever the cover, reinsurance = the price, rows add to the rate');
-control('a price changed, on the panel', () => { const p = REINSURANCE_PRICE.WC as Record<string, number>; const o = p['$9M xs $1M']; p['$9M xs $1M'] = 1; return () => { p['$9M xs $1M'] = o; }; }, sectionRatePanel);
+control('a frequency changed, on the panel', () => { const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Low; f.Low = 0.08; return () => { f.Low = o; }; }, sectionRatePanel);
 check(sectionInvestCalc(), '5a. Investment Loss: cash 0, bonds -5, equities -20, through the blend');
 control('cash hit', () => { const o = INVESTMENT_LOSS_BY_ASSET.cash; (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = -0.02; return () => { (INVESTMENT_LOSS_BY_ASSET as { cash: number }).cash = o; }; }, sectionInvestCalc);
 check(sectionInvestGame(), '5b. in a game: the loss follows the pool\'s allocation, all cash loses nothing');
