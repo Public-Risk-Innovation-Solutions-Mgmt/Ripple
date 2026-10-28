@@ -1506,7 +1506,23 @@ const BASELINE = process.env.RENDER_BASELINE
 // WC+GL+PR pool Audit at y2 shows the "Zero when ... agree" explanation because
 // no line borrows inter-line there any more (interLineTransfer 0). No key added
 // or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v101.json');
+// v102: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios). ⚠ v101 DOES NOT
+// REPRODUCE IN THIS CONTAINER, the split v92 recorded: multiplayer 985f365,
+// built in its own worktree, moves the same kind of 50 of 236 against it
+// (Calculation Audit 20, Results 14, Financial Statements 8, Result
+// Spreadsheet 8) with no change to its code. So each commit was measured
+// against the control's own capture here. 4effbc3 (each scenario on a fixed
+// seed) moves 206 of 236: this harness plays Scenario 7, which now plays its
+// fixed seed, so every values screen and the header's surplus and combined
+// ratio move (Annual Statement, Calculation Audit, Decision History,
+// Decisions, Financial Statements and Results 26 each, Introduction 20, Rate
+// Indication 10, Result Spreadsheet 10, header 10); the 30 unmoved are the
+// fixed documents and unplayed views. 12e7c54 (every run-time fitting
+// removed) moves the same 206 again: the pre-game now runs at true cost at
+// Expected. The gates and the save key move none. Searched: none of the
+// twenty fixed seeds appears in any screen's text; the header reads
+// "Scenario 7". No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v102.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
