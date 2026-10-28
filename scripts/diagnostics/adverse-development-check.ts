@@ -19,6 +19,11 @@
 // development in any world in any year, while a Test player game opened the
 // same way keeps the levels chosen. Section 1's level draw is what single
 // player would use switched on.
+//
+// 6. NONE BOOKS NOTHING: the host's None on a line (stored 'Off', single
+// player's own setting) books no adverse development on that line in any world
+// in any year, and its open prior years' ultimates do not move — while the
+// game's other lines, at levels, still develop.
 // ============================================================================
 
 import {
@@ -57,9 +62,9 @@ const ID = '3', YEARS = 4;
 
 // ---- the game, played once per run of a section ----------------------------
 interface Played { pre: LineResultSet[]; years: { before: GameState; perWorld: LineResultSet[][]; after: GameState }[] }
-function playGame(): Played {
+function playGame(levels: GameSetupSettings['developmentLevels'] = LEVELS): Played {
   const setup = { poolName: 'A', gameLength: 10, startingYear: 2027, instanceId: ID, activeLines: LINES, shockTiming: 'solo',
-    developmentLevels: LEVELS } as GameSetupSettings;
+    developmentLevels: levels } as GameSetupSettings;
   const instance = generateGameInstance(ID, seedFromInstanceId(ID), []);
   const { poolState, priorHistory } = runPriorHistory(instance, setup);
   let gs: GameState = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
@@ -216,6 +221,32 @@ function sectionSolo(): string[] {
   return out;
 }
 
+// ---- 6. NONE BOOKS NOTHING ---------------------------------------------------
+// WC None, GL Mid, Property Low — as a room carries it to every team.
+const WITH_NONE: { WC?: 'Off' | 'Low'; GL: 'Mid'; Property: 'Low' } = { WC: 'Off', GL: 'Mid', Property: 'Low' };
+function sectionNone(): string[] {
+  const out: string[] = [];
+  const g = playGame({ ...WITH_NONE });
+  const seen: Record<CoverageLine, number> = { WC: 0, GL: 0, Property: 0 };
+  for (const [i, yr] of g.years.entries()) {
+    yr.perWorld.forEach((rows, w) => {
+      for (const l of LINES) seen[l] += Math.abs(rows.find(x => x.line === l)?.newLossEngine?.adverseDevelopment ?? 0);
+      const wc = rows.find(x => x.line === 'WC');
+      const booked = wc?.newLossEngine?.adverseDevelopment ?? 0;
+      if (booked !== 0) out.push(`world ${w + 1} WC (None) y${i + 1}: $${booked.toFixed(0)} of adverse development booked`);
+      // Its open prior years' ultimates: only paid moves between gross paid and unpaid, nothing added.
+      const before = worldCohorts(yr.before, w, 'WC').filter(c => !c.closed);
+      const after = new Map(worldCohorts(yr.after, w, 'WC').map(c => [c.yearNumber, c]));
+      for (const c of before) {
+        const a = after.get(c.yearNumber);
+        if (a && Math.abs(gross(a) - gross(c)) > 1) out.push(`world ${w + 1} WC (None) y${i + 1} AY${c.yearNumber}: ultimate ${gross(c).toFixed(0)} -> ${gross(a).toFixed(0)}`);
+      }
+    });
+  }
+  if (!(seen.GL > 0) || !(seen.Property > 0)) out.push(`the lines at levels booked GL $${seen.GL.toFixed(0)}, Property $${seen.Property.toFixed(0)} — nothing measured`);
+  return out;
+}
+
 // ---- run -------------------------------------------------------------------
 console.log('adverse-development-check\n');
 check(sectionDraws(), '1. λ: uniform within the brief\'s range per level, one draw per line, valuation and accident year; levels a third each');
@@ -234,6 +265,9 @@ control('the host\'s percentages back on', () => { const o = ADVERSE_DEVELOPMENT
 
 check(sectionSolo(), '5. single player has none: every line Off, no level drawn, nothing booked in any world; Test player keeps its levels and develops');
 control('single player\'s adverse development switched on', () => { const o = SOLO_ADVERSE_DEVELOPMENT.enabled; SOLO_ADVERSE_DEVELOPMENT.enabled = true; return () => { SOLO_ADVERSE_DEVELOPMENT.enabled = o; }; }, sectionSolo);
+
+check(sectionNone(), '6. None books nothing: a None line develops no prior year in any world in any year; the lines at levels still develop');
+control('the None dropped (the line reads the default, Low)', () => { const o = WITH_NONE.WC; delete WITH_NONE.WC; return () => { WITH_NONE.WC = o; }; }, sectionNone);
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');
 process.exit(failures.length ? 1 : 0);

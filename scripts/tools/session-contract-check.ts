@@ -77,6 +77,7 @@ import { isSessionError, newSessionToken, type SessionErrorCode, type JsonValue 
 import type { CoverageLine } from '../../src/types/simulation';
 import { decisionsForYear, governingYear } from '../../src/session/client/decisions';
 import { buildTeamGame } from '../../src/session/client/buildGame';
+import { developmentLevelOf } from '../../src/utils/adverseDevelopment';
 import type {
   RoomView, TeamLineDecisions, TeamYearFigures, TeamYearSummary,
 } from '../../src/session/contract';
@@ -852,6 +853,33 @@ async function main(): Promise<void> {
       'a team\'s game, built from the room, plays the room\'s levels');
     eq(bareRead.room.developmentLevels === undefined || JSON.stringify(bareRead.room.developmentLevels) === '{}', true,
       'a room created without levels carries none');
+
+    // NONE — the host's no-development level, carried as 'Off' (single
+    // player's own setting) to every team like the other levels, and played as
+    // no development on that line; the line beside it keeps its level.
+    const none = await t.createRoom({
+      hostToken: newSessionToken(), seed: '1', yearCount: 3, startingYear: 2026,
+      eventName: 'p', expectedTeams: 2, shocks: [], lines: ['WC', 'GL'],
+      developmentLevels: { WC: 'Off', GL: 'Mid' },
+    });
+    const noneRead = await t.read({ code: none.code, token: none.hostToken });
+    eq(JSON.stringify(noneRead.room.developmentLevels), JSON.stringify({ WC: 'Off', GL: 'Mid' }),
+      'a room carries None (\'Off\') beside a level');
+    for (const name of ['None A', 'None B']) {
+      const j = await t.join({ code: none.code, teamName: name, role: 'player' });
+      const r = await t.read({ code: none.code, token: j.teamToken });
+      eq(JSON.stringify(r.room.developmentLevels), JSON.stringify({ WC: 'Off', GL: 'Mid' }),
+        `team ${name} reads the room's None`);
+      const g = buildTeamGame(r.room, j.lines);
+      eq(JSON.stringify(g.gameState.setup.developmentLevels), JSON.stringify({ WC: 'Off', GL: 'Mid' }),
+        `team ${name}'s game carries the None`);
+      eq(`${developmentLevelOf(g.gameState.setup, 'WC')} ${developmentLevelOf(g.gameState.setup, 'GL')}`, 'null Mid',
+        `team ${name}'s game develops nothing on the None line and Mid on the other`);
+    }
+    // An old room — no levels — still reads the default on every line.
+    const bareBuilt = buildTeamGame(bareRead.room, ['GL']);
+    eq(developmentLevelOf(bareBuilt.gameState.setup, 'GL'), 'Low',
+      'a room without levels still plays the default, Low');
 
     // THE POOL NAME. The host sets it apart from the event name; a room created
     // without one — by a client older than the handler, or before it existed —

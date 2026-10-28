@@ -417,7 +417,7 @@ export const ADVERSE_DEVELOPMENT_RANGE: Readonly<Record<DevelopmentLevel, readon
  * choosing; Mid and High stay one pick away for a room that wants them.
  */
 export const ADVERSE_DEVELOPMENT_DEFAULT_LEVEL: DevelopmentLevel = 'Low';
-/** A line's setting on a game's setup: a level, or Off — single player's, never a room's. */
+/** A line's setting on a game's setup: a level, or Off — single player's on every line, and the host's None on a line. */
 export type DevelopmentSetting = DevelopmentLevel | 'Off';
 
 /**

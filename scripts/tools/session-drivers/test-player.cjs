@@ -19,14 +19,19 @@
 //    Incurred is above 0 on every older year — the levels chosen on its setup
 //    screen are the game's (a tester read them as 0; this holds them).
 // 2. Test player: opens the HOST'S OWN setup screen (HostCreateScreen, solo
-//    mode) with no admin sign-in, offering Low / Mid / High per line in place of
-//    the percentages. Setting WC High and GL Low (Property left at the default, Low), and
-//    scheduling #7 in year 3 and #2 in year 4, starts a solo game whose save
-//    holds exactly those levels and exactly that schedule.
-// 3. After locking year 1 and RELOADING, the game is restored (not the start
-//    screen) and the save still holds the same levels and schedule.
-// 4. Host (only with ADMIN_TOKEN): /host offers the levels per line, not the
-//    percentages, and the Create room button; no Start test game button.
+//    mode) with no admin sign-in, offering None / Low / Mid / High per line in
+//    place of the percentages. Setting WC High and GL None (Property left at the
+//    default, Low), and scheduling #7 in year 3 and #2 in year 4, starts a solo
+//    game whose save holds exactly those levels — None as 'Off', single
+//    player's own setting — and exactly that schedule.
+// 3. After locking year 1 the game played those levels: its prior-year
+//    development is a replay's at WC High, GL Off, Property Low, and GL's is
+//    not the one GL at Low books. After RELOADING, the game is restored (not
+//    the start screen) and the save still holds the same levels and schedule.
+// 4. Host (only with ADMIN_TOKEN): /host offers None / Low / Mid / High per
+//    line, not the percentages, and the Create room button; no Start test game
+//    button. A room created with WC None and GL Mid carries both to a team that
+//    joins it.
 //
 // ⚠ THE SOLO CONTEXTS NEVER CARRY THE ADMIN TOKEN, even with ADMIN_TOKEN set:
 // they are opened from a browser launched with it unset, and each asserts the
@@ -105,14 +110,14 @@ const pydByYear = save => (save?.lockedResults ?? []).map(r => ['WC', 'GL', 'Pro
 // Year 1's prior-year development by line, replayed out of the browser on the
 // solo game's own setup with the given levels: as App opens it and plays the
 // default decisions.
-function replayYear1(levels) {
+function replayYear1(levels, schedule) {
   const out = execFileSync('npx', ['tsx', '-e',
     `import { openSoloInstance } from './src/utils/soloGame';
      import { runPriorHistory } from './src/utils/priorHistoryEngine';
      import { defaultDecisionSet } from './src/utils/decisionDefaults';
      import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from './src/utils/worlds';
      const { setup, instance } = openSoloInstance({ poolName: 'Ripple Public Entity Risk Pool', gameLength: 5, startingYear: 2027,
-       instanceId: '${SCENARIO}', activeLines: ['WC', 'GL', 'Property'], developmentLevels: ${JSON.stringify(levels)} });
+       instanceId: '${SCENARIO}', activeLines: ['WC', 'GL', 'Property'], developmentLevels: ${JSON.stringify(levels)} }${schedule ? `, { schedule: ${JSON.stringify(schedule.map(([shockId, yearNumber]) => ({ shockId, yearNumber })))} }` : ''});
      const { poolState, priorHistory } = runPriorHistory(instance, setup);
      const gs = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false, poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
      const done = commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(1)), []));
@@ -216,7 +221,7 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(await page.locator('select[data-testid^="dev-level-"]').count() === 3, 'Test player: the host\'s adverse development level, per line');
     ok(await page.locator('[data-testid^="prior-dev-pct-"]').count() === 0, 'Test player: no prior-development percentages');
     const opts = await page.locator('[data-testid="dev-level-WC"] option').allInnerTexts();
-    ok(JSON.stringify(opts) === JSON.stringify(['Low', 'Mid', 'High']), 'Test player: Low, Mid and High offered', opts.join('/'));
+    ok(JSON.stringify(opts) === JSON.stringify(['None', 'Low', 'Mid', 'High']), 'Test player: None, Low, Mid and High offered', opts.join('/'));
     // ⚠ LOW IS THE DEFAULT ON EVERY LINE (ADVERSE_DEVELOPMENT_DEFAULT_LEVEL), was
     // Mid: a line the tester does not touch plays Low.
     const opening = await Promise.all(['WC', 'GL', 'Property'].map(l => page.locator(`[data-testid="dev-level-${l}"]`).inputValue()));
@@ -225,7 +230,7 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(/grows by a rate drawn in its line's range/.test(note), 'Test player: the levels\' note says what they do', note);
 
     await page.selectOption('[data-testid="dev-level-WC"]', 'High');
-    await page.selectOption('[data-testid="dev-level-GL"]', 'Low');
+    await page.selectOption('[data-testid="dev-level-GL"]', { label: 'None' });
     for (const [id, yr] of [['#7', '3'], ['#2', '4']]) {
       await page.selectOption('[data-testid="shock-id"]', id);
       await page.fill('[data-testid="shock-year"]', yr);
@@ -235,8 +240,8 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     await page.click('[data-testid="start-test-player"]');
     await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
 
-    // Property is left at the default, Low (it was Mid).
-    const want = { levels: { WC: 'High', GL: 'Low', Property: 'Low' }, schedule: [['#7', 3], ['#2', 4]] };
+    // Property is left at the default, Low (it was Mid). GL's None is stored as 'Off'.
+    const want = { levels: { WC: 'High', GL: 'Off', Property: 'Low' }, schedule: [['#7', 3], ['#2', 4]] };
     const check = (save, when) => {
       const lv = save?.setup?.developmentLevels ?? {};
       ok(JSON.stringify(lv) === JSON.stringify(want.levels), `Test player ${when}: the levels set`, JSON.stringify(lv));
@@ -247,8 +252,14 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     };
     check(await waitForSave(page), 'at start');
 
-    // Lock year 1, then reload.
-    await lockYear1(page);
+    // Lock year 1: the game played those levels — GL developed by nothing.
+    const played = await lockYear1(page);
+    const got = devOf(played), chosen = replayYear1(want.levels, want.schedule), glLow = replayYear1({ ...want.levels, GL: 'Low' }, want.schedule);
+    ok(sameDev(got, chosen) && Math.abs(got.GL - glLow.GL) > 1,
+      'Test player: year 1 plays the levels chosen — a replay\'s at WC High, GL None, Property Low, and GL\'s development is not the one GL at Low books',
+      `played ${JSON.stringify(got)}; chosen ${JSON.stringify(chosen)}; GL at Low ${glLow.GL}`);
+
+    // Then reload.
 
     await page.reload();
     await page.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
@@ -272,6 +283,24 @@ const sameDev = (a, b) => ['WC', 'GL', 'Property'].every(l => Number.isFinite(a[
     ok(await page.locator('select[data-testid^="dev-level-"]').count() === 3 && await page.locator('[data-testid^="prior-dev-pct-"]').count() === 0,
       'Host: a level per line, no prior-development percentages');
     ok(await page.locator('[data-testid="start-test-player"]').count() === 0, 'Host: no Start test game button');
+    const hostOpts = await page.locator('[data-testid="dev-level-WC"] option').allInnerTexts();
+    ok(JSON.stringify(hostOpts) === JSON.stringify(['None', 'Low', 'Mid', 'High']), 'Host: None, Low, Mid and High offered', hostOpts.join('/'));
+    // A room with WC None and GL Mid: a team that joins reads both.
+    await page.fill('[data-testid="event-name"]', 'None Level');
+    await page.fill('[data-testid="expected-teams"]', '1');
+    await page.uncheck('[data-testid="line-Property"]');
+    await page.selectOption('[data-testid="dev-level-WC"]', { label: 'None' });
+    await page.selectOption('[data-testid="dev-level-GL"]', 'Mid');
+    await page.click('[data-testid="create-room"]');
+    await page.waitForSelector('[data-testid="room-code"]', { timeout: 30000 });
+    const code = (await page.textContent('[data-testid="room-code"]')).trim();
+    const teamRoom = await page.evaluate(async c => {
+      const t = window.__ripple.transport;
+      const j = await t.join({ code: c, teamName: 'None Team', role: 'player' });
+      return (await t.read({ code: c, token: j.teamToken })).room;
+    }, code);
+    ok(JSON.stringify(teamRoom?.developmentLevels) === JSON.stringify({ WC: 'Off', GL: 'Mid' }),
+      'Host: a room created with WC None and GL Mid carries both to the team that joins', JSON.stringify(teamRoom?.developmentLevels));
     await browser.close();
   } else {
     console.log('  skip  Host checks (ADMIN_TOKEN unset)');
