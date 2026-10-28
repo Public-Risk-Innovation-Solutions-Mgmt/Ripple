@@ -4,7 +4,7 @@
 //
 //   npx tsx scripts/tools/rate-buildup-report.ts --seed 7 --line WC --year 3
 //   npx tsx scripts/tools/rate-buildup-report.ts --seed 7 --line GL --year 5 \
-//     --set SEVERITY_TREND_PER_YEAR.GL=0.07 --set PROFIT_AND_CONTINGENCY_OF_RATE=0.06
+//     --set SEVERITY_TREND_PER_YEAR.GL=0.07 --set ADMIN_SHARE_OF_PREMIUM.GL=0.22
 //
 // Flags: --seed N (default 7), --line WC|GL|Property (default WC), --year N
 // (default 3), and any number of --set NAME=VALUE overrides — see
@@ -32,7 +32,7 @@
 // that only moved this report's own arithmetic would show a different rate
 // here and leave the engine's stored rate where it was, and the first two
 // checks in section 7 would go red. They do not: with
-// SEVERITY_TREND_PER_YEAR.WC at 0.09 and the contingency at 8%, the walk and
+// SEVERITY_TREND_PER_YEAR.WC at 0.09 and the (since retired) contingency at 8%, the walk and
 // the engine agree bit for bit on a final rate of 5.1258 against the
 // committed 4.5297. The knob is connected to the thing being measured.
 // outcomes-summary.ts reads the same way: WC's median rate goes 7.020 to 7.985
@@ -68,8 +68,8 @@ import { getMemberExposure } from '../../src/utils/lineHelpers';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { layerPremium, expectedCededForLayer } from '../../src/utils/reinsuranceTower';
 import {
-  ADMIN_FIXED_PER_YEAR, ADMIN_PER_EXPOSURE_PER_100, ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
-  NEW_RATE_STACK, PRICING_WINDOW_YEARS_NEW, PROFIT_AND_CONTINGENCY_OF_RATE,
+  ADMIN_SHARE_OF_PREMIUM, ALAE_OF_LOSS_COST, ULAE_OF_LOSS_COST,
+  NEW_RATE_STACK, PRICING_WINDOW_YEARS_NEW,
   REINSURANCE_LOAD,
 } from '../../src/data/pricingParameters';
 import type { CoverageLine, GameState, LineResultSet, Member } from '../../src/types/simulation';
@@ -224,19 +224,17 @@ console.log(`  = funded retained loss cost per $100                   ${r4(w.quo
 
 // ---------------------------------------------------------------------------
 console.log('\n--- 3. ADMINISTRATION ---');
-console.log(`  fixed per year                                   ${m$(ADMIN_FIXED_PER_YEAR[LINE]).padStart(16)}`);
-console.log(`  over exposure of ${w.exposure.toFixed(2)} $M                        `
-  + `${r4(ADMIN_FIXED_PER_YEAR[LINE] / Math.max(w.exposure * 10_000, 1)).padStart(10)} per $100`);
-console.log(`  + per-exposure rate                                    ${r4(ADMIN_PER_EXPOSURE_PER_100[LINE]).padStart(10)} per $100`);
+console.log(`  share of premium (before reinsurance)                  ${pct(ADMIN_SHARE_OF_PREMIUM[LINE]).padStart(10)}`);
+console.log(`  x the rate before reinsurance                          ${r4(w.quote.finalRatePer100 - w.quote.reinsRatePer100).padStart(10)} per $100`);
 console.log(`  = ADMIN RATE per $100                                  ${r4(w.quote.adminRatePer100).padStart(10)}`);
 
 // ---------------------------------------------------------------------------
 console.log('\n--- 4. THE VARIABLE PERCENTAGES ---');
 console.log(`  risk control incentive                                 ${pct(w.rc).padStart(10)}`);
-console.log(`  profit & contingency                                   ${pct(PROFIT_AND_CONTINGENCY_OF_RATE[LINE]).padStart(10)}`);
-console.log(`  = divisor  1 - ${pct(w.rc)} - ${pct(PROFIT_AND_CONTINGENCY_OF_RATE[LINE])}`
+console.log(`  admin share of premium                                 ${pct(ADMIN_SHARE_OF_PREMIUM[LINE]).padStart(10)}`);
+console.log(`  = divisor  1 - ${pct(w.rc)} - ${pct(ADMIN_SHARE_OF_PREMIUM[LINE])}`
   + `                           ${w.quote.divisor.toFixed(4).padStart(10)}`);
-console.log(`  what the divisor adds to the final rate                ${r4(w.quote.riskControlAndContingencyPer100).padStart(10)} per $100`);
+console.log(`  what the divisor adds to the final rate                ${r4(w.quote.adminRatePer100 + w.quote.riskControlPer100).padStart(10)} per $100`);
 
 // ---------------------------------------------------------------------------
 console.log('\n--- 5. REINSURANCE, LAYER BY LAYER ---');
@@ -280,9 +278,9 @@ const rows: Array<[string, number, number | undefined]> = [
   ['retained pure premium', w.quote.retainedPurePremiumPer100, prior?.quote.retainedPurePremiumPer100],
   ['CLF', w.clf, prior?.clf],
   ['admin rate', w.quote.adminRatePer100, prior?.quote.adminRatePer100],
-  ['risk control & contingency', w.quote.riskControlAndContingencyPer100, prior?.quote.riskControlAndContingencyPer100],
+  ['risk control', w.quote.riskControlPer100, prior?.quote.riskControlPer100],
   ['reinsurance', w.quote.reinsRatePer100, prior?.quote.reinsRatePer100],
-  ['FIRST INDICATION  (ground-up + admin) / divisor', w.quote.firstIndicationPer100, prior?.quote.firstIndicationPer100],
+  ['FIRST INDICATION  ground-up / divisor', w.quote.firstIndicationPer100, prior?.quote.firstIndicationPer100],
   ['FINAL RATE        what members are billed', w.quote.finalRatePer100, prior?.quote.finalRatePer100],
 ];
 for (const [label, now, before] of rows) {
@@ -329,13 +327,13 @@ check(r.purePremiumPer100 !== undefined
 // 360.52 where the book is 360.517. The walk holds the unrounded figure the
 // engine priced on, and against that the two limbs come back to the cent.
 const E = w.exposure * 10_000;
-const walkPool = w.quote.retainedPurePremiumPer100 * w.clf / w.quote.divisor * E;
-const walkAdmin = w.quote.adminRatePer100 / w.quote.divisor * E;
+const walkPool = w.quote.retainedPurePremiumPer100 * w.clf / w.quote.divisor * (1 - ADMIN_SHARE_OF_PREMIUM[LINE]) * E;
+const walkAdmin = w.quote.retainedPurePremiumPer100 * w.clf / w.quote.divisor * ADMIN_SHARE_OF_PREMIUM[LINE] * E;
 check(Math.abs(walkPool - r.poolPremium) < 0.01,
-  'retained x CLF / divisor x exposure == the pool premium',
+  'retained x CLF / divisor x (1 - admin share) x exposure == the pool premium',
   `${m$(walkPool)} vs ${m$(r.poolPremium)}`);
 check(Math.abs(walkAdmin - r.adminExpense) < 0.01,
-  'admin rate / divisor x exposure == the admin expense',
+  'retained x CLF / divisor x admin share x exposure == the admin expense',
   `${m$(walkAdmin)} vs ${m$(r.adminExpense)}`);
 
 // The charge is additive and the three limbs are the three sections above.
@@ -369,13 +367,12 @@ check(Math.abs(billed - w.quote.finalRatePer100) < 5e-4,
   `billed ${r4(billed)} vs walk ${r4(w.quote.finalRatePer100)}`);
 
 // The build-up's own arithmetic, stated as an identity rather than implied by
-// the layout: the final rate is the funded retained loss cost plus admin, over
-// the divisor, plus reinsurance.
-const rebuilt = (w.quote.retainedPurePremiumPer100 * w.clf + w.quote.adminRatePer100)
-  / w.quote.divisor + w.quote.reinsRatePer100;
+// the layout: the final rate is the funded retained loss cost over the divisor
+// (1 - risk control - admin share), plus reinsurance.
+const rebuilt = w.quote.retainedPurePremiumPer100 * w.clf / w.quote.divisor + w.quote.reinsRatePer100;
 check(Math.abs(rebuilt - w.quote.finalRatePer100) < 1e-12,
   'the printed steps reproduce the final rate',
-  `(${r4(w.quote.retainedPurePremiumPer100)} x ${w.clf.toFixed(4)} + ${r4(w.quote.adminRatePer100)})`
+  `${r4(w.quote.retainedPurePremiumPer100)} x ${w.clf.toFixed(4)}`
   + ` / ${w.quote.divisor.toFixed(4)} + ${r4(w.quote.reinsRatePer100)} = ${r4(rebuilt)}`);
 
 check(Math.abs(layerPriceSum + aggPremium - w.quote.reinsuranceCost) < 1e-6,

@@ -1526,13 +1526,13 @@ export function processLineYear(
   // different files and are live — HistoryPage, DecisionsPage and
   // panel-engine-parity-check all read them. Do not follow the name across files
   // and conclude something is still needed here.
-  // ⚠ THE LOADING IS SPLIT ACROSS POOL PREMIUM AND ADMIN so the charge stays
-  // ADDITIVE, exactly as newStackAsLineRateQuote does it for the signal:
-  // (retained x CLF + admin) / d is retained x CLF / d + admin / d, so the two
-  // components sum to the designed rate to the bit and every downstream reader
-  // that assumes pool + admin + reinsurance === total keeps holding.
+  // ⚠ THE RATE BEFORE REINSURANCE IS SPLIT INTO POOL PREMIUM AND ADMIN so the
+  // charge stays ADDITIVE, exactly as newStackAsLineRateQuote does it for the
+  // signal: admin is its share of premium (ADMIN_SHARE_OF_PREMIUM) and the pool
+  // premium the rest, so every downstream reader that assumes
+  // pool + admin + reinsurance === total keeps holding.
   const poolPremium = billedStack !== null
-    ? activeExposure * (billedStack.retainedPurePremiumPer100 * selectedFundingCLF / billedStack.divisor) * 10_000
+    ? activeExposure * billedStack.poolPremiumRatePer100 * 10_000
     : activeExposure * rateAtConfidenceLevelPer100 * 10_000;
 
   // MEMBER-LEVEL CLASS PRICING. The line total above is UNTOUCHED and is not on
@@ -1564,12 +1564,11 @@ export function processLineYear(
   // worth 0.13 per $100 on GL at the default all-layers placement, which on a
   // $400M book is about $0.5M/yr of expense the pool would stop collecting for
   // work it still has to do.
-  // ⚠ THE 15% LOAD IS RETIRED UNDER THE FLAG, which is what commit 3 said it
-  // would do and could not, having never reached this line. The new admin is a
-  // fixed amount per line spread over exposure plus a per-exposure rate, and it
-  // carries its share of the expense divisor.
+  // ⚠ THE 15% LOAD IS RETIRED UNDER THE FLAG. Admin is a share of premium
+  // (ADMIN_SHARE_OF_PREMIUM, 20% on every line; wip/pricing-rework): exactly
+  // that share of the rate before reinsurance, on the exposure charged.
   const adminExpense = billedStack !== null
-    ? activeExposure * (billedStack.adminRatePer100 / billedStack.divisor) * 10_000
+    ? activeExposure * billedStack.adminRatePer100 * 10_000
     : expectedLoss * ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM;
   const poolPremiumAndAdminExpense = poolPremium + adminExpense;
 

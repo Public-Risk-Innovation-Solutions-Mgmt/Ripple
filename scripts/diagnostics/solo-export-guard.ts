@@ -973,7 +973,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Reserves or Reported Loss & LAE in Program Year Totals or the Gross or Net
 // block (48 lines each). Payments, Total Net Incurred, Ceded, Paid and Total
 // Incurred do not move. No key added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v102.json');
+// v103: ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). The control ran
+// first: multiplayer 8a4dae4 reproduced v102 on all 48 keys. All 48 move — every
+// statement and Results workbook carries a rate and an admin figure. Text-diffed
+// against 8a4dae4's own text (GUARD_TEXT_DIR, shown, raw and sheet): every moved
+// line is Written Premium, Current Rate and its change, General Admin Expense,
+// Net Underwriting / Operating Income, Investment Income, the Loss & LAE,
+// Combined, Operating, Premium-to-Surplus and Reserve-to-Surplus ratios, % of
+// Premium, or the balance sheet's Assets, Invested, Uninvested, Earned Surplus,
+// Paid in Capital and Net Worth (the pre-game's margin re-solves, so the opening
+// does). No loss, reserve, IBNR, case, paid, ceded, claim or exposure line moves
+// in any file, and no line was added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v103.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

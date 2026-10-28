@@ -191,7 +191,7 @@ export const RESERVE_INFLATION_PER_YEAR: PerLine<number> = RESERVE_INFLATION.ena
  * within a few years, so with no investment income credit and no contingency
  * one year is enough: at two GL ran a ten-year combined ratio of 95.4% (against
  * 100.2% before the correction), at one 98.9%, with no 2027 drop. Measured with
- * the per-line profit and contingency and the admin overrun.
+ * the per-line profit and contingency (since retired) and the admin overrun.
  */
 export const RESERVE_INFLATION_PRICED_YEARS: PerLine<number> = { WC: 2, GL: 1, Property: 2 };
 
@@ -510,128 +510,51 @@ export const ALAE_OF_LOSS_COST: PerLine<number> = {
 export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property: 0.05 };
 
 /**
- * ADMIN, FIXED — dollars a year, per line.
+ * ADMIN — A SHARE OF PREMIUM, PER LINE: 20% on every line.
  *
- * ⚠ CALIBRATED SO THE OPENING ADMIN EQUALS TODAY'S 15% LOAD, HALF OF IT FIXED.
- * Measured over 12 games at year 1 on default decisions: admin today is
- * `expectedLoss x 0.15`, so half of that is the fixed figure and the other half
- * is the per-exposure rate below. Means: WC admin $2,157,173 on $392.90M of
- * exposure at a 3.6685 pure premium; GL $3,502,043 on $382.30M at 6.1243;
- * Property $6,797,634 on $18,639.78M at 0.2431.
+ * THE RATE IS THE PURE PREMIUM x CLF / (1 - THIS), plus the cover's price. So
+ * admin is exactly this share of the premium before reinsurance, every year and
+ * on every book, and the permissible loss ratio is 1 - this (80%). What goes to
+ * losses — the pure premium x CLF — is unchanged by it: admin is a pass-through
+ * on top, and the cover's price is added after the divisor, never loaded by it.
+ * With risk control on (RISK_CONTROL, off) the divisor is 1 - risk control -
+ * this.
  *
- * ⚠ LIVE — read by the new rate stack (linePricing.adminRatePer100For).
- * ⚠ AND ITS CALIBRATION IS STALE: it was set before the stable-scenarios
- * build, on the old loss costs and exposure, and now runs 16-39% of the
- * supplied cost. Left as it is until the pool's budget is sent.
+ * ⚠ WHY A SHARE OF PREMIUM (wip/pricing-rework). It replaced a fixed amount per
+ * line plus a per-exposure rate, both trended 3% a year from a 2027 base, whose
+ * calibration was stale (16-39% of the supplied cost), and a profit and
+ * contingency provision (WC 2%, GL and Property 0%). A pool's administration is
+ * budgeted as a share of what it collects; one figure per line, the same every
+ * year, is what the Rate Indication, the Decisions panel and the Model tab show.
+ *
+ * ⚠ PER LINE so it can be set line by line later; every line is 20% today.
+ * ⚠ LIVE — read by linePricing.expenseDivisor and quoteNewRateStack; the
+ * pre-game prices through the same quote, so its history, the prior board's
+ * margins and the openings follow from it.
  */
-export const ADMIN_FIXED_PER_YEAR: PerLine<number> = {
-  WC: 1_078_586,
-  GL: 1_751_022,
-  Property: 3_398_817,
-};
-
-/**
- * ADMIN, PER EXPOSURE — dollars per $100 of exposure, per line.
- *
- * ⚠ THE OTHER HALF OF THE SAME CALIBRATION, and it is an identity rather than a
- * second measurement: half the load as a RATE is
- * `0.5 x 0.15 x openingPurePremiumPer100`, so WC is 0.075 x 3.6685 = 0.275138,
- * GL 0.075 x 6.1243 = 0.459324, Property 0.075 x 0.2431 = 0.018236. Multiplied
- * back by the opening exposure each lands within 0.3% of half the measured
- * admin — the residual is the spread of pure premium across the 12 games, not
- * an error in the split.
- *
- * ⚠ LIVE — read by the new rate stack (linePricing.adminRatePer100For).
- * ⚠ AND ITS CALIBRATION IS STALE: it was set before the stable-scenarios
- * build, on the old loss costs and exposure, and now runs 16-39% of the
- * supplied cost. Left as it is until the pool's budget is sent.
- */
-export const ADMIN_PER_EXPOSURE_PER_100: PerLine<number> = {
-  WC: 0.275138,
-  GL: 0.459324,
-  Property: 0.018236,
-};
-
-/**
- * ADMIN GROWS WITH INFLATION — 3% a year on BOTH parts, the fixed dollars a
- * year (ADMIN_FIXED_PER_YEAR) and the per-exposure rate
- * (ADMIN_PER_EXPOSURE_PER_100), compounding each year from ADMIN_BASE_YEAR and
- * discounted the same way for earlier years, the pre-game's included: a year's
- * admin is the parameters x (1 + 3%)^(year - base year). The rate charges the
- * trended admin for the year it prices, and the engine books that same admin
- * as the year's expense (operatingExpense is the admin charged), so admin
- * neither drifts against the rate nor is under-charged as costs rise.
- *
- * WHY: admin was flat while losses trend 4-8% a year, so its share of the rate
- * fell every year — an administrative budget that never rises is not one any
- * pool runs on. 0 restores flat admin.
- */
-export const ADMIN_TREND_PER_YEAR = 0.03;
-
-/**
- * THE YEAR THE ADMIN PARAMETERS ARE SET FOR — the game's year number, 1: the
- * first played year (2027). The two admin parameters were calibrated at year
- * 1, so they stand there unchanged; 2021 (year -5) is six years of trend
- * below them, 2031 (year 5) four above.
- */
-export const ADMIN_BASE_YEAR = 1;
+export const ADMIN_SHARE_OF_PREMIUM: PerLine<number> = { WC: 0.20, GL: 0.20, Property: 0.20 };
 
 /**
  * ACTUAL ADMIN RUNS OVER WHAT WAS PRICED — by a share drawn each year,
  * uniformly between 0% and 2%, per line, from the game's seed on its own
  * labelled stream (adminOverrun.ts), the same in every world. Pricing still
- * charges the expected trended admin; only the admin booked (operatingExpense)
+ * charges admin at its share of premium (ADMIN_SHARE_OF_PREMIUM); only the
+ * admin booked (operatingExpense = that admin x (1 + the overrun))
  * and the year's result carry it.
  *
  * ⚠ WHY: a pool's expenses do not come in exactly at budget, and when they miss
  * they mostly miss high — salaries, systems and claims handling run ahead of the
  * plan the rate was set on. Charged at expected and booked a little above, admin
  * is a small, steady drag on the underwriting result that the rate never
- * recovers, beside the profit and contingency provision that is there to absorb
- * such things. 0% to 2% keeps it a drag and not a shock: a mean 1% of admin.
+ * recovers. 0% to 2% keeps it a drag and not a shock: a mean 1% of admin.
  */
 export const ADMIN_OVERRUN_RANGE = { min: 0, max: 0.02 } as const;
 
-/**
- * PROFIT AND CONTINGENCY — A SHARE OF THE RATE, PER LINE, in the expense
- * provision: WC 2%, GL 0%, Property 0%. THE RATE IS THE PROJECTED PURE PREMIUM / THE PERMISSIBLE LOSS
- * RATIO, where the permissible loss ratio is 100% less the total expense ratio
- * — fixed admin, per-exposure admin, risk control and this — and the cover's
- * price is added on top.
- *
- * ⚠ 5% ON EVERY LINE, AND NO INVESTMENT INCOME CREDIT (reserve-inflation
- * build). Investment income does not affect the rate in any way; it flows into
- * surplus only. The credit that took last year's return off the pure premium
- * (INVESTMENT_INCOME_CREDIT, retired) and the per-line contingency that briefly
- * stood beside it (WC 3%, GL 0%, Property 0%) are both gone: a pool prices for
- * its losses and expenses with a margin for the unexpected, and leaves what
- * its investments earn to its surplus, so the rate does not move with a year's
- * markets and every line carries the same provision.
- *
- * ⚠ LIVE — in the rate's divisor (linePricing.expenseDivisor): (claims x CLF
- * + admin) / (1 - risk control - this) + the cover's price. At Expected and with
- * no cover that is exactly the projected pure premium / the permissible loss
- * ratio, admin being its share of that rate.
- *
- * HISTORY: 5% until stable-scenarios, then 0 on every line (under default play
- * with shocks off pool surplus more than tripled over ten years, $61.6M ->
- * $194M, and the exposure was re-scaled with the 5.3% fall in year-1 premium,
- * EXPOSURE_SCALE — NOT re-scaled back now); then WC 3%, GL and Property 0%
- * beside the credit, with reserve inflation; now 5% on every line again, the
- * credit gone.
- */
-export const PROFIT_AND_CONTINGENCY_OF_RATE: PerLine<number> = { WC: 0.02, GL: 0, Property: 0 };
-// ⚠ WC 2%, GL 0%, PROPERTY 0% — NOT 5% ON EVERY LINE (reserve-inflation build;
-// twenty scenarios, ten years, the defaults, with the admin overrun). With the
-// investment income credit gone every pure premium rose about 3%, and 5% on top
-// made every line too rich: ten-year combined ratios WC 99.2%, GL 92.7%,
-// Property 95.4% against 104.4%, 100.2% and 102.7% before the correction, and
-// the prior board's designed margin below zero on almost every scenario — the
-// pre-game overshot every target. 2% everywhere still left GL and Property 4.6
-// to 4.8 points rich. WC keeps 2%: its long tail inflates longest after the two
-// years pricing anticipates. GL and Property need none: GL's experience catches
-// its inflation within a few years, and Property's tail is short. Measured:
-// WC 102.1%, GL 98.9%, Property 99.7% (see STARTING_CAPITAL).
+// ⚠ PROFIT AND CONTINGENCY IS GONE (wip/pricing-rework). It was a share of the
+// rate in the expense divisor — WC 2%, GL 0%, Property 0% at the end, 5% on every
+// line before that. The rate now carries the pure premium x CLF, admin at its
+// share of premium (ADMIN_SHARE_OF_PREMIUM) and the cover's price, and nothing
+// else; the CLF's margin over Expected is the only provision for the unexpected.
 
 /**
  * THE REINSURANCE LOAD — CHOSEN: every layer is priced at its EXPECTED loss x
@@ -981,8 +904,8 @@ export const PRE_GAME_INVESTMENT_RETURN = 0.03;
 
 // ⚠ RETIRED: INVESTMENT_INCOME_CREDIT, which took last year's realised return
 // off the pure premium (policy-year build). INVESTMENT INCOME DOES NOT AFFECT
-// THE RATE IN ANY WAY; it flows into surplus only. See
-// PROFIT_AND_CONTINGENCY_OF_RATE for what replaced it in the rate.
+// THE RATE IN ANY WAY; it flows into surplus only. (The profit and contingency
+// that replaced it in the rate is retired too — see ADMIN_SHARE_OF_PREMIUM.)
 
 /**
  * ⚠ RETIRED: PRE_GAME_FUNDING_CUSHION, the prior board's fixed 14% cushion
@@ -1581,7 +1504,8 @@ export const SHOCK_FREE_PRICING = { enabled: true };
  * of the market. Everything that scales with exposure —
  * ordinary losses, the shocks' large losses (their T scale is exposure x cost),
  * the stop's terms — scales with it; what is fixed in dollars does not: the
- * fixed admin, the GL pool limit, the peril deductibles, the opening surplus.
+ * GL pool limit, the peril deductibles, the opening surplus. (Admin is a share
+ * of premium since wip/pricing-rework, so it scales with the book too.)
  *
  * ⚠ RE-SCALED ONCE, from WC 1.797 / GL 1.258 / Property 0.430, after the
  * catastrophe load was removed and year-1 pricing moved onto the pool's pure
@@ -2428,7 +2352,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Admin load', {
         value: ADMIN_LOAD_OF_EXPECTED_LOSS, unit: 'share of gross expected loss',
-        what: 'The pool\'s administration charge.', basis: 'CHOSEN',
+        what: 'The OLD rate stack\'s administration charge — read only where the new stack has no pure premium to price '
+          + 'from, which a book never reaches. The live admin is Admin share of premium.', basis: 'CHOSEN',
         note: 'Applied to EXPECTED LOSS, not to premium, so it does not move with the funding level.',
       }],
       ['Reinsurance risk load (lambda)', {
@@ -2692,43 +2617,16 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'year over year. Property is not supplied: its cost is the old engine\'s figure, loss only, with ALAE and '
           + 'ULAE on top.',
       }],
-      ['Admin, fixed', {
-        value: perLine(ADMIN_FIXED_PER_YEAR, 0), unit: 'dollars per year',
-        what: 'The fixed half of administration. Live in the rate.', basis: 'CHOSEN',
-        note: 'Calibrated so opening admin equalled the old 15% load, half of it fixed, measured over 12 games at year 1 — '
-          + 'before the stable-scenarios build, on the old loss costs and exposure, so it is STALE: it now runs 16-39% of '
-          + 'the supplied cost. Left as it is until the pool\'s budget is sent.',
-      }],
-      ['Admin, per exposure', {
-        value: perLine(ADMIN_PER_EXPOSURE_PER_100), unit: 'dollars per $100 of exposure',
-        what: 'The variable half of administration. Live in the rate.', basis: 'CHOSEN',
-        note: 'The same calibration, and as stale: 0.5 x 0.15 x the old opening pure premium per $100. Left as it is '
-          + 'until the pool\'s budget is sent.',
-      }],
-      ['Admin trend', {
-        value: ADMIN_TREND_PER_YEAR, unit: 'a year, on both admin parts',
-        what: 'Admin grows with inflation: the fixed dollars and the per-exposure rate are each x (1 + this)^(year - the base '
-          + 'year), compounding after it and discounted before it, the pre-game\'s years included. The rate charges the '
-          + 'trended admin for the year it prices, and the engine books that admin as the year\'s expense.',
+      ['Admin share of premium', {
+        value: perLine(ADMIN_SHARE_OF_PREMIUM, 2), unit: 'share of premium before reinsurance',
+        what: 'Administration, the same share every year on every book. Rate = pure premium x CLF / (1 - this) + the '
+          + 'cover\'s price, so admin is exactly this share of the premium before reinsurance and the permissible loss '
+          + 'ratio is 1 - this. What goes to losses is unchanged by it; the cover\'s price is not loaded by it. Booked '
+          + 'admin is this admin x (1 + the year\'s overrun).',
         basis: 'CHOSEN',
-        note: 'Admin was flat while losses trend 4-8% a year, so its share of the rate fell every year. 0 restores flat admin.',
-      }],
-      ['Admin base year', {
-        value: ADMIN_BASE_YEAR, unit: 'game year (2027, the first played year)',
-        what: 'The year the two admin parameters are set for: they stand unchanged there; 2021 is six years of trend below '
-          + 'them and 2031 four above.',
-        basis: 'CHOSEN',
-      }],
-      ['Profit and contingency', {
-        value: perLine(PROFIT_AND_CONTINGENCY_OF_RATE, 2), unit: 'share of rate',
-        what: 'In the expense provision. Rate = projected pure premium / permissible loss ratio, the permissible loss ratio '
-          + 'being 100% less the total expense ratio (fixed admin, per-exposure admin, risk control and this); the cover\'s '
-          + 'price on top. As a divisor: (claims x CLF + admin) / (1 - risk control - this) + reinsurance.',
-        basis: 'CHOSEN',
-        note: 'WC 2%, GL 0%, Property 0%, with no investment income credit: investment income does not affect the rate in '
-          + 'any way and flows into surplus only. 5% on every line made every line too rich once the credit was gone '
-          + '(ten-year combined ratios 92.7-99.2% against 100.2-104.4% before), and 2% everywhere left GL and Property 4.6-4.8 '
-          + 'points rich. WC keeps 2% for its long tail\'s inflation beyond the two years priced.',
+        note: 'Per line so it can be set line by line; 20% on every line. Replaced (wip/pricing-rework) a fixed amount per '
+          + 'line plus a per-exposure rate, both trended 3% a year from 2027, and the profit and contingency provision '
+          + '(WC 2%, GL 0%, Property 0%), all removed.',
       }],
       ['Reinsurance load', {
         value: REINSURANCE_LOAD, unit: 'over a layer\'s EXPECTED loss, every line',
@@ -3034,7 +2932,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the mean over seeds). It multiplies the whole market, so the book keeps about 30% of it.',
         basis: 'CHOSEN',
         note: 'Scales everything tied to exposure — ordinary losses, the shocks\' large losses, the stop\'s terms — '
-          + 'and nothing fixed in dollars: the fixed admin, the GL pool limit, the peril deductibles, the opening surplus. '
+          + 'and nothing fixed in dollars: the GL pool limit, the peril deductibles, the opening surplus. '
           + 'Last re-set from WC 2.211 / GL 1.549 / Property 0.515 when profit and contingency went to 0. NO LONGER '
           + 'RE-SCALED WHEN PRICING CHANGES: the multipliers are pinned, and year-1 premium at Expected may sit '
           + 'anywhere from $27M to $33M on each line (WC $29.1M, GL $28.5M, Property $27.9M once the covers were '
@@ -3345,7 +3243,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: R_MODEL.expenseRatio, unit: 'of premium', basis: 'CHOSEN', notYetUsed: true,
         status: 'SUPERSEDED',
         what: 'Operating expense as a flat share of premium.',
-        note: 'The game charges a fixed amount plus a per-exposure admin load.',
+        note: 'The game charges admin as a share of premium, per line (ADMIN_SHARE_OF_PREMIUM, 20% on every line), not of operating expense as a whole.',
       }],
       ['Random seeds', {
         value: R_MODEL.seeds, unit: '—', basis: 'CHOSEN', notYetUsed: true, status: 'NOT USED',

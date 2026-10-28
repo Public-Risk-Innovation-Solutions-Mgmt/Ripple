@@ -1475,7 +1475,7 @@ interface ResultRowFields {
   finalRatePer100?: number;
   priorFirstIndicationPer100?: number;
   priorFinalRatePer100?: number;
-  /** Underwriting only: the CLF cushion plus the contingency provision, in dollars. */
+  /** Underwriting only: the CLF cushion, in dollars. */
   expectedToSurplus?: number;
   /** A multi-world year's struck book (loss engine commit 4b) — see simulationEngine. */
   ratedExposure?: number;

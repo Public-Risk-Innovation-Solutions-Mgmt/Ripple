@@ -15,11 +15,12 @@
 //
 // WHAT IT ASSERTS, on every line and year:
 //
-//   1. THE FIRST INDICATION TIES: (ground-up x (1 - the investment income
-//      credit) + admin) / divisor, rebuilt here from the parameters and the
-//      credit the row records, equals the engine's figure to the bit.
-//   2. THE FINAL RATE TIES: (retained x CLF + admin) / divisor + reinsurance,
-//      retained being the credited ground-up less anything netted.
+//   1. THE FIRST INDICATION TIES: ground-up / (1 - risk control - admin's
+//      share), the share written out from the brief (20%; restated at
+//      wip/pricing-rework from (ground-up + fixed and per-exposure admin) /
+//      (1 - risk control - profit and contingency), all three retired).
+//   2. THE FINAL RATE TIES: retained x CLF / (1 - rc - admin share) +
+//      reinsurance, retained being the ground-up less anything netted.
 //      With the aggregate stop on, retained IS the ground-up claims cost: the
 //      cover's expected recovery is not taken off it
 //      (STOP_RECOVERY_OFF_CLAIMS_COST off) and its full price is the
@@ -29,8 +30,9 @@
 //      and cedes nothing — and the check states the condition rather than
 //      asserting an unconditional inequality that is simply false for a team
 //      funding at 95%.
-//   4. ADMIN IS NOT GROSSED UP BY THE CLF and REINSURANCE IS NOT GROSSED UP BY
-//      THE DIVISOR. Both are tested by rebuilding the rate with the error in
+//   4. ADMIN IS A SHARE OF PREMIUM — not a load on the loss cost, and with no
+//      profit and contingency beside it — and REINSURANCE IS NOT GROSSED UP BY
+//      THE DIVISOR. All are tested by rebuilding the rate with the error in
 //      place and requiring it to DIFFER — a mutation test, not an assertion
 //      that the code equals itself.
 //   5. THE QUOTE IS ADDITIVE: pool + admin + reinsurance equals the total the
@@ -39,7 +41,7 @@
 // ⚠ ASSERTION 1 AND 2 ARE RECOMPUTATIONS AND WOULD PASS AGAINST A WRONG
 // FORMULA IF THIS FILE COPIED IT. They do not copy it: they are written from
 // the DESIGN as stated in the brief — ground-up for the indication, retained
-// for the rate, CLF on the pure premium only, reinsurance outside the divisor
+// for the rate, admin 20% of premium, reinsurance outside the divisor
 // — so a stack that implemented something else would fail here.
 // ============================================================================
 
@@ -47,13 +49,16 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { processYear } from '../../src/utils/simulationEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { adminRatePer100For, expenseDivisor, expectedCededPer100For } from '../../src/utils/linePricing';
+import { expectedCededPer100For } from '../../src/utils/linePricing';
 import { AGGREGATE_STOP, NEW_RATE_STACK, STOP_RECOVERY_OFF_CLAIMS_COST } from '../../src/data/pricingParameters';
 import { quoteNewRateStack, newStackAsLineRateQuote } from '../../src/utils/linePricing';
 import type { CoverageLine, GameState, LinePoolState } from '../../src/types/simulation';
 import { AGGREGATE_NOT_OFFERED, placementFor } from '../../src/utils/reinsuranceOptions';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
+/** Admin's share of premium, written out from the brief rather than read from the parameter. */
+const BRIEFED_ADMIN_SHARE = 0.2;
+const briefedDivisor = (rc: number) => 1 - rc - BRIEFED_ADMIN_SHARE;
 const GAMES = Number(process.env.GAMES ?? 3);
 const YEARS = Number(process.env.YEARS ?? 5);
 
@@ -106,8 +111,7 @@ function play(): Row[] {
         const groundUp = r.newPurePremiumPer100!;
         const exposure = r.writtenExposure;
         const ld = d.byLine[line];
-        const admin = adminRatePer100For(line, exposure, y);
-        const divisor = expenseDivisor(ld.riskControlIncentivePct ?? 0, line);
+        const divisor = briefedDivisor(ld.riskControlIncentivePct ?? 0);
         const { expectedCededPer100 } = expectedCededPer100For(line, y, groundUp, {
           // A book (MEMBER_LEVEL off) is priced on its exposure, as the engine
           // prices it; a roster on its members.
@@ -121,12 +125,13 @@ function play(): Row[] {
         // No investment income credit: investment income does not touch the rate.
         const credited = groundUp;
         const retained = Math.max(0, credited - netted);
+        const admin = retained * r.selectedFundingCLF / divisor * BRIEFED_ADMIN_SHARE;
         const reins = (r.reinsuranceCost ?? 0) / Math.max(exposure * 10_000, 1);
         rows.push({
           line, year: y,
           first: r.firstIndicationPer100, final: r.finalRatePer100,
-          rebuiltFirst: (credited + admin) / divisor,
-          rebuiltFinal: (retained * r.selectedFundingCLF + admin) / divisor + reins,
+          rebuiltFirst: credited / divisor,
+          rebuiltFinal: retained * r.selectedFundingCLF / divisor + reins,
           admin, divisor, clf: r.selectedFundingCLF,
           groundUp, credited, retained, reins,
           total: r.ratePer100,
@@ -164,13 +169,12 @@ for (const r of rows) {
   worstFirst = Math.max(worstFirst, d1); worstFinal = Math.max(worstFinal, d2);
   if (d1 > EPS) {
     fail(`${r.line} y${r.year} first indication ${r.first.toFixed(6)} against rebuilt `
-      + `${r.rebuiltFirst.toFixed(6)} — (credited ${r.credited.toFixed(4)} + admin `
-      + `${r.admin.toFixed(4)}) / ${r.divisor.toFixed(4)}`);
+      + `${r.rebuiltFirst.toFixed(6)} — credited ${r.credited.toFixed(4)} / ${r.divisor.toFixed(4)}`);
   }
   if (d2 > EPS) {
     fail(`${r.line} y${r.year} final rate ${r.final.toFixed(6)} against rebuilt `
-      + `${r.rebuiltFinal.toFixed(6)} — (retained ${r.retained.toFixed(4)} x CLF `
-      + `${r.clf.toFixed(4)} + admin ${r.admin.toFixed(4)}) / ${r.divisor.toFixed(4)} + reins ${r.reins.toFixed(4)}`);
+      + `${r.rebuiltFinal.toFixed(6)} — retained ${r.retained.toFixed(4)} x CLF `
+      + `${r.clf.toFixed(4)} / ${r.divisor.toFixed(4)} (admin ${r.admin.toFixed(4)} inside it) + reins ${r.reins.toFixed(4)}`);
   }
 }
 console.log(`  worst departure: first ${worstFirst.toExponential(2)}, final ${worstFinal.toExponential(2)}`);
@@ -198,44 +202,40 @@ if (checkedOrder === 0) fail('no line-year had CLF 1 — assertion 3 tested noth
 console.log(`  ${checkedOrder} line-year(s) at CLF 1.`);
 
 // --------------------------------------------------------------------------
-console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---');
-// ⚠ PRICED AT A CLF THAT IS NOT 1, AND THE FIRST VERSION OF THIS WAS VACUOUS
-// FOR WANT OF THAT. It ran over the played rows, every one of which funds at
-// Expected — CLF exactly 1.0000 — where `admin x clf` IS `admin` and the
-// mutation changes nothing. Grossing admin up by the CLF was introduced
-// deliberately and the gate stayed green on 45 of 45 rows.
-//
-// So the two errors are tested on a quote priced at CLF 1.25, where each one
-// moves the rate by an amount no tolerance could absorb. The check is that the
-// implemented rate matches the DESIGNED formula and differs from both wrong
-// ones — stated as a margin, so a future change that narrows the gap is seen.
+console.log('\n--- 4. THE LOADING ERRORS ARE NOT PRESENT (mutation test) ---');
+// ⚠ PRICED AT A CLF THAT IS NOT 1, so a wrong form that only differs through
+// the CLF cannot hide behind CLF 1.0000 (the first version of this assertion
+// was vacuous for exactly that reason). Restated at wip/pricing-rework: the
+// errors are now admin as a LOAD ON THE LOSS COST (s x the pure premium x CLF
+// on top, the old shape) rather than a share of premium, and the old WC 2%
+// profit and contingency left in the divisor. The implemented rate must match
+// the DESIGNED formula and differ from both.
 {
   const CLF = 1.25;
   let tested = 0;
   for (const line of LINES) {
     const groundUp = line === 'Property' ? 0.30 : 6.0;
+    const rc = 0.02;
     const q = quoteNewRateStack({
       line, yearNumber: 1, members: [], exposure: 100,
       groundUpPurePremiumPer100: groundUp, clf: CLF,
-      riskControlPct: 0.02, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
+      riskControlPct: rc, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none',
     });
-    const designed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100) / q.divisor + q.reinsRatePer100;
-    const adminGrossed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100 * CLF) / q.divisor + q.reinsRatePer100;
-    const reinsGrossed = (q.retainedPurePremiumPer100 * CLF + q.adminRatePer100 + q.reinsRatePer100) / q.divisor;
+    const designed = q.retainedPurePremiumPer100 * CLF / briefedDivisor(rc) + q.reinsRatePer100;
+    const adminAsLoad = q.retainedPurePremiumPer100 * CLF * (1 + BRIEFED_ADMIN_SHARE) / (1 - rc) + q.reinsRatePer100;
+    const withOldPc = q.retainedPurePremiumPer100 * CLF / (briefedDivisor(rc) - 0.02) + q.reinsRatePer100;
     tested++;
     if (Math.abs(q.finalRatePer100 - designed) > 1e-12) {
       fail(`${line}: the implemented rate ${q.finalRatePer100} is not the designed formula ${designed}`);
     }
-    // ⚠ ONLY THE ADMIN ERROR IS TESTABLE HERE. This quote has no members, so
-    // the tower prices at zero and `(x + 0) / d` is `x / d` — the reinsurance
-    // mutation is a no-op on it, exactly as the admin mutation was a no-op on
-    // the CLF-1 rows. It is tested on the played rows below, where
-    // reinsurance is 0.9 to 2.8 per $100 and the divisor is 0.95.
-    void reinsGrossed;
-    const dAdmin = Math.abs(q.finalRatePer100 - adminGrossed);
-    if (dAdmin < 1e-6) fail(`${line}: admin IS grossed up by the CLF — the two forms agree to ${dAdmin}`);
+    if (Math.abs(q.adminRatePer100 / (q.finalRatePer100 - q.reinsRatePer100) - BRIEFED_ADMIN_SHARE) > 1e-12) {
+      fail(`${line}: admin is not ${BRIEFED_ADMIN_SHARE * 100}% of the rate before reinsurance`);
+    }
+    const dLoad = Math.abs(q.finalRatePer100 - adminAsLoad), dPc = Math.abs(q.finalRatePer100 - withOldPc);
+    if (dLoad < 1e-6) fail(`${line}: admin IS a load on the loss cost — the two forms agree to ${dLoad}`);
+    if (dPc < 1e-6) fail(`${line}: the old profit and contingency IS in the divisor — the two forms agree to ${dPc}`);
     console.log(`  ${line.padEnd(9)} CLF ${CLF}: rate ${q.finalRatePer100.toFixed(4)}, `
-      + `admin-grossed would be ${adminGrossed.toFixed(4)} — ${dAdmin.toFixed(4)} away`);
+      + `admin-as-load would be ${adminAsLoad.toFixed(4)} (${dLoad.toFixed(4)} away), with the old 2% ${withOldPc.toFixed(4)} (${dPc.toFixed(4)} away)`);
   }
   if (tested !== LINES.length) fail('assertion 4a did not price every line');
 
@@ -244,19 +244,17 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
   for (const r of rows) {
     if (!(r.reins > 1e-6) || Math.abs(r.divisor - 1) < 1e-12) continue;
     withReins++;
-    const correct = (r.retained * r.clf + r.admin) / r.divisor + r.reins;
-    const grossed = (r.retained * r.clf + r.admin + r.reins) / r.divisor;
+    const correct = r.retained * r.clf / r.divisor + r.reins;
+    const grossed = (r.retained * r.clf + r.reins) / r.divisor;
     const gap = Math.abs(correct - grossed);
     worstGap = Math.min(worstGap, gap);
     if (Math.abs(r.final - grossed) < EPS) {
       fail(`${r.line} y${r.year}: reinsurance IS grossed up by the divisor`);
     }
   }
-  // ⚠ AND ON A DIRECT QUOTE, because the played rows may carry no divisor at
-  // all: with risk control off and profit and contingency at 0 (since the
-  // contingency went to 0), every played divisor is exactly 1 and the loop
-  // above skips them all. A quote with the risk-control slider at 10% and the
-  // Bad-year cover bought has both, on every line.
+  // ⚠ AND ON A DIRECT QUOTE, because the played rows may carry no
+  // reinsurance (the default cover is None). A quote with the risk-control
+  // slider at 10% and the Bad-year cover bought has both, on every line.
   let direct = 0;
   for (const line of LINES) {
     const q = quoteNewRateStack({
@@ -266,8 +264,8 @@ console.log('\n--- 4. THE TWO LOADING ERRORS ARE NOT PRESENT (mutation test) ---
     });
     if (!(q.reinsRatePer100 > 1e-6) || Math.abs(q.divisor - 1) < 1e-12) continue;
     direct++;
-    const correct = (q.retainedPurePremiumPer100 * q.clf + q.adminRatePer100) / q.divisor + q.reinsRatePer100;
-    const grossed = (q.retainedPurePremiumPer100 * q.clf + q.adminRatePer100 + q.reinsRatePer100) / q.divisor;
+    const correct = q.retainedPurePremiumPer100 * q.clf / briefedDivisor(0.10) + q.reinsRatePer100;
+    const grossed = (q.retainedPurePremiumPer100 * q.clf + q.reinsRatePer100) / briefedDivisor(0.10);
     worstGap = Math.min(worstGap, Math.abs(correct - grossed));
     if (Math.abs(q.finalRatePer100 - correct) > 1e-12) fail(`${line} direct: the implemented rate is not the designed formula`);
     if (Math.abs(q.finalRatePer100 - grossed) < EPS) fail(`${line} direct: reinsurance IS grossed up by the divisor`);

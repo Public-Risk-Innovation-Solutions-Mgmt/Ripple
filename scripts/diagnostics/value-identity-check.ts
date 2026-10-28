@@ -1441,7 +1441,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // priorYearDevelopment -$5.17M -> -$1.47M, net incurred $27.34M -> $23.65M).
 // No field added or removed. No rate moved: the pure premium reads development
 // only as it emerges, and these are year-1 rows struck before any.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v87.json');
+// v89: ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). v88 is skipped: it
+// was the reverted development-pricing build's. Admin is 20% of premium on every
+// line; profit and contingency, the fixed and per-exposure admin and the admin
+// trend are gone. The control ran first: multiplayer 8a4dae4 reproduced v87
+// exactly. The rework moved 12,937 instances across 49 fields, every one a
+// price, admin, or downstream of them: adminExpense, operatingExpense, the
+// member charge and grossPremium, the rates (ratePer100, firstIndication,
+// finalRate and their priors), poolPremium, expectedToSurplus (now the CLF
+// cushion alone: 0 at Expected), the loss, expense and combined ratios
+// (expectedLossRatio 0.8815 -> 0.8 and expectedExpenseRatio 0.1185 -> 0.2 on
+// the first instance — the permissible loss ratio and admin's share), and the
+// income, cash, investments, surplus and capital that follow (first instance's
+// adminExpense $3.67M -> $6.69M, member charge $30.99M -> $33.47M). marketShare
+// (36) and investmentReturnRate (22) move by an ulp — a premium-weighted share
+// and an income/assets ratio on the moved figures. NO LOSS, CLAIM, RESERVE OR
+// PURE PREMIUM FIELD MOVED, and no field was added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v89.json');
 
 function seedOf(id: string) {
   let h = 5381;

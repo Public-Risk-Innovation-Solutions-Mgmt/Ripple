@@ -601,8 +601,9 @@ function NewRatePanel({ n, prior }: {
   };
 
   // ⚠ EACH PIECE ITS OWN ROW, AND EACH COLUMN ADDS TO ITS RATE EXACTLY — in
-  // whole cents as printed (pieceCents: profit and contingency takes the
-  // rounding). Your rate's pure premium is the retained figure x the CLF, so it
+  // whole cents as printed (pieceCents: admin takes the rounding, a cent at
+  // most). Admin is its share of premium (ADMIN_SHARE_OF_PREMIUM), labelled
+  // with that share, and the permissible loss ratio is printed below the rate. Your rate's pure premium is the retained figure x the CLF, so it
   // moves with the funding level; its Risk Control is the Risk Control box's
   // cost per $100 ($0.00 while risk control is off). Indicated stays at
   // Expected, self-funded. See ratePieces.
@@ -610,10 +611,12 @@ function NewRatePanel({ n, prior }: {
   const ind = pieceCents(pieces.indicated), yours = pieceCents(pieces.yours);
   const rows: Array<[string, string, string, string]> = [
     ['Pure premium', 'pure-premium', c2(ind.purePremium), c2(yours.purePremium)],
-    ['+ Admin', 'admin', c2(ind.admin), c2(yours.admin)],
+    [`+ Admin (${(n.adminShare * 100).toFixed(0)}% of premium)`, 'admin', c2(ind.admin), c2(yours.admin)],
     ['+ Risk Control', 'risk-control', c2(ind.riskControl), c2(yours.riskControl)],
-    ['+ Profit & contingency', 'contingency', c2(ind.contingency), c2(yours.contingency)],
   ];
+  // The permissible loss ratio: 1 - admin's share - risk control's (off).
+  const plrIndicated = 1 - n.adminShare - (n.firstIndicationPer100 > 0 ? n.indicatedRiskControlPer100 / n.firstIndicationPer100 : 0);
+  const plrYours = 1 - n.adminShare - (n.finalRatePer100 - n.reinsRatePer100 > 0 ? n.riskControlPer100 / (n.finalRatePer100 - n.reinsRatePer100) : 0);
 
   return (
     <div data-testid="new-rate-panel" className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
@@ -643,6 +646,11 @@ function NewRatePanel({ n, prior }: {
             <td data-testid="new-rate-indicated" className="py-1 text-right tabular-nums">{c2(ind.rate)}</td>
             {/* data-value: the full figure, for the rate-indication driver; the text is unchanged. */}
             <td data-testid="new-rate-final" data-value={n.finalRatePer100} className="py-1 text-right tabular-nums">{c2(yours.rate)}</td>
+          </tr>
+          <tr className="border-t border-gray-200/70">
+            <td className="py-1 text-gray-600">Permissible loss ratio</td>
+            <td data-testid="new-rate-indicated-plr" data-value={plrIndicated} className="py-1 text-right tabular-nums">{(plrIndicated * 100).toFixed(0)}%</td>
+            <td data-testid="new-rate-yours-plr" data-value={plrYours} className="py-1 text-right tabular-nums">{(plrYours * 100).toFixed(0)}%</td>
           </tr>
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">vs last year</td>
