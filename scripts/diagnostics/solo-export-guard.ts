@@ -1031,7 +1031,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the losses' cut 0 and normal losses after it the same, the risk control
 // stage), their working text and the codes. No existing figure moved. The 24
 // `stmt|...` keys do not move.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v109.json');
+// v110: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba,
+// which reproduced v109 48 of 48 here first. The 24 Results keys move and
+// nothing else; each was text-diffed against the control (GUARD_TEXT_DIR both
+// sides), row by row, and the ONLY moved row is the Version row,
+// riskpool_gamestate_v37 -> _v38, this landing's save key — 48 lines, the shown
+// and raw renderings of each of the 24. The guard's games hold None, which adds
+// no row and moves no figure (value-identity-check holds on all 150 instances).
+// The 24 `stmt|...` keys do not move.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v110.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

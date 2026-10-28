@@ -1585,7 +1585,24 @@ const BASELINE = process.env.RENDER_BASELINE
 // container moved, so their v106 fingerprints are this container's rendering;
 // in a container that reproduces v105 they may read as moved. The harness plays
 // at 0%, so no figure on any screen changed. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v106.json');
+// v107: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba. The
+// control, built in its own worktree and served on 4174, moved 8 of 236 against
+// v106 here (Result Spreadsheet, every configuration, y0 and y2 — the container
+// split v106 recorded, not code). So this change was measured against the
+// CONTROL'S OWN CAPTURE, and v107 is v106 with only the screens this change
+// moved replaced: 52 of 236, each word-diffed against the control
+// (RENDER_TEXT_DIR both sides), every difference an insertion or the save key:
+//   Decisions 16          the new "Aggregate cover" choice under the per-claim
+//                         cover: None and 110/50, 125/50, 150/50 with each price
+//                         (2027: WC $667,967 / $292,675 / $94,629, GL $675,955 /
+//                         $263,022 / $74,451, Property $879,680 / $434,590 /
+//                         $188,692)
+//   Rate Indication 10    the "Aggregate cover" rows under Reinsurance, each
+//                         option's price per $100
+//   Year Walkthrough 26   the version riskpool_gamestate_v37 -> _v38 only
+// The other 184 keep v106's fingerprints. The harness holds None, so no figure
+// on any screen changed. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v107.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
