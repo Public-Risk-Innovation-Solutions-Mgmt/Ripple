@@ -73,6 +73,8 @@ interface CalculationAuditPageProps {
   shockTiming?: ShockTiming;
   /** A hosted team's room share and its year; absent in single player. See GameShell. */
   roomMarketShare?: TeamMarketShareOfYear | null;
+  /** The Year Walkthrough panel, shown under the page's header. See GameShell. */
+  walkthrough?: React.ReactNode;
 }
 
 // Three-state check outcome. 'variance' is a DOCUMENTED, bounded modelling
@@ -372,7 +374,7 @@ const CLAIMS_VARIANCE_CAP = 10_000;
 const CLAIMS_VARIANCE_REASON =
   'a prior-year reserve cohort closed and its residual balance was floored to zero in the rollforward rather than absorbed into the development figure';
 
-export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming, roomMarketShare }: CalculationAuditPageProps) {
+export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming, roomMarketShare, walkthrough }: CalculationAuditPageProps) {
   // Chronological order: earliest pre-game year first, Year 0 (opening) last
   // among prior years, then live Year 1 onward — same convention as the
   // Financial Statements tab, so the audit reaches pre-game history too.
@@ -492,6 +494,8 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
           ))}
         </select>
       </div>
+
+      {walkthrough}
 
       <div className={`border rounded-xl px-4 py-3 text-sm font-semibold ${status.tone}`}>
         {status.text}

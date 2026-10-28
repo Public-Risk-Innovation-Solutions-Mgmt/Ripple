@@ -53,6 +53,8 @@ import FinancialsPage from '../pages/FinancialsPage';
 import ResultsPage from '../pages/ResultsPage';
 import MembershipPage from '../pages/MembershipPage';
 import CalculationAuditPage from '../pages/CalculationAuditPage';
+import YearWalkthroughPanel from '../components/YearWalkthroughPanel';
+import { walkthroughHeader, walkthroughSheetRows } from '../utils/yearWalkthrough';
 import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
 import ResultsStatementPage from '../pages/ResultsStatementPage';
 import IntroductionPage from '../pages/IntroductionPage';
@@ -127,13 +129,19 @@ export interface GameShellProps {
    * shows no market share anywhere.
    */
   roomMarketShare?: TeamMarketShareOfYear | null;
+  /**
+   * Whether the Year Walkthrough — on screen and in the Results download — may
+   * show the scenario's fixed seed. ⚠ TEST PLAYER ONLY: single player and a
+   * hosted team leave it unset and see the version alone.
+   */
+  showSeed?: boolean;
 }
 
 export default function GameShell({
   gameState, startingFinancials, initialMembers, currentDecisions, onDecisionsChange,
   activeTab, onSelectTab, lineView, onSelectLineView,
   onAdvanceYear, canAdvance, advanceLabel, onNewGame,
-  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare,
+  setupPage, loanPrompt, banner, decisionsDisabled, statusStrip, multiplayer, roomMarketShare, showSeed,
 }: GameShellProps) {
   const isStarted = gameState?.isStarted ?? false;
   const activeLines = gameState?.setup.activeLines ?? [];
@@ -324,11 +332,23 @@ export default function GameShell({
             instanceId={known.setup.instanceId}
             poolState={knownClaimsPool ?? known.poolState}
             claimsWorld={knownClaimsWorld}
+            walkthroughRows={gameState
+              ? () => walkthroughSheetRows(gameState, walkthroughHeader(gameState.instance, !multiplayer && !!showSeed))
+              : undefined}
           />
         )}
 
-        {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && (
+        {/* ⚠ A HOSTED SESSION'S CALCULATION AUDIT IS THE YEAR WALKTHROUGH ALONE. */}
+        {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && multiplayer && (
+          <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
+            <h2 className="text-xl font-bold text-gray-900">Calculation Audit</h2>
+            <YearWalkthroughPanel gameState={gameState} lineView={lineView} showSeed={false} />
+          </div>
+        )}
+
+        {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && !multiplayer && (
           <CalculationAuditPage
+            walkthrough={<YearWalkthroughPanel gameState={gameState} lineView={lineView} showSeed={!!showSeed} />}
             lockedResults={known?.lockedResults ?? gameState.lockedResults}
             priorHistory={known?.priorHistory ?? gameState.priorHistory}
             instanceSeed={gameState.instance.seed}

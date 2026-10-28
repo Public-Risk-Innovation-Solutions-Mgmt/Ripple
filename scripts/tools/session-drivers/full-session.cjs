@@ -122,15 +122,16 @@ const roomRecord = (page, code) => page.evaluate(c =>
   {
     const p = players[0];
     // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool
-    // in aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial
-    // Statements and Calculation Audit (GameShell's MULTIPLAYER_HIDDEN_TABS);
-    // single-player keeps them, and solo-oracle holds that. The PAGES are intact.
+    // in aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results and Financial
+    // Statements (GameShell's MULTIPLAYER_HIDDEN_TABS); single-player keeps
+    // them, and solo-oracle holds that. The PAGES are intact. The Calculation
+    // Audit is on the bar as the Year Walkthrough alone (year-walkthrough.cjs).
     // ⚠ DASHBOARD AND DEPARTMENTS ARE HIDDEN IN BOTH (src/game/tabs.tsx), and
     // Rate Indication joined the bar, and Investments is hidden too (its memo is
     // in the Introduction tab); navigation.cjs holds the order.
     const tabs = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                  'Decision History', 'Result Spreadsheet'];
-    const hiddenTabs = ['Financial Statements', 'Results', 'Calculation Audit', 'Dashboard', 'Departments', 'Investments'];
+                  'Decision History', 'Result Spreadsheet', 'Calculation Audit'];
+    const hiddenTabs = ['Financial Statements', 'Results', 'Dashboard', 'Departments', 'Investments'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);

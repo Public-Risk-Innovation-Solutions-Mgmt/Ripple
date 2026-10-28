@@ -394,7 +394,10 @@ export function buildAoaRows(results: LineResultSet[], metrics: SpreadsheetMetri
 export function buildResultsWorkbook(
   lockedResults: ResultSet[],
   activeLines: CoverageLine[],
-  baseMetrics: SpreadsheetMetric[]
+  baseMetrics: SpreadsheetMetric[],
+  // The Year Walkthrough sheet's rows (utils/yearWalkthrough), when the caller
+  // has a game to walk through; none, or none played, writes no sheet.
+  walkthroughRows?: (string | number)[][],
 ): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
   const orderedLines = FIXED_LINE_ORDER.filter(l => activeLines.includes(l));
@@ -446,6 +449,12 @@ export function buildResultsWorkbook(
       }
     }
     XLSX.utils.book_append_sheet(wb, ws, 'Shock Events');
+  }
+
+  // THE YEAR WALKTHROUGH — last, so every sheet before it is as it was. The
+  // seed is in it only where the caller's header carried it (Test player).
+  if (walkthroughRows && walkthroughRows.length > 0) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(walkthroughRows), 'Year Walkthrough');
   }
 
   return wb;
