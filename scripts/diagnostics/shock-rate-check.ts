@@ -18,12 +18,22 @@
 //      time.
 //   4. THE SHAPE: no event in year 1, one event a year at most, no event twice.
 //
+// RESTATED FOR wip/large-claims-frequency: the catalogue events no longer set
+// large (T) claims — each line draws at most one a year by frequency (Low 7.5%,
+// Mid 5.25%, High 2.25%), uniform across its level's range x the trend. So
+// section 2 now holds the UPLIFT to the scale x the R model's as before, and
+// the expected SHOCK LARGE LOSSES to NOT MOVING with the catalogue's
+// probabilities at all (identical at the shipped and the R model's), and to
+// the brief written out: Σ over levels of freq x the range's midpoint x
+// (1 + trend)^(y - 1), WC 4%, GL 8%, Property 5%. New control: the events' T
+// switched back on (LARGE_CLAIMS_BY_FREQUENCY off) is caught by 2.
+//
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: one event left unscaled,
 // pricing on the R model's probabilities, the old one-per-three-years count,
 // and an event slipped into year 1.
 // ============================================================================
 
-import { R_MODEL, SHOCK_CATALOGUE_SCALE, SHOCKS_PER_YEAR } from '../../src/data/pricingParameters';
+import { LARGE_CLAIMS_BY_FREQUENCY, R_MODEL, SHOCK_CATALOGUE_SCALE, SHOCKS_PER_YEAR } from '../../src/data/pricingParameters';
 import { SHOCK_EVENTS } from '../../src/utils/shockLosses';
 import { expectedLossBreakdown, upliftMoments } from '../../src/utils/shockExpectation';
 import { drawShockSchedule, shockDrawRange, HOST_SHOCK_STREAM, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
@@ -56,18 +66,40 @@ function gradeCatalogue(probs: number[], tag: string) {
 const shockCost = (l: CoverageLine, y: number) => [upliftMoments(l, y).mean, expectedLossBreakdown(l, 1000, y).shockLarge];
 const setProbs = (ps: number[]) => SHOCK_EVENTS.forEach((e, i) => { (e as { probability: number }).probability = ps[i]; });
 const shipped = SHOCK_EVENTS.map(e => e.probability);
-const atShipped = new Map<string, number[]>();
-for (const l of LINES) for (let y = 1; y <= 15; y++) atShipped.set(`${l}|${y}`, shockCost(l, y));
-setProbs(RAW);
-const atRaw = new Map<string, number[]>();
-for (const l of LINES) for (let y = 1; y <= 15; y++) atRaw.set(`${l}|${y}`, shockCost(l, y));
-setProbs(shipped);
-function gradePricing(priced: Map<string, number[]>, tag: string) {
-  let worst = 0;
-  for (const [k, v] of priced) v.forEach((x, i) => { worst = Math.max(worst, rel(x, SHOCK_CATALOGUE_SCALE * atRaw.get(k)![i])); });
-  const y1 = LINES.map(l => `${l} uplift ${(priced.get(`${l}|1`)![0] * 100).toFixed(2)}%, large $${(priced.get(`${l}|1`)![1] / 1e6).toFixed(3)}M`).join('; ');
-  check(worst < 1e-12, `${tag}2. pricing reads the scaled rate: each line's expected uplift and shock large losses are ${SHOCK_CATALOGUE_SCALE.toFixed(4)} x the R model's`,
-    `year 1, per $1,000M exposure: ${y1}; worst relative ${worst.toExponential(2)}`);
+type Costs = { shipped: Map<string, number[]>; raw: Map<string, number[]> };
+function costs(): Costs {
+  const atShipped = new Map<string, number[]>();
+  for (const l of LINES) for (let y = 1; y <= 15; y++) atShipped.set(`${l}|${y}`, shockCost(l, y));
+  setProbs(RAW);
+  const atRaw = new Map<string, number[]>();
+  for (const l of LINES) for (let y = 1; y <= 15; y++) atRaw.set(`${l}|${y}`, shockCost(l, y));
+  setProbs(shipped);
+  return { shipped: atShipped, raw: atRaw };
+}
+const shippedCosts = costs();
+// THE BRIEF, written out: each line's one large claim a year by level.
+type Lv = 'Low' | 'Mid' | 'High';
+const BRIEF_FREQ: Record<Lv, number> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
+const BRIEF_RANGE: Record<CoverageLine, Record<Lv, [number, number]>> = {
+  WC: { Low: [1e6, 3e6], Mid: [3e6, 6e6], High: [6e6, 40e6] },
+  GL: { Low: [1e6, 3e6], Mid: [3e6, 7e6], High: [7e6, 40e6] },
+  Property: { Low: [2e6, 5e6], Mid: [5e6, 12e6], High: [12e6, 40e6] },
+};
+const BRIEF_TREND: Record<CoverageLine, number> = { WC: 0.04, GL: 0.08, Property: 0.05 };
+const briefLarge = (l: CoverageLine, y: number) => Math.pow(1 + BRIEF_TREND[l], y - 1)
+  * (Object.keys(BRIEF_FREQ) as Lv[]).reduce((a, lv) => a + BRIEF_FREQ[lv] * (BRIEF_RANGE[l][lv][0] + BRIEF_RANGE[l][lv][1]) / 2, 0);
+function gradePricing(c: Costs, uplift: Map<string, number[]>, tag: string) {
+  let worstUplift = 0, worstMoved = 0, worstBrief = 0;
+  for (const [k, v] of uplift) worstUplift = Math.max(worstUplift, rel(v[0], SHOCK_CATALOGUE_SCALE * c.raw.get(k)![0]));
+  for (const [k, v] of c.shipped) {
+    const [l, y] = k.split('|');
+    worstMoved = Math.max(worstMoved, rel(v[1], c.raw.get(k)![1]));
+    worstBrief = Math.max(worstBrief, rel(v[1], briefLarge(l as CoverageLine, Number(y))));
+  }
+  const y1 = LINES.map(l => `${l} uplift ${(uplift.get(`${l}|1`)![0] * 100).toFixed(2)}%, large $${(c.shipped.get(`${l}|1`)![1] / 1e6).toFixed(3)}M`).join('; ');
+  check(worstUplift < 1e-12 && worstMoved < 1e-12 && worstBrief < 1e-12,
+    `${tag}2. pricing reads the scaled rate: each line's expected uplift is ${SHOCK_CATALOGUE_SCALE.toFixed(4)} x the R model's; its expected large claims do not move with the catalogue and are the brief's frequencies x midpoints x trend`,
+    `year 1: ${y1}; worst relative — uplift ${worstUplift.toExponential(2)}, large moved by the catalogue ${worstMoved.toExponential(2)}, large off the brief ${worstBrief.toExponential(2)}`);
 }
 
 // ---------------------------------------------------------------- 3 & 4
@@ -99,7 +131,7 @@ function gradeSchedules(draw: Draw, range: (y: number) => { min: number; max: nu
 
 console.log('SHOCKS AT 0.3 A YEAR, AND THE SCHEDULE\'S COUNT');
 gradeCatalogue(shipped, '');
-gradePricing(atShipped, '');
+gradePricing(shippedCosts, shippedCosts.shipped, '');
 gradeSchedules(drawShockSchedule, shockDrawRange, '');
 
 console.log('\nCONTROLS — each must FAIL');
@@ -112,7 +144,16 @@ const controlFails = (name: string, run: () => void, expect: string) => {
   check(caught.length > 0, `control: ${name} is caught by ${expect}`);
 };
 controlFails('one event left unscaled', () => gradeCatalogue(shipped.map((p, i) => (i === 9 ? RAW[9] : p)), ''), '1.');
-controlFails('pricing on the R model\'s probabilities', () => gradePricing(atRaw, ''), '2.');
+controlFails('pricing on the R model\'s probabilities', () => gradePricing(shippedCosts, shippedCosts.raw, ''), '2.');
+controlFails('the events\' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off)', () => {
+  LARGE_CLAIMS_BY_FREQUENCY.enabled = false;
+  try { const c = costs(); gradePricing(c, c.shipped, ''); } finally { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; }
+}, '2.');
+controlFails('a written-out range moved (WC High from $6M)', () => {
+  const saved = BRIEF_RANGE.WC.High[0];
+  BRIEF_RANGE.WC.High[0] = 7e6;
+  try { gradePricing(shippedCosts, shippedCosts.shipped, ''); } finally { BRIEF_RANGE.WC.High[0] = saved; }
+}, '2.');
 controlFails('the old one-per-three-years count', () => gradeSchedules(
   (seed, years, stream) => drawShockSchedule(seed, years, stream).slice(0, Math.max(1, Math.round(years / 3))),
   shockDrawRange, ''), '3.');

@@ -32,6 +32,20 @@
 //      every later one checked — the price is struck on the shock-free shadow
 //      (SHOCK_FREE_PRICING), and the cover's price is the table's.
 //
+// RESTATED FOR wip/large-claims-frequency: a large claim now arrives by
+// frequency (not with an event) and is recorded as a shock record of its own,
+// shockId LARGE_CLAIM_ID ('T'), "Large claim", one per line per year it
+// arrives. Those records are not schedule events, so sections 2 and 0 compare
+// the CATALOGUE events (records other than 'T') with the schedule, as before,
+// and a new check 2d holds the 'T' records to the game's large-claim draw:
+// in every world, a line-year carries one 'T' record exactly when
+// largeClaimArrivals drew that line a claim that year, attributed exactly the
+// dollars of that line-year's large claims (claims with shockId 'T'), alike in
+// every world; and the averaged year says each fired in every world. The
+// shocks-off solo game (section 0) still fires nothing — no 'T' record either.
+// New controls: a world missing a large claim's record, a record carrying the
+// wrong dollars, and one on a line that drew none are each caught by 2d.
+//
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over data, and THE
 // CONTROLS at the foot feed each one a deliberately broken input and require it
 // to fail. A control that passes is a check that cannot.
@@ -39,7 +53,7 @@
 
 import { openSoloInstance } from '../../src/utils/soloGame';
 import { drawCatalogueSchedule, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
-import { eventLines, firingsStartingIn, SHOCK_EVENTS } from '../../src/utils/shockLosses';
+import { eventLines, firingsStartingIn, LARGE_CLAIM_ID, largeClaimArrivals, SHOCK_EVENTS } from '../../src/utils/shockLosses';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -106,7 +120,41 @@ function scheduleShape(s: readonly ScheduledShock[], years: number): string[] {
 /** The events that STARTED in each year, in one world's rows: "y:id,id". */
 function startedByYear(rows: GameState['lockedResults']): string[] {
   return rows.map((r, i) => `${i + 1}:${(r.shockEvents ?? [])
-    .filter(e => e.yearFired === r.yearNumber).map(e => e.shockId).sort().join(',')}`);
+    .filter(e => e.yearFired === r.yearNumber && e.shockId !== LARGE_CLAIM_ID).map(e => e.shockId).sort().join(',')}`);
+}
+
+/**
+ * 2d. The large claims' records (wip/large-claims-frequency): per world, per
+ * line-year, [has a 'T' record, its attributed dollars, the dollars of the
+ * line-year's large claims] — against the game's draw, `drawn` ("y|line").
+ */
+type LcView = { has: boolean; recorded: number; claims: number }[][];
+function largeClaimView(worldRows: GameState['lockedResults'][]): LcView {
+  return worldRows.map(rows => rows.flatMap((r, yi) => LINES.map(l => {
+    const lr = r.byLine[l];
+    const recs = (lr?.shockEvents ?? []).filter(e => e.shockId === LARGE_CLAIM_ID && e.yearFired === yi + 1);
+    return {
+      has: recs.length === 1 ? true : recs.length === 0 ? false : (NaN as unknown as boolean),
+      recorded: recs.reduce((a, e) => a + e.attributableGrossLoss, 0),
+      claims: (lr?.claims ?? []).filter(c => c.shockId === LARGE_CLAIM_ID && c.accidentYear === yi + 1).reduce((a, c) => a + c.grossUltimate, 0),
+    };
+  })));
+}
+function largeClaimRecords(view: LcView, drawn: Set<string>, years: number): string[] {
+  const out: string[] = [];
+  if (drawn.size === 0) out.push('the game drew no large claim — nothing measured');
+  view.forEach((cells, w) => cells.forEach((c, i) => {
+    const y = Math.floor(i / LINES.length) + 1, l = LINES[i % LINES.length];
+    const want = drawn.has(`${y}|${l}`);
+    if (c.has !== want) out.push(`world ${w + 1} year ${y} ${l}: ${c.has ? 'a' : 'no'} Large claim record, the game drew ${want ? 'one' : 'none'}`);
+    else if (want && !(c.claims > 0 && Math.abs(c.recorded - c.claims) <= 1e-6 * c.claims)) {
+      out.push(`world ${w + 1} year ${y} ${l}: the record carries $${c.recorded.toFixed(0)}, its large claim $${c.claims.toFixed(0)}`);
+    }
+  }));
+  const forms = new Set(view.map(cells => JSON.stringify(cells.map(c => [c.has, c.recorded]))));
+  if (forms.size !== 1) out.push(`the large claims' records differ across worlds (${forms.size} forms)`);
+  if (view[0] && view[0].length !== years * LINES.length) out.push(`${view[0].length} line-years read, ${years * LINES.length} played`);
+  return out;
 }
 
 /** 2a. Every world fires exactly the schedule's events, in its years. */
@@ -186,6 +234,8 @@ const schedule = solo.instance.scheduledShocks ?? [];
 const A = playTo(open(solo.setup, solo.instance), 1, YEARS);
 const worldRows = A.worlds!.map(w => w.lockedResults);
 const worldInstances = A.worlds!.map((_, i) => worldInstance(A.instance, i));
+const drawnA = new Set<string>();
+for (let y = 1; y <= YEARS; y++) for (const a of largeClaimArrivals(A.instance, y)) drawnA.add(`${y}|${a.line}`);
 console.log(`  schedule: ${schedule.map(s => `${s.shockId} in year ${s.yearNumber}`).join('; ')}`);
 
 console.log('\n--- 1. the schedule is the catalogue draw\'s, drawn once ---');
@@ -200,13 +250,19 @@ console.log('\n--- 2. every world fires the same events in the same years, at th
 {
   const bad = sameEventsEveryWorld(worldRows, schedule);
   check(bad.length === 0, `all ${WORLD_COUNT} worlds fire exactly the schedule's events, in its years`, bad[0] ?? '');
-  const avg = A.lockedResults.flatMap(r => (r.shockEvents ?? []).filter(e => e.yearFired === r.yearNumber));
+  const avgAll = A.lockedResults.flatMap(r => (r.shockEvents ?? []).filter(e => e.yearFired === r.yearNumber));
+  const avg = avgAll.filter(e => e.shockId !== LARGE_CLAIM_ID);
   check(avg.length === schedule.length && avg.every(e => e.worlds?.fired === WORLD_COUNT),
     `the averaged year says each fired in ${WORLD_COUNT} of ${WORLD_COUNT} worlds`, avg.map(e => `${e.shockId} ${e.worlds?.fired}`).join(', '));
   const sev = severityShared(worldInstances, schedule);
   check(sev.length === 0, 'each firing\'s size draws are the game\'s, the same in every world', sev[0] ?? '');
   const differing = lossesDiffer(worldRows, schedule);
   check(differing > 0, `and the loss it books differs across worlds (${differing} of ${schedule.length} events)`);
+  const lc = largeClaimRecords(largeClaimView(worldRows), drawnA, YEARS);
+  const avgT = avgAll.filter(e => e.shockId === LARGE_CLAIM_ID);
+  check(lc.length === 0 && avgT.length > 0 && avgT.every(e => e.worlds?.fired === WORLD_COUNT && e.name === 'Large claim'),
+    `2d. large claims by frequency: a "Large claim" record exactly where the game drew one (${[...drawnA].join(', ')}), carrying its dollars, alike in all ${WORLD_COUNT} worlds`,
+    lc[0] ?? avgT.map(e => `T${e.yearFired} ${e.worlds?.fired}`).join(', '));
 }
 
 console.log('\n--- 6. a regional event strikes one region in every world ---');
@@ -245,7 +301,7 @@ SOLO_SHOCKS.enabled = false;
   const Hoff = playTo(open({ ...settingsFor('SSHOST'), shockTiming: 'host' }, hostInst), 1, 3);
   // The same event twice in a year is one record, so compare event-years.
   const fired = [...new Set(Hoff.lockedResults.flatMap(r => (r.shockEvents ?? [])
-    .filter(e => e.yearFired === r.yearNumber).map(e => `${e.shockId}y${e.yearFired}`)))].sort();
+    .filter(e => e.yearFired === r.yearNumber && e.shockId !== LARGE_CLAIM_ID).map(e => `${e.shockId}y${e.yearFired}`)))].sort();
   const listed = [...new Set(HOST_LIST.map(h => `${h.shockId}y${h.yearNumber}`))].sort();
   check(same(fired, listed),
     `0. with single-player shocks off, a hosted game still fires the host's schedule`, fired.join(', '));
@@ -335,6 +391,18 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
     'control: a region drawn per world is caught');
   check(lossesDiffer(worldRows.map(() => worldRows[0]), schedule) === 0,
     'control: one world\'s losses in every world are caught');
+  {
+    const v = largeClaimView(worldRows);
+    const at = v[0].findIndex(c => c.has === true);
+    const edit = (f: (c: LcView[0][0]) => LcView[0][0], w = 0, i = at) => v.map((cells, wi) => cells.map((c, ci) => (wi === w && ci === i ? f(c) : c)));
+    check(at >= 0 && largeClaimRecords(edit(c => ({ ...c, has: false, recorded: 0 }), WORLD_COUNT - 1), drawnA, YEARS).length > 0,
+      'control: a world missing a large claim\'s record is caught by 2d');
+    check(at >= 0 && largeClaimRecords(v.map(cells => cells.map((c, ci) => (ci === at ? { ...c, recorded: c.recorded * 0.5 } : c))), drawnA, YEARS).length > 0,
+      'control: a large claim\'s record carrying the wrong dollars (in every world) is caught by 2d');
+    const none = v[0].findIndex(c => c.has === false);
+    check(none >= 0 && largeClaimRecords(v.map(cells => cells.map((c, ci) => (ci === none ? { has: true, recorded: 1e6, claims: 1e6 } : c))), drawnA, YEARS).length > 0,
+      'control: a large claim recorded on a line-year that drew none is caught by 2d');
+  }
   // A schedule redrawn per load: a reload that loses it.
   const lost = { ...reloaded!, instance: { ...reloaded!.instance, scheduledShocks: drawCatalogueSchedule('SSCHK2', YEARS, SOLO_SHOCK_STREAM) } };
   const lostFinished = playTo(lost, SAVE_AT + 1, YEARS);

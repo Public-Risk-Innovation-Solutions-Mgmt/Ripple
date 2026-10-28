@@ -177,22 +177,22 @@ async function solo(browser) {
 
 // ============================================================================
 // T CLAIMS (wip/shocks) — a shocks-on solo game CERTAIN to have them.
-// Scenario 14 over four years draws (single player, catalogue odds, on its
-// fixed seed) a Winterstorm in year 2 and another in year 4 — ONE Property T
-// claim each; the end workbook must hold exactly those, so a changed draw
-// fails here by name rather than passing on an empty workbook. (Restated for
-// the fixed-seed scenarios: on the old mapping scenario 16 over five years
-// drew a Wildfire in year 2 and a Social Inflation in year 5; on its fixed
-// seed it draws none, and scenario 14 at four years is the one that again
-// has a T claim in year 2, for the control, and one in the final year.) At every point the Claims
+// RESTATED FOR wip/large-claims-frequency: large claims are each line's own
+// draw (LARGE_CLAIMS_BY_FREQUENCY), no longer a catalogue event's. Scenario 3
+// over five years draws exactly two: GL in year 2 (for the control) and
+// Property in year 5, the final year. (Before: scenario 14 at four years, a
+// Winterstorm's Property claim in years 2 and 4; on the new draw it has GL in
+// year 1 and Property in year 2 only.) The end workbook must hold exactly
+// those, so a changed draw fails here by name rather than passing on an empty
+// workbook. At every point the Claims
 // workbook's T claims (its rows with an Event) are exactly the game's T claims
 // from known years — every one, none from after the latest known year — and at
 // game end the final year's appears. THE CONTROL: after the first lock year 2
 // is not yet played; its claim exists (the end workbook has it) but must be
 // absent, and must appear at once after the second lock, when year 2 is played.
 // ============================================================================
-const T_SCENARIO = '14', T_LENGTH = 4;
-const T_EXPECTED = [{ sheet: /Property/, ay: 2 }, { sheet: /Property/, ay: 4 }];
+const T_SCENARIO = '3', T_LENGTH = 5;
+const T_EXPECTED = [{ sheet: /General Liability|GL/, ay: 2 }, { sheet: /Property/, ay: 5 }];
 
 async function tClaimsGame(browser) {
   const ctx = await browser.newContext({ baseURL: BASE, acceptDownloads: true });

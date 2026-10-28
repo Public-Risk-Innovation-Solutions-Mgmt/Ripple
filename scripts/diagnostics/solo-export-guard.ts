@@ -1011,7 +1011,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // row: riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's save
 // key. The 24 statements match. The guard's games hold None,
 // so no cover, price or recovery reaches them. No file added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v107.json');
+// v108: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
+// e698c79, which reproduces v107 here 48 of 48. With LARGE_CLAIMS_BY_FREQUENCY
+// switched off at run time, all 24 Results files move by the Version row alone
+// (riskpool_gamestate_v36 -> v37, this landing's save key) and the 24
+// statements match. As built (both sides' text, GUARD_TEXT_DIR), 40 of 48 move:
+//   - every Results file: the Version row, and Expected Losses / its net row /
+//     the Pure Premium row beside them, which carry the expected large-claim
+//     cost at the new frequencies (first instance's WC 2026 $23.57M -> $24.31M);
+//   - on Property, the Reserve Risk Margin Needed and the Excess Available
+//     Surplus / Excess Capital Ratio it sets, which hold the large-claim capital
+//     at the new frequencies even in a game where none lands (ZZTEST99 PR-solo);
+//   - where a line draws a large claim: the year's "Events This Year" ("Large
+//     claim: 1.0 claims, $6,048,813") and its losses, LAE, reserves, ratios,
+//     income, investments, surplus and capital, in that year and the years after.
+// NO RATE OR PREMIUM ROW MOVES in any file: the rate per $100, gross premium
+// and member charge are bit-identical, because large claims stay out of the
+// rate (the shock-free pricing shadow). The 8 statements that match are for the
+// line-games where no large claim lands in either build (GL in 6KA6WGLJ and
+// MAMC6EA4; PR and WC in ZZTEST99; both arms). No file is added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v108.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

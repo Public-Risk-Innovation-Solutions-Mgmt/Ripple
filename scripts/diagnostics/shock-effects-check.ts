@@ -11,6 +11,27 @@
 // problems; each has a CONTROL that breaks the thing it guards at runtime,
 // asserts the section now FAILS, and restores it — a check that has never
 // failed proves nothing (SESSION_PRACTICES.md §2).
+//
+// RESTATED FOR wip/large-claims-frequency: catalogue events keep their A and R
+// but set no T claim; each line draws at most one large claim a year by
+// frequency (Low 7.5%, Mid 5.25%, High 2.25%, on the game seed), uniform across
+// the brief's range for the level x the year's growth factor.
+//   2. was "each scheduled event's T is one claim": now over 400 seeds with
+//      Nuclear Verdict and Pandemic scheduled, every arrival is a large claim
+//      (LARGE_CLAIM_ID), none an event's; at most one per line-year; each is
+//      largeClaimArrivals' draw, inside the brief's range for its level, and
+//      uniform there (mean within 4 SE of the midpoint). New control: the
+//      events' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off).
+//   3. the map still carries the brief's T column (data); through the engine
+//      an event now brings NO T on any line (its own arrivals are empty).
+//      New control: LARGE_CLAIMS_BY_FREQUENCY off.
+//   4b. the claim the cover answers is now a large claim drawn by frequency:
+//      game 'LC36' (Wildfire still scheduled in year 2, which brings no T)
+//      draws Property a High large claim in year 2; it is the line-year's only
+//      shock claim, the table draw x the brief's growth factor, alike in every
+//      world, recovered min(max(x - $2M, 0), $38M). The A-only year (Recession)
+//      recovers exactly the layer on that line-year's large claims — none in
+//      game '6' — so the A is never ceded.
 // ============================================================================
 
 import {
@@ -20,7 +41,9 @@ import {
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import {
   SHOCK_EVENTS, eventLines, firingsStartingIn, resolveShockYear, tClaimSize, aShare, applyMarketShock,
+  LARGE_CLAIM_ID, largeClaimArrivals,
 } from '../../src/utils/shockLosses';
+import { LARGE_CLAIMS_BY_FREQUENCY } from '../../src/data/pricingParameters';
 import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
 import { optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
 import { blendInvestmentReturn } from '../../src/utils/investmentEngine';
@@ -140,23 +163,32 @@ function sectionTDraws(): string[] {
       if (!near(tClaimSize(l, lv, u), lo + u * (hi - lo))) out.push(`${l} ${lv}: T ${tClaimSize(l, lv, u)} not on [${lo}, ${hi}]`);
     }
   }
-  // Over many seeds: each T is ONE arrival per event-line, uniform in range.
+  // Over many seeds, with T events scheduled (Nuclear Verdict, Pandemic): every
+  // arrival is a large claim by frequency — none an event's — at most one per
+  // line-year, the game's draw, inside its level's range and uniform there.
   const sums: Record<string, { n: number; s: number; lo: number; hi: number }> = {};
   for (let k = 1; k <= 400; k++) {
     const inst = instanceWith(`t${k}`, [{ shockId: '#7', yearNumber: 2 }, { shockId: '#9', yearNumber: 3 }]);
     for (const y of [2, 3]) {
       const sy = resolveShockYear(inst, 'host', y);
-      for (const l of LINES) for (const a of sy.byLine[l].arrivals) {
-        const key = `${a.firing.event.name}/${l}/${a.level}`;
-        const r = BRIEF_T[l][a.level];
-        if (a.size < r[0] || a.size > r[1]) out.push(`${key}: size ${a.size} outside the brief's range`);
-        const e = (sums[key] ??= { n: 0, s: 0, lo: r[0], hi: r[1] });
-        e.n++; e.s += a.size;
+      const drawn = largeClaimArrivals(inst, y);
+      for (const l of LINES) {
+        const arr = sy.byLine[l].arrivals;
+        if (arr.length > 1) out.push(`t${k} year ${y} ${l}: ${arr.length} large claims, at most one`);
+        const want = drawn.filter(a => a.line === l).map(a => `${a.level}:${a.size}`).join(',');
+        if (arr.map(a => `${a.level}:${a.size}`).join(',') !== want) out.push(`t${k} year ${y} ${l}: arrivals are not the game's large-claim draw`);
+        for (const a of arr) {
+          if (a.firing.event.id !== LARGE_CLAIM_ID) { out.push(`t${k} year ${y} ${l}: ${a.firing.event.name} brought a T claim`); continue; }
+          const key = `${l}/${a.level}`;
+          const r = BRIEF_T[l][a.level];
+          if (a.size < r[0] || a.size > r[1]) out.push(`${key}: size ${a.size} outside the brief's range`);
+          const e = (sums[key] ??= { n: 0, s: 0, lo: r[0], hi: r[1] });
+          e.n++; e.s += a.size;
+        }
       }
     }
   }
-  const want = ['Nuclear Verdict/GL/High', 'Pandemic/GL/Mid', 'Pandemic/WC/High'];
-  for (const k of want) if (sums[k]?.n !== 400) out.push(`${k}: ${sums[k]?.n ?? 0} claims in 400 firings, expected exactly one each`);
+  for (const lv of ['Low', 'Mid', 'High']) if (!LINES.some(l => (sums[`${l}/${lv}`]?.n ?? 0) > 0)) out.push(`no ${lv} large claim in 2,400 line-years`);
   for (const [k, e] of Object.entries(sums)) {
     const mean = e.s / e.n, mid = (e.lo + e.hi) / 2, se = (e.hi - e.lo) / Math.sqrt(12 * e.n);
     if (Math.abs(mean - mid) > 4 * se) out.push(`${k}: mean ${(mean / M).toFixed(2)}M, uniform mean ${(mid / M).toFixed(2)}M`);
@@ -187,10 +219,11 @@ function sectionMatrix(): string[] {
     for (const l of LINES) {
       const b = brief[l];
       const hasA = sy.byLine[l].uplift > 0 && e.name !== 'Economic Inflation';
-      const hasT = sy.byLine[l].arrivals.length > 0;
+      // Events bring no T (wip/large-claims-frequency): only the event's OWN arrivals count.
+      const hasT = sy.byLine[l].arrivals.some(a => a.firing.event.id === e.id);
       const hasR = sy.byLine[l].rRate > 0;
       if (hasA !== (!!b && b[0] !== '-')) out.push(`${e.name} ${l}: engine A ${hasA}`);
-      if (hasT !== (!!b && b[1] !== '-')) out.push(`${e.name} ${l}: engine T ${hasT}`);
+      if (hasT) out.push(`${e.name} ${l}: the event brought a T claim (the map's T is ${b?.[1] ?? '-'})`);
       if (hasR !== (!!b && b[2] !== '-')) out.push(`${e.name} ${l}: engine R ${hasR}`);
     }
   }
@@ -257,10 +290,11 @@ const lineOf = (rows: LineResultSet[], l: CoverageLine) => rows.find(r => r.line
 function sectionCoverInGame(): string[] {
   const out: string[] = [];
   const top = '$38M xs $2M';
-  // Wildfire in year 2: Property's ONE T claim, a catastrophe booked at its
-  // drawn size, so the year's recovery is exactly the layer on it.
-  const withCover = play('6', [{ shockId: '#3', yearNumber: 2 }], 2, d => { d.byLine.Property.reinsuranceOption = top; });
-  const without = play('6', [{ shockId: '#3', yearNumber: 2 }], 2);
+  // Game 'LC36': Property draws a High large claim in year 2 (Wildfire, also
+  // scheduled there, brings none) — the line-year's ONE shock claim, booked at
+  // its drawn size, so the year's recovery is exactly the layer on it.
+  const withCover = play('LC36', [{ shockId: '#3', yearNumber: 2 }], 2, d => { d.byLine.Property.reinsuranceOption = top; });
+  const without = play('LC36', [{ shockId: '#3', yearNumber: 2 }], 2);
   const sizes = new Set<number>();
   // Year 2's factor, from the state the year began in, and the T claim's table size.
   const g = briefFactor(starts.get(withCover)![1], 'Property', 2);
@@ -270,6 +304,7 @@ function sectionCoverInGame(): string[] {
     const r = lineOf(rows, 'Property');
     const t = (r.claims ?? []).filter(c => c.tier === 'shock' && c.accidentYear === 2);
     if (t.length !== 1) { out.push(`world ${w + 1}: ${t.length} T claims on Property`); return; }
+    if (t[0].shockId !== LARGE_CLAIM_ID) out.push(`world ${w + 1}: the T claim is ${t[0].shockId}'s, not a large claim's`);
     sizes.add(t[0].grossUltimate);
     if (!near(t[0].grossUltimate, table * g, 1e-9)) out.push(`world ${w + 1}: T claim ${t[0].grossUltimate}, table ${table} x factor ${g.toFixed(4)}`);
     const want = Math.min(Math.max(t[0].grossUltimate - 2 * M, 0), 38 * M);
@@ -287,10 +322,14 @@ function sectionCoverInGame(): string[] {
     }
   });
   if (sizes.size !== 1) out.push(`the T claim differs across worlds: ${sizes.size} sizes`);
-  // An A-only year (Recession) never reaches the cover.
+  // An A-only year (Recession) never reaches the cover: each line recovers
+  // exactly the layer on its own large claims (game '6' draws none in year 2).
   const a = play('6', [{ shockId: '#6', yearNumber: 2 }], 2, d => { for (const l of LINES) d.byLine[l].reinsuranceOption = top; });
   for (const rows of a[1]) for (const l of LINES) {
-    if (lineOf(rows, l).reinsuranceRecovery !== 0) out.push(`Recession: ${l} recovered ${lineOf(rows, l).reinsuranceRecovery}`);
+    const r = lineOf(rows, l);
+    const want = (r.claims ?? []).filter(c => c.shockId === LARGE_CLAIM_ID && c.accidentYear === 2)
+      .reduce((x, c) => x + Math.min(Math.max(c.grossUltimate - 2 * M, 0), 38 * M), 0);
+    if (!near(r.reinsuranceRecovery, want, 1e-9)) out.push(`Recession: ${l} recovered ${r.reinsuranceRecovery}, the layer on its large claims ${want}`);
   }
   return out;
 }
@@ -497,17 +536,19 @@ function keyedByEvent(): ReturnType<typeof firingRecords> {
 console.log(`shock-effects-check (${WORLD_COUNT} worlds)\n`);
 check(sectionA(), '1. A: uniform within the brief\'s range, the firing year only, the whole line');
 control('A range changed', () => { const o = R_MODEL.aShock.GL.Mid; (R_MODEL.aShock.GL as Record<string, unknown>).Mid = [0.15, 0.40]; return () => { (R_MODEL.aShock.GL as Record<string, unknown>).Mid = o; }; }, sectionA);
-check(sectionTDraws(), '2. T: one claim, uniform within the brief\'s range, unscaled');
+check(sectionTDraws(), '2. T: events bring none; large claims by frequency, at most one a line-year, uniform within the brief\'s range, unscaled');
+control('the events\' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off)', () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = false; return () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; }; }, sectionTDraws);
 control('T High top at $15M', () => { const o = SHOCK_T_CLAIM_RANGE.GL.High; (SHOCK_T_CLAIM_RANGE.GL as Record<string, unknown>).High = [7e6, 15e6]; return () => { (SHOCK_T_CLAIM_RANGE.GL as Record<string, unknown>).High = o; }; }, sectionTDraws);
 check(sectionMatrix(), '3. the event matrix, in the map and through the engine');
 control('a map row changed', () => {
   const map = R_MODEL.shockMap as unknown as string[][]; const i = map.findIndex(r => r[0] === 'Wildfire'); const o = map[i];
   map[i] = ['Wildfire', 'Property', 'Low', 'Low', 'None']; return () => { map[i] = o; };
 }, sectionMatrix);
+control('the events\' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off), through the engine', () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = false; return () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; }; }, sectionMatrix);
 check(sectionCoverTerms(), '4a. T covers: the eight offered, priced by the method, ceding min(max(x - att, 0), limit)');
 control('a frequency changed', () => { const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Mid; f.Mid = 0.06; return () => { f.Mid = o; }; }, sectionCoverTerms);
 control('a tower layer moved', () => { const L = REINSURANCE_TOWER.WC[1]; const o = L.attachment; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = o; L.limit = 8e6; }; }, sectionCoverTerms);
-check(sectionCoverInGame(), '4b. in a game: the T claim\'s recovery, size and price grown by the trend and book, the charge, A never ceded, one claim in every world');
+check(sectionCoverInGame(), '4b. in a game: the large claim\'s recovery, size and price grown by the trend and book, the charge, A never ceded, one claim in every world');
 control('the trend changed', () => { const t = SHOCK_COST_TREND as Record<string, number>; const o = t.Property; t.Property = 0.07; return () => { t.Property = o; }; }, sectionCoverInGame);
 control('the $2M layer moved', () => { const L = REINSURANCE_TOWER.Property[1]; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = 2e6; L.limit = 8e6; }; }, sectionCoverInGame);
 check(sectionRatePanel(), '4c. rate panel: pure premium = expected x CLF whatever the cover, reinsurance = the price, rows add to the rate');

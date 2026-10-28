@@ -1550,7 +1550,31 @@ const BASELINE = process.env.RENDER_BASELINE
 //   riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's key —
 //   nothing else on them.
 // The harness holds None, so no other figure changes.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v104.json');
+// v105: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
+// e698c79. The control ran first: e698c79, built in its own worktree,
+// reproduced v104 236 of 236 here. Against it, word-diffed (RENDER_TEXT_DIR
+// both sides), 59 move:
+//   every Rate Indication (10): Event Likelihoods is now a table ("Return
+//   period", "Claim size") with a small chart under it ($0M to $40M against
+//   1/10 to 1/200), its sizes at the new frequencies (WC 2027 "—, —, —, —,
+//   $15.5M" -> $2.3M, $4.4M, $9.8M, $24.9M, $32.4M; Property $4.0M, $8.3M,
+//   $15.1M, $27.6M, $33.8M), rising with the year (WC 2029 $2.5M ... $35.1M).
+//   No rate, pure premium, expense or cover price on the page moves;
+//   every Calculation Audit (26): the Year Walkthrough's save version
+//   (riskpool_gamestate_v36 -> v37); at 2028 the expected losses, which carry
+//   the expected large-claim cost at the new frequencies (WC $24,637,497 ->
+//   $25,411,286; GL $23,179,724 -> $23,650,649; Property $23,119,742 ->
+//   $23,623,597); and on Property the reserve margin's large-claim capital
+//   ($12,082,474 -> $8,625,000, the average Property large claim at 2027) and
+//   the Reserve Risk Margin Needed it sets ($13,085,188 -> $9,627,713);
+//   Financial Statements (8) and Results (8), the Property and Pool views: the
+//   Required Reserve Margin, Excess Available Surplus and Excess Capital Ratio
+//   that follow (Property 51.3% -> 105.6%);
+//   Result Spreadsheet (7): the same expected losses and Property margin rows,
+//   and the Property capital status "Adequate" -> "Strong" in four years.
+// No large claim lands in these render games, so no event, narrative, loss or
+// surplus figure moves. The 177 other screens match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v105.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

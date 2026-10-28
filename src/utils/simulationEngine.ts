@@ -121,6 +121,9 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
       existing.attributableGrossLoss += rec.attributableGrossLoss;
       existing.attributableClaims += rec.attributableClaims;
       existing.expectedGrossLossAdded += rec.expectedGrossLossAdded;
+      // A catalogue event's line records each carry its full line list; a large
+      // claim's carries its own line alone, so two lines' share one pool record.
+      for (const l of rec.linesAffected) if (!existing.linesAffected.includes(l)) existing.linesAffected.push(l);
       existing.byLine = { ...existing.byLine, [line]: own };
     }
   }
