@@ -27,13 +27,21 @@
 // runtime; the events' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off);
 // Property's High range to $50M; the page's table read at no growth.
 //
+// RESTATED FOR LARGE_CLAIMS_EVERY_GAME: large claims are now drawn in every
+// game, shocks on or off, so the Event Likelihoods show in every game. Section
+// 2 used to want NO table with the shocks off; it now wants the same table —
+// recomputed exactly at that game's own growth factor, the coming year and a
+// played year alike — in a hosted game with no schedule (gameShocksOn false,
+// asserted). New control: LARGE_CLAIMS_EVERY_GAME.enabled = false at runtime
+// (the table hidden with shocks off) must fail 2.
+//
 // ⚠ THE CATALOGUE IS WRITTEN OUT HERE, not read: a changed chance, level or
 // range fails rather than moving the expectation. Each section has a CONTROL
 // that breaks the thing it guards at runtime, requires the section to FAIL,
 // and restores it.
 // ============================================================================
 
-import { LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, SHOCK_T_CLAIM_RANGE, SHOCK_COST_TREND } from '../../src/data/pricingParameters';
+import { LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, LARGE_CLAIMS_EVERY_GAME, SHOCK_T_CLAIM_RANGE, SHOCK_COST_TREND } from '../../src/data/pricingParameters';
 import { eventLikelihoods, RETURN_PERIODS } from '../../src/utils/eventLikelihoods';
 import { buildRateIndication } from '../../src/utils/rateIndication';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -43,6 +51,7 @@ import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from 
 import { exposureFactor } from '../../src/data/exposureTrend';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { seedFromInstanceId } from '../../src/seedHash';
+import { gameShocksOn } from '../../src/utils/shockLosses';
 import type { CoverageLine, GameSetupSettings, GameState } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -140,25 +149,23 @@ function playTo(shocksOff: boolean): GameState {
 function sectionPage(): string[] {
   const out: string[] = [];
   games ??= { on: playTo(false), off: playTo(true) };
-  const gs = games.on;
+  // LARGE_CLAIMS_EVERY_GAME: the same table, at the game's own factor, shocks on or off.
+  for (const [gs, tag] of [[games.on, 'shocks on'], [games.off, 'shocks off']] as const) {
+  if (gameShocksOn(gs.setup, gs.instance) !== (tag === 'shocks on')) out.push(`${tag}: the game's shocks are ${gameShocksOn(gs.setup, gs.instance) ? 'on' : 'off'}`);
   for (const l of LINES) {
     // The coming year: the claims' and charges' factor — trend x the book's growth since year 1.
     const ls = gs.poolState.lines[l];
     const y = gs.currentYearNumber;
     const g = Math.pow(1 + TREND[l], y - 1) * ((ls.bookExposure ?? 0) * exposureFactor(l, y)) / (ls.shockCostBaseExposure ?? NaN);
     const ri = buildRateIndication(gs, l, defaultDecisionSet(y), y);
-    if (!ri?.eventLikelihoods) { out.push(`${l} year ${y}: no Event Likelihoods with shocks on`); continue; }
-    out.push(...sameTable(ri.eventLikelihoods, l, g, `year ${y} (coming)`));
+    if (!ri?.eventLikelihoods) { out.push(`${l} year ${y}: no Event Likelihoods with ${tag}`); continue; }
+    out.push(...sameTable(ri.eventLikelihoods, l, g, `${tag} year ${y} (coming)`));
     // A played year: its cover prices on the page are quoted on its rated book alone, at the trend's growth.
     const py = y - 1;
     const past = buildRateIndication(gs, l, defaultDecisionSet(y), py);
-    if (past?.eventLikelihoods) out.push(...sameTable(past.eventLikelihoods, l, Math.pow(1 + TREND[l], py - 1), `year ${py} (played)`));
-    else out.push(`${l} year ${py}: no Event Likelihoods on a played year`);
+    if (past?.eventLikelihoods) out.push(...sameTable(past.eventLikelihoods, l, Math.pow(1 + TREND[l], py - 1), `${tag} year ${py} (played)`));
+    else out.push(`${l} year ${py}: no Event Likelihoods on a played year with ${tag}`);
   }
-  for (const l of LINES) {
-    const off = buildRateIndication(games.off, l, defaultDecisionSet(games.off.currentYearNumber), games.off.currentYearNumber);
-    if (off && off.eventLikelihoods !== null) out.push(`${l}: Event Likelihoods shown with shocks off`);
-    if (!off) out.push(`${l}: no Rate Indication with shocks off — nothing measured`);
   }
   return out;
 }
@@ -178,10 +185,14 @@ control('Property\'s High range to $50M', () => {
   const r = SHOCK_T_CLAIM_RANGE.Property as Record<string, readonly number[]>; const o = r.High; r.High = [12e6, 50e6];
   return () => { r.High = o; };
 }, sectionTable);
-check(sectionPage(), `2. on the Rate Indication in a game (year ${YEARS} coming, ${YEARS - 1} played): the table at the factor its claims and cover prices use; none with shocks off`);
+check(sectionPage(), `2. on the Rate Indication in a game (year ${YEARS} coming, ${YEARS - 1} played): the table at the factor its claims and cover prices use; the same with shocks off`);
 control('the page\'s table read at no growth', () => {
   const t = SHOCK_COST_TREND as Record<string, number>; const o = { ...t }; for (const k of Object.keys(t)) t[k] = 0;
   return () => { Object.assign(t, o); };
+}, () => { const g = games; games = null; try { return sectionPage(); } finally { games = g; } });
+control('LARGE_CLAIMS_EVERY_GAME switched off (no table with shocks off)', () => {
+  LARGE_CLAIMS_EVERY_GAME.enabled = false;
+  return () => { LARGE_CLAIMS_EVERY_GAME.enabled = true; };
 }, () => { const g = games; games = null; try { return sectionPage(); } finally { games = g; } });
 
 void RETURN_PERIODS;

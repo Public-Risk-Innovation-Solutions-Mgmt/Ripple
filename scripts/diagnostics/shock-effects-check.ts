@@ -32,6 +32,13 @@
 //      world, recovered min(max(x - $2M, 0), $38M). The A-only year (Recession)
 //      recovers exactly the layer on that line-year's large claims — none in
 //      game '6' — so the A is never ceded.
+//
+// RESTATED FOR LARGE_CLAIMS_EVERY_GAME: large claims are now drawn in every
+// game, shocks on or off, so the T covers are offered in every game. 4a used
+// to want None alone with the shocks off; it now wants None and the eight
+// layers with the shocks off as well (the same list; prices by the method, as
+// optionPrice takes no shock switch). New control: LARGE_CLAIMS_EVERY_GAME
+// .enabled = false at runtime (None alone with shocks off) must fail 4a.
 // ============================================================================
 
 import {
@@ -43,7 +50,7 @@ import {
   SHOCK_EVENTS, eventLines, firingsStartingIn, resolveShockYear, tClaimSize, aShare, applyMarketShock,
   LARGE_CLAIM_ID, largeClaimArrivals,
 } from '../../src/utils/shockLosses';
-import { LARGE_CLAIMS_BY_FREQUENCY } from '../../src/data/pricingParameters';
+import { LARGE_CLAIMS_BY_FREQUENCY, LARGE_CLAIMS_EVERY_GAME } from '../../src/data/pricingParameters';
 import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
 import { optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
 import { blendInvestmentReturn } from '../../src/utils/investmentEngine';
@@ -238,7 +245,8 @@ function sectionCoverTerms(): string[] {
     const offered = reinsuranceOptionIds(l, true);
     const ids = ['none', ...BRIEF_COVERS.map(c => c[0])];
     if (offered.join('|') !== ids.join('|')) out.push(`${l} offers ${offered.join(', ')}`);
-    if (reinsuranceOptionIds(l, false).join('|') !== 'none') out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
+    // LARGE_CLAIMS_EVERY_GAME: the same nine with the shocks off.
+    if (reinsuranceOptionIds(l, false).join('|') !== ids.join('|')) out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
     BRIEF_COVERS.forEach(([id, att, lim], k) => {
       if (!near(optionPrice(l, id), BRIEF_PRICE[l][k], 1e-12)) out.push(`${l} ${id}: price ${optionPrice(l, id)}, the method's ${BRIEF_PRICE[l][k]}`);
       const placed = placementFor(l, id);
@@ -545,7 +553,8 @@ control('a map row changed', () => {
   map[i] = ['Wildfire', 'Property', 'Low', 'Low', 'None']; return () => { map[i] = o; };
 }, sectionMatrix);
 control('the events\' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off), through the engine', () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = false; return () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; }; }, sectionMatrix);
-check(sectionCoverTerms(), '4a. T covers: the eight offered, priced by the method, ceding min(max(x - att, 0), limit)');
+check(sectionCoverTerms(), '4a. T covers: the eight offered (shocks on or off), priced by the method, ceding min(max(x - att, 0), limit)');
+control('LARGE_CLAIMS_EVERY_GAME switched off (None alone with shocks off)', () => { LARGE_CLAIMS_EVERY_GAME.enabled = false; return () => { LARGE_CLAIMS_EVERY_GAME.enabled = true; }; }, sectionCoverTerms);
 control('a frequency changed', () => { const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Mid; f.Mid = 0.06; return () => { f.Mid = o; }; }, sectionCoverTerms);
 control('a tower layer moved', () => { const L = REINSURANCE_TOWER.WC[1]; const o = L.attachment; L.attachment = 3e6; L.limit = 7e6; return () => { L.attachment = o; L.limit = 8e6; }; }, sectionCoverTerms);
 check(sectionCoverInGame(), '4b. in a game: the large claim\'s recovery, size and price grown by the trend and book, the charge, A never ceded, one claim in every world');

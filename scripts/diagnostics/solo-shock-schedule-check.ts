@@ -46,6 +46,16 @@
 // New controls: a world missing a large claim's record, a record carrying the
 // wrong dollars, and one on a line that drew none are each caught by 2d.
 //
+// RESTATED FOR LARGE_CLAIMS_EVERY_GAME: large claims are now drawn in every
+// game, shocks on or off — "shocks off" means only that no catalogue event
+// fires. So section 0's shocks-off solo game (SOLO_SHOCKS off) still draws no
+// schedule and fires no CATALOGUE event in any world, but it now carries 'T'
+// records exactly where largeClaimArrivals drew, held by 2d's own check
+// (largeClaimRecords: in every world, one exactly on each line-year drawn,
+// carrying its dollars, alike in all worlds). New control:
+// LARGE_CLAIMS_EVERY_GAME.enabled = false at runtime, the shocks-off game
+// replayed (no 'T' record) must fail 0.
+//
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over data, and THE
 // CONTROLS at the foot feed each one a deliberately broken input and require it
 // to fail. A control that passes is a check that cannot.
@@ -61,7 +71,7 @@ import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, worldI
 import { packSave, unpackSave, type SavedGame } from '../../src/utils/gameSave';
 import { restoreSavedGame } from '../../src/utils/saveRestore';
 import { seedFromInstanceId } from '../../src/seedHash';
-import { PRICING_DATA_LAG_YEARS, SHOCK_FREE_PRICING, SHOCKS_OUT_OF_EXPERIENCE, SOLO_SHOCK_DRAW, SOLO_SHOCKS, WORLD_COUNT } from '../../src/data/pricingParameters';
+import { LARGE_CLAIMS_EVERY_GAME, PRICING_DATA_LAG_YEARS, SHOCK_FREE_PRICING, SHOCKS_OUT_OF_EXPERIENCE, SOLO_SHOCK_DRAW, SOLO_SHOCKS, WORLD_COUNT } from '../../src/data/pricingParameters';
 import type { ScheduledShock } from '../../src/types/shocks';
 import type { CoverageLine, GameInstance, GameSetupSettings, GameState } from '../../src/types/simulation';
 
@@ -206,27 +216,37 @@ function pricingOf(gs: GameState, y: number): string {
 console.log(`=== SOLO SHOCK SCHEDULE — ${WORLD_COUNT} worlds, three lines, ${YEARS} years ===`);
 
 console.log('\n--- 0. shocks are on in single-player ---');
-/** Problems with a solo game that must fire nothing: a schedule, or any world's firing. */
+/**
+ * Problems with a solo game that must fire no catalogue event: a schedule, or
+ * any world's catalogue firing — and (LARGE_CLAIMS_EVERY_GAME) its 'T' records
+ * not exactly where largeClaimArrivals drew (2d's check).
+ */
 function firesNothing(gs: GameState): string[] {
   const bad: string[] = [];
   if ((gs.instance.scheduledShocks ?? []).length > 0) bad.push(`the instance carries ${gs.instance.scheduledShocks!.length} scheduled event(s)`);
   for (const [i, w] of (gs.worlds ?? []).entries()) for (const r of w.lockedResults) {
-    const fired = (r.shockEvents ?? []).filter(e => e.yearFired === r.yearNumber);
+    const fired = (r.shockEvents ?? []).filter(e => e.yearFired === r.yearNumber && e.shockId !== LARGE_CLAIM_ID);
     if (fired.length > 0) bad.push(`world ${i + 1} year ${r.yearNumber}: ${fired.map(e => e.shockId).join(', ')} fired`);
   }
+  const years = gs.lockedResults.length;
+  const drawn = new Set<string>();
+  for (let y = 1; y <= years; y++) for (const a of largeClaimArrivals(gs.instance, y)) drawn.add(`${y}|${a.line}`);
+  bad.push(...largeClaimRecords(largeClaimView((gs.worlds ?? []).map(w => w.lockedResults)), drawn, years).map(p => `large claims: ${p}`));
   return bad;
 }
 const onSolo = openSoloInstance(settingsFor('SSOFF1'));
 check(SOLO_SHOCKS.enabled && SOLO_SHOCK_DRAW === 'catalogue' && (onSolo.instance.scheduledShocks ?? []).length > 0,
   'single-player shocks are on, drawn at the catalogue\'s odds, and the app\'s solo game carries a schedule',
   `${(onSolo.instance.scheduledShocks ?? []).length} event(s)`);
-// Switched off, the same game draws nothing and fires nothing.
+// Switched off, the same game draws nothing and fires no catalogue event — but
+// its large claims arrive where its seed drew them (LARGE_CLAIMS_EVERY_GAME).
 SOLO_SHOCKS.enabled = false;
 const offSolo = openSoloInstance(settingsFor('SSOFF1'));
 const OFF = playTo(open(offSolo.setup, offSolo.instance), 1, YEARS);
 SOLO_SHOCKS.enabled = true;
 check(firesNothing(OFF).length === 0,
-  `switched off, a single-player game draws no schedule and fires nothing in any of ${WORLD_COUNT} worlds over ${YEARS} years`, firesNothing(OFF)[0] ?? '');
+  `switched off, a single-player game draws no schedule and fires no catalogue event in any of ${WORLD_COUNT} worlds over ${YEARS} years; its 'T' records exactly where largeClaimArrivals drew`,
+  firesNothing(OFF)[0] ?? `T in ${[...new Set(OFF.lockedResults.flatMap(r => (r.shockEvents ?? []).filter(e => e.shockId === LARGE_CLAIM_ID).map(e => `${r.yearNumber}|${e.linesAffected.join('+')}`)))].join(', ') || 'none'}`);
 
 const ID = 'SSCHK1';
 const solo = openSoloInstance(settingsFor(ID));
@@ -373,6 +393,19 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   // Single-player shocks switched off: the solo game the app builds carries no schedule.
   check(!((offSolo.instance.scheduledShocks ?? []).length > 0),
     'control: single-player shocks switched off are caught by 0 (no schedule)');
+  // LARGE_CLAIMS_EVERY_GAME switched off: the shocks-off game, replayed to its
+  // first large claim's year (kept short for the FAST budget), records none.
+  {
+    const firstT = Array.from({ length: YEARS }, (_, i) => i + 1).find(y => largeClaimArrivals(offSolo.instance, y).length > 0) ?? YEARS;
+    LARGE_CLAIMS_EVERY_GAME.enabled = false; SOLO_SHOCKS.enabled = false;
+    let noLarge: GameState;
+    try { noLarge = playTo(open(offSolo.setup, offSolo.instance), 1, firstT); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; SOLO_SHOCKS.enabled = true; }
+    check(firesNothing(noLarge).length > 0, 'control: LARGE_CLAIMS_EVERY_GAME switched off (no \'T\' record in the shocks-off game) is caught by 0');
+  }
+  // A catalogue event in the shocks-off game's rows is caught by 0.
+  check(firesNothing({ ...OFF, worlds: OFF.worlds!.map((w, i) => (i === 0 ? { ...w, lockedResults: w.lockedResults.map((r, yi) => (yi === 2
+    ? { ...r, shockEvents: [...(r.shockEvents ?? []), { ...(r.shockEvents?.[0] ?? {}), shockId: '#3', yearFired: r.yearNumber } as never] } : r)) } : w)) }).length > 0,
+    'control: a catalogue event fired in the shocks-off game is caught by 0');
   // Timing drawn per world: the bare instance, fired by the catalogue in each world.
   const bareSetup = { ...settingsFor(ID) };
   const bare = playTo(open(bareSetup, generateGameInstance(ID, seedFromInstanceId(ID))), 1, YEARS);

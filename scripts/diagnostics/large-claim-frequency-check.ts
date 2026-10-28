@@ -14,8 +14,8 @@
 //     x the year's growth factor: (1 + trend)^(y - 1) x the book's quoted
 //     exposure / year 1's, trend WC 4%, GL 8%, Property 5%.
 //   - Two uniforms (level, then size) on the GAME's seed, stream
-//     `large_claim_<line>`, so every world shares the claim. Only while the
-//     game's shocks are on; never in the shock-free pricing shadow; no load —
+//     `large_claim_<line>`, so every world shares the claim. In every game,
+//     shocks on or off (LARGE_CLAIMS_EVERY_GAME); never in the shock-free pricing shadow; no load —
 //     large claims stay out of the rate entirely.
 //   - Catalogue events keep their A and R but set no T claim.
 //   - Expected shock large losses = Σ over levels of freq x the range's
@@ -37,7 +37,8 @@
 //      on each line, 5% new members a year so the book grows): each world's large claims are the table draw x the
 //      year's growth factor, the same in every world, each recovered exactly
 //      min(max(x − att, 0), limit); no other shock claim exists. A hosted game
-//      with no schedule (shocks off) draws none — though the same seed would.
+//      with no schedule (shocks off) draws exactly its seed's claims too, and
+//      they stay out of its rate (restated below).
 //   4. OUT OF THE RATE, ON THE REAL GAME PATH (playWorldsYear / settle, with
 //      the shadow): the same solo game at default decisions played twice, as
 //      built and with LARGE_CLAIM_FREQUENCY zeroed at runtime (same schedule,
@@ -45,19 +46,38 @@
 //      the as-built run, and every year's struck rate (finalRatePer100,
 //      purePremiumPer100, newPurePremiumPer100) is identical, every line.
 //   5. EXPECTED LOSSES: expectedLossBreakdown's shockLarge is the brief's
-//      Σ p x mid x trend, years 1-15; 0 before year 1 and with shocks off.
+//      Σ p x mid x trend, years 1-15; 0 before year 1; the same with shocks off.
 //   6. THE POOL ROW: the year's one "Large claim" pool record names every line
 //      a large claim landed on (mergeShockRecords unions linesAffected); there
 //      must be a year with two.
+//
+// RESTATED FOR LARGE_CLAIMS_EVERY_GAME: large claims are now drawn in every
+// game, shocks on or off ("shocks off" now means only that no catalogue event
+// fires). So:
+//   3. the hosted game with no schedule (gameShocksOn false, asserted) no
+//      longer draws none: it draws EXACTLY its seed's largeClaimArrivals x the
+//      year's growth factor, alike in every world, with no other shock claim
+//      and no record but "Large claim" ones; and its rate stays out of it — the
+//      same hosted game with LARGE_CLAIM_FREQUENCY zeroed strikes the same rate
+//      every line-year (the shadow now starts in shocks-off games too). New
+//      controls: LARGE_CLAIMS_EVERY_GAME.enabled = false at runtime (the game
+//      replayed, drawing none) must fail 3; the hosted game's claims dropped
+//      (the retired rule) must fail 3; the shadow bypassed in the hosted runs
+//      (SHOCK_FREE_PRICING off) must fail 3.
+//   5. shockLarge with shocks off is no longer 0: it equals the shocks-on value
+//      (the brief's). New control: LARGE_CLAIMS_EVERY_GAME.enabled = false at
+//      runtime must fail 5.
+// Section 2's "none with shocks off" is unchanged: there resolveShockYear is
+// called with largeClaims=false explicitly (the caller says).
 //
 // ⚠ EACH SECTION HAS CONTROLS that break the thing it guards at runtime,
 // require the section to FAIL, and restore it.
 // ============================================================================
 
 import {
-  LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, SHOCK_FREE_PRICING,
+  LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, LARGE_CLAIMS_EVERY_GAME, SHOCK_FREE_PRICING,
 } from '../../src/data/pricingParameters';
-import { LARGE_CLAIM_ID, largeClaimArrivals, resolveShockYear } from '../../src/utils/shockLosses';
+import { LARGE_CLAIM_ID, gameShocksOn, largeClaimArrivals, resolveShockYear } from '../../src/utils/shockLosses';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
 import { deriveSubRng } from '../../src/utils/random';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -244,8 +264,22 @@ function cellsOf(run: Run): Cell[][][] {
   })));
 }
 let covered: { run: Run; cells: Cell[][][] } | null = null;
-let hostedOff: { run: Run; cells: Cell[][][]; wouldDraw: number } | null = null;
-function sectionGame(factor: Factor = briefFactor, covers = COVERS, cellsIn?: Cell[][][], offIn?: Cell[][][]): string[] {
+let hostedOff: { run: Run; cells: Cell[][][]; wouldDraw: number; none: Run } | null = null;
+// A hosted game with no schedule: its shocks are off (no catalogue event).
+const HOSTED_YEARS = 3;
+const hostedOffGame = () => ({
+  setup: { poolName: 'F', gameLength: HOSTED_YEARS, startingYear: 2026, instanceId: GAME_ID, activeLines: LINES, shockTiming: 'host' } as GameSetupSettings,
+  instance: generateGameInstance(GAME_ID, seedFromInstanceId(GAME_ID), []),
+});
+function playHostedOff(): NonNullable<typeof hostedOff> {
+  const { setup, instance } = hostedOffGame();
+  const run = playFrom(setup, instance, HOSTED_YEARS, () => {});
+  const none = zeroed(() => { const g = hostedOffGame(); return playFrom(g.setup, g.instance, HOSTED_YEARS, () => {}); });
+  let wouldDraw = 0;
+  for (let y = 1; y <= HOSTED_YEARS; y++) wouldDraw += largeClaimArrivals(instance, y).length;
+  return { run, cells: cellsOf(run), wouldDraw, none };
+}
+function sectionGame(factor: Factor = briefFactor, covers = COVERS, cellsIn?: Cell[][][], offIn?: Cell[][][], hostedOffIn?: NonNullable<typeof hostedOff>): string[] {
   const out: string[] = [];
   // A cover on each line, and 5% new members a year so the book grows (the
   // defaults add none) and the growth factor's book term is exercised.
@@ -280,21 +314,43 @@ function sectionGame(factor: Factor = briefFactor, covers = COVERS, cellsIn?: Ce
   }
   if (seenLines.size !== LINES.length) out.push(`large claims on ${[...seenLines].join(', ') || 'no line'} only — not every line measured`);
   if (grown === 0) out.push('no line-year grew off the trend alone — the book growth is not tested');
-  // A hosted game with no schedule: shocks off, none drawn — though its seed would draw some.
-  if (!hostedOff) {
-    const setup = { poolName: 'F', gameLength: 3, startingYear: 2026, instanceId: GAME_ID, activeLines: LINES, shockTiming: 'host' } as GameSetupSettings;
-    const instance = generateGameInstance(GAME_ID, seedFromInstanceId(GAME_ID), []);
-    const run = playFrom(setup, instance, 3, () => {});
-    let wouldDraw = 0;
-    for (let y = 1; y <= 3; y++) wouldDraw += largeClaimArrivals(instance, y).length;
-    hostedOff = { run, cells: cellsOf(run), wouldDraw };
+  // ⚠ RESTATED FOR LARGE_CLAIMS_EVERY_GAME: a hosted game with no schedule
+  // (shocks off) DRAWS its seed's large claims — exactly the draw x the growth
+  // factor, alike in every world, nothing else — and they stay out of its rate.
+  hostedOff ??= playHostedOff();
+  const ho = hostedOffIn ?? hostedOff;
+  const off = offIn ?? ho.cells;
+  const hg = hostedOffGame();
+  if (gameShocksOn(hg.setup, hg.instance)) out.push('the hosted game with no schedule has its shocks on — not a shocks-off game');
+  let offSeen = 0;
+  for (let y = 1; y <= HOSTED_YEARS; y++) {
+    const drawn = largeClaimArrivals(ho.run.began[y - 1].instance, y);
+    LINES.forEach((l, li) => {
+      const g = factor(ho.run.began[y - 1], l, y);
+      const want = drawn.filter(a => a.line === l).map(a => a.size * g).sort((a, b) => a - b);
+      offSeen += want.length;
+      const forms = new Set<string>();
+      off[y - 1].forEach((row, w) => {
+        const c = row[li];
+        forms.add(JSON.stringify(c.sizes));
+        if (c.other) out.push(`shocks off year ${y} ${l} world ${w + 1}: ${c.other} shock claim(s) that are not large claims`);
+        if (c.sizes.length !== want.length || c.sizes.some((x, i) => !near(x, want[i]))) {
+          out.push(`shocks off year ${y} ${l} world ${w + 1}: large claims ${c.sizes.map(x => (x / M).toFixed(4))}, the table x growth ${g.toFixed(4)} ${want.map(x => (x / M).toFixed(4))}`);
+        }
+        // At the defaults (None) nothing is recovered.
+        if (c.recovery !== 0) out.push(`shocks off year ${y} ${l} world ${w + 1}: recovered ${c.recovery.toFixed(0)} under None`);
+      });
+      if (forms.size !== 1) out.push(`shocks off year ${y} ${l}: large claims in ${forms.size} forms over the worlds`);
+    });
   }
-  const off = offIn ?? hostedOff.cells;
-  const offClaims = off.flat(2).reduce((s, c) => s + c.sizes.length + c.other, 0);
-  const offRecords = hostedOff.run.perWorld.flat(2).reduce((s, r) => s + (r.shockEvents ?? []).length, 0);
-  if (offClaims) out.push(`the hosted game with no schedule (shocks off) drew ${offClaims} shock claim(s)`);
-  if (!offIn && offRecords) out.push(`the hosted game with no schedule recorded ${offRecords} shock record(s)`);
-  if (hostedOff.wouldDraw === 0) out.push('the shocks-off game\'s seed would draw no large claim — the shocks-off test is vacuous');
+  const offOther = ho.run.perWorld.flat(2).flatMap(r => (r.shockEvents ?? []).filter(e => e.shockId !== LARGE_CLAIM_ID));
+  if (offOther.length) out.push(`the hosted game with no schedule recorded ${offOther.length} catalogue shock record(s) (${offOther[0].shockId})`);
+  if (ho.wouldDraw === 0 || offSeen === 0) out.push('the shocks-off game\'s seed draws no large claim — the shocks-off test is vacuous');
+  // Out of the rate: the same hosted game with LARGE_CLAIM_FREQUENCY zeroed strikes the same rate.
+  const a = ratesOf(ho.run), b = ratesOf(ho.none);
+  let moved = 0;
+  a.forEach((x, i) => { if (x !== b[i]) { moved++; if (moved <= 2) out.push(`shocks off: as built ${x}; zeroed ${b[i]}`); } });
+  if (moved) out.push(`shocks off: ${moved} of ${a.length} line-years struck a different rate with the large claims zeroed`);
   if (seen === 0) out.push('no large claim in the game — nothing measured');
   return out;
 }
@@ -339,8 +395,9 @@ function sectionExpected(): string[] {
     for (let y = 1; y <= 15; y++) {
       const got = expectedLossBreakdown(l, 1000, y).shockLarge;
       if (!near(got, briefExpected(l, y), 1e-12)) out.push(`${l} year ${y}: shockLarge $${(got / M).toFixed(6)}M, the brief's $${(briefExpected(l, y) / M).toFixed(6)}M`);
+      // LARGE_CLAIMS_EVERY_GAME: with shocks off, the same shockLarge as with them on.
       const off = expectedLossBreakdown(l, 1000, y, undefined, 1, false).shockLarge;
-      if (off !== 0) out.push(`${l} year ${y}: shockLarge ${off} with shocks off`);
+      if (!near(off, got, 1e-12) || !(off > 0)) out.push(`${l} year ${y}: shockLarge ${off} with shocks off, ${got} with them on`);
     }
     for (const y of [0, -3]) if (expectedLossBreakdown(l, 1000, y).shockLarge !== 0) out.push(`${l} year ${y}: shockLarge before year 1`);
   }
@@ -377,7 +434,7 @@ check(sectionEvents(), '2. events bring no T: with every T-bearing event schedul
 control('an event\'s T switched back on (LARGE_CLAIMS_BY_FREQUENCY off)', () => {
   LARGE_CLAIMS_BY_FREQUENCY.enabled = false; return () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; };
 }, sectionEvents);
-check(sectionGame(), `3. in a played solo game (${GAME_ID}, ${GAME_YEARS} years, every world): large claims = the table draw x the growth factor, alike in every world, recovered min(max(x − att, 0), limit); none with shocks off`);
+check(sectionGame(), `3. in a played solo game (${GAME_ID}, ${GAME_YEARS} years, every world): large claims = the table draw x the growth factor, alike in every world, recovered min(max(x − att, 0), limit); with shocks off (hosted, no schedule) exactly the draw too, alike in every world, out of the rate`);
 control('the claims expected at the trend alone (no book growth)', () => () => {},
   () => sectionGame((_gs, l, y) => Math.pow(1 + BRIEF_TREND[l], y - 1)));
 control('the claims expected a year late in the growth', () => () => {},
@@ -391,21 +448,32 @@ control('one world\'s large claim differs', () => () => {}, () => {
 });
 control('GL\'s recovery expected at $1M rather than $2M', () => () => {},
   () => sectionGame(briefFactor, { ...COVERS, GL: ['$18M xs $2M', 1, 18] }));
-control('a shocks-off game that draws (the shocks-on game\'s claims in its place)', () => () => {},
+control('a shocks-off game with another game\'s claims (the solo game\'s in its place)', () => () => {},
   () => sectionGame(briefFactor, COVERS, undefined, covered!.cells.slice(0, 3)));
+control('a shocks-off game that draws none (the retired rule)', () => () => {},
+  () => sectionGame(briefFactor, COVERS, undefined, hostedOff!.cells.map(ws => ws.map(row => row.map(x => ({ ...x, sizes: [] }))))));
+control('LARGE_CLAIMS_EVERY_GAME switched off (the hosted game replayed)', () => {
+  LARGE_CLAIMS_EVERY_GAME.enabled = false; return () => { LARGE_CLAIMS_EVERY_GAME.enabled = true; };
+}, () => sectionGame(briefFactor, COVERS, undefined, undefined, playHostedOff()));
+control('the shadow bypassed in the shocks-off game (SHOCK_FREE_PRICING off, both hosted runs)', () => {
+  const o = SHOCK_FREE_PRICING.enabled; SHOCK_FREE_PRICING.enabled = false; return () => { SHOCK_FREE_PRICING.enabled = o; };
+}, () => sectionGame(briefFactor, COVERS, undefined, undefined, playHostedOff()));
 check(sectionRate(), `4. out of the rate, on the real game path: ${GAME_ID} at default decisions, as built and with LARGE_CLAIM_FREQUENCY zeroed, strikes the same rate every line-year`,
   `${rateRuns!.built.perWorld.flat(2).filter(r => (r.claims ?? []).some(c => c.shockId === LARGE_CLAIM_ID)).length} line-world-years with a large claim as built`);
 control('the shadow bypassed (SHOCK_FREE_PRICING off, both runs)', () => () => {}, () => {
   const o = SHOCK_FREE_PRICING.enabled; SHOCK_FREE_PRICING.enabled = false;
   try { return sectionRate({ built: playSolo(GAME_YEARS), none: zeroed(() => playSolo(GAME_YEARS)) }); } finally { SHOCK_FREE_PRICING.enabled = o; }
 });
-check(sectionExpected(), '5. expected losses: shockLarge = Σ freq x the range\'s midpoint x (1 + trend)^(y − 1), years 1-15; 0 before year 1 and with shocks off',
+check(sectionExpected(), '5. expected losses: shockLarge = Σ freq x the range\'s midpoint x (1 + trend)^(y − 1), years 1-15; 0 before year 1; the same with shocks off',
   LINES.map(l => `${l} year 1 $${(briefExpected(l, 1) / M).toFixed(4)}M`).join(', '));
 control('High\'s frequency moved to 3%', () => {
   const f = LARGE_CLAIM_FREQUENCY as Record<Lv, number>; const o = f.High; f.High = 0.03; return () => { f.High = o; };
 }, sectionExpected);
 control('a written-out range moved (Property High from $12M to $14M)', () => {
   const r = BRIEF_RANGE.Property.High; const o = r[0]; r[0] = 14 * M; return () => { r[0] = o; };
+}, sectionExpected);
+control('LARGE_CLAIMS_EVERY_GAME switched off (no shockLarge with shocks off)', () => {
+  LARGE_CLAIMS_EVERY_GAME.enabled = false; return () => { LARGE_CLAIMS_EVERY_GAME.enabled = true; };
 }, sectionExpected);
 
 check(sectionPoolLines(), '6. the pool row\'s "Large claim" record names every line one landed on (linesAffected = its byLine)',
