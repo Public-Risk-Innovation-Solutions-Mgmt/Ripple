@@ -27,6 +27,8 @@ import { useRoom } from '../client/useRoom';
 import { SESSION_POLL_INTERVAL_MS } from '../../data/pricingParameters';
 import { loadActive, loadHeld } from '../client/identity';
 import { currentAdmin } from '../../admin/client/adminAuth';
+import { gameIdentity } from '../../utils/scenarios';
+import { walkthroughHeader } from '../../utils/yearWalkthrough';
 
 interface Props {
   /** Absent on /host, where the room does not exist yet. */
@@ -65,6 +67,11 @@ export default function HostScreen({ code }: Props) {
       hasRoom={!!code}
       code={code}
       eventName={code ? room?.eventName : undefined}
+      // The host sees the room's fixed seed beside the version (a team never does).
+      version={code && room ? (() => {
+        const id = gameIdentity(room.seed);
+        return walkthroughHeader({ instanceId: id.gameId, scenario: id.scenario }, true);
+      })() : undefined}
     >
       {activeTab === 'setup' && (code ? <HostRoomScreen code={code} /> : <HostCreateScreen />)}
       {activeTab === 'teams' && (

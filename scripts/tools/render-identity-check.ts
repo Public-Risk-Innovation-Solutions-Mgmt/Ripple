@@ -1522,7 +1522,19 @@ const BASELINE = process.env.RENDER_BASELINE
 // Expected. The gates and the save key move none. Searched: none of the
 // twenty fixed seeds appears in any screen's text; the header reads
 // "Scenario 7". No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v102.json');
+// v103: THE YEAR WALKTHROUGH on the Calculation Audit (utils/yearWalkthrough).
+// ⚠ v102 DOES NOT REPRODUCE IN THIS CONTAINER, the same split again:
+// multiplayer 4226d2e, built in its own worktree, moves 47 of 236 against it
+// with no change to its code (Calculation Audit 18, Financial Statements 14,
+// Result Spreadsheet 8, Results 7), the same on a second serial run. So the
+// change was measured against the control's own capture here: it moves 26 of
+// 236 — every Calculation Audit screen, all five configurations, both
+// year-points and every view, and nothing else — as the panel sits under the
+// page's header (at y0, "Complete a year to walk through it."; at y2, the
+// version, the scenario, the codes, the draws and the eleven steps). Single
+// player shows no seed: scenario 7's fixed seed appears in no screen's text.
+// No key added or removed. v103 is captured here.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v103.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

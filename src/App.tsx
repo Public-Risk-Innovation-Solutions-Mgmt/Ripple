@@ -340,6 +340,7 @@ export default function App() {
       onNewGame={handleNewGame}
       onAdvanceYear={handleAdvanceYear}
       canAdvance={isStarted && !gameState?.isComplete}
+      showSeed={gameState?.setup.testPlayer === true}
       setupPage={<SetupPage onStart={handleStartGame} />}
       loanPrompt={pendingYear
         ? <LoanPromptModal offers={pendingYear.loanOffers} onResolve={handleResolveLoans} />

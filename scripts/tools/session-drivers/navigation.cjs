@@ -11,11 +11,13 @@ const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
 const SOLO = ['Introduction', 'Rate Indication', 'Model', 'Annual Statement', 'Decisions', 'Decision History',
   'Financial Statements', 'Results', 'Result Spreadsheet', 'Calculation Audit'];
+// The Calculation Audit is on the multiplayer bar as the Year Walkthrough alone
+// (GameShell; year-walkthrough.cjs checks what it shows).
 const MULTI = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History',
-  'Result Spreadsheet'];
+  'Result Spreadsheet', 'Calculation Audit'];
 // Investments is hidden too: its memorandum is in the Introduction tab (introduction.cjs).
 const HIDDEN = ['Game Setup', 'Investments', 'Dashboard', 'Departments'];
-const MULTI_HIDDEN = [...HIDDEN, 'Financial Statements', 'Results', 'Calculation Audit'];
+const MULTI_HIDDEN = [...HIDDEN, 'Financial Statements', 'Results'];
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {

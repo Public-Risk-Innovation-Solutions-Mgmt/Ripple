@@ -73,7 +73,8 @@ export const HIDDEN_TABS: readonly TabId[] = [
 export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = [
   'results',
   'financials',
-  'audit',
+  // ⚠ 'audit' IS SHOWN IN A HOSTED SESSION, AS THE YEAR WALKTHROUGH ALONE
+  // (GameShell): the rest of the Calculation Audit stays solo only.
   // ⚠ THE MODEL TAB IS SOLO ONLY, NEVER MULTIPLAYER: it shows every input to
   // the rate and every expectation against the simulation, for checking the
   // indication by hand. To hide it in solo as well, add 'model' to HIDDEN_TABS.
