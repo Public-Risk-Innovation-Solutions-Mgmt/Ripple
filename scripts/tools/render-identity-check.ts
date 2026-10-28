@@ -1550,7 +1550,19 @@ const BASELINE = process.env.RENDER_BASELINE
 //   riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's key —
 //   nothing else on them.
 // The harness holds None, so no other figure changes.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v104.json');
+// v105: THE YEAR WALKTHROUGH IS THE WHOLE TAB, RENAMED. The control ran
+// first: multiplayer e698c79, built in its own worktree, reproduced v104 236 of
+// 236 here. The harness's tab 'Calculation Audit' is now 'Year Walkthrough', so
+// the key set maps across one for one. 186 of 236 move, for two causes and no
+// other: every screen with the tab bar reads "Year Walkthrough" where it read
+// "Calculation Audit" (160 — Annual Statement, Decision History, Decisions,
+// Financial Statements and Results 26 each, Introduction, Rate Indication and
+// Result Spreadsheet 10 each: every one's text, RENDER_TEXT_DIR both sides, is
+// the control's exactly once the label is swapped back), and the 26
+// walkthrough screens, which are the reworked page (every stage, its working,
+// the download). The 50 unmoved are the screens without the bar. Scenario 7's
+// fixed seed is in no screen's text. No key added or removed beyond the rename.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v105.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1591,7 +1603,7 @@ const LINE_LABEL: Record<string, string> = {
 // came off too: its memorandum is one of the Introduction tab's documents.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-  'Calculation Audit'];
+  'Year Walkthrough'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
 // OF THIS FILE LISTED IT. That was a real mistake and it is recorded because it
 // is instructive: the list was App.tsx's LINE_VIEW_PAGES as of 750ce12, which

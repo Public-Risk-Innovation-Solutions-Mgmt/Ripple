@@ -1,3 +1,12 @@
+// ============================================================================
+// ⚠ UNROUTED. The tab this page filled is the Year Walkthrough now
+// (components/YearWalkthroughPanel, utils/yearWalkthrough), in every mode.
+// The page stays in the tree, like HistoryPage, because its derivations —
+// computeAuditChecks, the formula rows, evaluateFormula — are what
+// audit-formula-check holds to the engine on every commit: each re-derives an
+// engine figure (investment income from the market, the cash sweep, the
+// funding build-up) and the gate fails if the engine moves away from it.
+// ============================================================================
 import React, { useState } from 'react';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
 import { lookupCLF, ibnerBookingBias } from '../utils/simulationEngine';
@@ -73,8 +82,6 @@ interface CalculationAuditPageProps {
   shockTiming?: ShockTiming;
   /** A hosted team's room share and its year; absent in single player. See GameShell. */
   roomMarketShare?: TeamMarketShareOfYear | null;
-  /** The Year Walkthrough panel, shown under the page's header. See GameShell. */
-  walkthrough?: React.ReactNode;
 }
 
 // Three-state check outcome. 'variance' is a DOCUMENTED, bounded modelling
@@ -374,7 +381,7 @@ const CLAIMS_VARIANCE_CAP = 10_000;
 const CLAIMS_VARIANCE_REASON =
   'a prior-year reserve cohort closed and its residual balance was floored to zero in the rollforward rather than absorbed into the development figure';
 
-export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming, roomMarketShare, walkthrough }: CalculationAuditPageProps) {
+export default function CalculationAuditPage({ lockedResults, priorHistory, instanceSeed, lineView, instance, shockTiming, roomMarketShare }: CalculationAuditPageProps) {
   // Chronological order: earliest pre-game year first, Year 0 (opening) last
   // among prior years, then live Year 1 onward — same convention as the
   // Financial Statements tab, so the audit reaches pre-game history too.
@@ -494,8 +501,6 @@ export default function CalculationAuditPage({ lockedResults, priorHistory, inst
           ))}
         </select>
       </div>
-
-      {walkthrough}
 
       <div className={`border rounded-xl px-4 py-3 text-sm font-semibold ${status.tone}`}>
         {status.text}

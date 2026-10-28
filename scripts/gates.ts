@@ -264,10 +264,10 @@ const FAST: string[] = [
                                      //         own scale; nothing cedes. ⚠ IT HOLDS MEMBER_LEVEL OFF
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
-  'year-walkthrough-check',          // ~13s   the Calculation Audit's Year Walkthrough: identical games
-                                     //         give identical codes; one decision moves only its steps;
-                                     //         every figure is the engine's; the seed only where shown
-                                     //         — each with a control.
+  'year-walkthrough-check',          // ~21s   the Year Walkthrough: every stage tied to the engine,
+                                     //         identical games give identical codes, a changed
+                                     //         decision moves only the stages after it, the seed
+                                     //         only where shown — each with a control.
   'adverse-development-check',       //  ~8s   wip/adverse-development: the λ draws, compounding on
                                      //         outstanding only, paid untouched, no pre-game
                                      //         development — each with a control.
