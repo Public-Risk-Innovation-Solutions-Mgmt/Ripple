@@ -68,8 +68,8 @@ for (const line of LINES) {
 }
 
 // THE WIDEST COVER A TEAM CAN BUY — the option with the highest top, then the
-// most limit (38 xs 2 on every line in the wip/shocks build). Since the T
-// covers overlap, no one option need place every layer.
+// most limit: 39 xs 1 on every line (wip/reinsurance-layers), which places every
+// layer of the tower — FULL_OCCURRENCE_PLACEMENT is exactly its placement.
 const FULL_TOWER: Record<TowerLine, string> = { WC: '', GL: '', Property: '' };
 for (const line of LINES) {
   const widest = [...REINSURANCE_OPTIONS[line]]

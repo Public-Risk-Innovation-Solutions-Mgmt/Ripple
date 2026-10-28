@@ -26,6 +26,14 @@
 //      band's is not (it runs through primaryAssetShare and region), so the
 //      identity is asserted on the band it holds for.
 //
+// RESTATED FOR wip/reinsurance-layers: the T covers are now eight (9, 19, 29
+// and 39 xs 1; 8, 18, 28 and 38 xs 2), so the tower assertion in section 1
+// expects Property (as every line) cut at $1M / $2M / $10M / $20M / $30M /
+// $40M — five layers, the $30M cut new — and gains two controls (the
+// wip/shocks four-layer cut put back; a cover moved off a tower edge). The
+// top, TOWER_TOP and PROPERTY_TOWER_TOP are unchanged. Nothing else here
+// touches reinsurance.
+//
 // WHAT IS MEASURED AND REPORTED (not gated — heavy-tailed sample means, and
 // gating on one is finding 26):
 //   claim counts, annual aggregate CV, per-risk breaches, the realised AAL.
@@ -120,12 +128,20 @@ check(Math.abs(PROPERTY_MEAN_SEVERITY - 418_289) < 500,
   // of it is the severity cap. The edges are WRITTEN OUT here, not read from
   // REINSURANCE_OPTIONS, so a check cannot pass by grading a parameter against
   // itself; the options are then checked to be whole layers of it.
-  const T_EDGES = [1e6, 2e6, 10e6, 20e6, 40e6];
+  //
+  // RESTATED FOR wip/reinsurance-layers: the T covers are now EIGHT — 9, 19, 29
+  // and 39 xs 1; 8, 18, 28 and 38 xs 2 — so every line is also cut at $30M:
+  // $1M / $2M / $10M / $20M / $30M / $40M, five layers, where the wip/shocks
+  // build had four with $20M xs $20M on top. The top is still $40M (38 xs 2 is
+  // still the widest cover), so TOWER_TOP and PROPERTY_TOWER_TOP are unchanged.
+  // Two controls are added: the tower broken back to the wip/shocks four-layer
+  // cut, and one of the new covers (29 xs 1) moved off a tower edge.
+  const T_EDGES = [1e6, 2e6, 10e6, 20e6, 30e6, 40e6];
   const towerProblems = (): string[] => {
     const out: string[] = [];
     const L = REINSURANCE_TOWER.Property;
     const edges = L.length ? [L[0].attachment, ...L.map(l => l.attachment + l.limit)] : [];
-    if (edges.join('|') !== T_EDGES.join('|')) out.push(`edges ${edges.map(e => e / 1e6).join('/')}M, want 1/2/10/20/40M`);
+    if (edges.join('|') !== T_EDGES.join('|')) out.push(`edges ${edges.map(e => e / 1e6).join('/')}M, want 1/2/10/20/30/40M`);
     for (let k = 1; k < L.length; k++) if (L[k].attachment !== L[k - 1].attachment + L[k - 1].limit) out.push(`gap before ${L[k].name}`);
     for (const line of ['WC', 'GL'] as const) {
       if (REINSURANCE_TOWER[line].map(l => l.name).join('|') !== L.map(l => l.name).join('|')) out.push(`${line} is not cut where Property is`);
@@ -141,7 +157,7 @@ check(Math.abs(PROPERTY_MEAN_SEVERITY - 418_289) < 500,
   };
   const tp = towerProblems();
   check(tp.length === 0,
-    'Property is cut at the T covers\' edges, $1M/$2M/$10M/$20M/$40M, as every line is; each cover is whole layers',
+    'Property is cut at the T covers\' edges, $1M/$2M/$10M/$20M/$30M/$40M, as every line is; each cover is whole layers',
     tp.length ? tp.join('; ') : REINSURANCE_TOWER.Property.map(l => l.name).join(', '));
   check(TOWER_TOP.Property === 40e6 && PROPERTY_TOWER_TOP === 50e6 && TOWER_TOP.Property !== M.severityCap,
     'TOWER_TOP.Property is the $40M top of the widest T cover, decoupled from severityCap; PROPERTY_TOWER_TOP stays the old engine\'s $50M',
@@ -159,6 +175,18 @@ check(Math.abs(PROPERTY_MEAN_SEVERITY - 418_289) < 500,
       { name: '$20M xs $5M', attachment: 5e6, limit: 20e6, purchasable: true },
       { name: '$25M xs $25M', attachment: 25e6, limit: 25e6, purchasable: true }];
     return () => { REINSURANCE_TOWER.Property = was; };
+  });
+  towerControl('the wip/shocks four-layer cut (no $30M edge, $20M xs $20M on top)', () => {
+    const was = REINSURANCE_TOWER.Property;
+    REINSURANCE_TOWER.Property = [...was.filter(l => l.attachment < 20e6),
+      { name: '$20M xs $20M', attachment: 20e6, limit: 20e6, purchasable: true }];
+    return () => { REINSURANCE_TOWER.Property = was; };
+  });
+  towerControl('a T cover that is not whole layers (29 xs 1 moved to end at $25M)', () => {
+    const o = (REINSURANCE_OPTIONS.Property as unknown as { id: string; limit: number }[]).find(x => x.id === '$29M xs $1M');
+    if (!o) throw new Error('control: no $29M xs $1M option to break');
+    const was = o.limit; o.limit = 24e6;
+    return () => { o.limit = was; };
   });
   towerControl('a gap in the tower ($10M-$20M missing)', () => {
     const was = REINSURANCE_TOWER.Property;
