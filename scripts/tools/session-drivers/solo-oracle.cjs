@@ -9,7 +9,7 @@ const OUT = process.argv[2] || 'before';
 // Investments are hidden), plus Membership, which records TAB-ABSENT.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
                'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-               'Calculation Audit', 'Membership'];
+               'Year Walkthrough', 'Membership'];
 const LINE_VIEWS = ['Pool', "Workers' Compensation"];
 
 const h = s => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);

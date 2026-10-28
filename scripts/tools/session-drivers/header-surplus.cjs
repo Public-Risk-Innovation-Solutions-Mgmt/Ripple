@@ -84,7 +84,7 @@ const ok = (cond, label, detail = '') => {
           `scenario ${scenario}, ${phase}, ${view}: the chip is the statement's latest Net Worth`,
           `chip ${chip} · statement ${latest} (thousands)`);
       }
-      await page.getByRole('button', { name: /^Calculation Audit$/ }).first().click();
+      await page.getByRole('button', { name: /^Year Walkthrough$/ }).first().click();
       await page.waitForTimeout(800);
       for (const view of VIEWS) {
         await page.getByRole('button', { name: view, exact: true }).first().click();

@@ -67,9 +67,9 @@ async function tabText(page, tab) {
   // from players and viewers alike (GameShell's MULTIPLAYER_HIDDEN_TABS). The
   // PAGES are intact. Dashboard and Departments are hidden in both
   // (src/game/tabs.tsx), and Investments; Rate Indication joined. The
-  // Calculation Audit is on the bar as the Year Walkthrough alone.
+  // Year Walkthrough (once the Calculation Audit) is on the bar.
   const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                'Decision History', 'Result Spreadsheet', 'Calculation Audit'];
+                'Decision History', 'Result Spreadsheet', 'Year Walkthrough'];
   const HIDDEN = ['Financial Statements', 'Results', 'Dashboard', 'Departments', 'Investments'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;

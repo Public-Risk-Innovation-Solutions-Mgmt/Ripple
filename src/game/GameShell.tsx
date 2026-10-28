@@ -52,7 +52,6 @@ import DecisionHistoryPage from '../pages/DecisionHistoryPage';
 import FinancialsPage from '../pages/FinancialsPage';
 import ResultsPage from '../pages/ResultsPage';
 import MembershipPage from '../pages/MembershipPage';
-import CalculationAuditPage from '../pages/CalculationAuditPage';
 import YearWalkthroughPanel from '../components/YearWalkthroughPanel';
 import { walkthroughHeader, walkthroughSheetRows } from '../utils/yearWalkthrough';
 import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
@@ -63,7 +62,6 @@ import InvestmentsPage from '../pages/InvestmentsPage';
 import RateIndicationPage from '../pages/RateIndicationPage';
 import ModelPage from '../pages/ModelPage';
 import { isHiddenTab, topBarTabs } from './tabs';
-import { shockTimingOf } from '../utils/shockLosses';
 import type { TeamMarketShareOfYear } from '../session/contract';
 
 const AUDIT_TAB: TabId = 'audit';
@@ -333,30 +331,18 @@ export default function GameShell({
             poolState={knownClaimsPool ?? known.poolState}
             claimsWorld={knownClaimsWorld}
             walkthroughRows={gameState
-              ? () => walkthroughSheetRows(gameState, walkthroughHeader(gameState.instance, !multiplayer && !!showSeed))
+              ? () => walkthroughSheetRows(gameState, walkthroughHeader(gameState.instance, !multiplayer && !!showSeed), roomMarketShare)
               : undefined}
           />
         )}
 
-        {/* ⚠ A HOSTED SESSION'S CALCULATION AUDIT IS THE YEAR WALKTHROUGH ALONE. */}
-        {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && multiplayer && (
-          <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
-            <h2 className="text-xl font-bold text-gray-900">Calculation Audit</h2>
-            <YearWalkthroughPanel gameState={gameState} lineView={lineView} showSeed={false} />
-          </div>
-        )}
-
-        {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && !multiplayer && (
-          <CalculationAuditPage
-            walkthrough={<YearWalkthroughPanel gameState={gameState} lineView={lineView} showSeed={!!showSeed} />}
-            lockedResults={known?.lockedResults ?? gameState.lockedResults}
-            priorHistory={known?.priorHistory ?? gameState.priorHistory}
-            instanceSeed={gameState.instance.seed}
-            lineView={lineView}
-            instance={gameState.instance}
-            shockTiming={shockTimingOf(gameState.setup)}
-            roomMarketShare={roomMarketShare}
-          />
+        {/* ⚠ THE YEAR WALKTHROUGH IS THE WHOLE TAB, IN EVERY MODE. The old
+            Calculation Audit page (pages/CalculationAuditPage) is unrouted; its
+            derivations are still held to the engine by audit-formula-check. The
+            seed is Test player's alone — never a team's or single player's. */}
+        {shownTab === AUDIT_TAB && !hidden(AUDIT_TAB) && gameState && (
+          <YearWalkthroughPanel gameState={gameState} lineView={lineView}
+            showSeed={!multiplayer && !!showSeed} roomMarketShare={roomMarketShare} />
         )}
 
         {shownTab === 'membership' && gameState && startingFinancials && (
