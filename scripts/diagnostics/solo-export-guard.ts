@@ -1011,7 +1011,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // row: riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's save
 // key. The 24 statements match. The guard's games hold None,
 // so no cover, price or recovery reaches them. No file added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v107.json');
+// v108: THE YEAR WALKTHROUGH REWORKED (every stage the engine goes through,
+// each with how decisions reach it and its working), on multiplayer e698c79.
+// The Results workbook's Year Walkthrough sheet moves, so the 24 Results keys
+// move; with the walkthrough sheet left out, all 48 hash identically on
+// e698c79 and on this change (both run here), so no other sheet and no figure
+// moved, and the 24 `stmt|...` keys do not move.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v108.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -56,6 +56,9 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
             {version && (
               <span data-testid="host-version-header" className="text-sm text-slate-400">
                 version <span data-testid="host-version" className="font-mono text-slate-600">{version.version}</span>
+                {version.scenario !== undefined && (
+                  <> · scenario <span data-testid="host-scenario" className="font-mono text-slate-600">{version.scenario}</span></>
+                )}
                 {version.seed !== undefined && (
                   <> · seed <span data-testid="host-seed" className="font-mono text-slate-600">{version.seed}</span></>
                 )}
