@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { Shuffle, Trash2, Zap } from 'lucide-react';
-import { DEVELOPMENT_LEVELS, type DevelopmentLevel } from '../data/pricingParameters';
+import { DEVELOPMENT_LEVELS, type DevelopmentSetting } from '../data/pricingParameters';
 import { drawShockSchedule, drawableShocks } from '../session/shockDraw';
 import type { ScheduledShockSpec } from '../session/contract';
 import type { CoverageLine } from '../types/simulation';
@@ -23,9 +23,13 @@ function shockLabel(id: string): string {
   return id.startsWith('#') ? `${id} ${name}` : name;
 }
 
-/** A line's adverse development level: Low, Mid or High (ADVERSE_DEVELOPMENT_RANGE). */
+/**
+ * A line's adverse development level: None, Low, Mid or High
+ * (ADVERSE_DEVELOPMENT_RANGE). None is stored as 'Off' — no development on the
+ * line, what plain Single player plays.
+ */
 export function DevelopmentLevelSelect({ line, value, onChange, disabled }: {
-  line: CoverageLine; value: DevelopmentLevel; onChange: (v: DevelopmentLevel) => void; disabled?: boolean;
+  line: CoverageLine; value: DevelopmentSetting; onChange: (v: DevelopmentSetting) => void; disabled?: boolean;
 }) {
   return (
     <select
@@ -34,8 +38,9 @@ export function DevelopmentLevelSelect({ line, value, onChange, disabled }: {
       aria-label={`Adverse development, ${line}`}
       className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
       value={value}
-      onChange={e => onChange(e.target.value as DevelopmentLevel)}
+      onChange={e => onChange(e.target.value as DevelopmentSetting)}
     >
+      <option value="Off">None</option>
       {DEVELOPMENT_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
     </select>
   );

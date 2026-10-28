@@ -614,7 +614,8 @@ export interface GameSetupSettings {
    * ADVERSE DEVELOPMENT'S LEVEL PER LINE (wip/adverse-development;
    * ADVERSE_DEVELOPMENT). A room sets it from the host; Test player takes the
    * chosen levels; single player stores every line 'Off' (SOLO_ADVERSE_DEVELOPMENT),
-   * which develops nothing — a room never carries 'Off'. A line absent reads
+   * which develops nothing. A room or Test player carries 'Off' on a line the
+   * host set to None — the same setting, so the same play. A line absent reads
    * ADVERSE_DEVELOPMENT_DEFAULT_LEVEL.
    */
   developmentLevels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>;
