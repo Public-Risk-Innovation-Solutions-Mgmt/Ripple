@@ -140,7 +140,7 @@ import { programFreqMultiplier, programAnnualCost, programRtwConversion, claimsS
 import { catCapitalRetained } from './propertyCatastrophe';
 import { occurrenceProgramCost } from './reinsuranceTower';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
-import { AGGREGATE_NOT_OFFERED, fixedPlacementPrice, placementFor } from './reinsuranceOptions';
+import { AGGREGATE_NOT_OFFERED, placementFor, placementPrice } from './reinsuranceOptions';
 import { shockCostFactor } from './shockCost';
 import {
   aggregateRecovery,
@@ -1606,7 +1606,7 @@ export function processLineYear(
   // own premium to float precision; charging it as rate x exposure is what
   // keeps every world's bill exactly the one rate.
   // ⚠ ON THE NEW ENGINE THE COVER IS A FIXED PRICE IN DOLLARS (wip/shocks,
-  // REINSURANCE_PRICE), charged as itself — not the struck per-$100 rate times
+  // tCoverPrice), charged as itself — not the struck per-$100 rate times
   // the book after movement, which charged it about 5% over when new business
   // grew the book after the quote.
   // The price is the one quoted on the book before movement (estimatedQuote:
@@ -1614,8 +1614,9 @@ export function processLineYear(
   // the figure the Decisions panel shows.
   const reinsuranceCost = newLossEngineRuns() && !AGGREGATE_STOP.enabled
     ? (newStack !== null ? newStack.reinsuranceCost
-      : fixedPlacementPrice(line as TowerLine, placedForCost)
-        * shockCostFactor(line, yearNumber, estimatedExposure, lineState.shockCostBaseExposure))
+      // The option's price at the growth factor its T claims are drawn at below (wip/reinsurance-layers).
+      : placementPrice(line as TowerLine, placedForCost,
+        shockCostFactor(line, yearNumber, estimatedExposure, lineState.shockCostBaseExposure)))
     : struck
     ? struck.quote.reinsRatePer100 * activeExposure * 10_000
     : towerQuote.premium + (aggregateQuote?.premium ?? 0);

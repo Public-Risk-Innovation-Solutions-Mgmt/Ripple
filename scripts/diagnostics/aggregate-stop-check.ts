@@ -32,7 +32,8 @@
 // (REINSURANCE_OPTIONS) offered in its place. So this gate now does both:
 //
 //   0. THE DORMANCY, as shipped: the switch off, the T covers offered (None
-//      and the four layers), None the default, no stop id accepted.
+//      and the eight layers — see the restatement below), None the default,
+//      no stop id accepted.
 //
 // and then SWITCHES THE STOP ON INSIDE ITS OWN PROCESS and grades 1-5 on the
 // dormant code, so it stays correct for the day it is switched back on. Off,
@@ -42,6 +43,13 @@
 // 2's sample mean is held to 4 standard errors of the samples, not a flat 1%:
 // a T is now ONE fixed-dollar claim of up to $40M, and Property's 50,000
 // samples carry about 0.8% of noise on their own.
+//
+// ⚠ RESTATED FOR wip/reinsurance-layers: the T covers are now None plus EIGHT
+// per-occurrence layers — 9, 19, 29 and 39 xs 1; 8, 18, 28 and 38 xs 2 — not
+// the four of wip/shocks, so 0.'s written-out menu is the eight (still None the
+// default, None alone with shocks off, 38 xs 2 still the widest). The stop
+// itself is untouched. 0. gains a second control: the old four-cover menu put
+// back on a line at runtime must fail it.
 // ============================================================================
 
 import {
@@ -73,17 +81,22 @@ const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(1, Math.abs(b))
 // ---------------------------------------------------------------- 0
 // THE DORMANCY (shocks landing): as shipped the stop is off and the T covers
 // are what a team is offered. Written out here, not read from the parameter.
-const T_COVER_IDS = ['none', '$9M xs $1M', '$8M xs $2M', '$18M xs $2M', '$38M xs $2M'];
+const T_COVER_IDS = [
+  'none', '$9M xs $1M', '$19M xs $1M', '$29M xs $1M', '$39M xs $1M',
+  '$8M xs $2M', '$18M xs $2M', '$28M xs $2M', '$38M xs $2M',
+];
 function gradeDormancy(tag: string) {
   const off = !AGGREGATE_STOP.enabled;
   const offered = LINES.every(l => reinsuranceOptionIds(l, true).join('|') === T_COVER_IDS.join('|')
     && reinsuranceOptionIds(l, false).join('|') === 'none');
   const defaults = LINES.every(l => defaultReinsuranceOption(l) === 'none' && defaultReinsuranceOption(l, false) === 'none');
   const noStopIds = LINES.every(l => AGGREGATE_STOP_OPTIONS.every(o => o.id === 'none' || !isReinsuranceOption(l, o.id)));
-  const widest = LINES.every(l => fullTowerOption(l) === '$38M xs $2M');
+  // The widest cover places every layer of the tower: $39M xs $1M (wip/reinsurance-layers).
+  const widest = LINES.every(l => fullTowerOption(l) === '$39M xs $1M');
   check(off && offered && defaults && noStopIds && widest,
     `${tag}0. as shipped the stop is dormant: switch off, the T covers offered, None the default, no stop id accepted`,
-    `AGGREGATE_STOP ${AGGREGATE_STOP.enabled ? 'ON' : 'off'}; WC offers ${reinsuranceOptionIds('WC').join(', ')}`);
+    `AGGREGATE_STOP ${AGGREGATE_STOP.enabled ? 'ON' : 'off'}; WC offers ${reinsuranceOptionIds('WC').join(', ')}; `
+    + `offered ${offered}, defaults ${defaults}, no stop ids ${noStopIds}, widest ${LINES.map(l => fullTowerOption(l)).join(' / ')} (want $39M xs $1M)`);
 }
 console.log('THE AGGREGATE STOP, PER LINE — DORMANT AS SHIPPED');
 gradeDormancy('');
@@ -95,6 +108,17 @@ gradeDormancy('');
   try { gradeDormancy(''); } finally { AGGREGATE_STOP.enabled = false; console.log = saved; }
   const caught = failures.splice(before).filter(f => f.startsWith('0.'));
   check(caught.length > 0, 'control: the stop left switched on is caught by 0.');
+}
+// ...and the wip/shocks four-cover menu, put back on GL at runtime, is caught too.
+{
+  const before = failures.length;
+  const saved = console.log; console.log = () => {};
+  const opts = REINSURANCE_OPTIONS as Record<string, readonly { id: string }[]>;
+  const was = opts.GL;
+  opts.GL = was.filter(o => ['none', '$9M xs $1M', '$8M xs $2M', '$18M xs $2M', '$38M xs $2M'].includes(o.id)) as typeof was;
+  try { gradeDormancy(''); } finally { opts.GL = was; console.log = saved; }
+  const caught = failures.splice(before).filter(f => f.startsWith('0.'));
+  check(caught.length > 0, 'control: the wip/shocks four-cover menu offered on GL is caught by 0.');
 }
 // THE STOP, SWITCHED ON IN THIS PROCESS ONLY, for 1-5.
 AGGREGATE_STOP.enabled = true;

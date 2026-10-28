@@ -103,11 +103,25 @@ function LineCard({ ri }: { ri: RateIndication }) {
         </Section>
       </div>
 
-      <div className="max-w-md">
-        <h4 className="text-sm font-semibold text-gray-800 pb-2 mb-2 border-b border-gray-300">Reinsurance</h4>
-        {ri.reinsurance.map(r => (
-          <Row key={r.id} label={r.name} testId={`ri-${l}-reins-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
-        ))}
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="max-w-md">
+          <h4 className="text-sm font-semibold text-gray-800 pb-2 mb-2 border-b border-gray-300">Reinsurance</h4>
+          {ri.reinsurance.map(r => (
+            <Row key={r.id} label={r.name} testId={`ri-${l}-reins-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
+          ))}
+        </div>
+        {/* EVENT LIKELIHOODS, beside the cover prices — shocks on only (utils/eventLikelihoods). */}
+        {ri.eventLikelihoods && (
+          <div className="max-w-md" data-testid={`ri-${l}-event-likelihoods`}>
+            <h4 className="text-sm font-semibold text-gray-800 pb-2 mb-1 border-b border-gray-300">Event Likelihoods</h4>
+            <p className="text-xs text-gray-500 mb-1">The chance in any year of a single large claim at least this size.</p>
+            {ri.eventLikelihoods.map(e => (
+              <Row key={e.years} label={`1 in ${e.years} years`} testId={`ri-${l}-likelihood-${e.years}`} value={e.size ?? undefined}>
+                {e.size === null ? '—' : formatMillions(e.size / 1e6, 1)}
+              </Row>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

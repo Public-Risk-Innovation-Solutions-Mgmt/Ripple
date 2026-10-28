@@ -25,7 +25,7 @@
 import {
   AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_DEFAULT_SHOCKS_OFF, AGGREGATE_STOP_OFFERED_SHOCKS_OFF,
   AGGREGATE_STOP_OPTIONS, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OFFERED_SHOCKS_OFF, REINSURANCE_OPTIONS,
-  REINSURANCE_PRICE, type ReinsuranceOption,
+  SHOCK_T_CLAIM_RANGE, T_COVER_30M_MULTIPLIER, T_COVER_40M_MULTIPLIER, T_COVER_FREQUENCY, type ReinsuranceOption,
 } from '../data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine } from '../types/simulation';
@@ -68,8 +68,8 @@ for (const line of LINES) {
 }
 
 // THE WIDEST COVER A TEAM CAN BUY — the option with the highest top, then the
-// most limit (38 xs 2 on every line in the wip/shocks build). Since the T
-// covers overlap, no one option need place every layer.
+// most limit: 39 xs 1 on every line (wip/reinsurance-layers), which places every
+// layer of the tower — FULL_OCCURRENCE_PLACEMENT is exactly its placement.
 const FULL_TOWER: Record<TowerLine, string> = { WC: '', GL: '', Property: '' };
 for (const line of LINES) {
   const widest = [...REINSURANCE_OPTIONS[line]]
@@ -84,50 +84,73 @@ export function fullTowerOption(line: CoverageLine): string {
 }
 
 // ============================================================================
-// EACH TOWER LAYER'S FIXED PRICE, derived from the options' fixed prices
-// (REINSURANCE_PRICE) and checked at load. The prices add across layers, so a
-// layer's price is solved from the options one unknown layer at a time, and
-// then every option must equal the sum of its layers' — or the module throws,
-// rather than charging a team a price nobody set.
+// EACH OPTION'S PRICE FOR A YEAR — the pricing workbook's method on that
+// year's claims (wip/reinsurance-layers; the rule and its reason are at
+// T_COVER_FREQUENCY in pricingParameters.ts). `g` is the year's growth factor,
+// shockCost.shockCostFactor — the same factor the T claims are drawn at — so
+// claims and prices move together; 1 is year 1, 2027.
+//
+// ⚠ PRICES DO NOT ADD ACROSS LAYERS (the 30M and 40M multipliers), so a price
+// belongs to an OPTION, not to its tower layers: a placement is priced as the
+// option it is, and each option's placement is unique — checked at load.
 // ============================================================================
-const LAYER_PRICE: Record<TowerLine, number[]> = { WC: [], GL: [], Property: [] };
-for (const line of LINES) {
-  const n = REINSURANCE_TOWER[line].length;
-  const price: (number | undefined)[] = new Array(n).fill(undefined);
-  const priced = REINSURANCE_OPTIONS[line].filter(o => o.limit > 0)
-    .map(o => {
-      const p = REINSURANCE_PRICE[line][o.id];
-      if (p === undefined) throw new Error(`reinsuranceOptions: no REINSURANCE_PRICE for ${line} '${o.id}'`);
-      return { o, p, placed: PLACEMENT[line].get(o.id)! };
-    });
-  for (let pass = 0; pass < n; pass++) {
-    for (const { p, placed } of priced) {
-      const unknown = placed.map((on, i) => on && price[i] === undefined ? i : -1).filter(i => i >= 0);
-      if (unknown.length !== 1) continue;
-      price[unknown[0]] = p - placed.reduce((s, on, i) => s + (on && i !== unknown[0] ? price[i]! : 0), 0);
-    }
-  }
-  LAYER_PRICE[line] = price.map(p => p ?? 0);
-  for (const { o, p, placed } of priced) {
-    const sum = placed.reduce((s, on, i) => s + (on ? LAYER_PRICE[line][i] : 0), 0);
-    if (Math.abs(sum - p) > 0.5 || placed.some((on, i) => on && price[i] === undefined)) {
-      throw new Error(`reinsuranceOptions: ${line} '${o.id}' costs $${p} but its layers add to $${sum}`);
-    }
-  }
-}
+const LEVELS = ['Low', 'Mid', 'High'] as const;
 
-/** A placement's fixed price a year: the sum of its layers' (LAYER_PRICE). */
-export function fixedPlacementPrice(line: TowerLine, placed: readonly boolean[]): number {
-  return REINSURANCE_TOWER[line].reduce((s, l, i) => s + (placed[i] && l.purchasable ? LAYER_PRICE[line][i] : 0), 0);
+/** One level's mean T claim on a line in a year: its range's midpoint x the growth factor. */
+export const tMeanClaim = (line: CoverageLine, level: typeof LEVELS[number], g: number): number => {
+  const [lo, hi] = SHOCK_T_CLAIM_RANGE[line as TowerLine][level];
+  return g * (lo + hi) / 2;
+};
+
+/** A layer's expected cost: the sum over levels of frequency x min(max(mean claim - attachment, 0), limit). */
+export function tLayerExpectedCost(line: CoverageLine, attachment: number, limit: number, g: number): number {
+  return LEVELS.reduce((s, lv) => s + T_COVER_FREQUENCY[lv] * Math.min(Math.max(tMeanClaim(line, lv, g) - attachment, 0), limit), 0);
 }
 
 /**
- * An option's price for a year — what a player sees beside its name: the table
- * price x `factor` (shockCost.shockCostFactor; 1 is the table, year 1).
+ * An option's price for a year: its expected cost, except the 30M layers —
+ * 1.25 x the 20M layer from the same attachment — and the 40M layers — 1.2 x
+ * the UNMULTIPLIED 30M layer from the same attachment. None costs nothing.
+ */
+export function tCoverPrice(line: CoverageLine, optionId: string, g = 1): number {
+  if (optionId === 'none') return 0;
+  const o = REINSURANCE_OPTIONS[line as TowerLine].find(x => x.id === optionId);
+  if (!o) throw new Error(`reinsuranceOptions: '${optionId}' is not a ${line} option`);
+  if (o.limit === 0) return 0;
+  const top = o.attachment + o.limit;
+  if (top === 30e6) return T_COVER_30M_MULTIPLIER * tLayerExpectedCost(line, o.attachment, 20e6 - o.attachment, g);
+  if (top === 40e6) return T_COVER_40M_MULTIPLIER * tLayerExpectedCost(line, o.attachment, 30e6 - o.attachment, g);
+  return tLayerExpectedCost(line, o.attachment, o.limit, g);
+}
+
+/** Which option a placement is: the one whose layers it places, exactly; 'none' when it places nothing. */
+export function optionOfPlacement(line: TowerLine, placed: readonly boolean[]): string {
+  if (!placed.some(Boolean)) return 'none';
+  for (const [id, p] of PLACEMENT[line]) if (p.length === placed.length && p.every((on, i) => on === placed[i])) return id;
+  throw new Error(`reinsuranceOptions: ${line} placement [${placed.map(Number).join('')}] is not one of its options`);
+}
+// Each option places its own set of layers — or a placement could not name its price.
+for (const line of LINES) {
+  const seen = new Map<string, string>();
+  for (const [id, p] of PLACEMENT[line]) {
+    const key = p.map(Number).join('');
+    if (seen.has(key)) throw new Error(`reinsuranceOptions: ${line} '${id}' and '${seen.get(key)}' place the same layers`);
+    seen.set(key, id);
+  }
+}
+
+/** A placement's price for a year: the option it is, priced by tCoverPrice at growth factor `g`. */
+export function placementPrice(line: TowerLine, placed: readonly boolean[], g = 1): number {
+  return tCoverPrice(line, optionOfPlacement(line, placed), g);
+}
+
+/**
+ * An option's price for a year — what a player sees beside its name, and what
+ * the engine charges: tCoverPrice at the year's growth factor `factor`
+ * (shockCost.shockCostFactor; 1 is year 1).
  */
 export function optionPrice(line: CoverageLine, optionId: string, factor = 1): number {
-  return optionId === 'none' ? 0
-    : factor * (REINSURANCE_PRICE[line as TowerLine][optionId] ?? fixedPlacementPrice(line as TowerLine, placementFor(line, optionId)));
+  return tCoverPrice(line, optionId, factor);
 }
 
 /** The per-claim packages a line offers, in display order (dormant with AGGREGATE_STOP on). */

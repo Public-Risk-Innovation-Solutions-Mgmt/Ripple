@@ -33,6 +33,32 @@
 // out, exactly its layer on every occurrence — and '$9M xs $1M' games DO
 // cede through $1M xs $1M, so neither is vacuous.
 //
+// ⚠ RESTATED FOR wip/reinsurance-layers. The T covers are now EIGHT — 9, 19,
+// 29 and 39 xs 1; 8, 18, 28 and 38 xs 2 — so the tower is cut at $1M, $2M,
+// $10M, $20M, $30M and $40M on every line: FIVE layers, $10M xs $20M and
+// $10M xs $30M where $20M xs $20M stood. And a cover's PRICE is no longer a
+// fixed table that adds across layers: it belongs to an OPTION
+// (reinsuranceOptions.tCoverPrice, the pricing workbook's method at the T
+// claims' growth factor), and a placement that is not exactly one option's
+// layers is refused (it throws) rather than priced. So:
+//   2  cession arithmetic is unchanged in kind (cedeOccurrences prices
+//      nothing, so arbitrary placements stay legitimate there); its
+//      placements are now five wide, $12M still cedes 1 + 8 + 2 + 0 + 0.
+//   3  asserts the six-edge cut; "GL's top layer dearer than WC's" reads the
+//      top layer by position (now $10M xs $30M); "the top layer is charged
+//      when placed" — which placed the old $20M xs $20M band ALONE, no longer
+//      an option — now buys every real option that places the top layer
+//      (39 xs 1, 38 xs 2) on every line, in year 1 and year 5, and asserts it
+//      is charged, at exactly its option price at the year's growth factor
+//      (not the sum of its layers), and that the top layer alone is refused.
+//   4  "every layer placed" is now a real option: 39 xs 1 places all five.
+//   6  the wide-cover games are bought as '$38M xs $2M' by name (their
+//      assertions are about att $2M / lim $38M), and the separate assertion
+//      that fullTowerOption IS '$39M xs $1M' — the one cover placing every layer.
+// New controls: the wip/shocks cut put back (caught by 3), a wide cover
+// charged the sum of its layers' expected costs (caught by 3), and a
+// placement that is not an option priced instead of refused (caught by 3).
+//
 // ⚠ AND EACH FAILS WHEN BROKEN — every assertion is a predicate, and THE
 // CONTROLS feed each one the figures it guards against.
 // ============================================================================
@@ -49,7 +75,8 @@ import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
-import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
+import { fullTowerOption, placementFor, tCoverPrice, tLayerExpectedCost } from '../../src/utils/reinsuranceOptions';
+import { shockCostFactor } from '../../src/utils/shockCost';
 import { AGGREGATE_STOP, MEMBER_LEVEL } from '../../src/data/pricingParameters';
 
 // ⚠ THE PER-OCCURRENCE TOWER WAS DORMANT BEHIND AGGREGATE_STOP from
@@ -99,11 +126,16 @@ const loadInRegime = (mults: number[]) => (RISK_LOAD_LAMBDA > 0
 const respondsToPlacement = (ratio: number) => ratio > 1.0;
 const flatAcrossClf = (costs: number[]) => Math.abs(costs[1] / costs[0] - 1) < 0.02;
 const unplacedLayerSilent = (byLayer: number[], unplaced: number) => byLayer[unplaced] === 0;
-// The shocks landing's cut, written out here: $1M, $2M, $10M, $20M, $40M on every line.
-const CUT = [1e6, 2e6, 10e6, 20e6, 40e6];
+// wip/reinsurance-layers' cut, written out here: $1M, $2M, $10M, $20M, $30M, $40M on every line.
+const CUT = [1e6, 2e6, 10e6, 20e6, 30e6, 40e6];
 const cutAt = (line: CoverageLine) => [...REINSURANCE_TOWER[line as 'WC'].map(l => l.attachment), TOWER_TOP[line as 'WC']];
 const towerCutAsBriefed = () => LINES.every(l => cutAt(l).join('|') === CUT.join('|')
+  && REINSURANCE_TOWER[l as 'WC'].length === CUT.length - 1
   && REINSURANCE_TOWER[l as 'WC'].every((x, i) => x.attachment + x.limit === CUT[i + 1]));
+// An option's charge is ITS price (tCoverPrice at the year's growth factor), > 0.
+const chargedAsOption = (premium: number, price: number) => price > 0 && Math.abs(premium - price) <= 1e-9 * price;
+// A placement that is not an option must be refused, not priced.
+const refused = (price: () => unknown) => { try { price(); return false; } catch { return true; } };
 // The worst gap, over every WC and GL line-year, between what was ceded and the
 // cover att/lim on each occurrence.
 const worstCededGap = (rows: ResultSet[], att: number, lim: number) => {
@@ -132,16 +164,16 @@ console.log('\n=== 1. claimContribution COLLAPSES TO grossUltimate ON BOTH LINES
 }
 
 console.log('\n=== 2. EROSION AND CORRIDOR RETENTION FALL OUT OF THE ARITHMETIC ===');
-// The tower since the shocks landing: $1M xs $1M, $8M xs $2M, $10M xs $10M, $20M xs $20M.
-const all12 = cedeOccurrences('WC', [12e6], [true, true, true, true]);
-const corridor12 = cedeOccurrences('WC', [12e6], [true, false, true, true]);
+// The tower since wip/reinsurance-layers: $1M xs $1M, $8M xs $2M, $10M xs $10M, $10M xs $20M, $10M xs $30M.
+const all12 = cedeOccurrences('WC', [12e6], [true, true, true, true, true]);
+const corridor12 = cedeOccurrences('WC', [12e6], [true, false, true, true, true]);
 {
-  const none = cedeOccurrences('WC', [12e6], [false, false, false, false]);
-  console.log(`  $12M occurrence: all four layers cede ${fmt$(all12.totalCeded)}, corridor ${fmt$(corridor12.totalCeded)}, none ${fmt$(none.totalCeded)}`);
-  check(Math.abs(all12.totalCeded - 11e6) < 1, '2. all four layers cede 1 + 8 + 2 + 0 = $11M of a $12M occurrence');
+  const none = cedeOccurrences('WC', [12e6], [false, false, false, false, false]);
+  console.log(`  $12M occurrence: all five layers cede ${fmt$(all12.totalCeded)}, corridor ${fmt$(corridor12.totalCeded)}, none ${fmt$(none.totalCeded)}`);
+  check(Math.abs(all12.totalCeded - 11e6) < 1, '2. all five layers cede 1 + 8 + 2 + 0 + 0 = $11M of a $12M occurrence');
   check(corridorGivesUpBand(all12.totalCeded, corridor12.totalCeded), '2. a corridor gives up exactly the skipped $8M xs $2M band');
   check([all12, corridor12, none].every(c => Math.abs(c.retained + c.totalCeded - 12e6) < 1e-6), '2. retained + ceded = gross');
-  const big = cedeOccurrences('GL', [60e6], [true, true, true, true]);
+  const big = cedeOccurrences('GL', [60e6], [true, true, true, true, true]);
   check(Math.abs(big.retainedAboveTower - (60e6 - TOWER_TOP.GL)) < 1, '2. a GL $60M occurrence keeps everything above the tower top');
 }
 
@@ -153,14 +185,29 @@ const multsOf = (line: 'WC' | 'GL') => REINSURANCE_TOWER[line].map((_l, i) => 1 
     console.log(`  ${line}: ${REINSURANCE_TOWER[line].map((l, i) => `${l.name} ${mults[i].toFixed(2)}x`).join('  ')}`);
     check(loadInRegime(mults), `3. ${line}'s load multiples are right for lambda ${RISK_LOAD_LAMBDA}`);
   }
-  const glTop = perHundred(layerPremium('GL', 3, book(290), REF_YEAR), 290);
-  const wcTop = perHundred(layerPremium('WC', 3, book(290), REF_YEAR), 290);
+  const glTop = perHundred(layerPremium('GL', REINSURANCE_TOWER.GL.length - 1, book(290), REF_YEAR), 290);
+  const wcTop = perHundred(layerPremium('WC', REINSURANCE_TOWER.WC.length - 1, book(290), REF_YEAR), 290);
   check(glTop > wcTop, '3. GL\'s top layer is dearer per $100 than WC\'s', `${glTop.toFixed(5)} vs ${wcTop.toFixed(5)}`);
   check(REINSURANCE_TOWER.WC.length === REINSURANCE_TOWER.GL.length, '3. WC and GL carry the same number of layers');
   check(REINSURANCE_TOWER.WC.every(l => l.purchasable), '3. every WC layer is purchasable');
   check(towerCutAsBriefed(),
-  '3. every line\'s tower is cut at $1M, $2M, $10M, $20M and $40M (top band $20M xs $20M)', LINES.map(l => `${l} ${cutAt(l).map(x => x / 1e6).join('/')}`).join('; '));
-  check(occurrenceProgramCost('GL', [false, false, false, true], book(290), REF_YEAR).premium > 0, '3. the top layer is charged when placed');
+  '3. every line\'s tower is cut at $1M, $2M, $10M, $20M, $30M and $40M (top band $10M xs $30M)', LINES.map(l => `${l} ${cutAt(l).map(x => x / 1e6).join('/')}`).join('; '));
+  // The top layer charged when placed — through the real options that place it.
+  const top = (l: CoverageLine) => REINSURANCE_TOWER[l as 'WC'].length - 1;
+  const shown: string[] = [];
+  let topOk = true;
+  for (const l of LINES) for (const id of ['$39M xs $1M', '$38M xs $2M']) for (const y of [REF_YEAR, 5]) {
+    const placed = placementFor(l, id);
+    const premium = occurrenceProgramCost(l as 'WC', placed, book(290), y).premium;
+    const price = tCoverPrice(l, id, shockCostFactor(l, y, 290, undefined));
+    topOk &&= placed[top(l)] && chargedAsOption(premium, price);
+    if (l === 'GL' && id === '$38M xs $2M') shown.push(`y${y} ${fmt$(premium)} vs ${fmt$(price)}`);
+  }
+  check(topOk, '3. the top layer is charged when placed: 39 xs 1 and 38 xs 2, every line, years 1 and 5, at exactly the option\'s price',
+    `GL $38M xs $2M ${shown.join(', ')}`);
+  const loneTop = REINSURANCE_TOWER.GL.map((_l, i) => i === top('GL'));
+  check(refused(() => occurrenceProgramCost('GL', loneTop, book(290), REF_YEAR)),
+    '3. the top layer ALONE is not an option, and is refused rather than priced');
   check(layerMask([true, false, true]) === 5, '3. layerMask is little-endian (layer 0 = bit 0)');
 }
 
@@ -197,13 +244,14 @@ const byLayerOf = (rows: ResultSet[], line: 'WC' | 'GL') => rows.reduce((acc, r)
   return acc;
 }, REINSURANCE_TOWER[line].map(() => 0));
 const defaults = GAMES.flatMap(id => play(id, 10));
-const fulls = GAMES.flatMap(id => play(id, 10, withOption(fullTowerOption)));
+const fulls = GAMES.flatMap(id => play(id, 10, withOption(() => '$38M xs $2M')));
 const lows = GAMES.flatMap(id => play(id, 10, withOption(() => '$9M xs $1M')));
 const declined = GAMES.slice(0, 2).flatMap(id => play(`${id}-DECLINE`, 5, d => ({
   ...d, byLine: { ...d.byLine, Property: { ...d.byLine.Property, reinsuranceOption: 'none' } },
 })));
 {
-  check(LINES.every(l => fullTowerOption(l) === '$38M xs $2M'), '6. the widest cover is $38M xs $2M on every line');
+  check(LINES.every(l => fullTowerOption(l) === '$39M xs $1M'), '6. the widest cover is $39M xs $1M on every line — every layer of the tower',
+    LINES.map(l => `${l} ${fullTowerOption(l)}`).join('; '));
   let occAll = 0;
   for (const line of ['WC', 'GL'] as const) {
     let ceded = 0, gross = 0, occ = 0;
@@ -254,6 +302,24 @@ check(!unplacedLayerSilent(byLayerOf(lows, 'GL'), 0) || !unplacedLayerSilent(byL
   L.attachment = o; L.limit = 8e6;
   check(caught && towerCutAsBriefed(), 'control: GL\'s $8M xs $2M moved to $7M xs $3M at runtime is caught by 3');
 }
+{
+  // The wip/shocks cut put back on GL ($20M xs $20M on top, no $30M edge).
+  const was = REINSURANCE_TOWER.GL;
+  REINSURANCE_TOWER.GL = [...was.slice(0, 3), { ...was[3], name: '$20M xs $20M', attachment: 20e6, limit: 20e6 }];
+  const caught = !towerCutAsBriefed();
+  REINSURANCE_TOWER.GL = was;
+  check(caught && towerCutAsBriefed(), 'control: the wip/shocks four-layer cut put back on GL is caught by 3');
+}
+{
+  // The retired additive rule: 38 xs 2 charged the sum of its layers' expected costs.
+  const g = shockCostFactor('GL', REF_YEAR, 290, undefined);
+  const additive = REINSURANCE_TOWER.GL.slice(1).reduce((a, x) => a + tLayerExpectedCost('GL', x.attachment, x.limit, g), 0);
+  check(!chargedAsOption(additive, tCoverPrice('GL', '$38M xs $2M', g)),
+    'control: $38M xs $2M charged the sum of its layers (prices adding across layers) is caught by 3',
+    `${fmt$(additive)} vs ${fmt$(tCoverPrice('GL', '$38M xs $2M', g))}`);
+}
+check(!refused(() => 0),
+  'control: a placement that is not an option PRICED instead of refused is caught by 3');
 check(worstCededGap(lows, 2e6, 38e6) >= 1, 'control: the $9M xs $1M games, read as if $38M xs $2M were bought, are caught by 6',
   fmt$(worstCededGap(lows, 2e6, 38e6)));
 check(!flatAcrossClf([0, 0]), 'control: a cover that costs $0 at both levels (NaN) is caught by 5');

@@ -1146,7 +1146,7 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
 
 // THE T COVERS (wip/shocks) — per occurrence, on the single T claim, from
 // REINSURANCE_OPTIONS. ⚠ EACH OPTION'S NAME AND ITS FIXED PRICE ONLY
-// (REINSURANCE_PRICE, via optionPrice — the price the engine charges), never a
+// (tCoverPrice, via optionPrice — the price the engine charges), never a
 // description, its expected recovery or how it was priced. While the game's
 // shocks are off only None is offered (reinsuranceOptionIds).
 function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {

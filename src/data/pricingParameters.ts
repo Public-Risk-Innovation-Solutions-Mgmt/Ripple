@@ -1388,16 +1388,17 @@ export const SHOCK_T_CLAIM_RANGE: PerLine<Readonly<Record<'Low' | 'Mid' | 'High'
 export const SHOCK_A_YEARS = 1;
 
 /**
- * T CLAIMS AND COVER PRICES GROW WITH THE LINE'S TREND AND ITS BOOK
- * (wip/shocks). Each year's figure is the table figure (SHOCK_T_CLAIM_RANGE's
- * ranges, REINSURANCE_PRICE's prices) x
+ * T CLAIMS GROW WITH THE LINE'S TREND AND ITS BOOK (wip/shocks), AND COVER
+ * PRICES ARE RE-WORKED ON THE GROWN CLAIMS (wip/reinsurance-layers). Each
+ * year's T range is the table's (SHOCK_T_CLAIM_RANGE) x
  *
  *     (1 + SHOCK_COST_TREND[line]) ^ (years since SHOCK_COST_BASE_YEAR)
  *       x (this year's exposure / the base year's exposure)
  *
- * The layers themselves (9 xs 1, 8 xs 2, 18 xs 2, 38 xs 2) stay fixed in
- * dollars, so a growing claim pierces them further and a cover's price rises
- * with what it covers.
+ * and each cover's price is its method's (REINSURANCE_OPTIONS,
+ * T_COVER_FREQUENCY) on mean claims grown by the SAME factor — one function,
+ * shockCostFactor, feeds both. The layers themselves stay fixed in dollars,
+ * so a growing claim pierces them further.
  *
  * WHY: the tables are year-1 figures. A claim in year 8 that cost what it
  * cost in year 1 would shrink against a book whose losses trend at 4-8% a
@@ -1773,22 +1774,30 @@ export const DEVELOPMENT_IS_LIFETIME_TOTAL = true;
 // stays as the written-down statement of WHICH convention is in force.
 
 /**
- * THE REINSURANCE A TEAM BUYS — PER OCCURRENCE, ON T CLAIMS ONLY (wip/shocks
- * test build). One option per line, from None and these four, each a layer in
- * $M — limit xs attachment — on the single T claim (SHOCK_T_CLAIM_RANGE):
+ * THE REINSURANCE A TEAM BUYS — PER OCCURRENCE, ON T CLAIMS ONLY. One option
+ * per line, from None and these eight, each a layer in $M — limit xs
+ * attachment — on the single T claim (SHOCK_T_CLAIM_RANGE):
  *
- *   9 xs 1    8 xs 2    18 xs 2    38 xs 2       — the same four on every line
+ *   9 xs 1    19 xs 1    29 xs 1    39 xs 1
+ *   8 xs 2    18 xs 2    28 xs 2    38 xs 2      — the same eight on every line
+ *
+ * (wip/reinsurance-layers; the wip/shocks build offered 9 xs 1, 8 xs 2, 18 xs 2
+ * and 38 xs 2.) None stays the default. THE LAYERS ARE FIXED IN DOLLARS AND
+ * NEVER GROW: the T claims grow with trend and the book (shockCost), so as
+ * they grow more of each large claim lands above a pool's layer — a player
+ * moves up a layer or keeps that risk. That is the reason for offering the
+ * tops at $10M, $20M, $30M and $40M from both attachments.
  *
  * A layer pays min(max(claim - attachment, 0), limit) on each T claim. An A
  * surge and normal losses never reach it: they are an aggregate, not claims,
  * and with ROUTINE_LARGE_LOSSES off the T claims are the only claims there are.
- * Priced at fixed dollars a year (REINSURANCE_PRICE), not by the tower's
- * moments.
+ * Priced each year by the pricing workbook's method on that year's claims
+ * (T_COVER_FREQUENCY and the multipliers below), not by the tower's moments.
  *
- * ⚠ THE TOWER IS CUT AT EVERY OPTION'S EDGES — $1M, $2M, $10M, $20M, $40M on
- * every line (data/reinsuranceTower.ts) — so each option is exactly a set of
- * whole tower layers, checked at load (reinsuranceOptions.ts). They overlap
- * (all but 9 xs 1 share the $2M–$10M layer), which a set of layers allows.
+ * ⚠ THE TOWER IS CUT AT EVERY OPTION'S EDGES — $1M, $2M, $10M, $20M, $30M and
+ * $40M on every line (data/reinsuranceTower.ts) — so each option is exactly a
+ * set of whole tower layers, checked at load (reinsuranceOptions.ts). They
+ * overlap, which a set of layers allows.
  *
  * WHY: the brief replaces the aggregate stop with cover written on the event
  * that hurts a pool — one large claim — in four sizes a player can compare.
@@ -1798,7 +1807,9 @@ export interface ReinsuranceOption { id: string; attachment: number; limit: numb
 const xs = (limitM: number, attachmentM: number): ReinsuranceOption =>
   ({ id: `$${limitM}M xs $${attachmentM}M`, attachment: attachmentM * 1e6, limit: limitM * 1e6 });
 const NONE: ReinsuranceOption = { id: 'none', attachment: 0, limit: 0 };
-const T_COVERS: readonly ReinsuranceOption[] = [NONE, xs(9, 1), xs(8, 2), xs(18, 2), xs(38, 2)];
+const T_COVERS: readonly ReinsuranceOption[] = [
+  NONE, xs(9, 1), xs(19, 1), xs(29, 1), xs(39, 1), xs(8, 2), xs(18, 2), xs(28, 2), xs(38, 2),
+];
 export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
   WC: T_COVERS,
   GL: T_COVERS,
@@ -1806,21 +1817,37 @@ export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
 };
 
 /**
- * EACH OPTION'S PRICE, DOLLARS A YEAR — FIXED (wip/shocks test build). What a
- * team pays for the option on a line, whatever its book or year; None costs
- * nothing. Players see each option's name and this price only.
+ * EACH OPTION'S PRICE, RE-WORKED EVERY YEAR BY THE PRICING WORKBOOK'S METHOD ON
+ * THAT YEAR'S CLAIMS (wip/reinsurance-layers; reinsuranceOptions.tCoverPrice).
+ * What a team pays a year for the option on a line; None costs nothing.
+ * Players see each option's name and this price only.
  *
- * WHY FIXED: the brief's. Per the brief each is each level's annual chance x
- * the layer's recovery at the top of the level's range. The prices add across
- * the tower's layers — on GL $1–2M is $100K, $2–10M $330K, $10–20M $100K,
- * $20–40M $200K — so each layer carries a fixed price of its own, derived and
- * checked at load (reinsuranceOptions.ts).
+ *   mean claim, per level = the midpoint of the line's T range
+ *                           (SHOCK_T_CLAIM_RANGE) x the year's growth factor
+ *   expected cost         = sum over Low / Mid / High of
+ *                           T_COVER_FREQUENCY x min(max(mean claim - attachment, 0), limit)
+ *   the 30M layers        (29 xs 1, 28 xs 2) = T_COVER_30M_MULTIPLIER x the 20M
+ *                           layer from the same attachment (19 xs 1, 18 xs 2)
+ *   the 40M layers        (39 xs 1, 38 xs 2) = T_COVER_40M_MULTIPLIER x the
+ *                           UNMULTIPLIED 30M layer from the same attachment
+ *   every other layer     = its expected cost
+ *
+ * THE GROWTH FACTOR IS THE ONE THE T CLAIMS USE (shockCost.shockCostFactor:
+ * the line's trend x the book's growth since year 1, 2027), so claims and
+ * prices grow together; in 2027 it is 1 and the prices start from the game's
+ * own claim sizes — WC 9 xs 1 $461K, GL $488K, Property $784K. The layers do
+ * not grow, so a layer's price rises more slowly than the claims once the
+ * mean claim passes its top.
+ *
+ * WHY: the pricing workbook's method, on the game's own claims, so a price
+ * follows the claims a player can see rather than a fixed table that drifts
+ * from them as they grow. The multipliers load the high layers, where a mean
+ * claim says least about the tail: a 30M layer costs 1.25x its 20M neighbour,
+ * a 40M layer 1.2x the 30M layer's own expected cost.
  */
-export const REINSURANCE_PRICE: PerLine<Readonly<Record<string, number>>> = {
-  GL: { '$9M xs $1M': 430_000, '$8M xs $2M': 330_000, '$18M xs $2M': 430_000, '$38M xs $2M': 630_000 },
-  WC: { '$9M xs $1M': 390_000, '$8M xs $2M': 290_000, '$18M xs $2M': 390_000, '$38M xs $2M': 590_000 },
-  Property: { '$9M xs $1M': 650_000, '$8M xs $2M': 550_000, '$18M xs $2M': 730_000, '$38M xs $2M': 930_000 },
-};
+export const T_COVER_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', number>> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
+export const T_COVER_30M_MULTIPLIER = 1.25;
+export const T_COVER_40M_MULTIPLIER = 1.2;
 
 /**
  * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn): only None is
@@ -2950,18 +2977,24 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'attachment, 0), limit). An A surge and normal losses never reach it. Players see each option\'s name '
           + 'and price only.',
         basis: 'CHOSEN',
-        note: 'wip/shocks test build. The tower is cut at $1M, $2M, $10M, $20M and $40M on every line, so each '
-          + 'option is whole layers. Replaces the aggregate stop, which stays dormant behind its switch.',
+        note: 'The layers are fixed in dollars and never grow: as the T claims grow, more of each lands above a '
+          + 'pool\'s layer, so a player moves up a layer or keeps that risk. The tower is cut at $1M, $2M, $10M, $20M, '
+          + '$30M and $40M on every line, so each option is whole layers. Replaces the aggregate stop, which stays '
+          + 'dormant behind its switch.',
       }],
       ['Reinsurance prices', {
-        value: (['GL', 'WC', 'Property'] as const).map(l => `${l} ${Object.entries(REINSURANCE_PRICE[l])
-          .map(([id, p]) => `${id} $${p / 1000}K`).join(', ')}`).join(' · '),
-        unit: '$ a year, fixed',
-        what: 'What each option costs a year, whatever the book or year. Charged as reinsurance in the rate, not '
-          + 'multiplied by the CLF.',
+        value: `frequencies Low ${T_COVER_FREQUENCY.Low * 100}% · Mid ${T_COVER_FREQUENCY.Mid * 100}% · High `
+          + `${T_COVER_FREQUENCY.High * 100}% a year; 30M layers x${T_COVER_30M_MULTIPLIER} the 20M; 40M layers `
+          + `x${T_COVER_40M_MULTIPLIER} the unmultiplied 30M`,
+        unit: '$ a year, re-worked each year',
+        what: 'Each year, for each level, the mean claim is the midpoint of the line\'s T range x the year\'s growth '
+          + 'factor (the T claims\' own: trend x book growth since 2027); a layer\'s expected cost is the sum over the '
+          + 'levels of frequency x min(max(mean claim − attachment, 0), limit). The 30M layers (29 xs 1, 28 xs 2) are '
+          + '1.25 x the 20M layer from the same attachment; the 40M layers (39 xs 1, 38 xs 2) 1.2 x the unmultiplied '
+          + '30M layer. Charged as reinsurance in the rate, not multiplied by the CLF.',
         basis: 'CHOSEN',
-        note: 'The brief\'s: each level\'s annual chance x the recovery at the top of its range. The prices add '
-          + 'across the tower\'s layers, which is checked at load.',
+        note: 'The pricing workbook\'s method, on the game\'s own claims, so prices follow the claims a player sees. '
+          + 'In 2027 the factor is 1: WC 9 xs 1 $461K, GL $488K, Property $784K.',
       }],
       ['Aggregate stop', {
         value: !AGGREGATE_STOP.enabled ? 'off — dormant; the T covers are offered' : AGGREGATE_STOP.enabled
