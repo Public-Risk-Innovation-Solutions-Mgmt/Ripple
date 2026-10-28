@@ -237,7 +237,7 @@ export interface MemberValueRow {
 export interface PoolValueRow {
   line: CoverageLine;
   pots: PotTotals;
-  /** poolPremium + adminExpense + reinsuranceCost. */
+  /** poolPremium + adminExpense + the risk control charge + reinsuranceCost. */
   totalMemberCharge: number;
   /** grossLoss / totalMemberCharge — what came back per dollar billed. */
   returnedPerDollar: number;
@@ -1794,7 +1794,30 @@ interface ResultRowFields {
 
   // Expenses
   operatingExpense: number;
+  /**
+   * Risk control spent this year — Other Admin Expense on the Annual Statement.
+   * Since wip/risk-control it is the Risk Control slider's charge (the same
+   * dollars the rate collected for it); the old pool-wide spend adds nothing
+   * while RISK_CONTROL is off.
+   */
   riskControlInvestment: number;
+  /**
+   * THE RISK CONTROL CUT (riskControl.ts), present only in a year the line's
+   * slider is above 0% — absent reads as no risk control, so a year without it
+   * is byte-identical to before the slider existed. Averaged across the worlds
+   * like any other figure; the mean cut, the draw and the cut are the same in
+   * every world.
+   */
+  /** m: the mean cut, sized so the expected losses + LAE saved equal the charge. */
+  riskControlMeanCut?: number;
+  /** z: the year's standard normal draw — the scenario's, shared by every world and player. */
+  riskControlDraw?: number;
+  /** The share taken off this year's normal losses: max(0, m x (1 + 0.5 z)). */
+  riskControlCut?: number;
+  /** This year's normal losses x the cut, in dollars. */
+  riskControlLossSaved?: number;
+  /** The ALAE and ULAE on riskControlLossSaved, at the year's drawn ALAE ratio. */
+  riskControlLaeSaved?: number;
 
   // Reserve development (NET basis — reserves are net of reinsurance)
   priorYearDevelopment: number; // positive = favorable, negative = adverse

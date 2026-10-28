@@ -302,15 +302,16 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
  */
 export function deriveLineRatios(r: Pick<LineResultSet,
   'poolPremium' | 'selectedFundingCLF' | 'poolPremiumAndAdminExpense' | 'totalMemberCharge' | 'adminExpense' | 'operatingExpense'
-  | 'reinsuranceCost' | 'netIncurredLoss' | 'poolLayerLoss' | 'reserveRiskMarginNeeded' | 'excessAvailableSurplus'
+  | 'reinsuranceCost' | 'riskControlInvestment' | 'netIncurredLoss' | 'poolLayerLoss' | 'reserveRiskMarginNeeded' | 'excessAvailableSurplus'
   | 'activeExposure' | 'totalMarketExposure' | 'laeIncurred'> & { bookedGrossUltimate?: number; grossUltimateLoss: number }) {
   const funded = fundedNetExpectedLoss({ poolPremium: r.poolPremium, selectedFundingCLF: r.selectedFundingCLF });
   const expectedLossRatio = funded / Math.max(r.poolPremiumAndAdminExpense, 1);
   const expectedLossRatioMemberBasis = funded / Math.max(r.totalMemberCharge, 1);
-  const expectedExpenseRatio = (r.adminExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
+  // Risk control is an expense, charged and paid away exactly (wip/risk-control).
+  const expectedExpenseRatio = (r.adminExpense + r.reinsuranceCost + r.riskControlInvestment) / Math.max(r.totalMemberCharge, 1);
   const actualLossRatio = r.netIncurredLoss / Math.max(r.totalMemberCharge, 1);
   // The admin BOOKED, with the year's overrun (ADMIN_OVERRUN_RANGE); expected is the admin priced.
-  const actualExpenseRatio = (r.operatingExpense + r.reinsuranceCost) / Math.max(r.totalMemberCharge, 1);
+  const actualExpenseRatio = (r.operatingExpense + r.reinsuranceCost + r.riskControlInvestment) / Math.max(r.totalMemberCharge, 1);
   const actualLaeRatio = r.laeIncurred / Math.max(r.totalMemberCharge, 1);
   const actualCombinedRatio = actualLossRatio + actualLaeRatio + actualExpenseRatio;
   const excessCapitalRatio = r.reserveRiskMarginNeeded > 0

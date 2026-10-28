@@ -103,7 +103,7 @@ function SectionA({ m }: { m: ModelRate }) {
           <Heading n={4} title="Admin" />
           <Step label="Admin, share of premium (every year)" value={m.adminShare} testId="model-a-admin-share" />
           <Step label="Exposure priced on ($M)" value={m.quotedExposure} />
-          <Step label="Admin per $100" op={`${f4(m.rateBeforeReinsurancePer100)} (rate before reinsurance) × ${pct4(m.adminShare)}`} value={m.adminPer100} testId="model-a-admin" />
+          <Step label="Admin per $100" op={`${f4(m.rateBeforeReinsurancePer100)} (rate before reinsurance${m.riskControl > 0 ? ' and risk control' : ''}) × ${pct4(m.adminShare)}`} value={m.adminPer100} testId="model-a-admin" />
 
           <Heading n={5} title="Expenses, as shares of the rate at Expected" />
           <Step label="Admin" value={m.expenses.admin} testId="model-a-exp-admin" />
@@ -115,7 +115,9 @@ function SectionA({ m }: { m: ModelRate }) {
 
           <Heading n={6} title="Funding and reinsurance" />
           <Step label={`Funding level: ${m.funding.label}`} op="CLF" value={m.funding.clf} testId="model-a-clf" />
-          <Step label="Expense divisor" op={`1 − risk control ${pct4(m.riskControl)} − admin ${pct4(m.adminShare)}`} value={m.divisor} />
+          <Step label="Expense divisor" op={`1 − admin ${pct4(m.adminShare)}`} value={m.divisor} />
+          {/* Risk control is not in the divisor: it multiplies the rate before reinsurance (RISK_CONTROL_CHARGE). */}
+          <Step label="Risk control" op="the rate before reinsurance × (1 + this)" value={m.riskControl} testId="model-a-risk-control" />
           <Step label="Reinsurance price per $100" value={m.reinsurancePer100} testId="model-a-reins" />
 
           <Heading n={7} title="The rate" />
@@ -123,7 +125,7 @@ function SectionA({ m }: { m: ModelRate }) {
           <Step label="+ Admin" value={m.pieces.admin} testId="model-a-piece-admin" />
           <Step label="+ Risk Control" value={m.pieces.riskControl} testId="model-a-piece-risk-control" />
           <Step label="+ Reinsurance" value={m.pieces.reins} testId="model-a-piece-reins" />
-          <Step label="= Rate per $100" op={`${f4(m.pieces.purePremium)} ÷ ${f4(m.divisor)} + ${f4(m.pieces.reins)}`}
+          <Step label="= Rate per $100" op={`${f4(m.pieces.purePremium)} ÷ ${f4(m.divisor)}${m.riskControl > 0 ? ` × ${f4(1 + m.riskControl)}` : ''} + ${f4(m.pieces.reins)}`}
             value={m.ratePer100} testId="model-a-rate" strong />
           <Step label="Exposure charged ($M)" value={m.chargedExposure} />
           <Step label="Premium" op={`${f4(m.ratePer100)} × ${f4(m.chargedExposure)} × 10,000`} value={m.premium} testId="model-a-premium" strong />

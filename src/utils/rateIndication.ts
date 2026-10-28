@@ -214,11 +214,16 @@ export function buildRateIndication(
   const currentRow = gameHistory(gs).find(x => x.yearNumber === yearNumber - 1)?.byLine[line];
   const currentExposure = currentRow ? (currentRow.billedExposure ?? currentRow.activeExposure) : 0;
 
-  // THE EXPENSES, as shares of the rate at Expected: admin's share of premium —
-  // the parameter itself, the same every year — and risk control.
-  const admin = ADMIN_SHARE_OF_PREMIUM[line];
-  const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
+  // THE EXPENSES, as shares of the rate at Expected (before reinsurance). The
+  // rate is (pure premium / (1 - admin share)) x (1 + risk control) — risk
+  // control rides on top and admin is not taken on it (RISK_CONTROL_CHARGE) — so
+  // admin is admin share / (1 + slider) of the rate, risk control slider / (1 +
+  // slider), and the permissible loss ratio (1 - admin share) / (1 + slider). At
+  // 0% they are the admin share, 0 and 1 - the admin share, as before.
+  const slider = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
     : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
+  const admin = ADMIN_SHARE_OF_PREMIUM[line] / (1 + slider);
+  const riskControl = slider / (1 + slider);
   const totalAdmin = admin + riskControl;
 
   const currentPer100 = currentRate(gs, line, yearNumber);

@@ -359,7 +359,14 @@ export const DIVIDEND_ASSESSMENT_RANGE = { min: -0.15, max: 0.15, step: 0.01, de
 /** Pool-wide risk control intensity, as a share of each line's own premium. */
 export const RISK_CONTROL_PCT_RANGE = { min: 0, max: 0.08, step: 0.01, default: 0 };
 
-/** Per-line risk control incentives. Stored and not read by the engine. */
+/**
+ * THE RISK CONTROL SLIDER, per line per year: 0% to 5% of the rate before
+ * reinsurance, in 1% steps, default 0% (wip/risk-control; see
+ * RISK_CONTROL_CHARGE). 5% is the R model's top; 1% steps keep the choice a
+ * handful of clear settings; 0% by default so a player who never touches it
+ * plays the game as it was. SLIDER_RANGES.riskControlIncentivePct is the
+ * screen's copy and must match (risk-control-check).
+ */
 export const RISK_CONTROL_INCENTIVE_RANGE = { min: 0, max: 0.05, step: 0.01, default: 0 };
 
 /**
@@ -517,8 +524,8 @@ export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property
  * on every book, and the permissible loss ratio is 1 - this (80%). What goes to
  * losses — the pure premium x CLF — is unchanged by it: admin is a pass-through
  * on top, and the cover's price is added after the divisor, never loaded by it.
- * With risk control on (RISK_CONTROL, off) the divisor is 1 - risk control -
- * this.
+ * Risk control is NOT in the divisor: the rate before reinsurance is multiplied
+ * by (1 + the slider), and admin is not taken on that charge (RISK_CONTROL_CHARGE).
  *
  * ⚠ WHY A SHARE OF PREMIUM (wip/pricing-rework). It replaced a fixed amount per
  * line plus a per-exposure rate, both trended 3% a year from a 2027 base, whose
@@ -1051,22 +1058,84 @@ export const newLossEngineRuns = (): boolean => !MEMBER_LEVEL.enabled;
 export const MEMBER_LEVEL = { enabled: false };
 
 /**
- * RISK CONTROL — OFF, PENDING DESIGN. Loss engine commit 3.
+ * THE OLD RISK CONTROL — the pool-wide spend and the programs. OFF, and it stays
+ * off. Loss engine commit 3.
  *
  * Its effects lived in the old per-claim generators, which the new loss engine
- * does not run, so its spend bought nothing. Off: no charge and no effect; the
- * Decisions page shows each line's slider disabled at 0% ("coming soon") and
- * the Departments screen hides the programs. The programs, the spend and their
- * code are kept intact and unwired, for the pool-level redesign to reuse.
+ * does not run, so its spend bought nothing. Off: the pool-wide spend
+ * (DecisionSet.riskControlPct, pinned at 0) and the programs charge nothing and
+ * do nothing, and the Departments screen hides the programs. Their code is kept
+ * intact and unwired.
  *
- * ⚠ WHEN IT IS SWITCHED ON, IT MUST BE CHARGED AS A PERCENTAGE OF THE PURE
- * PREMIUM. The Decisions slider is labelled that way ("5% of Pure Premium" at
- * its end), but quoteNewRateStack loads it today as a share of the loaded rate,
- * in the divisor. Change the charge to match the label before turning this on;
- * the slider's gray cost box (derivations.ts riskControlCost) then shows the
- * real cost, and shows $0 until then.
+ * ⚠ IT NO LONGER GOVERNS THE DECISIONS PAGE'S RISK CONTROL. That is the per-line
+ * slider (LineDecisionSet.riskControlIncentivePct), live since wip/risk-control
+ * and described at RISK_CONTROL_CHARGE below. This switch used to hold that
+ * slider disabled at 0% ("coming soon"); it is now read only for the old spend
+ * and the programs.
  */
 export const RISK_CONTROL = { enabled: false };
+
+/**
+ * RISK CONTROL — A SLIDER PER LINE PER YEAR (wip/risk-control), after the R model
+ * (Ripple_Game_RC_CLF_100_Background_Simulations.R) except where stated.
+ *
+ *   DECISION  each line, each year: 0% to 5% in 1% steps, default 0%
+ *             (RISK_CONTROL_INCENTIVE_RANGE; the slider is SLIDER_RANGES
+ *             .riskControlIncentivePct). Single player, Test player and hosted.
+ *   CHARGE    IN THE RATE: rate = (pure premium x CLF / (1 - admin share)) x
+ *             (1 + slider) + reinsurance (linePricing.quoteNewRateStack). So at
+ *             2% the rate is 2% higher, before reinsurance, than without it.
+ *             Admin is NOT taken on the charge — it is a pass-through, like
+ *             reinsurance. Its own "Risk Control" row in the rate build on the
+ *             Decisions panel, the Rate Indication and the Model tab.
+ *   COST      the charge, booked as Other Admin Expense (riskControlInvestment),
+ *             so the charge in and the cost out match every year.
+ *   EFFECT    cuts THIS program year's NORMAL losses only — never a shock's
+ *             surge or large claims, routine large claims, or any older year —
+ *             by a cut drawn once per year per line (RISK_CONTROL_CUT).
+ *   PRICING   sees the lower losses only through experience, like any other
+ *             loss: members get the saving back as lower rates later.
+ *
+ * ⚠ WHY THE CHARGE IS IN THE RATE (the user's change after Phase 1). Measured
+ * with the cost booked but NOT charged (scratch probe, twenty scenarios, five
+ * years, Low, shocks off, funding at Expected): losses + LAE saved were 1.02x the
+ * cost, but the pool ended year 5 $2.4M (2%) and $5.9M (5%) lower per game in
+ * single player — it paid the cost every year while experience passed the saving
+ * back as rates 1.2% (2%) and 3.1% (5%) lower by year 5. Charging it in the rate
+ * makes the members pay for what they get back.
+ *
+ * ⚠ THE PRE-GAME PLAYS AT 0%: its decisions carry no slider, so its history,
+ * the openings and every scenario's record are untouched.
+ */
+export const RISK_CONTROL_CHARGE = { chargedOn: 'pure premium x CLF / (1 - admin share)', adminOnCharge: false } as const;
+
+/**
+ * THE CUT — WHAT A YEAR OF RISK CONTROL TAKES OFF NORMAL LOSSES.
+ *
+ *   cut = max(0, m x (1 + sdOfMean x z)),  z ~ N(0, 1)
+ *   m   = the charge in dollars / (expected normal losses x (1 + expected ALAE
+ *         ratio + ULAE share))
+ *
+ * ⚠ m IS SIZED SO THE EXPECTED LOSS + LAE SAVED EQUALS THE COST at every slider
+ * setting: E[normal] x m x (1 + LAE) = the charge. Expected ALAE is the line's
+ * ALAE_OF_LOSS_COST (0 where ALAE is already in the losses), not the year's
+ * drawn ratio — the cut is sized before the year happens; the saving books at
+ * the year's drawn ratio, as all LAE does.
+ *
+ * ⚠ z IS DRAWN ONCE PER YEAR PER LINE OFF THE GAME'S SEED (marketSeedOf, label
+ * `label`_<line>), so every world and every player in a scenario shares it — the
+ * luck of the year's prevention is the scenario's, not the team's. m is each
+ * player's own: it follows their slider, their charge and their book.
+ *
+ * sdOfMean 0.5 — the R model's: the SD of the cut is half its mean, so most
+ * years (about two in three) the cut is 0.5m to 1.5m and nearly all (95%) 0 to
+ * 2m. Measured in Phase 1: 5th to 95th percentile 0.28m to 1.85m.
+ *
+ * floor 0 — a year of prevention never ADDS losses. ACCEPTED, NOT CORRECTED: the
+ * floor lifts the mean cut by about 0.4% of m (E[max(0, N(1, 0.5))] = 1.0043),
+ * so on average the saving runs 0.4% over the cost (the user's decision).
+ */
+export const RISK_CONTROL_CUT = { sdOfMean: 0.5, floor: 0, label: 'risk_control_cut' } as const;
 
 /**
  * WHAT ORDINARY LOSSES COVER — per claim, limited at each line's LOWEST
@@ -2457,17 +2526,35 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         unit: 'share of opening surplus',
         what: 'Negative is an assessment, positive a dividend.', basis: 'CHOSEN',
       }],
-      ['Risk control range', {
+      ['Pool-wide risk control range (retired)', {
         value: `${RISK_CONTROL_PCT_RANGE.min} to ${RISK_CONTROL_PCT_RANGE.max}, step ${RISK_CONTROL_PCT_RANGE.step}`,
         unit: 'share of the line\'s premium',
         what: 'Pool-wide risk control intensity.', basis: 'CHOSEN',
         note: 'The control is retired from the screen; the field is pinned at its default of 0.',
       }],
-      ['Risk control incentives range', {
-        value: `${RISK_CONTROL_INCENTIVE_RANGE.min} to ${RISK_CONTROL_INCENTIVE_RANGE.max}, step ${RISK_CONTROL_INCENTIVE_RANGE.step}`,
-        unit: 'share of the line\'s premium',
-        what: 'Per-line risk control incentives.', basis: 'CHOSEN',
-        note: 'Stored and not read by the engine; awaiting the new rate indication.',
+      ['Risk control range', {
+        value: `${RISK_CONTROL_INCENTIVE_RANGE.min} to ${RISK_CONTROL_INCENTIVE_RANGE.max}, step ${RISK_CONTROL_INCENTIVE_RANGE.step}, `
+          + `default ${RISK_CONTROL_INCENTIVE_RANGE.default}`,
+        unit: 'share of the rate before reinsurance',
+        what: 'The Risk Control slider, per line per year. The rate is (pure premium x CLF / (1 - admin share)) x '
+          + '(1 + this) + reinsurance; the charge is booked as Other Admin Expense, so the charge in and the cost out '
+          + 'match every year.',
+        basis: 'CHOSEN',
+        note: '5% is the R model\'s top; 1% steps keep it a handful of clear settings; 0% by default, so a player who '
+          + 'never touches it plays the game as it was. Admin is not taken on the charge — a pass-through, like '
+          + 'reinsurance. Charged in the rate because, booked without it (Phase 1), the pool ended year 5 $2.4M (2%) '
+          + 'and $5.9M (5%) lower per game: experience passed the saving back as lower rates while the pool kept paying.',
+      }],
+      ['Risk control cut', {
+        value: `mean m, SD ${RISK_CONTROL_CUT.sdOfMean} m, floored at ${RISK_CONTROL_CUT.floor}`,
+        unit: 'share of the year\'s normal losses',
+        what: 'What a year of risk control takes off THIS program year\'s normal losses — never shocks, large claims '
+          + 'or older years. m = the charge / (expected normal losses x (1 + expected ALAE + ULAE)), so the expected '
+          + 'losses + LAE saved equal the cost at every setting.',
+        basis: 'CHOSEN',
+        note: 'The R model\'s SD of half the mean. The draw is made once per year per line off the game\'s seed, so '
+          + 'every world and every player shares the year\'s luck; m is each player\'s own. The floor (a year of '
+          + 'prevention never adds losses) lifts the mean cut about 0.4% — accepted.',
       }],
     ],
   },
@@ -2890,13 +2977,14 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'member-level risk over the new engine rather than reuse these generators — to be decided if '
           + 'members return.',
       }],
-      ['Risk control', {
+      ['Old risk control (pool-wide spend and programs)', {
         value: RISK_CONTROL.enabled ? 'on' : 'off', unit: 'switch',
-        what: 'Off: no charge and no effect. The Decisions page shows each line\'s slider disabled at 0%, '
-          + '"coming soon"; the Departments screen hides the programs.',
+        what: 'Off: the pool-wide spend and the programs charge nothing and do nothing; the Departments screen hides '
+          + 'the programs. It no longer governs the Decisions page\'s Risk Control slider, which is live (Risk control '
+          + 'range, Risk control cut).',
         basis: 'CHOSEN',
-        note: 'PENDING DESIGN at pool level — its effect on the loss engine is being designed separately. '
-          + 'The programs, the spend and their code are kept for the redesign to reuse.',
+        note: 'Their effects lived in the old per-claim generators, which the new loss engine does not run. The '
+          + 'code is kept, unwired.',
       }],
       ['Opening book', {
         value: perLine(OPENING_BOOK_EXPOSURE, 3), unit: '$M of exposure, base year',

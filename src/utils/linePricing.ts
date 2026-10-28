@@ -48,7 +48,7 @@ import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCo
 import type { TowerLine } from '../data/reinsuranceTower';
 import type { CoverageLine } from '../types/simulation';
 import { bookRiskOf, type Book } from './lineHelpers';
-import { AGGREGATE_STOP, newLossEngineRuns, RISK_CONTROL, STOP_RECOVERY_OFF_CLAIMS_COST } from '../data/pricingParameters';
+import { AGGREGATE_STOP, newLossEngineRuns, STOP_RECOVERY_OFF_CLAIMS_COST } from '../data/pricingParameters';
 import { stopQuote } from './aggregateStop';
 
 export interface LineRateInputs {
@@ -416,6 +416,8 @@ export interface LineRateQuote {
    *  whenever every purchasable layer is placed, which is the shipped default. */
   retainedCoverMargin: number;
   retainedCoverMarginRatePer100: number;
+  /** The Risk Control charge per $100 (quoteNewRateStack); absent on the old stack, which never charges it. */
+  riskControlRatePer100?: number;
   totalMemberChargeRatePer100: number;
   poolPremium: number;
   /** Returned so the engine can REUSE the quote for its post-movement pass
@@ -573,33 +575,33 @@ export function quoteLineRates(input: LineRateInputs): LineRateQuote {
 // ============================================================================
 
 /**
- * THE INCENTIVE THE RATE ACTUALLY CARRIES — the stored slider with RISK_CONTROL
- * on, and 0 while risk control is pending design. One reading, so the engine,
- * the Decisions panel and the audit page cannot price different divisors.
+ * THE RISK CONTROL SLIDER THE RATE CARRIES — the line's stored setting, absent
+ * read as 0% (a save or harness from before the slider). One reading, so the
+ * engine, the Decisions panel, the Rate Indication and the Model tab cannot
+ * price different charges. Live since wip/risk-control; see RISK_CONTROL_CHARGE.
  */
 export function effectiveRiskControlIncentivePct(d: { riskControlIncentivePct?: number }): number {
-  return RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? 0) : 0;
+  return d.riskControlIncentivePct ?? 0;
 }
 
 
 /**
- * The expense divisor, `1 - risk control - admin's share of premium`
- * (ADMIN_SHARE_OF_PREMIUM). With risk control off it is the permissible loss
- * ratio, 80% on every line today.
+ * The expense divisor, `1 - admin's share of premium` (ADMIN_SHARE_OF_PREMIUM):
+ * 80% on every line today.
  *
- * ⚠ RISK CONTROL IS CHARGED IN THE RATE HERE, AND IT DID NOT HAVE TO BE. The
- * alternative reading is that the spend comes out of SURPLUS — the pool
- * funds prevention from accumulated capital. Charging it in the rate says prevention is
- * a cost of the year's cover, which is the reading the slider's own screen
- * implies; the other is defensible and would change who pays for it.
- * Recorded because the choice is invisible in the arithmetic.
+ * ⚠ RISK CONTROL IS NOT IN IT (wip/risk-control). It used to be — `1 - risk
+ * control - admin` — which loaded admin on the risk control charge and charged
+ * it as a share of the loaded rate. The charge is now the rate before
+ * reinsurance times the slider (quoteNewRateStack), a pass-through that admin is
+ * not taken on (RISK_CONTROL_CHARGE).
  *
- * ⚠ IT IS riskControlIncentivePct, THE PER-LINE SLIDER — not the pool-wide
- * `riskControlPct`, which is ALREADY spent as riskControlInvestment and would
- * be charged twice if it appeared here as well.
+ * ⚠ RISK CONTROL IS CHARGED IN THE RATE, AND IT DID NOT HAVE TO BE. The
+ * alternative is that the spend comes out of SURPLUS. Measured that way (Phase
+ * 1) the pool lost the cost every year once experience passed the saving back
+ * as lower rates, so the members pay for it in the rate.
  */
-export function expenseDivisor(riskControlPct: number, line: CoverageLine): number {
-  return 1 - riskControlPct - ADMIN_SHARE_OF_PREMIUM[line];
+export function expenseDivisor(line: CoverageLine): number {
+  return 1 - ADMIN_SHARE_OF_PREMIUM[line];
 }
 
 export interface NewStackInputs {
@@ -610,7 +612,7 @@ export interface NewStackInputs {
   /** GROUND-UP pure premium per $100 — newPurePremium.ts's figure. */
   groundUpPurePremiumPer100: number;
   clf: number;
-  /** The per-line risk control incentive slider. */
+  /** The line's Risk Control slider, 0 to 0.05 (effectiveRiskControlIncentivePct). */
   riskControlPct: number;
   layersPlaced: boolean[];
   aggregateStopLevel: number;
@@ -628,30 +630,32 @@ export interface NewStackQuote {
   retainedPurePremiumPer100: number;
   /** ADMIN_SHARE_OF_PREMIUM for the line. */
   adminShare: number;
-  /** 1 - risk control - admin share. */
+  /** 1 - admin share. Risk control is not in it (expenseDivisor). */
   divisor: number;
-  /** Pure premium / divisor. At expected, self-funded, no reinsurance. */
+  /** Pure premium / divisor x (1 + risk control). At expected, self-funded, no reinsurance. */
   firstIndicationPer100: number;
-  /** Retained x CLF / divisor + reinsurance. What members pay. */
+  /** Retained x CLF / divisor x (1 + risk control) + reinsurance. What members pay. */
   finalRatePer100: number;
   /**
-   * THE POOL PREMIUM, per $100: the rate before reinsurance less admin — the
-   * pure premium x CLF, plus the risk control loading when risk control is on.
+   * THE POOL PREMIUM, per $100: the pure premium x CLF — the rate before
+   * reinsurance and risk control, less admin. Risk control is NOT in it: it is
+   * its own piece (riskControlPer100), so the pool premium still funds exactly
+   * the claims (fundedNetExpectedLoss) at every slider setting.
    */
   poolPremiumRatePer100: number;
   /**
-   * ADMIN CHARGED, per $100: exactly adminShare x the rate before reinsurance.
-   * Multiplied by the exposure it is the admin the engine charges and books
-   * (before the year's overrun).
+   * ADMIN CHARGED, per $100: exactly adminShare x (pool premium + admin). Not
+   * taken on the risk control charge. Multiplied by the exposure it is the admin
+   * the engine charges and books (before the year's overrun).
    */
   adminRatePer100: number;
   reinsRatePer100: number;
   reinsuranceCost: number;
   /**
-   * The risk control share of the loading, as a rate: the rate before
-   * reinsurance times the incentive the divisor was given. Multiplied by the
-   * exposure it is the incentive's cost in dollars, which is what the Decisions
-   * slider shows. 0 with risk control off.
+   * THE RISK CONTROL CHARGE, per $100: (pool premium + admin) x the slider.
+   * Multiplied by the exposure it is the charge in dollars — what the Decisions
+   * slider's box shows, what members pay for it, and what the pool books as
+   * Other Admin Expense (riskControlInvestment). 0 at 0%.
    */
   riskControlPer100: number;
   /** The same two shares of the Indicated rate (firstIndicationPer100): at Expected, self-funded. */
@@ -675,11 +679,15 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
     throw new Error(`quoteNewRateStack: ${line} quoted without its reinsurance option while the aggregate stop is on`);
   }
   const adminShare = ADMIN_SHARE_OF_PREMIUM[line];
-  const divisor = expenseDivisor(riskControlPct, line);
+  const divisor = expenseDivisor(line);
 
   // ⚠ NO INVESTMENT INCOME CREDIT. Investment income does not touch the rate in
   // any way; it flows into surplus only.
-  const firstIndicationPer100 = groundUpPurePremiumPer100 / divisor;
+  // The indication before risk control, and with it: the same (1 + slider) the
+  // rate carries, so the Indicated column's Risk Control row is the slider's
+  // share of the Indicated rate before reinsurance, as Your rate's is of yours.
+  const indicatedBase = groundUpPurePremiumPer100 / divisor;
+  const firstIndicationPer100 = indicatedBase * (1 + riskControlPct);
 
   // The SAME cession function the old stack uses, on the ground-up figure.
   const { towerQuote, aggregateQuote, expectedCededPer100 } = expectedCededPer100For(
@@ -696,16 +704,17 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   const reinsuranceCost = towerQuote.premium + (aggregateQuote?.premium ?? 0);
   const reinsRatePer100 = reinsuranceCost / Math.max(exposure * 10_000, 1);
 
-  // The rate before reinsurance, and admin as its share. The pool premium is
-  // what is left, so pool + admin is the rate before reinsurance and the panel's
-  // rows add to the rate charged.
+  // The rate before reinsurance and risk control, and admin as its share. The
+  // pool premium is what is left. Risk control is that rate times the slider —
+  // admin is not taken on it — so pool + admin + risk control + reinsurance is
+  // the rate charged and the panel's rows add to it.
   const loadedBase = retainedPurePremiumPer100 * clf / divisor;
   const adminRatePer100 = loadedBase * adminShare;
   const poolPremiumRatePer100 = loadedBase - adminRatePer100;
-  const finalRatePer100 = loadedBase + reinsRatePer100;
   const riskControlPer100 = loadedBase * riskControlPct;
-  const indicatedAdminPer100 = firstIndicationPer100 * adminShare;
-  const indicatedRiskControlPer100 = firstIndicationPer100 * riskControlPct;
+  const finalRatePer100 = loadedBase + riskControlPer100 + reinsRatePer100;
+  const indicatedAdminPer100 = indicatedBase * adminShare;
+  const indicatedRiskControlPer100 = indicatedBase * riskControlPct;
 
   // ⚠ UNDERWRITING ONLY, AND IN DOLLARS RATHER THAN A RATE, because the
   // question it answers is "what does this year add to surplus if claims come
@@ -713,7 +722,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   // CUSHION, what the claims charge leaves over the claims' cost — the pool
   // charged CLF x the retained pure premium, and at expected claims cost the
   // retained figure. Admin is charged and spent (its overrun aside); risk
-  // control likewise; reinsurance is not here either — at expected the cover's
+  // control is charged and spent exactly; reinsurance is not here either — at expected the cover's
   // price exceeds its expected recovery by the load, so including it would make
   // buying cover look like a surplus gain.
   const cushionPer100 = retainedPurePremiumPer100 * (clf - 1);
@@ -766,7 +775,8 @@ export function newStackAsLineRateQuote(q: NewStackQuote, exposure: number): Lin
     reinsRatePer100: q.reinsRatePer100,
     retainedCoverMargin: 0,
     retainedCoverMarginRatePer100: 0,
-    totalMemberChargeRatePer100: poolPremiumRatePer100 + adminRatePer100 + q.reinsRatePer100,
+    riskControlRatePer100: q.riskControlPer100,
+    totalMemberChargeRatePer100: poolPremiumRatePer100 + adminRatePer100 + q.riskControlPer100 + q.reinsRatePer100,
     poolPremium: exposure * poolPremiumRatePer100 * 10_000,
     towerQuote: q.towerQuote,
     aggregateQuote: q.aggregateQuote,

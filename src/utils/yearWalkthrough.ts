@@ -332,6 +332,23 @@ function lineSteps(s: YearSource, l: CoverageLine): LineSteps {
   ]);
   notes.push(undefined); totals.push(expected);
 
+  // RISK CONTROL (wip/risk-control): the slider, its cost, the cut drawn and what
+  // it saved — rows only in a year the line's slider is above 0%, so a year
+  // without it reads, and hashes, exactly as before. The draw z is the
+  // scenario's (the same for everyone); m and the cut follow the player's
+  // slider, so the rows sit in the steps, which depend on decisions.
+  const slider = a.decisions?.riskControlIncentivePct ?? 0;
+  const rc = slider > 0 && a.riskControlCut !== undefined;
+  const lossSaved = rc ? a.riskControlLossSaved ?? 0 : 0;
+  const rcRows: WalkRow[] = rc ? [
+    { label: 'Risk control slider', value: slider, kind: 'pct' },
+    { label: 'Risk control cost (Other Admin Expense)', value: a.riskControlInvestment, kind: 'usd' },
+    { label: 'Mean cut m (saving equals the cost on average)', value: a.riskControlMeanCut ?? null, kind: 'pct' },
+    { label: 'Risk control draw z (same for everyone in this scenario)', value: a.riskControlDraw ?? null, kind: 'factor' },
+    { label: 'Cut drawn: max(0, m × (1 + 0.5 z))', value: a.riskControlCut ?? null, kind: 'pct' },
+    { label: 'Normal losses saved', value: lossSaved, kind: 'usd' },
+  ] : [];
+
   // 2. Normal losses — underwriting's factor, the year factor, member risk and luck.
   if (perWorld) {
     const risk = memberRisk(s, l);
@@ -346,12 +363,15 @@ function lineSteps(s: YearSource, l: CoverageLine): LineSteps {
       { label: 'Year factor', value: a.commonLossFactor, kind: 'factor' },
       { label: 'Combined factor (with member risk and luck)', value: mean(nle!.map(x => x.ordinaryFactor)), kind: 'factor' },
       { label: 'Normal losses', value: normal, kind: 'usd' },
+      ...rcRows,
+      ...(rc ? [{ label: 'Normal losses after risk control', value: normal - lossSaved, kind: 'usd' as const }] : []),
     ]);
-    notes.push(undefined); totals.push(normal);
+    notes.push(undefined); totals.push(normal - lossSaved);
   } else {
     rows.push([
       { label: 'Year factor', value: a.commonLossFactor, kind: 'factor' },
       { label: 'Normal losses', value: null, kind: 'usd' },
+      ...rcRows,
     ]);
     notes.push(NOT_KEPT); totals.push(null);
   }
@@ -429,6 +449,10 @@ function lineSteps(s: YearSource, l: CoverageLine): LineSteps {
     { label: 'ALAE ratio', value: a.alaeRatio ?? null, kind: 'pct' },
     { label: 'ALAE', value: a.alaeIncurred, kind: 'usd' },
     { label: 'ULAE', value: a.ulaeIncurred, kind: 'usd' },
+    ...(rc ? [
+      { label: 'LAE saved by risk control (included above)', value: a.riskControlLaeSaved ?? 0, kind: 'usd' as const },
+      { label: 'Losses + LAE saved by risk control', value: lossSaved + (a.riskControlLaeSaved ?? 0), kind: 'usd' as const },
+    ] : []),
   ]);
   notes.push(undefined); totals.push(a.alaeIncurred + a.ulaeIncurred);
 
@@ -450,8 +474,9 @@ function lineSteps(s: YearSource, l: CoverageLine): LineSteps {
     { label: 'Admin expense', value: a.adminExpense, kind: 'usd' },
     { label: 'Overrun', value: adminOverrunFor(s.gameSeed, s.y, l), kind: 'pct' },
     { label: 'Admin booked', value: a.operatingExpense, kind: 'usd' },
+    ...(rc ? [{ label: 'Risk control (Other Admin Expense)', value: a.riskControlInvestment, kind: 'usd' as const }] : []),
   ]);
-  notes.push(undefined); totals.push(a.operatingExpense);
+  notes.push(undefined); totals.push(a.operatingExpense + (rc ? a.riskControlInvestment : 0));
 
   // 10. Investment income.
   rows.push([

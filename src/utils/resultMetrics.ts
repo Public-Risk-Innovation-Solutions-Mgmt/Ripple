@@ -9,7 +9,7 @@ import { eventLabel, yearEvents } from './yearEvents';
 import { placementCode, placementSummary } from './reinsuranceDisplay';
 import { developmentDisplay } from './developmentDisplay';
 import type { CoverageLine, LineDecisionSet, ResultSet } from '../types/simulation';
-import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
+import { MEMBER_LEVEL } from '../data/pricingParameters';
 
 // Which tower line a result row belongs to — WC or GL ONLY, never a guess.
 //
@@ -100,22 +100,17 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatPct(r.decisions.assessmentPct, 1),
       csvValue: r => r.decisions.assessmentPct,
     },
-    // Hidden while RISK_CONTROL is off — risk control is pending design and reads 0.
-    ...(RISK_CONTROL.enabled ? <SpreadsheetMetric[]>[
-      {
-        key: 'riskControlPct',
-        // Pool-wide: one choice projected into every line. The LINE form reads the
-        // projected copy; the POOL form reads the pool's own field. Same number,
-        // named where it lives — so the Pool tab keeps the row.
-        lineOnly: true,
-        poolCell: r => formatPct(r.pool.riskControlPct, 1),
-        poolCsvCell: r => r.pool.riskControlPct,
-        category: 'Decisions',
-        label: 'Risk Control %',
-        value: r => formatPct(r.decisions.riskControlPct, 1),
-        csvValue: r => r.decisions.riskControlPct,
-      },
-    ] : []),
+    // THE RISK CONTROL SLIDER (wip/risk-control): per line, so line tabs only.
+    // It replaces the retired pool-wide 'riskControlPct' row, which only showed
+    // with the old RISK_CONTROL switch on and is pinned at 0.
+    {
+      key: 'riskControlSliderPct',
+      lineOnly: true,
+      category: 'Decisions',
+      label: 'Risk Control %',
+      value: r => formatPct(r.decisions.riskControlIncentivePct ?? 0, 0),
+      csvValue: r => r.decisions.riskControlIncentivePct ?? 0,
+    },
     {
       // ONE PRODUCT NOW, and REINSURANCE_PROGRAMS is gone rather than merely
       // dead — all three lines run the per-occurrence tower.
@@ -482,16 +477,25 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.operatingExpense),
       csvValue: r => roundDollars(r.operatingExpense),
     },
-    // Hidden while RISK_CONTROL is off — no spend is charged.
-    ...(RISK_CONTROL.enabled ? <SpreadsheetMetric[]>[
-      {
-        key: 'riskControlInvestment',
-        category: 'Expenses and Income',
-        label: 'Risk Control Investment',
-        value: r => formatCurrency(r.riskControlInvestment),
-        csvValue: r => roundDollars(r.riskControlInvestment),
-      },
-    ] : []),
+    // THE RISK CONTROL CHARGE, booked as Other Admin Expense — the same dollars
+    // the rate collected for it (wip/risk-control). Always a row now; $0 at 0%.
+    {
+      key: 'riskControlInvestment',
+      category: 'Expenses and Income',
+      label: 'Risk Control Cost',
+      value: r => formatCurrency(r.riskControlInvestment),
+      csvValue: r => roundDollars(r.riskControlInvestment),
+    },
+    // What it saved this year: the normal losses cut and the LAE on them. Line
+    // tabs only — the engine records the cut per line. $0 in a year at 0%.
+    {
+      key: 'riskControlSaved',
+      lineOnly: true,
+      category: 'Expenses and Income',
+      label: 'Risk Control: Losses + LAE Saved',
+      value: r => formatCurrency((r.riskControlLossSaved ?? 0) + (r.riskControlLaeSaved ?? 0)),
+      csvValue: r => roundDollars((r.riskControlLossSaved ?? 0) + (r.riskControlLaeSaved ?? 0)),
+    },
     {
       /**
        * ⚠ ZERO ON EVERY DEFAULT GAME, AND IT IS STILL A ROW. The default places
