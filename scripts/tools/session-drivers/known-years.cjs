@@ -176,19 +176,23 @@ async function solo(browser) {
 }
 
 // ============================================================================
-// T CLAIMS (wip/shocks) — a shocks-on solo game CERTAIN to have them. Scenario
-// 16 over five years draws (single player, catalogue odds) a Wildfire in year
-// 2 — ONE Property T claim — and a Social Inflation in year 5 — one GL T
-// claim; the end workbook must hold exactly those, so a changed draw fails here
-// by name rather than passing on an empty workbook. At every point the Claims
+// T CLAIMS (wip/shocks) — a shocks-on solo game CERTAIN to have them.
+// Scenario 14 over four years draws (single player, catalogue odds, on its
+// fixed seed) a Winterstorm in year 2 and another in year 4 — ONE Property T
+// claim each; the end workbook must hold exactly those, so a changed draw
+// fails here by name rather than passing on an empty workbook. (Restated for
+// the fixed-seed scenarios: on the old mapping scenario 16 over five years
+// drew a Wildfire in year 2 and a Social Inflation in year 5; on its fixed
+// seed it draws none, and scenario 14 at four years is the one that again
+// has a T claim in year 2, for the control, and one in the final year.) At every point the Claims
 // workbook's T claims (its rows with an Event) are exactly the game's T claims
 // from known years — every one, none from after the latest known year — and at
 // game end the final year's appears. THE CONTROL: after the first lock year 2
 // is not yet played; its claim exists (the end workbook has it) but must be
 // absent, and must appear at once after the second lock, when year 2 is played.
 // ============================================================================
-const T_SCENARIO = '16', T_LENGTH = 5;
-const T_EXPECTED = [{ sheet: /Property/, ay: 2 }, { sheet: /General Liability|GL/, ay: 5 }];
+const T_SCENARIO = '14', T_LENGTH = 4;
+const T_EXPECTED = [{ sheet: /Property/, ay: 2 }, { sheet: /Property/, ay: 4 }];
 
 async function tClaimsGame(browser) {
   const ctx = await browser.newContext({ baseURL: BASE, acceptDownloads: true });

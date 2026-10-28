@@ -507,11 +507,11 @@ export interface GameInstance {
    */
   marketSeed?: number;
   /**
-   * THE SCENARIO, 1 TO 20, the game plays (stable-scenarios commit 9): its
-   * opening premium to surplus, its pre-game's experience and so its prior
-   * board's margin (pricingParameters' SCENARIO_PREMIUM_TO_SURPLUS). Set by
-   * generateGameInstance from the instance id (utils/scenarios.ts), and carried
-   * by every world's and every pre-game attempt's copy.
+   * THE SCENARIO, 1 TO 20, the game was set up as — the number players and
+   * hosts see. The game itself plays the scenario's fixed seed (the instance's
+   * id and seed, pricingParameters' SCENARIO_SEEDS); nothing reads this to
+   * scale or fit anything. Set by scenarioInstance (utils/instanceGenerator),
+   * absent on a harness's bare instance, and carried by every world's copy.
    */
   scenario?: number;
   lossEnvironment: {
@@ -2090,13 +2090,6 @@ interface ResultRowFields {
   // Narrative
   narrativeExplanation: string;
 
-  // Provenance of the pre-game reject-and-redraw bootstrap (priorHistoryEngine).
-  // Set only on pre-game years (yearNumber <= 0), per line, so the exact
-  // effective seed that produced that line's history — instance.seed +
-  // pregameAttempt x 997 — is derivable from saved state. Undefined for live
-  // years and for the pool-level aggregate (each line can carry a different
-  // attempt, so there is no single pool-level value).
-  pregameAttempt?: number;
 
 }
 

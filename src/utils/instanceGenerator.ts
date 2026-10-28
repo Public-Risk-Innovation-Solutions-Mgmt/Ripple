@@ -2,7 +2,7 @@
 // Exposure = payroll in millions of dollars
 // Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
-import { scenarioOfId } from './scenarios';
+import { gameIdentity } from './scenarios';
 import type { GameInstance, Member, MembershipHistory, PoolState, LinePoolState, StartingFinancials } from '../types/simulation';
 import { SeededRandom, deriveSubRng } from './random';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
@@ -109,6 +109,8 @@ export function generateGameInstance(
   instanceId: string,
   seed: number,
   scheduledShocks: readonly ScheduledShock[] = [],
+  // The scenario number, when the game is one of the twenty (scenarioInstance).
+  scenario?: number,
 ): GameInstance {
   for (const s of scheduledShocks) {
     if (!SHOCK_EVENTS.some(e => e.id === s.shockId)) {
@@ -118,11 +120,22 @@ export function generateGameInstance(
       throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' has fire year ${s.yearNumber}; it must be a game year, 1 or later`);
     }
   }
-  // The scenario rides on the instance, so every copy of it plays the same one.
-  const instance = { ...baseInstance(instanceId, seed), scenario: scenarioOfId(instanceId, seed) };
+  // The scenario number rides on the instance, so every copy of it carries it;
+  // a harness's bare instance has none (no id is mapped onto the twenty).
+  const instance = { ...baseInstance(instanceId, seed), ...(scenario !== undefined ? { scenario } : {}) };
   return scheduledShocks.length > 0
     ? { ...instance, scheduledShocks: withRegions(seed, scheduledShocks) }
     : instance;
+}
+
+/**
+ * THE GAME'S INSTANCE FOR A SETUP ID — the one path single player, Test player
+ * and a hosted room take. Scenario N is built on its fixed seed (gameIdentity,
+ * SCENARIO_SEEDS) and carries N as `scenario`; a harness's bare id plays itself.
+ */
+export function scenarioInstance(id: string, scheduledShocks: readonly ScheduledShock[] = []): GameInstance {
+  const { gameId, seed, scenario } = gameIdentity(id);
+  return generateGameInstance(gameId, seed, scheduledShocks, scenario);
 }
 
 // ⚠ A REGIONAL EVENT'S REGION IS PART OF THE SCHEDULE, RESOLVED HERE, ONCE.

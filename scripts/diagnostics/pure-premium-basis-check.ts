@@ -18,8 +18,9 @@
 //   3. TREND ONCE: no inflation to settlement on top (UP_FRONT_TREND off), so
 //      with RESERVE INFLATION AT 0 year-1 pricing lands on the pure premium:
 //      the rate's loss cost + ULAE is the pure premium x the book's own risk x
-//      the scenario's pre-game experience (preGameLossMultiplier,
-//      stable-scenarios commit 9 — every year in the window ran at it), within
+//      the scenario's pre-game experience (restated for the fixed-seed
+//      scenarios: the pre-game runs at TRUE COST, so that experience is 1 —
+//      the retired preGameLossMultiplier no longer scales any year), within
 //      1%. ⚠ RESTATED FOR RESERVE INFLATION (RESERVE_INFLATION_PER_YEAR): open
 //      years now inflate after their accident year, so the window's experience
 //      carries the inflation each year has emerged and pricing adds what is
@@ -65,12 +66,11 @@
 // ============================================================================
 
 import {
-  ALAE_OF_LOSS_COST, ALAE_RATIO_RANGE, POOL_LOSS_COST_LAYERS, preGameLossMultiplier, ULAE_OF_LOSS_COST, UP_FRONT_TREND,
+  ALAE_OF_LOSS_COST, ALAE_RATIO_RANGE, POOL_LOSS_COST_LAYERS, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_RATIO_RANGE, ULAE_OF_LOSS_COST, UP_FRONT_TREND,
   RESERVE_INFLATION, RESERVE_INFLATION_PER_YEAR, SEVERITY_TREND_PER_YEAR, ADVERSE_DEVELOPMENT, ADVERSE_DEVELOPMENT_RANGE,
   type DevelopmentLevel,
 } from '../../src/data/pricingParameters';
 import { reserveInflationToCome } from '../../src/utils/newPurePremium';
-import { scenarioOf } from '../../src/utils/scenarios';
 import { ALAE_ALREADY_IN_LOSSES } from '../../src/utils/newPurePremium';
 import { laeShares } from '../../src/utils/lossExpense';
 import { ordinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
@@ -127,7 +127,7 @@ for (let g = 0; g < SEEDS; g++) {
   const struck = strikeRates(gs, defaultDecisionSet(1));
   for (const l of LINES) {
     const s = struck[l]!;
-    atYear1[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: 1, experience: preGameLossMultiplier(scenarioOf(instance), l) });
+    atYear1[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: 1, experience: 1 });
   }
   for (let y = 1; y <= 10; y++) {
     gs = { ...gs, ...commitSettledYear(gs, settleWorldsYear(gs, playWorldsYear(gs, defaultDecisionSet(y)), LINES)), currentYearNumber: y + 1 };
@@ -157,7 +157,7 @@ function strikeYear1(levels?: DevelopmentLevel): Record<CoverageLine, Seen[]> {
     const struck = strikeRates(gs, defaultDecisionSet(1));
     for (const l of LINES) {
       const s = struck[l]!;
-      out[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: 1, experience: preGameLossMultiplier(scenarioOf(instance), l) });
+      out[l].push({ pp: s.newPp.lossCostPer100, ulae: s.newPp.ulaePer100, risk: 1, experience: 1 });
     }
   }
   return out;
@@ -224,6 +224,14 @@ const dormantF = Object.fromEntries(LINES.map(l => [l, upFrontTrendFactor(l)])) 
 UP_FRONT_TREND.enabled = false;
 controlFails('inflation to settlement left on', () => gradeLanding(atYear1, LEVELS, l => dormantF[l], ''), '3.');
 controlFails('reserve inflation switched back on at the trend and priced', () => gradeLanding(atYear1Inflated, LEVELS, () => 1, ''), '3.');
+{
+  // The retired scenario multiple, rebuilt here at the thinnest scenario's
+  // targets (scenario 12): read as the window's experience on every game.
+  const retired = (l: CoverageLine) => 1 + (1 - (SCENARIO_RATIO_RANGE[l].thinnest + SCENARIO_RATIO_RANGE[l].richest) / 2
+    / SCENARIO_PREMIUM_TO_SURPLUS[l][12]) * 0.3;
+  const scaled = Object.fromEntries(LINES.map(l => [l, atYear1[l].map(x => ({ ...x, experience: retired(l) }))])) as Record<CoverageLine, Seen[]>;
+  controlFails('the retired scenario multiple read as the pre-game\'s experience', () => gradeLanding(scaled, LEVELS, () => 1, ''), '3.');
+}
 {
   const [lo, hi] = ADVERSE_DEVELOPMENT_RANGE.High;
   const loaded = Object.fromEntries(LINES.map(l => [l, atYear1High[l].map(s => ({ ...s, pp: s.pp * (1 + (lo + hi) / 2) }))])) as Record<CoverageLine, Seen[]>;

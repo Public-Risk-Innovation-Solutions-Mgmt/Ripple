@@ -1506,22 +1506,23 @@ const BASELINE = process.env.RENDER_BASELINE
 // WC+GL+PR pool Audit at y2 shows the "Zero when ... agree" explanation because
 // no line borrows inter-line there any more (interLineTransfer 0). No key added
 // or removed.
-// v102: THE REINSURANCE LAYERS (wip/reinsurance-layers). The control ran
-// first: multiplayer 985f365, built in its own worktree, reproduced v101 236
-// of 236 here. Against it, word-diffed (RENDER_TEXT_DIR both sides), 26 move:
-// every Decisions screen (16) and every Rate Indication (10), the two that list
-// the T covers. On each, the four new layers appear — 19 and 29 and 39 xs 1,
-// 28 xs 2 — and every cover's price is the workbook's method on the game's own
-// claims (WC 9 xs 1 $390,000 -> $461,250, 38 xs 2 $590,000 -> $724,500; the
-// Rate Indication's per-$100 cover rates likewise). Nothing else moves: the
-// harness holds None, so no figure on any other screen changes.
-// v103: EVENT LIKELIHOODS ON THE RATE INDICATION (wip/reinsurance-layers),
-// against v102 (the same branch before it). 10 move, every Rate Indication
-// screen, and only by additions (word-diffed, RENDER_TEXT_DIR both sides): the
-// "Event Likelihoods" block beside each line's cover prices — its heading, the
-// note, and 1 in 10 to 1 in 200 years, "—" where the line's T events are rarer.
-// Nothing removed or changed on them; no other screen moves.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v103.json');
+// v102: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios). ⚠ v101 DOES NOT
+// REPRODUCE IN THIS CONTAINER, the split v92 recorded: multiplayer 985f365,
+// built in its own worktree, moves the same kind of 50 of 236 against it
+// (Calculation Audit 20, Results 14, Financial Statements 8, Result
+// Spreadsheet 8) with no change to its code. So each commit was measured
+// against the control's own capture here. 4effbc3 (each scenario on a fixed
+// seed) moves 206 of 236: this harness plays Scenario 7, which now plays its
+// fixed seed, so every values screen and the header's surplus and combined
+// ratio move (Annual Statement, Calculation Audit, Decision History,
+// Decisions, Financial Statements and Results 26 each, Introduction 20, Rate
+// Indication 10, Result Spreadsheet 10, header 10); the 30 unmoved are the
+// fixed documents and unplayed views. 12e7c54 (every run-time fitting
+// removed) moves the same 206 again: the pre-game now runs at true cost at
+// Expected. The gates and the save key move none. Searched: none of the
+// twenty fixed seeds appears in any screen's text; the header reads
+// "Scenario 7". No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v102.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

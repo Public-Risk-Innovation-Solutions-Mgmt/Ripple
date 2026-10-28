@@ -992,7 +992,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Paid in Capital and Net Worth (the pre-game's margin re-solves, so the opening
 // does). No loss, reserve, IBNR, case, paid, ceded, claim or exposure line moves
 // in any file, and no line was added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v104.json');
+// v105: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios), against
+// multiplayer 985f365, which reproduces v104 here. 4effbc3 (each scenario on a
+// fixed seed) moves none: these games are bare ids. 12e7c54 (every run-time
+// fitting removed) moves all 48: a bare id no longer falls on a scenario, so
+// its pre-game runs at true cost with the prior board at Expected and opens
+// where that history ends — every file's figures follow. The gates and the
+// save key move none. No file added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v105.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
