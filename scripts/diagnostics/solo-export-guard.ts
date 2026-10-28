@@ -1017,7 +1017,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // move; with the walkthrough sheet left out, all 48 hash identically on
 // e698c79 and on this change (both run here), so no other sheet and no figure
 // moved, and the 24 `stmt|...` keys do not move.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v108.json');
+// v109: RISK CONTROL (wip/risk-control), on multiplayer f5149f8, which
+// reproduced v108 48 of 48 here first. The 24 Results keys move and nothing
+// else; each was text-diffed against the control (GUARD_TEXT_DIR both sides),
+// row by row, and every moved row is one of: the Results sheet's three new rows
+// — Decisions "Risk Control %" (line sheets), Expenses and Income "Risk Control
+// Cost" and "Risk Control: Losses + LAE Saved" (every sheet), all
+// 0 in the guard's games, which play at 0%; the Version row, riskpool_gamestate
+// _v36 -> _v37, this landing's save key; and the Year Walkthrough sheet's risk
+// control rows (the decision as a share of the rate, pricing's divisor now 1 -
+// admin with the same 0.8, "Rate before reinsurance and risk control" the same
+// figure, the charge per $100 0, premium's risk control charged 0, the draw z,
+// the losses' cut 0 and normal losses after it the same, the risk control
+// stage), their working text and the codes. No existing figure moved. The 24
+// `stmt|...` keys do not move.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v109.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

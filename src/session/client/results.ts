@@ -177,7 +177,9 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
       // host renders 0% rather than an empty cell.
       nonRenewal: d.nonRenewal ?? 0,
       newMembers: d.newMembers ?? 0,
-      riskControlPct: d.riskControlPct,
+      // The line's Risk Control slider (wip/risk-control) — not the retired
+      // pool-wide spend, which is pinned at 0. Absent reads as 0%.
+      riskControlPct: d.riskControlIncentivePct ?? 0,
       dividendPct: d.dividendPct,
       assessmentPct: d.assessmentPct,
       allocation: {

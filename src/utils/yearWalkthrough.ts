@@ -28,7 +28,8 @@
 //                  LAE reserves
 //   lae            ALAE and ULAE incurred and paid (lossExpense.laeForYear)
 //   admin          admin's share of the rate, the year's overrun, booked
-//   riskControl    off in this build (RISK_CONTROL) — said so
+//   riskControl    the slider, its charge (Other Admin Expense), the mean cut,
+//                  the draw, the cut and the losses and LAE saved (riskControl.ts)
 //   investment     the market drawn (processYear, before the lines), the mix,
 //                  the income
 //   dividends      the basis (opening surplus) and the two percentages
@@ -58,7 +59,7 @@ import type {
 } from '../types/simulation';
 import {
   ADMIN_SHARE_OF_PREMIUM, ADVERSE_DEVELOPMENT, MEMBER_LUCK_CV, MEMBER_RISK_CV, NEW_BUSINESS_PENALTY,
-  NON_RENEWAL_LOSS_RELIEF, RISK_CONTROL, ROUTINE_LARGE_LOSSES, SHOCK_FREE_PRICING, UNDERWRITING_MEMBERS,
+  NON_RENEWAL_LOSS_RELIEF, RISK_CONTROL_CUT, ROUTINE_LARGE_LOSSES, SHOCK_FREE_PRICING, UNDERWRITING_MEMBERS,
 } from '../data/pricingParameters';
 import { CAPITAL_ADEQUACY_THRESHOLDS, LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -80,6 +81,7 @@ import {
 import { shockCostFactor } from './shockCost';
 import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
 import { effectiveRiskControlIncentivePct, quoteNewRateStack, type NewStackQuote } from './linePricing';
+import { riskControlCutFor, riskControlDraw } from './riskControl';
 import { bookPurePremium, type NewPurePremiumResult } from './newPurePremium';
 import { moveBook, newMembersShare, nonRenewalShare, type BookMovement } from './bookUnderwriting';
 import { laeShares } from './lossExpense';
@@ -202,7 +204,8 @@ export const FIRST_STAGE_FED: Readonly<Record<string, StageKey>> = {
   dividend: 'dividends',
   assessment: 'dividends',
   loanRepayment: 'loans',
-  ...(RISK_CONTROL.enabled ? { riskControl: 'pricing' as StageKey } : {}),
+  // The Risk Control slider is charged in the rate (wip/risk-control).
+  riskControl: 'pricing',
 };
 
 const SAME = 'Same for everyone in this scenario';
@@ -355,13 +358,20 @@ function bookOf(s: YearSource, l: CoverageLine): BookMovement | null {
 
 interface WorldLoss {
   expected: number; yearFactor: number; lossFactor: number; risk: number; luck: number; normal: number;
+  /** The risk control cut on this year's normal losses (riskControl.ts), 0 at 0%. */
+  cut: number; meanCut: number;
   uplift: number; byEvent: Map<string, number>; afterSurge: number;
   claims: { id: string; name: string; regional: boolean; drawn: number; booked: number }[];
   gross: number;
 }
 
-/** Each world's losses, re-read with the engine's own draws (processLineYear's new-loss-engine path). */
-function lossesOf(s: YearSource, l: CoverageLine, m: BookMovement): WorldLoss[] {
+/**
+ * Each world's losses, re-read with the engine's own draws (processLineYear's
+ * new-loss-engine path). `riskControlPer100` is the struck rate's risk control
+ * charge (pricingOf): the engine charges it on the book billed and sizes the cut
+ * on that charge, so the cut is re-read the same way.
+ */
+function lossesOf(s: YearSource, l: CoverageLine, m: BookMovement, riskControlPer100 = 0): WorldLoss[] {
   const a = s.row.byLine[l];
   const billed = m.after * exposureFactor(l, s.y);
   const struck = a.ratedExposure ?? billed;
@@ -376,10 +386,14 @@ function lossesOf(s: YearSource, l: CoverageLine, m: BookMovement): WorldLoss[] 
       id: t.firing.event.id, name: t.firing.event.name, regional: t.firing.event.regional,
       drawn: t.size, booked: poolShare(l, t.size * tFactor),
     }));
-    const afterSurge = o.realised * (1 + ls.uplift);
+    const charge = billed * riskControlPer100 * 10_000;
+    const rc = charge > 0 ? riskControlCutFor(l, s.y, s.gameSeed, charge, o) : { cut: 0, meanCut: 0 };
+    // The cut comes off the normal losses only; the surges are added on the uncut year.
+    const afterSurge = o.realised * (1 - rc.cut + ls.uplift);
     return {
       expected: o.expected, yearFactor: o.yearFactor ?? 1, lossFactor: o.lossFactor,
-      risk: mean(o.risk), luck: mean(o.luck), normal: o.realised, uplift: ls.uplift, byEvent, afterSurge,
+      risk: mean(o.risk), luck: mean(o.luck), normal: o.realised, cut: rc.cut, meanCut: rc.meanCut,
+      uplift: ls.uplift, byEvent, afterSurge,
       claims, gross: Math.max(0, afterSurge + claims.reduce((t, c) => t + c.booked, 0)),
     };
   });
@@ -428,7 +442,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'Asset mix (cash/bonds/equities)', value: mixText(d), kind: 'text' },
       { label: 'Dividend', value: d.dividendPct, kind: 'pct' },
       { label: 'Assessment', value: d.assessmentPct, kind: 'pct' },
-      { label: 'Risk control', value: RISK_CONTROL.enabled ? `${pct(d.riskControlPct)} spend, ${pct(effectiveRiskControlIncentivePct(d))} incentive` : 'Off in this game', kind: 'text' },
+      { label: 'Risk control (share of the rate)', value: effectiveRiskControlIncentivePct(d), kind: 'pct' },
       { label: 'Loan repayment (share of net income)', value: d.loanRepaymentAggressiveness, kind: 'pct' },
       { label: 'Loan authorized this year', value: authorized ? 'Yes' : 'No', kind: 'text' },
     ],
@@ -454,6 +468,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     }
     const avg = pp.points.length ? mean(pp.points.map(x => x.trendedLossCostPer100)) : null;
     const loaded = quote.retainedPurePremiumPer100 * quote.clf / quote.divisor;
+    const slider = effectiveRiskControlIncentivePct(d);
     rows.push(
       { label: 'Average trended loss cost per $100', value: avg, kind: 'per100' },
       { label: 'Catastrophe load per $100', value: pp.catastropheLoadPer100, kind: 'per100' },
@@ -465,8 +480,9 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'Retained pure premium per $100', value: quote.retainedPurePremiumPer100, kind: 'per100' },
       { label: 'Funding CLF', value: quote.clf, kind: 'factor' },
       { label: 'Admin share of the rate', value: quote.adminShare, kind: 'pct' },
-      { label: 'Divisor (1 − admin − risk control)', value: quote.divisor, kind: 'factor' },
-      { label: 'Rate before reinsurance per $100', value: loaded, kind: 'per100' },
+      { label: 'Divisor (1 − admin)', value: quote.divisor, kind: 'factor' },
+      { label: 'Rate before reinsurance and risk control per $100', value: loaded, kind: 'per100' },
+      { label: 'Risk control charge per $100 (that rate × the slider)', value: quote.riskControlPer100, kind: 'per100' },
       { label: 'Reinsurance price per $100', value: quote.reinsRatePer100, kind: 'per100' },
       { label: 'Rate per $100 (member charge rate)', value: quote.finalRatePer100, kind: 'per100' },
       { label: "Last year's rate per $100", value: p ? (p.finalRatePer100 ?? p.ratePer100) : null, kind: 'per100' },
@@ -478,13 +494,14 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
         decisions: [
           { name: 'Funding', value: `${fundingText(d)} → CLF ${fac(clf)}` },
           { name: 'Reinsurance cover', value: d.reinsuranceOption },
-          ...(RISK_CONTROL.enabled ? [{ name: 'Risk control incentive', value: pct(effectiveRiskControlIncentivePct(d)) }] : []),
+          { name: 'Risk control', value: `${pct(slider, 0)} → × ${fac(1 + slider)}` },
         ],
         through: ["earlier years' experience (the pricing window)"],
         working: [
           `Pure premium = average trended loss cost ${per100(avg ?? 0)} + catastrophe ${per100(pp.catastropheLoadPer100)} + ALAE ${per100(pp.alaePer100)} + ULAE ${per100(pp.ulaePer100)} = ${per100(pp.purePremiumPer100)}`,
           `Cover ${d.reinsuranceOption} → expected ceded ${per100(quote.expectedCededPer100)} → retained ${per100(pp.purePremiumPer100)} − ${per100(quote.expectedCededPer100)} = ${per100(quote.retainedPurePremiumPer100)}`,
           `Funding ${fundingText(d)} → CLF ${fac(quote.clf)} → rate = ${per100(quote.retainedPurePremiumPer100)} × ${fac(quote.clf)} ÷ ${quote.divisor.toFixed(2)} = ${per100(loaded)}`,
+          `Risk control ${pct(slider, 0)} → + ${per100(loaded)} × ${pct(slider, 0)} = ${per100(quote.riskControlPer100)} (admin is not taken on it)`,
           `+ reinsurance ${per100(quote.reinsRatePer100)} = ${per100(quote.finalRatePer100)} per $100`,
         ],
       }),
@@ -531,6 +548,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'Exposure billed ($M)', value: billed, kind: 'exposure' },
       { label: 'Pool premium', value: a.poolPremium, kind: 'usd' },
       { label: 'Admin charged', value: a.adminExpense, kind: 'usd' },
+      { label: 'Risk control charged', value: a.riskControlInvestment, kind: 'usd' },
       { label: 'Reinsurance price', value: a.reinsuranceCost, kind: 'usd' },
       { label: 'Member charge (premium)', value: a.totalMemberCharge, kind: 'usd' },
     ],
@@ -538,7 +556,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       through: [titleOf('pricing'), titleOf('book')],
       working: [
         `Member charge = rate ${per100(a.finalRatePer100 ?? a.ratePer100)} × ${expM(billed)} × 10,000 = ${usd(a.totalMemberCharge)}`,
-        `= pool premium ${usd(a.poolPremium)} + admin ${usd(a.adminExpense)} + reinsurance ${usd(a.reinsuranceCost)}`,
+        `= pool premium ${usd(a.poolPremium)} + admin ${usd(a.adminExpense)} + risk control ${usd(a.riskControlInvestment)} + reinsurance ${usd(a.reinsuranceCost)}`,
       ],
     }),
   });
@@ -565,6 +583,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     { label: 'Market return, bonds (average across the worlds)', value: mean(s.market.map(x => x.bonds)), kind: 'pct' },
     { label: 'Market return, equities (average across the worlds)', value: mean(s.market.map(x => x.equities)), kind: 'pct' },
     { label: 'Shock schedule this year', value: schedule.length ? schedule.map(x => x.shockId).join(', ') : 'none', kind: 'text' },
+    { label: 'Risk control draw z', value: riskControlDraw(s.gameSeed, s.y, l), kind: 'factor' },
   ];
   const inForce = s.shockYears[0].inForce;
   for (const { firing } of inForce) {
@@ -585,14 +604,14 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
   out.push({
     key: 'draws', rows: drawRows,
     feed: feed({
-      sameFrom: "the scenario's seed: the year factor, luck and market on each world's own stream; member risk, the ALAE ratio, the overrun and λ on the game's; the shocks from the year's schedule",
+      sameFrom: "the scenario's seed: the year factor, luck and market on each world's own stream; member risk, the ALAE ratio, the overrun, λ and the risk control draw on the game's; the shocks from the year's schedule",
       working: [],
     }),
   });
 
   // ---- losses ----
   if (m) {
-    const ws = lossesOf(s, l, m);
+    const ws = lossesOf(s, l, m, pr?.quote.riskControlPer100 ?? 0);
     const n = ws.length;
     const events = [...new Set(ws.flatMap(w => [...w.byEvent.keys()]))];
     const claimIds = [...new Set(ws.flatMap(w => w.claims.map(c => c.id)))];
@@ -605,6 +624,8 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: "Underwriting's one-year factor", value: m.lossFactor, kind: 'factor' },
       { label: 'Year factor (average)', value: mean(ws.map(w => w.yearFactor)), kind: 'factor' },
       { label: 'Normal losses (after the factor, member risk and luck)', value: normal, kind: 'usd' },
+      { label: 'Risk control cut', value: mean(ws.map(w => w.cut)), kind: 'pct' },
+      { label: 'Normal losses after risk control', value: mean(ws.map(w => w.normal * (1 - w.cut))), kind: 'usd' },
     ];
     for (const id of events) {
       const nm = SHOCK_EVENTS.find(e => e.id === id)?.name ?? id;
@@ -635,7 +656,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
         working: [
           `Expected = ${expM(m.after * f)} × ${per100(ordinaryLossCostPer100(l, s.y))} × 10,000 = ${usd(mean(ws.map(w => w.expected)))}`,
           `Normal = expected × underwriting ${fac(m.lossFactor)} × year factor × each member's risk × luck = ${usd(normal)} (average)`,
-          `After surges = normal × (1 + surge) = ${usd(after)}; + large claims = gross ${usd(mean(ws.map(w => w.gross)))}`,
+          `After risk control and surges = normal × (1 − cut ${pct(mean(ws.map(w => w.cut)))} + surge) = ${usd(after)} — the cut never touches a surge or a large claim; + large claims = gross ${usd(mean(ws.map(w => w.gross)))}`,
         ],
       }),
       note: ROUTINE_LARGE_LOSSES.enabled ? undefined : 'Routine large claims are off in this build.',
@@ -790,16 +811,41 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
   });
 
   // ---- risk control ----
-  out.push({
-    key: 'riskControl',
-    rows: [
-      { label: 'Risk control', value: RISK_CONTROL.enabled ? 'On' : 'Off in this game', kind: 'text' },
-      { label: 'Cost', value: a.riskControlInvestment, kind: 'usd' },
-    ],
-    feed: RISK_CONTROL.enabled
-      ? feed({ decisions: [{ name: 'Risk control spend', value: pct(d.riskControlPct) }], working: [`Cost = pool premium × ${pct(d.riskControlPct)} + programs = ${usd(a.riskControlInvestment)}`] })
-      : feed({ sameFrom: 'nothing — risk control is off in this game, so it costs nothing and saves nothing', working: [] }),
-  });
+  // The slider (wip/risk-control): charged in the rate, booked as Other Admin
+  // Expense, and cutting this year's normal losses by a cut drawn once per year
+  // per line off the game's seed. Every figure is the engine's record; at 0%
+  // there is no charge, no cut and nothing saved.
+  {
+    const slider = effectiveRiskControlIncentivePct(d);
+    const lossSaved = a.riskControlLossSaved ?? 0, laeSaved = a.riskControlLaeSaved ?? 0;
+    const z = riskControlDraw(s.gameSeed, s.y, l);
+    out.push({
+      key: 'riskControl',
+      rows: [
+        { label: 'Risk control slider (share of the rate)', value: slider, kind: 'pct' },
+        { label: 'Cost — the charge, booked as Other Admin Expense', value: a.riskControlInvestment, kind: 'usd' },
+        { label: 'Mean cut m', value: a.riskControlMeanCut ?? 0, kind: 'pct' },
+        { label: 'Draw z (same for everyone in this scenario)', value: z, kind: 'factor' },
+        { label: 'Cut drawn', value: a.riskControlCut ?? 0, kind: 'pct' },
+        { label: 'Normal losses saved', value: lossSaved, kind: 'usd' },
+        { label: 'LAE saved', value: laeSaved, kind: 'usd' },
+        { label: 'Losses + LAE saved', value: lossSaved + laeSaved, kind: 'usd' },
+        { label: 'Saved less the cost', value: lossSaved + laeSaved - a.riskControlInvestment, kind: 'usd' },
+      ],
+      feed: slider > 0
+        ? feed({
+          decisions: [{ name: 'Risk control', value: pct(slider, 0) }],
+          through: [titleOf('pricing'), titleOf('premium')],
+          working: [
+            `Cost = the charge = rate before reinsurance and risk control × ${pct(slider, 0)} × exposure = ${usd(a.riskControlInvestment)}`,
+            `m = cost ÷ (expected normal losses × (1 + expected ALAE + ULAE)) = ${pct(a.riskControlMeanCut ?? 0)} — on average the losses and LAE saved equal the cost`,
+            `Cut = max(0, m × (1 + ${RISK_CONTROL_CUT.sdOfMean} × z ${fac(z)})) = ${pct(a.riskControlCut ?? 0)}, off this year's normal losses only`,
+            `Saved = normal losses × cut = ${usd(lossSaved)}, + LAE on them ${usd(laeSaved)} = ${usd(lossSaved + laeSaved)}`,
+          ],
+        })
+        : feed({ decisions: [{ name: 'Risk control', value: '0%' }], working: ['At 0% there is no charge, no cut and nothing saved.'] }),
+    });
+  }
 
   // ---- investment ----
   const mk = { cash: mean(s.market.map(x => x.cash)), bonds: mean(s.market.map(x => x.bonds)), equities: mean(s.market.map(x => x.equities)) };

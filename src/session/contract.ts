@@ -340,7 +340,7 @@ export type DevelopedUltimates = Record<string, number>;
 // renders has to have an agreed shape, or the agreement lives in two places and
 // drifts. LineDecisionSet in types/simulation.ts stays exactly as it is — it is
 // the engine's input type, it carries fields no host screen shows
-// (loanRepaymentAggressiveness, riskControlProgramIds, riskControlIncentivePct)
+// (loanRepaymentAggressiveness, riskControlProgramIds)
 // and it will go on changing for engine reasons. This is a projection OF it,
 // chosen field by field, so an engine-side change cannot silently alter what
 // crosses the wire or what a stored row means.
@@ -385,6 +385,12 @@ export interface TeamLineDecisions {
   nonRenewal: number;
   /** "New members": the share of the book at the start of the year added, a FRACTION 0–0.05. */
   newMembers: number;
+  /**
+   * The line's Risk Control slider, a FRACTION 0–0.05 (LineDecisionSet
+   * .riskControlIncentivePct; wip/risk-control). It carried the retired
+   * pool-wide spend before, always 0; the shape is unchanged, so the handler,
+   * both transports and keys.ts need no change — only the value a client writes.
+   */
   riskControlPct: number;
   dividendPct: number;
   assessmentPct: number;

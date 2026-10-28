@@ -90,10 +90,12 @@ export interface ModelRate {
   quotedExposure: number;
   /** Admin charged per $100: the rate before reinsurance x adminShare. */
   adminPer100: number;
-  /** The rate before reinsurance per $100: retained x CLF / divisor. */
+  /** The rate before reinsurance and risk control per $100: retained x CLF / divisor. */
   rateBeforeReinsurancePer100: number;
   funding: { label: string; clf: number };
+  /** The Risk Control slider: the rate before reinsurance is x (1 + this). */
   riskControl: number;
+  /** 1 - admin share (expenseDivisor). */
   divisor: number;
   /** The expenses as shares of the rate at Expected, self-funded, and the permissible loss ratio (the Rate Indication's). */
   expenses: { admin: number; riskControl: number; total: number; permissibleLossRatio: number };
@@ -211,15 +213,19 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
   const reinsuranceDollars = oneWorld ? row!.reinsuranceCost : quote.reinsRatePer100 * chargedExposure * 10_000;
   const premium = oneWorld
     ? chargedExposure * quote.poolPremiumRatePer100 * 10_000
-      + chargedExposure * quote.adminRatePer100 * 10_000 + reinsuranceDollars
+      + chargedExposure * quote.adminRatePer100 * 10_000
+      + chargedExposure * quote.riskControlPer100 * 10_000 + reinsuranceDollars
     : quote.finalRatePer100 * chargedExposure * 10_000;
   const ratePer100 = oneWorld ? premium / Math.max(chargedExposure * 10_000, 1) : quote.finalRatePer100;
 
-  // The expense shares at Expected: admin's share is the parameter itself
-  // (ADMIN_SHARE_OF_PREMIUM), the same every year, as the quote carries it.
-  const adminShareE = atExpected.adminShare;
+  // The expense shares of the rate at Expected (before reinsurance). The rate
+  // is (pure premium / (1 - admin)) x (1 + risk control), so admin is
+  // admin / (1 + risk control) of it, risk control risk control / (1 + risk
+  // control), and the pure premium — the permissible loss ratio — the rest:
+  // (1 - admin) / (1 + risk control). At 0% they are admin, 0 and 1 - admin.
   const rc = effectiveRiskControlIncentivePct(d);
-  const total = adminShareE + rc;
+  const adminShareE = atExpected.adminShare / (1 + rc);
+  const total = adminShareE + rc / (1 + rc);
   const reinsurancePer100 = oneWorld ? reinsuranceDollars / Math.max(chargedExposure * 10_000, 1) : quote.reinsRatePer100;
 
   return {
@@ -243,9 +249,9 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     quotedExposure, adminPer100: quote.adminRatePer100,
     rateBeforeReinsurancePer100: quote.poolPremiumRatePer100 + quote.adminRatePer100,
     funding: { label: fundingLabel(d), clf: quote.clf },
-    riskControl: rc, divisor: expenseDivisor(rc, line),
+    riskControl: rc, divisor: expenseDivisor(line),
     expenses: {
-      admin: adminShareE, riskControl: rc, total, permissibleLossRatio: 1 - total,
+      admin: adminShareE, riskControl: rc / (1 + rc), total, permissibleLossRatio: 1 - total,
     },
     indicatedRatePer100: pp.purePremiumPer100 / (1 - total),
     pieces: {
