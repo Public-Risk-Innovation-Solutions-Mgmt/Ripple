@@ -23,14 +23,16 @@
 //      share), 1 past them; every window year of every priced rate carries its
 //      age's factor and its loss cost is developed x factor / exposure; and a
 //      rate with no history carries the full factor.
-//   4. PROFIT AND CONTINGENCY PER LINE — WC 2%, GL 0%, PROPERTY 0%: the expense
-//      divisor is 1 - risk control - the line's own. (Per line WC 3% / GL and
-//      Property 0% for one commit, then 5% on every line, which made every line
-//      too rich once the investment income credit was gone.)
+//   4. NO PROFIT AND CONTINGENCY — the expense divisor is 1 - risk control -
+//      admin's share of premium (20% on every line), and nothing else.
+//      RESTATED at wip/pricing-rework: it asserted profit and contingency per
+//      line, WC 2% / GL 0% / Property 0% (before that WC 3% / GL and Property 0%
+//      for one commit, then 5% on every line), all retired.
 //
 // ⚠ AND EACH FAILS WHEN BROKEN: the controls feed 1 the END-of-year base
 // (after the paydown), 2 a year whose payments fell, 3 a factor that runs to
-// the end of the pattern and GL priced for 2 years, and 4 the 5% on every line.
+// the end of the pattern and GL priced for 2 years, and 4 WC's old 2% profit
+// and contingency left in the divisor.
 //
 // ⚠ RESTATED FOR wip/adverse-development: reserve inflation is OFF as shipped
 // (RESERVE_INFLATION.enabled false, RESERVE_INFLATION_PER_YEAR 0 on every
@@ -60,7 +62,7 @@
 // ============================================================================
 
 import {
-  PROFIT_AND_CONTINGENCY_OF_RATE, RESERVE_INFLATION, RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS,
+  ADMIN_SHARE_OF_PREMIUM, RESERVE_INFLATION, RESERVE_INFLATION_PER_YEAR, RESERVE_INFLATION_PRICED_YEARS,
   SEVERITY_TREND_PER_YEAR,
 } from '../../src/data/pricingParameters';
 import { LINE_PAYOUT_PATTERN } from '../../src/data/defaultAssumptions';
@@ -181,13 +183,14 @@ function gradePriced(games: Game[], toCome: ToCome, tag: string) {
 }
 
 // ---------------------------------------------------------------- 4
-const BRIEFED_PC: Record<CoverageLine, number> = { WC: 0.02, GL: 0, Property: 0 };
+// Admin's share, written out from the brief rather than read from the parameter.
+const BRIEFED_ADMIN: Record<CoverageLine, number> = { WC: 0.2, GL: 0.2, Property: 0.2 };
 function gradeContingency(divisor: (rc: number, line: CoverageLine) => number, tag: string) {
   let worst = 0;
-  for (const l of LINES) for (const rc of [0, 0.02, 0.05]) worst = Math.max(worst, Math.abs(divisor(rc, l) - (1 - rc - BRIEFED_PC[l])));
+  for (const l of LINES) for (const rc of [0, 0.02, 0.05]) worst = Math.max(worst, Math.abs(divisor(rc, l) - (1 - rc - BRIEFED_ADMIN[l])));
   check(worst < 1e-15,
-    `${tag}4. profit and contingency per line, WC 2%, GL 0%, Property 0%: the divisor is 1 - risk control - the line's own`,
-    `${LINES.map(l => `${l} ${(PROFIT_AND_CONTINGENCY_OF_RATE[l] * 100).toFixed(1)}%`).join(', ')}; worst ${worst.toExponential(2)}`);
+    `${tag}4. no profit and contingency: the divisor is 1 - risk control - admin's share of premium (20% on every line), nothing else`,
+    `${LINES.map(l => `${l} admin ${(ADMIN_SHARE_OF_PREMIUM[l] * 100).toFixed(1)}%`).join(', ')}; worst ${worst.toExponential(2)}`);
 }
 
 // ---------------------------------------------------------------- 0
@@ -258,7 +261,7 @@ controlFails('GL priced for 2 years', () => gradePriced(games, (l, age) => {
   for (let j = Math.max(1, age); j <= (l === 'GL' ? 2 : RESERVE_INFLATION_PRICED_YEARS[l]); j++) f *= 1 + rate[l] * unpaidShare(LINE_PAYOUT_PATTERN[l], j);
   return f;
 }, ''), '3.');
-controlFails('the 5% on every line', () => gradeContingency(rc => 1 - rc - 0.05, ''), '4.');
+controlFails('WC\'s old 2% profit and contingency left in the divisor', () => gradeContingency((rc, l) => 1 - rc - BRIEFED_ADMIN[l] - (l === 'WC' ? 0.02 : 0), ''), '4.');
 // 0's control: the dormancy graded while the switch is on, on the games it played.
 controlFails('reserve inflation switched on, booked and priced', () => gradeDormancy(games, ''), '0.');
 // And the booking alone: the switch read off and the rates 0, but the games
@@ -281,4 +284,4 @@ if (failures.length) {
   console.log(`FAIL — ${failures.length}: ${failures.join('; ')}`);
   process.exit(1);
 }
-console.log('PASS — reserve inflation is off as shipped, nothing booked or priced; switched on, open years inflate on the start-of-year outstanding, booked as development, and pricing carries WC 2, GL 1 and Property 2 years of it; contingency WC 2%, GL 0%, Property 0%.');
+console.log('PASS — reserve inflation is off as shipped, nothing booked or priced; switched on, open years inflate on the start-of-year outstanding, booked as development, and pricing carries WC 2, GL 1 and Property 2 years of it; no profit and contingency in the divisor.');

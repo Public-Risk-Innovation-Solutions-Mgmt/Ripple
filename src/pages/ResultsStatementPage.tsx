@@ -12,11 +12,11 @@ import { Download } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
 import { statementYears } from '../utils/resultsStatement';
 import {
-  ALL_YEARS_LABEL, allYearsCell, buildTemplateStatement, cellBorders, figureText, isBlockName, RENAMED_HEADINGS, showsPrior, shownFigure,
+  ALL_YEARS_LABEL, allYearsCell, buildTemplateStatement, statementFilename, cellBorders, figureText, isBlockName, RENAMED_HEADINGS, showsPrior, shownFigure,
   TEMPLATE_ROWS, type TemplateRow, type TemplateStatement,
 } from '../utils/annualStatementTemplate';
-import { annualStatementFilename, buildAnnualStatementXlsx } from '../utils/annualStatementExport';
-import { annualStatementPdfFilename, buildAnnualStatementPdf } from '../utils/annualStatementPdf';
+import { buildAnnualStatementXlsx } from '../utils/annualStatementExport';
+import { buildAnnualStatementPdf } from '../utils/annualStatementPdf';
 import { lineDisplayName } from '../utils/lineDisplay';
 
 interface Props {
@@ -181,15 +181,16 @@ export default function ResultsStatementPage({ gameState, lineView }: Props) {
       : y.yearNumber === 0 ? `Year 0 — ${yearEnd(y.calendarYear)} (Opening)`
       : `${yearEnd(y.calendarYear)} (History)`,
   }));
-  // Each file is built on demand: its library (exceljs, jsPDF) is fetched on the first press, not with the page.
+  // Each file holds the statements of the view the player is on (statementsForView)
+  // and is named by it. Each file is built on demand: its library (exceljs, jsPDF) is fetched on the first press, not with the page.
   const [building, setBuilding] = useState<'xlsx' | 'pdf' | null>(null);
   const download = async (kind: 'xlsx' | 'pdf') => {
     setBuilding(kind);
     try {
       const year = ts.years.at(-1) ?? gameState.setup.startingYear;
       const [bytes, type, name] = kind === 'xlsx'
-        ? [await buildAnnualStatementXlsx(gameState, asOf), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', annualStatementFilename(gameState.setup.instanceId, year)]
-        : [await buildAnnualStatementPdf(gameState, asOf), 'application/pdf', annualStatementPdfFilename(gameState.setup.instanceId, year)];
+        ? [await buildAnnualStatementXlsx(gameState, asOf, lineView), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', statementFilename(lineView, year, 'xlsx')]
+        : [await buildAnnualStatementPdf(gameState, asOf, lineView), 'application/pdf', statementFilename(lineView, year, 'pdf')];
       const url = URL.createObjectURL(new Blob([bytes], { type }));
       const a = document.createElement('a');
       a.href = url;

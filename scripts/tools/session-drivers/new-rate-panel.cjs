@@ -65,23 +65,34 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   ok(/\+ Reinsurance\s*—/.test(body) || body.includes('+ Reinsurance —'),
      'the Indicated column shows a dash for reinsurance, not $0.00');
 
-  ok(/Pure premium/.test(body) && /\+ Admin/.test(body) && /\+ Risk Control/.test(body)
-    && /\+ Profit & contingency/.test(body) && /\+ Reinsurance/.test(body) && /= Rate/.test(body)
-    && !/Risk control & contingency/.test(body),
-     'each piece its own row: Pure premium, Admin, Risk Control, Profit & contingency, Reinsurance, = Rate');
+  // RESTATED at wip/pricing-rework: Profit & contingency is retired, admin is
+  // 20% of premium and labelled so, and the permissible loss ratio (80%) is
+  // printed under the rate.
+  ok(/Pure premium/.test(body) && /\+ Admin \(20% of premium\)/.test(body) && /\+ Risk Control/.test(body)
+    && /\+ Reinsurance/.test(body) && /= Rate/.test(body)
+    && !/contingency/i.test(body),
+     'each piece its own row: Pure premium, Admin (20% of premium), Risk Control, Reinsurance, = Rate — no Profit & contingency');
   // ⚠ EACH COLUMN ADDS EXACTLY TO ITS RATE, in the cents printed; Risk Control
   // reads $0.00 in both while risk control is off.
   {
     const cents = async id => { const t = await page.textContent(`[data-testid="${id}"]`); return Math.round(money(t) * 100); };
-    const rows = ['pure-premium', 'admin', 'risk-control', 'contingency'];
+    const rows = ['pure-premium', 'admin', 'risk-control'];
     const ind = await Promise.all(rows.map(r => cents(`new-rate-indicated-${r}`)));
     const yours = await Promise.all([...rows, 'reins'].map(r => cents(`new-rate-yours-${r}`)));
     const indRate = await cents('new-rate-indicated'), yourRate = await cents('new-rate-final');
     ok(ind.reduce((a, b) => a + b, 0) === indRate, `the Indicated rows add to the Indicated rate (${ind.join(' + ')} = ${indRate} cents)`);
     ok(yours.reduce((a, b) => a + b, 0) === yourRate, `Your rate's rows add to Your rate (${yours.join(' + ')} = ${yourRate} cents)`);
     ok(ind[2] === 0 && yours[2] === 0, 'Risk Control reads $0.00 in both columns while risk control is off');
-    // The panel is on Workers' Compensation, which carries 2% (GL and Property carry none).
-    ok(ind[3] > 0 && yours[3] > 0, 'Profit & contingency is charged in both columns (WC, 2%)');
+    // Admin is 20% of the rate before reinsurance in both columns, to the cent
+    // the printed rows can carry (admin takes the rounding, a cent at most).
+    const yourBefore = yourRate - yours[3];
+    ok(Math.abs(ind[1] - Math.round(indRate * 0.2)) <= 1 && Math.abs(yours[1] - Math.round(yourBefore * 0.2)) <= 1,
+      `Admin is 20% of the rate before reinsurance in both columns (${ind[1]} of ${indRate}, ${yours[1]} of ${yourBefore} cents)`);
+    const plrI = Number(await page.getAttribute('[data-testid="new-rate-indicated-plr"]', 'data-value'));
+    const plrY = Number(await page.getAttribute('[data-testid="new-rate-yours-plr"]', 'data-value'));
+    ok(Math.abs(plrI - 0.8) < 1e-12 && Math.abs(plrY - 0.8) < 1e-12
+      && /Permissible loss ratio\s*80%\s*80%/.test(body),
+      `the permissible loss ratio reads 80% in both columns (${plrI}, ${plrY})`);
   }
   ok(/vs last year/.test(body), 'the vs-last-year row renders');
 

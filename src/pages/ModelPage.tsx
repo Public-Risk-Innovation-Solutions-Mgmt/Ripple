@@ -101,21 +101,13 @@ function SectionA({ m }: { m: ModelRate }) {
           <Step label="ULAE" op={`loss cost × ${pct4(m.ulaeShare)}`} value={m.ulaePer100} />
 
           <Heading n={4} title="Admin" />
-          <Step label={`Fixed admin, dollars a year (set for ${m.adminTrend.baseYear})`} value={m.adminFixed} />
-          <Step label={`Per-exposure admin, per $100 (set for ${m.adminTrend.baseYear})`} value={m.adminPerExposurePer100} />
-          <Step label={`Admin trend to ${m.calendarYear}`}
-            op={`× ${f4(m.adminTrend.factor)} (${(m.adminTrend.perYear * 100).toFixed(1)}% for ${m.adminTrend.years} year${Math.abs(m.adminTrend.years) === 1 ? '' : 's'})`}
-            value={m.adminTrend.factor} testId="model-a-admin-trend" />
-          <Step label={`Fixed admin, trended to ${m.calendarYear}`} op={`${f4(m.adminFixed)} × ${f4(m.adminTrend.factor)}`} value={m.adminFixedTrended} />
-          <Step label={`Per-exposure admin, trended to ${m.calendarYear}`} op={`${f4(m.adminPerExposurePer100)} × ${f4(m.adminTrend.factor)}`} value={m.adminPerExposureTrendedPer100} />
+          <Step label="Admin, share of premium (every year)" value={m.adminShare} testId="model-a-admin-share" />
           <Step label="Exposure priced on ($M)" value={m.quotedExposure} />
-          <Step label="Admin per $100" op={`${f4(m.adminFixedTrended)} ÷ (${f4(m.quotedExposure)} × 10,000) + ${f4(m.adminPerExposureTrendedPer100)}`} value={m.adminPer100} testId="model-a-admin" />
+          <Step label="Admin per $100" op={`${f4(m.rateBeforeReinsurancePer100)} (rate before reinsurance) × ${pct4(m.adminShare)}`} value={m.adminPer100} testId="model-a-admin" />
 
           <Heading n={5} title="Expenses, as shares of the rate at Expected" />
-          <Step label="Fixed admin" value={m.expenses.fixedAdmin} testId="model-a-exp-fixed" />
-          <Step label="Per-exposure admin" value={m.expenses.perExposureAdmin} testId="model-a-exp-exposure" />
+          <Step label="Admin" value={m.expenses.admin} testId="model-a-exp-admin" />
           <Step label="Risk control" value={m.expenses.riskControl} testId="model-a-exp-risk-control" />
-          <Step label="Profit & contingency" value={m.expenses.contingency} testId="model-a-exp-contingency" />
           <Step label="Total expense ratio" op="sum" value={m.expenses.total} testId="model-a-exp-total" strong />
           <Step label="Permissible loss ratio" op="1 − total expense ratio" value={m.expenses.permissibleLossRatio} testId="model-a-plr" strong />
           <Step label="Indicated rate at Expected per $100" op={`${f4(m.projectedPurePremiumPer100)} ÷ ${f4(m.expenses.permissibleLossRatio)}`}
@@ -123,16 +115,15 @@ function SectionA({ m }: { m: ModelRate }) {
 
           <Heading n={6} title="Funding and reinsurance" />
           <Step label={`Funding level: ${m.funding.label}`} op="CLF" value={m.funding.clf} testId="model-a-clf" />
-          <Step label="Expense divisor" op={`1 − risk control ${pct4(m.riskControl)} − profit & contingency`} value={m.divisor} />
+          <Step label="Expense divisor" op={`1 − risk control ${pct4(m.riskControl)} − admin ${pct4(m.adminShare)}`} value={m.divisor} />
           <Step label="Reinsurance price per $100" value={m.reinsurancePer100} testId="model-a-reins" />
 
           <Heading n={7} title="The rate" />
           <Step label="Pure premium × CLF" op={`retained × ${f4(m.funding.clf)}`} value={m.pieces.purePremium} testId="model-a-piece-pure-premium" />
           <Step label="+ Admin" value={m.pieces.admin} testId="model-a-piece-admin" />
           <Step label="+ Risk Control" value={m.pieces.riskControl} testId="model-a-piece-risk-control" />
-          <Step label="+ Profit & contingency" value={m.pieces.contingency} testId="model-a-piece-contingency" />
           <Step label="+ Reinsurance" value={m.pieces.reins} testId="model-a-piece-reins" />
-          <Step label="= Rate per $100" op={`(${f4(m.pieces.purePremium)} + ${f4(m.pieces.admin)}) ÷ ${f4(m.divisor)} + ${f4(m.pieces.reins)}`}
+          <Step label="= Rate per $100" op={`${f4(m.pieces.purePremium)} ÷ ${f4(m.divisor)} + ${f4(m.pieces.reins)}`}
             value={m.ratePer100} testId="model-a-rate" strong />
           <Step label="Exposure charged ($M)" value={m.chargedExposure} />
           <Step label="Premium" op={`${f4(m.ratePer100)} × ${f4(m.chargedExposure)} × 10,000`} value={m.premium} testId="model-a-premium" strong />

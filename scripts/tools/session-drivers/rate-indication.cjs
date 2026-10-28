@@ -26,8 +26,11 @@
 //                     the projection / the permissible loss ratio; and the
 //                     indicated rate change is the rate at Expected / the
 //                     Current rate - 1, labelled against the current year's rate
-//   section 2         no investment income line; profit & contingency the line's
-//                     (WC 2%, GL 0%, Property 0%); the
+//   section 2         no investment income line; admin 20% and the permissible
+//                     loss ratio 80% on every line and every year, with no
+//                     profit & contingency, fixed or per-exposure admin row
+//                     (restated at wip/pricing-rework from the line's
+//                     contingency, WC 2%, GL 0%, Property 0%); the
 //                     total expense ratio = 1 - the permissible loss ratio
 //   the years named   section 3 reads "<current> Rate" and "Indicated <priced>
 //                     Rate at Expected / at 70% CLF …", the current year being
@@ -45,8 +48,8 @@ const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
 const LEVELS = [70, 80, 90];
-// Profit and contingency by line (pricingParameters' PROFIT_AND_CONTINGENCY_OF_RATE), written out.
-const CONTINGENCY = { WC: 0.02, GL: 0, Property: 0 };
+// Admin's share of premium by line (pricingParameters' ADMIN_SHARE_OF_PREMIUM), written out.
+const ADMIN = { WC: 0.2, GL: 0.2, Property: 0.2 };
 const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
 
 let passed = 0, failed = 0;
@@ -83,7 +86,8 @@ function screen(page, mode) {
         projected: await value(`[data-testid="ri-${l}-projected"]`),
         change: await value(`[data-testid="ri-${l}-change"]`),
         credit: await page.locator(`[data-testid="ri-${l}-credit"]`).count(),
-        contingency: await value(`[data-testid="ri-${l}-contingency"]`),
+        admin: await value(`[data-testid="ri-${l}-admin"]`),
+        retired: await page.locator(`[data-testid="ri-${l}-contingency"], [data-testid="ri-${l}-fixed-admin"], [data-testid="ri-${l}-exposure-admin"]`).count(),
         totalExpense: await value(`[data-testid="ri-${l}-total-admin"]`),
         permissible: await value(`[data-testid="ri-${l}-permissible"]`),
         labels: { losses: await label('losses'), exposure: await label('exposure'), pp: await label('pp'), projected: await label('projected'), change: await label('change'),
@@ -132,9 +136,10 @@ function screen(page, mode) {
       ok(near(x.losses / (x.exposure * 10_000), x.pp) && near(x.pp * x.trend, x.projected),
         `${mode}, ${name}, ${P}, ${l}: losses / ${level} exposure = the pure premium at ${level}'s level, x one year's trend = the projection`,
         `${x.pp.toFixed(6)} x ${x.trend} = ${(x.pp * x.trend).toFixed(6)} vs ${x.projected.toFixed(6)}`);
-      ok(x.credit === 0 && near(x.expected, x.projected / x.permissible) && near(x.totalExpense, 1 - x.permissible) && near(x.contingency, CONTINGENCY[l]),
-        `${mode}, ${name}, ${P}, ${l}: the rate at Expected is the projected pure premium / the permissible loss ratio; profit & contingency the line's; no investment income line`,
-        `${x.expected.toFixed(6)} vs ${(x.projected / x.permissible).toFixed(6)}; total expense ${(x.totalExpense * 100).toFixed(3)}%`);
+      ok(x.credit === 0 && near(x.expected, x.projected / x.permissible) && near(x.totalExpense, 1 - x.permissible)
+        && near(x.admin, ADMIN[l]) && near(x.permissible, 1 - ADMIN[l]) && x.retired === 0,
+        `${mode}, ${name}, ${P}, ${l}: the rate at Expected is the projected pure premium / the permissible loss ratio; admin 20%, permissible 80%, no contingency; no investment income line`,
+        `${x.expected.toFixed(6)} vs ${(x.projected / x.permissible).toFixed(6)}; admin ${(x.admin * 100).toFixed(3)}%, permissible ${(x.permissible * 100).toFixed(3)}%, total expense ${(x.totalExpense * 100).toFixed(3)}%, ${x.retired} retired rows`);
       ok(near(x.change, x.expected / x.current - 1),
         `${mode}, ${name}, ${P}, ${l}: the indicated rate change is the rate at Expected / the Current rate - 1`,
         `${(x.change * 100).toFixed(4)}%`);

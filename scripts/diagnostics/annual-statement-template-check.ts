@@ -802,6 +802,40 @@ for (const g of [games[0], games[3]]) for (const gs of [g.snaps[0], g.snaps[YEAR
   check(bdiffs.length === 0, `B. ${tag}: every sheet's borders are the template's, cell for cell (A–I × ${expectedRows.length} rows, ${templateLines} sides a sheet)`, bdiffs.slice(0, 3).join(' · '));
 }
 
+// EACH DOWNLOAD HOLDS ITS VIEW'S STATEMENTS, AND ONLY THOSE: on a line's view,
+// that line's sheet alone; on the Pool view, Pool then each line — Pool alone
+// when the team writes one line (its pool statement is that line's). Each
+// sheet's cells are its statement's, through the layout check. Expected here
+// from the game's lines, not from statementsForView.
+{
+  const expectedSheets = (gs: GameState, view: LineView): string[] => (view !== 'pool' ? [view] : gs.setup.activeLines.length === 1 ? ['Pool'] : ['Pool', ...gs.setup.activeLines]);
+  const viewsOf = (gs: GameState): LineView[] => ['pool', ...gs.setup.activeLines];
+  /** The sheet check: the file's sheets against the view's set, in order. */
+  const sheetSetDiff = (names: string[], gs: GameState, view: LineView) =>
+    (names.join(',') === expectedSheets(gs, view).join(',') ? [] : [`${view}: sheets ${names.join(',')}, want ${expectedSheets(gs, view).join(',')}`]);
+  const sheetsFor = async (gs: GameState, view: LineView) => {
+    const wb = XLSX.read(new Uint8Array(await buildAnnualStatementXlsx(gs, undefined, view)), { type: 'array', cellNF: true, cellFormula: true });
+    return wb;
+  };
+  const oneLine = playSnapshots('1', defaultDecisionSet, { lines: ['WC'] })[2];
+  for (const [name, gs] of [['three lines, after three years', games[0].snaps[YEARS]], ['WC alone, after two years', oneLine]] as const) {
+    const bad: string[] = [];
+    for (const view of viewsOf(gs)) {
+      const wb = await sheetsFor(gs, view);
+      bad.push(...sheetSetDiff(wb.SheetNames, gs, view));
+      wb.SheetNames.forEach(sh => { for (const d of layoutDiffs(wb.Sheets[sh], buildTemplateStatement(gs, sh === 'Pool' ? 'pool' : sh as LineView))) bad.push(`${view} ${sh} ${d}`); });
+    }
+    check(bad.length === 0, `B. ${name}: each view's download holds exactly its statements (${viewsOf(gs).map(v => `${v}: ${expectedSheets(gs, v).join('+')}`).join('; ')}), each the template cell for cell`, bad.slice(0, 3).join(' · '));
+  }
+  // The control: the wrong set — the Pool view's file taken for a line's, and
+  // the old one-line Pool file (Pool and WC both) — must fail the sheet check.
+  const multi = games[0].snaps[YEARS];
+  const c1 = sheetSetDiff((await sheetsFor(multi, 'pool')).SheetNames, multi, 'GL');
+  check(c1.length > 0, 'B control — the Pool view\'s file on the GL view: the sheet check fails', c1[0] ?? 'NOTHING FIRED');
+  const c2 = sheetSetDiff(['Pool', ...oneLine.setup.activeLines], oneLine, 'pool');
+  check(c2.length > 0, 'B control — a one-line team\'s Pool file with the line\'s sheet too (the old set): the sheet check fails', c2[0] ?? 'NOTHING FIRED');
+}
+
 // The controls. Layout: the v1 row kept, v1's two blanks after Written Premium, a
 // blank row dropped, a label altered, an All Years total written as a number, and
 // one summed over the wrong range. Borders: one line missing, and v1's lines.

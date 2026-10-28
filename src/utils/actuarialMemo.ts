@@ -675,17 +675,17 @@ export function buildActuarialMemo({ gameState, asAtYear }: ActuarialMemoInput):
       // ⚠ THE SECOND HALF OF THE SENTENCE IS FORKED, FOR THE SAME REASON AS THE
       // MOVEMENT COLUMN. "A rate is a loss cost times a confidence load" was a
       // complete description of the old stack and is not one of the new: the
-      // charge is (retained x CLF + admin) / (1 - risk control - contingency)
-      // plus reinsurance, so the confidence load is one of four terms rather
+      // charge is retained x CLF / (1 - risk control - admin share) plus
+      // reinsurance, so the confidence load is one of three terms rather
       // than the only one. Left unforked, this section would tell the player
       // that picking a funding stop gives them the rate, and the Decisions page
       // would then show them a larger number with no account of the difference.
       out.push(
         NEW_RATE_STACK.enabled
           ? '**A pure premium is a loss cost. A rate is more than a loss cost**: the pool charges its '
-            + 'retained loss cost at the funding stop the board picks, plus administration, plus the '
-            + 'risk-control and contingency provision, plus what reinsurance costs. Below is the '
-            + 'indication above under two of the funding stops open to you — the first of those four '
+            + 'retained loss cost at the funding stop the board picks, plus administration at its share '
+            + 'of premium, plus what reinsurance costs. Below is the '
+            + 'indication above under two of the funding stops open to you — the first of those three '
             + `terms and not the whole of year ${indicatedYear}'s rate, which is built in full on the `
             + 'Decisions page.'
           : '**A pure premium is a loss cost. A rate is a loss cost times a confidence load**, and the '

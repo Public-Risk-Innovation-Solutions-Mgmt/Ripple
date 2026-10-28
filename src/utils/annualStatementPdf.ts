@@ -5,8 +5,9 @@
 // shows it, the five years, the All Years column, each figure as the page writes
 // it (figureText), negatives in red, black on white.
 //
-// One statement per sheet in the Excel workbook's order — the pool's, then each
-// line the team writes (templateStatements) — each starting on a new page,
+// The statements of the player's view, in the Excel workbook's order — a line's
+// alone on its view; on the Pool view the pool's, then each line the team
+// writes (statementsForView) — each starting on a new page,
 // landscape Letter. A small header on every page names the pool, the line and
 // the year the statement stands at; the footer numbers the pages. The seven
 // figure columns fit across at a reading size (9pt), a blank row at half a
@@ -22,10 +23,10 @@
 // against the statements.
 // ============================================================================
 import {
-  ALL_YEARS_LABEL, allYearsCell, cellBorders, figureText, isBlockName, showsPrior, shownFigure, templateStatements,
+  ALL_YEARS_LABEL, allYearsCell, cellBorders, figureText, isBlockName, showsPrior, shownFigure, statementsForView,
   TEMPLATE_ROWS, type TemplateRow, type TemplateStatement,
 } from './annualStatementTemplate';
-import type { GameState } from '../types/simulation';
+import type { GameState, LineView } from '../types/simulation';
 
 /** Landscape Letter, in points. */
 export const PDF_PAGE = { width: 792, height: 612 } as const;
@@ -180,11 +181,12 @@ export async function buildStatementsPdf(statements: TemplateStatement[], poolNa
   return doc.output('arraybuffer');
 }
 
-/** The Annual Statement PDF a player downloads: the pool's statement, then each line's, as of a year (the latest by default). */
-export async function buildAnnualStatementPdf(gs: GameState, asOfYear?: number): Promise<ArrayBuffer> {
-  return buildStatementsPdf(templateStatements(gs, asOfYear), gs.setup.poolName);
-}
-
-export function annualStatementPdfFilename(instanceId: string, calendarYear: number): string {
-  return `Annual_Statement_${instanceId}_${calendarYear}.pdf`;
+/**
+ * The Annual Statement PDF a player downloads for a view, as of a year (the
+ * latest by default): the statements the view's download holds
+ * (statementsForView) — a line's alone on its view; the pool's, then each
+ * line's, on the Pool view.
+ */
+export async function buildAnnualStatementPdf(gs: GameState, asOfYear?: number, view: LineView = 'pool'): Promise<ArrayBuffer> {
+  return buildStatementsPdf(statementsForView(gs, view, asOfYear), gs.setup.poolName);
 }

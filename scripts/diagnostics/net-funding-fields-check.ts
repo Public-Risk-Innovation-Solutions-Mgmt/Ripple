@@ -27,7 +27,6 @@ import { processYear } from '../../src/utils/simulationEngine';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { AGGREGATE_STOP, NEW_RATE_STACK, RISK_CONTROL_INCENTIVE_RANGE, STOP_RECOVERY_OFF_CLAIMS_COST } from '../../src/data/pricingParameters';
-import { expenseDivisor } from '../../src/utils/linePricing';
 import type { DecisionSet } from '../../src/types/simulation';
 import type { CoverageLine, GameState, LineResultSet } from '../../src/types/simulation';
 
@@ -102,11 +101,17 @@ playLineYears(GAMES, YEARS, COVER, (l, r) => {
       // in substance — poolPremium is still reconstructable from stored
       // fields and nothing else, which is the whole reason these two fields
       // are stored. What changed is the LOADING FACTOR: the old stack applied
-      // a rate level, the new one divides by (1 - risk control - profit and
-      // contingency). Left unforked this read exactly 5.00e-2 on all three
-      // lines, which is the divisor and not an error in the fields.
+      // a rate level, the new one divides by (1 - risk control - admin's
+      // share) and keeps (1 - admin's share) of that as pool premium — 1 with
+      // risk control off (restated at wip/pricing-rework from
+      // 1 / (1 - risk control - profit and contingency)). Left unforked the
+      // first time this read exactly 5.00e-2 on all three lines, which was the
+      // divisor and not an error in the fields.
+      // ⚠ THE SHARE AND THE DIVISOR ARE WRITTEN OUT FROM THE BRIEF (20%), not
+      // read from expenseDivisor: read from it, this stayed green with WC's old
+      // 2% profit and contingency planted back in the divisor.
       const loadFactor = NEW_RATE_STACK.enabled
-        ? 1 / expenseDivisor(RISK_CONTROL_INCENTIVE_RANGE.default, l)
+        ? (1 - 0.2) / (1 - RISK_CONTROL_INCENTIVE_RANGE.default - 0.2)
         : r.rateLevel / 100;
       const reconstructed =
         r.activeExposure * r.netPurePremiumPer100 * r.selectedFundingCLF * loadFactor * 10_000;
@@ -147,7 +152,7 @@ console.log(`${n} line-years across ${GAMES} games x ${YEARS} years, ${COVER} bo
 
 console.log('--- 1. poolPremium RECONSTRUCTED FROM STORED FIELDS ALONE ---');
 console.log(NEW_RATE_STACK.enabled
-  ? '  activeExposure x netPurePremiumPer100 x selectedFundingCLF / (1 - rc - contingency) x 10_000\n'
+  ? '  activeExposure x netPurePremiumPer100 x selectedFundingCLF x (1 - admin share) / (1 - rc - admin share) x 10_000\n'
     + '  ⚠ The risk control incentive is read from the slider DEFAULT, not the row: this gate plays\n'
     + '  all-defaults by construction, so that is its value throughout, and taking it from the\n'
     + '  parameter keeps the assumption visible.\n'

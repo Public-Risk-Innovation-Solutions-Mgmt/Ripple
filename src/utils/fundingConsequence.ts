@@ -126,12 +126,14 @@ export interface FundingConsequence {
     clf: number;
     purePremiumGroundUp: number;
     purePremiumRetained: number;
+    /** ADMIN_SHARE_OF_PREMIUM: admin's share of the rate before reinsurance. */
+    adminShare: number;
+    /** Admin charged per $100: adminShare x the rate before reinsurance. */
     adminRatePer100: number;
-    riskControlAndContingencyPer100: number;
     riskControlPer100: number;
-    contingencyPer100: number;
+    /** The Indicated rate's own admin and risk control, per $100. */
+    indicatedAdminPer100: number;
     indicatedRiskControlPer100: number;
-    indicatedContingencyPer100: number;
     reinsRatePer100: number;
     firstIndicationPer100: number;
     finalRatePer100: number;
@@ -294,12 +296,11 @@ function ratesAt(
           clf: n.clf,
           purePremiumGroundUp: n.groundUpPurePremiumPer100,
           purePremiumRetained: n.retainedPurePremiumPer100,
+          adminShare: n.adminShare,
           adminRatePer100: n.adminRatePer100,
-          riskControlAndContingencyPer100: n.riskControlAndContingencyPer100,
           riskControlPer100: n.riskControlPer100,
-          contingencyPer100: n.contingencyPer100,
+          indicatedAdminPer100: n.indicatedAdminPer100,
           indicatedRiskControlPer100: n.indicatedRiskControlPer100,
-          indicatedContingencyPer100: n.indicatedContingencyPer100,
           reinsRatePer100: n.reinsRatePer100,
           firstIndicationPer100: n.firstIndicationPer100,
           finalRatePer100: n.finalRatePer100,

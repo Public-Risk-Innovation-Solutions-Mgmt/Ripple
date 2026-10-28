@@ -1490,7 +1490,23 @@ const BASELINE = process.env.RENDER_BASELINE
 // move, EXACTLY the 26 Annual Statement screens, and each is v99's text
 // character for character once "Download Annual Statement (PDF)", the new
 // button beside the Excel one, is taken out. Nothing else on any screen.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v100.json');
+// v101: ADMIN IS A SHARE OF PREMIUM (wip/pricing-rework). The control ran first:
+// multiplayer 8a4dae4 reproduced v100, 236 of 236. Against its own text
+// (RENDER_TEXT_DIR), word-diffed: 197 of 236 move, every one a pricing screen
+// or one carrying a rate, premium, admin or surplus figure. 151 move in numbers
+// only — Annual Statement (26), Financial Statements (26), Decision History
+// (22), Introduction (17), Result Spreadsheet (10), the header (9), Results
+// (23 of 26) and Decisions (9 of 25). Wording moves only where this change put
+// it: the Decisions panel loses "+ Profit & contingency" and gains "Admin (20%
+// of premium)" and a Permissible loss ratio row (16); the Rate Indication loses
+// Fixed admin, Per-exposure admin and Profit & contingency for one Admin row (10);
+// the Calculation Audit's admin assumption, admin row and divisor labels state
+// the share of premium (26). Two moves are text the screens choose from the
+// figures: three GL Results narratives now read "with margin to spare", and the
+// WC+GL+PR pool Audit at y2 shows the "Zero when ... agree" explanation because
+// no line borrows inter-line there any more (interLineTransfer 0). No key added
+// or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v101.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

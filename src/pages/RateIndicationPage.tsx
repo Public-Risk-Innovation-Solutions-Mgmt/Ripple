@@ -78,10 +78,8 @@ function LineCard({ ri }: { ri: RateIndication }) {
         </Section>
 
         <Section title="Expenses">
-          <Row label="Fixed admin" testId={`ri-${l}-fixed-admin`} value={x.fixedAdmin}>{pct(x.fixedAdmin)}</Row>
-          <Row label="Per-exposure admin" testId={`ri-${l}-exposure-admin`} value={x.perExposureAdmin}>{pct(x.perExposureAdmin)}</Row>
+          <Row label="Admin" testId={`ri-${l}-admin`} value={x.admin}>{pct(x.admin)}</Row>
           <Row label="Risk control" testId={`ri-${l}-risk-control`} value={x.riskControl}>{pct(x.riskControl)}</Row>
-          <Row label="Profit & contingency" testId={`ri-${l}-contingency`} value={x.contingency}>{pct(x.contingency)}</Row>
           <Space />
           <Row label="Total expense ratio" testId={`ri-${l}-total-admin`} value={x.totalAdmin} strong>{pct(x.totalAdmin)}</Row>
           <Space />

@@ -281,9 +281,11 @@ function sectionCoverInGame(): string[] {
 }
 
 // ---- 4c. THE RATE PANEL ---------------------------------------------------
-// Pure premium = normal expected losses x CLF (never lowered by cover), admin,
-// risk control, profit & contingency, reinsurance = the price grown by the
-// trend (not x CLF, not loaded); the five rows add to the rate exactly.
+// Pure premium = normal expected losses x CLF (never lowered by cover), admin
+// (its share of the rate before reinsurance, which the cover does not move),
+// risk control, reinsurance = the price grown by the trend (not x CLF, not
+// loaded); the four rows add to the rate exactly. (Profit & contingency was the
+// fifth row until wip/pricing-rework retired it.)
 function sectionRatePanel(): string[] {
   const out: string[] = [];
   for (const l of LINES) for (const clf of [1, 1.35]) {
@@ -295,9 +297,10 @@ function sectionRatePanel(): string[] {
     const none = q('none');
     for (const [id] of BRIEF_COVERS) {
       const c = q(id);
-      const rows = [c.retainedPurePremiumPer100 * c.clf, c.adminRatePer100, c.riskControlPer100, c.contingencyPer100, c.reinsRatePer100];
+      const rows = [c.retainedPurePremiumPer100 * c.clf, c.adminRatePer100, c.riskControlPer100, c.reinsRatePer100];
       if (!near(rows[0], 2.5 * clf, 1e-12)) out.push(`${l} ${id} CLF ${clf}: pure premium ${rows[0]}, expected x CLF ${2.5 * clf}`);
-      if (!near(c.contingencyPer100, none.contingencyPer100, 1e-12)) out.push(`${l} ${id}: the cover moved profit & contingency`);
+      // Admin is a share of the rate BEFORE reinsurance, so the cover must not move it.
+      if (!near(c.adminRatePer100, none.adminRatePer100, 1e-12)) out.push(`${l} ${id}: the cover moved admin`);
       // Year 3 with no year-1 base on the book: the table price x the trend for two years.
       const want = optionPrice(l, id) * Math.pow(1 + BRIEF_TREND[l], 2);
       if (!near(c.reinsuranceCost, want, 1e-9)) out.push(`${l} ${id} CLF ${clf}: reinsurance ${c.reinsuranceCost}, price ${want}`);

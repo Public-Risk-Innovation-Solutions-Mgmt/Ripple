@@ -185,7 +185,7 @@ const FAST: string[] = [
                                      //         penalty; four controls
   'reserve-inflation-check',         //  10s   open years inflate by the line's trend on the start-of-year
                                      //         outstanding, booked as development, paid untouched; priced for
-                                     //         the first 2 years; contingency per line; four controls. Replaced
+                                     //         the first 2 years; no profit and contingency in the divisor; four controls. Replaced
                                      //         adverse-rate-placeholder-check when YEARLY_ADVERSE_RATE was wired
   'shock-rate-check',                //   2s   the catalogue scaled to 0.3 events a year, weights kept and priced so;
                                      //         the schedule's count round(0.3 x years) ± 1, at least one, never year
@@ -236,7 +236,7 @@ const FAST: string[] = [
   'alae-ratio-check',                //  50s   ALAE drawn by line and year on the game seed (the same in
                                      //         every world), booked at the draw, priced on the window's
                                      //         mean, replayed identically; four controls
-  'admin-trend-check',               //  30s   admin trended 3% a year on both parts from the base year
+  'admin-share-check',               //  30s   admin exactly 20% of premium every year; pure premium unchanged by it
                                      //         (2027), priced and booked alike, pre-game included;
                                      //         three controls
   'decision-figures-check',          //   8s   the Decisions page's dollar figures are the engine's: the

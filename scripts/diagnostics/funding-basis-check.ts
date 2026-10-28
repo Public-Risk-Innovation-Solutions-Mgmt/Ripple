@@ -53,7 +53,6 @@ import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { type TowerLine } from '../../src/data/reinsuranceTower';
 import { AGGREGATE_STOP, NEW_RATE_STACK, RISK_CONTROL_INCENTIVE_RANGE, STOP_RECOVERY_OFF_CLAIMS_COST } from '../../src/data/pricingParameters';
-import { adminRatePer100For, expenseDivisor } from '../../src/utils/linePricing';
 import { occurrenceProgramCost } from '../../src/utils/reinsuranceTower';
 import { placementFor } from '../../src/utils/reinsuranceOptions';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM } from '../../src/data/defaultAssumptions';
@@ -155,10 +154,21 @@ for (let g = 0; g < GAMES; g++) {
 // the stored exposure), the stored net equals the gross — to the half unit in
 // the fourth place the gross is stored to (net is stored unrounded) — and no
 // expected ceded is on the row.
-const grossBasisOf = (rs: Row[], l: CoverageLine) => rs.map(r =>
-  (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1)) / (r.clf / expenseDivisor(r.rcIncentive, l)));
-const grossFunded = (rs: Row[], l: CoverageLine) => rs.length > 0
-  && Math.abs(mean(grossBasisOf(rs, l)) - 1) < 1e-4
+// What the pool premium carries per $1 of retained pure premium x CLF: the rate
+// before reinsurance is retained x CLF / (1 - rc - admin share), and the pool
+// premium is that less admin's share — (1 - admin share) / divisor, which is 1
+// with risk control off (wip/pricing-rework; was 1 / (1 - rc - contingency)).
+// ⚠ THE DIVISOR AND THE SHARE ARE WRITTEN OUT FROM THE BRIEF (20%), NOT READ
+// FROM expenseDivisor: read from it, this gate stayed green with WC's old 2%
+// profit and contingency planted back in the divisor, because its expectation
+// moved with the defect. Written out, that plant fails sections 1 and 2.
+const BRIEFED_ADMIN_SHARE = 0.2;
+const briefedDivisor = (rc: number) => 1 - rc - BRIEFED_ADMIN_SHARE;
+const poolLoading = (rc: number) => (1 - BRIEFED_ADMIN_SHARE) / briefedDivisor(rc);
+const grossBasisOf = (rs: Row[]) => rs.map(r =>
+  (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1)) / (r.clf * poolLoading(r.rcIncentive)));
+const grossFunded = (rs: Row[]) => rs.length > 0
+  && Math.abs(mean(grossBasisOf(rs)) - 1) < 1e-4
   && rs.every(r => r.expectedCededPer100 === 0 && Math.abs(r.netPurePremiumPer100 - r.purePremiumPer100) <= 5e-5 + 1e-12);
 
 console.log('=== NET FUNDING BASIS CHECK — 60 games x 10 years, all defaults ===');
@@ -185,12 +195,12 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   if (NEW_RATE_STACK.enabled) {
     const want = rows[l].map(r =>
       r.poolPremium / Math.max(r.netPurePremiumPer100 * r.activeExposure * 10_000, 1)
-      - r.clf / expenseDivisor(r.rcIncentive, l));
+      - r.clf * poolLoading(r.rcIncentive));
     // ⚠ NOT BIT-EXACT, AND THE BOUND IS THE SAME ONE new-rate-bill-check
     // states: activeExposure is stored to 2dp in $M, so a ratio built through
     // it carries about 1e-5. Measured worst 1.13e-6.
     check(Math.abs(mean(want)) < 1e-4,
-      `${l}: poolPremium / retained expected == CLF / (1 - rc - contingency)`,
+      `${l}: poolPremium / retained expected == CLF x (1 - admin share) / (1 - rc - admin share)`,
       `departure ${mean(want).toExponential(2)}`);
   } else {
     check(Math.abs(mean(net) - 1) < 2e-3,
@@ -233,10 +243,10 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   // cover's full price is charged as reinsurance. It used to assert "NO LONGER
   // the gross figure", which was the retired net basis. grossFunded is the
   // predicate; its controls follow section 1.
-  check(NEW_RATE_STACK.enabled ? grossFunded(rows[l], l) : mean(gross) < 0.95,
+  check(NEW_RATE_STACK.enabled ? grossFunded(rows[l]) : mean(gross) < 0.95,
     NEW_RATE_STACK.enabled ? `${l}: and it IS the gross figure with ${COVER} bought — nothing nets off the claims cost`
       : `${l}: and it is NO LONGER the gross figure`,
-    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasisOf(rows[l], l)).toFixed(6)}, expected ceded per $100 max `
+    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasisOf(rows[l])).toFixed(6)}, expected ceded per $100 max `
       + `${Math.max(...rows[l].map(r => r.expectedCededPer100))}, recorded ceded $${(mean(cededPriced[l]) / M).toFixed(3)}M/yr, `
       + `${rows[l].filter(r => r.reinsuranceRecovery > 0).length} recovering year(s), cost $${(mean(rows[l].map(r => r.reinsuranceCost)) / M).toFixed(3)}M/yr`
       : `gross ratio ${mean(gross).toFixed(4)}`);
@@ -253,7 +263,7 @@ check(LINES.every(l => rows[l].every(r => r.reinsuranceCost > 0)) && LINES.some(
   const netted = (l: CoverageLine) => rows[l].map((r, i) => ({
     ...r, poolPremium: r.poolPremium * (1 - cededPriced[l][i] / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1)),
   }));
-  check(LINES.some(l => !grossFunded(netted(l), l)), 'control: a premium netted of the cover\'s expected ceded is caught by 1');
+  check(LINES.some(l => !grossFunded(netted(l))), 'control: a premium netted of the cover\'s expected ceded is caught by 1');
   // (b) THE DORMANT NETTING PATH, SWITCHED ON AT RUNTIME: the aggregate stop
   // with its expected recovery taken off the claims cost — the engine's own
   // net basis — on a few games; restored after.
@@ -262,37 +272,32 @@ check(LINES.every(l => rows[l].every(r => r.reinsuranceCost > 0)) && LINES.some(
   let broken: Record<string, Row[]>;
   try { broken = rowsOf([0, 1, 2].flatMap(g => play(g, 4, 'working'))); }
   finally { [AGGREGATE_STOP.enabled, STOP_RECOVERY_OFF_CLAIMS_COST.enabled] = was; }
-  check(LINES.some(l => !grossFunded(broken[l], l)),
+  check(LINES.some(l => !grossFunded(broken[l])),
     'control: the engine\'s netting path switched on (the stop, its recovery off the claims cost) is caught by 1',
-    LINES.map(l => `${l} ${mean(grossBasisOf(broken[l], l)).toFixed(4)}`).join(', '));
+    LINES.map(l => `${l} ${mean(grossBasisOf(broken[l])).toFixed(4)}`).join(', '));
 }
 
 console.log(`\n--- 2. ADMIN ${NEW_RATE_STACK.enabled
-  ? 'IS FIXED-PLUS-PER-EXPOSURE, CARRYING THE DIVISOR' : 'IS STILL ON THE GROSS EXPECTED LOSS'} ---`);
+  ? 'IS ITS SHARE OF PREMIUM' : 'IS STILL ON THE GROSS EXPECTED LOSS'} ---`);
 for (const l of LINES) {
   const ratio = rows[l].map(r => r.adminExpense / Math.max(r.expectedLoss, 1));
   console.log(`  ${l}: adminExpense / GROSS expected = ${mean(ratio).toFixed(6)}`);
   if (NEW_RATE_STACK.enabled) {
-    // ⚠ FORKED: THE 15% LOAD IS RETIRED UNDER THE FLAG. Admin no longer rides
-    // on the expected loss at all — it is a fixed amount per line spread over
-    // exposure plus a per-exposure rate, and it carries its share of the
-    // expense divisor. The ratio above is reported and no longer asserted,
-    // because it is now an output of the book's size rather than a constant.
-    // The replacement is stronger than the one it retires: it RECONSTRUCTS
-    // the dollars from the parameters, so dropping the divisor off the admin
-    // limb — the mistake that is easy to make when the loading is split
-    // across limbs — fails here even though the ratio test would not notice.
+    // ⚠ FORKED: THE 15% LOAD IS RETIRED UNDER THE FLAG. Admin is its share of
+    // premium (ADMIN_SHARE_OF_PREMIUM; wip/pricing-rework, replacing the fixed
+    // and per-exposure admin): that share of the rate before reinsurance,
+    // retained x CLF / (1 - rc - share). The ratio above is reported and not
+    // asserted. The replacement RECONSTRUCTS the dollars from the retained
+    // pure premium, so leaving the divisor off — or a profit and contingency
+    // in it — fails here.
     const rel = rows[l].map(r => Math.abs(r.adminExpense
-      - r.activeExposure * (adminRatePer100For(l, r.activeExposure, r.year) / expenseDivisor(r.rcIncentive, l)) * 10_000)
+      - r.activeExposure * (r.netPurePremiumPer100 * r.clf / briefedDivisor(r.rcIncentive)) * BRIEFED_ADMIN_SHARE * 10_000)
       / Math.max(r.adminExpense, 1));
     // ⚠ NOT BIT-EXACT, SAME CAUSE AS SECTION 1: activeExposure is stored to
-    // 2dp in $M ($5,000 on a $400M book), and the admin rate is a function of
-    // that exposure, so reconstructing through the stored figure carries
-    // about 1e-5. Measured worst 7.0e-6. The deliberate break — dropping the
-    // divisor from the reconstruction — reads 5.00e-2 on all three lines,
-    // which is the divisor itself, and is four decades clear of the bar.
+    // 2dp in $M ($5,000 on a $400M book), so reconstructing through the stored
+    // figure carries about 1e-5.
     check(Math.max(...rel) < 1e-4,
-      `${l}: adminExpense == exposure x admin rate / (1 - rc - contingency)`,
+      `${l}: adminExpense == exposure x retained x CLF / (1 - rc - admin share) x admin share`,
       `max relative diff ${Math.max(...rel).toExponential(2)}`);
   } else {
     check(Math.abs(mean(ratio) - ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM) < 1e-9,

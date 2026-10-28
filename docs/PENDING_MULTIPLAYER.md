@@ -109,6 +109,35 @@ revert, with the Annual Statement and test-player work as of e3bc035 merged in.
 Build and test development pricing from there; to bring it back, revert the
 reverts.
 
+## Admin as a share of premium (save key v34) — wip/pricing-rework
+
+Admin is 20% of premium on every line (`ADMIN_SHARE_OF_PREMIUM`, per line so it
+can be set later): rate = pure premium x CLF / (1 - 20%) + reinsurance, the
+permissible loss ratio 80%, booked admin = that admin x (1 + the year's 0-2%
+overrun). Profit and contingency, the fixed and per-exposure admin and the admin
+trend are removed; the pre-game prices the same way. The Rate Indication, the
+Decisions panel and the Model tab show admin 20% and the permissible loss ratio
+80% every year. Save key v34 (v33 retired with it: the reverted development
+pricing's key, live on aws for a while).
+
+**Landed with:** FAST 81/81 and SLOW 4/4 (the manifest held); typecheck clean;
+lint identical to 8a4dae4 (its 14 errors and 7 warnings, none in a changed
+file); `admin-share-check` (new, replacing `admin-trend-check`) and seven gates
+and three drivers restated, each failing on a planted defect (WC's old 2% back in
+the divisor, WC's share at 19%, admin on the rate including reinsurance);
+baselines VALUE_IDENTITY_v89, SOLO_EXPORT_GUARD_v104 and RENDER_IDENTITY_v101,
+each attributed against multiplayer (8a4dae4 reproduced v87/v100; 3686296,
+merged in before landing, reproduced v103 — the downloads following the view),
+no loss, claim, reserve or pure-premium figure moved; all 24 session drivers
+with the admin-token hook; the contract harness on every pass (local, http,
+DynamoDB, built handler, admin, race probes).
+
+**Flagged:** WC's 2027 rate falls from 2026's in 8 of 20 scenarios, 3 by more
+than 2% (worst -3.15%) — the prior board's margin now carries what the 2%
+contingency did (figures at `ADMIN_SHARE_OF_PREMIUM`).
+**Pre-existing, not fixed:** `scripts/tools/rate-buildup-report.ts` (a tool, not
+a gate) fails its tie-out on 8a4dae4 too (its walk's exposure reads 0).
+
 ## The Annual Statement laid out as the template
 
 The Annual Statement page and its new **Download Annual Statement (Excel)** button
@@ -266,16 +295,27 @@ six games against the statements, with three failing controls;
 `downloads.cjs` presses the button and opens the file, and `test-player.cjs`
 and `viewer.cjs` press it in a Test player and a hosted game.
 
+**The downloads follow the view** (`statementsForView`), the Excel file and
+the PDF alike. On a line's view: that line's statement alone (one sheet, about
+three PDF pages). On the Pool view: the pool's, then each line the team writes,
+but a team writing one line gets the pool's alone, since its pool statement is
+that line's. Each file is named by the view and the year the statement stands
+at, e.g. `Annual_Statement_WC_2026.xlsx` or `Annual_Statement_Pool_2026.pdf`.
+The page itself is unchanged. The template and PDF checks hold each view's file
+to exactly its statements, in a three-line and a one-line game, with controls
+for the wrong set; `downloads.cjs` presses both buttons on every view of both.
+
 **Landed with:** `annual-statement-template-check` (new, in FAST): every figure
 tied to the engine on six games, the Excel file against the template through the
 list of deliberate differences (which it prints), the admin "% of Premium" ties,
 the Contributions variance's invariants, and the operating ratio by hand on
 scenario 1 WC 2027 (94.40%), each with a failing control. Also
-VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v102 (24 Results hashes
+VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v103 (24 Results hashes
 unchanged since v94; the 24 statement hashes carry the borders from v96, the
 filled blanks from v97, All Years from v98, the two renamed headings from v99,
 the seven columns, row changes and variance from v100, the draws on the
-program-year blocks from v101 and their cap from v102, each attributed in
+program-year blocks from v101, their cap from v102, and the one-line games'
+Pool file holding the pool's statement alone from v103, each attributed in
 `solo-export-guard.ts`), RENDER_IDENTITY_v100 (exactly the 26 Annual Statement
 screens moved at each of v92 to v95, v97, v98 and v100 — the PDF button — and 8 of them at v99 — v96 was development
 pricing's, reverted with it — each attributed in
