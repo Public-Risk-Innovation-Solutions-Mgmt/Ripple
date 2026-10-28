@@ -1577,7 +1577,8 @@ const BASELINE = process.env.RENDER_BASELINE
 //                         the codes, and the version v36 -> v37
 //   Decisions 16          the slider live: "0% of the rate" where it read "~0%
 //                         of pure premium", its end "5% of the rate"
-//   Result Spreadsheet 10 the new "Risk Control Cost" row, $0 at the harness's 0%
+//   Result Spreadsheet 10 the new "Risk Control Cost" and "Risk Control: Losses +
+//                         LAE Saved" rows, $0 at the harness's 0%
 //   Decision History 5    the pool view's retired "Risk Control %" column gone
 // The other 179 keep v105's fingerprints. ⚠ Eight of the 57 (Result
 // Spreadsheet, every configuration, y0 and y2) are also among the 29 the

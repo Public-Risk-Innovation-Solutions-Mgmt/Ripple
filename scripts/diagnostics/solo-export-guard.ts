@@ -1022,7 +1022,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // else; each was text-diffed against the control (GUARD_TEXT_DIR both sides),
 // row by row, and every moved row is one of: the Results sheet's three new rows
 // — Decisions "Risk Control %" (line sheets), Expenses and Income "Risk Control
-// Cost" (every sheet) and "Risk Control: Losses + LAE Saved" (line sheets), all
+// Cost" and "Risk Control: Losses + LAE Saved" (every sheet), all
 // 0 in the guard's games, which play at 0%; the Version row, riskpool_gamestate
 // _v36 -> _v37, this landing's save key; and the Year Walkthrough sheet's risk
 // control rows (the decision as a share of the rate, pricing's divisor now 1 -
