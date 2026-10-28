@@ -266,16 +266,27 @@ six games against the statements, with three failing controls;
 `downloads.cjs` presses the button and opens the file, and `test-player.cjs`
 and `viewer.cjs` press it in a Test player and a hosted game.
 
+**The downloads follow the view** (`statementsForView`), the Excel file and
+the PDF alike. On a line's view: that line's statement alone (one sheet, about
+three PDF pages). On the Pool view: the pool's, then each line the team writes,
+but a team writing one line gets the pool's alone, since its pool statement is
+that line's. Each file is named by the view and the year the statement stands
+at, e.g. `Annual_Statement_WC_2026.xlsx` or `Annual_Statement_Pool_2026.pdf`.
+The page itself is unchanged. The template and PDF checks hold each view's file
+to exactly its statements, in a three-line and a one-line game, with controls
+for the wrong set; `downloads.cjs` presses both buttons on every view of both.
+
 **Landed with:** `annual-statement-template-check` (new, in FAST): every figure
 tied to the engine on six games, the Excel file against the template through the
 list of deliberate differences (which it prints), the admin "% of Premium" ties,
 the Contributions variance's invariants, and the operating ratio by hand on
 scenario 1 WC 2027 (94.40%), each with a failing control. Also
-VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v102 (24 Results hashes
+VALUE_IDENTITY_v87 unchanged, SOLO_EXPORT_GUARD_v103 (24 Results hashes
 unchanged since v94; the 24 statement hashes carry the borders from v96, the
 filled blanks from v97, All Years from v98, the two renamed headings from v99,
 the seven columns, row changes and variance from v100, the draws on the
-program-year blocks from v101 and their cap from v102, each attributed in
+program-year blocks from v101, their cap from v102, and the one-line games'
+Pool file holding the pool's statement alone from v103, each attributed in
 `solo-export-guard.ts`), RENDER_IDENTITY_v100 (exactly the 26 Annual Statement
 screens moved at each of v92 to v95, v97, v98 and v100 — the PDF button — and 8 of them at v99 — v96 was development
 pricing's, reverted with it — each attributed in

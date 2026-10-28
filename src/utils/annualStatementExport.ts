@@ -26,10 +26,10 @@
 // ============================================================================
 import type { Borders, Worksheet } from 'exceljs';
 import {
-  ALL_YEARS_LABEL, allYearsCell, cellBorders, DOLLARS_PER_UNIT, isBlockName, showsPrior, shownFigure, TEMPLATE_ROWS, templateStatements,
+  ALL_YEARS_LABEL, allYearsCell, cellBorders, DOLLARS_PER_UNIT, isBlockName, showsPrior, shownFigure, statementsForView, TEMPLATE_ROWS,
   type FigureFormat, type TemplateStatement,
 } from './annualStatementTemplate';
-import type { GameState } from '../types/simulation';
+import type { GameState, LineView } from '../types/simulation';
 
 /** The figures' Excel number formats: the screen's units and decimals, negatives red. */
 export const STATEMENT_NUMBER_FORMAT: Record<FigureFormat, string> = {
@@ -119,16 +119,17 @@ async function loadExcelJS(): Promise<typeof import('exceljs')> {
   return mod.default ?? mod;
 }
 
-/** The .xlsx file: the pool's statement, then each line's, as of a year (the latest by default). */
-export async function buildAnnualStatementXlsx(gs: GameState, asOfYear?: number): Promise<ArrayBuffer> {
+/**
+ * The .xlsx file for a view, as of a year (the latest by default): one sheet per
+ * statement the view's download holds (statementsForView) — a line's alone on
+ * its view; the pool's, then each line's, on the Pool view.
+ */
+export async function buildAnnualStatementXlsx(gs: GameState, asOfYear?: number, view: LineView = 'pool'): Promise<ArrayBuffer> {
   const ExcelJS = await loadExcelJS();
   const wb = new ExcelJS.Workbook();
-  for (const ts of templateStatements(gs, asOfYear)) fillSheet(wb.addWorksheet(SHEET_NAME(ts)), ts);
+  for (const ts of statementsForView(gs, view, asOfYear)) fillSheet(wb.addWorksheet(SHEET_NAME(ts)), ts);
   // Copied into its own buffer of exactly the file's length: in Node, writeBuffer
   // hands back a Buffer that may be a slice of a larger shared pool.
   return new Uint8Array(await wb.xlsx.writeBuffer()).buffer as ArrayBuffer;
 }
 
-export function annualStatementFilename(instanceId: string, calendarYear: number): string {
-  return `Annual_Statement_${instanceId}_${calendarYear}.xlsx`;
-}

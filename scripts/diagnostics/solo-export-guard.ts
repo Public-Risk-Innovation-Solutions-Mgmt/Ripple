@@ -973,7 +973,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Reserves or Reported Loss & LAE in Program Year Totals or the Gross or Net
 // block (48 lines each). Payments, Total Net Incurred, Ceded, Paid and Total
 // Incurred do not move. No key added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v102.json');
+// v103: THE DOWNLOADS FOLLOW THE VIEW (statementsForView). The guard builds the
+// Pool view's file; a team writing one line now gets the pool's statement alone
+// there, its pool statement being that line's. 18 `stmt|...` keys move —
+// exactly the one-line games' (WC-solo, GL-solo, PR-solo, both arms, three
+// instances) — and each file is v102's character for character with its line's
+// sheet taken out: the Pool sheet's shown and raw text and its borders are
+// v102's. The three-line files and all 24 Results keys are byte-identical. No
+// key added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v103.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

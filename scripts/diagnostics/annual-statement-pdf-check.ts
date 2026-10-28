@@ -9,8 +9,10 @@
 // development after three and as of year 1, and a WC+GL pool — against each
 // statement's own figures (buildTemplateStatement), never the PDF module's:
 //
-//   · EVERY SHEET, IN THE WORKBOOK'S ORDER: one statement per sheet, the pool's
-//     then each line's, each starting on a new page, every page's header naming
+//   · EXACTLY THE VIEW'S STATEMENTS, IN THE WORKBOOK'S ORDER: on a line's view
+//     that line's alone; on the Pool view the pool's then each line's (the
+//     pool's alone when the team writes one line) — every view of three games,
+//     one of them a one-line team — each starting on a new page, every page's header naming
 //     the pool, the line and the year the statement stands at, every footer
 //     "Page n of N", every page landscape Letter.
 //   · THE TEXT IS THE STATEMENT'S: read off the page by position into rows and
@@ -24,7 +26,8 @@
 //
 // ⚠ AND EACH FAILS WHEN BROKEN: a PDF built from a statement with one figure
 // off, one with a sheet left out, and one with negatives drawn black must each
-// fail the check.
+// fail the check, and so must the wrong set of statements: the Pool view's PDF
+// for a line's view, and a one-line team's Pool PDF with the line's too.
 // ============================================================================
 
 import * as path from 'path';
@@ -37,10 +40,10 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from '../../src/utils/worlds';
 import { fullTowerOption } from '../../src/utils/reinsuranceOptions';
 import {
-  ALL_YEARS_LABEL, allYearsCell, figureText, showsPrior, shownFigure, templateStatements, TEMPLATE_ROWS, type TemplateStatement,
+  ALL_YEARS_LABEL, allYearsCell, buildTemplateStatement, figureText, showsPrior, shownFigure, templateStatements, TEMPLATE_ROWS, type TemplateStatement,
 } from '../../src/utils/annualStatementTemplate';
 import { buildAnnualStatementPdf, buildStatementsPdf } from '../../src/utils/annualStatementPdf';
-import type { CoverageLine, DecisionSet, GameSetupSettings, GameState } from '../../src/types/simulation';
+import type { CoverageLine, DecisionSet, GameSetupSettings, GameState, LineView } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
 /** pdf.js's own metrics for the standard fonts (Helvetica), so it reads the file without warnings. */
@@ -176,22 +179,32 @@ async function pdfDiffs(bytes: ArrayBuffer, statements: TemplateStatement[]): Pr
 
 // ---------------------------------------------------------------------------
 console.log('\nthe Annual Statement PDF against the statements');
-const games: { name: string; gs: GameState; asOf?: number }[] = [
+const games: { name: string; gs: GameState; asOf?: number; everyView?: boolean }[] = [
   { name: 'scenario 1, game start', gs: play('1', 0) },
   { name: 'scenario 1, after three years', gs: play('1', 3) },
   { name: 'STMT7 covered, after two years', gs: play('STMT7', 2, { covered: true }) },
   { name: 'scenario 1 Mid development, after three years', gs: play('1', 3, { development: { WC: 'Mid', GL: 'Mid', Property: 'Mid' } }) },
   { name: 'scenario 1 Mid development, as of year 1', gs: play('1', 3, { development: { WC: 'Mid', GL: 'Mid', Property: 'Mid' } }), asOf: 1 },
-  { name: 'scenario 1 WC+GL, after two years', gs: play('1', 2, { lines: ['WC', 'GL'] }) },
+  { name: 'scenario 1 WC+GL, after two years', gs: play('1', 2, { lines: ['WC', 'GL'] }), everyView: true },
+  { name: 'scenario 1 WC alone, after two years', gs: play('1', 2, { lines: ['WC'] }), everyView: true },
 ];
+games[1].everyView = true;
+/**
+ * The statements a view's download must hold, from the game's lines (not from
+ * statementsForView): a line's alone on its view; on the Pool view the pool's
+ * then each line's — the pool's alone when the team writes one line.
+ */
+const expectedFor = (gs: GameState, view: LineView, asOf?: number): TemplateStatement[] =>
+  (view !== 'pool' ? [buildTemplateStatement(gs, view, asOf)]
+    : gs.setup.activeLines.length === 1 ? [buildTemplateStatement(gs, 'pool', asOf)] : templateStatements(gs, asOf));
 let negatives = 0;
-for (const g of games) {
-  const statements = templateStatements(g.gs, g.asOf);
-  const bytes = await buildAnnualStatementPdf(g.gs, g.asOf);
+for (const g of games) for (const view of (g.everyView ? ['pool', ...g.gs.setup.activeLines] : ['pool']) as LineView[]) {
+  const statements = expectedFor(g.gs, view, g.asOf);
+  const bytes = await buildAnnualStatementPdf(g.gs, g.asOf, view);
   const pages = await readPdf(bytes);
   const diffs = await pdfDiffs(bytes, statements);
   negatives += pages.flatMap(p => p.runs).filter(r => r.rgb.toLowerCase() === RED).length;
-  check(diffs.length === 0, `${g.name}: ${statements.length} sheets (${statements.map(s => s.scopeName).join(', ')}) on ${pages.length} pages, every row and figure the statement's, negatives red`, diffs.slice(0, 3).join(' · '));
+  check(diffs.length === 0, `${g.name}, ${view} view: ${statements.length} sheet(s) (${statements.map(s => s.scopeName).join(', ')}) on ${pages.length} pages, every row and figure the statement's, negatives red`, diffs.slice(0, 3).join(' · '));
 }
 check(negatives > 0, 'the colour check is exercised: negatives are drawn', `${negatives} red figures`);
 
@@ -208,6 +221,12 @@ console.log('\ncontrols');
   check(e2.length > 0, 'control — a sheet left out (GL): the check fails', e2[0] ?? 'NOTHING FIRED');
   const e3 = await pdfDiffs(await buildStatementsPdf(statements, POOL, { negativeRgb: [0, 0, 0] }), statements);
   check(e3.length > 0 && e3.every(e => / drawn /.test(e)), 'control — negatives drawn black: the check fails, on colour alone', e3[0] ?? 'NOTHING FIRED');
+  // The wrong set: the Pool view's PDF on a line's view, and a one-line team's Pool PDF with the line's statement too.
+  const e4 = await pdfDiffs(await buildAnnualStatementPdf(gs, undefined, 'pool'), expectedFor(gs, 'GL'));
+  check(e4.length > 0, 'control — the Pool view\'s PDF taken for the GL view: the check fails', e4[0] ?? 'NOTHING FIRED');
+  const one = games[games.length - 1].gs;
+  const e5 = await pdfDiffs(await buildStatementsPdf(templateStatements(one), POOL), expectedFor(one, 'pool'));
+  check(e5.length > 0, 'control — a one-line team\'s Pool PDF with the line\'s statement too (the old set): the check fails', e5[0] ?? 'NOTHING FIRED');
 }
 
 console.log(failures.length === 0 ? '\nANNUAL STATEMENT PDF PASS' : `\nFAIL — ${failures.length}: ${failures.join('; ')}`);
