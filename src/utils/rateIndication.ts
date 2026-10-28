@@ -48,6 +48,10 @@ import { gameShocksOn } from './shockLosses';
 import { selectedClfFor } from './simulationEngine';
 import { fundingConsequenceInput } from '../game/derivations';
 import type { CoverageLine, DecisionSet, GameState, LineDecisionSet, LineResultSet } from '../types/simulation';
+import { eventLikelihoods } from './eventLikelihoods';
+import { pricedGrowthFactor } from './reinsuranceTower';
+import type { Book } from './lineHelpers';
+import type { TowerLine } from '../data/reinsuranceTower';
 
 /** A funding position: Expected, or a confidence level. */
 export type FundingPosition = 'expected' | number;
@@ -87,6 +91,12 @@ export interface RateIndication {
   currentPer100: number | null;
   positions: { position: FundingPosition; ratePer100: number; change: number | null }[];
   reinsurance: { id: string; name: string; pricePer100: number }[];
+  /**
+   * EVENT LIKELIHOODS (utils/eventLikelihoods): the size of a single large (T)
+   * claim at 1 in 10 to 1 in 200 years for the year priced, at the growth
+   * factor its cover prices use; null when the game's shocks are off.
+   */
+  eventLikelihoods: { years: number; size: number | null }[] | null;
 }
 
 export interface IndicationYear { yearNumber: number; calendarYear: number }
@@ -128,7 +138,7 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
   const price = (p: FundingPosition, option: string): Priced => quoteNewRateStack({
     line,
     yearNumber,
-    members: { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) },
+    members: { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) } as Book,
     exposure: ratedExposure,
     groundUpPurePremiumPer100: newPurePremiumPer100,
     clf: selectedClfFor(line, asDecision(d, p)),
@@ -139,7 +149,8 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
     shocks,
   });
   const chosen: FundingPosition = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
-  return { lr, rateBasis, ratedExposure, newPurePremiumPer100, d, price, chosen };
+  const members: Book = { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) };
+  return { lr, rateBasis, ratedExposure, newPurePremiumPer100, d, price, chosen, members };
 }
 
 /**
@@ -166,6 +177,8 @@ export function buildRateIndication(
   let projected: number;
   let windowYears: number;
   let reinsuranceAt: FundingPosition;
+  // The book the cover prices are quoted on, so the likelihoods grow by its factor.
+  let coverBook: Book;
 
   if (coming) {
     const d = decisions.byLine[line];
@@ -179,6 +192,7 @@ export function buildRateIndication(
     projected = purePremium.purePremiumPer100;
     windowYears = purePremium.points.length;
     reinsuranceAt = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
+    coverBook = fundingConsequenceInput(gs, line, decisions, 'none').book;
   } else {
     const past = pastPricer(gs, line, yearNumber);
     if (!past) return null;
@@ -186,6 +200,7 @@ export function buildRateIndication(
     projected = past.newPurePremiumPer100;
     windowYears = past.rateBasis.windowYears;
     reinsuranceAt = past.chosen;
+    coverBook = past.members;
   }
 
   const atExpected = price('expected', 'none');
@@ -241,5 +256,6 @@ export function buildRateIndication(
     currentPer100,
     positions,
     reinsurance,
+    eventLikelihoods: shocks ? eventLikelihoods(line, pricedGrowthFactor(line as TowerLine, coverBook, yearNumber)) : null,
   };
 }

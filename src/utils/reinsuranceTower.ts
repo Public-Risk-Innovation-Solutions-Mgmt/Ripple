@@ -200,6 +200,16 @@ export interface OccurrenceProgramQuote {
   expectedCeded: number;
 }
 
+/**
+ * The growth factor a book's cover is priced at in a year — the T claims' own
+ * (shockCost.shockCostFactor): the line's trend since year 1 x the book's
+ * growth, where the book carries a year-1 base. The one figure the cover
+ * prices (occurrenceProgramCost) and the Rate Indication's Event Likelihoods
+ * both read.
+ */
+export const pricedGrowthFactor = (line: TowerLine, members: Book, yearNumber: number): number =>
+  shockCostFactor(line, yearNumber, isRoster(members) ? undefined : bookExposureOf(members, line, yearNumber), shockBaseOf(members));
+
 // ONE pass over the book for the whole program, not one per layer — see
 // allLayerRiskMoments. Pricing three layers separately walked the member list
 // three times and re-resolved each member's rating group and lambda each time.
@@ -218,8 +228,7 @@ export function occurrenceProgramCost(
   // use (shockCost.shockCostFactor); expected ceded stays the moments' own, for
   // the record.
   if (newLossEngineRuns()) {
-    premium = placementPrice(line, placed,
-      shockCostFactor(line, yearNumber, isRoster(members) ? undefined : bookExposureOf(members, line, yearNumber), shockBaseOf(members)));
+    premium = placementPrice(line, placed, pricedGrowthFactor(line, members, yearNumber));
   }
   return { premium, expectedCeded };
 }

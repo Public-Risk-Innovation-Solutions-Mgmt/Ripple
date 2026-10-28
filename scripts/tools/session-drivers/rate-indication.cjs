@@ -38,6 +38,14 @@
 //                     top bar shows the CURRENT year (2026 before year 1), the
 //                     lock button "Lock Program Year <priced>", and the
 //                     Decisions page "Decisions for Program Year <priced>"
+//   Event Likelihoods  (wip/reinsurance-layers) beside the cover prices, shocks
+//                     on only: "Event Likelihoods", its note, and a row for 1 in
+//                     10, 20, 50, 100 and 200 years. Solo before year 1 (growth
+//                     1) each size is the one recomputed here from the catalogue
+//                     written out, "—" where the line's T events are rarer;
+//                     after two years every size is the same multiple (> 1) of
+//                     its 2027 size — the year's growth. The hosted room
+//                     schedules no shock, so its page shows none.
 //
 // to one part in a billion. The years are played on different choices: year 1
 // at Expected under the line's second cover, year 2 at 80% under None.
@@ -57,6 +65,26 @@ const ok = (cond, label, detail = '') => {
   if (cond) passed++; else failed++;
   console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
+
+// THE CATALOGUE, WRITTEN OUT: each line's T events, [scaled yearly chance, range $M].
+const T_EVENTS = {
+  WC: [[1 / 144, 6, 40]],
+  GL: [[5 / 288, 7, 40], [1 / 32, 1, 3], [1 / 144, 3, 7]],
+  Property: [[1 / 720, 12, 40], [1 / 24, 2, 5], [7 / 288, 12, 40]],
+};
+const RETURN_YEARS = [10, 20, 50, 100, 200];
+/** The size at 1 in n at growth 1, exactly, on the piecewise-linear exceedance curve; null where rarer. */
+function exactSize(l, n) {
+  const ev = T_EVENTS[l].map(([p, lo, hi]) => ({ p, lo: lo * 1e6, hi: hi * 1e6 }));
+  const at = x => ev.reduce((s, e) => s + e.p * Math.min(1, Math.max(0, (e.hi - x) / (e.hi - e.lo))), 0);
+  if (at(0) < 1 / n) return null;
+  const xs = [...new Set([0, ...ev.flatMap(e => [e.lo, e.hi])])].sort((a, b) => a - b);
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const a = xs[i], b = xs[i + 1], fa = at(a), fb = at(b);
+    if (fa >= 1 / n && fb <= 1 / n) return fa === fb ? a : a + (fa - 1 / n) / (fa - fb) * (b - a);
+  }
+  return null;
+}
 
 // What a player does on a game screen: the same in solo and hosted.
 function screen(page, mode) {
@@ -102,6 +130,17 @@ function screen(page, mode) {
         reins, levels: {},
       };
       for (const lv of LEVELS) out[l].levels[lv] = await value(`[data-testid="ri-${l}-level-${lv}"]`);
+      // Event Likelihoods: present or not, its heading and note, each row's label, text and size.
+      const box = page.locator(`[data-testid="ri-${l}-event-likelihoods"]`);
+      out[l].likelihoods = (await box.count()) === 0 ? null : {
+        heading: (await box.locator('h4').innerText()).trim(),
+        note: (await box.locator('p').innerText()).trim(),
+        rows: await Promise.all(RETURN_YEARS.map(async n => {
+          const el = page.locator(`[data-testid="ri-${l}-likelihood-${n}"]`);
+          const v = await el.getAttribute('data-value');
+          return { n, label: (await el.locator('xpath=../span[1]').innerText()).trim(), text: (await el.innerText()).trim(), size: v === null ? null : Number(v) };
+        })),
+      };
     }
     out.calendar = Number((await page.$eval('[data-testid="ri-year"]', el => el.selectedOptions[0].textContent)).match(/\d{4}/)[0]);
     return out;
@@ -172,8 +211,30 @@ function screen(page, mode) {
   }
 
   // THE COMING YEAR: every level, every cover, against the panel.
-  async function comingYear(name, programYear) {
+  // The Event Likelihoods: shown with shocks on only; at growth 1 each size the
+  // catalogue's; at a later year every size the same multiple of it.
+  function likelihoods(ind, name, shocksOn, atGrowthOne) {
+    for (const [l] of LINES) {
+      const t = ind[l].likelihoods;
+      if (!shocksOn) { ok(t === null, `${mode}, ${name}, ${l}: no Event Likelihoods with shocks off`); continue; }
+      ok(t !== null && t.heading === 'Event Likelihoods' && t.note === 'The chance in any year of a single large claim at least this size.'
+        && t.rows.every((r, i) => r.label === `1 in ${RETURN_YEARS[i]} years`),
+        `${mode}, ${name}, ${l}: "Event Likelihoods" beside the cover prices, its note and 1 in 10 to 1 in 200 years`, JSON.stringify(t && [t.heading, t.note]));
+      if (!t) continue;
+      const want = RETURN_YEARS.map(n => exactSize(l, n));
+      ok(t.rows.every((r, i) => (want[i] === null) === (r.size === null) && (r.size !== null || r.text === '—')),
+        `${mode}, ${name}, ${l}: a size where the line's T events reach 1 in N, "—" where they are rarer`, t.rows.map(r => r.text).join(' · '));
+      const ratios = t.rows.filter((r, i) => r.size !== null && want[i] !== null).map(r => r.size / want[RETURN_YEARS.indexOf(r.n)]);
+      ok(ratios.length > 0 && ratios.every(x => Math.abs(x - ratios[0]) < 1e-6 * ratios[0])
+        && (atGrowthOne ? Math.abs(ratios[0] - 1) < 1e-6 : ratios[0] > 1),
+        `${mode}, ${name}, ${l}: every size is the catalogue's ${atGrowthOne ? 'at growth 1 (2027)' : 'x one growth factor above 1'}`,
+        ratios.map(x => x.toFixed(6)).join(', '));
+    }
+  }
+
+  async function comingYear(name, programYear, shocksOn = true) {
     const ind = await readIndication();
+    likelihoods(ind, name, shocksOn, programYear === 2027);
     sectionOne(ind, name);
     sectionThree(ind, name);
     ok(ind.calendar === programYear, `${mode}, ${name}: the coming year is Program Year ${programYear}`, String(ind.calendar));
@@ -301,6 +362,7 @@ async function hosted(browser) {
   await host.fill('[data-testid="year-count"]', '4');
   await host.fill('[data-testid="expected-teams"]', '1');
   await host.click('[data-testid="create-room"]');
+  // No shock is scheduled, so the room's shocks are off (shockLosses.gameShocksOn).
   await host.waitForSelector('[data-testid="room-code"]');
   const code = (await host.textContent('[data-testid="room-code"]')).trim();
   await page.goto(`/join/${code}`);
@@ -311,7 +373,7 @@ async function hosted(browser) {
   await page.waitForSelector('[data-testid="rate-indication"], button:has-text("Rate Indication")', { timeout: 60000 });
   const s = screen(page, 'hosted');
 
-  await s.comingYear('before year 1', 2027);
+  await s.comingYear('before year 1', 2027, false);
   const played = [];
   for (const [y, level, cover] of [[1, 'expected', 1], [2, 80, 0]]) {
     played.push(await s.choose(level, cover));
@@ -321,7 +383,7 @@ async function hosted(browser) {
     await page.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
     await page.waitForTimeout(1000);
   }
-  await s.comingYear('after two played years', 2029);
+  await s.comingYear('after two played years', 2029, false);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'hosted: no page errors', errors[0] ?? '');
 }

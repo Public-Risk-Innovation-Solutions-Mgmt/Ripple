@@ -262,6 +262,9 @@ const FAST: string[] = [
   'adverse-development-check',       //  ~8s   wip/adverse-development: the λ draws, compounding on
                                      //         outstanding only, paid untouched, no pre-game
                                      //         development — each with a control.
+  'event-likelihoods-check',         //  ~5s   wip/reinsurance-layers: the Rate Indication's Event
+                                     //        Likelihoods recomputed exactly from the catalogue, at the
+                                     //        claims' growth; none with shocks off
   't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
                                      //        recovery on every claim size, each year's price by the
                                      //        workbook's method at the T claims' own growth factor
