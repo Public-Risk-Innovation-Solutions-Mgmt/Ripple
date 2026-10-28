@@ -1515,7 +1515,13 @@ const BASELINE = process.env.RENDER_BASELINE
 // claims (WC 9 xs 1 $390,000 -> $461,250, 38 xs 2 $590,000 -> $724,500; the
 // Rate Indication's per-$100 cover rates likewise). Nothing else moves: the
 // harness holds None, so no figure on any other screen changes.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v102.json');
+// v103: EVENT LIKELIHOODS ON THE RATE INDICATION (wip/reinsurance-layers),
+// against v102 (the same branch before it). 10 move, every Rate Indication
+// screen, and only by additions (word-diffed, RENDER_TEXT_DIR both sides): the
+// "Event Likelihoods" block beside each line's cover prices — its heading, the
+// note, and 1 in 10 to 1 in 200 years, "—" where the line's T events are rarer.
+// Nothing removed or changed on them; no other screen moves.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v103.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

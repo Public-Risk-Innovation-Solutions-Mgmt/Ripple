@@ -187,13 +187,15 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
   // four covers are offered, None the default; each shows its name and price.
   // Choosing one moves only the Reinsurance row: the pure premium is never
   // lowered by cover.
-  const T_COVERS = ['$9M xs $1M', '$8M xs $2M', '$18M xs $2M', '$38M xs $2M'];
+  const T_COVERS = ['$9M xs $1M', '$19M xs $1M', '$29M xs $1M', '$39M xs $1M', '$8M xs $2M', '$18M xs $2M', '$28M xs $2M', '$38M xs $2M'];
   ok(await chosen('none'), 'WC opens on the default cover, None');
   const offered = [];
   for (const id of T_COVERS) if (await page.$(`[data-testid="reins-option-WC-${id}"]`) !== null) offered.push(id);
-  ok(offered.length === 4, `all four T covers are offered (${offered.join(', ')})`);
+  ok(offered.length === 8, `all eight T covers are offered (${offered.join(', ')})`);
   const wcPrice = (await page.textContent('[data-testid="reins-option-WC-$38M xs $2M"]')).replace(/\s+/g, ' ');
-  ok(/\$590,000\/yr/.test(wcPrice), `38 xs 2 on WC shows its fixed price ("${wcPrice}")`);
+  // wip/reinsurance-layers: priced by the workbook's method on the year's claims —
+  // year 1, growth 1: WC 38 xs 2 = 1.2 x (5.25% x $2.5M + 2.25% x $21M) = $724,500.
+  ok(/\$724,500\/yr/.test(wcPrice), `38 xs 2 on WC shows its year-1 price by the method ("${wcPrice}")`);
   const ppLine = t => (t.match(/Pure premium[^+]*/) || [''])[0];
   const atDefault = await panelText();
   await page.click('[data-testid="reins-option-WC-$38M xs $2M"]');
