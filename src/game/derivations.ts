@@ -77,9 +77,13 @@ export function pricingBookFor(gameState: GameState, line: CoverageLine): Book {
  */
 export function fundingConsequenceInput(
   gameState: GameState, line: CoverageLine, decisions: DecisionSet, reinsuranceOption?: string,
+  // Overrides the line's aggregate cover, as `reinsuranceOption` does its layer
+  // (the Decisions page and the indication price each option).
+  aggregateCover?: string,
 ): { book: FundingConsequenceBook; purePremium: NewPurePremiumResult | null } {
   const d = decisions.byLine[line];
   const option = reinsuranceOption ?? d.reinsuranceOption;
+  const cover = aggregateCover ?? d.aggregateCover;
   const book = pricingBookFor(gameState, line);
   const exposure = bookExposureOf(book, line, gameState.currentYearNumber);
   const basis = {
@@ -106,6 +110,7 @@ export function fundingConsequenceInput(
       layersPlaced: placementFor(line, option),
       aggregateStopLevel: AGGREGATE_NOT_OFFERED,
       reinsuranceOption: option,
+      ...(cover !== undefined ? { aggregateCover: cover } : {}),
       shocks: gameShocksOn(gameState.setup, gameState.instance),
       pricingAdjustment: lineState.rateLevel / 100,
       priorPurePremiumPer100: lineState.purePremiumPer100,

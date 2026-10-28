@@ -14,6 +14,7 @@ import { optionPrice, reinsuranceOptionIds, reinsuranceOptionsFor } from '../uti
 import { bookExposureOf, bookRiskOf, isRoster, shockBaseOf, type Book } from '../utils/lineHelpers';
 import { shockCostFactor } from '../utils/shockCost';
 import { stopQuote } from '../utils/aggregateStop';
+import { aggregateCoverOf, aggregateCoverOption, aggregateCoverOptionIds, aggregateCoverQuote } from '../utils/aggregateCover';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -1098,7 +1099,63 @@ function PackageControls(props: {
   yearNumber: number;
   shocks: boolean;
 }) {
-  return AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />;
+  return (
+    <div className="space-y-5">
+      {AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />}
+      <AggregateCoverControls {...props} />
+    </div>
+  );
+}
+
+// ============================================================================
+// THE AGGREGATE COVER ON ATTRITIONAL LOSSES (wip/aggregate-cover) — one option
+// per line, beside the per-claim cover above. ⚠ EACH OPTION'S NAME AND ITS
+// PRICE ONLY, as the per-claim covers show theirs. The price is the engine's
+// own quote (aggregateCover.aggregateCoverQuote) on the line's book and year —
+// the book the rate is quoted on — so the panel cannot show a figure the
+// engine does not charge. While the game's shocks are off only None is offered.
+// ============================================================================
+function AggregateCoverControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
+  line: CoverageLine;
+  d: LineDecisionSet;
+  setMany: (patch: Partial<LineDecisionSet>) => void;
+  disabled: boolean;
+  book: Book;
+  yearNumber: number;
+  shocks: boolean;
+}) {
+  const exposure = bookExposureOf(book, line, yearNumber);
+  const held = aggregateCoverOf(d);
+  return (
+    <div className="space-y-3 border-t border-gray-100 pt-4">
+      <p className="text-xs text-gray-600 leading-relaxed">
+        <strong>Aggregate cover</strong> on the year&rsquo;s attritional losses — choose one, beside the cover above.
+      </p>
+      <div className="space-y-1.5" data-testid={`agg-cover-options-${line}`}>
+        {aggregateCoverOptionIds(shocks).map(id => {
+          const o = aggregateCoverOption(id);
+          const chosen = held === id;
+          const price = aggregateCoverQuote(line, id, exposure, yearNumber).price;
+          return (
+            <button
+              key={id}
+              type="button"
+              data-testid={`agg-cover-option-${line}-${id}`}
+              data-price={price}
+              disabled={disabled}
+              onClick={() => !disabled && setMany({ aggregateCover: id })}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left ${
+                chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
+              } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              <span>{o.name}</span>
+              <span className="text-xs text-gray-600">{`${formatCurrency(price)}/yr`}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // ============================================================================

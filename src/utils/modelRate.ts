@@ -17,6 +17,7 @@
 // market return net of fees (expectedMarketReturns), and the year's booked
 // figures; the combined ratio is the Annual Statement's own.
 // ============================================================================
+import { aggregateCoverOption } from './aggregateCover';
 import { pricingLineState } from './worlds';
 import { PRICING_DATA_LAG_YEARS, RESERVE_INFLATION_PRICED_YEARS } from '../data/pricingParameters';
 import { bookPurePremium, lossCostTrendPerYear, type NewPurePremiumResult } from './newPurePremium';
@@ -104,6 +105,16 @@ export interface ModelRate {
   /** The rate's rows, as the Decisions panel's Your rate: each its own, adding to ratePer100. */
   pieces: { purePremium: number; admin: number; riskControl: number; reins: number };
   reinsurancePer100: number;
+  /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES, when the year buys one: its
+   * terms and price as the quote struck them (aggregateCover.ts). Its price per
+   * $100 is part of reinsurancePer100. Null with None.
+   */
+  aggregateCover: {
+    name: string; expectedNormal: number; averageSurge: number; expectedAttritional: number;
+    attachmentShare: number; limitShare: number; attachment: number; limit: number;
+    expectedRecovery: number; load: number; price: number; pricePer100: number;
+  } | null;
   ratePer100: number;
   /** $M — the exposure charged (the year's book; a played year's mean over worlds). */
   chargedExposure: number;
@@ -187,6 +198,7 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: d.reinsuranceOption,
     shocks,
+    aggregateCover: d.aggregateCover,
   });
   if (coming) panelRatePer100 = quote.finalRatePer100;
   // At Expected, self-funded: the expense shares and the indicated rate.
@@ -259,6 +271,15 @@ export function buildModelRate(gs: GameState, line: CoverageLine, decisions: Dec
       riskControl: quote.riskControlPer100, reins: reinsurancePer100,
     },
     reinsurancePer100,
+    aggregateCover: quote.aggregateCover ? (c => {
+      const o = aggregateCoverOption(c.optionId);
+      return {
+        name: o.name, expectedNormal: c.expectedNormal, averageSurge: c.averageSurge, expectedAttritional: c.expectedAttritional,
+        attachmentShare: o.attachment, limitShare: o.limit, attachment: c.attachment, limit: c.limit,
+        expectedRecovery: c.expectedRecovery, load: o.load, price: c.price,
+        pricePer100: c.price / Math.max(quotedExposure * 10_000, 1),
+      };
+    })(quote.aggregateCover) : null,
     ratePer100,
     chargedExposure,
     premium,
@@ -306,7 +327,9 @@ export function buildModelVariance(gs: GameState, line: CoverageLine): ModelVari
     const pricedAlae = r.pricingAlaeRatio ?? lae.alae;
     const expAlae = r.expectedLoss * pricedAlae, expUlae = r.expectedLoss * lae.ulae;
     const expInvest = blendInvestmentReturn(r.investedAssets, r.assetAllocation, expectedMarketReturns()).income;
-    const expRecovery = r.expectedReinsuranceRecovery ?? 0;
+    // The per-claim cover's expected recovery, and the aggregate cover's at the
+    // odds it was priced on (its recovery is in reinsuranceRecovery).
+    const expRecovery = (r.expectedReinsuranceRecovery ?? 0) + (r.attritionalCover?.expectedRecovery ?? 0);
     const recovery = r.reinsuranceRecovery + (r.aggregateRecovery ?? 0);
     // On the Annual Statement's basis: losses net of the cover's recovery, LAE,
     // admin, risk control and the cover's price, over the member charge.

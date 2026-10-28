@@ -373,6 +373,13 @@ export interface TeamLineDecisions {
    */
   reinsuranceOption: string;
   /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES the team bought beside the layer
+   * (wip/aggregate-cover), one id from AGGREGATE_COVER_OPTIONS. Written only
+   * when bought; absent is None. One more string the server stores without
+   * reading, so the handler, both transports and keys.ts need no change.
+   */
+  aggregateCover?: string;
+  /**
    * "Non-renewal": the share of the book at the start of the year not renewed,
    * a FRACTION 0–0.05. Absent on the engine side reads as 0.
    *

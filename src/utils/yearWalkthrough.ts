@@ -81,6 +81,7 @@ import {
 import { shockCostFactor } from './shockCost';
 import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
 import { effectiveRiskControlIncentivePct, quoteNewRateStack, type NewStackQuote } from './linePricing';
+import { aggregateCoverOption } from './aggregateCover';
 import { riskControlCutFor, riskControlDraw } from './riskControl';
 import { bookPurePremium, type NewPurePremiumResult } from './newPurePremium';
 import { moveBook, newMembersShare, nonRenewalShare, type BookMovement } from './bookUnderwriting';
@@ -343,6 +344,7 @@ function pricingOf(s: YearSource, l: CoverageLine): Pricing | null {
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: d.reinsuranceOption,
     shocks: gameShocksOn(s.gs.setup, s.gs.instance),
+    aggregateCover: d.aggregateCover,
   });
   return { pp, quote, exposure };
 }
@@ -676,6 +678,23 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: `${t.name}: recovery`, value: a.cededByLayer[i] ?? 0, kind: 'usd' },
     );
   });
+  // THE AGGREGATE COVER ON ATTRITIONAL LOSSES (wip/aggregate-cover), when the
+  // year bought one: the year's attritional losses, the terms in dollars and
+  // what it paid — each the mean over worlds. Absent with None.
+  const ac = a.attritionalCover;
+  if (ac) {
+    reinsRows.push(
+      { label: 'Aggregate cover on attritional losses', value: aggregateCoverOption(ac.optionId).name, kind: 'text' },
+      { label: 'Attritional: normal losses', value: ac.normalLoss, kind: 'usd' },
+      { label: 'Attritional: surges', value: ac.surgeLoss, kind: 'usd' },
+      { label: 'Attritional losses', value: ac.attritional, kind: 'usd' },
+      { label: 'Expected attritional losses', value: ac.expectedAttritional, kind: 'usd' },
+      { label: 'Aggregate cover: attachment', value: ac.attachment, kind: 'usd' },
+      { label: 'Aggregate cover: limit', value: ac.limit, kind: 'usd' },
+      { label: 'Aggregate cover: price', value: ac.price, kind: 'usd' },
+      { label: 'Aggregate cover: recovery on attritional losses', value: ac.recovery, kind: 'usd' },
+    );
+  }
   reinsRows.push(
     { label: 'Aggregate cover recovery', value: a.aggregateRecovery, kind: 'usd' },
     { label: 'Retained above the tower', value: a.retainedAboveTower, kind: 'usd' },
@@ -688,10 +707,18 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
   out.push({
     key: 'reinsurance', rows: reinsRows,
     feed: feed({
-      decisions: [{ name: 'Reinsurance cover', value: d.reinsuranceOption }],
+      decisions: [
+        { name: 'Reinsurance cover', value: d.reinsuranceOption },
+        ...(ac ? [{ name: 'Aggregate cover', value: aggregateCoverOption(ac.optionId).name }] : []),
+      ],
       through: [titleOf('losses')],
       working: [
         `Cover ${d.reinsuranceOption} → layers bought: ${tower.filter((_, i) => placed[i]).map(t => t.name).join(', ') || 'none'}`,
+        ...(ac ? [
+          `Attritional = normal ${usd(ac.normalLoss)} + surges ${usd(ac.surgeLoss)} = ${usd(ac.attritional)} (large claims and development excluded)`,
+          `Aggregate cover pays min(max(${usd(ac.attritional)} − attachment ${usd(ac.attachment)}, 0), limit ${usd(ac.limit)}) = ${usd(ac.recovery)}`
+            + ' (each figure the mean over worlds)',
+        ] : []),
         `Net = gross booked ${usd(a.bookedGrossUltimate ?? a.grossUltimateLoss)} − recovery ${usd(a.reinsuranceRecovery)} = ${usd(a.netUltimateLoss)}`,
       ],
     }),

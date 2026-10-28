@@ -1927,6 +1927,70 @@ export const T_COVER_40M_MULTIPLIER = 1.2;
 export const REINSURANCE_OFFERED_SHOCKS_OFF: readonly string[] = ['none'];
 
 /**
+ * THE AGGREGATE COVER ON ATTRITIONAL LOSSES (wip/aggregate-cover;
+ * utils/aggregateCover.ts). Bought per line per year BESIDE the per-claim
+ * layer above, never instead of it. It covers the year's ATTRITIONAL losses —
+ * normal losses (the year factor, member risk and luck, after underwriting and
+ * risk control) plus the shocks' surges (A) — and nothing else: no large (T)
+ * claim, no Economic Inflation uplift, no development on older years.
+ *
+ *   expected attritional = expected normal losses x (1 + the average surge)
+ *   attachment, limit    = each option's share x expected attritional
+ *   recovery             = min(max(actual attritional - attachment, 0), limit)
+ *
+ * PRICE, the pricing workbook's "Agg Attritional" tab: four cases a year — no
+ * surge, Low, Mid, High — at the shock assumptions' odds (T_COVER_FREQUENCY,
+ * 7.5% / 5.25% / 2.25%, so 85% none). Each surge is the top of its level's
+ * range in R_MODEL.aShock (`surgeBasis` 'maximum'; 'midpoint' takes the
+ * middle). Within a case ordinary luck is normal around the case's level, 1 +
+ * surge, with SD the line's ordinary-year CV (typicalBookOrdinaryCv) x that
+ * level. The average surge in the attachment is taken on the same basis, so
+ * the switch moves the cases and the terms together.
+ *
+ *   expected recovery = Σ chance x E[min(max(X - attachment, 0), limit)]
+ *                       x expected normal losses
+ *   price             = expected recovery x the option's load
+ *
+ * Charged as reinsurance: added to the member charge as a pass-through, no
+ * admin taken on it, and never netted off the pure premium. The price and the
+ * terms are struck together, on the book the rate is quoted on — in a game of
+ * many worlds the averaged book, one price a team-year. While the game's
+ * shocks are off only None is offered, as with the per-claim covers: the
+ * price assumes surges the game would then never draw.
+ *
+ * WHY: the pricing workbook's "Agg Attritional" tab (the source of every
+ * figure here), so a team can buy cover against a bad ordinary year and a
+ * surge, which the per-claim layers never reach. ⚠ THE PRICES ASSUME SURGES AT
+ * THE SHOCK ASSUMPTIONS' ODDS; until the game's surges follow those odds the
+ * game's recoveries will differ from the prices (aggregateCover's
+ * expectedRecoveryToday measures what today's surges give).
+ *
+ * Expected 2027 prices at default decisions (aggregate-cover-check holds them):
+ * WC $667,967 / $292,675 / $94,629; GL $675,955 / $263,022 / $74,451;
+ * Property $879,680 / $434,590 / $188,692.
+ */
+export interface AggregateCoverOption {
+  id: string;
+  name: string;
+  /** Attaches at this share of the year's expected attritional losses. */
+  attachment: number;
+  /** Pays up to this share of the year's expected attritional losses. */
+  limit: number;
+  /** The price is the expected recovery x this. */
+  load: number;
+}
+export const AGGREGATE_COVER_OPTIONS: readonly AggregateCoverOption[] = [
+  { id: 'none', name: 'None', attachment: 0, limit: 0, load: 0 },
+  { id: 'agg-110-50', name: '110/50', attachment: 1.10, limit: 0.50, load: 1.2 },
+  { id: 'agg-125-50', name: '125/50', attachment: 1.25, limit: 0.50, load: 1.0 },
+  { id: 'agg-150-50', name: '150/50', attachment: 1.50, limit: 0.50, load: 1.0 },
+];
+/** Held by every team until it chooses; an absent choice reads as this. */
+export const AGGREGATE_COVER_DEFAULT = 'none';
+/** Where in its level's range each surge is priced: the top (the workbook's) or the middle. */
+export const AGGREGATE_COVER_SURGE_BASIS: { basis: 'maximum' | 'midpoint' } = { basis: 'maximum' };
+
+/**
  * THE AGGREGATE STOP, PER LINE (stable-scenarios commit 6). ON: the reinsurance
  * a team buys is a stop on each line's ACCIDENT-YEAR TOTAL — ordinary losses,
  * the shocks' uplift and their large losses together — replacing the per-claim
@@ -3083,6 +3147,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The pricing workbook\'s method, on the game\'s own claims, so prices follow the claims a player sees. '
           + 'In 2027 the factor is 1: WC 9 xs 1 $461K, GL $488K, Property $784K.',
+      }],
+      ['Aggregate cover on attritional losses', {
+        value: AGGREGATE_COVER_OPTIONS.filter(o => o.limit > 0)
+          .map(o => `${o.name} (${Math.round(o.attachment * 100)}% / ${Math.round(o.limit * 100)}%, load ${o.load})`).join(' · '),
+        unit: 'attaches / limit, shares of the year\'s expected attritional losses; price = expected recovery x load',
+        what: 'What a team can buy on each line beside the per-claim cover: None, or a cover on the year\'s attritional '
+          + 'losses — normal losses plus the shocks\' surges (A), never a large (T) claim, Economic Inflation\'s uplift '
+          + 'or the development of an older year — paying min(max(attritional − attachment, 0), limit). Expected '
+          + 'attritional = expected normal losses x (1 + the average surge). Charged as reinsurance, no admin on it.',
+        basis: 'SOURCED',
+        note: 'The pricing workbook\'s "Agg Attritional" tab: four cases a year at the shock assumptions\' odds (none '
+          + `85%, Low ${T_COVER_FREQUENCY.Low * 100}%, Mid ${T_COVER_FREQUENCY.Mid * 100}%, High ${T_COVER_FREQUENCY.High * 100}%), `
+          + `each surge at the ${AGGREGATE_COVER_SURGE_BASIS.basis} of its A range, ordinary luck normal around the case at the `
+          + 'line\'s ordinary-year CV. Not offered while the game\'s shocks are off. The prices assume surges at those odds; '
+          + 'until the game\'s surges follow them, recoveries will differ from the prices.',
       }],
       ['Aggregate stop', {
         value: !AGGREGATE_STOP.enabled ? 'off — dormant; the T covers are offered' : AGGREGATE_STOP.enabled
