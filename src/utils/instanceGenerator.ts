@@ -2,7 +2,7 @@
 // Exposure = payroll in millions of dollars
 // Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
-import { gameIdentity, scenarioOfId } from './scenarios';
+import { gameIdentity } from './scenarios';
 import type { GameInstance, Member, MembershipHistory, PoolState, LinePoolState, StartingFinancials } from '../types/simulation';
 import { SeededRandom, deriveSubRng } from './random';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
@@ -120,8 +120,9 @@ export function generateGameInstance(
       throw new Error(`generateGameInstance: scheduled shock '${s.shockId}' has fire year ${s.yearNumber}; it must be a game year, 1 or later`);
     }
   }
-  // The scenario rides on the instance, so every copy of it plays the same one.
-  const instance = { ...baseInstance(instanceId, seed), scenario: scenario ?? scenarioOfId(instanceId, seed) };
+  // The scenario number rides on the instance, so every copy of it carries it;
+  // a harness's bare instance has none (no id is mapped onto the twenty).
+  const instance = { ...baseInstance(instanceId, seed), ...(scenario !== undefined ? { scenario } : {}) };
   return scheduledShocks.length > 0
     ? { ...instance, scheduledShocks: withRegions(seed, scheduledShocks) }
     : instance;

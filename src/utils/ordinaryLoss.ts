@@ -34,7 +34,7 @@
 // ============================================================================
 
 import {
-  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, FLAT_PRE_GAME, MEMBER_LUCK_CV, MEMBER_RISK_CV, preGameLossMultiplier, SEVERITY_TREND_PER_YEAR,
+  BASELINE_CV, EXPECTED_ORDINARY_LOSS_COST_PER_100, FLAT_PRE_GAME, MEMBER_LUCK_CV, MEMBER_RISK_CV, SEVERITY_TREND_PER_YEAR,
   SHOCK_T_BASIS_PER_100, UNDERWRITING_MEMBERS,
 } from '../data/pricingParameters';
 // ⚠ A CALL-TIME CYCLE, AND SAFE AS ONE: shockExpectation imports this module,
@@ -85,8 +85,7 @@ export function shockBasisCostPer100(line: CoverageLine, yearNumber: number): nu
 
 /**
  * A flat pre-game year (FLAT_PRE_GAME): ordinary losses at exactly expected, no factor drawn. `flat` is the
- * run's own choice — the pre-game's DESIGNED run passes true to set the prior board's margin
- * (PRE_GAME_MARGIN_ON_DESIGN) whatever FLAT_PRE_GAME says.
+ * run's own choice.
  */
 export const flatPreGameYear = (yearNumber: number, flat: boolean = FLAT_PRE_GAME.enabled): boolean => flat && yearNumber <= 0;
 
@@ -98,17 +97,9 @@ export const flatPreGameYear = (yearNumber: number, flat: boolean = FLAT_PRE_GAM
  */
 const streamLabel = (yearNumber: number, label: string): string => (yearNumber <= 0 ? `pregame_${label}` : label);
 
-/**
- * THE SCENARIO'S MULTIPLE ON A PRE-GAME YEAR'S ORDINARY LOSSES: the scenario's
- * (preGameLossMultiplier, stable-scenarios commit 9) — a thin scenario
- * inherits a worse record — and exactly 1 on an instance built without one (a
- * harness's bare instance) and in every played year. Flat, a pre-game year
- * comes in at exactly this multiple of expected; simulated, at this multiple
- * times the year's draws (mean 1), so the scenario keeps its record. Expected
- * is untouched.
- */
-export const preGameLossFactor = (instance: { scenario?: number }, yearNumber: number, line: CoverageLine): number =>
-  yearNumber <= 0 && instance.scenario !== undefined ? preGameLossMultiplier(instance.scenario, line) : 1;
+// ⚠ NO SCENARIO MULTIPLE ON THE PRE-GAME'S LOSSES (fixed-seed scenarios): its
+// years are drawn at true cost, exactly as a played year's. A scenario's record
+// is its fixed seed's (SCENARIO_SEEDS), not a scaling.
 
 /**
  * THE CV OF THE YEAR FACTOR A LINE'S UNITS SHARE — its BASELINE_CV, the same
@@ -158,15 +149,13 @@ export function typicalBookOrdinaryCv(line: CoverageLine): number {
 /** Draw a line's ordinary loss for one accident year on a given book — one draw at the line (the member path). */
 export function ordinaryLossYear(
   line: CoverageLine, book: Book, yearNumber: number, seed: number,
-  // A flat pre-game year's multiple of expected — the scenario's (preGameLossFactor).
-  preGameLoss = 1,
   // Whether a pre-game year runs flat (flatPreGameYear).
   flat: boolean = FLAT_PRE_GAME.enabled,
 ): OrdinaryLossYear {
   const exposure = bookExposureOf(book, line, yearNumber);
   const expected = exposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
-  const factor = flatPreGameYear(yearNumber, flat) ? preGameLoss
-    : preGameLoss * drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), typicalBookOrdinaryCv(line));
+  const factor = flatPreGameYear(yearNumber, flat) ? 1
+    : drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), typicalBookOrdinaryCv(line));
   return { exposure, expected, realised: expected * factor, factor };
 }
 
@@ -207,8 +196,6 @@ export interface MemberOrdinaryYear extends OrdinaryLossYear {
 export function ordinaryLossFromMembers(
   line: CoverageLine, activeExposure: number, yearNumber: number, seed: number,
   lossFactor = 1,
-  // A flat pre-game year's multiple of expected — the scenario's (preGameLossFactor).
-  preGameLoss = 1,
   // Whether a pre-game year runs flat (flatPreGameYear).
   flatRun: boolean = FLAT_PRE_GAME.enabled,
   // The GAME's seed (marketSeedOf), which the risk scores are drawn from so
@@ -218,7 +205,7 @@ export function ordinaryLossFromMembers(
   const expected = activeExposure * 10_000 * ordinaryLossCostPer100(line, yearNumber);
   // A flat pre-game year draws neither factor: every member at exactly expected.
   const flat = flatPreGameYear(yearNumber, flatRun);
-  const year = flat ? preGameLoss : preGameLoss * drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ordinaryYearCv(line));
+  const year = flat ? 1 : drawOrdinaryFactor(ordinaryLossRng(seed, yearNumber, line), ordinaryYearCv(line));
   const own = memberLuckRng(seed, yearNumber, line);
   const luck = Array.from({ length: UNDERWRITING_MEMBERS }, () => (flat ? 1 : drawOrdinaryFactor(own, MEMBER_LUCK_CV)));
   // A flat pre-game year draws no risk either: every member at 1.

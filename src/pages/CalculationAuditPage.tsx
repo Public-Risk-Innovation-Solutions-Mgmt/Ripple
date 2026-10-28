@@ -1084,26 +1084,22 @@ export function computeAuditChecks(
 
   // --- Investment income: plumbing consistency, not an independent derivation ---
   // Live years draw one shared market from the plain instance seed. Pre-game
-  // years are simulated PER LINE in isolation on attempt-shifted seeds
-  // (instance.seed + pregameAttempt x 997), so each line saw a DIFFERENT
-  // market in the same pre-game year — there is no single pool-level market
-  // draw to check, only per-line ones.
+  // years are simulated PER LINE in isolation, each its own single-line game,
+  // so there is no single pool-level market draw to check, only per-line ones.
   let investmentIncome: AuditCheck;
   if (isPoolView && !isLiveYear) {
     const { note, status } = naNote(
-      'no single pool-level market draw exists for a pre-game year — each line pre-games on its own ' +
-      'attempt-shifted seed and drew a different market. Select a line tab to check it.'
+      'no single pool-level market draw exists for a pre-game year — each line pre-games on its own. ' +
+      'Select a line tab to check it.'
     );
     investmentIncome = { derived: 0, statement: r.investmentIncome, diff: 0, note, status };
   } else {
-    const attempt = isLiveYear ? 0 : (r.pregameAttempt ?? 0);
     // The year's market for one world: its own seed's draw, with the year's
     // Investment Loss taken off equities as the engine takes it (live years on
     // the new engine, when the instance is known).
     const marketFor = (i: number) => {
       const seed = i === 0 ? instanceSeed : worldInstance({ seed: instanceSeed } as GameInstance, i).seed;
-      const effectiveSeed = attempt === 0 ? seed : (seed + attempt * 997) >>> 0;
-      const drawn = simulateMarketReturns(deriveSubRng(effectiveSeed, r.yearNumber, 'invest'));
+      const drawn = simulateMarketReturns(deriveSubRng(seed, r.yearNumber, 'invest'));
       return market && isLiveYear && newLossEngineRuns()
         ? applyMarketShock(drawn, resolveShockYear(worldInstance(market.instance, i), market.timing, r.yearNumber).marketShock)
         : drawn;

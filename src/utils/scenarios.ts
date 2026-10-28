@@ -16,8 +16,8 @@
 // pick among them; the session's handler refuses any other seed.
 //
 // ⚠ A HARNESS'S BARE ID ("BUORD", "MAMC6EA4") IS NOT A SCENARIO. It plays its
-// own id as its seed; the engine still accepts it so the gates keep their
-// fixtures, and it plays the scenario its seed falls on (scenarioOfId).
+// own id as its seed and carries no scenario number — nothing maps it onto one
+// of the twenty (the fallback that did, scenarioOfId, is retired).
 // ============================================================================
 import { SCENARIO_COUNT, SCENARIO_SEEDS } from '../data/pricingParameters';
 import { ROOM_SEEDS } from '../session/contract';
@@ -43,11 +43,3 @@ export function gameIdentity(id: string): { gameId: string; seed: number; scenar
   const gameId = String(SCENARIO_SEEDS[scenario]);
   return { gameId, seed: seedFromInstanceId(gameId), scenario };
 }
-
-/** The scenario a game plays: its id's number, or for a harness's bare id the one its seed falls on. */
-export const scenarioOfId = (instanceId: string, seed: number): number =>
-  isScenarioId(instanceId) ? Number(instanceId) : (seed % SCENARIO_COUNT) + 1;
-
-/** The scenario an instance plays. Every instance carries it from generateGameInstance. */
-export const scenarioOf = (instance: { scenario?: number; instanceId: string; seed: number; marketSeed?: number }): number =>
-  instance.scenario ?? scenarioOfId(instance.instanceId, instance.marketSeed ?? instance.seed);
