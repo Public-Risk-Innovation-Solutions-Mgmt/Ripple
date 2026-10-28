@@ -1457,7 +1457,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // (36) and investmentReturnRate (22) move by an ulp — a premium-weighted share
 // and an income/assets ratio on the moved figures. NO LOSS, CLAIM, RESERVE OR
 // PURE PREMIUM FIELD MOVED, and no field was added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v89.json');
+// v90: THE FIXED-SEED SCENARIOS (wip/fixed-seed-scenarios), on multiplayer
+// 985f365. The control ran first: 985f365 reproduces v89 here. Each commit
+// against the one before, each captured in its own worktree:
+//   4effbc3  each scenario plays a fixed seed — moves nothing: this harness's
+//            games are bare ids (MAMC6EA4, 6KA6WGLJ, ZZTEST99), not scenarios.
+//   12e7c54  every run-time fitting removed — 19,963 of 39,600 across 76
+//            fields on all 24 instance-configurations, Y1 to Y5. A bare id used
+//            to fall on scenario seed % 20 + 1 (the retired fallback) and play
+//            that scenario's scaled pre-game at a solved margin; it now plays
+//            its own seed at true cost with the prior board at Expected and
+//            opens where that history ends. So the pre-game's losses, the
+//            opening balance sheet and everything priced or earned on them
+//            move: first instance's WC year-1 rate $3.6530 -> $3.6342, pool
+//            ending surplus $45.20M -> $34.48M, WC prior-year development
+//            -$1.473M -> -$1.466M. 69 fields do not move (counts, exposure,
+//            membership, the cover's terms). No field added or removed.
+//   854ed47, 083e5c0 (gates, save key) — nothing.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v90.json');
 
 function seedOf(id: string) {
   let h = 5381;

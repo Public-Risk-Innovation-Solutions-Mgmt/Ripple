@@ -19,7 +19,9 @@ export default function LoanPromptModal({ offers, onResolve }: LoanPromptModalPr
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full overflow-hidden">
+      {/* ⚠ SCROLLS WHEN TALLER THAN THE WINDOW: with two lines short the prompt
+          outgrew a 720px window and Confirm & Continue could not be reached. */}
+      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-full overflow-y-auto">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2 bg-amber-50">
           <AlertTriangle size={18} className="text-amber-600" />
           <h3 className="font-bold text-gray-900">Line Surplus Deficit</h3>

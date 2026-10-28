@@ -157,7 +157,10 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
               // development. The button does not say so: players are never told
               // about the worlds.
               const src = claimsWorld ?? { lockedResults, poolState };
-              const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instanceId);
+              // The closure draws key on the INSTANCE's id, as the engine's do
+              // (a scenario's is its fixed seed); the file name keeps the
+              // scenario number the player chose.
+              const wb = buildClaimsWorkbook(src.lockedResults, priorHistory, instance, activeLines, src.poolState, instance.instanceId);
               XLSX.writeFile(wb, claimsExportFilename);
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"

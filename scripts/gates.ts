@@ -206,9 +206,14 @@ const FAST: string[] = [
   'exposure-scale-check',            //   4s   one exposure multiplier per line on the whole market, a 30% book, and
                                      //         about $30M of year-1 premium at Expected; three controls
   'scenarios-check',                 //   5s   the twenty scenarios: setup offers 1-20, the handler refuses others, one
-                                     //         seed solo and hosted, the ratio table, every opening at year-1 premium /
-                                     //         its ratio from the starting capital, the pre-game's drawn experience and
-                                     //         return on its own streams; ten controls
+                                     //         fixed seed solo and hosted, the design targets, every opening the
+                                     //         seed's from the starting capital at Expected, the pre-game's experience
+                                     //         at true cost and return on its own streams; seventeen controls
+  'fixed-seed-scenarios-check',      //   8s   each scenario plays its fixed seed in every mode, nothing fits the
+                                     //         opening (no solve, floor, guardrail, scaling, re-draw or fallback), and
+                                     //         the opening is identical run to run and across modes; six controls
+  'scenario-opening-drift-check',    //   2s   each scenario's opening per line against its record; REPORTS any move,
+                                     //         never re-picks or adjusts; two controls
   'funding-table-check',             //  38s   the funding tables on the new engine: each stop covers its share out of
                                      //         sample, required capital reads the same table, the reinsurance load
                                      //         and the pre-game cushion read none; four controls
