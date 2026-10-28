@@ -185,14 +185,15 @@ function gradePriced(games: Game[], toCome: ToCome, tag: string) {
 // ---------------------------------------------------------------- 4
 // Admin's share, written out from the brief rather than read from the parameter.
 const BRIEFED_ADMIN: Record<CoverageLine, number> = { WC: 0.2, GL: 0.2, Property: 0.2 };
-// ⚠ RESTATED AT wip/risk-control: risk control left the divisor — it multiplies
-// the rate before reinsurance by (1 + the slider) instead (RISK_CONTROL_CHARGE;
-// risk-control-check holds that). The divisor is 1 - admin's share alone.
-function gradeContingency(divisor: (line: CoverageLine) => number, tag: string) {
+// ⚠ RESTATED TWICE: at wip/risk-control risk control left the divisor for a
+// multiplier on the rate, and at wip/risk-control-divisor it came back
+// (RISK_CONTROL_CHARGE; risk-control-check holds the charge). The divisor is 1 -
+// risk control - admin's share, nothing else.
+function gradeContingency(divisor: (rc: number, line: CoverageLine) => number, tag: string) {
   let worst = 0;
-  for (const l of LINES) worst = Math.max(worst, Math.abs(divisor(l) - (1 - BRIEFED_ADMIN[l])));
+  for (const l of LINES) for (const rc of [0, 0.02, 0.05]) worst = Math.max(worst, Math.abs(divisor(rc, l) - (1 - rc - BRIEFED_ADMIN[l])));
   check(worst < 1e-15,
-    `${tag}4. no profit and contingency: the divisor is 1 - admin's share of premium (20% on every line), nothing else`,
+    `${tag}4. no profit and contingency: the divisor is 1 - risk control - admin's share of premium (20% on every line), nothing else`,
     `${LINES.map(l => `${l} admin ${(ADMIN_SHARE_OF_PREMIUM[l] * 100).toFixed(1)}%`).join(', ')}; worst ${worst.toExponential(2)}`);
 }
 
@@ -264,7 +265,7 @@ controlFails('GL priced for 2 years', () => gradePriced(games, (l, age) => {
   for (let j = Math.max(1, age); j <= (l === 'GL' ? 2 : RESERVE_INFLATION_PRICED_YEARS[l]); j++) f *= 1 + rate[l] * unpaidShare(LINE_PAYOUT_PATTERN[l], j);
   return f;
 }, ''), '3.');
-controlFails('WC\'s old 2% profit and contingency left in the divisor', () => gradeContingency(l => 1 - BRIEFED_ADMIN[l] - (l === 'WC' ? 0.02 : 0), ''), '4.');
+controlFails('WC\'s old 2% profit and contingency left in the divisor', () => gradeContingency((rc, l) => 1 - rc - BRIEFED_ADMIN[l] - (l === 'WC' ? 0.02 : 0), ''), '4.');
 // 0's control: the dormancy graded while the switch is on, on the games it played.
 controlFails('reserve inflation switched on, booked and priced', () => gradeDormancy(games, ''), '0.');
 // And the booking alone: the switch read off and the rates 0, but the games

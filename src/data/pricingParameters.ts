@@ -524,8 +524,9 @@ export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property
  * on every book, and the permissible loss ratio is 1 - this (80%). What goes to
  * losses — the pure premium x CLF — is unchanged by it: admin is a pass-through
  * on top, and the cover's price is added after the divisor, never loaded by it.
- * Risk control is NOT in the divisor: the rate before reinsurance is multiplied
- * by (1 + the slider), and admin is not taken on that charge (RISK_CONTROL_CHARGE).
+ * Risk control is in the divisor beside it: 1 - this - the line's Risk Control
+ * slider (RISK_CONTROL_CHARGE), so admin and risk control are each exactly
+ * their share of the rate before reinsurance.
  *
  * ⚠ WHY A SHARE OF PREMIUM (wip/pricing-rework). It replaced a fixed amount per
  * line plus a per-exposure rate, both trended 3% a year from a 2027 base, whose
@@ -1082,12 +1083,26 @@ export const RISK_CONTROL = { enabled: false };
  *   DECISION  each line, each year: 0% to 5% in 1% steps, default 0%
  *             (RISK_CONTROL_INCENTIVE_RANGE; the slider is SLIDER_RANGES
  *             .riskControlIncentivePct). Single player, Test player and hosted.
- *   CHARGE    IN THE RATE: rate = (pure premium x CLF / (1 - admin share)) x
- *             (1 + slider) + reinsurance (linePricing.quoteNewRateStack). So at
- *             2% the rate is 2% higher, before reinsurance, than without it.
- *             Admin is NOT taken on the charge — it is a pass-through, like
- *             reinsurance. Its own "Risk Control" row in the rate build on the
- *             Decisions panel, the Rate Indication and the Model tab.
+ *   CHARGE    IN THE RATE, IN THE DIVISOR LIKE ADMIN: rate = pure premium x
+ *             CLF / (1 - admin share - slider) + reinsurance
+ *             (linePricing.quoteNewRateStack, expenseDivisor). The charge
+ *             collected is exactly the slider's share of the rate before
+ *             reinsurance, and admin exactly its 20%; at 2% the expense ratio
+ *             is 22% and the permissible loss ratio 78%. Its own "Risk Control"
+ *             row in the rate build, and the expense ratio block (Admin, Risk
+ *             control, Total expense ratio, Permissible loss ratio) on the
+ *             Decisions panel, the Rate Indication, the Model tab and the Year
+ *             Walkthrough, from the line's current choice.
+ *
+ *             ⚠ THE DIVISOR, NOT THE MULTIPLIER (wip/risk-control-divisor, the
+ *             user's change). wip/risk-control charged (pure premium x CLF / (1 -
+ *             admin)) x (1 + slider), so admin was not taken on the charge and
+ *             the charge was the slider's share of the rate before risk control.
+ *             In the divisor, admin's 20% is of the whole rate before
+ *             reinsurance, risk control included: at 2% the rate before
+ *             reinsurance is pure premium x CLF / 0.78 (x1.2821) against / 0.80 x
+ *             1.02 (x1.2750), so admin collected is about 2.6% more, and the
+ *             charge 0.0256 against 0.0250 of the pure premium x CLF.
  *   COST      the charge, booked as Other Admin Expense (riskControlInvestment),
  *             so the charge in and the cost out match every year.
  *   EFFECT    cuts THIS program year's NORMAL losses only — never a shock's
@@ -1107,7 +1122,7 @@ export const RISK_CONTROL = { enabled: false };
  * ⚠ THE PRE-GAME PLAYS AT 0%: its decisions carry no slider, so its history,
  * the openings and every scenario's record are untouched.
  */
-export const RISK_CONTROL_CHARGE = { chargedOn: 'pure premium x CLF / (1 - admin share)', adminOnCharge: false } as const;
+export const RISK_CONTROL_CHARGE = { chargedOn: 'pure premium x CLF / (1 - admin share - slider)', inDivisor: true } as const;
 
 /**
  * THE CUT — WHAT A YEAR OF RISK CONTROL TAKES OFF NORMAL LOSSES.
@@ -2536,14 +2551,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: `${RISK_CONTROL_INCENTIVE_RANGE.min} to ${RISK_CONTROL_INCENTIVE_RANGE.max}, step ${RISK_CONTROL_INCENTIVE_RANGE.step}, `
           + `default ${RISK_CONTROL_INCENTIVE_RANGE.default}`,
         unit: 'share of the rate before reinsurance',
-        what: 'The Risk Control slider, per line per year. The rate is (pure premium x CLF / (1 - admin share)) x '
-          + '(1 + this) + reinsurance; the charge is booked as Other Admin Expense, so the charge in and the cost out '
-          + 'match every year.',
+        what: 'The Risk Control slider, per line per year. In the divisor like admin: the rate is pure premium x CLF '
+          + '/ (1 - admin share - this) + reinsurance, so the charge is exactly this share of the rate before '
+          + 'reinsurance; it is booked as Other Admin Expense, so the charge in and the cost out match every year.',
         basis: 'CHOSEN',
         note: '5% is the R model\'s top; 1% steps keep it a handful of clear settings; 0% by default, so a player who '
-          + 'never touches it plays the game as it was. Admin is not taken on the charge — a pass-through, like '
-          + 'reinsurance. Charged in the rate because, booked without it (Phase 1), the pool ended year 5 $2.4M (2%) '
-          + 'and $5.9M (5%) lower per game: experience passed the saving back as lower rates while the pool kept paying.',
+          + 'never touches it plays the game as it was. In the divisor (not a multiplier on the rate) so the screens\' '
+          + 'expense ratio is admin + risk control and the permissible loss ratio 1 - that. Charged in the rate '
+          + 'because, booked without it (Phase 1), the pool ended year 5 $2.4M (2%) and $5.9M (5%) lower per game: '
+          + 'experience passed the saving back as lower rates while the pool kept paying.',
       }],
       ['Risk control cut', {
         value: `mean m, SD ${RISK_CONTROL_CUT.sdOfMean} m, floored at ${RISK_CONTROL_CUT.floor}`,

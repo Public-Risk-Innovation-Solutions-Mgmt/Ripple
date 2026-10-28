@@ -615,12 +615,20 @@ function NewRatePanel({ n, prior }: {
     [`+ Admin (${(n.adminShare * 100).toFixed(0)}% of premium)`, 'admin', c2(ind.admin), c2(yours.admin)],
     ['+ Risk Control', 'risk-control', c2(ind.riskControl), c2(yours.riskControl)],
   ];
-  // The permissible loss ratio: the pure premium's share of the rate before
-  // reinsurance, (1 - admin's share) / (1 + risk control) — risk control rides
-  // on top of the rate, so it shares the rate with the losses and admin. The
-  // same in both columns: both carry the same admin share and slider.
-  const plrIndicated = (1 - n.adminShare) / (1 + n.riskControlPct);
+  // THE EXPENSE RATIO (wip/risk-control-divisor): admin's share and the line's
+  // current Risk Control choice, both in the divisor, so the pure premium's
+  // share of the rate before reinsurance — the permissible loss ratio — is 1 -
+  // their total. The same in both columns: both carry the same admin share and
+  // slider.
+  const expenseTotal = n.adminShare + n.riskControlPct;
+  const plrIndicated = 1 - expenseTotal;
   const plrYours = plrIndicated;
+  const p1 = (v: number) => `${(v * 100).toFixed(1)}%`;
+  const expenseRows: Array<[string, string, number]> = [
+    ['Admin', 'exp-admin', n.adminShare],
+    ['Risk control', 'exp-risk-control', n.riskControlPct],
+    ['Total expense ratio', 'exp-total', expenseTotal],
+  ];
 
   return (
     <div data-testid="new-rate-panel" className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
@@ -651,10 +659,17 @@ function NewRatePanel({ n, prior }: {
             {/* data-value: the full figure, for the rate-indication driver; the text is unchanged. */}
             <td data-testid="new-rate-final" data-value={n.finalRatePer100} className="py-1 text-right tabular-nums">{c2(yours.rate)}</td>
           </tr>
+          {expenseRows.map(([label, id, v]) => (
+            <tr key={id} className={`border-t ${id === 'exp-total' ? 'border-gray-300 font-medium' : 'border-gray-200/70'}`}>
+              <td className="py-1 text-gray-600">{label}</td>
+              <td data-testid={`new-rate-indicated-${id}`} data-value={v} className="py-1 text-right tabular-nums">{p1(v)}</td>
+              <td data-testid={`new-rate-yours-${id}`} data-value={v} className="py-1 text-right tabular-nums">{p1(v)}</td>
+            </tr>
+          ))}
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">Permissible loss ratio</td>
-            <td data-testid="new-rate-indicated-plr" data-value={plrIndicated} className="py-1 text-right tabular-nums">{(plrIndicated * 100).toFixed(0)}%</td>
-            <td data-testid="new-rate-yours-plr" data-value={plrYours} className="py-1 text-right tabular-nums">{(plrYours * 100).toFixed(0)}%</td>
+            <td data-testid="new-rate-indicated-plr" data-value={plrIndicated} className="py-1 text-right tabular-nums">{p1(plrIndicated)}</td>
+            <td data-testid="new-rate-yours-plr" data-value={plrYours} className="py-1 text-right tabular-nums">{p1(plrYours)}</td>
           </tr>
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">vs last year</td>
@@ -984,7 +999,7 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
   return (
     <div className="space-y-3">
       {/* The program is the label; the value is the slider's share of the rate
-          before reinsurance — the charge rides on top of it (RISK_CONTROL_CHARGE). */}
+          before reinsurance — in the divisor beside admin (RISK_CONTROL_CHARGE). */}
       <SliderInput
         label={RISK_CONTROL_PROGRAM_NAME[line]}
         value={value}
@@ -997,7 +1012,7 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
         rightLabel={`${Number((r.max * 100).toFixed(1))}% of the rate`}
         valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
         disabled={disabled}
-        helpText={`Adds this share to ${lineDisplayName(line)}'s rate before reinsurance, spent on ${RISK_CONTROL_PROGRAM_NAME[line]}. `
+        helpText={`This share of ${lineDisplayName(line)}'s rate before reinsurance, beside admin's, is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}. `
           + 'It cuts this year\'s normal losses — never shocks, large claims or older years — by an amount that varies '
           + 'from year to year; on average the losses and loss expense saved equal the cost.'}
       />

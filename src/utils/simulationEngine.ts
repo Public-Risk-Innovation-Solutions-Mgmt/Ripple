@@ -1655,9 +1655,9 @@ export function processLineYear(
       ? Math.max(0, fullTowerQuote.premium - towerQuote.premium)
       : 0;
 
-  // THE RISK CONTROL CHARGE: the slider's share of the rate before reinsurance,
-  // on the exposure charged (quoteNewRateStack.riskControlPer100) — admin is not
-  // taken on it. Booked, the same dollars, as riskControlInvestment below, so
+  // THE RISK CONTROL CHARGE: the slider's share of the rate before reinsurance —
+  // it is in the divisor beside admin — on the exposure charged
+  // (quoteNewRateStack.riskControlPer100). Booked, the same dollars, as riskControlInvestment below, so
   // the charge in and the cost out match. 0 at 0%, and on the old stack.
   const riskControlCharge = billedStack !== null
     ? activeExposure * billedStack.riskControlPer100 * 10_000

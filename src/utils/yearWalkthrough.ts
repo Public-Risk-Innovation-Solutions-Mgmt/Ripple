@@ -100,7 +100,9 @@ import type { TeamMarketShareOfYear } from '../session/contract';
 // ---------------------------------------------------------------------------
 
 /** How a figure is shown and hashed: dollars to the cent, everything else to ten significant figures. */
-export type WalkKind = 'usd' | 'pct' | 'factor' | 'per100' | 'exposure' | 'count' | 'text';
+// 'pct1': a percentage to one decimal ("20.0%") — the expense ratio block, as the
+// Rate Indication, the Decisions panel and the Model tab show it.
+export type WalkKind = 'usd' | 'pct' | 'pct1' | 'factor' | 'per100' | 'exposure' | 'count' | 'text';
 
 export interface WalkRow {
   label: string;
@@ -479,10 +481,16 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'Expected ceded per $100 (the cover)', value: quote.expectedCededPer100, kind: 'per100' },
       { label: 'Retained pure premium per $100', value: quote.retainedPurePremiumPer100, kind: 'per100' },
       { label: 'Funding CLF', value: quote.clf, kind: 'factor' },
-      { label: 'Admin share of the rate', value: quote.adminShare, kind: 'pct' },
-      { label: 'Divisor (1 − admin)', value: quote.divisor, kind: 'factor' },
-      { label: 'Rate before reinsurance and risk control per $100', value: loaded, kind: 'per100' },
-      { label: 'Risk control charge per $100 (that rate × the slider)', value: quote.riskControlPer100, kind: 'per100' },
+      // The expense ratio block (wip/risk-control-divisor): admin and the year's
+      // Risk Control choice, both in the divisor, which is the permissible loss ratio.
+      { label: 'Admin', value: quote.adminShare, kind: 'pct1' },
+      { label: 'Risk control', value: slider, kind: 'pct1' },
+      { label: 'Total expense ratio', value: quote.adminShare + slider, kind: 'pct1' },
+      { label: 'Permissible loss ratio', value: 1 - (quote.adminShare + slider), kind: 'pct1' },
+      { label: 'Divisor (1 − admin − risk control)', value: quote.divisor, kind: 'factor' },
+      { label: 'Rate before reinsurance per $100', value: loaded, kind: 'per100' },
+      { label: 'Admin charge per $100 (that rate × admin)', value: quote.adminRatePer100, kind: 'per100' },
+      { label: 'Risk control charge per $100 (that rate × risk control)', value: quote.riskControlPer100, kind: 'per100' },
       { label: 'Reinsurance price per $100', value: quote.reinsRatePer100, kind: 'per100' },
       { label: 'Rate per $100 (member charge rate)', value: quote.finalRatePer100, kind: 'per100' },
       { label: "Last year's rate per $100", value: p ? (p.finalRatePer100 ?? p.ratePer100) : null, kind: 'per100' },
@@ -494,14 +502,15 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
         decisions: [
           { name: 'Funding', value: `${fundingText(d)} → CLF ${fac(clf)}` },
           { name: 'Reinsurance cover', value: d.reinsuranceOption },
-          { name: 'Risk control', value: `${pct(slider, 0)} → × ${fac(1 + slider)}` },
+          { name: 'Risk control', value: `${pct(slider, 1)} → divisor ${quote.divisor.toFixed(2)}` },
         ],
         through: ["earlier years' experience (the pricing window)"],
         working: [
           `Pure premium = average trended loss cost ${per100(avg ?? 0)} + catastrophe ${per100(pp.catastropheLoadPer100)} + ALAE ${per100(pp.alaePer100)} + ULAE ${per100(pp.ulaePer100)} = ${per100(pp.purePremiumPer100)}`,
           `Cover ${d.reinsuranceOption} → expected ceded ${per100(quote.expectedCededPer100)} → retained ${per100(pp.purePremiumPer100)} − ${per100(quote.expectedCededPer100)} = ${per100(quote.retainedPurePremiumPer100)}`,
+          `Expense ratio = admin ${pct(quote.adminShare, 1)} + risk control ${pct(slider, 1)} = ${pct(quote.adminShare + slider, 1)} → divisor 1 − ${pct(quote.adminShare + slider, 1)} = ${quote.divisor.toFixed(2)}`,
           `Funding ${fundingText(d)} → CLF ${fac(quote.clf)} → rate = ${per100(quote.retainedPurePremiumPer100)} × ${fac(quote.clf)} ÷ ${quote.divisor.toFixed(2)} = ${per100(loaded)}`,
-          `Risk control ${pct(slider, 0)} → + ${per100(loaded)} × ${pct(slider, 0)} = ${per100(quote.riskControlPer100)} (admin is not taken on it)`,
+          `Of it: admin ${per100(quote.adminRatePer100)}, risk control ${per100(loaded)} × ${pct(slider, 1)} = ${per100(quote.riskControlPer100)}`,
           `+ reinsurance ${per100(quote.reinsRatePer100)} = ${per100(quote.finalRatePer100)} per $100`,
         ],
       }),
@@ -837,7 +846,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
           decisions: [{ name: 'Risk control', value: pct(slider, 0) }],
           through: [titleOf('pricing'), titleOf('premium')],
           working: [
-            `Cost = the charge = rate before reinsurance and risk control × ${pct(slider, 0)} × exposure = ${usd(a.riskControlInvestment)}`,
+            `Cost = the charge = rate before reinsurance × ${pct(slider, 1)} × exposure = ${usd(a.riskControlInvestment)}`,
             `m = cost ÷ (expected normal losses × (1 + expected ALAE + ULAE)) = ${pct(a.riskControlMeanCut ?? 0)} — on average the losses and LAE saved equal the cost`,
             `Cut = max(0, m × (1 + ${RISK_CONTROL_CUT.sdOfMean} × z ${fac(z)})) = ${pct(a.riskControlCut ?? 0)}, off this year's normal losses only`,
             `Saved = normal losses × cut = ${usd(lossSaved)}, + LAE on them ${usd(laeSaved)} = ${usd(lossSaved + laeSaved)}`,

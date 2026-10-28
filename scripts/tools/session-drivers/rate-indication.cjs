@@ -26,12 +26,17 @@
 //                     the projection / the permissible loss ratio; and the
 //                     indicated rate change is the rate at Expected / the
 //                     Current rate - 1, labelled against the current year's rate
-//   section 2         no investment income line; admin 20% and the permissible
-//                     loss ratio 80% on every line and every year, with no
-//                     profit & contingency, fixed or per-exposure admin row
-//                     (restated at wip/pricing-rework from the line's
-//                     contingency, WC 2%, GL 0%, Property 0%); the
-//                     total expense ratio = 1 - the permissible loss ratio
+//   section 2         no investment income line; admin 20% on every line and
+//                     every year, risk control the year's choice (restated at
+//                     wip/risk-control-divisor: year 2 is played at 2% on every
+//                     line, and the coming year carries that 2% forward), the
+//                     total expense ratio admin + risk control and the
+//                     permissible loss ratio 1 - that (80% at 0%, 78% at 2%),
+//                     with no profit & contingency, fixed or per-exposure admin
+//                     row (restated at wip/pricing-rework from the line's
+//                     contingency, WC 2%, GL 0%, Property 0%). THE CONTROL: the
+//                     multiplier's permissible loss ratio, (1 - admin) / (1 +
+//                     risk control), is refused
 //   the years named   section 3 reads "<current> Rate" and "Indicated <priced>
 //                     Rate at Expected / at 70% CLF …", the current year being
 //                     the one before the priced; and for the coming year the
@@ -48,7 +53,8 @@
 //                     schedules no shock, so its page shows none.
 //
 // to one part in a billion. The years are played on different choices: year 1
-// at Expected under the line's second cover, year 2 at 80% under None.
+// at Expected under the line's second cover, year 2 at 80% under None with risk
+// control at 2% on every line.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/rate-indication.cjs
@@ -58,6 +64,11 @@ const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['P
 const LEVELS = [70, 80, 90];
 // Admin's share of premium by line (pricingParameters' ADMIN_SHARE_OF_PREMIUM), written out.
 const ADMIN = { WC: 0.2, GL: 0.2, Property: 0.2 };
+// Each line's Risk Control slider, by its program's label (DecisionsPage).
+const RC_LABEL = { WC: 'Safety & Return-to-Work', GL: 'Training and Analytics', Property: 'Mitigation' };
+// The expense block with risk control in the divisor beside admin.
+const expenseOk = (l, x, rc) => near(x.admin, ADMIN[l]) && near(x.rc, rc) && near(x.totalExpense, ADMIN[l] + rc)
+  && near(x.permissible, 1 - ADMIN[l] - rc) && near(x.totalExpense, 1 - x.permissible);
 const near = (a, b) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
 
 let passed = 0, failed = 0;
@@ -115,6 +126,7 @@ function screen(page, mode) {
         change: await value(`[data-testid="ri-${l}-change"]`),
         credit: await page.locator(`[data-testid="ri-${l}-credit"]`).count(),
         admin: await value(`[data-testid="ri-${l}-admin"]`),
+        rc: await value(`[data-testid="ri-${l}-risk-control"]`),
         retired: await page.locator(`[data-testid="ri-${l}-contingency"], [data-testid="ri-${l}-fixed-admin"], [data-testid="ri-${l}-exposure-admin"]`).count(),
         totalExpense: await value(`[data-testid="ri-${l}-total-admin"]`),
         permissible: await value(`[data-testid="ri-${l}-permissible"]`),
@@ -164,7 +176,8 @@ function screen(page, mode) {
 
   // SECTION 1 of one indication: its labels follow the priced year, and its
   // figures chain to pricing's projected pure premium.
-  function sectionOne(ind, name) {
+  let controlled = false;
+  function sectionOne(ind, name, rc = 0) {
     const P = ind.calendar, level = P - 1;
     for (const [l] of LINES) {
       const x = ind[l];
@@ -175,10 +188,15 @@ function screen(page, mode) {
       ok(near(x.losses / (x.exposure * 10_000), x.pp) && near(x.pp * x.trend, x.projected),
         `${mode}, ${name}, ${P}, ${l}: losses / ${level} exposure = the pure premium at ${level}'s level, x one year's trend = the projection`,
         `${x.pp.toFixed(6)} x ${x.trend} = ${(x.pp * x.trend).toFixed(6)} vs ${x.projected.toFixed(6)}`);
-      ok(x.credit === 0 && near(x.expected, x.projected / x.permissible) && near(x.totalExpense, 1 - x.permissible)
-        && near(x.admin, ADMIN[l]) && near(x.permissible, 1 - ADMIN[l]) && x.retired === 0,
-        `${mode}, ${name}, ${P}, ${l}: the rate at Expected is the projected pure premium / the permissible loss ratio; admin 20%, permissible 80%, no contingency; no investment income line`,
-        `${x.expected.toFixed(6)} vs ${(x.projected / x.permissible).toFixed(6)}; admin ${(x.admin * 100).toFixed(3)}%, permissible ${(x.permissible * 100).toFixed(3)}%, total expense ${(x.totalExpense * 100).toFixed(3)}%, ${x.retired} retired rows`);
+      ok(x.credit === 0 && near(x.expected, x.projected / x.permissible) && expenseOk(l, x, rc) && x.retired === 0,
+        `${mode}, ${name}, ${P}, ${l}: the rate at Expected is the projected pure premium / the permissible loss ratio; admin 20%, risk control ${(rc * 100).toFixed(0)}% (the year's choice), total ${((ADMIN[l] + rc) * 100).toFixed(0)}%, permissible ${((1 - ADMIN[l] - rc) * 100).toFixed(0)}%; no contingency; no investment income line`,
+        `${x.expected.toFixed(6)} vs ${(x.projected / x.permissible).toFixed(6)}; admin ${(x.admin * 100).toFixed(3)}%, risk control ${(x.rc * 100).toFixed(3)}%, permissible ${(x.permissible * 100).toFixed(3)}%, total expense ${(x.totalExpense * 100).toFixed(3)}%, ${x.retired} retired rows`);
+      // THE CONTROL, once a year above 0% is read: the multiplier's permissible loss ratio is refused.
+      if (rc > 0 && !controlled) {
+        controlled = true;
+        ok(!expenseOk(l, { ...x, permissible: (1 - ADMIN[l]) / (1 + rc), totalExpense: 1 - (1 - ADMIN[l]) / (1 + rc) }, rc),
+          `${mode}, ${name}, ${P}, ${l}: control — the multiplier's permissible loss ratio, (1 - admin) / (1 + risk control), is refused`);
+      }
       ok(near(x.change, x.expected / x.current - 1),
         `${mode}, ${name}, ${P}, ${l}: the indicated rate change is the rate at Expected / the Current rate - 1`,
         `${(x.change * 100).toFixed(4)}%`);
@@ -232,10 +250,10 @@ function screen(page, mode) {
     }
   }
 
-  async function comingYear(name, programYear, shocksOn = true) {
+  async function comingYear(name, programYear, shocksOn = true, rc = 0) {
     const ind = await readIndication();
     likelihoods(ind, name, shocksOn, programYear === 2027);
-    sectionOne(ind, name);
+    sectionOne(ind, name, rc);
     sectionThree(ind, name);
     ok(ind.calendar === programYear, `${mode}, ${name}: the coming year is Program Year ${programYear}`, String(ind.calendar));
     const opts = await options();
@@ -267,8 +285,17 @@ function screen(page, mode) {
     }
   }
 
+  // A line's Risk Control slider to a whole percent.
+  async function setRiskControl(l, rc) {
+    const s = page.locator('div.flex.flex-col.gap-2', { has: page.locator('span', { hasText: new RegExp(`^${RC_LABEL[l]}$`) }) }).first().locator('input[type=range]');
+    await s.focus();
+    await page.keyboard.press('Home');
+    for (let i = 0; i < Math.round(rc * 100); i++) await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(300);
+  }
+
   // SET A YEAR'S CHOICES and record the rate the panel charges for them.
-  async function choose(level, coverIndex) {
+  async function choose(level, coverIndex, rc = 0) {
     await tab('Decisions');
     const charged = {};
     for (const [l, label] of LINES) {
@@ -278,7 +305,8 @@ function screen(page, mode) {
       await page.click(`[data-testid="reins-option-${l}-${cover}"]`);
       await page.waitForTimeout(300);
       await setLevel(level);
-      charged[l] = { level, cover, rate: await value('[data-testid="new-rate-final"]') };
+      await setRiskControl(l, rc);
+      charged[l] = { level, cover, rc, rate: await value('[data-testid="new-rate-final"]') };
     }
     return charged;
   }
@@ -292,7 +320,7 @@ function screen(page, mode) {
     const rows = [];
     for (let i = 0; i < played.length; i++) rows.push(await readIndication(i + 1));
     rows.push(await readIndication(played.length + 1));
-    for (let i = 0; i < played.length; i++) { sectionOne(rows[i], `${name}, played`); sectionThree(rows[i], `${name}, played`); }
+    for (let i = 0; i < played.length; i++) { sectionOne(rows[i], `${name}, played`, played[i].WC.rc); sectionThree(rows[i], `${name}, played`); }
     for (let i = 0; i < played.length; i++) {
       for (const [l] of LINES) {
         const c = played[i][l];
@@ -333,8 +361,8 @@ async function solo(browser) {
 
   await s.comingYear('before year 1', 2027);
   const played = [];
-  for (const [y, level, cover] of [[1, 'expected', 1], [2, 80, 0]]) {
-    played.push(await s.choose(level, cover));
+  for (const [y, level, cover, rc] of [[1, 'expected', 1, 0], [2, 80, 0, 0.02]]) {
+    played.push(await s.choose(level, cover, rc));
     await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForTimeout(2500);
     const decline = page.getByRole('button', { name: /Decline/i }).first();
@@ -344,7 +372,8 @@ async function solo(browser) {
     if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
     await page.waitForSelector(`text=Lock Program Year ${2027 + y}`, { timeout: 120000 });
   }
-  await s.comingYear('after two played years', 2029);
+  // Year 2's 2% carries forward to the coming year — the carry-forward of last year's choice.
+  await s.comingYear('after two played years', 2029, true, 0.02);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'solo: no page errors', errors[0] ?? '');
 }
@@ -375,15 +404,15 @@ async function hosted(browser) {
 
   await s.comingYear('before year 1', 2027, false);
   const played = [];
-  for (const [y, level, cover] of [[1, 'expected', 1], [2, 80, 0]]) {
-    played.push(await s.choose(level, cover));
+  for (const [y, level, cover, rc] of [[1, 'expected', 1, 0], [2, 80, 0, 0.02]]) {
+    played.push(await s.choose(level, cover, rc));
     await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');
     await page.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
     await page.waitForTimeout(1000);
   }
-  await s.comingYear('after two played years', 2029, false);
+  await s.comingYear('after two played years', 2029, false, 0.02);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'hosted: no page errors', errors[0] ?? '');
 }

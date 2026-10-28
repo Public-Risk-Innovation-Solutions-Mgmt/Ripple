@@ -21,7 +21,9 @@
 //    risk control on GL at 5% and has shocks in force (so the shock-free
 //    pricing ledger is in play): the risk control cut re-read is the cut
 //    booked, its cost is the charge booked and the premium's pieces add to the
-//    member charge; the
+//    member charge; the expense block's risk control is the year's choice, its
+//    total admin + risk control, and its permissible loss ratio x the rate
+//    before reinsurance the retained pure premium x CLF; the
 //    re-struck pure premium and rate are the row's; the book's movement gives
 //    the exposure billed; premium is rate x exposure; the re-read losses'
 //    gross is the row's; the year's own booking is the ledger's; development
@@ -196,6 +198,7 @@ function sectionOneDecision(): string[] {
 }
 
 // ---- 3. EVERY STAGE TIES TO THE ENGINE ---------------------------------------
+let multiplierPlr = false;
 const tGame = T;
 const fig = (w: YearWalkthrough, k: StageKey, label: string): number => {
   const v = w.stages.find(s => s.key === k)?.rows.find(r => r.label === label)?.value;
@@ -221,6 +224,16 @@ function sectionEngine(): string[] {
       // Risk control (wip/risk-control): the cut re-read is the cut booked, the
       // charge is the cost booked, and the premium's pieces add to the charge.
       tie('risk control cut', fig(w, 'losses', 'Risk control cut'), a.riskControlCut ?? 0, 1e-12);
+      // The expense ratio block (wip/risk-control-divisor): admin + the year's
+      // risk control choice is the total, and the permissible loss ratio is what
+      // the pure premium x CLF is of the rate before reinsurance.
+      const adminShare = fig(w, 'pricing', 'Admin'), rcShare = fig(w, 'pricing', 'Risk control');
+      tie('risk control share is the year\'s choice', rcShare, a.decisions.riskControlIncentivePct ?? 0, 1e-15);
+      tie('total expense ratio = admin + risk control', fig(w, 'pricing', 'Total expense ratio'), adminShare + rcShare, 1e-15);
+      const plr = multiplierPlr ? (1 - adminShare) / (1 + rcShare) : fig(w, 'pricing', 'Permissible loss ratio');
+      tie('permissible loss ratio x the rate before reinsurance = retained x CLF',
+        plr * fig(w, 'pricing', 'Rate before reinsurance per $100'),
+        fig(w, 'pricing', 'Retained pure premium per $100') * fig(w, 'pricing', 'Funding CLF'), 1e-9);
       tie('risk control cost', fig(w, 'riskControl', 'Cost — the charge, booked as Other Admin Expense'), a.riskControlInvestment);
       tie('premium pieces add to the member charge', fig(w, 'premium', 'Pool premium') + fig(w, 'premium', 'Admin charged')
         + fig(w, 'premium', 'Risk control charged') + fig(w, 'premium', 'Reinsurance price'), a.totalMemberCharge, 1);
@@ -356,6 +369,9 @@ await control('a recorded development figure tampered', () => {
 await control('a world\'s booked year factor tampered', () => {
   const r = T.worlds![7].lockedResults.find(x => x.yearNumber === YEARS)!.byLine.GL; const o = r.commonLossFactor;
   r.commonLossFactor = o + 1e-9; return () => { r.commonLossFactor = o; };
+}, sectionEngine);
+await control('the permissible loss ratio read as the multiplier\'s, (1 - admin) / (1 + risk control)', () => {
+  multiplierPlr = true; return () => { multiplierPlr = false; };
 }, sectionEngine);
 await control('the risk control cut booked tampered (wip/risk-control)', () => {
   const a = T.lockedResults.find(x => x.yearNumber === YEARS)!.byLine.GL; const o = a.riskControlCut!;
