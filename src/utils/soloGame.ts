@@ -44,7 +44,7 @@ export function openSoloInstance(
   const developmentLevels = settings.developmentLevels
     ?? (SOLO_ADVERSE_DEVELOPMENT.enabled ? drawDevelopmentLevels(gameId) : { ...NO_DEVELOPMENT });
   return {
-    setup: { ...settings, shockTiming: 'solo', developmentLevels },
+    setup: { ...settings, shockTiming: 'solo', developmentLevels, ...(test ? { testPlayer: true } : {}) },
     instance: scenarioInstance(settings.instanceId, schedule),
   };
 }

@@ -222,6 +222,7 @@ import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear } from 
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { buildResultsWorkbook } from '../../src/utils/resultsExport';
+import { walkthroughHeader, walkthroughSheetRows } from '../../src/utils/yearWalkthrough';
 import { buildAnnualStatementXlsx } from '../../src/utils/annualStatementExport';
 import ExcelJS from 'exceljs';
 
@@ -999,7 +1000,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // its pre-game runs at true cost with the prior board at Expected and opens
 // where that history ends — every file's figures follow. The gates and the
 // save key move none. No file added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v105.json');
+// v106: THE YEAR WALKTHROUGH SHEET. The Results workbook gains one sheet, last,
+// "Year Walkthrough" (utils/yearWalkthrough), built as single player builds it:
+// the version and no seed. The 24 Results keys move for that sheet alone — with
+// the guard's call passing no sheet, all 48 reproduce v105 byte for byte, so no
+// other sheet and no figure moved — and the 24 `stmt|...` keys do not move.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v106.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
@@ -1076,7 +1082,9 @@ for (const arm of ARMS) {
 for (const id of SEEDS) {
   for (const { lines, name } of CONFIGS) {
     const game = play(id, lines, 5, arm.decisions);
-    const wb = buildResultsWorkbook(game.lockedResults, lines, RESULT_METRICS);
+    // The Year Walkthrough sheet as single player's download carries it (v106).
+    const wb = buildResultsWorkbook(game.lockedResults, lines, RESULT_METRICS,
+      walkthroughSheetRows(game, walkthroughHeader(game.instance, false)));
     // ============================================================================
     // ⚠ TWO RENDERINGS, HASHED TOGETHER, AND THE SECOND ONE IS NEW.
     //

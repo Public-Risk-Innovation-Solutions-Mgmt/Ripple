@@ -620,6 +620,13 @@ export interface GameSetupSettings {
    */
   developmentLevels?: Partial<Record<CoverageLine, 'Low' | 'Mid' | 'High' | 'Off'>>;
   /**
+   * A TEST PLAYER GAME (the host's setup played solo). Read by the display
+   * alone — the Year Walkthrough shows the scenario's fixed seed in a Test
+   * player game and never in single player. Nothing in the engine reads it;
+   * absent in single player, a hosted team and every save written before it.
+   */
+  testPlayer?: boolean;
+  /**
    * WHO DECIDES WHEN SHOCKS FIRE UNDER THE NEW LOSS ENGINE. A session sets
    * 'host' — the room's schedule. A solo game sets 'solo' — the schedule it drew
    * once at its start (utils/soloGame). Either way the instance's

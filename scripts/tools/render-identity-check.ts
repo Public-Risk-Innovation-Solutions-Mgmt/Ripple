@@ -1522,21 +1522,18 @@ const BASELINE = process.env.RENDER_BASELINE
 // Expected. The gates and the save key move none. Searched: none of the
 // twenty fixed seeds appears in any screen's text; the header reads
 // "Scenario 7". No key added or removed.
-// v103: THE REINSURANCE LAYERS AND EVENT LIKELIHOODS (wip/reinsurance-layers),
-// on multiplayer 4226d2e. ⚠ v102 DOES NOT REPRODUCE IN THIS CONTAINER, the
-// environment split v102's own note records: 4226d2e, built in its own
-// worktree, moves 47 of 236 against it with no change to its code (Calculation
-// Audit 18, Financial Statements 14, Result Spreadsheet 8, Results 7). So the
-// reference is the control's own capture here. Against it, word-diffed
-// (RENDER_TEXT_DIR both sides), 26 move: every Decisions screen (16) and every
-// Rate Indication (10), the two that list the T covers. On each, the four new
-// layers appear — 19, 29 and 39 xs 1, 28 xs 2 — and every cover is priced by
-// the workbook's method on the game's own claims (WC 9 xs 1 $390,000 ->
-// $461,250, 38 xs 2 $590,000 -> $724,500; the Rate Indication's per-$100 cover
-// rates likewise); and on the Rate Indication the "Event Likelihoods" block
-// beside each line's cover prices — its heading, note, and 1 in 10 to 1 in 200
-// years, "—" where the line's T events are rarer. Nothing else moves: the
-// harness holds None, so no other figure changes.
+// v103: THE YEAR WALKTHROUGH on the Calculation Audit (utils/yearWalkthrough).
+// ⚠ v102 DOES NOT REPRODUCE IN THIS CONTAINER, the same split again:
+// multiplayer 4226d2e, built in its own worktree, moves 47 of 236 against it
+// with no change to its code (Calculation Audit 18, Financial Statements 14,
+// Result Spreadsheet 8, Results 7), the same on a second serial run. So the
+// change was measured against the control's own capture here: it moves 26 of
+// 236 — every Calculation Audit screen, all five configurations, both
+// year-points and every view, and nothing else — as the panel sits under the
+// page's header (at y0, "Complete a year to walk through it."; at y2, the
+// version, the scenario, the codes, the draws and the eleven steps). Single
+// player shows no seed: scenario 7's fixed seed appears in no screen's text.
+// No key added or removed. v103 is captured here.
   ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v103.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
