@@ -108,7 +108,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
             {isStarted ? (
               <span className="text-slate-300 text-sm truncate min-w-0">{poolName}</span>
             ) : (
-              <span className="text-slate-400 text-sm truncate min-w-0">Every decision creates impact.</span>
+              <span className="text-slate-600 text-sm truncate min-w-0">Every decision creates impact.</span>
             )}
           </div>
 
@@ -198,7 +198,7 @@ function Chip({
 }) {
   return (
     <div className="bg-slate-800 rounded-lg px-3 py-1.5 flex flex-col items-center min-w-[80px]">
-      <span className="text-slate-400 text-xs">{label}</span>
+      <span className="text-slate-600 text-xs">{label}</span>
       <span data-testid={testId} className={`text-sm font-bold min-h-[1.25rem] ${valueClass} ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );

@@ -51,7 +51,7 @@ export default function TabNav<T extends string>({ tabs, activeTab, onSelect, st
                     : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50'
                 }`}
             >
-              <span className={activeTab === tab.id ? 'text-blue-600' : 'text-gray-400'}>{tab.icon}</span>
+              <span className={activeTab === tab.id ? 'text-blue-600' : 'text-gray-600'}>{tab.icon}</span>
               {tab.label}
             </button>
           ))}

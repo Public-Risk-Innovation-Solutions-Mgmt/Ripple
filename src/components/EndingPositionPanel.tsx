@@ -38,7 +38,7 @@ export default function EndingPositionPanel({ rows, complete }: Props) {
         <h3 className="font-bold text-gray-900">
           {complete ? 'Ending Position' : 'Position to Date'}
         </h3>
-        <span className="text-xs text-gray-400 font-normal">
+        <span className="text-xs text-gray-600 font-normal">
           — surplus against what is still owed, every line
         </span>
       </div>

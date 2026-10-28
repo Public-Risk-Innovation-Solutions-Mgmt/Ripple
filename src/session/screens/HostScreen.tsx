@@ -70,17 +70,17 @@ export default function HostScreen({ code }: Props) {
       {activeTab === 'teams' && (
         room
           ? <HostTeamsTab room={room} />
-          : <p className="text-sm text-slate-400">Loading room…</p>
+          : <p className="text-sm text-slate-600">Loading room…</p>
       )}
       {activeTab === 'charts' && (
         room
           ? <HostChartsTab room={room} />
-          : <p className="text-sm text-slate-400">Loading room…</p>
+          : <p className="text-sm text-slate-600">Loading room…</p>
       )}
       {activeTab === 'decisions' && (
         room
           ? <HostDecisionsTab room={room} />
-          : <p className="text-sm text-slate-400">Loading room…</p>
+          : <p className="text-sm text-slate-600">Loading room…</p>
       )}
     </HostShell>
   );

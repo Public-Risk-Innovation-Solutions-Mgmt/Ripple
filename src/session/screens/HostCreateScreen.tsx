@@ -199,7 +199,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
               onChange={e => setEventName(e.target.value)}
               placeholder="e.g. PRISM Spring Workshop"
             />
-            <span className="mt-1 block text-xs text-slate-400">
+            <span className="mt-1 block text-xs text-slate-600">
               Required. This is how the event appears in the lobby and on every player&rsquo;s screen.
             </span>
           </label>}
@@ -213,7 +213,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
               onChange={e => setPoolName(e.target.value)}
               placeholder="e.g. Harbour Public Entity Risk Pool"
             />
-            <span className="mt-1 block text-xs text-slate-400">
+            <span className="mt-1 block text-xs text-slate-600">
               {soloTest
                 ? 'Required. The pool you run, as the welcome memo and your screens name it.'
                 : <>The pool every team runs, as the welcome memo and each team&rsquo;s screens name it. Left blank, the event name is used.</>}
@@ -241,7 +241,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 value={yearCount}
                 onChange={e => setYearCount(Number(e.target.value))}
               />
-              <span className={`mt-1 block text-xs ${soloTest && !soloYearsOk ? 'text-amber-700' : 'text-slate-400'}`}>
+              <span className={`mt-1 block text-xs ${soloTest && !soloYearsOk ? 'text-amber-700' : 'text-slate-600'}`}>
                 {soloTest ? `How many rounds the game will run: ${GAME_LENGTH_YEARS.min} to ${GAME_LENGTH_YEARS.max}.` : 'How many rounds the game will run.'}
               </span>
             </label>
@@ -253,7 +253,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 value={startingYear}
                 onChange={e => setStartingYear(Number(e.target.value))}
               />
-              <span className="mt-1 block text-xs text-slate-400">The year the teams price first; the game opens in the year before it.</span>
+              <span className="mt-1 block text-xs text-slate-600">The year the teams price first; the game opens in the year before it.</span>
             </label>
           </div>
 
@@ -271,7 +271,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
             {/* ⚠ SAID ON SCREEN BECAUSE A NUMBER FIELD LOOKS LIKE A LIMIT. It is
                 not one: the room does not turn anyone away, and the count exists
                 so the host knows when everybody has arrived. */}
-            <p className="mt-1.5 text-xs text-slate-400">
+            <p className="mt-1.5 text-xs text-slate-600">
               How many to expect, so you know when everyone has arrived. It does not limit who can join, and
               teams name themselves at join and play the coverage lines you pick below.
             </p>
@@ -284,7 +284,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 be each team's own choice at join, which made a session a table of
                 different games; the lines are a property of the EVENT, like the
                 seed and the year count. */}
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-slate-600">
               {soloTest ? 'The lines you play. At least one.' : 'Every team plays these lines. At least one.'}
             </p>
             <div className="mt-2 space-y-2">
@@ -314,7 +314,7 @@ export default function HostCreateScreen({ soloTest }: { soloTest?: SoloTestMode
                 );
               })}
             </div>
-            <p data-testid="dev-level-note" className="mt-2 text-xs text-slate-400">
+            <p data-testid="dev-level-note" className="mt-2 text-xs text-slate-600">
               Each played year every open prior year's reserve grows by a rate drawn in its line's range —
               Low {Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Low[1] * 100)}%,
               Mid {Math.round(ADVERSE_DEVELOPMENT_RANGE.Mid[0] * 100)}–{Math.round(ADVERSE_DEVELOPMENT_RANGE.Mid[1] * 100)}%,

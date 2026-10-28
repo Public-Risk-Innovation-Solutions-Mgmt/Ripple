@@ -68,7 +68,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
   return (
     <div>
       <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Shock schedule</span>
-      <p className="mt-1 text-xs text-slate-400">{note}</p>
+      <p className="mt-1 text-xs text-slate-600">{note}</p>
       <div className="mt-2 flex items-end gap-2">
         <label className="flex-1 block">
           <span className="block text-xs font-medium uppercase tracking-wide text-slate-500">Event</span>
@@ -112,7 +112,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
         </button>
       </div>
       {drawnFor && !drawStale && (
-        <p data-testid="shock-drawn-note" className="mt-1.5 text-xs text-slate-400">
+        <p data-testid="shock-drawn-note" className="mt-1.5 text-xs text-slate-600">
           Drawn from seed <span className="font-mono">{drawnFor.seed}</span> over {drawnFor.yearCount} years.
         </p>
       )}
@@ -132,7 +132,7 @@ export function ShockScheduleFields({ seed, ensureSeed, yearCount, shocks, setSh
               <button
                 type="button"
                 onClick={() => { setShocks(prev => prev.filter((_, j) => j !== i)); setDrawnFor(null); }}
-                className="text-slate-400 hover:text-red-600"
+                className="text-slate-600 hover:text-red-600"
                 aria-label={`Remove shock ${i + 1}`}
               >
                 <Trash2 size={13} />

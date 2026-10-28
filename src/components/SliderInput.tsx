@@ -42,7 +42,7 @@ export default function SliderInput({
             <div className="relative">
               <button
                 type="button"
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-gray-600 hover:text-gray-600 transition-colors"
                 onMouseEnter={() => setShowHelp(true)}
                 onMouseLeave={() => setShowHelp(false)}
                 onClick={() => setShowHelp(h => !h)}
@@ -71,7 +71,7 @@ export default function SliderInput({
         className="w-full h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
       />
       {(leftLabel || rightLabel) && (
-        <div className="flex justify-between text-xs text-gray-400">
+        <div className="flex justify-between text-xs text-gray-600">
           <span>{leftLabel}</span>
           <span>{rightLabel}</span>
         </div>
