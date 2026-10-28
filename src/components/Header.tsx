@@ -80,7 +80,9 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
     ? (lineView === 'pool' ? roomMarketShare.pool : roomMarketShare.byLine[lineView])
     : undefined;
   const poolName = gameState?.setup?.poolName ?? 'Ripple Public Entity Risk Pool';
-  const instanceId = gameState?.instance?.instanceId ?? '—';
+  // ⚠ THE SCENARIO NUMBER, NEVER THE INSTANCE ID: a scenario's instance carries
+  // its fixed seed as its id (scenarios.ts), which no player or host is shown.
+  const instanceId = gameState?.instance?.scenario !== undefined ? String(gameState.instance.scenario) : (gameState?.setup?.instanceId ?? '—');
   const yearNumber = gameState?.currentYearNumber ?? 1;
   // ⚠ TWO YEARS, NAMED APART. The board sets next year's rates during the year
   // in progress: the PROGRAM YEAR is the one being priced (the setup's first

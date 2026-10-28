@@ -751,6 +751,18 @@ export const SCENARIO_COUNT = 20;
 export const SCENARIOS_THIN_TO_RICH: readonly number[] = [12, 19, 10, 14, 3, 8, 15, 11, 20, 6, 9, 5, 4, 1, 18, 7, 17, 2, 13, 16];
 
 /**
+ * EACH SCENARIO'S FIXED SEED — kept here, in the code, and never shown to a
+ * player or a host, who see only "Scenario N". The game plays the seed's own
+ * text as its identity and that text's hash as its numeric seed
+ * (utils/scenarios.gameIdentity), in single player, Test player and a hosted
+ * room alike. Chosen once, by search, and never re-picked at run time.
+ */
+export const SCENARIO_SEEDS: Readonly<Record<number, number>> = {
+  12: 8095, 19: 9401, 10: 11168, 14: 1428, 3: 8310, 8: 12312, 15: 1105, 11: 16179, 20: 7068, 6: 4886,
+  9: 1018, 5: 11220, 4: 13073, 1: 4109, 18: 13548, 7: 9719, 17: 3895, 2: 1681, 13: 14577, 16: 2812,
+};
+
+/**
  * EACH LINE'S THINNEST AND RICHEST TARGET PREMIUM-TO-SURPLUS RATIOS; its twenty
  * are evenly spaced between, in the one scenario order (SCENARIOS_THIN_TO_RICH):
  * scenario 12 is the thinnest on every line and scenario 16 the richest.

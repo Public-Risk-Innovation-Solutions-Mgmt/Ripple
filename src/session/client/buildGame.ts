@@ -22,9 +22,8 @@
 // numbers the team never played — the decisions-history defect's class.
 // ============================================================================
 
-import { seedFromInstanceId } from '../../seedHash';
 import { openingRoster } from '../../game/openingRoster';
-import { generateGameInstance } from '../../utils/instanceGenerator';
+import { scenarioInstance } from '../../utils/instanceGenerator';
 import { runPriorHistory } from '../../utils/priorHistoryEngine';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, surplusRange, type SurplusRange } from '../../utils/worlds';
 import { defaultDecisionSet } from '../../utils/decisionDefaults';
@@ -71,7 +70,9 @@ export function buildTeamGame(r: RoomBuildInputs, lines: readonly CoverageLine[]
   };
 
   // THE ROOM'S SCHEDULE, THROUGH THE CONSTRUCTOR. An empty one writes no field.
-  const instance = generateGameInstance(r.seed, seedFromInstanceId(r.seed), r.shocks);
+  // The room's seed is the scenario number; the instance plays its fixed seed
+  // (scenarioInstance), the same one single player and Test player build.
+  const instance = scenarioInstance(r.seed, r.shocks);
 
   const { poolState, startingFinancials, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, settings);
 

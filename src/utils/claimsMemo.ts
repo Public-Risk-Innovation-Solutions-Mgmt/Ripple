@@ -314,11 +314,12 @@ export function claimListing(
       const ay = r.yearNumber;
       const age = asAtYear - ay + 1;
       // ⚠ THE INSTANCE ID IS THE CLOSURE DRAW'S GAME KEY, and it is the same
-      // value claimsExport passes — closure is a pure function of (gameId,
-      // claimId, curve, age), so passing anything else here would give the same
-      // claim a different status in the two documents.
+      // value claimsExport passes and the engine keys on — closure is a pure
+      // function of (gameId, claimId, curve, age), so passing anything else here
+      // would give the same claim a different status in the two documents. The
+      // INSTANCE's id, not the setup's: a scenario's is its fixed seed.
       const closed = claims.map(c => isClaimClosed(
-        resolveClosureCurve(line, c.grossUltimate), gameState.setup.instanceId, c.id, age,
+        resolveClosureCurve(line, c.grossUltimate), gameState.instance.instanceId, c.id, age,
       ));
       const cohortPaid = grossPaidByAy.get(ay);
       // ⚠ BLANK, NOT ZERO, when the cohort's paid total is gone — a closed

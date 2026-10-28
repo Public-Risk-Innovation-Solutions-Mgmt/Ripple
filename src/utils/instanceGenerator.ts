@@ -2,7 +2,7 @@
 // Exposure = payroll in millions of dollars
 // Premium = Exposure($M) × Rate_per_$100_payroll × 10,000
 
-import { scenarioOfId } from './scenarios';
+import { gameIdentity, scenarioOfId } from './scenarios';
 import type { GameInstance, Member, MembershipHistory, PoolState, LinePoolState, StartingFinancials } from '../types/simulation';
 import { SeededRandom, deriveSubRng } from './random';
 import { getPredefinedMarketMembers } from '../data/memberCatalog';
@@ -109,6 +109,8 @@ export function generateGameInstance(
   instanceId: string,
   seed: number,
   scheduledShocks: readonly ScheduledShock[] = [],
+  // The scenario number, when the game is one of the twenty (scenarioInstance).
+  scenario?: number,
 ): GameInstance {
   for (const s of scheduledShocks) {
     if (!SHOCK_EVENTS.some(e => e.id === s.shockId)) {
@@ -119,10 +121,20 @@ export function generateGameInstance(
     }
   }
   // The scenario rides on the instance, so every copy of it plays the same one.
-  const instance = { ...baseInstance(instanceId, seed), scenario: scenarioOfId(instanceId, seed) };
+  const instance = { ...baseInstance(instanceId, seed), scenario: scenario ?? scenarioOfId(instanceId, seed) };
   return scheduledShocks.length > 0
     ? { ...instance, scheduledShocks: withRegions(seed, scheduledShocks) }
     : instance;
+}
+
+/**
+ * THE GAME'S INSTANCE FOR A SETUP ID — the one path single player, Test player
+ * and a hosted room take. Scenario N is built on its fixed seed (gameIdentity,
+ * SCENARIO_SEEDS) and carries N as `scenario`; a harness's bare id plays itself.
+ */
+export function scenarioInstance(id: string, scheduledShocks: readonly ScheduledShock[] = []): GameInstance {
+  const { gameId, seed, scenario } = gameIdentity(id);
+  return generateGameInstance(gameId, seed, scheduledShocks, scenario);
 }
 
 // ⚠ A REGIONAL EVENT'S REGION IS PART OF THE SCHEDULE, RESOLVED HERE, ONCE.
