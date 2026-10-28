@@ -50,7 +50,10 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
-const SCENARIO = '16';
+// Scenario 5: its single-player draw holds an event, which section 1 needs
+// (restated for the fixed-seed scenarios: scenario 16 drew one on the old
+// mapping; on its fixed seed it draws none over five years).
+const SCENARIO = '5';
 const sched = list => JSON.stringify((list ?? []).map(s => [s.shockId, s.yearNumber]));
 
 async function readSave(page) {
