@@ -47,8 +47,8 @@
 // ============================================================================
 
 import {
-  GAME_REGIONS, INVESTMENT_LOSS_BY_ASSET, POOL_LIMIT_PER_OCCURRENCE, R_MODEL, REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES,
-  regionByShare, SHOCK_A_YEARS, SHOCK_CATALOGUE_SCALE, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
+  GAME_REGIONS, INVESTMENT_LOSS_BY_ASSET, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, POOL_LIMIT_PER_OCCURRENCE, R_MODEL,
+  REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES, regionByShare, SHOCK_A_YEARS, SHOCK_CATALOGUE_SCALE, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
@@ -59,6 +59,8 @@ import type { Claim, CoverageLine, GameInstance, Member, Occurrence, Region } fr
 import type { ShockBand, ShockHorizon } from '../types/shocks';
 
 export const LINES: readonly CoverageLine[] = ['WC', 'GL', 'Property'];
+/** A large claim's source id when drawn by frequency (LARGE_CLAIMS_BY_FREQUENCY) — not a catalogue event. */
+export const LARGE_CLAIM_ID = 'T';
 export type ShockLevel = 'Low' | 'Mid' | 'High' | 'None';
 
 export interface ShockEvent {
@@ -103,6 +105,8 @@ export const SHOCK_EVENT_LABELS: Readonly<Record<string, {
   '#10': { name: 'Economic Inflation', eventName: 'Economic Inflation', band: 'moderate', horizon: 'current' },
   '#11': { name: 'Large Investment Loss', eventName: 'Large Investment Loss', band: 'severe', horizon: 'current' },
   '#12': { name: 'Large Member Withdrawal', eventName: 'Large Member Withdrawal', band: 'severe', horizon: 'current' },
+  // A large claim drawn by frequency (LARGE_CLAIMS_BY_FREQUENCY) — not an event, never scheduled.
+  [LARGE_CLAIM_ID]: { name: 'Large claim', eventName: 'Large claim', band: 'severe', horizon: 'current' },
 };
 
 const MAX_DURATION = Math.max(...SHOCK_EVENTS.map(e => e.duration));
@@ -250,7 +254,11 @@ export interface ShockYear {
 }
 
 /** Everything the shocks do in `yearNumber`. Pure in the instance and the year. */
-export function resolveShockYear(instance: GameInstance, timing: ShockTiming, yearNumber: number): ShockYear {
+export function resolveShockYear(
+  instance: GameInstance, timing: ShockTiming, yearNumber: number,
+  // Large claims by frequency — only while the game's shocks are on (gameShocksOn); the caller says.
+  largeClaims = true,
+): ShockYear {
   const byLine = {} as Record<CoverageLine, LineShockYear>;
   for (const line of LINES) byLine[line] = { uplift: 0, rRate: 0, arrivals: [], byFiring: [] };
   const inForce: ShockYear['inForce'] = [];
@@ -280,7 +288,9 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
         // A: the firing year only (SHOCK_A_YEARS), on the whole line, undecayed.
         if (row.a !== 'None' && age < SHOCK_A_YEARS) add(row.line, aShare(row.line, row.a, d.a), 0);
         if (row.r !== 'None') add(row.line, 0, within(R_MODEL.rShock[row.r], d.r) * decay);
-        if (row.t !== 'None' && age === 0) {
+        // ⚠ NOT WITH LARGE_CLAIMS_BY_FREQUENCY ON: large claims arrive by
+        // frequency below, and an event keeps only its A and R.
+        if (row.t !== 'None' && age === 0 && !LARGE_CLAIMS_BY_FREQUENCY.enabled) {
           byLine[row.line].arrivals.push({ firing, line: row.line, level: row.t, size: tClaimSize(row.line, row.t, d.t) });
         }
       }
@@ -293,7 +303,40 @@ export function resolveShockYear(instance: GameInstance, timing: ShockTiming, ye
       }
     }
   }
+  if (LARGE_CLAIMS_BY_FREQUENCY.enabled && largeClaims) for (const a of largeClaimArrivals(instance, yearNumber)) byLine[a.line].arrivals.push(a);
   return { yearNumber, timing, inForce, byLine, marketShock, withdrawal };
+}
+
+// ============================================================================
+// LARGE CLAIMS BY FREQUENCY (LARGE_CLAIMS_BY_FREQUENCY): each played year, each
+// line at most one — Low, Mid or High with LARGE_CLAIM_FREQUENCY's chances, its
+// size uniform across the level's range (tClaimSize). Two draws per line and
+// year on the GAME's seed (shockSeedOf), stream 'large_claim_<line>', so every
+// world shares the claim and its size. None before year 1 and none in the
+// shock-free pricing shadow, so the rate never sees them.
+//
+// A claim is carried as an arrival of a firing of its own (LARGE_CLAIM_ID),
+// which is not a catalogue event: it is never in force, never scheduled and has
+// no surge or development; it exists so the claim flows through the same draw,
+// tower and records as a T claim did, and reads "Large claim" wherever a claim
+// names its source.
+// ============================================================================
+const LARGE_CLAIM_LEVELS = ['Low', 'Mid', 'High'] as const;
+export function largeClaimArrivals(instance: GameInstance, yearNumber: number): TArrival[] {
+  if (yearNumber < 1 || instance.shockFree) return [];
+  const out: TArrival[] = [];
+  LINES.forEach((line, li) => {
+    const rng = deriveSubRng(shockSeedOf(instance), yearNumber, `large_claim_${line}`);
+    const u = rng.next(), v = rng.next();
+    let edge = 0;
+    const level = LARGE_CLAIM_LEVELS.find(lv => u < (edge += LARGE_CLAIM_FREQUENCY[lv]));
+    if (!level) return;
+    const event: ShockEvent = { index: 100 + li, id: LARGE_CLAIM_ID, name: 'Large claim', probability: 0, duration: 1, regional: false };
+    const draws = {} as EventFiring['draws'];
+    for (const l of LINES) draws[l] = { a: 0, r: 0, t: v };
+    out.push({ firing: { event, firedYear: yearNumber, ordinal: 0, draws }, line, level, size: tClaimSize(line, level, v) });
+  });
+  return out;
 }
 
 /** The year's factor on year-1 sizes — the booked cost level ordinary losses

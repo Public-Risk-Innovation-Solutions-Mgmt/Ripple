@@ -116,7 +116,12 @@ export function pricingLineState(gs: GameState, line: CoverageLine): LinePoolSta
 /** Does this year need the shadow — is a shock in force and is there none yet? */
 function shadowStartsNow(gs: GameState): boolean {
   if (!SHOCK_FREE_PRICING.enabled || !newLossEngineRuns() || gs.instance.shockFree || gs.pricingShadow) return false;
-  return resolveShockYear(gs.instance, shockTimingOf(gs.setup), gs.currentYearNumber).inForce.length > 0;
+  // From the first year an event is in force OR a large claim arrives
+  // (LARGE_CLAIMS_BY_FREQUENCY): the shadow draws neither, so large claims stay
+  // out of the rate entirely.
+  if (!gameShocksOn(gs.setup, gs.instance)) return false;
+  const y = resolveShockYear(gs.instance, shockTimingOf(gs.setup), gs.currentYearNumber);
+  return y.inForce.length > 0 || Object.values(y.byLine).some(b => b.arrivals.length > 0);
 }
 
 /** The rate each active line charges this team-year, struck on the averaged state. */

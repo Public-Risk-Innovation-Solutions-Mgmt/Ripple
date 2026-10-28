@@ -1366,6 +1366,36 @@ export function regionByShare(u: number): Region {
  * are the R model's (R_MODEL.tShock) with each High raised to $40M, the top of
  * the widest cover.
  */
+/**
+ * LARGE (T) CLAIMS ARRIVE BY FREQUENCY, NOT WITH CATALOGUE EVENTS
+ * (wip/large-claims-frequency). ON: each played year, each line draws at most
+ * one large claim — Low with LARGE_CLAIM_FREQUENCY.Low, Mid with .Mid, High
+ * with .High (15% a year in all), none otherwise — its size uniform across the
+ * line's range for that level (SHOCK_T_CLAIM_RANGE) x the year's growth factor
+ * (shockCost.shockCostFactor, as before). The draws are the game seed's, on
+ * their own stream per line and year, so every world shares them, as the T
+ * claims did. The catalogue events keep their surge (A) and development (R)
+ * effects but no longer set large claims. Only while the game's shocks are on;
+ * never in the pre-game; never in the shock-free pricing shadow — so large
+ * claims stay OUT OF THE RATE ENTIRELY: no load, nothing in the experience.
+ * OFF: the catalogue events set T claims, as the wip/shocks build did.
+ *
+ * WHY: the brief's. A large claim is something a pool should expect every few
+ * years, not only when a rare event fires — at the catalogue's odds WC saw one
+ * once in 144 years. Kept out of the rate on purpose: a pool without cover pays
+ * them from surplus, which is what teaches the value of reinsurance. Measured
+ * on twenty five-year single player games at Expected (the Phase 1 report):
+ * the five-year combined ratio 1.047 -> 1.074 with no cover, 1.057 with 9 xs 1.
+ */
+export const LARGE_CLAIMS_BY_FREQUENCY = { enabled: true };
+/**
+ * Each level's chance a year of a line's one large claim — the T-shock
+ * assumptions' frequencies, the same values the cover prices use
+ * (T_COVER_FREQUENCY), held apart so the prices stay exactly as they are
+ * whatever is done to these.
+ */
+export const LARGE_CLAIM_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', number>> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
+
 export const SHOCK_T_CLAIM_RANGE: PerLine<Readonly<Record<'Low' | 'Mid' | 'High', readonly [number, number]>>> = {
   GL: { Low: [1e6, 3e6], Mid: [3e6, 7e6], High: [7e6, 40e6] },
   WC: { Low: [1e6, 3e6], Mid: [3e6, 6e6], High: [6e6, 40e6] },
@@ -2969,6 +2999,19 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'pre-game\'s 2% growth each year. It is not in expected loss: the rate learns it through the experience.',
         basis: 'CHOSEN',
         note: 'The R model\'s 20%. Flat since simple underwriting: there is no rejection rate to buy it down.',
+      }],
+      ['Large claims (T)', {
+        value: LARGE_CLAIMS_BY_FREQUENCY.enabled
+          ? `by frequency: Low ${LARGE_CLAIM_FREQUENCY.Low * 100}% · Mid ${LARGE_CLAIM_FREQUENCY.Mid * 100}% · High ${LARGE_CLAIM_FREQUENCY.High * 100}% a year`
+          : 'with the catalogue\'s events',
+        unit: 'at most one per line a year',
+        what: 'Each played year each line draws at most one large claim — its level by these chances, its size uniform '
+          + 'across the line\'s range for the level x the year\'s growth factor. The catalogue events keep their surge and '
+          + 'development but no longer set large claims. Shocks on only; never in the pre-game.',
+        basis: 'CHOSEN',
+        note: 'The T-shock assumptions\' frequencies, the same values the cover prices use (held apart, so the prices stay '
+          + 'as they are). Kept out of the rate entirely — a pool without cover pays them from surplus, which teaches the '
+          + 'value of reinsurance.',
       }],
       ['Reinsurance options (T covers)', {
         value: REINSURANCE_OPTIONS.GL.filter(o => o.limit > 0).map(o => o.id).join(' · '),
