@@ -686,3 +686,20 @@ export function figureText(x: Figure, format: FigureFormat): string {
 export function templateStatements(gs: GameState, asOfYear?: number): TemplateStatement[] {
   return (['pool', ...gs.setup.activeLines] as LineView[]).map(s => buildTemplateStatement(gs, s, asOfYear));
 }
+
+/**
+ * THE STATEMENTS A DOWNLOAD HOLDS, by the view the player is on — the Excel
+ * file and the PDF alike. On a line's view, that line's statement alone. On the
+ * Pool view, every statement: the pool's, then each line the team writes — but
+ * a team writing one line has a pool statement identical to that line's, so
+ * there it is the pool's alone.
+ */
+export function statementsForView(gs: GameState, view: LineView, asOfYear?: number): TemplateStatement[] {
+  if (view !== 'pool') return [buildTemplateStatement(gs, view, asOfYear)];
+  return gs.setup.activeLines.length === 1 ? [buildTemplateStatement(gs, 'pool', asOfYear)] : templateStatements(gs, asOfYear);
+}
+
+/** A download's file name, by its view and the year the statement stands at: "Annual_Statement_WC_2026.xlsx", "Annual_Statement_Pool_2026.pdf". */
+export function statementFilename(view: LineView, calendarYear: number, ext: 'xlsx' | 'pdf'): string {
+  return `Annual_Statement_${view === 'pool' ? 'Pool' : view}_${calendarYear}.${ext}`;
+}

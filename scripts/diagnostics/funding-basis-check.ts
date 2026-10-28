@@ -164,11 +164,11 @@ for (let g = 0; g < GAMES; g++) {
 // moved with the defect. Written out, that plant fails sections 1 and 2.
 const BRIEFED_ADMIN_SHARE = 0.2;
 const briefedDivisor = (rc: number) => 1 - rc - BRIEFED_ADMIN_SHARE;
-const poolLoading = (rc: number, _l: CoverageLine) => (1 - BRIEFED_ADMIN_SHARE) / briefedDivisor(rc);
-const grossBasisOf = (rs: Row[], l: CoverageLine) => rs.map(r =>
-  (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1)) / (r.clf * poolLoading(r.rcIncentive, l)));
-const grossFunded = (rs: Row[], l: CoverageLine) => rs.length > 0
-  && Math.abs(mean(grossBasisOf(rs, l)) - 1) < 1e-4
+const poolLoading = (rc: number) => (1 - BRIEFED_ADMIN_SHARE) / briefedDivisor(rc);
+const grossBasisOf = (rs: Row[]) => rs.map(r =>
+  (r.poolPremium / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1)) / (r.clf * poolLoading(r.rcIncentive)));
+const grossFunded = (rs: Row[]) => rs.length > 0
+  && Math.abs(mean(grossBasisOf(rs)) - 1) < 1e-4
   && rs.every(r => r.expectedCededPer100 === 0 && Math.abs(r.netPurePremiumPer100 - r.purePremiumPer100) <= 5e-5 + 1e-12);
 
 console.log('=== NET FUNDING BASIS CHECK — 60 games x 10 years, all defaults ===');
@@ -195,7 +195,7 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   if (NEW_RATE_STACK.enabled) {
     const want = rows[l].map(r =>
       r.poolPremium / Math.max(r.netPurePremiumPer100 * r.activeExposure * 10_000, 1)
-      - r.clf * poolLoading(r.rcIncentive, l));
+      - r.clf * poolLoading(r.rcIncentive));
     // ⚠ NOT BIT-EXACT, AND THE BOUND IS THE SAME ONE new-rate-bill-check
     // states: activeExposure is stored to 2dp in $M, so a ratio built through
     // it carries about 1e-5. Measured worst 1.13e-6.
@@ -243,10 +243,10 @@ for (const l of ['WC', 'GL', 'Property'] as const) {
   // cover's full price is charged as reinsurance. It used to assert "NO LONGER
   // the gross figure", which was the retired net basis. grossFunded is the
   // predicate; its controls follow section 1.
-  check(NEW_RATE_STACK.enabled ? grossFunded(rows[l], l) : mean(gross) < 0.95,
+  check(NEW_RATE_STACK.enabled ? grossFunded(rows[l]) : mean(gross) < 0.95,
     NEW_RATE_STACK.enabled ? `${l}: and it IS the gross figure with ${COVER} bought — nothing nets off the claims cost`
       : `${l}: and it is NO LONGER the gross figure`,
-    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasisOf(rows[l], l)).toFixed(6)}, expected ceded per $100 max `
+    NEW_RATE_STACK.enabled ? `on the gross pure premium ${mean(grossBasisOf(rows[l])).toFixed(6)}, expected ceded per $100 max `
       + `${Math.max(...rows[l].map(r => r.expectedCededPer100))}, recorded ceded $${(mean(cededPriced[l]) / M).toFixed(3)}M/yr, `
       + `${rows[l].filter(r => r.reinsuranceRecovery > 0).length} recovering year(s), cost $${(mean(rows[l].map(r => r.reinsuranceCost)) / M).toFixed(3)}M/yr`
       : `gross ratio ${mean(gross).toFixed(4)}`);
@@ -263,7 +263,7 @@ check(LINES.every(l => rows[l].every(r => r.reinsuranceCost > 0)) && LINES.some(
   const netted = (l: CoverageLine) => rows[l].map((r, i) => ({
     ...r, poolPremium: r.poolPremium * (1 - cededPriced[l][i] / Math.max(r.purePremiumPer100 * r.activeExposure * 10_000, 1)),
   }));
-  check(LINES.some(l => !grossFunded(netted(l), l)), 'control: a premium netted of the cover\'s expected ceded is caught by 1');
+  check(LINES.some(l => !grossFunded(netted(l))), 'control: a premium netted of the cover\'s expected ceded is caught by 1');
   // (b) THE DORMANT NETTING PATH, SWITCHED ON AT RUNTIME: the aggregate stop
   // with its expected recovery taken off the claims cost — the engine's own
   // net basis — on a few games; restored after.
@@ -272,9 +272,9 @@ check(LINES.every(l => rows[l].every(r => r.reinsuranceCost > 0)) && LINES.some(
   let broken: Record<string, Row[]>;
   try { broken = rowsOf([0, 1, 2].flatMap(g => play(g, 4, 'working'))); }
   finally { [AGGREGATE_STOP.enabled, STOP_RECOVERY_OFF_CLAIMS_COST.enabled] = was; }
-  check(LINES.some(l => !grossFunded(broken[l], l)),
+  check(LINES.some(l => !grossFunded(broken[l])),
     'control: the engine\'s netting path switched on (the stop, its recovery off the claims cost) is caught by 1',
-    LINES.map(l => `${l} ${mean(grossBasisOf(broken[l], l)).toFixed(4)}`).join(', '));
+    LINES.map(l => `${l} ${mean(grossBasisOf(broken[l])).toFixed(4)}`).join(', '));
 }
 
 console.log(`\n--- 2. ADMIN ${NEW_RATE_STACK.enabled

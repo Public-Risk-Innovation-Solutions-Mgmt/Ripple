@@ -69,6 +69,46 @@ const BUTTONS = [
  * the sections have no All Years, so I draws H's lines, every box the same
  * width. And every template row that carries a line must be on the screen.
  */
+/**
+ * EACH VIEW'S DOWNLOADS HOLD ITS STATEMENTS. From the Annual Statement page, on
+ * the Pool view and on every line's view of `lines`: both buttons pressed, each
+ * file named by the view and the year the statement stands at
+ * ("Annual_Statement_WC_2028.xlsx"), the workbook's sheets and the PDF's
+ * statements (read from its page headers) exactly the view's — a line's alone;
+ * on the Pool view the pool's then each line's, or the pool's alone for a
+ * one-line team.
+ */
+const VIEW_SHORT = { Pool: 'Pool', "Workers' Compensation": 'WC', 'General Liability': 'GL', Property: 'Property' };
+async function downloadsByView(page, tag, lines) {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const fonts = path.join(REPO, 'node_modules', 'pdfjs-dist', 'standard_fonts') + path.sep;
+  for (const view of ['Pool', ...lines]) {
+    await page.getByRole('button', { name: view, exact: true }).first().click();
+    await page.waitForTimeout(500);
+    const year = (await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts()).map(t => t.trim()).filter(t => /^\d{4}$/.test(t)).at(-1);
+    const v = VIEW_SHORT[view];
+    const want = v !== 'Pool' ? [v] : lines.length === 1 ? ['Pool'] : ['Pool', ...lines.map(l => VIEW_SHORT[l])];
+    for (const [button, ext] of [['Download Annual Statement (Excel)', 'xlsx'], ['Download Annual Statement (PDF)', 'pdf']]) {
+      const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }).catch(() => null), page.getByRole('button', { name: button }).first().click()]);
+      if (!dl) { ok(false, `${tag}, ${view} view, ${ext}: no file arrived`); continue; }
+      const file = await dl.path();
+      let got = [];
+      if (ext === 'xlsx') got = XLSX.read(fs.readFileSync(file), { type: 'buffer' }).SheetNames;
+      else {
+        const doc = await getDocument({ data: new Uint8Array(fs.readFileSync(file)), standardFontDataUrl: fonts, isEvalSupported: false }).promise;
+        for (let p = 1; p <= doc.numPages; p++) {
+          const text = (await (await doc.getPage(p)).getTextContent()).items.map(it => it.str).join(' ');
+          const m = text.match(/ - (Pool|Workers' Compensation|General Liability|Property) - Annual Statement as of 12\/31\/(\d{4})/);
+          const sh = m ? VIEW_SHORT[m[1]] : '?';
+          if (got.at(-1) !== sh) got.push(sh);
+        }
+      }
+      ok(dl.suggestedFilename() === `Annual_Statement_${v}_${year}.${ext}` && got.join(',') === want.join(','),
+        `${tag}, ${view} view: "${button}" holds the view's statements (${want.join(', ')})`, `${dl.suggestedFilename()}: ${got.join(', ')}`);
+    }
+  }
+}
+
 async function screenBordersMatchTemplate(page) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(path.join(REPO, 'docs', 'Annual Statement Example v2.xlsx'));
@@ -200,7 +240,8 @@ async function screenBordersMatchTemplate(page) {
     if (sheets) ok(scripts.some(u => /exceljs/i.test(u)), `${name}: its Excel library (exceljs) was fetched for the file`);
     if (sheets && size > 0) {
       const names = XLSX.read(fs.readFileSync(dlPath), { type: 'buffer' }).SheetNames;
-      ok(names[0] === 'Pool' && names.length >= 2, `${name}: opens as a workbook, the pool's sheet first and one per line (${names.join(', ')})`);
+      // This game writes one line, so the Pool view's file is the pool's statement alone (statementsForView).
+      ok(names.join(',') === 'Pool', `${name}: opens as a workbook — on a one-line team's Pool view, the pool's sheet alone (${names.join(', ')})`);
       workbookSheets = names;
     }
     if (pdf) ok(scripts.some(u => /jspdf/i.test(u)), `${name}: its PDF library (jsPDF) was fetched for the file`);
@@ -225,6 +266,38 @@ async function screenBordersMatchTemplate(page) {
       ok(pages[0].text.includes('Written Premium') && pages[0].text.includes('Net Income Statement For The Year'), `${name}: the first page opens with the pool's Net Income Statement`);
     }
     ok(thrown.length === 0, `${name}: no page error${thrown.length ? ` — ${thrown.join('; ')}` : ''}`);
+  }
+
+  // The statement downloads by view: this one-line game, then a three-line one.
+  await page.getByRole('button', { name: 'Annual Statement', exact: true }).first().click();
+  await page.waitForTimeout(800);
+  await downloadsByView(page, 'one-line game (WC)', ["Workers' Compensation"]);
+  {
+    const multi = await ctx.newPage();
+    multi.on('pageerror', e => errs.push(e.message));
+    await multi.goto('/solo');
+    await multi.evaluate(() => localStorage.clear());
+    await multi.reload();
+    await multi.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
+    await multi.locator('[data-testid="scenario"]').selectOption('7');
+    for (const label of ["Workers' Compensation", 'General Liability', 'Property']) {
+      const btn = multi.locator('button', { hasText: label }).first();
+      if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
+    }
+    await multi.getByRole('button', { name: 'Single player', exact: true }).click();
+    await multi.waitForSelector('text=Lock Program Year', { timeout: 60000 });
+    await multi.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await multi.waitForTimeout(2500);
+    const decline = multi.getByRole('button', { name: /Decline/i }).first();
+    if (await decline.count() > 0) {
+      await decline.click(); await multi.waitForTimeout(600);
+      const confirm = multi.getByRole('button', { name: /Confirm & Continue/i }).first();
+      if (await confirm.count() > 0) { await confirm.click(); await multi.waitForTimeout(600); }
+    }
+    await multi.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
+    await multi.getByRole('button', { name: 'Annual Statement', exact: true }).first().click();
+    await multi.waitForTimeout(800);
+    await downloadsByView(multi, 'three-line game', ["Workers' Compensation", 'General Liability', 'Property']);
   }
 
   ok(errs.length === 0, `no page errors over the whole run${errs.length ? ` — ${errs.join('; ')}` : ''}`);
