@@ -12,12 +12,16 @@
 //    year, every view — the draws, the year code and the decisions code too.
 // 2. A CHANGED DECISION MOVES ONLY THE STAGES AFTER IT. The same game with one
 //    decision changed in its last year — the asset mix, the cover, the
-//    funding level, non-renewal, the dividend — moves the decisions code, the
-//    year code and the first stage that decision feeds (FIRST_STAGE_FED), and
-//    no stage before it, no draw and no earlier year.
+//    funding level, non-renewal, the dividend, the risk control slider —
+//    moves the decisions code, the year code and the first stage that
+//    decision feeds (FIRST_STAGE_FED), and no stage before it, no draw and no
+//    earlier year.
 // 3. EVERY STAGE TIES TO THE ENGINE, every played year and line, in a game
-//    that moves the book, buys cover, squeezes funding, pays a dividend and
-//    has shocks in force (so the shock-free pricing ledger is in play): the
+//    that moves the book, buys cover, squeezes funding, pays a dividend, buys
+//    risk control on GL at 5% and has shocks in force (so the shock-free
+//    pricing ledger is in play): the risk control cut re-read is the cut
+//    booked, its cost is the charge booked and the premium's pieces add to the
+//    member charge; the
 //    re-struck pure premium and rate are the row's; the book's movement gives
 //    the exposure billed; premium is rate x exposure; the re-read losses'
 //    gross is the row's; the year's own booking is the ledger's; development
@@ -111,6 +115,8 @@ const CHANGES: { name: string; decision: string; line: CoverageLine; decide: Dec
   { name: 'the WC funding level', decision: 'funding', line: 'WC', decide: lastYear(d => onLine(d, 'WC', { fundingAtExpected: false, fundingConfidenceLevel: 0.75 })) },
   { name: 'GL non-renewal', decision: 'nonRenewal', line: 'GL', decide: lastYear(d => onLine(d, 'GL', { nonRenewal: 0.05 })) },
   { name: 'the WC dividend', decision: 'dividend', line: 'WC', decide: lastYear(d => onLine(d, 'WC', { dividendPct: 0.05 })) },
+  // wip/risk-control: the slider is charged in the rate, so it feeds pricing first.
+  { name: 'the GL risk control slider', decision: 'riskControl', line: 'GL', decide: lastYear(d => onLine(d, 'GL', { riskControlIncentivePct: 0.03 })) },
 ];
 // The tie game: the book moves, cover is bought, funding is squeezed, a dividend is paid, shocks are in force.
 const TIE: Decide = y => {
@@ -121,6 +127,8 @@ const TIE: Decide = y => {
       ...d.byLine,
       WC: { ...d.byLine.WC, nonRenewal: 0.05, newMembers: 0.1, fundingAtExpected: false, fundingConfidenceLevel: 0.75 },
       Property: { ...d.byLine.Property, reinsuranceOption: '$38M xs $2M', dividendPct: y === YEARS ? 0.05 : 0 },
+      // Risk control on GL every year (wip/risk-control): the charge, the cut and the saving tie too.
+      GL: { ...d.byLine.GL, riskControlIncentivePct: 0.05 },
     },
   };
 };
@@ -210,6 +218,12 @@ function sectionEngine(): string[] {
       tie('exposure after the book moves', fig(w, 'book', "This year's exposure ($M)"), a.billedExposure!, 1e-6);
       tie('premium = rate x exposure', fig(w, 'pricing', 'Rate per $100 (member charge rate)') * fig(w, 'premium', 'Exposure billed ($M)') * 10_000, a.totalMemberCharge, 1);
       tie('gross losses', fig(w, 'losses', 'Gross losses'), a.grossUltimateLoss);
+      // Risk control (wip/risk-control): the cut re-read is the cut booked, the
+      // charge is the cost booked, and the premium's pieces add to the charge.
+      tie('risk control cut', fig(w, 'losses', 'Risk control cut'), a.riskControlCut ?? 0, 1e-12);
+      tie('risk control cost', fig(w, 'riskControl', 'Cost — the charge, booked as Other Admin Expense'), a.riskControlInvestment);
+      tie('premium pieces add to the member charge', fig(w, 'premium', 'Pool premium') + fig(w, 'premium', 'Admin charged')
+        + fig(w, 'premium', 'Risk control charged') + fig(w, 'premium', 'Reinsurance price'), a.totalMemberCharge, 1);
       tie('net retained', fig(w, 'reinsurance', 'Net retained'), a.netUltimateLoss);
       tie("the year's own booking", fig(w, 'booking', 'Booked ultimate'), a.netUltimateLoss * (1 - fig(w, 'booking', 'Booking bias at the funding CLF')), 1);
       tie('development by accident year', sumOf(w, 'development', /development booked$/), -a.priorYearDevelopment);
@@ -342,6 +356,10 @@ await control('a recorded development figure tampered', () => {
 await control('a world\'s booked year factor tampered', () => {
   const r = T.worlds![7].lockedResults.find(x => x.yearNumber === YEARS)!.byLine.GL; const o = r.commonLossFactor;
   r.commonLossFactor = o + 1e-9; return () => { r.commonLossFactor = o; };
+}, sectionEngine);
+await control('the risk control cut booked tampered (wip/risk-control)', () => {
+  const a = T.lockedResults.find(x => x.yearNumber === YEARS)!.byLine.GL; const o = a.riskControlCut!;
+  a.riskControlCut = o * 1.01; return () => { a.riskControlCut = o; };
 }, sectionEngine);
 
 check(await sectionSeed(), '4. no seed on a single-player or team header or in any of their downloads; Test player\'s header and download carry it');
