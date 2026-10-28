@@ -1506,7 +1506,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // WC+GL+PR pool Audit at y2 shows the "Zero when ... agree" explanation because
 // no line borrows inter-line there any more (interLineTransfer 0). No key added
 // or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v101.json');
+// v102: THE REINSURANCE LAYERS (wip/reinsurance-layers). The control ran
+// first: multiplayer 985f365, built in its own worktree, reproduced v101 236
+// of 236 here. Against it, word-diffed (RENDER_TEXT_DIR both sides), 26 move:
+// every Decisions screen (16) and every Rate Indication (10), the two that list
+// the T covers. On each, the four new layers appear — 19 and 29 and 39 xs 1,
+// 28 xs 2 — and every cover's price is the workbook's method on the game's own
+// claims (WC 9 xs 1 $390,000 -> $461,250, 38 xs 2 $590,000 -> $724,500; the
+// Rate Indication's per-$100 cover rates likewise). Nothing else moves: the
+// harness holds None, so no figure on any other screen changes.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v102.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
