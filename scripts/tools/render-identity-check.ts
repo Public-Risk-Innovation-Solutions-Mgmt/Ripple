@@ -1562,7 +1562,29 @@ const BASELINE = process.env.RENDER_BASELINE
 // walkthrough screens, which are the reworked page (every stage, its working,
 // the download). The 50 unmoved are the screens without the bar. Scenario 7's
 // fixed seed is in no screen's text. No key added or removed beyond the rename.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v105.json');
+// v106: RISK CONTROL (wip/risk-control), on multiplayer f5149f8. The control,
+// built in its own worktree, did NOT reproduce v105 whole in this container:
+// 29 of 236 moved on f5149f8 itself (Financial Statements 14, Result
+// Spreadsheet 8, Results 7) — the container split earlier landings recorded,
+// not code. So this change was measured against the CONTROL'S OWN CAPTURE here,
+// and v106 is v105 with only the screens this change moved replaced: 57 of 236,
+// each word-diffed against the control (RENDER_TEXT_DIR both sides):
+//   Year Walkthrough 26   the risk control rows and working (the decision as a
+//                         share of the rate, the divisor 1 - admin, the rate
+//                         before reinsurance and risk control, the charge, the
+//                         draw z, the cut, the risk control stage, "Depends on
+//                         your decisions" where it read "Same for everyone"),
+//                         the codes, and the version v36 -> v37
+//   Decisions 16          the slider live: "0% of the rate" where it read "~0%
+//                         of pure premium", its end "5% of the rate"
+//   Result Spreadsheet 10 the new "Risk Control Cost" row, $0 at the harness's 0%
+//   Decision History 5    the pool view's retired "Risk Control %" column gone
+// The other 179 keep v105's fingerprints. ⚠ Eight of the 57 (Result
+// Spreadsheet, every configuration, y0 and y2) are also among the 29 the
+// container moved, so their v106 fingerprints are this container's rendering;
+// in a container that reproduces v105 they may read as moved. The harness plays
+// at 0%, so no figure on any screen changed. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v106.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
