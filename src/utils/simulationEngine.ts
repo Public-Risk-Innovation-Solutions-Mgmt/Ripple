@@ -4470,6 +4470,13 @@ export function aggregateLineResults(
 
     operatingExpense: addDollars('operatingExpense'),
     riskControlInvestment: addDollars('riskControlInvestment'),
+    // What risk control saved, the lines' sum — only when a line bought it, so a
+    // pool row without risk control is exactly what it was (wip/risk-control).
+    // The cut, its mean and the draw are per line and stay off the pool row.
+    ...(results.some(r => r.riskControlLossSaved !== undefined) ? {
+      riskControlLossSaved: results.reduce((t, r) => t + (r.riskControlLossSaved ?? 0), 0),
+      riskControlLaeSaved: results.reduce((t, r) => t + (r.riskControlLaeSaved ?? 0), 0),
+    } : {}),
     priorYearDevelopment: addDollars('priorYearDevelopment'),
 
     beginningNetReserve: addDollars('beginningNetReserve'),

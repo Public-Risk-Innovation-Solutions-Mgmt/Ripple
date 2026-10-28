@@ -486,11 +486,10 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       value: r => formatCurrency(r.riskControlInvestment),
       csvValue: r => roundDollars(r.riskControlInvestment),
     },
-    // What it saved this year: the normal losses cut and the LAE on them. Line
-    // tabs only — the engine records the cut per line. $0 in a year at 0%.
+    // What it saved this year: the normal losses cut and the LAE on them — the
+    // line's, and on the Pool tab the lines' sum. $0 in a year at 0%.
     {
       key: 'riskControlSaved',
-      lineOnly: true,
       category: 'Expenses and Income',
       label: 'Risk Control: Losses + LAE Saved',
       value: r => formatCurrency((r.riskControlLossSaved ?? 0) + (r.riskControlLaeSaved ?? 0)),

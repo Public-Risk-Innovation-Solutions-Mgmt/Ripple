@@ -34,7 +34,7 @@
 //    four standard errors of 1.0043; the realised losses + LAE saved are within
 //    10% of the cost.
 // 5. AT 0% NOTHING MOVES. A game at 0% carries no risk control field on any
-//    row of any world, books no cost, and charges exactly pool premium + admin
+//    line or pool row of any world, books no cost, and charges exactly pool premium + admin
 //    + reinsurance; it is byte-identical to the same game with the slider
 //    absent from every decision (a save from before the slider). The build
 //    against multiplayer's head is measured outside this gate (80 games
@@ -298,6 +298,7 @@ function sectionZero(zero: GameState, absent: GameState): string[] {
   const out: string[] = [];
   const all = [...zero.lockedResults, ...zero.worlds!.flatMap(w => w.lockedResults)];
   for (const r of all) {
+    for (const k of RC_KEYS) if (k in (r as unknown as Record<string, unknown>)) out.push(`year ${r.yearNumber} pool: ${k} on a 0% row`);
     for (const l of LINES) {
       const a = r.byLine[l] as unknown as Record<string, unknown>;
       for (const k of RC_KEYS) if (k in a) out.push(`year ${r.yearNumber} ${l}: ${k} on a 0% row`);
