@@ -49,6 +49,7 @@
 import {
   GAME_REGIONS, INVESTMENT_LOSS_BY_ASSET, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, POOL_LIMIT_PER_OCCURRENCE, R_MODEL,
   REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES, regionByShare, SHOCK_A_YEARS, SHOCK_CATALOGUE_SCALE, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
+  largeClaimsInEveryGame,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
@@ -256,7 +257,7 @@ export interface ShockYear {
 /** Everything the shocks do in `yearNumber`. Pure in the instance and the year. */
 export function resolveShockYear(
   instance: GameInstance, timing: ShockTiming, yearNumber: number,
-  // Large claims by frequency — only while the game's shocks are on (gameShocksOn); the caller says.
+  // Large claims by frequency — while the game draws them (largeClaimsOn); the caller says.
   largeClaims = true,
 ): ShockYear {
   const byLine = {} as Record<CoverageLine, LineShockYear>;
@@ -536,6 +537,14 @@ export const gameShocksOn = (
   setup: { shockTiming?: 'host' | 'solo' }, instance: { scheduledShocks?: readonly unknown[] },
 ): boolean => shockTimingOf(setup) === 'catalogue' || (setup.shockTiming === 'solo' && SOLO_SHOCKS.enabled)
   || (instance.scheduledShocks?.length ?? 0) > 0;
+
+/**
+ * DOES THIS GAME DRAW LARGE CLAIMS? In every game while LARGE_CLAIMS_EVERY_GAME
+ * is on — shocks on or off; otherwise only while its shocks are on.
+ */
+export const largeClaimsOn = (
+  setup: { shockTiming?: 'host' | 'solo' }, instance: { scheduledShocks?: readonly unknown[] },
+): boolean => largeClaimsInEveryGame() || gameShocksOn(setup, instance);
 
 /**
  * MEMBER WITHDRAWAL: 25% of the line's exposure leaves at this renewal.

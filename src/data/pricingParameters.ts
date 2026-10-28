@@ -1396,6 +1396,28 @@ export const LARGE_CLAIMS_BY_FREQUENCY = { enabled: true };
  */
 export const LARGE_CLAIM_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', number>> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
 
+/**
+ * LARGE CLAIMS AND THEIR COVERS IN EVERY GAME — shocks on or off. ON (with
+ * LARGE_CLAIMS_BY_FREQUENCY): each line draws its large claims at
+ * LARGE_CLAIM_FREQUENCY in single player, Test player and hosted games alike,
+ * whether or not the game's shocks are on (shockLosses.gameShocksOn) or any
+ * event is scheduled; all eight covers and None are offered and priced the
+ * same in every game; the Event Likelihoods show in every game; and the
+ * expected losses and Property's large-claim capital carry them throughout.
+ * "Shocks off" now means only that no catalogue event fires — no surge and no
+ * development event.
+ *
+ * WHY: a large claim is a fact of the line, not a scenario's event, and the
+ * covers exist to teach its cost. With large claims drawn by frequency (above)
+ * nothing about them depends on the catalogue any more, so a game without
+ * events should still face them and still be offered the cover.
+ * OFF restores large claims and the covers (all but None) to shocks-on games
+ * only (REINSURANCE_OFFERED_SHOCKS_OFF).
+ */
+export const LARGE_CLAIMS_EVERY_GAME = { enabled: true };
+/** Are large claims and their covers in every game, shocks on or off? Both switches on. */
+export const largeClaimsInEveryGame = (): boolean => LARGE_CLAIMS_BY_FREQUENCY.enabled && LARGE_CLAIMS_EVERY_GAME.enabled;
+
 export const SHOCK_T_CLAIM_RANGE: PerLine<Readonly<Record<'Low' | 'Mid' | 'High', readonly [number, number]>>> = {
   GL: { Low: [1e6, 3e6], Mid: [3e6, 7e6], High: [7e6, 40e6] },
   WC: { Low: [1e6, 3e6], Mid: [3e6, 6e6], High: [6e6, 40e6] },
@@ -1880,10 +1902,12 @@ export const T_COVER_30M_MULTIPLIER = 1.25;
 export const T_COVER_40M_MULTIPLIER = 1.2;
 
 /**
- * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn): only None is
- * offered, and held. WHY: with no shocks there is no T claim, so every option
- * would cost its price and never pay. Whenever the game's shocks are on, all
- * five are offered.
+ * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn) AND
+ * LARGE_CLAIMS_EVERY_GAME IS OFF: only None is offered, and held. WHY: with no
+ * shocks there was no T claim, so every option would cost its price and never
+ * pay. With LARGE_CLAIMS_EVERY_GAME on (as shipped) large claims come in every
+ * game, so every game is offered all eight covers and None, and this list is
+ * not read.
  */
 export const REINSURANCE_OFFERED_SHOCKS_OFF: readonly string[] = ['none'];
 
@@ -3007,7 +3031,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         unit: 'at most one per line a year',
         what: 'Each played year each line draws at most one large claim — its level by these chances, its size uniform '
           + 'across the line\'s range for the level x the year\'s growth factor. The catalogue events keep their surge and '
-          + 'development but no longer set large claims. Shocks on only; never in the pre-game.',
+          + 'development but no longer set large claims. In every game, shocks on or off (LARGE_CLAIMS_EVERY_GAME); never in the pre-game.',
         basis: 'CHOSEN',
         note: 'The T-shock assumptions\' frequencies, the same values the cover prices use (held apart, so the prices stay '
           + 'as they are). Kept out of the rate entirely — a pool without cover pays them from surplus, which teaches the '
@@ -3056,10 +3080,19 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the switch.',
       }],
       ['Covers while shocks are off', {
-        value: `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`, unit: 'rule',
-        what: 'While a game\'s shocks are off (a hosted room with none scheduled) only None is offered; with them on, '
-          + 'all five options are.',
-        basis: 'CHOSEN', note: 'With no shocks there is no T claim, so a cover would cost its price and never pay.',
+        value: largeClaimsInEveryGame()
+          ? 'all eight and None, as with shocks on' : `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`,
+        unit: 'rule',
+        what: 'Large claims come in every game (LARGE_CLAIMS_EVERY_GAME), so a game with its shocks off (a hosted room '
+          + 'with none scheduled) is offered and priced every cover exactly as one with them on. Off, only None.',
+        basis: 'CHOSEN', note: 'Shocks off means only that no catalogue event fires; large claims still come, so the covers still pay.',
+      }],
+      ['Large claims in every game', {
+        value: LARGE_CLAIMS_EVERY_GAME.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'Large claims, the covers and the Event Likelihoods in every game — single player, Test player and hosted — '
+          + 'shocks on or off. Shocks off means only that no catalogue event fires (no surge, no development event).',
+        basis: 'CHOSEN',
+        note: 'A large claim is a fact of the line, not a scenario\'s event; a game without events should still face it and be offered the cover.',
       }],
       ['Default reinsurance', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,

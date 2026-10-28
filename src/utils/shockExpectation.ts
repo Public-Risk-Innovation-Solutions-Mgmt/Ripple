@@ -29,6 +29,7 @@ import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
   POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, ROUTINE_FOLD_NET_OF_UPLIFT, ROUTINE_LARGE_LOSSES, SHOCK_A_YEARS,
   SHOCK_T_CLAIM_RANGE, UP_FRONT_TREND, AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY,
+  largeClaimsInEveryGame,
 } from '../data/pricingParameters';
 import { routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { shockTrendFactor } from './shockCost';
@@ -349,7 +350,12 @@ export function expectedLossBreakdown(
   const large = largeLossMoments(line, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line), true, routineOn,
     false, bookRisk);
   if (!shocks) {
-    return { ordinary, uplift: 0, shockLarge: 0, routineLarge: large.routine, total: ordinary + large.routine, byEvent: new Map() };
+    // ⚠ LARGE CLAIMS COME IN EVERY GAME (LARGE_CLAIMS_EVERY_GAME): with the
+    // shocks off there is no uplift, but the line's large claims are drawn as
+    // in any game, so their expectation stays.
+    const shockLarge = largeClaimsInEveryGame() ? large.mean - large.routine : 0;
+    return { ordinary, uplift: 0, shockLarge, routineLarge: large.routine, total: ordinary + large.routine + shockLarge,
+      byEvent: shockLarge > 0 ? new Map(large.byEvent) : new Map() };
   }
   const u = upliftMoments(line, yearNumber);
   const byEvent = new Map<string, number>();
@@ -433,7 +439,9 @@ export function expectedLargeLossCount(line: CoverageLine, exposure: number, yea
  *
  * ⚠ AND ZERO WHEN THE GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn), like
  * the expectation: a game in which no catastrophe can fire holds no capital
- * for one. With a schedule, or on a harness's catalogue, it returns.
+ * for one. With a schedule, or on a harness's catalogue, it returns. UNLESS
+ * large claims come in every game (LARGE_CLAIMS_EVERY_GAME): then the capital
+ * for one large claim is held shocks on or off.
  */
 export function newEngineCatCapital(
   line: CoverageLine, exposure: number, yearNumber: number, placed: readonly boolean[] | null,
@@ -443,7 +451,8 @@ export function newEngineCatCapital(
   /** The game's shock switch (shockLosses.gameShocksOn); absent is on. */
   shocks = true,
 ): number {
-  if (line !== 'Property' || !(exposure > 0) || !shocks) return 0;
+  // Large claims in every game (LARGE_CLAIMS_EVERY_GAME): the capital for one stays with the shocks off.
+  if (line !== 'Property' || !(exposure > 0) || !(shocks || largeClaimsInEveryGame())) return 0;
   if (AGGREGATE_STOP.enabled && stopOptionId !== undefined) return stopCatRetained(line, exposure, yearNumber, stopOptionId);
   const layers = REINSURANCE_TOWER.Property.filter((l, i) => placed?.[i] === true && l.purchasable);
   const h: PerLoss = (x, d) => poolShare(line, x) - layers.reduce((s, l) => s + cedeAboveLocal(poolShare(line, x), l, d), 0);

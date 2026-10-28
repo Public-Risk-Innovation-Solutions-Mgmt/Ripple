@@ -5,7 +5,12 @@
 //   node scripts/tools/session-drivers/shock-news.cjs
 //
 // Test player (the host's setup in solo, no sign-in), scenario 16, three lines,
-// Nuclear Verdict (#7) scheduled in year 2 and an Earthquake (#1) in year 3:
+// WC Reform (#5) scheduled in year 2 and an Earthquake (#1) in year 3.
+// (RESTATED FOR wip/large-claims-frequency: Nuclear Verdict, scheduled here
+// before, now brings no large claim and only development, which no news
+// counts, so it no longer makes a banner — WC Reform still raises WC's losses.
+// And large claims come in every game: scenario 16 draws one on GL in year 3,
+// so the lock into 2029 brings the Earthquake AND a "Large claim" item.)
 //
 //   1. after the first lock (into 2027, a quiet year) there is no banner;
 //   2. on the lock into 2028 the banner appears AT ONCE — with 2028's results,
@@ -57,7 +62,7 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   }
   await page.getByRole('button', { name: 'Test player', exact: true }).click();
   await page.waitForSelector('[data-testid="test-player-setup"]', { timeout: 20000 });
-  for (const [id, yr] of [['#7', '2'], ['#1', '3']]) {
+  for (const [id, yr] of [['#5', '2'], ['#1', '3']]) {
     await page.selectOption('[data-testid="shock-id"]', id);
     await page.fill('[data-testid="shock-year"]', yr);
     await page.click('[data-testid="add-shock"]');
@@ -90,11 +95,11 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   const year = await banner().getAttribute('data-year');
   ok(year === '2028', 'and it is the news for 2028', year);
   const its = await items();
-  const verdict = its.find(t => t.startsWith('Nuclear Verdict'));
-  ok(its.length === 1 && verdict !== undefined, 'it names the event: Nuclear Verdict', its.join(' | '));
+  const verdict = its.find(t => t.startsWith('WC Reform'));
+  ok(its.length === 1 && verdict !== undefined, 'it names the event: WC Reform', its.join(' | '));
   const bannerLines = linesIn((verdict ?? '').split('Your lines affected:')[1] ?? '');
   ok(bannerLines.length > 0, 'and the team\'s lines it touches', bannerLines.join(', '));
-  ok(/jury|award|verdict/i.test(verdict ?? ''), 'with one plain line saying what it is', verdict);
+  ok(/reform|injured workers/i.test(verdict ?? ''), 'with one plain line saying what it is', verdict);
   const text = (await banner().innerText()).trim();
   ok(!/\$/.test(text) && !/\b\d[\d,.]*\b/.test(text.replace(/\b2028\b/g, '')), 'no dollars and no other figure — the year alone', text.replace(/\s+/g, ' '));
   ok(!/\b(severe|high|moderate|low|mid|level|band|size)\b/i.test(text), 'no level, band or size', '');
@@ -108,22 +113,27 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
   await page.waitForTimeout(500);
   let listed = await page.locator('[data-testid="events-panel-item"]').allInnerTexts();
-  ok(listed.length === 1 && /^2028\s+Nuclear Verdict/.test(listed[0].trim()), 'the Decisions page lists it under Events so far', listed.join(' | '));
+  ok(listed.length === 1 && /^2028\s+WC Reform/.test(listed[0].trim()), 'the Decisions page lists it under Events so far', listed.join(' | '));
   await page.click('[data-testid="event-news-dismiss"]');
   await page.waitForTimeout(300);
   ok(await banner().count() === 0, 'the banner can be dismissed');
   ok(await page.locator('[data-testid="events-panel-item"]').count() === 1, 'and the event stays listed');
 
-  // 4. The lock into 2029: the Earthquake's banner; both listed.
+  // 4. The lock into 2029: the Earthquake's banner, and GL's large claim; all listed.
   await lock(2030);
   const its3 = await items();
-  ok(await banner().count() === 1 && (await banner().getAttribute('data-year')) === '2029' && its3.length === 1 && its3[0].startsWith('Earthquake'),
-    'on the lock into 2029 the Earthquake\'s banner — and only it', its3.join(' | '));
+  ok(await banner().count() === 1 && (await banner().getAttribute('data-year')) === '2029' && its3.length === 2
+    && its3.some(t => t.startsWith('Earthquake')) && its3.some(t => t.startsWith('Large claim')),
+    'on the lock into 2029 the Earthquake\'s banner, with the year\'s large claim — and only those', its3.join(' | '));
+  const large = its3.find(t => t.startsWith('Large claim')) ?? '';
+  ok(/large claim is made/i.test(large) && JSON.stringify(linesIn(large.split('Your lines affected:')[1] ?? '')) === JSON.stringify(['General Liability']),
+    'the large claim as news: its own plain line (not a catastrophe\'s), on General Liability alone', large);
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
   await page.waitForTimeout(500);
   listed = (await page.locator('[data-testid="events-panel-item"]').allInnerTexts()).map(t => t.trim());
-  ok(listed.length === 2 && /^2028\s+Nuclear Verdict/.test(listed[0]) && /^2029\s+Earthquake/.test(listed[1]),
-    'both are listed, by year', listed.join(' | '));
+  ok(listed.length === 3 && /^2028\s+WC Reform/.test(listed[0]) && listed.slice(1).every(t => /^2029\s+/.test(t))
+    && listed.some(t => /^2029\s+Earthquake/.test(t)) && listed.some(t => /^2029\s+Large claim/.test(t)),
+    'all three are listed, by year', listed.join(' | '));
 
   // 5. 2028's event block on the Results page names the same lines.
   await lock(2031);
@@ -133,7 +143,7 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   await page.locator('main select').first().selectOption(opt);
   await page.waitForTimeout(600);
   const block = await page.locator('main').innerText();
-  const at = block.indexOf('Nuclear Verdict');
+  const at = block.indexOf('WC Reform');
   const resultLines = at < 0 ? [] : linesIn(block.slice(at, at + 400).split(/\n(?=[A-Z][a-z]+ ?[A-Za-z]* —|\S+ events? this year)/)[0]);
   ok(at >= 0, 'the Results page shows 2028\'s event with its figures');
   ok(JSON.stringify(resultLines) === JSON.stringify(bannerLines),

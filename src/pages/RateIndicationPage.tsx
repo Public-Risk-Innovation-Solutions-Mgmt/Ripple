@@ -142,7 +142,7 @@ function LineCard({ ri }: { ri: RateIndication }) {
             <Row key={r.id} label={r.name} testId={`ri-${l}-reins-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
           ))}
         </div>
-        {/* EVENT LIKELIHOODS, beside the cover prices — shocks on only (utils/eventLikelihoods). */}
+        {/* EVENT LIKELIHOODS, beside the cover prices — in every game (LARGE_CLAIMS_EVERY_GAME; utils/eventLikelihoods). */}
         {ri.eventLikelihoods && (
           <div className="max-w-md" data-testid={`ri-${l}-event-likelihoods`}>
             <h4 className="text-sm font-semibold text-gray-800 pb-2 mb-1 border-b border-gray-300">Event Likelihoods</h4>

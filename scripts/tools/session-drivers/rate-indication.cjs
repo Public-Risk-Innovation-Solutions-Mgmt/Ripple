@@ -40,7 +40,10 @@
 //                     Decisions page "Decisions for Program Year <priced>"
 //   Event Likelihoods  (wip/reinsurance-layers; restated for
 //                     wip/large-claims-frequency) beside the cover prices,
-//                     shocks on only: "Event Likelihoods", its note, a table
+//                     in EVERY game — restated for LARGE_CLAIMS_EVERY_GAME: the
+//                     hosted room below schedules no shock (shocks off) and
+//                     must show them too, and offer all eight covers and None
+//                     (before: none there, None alone): "Event Likelihoods", its note, a table
 //                     with a row for 1 in 10, 20, 50, 100 and 200 years, and its
 //                     chart. Solo before year 1 (growth 1) each size is the one
 //                     recomputed here from the large-claim frequencies written
@@ -218,12 +221,12 @@ function screen(page, mode) {
   }
 
   // THE COMING YEAR: every level, every cover, against the panel.
-  // The Event Likelihoods: shown with shocks on only; at growth 1 each size the
-  // catalogue's; at a later year every size the same multiple of it.
+  // The Event Likelihoods: in every game, shocks on or off (LARGE_CLAIMS_EVERY_GAME);
+  // at growth 1 each size the frequencies'; at a later year every size the same multiple of it.
   function likelihoods(ind, name, shocksOn, atGrowthOne) {
     for (const [l] of LINES) {
       const t = ind[l].likelihoods;
-      if (!shocksOn) { ok(t === null, `${mode}, ${name}, ${l}: no Event Likelihoods with shocks off`); continue; }
+      if (!shocksOn) ok(t !== null, `${mode}, ${name}, ${l}: the Event Likelihoods show with the game's shocks off too`);
       ok(t !== null && t.heading === 'Event Likelihoods' && t.note === 'The chance in any year of a single large claim at least this size.'
         && t.rows.every((r, i) => r.label === `1 in ${RETURN_YEARS[i]} years`),
         `${mode}, ${name}, ${l}: "Event Likelihoods" beside the cover prices, its note and 1 in 10 to 1 in 200 years`, JSON.stringify(t && [t.heading, t.note]));
@@ -253,6 +256,9 @@ function screen(page, mode) {
     for (const [l, label] of LINES) {
       await lineView(label);
       const offered = await offeredOn(l);
+      // Every game is offered None and the eight covers, shocks on or off (LARGE_CLAIMS_EVERY_GAME).
+      ok(offered.length === 9 && offered.includes('none'),
+        `${mode}, ${name}, ${l}: None and the eight covers offered${shocksOn ? '' : ' with the game\'s shocks off'}`, offered.join(', '));
       ok(JSON.stringify(Object.keys(ind[l].reins).sort()) === JSON.stringify([...offered].sort()),
         `${mode}, ${name}, ${l}: the page lists exactly the covers the Decisions page offers`, offered.join(', '));
       ok(ind[l].window === 5,

@@ -182,7 +182,7 @@ import {
   type OrdinaryLossYear,
 } from './ordinaryLoss';
 import { marketSeedOf } from './bookUnits';
-import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, LARGE_CLAIM_ID, shockRecordKeys, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, LARGE_CLAIM_ID, shockRecordKeys, shockSeedOf, gameShocksOn, largeClaimsOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
@@ -3533,7 +3533,7 @@ export function processYear(
   // one of them is an investment shock and the market below is what it moves.
   // Pure in the instance, the timing and the year; nothing before year 1.
   const shockYear = newLossEngineRuns()
-    ? resolveShockYear(instance, shockTimingOf(setup), yearNumber, gameShocksOn(setup, instance))
+    ? resolveShockYear(instance, shockTimingOf(setup), yearNumber, largeClaimsOn(setup, instance))
     : undefined;
   // A flat pre-game year (FLAT_PRE_GAME) earns PRE_GAME_INVESTMENT_RETURN on
   // every asset class — so any allocation earns it — with no draw (commit 9;

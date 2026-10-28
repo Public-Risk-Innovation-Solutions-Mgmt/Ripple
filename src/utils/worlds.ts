@@ -46,7 +46,7 @@ import type {
 import type { ShockRecord } from '../types/shocks';
 import { rangeOf, summarizeWorlds, type SurplusRange } from './worldAudit';
 import { simulateMarketReturns, type MarketReturns } from './investmentEngine';
-import { applyMarketShock, gameShocksOn, resolveShockYear, shockRecordKeys, shockTimingOf } from './shockLosses';
+import { applyMarketShock, gameShocksOn, largeClaimsOn, resolveShockYear, shockRecordKeys, shockTimingOf } from './shockLosses';
 export { rangeOf, type SurplusRange };
 
 /** Worlds per team-year for the engine in force: WORLD_COUNT on the new engine, one on the member path. */
@@ -119,8 +119,10 @@ function shadowStartsNow(gs: GameState): boolean {
   // From the first year an event is in force OR a large claim arrives
   // (LARGE_CLAIMS_BY_FREQUENCY): the shadow draws neither, so large claims stay
   // out of the rate entirely.
-  if (!gameShocksOn(gs.setup, gs.instance)) return false;
-  const y = resolveShockYear(gs.instance, shockTimingOf(gs.setup), gs.currentYearNumber);
+  // A game that draws large claims (largeClaimsOn: every game, shocks on or
+  // off, with LARGE_CLAIMS_EVERY_GAME) needs the shadow from its first one.
+  if (!gameShocksOn(gs.setup, gs.instance) && !largeClaimsOn(gs.setup, gs.instance)) return false;
+  const y = resolveShockYear(gs.instance, shockTimingOf(gs.setup), gs.currentYearNumber, largeClaimsOn(gs.setup, gs.instance));
   return y.inForce.length > 0 || Object.values(y.byLine).some(b => b.arrivals.length > 0);
 }
 
