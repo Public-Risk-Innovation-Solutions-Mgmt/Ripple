@@ -14,7 +14,10 @@ import { optionPrice, reinsuranceOptionIds, reinsuranceOptionsFor } from '../uti
 import { bookExposureOf, bookRiskOf, isRoster, shockBaseOf, type Book } from '../utils/lineHelpers';
 import { shockCostFactor } from '../utils/shockCost';
 import { stopQuote } from '../utils/aggregateStop';
-import { aggregateCoverOf, aggregateCoverOption, aggregateCoverOptionIds, aggregateCoverQuote } from '../utils/aggregateCover';
+import {
+  AGGREGATE_COVER_FOOTNOTE, AGGREGATE_COVER_NOTE, AGGREGATE_COVER_TITLE,
+  aggregateCoverLabel, aggregateCoverOf, aggregateCoverOptionIds, aggregateCoverQuote,
+} from '../utils/aggregateCover';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -1120,8 +1123,9 @@ function PackageControls(props: {
 
 // ============================================================================
 // THE AGGREGATE COVER ON ATTRITIONAL LOSSES (wip/aggregate-cover) — one option
-// per line, beside the per-claim cover above. ⚠ EACH OPTION'S NAME AND ITS
-// PRICE ONLY, as the per-claim covers show theirs. The price is the engine's
+// per line, beside the per-claim cover above: its title and note, each
+// option's label and annual premium, and what it pays — the wording built from
+// each option's layer (aggregateCover.aggregateCoverLabel). The price is the engine's
 // own quote (aggregateCover.aggregateCoverQuote) on the line's book and year —
 // the book the rate is quoted on — so the panel cannot show a figure the
 // engine does not charge. Offered in every game, shocks on or off,
@@ -1139,13 +1143,19 @@ function AggregateCoverControls({ line, d, setMany, disabled, book, yearNumber, 
   const exposure = bookExposureOf(book, line, yearNumber);
   const held = aggregateCoverOf(d);
   return (
-    <div className="space-y-3 border-t border-gray-100 pt-4">
-      <p className="text-xs text-gray-600 leading-relaxed">
-        <strong>Aggregate cover</strong> on the year&rsquo;s attritional losses — choose one, beside the cover above.
-      </p>
+    <div className="space-y-3 border-t border-gray-100 pt-4" data-testid={`agg-cover-${line}`}>
+      <div>
+        <h4 data-testid={`agg-cover-title-${line}`} className="text-sm font-semibold text-gray-900">{AGGREGATE_COVER_TITLE}</h4>
+        <p data-testid={`agg-cover-note-${line}`} className="text-xs text-gray-600 leading-relaxed">{AGGREGATE_COVER_NOTE}</p>
+      </div>
+      {/* Two columns: the option's label, and its annual premium for this line and year. */}
+      <div className="flex items-center justify-between px-3 text-xs font-medium text-gray-500">
+        <span>Label</span>
+        <span>Annual Premium</span>
+      </div>
       <div className="space-y-1.5" data-testid={`agg-cover-options-${line}`}>
         {aggregateCoverOptionIds(shocks).map(id => {
-          const o = aggregateCoverOption(id);
+          const label = aggregateCoverLabel(id);
           const chosen = held === id;
           const price = aggregateCoverQuote(line, id, exposure, yearNumber).price;
           return (
@@ -1160,12 +1170,13 @@ function AggregateCoverControls({ line, d, setMany, disabled, book, yearNumber, 
                 chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
               } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
-              <span>{o.name}</span>
-              <span className="text-xs text-gray-600">{`${formatCurrency(price)}/yr`}</span>
+              <span data-testid={`agg-cover-label-${line}-${id}`}>{label.label}</span>
+              <span className="text-xs text-gray-600 whitespace-nowrap pl-3">{formatCurrency(price)}</span>
             </button>
           );
         })}
       </div>
+      <p data-testid={`agg-cover-footnote-${line}`} className="text-xs text-gray-500 leading-relaxed">{AGGREGATE_COVER_FOOTNOTE}</p>
     </div>
   );
 }

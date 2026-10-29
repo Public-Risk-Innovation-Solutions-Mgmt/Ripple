@@ -1691,7 +1691,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // line's Annual Trend reads as a percentage (WC 1.04 -> 4%, GL 1.08 -> 8%,
 // Property 1.05 -> 5%). The page opens on the coming year, so no past year's
 // build is on these screens. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v113.json');
+// v114: THE AGGREGATE COVER'S WORDING (wip/aggregate-cover), on multiplayer
+// 4197c88, which reproduced v113 236 of 236 here first. 26 of 236 move — the
+// Decisions screens (16) and the Rate Indications (10) — and each word-diffed
+// against the control (RENDER_TEXT_DIR both sides) moves in its wording only:
+// "Aggregate Stop-Loss Coverage", its note, the "Label | Annual Premium" columns,
+// "None — No Coverage" and "110% / 50% — Covers losses from 110% to 160% of
+// expected" (and 125, 150), each premium as $N where it read $N/yr, and the
+// footnote, on the Decisions page; the heading and the same labels on the Rate
+// Indication. Every premium is the control's figure. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v114.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

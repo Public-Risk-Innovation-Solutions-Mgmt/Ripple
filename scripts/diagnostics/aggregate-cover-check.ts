@@ -34,6 +34,11 @@
 //   6. A GAME WITH ITS SHOCKS OFF (single player, SOLO_SHOCKS off): the cover is
 //      bought, priced and booked exactly as section 3 holds — no surge, so it
 //      pays only on a bad ordinary year, and it does pay in some.
+//   7. THE WORDING, WRITTEN OUT HERE: the title, note and footnote, and each
+//      option's label — "110% / 50% — Covers losses from 110% to 160% of
+//      expected" — built from the option's attachment and limit. Control: an
+//      attachment moved at runtime relabels the option, so the written-out
+//      wording fails.
 //
 // ⚠ THE BRIEF IS WRITTEN OUT HERE — options, loads, odds, surge ranges, the
 // ordinary-year CVs' inputs and the 2027 prices — not read from
@@ -51,8 +56,10 @@ import {
   AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, COVERS_IN_EVERY_GAME, R_MODEL, SOLO_SHOCKS, T_COVER_FREQUENCY,
 } from '../../src/data/pricingParameters';
 import { gameShocksOn } from '../../src/utils/shockLosses';
+import { buildYearWalkthrough } from '../../src/utils/yearWalkthrough';
 import {
-  aggregateCoverOf, aggregateCoverOptionIds, aggregateCoverQuote,
+  AGGREGATE_COVER_FOOTNOTE, AGGREGATE_COVER_NOTE, AGGREGATE_COVER_TITLE,
+  aggregateCoverLabel, aggregateCoverOf, aggregateCoverOptionIds, aggregateCoverQuote,
 } from '../../src/utils/aggregateCover';
 import { ordinaryLossCostPer100 } from '../../src/utils/ordinaryLoss';
 import { quoteNewRateStack } from '../../src/utils/linePricing';
@@ -424,6 +431,45 @@ check(offProblems, 'bought, priced and booked as with shocks on; no surge; it pa
   check(refused ? [] : ['the shocks-off game bought the cover with the switch off'],
     '  control: COVERS_IN_EVERY_GAME off — the shocks-off game\'s cover is refused', refused ? 'refused' : 'bought');
 }
+
+// ---- 7. THE WORDING ---------------------------------------------------------------------------
+console.log('\n7. The wording');
+const BRIEF_WORDING = {
+  title: 'Aggregate Stop-Loss Coverage',
+  note: 'Protects against annual attritional losses exceeding a selected percentage of expected losses, up to the coverage limit.',
+  footnote: 'Coverage pays 100% of eligible losses between the attachment point and the exhaustion point.',
+  labels: {
+    'none': 'None — No Coverage',
+    'agg-110-50': '110% / 50% — Covers losses from 110% to 160% of expected',
+    'agg-125-50': '125% / 50% — Covers losses from 125% to 175% of expected',
+    'agg-150-50': '150% / 50% — Covers losses from 150% to 200% of expected',
+  } as Record<string, string>,
+};
+function sectionWording(): string[] {
+  const p: string[] = [];
+  if (AGGREGATE_COVER_TITLE !== BRIEF_WORDING.title) p.push(`title "${AGGREGATE_COVER_TITLE}"`);
+  if (AGGREGATE_COVER_NOTE !== BRIEF_WORDING.note) p.push(`note "${AGGREGATE_COVER_NOTE}"`);
+  if (AGGREGATE_COVER_FOOTNOTE !== BRIEF_WORDING.footnote) p.push(`footnote "${AGGREGATE_COVER_FOOTNOTE}"`);
+  for (const [id, want] of Object.entries(BRIEF_WORDING.labels)) {
+    const got = aggregateCoverLabel(id).label;
+    if (got !== want) p.push(`${id}: "${got}", want "${want}"`);
+  }
+  return p;
+}
+check(sectionWording(), 'title, note, footnote and each option\'s label, as written', Object.values(BRIEF_WORDING.labels).join(' · '));
+// The Year Walkthrough of a year that bought it: its reinsurance stage names the cover by title and label.
+check(games[0].cover.gs.lockedResults.flatMap(r => LINES.flatMap(l => {
+  const row = buildYearWalkthrough(games[0].cover.gs, r.yearNumber, l).stages.find(st => st.key === 'reinsurance')?.rows
+    .find(x => x.label === BRIEF_WORDING.title);
+  const want = BRIEF_WORDING.labels[OPTION_BY_YEAR[r.yearNumber - 1]];
+  return row?.value === want ? [] : [`y${r.yearNumber} ${l}: "${String(row?.value)}", want "${want}"`];
+})), 'the Year Walkthrough names the cover bought by its title and label');
+control('the 125/50 attachment moved to 1.30 — its label follows the layer', () => {
+  const o = AGGREGATE_COVER_OPTIONS[2] as { attachment: number; name: string }; const was = { a: o.attachment, n: o.name };
+  // The name is struck from the layer when the options are made, so it is struck again here as they make it.
+  o.attachment = 1.30; o.name = '130% / 50%';
+  return () => { o.attachment = was.a; o.name = was.n; };
+}, sectionWording);
 
 // ---- verdict ------------------------------------------------------------------------------
 console.log('\n' + '='.repeat(78));

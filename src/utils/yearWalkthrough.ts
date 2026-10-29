@@ -81,7 +81,7 @@ import {
 import { shockCostFactor } from './shockCost';
 import { AGGREGATE_NOT_OFFERED, placementFor } from './reinsuranceOptions';
 import { effectiveRiskControlIncentivePct, quoteNewRateStack, type NewStackQuote } from './linePricing';
-import { aggregateCoverOption } from './aggregateCover';
+import { AGGREGATE_COVER_TITLE, aggregateCoverLabel } from './aggregateCover';
 import { riskControlCutFor, riskControlDraw } from './riskControl';
 import { bookPurePremium, type NewPurePremiumResult } from './newPurePremium';
 import { moveBook, newMembersShare, nonRenewalShare, type BookMovement } from './bookUnderwriting';
@@ -693,15 +693,16 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
   const ac = a.attritionalCover;
   if (ac) {
     reinsRows.push(
-      { label: 'Aggregate cover on attritional losses', value: aggregateCoverOption(ac.optionId).name, kind: 'text' },
+      { label: AGGREGATE_COVER_TITLE, value: aggregateCoverLabel(ac.optionId).label, kind: 'text' },
       { label: 'Attritional: normal losses', value: ac.normalLoss, kind: 'usd' },
       { label: 'Attritional: surges', value: ac.surgeLoss, kind: 'usd' },
       { label: 'Attritional losses', value: ac.attritional, kind: 'usd' },
       { label: 'Expected attritional losses', value: ac.expectedAttritional, kind: 'usd' },
-      { label: 'Aggregate cover: attachment', value: ac.attachment, kind: 'usd' },
-      { label: 'Aggregate cover: limit', value: ac.limit, kind: 'usd' },
-      { label: 'Aggregate cover: price', value: ac.price, kind: 'usd' },
-      { label: 'Aggregate cover: recovery on attritional losses', value: ac.recovery, kind: 'usd' },
+      { label: 'Aggregate stop-loss: attachment point', value: ac.attachment, kind: 'usd' },
+      { label: 'Aggregate stop-loss: exhaustion point', value: ac.attachment + ac.limit, kind: 'usd' },
+      { label: 'Aggregate stop-loss: limit', value: ac.limit, kind: 'usd' },
+      { label: 'Aggregate stop-loss: annual premium', value: ac.price, kind: 'usd' },
+      { label: 'Aggregate stop-loss: recovery on attritional losses', value: ac.recovery, kind: 'usd' },
     );
   }
   reinsRows.push(
@@ -718,14 +719,14 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     feed: feed({
       decisions: [
         { name: 'Reinsurance cover', value: d.reinsuranceOption },
-        ...(ac ? [{ name: 'Aggregate cover', value: aggregateCoverOption(ac.optionId).name }] : []),
+        ...(ac ? [{ name: AGGREGATE_COVER_TITLE, value: aggregateCoverLabel(ac.optionId).label }] : []),
       ],
       through: [titleOf('losses')],
       working: [
         `Cover ${d.reinsuranceOption} → layers bought: ${tower.filter((_, i) => placed[i]).map(t => t.name).join(', ') || 'none'}`,
         ...(ac ? [
           `Attritional = normal ${usd(ac.normalLoss)} + surges ${usd(ac.surgeLoss)} = ${usd(ac.attritional)} (large claims and development excluded)`,
-          `Aggregate cover pays min(max(${usd(ac.attritional)} − attachment ${usd(ac.attachment)}, 0), limit ${usd(ac.limit)}) = ${usd(ac.recovery)}`
+          `Aggregate stop-loss pays min(max(${usd(ac.attritional)} − attachment ${usd(ac.attachment)}, 0), limit ${usd(ac.limit)}) = ${usd(ac.recovery)}`
             + ' (each figure the mean over worlds)',
         ] : []),
         `Net = gross booked ${usd(a.bookedGrossUltimate ?? a.grossUltimateLoss)} − recovery ${usd(a.reinsuranceRecovery)} = ${usd(a.netUltimateLoss)}`,
