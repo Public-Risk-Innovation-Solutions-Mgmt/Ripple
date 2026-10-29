@@ -79,7 +79,11 @@ four surge cases at the shock assumptions' odds, each at the top of its A range
 (`AGGREGATE_COVER_SURGE_BASIS`; midpoint moves cases and terms together),
 normal luck at the line's ordinary-year CV, x load 1.2 / 1.0 / 1.0. Charged as
 reinsurance (no admin); the recovery is booked once, at the year's booking.
-Not offered while the game's shocks are off.
+Offered and priced the same in every game — single player, Test player and
+hosted, shocks on or off, events scheduled or not — as the per-claim covers are
+(COVERS_IN_EVERY_GAME); with no shocks it pays only on a bad ordinary year, and
+the menu does not say so (restated on multiplayer ed62748: aggregate-cover-check
+sections 1 and 6, the rate-indication driver's hosted room buying 110/50).
 
 2027 prices at default decisions: WC $667,967 / $292,675 / $94,629; GL $675,955
 / $263,022 / $74,451; Property $879,680 / $434,590 / $188,692. ⚠ GL is $41 /

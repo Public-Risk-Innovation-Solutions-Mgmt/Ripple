@@ -2009,9 +2009,11 @@ export const REINSURANCE_OFFERED_SHOCKS_OFF: readonly string[] = ['none'];
  * Charged as reinsurance: added to the member charge as a pass-through, no
  * admin taken on it, and never netted off the pure premium. The price and the
  * terms are struck together, on the book the rate is quoted on — in a game of
- * many worlds the averaged book, one price a team-year. While the game's
- * shocks are off only None is offered, as with the per-claim covers: the
- * price assumes surges the game would then never draw.
+ * many worlds the averaged book, one price a team-year. ⚠ OFFERED AND PRICED
+ * BY THE PER-CLAIM COVERS' RULE (COVERS_IN_EVERY_GAME): on, in every game —
+ * single player, Test player and hosted, shocks on or off, events scheduled or
+ * not — at the same prices; with no shocks it pays only on a bad ordinary year,
+ * and the menu does not say so. Off, None alone while the shocks are off.
  *
  * WHY: the pricing workbook's "Agg Attritional" tab (the source of every
  * figure here), so a team can buy cover against a bad ordinary year and a
@@ -3225,7 +3227,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'The pricing workbook\'s "Agg Attritional" tab: four cases a year at the shock assumptions\' odds (none '
           + `85%, Low ${T_COVER_FREQUENCY.Low * 100}%, Mid ${T_COVER_FREQUENCY.Mid * 100}%, High ${T_COVER_FREQUENCY.High * 100}%), `
           + `each surge at the ${AGGREGATE_COVER_SURGE_BASIS.basis} of its A range, ordinary luck normal around the case at the `
-          + 'line\'s ordinary-year CV. Not offered while the game\'s shocks are off. The prices assume surges at those odds; '
+          + 'line\'s ordinary-year CV. Offered and priced in every game, shocks on or off, as the per-claim covers are '
+          + '(COVERS_IN_EVERY_GAME); with no shocks it pays only on a bad ordinary year. The prices assume surges at those odds; '
           + 'until the game\'s surges follow them, recoveries will differ from the prices.',
       }],
       ['Aggregate stop', {
@@ -3245,10 +3248,11 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the switch.',
       }],
       ['Covers while shocks are off', {
-        value: coversInEveryGame() ? 'all eight and None, as with shocks on' : `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`,
+        value: coversInEveryGame() ? 'all eight, the aggregate covers and None, as with shocks on' : `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`,
         unit: 'rule',
-        what: 'Every game is offered and priced every cover exactly as one with its shocks on, and shows the Event '
-          + 'Likelihoods (COVERS_IN_EVERY_GAME). Off, only None while the shocks are off.',
+        what: 'Every game is offered and priced every cover — the eight per-claim covers and the aggregate cover on '
+          + 'attritional losses — exactly as one with its shocks on, and shows the Event Likelihoods '
+          + '(COVERS_IN_EVERY_GAME). Off, only None while the shocks are off.',
         basis: 'CHOSEN',
         note: 'Large claims come only from T-shock events, so in a hosted room with none scheduled a cover never pays — '
           + 'and the menu does not say so.',

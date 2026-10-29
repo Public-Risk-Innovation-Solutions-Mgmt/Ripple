@@ -335,7 +335,8 @@ function screen(page, mode) {
       // rate, beside the first per-claim cover, at Expected and at 80%.
       const aggOffered = await aggOfferedOn(l);
       ok(JSON.stringify(Object.keys(ind[l].agg)) === JSON.stringify(aggOffered)
-        && JSON.stringify(aggOffered) === JSON.stringify(shocksOn ? ['none', 'agg-110-50', 'agg-125-50', 'agg-150-50'] : ['none']),
+        // All four in every game, shocks on or off — the per-claim covers' rule (COVERS_IN_EVERY_GAME).
+        && JSON.stringify(aggOffered) === JSON.stringify(['none', 'agg-110-50', 'agg-125-50', 'agg-150-50']),
         `${mode}, ${name}, ${l}: the aggregate covers listed are the ones the Decisions page offers`, aggOffered.join(', '));
       for (const id of aggOffered) {
         await page.click(`[data-testid="agg-cover-option-${l}-${id}"]`);
@@ -505,7 +506,8 @@ async function hosted(browser) {
   await s.comingYear('before year 1', 2027, false);
   const played = [];
   for (const [y, level, cover, rc] of [[1, 'expected', 1, 0], [2, 80, 0, 0.02]]) {
-    played.push(await s.choose(level, cover, 'none', rc));
+    // Year 1 buys the 110/50 aggregate cover: the room's shocks are off, and it is offered all the same.
+    played.push(await s.choose(level, cover, y === 1 ? 'agg-110-50' : 'none', rc));
     await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');

@@ -42,7 +42,7 @@
 // that residual rather than pretending it is zero.
 
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED } from '../data/defaultAssumptions';
-import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_COVER_DEFAULT } from '../data/pricingParameters';
+import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_COVER_DEFAULT, coversInEveryGame } from '../data/pricingParameters';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
@@ -716,9 +716,10 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   }
   // THE AGGREGATE COVER, beside the per-claim layer: its price is reinsurance —
   // a pass-through on the member charge, no admin on it, nothing netted off the
-  // pure premium. Not offered while the game's shocks are off.
+  // pure premium. Offered in every game, shocks on or off, while the covers are
+  // (COVERS_IN_EVERY_GAME); off, refused while the game's shocks are off.
   const coverId = aggregateCover ?? AGGREGATE_COVER_DEFAULT;
-  if (shocks === false && coverId !== AGGREGATE_COVER_DEFAULT) {
+  if (shocks === false && !coversInEveryGame() && coverId !== AGGREGATE_COVER_DEFAULT) {
     throw new Error(`quoteNewRateStack: ${line} quoted with aggregate cover '${coverId}' while the game's shocks are off`);
   }
   const coverQuote = coverId !== AGGREGATE_COVER_DEFAULT ? aggregateCoverQuote(line, coverId, exposure, yearNumber) : undefined;
