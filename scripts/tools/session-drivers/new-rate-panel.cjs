@@ -130,7 +130,11 @@ async function plrIs(rc) {
     const before = yourRate - reins;
     ok(Math.abs(rc - Math.round(before * 0.02)) <= 1 && Math.abs(admin - Math.round(before * 0.2)) <= 1,
       `at 2%: Risk Control is 2% and admin 20% of the rate before reinsurance (${rc} and ${admin} of ${before} cents)`);
-    ok(/Average saving equals the cost/.test(await page.locator('main').innerText()), 'at 2%: the box says the average saving equals the cost');
+    // The line "Average saving equals the cost." is removed (wip/display-removals); the cost in dollars stays.
+    ok(!/Average saving equals the cost/.test(await page.locator('main').innerText())
+      && await page.locator('[data-testid="risk-control-neutral"]').count() === 0
+      && money(await page.textContent('[data-testid="risk-control-cost"]')) > 0,
+      'at 2%: the box shows the cost in dollars, and no longer says the average saving equals the cost');
     await input.focus();
     await page.keyboard.press('Home');
     await page.waitForTimeout(800);

@@ -1675,7 +1675,14 @@ const BASELINE = process.env.RENDER_BASELINE
 // "Combined ratio 2028 <2028's>" at y2, the Annual Statement's newest column.
 // No other text moved. The 40 unmoved are the screens without the top bar.
 // No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v111.json');
+// v112: TWO DISPLAY REMOVALS (wip/display-removals), on multiplayer 12852f3,
+// which reproduces v111 here. 10 move, every Rate Indication, each by exactly the
+// Event Likelihoods chart's axis labels ("$0M $10M $20M $30M $40M 1/10 1/20
+// 1/50 1/100 1/200", once per line shown): the chart is removed and its table
+// stays. The Decisions page's "Average saving equals the cost." line is
+// removed too, but these games hold Risk Control at 0%, where it never showed,
+// so no Decisions screen moves. 226 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v112.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -1021,10 +1021,6 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
         <div className="rounded-lg bg-gray-100 border border-gray-200 px-3 py-2 text-xs text-gray-600">
           Cost at current exposure:{' '}
           <span data-testid="risk-control-cost" data-value={cost} className="font-semibold text-gray-800 tabular-nums">{formatCurrency(cost)}</span>
-          {/* Only when something is spent: at 0% there is no saving to speak of. */}
-          {value > 0 && (
-            <span data-testid="risk-control-neutral" className="block pt-0.5 text-gray-500">Average saving equals the cost.</span>
-          )}
         </div>
       )}
     </div>
