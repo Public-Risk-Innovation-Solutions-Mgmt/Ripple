@@ -1039,15 +1039,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // and raw renderings of each of the 24. The guard's games hold None, which adds
 // no row and moves no figure (value-identity-check holds on all 150 instances).
 // The 24 `stmt|...` keys do not move.
-// PLACEHOLDER-REATTRIBUTE
-// v111: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
-// e698c79, which reproduces v107 here 48 of 48. With LARGE_CLAIMS_BY_FREQUENCY
-// switched off at run time, all 24 Results files move by the Version row alone
-// (riskpool_gamestate_v36 -> v37, this landing's save key) and the 24
+// v111: LARGE CLAIMS BY FREQUENCY, IN EVERY GAME, NUCLEAR VERDICT KEEPING ITS
+// OWN (wip/large-claims-frequency), on multiplayer ba409c1, which reproduces
+// v110 here 48 of 48. With LARGE_CLAIMS_BY_FREQUENCY switched off at run time
+// the 24 Results files move by the Version row alone
+// (riskpool_gamestate_v38 -> v39, this landing's save key) and the 24
 // statements match. As built (both sides' text, GUARD_TEXT_DIR), 40 of 48 move:
 //   - every Results file: the Version row, and Expected Losses / its net row /
 //     the Pure Premium row beside them, which carry the expected large-claim
-//     cost at the new frequencies (first instance's WC 2026 $23.57M -> $24.31M);
+//     cost at the new frequencies (first instance's WC 2026 $23.57M -> $24.31M),
+//     and on GL Nuclear Verdict's own claim at its catalogue odds;
 //   - on Property, the Reserve Risk Margin Needed and the Excess Available
 //     Surplus / Excess Capital Ratio it sets, which hold the large-claim capital
 //     at the new frequencies even in a game where none lands (ZZTEST99 PR-solo);
@@ -1058,13 +1059,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // and member charge are bit-identical, because large claims stay out of the
 // rate (the shock-free pricing shadow). The 8 statements that match are for the
 // line-games where no large claim lands in either build (GL in 6KA6WGLJ and
-// MAMC6EA4; PR and WC in ZZTEST99; both arms). No file is added or removed.
-// NUCLEAR VERDICT KEEPS ITS OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS),
-// captured into this same v108 before landing. Against the capture without it,
-// the 12 GL-solo and tri Results files move, each by the GL Expected Losses,
-// its net row and the Pure Premium row beside them (NV's claim at its catalogue
-// odds); no Nuclear Verdict fires in these games, and no statement moves.
-// LARGE CLAIMS IN EVERY GAME moves nothing here: these games' shocks are on.
+// MAMC6EA4; PR and WC in ZZTEST99; both arms). No Nuclear Verdict fires in
+// these games, and every one has its shocks on, so LARGE_CLAIMS_EVERY_GAME
+// moves nothing here. No file is added or removed.
 const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v111.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

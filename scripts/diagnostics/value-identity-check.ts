@@ -1475,7 +1475,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 //            membership, the cover's terms). No field added or removed.
 //   854ed47, 083e5c0 (gates, save key) — nothing.
 // v91: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
-// e698c79. The control ran first: e698c79 reproduces v90 here, and this build
+// e698c79, RE-TAKEN AFTER MERGING multiplayer ba409c1 (which reproduces v90
+// here): identical, value for value, to the capture before the merge. The control ran first: e698c79 reproduces v90 here, and this build
 // with LARGE_CLAIMS_BY_FREQUENCY switched off at run time reproduces v90
 // exactly. With the switch on, each line draws at most one large claim a year,
 // at Low 7.5% / Mid 5.25% / High 2.25%, sized by the existing ranges × the

@@ -1602,38 +1602,30 @@ const BASELINE = process.env.RENDER_BASELINE
 //   Year Walkthrough 26   the version riskpool_gamestate_v37 -> _v38 only
 // The other 184 keep v106's fingerprints. The harness holds None, so no figure
 // on any screen changed. No key added or removed.
-// PLACEHOLDER-REATTRIBUTE
-// v108: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
-// e698c79. The control ran first: e698c79, built in its own worktree,
-// reproduced v104 236 of 236 here. Against it, word-diffed (RENDER_TEXT_DIR
-// both sides), 59 move:
+// v108: LARGE CLAIMS BY FREQUENCY, IN EVERY GAME, NUCLEAR VERDICT KEEPING ITS
+// OWN (wip/large-claims-frequency), on multiplayer ba409c1. ⚠ THE CONTROL DOES
+// NOT REPRODUCE v107 HERE: built in its own worktree, ba409c1 moves 8 of 236
+// against its committed v107, all Result Spreadsheets, so head is compared
+// against the control's own capture in this container. Against it,
+// word-diffed (RENDER_TEXT_DIR both sides), 59 move:
 //   every Rate Indication (10): Event Likelihoods is now a table ("Return
-//   period", "Claim size") with a small chart under it ($0M to $40M against
-//   1/10 to 1/200), its sizes at the new frequencies (WC 2027 "—, —, —, —,
-//   $15.5M" -> $2.3M, $4.4M, $9.8M, $24.9M, $32.4M; Property $4.0M, $8.3M,
-//   $15.1M, $27.6M, $33.8M), rising with the year (WC 2029 $2.5M ... $35.1M).
-//   No rate, pure premium, expense or cover price on the page moves;
-//   every Calculation Audit (26): the Year Walkthrough's save version
-//   (riskpool_gamestate_v36 -> v37); at 2028 the expected losses, which carry
-//   the expected large-claim cost at the new frequencies (WC $24,637,497 ->
-//   $25,411,286; GL $23,179,724 -> $23,650,649; Property $23,119,742 ->
-//   $23,623,597); and on Property the reserve margin's large-claim capital
-//   ($12,082,474 -> $8,625,000, the average Property large claim at 2027) and
-//   the Reserve Risk Margin Needed it sets ($13,085,188 -> $9,627,713);
+//   period", "Claim size") with a small chart under it, its sizes at the new
+//   frequencies (GL 2027 "—, $1.4M, $5.5M, $21.0M, …" -> $2.3M, $4.9M, $10.7M,
+//   $25.3M, …; Property $4.0M, $8.3M, $15.1M, $27.6M, $33.8M), rising with
+//   the year. No rate, pure premium, expense, cover or aggregate-cover price
+//   on the page moves;
+//   every Year Walkthrough (26): the save version (riskpool_gamestate_v38 ->
+//   v39), and at 2028 the year codes where the expected losses and capital
+//   below moved the state;
 //   Financial Statements (8) and Results (8), the Property and Pool views: the
-//   Required Reserve Margin, Excess Available Surplus and Excess Capital Ratio
-//   that follow (Property 51.3% -> 105.6%);
-//   Result Spreadsheet (7): the same expected losses and Property margin rows,
-//   and the Property capital status "Adequate" -> "Strong" in four years.
-// No large claim lands in these render games, so no event, narrative, loss or
-// surplus figure moves. The 177 other screens match.
-// NUCLEAR VERDICT KEEPS ITS OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS) and
-// LARGE CLAIMS IN EVERY GAME, captured into this same v105 before landing.
-// Against the capture without them, 9 move, all on GL at 2028: the expected
-// losses carry NV's claim at its catalogue odds ($23,650,649 -> $24,091,274;
-// the pool's with it) on the Calculation Audit (6) and the Result Spreadsheet
-// (3), with the GL loss-cost rate and loss-check lines that read them. No NV
-// fires in these games; their shocks are on, so every-game moves nothing.
+//   Required Reserve Margin ($13,085,188 -> $9,627,713, the large-claim
+//   capital at the new frequencies), Excess Available Surplus and Excess
+//   Capital Ratio (Property 51.3% -> 105.6%);
+//   Result Spreadsheet (7): the expected losses (GL 2028 $23,179,724 ->
+//   $24,091,274, with Nuclear Verdict's claim at its odds), the Property margin
+//   rows, and the Property capital status "Adequate" -> "Strong" in four years.
+// No large claim and no Nuclear Verdict lands in these render games, and their
+// shocks are on, so no event, loss or surplus figure moves. 177 match.
   ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v108.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
