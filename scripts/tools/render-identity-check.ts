@@ -1574,6 +1574,13 @@ const BASELINE = process.env.RENDER_BASELINE
 //   and the Property capital status "Adequate" -> "Strong" in four years.
 // No large claim lands in these render games, so no event, narrative, loss or
 // surplus figure moves. The 177 other screens match.
+// NUCLEAR VERDICT KEEPS ITS OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS) and
+// LARGE CLAIMS IN EVERY GAME, captured into this same v105 before landing.
+// Against the capture without them, 9 move, all on GL at 2028: the expected
+// losses carry NV's claim at its catalogue odds ($23,650,649 -> $24,091,274;
+// the pool's with it) on the Calculation Audit (6) and the Result Spreadsheet
+// (3), with the GL loss-cost rate and loss-check lines that read them. No NV
+// fires in these games; their shocks are on, so every-game moves nothing.
   ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v105.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
