@@ -124,9 +124,8 @@ async function join(ctx, code, name) {
      'and none reads "not recorded" — the posted rows carry their decisions block');
   // The Reinsurance column is each line's cover, by name (stable-scenarios
   // commit 6: the aggregate stop). Both teams locked on the defaults, so it
-  // reads the default cover's name — None, because this room schedules no
-  // shocks and a room with its shocks off defaults to None
-  // (AGGREGATE_STOP_DEFAULT_SHOCKS_OFF).
+  // reads the default cover's name — None, the default in every game, shocks
+  // on or off (REINSURANCE_DEFAULT_OPTION; this room schedules no shocks).
   ok(rows.every(r => r[2] === 'None'),
      `the Reinsurance column shows the package the team chose (${rows.map(r => r[2]).join(', ')})`);
   // Simple underwriting: the two underwriting sliders, by name, as percentages

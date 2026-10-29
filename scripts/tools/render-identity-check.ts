@@ -1585,7 +1585,86 @@ const BASELINE = process.env.RENDER_BASELINE
 // container moved, so their v106 fingerprints are this container's rendering;
 // in a container that reproduces v105 they may read as moved. The harness plays
 // at 0%, so no figure on any screen changed. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v106.json');
+// v107: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba. The
+// control, built in its own worktree and served on 4174, moved 8 of 236 against
+// v106 here (Result Spreadsheet, every configuration, y0 and y2 — the container
+// split v106 recorded, not code). So this change was measured against the
+// CONTROL'S OWN CAPTURE, and v107 is v106 with only the screens this change
+// moved replaced: 52 of 236, each word-diffed against the control
+// (RENDER_TEXT_DIR both sides), every difference an insertion or the save key:
+//   Decisions 16          the new "Aggregate cover" choice under the per-claim
+//                         cover: None and 110/50, 125/50, 150/50 with each price
+//                         (2027: WC $667,967 / $292,675 / $94,629, GL $675,955 /
+//                         $263,022 / $74,451, Property $879,680 / $434,590 /
+//                         $188,692)
+//   Rate Indication 10    the "Aggregate cover" rows under Reinsurance, each
+//                         option's price per $100
+//   Year Walkthrough 26   the version riskpool_gamestate_v37 -> _v38 only
+// The other 184 keep v106's fingerprints. The harness holds None, so no figure
+// on any screen changed. No key added or removed.
+// v108: LARGE CLAIMS BY FREQUENCY, IN EVERY GAME, NUCLEAR VERDICT KEEPING ITS
+// OWN (wip/large-claims-frequency), on multiplayer ba409c1. ⚠ THE CONTROL DOES
+// NOT REPRODUCE v107 HERE: built in its own worktree, ba409c1 moves 8 of 236
+// against its committed v107, all Result Spreadsheets, so head is compared
+// against the control's own capture in this container. Against it,
+// word-diffed (RENDER_TEXT_DIR both sides), 59 move:
+//   every Rate Indication (10): Event Likelihoods is now a table ("Return
+//   period", "Claim size") with a small chart under it, its sizes at the new
+//   frequencies (GL 2027 "—, $1.4M, $5.5M, $21.0M, …" -> $2.3M, $4.9M, $10.7M,
+//   $25.3M, …; Property $4.0M, $8.3M, $15.1M, $27.6M, $33.8M), rising with
+//   the year. No rate, pure premium, expense, cover or aggregate-cover price
+//   on the page moves;
+//   every Year Walkthrough (26): the save version (riskpool_gamestate_v38 ->
+//   v39), and at 2028 the year codes where the expected losses and capital
+//   below moved the state;
+//   Financial Statements (8) and Results (8), the Property and Pool views: the
+//   Required Reserve Margin ($13,085,188 -> $9,627,713, the large-claim
+//   capital at the new frequencies), Excess Available Surplus and Excess
+//   Capital Ratio (Property 51.3% -> 105.6%);
+//   Result Spreadsheet (7): the expected losses (GL 2028 $23,179,724 ->
+//   $24,091,274, with Nuclear Verdict's claim at its odds), the Property margin
+//   rows, and the Property capital status "Adequate" -> "Strong" in four years.
+// No large claim and no Nuclear Verdict lands in these render games, and their
+// shocks are on, so no event, loss or surplus figure moves. 177 match.
+// v109: RISK CONTROL IN THE DIVISOR AND THE EXPENSE RATIO BLOCK
+// (wip/risk-control-divisor), on multiplayer 2ec5d58. The control, built in its
+// own worktree here, moved 29 of 236 against v108 — the container split
+// (Financial Statements 14, Result Spreadsheet 8, Results 7), none of them a
+// screen this change moves. Against the control's own capture 42 move, each
+// word-diffed (RENDER_TEXT_DIR both sides):
+//   Decisions 16          the panel's expense block inserted — "Admin 20.0%
+//                         20.0% Risk control 0.0% 0.0% Total expense ratio 20.0%
+//                         20.0%" — and the permissible loss ratio to one
+//                         decimal, "80.0%" where it read "80%"
+//   Year Walkthrough 26   the pricing stage's expense block (Admin, Risk
+//                         control, Total expense ratio, Permissible loss ratio,
+//                         one decimal), the divisor "1 − admin − risk control"
+//                         (0.80 at 0%, where the feed read "× 1.0000"), the rate
+//                         before reinsurance (same figure, relabelled), admin's
+//                         charge per $100 (0.2 × that rate: $0.0569, $0.7349,
+//                         $1.1042), the working, the stage and year codes, and
+//                         the version riskpool_gamestate_v39 -> _v40
+// The Rate Indication does not move (its block already read 20.0% / 0.0% /
+// 20.0% / 80.0% at 0%). v109 is v108 with those 42 replaced; the other 194
+// keep v108's fingerprints. The harness plays at 0%: no figure moved.
+// v110: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-from-
+// events), on multiplayer e93c7ea, which reproduces v109 here 236 of 236.
+// Against it, word-diffed (RENDER_TEXT_DIR both sides), 49 move — each the
+// exact reverse of the separate draw's moves at v105/v108:
+//   every Year Walkthrough (26): the save version (riskpool_gamestate_v40 ->
+//   v41), and at 2028 the year codes the state below moves;
+//   Financial Statements (8) and Results (8), the Property and Pool views: the
+//   Required Reserve Margin back on the catalogue's regional events ($9,627,713
+//   -> $13,085,188), Excess Available Surplus and Excess Capital Ratio
+//   (Property 105.6% -> 51.3%);
+//   Result Spreadsheet (7): the expected losses back on the catalogue's T
+//   events (GL 2028 $24,091,274 -> $23,179,724), the Property margin rows, and
+//   the Property capital status "Strong" -> "Adequate" in four years.
+// The Rate Indication does not move: its Event Likelihoods were already built
+// from the pricing odds (T_COVER_FREQUENCY, the same 7.5% / 5.25% / 2.25%),
+// and every cover is already offered here. These games' shocks are on, so
+// COVERS_IN_EVERY_GAME moves nothing. 187 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v110.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

@@ -77,9 +77,13 @@ export function pricingBookFor(gameState: GameState, line: CoverageLine): Book {
  */
 export function fundingConsequenceInput(
   gameState: GameState, line: CoverageLine, decisions: DecisionSet, reinsuranceOption?: string,
+  // Overrides the line's aggregate cover, as `reinsuranceOption` does its layer
+  // (the Decisions page and the indication price each option).
+  aggregateCover?: string,
 ): { book: FundingConsequenceBook; purePremium: NewPurePremiumResult | null } {
   const d = decisions.byLine[line];
   const option = reinsuranceOption ?? d.reinsuranceOption;
+  const cover = aggregateCover ?? d.aggregateCover;
   const book = pricingBookFor(gameState, line);
   const exposure = bookExposureOf(book, line, gameState.currentYearNumber);
   const basis = {
@@ -106,6 +110,7 @@ export function fundingConsequenceInput(
       layersPlaced: placementFor(line, option),
       aggregateStopLevel: AGGREGATE_NOT_OFFERED,
       reinsuranceOption: option,
+      ...(cover !== undefined ? { aggregateCover: cover } : {}),
       shocks: gameShocksOn(gameState.setup, gameState.instance),
       pricingAdjustment: lineState.rateLevel / 100,
       priorPurePremiumPer100: lineState.purePremiumPer100,
@@ -158,8 +163,8 @@ export function underwritingFigures(
 
 /**
  * WHAT THE RISK CONTROL SLIDER COSTS AT THE CURRENT EXPOSURE, in dollars: the
- * rate's risk control charge (quoteNewRateStack.riskControlPer100 — the rate
- * before reinsurance x the slider) on the book's exposure, at the funding level
+ * rate's risk control charge (quoteNewRateStack.riskControlPer100 — the slider's
+ * share of the rate before reinsurance) on the book's exposure, at the funding level
  * and cover chosen. The same dollars the engine charges and books as Other Admin
  * Expense (wip/risk-control). $0 at 0%.
  */
@@ -187,9 +192,9 @@ export function riskControlCost(gameState: GameState, line: CoverageLine, decisi
  *               Indicated rate's own admin and risk control; no cover. Adds to
  *               the indicated rate.
  *
- * The rate before reinsurance is (pure premium x CLF / (1 - admin share)) x (1 +
+ * The rate before reinsurance is the pure premium x CLF / (1 - admin share -
  * risk control), so pure premium x CLF + admin + risk control is that rate
- * exactly (quoteNewRateStack); admin is not taken on the risk control charge.
+ * exactly (quoteNewRateStack), admin and risk control each its share of it.
  */
 export function ratePieces(n: NonNullable<FundingConsequence['newStack']>) {
   return {

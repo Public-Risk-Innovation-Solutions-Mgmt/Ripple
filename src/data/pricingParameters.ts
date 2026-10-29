@@ -524,8 +524,9 @@ export const ULAE_OF_LOSS_COST: PerLine<number> = { WC: 0.05, GL: 0.05, Property
  * on every book, and the permissible loss ratio is 1 - this (80%). What goes to
  * losses — the pure premium x CLF — is unchanged by it: admin is a pass-through
  * on top, and the cover's price is added after the divisor, never loaded by it.
- * Risk control is NOT in the divisor: the rate before reinsurance is multiplied
- * by (1 + the slider), and admin is not taken on that charge (RISK_CONTROL_CHARGE).
+ * Risk control is in the divisor beside it: 1 - this - the line's Risk Control
+ * slider (RISK_CONTROL_CHARGE), so admin and risk control are each exactly
+ * their share of the rate before reinsurance.
  *
  * ⚠ WHY A SHARE OF PREMIUM (wip/pricing-rework). It replaced a fixed amount per
  * line plus a per-exposure rate, both trended 3% a year from a 2027 base, whose
@@ -1082,12 +1083,26 @@ export const RISK_CONTROL = { enabled: false };
  *   DECISION  each line, each year: 0% to 5% in 1% steps, default 0%
  *             (RISK_CONTROL_INCENTIVE_RANGE; the slider is SLIDER_RANGES
  *             .riskControlIncentivePct). Single player, Test player and hosted.
- *   CHARGE    IN THE RATE: rate = (pure premium x CLF / (1 - admin share)) x
- *             (1 + slider) + reinsurance (linePricing.quoteNewRateStack). So at
- *             2% the rate is 2% higher, before reinsurance, than without it.
- *             Admin is NOT taken on the charge — it is a pass-through, like
- *             reinsurance. Its own "Risk Control" row in the rate build on the
- *             Decisions panel, the Rate Indication and the Model tab.
+ *   CHARGE    IN THE RATE, IN THE DIVISOR LIKE ADMIN: rate = pure premium x
+ *             CLF / (1 - admin share - slider) + reinsurance
+ *             (linePricing.quoteNewRateStack, expenseDivisor). The charge
+ *             collected is exactly the slider's share of the rate before
+ *             reinsurance, and admin exactly its 20%; at 2% the expense ratio
+ *             is 22% and the permissible loss ratio 78%. Its own "Risk Control"
+ *             row in the rate build, and the expense ratio block (Admin, Risk
+ *             control, Total expense ratio, Permissible loss ratio) on the
+ *             Decisions panel, the Rate Indication, the Model tab and the Year
+ *             Walkthrough, from the line's current choice.
+ *
+ *             ⚠ THE DIVISOR, NOT THE MULTIPLIER (wip/risk-control-divisor, the
+ *             user's change). wip/risk-control charged (pure premium x CLF / (1 -
+ *             admin)) x (1 + slider), so admin was not taken on the charge and
+ *             the charge was the slider's share of the rate before risk control.
+ *             In the divisor, admin's 20% is of the whole rate before
+ *             reinsurance, risk control included: at 2% the rate before
+ *             reinsurance is pure premium x CLF / 0.78 (x1.2821) against / 0.80 x
+ *             1.02 (x1.2750), so admin collected is about 2.6% more, and the
+ *             charge 0.0256 against 0.0250 of the pure premium x CLF.
  *   COST      the charge, booked as Other Admin Expense (riskControlInvestment),
  *             so the charge in and the cost out match every year.
  *   EFFECT    cuts THIS program year's NORMAL losses only — never a shock's
@@ -1107,7 +1122,7 @@ export const RISK_CONTROL = { enabled: false };
  * ⚠ THE PRE-GAME PLAYS AT 0%: its decisions carry no slider, so its history,
  * the openings and every scenario's record are untouched.
  */
-export const RISK_CONTROL_CHARGE = { chargedOn: 'pure premium x CLF / (1 - admin share)', adminOnCharge: false } as const;
+export const RISK_CONTROL_CHARGE = { chargedOn: 'pure premium x CLF / (1 - admin share - slider)', inDivisor: true } as const;
 
 /**
  * THE CUT — WHAT A YEAR OF RISK CONTROL TAKES OFF NORMAL LOSSES.
@@ -1422,19 +1437,52 @@ export function regionByShare(u: number): Region {
 /**
  * T — ONE ADDITIONAL LARGE CLAIM, in the program year the event fires
  * (wip/shocks test build). Where the shock map gives an event a T level on a
- * line, that line takes ONE claim, its size drawn uniformly within the
- * level's range below, in dollars as they stand — not scaled to the book, not
- * trended, not spread over several claims. It is its own occurrence; a
+ * line, that line takes ONE claim, its size drawn evenly within the line's
+ * range for the level below x the year's growth factor (trend x book growth
+ * since 2027 — shockCost.shockCostFactor). It is its own occurrence; a
  * regional event's claim lands in the struck region.
+ *
+ * ⚠ LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-from-events):
+ * the events a host schedules in a hosted game, the catalogue in single player
+ * and Test player, each at its T level from the event map — Nuclear Verdict's
+ * GL claim (High) among them. There is no separate large-claim draw: the
+ * yearly odds (T_COVER_FREQUENCY) price the covers and build the Event
+ * Likelihoods, and never draw a claim. So a hosted room with no T-bearing event
+ * scheduled has no large claims, and a cover bought there never pays.
  *
  * WHY: a T is the year's single large loss — a verdict, a catastrophe's worst
  * risk — and the reinsurance options (REINSURANCE_OPTIONS) are written per
- * occurrence on exactly that claim. It replaces T as an expected aggregate
- * scaled by each line's book (the old tScale) and arriving as several
- * lognormal claims (the old SHOCK_LOSS_COUNT and SHOCK_LOSS_CV). The ranges
- * are the R model's (R_MODEL.tShock) with each High raised to $40M, the top of
- * the widest cover.
+ * occurrence on exactly that claim.
+ *
+ * THE RANGES ARE THE T-SHOCK PRICING TABLE, written out (the brief's, not the
+ * R model's — R_MODEL.tShock, whose Highs top out at $12M / $15M / $25M, is
+ * shown on the Model tab as SUPERSEDED and read by nothing that draws or
+ * prices). The same ranges size the claims, price the covers (their midpoints,
+ * tCoverPrice) and build the Event Likelihoods; large-claims-from-events-check
+ * holds them to the table.
+ *                Low          Mid          High
+ *   WC           $1M-$3M      $3M-$6M      $6M-$40M
+ *   GL           $1M-$3M      $3M-$7M      $7M-$40M
+ *   Property     $2M-$5M      $5M-$12M     $12M-$40M
  */
+/**
+ * THE COVERS AND THE EVENT LIKELIHOODS IN EVERY GAME — shocks on or off. ON:
+ * all eight covers and None are offered, and priced the same (tCoverPrice), in
+ * single player, Test player and hosted games alike, whether or not the game's
+ * shocks are on (shockLosses.gameShocksOn); and the Event Likelihoods show in
+ * every game. Large claims still come only from T-shock events (above).
+ *
+ * WHY: a team should always be able to buy cover against a large claim and see
+ * how likely one is, whatever the host scheduled. ⚠ IN A HOSTED ROOM WITH NO
+ * T-BEARING EVENT SCHEDULED there are no large claims, so a cover bought there
+ * never pays — and nothing on the menu says so.
+ * OFF: while the game's shocks are off only None is offered
+ * (REINSURANCE_OFFERED_SHOCKS_OFF) and the Event Likelihoods are hidden.
+ */
+export const COVERS_IN_EVERY_GAME = { enabled: true };
+/** Are the covers and the Event Likelihoods in every game, shocks on or off (COVERS_IN_EVERY_GAME)? */
+export const coversInEveryGame = (): boolean => COVERS_IN_EVERY_GAME.enabled;
+
 export const SHOCK_T_CLAIM_RANGE: PerLine<Readonly<Record<'Low' | 'Mid' | 'High', readonly [number, number]>>> = {
   GL: { Low: [1e6, 3e6], Mid: [3e6, 7e6], High: [7e6, 40e6] },
   WC: { Low: [1e6, 3e6], Mid: [3e6, 6e6], High: [6e6, 40e6] },
@@ -1913,18 +1961,89 @@ export const REINSURANCE_OPTIONS: PerLine<readonly ReinsuranceOption[]> = {
  * from them as they grow. The multipliers load the high layers, where a mean
  * claim says least about the tail: a 30M layer costs 1.25x its 20M neighbour,
  * a 40M layer 1.2x the 30M layer's own expected cost.
+ *
+ * ⚠ THESE ODDS PRICE THE COVERS AND BUILD THE EVENT LIKELIHOODS — NOTHING ELSE.
+ * Low 7.5%, Mid 5.25%, High 2.25% a year (15% x 50% / 35% / 15%). They never
+ * draw a claim: large claims come only from T-shock events
+ * (SHOCK_T_CLAIM_RANGE), so in a game the claims a cover meets need not follow
+ * these odds — fewer where little is scheduled, none where nothing is.
  */
 export const T_COVER_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', number>> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
 export const T_COVER_30M_MULTIPLIER = 1.25;
 export const T_COVER_40M_MULTIPLIER = 1.2;
 
 /**
- * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn): only None is
- * offered, and held. WHY: with no shocks there is no T claim, so every option
- * would cost its price and never pay. Whenever the game's shocks are on, all
- * five are offered.
+ * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn) AND
+ * COVERS_IN_EVERY_GAME IS OFF: only None is offered, and held. WHY: with no
+ * shocks there is no T claim, so every option would cost its price and never
+ * pay. With COVERS_IN_EVERY_GAME on (as shipped) every game is offered all
+ * eight covers and None, and this list is not read.
  */
 export const REINSURANCE_OFFERED_SHOCKS_OFF: readonly string[] = ['none'];
+
+/**
+ * THE AGGREGATE COVER ON ATTRITIONAL LOSSES (wip/aggregate-cover;
+ * utils/aggregateCover.ts). Bought per line per year BESIDE the per-claim
+ * layer above, never instead of it. It covers the year's ATTRITIONAL losses —
+ * normal losses (the year factor, member risk and luck, after underwriting and
+ * risk control) plus the shocks' surges (A) — and nothing else: no large (T)
+ * claim, no Economic Inflation uplift, no development on older years.
+ *
+ *   expected attritional = expected normal losses x (1 + the average surge)
+ *   attachment, limit    = each option's share x expected attritional
+ *   recovery             = min(max(actual attritional - attachment, 0), limit)
+ *
+ * PRICE, the pricing workbook's "Agg Attritional" tab: four cases a year — no
+ * surge, Low, Mid, High — at the shock assumptions' odds (T_COVER_FREQUENCY,
+ * 7.5% / 5.25% / 2.25%, so 85% none). Each surge is the top of its level's
+ * range in R_MODEL.aShock (`surgeBasis` 'maximum'; 'midpoint' takes the
+ * middle). Within a case ordinary luck is normal around the case's level, 1 +
+ * surge, with SD the line's ordinary-year CV (typicalBookOrdinaryCv) x that
+ * level. The average surge in the attachment is taken on the same basis, so
+ * the switch moves the cases and the terms together.
+ *
+ *   expected recovery = Σ chance x E[min(max(X - attachment, 0), limit)]
+ *                       x expected normal losses
+ *   price             = expected recovery x the option's load
+ *
+ * Charged as reinsurance: added to the member charge as a pass-through, no
+ * admin taken on it, and never netted off the pure premium. The price and the
+ * terms are struck together, on the book the rate is quoted on — in a game of
+ * many worlds the averaged book, one price a team-year. While the game's
+ * shocks are off only None is offered, as with the per-claim covers: the
+ * price assumes surges the game would then never draw.
+ *
+ * WHY: the pricing workbook's "Agg Attritional" tab (the source of every
+ * figure here), so a team can buy cover against a bad ordinary year and a
+ * surge, which the per-claim layers never reach. ⚠ THE PRICES ASSUME SURGES AT
+ * THE SHOCK ASSUMPTIONS' ODDS; until the game's surges follow those odds the
+ * game's recoveries will differ from the prices (aggregateCover's
+ * expectedRecoveryToday measures what today's surges give).
+ *
+ * Expected 2027 prices at default decisions (aggregate-cover-check holds them):
+ * WC $667,967 / $292,675 / $94,629; GL $675,955 / $263,022 / $74,451;
+ * Property $879,680 / $434,590 / $188,692.
+ */
+export interface AggregateCoverOption {
+  id: string;
+  name: string;
+  /** Attaches at this share of the year's expected attritional losses. */
+  attachment: number;
+  /** Pays up to this share of the year's expected attritional losses. */
+  limit: number;
+  /** The price is the expected recovery x this. */
+  load: number;
+}
+export const AGGREGATE_COVER_OPTIONS: readonly AggregateCoverOption[] = [
+  { id: 'none', name: 'None', attachment: 0, limit: 0, load: 0 },
+  { id: 'agg-110-50', name: '110/50', attachment: 1.10, limit: 0.50, load: 1.2 },
+  { id: 'agg-125-50', name: '125/50', attachment: 1.25, limit: 0.50, load: 1.0 },
+  { id: 'agg-150-50', name: '150/50', attachment: 1.50, limit: 0.50, load: 1.0 },
+];
+/** Held by every team until it chooses; an absent choice reads as this. */
+export const AGGREGATE_COVER_DEFAULT = 'none';
+/** Where in its level's range each surge is priced: the top (the workbook's) or the middle. */
+export const AGGREGATE_COVER_SURGE_BASIS: { basis: 'maximum' | 'midpoint' } = { basis: 'maximum' };
 
 /**
  * THE AGGREGATE STOP, PER LINE (stable-scenarios commit 6). ON: the reinsurance
@@ -2536,14 +2655,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: `${RISK_CONTROL_INCENTIVE_RANGE.min} to ${RISK_CONTROL_INCENTIVE_RANGE.max}, step ${RISK_CONTROL_INCENTIVE_RANGE.step}, `
           + `default ${RISK_CONTROL_INCENTIVE_RANGE.default}`,
         unit: 'share of the rate before reinsurance',
-        what: 'The Risk Control slider, per line per year. The rate is (pure premium x CLF / (1 - admin share)) x '
-          + '(1 + this) + reinsurance; the charge is booked as Other Admin Expense, so the charge in and the cost out '
-          + 'match every year.',
+        what: 'The Risk Control slider, per line per year. In the divisor like admin: the rate is pure premium x CLF '
+          + '/ (1 - admin share - this) + reinsurance, so the charge is exactly this share of the rate before '
+          + 'reinsurance; it is booked as Other Admin Expense, so the charge in and the cost out match every year.',
         basis: 'CHOSEN',
         note: '5% is the R model\'s top; 1% steps keep it a handful of clear settings; 0% by default, so a player who '
-          + 'never touches it plays the game as it was. Admin is not taken on the charge — a pass-through, like '
-          + 'reinsurance. Charged in the rate because, booked without it (Phase 1), the pool ended year 5 $2.4M (2%) '
-          + 'and $5.9M (5%) lower per game: experience passed the saving back as lower rates while the pool kept paying.',
+          + 'never touches it plays the game as it was. In the divisor (not a multiplier on the rate) so the screens\' '
+          + 'expense ratio is admin + risk control and the permissible loss ratio 1 - that. Charged in the rate '
+          + 'because, booked without it (Phase 1), the pool ended year 5 $2.4M (2%) and $5.9M (5%) lower per game: '
+          + 'experience passed the saving back as lower rates while the pool kept paying.',
       }],
       ['Risk control cut', {
         value: `mean m, SD ${RISK_CONTROL_CUT.sdOfMean} m, floored at ${RISK_CONTROL_CUT.floor}`,
@@ -3058,6 +3178,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The R model\'s 20%. Flat since simple underwriting: there is no rejection rate to buy it down.',
       }],
+      ['Large claims (T)', {
+        value: 'only from T-shock events', unit: 'at the event\'s T level',
+        what: 'A large claim comes only when a T-shock event fires — scheduled by the host, or the catalogue in single '
+          + 'player and Test player — one claim on each line the event map gives a T level, sized evenly within the '
+          + 'T claim sizes x the year\'s growth factor. Nuclear Verdict\'s GL claim (High) among them. No separate draw.',
+        basis: 'CHOSEN',
+        note: 'The pricing odds (T cover frequencies) price the covers and build the Event Likelihoods only; they '
+          + 'never draw a claim. A hosted room with no T-bearing event scheduled has no large claims.',
+      }],
       ['Reinsurance options (T covers)', {
         value: REINSURANCE_OPTIONS.GL.filter(o => o.limit > 0).map(o => o.id).join(' · '),
         unit: 'per occurrence, on T claims only, every line',
@@ -3084,6 +3213,21 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'The pricing workbook\'s method, on the game\'s own claims, so prices follow the claims a player sees. '
           + 'In 2027 the factor is 1: WC 9 xs 1 $461K, GL $488K, Property $784K.',
       }],
+      ['Aggregate cover on attritional losses', {
+        value: AGGREGATE_COVER_OPTIONS.filter(o => o.limit > 0)
+          .map(o => `${o.name} (${Math.round(o.attachment * 100)}% / ${Math.round(o.limit * 100)}%, load ${o.load})`).join(' · '),
+        unit: 'attaches / limit, shares of the year\'s expected attritional losses; price = expected recovery x load',
+        what: 'What a team can buy on each line beside the per-claim cover: None, or a cover on the year\'s attritional '
+          + 'losses — normal losses plus the shocks\' surges (A), never a large (T) claim, Economic Inflation\'s uplift '
+          + 'or the development of an older year — paying min(max(attritional − attachment, 0), limit). Expected '
+          + 'attritional = expected normal losses x (1 + the average surge). Charged as reinsurance, no admin on it.',
+        basis: 'SOURCED',
+        note: 'The pricing workbook\'s "Agg Attritional" tab: four cases a year at the shock assumptions\' odds (none '
+          + `85%, Low ${T_COVER_FREQUENCY.Low * 100}%, Mid ${T_COVER_FREQUENCY.Mid * 100}%, High ${T_COVER_FREQUENCY.High * 100}%), `
+          + `each surge at the ${AGGREGATE_COVER_SURGE_BASIS.basis} of its A range, ordinary luck normal around the case at the `
+          + 'line\'s ordinary-year CV. Not offered while the game\'s shocks are off. The prices assume surges at those odds; '
+          + 'until the game\'s surges follow them, recoveries will differ from the prices.',
+      }],
       ['Aggregate stop', {
         value: !AGGREGATE_STOP.enabled ? 'off — dormant; the T covers are offered' : AGGREGATE_STOP.enabled
           ? AGGREGATE_STOP_OPTIONS.filter(o => o.limit > 0)
@@ -3101,10 +3245,13 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the switch.',
       }],
       ['Covers while shocks are off', {
-        value: `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`, unit: 'rule',
-        what: 'While a game\'s shocks are off (a hosted room with none scheduled) only None is offered; with them on, '
-          + 'all five options are.',
-        basis: 'CHOSEN', note: 'With no shocks there is no T claim, so a cover would cost its price and never pay.',
+        value: coversInEveryGame() ? 'all eight and None, as with shocks on' : `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`,
+        unit: 'rule',
+        what: 'Every game is offered and priced every cover exactly as one with its shocks on, and shows the Event '
+          + 'Likelihoods (COVERS_IN_EVERY_GAME). Off, only None while the shocks are off.',
+        basis: 'CHOSEN',
+        note: 'Large claims come only from T-shock events, so in a hosted room with none scheduled a cover never pays — '
+          + 'and the menu does not say so.',
       }],
       ['Default reinsurance', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,
@@ -3471,7 +3618,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         value: rLevels(R_MODEL.tShock.GL, false), unit: 'dollars at onset', basis: 'CHOSEN',
         status: 'SUPERSEDED',
         what: 'An aggregate shock loss at the event\'s start, drawn uniformly. SUPERSEDED (wip/shocks) by one T claim '
-          + 'of the sizes under T claim sizes.',
+          + 'of the sizes under T claim sizes (the T-shock pricing table, Highs to $40M); these R-model ranges are '
+          + 'shown for the record and read by nothing that draws or prices.',
         note: '⚠ SCALED PER LINE, by that line\'s own ratio, never one pool-wide factor — the game\'s '
           + 'expected ordinary loss against the R model\'s (base premium x target loss ratio), a basis that '
           + 'does not move with a team\'s funding level; see T scaling under New loss engine. The model\'s '

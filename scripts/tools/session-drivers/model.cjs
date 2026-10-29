@@ -12,8 +12,13 @@
 //                       premium x CLF, admin, Risk Control, reinsurance — add
 //                       to that rate; the indicated rate at Expected is the
 //                       projected pure premium / the permissible loss ratio;
-//                       admin is 20% and the permissible loss ratio 80% on
-//                       every line and every year, with no profit &
+//                       the expense block is admin 20%, risk control the
+//                       year's choice, their total, and the permissible loss
+//                       ratio 1 - that (80% at 0%; WC's coming year is set to
+//                       2%, so 22.0% and 78.0% there), shown to one decimal,
+//                       with admin 20% and the Risk Control row the slider's
+//                       share of the rate before reinsurance (restated at
+//                       wip/risk-control-divisor), with no profit &
 //                       contingency row (restated at wip/pricing-rework from
 //                       the line's contingency, WC 2%, GL 0%, Property 0%,
 //                       and the trended fixed and per-exposure admin); every window year shows its reserve
@@ -37,6 +42,9 @@ const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['P
 // Admin's share of premium by line (pricingParameters' ADMIN_SHARE_OF_PREMIUM), written out.
 const ADMIN = { WC: 0.2, GL: 0.2, Property: 0.2 };
 const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+// The expense block with risk control in the divisor beside admin: the total is
+// admin + risk control and the permissible loss ratio 1 - the total.
+const expenseBlockOk = (l, admin, rc, total, plr) => near(admin, ADMIN[l]) && near(total, ADMIN[l] + rc) && near(plr, 1 - ADMIN[l] - rc);
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -86,8 +94,21 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
     await page.waitForSelector(`text=Lock Program Year ${2027 + y}`, { timeout: 120000 });
   }
 
-  // The coming year's rate, as the Decisions panel quotes it.
+  // WC's Risk Control slider to 2% for the coming year (wip/risk-control-divisor),
+  // so the coming year's expense block is read above 0%.
   await tab('Decisions');
+  await lineView("Workers' Compensation");
+  {
+    const box = page.locator('div.flex.flex-col.gap-2', { has: page.locator('span', { hasText: /^Safety & Return-to-Work$/ }) }).first();
+    const input = box.locator('input[type=range]');
+    await input.focus();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(600);
+    ok(Number(await input.inputValue()) === 0.02, 'solo: WC\'s Risk Control slider set to 2% for the coming year', await input.inputValue());
+  }
+  // The coming year's rate, as the Decisions panel quotes it.
   const panel = {};
   for (const [l, label] of LINES) { await lineView(label); panel[l] = await value('[data-testid="new-rate-final"]'); }
 
@@ -100,6 +121,7 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
     'solo: the year dropdown runs from the first pre-game year to the coming year', opts.map(o => o.text).join(', '));
 
   const sim = {};
+  let wcComing = null;
   for (const [l] of LINES) {
     await page.click(`[data-testid="model-line-${l}"]`);
     await page.waitForFunction(x => document.querySelector('[data-testid="model"]')?.getAttribute('data-line') === x, l);
@@ -118,22 +140,29 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       const plr = await value('[data-testid="model-a-plr"]');
       const indicated = await value('[data-testid="model-a-indicated"]');
       const admin = await value('[data-testid="model-a-exp-admin"]');
+      const rc = await value('[data-testid="model-a-exp-risk-control"]');
+      const total = await value('[data-testid="model-a-exp-total"]');
+      const blockText = (await Promise.all(['exp-admin', 'exp-risk-control', 'exp-total', 'plr'].map(k => page.textContent(`[data-testid="model-a-${k}"]`)))).map(t => t.trim());
       const adminShare = await value('[data-testid="model-a-admin-share"]');
       const retired = await page.locator('[data-testid="model-a-exp-contingency"], [data-testid="model-a-piece-contingency"], [data-testid="model-a-exp-fixed"], [data-testid="model-a-exp-exposure"], [data-testid="model-a-admin-trend"]').count();
       const inflation = await page.$$eval('[data-testid$="-inflation"]', els => els.map(e => Number(e.getAttribute('data-value'))));
       const credit = await page.locator('[data-testid="model-a-credit"]').count();
       const sum = pieces.reduce((x, y) => x + y, 0);
-      const structure = near(sum, rate) && near(indicated, projected / plr) && near(admin, ADMIN[l]) && near(adminShare, ADMIN[l])
-        && near(plr, 1 - ADMIN[l]) && retired === 0 && near(pieces[1], ADMIN[l] * (rate - pieces[3])) && credit === 0
+      const wantRc = coming && l === 'WC' ? 0.02 : 0;
+      if (coming && l === 'WC') wcComing = { admin, rc, total, plr };
+      const structure = near(sum, rate) && near(indicated, projected / plr) && near(adminShare, ADMIN[l])
+        && expenseBlockOk(l, admin, rc, total, plr) && rc === wantRc
+        && blockText.join(' ') === [ADMIN[l], rc, ADMIN[l] + rc, 1 - ADMIN[l] - rc].map(pct1).join(' ')
+        && retired === 0 && near(pieces[1], ADMIN[l] * (rate - pieces[3])) && near(pieces[2], rc * (rate - pieces[3])) && credit === 0
         && inflation.length > 0 && inflation.every(x => x >= 1);
-      if (!structure && !bad) bad = `${o.text}: rows ${sum} vs rate ${rate}; indicated ${indicated} vs ${projected / plr}; admin ${admin} (share ${adminShare}, row ${pieces[1]}), permissible ${plr}; ${retired} retired rows; ${inflation.length} inflation cells; credit rows ${credit}`;
+      if (!structure && !bad) bad = `${o.text}: rows ${sum} vs rate ${rate}; indicated ${indicated} vs ${projected / plr}; admin ${admin} (share ${adminShare}, row ${pieces[1]}), risk control ${rc} (want ${wantRc}, row ${pieces[2]}), total ${total}, permissible ${plr}, shown ${blockText.join(' / ')}; ${retired} retired rows; ${inflation.length} inflation cells; credit rows ${credit}`;
       const good = structure && (coming ? near(rate, panel[l]) : near(rate, charged) && near(premium, chargedPremium));
       n++;
       if (!good && !bad) bad = `${o.text}: ${rate} vs ${want}${coming ? ' (panel)' : `, premium ${premium} vs ${chargedPremium}`}`;
       if (!good) worst++;
     }
     ok(worst === 0 && n === opts.length,
-      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged; its rows add to it, the indicated rate is pure premium / permissible loss ratio, admin 20% and the permissible loss ratio 80% every year, no contingency, inflation shown, no credit`,
+      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged; its rows add to it, the indicated rate is pure premium / permissible loss ratio; the expense block is admin 20.0% + the year's risk control${l === 'WC' ? ' (2.0% in the coming year)' : ''} = the total, and the permissible loss ratio 1 - that; Risk Control is that share of the rate; no contingency, inflation shown, no credit`,
       bad || `${n} years`);
 
     // Section B's simulated figures, by calendar year: every year but the
@@ -153,6 +182,13 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
       };
     }
   }
+
+  // THE CONTROL: the coming WC year's block, with wip/risk-control's multiplier
+  // permissible loss ratio — (1 - admin) / (1 + risk control), 78.4% at 2% —
+  // must be refused.
+  ok(wcComing !== null && wcComing.rc === 0.02
+    && !expenseBlockOk('WC', wcComing.admin, wcComing.rc, wcComing.total, (1 - ADMIN.WC) / (1 + wcComing.rc)),
+    'control: the multiplier\'s permissible loss ratio is refused on WC\'s coming year', JSON.stringify(wcComing));
 
   // SECTION B against the Annual Statement, year by year and line by line.
   await tab('Annual Statement');

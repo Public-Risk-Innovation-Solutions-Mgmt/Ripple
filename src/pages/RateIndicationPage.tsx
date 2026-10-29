@@ -36,6 +36,38 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// THE EVENT LIKELIHOODS' SMALL CHART: claim size ($M) against the return
+// period, 1 in 10 to 1 in 200 years on a log scale, the points joined. Its
+// y-axis runs to the largest size shown, so the curve rises with the year's
+// growth factor along with the table.
+function LikelihoodChart({ line, rows }: { line: CoverageLine; rows: { years: number; size: number | null }[] }) {
+  const pts = rows.filter((r): r is { years: number; size: number } => r.size !== null);
+  if (pts.length === 0) return null;
+  const W = 260, H = 130, L = 34, B = 22, T = 8, Rr = 8;
+  const xOf = (y: number) => L + (Math.log(y / 10) / Math.log(20)) * (W - L - Rr);
+  const top = Math.max(...pts.map(p => p.size)) / 1e6;
+  const step = top > 40 ? 20 : top > 20 ? 10 : 5;
+  const yMax = Math.ceil(top / step) * step;
+  const yOf = (m: number) => H - B - (m / yMax) * (H - B - T);
+  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.years).toFixed(1)},${yOf(p.size / 1e6).toFixed(1)}`).join(' ');
+  return (
+    <svg data-testid={`ri-${line}-likelihood-chart`} viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full max-w-xs" role="img"
+      aria-label={`Claim size against return period, ${line}`}>
+      {Array.from({ length: yMax / step + 1 }, (_, i) => i * step).map(m => (
+        <g key={m}>
+          <line x1={L} x2={W - Rr} y1={yOf(m)} y2={yOf(m)} className="stroke-gray-200" strokeWidth={1} />
+          <text x={L - 4} y={yOf(m) + 3} textAnchor="end" className="fill-gray-500" fontSize={9}>{`$${m}M`}</text>
+        </g>
+      ))}
+      {rows.map(r => (
+        <text key={r.years} x={xOf(r.years)} y={H - 6} textAnchor="middle" className="fill-gray-500" fontSize={9}>{`1/${r.years}`}</text>
+      ))}
+      <path d={path} fill="none" className="stroke-blue-600" strokeWidth={2} />
+      {pts.map(p => <circle key={p.years} cx={xOf(p.years)} cy={yOf(p.size / 1e6)} r={3} className="fill-blue-600" />)}
+    </svg>
+  );
+}
+
 function LineCard({ ri }: { ri: RateIndication }) {
   const l = ri.line;
   const p = ri.pure;
@@ -109,17 +141,37 @@ function LineCard({ ri }: { ri: RateIndication }) {
           {ri.reinsurance.map(r => (
             <Row key={r.id} label={r.name} testId={`ri-${l}-reins-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
           ))}
+          {/* THE AGGREGATE COVER ON ATTRITIONAL LOSSES, beside the per-claim covers (utils/aggregateCover). */}
+          <h4 className="text-sm font-semibold text-gray-800 pt-4 pb-2 mb-2 border-b border-gray-300" data-testid={`ri-${l}-agg-covers`}>Aggregate cover</h4>
+          {ri.aggregateCovers.map(r => (
+            <Row key={r.id} label={r.name} testId={`ri-${l}-agg-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
+          ))}
         </div>
-        {/* EVENT LIKELIHOODS, beside the cover prices — shocks on only (utils/eventLikelihoods). */}
+        {/* EVENT LIKELIHOODS, beside the cover prices — in every game (COVERS_IN_EVERY_GAME; utils/eventLikelihoods). */}
         {ri.eventLikelihoods && (
           <div className="max-w-md" data-testid={`ri-${l}-event-likelihoods`}>
             <h4 className="text-sm font-semibold text-gray-800 pb-2 mb-1 border-b border-gray-300">Event Likelihoods</h4>
             <p className="text-xs text-gray-500 mb-1">The chance in any year of a single large claim at least this size.</p>
-            {ri.eventLikelihoods.map(e => (
-              <Row key={e.years} label={`1 in ${e.years} years`} testId={`ri-${l}-likelihood-${e.years}`} value={e.size ?? undefined}>
-                {e.size === null ? '—' : formatMillions(e.size / 1e6, 1)}
-              </Row>
-            ))}
+            {/* A table: return period against the claim size. */}
+            <table className="w-full text-sm" data-testid={`ri-${l}-likelihood-table`}>
+              <thead>
+                <tr className="text-xs text-gray-500">
+                  <th className="text-left font-medium py-1">Return period</th>
+                  <th className="text-right font-medium py-1">Claim size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ri.eventLikelihoods.map(e => (
+                  <tr key={e.years} className="text-gray-700">
+                    <td className="py-1">{`1 in ${e.years} years`}</td>
+                    <td className="py-1 text-right font-mono tabular-nums" data-testid={`ri-${l}-likelihood-${e.years}`} data-value={e.size ?? undefined}>
+                      {e.size === null ? '—' : formatMillions(e.size / 1e6, 1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <LikelihoodChart line={l} rows={ri.eventLikelihoods} />
           </div>
         )}
       </div>

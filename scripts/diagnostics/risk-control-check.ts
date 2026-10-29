@@ -1,14 +1,16 @@
 // ============================================================================
-// RISK CONTROL — the slider per line per year (wip/risk-control;
+// RISK CONTROL — the slider per line per year (wip/risk-control, its charge
+// moved into the divisor at wip/risk-control-divisor;
 // RISK_CONTROL_CHARGE and RISK_CONTROL_CUT in pricingParameters.ts,
 // utils/riskControl.ts).
 //
 //   npx tsx scripts/diagnostics/risk-control-check.ts
 //
-// 1. THE CHARGE IS IN THE RATE AND THE COST IS THE CHARGE. Rate = (pure premium
-//    x CLF / (1 - admin share)) x (1 + slider) + reinsurance at every setting,
-//    0% to 5%; the pool premium and admin do not move with the slider (admin is
-//    not taken on the charge). In a played game the charge in (the member
+// 1. THE CHARGE IS IN THE RATE, IN THE DIVISOR, AND THE COST IS THE CHARGE.
+//    Rate = pure premium x CLF / (1 - admin share - slider) + reinsurance at
+//    every setting, 0% to 5%; the charge is exactly the slider's share of the
+//    rate before reinsurance and admin exactly its 20%; the pool premium is the
+//    pure premium x CLF whatever the slider. In a played game the charge in (the member
 //    charge less pool premium, admin and reinsurance) is the cost out
 //    (riskControlInvestment, Other Admin Expense), every line and year, and
 //    the expense ratios carry it (expected combined ratio 1.0000 at Expected).
@@ -16,7 +18,9 @@
 //    one of the hundred worlds books the same m, z and cut every line-year; a
 //    hosted team on the same scenario draws the same z; a second player at
 //    another setting draws the same z, and in the first year (the same book
-//    and rate before risk control) m in proportion to the slider.
+//    and pure premium) m in proportion to the charge's share of the pure
+//    premium x CLF, slider / (1 - admin - slider) — the divisor's, not the
+//    slider's alone.
 // 3. IT NEVER TOUCHES SHOCKS OR OLDER YEARS. A game with shocks in force in
 //    year 3 played twice, at 0% and with the slider at 5% in year 3 only: years
 //    1 and 2 are identical; in year 3 every world's shock surge dollars, event
@@ -40,8 +44,9 @@
 //    against multiplayer's head is measured outside this gate (80 games
 //    byte-identical, wip/risk-control's report) and held by value identity.
 //
-// THE CONTROLS, each must fail: admin taken on the charge (the old divisor);
-// the cost not the charge; z drawn off each world's own seed; the cut taken off
+// THE CONTROLS, each must fail: the charge as a multiplier on the rate, (1 +
+// slider) (wip/risk-control's form); the cost not the charge; z drawn off each
+// world's own seed; m in proportion to the slider alone; the cut taken off
 // the shocks' dollars; the cut reaching an older accident year; m sized without
 // the LAE; the draw biased; the 0% game charged 1% in one year.
 // ============================================================================
@@ -109,7 +114,7 @@ const rowsOf = (gs: GameState): LineResultSet[] => gs.lockedResults.flatMap(r =>
 
 // ---- 1. THE CHARGE -----------------------------------------------------------
 // Off by default; a control sets these to break the rule each guards.
-let adminOnCharge = false, costNotCharge = false;
+let multiplierForm = false, costNotCharge = false;
 function sectionCharge(G: GameState): string[] {
   const out: string[] = [];
   if (RISK_CONTROL_INCENTIVE_RANGE.min !== 0 || RISK_CONTROL_INCENTIVE_RANGE.max !== 0.05 || RISK_CONTROL_INCENTIVE_RANGE.step !== 0.01
@@ -123,11 +128,15 @@ function sectionCharge(G: GameState): string[] {
       const rc = k / 100;
       const q = quoteNewRateStack({ ...base, riskControlPct: rc });
       const a = ADMIN_SHARE_OF_PREMIUM[l];
-      const before = q.retainedPurePremiumPer100 * q.clf / (adminOnCharge ? 1 - rc - a : 1 - a);
-      const want = before * (1 + rc) + q.reinsRatePer100;
-      if (!near(q.finalRatePer100, want, 1e-12)) out.push(`${l} ${k}%: rate ${q.finalRatePer100} against (pp x CLF / (1 - admin)) x (1 + slider) + reins ${want}`);
-      if (!near(q.riskControlPer100, before * rc, 1e-12)) out.push(`${l} ${k}%: charge ${q.riskControlPer100} against ${before * rc}`);
-      if (q.poolPremiumRatePer100 !== q0.poolPremiumRatePer100 || q.adminRatePer100 !== q0.adminRatePer100) out.push(`${l} ${k}%: the pool premium or admin moved with the slider`);
+      // The designed rate before reinsurance — or, broken, wip/risk-control's multiplier form.
+      const before = multiplierForm
+        ? q.retainedPurePremiumPer100 * q.clf / (1 - a) * (1 + rc)
+        : q.retainedPurePremiumPer100 * q.clf / (1 - a - rc);
+      const want = before + q.reinsRatePer100;
+      if (!near(q.finalRatePer100, want, 1e-12)) out.push(`${l} ${k}%: rate ${q.finalRatePer100} against pp x CLF / (1 - admin - slider) + reins ${want}`);
+      if (!near(q.riskControlPer100, before * rc, 1e-12, 1e-15)) out.push(`${l} ${k}%: charge ${q.riskControlPer100} against the slider's share of the rate before reinsurance ${before * rc}`);
+      if (!near(q.adminRatePer100, before * a, 1e-12)) out.push(`${l} ${k}%: admin ${q.adminRatePer100} is not 20% of the rate before reinsurance ${before * a}`);
+      if (!near(q.poolPremiumRatePer100, q0.poolPremiumRatePer100, 1e-12)) out.push(`${l} ${k}%: the pool premium moved with the slider`);
     }
   }
   // The played game: the charge in is the cost out, and the ratios carry it.
@@ -146,7 +155,9 @@ function sectionCharge(G: GameState): string[] {
 }
 
 // ---- 2. SHARED ---------------------------------------------------------------
-let worldSeedDraw = false;
+let worldSeedDraw = false, proportionalToSlider = false;
+/** The charge's share of the pure premium x CLF at a slider: slider / (1 - admin - slider). */
+const chargeShare = (line: CoverageLine, s: number) => (proportionalToSlider ? s : s / (1 - ADMIN_SHARE_OF_PREMIUM[line] - s));
 function sectionShared(solo: GameState, team: GameState, other: GameState, sTeam: number, sOther: number): string[] {
   const out: string[] = [];
   const gameSeed = marketSeedOf(solo.instance);
@@ -169,9 +180,11 @@ function sectionShared(solo: GameState, team: GameState, other: GameState, sTeam
       const o = other.lockedResults.find(x => x.yearNumber === r.yearNumber)!.byLine[l];
       if (o.riskControlDraw !== a.riskControlDraw) out.push(`${l} year ${r.yearNumber}: the second player drew ${o.riskControlDraw}`);
     }
-    // Year 1: the same book and rate before risk control, so m in proportion to the slider.
+    // Year 1: the same book and pure premium, so m in proportion to the charge's
+    // share of the pure premium x CLF — slider / (1 - admin - slider).
     const t1 = team.lockedResults[0].byLine[l], o1 = other.lockedResults[0].byLine[l];
-    if (!near(o1.riskControlMeanCut! / t1.riskControlMeanCut!, sOther / sTeam, 1e-9)) out.push(`${l} year 1: m ${o1.riskControlMeanCut} at ${sOther} against ${t1.riskControlMeanCut} at ${sTeam}`);
+    const want = chargeShare(l, sOther) / chargeShare(l, sTeam);
+    if (!near(o1.riskControlMeanCut! / t1.riskControlMeanCut!, want, 1e-9)) out.push(`${l} year 1: m ${o1.riskControlMeanCut} at ${sOther} against ${t1.riskControlMeanCut} at ${sTeam} — ratio ${o1.riskControlMeanCut! / t1.riskControlMeanCut!}, the divisor's ${want}`);
   }
   return out;
 }
@@ -317,13 +330,14 @@ function sectionZero(zero: GameState, absent: GameState): string[] {
 console.log('risk-control-check\n');
 const SC = '16';
 const G = soloGame(SC, y => withSlider(defaultDecisionSet(y), y === 1 ? 0.05 : y === 2 ? 0.02 : 0, ['WC', 'GL']), 3);
-check(sectionCharge(G), '1. rate = (pure premium x CLF / (1 - admin)) x (1 + slider) + reinsurance, 0% to 5%; the charge in is the cost out every line-year; the expense ratios carry it');
-control('admin taken on the charge (the old divisor, 1 - risk control - admin)', () => { adminOnCharge = true; return () => { adminOnCharge = false; }; }, () => sectionCharge(G));
+check(sectionCharge(G), '1. rate = pure premium x CLF / (1 - admin - slider) + reinsurance, 0% to 5%: the charge the slider\'s share and admin 20% of the rate before reinsurance; the charge in is the cost out every line-year; the expense ratios carry it');
+control('the charge as a multiplier on the rate, (1 + slider)', () => { multiplierForm = true; return () => { multiplierForm = false; }; }, () => sectionCharge(G));
 control('the cost booked on the pool premium, not the charge', () => { costNotCharge = true; return () => { costNotCharge = false; }; }, () => sectionCharge(G));
 
 const solo3 = soloGame(SC, at(0.03), 3), team3 = teamGame(SC, at(0.03), 3), team5 = teamGame(SC, at(0.05), 3);
-check(sectionShared(solo3, team3, team5, 0.03, 0.05), `2. scenario ${SC}: every world the same m, z and cut; the hosted team and a second player at 5% the same z; year-1 m in proportion to the slider`);
+check(sectionShared(solo3, team3, team5, 0.03, 0.05), `2. scenario ${SC}: every world the same m, z and cut; the hosted team and a second player at 5% the same z; year-1 m in proportion to the charge, slider / (1 - admin - slider)`);
 control('z drawn off each world\'s own seed', () => { worldSeedDraw = true; return () => { worldSeedDraw = false; }; }, () => sectionShared(solo3, team3, team5, 0.03, 0.05));
+control('m in proportion to the slider alone (no divisor)', () => { proportionalToSlider = true; return () => { proportionalToSlider = false; }; }, () => sectionShared(solo3, team3, team5, 0.03, 0.05));
 
 const SCHEDULE = [{ shockId: '#7', yearNumber: SHOCK_YEAR }, { shockId: '#2', yearNumber: SHOCK_YEAR }];
 const off = soloGame('9', at(0), SHOCK_YEAR, SCHEDULE), on = soloGame('9', at(0.05, [SHOCK_YEAR]), SHOCK_YEAR, SCHEDULE);

@@ -61,7 +61,7 @@ import { MARKET_MEMBER_COUNT, MARKET_TOTAL_EXPOSURE } from '../data/memberCatalo
 import { RETENTION_PROBABILITY_BOUNDS, WITHDRAWAL_NOISE_RANGE } from '../utils/membershipEngine';
 import { ADMIN_OVERRUN_RANGE, ADMIN_SHARE_OF_PREMIUM, AGGREGATE_STOP, DEVELOPMENT_SPEED, FREQUENCY_TREND_PER_YEAR, SEVERITY_TREND_PER_YEAR, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL } from '../data/pricingParameters';
 import { placementFor } from '../utils/reinsuranceOptions';
-import { expenseDivisor } from '../utils/linePricing';
+import { effectiveRiskControlIncentivePct, expenseDivisor } from '../utils/linePricing';
 import { defaultLineDecisionSet } from '../utils/decisionDefaults';
 import type { TeamMarketShareOfYear } from '../session/contract';
 import { roomShareFor } from '../session/marketShares';
@@ -2007,9 +2007,9 @@ export function buildSupportingRows(
               // The expense divisor under the new stack, the rate level under
               // the old — see the Contributions row for why it belongs here.
               NEW_RATE_STACK.enabled
-                ? factorTerm((1 - ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine])
-                  / expenseDivisor(lineView as CoverageLine),
-                  `× (1 - admin) / ${expenseDivisor(lineView as CoverageLine).toFixed(2)}`)
+                ? factorTerm((1 - ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine] - effectiveRiskControlIncentivePct(lineRow.decisions))
+                  / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
+                  `× (1 - admin - risk control) / ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`)
                 : factorTerm(lineRow.rateLevel / 100, `rate level ${lineRow.rateLevel}`),
             ],
           },
@@ -2760,17 +2760,18 @@ export function buildRevExpRows(
               label: 'net expected loss',
             },
             { value: lineRow.selectedFundingCLF, format: 'factor', label: `CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%` },
-            // ⚠ THE EXPENSE DIVISOR, UNDER THE NEW STACK, less admin's share:
-            // the rate before reinsurance and risk control is retained x CLF /
-            // (1 - admin share), and this row is that rate less admin — (1 -
-            // admin share) of it. Risk control is its own charge, on top. Flag off, the factor is the rate level and this
-            // reads exactly as it did.
+            // ⚠ THE EXPENSE DIVISOR, UNDER THE NEW STACK, less admin's and risk
+            // control's shares: the rate before reinsurance is retained x CLF /
+            // (1 - admin share - risk control), and this row is that rate less
+            // admin and risk control — (1 - admin share - risk control) of it,
+            // so the factor is 1. Flag off, the factor is the rate level and
+            // this reads exactly as it did.
             ...(NEW_RATE_STACK.enabled
               ? [{
-                value: (1 - ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine])
-                  / expenseDivisor(lineView as CoverageLine),
+                value: (1 - ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine] - effectiveRiskControlIncentivePct(lineRow.decisions))
+                  / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
                 format: 'factor' as const,
-                label: `× (1 - admin ${(ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine] * 100).toFixed(0)}%) / (1 - admin) = / ${expenseDivisor(lineView as CoverageLine).toFixed(2)}`,
+                label: `× (1 - admin ${(ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine] * 100).toFixed(0)}% - risk control) / (1 - admin - risk control) = / ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`,
               }]
               : [{ value: lineRow.rateLevel / 100, format: 'factor' as const, label: `rate level ${lineRow.rateLevel}` }]),
           ],
@@ -2801,8 +2802,8 @@ export function buildRevExpRows(
           factors: NEW_RATE_STACK.enabled && lineRow !== null
             // ⚠ THE 15% LOAD IS RETIRED UNDER THE NEW STACK. Admin is its share
             // of premium (ADMIN_SHARE_OF_PREMIUM): that share of the rate
-            // before reinsurance and risk control, retained x CLF / (1 - admin
-            // share) — stated here the way it is charged, because a page that
+            // before reinsurance, retained x CLF / (1 - admin share - risk
+            // control) — stated here the way it is charged, because a page that
             // states the old formula beside the new number is the defect this
             // check exists to catch.
             ? [
@@ -2810,8 +2811,8 @@ export function buildRevExpRows(
               { value: 10_000, format: 'plain', label: 'units of $100 per $M' },
               { value: lineRow.netPurePremiumPer100, format: 'plain', label: 'net pure premium rate' },
               factorTerm(lineRow.selectedFundingCLF, `CLF at ${(lineRow.selectedFundingConfidenceLevel * 100).toFixed(0)}%`),
-              factorTerm(1 / expenseDivisor(lineView as CoverageLine),
-                `/ ${expenseDivisor(lineView as CoverageLine).toFixed(2)}`),
+              factorTerm(1 / expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine),
+                `/ ${expenseDivisor(effectiveRiskControlIncentivePct(lineRow.decisions), lineView as CoverageLine).toFixed(2)}`),
               { value: ADMIN_SHARE_OF_PREMIUM[lineView as CoverageLine], format: 'pct', label: 'admin share of premium' },
             ]
             : [cur(result.expectedLoss, 'expected loss'), { value: ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, format: 'pct' }],

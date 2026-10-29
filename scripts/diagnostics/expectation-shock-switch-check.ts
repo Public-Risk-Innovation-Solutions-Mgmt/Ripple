@@ -64,6 +64,19 @@
 // SHOCK_T_CLAIM_RANGE's midpoints, and 4b also asserts optionPrice agrees with
 // it and that WC 9 xs 1 at factor 1 is the documented $461,250. A control
 // charges the retired fixed-table price grown by the factor and must fail 4b.
+//
+// RESTATED FOR wip/large-claims-from-events: large claims come only from
+// T-shock events (no separate draw), but the covers are in every game
+// (COVERS_IN_EVERY_GAME, shipped on). The expectation (2), the stop (3), the
+// solo and hosted games (4, 5), the prior board (7) and Property's
+// catastrophe capital (8: zero with the shocks off) are as reverted. 6, THE
+// OFFER, changes: with the shocks off it now wants None AND the eight T
+// covers — the same nine, in the same order, as with them on — at the same
+// prices (optionPrice at growth 1 and 1.3, each the method), None the default
+// either way. Its control "every option offered with the shocks off" is now
+// the design, so it is replaced by "None alone with the shocks off (the
+// pre-#60 rule)"; and a new control throws COVERS_IN_EVERY_GAME.enabled =
+// false at runtime, which must fail 6, then restores it.
 // ============================================================================
 import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
 import { marketSeedOf } from '../../src/utils/bookUnits';
@@ -78,7 +91,7 @@ import { drawShockSchedule } from '../../src/utils/shockSchedule';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { seedFromInstanceId } from '../../src/seedHash';
 import {
-  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, REINSURANCE_OPTIONS, SHOCK_COST_TREND, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
+  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, COVERS_IN_EVERY_GAME, REINSURANCE_OPTIONS, SHOCK_COST_TREND, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
 } from '../../src/data/pricingParameters';
 import { shockCostFactor } from '../../src/utils/shockCost';
 import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
@@ -261,10 +274,15 @@ function gradeOffer(ids: typeof reinsuranceOptionIds, dflt: (shocks: boolean) =>
   const on = (['WC', 'GL', 'Property'] as const).map(l => ids(l, true).join(','));
   const decOff = defaultDecisionSet(1, false), decOn = defaultDecisionSet(1, true);
   // The brief's T covers, written out (not read from REINSURANCE_OPTIONS).
-  const ok = off.every(x => x === 'none') && on.every(x => x === 'none,$9M xs $1M,$19M xs $1M,$29M xs $1M,$39M xs $1M,$8M xs $2M,$18M xs $2M,$28M xs $2M,$38M xs $2M')
+  const nine = 'none,$9M xs $1M,$19M xs $1M,$29M xs $1M,$39M xs $1M,$8M xs $2M,$18M xs $2M,$28M xs $2M,$38M xs $2M';
+  // COVERS_IN_EVERY_GAME: the same nine with the shocks off, at the same prices (the method).
+  // An id that is not a T cover (the retired stop's 'working') cannot be priced: not priced.
+  const pricedAt = (l: 'WC' | 'GL' | 'Property', id: string, g: number) => { try { return near(optionPrice(l, id, g), methodPrice(l, id, g), 1e-12); } catch { return false; } };
+  const priced = (['WC', 'GL', 'Property'] as const).every(l => ids(l, false).every(id => [1, 1.3].every(g => pricedAt(l, id, g))));
+  const ok = off.every(x => x === nine) && on.every(x => x === nine) && priced
     && dflt(false) === 'none' && dflt(true) === 'none'
     && (['WC', 'GL', 'Property'] as const).every(l => decOff.byLine[l].reinsuranceOption === dflt(false) && decOn.byLine[l].reinsuranceOption === dflt(true));
-  check(ok, `${tag}6. shocks off: only None offered; on: None and the eight T covers; None the default either way`,
+  check(ok, `${tag}6. shocks on or off: None and the eight T covers offered, at the method's prices; None the default either way`,
     `off ${off[0]} / ${dflt(false)}; on ${on[0]} / ${dflt(true)}`);
 }
 gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), '');
@@ -355,7 +373,11 @@ controlFails('a T cover whose price does not grow (the trend zeroed in the engin
 controlFails('a hosted game whose expectation dropped its shocks',
   () => gradeHosted(hostedGame.rows.map(r => ({ ...r, expectedLoss: expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, false).total })), ''), '5.');
 
-controlFails('every option offered with the shocks off', () => gradeOffer(l => reinsuranceOptionIds(l, true), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
+controlFails('None alone with the shocks off (the pre-#60 rule)', () => gradeOffer((l, sh) => (sh ? reinsuranceOptionIds(l, true) : ['none']), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
+controlFails('COVERS_IN_EVERY_GAME switched off at runtime', () => {
+  COVERS_IN_EVERY_GAME.enabled = false;
+  try { gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), ''); } finally { COVERS_IN_EVERY_GAME.enabled = true; }
+}, '6.');
 controlFails('the wip/shocks four-cover menu offered with the shocks on',
   () => gradeOffer((_l, sh) => (sh ? ['none', '$9M xs $1M', '$8M xs $2M', '$18M xs $2M', '$38M xs $2M'] : ['none']), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
 controlFails('a T cover default with the shocks on', () => gradeOffer(reinsuranceOptionIds, sh => (sh ? '$18M xs $2M' : 'none'), ''), '6.');

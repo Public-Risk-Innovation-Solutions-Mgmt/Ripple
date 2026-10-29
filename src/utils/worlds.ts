@@ -40,7 +40,7 @@ import {
   type LoanOffer, type ProcessYearResult, type StruckLineRate,
 } from './simulationEngine';
 import type {
-  AccidentYearSplit, CoverageLine, DecisionSet, GameInstance, GameState, InterLineLoan,
+  AccidentYearSplit, AttritionalCoverRecord, CoverageLine, DecisionSet, GameInstance, GameState, InterLineLoan,
   LinePoolState, LineResultSet, PlayedYear, PoolState, RateBasis, ReserveCohort, ReserveDevelopmentRow, ResultSet, WorldState,
 } from '../types/simulation';
 import type { ShockRecord } from '../types/shocks';
@@ -390,6 +390,10 @@ export function averageLineResults(rs: LineResultSet[], startBooks?: number[]): 
     if (vals.every(v => same(v, vals[0]))) { out[key] = vals[0]; continue; }
     if (key === 'cededByLayer') { out[key] = elementwiseMean(rs.map(r => r.cededByLayer)); continue; }
     if (key === 'reserveSplitByYear') { out[key] = averageSplitRows(rs.map(r => r.reserveSplitByYear)); continue; }
+    // The aggregate cover on attritional losses: one option in every world (the
+    // decisions are shared), each figure the mean — the recovery a mean over
+    // worlds, counting a world it did not pay in as zero.
+    if (key === 'attritionalCover') { out[key] = averageAttritionalCover(rs.map(r => r.attritionalCover)); continue; }
     if (vals.every(v => typeof v === 'number' || v === undefined || v === null)) {
       out[key] = mean(vals.map(v => (typeof v === 'number' ? v : 0)));
       continue;
@@ -418,6 +422,18 @@ export function averageLineResults(rs: LineResultSet[], startBooks?: number[]): 
     avg.lossPurePremiumPer100 = parseFloat((avg.expectedLoss / (avg.activeExposure * 10_000)).toFixed(4));
   }
   return avg;
+}
+
+function averageAttritionalCover(rs: (AttritionalCoverRecord | undefined)[]): AttritionalCoverRecord {
+  const present = rs.filter((r): r is AttritionalCoverRecord => r !== undefined);
+  if (present.length !== rs.length || present.some(r => r.optionId !== present[0].optionId)) {
+    throw new Error('averageLineResults: attritionalCover differs in its option across worlds');
+  }
+  const out = { optionId: present[0].optionId } as Record<string, unknown>;
+  for (const k of Object.keys(present[0]) as (keyof AttritionalCoverRecord)[]) {
+    if (k !== 'optionId') out[k] = mean(present.map(r => r[k] as number));
+  }
+  return out as unknown as AttritionalCoverRecord;
 }
 
 /** Claim-level and per-world records an averaged row does not carry. */

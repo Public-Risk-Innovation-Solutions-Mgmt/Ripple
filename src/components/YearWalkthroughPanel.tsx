@@ -25,6 +25,7 @@ function shown(r: WalkRow): string {
   switch (r.kind) {
     case 'usd': return formatCurrency(r.value);
     case 'pct': return formatPct(r.value, 2);
+    case 'pct1': return formatPct(r.value, 1);
     case 'factor': return formatNumber(r.value, 4);
     case 'per100': return `$${formatNumber(r.value, 4)}`;
     case 'exposure': return formatMillions(r.value, 2);

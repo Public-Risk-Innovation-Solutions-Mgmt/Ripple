@@ -1031,7 +1031,65 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // the losses' cut 0 and normal losses after it the same, the risk control
 // stage), their working text and the codes. No existing figure moved. The 24
 // `stmt|...` keys do not move.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v109.json');
+// v110: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba,
+// which reproduced v109 48 of 48 here first. The 24 Results keys move and
+// nothing else; each was text-diffed against the control (GUARD_TEXT_DIR both
+// sides), row by row, and the ONLY moved row is the Version row,
+// riskpool_gamestate_v37 -> _v38, this landing's save key — 48 lines, the shown
+// and raw renderings of each of the 24. The guard's games hold None, which adds
+// no row and moves no figure (value-identity-check holds on all 150 instances).
+// The 24 `stmt|...` keys do not move.
+// v111: LARGE CLAIMS BY FREQUENCY, IN EVERY GAME, NUCLEAR VERDICT KEEPING ITS
+// OWN (wip/large-claims-frequency), on multiplayer ba409c1, which reproduces
+// v110 here 48 of 48. With LARGE_CLAIMS_BY_FREQUENCY switched off at run time
+// the 24 Results files move by the Version row alone
+// (riskpool_gamestate_v38 -> v39, this landing's save key) and the 24
+// statements match. As built (both sides' text, GUARD_TEXT_DIR), 40 of 48 move:
+//   - every Results file: the Version row, and Expected Losses / its net row /
+//     the Pure Premium row beside them, which carry the expected large-claim
+//     cost at the new frequencies (first instance's WC 2026 $23.57M -> $24.31M),
+//     and on GL Nuclear Verdict's own claim at its catalogue odds;
+//   - on Property, the Reserve Risk Margin Needed and the Excess Available
+//     Surplus / Excess Capital Ratio it sets, which hold the large-claim capital
+//     at the new frequencies even in a game where none lands (ZZTEST99 PR-solo);
+//   - where a line draws a large claim: the year's "Events This Year" ("Large
+//     claim: 1.0 claims, $6,048,813") and its losses, LAE, reserves, ratios,
+//     income, investments, surplus and capital, in that year and the years after.
+// NO RATE OR PREMIUM ROW MOVES in any file: the rate per $100, gross premium
+// and member charge are bit-identical, because large claims stay out of the
+// rate (the shock-free pricing shadow). The 8 statements that match are for the
+// line-games where no large claim lands in either build (GL in 6KA6WGLJ and
+// MAMC6EA4; PR and WC in ZZTEST99; both arms). No Nuclear Verdict fires in
+// these games, and every one has its shocks on, so LARGE_CLAIMS_EVERY_GAME
+// moves nothing here. No file is added or removed.
+// v112: RISK CONTROL IN THE DIVISOR (wip/risk-control-divisor), on multiplayer
+// 2ec5d58, which reproduced v111 48 of 48 here first. The 24 Results keys move
+// and nothing else; text-diffed row by row against the control (GUARD_TEXT_DIR
+// both sides). Outside the Year Walkthrough sheet's Pricing stage and its year
+// codes, the only moved row is the Version row, riskpool_gamestate_v39 -> _v40
+// (shown and raw, 48). Inside the Pricing stage: four rows relabelled with their
+// values unchanged, 2,880 compared — "Admin share of the rate" -> "Admin",
+// "Divisor (1 − admin)" -> "Divisor (1 − admin − risk control)", "Rate before
+// reinsurance and risk control per $100" -> "Rate before reinsurance per $100",
+// "Risk control charge per $100 (that rate × the slider)" -> "(that rate × risk
+// control)"; rows added — Risk control 0, Total expense ratio 0.2, Permissible
+// loss ratio 0.8, and "Admin charge per $100 (that rate × admin)", 0.2 × the
+// rate before reinsurance on every row; the working text and the codes. The
+// Admin stage's own "Admin share of the rate" row does not move. No Results
+// figure moved. The 24 `stmt|...` keys do not move.
+// v113: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-from-
+// events), on multiplayer e93c7ea, which reproduces v112 here 48 of 48. The
+// separate large-claim draw is gone. Attributed exactly: against e93c7ea with
+// LARGE_CLAIMS_BY_FREQUENCY switched off at run time (both sides' text,
+// GUARD_TEXT_DIR), all 48 files match but for the 24 Results files' Version
+// row (riskpool_gamestate_v40 -> v41, this landing's save key). So every move
+// against v112 is the draw's removal: 40 of 48 move — the expected losses,
+// Pure Premium, the Property reserve margin and capital, the year-walkthrough
+// sheet's rows and every year a frequency large claim had landed in — all
+// back to what the catalogue's events give, as before v108. No rate or
+// premium row moves. These games' shocks are on and they hold None, so
+// COVERS_IN_EVERY_GAME moves nothing. No file is added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v113.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

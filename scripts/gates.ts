@@ -279,9 +279,16 @@ const FAST: string[] = [
   'event-likelihoods-check',         //  ~5s   wip/reinsurance-layers: the Rate Indication's Event
                                      //        Likelihoods recomputed exactly from the catalogue, at the
                                      //        claims' growth; none with shocks off
+  'aggregate-cover-check',           // ~37s   wip/aggregate-cover: the aggregate cover on attritional
+                                     //        losses — options, each price recomputed by integration
+                                     //        (2027 table to the dollar, both surge bases), and in 4,500
+                                     //        world-line-years the terms, attritional losses and recovery;
+                                     //        against None: no large claim, no development, the statement's
+                                     //        ceded block — each with a control.
   't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
                                      //        recovery on every claim size, each year's price by the
                                      //        workbook's method at the T claims' own growth factor
+  'large-claims-from-events-check',  //  ~14s  wip/large-claims-from-events: large claims only from T-shock events (their map level, range x growth, one per line per firing), none with no schedule; the brief's ranges, odds and 2027 cover table; covers and likelihoods in every game — each with a control
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
                                      //         asset class — each with a control. (Replaces

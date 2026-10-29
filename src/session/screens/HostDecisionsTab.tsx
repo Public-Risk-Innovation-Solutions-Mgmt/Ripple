@@ -31,7 +31,7 @@
 // in `flagsFor` and each flag says what it means on hover.
 // ============================================================================
 
-import { AGGREGATE_STOP_OPTIONS } from '../../data/pricingParameters';
+import { AGGREGATE_COVER_OPTIONS, AGGREGATE_STOP_OPTIONS } from '../../data/pricingParameters';
 import { Fragment, useState } from 'react';
 import { HardHat, Scale, Building2, AlertTriangle } from 'lucide-react';
 import TabNav from '../../components/TabNav';
@@ -139,8 +139,13 @@ function fundingLabel(d: TeamLineDecisions): string {
 // name, as the team saw it.
 function reinsuranceLabel(d: TeamLineDecisions): string {
   if (typeof d.reinsuranceOption !== 'string') return '—';
-  if (d.reinsuranceOption === 'none') return 'None';
-  return AGGREGATE_STOP_OPTIONS.find(o => o.id === d.reinsuranceOption)?.name ?? d.reinsuranceOption;
+  const layer = d.reinsuranceOption === 'none' ? 'None'
+    : AGGREGATE_STOP_OPTIONS.find(o => o.id === d.reinsuranceOption)?.name ?? d.reinsuranceOption;
+  // The aggregate cover on attritional losses, when bought (absent is None).
+  const cover = d.aggregateCover && d.aggregateCover !== 'none'
+    ? AGGREGATE_COVER_OPTIONS.find(o => o.id === d.aggregateCover)?.name ?? d.aggregateCover
+    : null;
+  return cover ? `${layer} + aggregate ${cover}` : layer;
 }
 
 const SPAN_NOTE: Record<Exclude<CellState['kind'], 'reported'>, string> = {

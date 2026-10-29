@@ -19,12 +19,25 @@ let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
 
 const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
+// The expense block at a slider: Admin 20.0%, Risk control, Total expense
+// ratio, Permissible loss ratio = 1 - the total — each row in both columns.
+const p1 = v => `${(v * 100).toFixed(1)}%`;
+function expenseBlockReads(body, rc) {
+  const row = (label, v) => new RegExp(`${label}\\s*${p1(v).replace('.', '\\.')}\\s*${p1(v).replace('.', '\\.')}`).test(body);
+  return row('Admin', 0.2) && row('Risk control', rc) && row('Total expense ratio', 0.2 + rc) && row('Permissible loss ratio', 0.8 - rc);
+}
+let page;
+async function plrIs(rc) {
+  const i = Number(await page.getAttribute('[data-testid="new-rate-indicated-plr"]', 'data-value'));
+  const y = Number(await page.getAttribute('[data-testid="new-rate-yours-plr"]', 'data-value'));
+  return Math.abs(i - (0.8 - rc)) < 1e-12 && Math.abs(y - (0.8 - rc)) < 1e-12;
+}
 
 (async () => {
   await requireServer();
   const browser = await launchBrowser();
   const ctx = await browser.newContext({ baseURL: BASE });
-  const page = await ctx.newPage();
+  page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', e => errs.push(e.message));
 
@@ -73,7 +86,7 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     && !/contingency/i.test(body),
      'each piece its own row: Pure premium, Admin (20% of premium), Risk Control, Reinsurance, = Rate — no Profit & contingency');
   // ⚠ EACH COLUMN ADDS EXACTLY TO ITS RATE, in the cents printed; Risk Control
-  // reads $0.00 in both while risk control is off.
+  // reads $0.00 in both at the default 0%.
   {
     const cents = async id => { const t = await page.textContent(`[data-testid="${id}"]`); return Math.round(money(t) * 100); };
     const rows = ['pure-premium', 'admin', 'risk-control'];
@@ -82,17 +95,49 @@ const money = t => Number(String(t).replace(/[^0-9.-]/g, ''));
     const indRate = await cents('new-rate-indicated'), yourRate = await cents('new-rate-final');
     ok(ind.reduce((a, b) => a + b, 0) === indRate, `the Indicated rows add to the Indicated rate (${ind.join(' + ')} = ${indRate} cents)`);
     ok(yours.reduce((a, b) => a + b, 0) === yourRate, `Your rate's rows add to Your rate (${yours.join(' + ')} = ${yourRate} cents)`);
-    ok(ind[2] === 0 && yours[2] === 0, 'Risk Control reads $0.00 in both columns while risk control is off');
+    ok(ind[2] === 0 && yours[2] === 0, 'Risk Control reads $0.00 in both columns at 0%');
     // Admin is 20% of the rate before reinsurance in both columns, to the cent
     // the printed rows can carry (admin takes the rounding, a cent at most).
     const yourBefore = yourRate - yours[3];
     ok(Math.abs(ind[1] - Math.round(indRate * 0.2)) <= 1 && Math.abs(yours[1] - Math.round(yourBefore * 0.2)) <= 1,
       `Admin is 20% of the rate before reinsurance in both columns (${ind[1]} of ${indRate}, ${yours[1]} of ${yourBefore} cents)`);
-    const plrI = Number(await page.getAttribute('[data-testid="new-rate-indicated-plr"]', 'data-value'));
-    const plrY = Number(await page.getAttribute('[data-testid="new-rate-yours-plr"]', 'data-value'));
-    ok(Math.abs(plrI - 0.8) < 1e-12 && Math.abs(plrY - 0.8) < 1e-12
-      && /Permissible loss ratio\s*80%\s*80%/.test(body),
-      `the permissible loss ratio reads 80% in both columns (${plrI}, ${plrY})`);
+    // THE EXPENSE RATIO BLOCK (restated at wip/risk-control-divisor): Admin
+    // 20.0%, Risk control (the line's choice), Total expense ratio, Permissible
+    // loss ratio = 1 - the total, in both columns, to one decimal.
+    ok(expenseBlockReads(body, 0) && await plrIs(0), 'the expense block reads Admin 20.0%, Risk control 0.0%, Total 20.0%, Permissible loss ratio 80.0% in both columns');
+  }
+
+  // ---- the Risk Control slider at 2%: the divisor (wip/risk-control-divisor) --
+  // Drive WC's slider to 2%. Risk control is in the divisor beside admin, so
+  // the block reads 20.0 / 2.0 / 22.0 / 78.0%, the Risk Control row is 2% of
+  // the rate before reinsurance and admin 20% of it, to the cent the printed
+  // rows carry; then back to 0%, and the panel is exactly as it was.
+  {
+    const before0 = (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
+    const box = page.locator('div.flex.flex-col.gap-2', { has: page.locator('span', { hasText: /^Safety & Return-to-Work$/ }) }).first();
+    const input = box.locator('input[type=range]');
+    await input.focus();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(800);
+    ok(Number(await input.inputValue()) === 0.02, `the WC Risk Control slider moves to 2% (${await input.inputValue()})`);
+    const at2 = (await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ');
+    ok(expenseBlockReads(at2, 0.02) && await plrIs(0.02), 'at 2%: Admin 20.0%, Risk control 2.0%, Total expense ratio 22.0%, Permissible loss ratio 78.0% in both columns');
+    const cents = async id => Math.round(money(await page.textContent(`[data-testid="${id}"]`)) * 100);
+    const yourRate = await cents('new-rate-final'), reins = await cents('new-rate-yours-reins');
+    const rc = await cents('new-rate-yours-risk-control'), admin = await cents('new-rate-yours-admin');
+    const before = yourRate - reins;
+    ok(Math.abs(rc - Math.round(before * 0.02)) <= 1 && Math.abs(admin - Math.round(before * 0.2)) <= 1,
+      `at 2%: Risk Control is 2% and admin 20% of the rate before reinsurance (${rc} and ${admin} of ${before} cents)`);
+    ok(/Average saving equals the cost/.test(await page.locator('main').innerText()), 'at 2%: the box says the average saving equals the cost');
+    await input.focus();
+    await page.keyboard.press('Home');
+    await page.waitForTimeout(800);
+    ok((await page.textContent('[data-testid="new-rate-panel"]')).replace(/\s+/g, ' ') === before0, 'back at 0%, the panel is exactly as it was');
+    // THE CONTROL: wip/risk-control's multiplier gave a permissible loss ratio of
+    // (1 - admin) / (1 + slider) = 78.4% at 2%. The block's predicate must refuse it.
+    ok(!expenseBlockReads(at2.replace(/78\.0%/g, '78.4%'), 0.02), 'control: the multiplier\'s 78.4% is refused by the expense block\'s predicate');
   }
   ok(/vs last year/.test(body), 'the vs-last-year row renders');
 
