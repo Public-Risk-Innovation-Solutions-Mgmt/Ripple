@@ -76,7 +76,7 @@
 
 import { useState } from 'react';
 import { latestKnownRoomYear } from '../../utils/knownYears';
-import { BarChart3, Layers, HardHat, Scale, Building2 } from 'lucide-react';
+import { BarChart3, Layers, HardHat, Scale, Building2, Maximize2, X } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { formatCurrency, formatMillions } from '../../utils/formatters';
@@ -340,7 +340,7 @@ function LineChart({ metric, series, years, directLabels, domain }: ChartProps) 
     return (
       <figure className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <figcaption className="text-sm font-medium text-slate-700">{metric.title}</figcaption>
-        <p data-testid={`chart-empty-${metric.id}`} className="py-10 text-center text-sm text-slate-400">
+        <p data-testid={`chart-empty-${metric.id}`} className="py-10 text-center text-sm text-slate-600">
           Nothing reported on this view yet.
         </p>
       </figure>
@@ -398,10 +398,10 @@ function LineChart({ metric, series, years, directLabels, domain }: ChartProps) 
             long one cannot wrap around the note and interleave with it. */}
         <span className="flex items-baseline justify-between gap-4">
           <span className="text-sm font-medium text-slate-700">{metric.title}</span>
-          <span className="shrink-0 font-mono text-[11px] text-slate-300">{metric.note}</span>
+          <span className="shrink-0 font-mono text-[11px] text-slate-600">{metric.note}</span>
         </span>
         {metric.subtitle && (
-          <span className="mt-0.5 block text-[11px] text-slate-400">{metric.subtitle}</span>
+          <span className="mt-0.5 block text-[11px] text-slate-600">{metric.subtitle}</span>
         )}
       </figcaption>
 
@@ -534,6 +534,10 @@ interface Props {
 
 export default function HostChartsTab({ room }: Props) {
   const [view, setView] = useState<LineView>('pool');
+  // ⚠ AN ID, NOT THE METRIC OBJECT ITSELF — METRICS is a module-level constant,
+  // so holding the id and looking the metric back up keeps this state trivially
+  // serialisable and avoids ever holding a stale reference across a re-render.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const linesInPlay = LINE_ORDER.filter(l => room.teams.some(t => t.lines.includes(l)));
   const effectiveView: LineView = view !== 'pool' && !linesInPlay.includes(view) ? 'pool' : view;
@@ -552,7 +556,7 @@ export default function HostChartsTab({ room }: Props) {
 
   if (room.teams.length === 0) {
     return (
-      <p data-testid="charts-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-400">
+      <p data-testid="charts-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
         No teams have joined yet.
       </p>
     );
@@ -575,6 +579,8 @@ export default function HostChartsTab({ room }: Props) {
     if (values.length === 0) continue;
     sharedDomains[group] = niceScale(Math.min(...values), Math.max(...values), members[0].anchorZero);
   }
+
+  const expandedMetric = METRICS.find(m => m.id === expandedId) ?? null;
 
   return (
     <div className="space-y-4">
@@ -603,9 +609,9 @@ export default function HostChartsTab({ room }: Props) {
             ) : (
               <span className="inline-block h-2.5 w-2.5 rounded-full border border-dashed border-slate-300" />
             )}
-            <span className={s.state.kind === 'drawn' ? 'text-slate-700' : 'text-slate-400'}>{s.team.name}</span>
+            <span className={s.state.kind === 'drawn' ? 'text-slate-700' : 'text-slate-600'}>{s.team.name}</span>
             {s.state.kind === 'absent' && (
-              <span data-testid={`chart-absent-${s.team.name}`} className="italic text-slate-400">
+              <span data-testid={`chart-absent-${s.team.name}`} className="italic text-slate-600">
                 does not write {effectiveView === 'pool' ? 'any line' : effectiveView}
               </span>
             )}
@@ -629,22 +635,65 @@ export default function HostChartsTab({ room }: Props) {
       </div>
 
       {METRICS.map(m => (
-        <LineChart
-          key={m.id}
-          metric={m}
-          series={series}
-          years={years}
-          directLabels={directLabels}
-          domain={m.scaleGroup ? sharedDomains[m.scaleGroup] : undefined}
-        />
+        <div key={m.id} className="relative">
+          <button
+            type="button"
+            onClick={() => setExpandedId(m.id)}
+            data-testid={`chart-expand-${m.id}`}
+            aria-label={`Expand ${m.title}`}
+            className="absolute right-4 top-4 z-10 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+          >
+            <Maximize2 size={14} />
+          </button>
+          <LineChart
+            metric={m}
+            series={series}
+            years={years}
+            directLabels={directLabels}
+            domain={m.scaleGroup ? sharedDomains[m.scaleGroup] : undefined}
+          />
+        </div>
       ))}
 
-      <p className="flex items-center gap-1.5 px-1 text-[11px] text-slate-400">
+      <p className="flex items-center gap-1.5 px-1 text-[11px] text-slate-600">
         <BarChart3 size={12} />
         {effectiveView === 'pool'
           ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
           : `Every line is ${effectiveView}, so the charts compare like with like.`}
       </p>
+
+      {/* ⚠ THE SAME LineChart, NOT A SECOND RENDERING PATH. A fullscreen view that
+          drew its own copy of the SVG could drift from the card version; this
+          just gives the identical component a bigger box to lay out in — the
+          viewBox scaling in LineChart does the rest. */}
+      {expandedMetric && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+          onClick={() => setExpandedId(null)}
+        >
+          <div
+            className="relative max-h-[92vh] w-[95vw] overflow-auto rounded-xl bg-white p-2 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setExpandedId(null)}
+              data-testid="chart-modal-close"
+              aria-label="Close"
+              className="absolute right-4 top-4 z-10 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+            >
+              <X size={18} />
+            </button>
+            <LineChart
+              metric={expandedMetric}
+              series={series}
+              years={years}
+              directLabels={directLabels}
+              domain={expandedMetric.scaleGroup ? sharedDomains[expandedMetric.scaleGroup] : undefined}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

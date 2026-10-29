@@ -186,7 +186,7 @@ export default function LobbyScreen() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-6 py-4">
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">R</div>
             <span className="text-lg font-bold tracking-tight text-slate-900">RIPPLE</span>
@@ -201,7 +201,7 @@ export default function LobbyScreen() {
               type="button"
               data-testid="admin-login"
               onClick={() => { if (isAdmin) navigate('/admin'); else setShowAdminLogin(true); }}
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-600"
             >
               <Shield size={14} /> Admin
             </button>
@@ -210,7 +210,7 @@ export default function LobbyScreen() {
                 type="button"
                 data-testid="admin-logout"
                 onClick={() => { void adminLogout().then(() => setAdmin(null)); }}
-                className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+                className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-600"
               >
                 <LogOut size={14} /> Log out
               </button>
@@ -259,7 +259,7 @@ export default function LobbyScreen() {
         </div>
       )}
 
-      <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mx-auto max-w-screen-2xl px-6 py-8">
         <h1 className="text-2xl font-bold text-slate-900">Welcome</h1>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-slate-500">Join an event your organisation is running.</p>
@@ -307,16 +307,16 @@ export default function LobbyScreen() {
         )}
 
         {events === null && (
-          <p data-testid="lobby-loading" className="mt-8 text-sm text-slate-400">Loading events…</p>
+          <p data-testid="lobby-loading" className="mt-8 text-sm text-slate-600">Loading events…</p>
         )}
 
         {events !== null && (
           <>
             <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">Open events</h2>
-            <p className="mt-1 text-xs text-slate-400">Anyone can join these as a team leader or as a viewer.</p>
+            <p className="mt-1 text-xs text-slate-600">Anyone can join these as a team leader or as a viewer.</p>
             <div data-testid="open-events" className="mt-3 space-y-3">
               {open.length === 0 && (
-                <p data-testid="no-open-events" className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center text-sm text-slate-400">
+                <p data-testid="no-open-events" className="rounded-xl border border-slate-200 bg-white px-5 py-6 text-center text-sm text-slate-600">
                   No events are open right now.
                 </p>
               )}
@@ -336,7 +336,7 @@ export default function LobbyScreen() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-xs text-slate-400">{e.code}</span>
+                    <span className="font-mono text-xs text-slate-600">{e.code}</span>
                     {/* ⚠ AN ADMIN RUNS THE EVENT, NOT JOINS IT. Everyone else gets
                         Join; an admin gets Host, straight to that event's host
                         screen (HostScreen's own admin gate is already satisfied,
@@ -402,12 +402,21 @@ export default function LobbyScreen() {
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="font-mono text-xs text-slate-400">{e.code}</span>
-                        {/* ⚠ NOT SHOWN TO AN ADMIN. Watching is a spectator's
-                            action; an admin running events has no use for it
-                            here, and nothing replaces it the way Host replaces
-                            Join above — there is simply nothing to click. */}
-                        {!isAdmin && (
+                        <span className="font-mono text-xs text-slate-600">{e.code}</span>
+                        {/* ⚠ AN ADMIN STILL RUNS A STARTED EVENT, SAME AS AN
+                            OPEN ONE. Advancing the year, checking the Teams/
+                            Charts/Decisions tabs, or deleting it don't stop
+                            once the event is under way — Host still goes
+                            straight to this event's host screen. */}
+                        {isAdmin ? (
+                          <button
+                            data-testid={`host-link-${e.code}`}
+                            onClick={() => navigate(`/host/${e.code}`)}
+                            className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white"
+                          >
+                            Host
+                          </button>
+                        ) : (
                           <button
                             data-testid={`watch-${e.code}`}
                             onClick={() => navigate(`/view/${e.code}`)}

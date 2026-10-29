@@ -293,7 +293,7 @@ export default function FinancialsPage({ lockedResults, priorResults, lineView }
       )}
 
       {!statement && (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-gray-600">
           <FileText size={40} className="mx-auto mb-3 opacity-30" />
           <p>No statement available. Lock a year to generate statements.</p>
         </div>

@@ -175,7 +175,7 @@ export default function HostDecisionsTab({ room }: Props) {
 
   if (room.teams.length === 0) {
     return (
-      <p data-testid="decisions-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-400">
+      <p data-testid="decisions-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
         No teams have joined yet.
       </p>
     );
@@ -183,7 +183,7 @@ export default function HostDecisionsTab({ room }: Props) {
 
   if (effectiveYear === null) {
     return (
-      <p data-testid="decisions-no-year" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-400">
+      <p data-testid="decisions-no-year" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
         No year has been completed yet. Each team's decisions appear here once the year they were made in has
         been advanced.
       </p>
@@ -221,7 +221,7 @@ export default function HostDecisionsTab({ room }: Props) {
         <div className="overflow-x-auto">
           <table data-testid="decisions-table" className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
                 <th className="px-5 py-2 font-medium">Team</th>
                 <th className="px-3 py-2 font-medium">Funding</th>
                 <th className="px-3 py-2 font-medium">Reinsurance</th>
@@ -245,7 +245,7 @@ export default function HostDecisionsTab({ room }: Props) {
                     >
                       <td className="px-5 py-2 font-medium text-slate-700">{team.name}</td>
                       {state.kind !== 'reported' ? (
-                        <td colSpan={7} className="px-3 py-2 text-xs italic text-slate-400">
+                        <td colSpan={7} className="px-3 py-2 text-xs italic text-slate-600">
                           {SPAN_NOTE[state.kind]}
                         </td>
                       ) : (
@@ -297,7 +297,7 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
       <td className="px-3 py-2 text-slate-600">{formatPct(d.riskControlPct, 1)}</td>
       <td className="px-3 py-2">
         {d.dividendPct === 0 && d.assessmentPct === 0 ? (
-          <span className="text-slate-400">—</span>
+          <span className="text-slate-600">—</span>
         ) : (
           <span
             className={`px-1 ${flagged('dividend') || flagged('assessment') ? 'rounded bg-amber-50 font-medium text-amber-700' : ''}`}
@@ -332,12 +332,12 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
  */
 function TeamDrilldown({ team, line, years }: { team: TeamView; line: CoverageLine; years: number[] }) {
   if (!team.lines.includes(line)) {
-    return <p className="text-xs italic text-slate-400">{team.name} does not write {LINE_FULL_NAME[line]}.</p>;
+    return <p className="text-xs italic text-slate-600">{team.name} does not write {LINE_FULL_NAME[line]}.</p>;
   }
   return (
     <table className="w-full text-xs">
       <thead>
-        <tr className="text-left uppercase tracking-wide text-slate-400">
+        <tr className="text-left uppercase tracking-wide text-slate-600">
           <th className="py-1 font-medium">Year</th>
           <th className="py-1 font-medium">Funding</th>
           <th className="py-1 font-medium">Reinsurance</th>

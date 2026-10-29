@@ -162,7 +162,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
       </div>
 
       {lockedResults.length === 0 && (
-        <div className="text-center py-20 text-gray-400">
+        <div className="text-center py-20 text-gray-600">
           <ClipboardList size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No results yet</p>
           <p className="text-sm mt-1">Complete a year to see detailed results here.</p>
@@ -276,7 +276,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
                   </table>
                 </div>
               )}
-              <p className="text-xs text-gray-400 mt-4 border-t border-gray-100 pt-3">
+              <p className="text-xs text-gray-600 mt-4 border-t border-gray-100 pt-3">
                 Shock Events: not yet implemented — Phase 4 will show which specific event(s) fired this year.
               </p>
             </div>
@@ -506,7 +506,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
                 value={formatCurrency(result.surplusTieOutDifference)}
                 valueColor={Math.abs(result.surplusTieOutDifference - result.interLineTransfer) < 100 ? 'text-emerald-600' : 'text-amber-600'}
               />
-              <p className="text-xs text-gray-400 mt-2">
+              <p className="text-xs text-gray-600 mt-2">
                 Balance check: {formatCurrency(result.totalAssets)} Assets - {formatCurrency(result.totalLiabilities)} Liabilities ={' '}
                 {formatCurrency(result.endingSurplus)}
               </p>
@@ -648,7 +648,7 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
                 {result.narrativeExplanation ? (
                   <p className="text-gray-700 text-sm leading-relaxed">{result.narrativeExplanation}</p>
                 ) : (
-                  <p className="text-gray-400 text-sm italic">
+                  <p className="text-gray-600 text-sm italic">
                     No narrative for this line — narratives are generated pool-wide only. Switch to Pool view to read it.
                   </p>
                 )}
