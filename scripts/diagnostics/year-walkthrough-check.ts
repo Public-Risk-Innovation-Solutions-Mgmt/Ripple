@@ -44,6 +44,11 @@
 //    share at the end, marked "Not part of the model — depends on the room",
 //    with no code; the same game read with two different shares (or none)
 //    gives the same year code and the same code at every other stage.
+// 7. THE AGGREGATE STOP-LOSS ROWS ONLY. The retired dormant stop's
+//    "Aggregate cover recovery" row is on no screen and in no download; a year
+//    that bought the Aggregate Stop-Loss Coverage shows its rows, and only
+//    those, for the cover. Controls: the old row put back, and a game that
+//    bought none read as one that did.
 // ============================================================================
 
 import * as XLSX from 'xlsx';
@@ -140,6 +145,13 @@ const B = soloGame(DEFAULT);
 const T = soloGame(TIE, true);
 const team = teamGame(DEFAULT);
 const changed = CHANGES.map(c => ({ ...c, game: soloGame(c.decide) }));
+// Section 7: every line buys the 110% / 50% Aggregate Stop-Loss Coverage every year.
+const COVER: Decide = y => {
+  const d = defaultDecisionSet(y);
+  for (const l of LINES) d.byLine[l].aggregateCover = 'agg-110-50';
+  return d;
+};
+const C = soloGame(COVER);
 
 const all = (gs: GameState): YearWalkthrough[] => walkthroughYears(gs).flatMap(y => buildYearWalkthroughs(gs, y));
 const key = (w: YearWalkthrough) => `${w.calendarYear} ${w.view}`;
@@ -341,6 +353,30 @@ function sectionInfo(): string[] {
   return out;
 }
 
+// ---- 7. THE AGGREGATE STOP-LOSS ROWS ONLY ---------------------------------------
+const OLD_ROW = 'Aggregate cover recovery';
+let coverGame: GameState = C;
+let oldRowBack = false;
+function sectionStopLoss(): string[] {
+  const out: string[] = [];
+  const walks = all(coverGame).filter(w => w.view !== 'pool');
+  for (const w of walks) {
+    const rows = w.stages.find(st => st.key === 'reinsurance')?.rows.map(r => r.label) ?? [];
+    if (oldRowBack) rows.push(OLD_ROW);
+    const tag = `${w.calendarYear} ${w.view}`;
+    if (rows.includes(OLD_ROW)) out.push(`${tag}: the screen shows "${OLD_ROW}"`);
+    const stop = rows.filter(r => /^Aggregate stop-loss: /.test(r));
+    if (!rows.includes('Aggregate Stop-Loss Coverage') || stop.length !== 5) out.push(`${tag}: ${stop.length} stop-loss rows`);
+    if (rows.some(r => /^Aggregate/i.test(r) && r !== 'Aggregate Stop-Loss Coverage' && !/^Aggregate stop-loss: /.test(r))) out.push(`${tag}: another aggregate row`);
+  }
+  const sheet = walkthroughSheetRows(coverGame, walkthroughHeader(coverGame.instance, false));
+  const cells = sheet.flat().map(String);
+  if (oldRowBack) cells.push(OLD_ROW);
+  if (cells.includes(OLD_ROW)) out.push(`the download holds "${OLD_ROW}"`);
+  if (!cells.some(c => /^Aggregate stop-loss: recovery/.test(c))) out.push('the download holds no stop-loss row');
+  return out;
+}
+
 // ---- run -------------------------------------------------------------------
 console.log('year-walkthrough-check\n');
 check(sectionSame(), '1. two games, same setup and decisions: identical figures and codes at every stage, year and view');
@@ -386,6 +422,10 @@ await control('the host\'s room another scenario', () => { hostRoomSeed = '7'; r
 
 check(sectionInfo(), '6. market share: at the end, marked not part of the model, no code; the year code and every other stage ignore it');
 await control('market share counted as part of the model', () => { const o = [...INFO_STAGES]; INFO_STAGES.length = 0; return () => { INFO_STAGES.push(...o); }; }, sectionInfo);
+
+check(sectionStopLoss(), '7. the Aggregate Stop-Loss Coverage rows only: no "Aggregate cover recovery" on any screen or in the download');
+await control('the old row put back', () => { oldRowBack = true; return () => { oldRowBack = false; }; }, sectionStopLoss);
+await control('a game that bought no cover read as one that did', () => { coverGame = A; return () => { coverGame = C; }; }, sectionStopLoss);
 
 console.log(failures.length ? `\nFAIL — ${failures.length}: ${failures.join('; ')}` : '\nPASS');
 process.exit(failures.length ? 1 : 0);

@@ -706,7 +706,6 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     );
   }
   reinsRows.push(
-    { label: 'Aggregate cover recovery', value: a.aggregateRecovery, kind: 'usd' },
     { label: 'Retained above the tower', value: a.retainedAboveTower, kind: 'usd' },
     { label: 'Ceded premium', value: a.reinsuranceCost, kind: 'usd' },
     { label: 'Gross losses', value: a.grossUltimateLoss, kind: 'usd' },

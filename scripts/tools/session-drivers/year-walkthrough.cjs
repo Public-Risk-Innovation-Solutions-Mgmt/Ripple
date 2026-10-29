@@ -16,6 +16,8 @@
 //    each shows the version, the scenario and the fixed seed — the same in
 //    both — and every code is identical between them; its download carries
 //    the seed.
+//    No "Aggregate cover recovery" row (the retired dormant stop) on the
+//    screen or in either download.
 // 3. Hosted (only with ADMIN_TOKEN): the host's header shows the version, the
 //    scenario and the same fixed seed; two teams in their own contexts lock
 //    the same decisions, the host advances, and each team's Year Walkthrough
@@ -211,6 +213,10 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
     ok(!!wd && ['Pool', ...LINE_NAMES].every(v => views.includes(v)) && wd.rows.some(r => r[0] === 'Version' && r[1] === truth.version),
       'Single player: the workbook has every view and the version', views.join(', '));
     ok(!!wd && seedCells(wd).length === 0, 'Single player: and no seed', wd ? seedCells(wd).slice(0, 3).join(', ') : '');
+    // The retired dormant stop's row is gone (wip/aggregate-cover): only the Aggregate Stop-Loss rows remain.
+    const oldRow = rows => rows.some(r => r.some(c => c === 'Aggregate cover recovery'));
+    ok(!marks.includes('Aggregate cover recovery') && !!wd && !oldRow(wd.rows) && !!d && !oldRow(d.rows),
+      'Single player: no "Aggregate cover recovery" row on the screen or in either download');
     await page.context().close();
   }
 
