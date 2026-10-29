@@ -11,6 +11,48 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## The aggregate cover on attritional losses (save key v38) — wip/aggregate-cover
+
+Each line can buy, beside its per-claim layer, an aggregate cover on the year's
+attritional losses — normal losses plus the shocks' surges (A); never a large
+(T) claim, Economic Inflation's uplift or the development of an older year.
+None (the default; an absent choice reads as None), 110/50, 125/50, 150/50:
+attachment and limit as shares of expected attritional losses (expected normal
+losses x (1 + the average surge)). Priced by the pricing workbook's "Agg
+Attritional" tab (`AGGREGATE_COVER_OPTIONS` and `utils/aggregateCover.ts`):
+four surge cases at the shock assumptions' odds, each at the top of its A range
+(`AGGREGATE_COVER_SURGE_BASIS`; midpoint moves cases and terms together),
+normal luck at the line's ordinary-year CV, x load 1.2 / 1.0 / 1.0. Charged as
+reinsurance (no admin); the recovery is booked once, at the year's booking.
+Not offered while the game's shocks are off.
+
+2027 prices at default decisions: WC $667,967 / $292,675 / $94,629; GL $675,955
+/ $263,022 / $74,451; Property $879,680 / $434,590 / $188,692. ⚠ GL is $41 /
+$16 / $5 below the figures agreed before the build: the rate is struck on the
+book averaged over the worlds (GL 614.92), and the agreed figures were read off
+world 1's own book (614.95).
+
+**Landed with:** FAST 88/88 (the sweep alone) and SLOW 4/4, the manifest held;
+typecheck clean; lint identical to multiplayer 20f85ba (its 15 errors and 7
+warnings, none new); `aggregate-cover-check` (new), each section failing on a
+planted defect; VALUE_IDENTITY unchanged, SOLO_EXPORT_GUARD_v110 and
+RENDER_IDENTITY_v107 attributed against 20f85ba's own capture; all 24 session
+drivers with the admin-token hook (rate-indication extended to the cover,
+532/532); the contract harness on every pass (local, http, DynamoDB, built
+handler, admin, race probes). Screenshots are in
+`docs/screenshots/aggregate-cover/`.
+
+**Owed — the prices and the game's surges disagree.** The prices assume one
+surge level a year at T_COVER_FREQUENCY's odds (15% of years). The game's
+surges come from its catalogue, rarer: under today's surges the expected
+recovery in 2027 (aggregateCover.expectedRecoveryToday) is WC $212K / $126K /
+$30K, GL $346K / $159K / $40K, Property $446K / $334K / $153K, against expected
+recoveries at the priced odds of WC $557K / $293K / $95K, GL $563K / $263K /
+$74K, Property $733K / $435K / $189K. Until the game's surges follow those
+odds, recoveries will run below the prices.
+
+---
+
 ## The shocks landing (save key v30) — owed checks CLEARED
 
 Landed on multiplayer for play-testing without the full checks; those were run

@@ -109,6 +109,11 @@ function LineCard({ ri }: { ri: RateIndication }) {
           {ri.reinsurance.map(r => (
             <Row key={r.id} label={r.name} testId={`ri-${l}-reins-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
           ))}
+          {/* THE AGGREGATE COVER ON ATTRITIONAL LOSSES, beside the per-claim covers (utils/aggregateCover). */}
+          <h4 className="text-sm font-semibold text-gray-800 pt-4 pb-2 mb-2 border-b border-gray-300" data-testid={`ri-${l}-agg-covers`}>Aggregate cover</h4>
+          {ri.aggregateCovers.map(r => (
+            <Row key={r.id} label={r.name} testId={`ri-${l}-agg-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
+          ))}
         </div>
         {/* EVENT LIKELIHOODS, beside the cover prices — shocks on only (utils/eventLikelihoods). */}
         {ri.eventLikelihoods && (

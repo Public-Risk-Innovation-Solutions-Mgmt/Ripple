@@ -3,7 +3,7 @@
 
 import { alaeRatioFor } from './alaeRatio';
 import { adminOverrunFor } from './adminOverrun';
-import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
+import type { Claim, DrawnCatastrophe, GameState, Occurrence, PoolState, DecisionSet, LinePoolState, LineDecisionSet, ResultSet, LineResultSet, ReserveCohort, ReserveDevelopmentRow, Member, MemberLossResult, NewLossEngineRecord, AttritionalCoverRecord, MemberLossHistory, MembershipHistory, CoverageLine, GameInstance, AssetAllocation } from '../types/simulation';
 import type { ShockFiring, ShockRecord } from '../types/shocks';
 
 // THE NEW LOSS ENGINE'S FIRINGS, IN THE RECORD SHAPE THE RESULTS PAGES READ.
@@ -161,6 +161,7 @@ import { riskControlCutFor, type RiskControlYear } from './riskControl';
 import { AGGREGATE_STOP, FLAT_PRE_GAME, PRE_GAME_INVESTMENT_RETURN, MEMBER_LEVEL, newLossEngineRuns, NEW_RATE_STACK, RISK_CONTROL, POOL_LIMIT_PER_OCCURRENCE, PRIOR_DEVELOPMENT_DEFAULTS, RESERVE_INFLATION_PER_YEAR, ADVERSE_DEVELOPMENT, type DevelopmentLevel } from '../data/pricingParameters';
 import { adverseDevelopmentRate, developmentLevelOf } from './adverseDevelopment';
 import { stopQuote, stopRecovery, stopTerms, type StopTerms } from './aggregateStop';
+import { aSurgeOf, aggregateCoverRecovery, attritionalLoss } from './aggregateCover';
 import { applyPoolLimit } from './poolLimit';
 import { developmentBaseOf, developmentEmergingAtStep, withLifetimeDevelopment } from './hostDevelopment';
 import { bookMovementResult, moveBook } from './bookUnderwriting';
@@ -785,6 +786,7 @@ export function strikeBookRate(
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: lineDecisions.reinsuranceOption,
     shocks,
+    aggregateCover: lineDecisions.aggregateCover,
   });
   return { exposure, newPp, quote, ...(bookRisk !== undefined ? { bookRisk } : {}) };
 }
@@ -1162,6 +1164,7 @@ export function processLineYear(
       aggregateStopLevel,
       reinsuranceOption: lineDecisions.reinsuranceOption,
       shocks,
+      aggregateCover: lineDecisions.aggregateCover,
     })
     : null;
 
@@ -1520,6 +1523,7 @@ export function processLineYear(
       aggregateStopLevel,
       reinsuranceOption: lineDecisions.reinsuranceOption,
       shocks,
+      aggregateCover: lineDecisions.aggregateCover,
     })
     : null;
 
@@ -2192,6 +2196,7 @@ export function processLineYear(
   let stopTermsAtInception: StopTerms | undefined;
   let aggregatePremium = 0;
   let aggregateAttachment = 0;
+  let attritionalCover: AttritionalCoverRecord | undefined;
 
   if (hasTractableCeded) {
     const towerLine = line as TowerLine;
@@ -2251,7 +2256,33 @@ export function processLineYear(
       aggregateRecoveryAmount += stopRecovery(bookedGrossContraction * grossUltimateLoss, stopTermsAtInception);
     }
 
-    reinsuranceRecovery = cession.totalCeded + aggregateRecoveryAmount;
+    // THE AGGREGATE COVER ON ATTRITIONAL LOSSES (wip/aggregate-cover): on the
+    // terms quoted with its price (newStack.aggregateCover), it pays on the
+    // year's normal losses and A surges as booked — never a large claim, never
+    // Economic Inflation's uplift — once, here. Development of the year later
+    // is not attritional and never reaches it, so it is not recalculated.
+    const coverQuote = newStack?.aggregateCover;
+    if (coverQuote && ordinaryYear && lineShocks) {
+      const surge = aSurgeOf(lineShocks.byFiring);
+      const loss = attritionalLoss(ordinaryYear.realised, riskControlYear?.cut ?? 0, surge, newBusinessPenaltyFactor);
+      attritionalCover = {
+        optionId: coverQuote.optionId,
+        expectedNormal: coverQuote.expectedNormal,
+        averageSurge: coverQuote.averageSurge,
+        expectedAttritional: coverQuote.expectedAttritional,
+        attachment: coverQuote.attachment,
+        limit: coverQuote.limit,
+        price: coverQuote.price,
+        expectedRecovery: coverQuote.expectedRecovery,
+        normalLoss: loss.normalLoss,
+        surge,
+        surgeLoss: loss.surgeLoss,
+        attritional: loss.attritional,
+        recovery: aggregateCoverRecovery(loss.attritional, coverQuote),
+      };
+    }
+
+    reinsuranceRecovery = cession.totalCeded + aggregateRecoveryAmount + (attritionalCover?.recovery ?? 0);
   } else {
     throw new Error(`processLineYear: no tractable ceded reinsurance for line ${line}`);
   }
@@ -3202,6 +3233,8 @@ export function processLineYear(
     memberShareAboveLimit,
     claimsAboveLimit: poolLimit.claimsAboveLimit,
     developmentAbovePoolLimit,
+    // Absent with None, so a year without the cover serialises as it did.
+    ...(attritionalCover ? { attritionalCover } : {}),
     aggregateRecovery: aggregateRecoveryAmount,
     aggregatePremium,
     aggregateAttachment,

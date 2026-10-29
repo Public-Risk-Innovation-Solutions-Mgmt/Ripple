@@ -31,6 +31,7 @@
 // the components bit-for-bit and MEASURES the post-movement residual instead of
 // pretending it is zero.
 
+import type { AggregateCoverQuote } from './aggregateCover';
 import { SLIDER_RANGES } from '../data/defaultAssumptions';
 import { lookupCLF, currentPurePremiumPer100, aggregateTermsRetainedPer100 } from './simulationEngine';
 import type { ExperienceBasis } from './experienceRating';
@@ -141,6 +142,8 @@ export interface FundingConsequence {
     firstIndicationPer100: number;
     finalRatePer100: number;
     expectedToSurplus: number;
+    /** The aggregate cover's quote, when one is bought — its price is in reinsRatePer100. */
+    aggregateCover?: AggregateCoverQuote;
   };
   // charge / expected loss — "the load"
   load: number;
@@ -204,6 +207,8 @@ export interface FundingConsequenceBook {
   newStackRiskControlPct?: number;
   /** The game's shock switch (shockLosses.gameShocksOn) — the cover's price follows it. Absent is on. */
   shocks?: boolean;
+  /** The aggregate cover on attritional losses (LineDecisionSet.aggregateCover); absent is None. */
+  aggregateCover?: string;
 }
 
 function ratesAt(
@@ -294,6 +299,7 @@ function ratesAt(
           aggregateStopLevel: book.aggregateStopLevel,
           reinsuranceOption: book.reinsuranceOption,
           shocks: book.shocks,
+          aggregateCover: book.aggregateCover,
         });
         return {
           clf: n.clf,
@@ -309,6 +315,7 @@ function ratesAt(
           firstIndicationPer100: n.firstIndicationPer100,
           finalRatePer100: n.finalRatePer100,
           expectedToSurplus: n.expectedToSurplus,
+          ...(n.aggregateCover ? { aggregateCover: n.aggregateCover } : {}),
         };
       })()
       : undefined,

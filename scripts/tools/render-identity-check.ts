@@ -1585,26 +1585,23 @@ const BASELINE = process.env.RENDER_BASELINE
 // container moved, so their v106 fingerprints are this container's rendering;
 // in a container that reproduces v105 they may read as moved. The harness plays
 // at 0%, so no figure on any screen changed. No key added or removed.
-// v107: RISK CONTROL IN THE DIVISOR AND THE EXPENSE RATIO BLOCK
-// (wip/risk-control-divisor), on multiplayer 20f85ba. The control, built in its
-// own worktree here, moved 21 of 236 against v106 — the same container split
-// v106 recorded (Financial Statements, Results, Result Spreadsheet), none of
-// them a screen this change moves. Against the control's own capture 42 move,
-// each word-diffed (RENDER_TEXT_DIR both sides):
-//   Decisions 16          the panel's expense block — "Admin 20.0% 20.0% Risk
-//                         control 0.0% 0.0% Total expense ratio 20.0% 20.0%" —
-//                         and the permissible loss ratio to one decimal, "80.0%"
-//                         where it read "80%"
-//   Year Walkthrough 26   the pricing stage's expense block (Admin, Risk
-//                         control, Total expense ratio, Permissible loss ratio,
-//                         one decimal), the divisor "1 − admin − risk control"
-//                         (0.80 at 0%), the rate before reinsurance (same
-//                         figure, relabelled), admin's charge per $100 (the
-//                         engine's, newly shown), the working, the codes, and
-//                         the version v37 -> v38
-// The Rate Indication does not move (its block already read 20.0% / 0.0% /
-// 20.0% / 80.0% at 0%). v107 is v106 with those 42 replaced; the other 194
-// keep v106's fingerprints. The harness plays at 0%: no figure moved.
+// v107: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba. The
+// control, built in its own worktree and served on 4174, moved 8 of 236 against
+// v106 here (Result Spreadsheet, every configuration, y0 and y2 — the container
+// split v106 recorded, not code). So this change was measured against the
+// CONTROL'S OWN CAPTURE, and v107 is v106 with only the screens this change
+// moved replaced: 52 of 236, each word-diffed against the control
+// (RENDER_TEXT_DIR both sides), every difference an insertion or the save key:
+//   Decisions 16          the new "Aggregate cover" choice under the per-claim
+//                         cover: None and 110/50, 125/50, 150/50 with each price
+//                         (2027: WC $667,967 / $292,675 / $94,629, GL $675,955 /
+//                         $263,022 / $74,451, Property $879,680 / $434,590 /
+//                         $188,692)
+//   Rate Indication 10    the "Aggregate cover" rows under Reinsurance, each
+//                         option's price per $100
+//   Year Walkthrough 26   the version riskpool_gamestate_v37 -> _v38 only
+// The other 184 keep v106's fingerprints. The harness holds None, so no figure
+// on any screen changed. No key added or removed.
   ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v107.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';

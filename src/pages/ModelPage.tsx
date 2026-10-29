@@ -120,7 +120,20 @@ function SectionA({ m }: { m: ModelRate }) {
           <Heading n={6} title="Funding and reinsurance" />
           <Step label={`Funding level: ${m.funding.label}`} op="CLF" value={m.funding.clf} testId="model-a-clf" />
           <Step label="Expense divisor" op={`1 − admin ${pct4(m.adminShare)} − risk control ${pct4(m.riskControl)}`} value={m.divisor} />
-          <Step label="Reinsurance price per $100" value={m.reinsurancePer100} testId="model-a-reins" />
+          {m.aggregateCover && (() => {
+            const c = m.aggregateCover;
+            return (<>
+              <Step label={`Aggregate cover ${c.name}: expected normal losses`} op={`${f4(m.quotedExposure)} × 10,000 × the ordinary cost`} value={c.expectedNormal} testId="model-a-agg-normal" />
+              <Step label="Average surge, as priced" value={c.averageSurge} testId="model-a-agg-surge" />
+              <Step label="Expected attritional losses" op={`× (1 + ${f4(c.averageSurge)})`} value={c.expectedAttritional} testId="model-a-agg-expected" />
+              <Step label="Attachment" op={`× ${f4(c.attachmentShare)}`} value={c.attachment} testId="model-a-agg-attachment" />
+              <Step label="Limit" op={`× ${f4(c.limitShare)}`} value={c.limit} testId="model-a-agg-limit" />
+              <Step label="Expected recovery" op="four surge cases, normal luck" value={c.expectedRecovery} testId="model-a-agg-recovery" />
+              <Step label="Aggregate cover price" op={`× load ${f4(c.load)}`} value={c.price} testId="model-a-agg-price" />
+              <Step label="Aggregate cover per $100" op={`÷ (${f4(m.quotedExposure)} × 10,000)`} value={c.pricePer100} testId="model-a-agg-per100" />
+            </>);
+          })()}
+          <Step label="Reinsurance price per $100" op={m.aggregateCover ? 'per-claim cover + aggregate cover' : undefined} value={m.reinsurancePer100} testId="model-a-reins" />
 
           <Heading n={7} title="The rate" />
           <Step label="Pure premium × CLF" op={`retained × ${f4(m.funding.clf)}`} value={m.pieces.purePremium} testId="model-a-piece-pure-premium" />

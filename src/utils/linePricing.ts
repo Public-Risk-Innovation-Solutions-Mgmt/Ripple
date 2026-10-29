@@ -42,7 +42,7 @@
 // that residual rather than pretending it is zero.
 
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, DECLINED_COVER_MARGIN_ENABLED } from '../data/defaultAssumptions';
-import { ADMIN_SHARE_OF_PREMIUM } from '../data/pricingParameters';
+import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_COVER_DEFAULT } from '../data/pricingParameters';
 import { FULL_OCCURRENCE_PLACEMENT } from '../data/reinsuranceTower';
 import { normalizeAggregateStopLevel, normalizeLayersPlaced, occurrenceProgramCost, quoteAggregate } from './reinsuranceTower';
 import type { TowerLine } from '../data/reinsuranceTower';
@@ -50,6 +50,7 @@ import type { CoverageLine } from '../types/simulation';
 import { bookRiskOf, type Book } from './lineHelpers';
 import { AGGREGATE_STOP, newLossEngineRuns, STOP_RECOVERY_OFF_CLAIMS_COST } from '../data/pricingParameters';
 import { stopQuote } from './aggregateStop';
+import { aggregateCoverQuote, type AggregateCoverQuote } from './aggregateCover';
 
 export interface LineRateInputs {
   line: CoverageLine;
@@ -623,6 +624,12 @@ export interface NewStackInputs {
   reinsuranceOption?: string;
   /** The game's shock switch (shockLosses.gameShocksOn); absent is on. See CessionBasis. */
   shocks?: boolean;
+  /**
+   * The aggregate cover on attritional losses (LineDecisionSet.aggregateCover);
+   * absent or 'none' is no cover. Priced on `exposure` and added to the
+   * reinsurance as a pass-through (aggregateCover.ts).
+   */
+  aggregateCover?: string;
 }
 
 export interface NewStackQuote {
@@ -668,12 +675,19 @@ export interface NewStackQuote {
   expectedToSurplus: number;
   towerQuote: ReturnType<typeof occurrenceProgramCost> | null;
   aggregateQuote: ReturnType<typeof quoteAggregate> | null;
+  /**
+   * THE AGGREGATE COVER'S QUOTE — its terms and price, struck on this quote's
+   * book — when one is bought; null for None. Its price is in reinsuranceCost.
+   * ⚠ OMITTED, NOT NULL, ON A QUOTE WITHOUT THE COVER, so a quote (and every
+   * result and save that carries one) is byte-identical to what shipped.
+   */
+  aggregateCover?: AggregateCoverQuote;
 }
 
 export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   const {
     line, yearNumber, members, exposure, groundUpPurePremiumPer100, clf,
-    riskControlPct, layersPlaced, aggregateStopLevel, reinsuranceOption, shocks,
+    riskControlPct, layersPlaced, aggregateStopLevel, reinsuranceOption, shocks, aggregateCover,
   } = input;
 
   // ⚠ WITH THE STOP ON, A QUOTE WITHOUT THE OPTION WOULD PRICE NO COVER AT
@@ -700,7 +714,15 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
   if (towerQuote === null) {
     throw new Error(`quoteNewRateStack: no tower quote for line ${line}`);
   }
-  const reinsuranceCost = towerQuote.premium + (aggregateQuote?.premium ?? 0);
+  // THE AGGREGATE COVER, beside the per-claim layer: its price is reinsurance —
+  // a pass-through on the member charge, no admin on it, nothing netted off the
+  // pure premium. Not offered while the game's shocks are off.
+  const coverId = aggregateCover ?? AGGREGATE_COVER_DEFAULT;
+  if (shocks === false && coverId !== AGGREGATE_COVER_DEFAULT) {
+    throw new Error(`quoteNewRateStack: ${line} quoted with aggregate cover '${coverId}' while the game's shocks are off`);
+  }
+  const coverQuote = coverId !== AGGREGATE_COVER_DEFAULT ? aggregateCoverQuote(line, coverId, exposure, yearNumber) : undefined;
+  const reinsuranceCost = towerQuote.premium + (aggregateQuote?.premium ?? 0) + (coverQuote?.price ?? 0);
   const reinsRatePer100 = reinsuranceCost / Math.max(exposure * 10_000, 1);
 
   // The rate before reinsurance; admin and risk control each its share of it.
@@ -746,6 +768,7 @@ export function quoteNewRateStack(input: NewStackInputs): NewStackQuote {
     expectedToSurplus,
     towerQuote,
     aggregateQuote,
+    ...(coverQuote ? { aggregateCover: coverQuote } : {}),
   };
 }
 
