@@ -1675,7 +1675,23 @@ const BASELINE = process.env.RENDER_BASELINE
 // "Combined ratio 2028 <2028's>" at y2, the Annual Statement's newest column.
 // No other text moved. The 40 unmoved are the screens without the top bar.
 // No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v111.json');
+// v112: TWO DISPLAY REMOVALS (wip/display-removals), on multiplayer 12852f3,
+// which reproduces v111 here. 10 move, every Rate Indication, each by exactly the
+// Event Likelihoods chart's axis labels ("$0M $10M $20M $30M $40M 1/10 1/20
+// 1/50 1/100 1/200", once per line shown): the chart is removed and its table
+// stays. The Decisions page's "Average saving equals the cost." line is
+// removed too, but these games hold Risk Control at 0%, where it never showed,
+// so no Decisions screen moves. 226 match.
+// v113: THE RATE INDICATION'S YEARS BACK TO 2021, AND THE ANNUAL TREND AS A
+// PERCENTAGE (wip/rate-indication-years), on multiplayer 91462f2, which
+// reproduced v112 236 of 236 here first. 10 of 236 move — the Rate Indication,
+// every configuration, y0 and y2 — and each word-diffed against the control
+// (RENDER_TEXT_DIR both sides) moves in exactly two ways: the year dropdown
+// gains "Program Year 2021" to "Program Year 2026" (the history years), and each
+// line's Annual Trend reads as a percentage (WC 1.04 -> 4%, GL 1.08 -> 8%,
+// Property 1.05 -> 5%). The page opens on the coming year, so no past year's
+// build is on these screens. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v113.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

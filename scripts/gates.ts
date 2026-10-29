@@ -289,6 +289,9 @@ const FAST: string[] = [
                                      //        are the Annual Statement's newest year's, labelled with
                                      //        that year — rendered, pool and lines, before year 1 and
                                      //        after; control: the cumulative figure fails.
+  'rate-indication-years-check',     //  ~6s   the Rate Indication's years back to 2021: each past
+                                     //        year's build chains to the rate the engine charged, three
+                                     //        scenarios, every line; control: admin moved after play.
   't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
                                      //        recovery on every claim size, each year's price by the
                                      //        workbook's method at the T claims' own growth factor
