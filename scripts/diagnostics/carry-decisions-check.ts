@@ -203,7 +203,11 @@ const RESET = `const nextDecisions: DecisionSet = {
     };`;
 const planted = APP.replace(/const nextDecisions: DecisionSet = carryDecisions\([\s\S]*?\);/, RESET);
 control('App.tsx with the reset written back into commitYear is refused', planted === APP ? 0 : appProblems(planted).length);
-const extra = APP.replace('setActiveTab(\'results\');', 'setActiveTab(\'results\');\n    setCurrentDecisions(defaultDecisionSet(nextYearNumber));');
+// Planted beside commitYear's tab switch: 'statement' since the tab cleanup
+// (3bd6d2b), which hid Results — the old 'results' site was gone, nothing was
+// planted, and this control read red on multiplayer 3bd6d2b (re-anchored at
+// wip/clf-stretch).
+const extra = APP.replace('setActiveTab(\'statement\');', 'setActiveTab(\'statement\');\n    setCurrentDecisions(defaultDecisionSet(nextYearNumber));');
 control('a second write of the defaults after a year locks is refused', extra === APP ? 0 : appProblems(extra).length);
 
 // Ranges stay in force: every carried slider value is one the page offers.
