@@ -285,6 +285,10 @@ const FAST: string[] = [
                                      //        world-line-years the terms, attritional losses and recovery;
                                      //        against None: no large claim, no development, the statement's
                                      //        ceded block — each with a control.
+  'newest-combined-ratio-check',     //  ~4s   the top bar's and the host Teams table's combined ratio
+                                     //        are the Annual Statement's newest year's, labelled with
+                                     //        that year — rendered, pool and lines, before year 1 and
+                                     //        after; control: the cumulative figure fails.
   't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
                                      //        recovery on every claim size, each year's price by the
                                      //        workbook's method at the T claims' own growth factor
