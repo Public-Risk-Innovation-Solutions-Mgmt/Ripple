@@ -1720,7 +1720,18 @@ const BASELINE = process.env.RENDER_BASELINE
 // (v41 -> v42) on all, and on the 13 with a played year the dividend stage's
 // labels and working in dollars, the decisions stage's two rows, and the codes
 // those move. The harness chooses no dividend or assessment: no figure moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v116.json');
+// v117: PRICING'S ALAE LOAD IS FIXED PER LINE (wip/pricing-alae-load). The
+// control ran first: multiplayer 861b8c7 reproduced v116, 236 of 236. Against
+// its own text (RENDER_TEXT_DIR), word-diffed: 206 of 236 move. 180 in numbers
+// only — Annual Statement, Decision History, Decisions, Financial Statements and
+// Results (26 each), Introduction (20), Rate Indication and Result Spreadsheet
+// (10 each), the header (10): the rates, premium, admin, ratios and the
+// openings' surplus, all moved by the load. The 26 Year Walkthrough screens move
+// in wording too, and only where this change put it: "ALAE ratio (window
+// average)" becomes "ALAE load (x.x%)" (16, the y2 screens), the version reads
+// riskpool_gamestate_v43 (26), and the stage and year codes — hashes of the
+// figures — follow the figures. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v117.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

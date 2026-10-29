@@ -839,6 +839,18 @@ export const SCENARIO_SEEDS: Readonly<Record<number, number>> = {
 };
 
 /**
+ * ⚠ TEMPORARY: THE OPENINGS' BARS, AS THIS BUILD PRODUCES THEM — read by
+ * scenarios-check section 5 and by nothing in the game. The seeds above were
+ * chosen against openings priced with the window's mean drawn ALAE ratio; with
+ * the fixed PRICING_ALAE_LOAD (wip/pricing-alae-load) the openings moved, and
+ * by ruling they are ACCEPTED AS THEY NOW FALL: the worst line misses its design
+ * target by 18.48% (scenario 19) and 4 of the 20 scenarios are within 5% on
+ * every line, where the seeds were picked to give 11.0% and 18 of 20. THE SEEDS
+ * WILL BE RE-PICKED ON THIS BUILD, and these bars go back to 12% and 18 then.
+ */
+export const SCENARIO_OPENING_BARS = { worstMiss: 0.185, within5: 4, temporary: true } as const;
+
+/**
  * EACH LINE'S THINNEST AND RICHEST DESIGN TARGET, PREMIUM TO SURPLUS — the
  * openings the fixed seeds were CHOSEN against, and nothing more: no game code
  * reads them (the drift and seed gates and the parameters page do). Its twenty

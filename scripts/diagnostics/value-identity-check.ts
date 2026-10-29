@@ -1511,7 +1511,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // v90 value for value (0 of 39,600 differ). Every game here has its shocks
 // on, so COVERS_IN_EVERY_GAME moves nothing; they hold None, so the covers'
 // prices reach nothing. v91 is retired.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v90.json');
+// v91: PRICING'S ALAE LOAD IS FIXED PER LINE (wip/pricing-alae-load):
+// PRICING_ALAE_LOAD (WC 11%, GL 15%, Property 3.5%) in place of the window's
+// mean drawn ratio. The control ran first: multiplayer 861b8c7 reproduced v90
+// exactly. 13,338 instances move across 54 fields, every one the load or
+// downstream of it: pricingAlaeRatio (180, e.g. 0.0987 -> 0.11), the pure
+// premium it is part of (newPurePremiumPer100, netPurePremiumPer100,
+// purePremium(Per100)), the rates (ratePer100, first indication, final rate and
+// their priors), the premium and admin at 20% of it, the loss, LAE and combined
+// ratios over the new premium, and the opening's surplus — the pre-game's rates
+// moved, so every opening did (beginingSurplus $8.59M -> $10.91M on the first
+// instance) — with the cash, investments, income, capital and funding that
+// follow. expectedLossRatio, expectedExpenseRatio, expectedCombinedRatio,
+// actual/expenseRatio, marketShare and investmentReturnRate move by an ulp.
+// NO CLAIM, LOSS, RESERVE, DRAWN-ALAE OR BOOKED-ALAE FIELD MOVED (alaeRatio and
+// alaeIncurred included), and no field was added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v91.json');
 
 function seedOf(id: string) {
   let h = 5381;
