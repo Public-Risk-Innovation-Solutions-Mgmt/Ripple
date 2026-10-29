@@ -7,6 +7,7 @@ import { gameShocksOn } from './utils/shockLosses';
 import { openWorlds, playWorldsYear, settleWorldsYear, commitSettledYear, type SettledYear, type WorldsYear } from './utils/worlds';
 import { runPriorHistory } from './utils/priorHistoryEngine';
 import { defaultDecisionSet } from './utils/decisionDefaults';
+import { carryDecisions } from './utils/carryDecisions';
 import { RETIRED_SAVE_KEYS, SAVE_KEY, unpackSave, writeSave, type SavedGame, type SaveEnvelope, type SaveOutcome } from './utils/gameSave';
 import { restoreSavedGame } from './utils/saveRestore';
 import { createSaveScheduler, type SaveScheduler } from './utils/saveScheduler';
@@ -218,30 +219,25 @@ export default function App() {
     const result = settled.result;
     const nextYearNumber = baseGs.currentYearNumber + 1;
     const isComplete = nextYearNumber > baseGs.setup.gameLength;
-    // ⚠ RISK-CONTROL PROGRAMS ARE OPT-OUT: a program that ran this year arrives
-    // NEXT year already committed, and the player unticks it to stop. Every
-    // other decision resets to its default, which is right for a yearly choice
-    // and wrong for a multi-year commitment — nobody re-signs a safety
-    // consultant each January, and a commitment a player can end by forgetting
-    // is not a commitment.
+    // ⚠ EVERY DECISION CARRIES INTO THE NEXT YEAR, as a hosted team's does
+    // (carryDecisions.ts): the year opens on the set it was played on, and only
+    // the first year opens on the defaults. Single player and Test player both
+    // commit here.
     //
-    // ⚠ CARRIED FROM `result.decisions`, THE ENGINE'S OWN ECHO OF WHAT WAS
-    // PLAYED, not from `currentDecisions`. This function is handed the state it
+    // ⚠ CARRIED FROM `settled.played.decisions`, THE SET THE YEAR WAS PLAYED ON,
+    // not from `currentDecisions`. This function is handed the state it
     // committed; reading the live editing buffer instead would carry forward
-    // whatever the player had half-typed when the year locked. The echo is what
-    // the engine actually charged and benefited, so the carry-forward and the
-    // derived tenure read the same source.
+    // whatever the player had half-typed when the year locked.
     //
-    // ⚠ THIS IS THE ONLY PLACE THE OPT-OUT LIVES. The engine has no notion of
-    // continuing — it reads the list it is given. That keeps the default a UI
-    // policy rather than a rule buried in the loss draw, and it is why the
-    // pre-game (which runs on defaultDecisionSet) commits nothing.
-    const nextDecisions: DecisionSet = {
-      ...defaultDecisionSet(nextYearNumber, gameShocksOn(baseGs.setup, baseGs.instance)),
-      // Pool-wide, so it comes off the pool row's own `pool` field now rather
-      // than off a line's echo of it. Same list, named where it belongs.
-      riskControlProgramIds: [...(result.pool?.riskControlProgramIds ?? [])],
-    };
+    // ⚠ RISK-CONTROL PROGRAMS STILL COME OFF THE POOL ROW'S OWN ECHO
+    // (result.pool.riskControlProgramIds), which is what the engine actually
+    // charged and benefited, so the carry-forward and the derived tenure read
+    // the same source. The engine has no notion of continuing — it reads the
+    // list it is given — and the pre-game, which runs on defaultDecisionSet,
+    // commits nothing.
+    const nextDecisions: DecisionSet = carryDecisions(
+      settled.played.decisions, nextYearNumber, result.pool?.riskControlProgramIds ?? [],
+    );
 
     const newGs: GameState = {
       ...baseGs,

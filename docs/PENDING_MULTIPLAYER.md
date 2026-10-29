@@ -39,11 +39,9 @@ are 0.99–1.04 of the charge on each line, in both modes. Admin collected is
 2.6% higher at 2% than under the multiplier, because admin is now taken on the
 risk-control share as well.
 
-⚠ **A single player's decisions do not carry into the next year.** `commitYear`
-(App.tsx) resets every decision to its default each year, so a single player's
-slider returns to 0% in the coming year; a hosted team's last submitted set
-carries (`session/client/decisions.ts`). Unchanged here; the rate-indication
-driver states both.
+A single player's decisions did not carry into the next year when this
+landed (`commitYear` reset them to defaults); they do since
+wip/carry-decisions, below — risk control included.
 
 ---
 
