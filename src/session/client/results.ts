@@ -188,8 +188,8 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
       // The line's Risk Control slider (wip/risk-control) — not the retired
       // pool-wide spend, which is pinned at 0. Absent reads as 0%.
       riskControlPct: d.riskControlIncentivePct ?? 0,
-      dividendPct: d.dividendPct,
-      assessmentPct: d.assessmentPct,
+      dividendAmount: d.dividendAmount,
+      assessmentAmount: d.assessmentAmount,
       allocation: {
         cashPct: d.assetAllocation.cashPct,
         bondsPct: d.assetAllocation.bondsPct,

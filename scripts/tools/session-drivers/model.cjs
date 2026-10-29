@@ -1,221 +1,81 @@
-// THE MODEL TAB — what a player sees, and only in single-player.
+// THE MODEL TAB — hidden from every player since the tab cleanup.
 //
-// Solo (scenario 7, three lines, through the real setup screen), after two
-// played years, on every line:
+// The Model tab showed every input to the rate, step by step, and every
+// expectation against the simulation. It is hidden in single player, Test
+// player and a hosted room alike (src/game/tabs.tsx HIDDEN_TABS), with Results,
+// Result Spreadsheet and Financial Statements; ModelPage and modelRate.ts are
+// kept, unrouted. This holds that no player can reach it:
 //
-//   the year dropdown   every priced year, the first pre-game year (2021) to
-//                       the coming year
-//   section A           for every priced year, the rate the page builds step
-//                       by step IS the rate the game charged that year, and
-//                       its premium the premium charged; for the coming year,
-//                       the rate the Decisions panel quotes. Its rows — pure
-//                       premium x CLF, admin, Risk Control, reinsurance — add
-//                       to that rate; the indicated rate at Expected is the
-//                       projected pure premium / the permissible loss ratio;
-//                       the expense block is admin 20%, risk control the
-//                       year's choice, their total, and the permissible loss
-//                       ratio 1 - that (80% at 0%; WC's coming year is set to
-//                       2%, so 22.0% and 78.0% there), shown to one decimal,
-//                       with admin 20% and the Risk Control row the slider's
-//                       share of the rate before reinsurance (restated at
-//                       wip/risk-control-divisor), with no profit &
-//                       contingency row (restated at wip/pricing-rework from
-//                       the line's contingency, WC 2%, GL 0%, Property 0%,
-//                       and the trended fixed and per-exposure admin); every window year shows its reserve
-//                       inflation still to come (1 past the priced years), and
-//                       there is no investment income credit
-//   section B           every KNOWN year's simulated combined ratio,
-//                       investment income and year-end surplus are the Annual
-//                       Statement's own, at the statement's precision (0.1%,
-//                       $000s); the year just played shows at once (results
-//                       run through the year just completed, utils/knownYears),
-//                       the coming year does not
+//   Single player   scenario 7, three lines, one year played: no Model on the
+//                   bar, and the page is not rendered
+//   Test player     the host's setup played solo, one year played: the same
+//   Hosted          a room over the local transport, one team: the same
 //
-// to one part in a billion where the two are numbers. Hosted (a room over the
-// local transport): the top bar has no Model tab.
+// ⚠ RESTATED AT THE TAB CLEANUP. This driver held the page to the engine:
+// section A's rate the rate charged on every priced year, its expense block,
+// and section B against the Annual Statement. With the tab unreachable those
+// checks hold nothing a player sees; they are in this file's history (before
+// the tab cleanup) for the day the tab comes back.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/model.cjs
 const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
 
-const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
-// Admin's share of premium by line (pricingParameters' ADMIN_SHARE_OF_PREMIUM), written out.
-const ADMIN = { WC: 0.2, GL: 0.2, Property: 0.2 };
-const near = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
-// The expense block with risk control in the divisor beside admin: the total is
-// admin + risk control and the permissible loss ratio 1 - the total.
-const expenseBlockOk = (l, admin, rc, total, plr) => near(admin, ADMIN[l]) && near(total, ADMIN[l] + rc) && near(plr, 1 - ADMIN[l] - rc);
+const LINES = ["Workers' Compensation", 'General Liability', 'Property'];
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
   if (cond) passed++; else failed++;
   console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
+const bar = page => page.locator('nav').first().locator('button').allInnerTexts().then(ts => ts.map(t => t.trim()));
+const absent = async (page, who) => {
+  const b = await bar(page);
+  ok(b.length > 0 && !b.includes('Model') && await page.locator('[data-testid="model"]').count() === 0,
+    `${who}: the top bar has no Model tab, and the page is not rendered`, b.join(' | '));
+};
 
-// The statement's own formats (resultsStatement.ts, cellText).
-const thousands = x => { const r = Math.round(x / 1000); return `${r < 0 ? '−' : ''}${Math.abs(r).toLocaleString('en-US')}`; };
-const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
+async function lockOne(page) {
+  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await page.waitForTimeout(2500);
+  const decline = page.getByRole('button', { name: /Decline/i }).first();
+  if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
+  const confirm = page.getByRole('button', { name: /Confirm & Continue/ }).first();
+  if (await confirm.count() > 0) { await confirm.click(); await page.waitForTimeout(800); }
+  await page.waitForSelector('text=Lock Program Year 2028', { timeout: 120000 });
+}
+
+async function soloStart(browser, errors, mode) {
+  const page = await (await browser.newContext({ baseURL: BASE })).newPage();
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/solo');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
+  await page.locator('[data-testid="scenario"]').selectOption('7');
+  for (const label of LINES) {
+    const btn = page.locator('button', { hasText: label }).first();
+    if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
+  }
+  if (mode === 'test') {
+    await page.getByRole('button', { name: 'Test player', exact: true }).click();
+    await page.waitForSelector('[data-testid="test-player-setup"]', { timeout: 20000 });
+    await page.click('[data-testid="start-test-player"]');
+  } else {
+    await page.getByRole('button', { name: 'Single player', exact: true }).click();
+  }
+  await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
+  await lockOne(page);
+  return page;
+}
 
 (async () => {
   await requireServer();
   const browser = await launchBrowser();
   const errors = [];
 
-  // ---- SOLO ---------------------------------------------------------------
-  const page = await (await browser.newContext({ baseURL: BASE })).newPage();
-  page.on('pageerror', e => errors.push(e.message));
-  const tab = async name => { await page.getByRole('button', { name: new RegExp(`^${name}$`) }).first().click(); await page.waitForTimeout(500); };
-  const lineView = async label => { await page.getByRole('button', { name: label, exact: true }).first().click(); await page.waitForTimeout(400); };
-  const value = async sel => {
-    const v = await page.getAttribute(sel, 'data-value').catch(() => null);
-    return v === null ? NaN : Number(v);
-  };
-
-  await page.goto('/solo');
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
-  await page.waitForSelector('[data-testid="scenario"]', { timeout: 20000 });
-  await page.locator('[data-testid="scenario"]').selectOption('7');
-  for (const [, label] of LINES) {
-    const btn = page.locator('button', { hasText: label }).first();
-    if (!(await btn.evaluate(el => el.className.includes('ring-1')))) await btn.click();
-  }
-  await page.getByRole('button', { name: 'Single player', exact: true }).click();
-  await page.waitForSelector('text=Lock Program Year', { timeout: 60000 });
-  for (const y of [1, 2]) {
-    await tab('Decisions');
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
-    await page.waitForTimeout(2500);
-    const decline = page.getByRole('button', { name: /Decline/i }).first();
-    // A loan offer, if a line ended the year below zero: declined, then confirmed.
-    if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
-    const confirm = page.getByRole('button', { name: /Confirm & Continue/ }).first();
-    if (await confirm.count() > 0) { await confirm.click(); await page.waitForTimeout(800); }
-    await page.waitForSelector(`text=Lock Program Year ${2027 + y}`, { timeout: 120000 });
-  }
-
-  // WC's Risk Control slider to 2% for the coming year (wip/risk-control-divisor),
-  // so the coming year's expense block is read above 0%.
-  await tab('Decisions');
-  await lineView("Workers' Compensation");
-  {
-    const box = page.locator('div.flex.flex-col.gap-2', { has: page.locator('span', { hasText: /^Safety & Return-to-Work$/ }) }).first();
-    const input = box.locator('input[type=range]');
-    await input.focus();
-    await page.keyboard.press('Home');
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('ArrowRight');
-    await page.waitForTimeout(600);
-    ok(Number(await input.inputValue()) === 0.02, 'solo: WC\'s Risk Control slider set to 2% for the coming year', await input.inputValue());
-  }
-  // The coming year's rate, as the Decisions panel quotes it.
-  const panel = {};
-  for (const [l, label] of LINES) { await lineView(label); panel[l] = await value('[data-testid="new-rate-final"]'); }
-
-  ok(await page.getByRole('button', { name: /^Model$/ }).count() > 0, 'solo: the top bar has the Model tab');
-  await tab('Model');
-  await page.waitForSelector('[data-testid="model"]', { timeout: 20000 });
-  const opts = await page.$$eval('[data-testid="model-year"] option', os => os.map(o => ({ value: Number(o.value), text: o.textContent.trim() })));
-  const cal = opts.map(o => Number(o.text.match(/\d{4}/)[0]));
-  ok(opts.length === 9 && cal[0] === 2021 && cal[cal.length - 1] === 2029 && cal.every((c, i) => i === 0 || c === cal[i - 1] + 1),
-    'solo: the year dropdown runs from the first pre-game year to the coming year', opts.map(o => o.text).join(', '));
-
-  const sim = {};
-  let wcComing = null;
-  for (const [l] of LINES) {
-    await page.click(`[data-testid="model-line-${l}"]`);
-    await page.waitForFunction(x => document.querySelector('[data-testid="model"]')?.getAttribute('data-line') === x, l);
-    let worst = 0, n = 0, bad = '';
-    for (const o of opts) {
-      await page.selectOption('[data-testid="model-year"]', String(o.value));
-      await page.waitForFunction(y => document.querySelector('[data-testid="model"]')?.getAttribute('data-year') === String(y), o.value);
-      const rate = await value('[data-testid="model-a-rate"]');
-      const premium = await value('[data-testid="model-a-premium"]');
-      const charged = await value('[data-testid="model-a-charged-rate"]');
-      const chargedPremium = await value('[data-testid="model-a-charged-premium"]');
-      const coming = o.value === opts[opts.length - 1].value;
-      const want = coming ? panel[l] : charged;
-      const pieces = await Promise.all(['pure-premium', 'admin', 'risk-control', 'reins'].map(k => value(`[data-testid="model-a-piece-${k}"]`)));
-      const projected = await value('[data-testid="model-a-projected"]');
-      const plr = await value('[data-testid="model-a-plr"]');
-      const indicated = await value('[data-testid="model-a-indicated"]');
-      const admin = await value('[data-testid="model-a-exp-admin"]');
-      const rc = await value('[data-testid="model-a-exp-risk-control"]');
-      const total = await value('[data-testid="model-a-exp-total"]');
-      const blockText = (await Promise.all(['exp-admin', 'exp-risk-control', 'exp-total', 'plr'].map(k => page.textContent(`[data-testid="model-a-${k}"]`)))).map(t => t.trim());
-      const adminShare = await value('[data-testid="model-a-admin-share"]');
-      const retired = await page.locator('[data-testid="model-a-exp-contingency"], [data-testid="model-a-piece-contingency"], [data-testid="model-a-exp-fixed"], [data-testid="model-a-exp-exposure"], [data-testid="model-a-admin-trend"]').count();
-      const inflation = await page.$$eval('[data-testid$="-inflation"]', els => els.map(e => Number(e.getAttribute('data-value'))));
-      const credit = await page.locator('[data-testid="model-a-credit"]').count();
-      const sum = pieces.reduce((x, y) => x + y, 0);
-      const wantRc = coming && l === 'WC' ? 0.02 : 0;
-      if (coming && l === 'WC') wcComing = { admin, rc, total, plr };
-      const structure = near(sum, rate) && near(indicated, projected / plr) && near(adminShare, ADMIN[l])
-        && expenseBlockOk(l, admin, rc, total, plr) && rc === wantRc
-        && blockText.join(' ') === [ADMIN[l], rc, ADMIN[l] + rc, 1 - ADMIN[l] - rc].map(pct1).join(' ')
-        && retired === 0 && near(pieces[1], ADMIN[l] * (rate - pieces[3])) && near(pieces[2], rc * (rate - pieces[3])) && credit === 0
-        && inflation.length > 0 && inflation.every(x => x >= 1);
-      if (!structure && !bad) bad = `${o.text}: rows ${sum} vs rate ${rate}; indicated ${indicated} vs ${projected / plr}; admin ${admin} (share ${adminShare}, row ${pieces[1]}), risk control ${rc} (want ${wantRc}, row ${pieces[2]}), total ${total}, permissible ${plr}, shown ${blockText.join(' / ')}; ${retired} retired rows; ${inflation.length} inflation cells; credit rows ${credit}`;
-      const good = structure && (coming ? near(rate, panel[l]) : near(rate, charged) && near(premium, chargedPremium));
-      n++;
-      if (!good && !bad) bad = `${o.text}: ${rate} vs ${want}${coming ? ' (panel)' : `, premium ${premium} vs ${chargedPremium}`}`;
-      if (!good) worst++;
-    }
-    ok(worst === 0 && n === opts.length,
-      `solo, ${l}: section A's rate is the rate charged on every priced year (and the panel's for the coming year), its premium the premium charged; its rows add to it, the indicated rate is pure premium / permissible loss ratio; the expense block is admin 20.0% + the year's risk control${l === 'WC' ? ' (2.0% in the coming year)' : ''} = the total, and the permissible loss ratio 1 - that; Risk Control is that share of the rate; no contingency, inflation shown, no credit`,
-      bad || `${n} years`);
-
-    // Section B's simulated figures, by calendar year: every year but the
-    // coming one, which is not played — the one just played shows at once.
-    const hidden = cal[cal.length - 1], justPlayed = cal[cal.length - 2];
-    ok(await page.$(`[data-testid="model-b-surplus-${hidden}-sim"]`) === null,
-      `solo, ${l}: section B has no column for ${hidden}, the coming year, not played`);
-    ok(await page.$(`[data-testid="model-b-surplus-${justPlayed}-sim"]`) !== null,
-      `solo, ${l}: section B shows ${justPlayed}, the year just played, at once`);
-    sim[l] = {};
-    for (const c of cal.slice(0, -1)) {
-      sim[l][c] = {
-        cr: await value(`[data-testid="model-b-combinedRatio-${c}-sim"]`),
-        inv: await value(`[data-testid="model-b-investmentIncome-${c}-sim"]`),
-        surplus: await value(`[data-testid="model-b-surplus-${c}-sim"]`),
-        expCr: await value(`[data-testid="model-b-combinedRatio-${c}-exp"]`),
-      };
-    }
-  }
-
-  // THE CONTROL: the coming WC year's block, with wip/risk-control's multiplier
-  // permissible loss ratio — (1 - admin) / (1 + risk control), 78.4% at 2% —
-  // must be refused.
-  ok(wcComing !== null && wcComing.rc === 0.02
-    && !expenseBlockOk('WC', wcComing.admin, wcComing.rc, wcComing.total, (1 - ADMIN.WC) / (1 + wcComing.rc)),
-    'control: the multiplier\'s permissible loss ratio is refused on WC\'s coming year', JSON.stringify(wcComing));
-
-  // SECTION B against the Annual Statement, year by year and line by line.
-  await tab('Annual Statement');
-  await page.waitForSelector('[data-testid="annual-statement"]', { timeout: 20000 });
-  for (const [l, label] of LINES) {
-    await lineView(label);
-    let checked = 0, bad = '';
-    for (let i = 0; i < opts.length - 1; i++) {
-      const c = cal[i];
-      await page.selectOption('[data-testid="statement-year"]', String(opts[i].value));
-      await page.waitForTimeout(250);
-      // The statement's asOf year is its last year column — the cell before I, blank in these sections (no Total).
-      const cell = async rowLabel => page.$eval(`[data-testid="annual-statement"] tr[data-row-label="${rowLabel}"]`,
-        tr => { const tds = [...tr.querySelectorAll('td')]; return tds[tds.length - 2].textContent.trim(); }).catch(() => null);
-      const got = { cr: await cell('Combined Ratio'), inv: await cell('Investment Income'), surplus: await cell('Net Worth') };
-      const s = sim[l][c];
-      const want = { cr: pct1(s.cr), inv: thousands(s.inv), surplus: thousands(s.surplus) };
-      for (const k of ['cr', 'inv', 'surplus']) {
-        checked++;
-        if (got[k] !== want[k] && !bad) bad = `${c} ${k}: statement ${got[k]} vs model ${want[k]}`;
-      }
-      if (!Number.isFinite(s.expCr) && !bad) bad = `${c}: no expected combined ratio`;
-    }
-    ok(!bad && checked === 3 * (opts.length - 1),
-      `solo, ${l}: section B's simulated combined ratio, investment income and surplus are the Annual Statement's, every year`,
-      bad || `${checked} cells`);
-  }
+  await absent(await soloStart(browser, errors, 'single'), 'Single player');
+  await absent(await soloStart(browser, errors, 'test'), 'Test player');
 
   // ---- HOSTED -------------------------------------------------------------
   const ctx = await browser.newContext({ baseURL: BASE });
@@ -237,8 +97,7 @@ const pct1 = x => `${(x * 100).toFixed(1)}%`.replace(/^-/, '−');
   await team.click('[data-testid="join-team"]');
   await team.waitForSelector('[data-testid="session-strip"]', { timeout: 180000 });
   await team.waitForSelector('button:has-text("Rate Indication")', { timeout: 60000 });
-  ok(await team.getByRole('button', { name: /^Model$/ }).count() === 0 && await team.locator('[data-testid="model"]').count() === 0,
-    'hosted: the top bar has no Model tab, and the page is not rendered');
+  await absent(team, 'Hosted');
 
   ok(errors.length === 0, 'no page errors', errors[0] ?? '');
   await browser.close();

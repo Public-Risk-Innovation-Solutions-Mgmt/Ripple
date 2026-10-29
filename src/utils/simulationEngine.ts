@@ -119,7 +119,7 @@ import { SeededRandom, deriveSubRng } from './random';
 // Aliased: the result field is called newPurePremiumPer100 too, and the
 // unaliased import collides with it in this scope.
 import { bookPurePremium, newPurePremiumPer100 as computeNewPurePremium, type NewPurePremiumResult } from './newPurePremium';
-import { dividendAssessmentBasis } from './dividendAssessment';
+import { assessmentCharged, dividendPaid } from './dividendAssessment';
 import { ADMIN_EXPENSE_RATIO_OF_PURE_PREMIUM, BOOK_MIX_NORMALISER, DECLINED_COVER_MARGIN_ENABLED, AGGREGATE_LOSS_DISTRIBUTION, CAPITAL_ADEQUACY_THRESHOLDS, FUNDING_CLF_TABLE, IBNER_BOOKING_BIAS_COEFF, IBNER_CALENDAR_RHO, IBNER_COHORT_SD_SCALE, IBNER_HORIZON, IBNER_STEP_MIXTURE, IBNER_TOTAL_SD, IBNER_UNWIND_DECAY, LINE_PAYOUT_PATTERN, FORWARD_BOOKING, FULL_COST_BOOKING, PER_CLAIM_REVISION, PRICING_TRIANGLE, MEMBER_LOSS_VOLATILITY, OPERATING_CASH_PCT_OF_PREMIUM, PROPERTY_HELD_PURE_PREMIUM_PER_100, RISK_CONTROL_PARAMS, openShareAtStep } from '../data/defaultAssumptions';
 import type { TowerLine } from '../data/reinsuranceTower';
 import {
@@ -1712,11 +1712,13 @@ export function processLineYear(
   const chargedRateChangePct = priorTotalMemberRatePer100 !== null
     ? (totalMemberRatePer100 / priorTotalMemberRatePer100 - 1) * 100
     : null;
-  // ⚠ RESOLVED ONCE, HERE, AND READ TWICE. The dividend block is a rule, and it
-  // used to live only beside the cash movement two thousand lines below. Term 5
-  // needs the same answer, and a second copy of a rule is how the two go out of
-  // step — so the rule moved up to its first reader rather than being restated.
-  const effectiveDividendPct = ctx.dividendBlocked ? 0 : lineDecisions.dividendPct;
+  // ⚠ RESOLVED ONCE, HERE, AND READ TWICE. The dividend and the assessment are
+  // DOLLARS (dividendAssessment.ts): the assessment charged in full whatever the
+  // surplus, the dividend limited to the opening surplus and none while
+  // blocked. Term 5 needs the same answer as the cash movement below, and a
+  // second copy of a rule is how the two go out of step.
+  const dividends = dividendPaid(lineDecisions.dividendAmount, lineState.surplus, ctx.dividendBlocked);
+  const assessments = assessmentCharged(lineDecisions.assessmentAmount);
 
   const satisfaction = satisfactionMoves(
     currentActiveMembers, line, ctx.memberLossHistory, chargedRateChangePct,
@@ -1731,11 +1733,11 @@ export function processLineYear(
     // can actually see when this year's bill arrives, and the only one that
     // exists at this point in the function anyway. See memberSatisfaction.ts.
     ctx.priorResult?.excessCapitalRatio ?? null,
-    // TERM 5's inputs. The EFFECTIVE dividend, not the requested one — a line
-    // carrying negative surplus into the year pays nothing, and a member cannot
-    // be grateful for a cheque that was never sent.
-    effectiveDividendPct,
-    lineDecisions.assessmentPct,
+    // TERM 5's inputs, as SHARES OF THE MEMBER CHARGE — the premium basis the
+    // term was tuned on (dividendAssessment.ts). The dividend PAID, not the one
+    // requested: a member cannot be grateful for a cheque that was never sent.
+    dividends / Math.max(totalMemberCharge, 1),
+    assessments / Math.max(totalMemberCharge, 1),
   );
   // ⚠ SCORED LATE AND SUBSTITUTED ONLY WHERE THE ROSTER IS PERSISTED. Everything
   // between the renewal screen and here reads `enrolledMembers` for exposure,
@@ -2630,20 +2632,8 @@ export function processLineYear(
   // --- Income Statement ---
   // Use reserve-rollforward incurred loss so the income statement and balance sheet tie.
   // This keeps the financial statement logic consistent with the reserve accounting.
-  // ⚠ THE BASIS IS SURPLUS, NOT POOL PREMIUM. Both lines read
-  // `poolPremium * pct` until the dividend/assessment control was reworked to
-  // show the dollar amount beside the percentage. The shown figure has to BE
-  // the paid figure, so the basis moved here rather than the page approximating
-  // it. The opening surplus — this line's `lineState.surplus`, which is last
-  // year's endingSurplus carried forward — is the one that is not circular and
-  // is the one on screen. The zero floor is a sign guard for a line carrying
-  // negative surplus in; see dividendAssessment.ts for both arguments.
-  const dividendAssessmentBase = dividendAssessmentBasis(lineState.surplus);
-  const assessments = dividendAssessmentBase * lineDecisions.assessmentPct;
-  // A line carrying a negative surplus into the year (declined a loan) cannot pay
-  // a dividend — the decision is blocked regardless of what was requested. The
-  // rule itself is resolved once, above, where satisfaction's term 5 first needs it.
-  const dividends = dividendAssessmentBase * effectiveDividendPct;
+  // The dividend and the assessment, in dollars, were resolved above where
+  // term 5 first reads them (dividendAssessment.ts).
 
   // Keep this as a displayed reserve development metric (net basis).
   // Do not add it separately to net income because reserve development is already captured

@@ -112,8 +112,8 @@ const lineDecisions = (): TeamLineDecisions => ({
   nonRenewal: 0.03,
   newMembers: 0.04,
   riskControlPct: 0.03,
-  dividendPct: 0.05,
-  assessmentPct: 0,
+  dividendAmount: 2_000_000,
+  assessmentAmount: 0,
   allocation: { cashPct: 0.2, bondsPct: 0.6, equitiesPct: 0.2 },
 });
 
@@ -711,7 +711,7 @@ async function main(): Promise<void> {
     eq(seen?.newMembers, 0.04, 'and the new members share');
     ok(seen !== undefined && !('renewalCut' in seen) && !('intakeLevel' in seen),
        'and nothing of the retired renewal cut or intake position (uw-hybrid)');
-    eq(seen?.dividendPct, 0.05, 'and the dividend');
+    eq(seen?.dividendAmount, 2_000_000, 'and the dividend, in dollars');
     // THE WORLDS' SPREAD (loss engine commit 4b): what the team posts beside the
     // average comes back exactly, for the host's minimum column.
     const spread = after.room.teams[0].resultsByYear?.['1']?.surplusRange;

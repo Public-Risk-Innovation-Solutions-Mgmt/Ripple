@@ -39,11 +39,13 @@ let checks = 0;
 function ok(c, w, d = '') { checks++; const line = w + (d ? `  — ${d}` : ''); if (!c) { fails.push(line); console.log('  FAIL  ' + line); } else console.log('  ok    ' + line); }
 
 // Every download the app offers. A new one belongs here the day it ships.
+// ⚠ 'Download Results (.xlsx)' AND 'Download Claims (.xlsx)' CAME OFF WITH THE
+// RESULT SPREADSHEET TAB (the tab cleanup, tabs.tsx HIDDEN_TABS): ruled fine to
+// lose, the Annual Statement covering what players need. Their builders still run
+// (solo-export-guard). Below, the tab is asserted absent so neither button can be
+// reached by any player.
+const GONE = ['Result Spreadsheet', 'Results', 'Financial Statements', 'Model'];
 const BUTTONS = [
-  { name: 'Download Results (.xlsx)', min: 10_000, tab: 'Result Spreadsheet' },
-  // ⚠ NO LONGER NAMES ITS WORLD: the workbook is still world 1's (an averaged
-  // year has no claims of its own), but players are never told about the worlds.
-  { name: 'Download Claims (.xlsx)', min: 10_000, tab: 'Result Spreadsheet' },
   // The template-laid-out statement (annualStatementExport.ts), on its own page:
   // the file must open as a workbook whose first sheet is the pool's.
   { name: 'Download Annual Statement (Excel)', min: 5_000, tab: 'Annual Statement', sheets: true },
@@ -205,6 +207,10 @@ async function screenBordersMatchTemplate(page) {
     }
     await page.waitForSelector(`text=Lock Program Year ${next}`, { timeout: 120000 });
   }
+
+  const bar = (await page.locator('nav').first().locator('button').allInnerTexts()).map(t => t.trim());
+  ok(GONE.every(t => !bar.includes(t)), `the bar offers none of ${GONE.join(', ')}, so their downloads are unreachable`, bar.join(' | '));
+  ok(await page.getByRole('button', { name: /Download (Results|Claims) \(\.xlsx\)/ }).count() === 0, 'no Results or Claims download anywhere on the page');
 
   let onTab = null;
   let workbookSheets = null, statementYear = null;

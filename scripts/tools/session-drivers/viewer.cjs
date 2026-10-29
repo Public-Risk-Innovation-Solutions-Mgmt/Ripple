@@ -63,14 +63,14 @@ async function tabText(page, tab) {
 
   // ---- IT IS THE SAME SCREEN ----------------------------------------------
   // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool in
-  // aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results, Financial Statements
-  // from players and viewers alike (GameShell's MULTIPLAYER_HIDDEN_TABS). The
-  // PAGES are intact. Dashboard and Departments are hidden in both
-  // (src/game/tabs.tsx), and Investments; Rate Indication joined. The
+  // aggregate. ⚠ RESULTS, RESULT SPREADSHEET, FINANCIAL STATEMENTS AND MODEL
+  // are hidden from players and viewers alike since the tab cleanup
+  // (src/game/tabs.tsx HIDDEN_TABS). The PAGES are intact. Dashboard and
+  // Departments are hidden in both, and Investments; Rate Indication joined. The
   // Year Walkthrough (once the Calculation Audit) is on the bar.
   const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                'Decision History', 'Result Spreadsheet', 'Year Walkthrough'];
-  const HIDDEN = ['Financial Statements', 'Results', 'Dashboard', 'Departments', 'Investments'];
+                'Decision History', 'Year Walkthrough'];
+  const HIDDEN = ['Financial Statements', 'Results', 'Result Spreadsheet', 'Model', 'Dashboard', 'Departments', 'Investments'];
   let present = 0;
   for (const t of TABS) if (await viewer.getByRole('button', { name: t, exact: true }).count() > 0) present++;
   ok(present === TABS.length, `viewer has all ${TABS.length} multiplayer tabs (${present}/${TABS.length})`);

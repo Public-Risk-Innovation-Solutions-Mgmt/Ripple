@@ -121,7 +121,7 @@ const CHANGES: { name: string; decision: string; line: CoverageLine; decide: Dec
   { name: 'the Property cover', decision: 'reinsurance', line: 'Property', decide: lastYear(d => onLine(d, 'Property', { reinsuranceOption: '$38M xs $2M' })) },
   { name: 'the WC funding level', decision: 'funding', line: 'WC', decide: lastYear(d => onLine(d, 'WC', { fundingAtExpected: false, fundingConfidenceLevel: 0.75 })) },
   { name: 'GL non-renewal', decision: 'nonRenewal', line: 'GL', decide: lastYear(d => onLine(d, 'GL', { nonRenewal: 0.05 })) },
-  { name: 'the WC dividend', decision: 'dividend', line: 'WC', decide: lastYear(d => onLine(d, 'WC', { dividendPct: 0.05 })) },
+  { name: 'the WC dividend', decision: 'dividend', line: 'WC', decide: lastYear(d => onLine(d, 'WC', { dividendAmount: 2_000_000 })) },
   // wip/risk-control: the slider is charged in the rate, so it feeds pricing first.
   { name: 'the GL risk control slider', decision: 'riskControl', line: 'GL', decide: lastYear(d => onLine(d, 'GL', { riskControlIncentivePct: 0.03 })) },
 ];
@@ -133,7 +133,7 @@ const TIE: Decide = y => {
     byLine: {
       ...d.byLine,
       WC: { ...d.byLine.WC, nonRenewal: 0.05, newMembers: 0.1, fundingAtExpected: false, fundingConfidenceLevel: 0.75 },
-      Property: { ...d.byLine.Property, reinsuranceOption: '$38M xs $2M', dividendPct: y === YEARS ? 0.05 : 0 },
+      Property: { ...d.byLine.Property, reinsuranceOption: '$38M xs $2M', dividendAmount: y === YEARS ? 1_000_000 : 0 },
       // Risk control on GL every year (wip/risk-control): the charge, the cut and the saving tie too.
       GL: { ...d.byLine.GL, riskControlIncentivePct: 0.05 },
     },
@@ -258,7 +258,10 @@ function sectionEngine(): string[] {
       tie('LAE reserve by accident year, start', sumOf(w, 'reserves', /^\d{4}: LAE reserve, start$/), a.beginningLaeReserve);
       tie('admin booked = charged x (1 + overrun)', fig(w, 'admin', 'Admin charged') * (1 + fig(w, 'admin', 'Overrun drawn')), a.operatingExpense);
       tie('investment income', fig(w, 'investment', 'Investment income'), a.investmentIncome);
-      tie('dividends = % x basis', fig(w, 'dividends', 'Dividend %') * fig(w, 'dividends', 'Basis (opening surplus, not below zero)'), a.dividends, 1);
+      // In dollars: the dividend paid is never more than chosen, the assessment charged in full.
+      if (!(fig(w, 'dividends', 'Dividends paid') <= fig(w, 'dividends', 'Dividend chosen') + 0.01)) out.push(`${y} ${l} dividends: paid ${fig(w, 'dividends', 'Dividends paid')} above the ${fig(w, 'dividends', 'Dividend chosen')} chosen`);
+      tie('dividends paid', fig(w, 'dividends', 'Dividends paid'), a.dividends);
+      tie('assessments charged = chosen', fig(w, 'dividends', 'Assessments charged'), fig(w, 'dividends', 'Assessment chosen'));
       tie('surplus rolls forward', fig(w, 'surplus', 'Opening surplus') + fig(w, 'surplus', 'Net income') + fig(w, 'surplus', 'Transfer between lines (loans)'), a.endingSurplus);
       const marginRow = w.stages.find(s => s.key === 'capital')!.rows.find(r => r.label.startsWith('Reserve margin factor'))!;
       tie('required capital', fig(w, 'capital', 'Loss reserve (net), end') * ((marginRow.value as number) - 1) + fig(w, 'capital', 'Retained catastrophe capital'), a.reserveRiskMarginNeeded);

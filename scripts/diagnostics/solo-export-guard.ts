@@ -1097,20 +1097,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // on the pool, every year, the dormant stop's, always $0 — and the two codes
 // that fingerprint them, the reinsurance stage's and the year code. No figure
 // moved. The 24 `stmt|...` keys do not move.
-// v115: THE FUNDING TABLES STRETCHED (wip/clf-stretch), on multiplayer 15dc74b,
-// which reproduces v114 here 48 of 48 first. 36 of 48 move, each text-diffed
-// against the control (GUARD_TEXT_DIR both sides):
-//   the 12 default Results files (Expected funding, a factor of 1.0): the save
-//   version (riskpool_gamestate_v41 -> v42), the year codes, and the rows that
-//   read required capital — Reserve Risk Margin Needed (WC MAMC6EA4 2026
-//   $3,412,297 -> $9,796,068), Excess Available Surplus, Excess Capital Ratio
-//   and Excess Capital Status (WC there Strong in all five years -> Adequate,
-//   Deficient, Adequate, Strong, Strong); no premium, loss or surplus row;
-//   the 12 squeezed Results files and their 12 statements (each line at its
-//   lowest stop, the stretched table's lower 30% column): Selected CLF and the
-//   premium, rate, admin, ratio, income, surplus and asset rows built on it,
-//   and the capital rows. No loss, claim, reserve or development row moves.
-// The 12 default statements do not move: no capital row is on them.
+// v115: THE DIVIDEND AND THE ASSESSMENT IN DOLLARS (wip/dividends-in-dollars),
+// against multiplayer 15dc74b, which reproduces v114 here. The 24 Results keys
+// move and the 24 statements do not. Text-diffed (GUARD_TEXT_DIR both sides):
+// in the Results sheets the only rows that move are the two decision rows,
+// renamed "Dividend %" -> "Dividend chosen" and "Assessment %" -> "Assessment
+// chosen" and stated in dollars ($0 where 0.0%) — no row keeping its label
+// moved a value; in the Year Walkthrough sheet, the dividend stage's labels and
+// working, the decisions stage's two rows, the codes those move, and the
+// Version row (save key v41 -> v42). The guard's games choose no dividend or
+// assessment, so no figure moved.
 const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v115.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
