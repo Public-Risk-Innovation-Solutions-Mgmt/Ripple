@@ -1513,7 +1513,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // prices reach nothing. v91 is retired.
 // v92: THE FUNDING TABLES STRETCHED (wip/clf-stretch: CLF_STRETCH_95, WC 1.30,
 // GL and Property 1.25), on multiplayer 15dc74b, which reproduces v90 here
-// first. Against v90, 8,113 of 39,600 values move, every one the stretched
+// first (and again on 3bd6d2b, merged in before landing: v90 there, v92 here). Against v90, 8,113 of 39,600 values move, every one the stretched
 // table's: the default arm (Expected, a factor of 1.0) moves only the seven
 // fields that read required capital — reserveRiskMarginNeeded,
 // fundingMarginNeeded, fundingGap, capitalFundingGap, excessAvailableSurplus,
