@@ -214,7 +214,8 @@ export const ENDING_SURPLUS_LABEL = 'Ending Surplus';
  * The statement's first row. Each year's cell is that year's own; TOTAL is
  * CUMULATIVE — summed costs over summed charges — over every PLAYED year since
  * game start, to the year the statement stands at; before year 1 is played,
- * over the pre-game years instead. The header shows exactly this Total.
+ * over the pre-game years instead. The header and the host's Teams table show
+ * the NEWEST year's cell, not this Total (newestCombinedRatio).
  */
 function combinedRatioRow(prior: OperatingYear | null, cols: OperatingYear[], cumulativeOver: OperatingYear[]): StatementRow {
   const total = cumulativeOver.length === 0 ? NONE
@@ -223,10 +224,26 @@ function combinedRatioRow(prior: OperatingYear | null, cols: OperatingYear[], cu
     cols.map(o => div(combinedCosts(o), o.memberCharge)), { emphasis: true, total });
 }
 
-/** The header's figure: the statement's cumulative combined ratio (its first row's Total). */
+/** The statement's cumulative combined ratio (its first row's Total). */
 export function topCombinedRatio(st: AnnualStatement): number | undefined {
   const r = st.sections.find(s => s.key === 'operating')?.rows.find(x => x.label === COMBINED_RATIO_LABEL);
   return r ? num(r.cells[r.cells.length - 1]) : undefined;
+}
+
+/**
+ * THE HEADER'S AND THE HOST'S FIGURE: the Combined Ratio of the statement's
+ * NEWEST year — its last column before Total — with that year's calendar label.
+ * The year the statement stands at: the latest played year, or before year 1
+ * the last pre-game (history) year. Undefined where the statement has no such
+ * cell.
+ */
+export function newestCombinedRatio(st: AnnualStatement): { value: number; calendarYear: number } | undefined {
+  const sec = st.sections.find(s => s.key === 'operating');
+  const r = sec?.rows.find(x => x.label === COMBINED_RATIO_LABEL);
+  if (!sec || !r || r.cells.length < 2) return undefined;
+  const value = num(r.cells[r.cells.length - 2]);
+  const calendarYear = Number(sec.columns[sec.columns.length - 2]);
+  return value !== undefined && Number.isFinite(value) && Number.isFinite(calendarYear) ? { value, calendarYear } : undefined;
 }
 
 /**

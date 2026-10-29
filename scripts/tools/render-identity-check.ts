@@ -1664,14 +1664,25 @@ const BASELINE = process.env.RENDER_BASELINE
 // from the pricing odds (T_COVER_FREQUENCY, the same 7.5% / 5.25% / 2.25%),
 // and every cover is already offered here. These games' shocks are on, so
 // COVERS_IN_EVERY_GAME moves nothing. 187 match.
-// v111: TWO DISPLAY REMOVALS (wip/display-removals), on multiplayer 1a02966,
-// which matches v110. 10 move, every Rate Indication, each by exactly the
+// v111: THE TOP BAR'S COMBINED RATIO IS THE NEWEST YEAR'S
+// (wip/newest-year-combined-ratio), on multiplayer 1a02966, which reproduced
+// v110 236 of 236 here first. 196 of 236 move — every screen that carries the
+// top bar (Annual Statement, Decision History, Decisions, Financial Statements,
+// Results, Year Walkthrough 26 each; Introduction, Rate Indication, Result
+// Spreadsheet and _header 10 each) — and each word-diffed against the control
+// (RENDER_TEXT_DIR both sides) moves in exactly one place: the chip "Combined
+// Ratio <cumulative>" now reads "Combined ratio 2026 <2026's>" at y0 and
+// "Combined ratio 2028 <2028's>" at y2, the Annual Statement's newest column.
+// No other text moved. The 40 unmoved are the screens without the top bar.
+// No key added or removed.
+// v112: TWO DISPLAY REMOVALS (wip/display-removals), on multiplayer 12852f3,
+// which reproduces v111 here. 10 move, every Rate Indication, each by exactly the
 // Event Likelihoods chart's axis labels ("$0M $10M $20M $30M $40M 1/10 1/20
 // 1/50 1/100 1/200", once per line shown): the chart is removed and its table
 // stays. The Decisions page's "Average saving equals the cost." line is
 // removed too, but these games hold Risk Control at 0%, where it never showed,
 // so no Decisions screen moves. 226 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v111.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v112.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

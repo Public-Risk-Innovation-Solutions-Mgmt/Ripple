@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
 import type { GameState, LineView } from '../types/simulation';
 import type { TeamMarketShare } from '../session/contract';
-import { buildAnnualStatement, topCombinedRatio, topSurplus } from '../utils/resultsStatement';
+import { buildAnnualStatement, newestCombinedRatio, topSurplus } from '../utils/resultsStatement';
 import { formatCurrency, formatPct, colorForRatioOnDark } from '../utils/formatters';
 import { RippleMark } from '../assets/RippleLogo';
 
@@ -36,14 +36,19 @@ interface HeaderProps {
 export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance, advanceLabel, lineView = 'pool', roomMarketShare }: HeaderProps) {
 
   // ============================================================================
-  // THE COMBINED RATIO, CUMULATIVE SINCE GAME START, READ OFF THE ANNUAL STATEMENT.
+  // THE COMBINED RATIO OF THE NEWEST YEAR, READ OFF THE ANNUAL STATEMENT, AND
+  // LABELLED WITH THAT YEAR ("Combined ratio 2027").
   //
   // Every cost — net losses, LAE, admin and the reinsurance cost — over what
-  // members were charged, summed over every played year since game start; before
-  // any year is played, over the pre-game years. It is the statement's own first
-  // row's Total (buildAnnualStatement → topCombinedRatio), for the view on
-  // screen: the pool's on the pool view, a line's on its own. So the top and the
-  // statement cannot disagree.
+  // members were charged, for the year the statement's newest column shows: the
+  // latest played year, or before year 1 the last history year. It is that
+  // column's Combined Ratio cell (buildAnnualStatement → newestCombinedRatio),
+  // for the view on screen: the pool's on the pool view, a line's on its own. So
+  // the top and the statement cannot disagree. The host's Teams table posts the
+  // same cell (session/client/results, yearCombinedRatio).
+  //
+  // ⚠ IT WAS THE CUMULATIVE SINCE GAME START (the statement's Total,
+  // topCombinedRatio), which a player could not find in any one column.
   //
   // ⚠ IT REPLACED "Loss Ratio (prem + admin)" — actualLossRatioPricingBasis,
   // net incurred over pool premium + admin. That figure is not gone: it stays
@@ -56,7 +61,7 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
     () => (gameState?.isStarted ? buildAnnualStatement(gameState, lineView) : undefined),
     [gameState, lineView],
   );
-  const combined = statement ? topCombinedRatio(statement) : undefined;
+  const combined = statement ? newestCombinedRatio(statement) : undefined;
   // ============================================================================
   // THE SURPLUS, READ OFF THE SAME STATEMENT: the balance sheet's Ending Surplus
   // for the latest year (topSurplus) — the opening before year 1, each played
@@ -134,9 +139,9 @@ export default function Header({ gameState, onNewGame, onAdvanceYear, canAdvance
                   map is at colorForRatio in formatters.ts; change neither alone. */}
               {combined !== undefined && (
                 <Chip
-                  label="Combined Ratio"
-                  value={formatPct(combined)}
-                  valueClass={colorForRatioOnDark(combined)}
+                  label={`Combined ratio ${combined.calendarYear}`}
+                  value={formatPct(combined.value)}
+                  valueClass={colorForRatioOnDark(combined.value)}
                   testId="header-combined-ratio"
                 />
               )}
