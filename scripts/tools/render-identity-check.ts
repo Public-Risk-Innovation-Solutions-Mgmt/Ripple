@@ -1585,7 +1585,27 @@ const BASELINE = process.env.RENDER_BASELINE
 // container moved, so their v106 fingerprints are this container's rendering;
 // in a container that reproduces v105 they may read as moved. The harness plays
 // at 0%, so no figure on any screen changed. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v106.json');
+// v107: RISK CONTROL IN THE DIVISOR AND THE EXPENSE RATIO BLOCK
+// (wip/risk-control-divisor), on multiplayer 20f85ba. The control, built in its
+// own worktree here, moved 21 of 236 against v106 — the same container split
+// v106 recorded (Financial Statements, Results, Result Spreadsheet), none of
+// them a screen this change moves. Against the control's own capture 42 move,
+// each word-diffed (RENDER_TEXT_DIR both sides):
+//   Decisions 16          the panel's expense block — "Admin 20.0% 20.0% Risk
+//                         control 0.0% 0.0% Total expense ratio 20.0% 20.0%" —
+//                         and the permissible loss ratio to one decimal, "80.0%"
+//                         where it read "80%"
+//   Year Walkthrough 26   the pricing stage's expense block (Admin, Risk
+//                         control, Total expense ratio, Permissible loss ratio,
+//                         one decimal), the divisor "1 − admin − risk control"
+//                         (0.80 at 0%), the rate before reinsurance (same
+//                         figure, relabelled), admin's charge per $100 (the
+//                         engine's, newly shown), the working, the codes, and
+//                         the version v37 -> v38
+// The Rate Indication does not move (its block already read 20.0% / 0.0% /
+// 20.0% / 80.0% at 0%). v107 is v106 with those 42 replaced; the other 194
+// keep v106's fingerprints. The harness plays at 0%: no figure moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v107.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
