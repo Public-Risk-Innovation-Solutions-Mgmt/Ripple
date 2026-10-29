@@ -143,6 +143,15 @@ function screen(page, mode) {
         exposure: await value(`[data-testid="ri-${l}-exposure"]`),
         pp: await value(`[data-testid="ri-${l}-pp"]`),
         trend: await value(`[data-testid="ri-${l}-trend"]`),
+        trendText: (await page.textContent(`[data-testid="ri-${l}-trend"]`)).trim(),
+        // A past year's build (wip/rate-indication-years): its rate, the rate charged, and the window or its absence.
+        built: (await page.locator(`[data-testid="ri-${l}-built"]`).count()) === 0 ? null : {
+          rate: await value(`[data-testid="ri-${l}-built-rate"]`),
+          charged: (await page.locator(`[data-testid="ri-${l}-built-charged"]`).count()) ? await value(`[data-testid="ri-${l}-built-charged"]`) : null,
+          window: await page.locator(`[data-testid="ri-${l}-built-window"] tbody tr`).count(),
+          noHistory: (await page.locator(`[data-testid="ri-${l}-built-no-history"]`).count()) > 0,
+          clfLabel: (await page.locator(`[data-testid="ri-${l}-built-clf"]`).locator('xpath=../td[1]').innerText()).trim(),
+        },
         projected: await value(`[data-testid="ri-${l}-projected"]`),
         change: await value(`[data-testid="ri-${l}-change"]`),
         credit: await page.locator(`[data-testid="ri-${l}-credit"]`).count(),
@@ -207,11 +216,15 @@ function screen(page, mode) {
     const P = ind.calendar, level = P - 1;
     for (const [l] of LINES) {
       const x = ind[l];
-      ok(x.labels.losses === `5-Year Trended Average Loss at ${level} Rate Level` && x.labels.exposure === `${level} Exposure`
+      // Five window years once the game runs; a history year has its own count (none in the first two).
+      ok(x.labels.losses === `${x.window}-Year Trended Average Loss at ${level} Rate Level` && x.labels.exposure === `${level} Exposure`
         && x.labels.pp === `Indicated Pure Premium at ${level} Rate Level` && x.labels.projected === `Projected Pure Premium for Program Year ${P}`
         && x.labels.change === `Indicated Rate Change from the ${level} Rate`,
         `${mode}, ${name}, ${P}, ${l}: section 1's labels follow the priced year`, `${x.labels.losses} | ${x.labels.exposure} | ${x.labels.pp} | ${x.labels.projected} | ${x.labels.change}`);
-      ok(near(x.losses / (x.exposure * 10_000), x.pp) && near(x.pp * x.trend, x.projected),
+      // The annual trend shown as a percentage (one year's): 1.04 reads "4%".
+      ok(x.trendText === `${Number(((x.trend - 1) * 100).toFixed(2))}%` && /^\d+(\.\d+)?%$/.test(x.trendText),
+        `${mode}, ${name}, ${P}, ${l}: Annual Trend reads as a percentage`, `"${x.trendText}" for ${x.trend}`);
+      ok((x.window === 0 || near(x.losses / (x.exposure * 10_000), x.pp)) && near(x.pp * x.trend, x.projected),
         `${mode}, ${name}, ${P}, ${l}: losses / ${level} exposure = the pure premium at ${level}'s level, x one year's trend = the projection`,
         `${x.pp.toFixed(6)} x ${x.trend} = ${(x.pp * x.trend).toFixed(6)} vs ${x.projected.toFixed(6)}`);
       ok(x.credit === 0 && near(x.expected, x.projected / x.permissible) && expenseOk(l, x, rc) && x.retired === 0,
@@ -223,7 +236,8 @@ function screen(page, mode) {
         ok(!expenseOk(l, { ...x, permissible: (1 - ADMIN[l]) / (1 + rc), totalExpense: 1 - (1 - ADMIN[l]) / (1 + rc) }, rc),
           `${mode}, ${name}, ${P}, ${l}: control — the multiplier's permissible loss ratio, (1 - admin) / (1 + risk control), is refused`);
       }
-      ok(near(x.change, x.expected / x.current - 1),
+      // 2021, the first year, has no rate before it to change from.
+      if (P > 2021) ok(near(x.change, x.expected / x.current - 1),
         `${mode}, ${name}, ${P}, ${l}: the indicated rate change is the rate at Expected / the Current rate - 1`,
         `${(x.change * 100).toFixed(4)}%`);
     }
@@ -366,12 +380,33 @@ function screen(page, mode) {
     return charged;
   }
 
-  // EACH PLAYED YEAR, from the dropdown, against what was charged.
+  // EACH YEAR BACK TO THE BEGINNING, from the dropdown (wip/rate-indication-years):
+  // every history year 2021–2026 and every played year shows how its rate was
+  // built, and the build's rate is the rate charged; the first history years,
+  // with no window, show their expected-loss basis; the prior board funded at
+  // Expected. Then each played year against what was charged.
   async function playedYears(name, played) {
     await readIndication();
     const opts = await options();
-    ok(opts.length === played.length + 1 && opts.every((o, i) => o.value === i + 1),
-      `${mode}, ${name}: the dropdown runs from year 1 to the coming year`, opts.map(o => o.text).join(', '));
+    const wantValues = [-5, -4, -3, -2, -1, 0, ...played.map((_, i) => i + 1), played.length + 1];
+    ok(JSON.stringify(opts.map(o => o.value)) === JSON.stringify(wantValues)
+      && opts.every((o, i) => o.text === `Program Year ${2021 + i}`),
+      `${mode}, ${name}: the dropdown runs from 2021 (every history year) through every played year to the coming year`, opts.map(o => o.text).join(', '));
+    for (const o of opts.slice(0, -1)) {
+      const ind = await readIndication(o.value);
+      if (o.value <= 0) { sectionOne(ind, `${name}, history`, 0); sectionThree(ind, `${name}, history`); }
+      for (const [l] of LINES) {
+        const b = ind[l].built;
+        ok(b !== null && b.charged !== null && near(b.rate, b.charged),
+          `${mode}, ${name}, ${o.text}, ${l}: how the rate was built — its rate is the rate charged`, b ? `${b.rate} vs ${b.charged}` : 'no build');
+        ok(b !== null && (b.window > 0) !== b.noHistory && (o.value > -4 || b.noHistory),
+          `${mode}, ${name}, ${o.text}, ${l}: the window, or with none the expected-loss basis`, b ? `${b.window} window years${b.noHistory ? ', expected-loss basis' : ''}` : '');
+        if (o.value <= 0) ok(b !== null && b.clfLabel === 'Funding: Expected (the prior board)',
+          `${mode}, ${name}, ${o.text}, ${l}: the prior board funded at Expected`, b ? b.clfLabel : '');
+      }
+    }
+    const coming = await readIndication(played.length + 1);
+    ok(LINES.every(([l]) => coming[l].built === null), `${mode}, ${name}: the coming year shows no build`);
     const rows = [];
     for (let i = 0; i < played.length; i++) rows.push(await readIndication(i + 1));
     rows.push(await readIndication(played.length + 1));

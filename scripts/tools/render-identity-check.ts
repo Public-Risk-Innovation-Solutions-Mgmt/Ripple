@@ -1682,7 +1682,16 @@ const BASELINE = process.env.RENDER_BASELINE
 // stays. The Decisions page's "Average saving equals the cost." line is
 // removed too, but these games hold Risk Control at 0%, where it never showed,
 // so no Decisions screen moves. 226 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v112.json');
+// v113: THE RATE INDICATION'S YEARS BACK TO 2021, AND THE ANNUAL TREND AS A
+// PERCENTAGE (wip/rate-indication-years), on multiplayer 91462f2, which
+// reproduced v112 236 of 236 here first. 10 of 236 move — the Rate Indication,
+// every configuration, y0 and y2 — and each word-diffed against the control
+// (RENDER_TEXT_DIR both sides) moves in exactly two ways: the year dropdown
+// gains "Program Year 2021" to "Program Year 2026" (the history years), and each
+// line's Annual Trend reads as a percentage (WC 1.04 -> 4%, GL 1.08 -> 8%,
+// Property 1.05 -> 5%). The page opens on the coming year, so no past year's
+// build is on these screens. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v113.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
