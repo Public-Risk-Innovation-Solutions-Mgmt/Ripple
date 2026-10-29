@@ -295,6 +295,7 @@ const FAST: string[] = [
   't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
                                      //        recovery on every claim size, each year's price by the
                                      //        workbook's method at the T claims' own growth factor
+  'carry-decisions-check',           //  ~13s  wip/carry-decisions: single player and Test player carry every decision into the next year (carryDecisions; App.tsx's commitYear), the first year on the defaults — each with a control
   'large-claims-from-events-check',  //  ~14s  wip/large-claims-from-events: large claims only from T-shock events (their map level, range x growth, one per line per firing), none with no schedule; the brief's ranges, odds and 2027 cover table; covers and likelihoods in every game — each with a control
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
