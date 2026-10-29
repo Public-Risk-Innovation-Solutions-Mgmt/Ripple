@@ -36,10 +36,16 @@ import { Fragment, useState } from 'react';
 import { HardHat, Scale, Building2, AlertTriangle } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
-import { formatPct } from '../../utils/formatters';
+import { formatCurrency, formatPct } from '../../utils/formatters';
 import { clfFor } from '../../utils/fundingConsequence';
 import type { CoverageLine } from '../../types/simulation';
 import type { RoomView, TeamLineDecisions, TeamView, TeamYearSummary } from '../index';
+
+// The dividend and the assessment, in dollars. A record posted before they were
+// dollars carries dividendPct/assessmentPct instead, and reads as none.
+const divOf = (d: TeamLineDecisions): number => d.dividendAmount ?? 0;
+const assOf = (d: TeamLineDecisions): number => d.assessmentAmount ?? 0;
+const money = (v: number) => formatCurrency(v, true);
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -109,17 +115,17 @@ function flagsFor(line: CoverageLine, d: TeamLineDecisions): Flag[] {
     });
   }
 
-  if (d.dividendPct > 0) {
+  if (divOf(d) > 0) {
     out.push({
       key: 'dividend',
-      label: `Dividend ${formatPct(d.dividendPct, 1)}`,
+      label: `Dividend ${money(divOf(d))}`,
       title: 'A dividend returns surplus to members; flagged so the host sees it against the year\'s result.',
     });
   }
-  if (d.assessmentPct > 0) {
+  if (assOf(d) > 0) {
     out.push({
       key: 'assessment',
-      label: `Assessment ${formatPct(d.assessmentPct, 1)}`,
+      label: `Assessment ${money(assOf(d))}`,
       title: 'An assessment calls surplus from members; flagged for the same reason as a dividend.',
     });
   }
@@ -296,16 +302,16 @@ function DecisionCells({ line, d }: { line: CoverageLine; d: TeamLineDecisions }
       <td className="px-3 py-2 text-slate-600">{formatPct(d.newMembers ?? 0, 0)}</td>
       <td className="px-3 py-2 text-slate-600">{formatPct(d.riskControlPct, 1)}</td>
       <td className="px-3 py-2">
-        {d.dividendPct === 0 && d.assessmentPct === 0 ? (
+        {divOf(d) === 0 && assOf(d) === 0 ? (
           <span className="text-slate-600">—</span>
         ) : (
           <span
             className={`px-1 ${flagged('dividend') || flagged('assessment') ? 'rounded bg-amber-50 font-medium text-amber-700' : ''}`}
             title={titleOf('dividend') ?? titleOf('assessment')}
           >
-            {d.dividendPct > 0 ? `Div ${formatPct(d.dividendPct, 1)}` : ''}
-            {d.dividendPct > 0 && d.assessmentPct > 0 ? ' / ' : ''}
-            {d.assessmentPct > 0 ? `Assmt ${formatPct(d.assessmentPct, 1)}` : ''}
+            {divOf(d) > 0 ? `Div ${money(divOf(d))}` : ''}
+            {divOf(d) > 0 && assOf(d) > 0 ? ' / ' : ''}
+            {assOf(d) > 0 ? `Assmt ${money(assOf(d))}` : ''}
             <AlertTriangle size={12} className="ml-1 inline align-[-1px]" />
           </span>
         )}
@@ -357,8 +363,8 @@ function TeamDrilldown({ team, line, years }: { team: TeamView; line: CoverageLi
               <td className="py-1 text-slate-600">{d ? fundingLabel(d) : '—'}</td>
               <td className="py-1 text-slate-600">{d ? reinsuranceLabel(d) : '—'}</td>
               <td className="py-1 text-slate-600">
-                {d ? (d.dividendPct > 0 || d.assessmentPct > 0
-                  ? `${d.dividendPct > 0 ? formatPct(d.dividendPct, 1) : '—'} / ${d.assessmentPct > 0 ? formatPct(d.assessmentPct, 1) : '—'}`
+                {d ? (divOf(d) > 0 || assOf(d) > 0
+                  ? `${divOf(d) > 0 ? money(divOf(d)) : '—'} / ${assOf(d) > 0 ? money(assOf(d)) : '—'}`
                   : '—') : '—'}
               </td>
               <td className="py-1 text-slate-600">

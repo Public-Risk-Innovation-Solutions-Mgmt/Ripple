@@ -5,6 +5,7 @@ import type { LineResultSet, ResultSet, LineView , CoverageLine} from '../types/
 import { isPoolRow } from '../utils/lineHelpers';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { newMembersShare, nonRenewalShare } from '../utils/bookUnderwriting';
+import { formatCurrency } from '../utils/formatters';
 
 interface DecisionHistoryPageProps {
   lockedResults: Array<ResultSet | LineResultSet>;
@@ -41,7 +42,7 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
   const headers = isPool
     ? ['Yr', 'Program Year', 'Cash %', 'Bonds %', 'Equities %']
     : [
-        'Yr', 'Program Year', 'Funding Confidence', 'Dividend %', 'Assessment %',
+        'Yr', 'Program Year', 'Funding Confidence', 'Dividend', 'Assessment',
         'Reinsurance Program',
         // Underwriting and risk control, as percentages: the two sliders by their
         // names, and the line's Risk Control slider (wip/risk-control).
@@ -109,10 +110,10 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
                       <>
                         <td className="px-4 py-3">{pctDisplay(r.decisions.fundingConfidenceLevel, 0)}</td>
                         <td className="px-4 py-3">
-                          {pctDisplay(r.decisions.dividendPct)}
+                          {formatCurrency(r.decisions.dividendAmount)}
                           {r.dividendBlocked && <span className="text-red-600 text-xs ml-1">(blocked)</span>}
                         </td>
-                        <td className="px-4 py-3">{pctDisplay(r.decisions.assessmentPct)}</td>
+                        <td className="px-4 py-3">{formatCurrency(r.decisions.assessmentAmount)}</td>
                         <td className="px-4 py-3">{placementSummary(lineView as CoverageLine, r.decisions)}</td>
                         {/* Read through the engine's own readings of the recorded decisions. */}
                         <td className="px-4 py-3">{pctDisplay(nonRenewalShare(r.decisions.nonRenewal), 0)}</td>

@@ -294,9 +294,9 @@ export default function ResultsPage({ lockedResults, lineView, roomMarketShare }
               <Row label="Funding Confidence Level"
                 value={lineRow ? formatPct(lineRow.decisions.fundingConfidenceLevel, 0) : VARIES} />
               <Row label="Dividend / Return of Pool Premium"
-                value={lineRow ? formatPct(lineRow.decisions.dividendPct, 1) : VARIES} />
+                value={lineRow ? formatCurrency(lineRow.decisions.dividendAmount) : VARIES} />
               <Row label="Assessment"
-                value={lineRow ? formatPct(lineRow.decisions.assessmentPct, 1) : VARIES} />
+                value={lineRow ? formatCurrency(lineRow.decisions.assessmentAmount) : VARIES} />
               <Row label="Risk Control Investment"
                 value={formatPct(lineRow ? lineRow.decisions.riskControlPct : (result as ResultSet).pool.riskControlPct, 1)} />
               {/* TWO PRODUCTS ARE LIVE. WC/GL run the per-occurrence tower and have

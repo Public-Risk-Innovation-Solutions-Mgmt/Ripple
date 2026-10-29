@@ -30,7 +30,6 @@ import { statementLines } from '../utils/financialStatementEngine';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { formatCurrency, formatPct } from '../utils/formatters';
 import { unpaidShare } from '../utils/payoutPattern';
-import { dividendAssessmentBasis } from '../utils/dividendAssessment';
 import { deriveSubRng } from '../utils/random';
 import { simulateMarketReturns, blendInvestmentReturn } from '../utils/investmentEngine';
 import {
@@ -1459,9 +1458,7 @@ function buildAssumptionRows(): AuditRow[] {
       metric: 'Slider Ranges',
       value:
         `Funding Confidence Level: ${formatSliderPct(SLIDER_RANGES.fundingConfidenceLevel)}\n` +
-        `Dividend / Assessment (combined, collapsed input): ${formatSliderPct(SLIDER_RANGES.dividendAssessment)}\n` +
-        `  Dividend % (engine field): ${formatSliderPct(SLIDER_RANGES.dividendPct)}\n` +
-        `  Assessment % (engine field): ${formatSliderPct(SLIDER_RANGES.assessmentPct)}\n` +
+        `Dividend / Assessment (combined, in dollars): Min ${formatCurrency(SLIDER_RANGES.dividendAssessment.min)}, Max ${formatCurrency(SLIDER_RANGES.dividendAssessment.max)}, Step ${formatCurrency(SLIDER_RANGES.dividendAssessment.step)}\n` +
         `Risk Control %: ${formatSliderPct(SLIDER_RANGES.riskControlPct)}\n` +
         `Asset Allocation Default: Cash ${ASSET_ALLOCATION_DEFAULT.cashPct}% / Bonds ${ASSET_ALLOCATION_DEFAULT.bondsPct}% / Equities ${ASSET_ALLOCATION_DEFAULT.equitiesPct}%`,
       formula: 'Player decision slider configuration.',
@@ -2829,19 +2826,8 @@ export function buildRevExpRows(
       value: formatCurrency(result.assessments),
       numericValue: result.assessments,
       formula: lineRow === null ? PER_LINE_ONLY : scoped(
-        () => ({
-          kind: 'product',
-          // BASIS IS OPENING SURPLUS, NOT POOL PREMIUM — see
-          // dividendAssessment.ts. `beginingSurplus` is the engine's own name
-          // for this line's opening surplus, and the clamp is the engine's.
-          factors: [
-            checks.worldBasis?.[lineRow.line as CoverageLine]
-              ? cur(checks.worldBasis[lineRow.line as CoverageLine]!.assessment,
-                'opening surplus basis')
-              : cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'),
-            { value: lineRow.decisions.assessmentPct, format: 'pct', label: 'assessment rate' },
-          ],
-        }),
+        // IN DOLLARS (dividendAssessment.ts): the assessment chosen, charged in full.
+        () => ({ kind: 'echo', value: lineRow.decisions.assessmentAmount, text: 'the assessment chosen, charged in full whatever the surplus' }),
         x => x.assessments
       ),
       indent: 1,
@@ -3010,20 +2996,12 @@ export function buildRevExpRows(
         // The blocked-dividend detection is unchanged in kind: it still asks
         // whether the engine's figure matches the un-blocked product, only now
         // against the basis the engine actually uses.
-        : Math.abs(result.dividends - (checks.worldBasis?.[lineRow.line as CoverageLine]?.dividend
-            ?? dividendAssessmentBasis(result.beginingSurplus)) * lineRow.decisions.dividendPct) > CHECK_TOLERANCE
-        ? { kind: 'text', text: `${formatCurrency(0)} — dividend blocked: this line carried a negative surplus into the year` }
+        // IN DOLLARS (dividendAssessment.ts): the dividend chosen, paid in full
+        // unless the surplus available (or a block) limited it.
+        : Math.abs(result.dividends - lineRow.decisions.dividendAmount) > CHECK_TOLERANCE
+        ? { kind: 'text', text: `${formatCurrency(result.dividends)} — the ${formatCurrency(lineRow.decisions.dividendAmount)} chosen, limited to the surplus available (none where the line carried a negative surplus in)` }
         : scoped(
-            () => ({
-              kind: 'product',
-              factors: [
-                checks.worldBasis?.[lineRow.line as CoverageLine]
-                  ? cur(checks.worldBasis[lineRow.line as CoverageLine]!.dividend,
-                    'opening surplus basis')
-                  : cur(dividendAssessmentBasis(result.beginingSurplus), 'opening surplus'),
-                { value: lineRow.decisions.dividendPct, format: 'pct', label: 'dividend rate' },
-              ],
-            }),
+            () => ({ kind: 'echo', value: lineRow.decisions.dividendAmount, text: 'the dividend chosen, within the surplus available' }),
             x => x.dividends
           ),
       indent: 1,

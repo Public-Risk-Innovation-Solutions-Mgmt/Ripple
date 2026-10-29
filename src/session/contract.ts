@@ -407,8 +407,10 @@ export interface TeamLineDecisions {
    * both transports and keys.ts need no change — only the value a client writes.
    */
   riskControlPct: number;
-  dividendPct: number;
-  assessmentPct: number;
+  /** Dollars (LineDecisionSet.dividendAmount). A record posted before the change carries dividendPct instead and reads as none. */
+  dividendAmount: number;
+  /** Dollars (LineDecisionSet.assessmentAmount). */
+  assessmentAmount: number;
   /**
    * ⚠ PERCENTAGE POINTS, 0-100 — NOT a fraction, unlike every other field on
    * this interface. That is AssetAllocation's own convention and it is carried

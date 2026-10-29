@@ -702,8 +702,19 @@ export interface LineDecisionSet {
    * decisions set it (PRE_GAME_FUNDING_CUSHION); absent everywhere else.
    */
   fundingCushion?: number;
-  dividendPct: number;            // 0.00 to 0.15 of premium
-  assessmentPct: number;          // 0.00 to 0.25 of premium
+  /**
+   * THE DIVIDEND, IN DOLLARS — $0 to $15M in $1M steps (DIVIDEND_ASSESSMENT_RANGE).
+   * Paid out of the line's surplus, so limited to its OPENING surplus (none when
+   * that is zero or below, and none when the line carried a negative surplus in);
+   * see dividendAssessment.ts. Was dividendPct, a share of surplus.
+   */
+  dividendAmount: number;
+  /**
+   * THE ASSESSMENT, IN DOLLARS — $0 to $15M in $1M steps. Charged to the members,
+   * so charged in full whatever the surplus: a pool with none can still assess.
+   * Was assessmentPct, a share of surplus (nothing at zero surplus).
+   */
+  assessmentAmount: number;
   /**
    * "NON-RENEWAL": the share of this line's book at the start of the year the
    * pool does not renew (bookUnderwriting.ts) — exposure falls by it, and this

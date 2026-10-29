@@ -1708,7 +1708,19 @@ const BASELINE = process.env.RENDER_BASELINE
 // recovery $0" rows deleted (the dormant stop's, per line and per line on the
 // pool), and the two codes that fingerprint them — the reinsurance stage's and
 // the year code. No figure moved. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v115.json');
+// v116: THE DIVIDEND AND THE ASSESSMENT IN DOLLARS (wip/dividends-in-dollars).
+// The control ran first: multiplayer 15dc74b, built in its own worktree,
+// reproduced v115 236 of 236 here. Against its capture, word-diffed
+// (RENDER_TEXT_DIR both sides), 66 move and every change is the control's
+// units or the save key: Decisions (16) — the slider reads "$0" where it read
+// "0%", and the note beside it "Surplus available: … No dividend or
+// assessment" where it read "Surplus: … 0%"; Decision History (8) — the two
+// columns "Dividend" and "Assessment" in dollars ($0 where 0.0%); Results (16)
+// — the two decision rows $0 where 0.0%; Year Walkthrough (26) — the version
+// (v41 -> v42) on all, and on the 13 with a played year the dividend stage's
+// labels and working in dollars, the decisions stage's two rows, and the codes
+// those move. The harness chooses no dividend or assessment: no figure moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v116.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
