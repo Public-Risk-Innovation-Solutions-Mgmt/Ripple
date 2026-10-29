@@ -24,7 +24,7 @@
 // ============================================================================
 
 import {
-  AGGREGATE_COVER_DEFAULT, AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, R_MODEL, SHOCK_A_YEARS,
+  AGGREGATE_COVER_DEFAULT, AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, R_MODEL, SHOCK_A_YEARS, coversInEveryGame,
   T_COVER_FREQUENCY, type AggregateCoverOption,
 } from '../data/pricingParameters';
 import { ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
@@ -47,9 +47,15 @@ export const isAggregateCoverOption = (id: unknown): id is string =>
 /** A line's choice, absent read as the default (None). */
 export const aggregateCoverOf = (d: { aggregateCover?: string }): string => d.aggregateCover ?? AGGREGATE_COVER_DEFAULT;
 
-/** The options offered: all four while the game's shocks are on, None alone while they are off. */
+/**
+ * The options offered. ⚠ THE SAME RULE AS THE PER-CLAIM COVERS
+ * (COVERS_IN_EVERY_GAME): on, all four in every game — single player, Test
+ * player and hosted, shocks on or off, events scheduled or not — at the same
+ * prices; off, None alone while the game's shocks are off. With no shocks the
+ * cover can still pay, on a bad ordinary year.
+ */
 export const aggregateCoverOptionIds = (shocks = true): string[] =>
-  shocks ? AGGREGATE_COVER_OPTIONS.map(o => o.id) : [AGGREGATE_COVER_DEFAULT];
+  shocks || coversInEveryGame() ? AGGREGATE_COVER_OPTIONS.map(o => o.id) : [AGGREGATE_COVER_DEFAULT];
 
 // --- the surge cases --------------------------------------------------------
 

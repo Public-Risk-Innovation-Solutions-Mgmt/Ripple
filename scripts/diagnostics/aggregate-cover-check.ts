@@ -5,8 +5,10 @@
 //
 //   1. OPTIONS: None, 110/50, 125/50 and 150/50 on every line, with the
 //      brief's attachments, limits and loads; None the default and what an
-//      absent choice reads as; None alone while the game's shocks are off, and
-//      a quote that asks for a cover then is refused.
+//      absent choice reads as; ALL FOUR IN EVERY GAME, shocks on or off — the
+//      per-claim covers' rule (COVERS_IN_EVERY_GAME) — and a quote with the
+//      shocks off prices each exactly as with them on. Control: the switch
+//      off (None alone with the shocks off, a cover then refused) must fail.
 //   2. PRICE, RECOMPUTED INDEPENDENTLY: four cases a year (no surge 85%, Low
 //      7.5%, Mid 5.25%, High 2.25%), each surge at the top of its range (or the
 //      middle, with the switch), ordinary luck normal around the case's level
@@ -29,6 +31,9 @@
 //      by the recovery and its Reinsurance Premium by the price.
 //   5. NONE IS NONE: a game holding 'none' explicitly plays exactly as one
 //      that never chose (results compared with the decision echo set aside).
+//   6. A GAME WITH ITS SHOCKS OFF (single player, SOLO_SHOCKS off): the cover is
+//      bought, priced and booked exactly as section 3 holds — no surge, so it
+//      pays only on a bad ordinary year, and it does pay in some.
 //
 // ⚠ THE BRIEF IS WRITTEN OUT HERE — options, loads, odds, surge ranges, the
 // ordinary-year CVs' inputs and the 2027 prices — not read from
@@ -43,8 +48,9 @@
 // ============================================================================
 
 import {
-  AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, R_MODEL, T_COVER_FREQUENCY,
+  AGGREGATE_COVER_OPTIONS, AGGREGATE_COVER_SURGE_BASIS, COVERS_IN_EVERY_GAME, R_MODEL, SOLO_SHOCKS, T_COVER_FREQUENCY,
 } from '../../src/data/pricingParameters';
+import { gameShocksOn } from '../../src/utils/shockLosses';
 import {
   aggregateCoverOf, aggregateCoverOptionIds, aggregateCoverQuote,
 } from '../../src/utils/aggregateCover';
@@ -141,19 +147,32 @@ function sectionOptions(): string[] {
     if (defaultLineDecisionSet(l).aggregateCover !== undefined) p.push(`${l}: the default writes aggregateCover`);
     if (aggregateCoverOf(defaultLineDecisionSet(l)) !== 'none') p.push(`${l}: an absent choice does not read as None`);
   }
-  if (JSON.stringify(aggregateCoverOptionIds(true)) !== JSON.stringify(BRIEF_OPTIONS.map(o => o[0]))) p.push('shocks on: not all four offered');
-  if (JSON.stringify(aggregateCoverOptionIds(false)) !== JSON.stringify(['none'])) p.push('shocks off: more than None offered');
-  let refused = false;
-  try {
-    quoteNewRateStack({
-      line: 'WC', yearNumber: 1, members: { exposure: 900 }, exposure: 900, groundUpPurePremiumPer100: 3, clf: 1,
-      riskControlPct: 0, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none', shocks: false, aggregateCover: 'agg-110-50',
-    });
-  } catch { refused = true; }
-  if (!refused) p.push('a cover quoted with the shocks off was not refused');
+  // In every game, shocks on or off: the same four, at the same prices.
+  for (const shocks of [true, false]) {
+    if (JSON.stringify(aggregateCoverOptionIds(shocks)) !== JSON.stringify(BRIEF_OPTIONS.map(o => o[0]))) {
+      p.push(`shocks ${shocks ? 'on' : 'off'}: offered ${aggregateCoverOptionIds(shocks).join(', ')}`);
+    }
+  }
+  for (const l of LINES) for (const [id] of BRIEF_OPTIONS) {
+    const q = (shocks: boolean) => {
+      try {
+        return quoteNewRateStack({
+          line: l, yearNumber: 1, members: { exposure: 900 }, exposure: 900, groundUpPurePremiumPer100: 3, clf: 1,
+          riskControlPct: 0, layersPlaced: [], aggregateStopLevel: -1, reinsuranceOption: 'none', shocks, aggregateCover: id,
+        }).reinsuranceCost;
+      } catch { return undefined; }
+    };
+    const on = q(true), off = q(false);
+    if (off === undefined) p.push(`${l} ${id}: refused with the shocks off`);
+    else if (on !== off) p.push(`${l} ${id}: priced ${off} with the shocks off, ${on} with them on`);
+  }
   return p;
 }
-check(sectionOptions(), 'four options, None the default and absent, None alone with shocks off');
+check(sectionOptions(), 'four options, None the default and absent; all four in every game, shocks on or off, at the same prices');
+control('the covers not in every game (COVERS_IN_EVERY_GAME off)', () => {
+  const was = COVERS_IN_EVERY_GAME.enabled; COVERS_IN_EVERY_GAME.enabled = false;
+  return () => { COVERS_IN_EVERY_GAME.enabled = was; };
+}, sectionOptions);
 control('the 110/50 attachment at 1.15', () => {
   const o = AGGREGATE_COVER_OPTIONS[1] as { attachment: number }; const was = o.attachment; o.attachment = 1.15;
   return () => { o.attachment = was; };
@@ -376,6 +395,35 @@ function sectionNone(gamesIn: typeof games): string[] {
 }
 check(sectionNone(games), '\'none\' chosen plays exactly as never chosen; no cover record with None');
 control('the cover game compared as if it were None', () => () => {}, () => sectionNone(games.slice(0, 1).map(g => ({ ...g, none: g.cover }))));
+
+// ---- 6. A GAME WITH ITS SHOCKS OFF ---------------------------------------------------------
+console.log('\n6. A game with its shocks off');
+const wasSolo = SOLO_SHOCKS.enabled;
+SOLO_SHOCKS.enabled = false;
+let off: Played;
+let offShocks: boolean;
+try { off = play('8', 'cover'); offShocks = gameShocksOn(off.gs.setup, off.gs.instance); } finally { SOLO_SHOCKS.enabled = wasSolo; }
+const offRows: Row[] = [];
+off.byYear.forEach((yl, i) => LINES.forEach(l => yl[l].forEach((r, w) =>
+  offRows.push({ tag: `off w${w} y${i + 1} ${l}`, r, year: i + 1, line: l, option: OPTION_BY_YEAR[i] }))));
+const offPaid = offRows.filter(x => (x.r.attritionalCover?.recovery ?? 0) > 0);
+const offProblems = [
+  ...(offShocks ? ['the game\'s shocks are on'] : []),
+  ...sectionGame(offRows),
+  ...offRows.filter(x => (x.r.attritionalCover?.surge ?? 1) !== 0).map(x => `${x.tag}: a surge of ${x.r.attritionalCover?.surge}`),
+  ...(offPaid.length > 0 ? [] : ['it never paid']),
+];
+check(offProblems, 'bought, priced and booked as with shocks on; no surge; it pays on a bad ordinary year',
+  `${offRows.length} world-line-years, ${offPaid.length} paid; 2027 WC 110/50 $${Math.round(off.byYear[0].WC[0].attritionalCover!.price).toLocaleString('en-US')}`);
+// Control: with the covers not in every game, the same shocks-off game cannot buy it.
+{
+  const wasCovers = COVERS_IN_EVERY_GAME.enabled;
+  SOLO_SHOCKS.enabled = false; COVERS_IN_EVERY_GAME.enabled = false;
+  let refused = false;
+  try { play('8', 'cover'); } catch { refused = true; } finally { SOLO_SHOCKS.enabled = wasSolo; COVERS_IN_EVERY_GAME.enabled = wasCovers; }
+  check(refused ? [] : ['the shocks-off game bought the cover with the switch off'],
+    '  control: COVERS_IN_EVERY_GAME off — the shocks-off game\'s cover is refused', refused ? 'refused' : 'bought');
+}
 
 // ---- verdict ------------------------------------------------------------------------------
 console.log('\n' + '='.repeat(78));

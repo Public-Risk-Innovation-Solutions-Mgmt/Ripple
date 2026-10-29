@@ -122,7 +122,7 @@ let brokenReset = 0, brokenDrop = 0, brokenYear = 0, brokenShared = 0;
 for (const [name, id, test] of [['single player', '3', false], ['Test player', '7', true]] as const) {
   let gs = openGame(id, test);
   const shocks = gameShocksOn(gs.setup, gs.instance);
-  ok(shocks, `${name}: the game's shocks are on, so the aggregate cover is offered`);
+  ok(shocks, `${name}: the game's shocks are on`);
   const year1 = chosenSet(shocks);
   // Coverage: year 1 moves every field the defaults have, and adds the cover and a program.
   const dflt = leaves(defaultDecisionSet(1, shocks)), mine = leaves(year1);

@@ -1124,7 +1124,8 @@ function PackageControls(props: {
 // PRICE ONLY, as the per-claim covers show theirs. The price is the engine's
 // own quote (aggregateCover.aggregateCoverQuote) on the line's book and year —
 // the book the rate is quoted on — so the panel cannot show a figure the
-// engine does not charge. While the game's shocks are off only None is offered.
+// engine does not charge. Offered in every game, shocks on or off,
+// as the per-claim covers are (COVERS_IN_EVERY_GAME; aggregateCoverOptionIds).
 // ============================================================================
 function AggregateCoverControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
   line: CoverageLine;
