@@ -5,7 +5,8 @@
 // trouble, not diagnosing why. Per line and for the pool: Team · Ripple Score (a
 // placeholder, "—" until it exists) · Premium to surplus · Rate (per $100, with
 // the year's change) · Admin expense (the year's, over premium) · Combined ratio
-// (cumulative since the game began, on the combined-ratio colour scale) · Net
+// (the year's own — the team's statement's newest column and its top-bar figure —
+// headed with the year, on the combined-ratio colour scale) · Net
 // surplus (year-end) · Market share. The premium to surplus, rate, admin expense
 // and combined ratio are the team's own Annual Statement figures, posted with
 // its results (TeamYearFigures); a row posted before they existed shows dashes.
@@ -155,7 +156,9 @@ export default function HostTeamsTab({ room }: Props) {
               <th className="px-5 py-2 font-medium">Premium to surplus</th>
               <th className="px-5 py-2 font-medium" title="Per $100 of exposure, with this year's change">Rate</th>
               <th className="px-5 py-2 font-medium" title="This year's admin expense, as a share of premium">Admin expense</th>
-              <th className="px-5 py-2 font-medium" title="Cumulative since the game began">Combined ratio</th>
+              <th data-testid="teams-cr-head" className="px-5 py-2 font-medium" title="The year's own, as on the team's Annual Statement and top bar">
+                {reportingYear < 0 ? 'Combined ratio' : `Combined ratio ${room.startingYear + reportingYear - 1}`}
+              </th>
               <th className="px-5 py-2 font-medium" title="Surplus at the year's end">Net surplus</th>
               <th className="px-5 py-2 font-medium" title="Share of the room: exposure on a line, premium on the pool">Market share</th>
             </tr>
@@ -204,8 +207,8 @@ export default function HostTeamsTab({ room }: Props) {
                         {state.figures.adminExpenseRatio !== undefined ? formatPct(state.figures.adminExpenseRatio) : <span className="text-slate-600">—</span>}
                       </td>
                       <td data-testid={`cr-${t.name}`}
-                        className={`px-5 py-2.5 font-mono ${state.figures.combinedRatio !== undefined ? colorForCombinedRatio(state.figures.combinedRatio) : 'text-slate-600'}`}>
-                        {state.figures.combinedRatio !== undefined ? formatPct(state.figures.combinedRatio) : '—'}
+                        className={`px-5 py-2.5 font-mono ${state.figures.yearCombinedRatio !== undefined ? colorForCombinedRatio(state.figures.yearCombinedRatio) : 'text-slate-600'}`}>
+                        {state.figures.yearCombinedRatio !== undefined ? formatPct(state.figures.yearCombinedRatio) : '—'}
                       </td>
                       <td data-testid={`surplus-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForSurplus(state.figures.endingSurplus)}`}>
                         {formatCurrency(state.figures.endingSurplus, true)}

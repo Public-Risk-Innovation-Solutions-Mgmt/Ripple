@@ -280,6 +280,14 @@ export interface TeamYearFigures {
    *                      statement's "% of Premium" row under the admin rows
    */
   combinedRatio?: number;
+  /**
+   * THE YEAR'S OWN COMBINED RATIO — the statement's Combined Ratio for this year
+   * (its newest column; before year 1, the last history year's), the team's
+   * top-bar figure and the host's Teams table's. A row posted before it existed
+   * has none and the host renders a dash; `combinedRatio` above stays the
+   * cumulative and is no longer shown.
+   */
+  yearCombinedRatio?: number;
   premiumToSurplus?: number;
   ratePer100?: number;
   rateChange?: number;

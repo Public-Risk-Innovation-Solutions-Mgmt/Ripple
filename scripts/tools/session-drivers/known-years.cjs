@@ -129,7 +129,10 @@ async function solo(browser) {
     // The top bar: the current year, and figures that move with every lock.
     row['Top bar year'] = Number((await page.textContent('[data-testid="header-calendar"]')).trim());
     ok(row['Top bar year'] === current, `${name}: the top bar shows the current year ${current}`, String(row['Top bar year']));
-    const figures = (await page.locator('header').innerText()).match(/Surplus\s+(\S+)\s+Combined Ratio\s+(\S+)/)?.slice(1).join(' / ');
+    // The combined ratio is the newest known year's, labelled with it (wip/newest-year-combined-ratio).
+    const m = (await page.locator('header').innerText()).match(/Surplus\s+(\S+)\s+Combined ratio (\d{4})\s+(\S+)/);
+    const figures = m ? `${m[1]} / ${m[3]}` : undefined;
+    ok(m?.[2] === String(known), `${name}: the top bar's combined ratio is labelled with the newest known year ${known}`, `"Combined ratio ${m?.[2]}"`);
     row['Top bar figures'] = figures;
     if (before !== null) ok(figures && figures !== before, `${name}: the top bar's surplus and combined ratio moved with the lock`, `${before} -> ${figures}`);
     before = figures;
