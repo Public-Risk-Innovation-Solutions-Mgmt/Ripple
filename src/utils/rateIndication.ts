@@ -53,6 +53,7 @@ import { eventLikelihoods } from './eventLikelihoods';
 import { pricedGrowthFactor } from './reinsuranceTower';
 import type { Book } from './lineHelpers';
 import type { TowerLine } from '../data/reinsuranceTower';
+import { buildModelRate, type ModelRate } from './modelRate';
 
 /** A funding position: Expected, or a confidence level. */
 export type FundingPosition = 'expected' | number;
@@ -105,26 +106,47 @@ export interface RateIndication {
    * otherwise null when the game's shocks are off.
    */
   eventLikelihoods: { years: number; size: number | null }[] | null;
+  /**
+   * A PAST YEAR'S RATE AS IT WAS BUILT — every history year and every played
+   * year: the window, its development and trend, the average, the loads, the
+   * pure premium, the funding, the expense shares and the rate, read off the
+   * engine's own record of that year (modelRate.buildModelRate, which re-runs
+   * the engine's pricing on the year's stored basis and reproduces its rate —
+   * rate-indication-years-check holds it). Null for the coming year.
+   */
+  built: ModelRate | null;
+  /** The rate the engine charged that year, per $100 — the row's. Null for the coming year. */
+  chargedPer100: number | null;
 }
 
 export interface IndicationYear { yearNumber: number; calendarYear: number }
 
 const calendarOf = (gs: GameState, y: number) => gs.setup.startingYear + y - 1;
 
-/** A played year can be rebuilt when every active line stored its basis. */
+/** A year's row on a line: the pre-game's or the game's (gameHistory). */
+const rowOf = (gs: GameState, y: number, line: CoverageLine): LineResultSet | undefined =>
+  gameHistory(gs).find(x => x.yearNumber === y)?.byLine[line];
+
+/**
+ * A past year can be rebuilt when every active line stored what it was priced
+ * on: its basis, its pure premium and the rate it charged — every history year
+ * and every played year.
+ */
 function rebuildable(gs: GameState, y: number): boolean {
-  const r = gs.lockedResults.find(x => x.yearNumber === y);
-  return !!r && gs.setup.activeLines.every(l => {
-    const lr = r.byLine[l];
-    return !!lr?.rateBasis && lr.ratedExposure !== undefined && lr.newPurePremiumPer100 !== undefined;
+  return gs.setup.activeLines.every(l => {
+    const lr = rowOf(gs, y, l);
+    return !!lr?.rateBasis && lr.newPurePremiumPer100 !== undefined && lr.finalRatePer100 !== undefined;
   });
 }
 
-/** The dropdown: every played year from year 1, then the coming year. */
+/**
+ * The dropdown: every year back to the beginning — each history (pre-game)
+ * year, each played year — then the coming year.
+ */
 export function rateIndicationYears(gs: GameState): IndicationYear[] {
   const out: IndicationYear[] = [];
-  for (const r of gs.lockedResults) {
-    if (r.yearNumber >= 1 && rebuildable(gs, r.yearNumber)) out.push({ yearNumber: r.yearNumber, calendarYear: calendarOf(gs, r.yearNumber) });
+  for (const r of gameHistory(gs)) {
+    if (rebuildable(gs, r.yearNumber)) out.push({ yearNumber: r.yearNumber, calendarYear: calendarOf(gs, r.yearNumber) });
   }
   if (!gs.isComplete) out.push({ yearNumber: gs.currentYearNumber, calendarYear: calendarOf(gs, gs.currentYearNumber) });
   return out;
@@ -137,16 +159,23 @@ const asDecision = (d: LineDecisionSet, p: FundingPosition): LineDecisionSet => 
   fundingConfidenceLevel: p === 'expected' ? d.fundingConfidenceLevel : p,
 });
 
-/** A played year's pricing, rebuilt: the engine's quote on what the year was struck on. */
+/**
+ * A past year's pricing, rebuilt: the engine's quote on what the year was
+ * priced on. A played year is struck once on the averaged book (ratedExposure);
+ * a history (pre-game) year, one world, on its own book after movement, at the
+ * risk it billed on — as modelRate quotes it.
+ */
 function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
-  const lr = gs.lockedResults.find(x => x.yearNumber === yearNumber)?.byLine[line];
-  if (!lr?.rateBasis || lr.ratedExposure === undefined || lr.newPurePremiumPer100 === undefined) return null;
-  const { rateBasis, ratedExposure, newPurePremiumPer100, decisions: d } = lr;
+  const lr = rowOf(gs, yearNumber, line);
+  if (!lr?.rateBasis || lr.newPurePremiumPer100 === undefined) return null;
+  const { rateBasis, newPurePremiumPer100, decisions: d } = lr;
+  const ratedExposure = lr.ratedExposure ?? lr.billedExposure ?? lr.activeExposure;
+  const risk = lr.ratedExposure !== undefined ? rateBasis.risk : rateBasis.billedRisk ?? rateBasis.risk;
   const shocks = gameShocksOn(gs.setup, gs.instance);
   const price = (p: FundingPosition, option: string, cover = AGGREGATE_COVER_DEFAULT): Priced => quoteNewRateStack({
     line,
     yearNumber,
-    members: { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) } as Book,
+    members: { exposure: ratedExposure, ...(risk !== undefined ? { risk } : {}) } as Book,
     exposure: ratedExposure,
     groundUpPurePremiumPer100: newPurePremiumPer100,
     clf: selectedClfFor(line, asDecision(d, p)),
@@ -157,8 +186,9 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
     shocks,
     aggregateCover: cover,
   });
-  const chosen: FundingPosition = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
-  const members: Book = { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) };
+  // The prior board's history years fund on its margin (fundingCushion), 0 — Expected.
+  const chosen: FundingPosition = d.fundingCushion !== undefined || d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
+  const members: Book = { exposure: ratedExposure, ...(risk !== undefined ? { risk } : {}) };
   return { lr, rateBasis, ratedExposure, newPurePremiumPer100, d, price, chosen, members };
 }
 
@@ -169,9 +199,11 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
  * cost over the exposure it was charged on (one book, one world).
  */
 function currentRate(gs: GameState, line: CoverageLine, yearNumber: number): number | null {
-  const past = yearNumber - 1 >= 1 ? pastPricer(gs, line, yearNumber - 1) : null;
+  // A struck year rebuilt by its quote; a one-world (history) year off its row.
+  const struck = rowOf(gs, yearNumber - 1, line)?.ratedExposure !== undefined;
+  const past = struck ? pastPricer(gs, line, yearNumber - 1) : null;
   if (past) return past.price(past.chosen, 'none').finalRatePer100;
-  const r: LineResultSet | undefined = [...gs.priorHistory, ...gs.lockedResults].find(x => x.yearNumber === yearNumber - 1)?.byLine[line];
+  const r: LineResultSet | undefined = rowOf(gs, yearNumber - 1, line);
   if (!r || r.finalRatePer100 === undefined || !(r.activeExposure > 0)) return null;
   return r.finalRatePer100 - r.reinsuranceCost / (r.activeExposure * 10_000);
 }
@@ -234,7 +266,7 @@ export function buildRateIndication(
   // what is left.
   const admin = ADMIN_SHARE_OF_PREMIUM[line];
   const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
-    : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
+    : rowOf(gs, yearNumber, line)!.decisions);
   const totalAdmin = admin + riskControl;
 
   const currentPer100 = currentRate(gs, line, yearNumber);
@@ -280,5 +312,7 @@ export function buildRateIndication(
     aggregateCovers,
     // In every game with COVERS_IN_EVERY_GAME; otherwise shocks on only.
     eventLikelihoods: shocks || coversInEveryGame() ? eventLikelihoods(line, pricedGrowthFactor(line as TowerLine, coverBook, yearNumber)) : null,
+    built: coming ? null : buildModelRate(gs, line, decisions, yearNumber),
+    chargedPer100: coming ? null : rowOf(gs, yearNumber, line)?.finalRatePer100 ?? null,
   };
 }
