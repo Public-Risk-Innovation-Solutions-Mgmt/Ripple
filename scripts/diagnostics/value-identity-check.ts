@@ -1504,7 +1504,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // $22.20M). No Nuclear Verdict fires in these games, so no loss or rate moves.
 // LARGE CLAIMS IN EVERY GAME (LARGE_CLAIMS_EVERY_GAME) moves nothing here:
 // every game in this harness has its shocks on.
-const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v91.json');
+// BACK TO v90: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-
+// from-events), on multiplayer e93c7ea, which reproduces v91 here. The
+// separate draw is gone, so every v91 move above is undone: against v91, the
+// same 10,932 of 39,600 values across 89 fields move back, and the result is
+// v90 value for value (0 of 39,600 differ). Every game here has its shocks
+// on, so COVERS_IN_EVERY_GAME moves nothing; they hold None, so the covers'
+// prices reach nothing. v91 is retired.
+const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v90.json');
 
 function seedOf(id: string) {
   let h = 5381;

@@ -25,7 +25,7 @@
 import {
   AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_DEFAULT_SHOCKS_OFF, AGGREGATE_STOP_OFFERED_SHOCKS_OFF,
   AGGREGATE_STOP_OPTIONS, REINSURANCE_DEFAULT_OPTION, REINSURANCE_OFFERED_SHOCKS_OFF, REINSURANCE_OPTIONS,
-  SHOCK_T_CLAIM_RANGE, T_COVER_30M_MULTIPLIER, T_COVER_40M_MULTIPLIER, T_COVER_FREQUENCY, largeClaimsInEveryGame,
+  SHOCK_T_CLAIM_RANGE, T_COVER_30M_MULTIPLIER, T_COVER_40M_MULTIPLIER, T_COVER_FREQUENCY, coversInEveryGame,
   type ReinsuranceOption,
 } from '../data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
@@ -163,11 +163,11 @@ export function reinsuranceOptionsFor(line: CoverageLine): readonly ReinsuranceO
  * The ids a team is OFFERED on a line: the stop's options, or the per-claim
  * packages. While the game's shocks are off (shockLosses.gameShocksOn), only
  * AGGREGATE_STOP_OFFERED_SHOCKS_OFF — None and the Low-attachment cover (id `working`).
- * ⚠ UNLESS LARGE CLAIMS COME IN EVERY GAME (LARGE_CLAIMS_EVERY_GAME): then the
- * per-claim covers are offered in every game, shocks on or off.
+ * ⚠ UNLESS THE COVERS ARE IN EVERY GAME (COVERS_IN_EVERY_GAME): then the
+ * per-claim covers are offered, at the same prices, in every game, shocks on or off.
  */
 export function reinsuranceOptionIds(line: CoverageLine, shocks = true): readonly string[] {
-  if (!AGGREGATE_STOP.enabled && largeClaimsInEveryGame()) shocks = true;
+  if (!AGGREGATE_STOP.enabled && coversInEveryGame()) shocks = true;
   if (!AGGREGATE_STOP.enabled) return shocks ? REINSURANCE_OPTIONS[line as TowerLine].map(o => o.id) : REINSURANCE_OFFERED_SHOCKS_OFF;
   return shocks ? AGGREGATE_STOP_OPTIONS.map(o => o.id) : AGGREGATE_STOP_OFFERED_SHOCKS_OFF;
 }
@@ -180,7 +180,7 @@ export function isReinsuranceOption(line: CoverageLine, id: unknown): id is stri
 
 /** What a team holds until it chooses, and the prior board plays: None while the game's shocks are off. */
 export function defaultReinsuranceOption(line: CoverageLine, shocks = true): string {
-  if (!AGGREGATE_STOP.enabled && largeClaimsInEveryGame()) shocks = true;
+  if (!AGGREGATE_STOP.enabled && coversInEveryGame()) shocks = true;
   if (!AGGREGATE_STOP.enabled) return shocks ? REINSURANCE_DEFAULT_OPTION[line as TowerLine] : REINSURANCE_OFFERED_SHOCKS_OFF[0];
   return shocks ? AGGREGATE_STOP_DEFAULT : AGGREGATE_STOP_DEFAULT_SHOCKS_OFF;
 }

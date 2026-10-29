@@ -1230,7 +1230,7 @@ function StopControls({ line, d, setMany, disabled, book, yearNumber, shocks }: 
 // REINSURANCE_OPTIONS. ⚠ EACH OPTION'S NAME AND ITS FIXED PRICE ONLY
 // (tCoverPrice, via optionPrice — the price the engine charges), never a
 // description, its expected recovery or how it was priced. Every game is
-// offered all of them, shocks on or off (LARGE_CLAIMS_EVERY_GAME;
+// offered all of them, shocks on or off (COVERS_IN_EVERY_GAME;
 // reinsuranceOptionIds).
 function OccurrencePackageControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
   line: CoverageLine;

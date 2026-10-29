@@ -1077,7 +1077,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // rate before reinsurance on every row; the working text and the codes. The
 // Admin stage's own "Admin share of the rate" row does not move. No Results
 // figure moved. The 24 `stmt|...` keys do not move.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v112.json');
+// v113: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-from-
+// events), on multiplayer e93c7ea, which reproduces v112 here 48 of 48. The
+// separate large-claim draw is gone. Attributed exactly: against e93c7ea with
+// LARGE_CLAIMS_BY_FREQUENCY switched off at run time (both sides' text,
+// GUARD_TEXT_DIR), all 48 files match but for the 24 Results files' Version
+// row (riskpool_gamestate_v40 -> v41, this landing's save key). So every move
+// against v112 is the draw's removal: 40 of 48 move — the expected losses,
+// Pure Premium, the Property reserve margin and capital, the year-walkthrough
+// sheet's rows and every year a frequency large claim had landed in — all
+// back to what the catalogue's events give, as before v108. No rate or
+// premium row moves. These games' shocks are on and they hold None, so
+// COVERS_IN_EVERY_GAME moves nothing. No file is added or removed.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v113.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

@@ -241,8 +241,6 @@ export const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'Large Investment Loss': 'Financial markets fall sharply, and invested assets lose value.',
   'Large Member Withdrawal': 'A large member leaves the pool.',
   'Catastrophe': 'A natural catastrophe strikes the region.',
-  // Not an event: one line's large claim, drawn at its yearly chance (LARGE_CLAIMS_BY_FREQUENCY).
-  'Large claim': 'A single, unusually large claim is made against the pool.',
 };
 
 export interface EventNews {

@@ -1647,7 +1647,24 @@ const BASELINE = process.env.RENDER_BASELINE
 // The Rate Indication does not move (its block already read 20.0% / 0.0% /
 // 20.0% / 80.0% at 0%). v109 is v108 with those 42 replaced; the other 194
 // keep v108's fingerprints. The harness plays at 0%: no figure moved.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v109.json');
+// v110: LARGE CLAIMS COME ONLY FROM T-SHOCK EVENTS (wip/large-claims-from-
+// events), on multiplayer e93c7ea, which reproduces v109 here 236 of 236.
+// Against it, word-diffed (RENDER_TEXT_DIR both sides), 49 move — each the
+// exact reverse of the separate draw's moves at v105/v108:
+//   every Year Walkthrough (26): the save version (riskpool_gamestate_v40 ->
+//   v41), and at 2028 the year codes the state below moves;
+//   Financial Statements (8) and Results (8), the Property and Pool views: the
+//   Required Reserve Margin back on the catalogue's regional events ($9,627,713
+//   -> $13,085,188), Excess Available Surplus and Excess Capital Ratio
+//   (Property 105.6% -> 51.3%);
+//   Result Spreadsheet (7): the expected losses back on the catalogue's T
+//   events (GL 2028 $24,091,274 -> $23,179,724), the Property margin rows, and
+//   the Property capital status "Strong" -> "Adequate" in four years.
+// The Rate Indication does not move: its Event Likelihoods were already built
+// from the pricing odds (T_COVER_FREQUENCY, the same 7.5% / 5.25% / 2.25%),
+// and every cover is already offered here. These games' shocks are on, so
+// COVERS_IN_EVERY_GAME moves nothing. 187 match.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v110.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

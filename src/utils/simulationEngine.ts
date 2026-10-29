@@ -37,19 +37,6 @@ function newEngineFirings(year: ShockYear, line: CoverageLine): ShockFiring[] | 
       effects: [],
     });
   }
-  // LARGE CLAIMS BY FREQUENCY (LARGE_CLAIMS_BY_FREQUENCY): each one this line
-  // drew this year is a record of its own, "Large claim", so the year's events,
-  // the news and the walkthrough name it; its dollars are attributed to it by
-  // the same per-firing key as a T claim's were.
-  for (const a of year.byLine[line].arrivals) {
-    if (a.firing.event.id !== LARGE_CLAIM_ID) continue;
-    const def = SHOCK_EVENT_LABELS[LARGE_CLAIM_ID];
-    out.push({
-      shockId: LARGE_CLAIM_ID, name: def.name, eventName: def.eventName, band: def.band, horizon: def.horizon,
-      description: `A large claim on ${line} (${a.level}), drawn at its yearly chance — not an event.`,
-      yearFired: a.firing.firedYear, linesAffected: [line], effects: [],
-    });
-  }
   return out.length > 0 ? out : undefined;
 }
 
@@ -123,9 +110,6 @@ function mergeShockRecords(lineResults: LineResultSet[]): ShockRecord[] | undefi
       existing.attributableGrossLoss += rec.attributableGrossLoss;
       existing.attributableClaims += rec.attributableClaims;
       existing.expectedGrossLossAdded += rec.expectedGrossLossAdded;
-      // A catalogue event's line records each carry its full line list; a large
-      // claim's carries its own line alone, so two lines' share one pool record.
-      for (const l of rec.linesAffected) if (!existing.linesAffected.includes(l)) existing.linesAffected.push(l);
       existing.byLine = { ...existing.byLine, [line]: own };
     }
   }
@@ -186,7 +170,7 @@ import {
   type OrdinaryLossYear,
 } from './ordinaryLoss';
 import { marketSeedOf } from './bookUnits';
-import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, LARGE_CLAIM_ID, shockRecordKeys, shockSeedOf, gameShocksOn, largeClaimsOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
+import { applyMarketShock, drawLargeLosses, firingKey, firingRecordKey, shockRecordKeys, shockSeedOf, gameShocksOn, resolveShockYear, shockTimingOf, withdrawForShock, LINES as NLE_LINES, eventLines, SHOCK_EVENT_LABELS, type LargeLossDraw, type LineShockYear, type ShockYear } from './shockLosses';
 import { laeForYear, laeShares, lossExpenseReserve } from './lossExpense';
 import { expectedLossBreakdown, newEngineCatCapital } from './shockExpectation';
 import { combineSplitRows, splitCohorts, splitTotals } from './reserveSplit';
@@ -3609,7 +3593,7 @@ export function processYear(
   // one of them is an investment shock and the market below is what it moves.
   // Pure in the instance, the timing and the year; nothing before year 1.
   const shockYear = newLossEngineRuns()
-    ? resolveShockYear(instance, shockTimingOf(setup), yearNumber, largeClaimsOn(setup, instance))
+    ? resolveShockYear(instance, shockTimingOf(setup), yearNumber)
     : undefined;
   // A flat pre-game year (FLAT_PRE_GAME) earns PRE_GAME_INVESTMENT_RETURN on
   // every asset class — so any allocation earns it — with no draw (commit 9;
