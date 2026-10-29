@@ -172,21 +172,11 @@ const sharesFor = (l: CoverageLine): Shares => c => laeShares(l, c.alaeRatio);
 // $38M xs $2M, on every line and schedules a T claim on each that is sure to
 // pierce $2M: Pandemic in year 2 (GL Mid $3-7M, WC High $6-40M), Wildfire in
 // year 3 (Property High $12-40M), Nuclear Verdict in year 4 (GL High $7-40M).
-//
-// RESTATED FOR wip/large-claims-frequency: the scheduled events now bring no T
-// claim (A and R only); large claims arrive by frequency on the game seed. The
-// schedule is kept (its A and R still run through the LAE), and the covered
-// game is now 'LAE16', whose own large-claim draw pierces $2M on every line —
-// WC $16.0M and Property $15.4M in year 2, GL $6.9M in year 6 (table sizes,
-// before growth; largeClaimArrivals). The net-basis control's guard (a ceded
-// line-year on EVERY line) is unchanged, and so is its own control (the same
-// game with no cover bought cedes on fewer lines).
 const COVER = '$38M xs $2M';
-const COVERED_ID = 'LAE16';
 const COVERED_SCHEDULE: ScheduledShock[] = [
   { shockId: '#9', yearNumber: 2 }, { shockId: '#3', yearNumber: 3 }, { shockId: '#7', yearNumber: 4 }];
 const games = [play('LAE1', 6, 'on'), play('LAE2', 6, 'on'),
-  play(COVERED_ID, 6, COVERED_SCHEDULE, d => { for (const l of LINES) d.byLine[l].reinsuranceOption = COVER; })];
+  play('LAE3', 6, COVERED_SCHEDULE, d => { for (const l of LINES) d.byLine[l].reinsuranceOption = COVER; })];
 const bad2: string[] = [], bad3: string[] = [], bad4: string[] = [];
 let bad5 = 0, rows = 0, worstOpening = 0;
 for (const g of games) {
@@ -260,7 +250,7 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   // schedule at the default decisions (None) cedes nothing, which is exactly the
   // vacuous "0 of 0" the guard above exists to refuse.
   {
-    const bare = play(COVERED_ID, 6, COVERED_SCHEDULE);
+    const bare = play('LAE3', 4, COVERED_SCHEDULE);
     const bareLines = new Set<CoverageLine>();
     // A ceded cohort stays in the ledger, so the year-4 close shows any cession in the game.
     bare.gs.worlds!.forEach(w => LINES.forEach(l => {

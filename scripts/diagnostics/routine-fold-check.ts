@@ -30,16 +30,6 @@
 //      stream; and no shock fires. (It was flat — the multiple exactly, and
 //      PRE_GAME_INVESTMENT_RETURN.)
 //
-// ⚠ RESTATED FOR LARGE_CLAIMS_EVERY_GAME: large claims are now drawn in every
-// game, shocks on or off, so expectedLossBreakdown(..., shocks=false) carries
-// shockLarge (the large claims' expectation, the same as shocks-on's) — today's
-// shocks-off total is no longer ordinary + routine alone, which is why 1's
-// shocks-off half failed (38% off on Property). 1 now holds, with the shocks
-// off: the folded normal losses PLUS the large claims' expectation are today's
-// shocks-off expectation exactly, and that shockLarge equals shocks-on's.
-// Nothing else changes: the fold itself, the shocks-on half, 2-4. New control:
-// LARGE_CLAIMS_EVERY_GAME.enabled = false at runtime must fail 1.
-//
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: a fold divided by the uplift
 // (the retired design), a fold that moves with the shock catalogue in a
 // shocks-off game, T scaled off the folded cost, a routine claim slipped in, a flat
@@ -47,7 +37,7 @@
 // one market draw, and the retired scenario multiple put back on the draw.
 // ============================================================================
 
-import { FLAT_PRE_GAME, LARGE_CLAIMS_EVERY_GAME, POOL_LOSS_COST_LAYERS, ROUTINE_FOLD_NET_OF_UPLIFT, PRE_GAME_MARKET_DRAWS, ROUTINE_LARGE_LOSSES, SCENARIO_COUNT, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_RATIO_RANGE } from '../../src/data/pricingParameters';
+import { FLAT_PRE_GAME, POOL_LOSS_COST_LAYERS, ROUTINE_FOLD_NET_OF_UPLIFT, PRE_GAME_MARKET_DRAWS, ROUTINE_LARGE_LOSSES, SCENARIO_COUNT, SCENARIO_PREMIUM_TO_SURPLUS, SCENARIO_RATIO_RANGE } from '../../src/data/pricingParameters';
 import { drawOrdinaryFactor, ordinaryLossRng, ordinaryYearCv } from '../../src/utils/ordinaryLoss';
 import { blendInvestmentReturn, simulateMarketReturns, type MarketReturns } from '../../src/utils/investmentEngine';
 import { deriveSubRng } from '../../src/utils/random';
@@ -113,14 +103,11 @@ function gradeExpected(fold: Fold, tFromFolded: boolean, tag: string) {
     worstTotal = Math.max(worstTotal, rel(total, (t.ordinary + t.routine) * (1 + u) + t.shockLarge));
     // Shocks off (the shocks landing): the folded normal losses are today's
     // shocks-off expectation exactly — nothing in them moves with the catalogue.
-    // ⚠ LARGE_CLAIMS_EVERY_GAME: plus the large claims' expectation, drawn in
-    // every game — the shocks-off shockLarge, which is shocks-on's.
-    const offLarge = expectedLossBreakdown(l, E, y, undefined, 1, false).shockLarge;
-    worstOff = Math.max(worstOff, rel(ordinary + offLarge, t.offTotal), rel(offLarge, b.shockLarge));
+    worstOff = Math.max(worstOff, rel(ordinary, t.offTotal));
     worstT = Math.max(worstT, rel(shockLarge, t.shockLarge));
   }
   check(worstTotal < 1e-12 && worstOff < 1e-12,
-    `${tag}1. every line-year's expected loss is today's, the fold the routine claims' cost with the shocks on top (shocks off: the large claims' expectation on top), years -10 to 15 (${FOLDED.join(', ')})`,
+    `${tag}1. every line-year's expected loss is today's, the fold the routine claims' cost with the shocks on top, years -10 to 15 (${FOLDED.join(', ')})`,
     `worst relative ${worstTotal.toExponential(2)} shocks on, ${worstOff.toExponential(2)} shocks off`);
   check(worstT < 1e-12, `${tag}2. the shocks' large losses do not grow with the fold`, `worst relative ${worstT.toExponential(2)}`);
 }
@@ -192,10 +179,6 @@ controlFails('a fold divided by the uplift (the retired design)', () => gradeExp
 controlFails('the engine\'s fold with ROUTINE_FOLD_NET_OF_UPLIFT switched on', () => {
   ROUTINE_FOLD_NET_OF_UPLIFT.enabled = true;
   try { gradeExpected(routineFoldPer100, false, ''); } finally { ROUTINE_FOLD_NET_OF_UPLIFT.enabled = false; }
-}, '1.');
-controlFails('LARGE_CLAIMS_EVERY_GAME switched off (no large claims with the shocks off)', () => {
-  LARGE_CLAIMS_EVERY_GAME.enabled = false;
-  try { gradeExpected(routineFoldPer100, false, ''); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; }
 }, '1.');
 controlFails('T scaled off the folded cost', () => gradeExpected(shipped, true, ''), '2.');
 controlFails('a routine claim slipped in', () => gradeGames(r => [...claimsOf(r), { shock: false }], drawOf, marketOf, ''), '3.');

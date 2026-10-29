@@ -35,13 +35,34 @@
 // asserted). New control: LARGE_CLAIMS_EVERY_GAME.enabled = false at runtime
 // (the table hidden with shocks off) must fail 2.
 //
+// RESTATED FOR wip/large-claims-from-events: large claims come only from
+// T-shock events again, and the frequency draw (LARGE_CLAIMS_BY_FREQUENCY,
+// LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_EVERY_GAME) is gone from src. The
+// table's source is now the PRICING ODDS, T_COVER_FREQUENCY's three levels —
+// Low 7.5%, Mid 5.25%, High 2.25% — in EVERY game, shocks on or off
+// (COVERS_IN_EVERY_GAME), each spread across the brief's range for the line
+// (written out below: WC 1-3 / 3-6 / 6-40, GL 1-3 / 3-7 / 7-40, Property
+// 2-5 / 5-12 / 12-40, $M) x the growth factor. So:
+//   1. unchanged in substance: recomputed exactly from the written-out odds
+//      and ranges at four growth factors, a size (never "—") at EVERY return
+//      period, and the brief's 2027 table to $0.1M — WC 2.3/4.4/9.8/24.9/32.4,
+//      GL 2.3/4.9/10.7/25.3/32.7, Property 4.0/8.3/15.1/27.6/33.8.
+//   2. a single player game (shocks on) and a hosted game with no schedule
+//      (shocks off, asserted) both show the table, each at its own factor,
+//      coming and played year alike, every return period sized.
+// Controls: the odds drifted (T_COVER_FREQUENCY.Mid to 6% at runtime); a range
+// drifted (Property High to $50M); the page read at no growth;
+// COVERS_IN_EVERY_GAME.enabled = false at runtime (no table with shocks off).
+// The retired control "the events' T switched back on (LARGE_CLAIMS_BY_FREQUENCY
+// off)" has no switch left to throw and is dropped.
+//
 // ⚠ THE CATALOGUE IS WRITTEN OUT HERE, not read: a changed chance, level or
 // range fails rather than moving the expectation. Each section has a CONTROL
 // that breaks the thing it guards at runtime, requires the section to FAIL,
 // and restores it.
 // ============================================================================
 
-import { LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, LARGE_CLAIMS_EVERY_GAME, SHOCK_T_CLAIM_RANGE, SHOCK_COST_TREND } from '../../src/data/pricingParameters';
+import { COVERS_IN_EVERY_GAME, SHOCK_T_CLAIM_RANGE, SHOCK_COST_TREND, T_COVER_FREQUENCY } from '../../src/data/pricingParameters';
 import { eventLikelihoods, RETURN_PERIODS } from '../../src/utils/eventLikelihoods';
 import { buildRateIndication } from '../../src/utils/rateIndication';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -71,7 +92,7 @@ const control = (label: string, breakIt: () => () => void, section: () => string
 };
 
 // ---- THE BRIEF'S LEVELS, WRITTEN OUT ----------------------------------------------
-// Each line's one large claim a year: [yearly chance of the level, claim range $M].
+// The pricing odds (T_COVER_FREQUENCY) per level: [yearly chance, claim range $M].
 const T_EVENTS: Record<CoverageLine, [number, number, number][]> = {
   WC: [[0.075, 1, 3], [0.0525, 3, 6], [0.0225, 6, 40]],            // Low, Mid, High
   GL: [[0.075, 1, 3], [0.0525, 3, 7], [0.0225, 7, 40]],
@@ -104,6 +125,8 @@ const sameTable = (got: { years: number; size: number | null }[], l: CoverageLin
   if (got.map(e => e.years).join(',') !== '10,20,50,100,200') out.push(`${where}: return periods ${got.map(e => e.years)}`);
   for (const e of got) {
     const want = exactSize(l, g, e.years);
+    // 15% a year is more than 1 in 10: every return period has a size.
+    if (e.size === null || !(e.size > 0)) out.push(`${where} ${l} 1 in ${e.years}: no size`);
     if (want === null ? e.size !== null : e.size === null || Math.abs(e.size - want) > 1) {
       out.push(`${where} ${l} 1 in ${e.years}: ${e.size === null ? '—' : `$${(e.size / M).toFixed(3)}M`}, recomputed ${want === null ? '—' : `$${(want / M).toFixed(3)}M`}`);
     }
@@ -149,7 +172,7 @@ function playTo(shocksOff: boolean): GameState {
 function sectionPage(): string[] {
   const out: string[] = [];
   games ??= { on: playTo(false), off: playTo(true) };
-  // LARGE_CLAIMS_EVERY_GAME: the same table, at the game's own factor, shocks on or off.
+  // COVERS_IN_EVERY_GAME: the same table, at the game's own factor, shocks on or off.
   for (const [gs, tag] of [[games.on, 'shocks on'], [games.off, 'shocks off']] as const) {
   if (gameShocksOn(gs.setup, gs.instance) !== (tag === 'shocks on')) out.push(`${tag}: the game's shocks are ${gameShocksOn(gs.setup, gs.instance) ? 'on' : 'off'}`);
   for (const l of LINES) {
@@ -172,14 +195,10 @@ function sectionPage(): string[] {
 
 // ---- run -----------------------------------------------------------------------------
 console.log('event-likelihoods-check\n');
-check(sectionTable(), '1. the table: each 1 in N size recomputed exactly from the three levels written out, at four growth factors; no "—"; the brief\'s 2027 table');
-control('Mid\'s frequency moved to 6%', () => {
-  const f = LARGE_CLAIM_FREQUENCY as Record<string, number>; const o = f.Mid; f.Mid = 0.06;
+check(sectionTable(), '1. the table: each 1 in N size recomputed exactly from the pricing odds and ranges written out, at four growth factors; a size at every return period; the brief\'s 2027 table');
+control('the odds drifted (T_COVER_FREQUENCY.Mid to 6%)', () => {
+  const f = T_COVER_FREQUENCY as Record<string, number>; const o = f.Mid; f.Mid = 0.06;
   return () => { f.Mid = o; };
-}, sectionTable);
-control('the events\' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off)', () => {
-  LARGE_CLAIMS_BY_FREQUENCY.enabled = false;
-  return () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; };
 }, sectionTable);
 control('Property\'s High range to $50M', () => {
   const r = SHOCK_T_CLAIM_RANGE.Property as Record<string, readonly number[]>; const o = r.High; r.High = [12e6, 50e6];
@@ -190,9 +209,9 @@ control('the page\'s table read at no growth', () => {
   const t = SHOCK_COST_TREND as Record<string, number>; const o = { ...t }; for (const k of Object.keys(t)) t[k] = 0;
   return () => { Object.assign(t, o); };
 }, () => { const g = games; games = null; try { return sectionPage(); } finally { games = g; } });
-control('LARGE_CLAIMS_EVERY_GAME switched off (no table with shocks off)', () => {
-  LARGE_CLAIMS_EVERY_GAME.enabled = false;
-  return () => { LARGE_CLAIMS_EVERY_GAME.enabled = true; };
+control('COVERS_IN_EVERY_GAME switched off (no table with shocks off)', () => {
+  COVERS_IN_EVERY_GAME.enabled = false;
+  return () => { COVERS_IN_EVERY_GAME.enabled = true; };
 }, () => { const g = games; games = null; try { return sectionPage(); } finally { games = g; } });
 
 void RETURN_PERIODS;

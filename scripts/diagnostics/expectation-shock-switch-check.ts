@@ -18,8 +18,7 @@
 //   2. THE EXPECTATION OFF: no uplift, no shock large losses — ordinary plus
 //      routine large losses — and on, the same as it ever was.
 //   3. THE COVER OFF: every option's attachment and limit are its shares of the
-//      shocks-off expectation (ordinary, plus the large claims while
-//      LARGE_CLAIMS_EVERY_GAME is on), and its price is E + load over that year
+//      ordinary expectation, and its price is E + load over the ordinary year
 //      alone; on, over the year with its shocks. ⚠ SINCE THE SHOCKS LANDING
 //      THE AGGREGATE STOP IS DORMANT (AGGREGATE_STOP.enabled false — the T
 //      covers are offered instead); 3 holds its still-built code to the switch.
@@ -66,39 +65,18 @@
 // it and that WC 9 xs 1 at factor 1 is the documented $461,250. A control
 // charges the retired fixed-table price grown by the factor and must fail 4b.
 //
-// ⚠ RESTATED FOR LARGE_CLAIMS_EVERY_GAME: large claims are now drawn in every
-// game, shocks on or off — "shocks off" means only that no catalogue event
-// fires. So, with the shocks off:
-//   2. the expectation has NO UPLIFT, but its shockLarge EQUALS shocks-on's
-//      (total = ordinary + routine large + shockLarge), still below shocks-on.
-//   4a. a SOLO_SHOCKS-off game's Expected Losses is the shocks-off expectation
-//      (with shockLarge), its 'T' records are exactly where largeClaimArrivals
-//      drew on WC, fired in every world, and the 2% / 1% bar is held on what
-//      the worlds average: Simulated less the drawn large claims against
-//      Expected less its shockLarge (x the member risk) — the large claims, as
-//      the shocks with SOLO_SHOCKS on, are the game seed's, shared by every
-//      world, so the worlds' average cannot average them.
-//   6. None and the eight T covers are offered with the shocks off too, None
-//      the default either way (prices: optionPrice takes no shock switch).
-//   8a. Property's catastrophe (large-claim) capital with the shocks off EQUALS
-//      the shocks-on capital under every cover, and is > 0.
-//   8b. a SOLO_SHOCKS-off Property game carries the same charge every year as
-//      one with SOLO_SHOCKS on and a scheduled room.
-// Controls now include LARGE_CLAIMS_EVERY_GAME.enabled = false at runtime,
-// which must fail 2, 4a (the game replayed), 6, 8a and 8b (replayed). The
-// controls that encoded the retired rule as the BREAK ("every option offered
-// with the shocks off", "catastrophe capital that ignores the switch", "a solo
-// game still charged for a catastrophe") are now the new rule, so they are
-// turned round: None alone with the shocks off, capital zeroed with the shocks
-// off, a solo SOLO_SHOCKS-off game whose charge dropped — each must fail.
-//
-// ⚠ RESTATED FOR EVENTS_KEEPING_LARGE_CLAIMS (Nuclear Verdict keeps its own
-// GL High claim, on top of the frequency draw, in the shocks-ON expectation
-// only): 2.'s shocks-off shockLarge now equals shocks-on's LESS NV's share on
-// GL — p(NV) (the R model's 2.5% x SHOCK_CATALOGUE_SCALE) x the GL High
-// range's midpoint ($23.5M) x 1.08^(y - 1), written out — and equals it
-// exactly on WC and Property. New controls: EVENTS_KEEPING_LARGE_CLAIMS emptied
-// at runtime, and Pandemic added to it, each fail 2.
+// RESTATED FOR wip/large-claims-from-events: large claims come only from
+// T-shock events (no separate draw), but the covers are in every game
+// (COVERS_IN_EVERY_GAME, shipped on). The expectation (2), the stop (3), the
+// solo and hosted games (4, 5), the prior board (7) and Property's
+// catastrophe capital (8: zero with the shocks off) are as reverted. 6, THE
+// OFFER, changes: with the shocks off it now wants None AND the eight T
+// covers — the same nine, in the same order, as with them on — at the same
+// prices (optionPrice at growth 1 and 1.3, each the method), None the default
+// either way. Its control "every option offered with the shocks off" is now
+// the design, so it is replaced by "None alone with the shocks off (the
+// pre-#60 rule)"; and a new control throws COVERS_IN_EVERY_GAME.enabled =
+// false at runtime, which must fail 6, then restores it.
 // ============================================================================
 import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
 import { marketSeedOf } from '../../src/utils/bookUnits';
@@ -108,12 +86,12 @@ import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { commitSettledYear, openWorlds, playWorldsYear, settleWorldsYear, strikeRates } from '../../src/utils/worlds';
 import { expectedLossBreakdown, newEngineCatCapital } from '../../src/utils/shockExpectation';
 import { sampledYearTotals, stopQuotes, stopRecovery } from '../../src/utils/aggregateStop';
-import { LARGE_CLAIM_ID, gameShocksOn, largeClaimArrivals } from '../../src/utils/shockLosses';
+import { gameShocksOn } from '../../src/utils/shockLosses';
 import { drawShockSchedule } from '../../src/utils/shockSchedule';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { seedFromInstanceId } from '../../src/seedHash';
 import {
-  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, EVENTS_KEEPING_LARGE_CLAIMS, LARGE_CLAIMS_EVERY_GAME, SHOCK_CATALOGUE_SCALE, REINSURANCE_OPTIONS, SHOCK_COST_TREND, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
+  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, COVERS_IN_EVERY_GAME, REINSURANCE_OPTIONS, SHOCK_COST_TREND, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
 } from '../../src/data/pricingParameters';
 import { shockCostFactor } from '../../src/utils/shockCost';
 import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
@@ -182,21 +160,15 @@ function gradeSwitch(f: typeof gameShocksOn, tag: string) {
 gradeSwitch(gameShocksOn, '');
 
 // ---------------------------------------------------------------- 2
-// Nuclear Verdict's own GL claim (EVENTS_KEEPING_LARGE_CLAIMS), written out: shocks on only.
-const nvShare = (line: 'WC' | 'GL' | 'Property', y: number) =>
-  (line === 'GL' ? 0.025 * SHOCK_CATALOGUE_SCALE * ((7e6 + 40e6) / 2) * Math.pow(1.08, y - 1) : 0);
 function gradeExpectation(br: typeof expectedLossBreakdown, tag: string) {
   let ok = true; let worst = '';
   for (const line of ['WC', 'GL', 'Property'] as const) for (const y of [1, 3, 6]) {
     const off = br(line, 900, y, undefined, 0.95, false), on = br(line, 900, y, undefined, 0.95, true);
-    // LARGE_CLAIMS_EVERY_GAME: no uplift off, but the large claims' expectation
-    // stays — all but NV's own GL claim, which is shocks-on only.
-    const good = off.uplift === 0 && off.shockLarge > 0 && near(off.shockLarge + nvShare(line, y), on.shockLarge)
-      && near(off.total, off.ordinary + off.routineLarge + off.shockLarge)
+    const good = off.uplift === 0 && off.shockLarge === 0 && near(off.total, off.ordinary + off.routineLarge)
       && near(off.ordinary, on.ordinary) && on.total > off.total;
     if (!good) { ok = false; worst = `${line} y${y}: off ${off.total.toFixed(0)} on ${on.total.toFixed(0)}`; }
   }
-  check(ok, `${tag}2. shocks off, the expectation is ordinary + routine large + shockLarge (shocks-on's, less NV's GL claim), no uplift; on, it carries the uplift above it`, worst);
+  check(ok, `${tag}2. shocks off, the expectation is ordinary + routine large only; on, it carries the shocks above it`, worst);
 }
 gradeExpectation(expectedLossBreakdown, '');
 
@@ -216,7 +188,7 @@ function gradeCover(quotes: typeof stopQuotes, tag: string) {
       if (!good) { ok = false; detail = `${line} ${q.optionId}: attachment ${q.attachment.toFixed(0)} vs ${(o.attachment * ordinary).toFixed(0)}, price ${q.premium.toFixed(0)}`; }
     }
   }
-  check(ok, `${tag}3. shocks off, each cover attaches at its share of the shocks-off expectation (ordinary, with the large claims under LARGE_CLAIMS_EVERY_GAME) and is priced on it`, detail);
+  check(ok, `${tag}3. shocks off, each cover attaches at its share of the ordinary expectation and is priced on the ordinary year alone`, detail);
 }
 gradeCover(stopQuotes, '');
 
@@ -254,24 +226,6 @@ const T_COVER = '$38M xs $2M';
 const soloOffGame = withSoloShocks(false, () => play(soloOff.setup, soloOff.instance, 4));
 const soloGame = play(solo.setup, solo.instance, 4, T_COVER);
 function gradeSolo(offRows: typeof soloGame.rows, onRows: typeof soloGame.rows, struck: number[], quoted: number[], tag: string, srcPrice: number[] = soloGame.src.slice(0, quoted.length)) {
-  // ⚠ LARGE_CLAIMS_EVERY_GAME: the SOLO_SHOCKS-off game draws its seed's large
-  // claims (shared by every world), so its 'T' records must be exactly where
-  // largeClaimArrivals drew on WC, fired in every world; its Expected Losses is
-  // the shocks-off expectation, shockLarge in; and the bar below is held on
-  // what the worlds average — Simulated less the drawn large claims against
-  // Expected less its shockLarge.
-  const tProblems: string[] = [];
-  const largeOf = (r: typeof offRows[number]) => (r.shockEvents ?? []).filter(e => e.shockId === LARGE_CLAIM_ID);
-  for (const r of offRows) {
-    const drew = largeClaimArrivals(soloOff.instance, r.yearNumber).some(a => a.line === 'WC');
-    const recs = largeOf(r);
-    if (drew !== (recs.length === 1)) tProblems.push(`year ${r.yearNumber}: ${recs.length} 'T' record(s), drew ${drew}`);
-    if (recs.some(e => e.worlds && e.worlds.fired !== e.worlds.of)) tProblems.push(`year ${r.yearNumber}: 'T' not in every world`);
-    if ((r.shockEvents ?? []).some(e => e.shockId !== LARGE_CLAIM_ID)) tProblems.push(`year ${r.yearNumber}: a catalogue event fired`);
-    const b = expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, false);
-    if (!(b.shockLarge > 0) || !near(r.expectedLoss, b.total, 1e-4)) tProblems.push(`year ${r.yearNumber}: Expected ${r.expectedLoss.toFixed(0)}, the shocks-off expectation ${b.total.toFixed(0)}`);
-  }
-  if (!offRows.some(r => largeOf(r).length)) tProblems.push('no large claim in the SOLO_SHOCKS-off game — the large-claim adjustment is untested');
   // ⚠ WITH THE GAME'S MEMBER RISK DIVIDED OUT (simple underwriting). Each
   // member's yearly risk score is the GAME's (MEMBER_RISK_CV, off its seed), so
   // averaging the worlds removes the year factor and the luck but not the
@@ -281,11 +235,7 @@ function gradeSolo(offRows: typeof soloGame.rows, onRows: typeof soloGame.rows, 
     const r = ordinaryLossFromMembers('WC', 1, y, 1, 1, false, marketSeedOf(soloOff.instance)).risk;
     return r.reduce((a, b) => a + b, 0) / r.length;
   };
-  const gaps = offRows.map(r => {
-    const drawn = largeOf(r).reduce((s, e) => s + (e.attributableGrossLoss ?? 0), 0);
-    const shockLarge = expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, false).shockLarge;
-    return ((r.aggregateMemberLoss ?? r.grossUltimateLoss) - drawn) / ((r.expectedLoss - shockLarge) * riskOf(r.yearNumber)) - 1;
-  });
+  const gaps = offRows.map(r => (r.aggregateMemberLoss ?? r.grossUltimateLoss) / (r.expectedLoss * riskOf(r.yearNumber)) - 1);
   // ⚠ RESTATED FOR THE FIXED-SEED SCENARIOS: what is left is the worlds'
   // sampling noise — measured over 160 game-years (the twenty scenarios and
   // twenty bare games, four years each), mean +0.03%, SD 0.63%, 14% of single
@@ -294,10 +244,9 @@ function gradeSolo(offRows: typeof soloGame.rows, onRows: typeof soloGame.rows, 
   // (-1.55%, +0.46%, -0.29%, -1.50%). The bar is now 3 SD: each year within
   // 2%, and the four years' mean within 1%.
   const mean = gaps.reduce((a, g) => a + g, 0) / gaps.length;
-  check(tProblems.length === 0 && gaps.every(g => Math.abs(g) < 0.02) && Math.abs(mean) < 0.01,
-    `${tag}4a. a solo game with SOLO_SHOCKS off: Expected Losses is the shocks-off expectation (shockLarge in), 'T' records exactly where the large claims drew; less the large claims, each year's Expected (x the game's member risk) within 2% of Simulated, their mean within 1%`,
-    gaps.map(g => `${(100 * g).toFixed(2)}%`).join(' ') + `; mean ${(100 * mean).toFixed(2)}%; T in years ${offRows.filter(r => largeOf(r).length).map(r => r.yearNumber).join(',') || 'none'}`
-    + (tProblems.length ? `; ${tProblems.slice(0, 3).join('; ')}` : ''));
+  check(gaps.every(g => Math.abs(g) < 0.02) && Math.abs(mean) < 0.01,
+    `${tag}4a. a solo game with SOLO_SHOCKS off: each year's Expected Losses (x the game's member risk) is within 2% of its Simulated Losses, and their mean within 1%`,
+    gaps.map(g => `${(100 * g).toFixed(2)}%`).join(' ') + `; mean ${(100 * mean).toFixed(2)}%`);
   const over = onRows.map(r => r.expectedLoss / expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, false).total);
   // Year 2 on, the cover's price must have grown (the trend), so a price that stood still shows.
   // The method's anchor: WC 9 xs 1 at factor 1 is 75,000 + 183,750 + 202,500 = $461,250.
@@ -325,12 +274,15 @@ function gradeOffer(ids: typeof reinsuranceOptionIds, dflt: (shocks: boolean) =>
   const on = (['WC', 'GL', 'Property'] as const).map(l => ids(l, true).join(','));
   const decOff = defaultDecisionSet(1, false), decOn = defaultDecisionSet(1, true);
   // The brief's T covers, written out (not read from REINSURANCE_OPTIONS).
-  // LARGE_CLAIMS_EVERY_GAME: the same nine with the shocks off.
-  const NINE = 'none,$9M xs $1M,$19M xs $1M,$29M xs $1M,$39M xs $1M,$8M xs $2M,$18M xs $2M,$28M xs $2M,$38M xs $2M';
-  const ok = off.every(x => x === NINE) && on.every(x => x === NINE)
+  const nine = 'none,$9M xs $1M,$19M xs $1M,$29M xs $1M,$39M xs $1M,$8M xs $2M,$18M xs $2M,$28M xs $2M,$38M xs $2M';
+  // COVERS_IN_EVERY_GAME: the same nine with the shocks off, at the same prices (the method).
+  // An id that is not a T cover (the retired stop's 'working') cannot be priced: not priced.
+  const pricedAt = (l: 'WC' | 'GL' | 'Property', id: string, g: number) => { try { return near(optionPrice(l, id, g), methodPrice(l, id, g), 1e-12); } catch { return false; } };
+  const priced = (['WC', 'GL', 'Property'] as const).every(l => ids(l, false).every(id => [1, 1.3].every(g => pricedAt(l, id, g))));
+  const ok = off.every(x => x === nine) && on.every(x => x === nine) && priced
     && dflt(false) === 'none' && dflt(true) === 'none'
     && (['WC', 'GL', 'Property'] as const).every(l => decOff.byLine[l].reinsuranceOption === dflt(false) && decOn.byLine[l].reinsuranceOption === dflt(true));
-  check(ok, `${tag}6. shocks on or off: None and the eight T covers offered; None the default either way`,
+  check(ok, `${tag}6. shocks on or off: None and the eight T covers offered, at the method's prices; None the default either way`,
     `off ${off[0]} / ${dflt(false)}; on ${on[0]} / ${dflt(true)}`);
 }
 gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), '');
@@ -369,18 +321,13 @@ function gradeCapital(cat: CatFn, soloRows: { catCapitalNeeded?: number; reserve
   roomRows: CapRow[], tag: string, soloOnRows: CapRow[] = soloOnCap) {
   const exposure = 10_000;
   // Under every cover a Property team can hold since the shocks landing: the T covers' placements.
-  // LARGE_CLAIMS_EVERY_GAME: with the shocks off, the same large-claim capital as on, cover by cover.
-  const ids = reinsuranceOptionIds('Property', true);
-  const off = ids.map(id => cat('Property', exposure, 1, placementFor('Property', id), id, false));
-  const onBy = ids.map(id => cat('Property', exposure, 1, placementFor('Property', id), id, true));
+  const off = reinsuranceOptionIds('Property', true).map(id => cat('Property', exposure, 1, placementFor('Property', id), id, false));
   const on = cat('Property', exposure, 1, null, 'none', true);
-  check(off.every((x, i) => x > 0 && near(x, onBy[i])) && on > 0,
-    `${tag}8a. Property's catastrophe capital: with the shocks off the same as with them on, under every cover, and > 0`,
-    `off ${off.map(x => x.toFixed(0)).join(' / ')}; on ${onBy.map(x => x.toFixed(0)).join(' / ')}; on, no cover, $${(on / 1e6).toFixed(2)}M`);
-  check(soloRows.every((r, i) => (r.catCapitalNeeded ?? 0) > 0 && near(r.catCapitalNeeded ?? 0, soloOnRows[i]?.catCapitalNeeded ?? NaN) && r.reserveRiskMarginNeeded > 0)
-    && soloRows.length === soloOnRows.length
+  check(off.every(x => x === 0) && on > 0, `${tag}8a. Property's catastrophe capital: none with the shocks off, under every cover; it returns with them on`,
+    `off ${off.map(x => x.toFixed(0)).join(' / ')}; on, no cover, $${(on / 1e6).toFixed(2)}M`);
+  check(soloRows.every(r => r.catCapitalNeeded === 0 && r.reserveRiskMarginNeeded > 0)
     && soloOnRows.every(r => (r.catCapitalNeeded ?? 0) > 0) && roomRows.every(r => (r.catCapitalNeeded ?? 0) > 0),
-    `${tag}8b. through the engine: a solo Property game with SOLO_SHOCKS off carries the same large-claim charge as one with SOLO_SHOCKS on; it, and a scheduled room, carry one every year`,
+    `${tag}8b. through the engine: a solo Property game with SOLO_SHOCKS off carries no catastrophe charge; one with SOLO_SHOCKS on, and a scheduled room, carry one every year`,
     `solo off ${soloRows.map(r => r.catCapitalNeeded?.toFixed(0)).join(' / ')}; solo on $${soloOnRows.map(r => ((r.catCapitalNeeded ?? 0) / 1e6).toFixed(2)).join(' / ')}M; room $${roomRows.map(r => ((r.catCapitalNeeded ?? 0) / 1e6).toFixed(2)).join(' / ')}M`);
 }
 gradeCapital(newEngineCatCapital, soloCap, roomCap, '');
@@ -406,27 +353,6 @@ controlFails('a cover priced with the shocks while the switch is off',
   () => gradeCover((l, e, y, b) => stopQuotes(l, e, y, b, true), ''), '3.');
 controlFails('a SOLO_SHOCKS-off game reading the shock-inclusive expectation',
   () => gradeSolo(soloOffGame.rows.map(r => ({ ...r, expectedLoss: expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, true).total })), soloGame.rows, soloGame.struckPrice, soloGame.quoted, ''), '4a.');
-controlFails('LARGE_CLAIMS_EVERY_GAME switched off (the expectation)', () => {
-  LARGE_CLAIMS_EVERY_GAME.enabled = false;
-  try { gradeExpectation(expectedLossBreakdown, ''); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; }
-}, '2.');
-{
-  const kept = EVENTS_KEEPING_LARGE_CLAIMS as string[];
-  const withKept = (list: string[], run: () => void) => {
-    const was = [...kept]; kept.splice(0, kept.length, ...list);
-    try { run(); } finally { kept.splice(0, kept.length, ...was); }
-  };
-  controlFails('EVENTS_KEEPING_LARGE_CLAIMS emptied (NV\'s claim dropped)', () => withKept([], () => gradeExpectation(expectedLossBreakdown, '')), '2.');
-  controlFails('Pandemic added to EVENTS_KEEPING_LARGE_CLAIMS', () => withKept(['Nuclear Verdict', 'Pandemic'], () => gradeExpectation(expectedLossBreakdown, '')), '2.');
-}
-controlFails('LARGE_CLAIMS_EVERY_GAME switched off (the SOLO_SHOCKS-off game replayed)', () => {
-  LARGE_CLAIMS_EVERY_GAME.enabled = false;
-  let g: ReturnType<typeof play>;
-  try { g = withSoloShocks(false, () => play(soloOff.setup, soloOff.instance, 4)); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; }
-  gradeSolo(g.rows, soloGame.rows, soloGame.struckPrice, soloGame.quoted, '');
-}, '4a.');
-controlFails('a SOLO_SHOCKS-off game whose large claims went unrecorded',
-  () => gradeSolo(soloOffGame.rows.map(r => ({ ...r, shockEvents: [] })), soloGame.rows, soloGame.struckPrice, soloGame.quoted, ''), '4a.');
 controlFails('a SOLO_SHOCKS-on game whose expectation dropped its shocks',
   () => gradeSolo(soloOffGame.rows, soloGame.rows.map(r => ({ ...r, expectedLoss: expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, false).total })), soloGame.struckPrice, soloGame.quoted, ''), '4b.');
 controlFails('a T cover charged off its price',
@@ -447,11 +373,10 @@ controlFails('a T cover whose price does not grow (the trend zeroed in the engin
 controlFails('a hosted game whose expectation dropped its shocks',
   () => gradeHosted(hostedGame.rows.map(r => ({ ...r, expectedLoss: expectedLossBreakdown('WC', r.activeExposure, r.yearNumber, undefined, 1, false).total })), ''), '5.');
 
-// Turned round for LARGE_CLAIMS_EVERY_GAME: every option offered with the shocks off is now the rule.
-controlFails('None alone with the shocks off (the retired offer)', () => gradeOffer((l, sh) => (sh ? reinsuranceOptionIds(l, true) : ['none']), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
-controlFails('LARGE_CLAIMS_EVERY_GAME switched off (the offer)', () => {
-  LARGE_CLAIMS_EVERY_GAME.enabled = false;
-  try { gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), ''); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; }
+controlFails('None alone with the shocks off (the pre-#60 rule)', () => gradeOffer((l, sh) => (sh ? reinsuranceOptionIds(l, true) : ['none']), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
+controlFails('COVERS_IN_EVERY_GAME switched off at runtime', () => {
+  COVERS_IN_EVERY_GAME.enabled = false;
+  try { gradeOffer(reinsuranceOptionIds, sh => defaultReinsuranceOption('WC', sh), ''); } finally { COVERS_IN_EVERY_GAME.enabled = true; }
 }, '6.');
 controlFails('the wip/shocks four-cover menu offered with the shocks on',
   () => gradeOffer((_l, sh) => (sh ? ['none', '$9M xs $1M', '$8M xs $2M', '$18M xs $2M', '$38M xs $2M'] : ['none']), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
@@ -459,21 +384,10 @@ controlFails('a T cover default with the shocks on', () => gradeOffer(reinsuranc
 controlFails('the retired stop\'s offer (the Working cover with the shocks off)', () => gradeOffer((l, sh) => (sh ? reinsuranceOptionIds(l, true) : ['none', 'working']), sh => defaultReinsuranceOption('WC', sh), ''), '6.');
 controlFails('a solo prior board on a T cover', () => gradeBoard(['$8M xs $2M'], roomBoard, ''), '7.');
 controlFails('a scheduled room\'s prior board on a T cover', () => gradeBoard(soloBoard, ['none', '$38M xs $2M'], ''), '7.');
-// Turned round for LARGE_CLAIMS_EVERY_GAME: the capital ignoring the switch is now the rule.
-controlFails('catastrophe capital zeroed with the shocks off (the retired rule)',
-  () => gradeCapital((l, e, y, p, o, sh) => (sh ? newEngineCatCapital(l, e, y, p, o, true) : 0), soloCap, roomCap, ''), '8a.');
-controlFails('LARGE_CLAIMS_EVERY_GAME switched off (the capital)', () => {
-  LARGE_CLAIMS_EVERY_GAME.enabled = false;
-  try { gradeCapital(newEngineCatCapital, soloCap, roomCap, ''); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; }
-}, '8a.');
-controlFails('a SOLO_SHOCKS-off game whose charge dropped (the retired rule)',
-  () => gradeCapital(newEngineCatCapital, soloCap.map(r => ({ ...r, catCapitalNeeded: 0 })), roomCap, ''), '8b.');
-controlFails('LARGE_CLAIMS_EVERY_GAME switched off (the SOLO_SHOCKS-off Property game replayed)', () => {
-  LARGE_CLAIMS_EVERY_GAME.enabled = false;
-  let rows: ReturnType<typeof playCapital>;
-  try { rows = withSoloShocks(false, () => playCapital(soloOff.setup, soloOff.instance)); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; }
-  gradeCapital(newEngineCatCapital, rows, roomCap, '');
-}, '8b.');
+controlFails('catastrophe capital that ignores the switch',
+  () => gradeCapital((l, e, y, p, o) => newEngineCatCapital(l, e, y, p, o, true), soloCap, roomCap, ''), '8a.');
+controlFails('a solo game still charged for a catastrophe',
+  () => gradeCapital(newEngineCatCapital, soloCap.map((r, i) => ({ ...r, catCapitalNeeded: roomCap[i].catCapitalNeeded })), roomCap, ''), '8b.');
 controlFails('a scheduled room whose charge dropped',
   () => gradeCapital(newEngineCatCapital, soloCap, roomCap.map(r => ({ ...r, catCapitalNeeded: 0 })), ''), '8b.');
 controlFails('a SOLO_SHOCKS-on game whose charge dropped (the retired solo-off design)',

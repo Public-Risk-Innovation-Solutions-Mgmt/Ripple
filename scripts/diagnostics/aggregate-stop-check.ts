@@ -57,11 +57,19 @@
 // None alone), None still the default both ways. New control: the switch
 // LARGE_CLAIMS_EVERY_GAME.enabled = false at runtime (shocks off -> None only)
 // must fail 0.
+//
+// ⚠ RESTATED FOR wip/large-claims-from-events: large claims come only from
+// T-shock events again (no separate frequency draw), and the covers stay in
+// every game by their own switch, COVERS_IN_EVERY_GAME (it replaces
+// LARGE_CLAIMS_EVERY_GAME, which no longer exists). 0. is unchanged in what it
+// wants — None and the eight layers with shocks on AND off, None the default
+// both ways — and its control now throws COVERS_IN_EVERY_GAME.enabled = false at
+// runtime (shocks off -> None only), which must fail 0., then restores it.
 // ============================================================================
 
 import {
   AGGREGATE_STOP, AGGREGATE_STOP_DEFAULT, AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, REINSURANCE_OPTIONS,
-  LARGE_CLAIMS_EVERY_GAME, STOP_RECOVERY_OFF_CLAIMS_COST,
+  COVERS_IN_EVERY_GAME, STOP_RECOVERY_OFF_CLAIMS_COST,
 } from '../../src/data/pricingParameters';
 import {
   sampledYearTotals, stopQuotes, stopRecovery, stopTerms, stopWording, type StopQuote,
@@ -94,7 +102,7 @@ const T_COVER_IDS = [
 ];
 function gradeDormancy(tag: string) {
   const off = !AGGREGATE_STOP.enabled;
-  // LARGE_CLAIMS_EVERY_GAME: the same nine with the game's shocks off.
+  // COVERS_IN_EVERY_GAME: the same nine with the game's shocks off.
   const offered = LINES.every(l => reinsuranceOptionIds(l, true).join('|') === T_COVER_IDS.join('|')
     && reinsuranceOptionIds(l, false).join('|') === T_COVER_IDS.join('|'));
   const defaults = LINES.every(l => defaultReinsuranceOption(l) === 'none' && defaultReinsuranceOption(l, false) === 'none');
@@ -129,14 +137,14 @@ gradeDormancy('');
   const caught = failures.splice(before).filter(f => f.startsWith('0.'));
   check(caught.length > 0, 'control: the wip/shocks four-cover menu offered on GL is caught by 0.');
 }
-// ...and LARGE_CLAIMS_EVERY_GAME switched off (shocks off -> None alone) is caught too.
+// ...and COVERS_IN_EVERY_GAME switched off (shocks off -> None alone) is caught too.
 {
   const before = failures.length;
   const saved = console.log; console.log = () => {};
-  LARGE_CLAIMS_EVERY_GAME.enabled = false;
-  try { gradeDormancy(''); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; console.log = saved; }
+  COVERS_IN_EVERY_GAME.enabled = false;
+  try { gradeDormancy(''); } finally { COVERS_IN_EVERY_GAME.enabled = true; console.log = saved; }
   const caught = failures.splice(before).filter(f => f.startsWith('0.'));
-  check(caught.length > 0, 'control: LARGE_CLAIMS_EVERY_GAME switched off (None alone with shocks off) is caught by 0.');
+  check(caught.length > 0, 'control: COVERS_IN_EVERY_GAME switched off (None alone with shocks off) is caught by 0.');
 }
 // THE STOP, SWITCHED ON IN THIS PROCESS ONLY, for 1-5.
 AGGREGATE_STOP.enabled = true;

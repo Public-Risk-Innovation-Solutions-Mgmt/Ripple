@@ -202,7 +202,9 @@ export function buildRateIndication(
     projected = purePremium.purePremiumPer100;
     windowYears = purePremium.points.length;
     reinsuranceAt = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
-    coverBook = fundingConsequenceInput(gs, line, decisions, 'none').book;
+    // The book itself (its members), as the past years read it — the wrapper
+    // carries no shock base, which left the Event Likelihoods on trend alone.
+    coverBook = fundingConsequenceInput(gs, line, decisions, 'none').book.members;
   } else {
     const past = pastPricer(gs, line, yearNumber);
     if (!past) return null;

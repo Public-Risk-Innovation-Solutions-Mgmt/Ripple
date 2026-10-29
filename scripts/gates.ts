@@ -288,7 +288,7 @@ const FAST: string[] = [
   't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
                                      //        recovery on every claim size, each year's price by the
                                      //        workbook's method at the T claims' own growth factor
-  'large-claim-frequency-check',     //  ~20s  wip/large-claims-frequency: at most one large claim a line-year at 7.5/5.25/2.25%, uniform in range x growth; events bring no T; out of the rate
+  'large-claims-from-events-check',  //  ~14s  wip/large-claims-from-events: large claims only from T-shock events (their map level, range x growth, one per line per firing), none with no schedule; the brief's ranges, odds and 2027 cover table; covers and likelihoods in every game — each with a control
   'shock-effects-check',             //  ~5s   wip/shocks: the A and T draws, the matrix, the T
                                      //         covers' recoveries and prices, the Investment Loss by
                                      //         asset class — each with a control. (Replaces
