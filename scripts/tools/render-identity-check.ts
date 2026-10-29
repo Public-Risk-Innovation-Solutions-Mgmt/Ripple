@@ -1708,7 +1708,27 @@ const BASELINE = process.env.RENDER_BASELINE
 // recovery $0" rows deleted (the dormant stop's, per line and per line on the
 // pool), and the two codes that fingerprint them — the reinsurance stage's and
 // the year code. No figure moved. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v115.json');
+// v116: THE FUNDING TABLES STRETCHED (wip/clf-stretch: CLF_STRETCH_95, WC 1.30,
+// GL and Property 1.25), on multiplayer 15dc74b, which reproduced v115 236 of
+// 236 here first. 98 of 236 move, each word-diffed against the control
+// (RENDER_TEXT_DIR both sides). The harness plays at Expected (a factor of
+// 1.0), so every move is the stretched table read where it is shown:
+//   the capital rows, on Financial Statements (26), Results (26) and the
+//   Result Spreadsheet (10) — Required Reserve Margin (GL y0 $3,597,205 ->
+//   $5,165,430), Excess Available Surplus, Excess Capital Ratio (472.3% ->
+//   298.6%) and Excess Capital Status (the WC+GL+PR spreadsheet's WC row
+//   Strong in five years -> Adequate, Deficient, Strong, Strong, Strong;
+//   Property Thin in a year where it was Adequate);
+//   the Year Walkthrough (26): the save version (riskpool_gamestate_v41 ->
+//   v42), and at y2 the capital stage — the margin factor (GL CLF at 80%
+//   1.0829 -> 1.1190), required capital (WC $3,689,390 -> $10,591,549),
+//   excess over required, the capital ratio — and the codes that fingerprint
+//   it (the capital stage's and the year code);
+//   the Rate Indication (10): each funding level's rate (GL 80% 5.422 -> 5.532,
+//   +9.3% -> +11.5% over Expected). Its Expected rate does not move.
+// No premium, loss or surplus figure moves on any other screen. No key added
+// or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v116.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
