@@ -237,7 +237,7 @@ export interface MemberValueRow {
 export interface PoolValueRow {
   line: CoverageLine;
   pots: PotTotals;
-  /** poolPremium + adminExpense + reinsuranceCost. */
+  /** poolPremium + adminExpense + the risk control charge + reinsuranceCost. */
   totalMemberCharge: number;
   /** grossLoss / totalMemberCharge — what came back per dollar billed. */
   returnedPerDollar: number;
@@ -564,6 +564,32 @@ export type CoverageLine = 'WC' | 'GL' | 'Property';
  * report read, so none of them has to reconstruct the year from the totals.
  * Every dollar figure is the POOL'S (GL net of its $25M limit).
  */
+export interface AttritionalCoverRecord {
+  optionId: string;
+  /** Expected normal losses the terms are struck on: the quoted book's exposure x the ordinary cost. */
+  expectedNormal: number;
+  /** The average surge in the terms, on the pricing basis. */
+  averageSurge: number;
+  /** expectedNormal x (1 + averageSurge). */
+  expectedAttritional: number;
+  attachment: number;
+  limit: number;
+  /** What the cover cost: its expected recovery x its load. In reinsuranceCost. */
+  price: number;
+  /** The expected recovery at the shock assumptions' odds (the price before load). */
+  expectedRecovery: number;
+  /** The year's normal losses as drawn and booked (after underwriting and the risk control cut). */
+  normalLoss: number;
+  /** The year's A surges on the line, as a share of the normal losses before the cut. */
+  surge: number;
+  /** The surges in dollars: the normal losses before the cut x surge. */
+  surgeLoss: number;
+  /** normalLoss + surgeLoss — the year's ordinary losses as booked, less any Economic Inflation uplift. */
+  attritional: number;
+  /** min(max(attritional - attachment, 0), limit). */
+  recovery: number;
+}
+
 export interface NewLossEngineRecord {
   /** Exposure x the ordinary cost, trended — the draw's own scale. */
   ordinaryExpected: number;
@@ -738,6 +764,14 @@ export interface LineDecisionSet {
   // (aggregateStopLevel), which is no longer offered. The engine reads the
   // tower placement through reinsuranceOptions.placementFor.
   reinsuranceOption: string;
+  /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES this line buys, beside the
+   * per-claim layer — one id from AGGREGATE_COVER_OPTIONS (wip/aggregate-cover).
+   * ⚠ OPTIONAL, AND ABSENT READS AS 'none' (aggregateCover.aggregateCoverOf):
+   * the defaults never write it, so a game that never buys the cover — and
+   * every save, session row and harness written before it — is the game it was.
+   */
+  aggregateCover?: string;
   assetAllocation: AssetAllocation;    // projected from DecisionSet.assetAllocation
   loanRepaymentAggressiveness: number; // 0.00 to 1.00 — share of positive net income used to
                                        // repay an outstanding inter-line loan first; only
@@ -1785,6 +1819,16 @@ interface ResultRowFields {
    * exactly as it did. See NewLossEngineRecord.
    */
   newLossEngine?: NewLossEngineRecord;
+  /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES the year was written with
+   * (wip/aggregate-cover; utils/aggregateCover.ts) — its terms and price as
+   * quoted, the year's attritional losses and what the cover paid on them.
+   * ABSENT when the line held None, so a year without the cover serialises
+   * exactly as it did. The recovery is IN reinsuranceRecovery (and so in
+   * netUltimateLoss), never in aggregateRecovery, which is the dormant stop's.
+   * Averaged across worlds field by field (worlds.averageLineResults).
+   */
+  attritionalCover?: AttritionalCoverRecord;
   // WC aggregate stop-loss on total annual retained loss. 0 when not purchased.
   aggregateRecovery: number;
   aggregatePremium: number;
@@ -1794,7 +1838,30 @@ interface ResultRowFields {
 
   // Expenses
   operatingExpense: number;
+  /**
+   * Risk control spent this year — Other Admin Expense on the Annual Statement.
+   * Since wip/risk-control it is the Risk Control slider's charge (the same
+   * dollars the rate collected for it); the old pool-wide spend adds nothing
+   * while RISK_CONTROL is off.
+   */
   riskControlInvestment: number;
+  /**
+   * THE RISK CONTROL CUT (riskControl.ts), present only in a year the line's
+   * slider is above 0% — absent reads as no risk control, so a year without it
+   * is byte-identical to before the slider existed. Averaged across the worlds
+   * like any other figure; the mean cut, the draw and the cut are the same in
+   * every world.
+   */
+  /** m: the mean cut, sized so the expected losses + LAE saved equal the charge. */
+  riskControlMeanCut?: number;
+  /** z: the year's standard normal draw — the scenario's, shared by every world and player. */
+  riskControlDraw?: number;
+  /** The share taken off this year's normal losses: max(0, m x (1 + 0.5 z)). */
+  riskControlCut?: number;
+  /** This year's normal losses x the cut, in dollars. */
+  riskControlLossSaved?: number;
+  /** The ALAE and ULAE on riskControlLossSaved, at the year's drawn ALAE ratio. */
+  riskControlLaeSaved?: number;
 
   // Reserve development (NET basis — reserves are net of reinsurance)
   priorYearDevelopment: number; // positive = favorable, negative = adverse

@@ -37,7 +37,7 @@ import { poolToHistoricalYear, toHistoricalYear } from '../utils/priorHistoryEng
 import { bookExposureOf, bookRiskOf, getMemberExposure, isRoster, selectResultView, type Book } from '../utils/lineHelpers';
 import { exposureFactor } from '../data/exposureTrend';
 import { moveBook } from '../utils/bookUnderwriting';
-import { MEMBER_LEVEL, RISK_CONTROL } from '../data/pricingParameters';
+import { MEMBER_LEVEL } from '../data/pricingParameters';
 import type { LinePoolState } from '../types/simulation';
 
 /** A line's exposure this year — its book, or its active roster. */
@@ -77,9 +77,13 @@ export function pricingBookFor(gameState: GameState, line: CoverageLine): Book {
  */
 export function fundingConsequenceInput(
   gameState: GameState, line: CoverageLine, decisions: DecisionSet, reinsuranceOption?: string,
+  // Overrides the line's aggregate cover, as `reinsuranceOption` does its layer
+  // (the Decisions page and the indication price each option).
+  aggregateCover?: string,
 ): { book: FundingConsequenceBook; purePremium: NewPurePremiumResult | null } {
   const d = decisions.byLine[line];
   const option = reinsuranceOption ?? d.reinsuranceOption;
+  const cover = aggregateCover ?? d.aggregateCover;
   const book = pricingBookFor(gameState, line);
   const exposure = bookExposureOf(book, line, gameState.currentYearNumber);
   const basis = {
@@ -106,6 +110,7 @@ export function fundingConsequenceInput(
       layersPlaced: placementFor(line, option),
       aggregateStopLevel: AGGREGATE_NOT_OFFERED,
       reinsuranceOption: option,
+      ...(cover !== undefined ? { aggregateCover: cover } : {}),
       shocks: gameShocksOn(gameState.setup, gameState.instance),
       pricingAdjustment: lineState.rateLevel / 100,
       priorPurePremiumPer100: lineState.purePremiumPer100,
@@ -158,28 +163,17 @@ export function underwritingFigures(
 
 /**
  * WHAT THE RISK CONTROL SLIDER COSTS AT THE CURRENT EXPOSURE, in dollars: the
- * rate's risk control loading (quoteNewRateStack.riskControlPer100) on the
- * book's exposure, at the funding level and cover chosen.
- *
- * ⚠ $0 WHILE RISK_CONTROL IS OFF. The engine charges nothing for the incentive
- * then, and the slider is disabled at 0%, so the box shows $0 — never a cost the
- * game does not charge. With the flag on, the figure is what the engine's rate
- * charges for the incentive at the slider's value.
- *
- * ⚠ OPEN, FOR WHEN THE FLAG COMES ON: the engine loads the incentive as a share
- * of the loaded rate (quoteNewRateStack's divisor), but the slider is labelled
- * as a share of the PURE PREMIUM. It must be charged as a percentage of the pure
- * premium, matching the label, before the flag is switched on.
+ * rate's risk control charge (quoteNewRateStack.riskControlPer100 — the rate
+ * before reinsurance x the slider) on the book's exposure, at the funding level
+ * and cover chosen. The same dollars the engine charges and books as Other Admin
+ * Expense (wip/risk-control). $0 at 0%.
  */
 export function riskControlCost(gameState: GameState, line: CoverageLine, decisions: DecisionSet): number | null {
-  // ⚠ $0 WHILE RISK_CONTROL IS OFF: the engine charges nothing for the
-  // incentive, and the box never shows a cost the game does not charge.
-  if (!RISK_CONTROL.enabled) return 0;
   const d = decisions.byLine[line];
   const { book } = fundingConsequenceInput(gameState, line, decisions);
   const c = computeFundingConsequence(
     d.fundingConfidenceLevel, gameState.poolState.lines[line].ratePer100, line, d.fundingAtExpected,
-    { ...book, newStackRiskControlPct: d.riskControlIncentivePct ?? 0 },
+    { ...book, newStackRiskControlPct: effectiveRiskControlIncentivePct(d) },
   );
   return c.newStack ? c.newStack.riskControlPer100 * book.exposure * 10_000 : null;
 }
@@ -191,17 +185,16 @@ export function riskControlCost(gameState: GameState, line: CoverageLine, decisi
  *
  *   Your rate   the retained pure premium x the CLF (it moves with the funding
  *               level), admin at its share of premium (ADMIN_SHARE_OF_PREMIUM),
- *               the rate's risk control loading — the cost the Risk Control box
- *               shows at the current exposure, per $100, $0.00 while risk
- *               control is off — and the cover's price. Adds to the rate the
- *               game charges.
+ *               the Risk Control charge — the cost the Risk Control box shows at
+ *               the current exposure, per $100, $0.00 at 0% — and the cover's
+ *               price. Adds to the rate the game charges.
  *   Indicated   at Expected, self-funded: the ground-up pure premium, and the
- *               Indicated rate's own admin and risk control shares; no cover.
- *               Adds to the indicated rate.
+ *               Indicated rate's own admin and risk control; no cover. Adds to
+ *               the indicated rate.
  *
- * The rate before reinsurance is the pure premium x CLF / (1 - risk control -
- * admin share), so pure premium x CLF + admin + risk control is that rate
- * exactly (quoteNewRateStack).
+ * The rate before reinsurance is (pure premium x CLF / (1 - admin share)) x (1 +
+ * risk control), so pure premium x CLF + admin + risk control is that rate
+ * exactly (quoteNewRateStack); admin is not taken on the risk control charge.
  */
 export function ratePieces(n: NonNullable<FundingConsequence['newStack']>) {
   return {

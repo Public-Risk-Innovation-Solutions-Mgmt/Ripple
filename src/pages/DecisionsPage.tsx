@@ -14,6 +14,7 @@ import { optionPrice, reinsuranceOptionIds, reinsuranceOptionsFor } from '../uti
 import { bookExposureOf, bookRiskOf, isRoster, shockBaseOf, type Book } from '../utils/lineHelpers';
 import { shockCostFactor } from '../utils/shockCost';
 import { stopQuote } from '../utils/aggregateStop';
+import { aggregateCoverOf, aggregateCoverOption, aggregateCoverOptionIds, aggregateCoverQuote } from '../utils/aggregateCover';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { lookupCLF } from '../utils/simulationEngine';
 import { hasStaticClf, RESERVE_MARGIN_CONFIDENCE, staticClf } from '../data/clfTables';
@@ -23,7 +24,7 @@ import { RENEWAL_CUT_STEPS, renewalDeclines } from '../utils/renewalUnderwriting
 import { EXPERIENCE_MOD } from '../utils/memberExperienceMod';
 import { REENROLLMENT_COOLDOWN_YEARS } from '../utils/membershipHistory';
 import {
-  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER, RISK_CONTROL,
+  AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, MEMBER_LEVEL, NEW_MEMBERS_SLIDER, NON_RENEWAL_SLIDER,
 } from '../data/pricingParameters';
 
 export interface LineLoanInfo {
@@ -249,16 +250,17 @@ export default function DecisionsPage({ decisions, onChange, yearNumber, program
         </SectionCard>
 
         <SectionCard title="Risk Control" icon={<Shield size={16} />}>
-          {/* ⚠ DISABLED AT 0% WHILE RISK_CONTROL IS OFF, and the cost box shows
-              $0: the engine charges nothing for it, and the box never shows a
-              cost the game does not charge (derivations.ts riskControlCost).
-              When the flag comes on it must be charged as a share of the PURE
-              PREMIUM, matching the slider's end label — see RISK_CONTROL. */}
+          {/* THE RISK CONTROL SLIDER (wip/risk-control; RISK_CONTROL_CHARGE): 0% to
+              5% of the line's rate before reinsurance, charged in the rate and
+              booked as Other Admin Expense. The box shows the charge in dollars
+              at the current exposure (derivations.ts riskControlCost) — the
+              engine's own figure. It replaces the on/off switch that held the
+              slider disabled at 0% ("coming soon"). */}
           <RiskControlIncentives
             line={selectedLine}
-            value={RISK_CONTROL.enabled ? (d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default) : 0}
+            value={d.riskControlIncentivePct ?? SLIDER_RANGES.riskControlIncentivePct.default}
             onChange={v => set('riskControlIncentivePct', v)}
-            disabled={disabled || !RISK_CONTROL.enabled}
+            disabled={disabled}
             cost={riskControlCost}
           />
         </SectionCard>
@@ -605,7 +607,7 @@ function NewRatePanel({ n, prior }: {
   // most). Admin is its share of premium (ADMIN_SHARE_OF_PREMIUM), labelled
   // with that share, and the permissible loss ratio is printed below the rate. Your rate's pure premium is the retained figure x the CLF, so it
   // moves with the funding level; its Risk Control is the Risk Control box's
-  // cost per $100 ($0.00 while risk control is off). Indicated stays at
+  // cost per $100 ($0.00 at 0%). Indicated stays at
   // Expected, self-funded. See ratePieces.
   const pieces = ratePieces(n);
   const ind = pieceCents(pieces.indicated), yours = pieceCents(pieces.yours);
@@ -614,9 +616,12 @@ function NewRatePanel({ n, prior }: {
     [`+ Admin (${(n.adminShare * 100).toFixed(0)}% of premium)`, 'admin', c2(ind.admin), c2(yours.admin)],
     ['+ Risk Control', 'risk-control', c2(ind.riskControl), c2(yours.riskControl)],
   ];
-  // The permissible loss ratio: 1 - admin's share - risk control's (off).
-  const plrIndicated = 1 - n.adminShare - (n.firstIndicationPer100 > 0 ? n.indicatedRiskControlPer100 / n.firstIndicationPer100 : 0);
-  const plrYours = 1 - n.adminShare - (n.finalRatePer100 - n.reinsRatePer100 > 0 ? n.riskControlPer100 / (n.finalRatePer100 - n.reinsRatePer100) : 0);
+  // The permissible loss ratio: the pure premium's share of the rate before
+  // reinsurance, (1 - admin's share) / (1 + risk control) — risk control rides
+  // on top of the rate, so it shares the rate with the losses and admin. The
+  // same in both columns: both carry the same admin share and slider.
+  const plrIndicated = (1 - n.adminShare) / (1 + n.riskControlPct);
+  const plrYours = plrIndicated;
 
   return (
     <div data-testid="new-rate-panel" className="bg-gray-50 rounded-lg p-3 border border-gray-200 text-xs space-y-2 -mt-1">
@@ -973,14 +978,14 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
   value: number;
   onChange: (v: number) => void;
   disabled: boolean;
-  /** What the setting costs at the line's current exposure, in dollars — $0 while RISK_CONTROL is off. Absent shows no box. */
+  /** What the setting costs at the line's current exposure, in dollars — the rate's charge for it. Absent shows no box. */
   cost?: number | null;
 }) {
   const r = SLIDER_RANGES.riskControlIncentivePct;
   return (
     <div className="space-y-3">
-      {/* The program is the label; the value reads as an approximate share of
-          pure premium, the right end as the most of the pure premium it can spend. */}
+      {/* The program is the label; the value is the slider's share of the rate
+          before reinsurance — the charge rides on top of it (RISK_CONTROL_CHARGE). */}
       <SliderInput
         label={RISK_CONTROL_PROGRAM_NAME[line]}
         value={value}
@@ -988,17 +993,23 @@ function RiskControlIncentives({ line, value, onChange, disabled, cost }: {
         max={r.max}
         step={r.step}
         onChange={onChange}
-        formatValue={v => `~${Number((v * 100).toFixed(1))}% of pure premium`}
+        formatValue={v => `${Number((v * 100).toFixed(1))}% of the rate`}
         leftLabel="None"
-        rightLabel={`${Number((r.max * 100).toFixed(1))}% of Pure Premium`}
+        rightLabel={`${Number((r.max * 100).toFixed(1))}% of the rate`}
         valueColor={value > 0 ? 'text-emerald-600' : 'text-gray-500'}
         disabled={disabled}
-        helpText={`How much of ${lineDisplayName(line)}'s premium is spent on ${RISK_CONTROL_PROGRAM_NAME[line]}.`}
+        helpText={`Adds this share to ${lineDisplayName(line)}'s rate before reinsurance, spent on ${RISK_CONTROL_PROGRAM_NAME[line]}. `
+          + 'It cuts this year\'s normal losses — never shocks, large claims or older years — by an amount that varies '
+          + 'from year to year; on average the losses and loss expense saved equal the cost.'}
       />
       {cost !== null && cost !== undefined && (
         <div className="rounded-lg bg-gray-100 border border-gray-200 px-3 py-2 text-xs text-gray-600">
           Cost at current exposure:{' '}
           <span data-testid="risk-control-cost" data-value={cost} className="font-semibold text-gray-800 tabular-nums">{formatCurrency(cost)}</span>
+          {/* Only when something is spent: at 0% there is no saving to speak of. */}
+          {value > 0 && (
+            <span data-testid="risk-control-neutral" className="block pt-0.5 text-gray-500">Average saving equals the cost.</span>
+          )}
         </div>
       )}
     </div>
@@ -1088,7 +1099,63 @@ function PackageControls(props: {
   yearNumber: number;
   shocks: boolean;
 }) {
-  return AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />;
+  return (
+    <div className="space-y-5">
+      {AGGREGATE_STOP.enabled ? <StopControls {...props} /> : <OccurrencePackageControls {...props} />}
+      <AggregateCoverControls {...props} />
+    </div>
+  );
+}
+
+// ============================================================================
+// THE AGGREGATE COVER ON ATTRITIONAL LOSSES (wip/aggregate-cover) — one option
+// per line, beside the per-claim cover above. ⚠ EACH OPTION'S NAME AND ITS
+// PRICE ONLY, as the per-claim covers show theirs. The price is the engine's
+// own quote (aggregateCover.aggregateCoverQuote) on the line's book and year —
+// the book the rate is quoted on — so the panel cannot show a figure the
+// engine does not charge. While the game's shocks are off only None is offered.
+// ============================================================================
+function AggregateCoverControls({ line, d, setMany, disabled, book, yearNumber, shocks }: {
+  line: CoverageLine;
+  d: LineDecisionSet;
+  setMany: (patch: Partial<LineDecisionSet>) => void;
+  disabled: boolean;
+  book: Book;
+  yearNumber: number;
+  shocks: boolean;
+}) {
+  const exposure = bookExposureOf(book, line, yearNumber);
+  const held = aggregateCoverOf(d);
+  return (
+    <div className="space-y-3 border-t border-gray-100 pt-4">
+      <p className="text-xs text-gray-600 leading-relaxed">
+        <strong>Aggregate cover</strong> on the year&rsquo;s attritional losses — choose one, beside the cover above.
+      </p>
+      <div className="space-y-1.5" data-testid={`agg-cover-options-${line}`}>
+        {aggregateCoverOptionIds(shocks).map(id => {
+          const o = aggregateCoverOption(id);
+          const chosen = held === id;
+          const price = aggregateCoverQuote(line, id, exposure, yearNumber).price;
+          return (
+            <button
+              key={id}
+              type="button"
+              data-testid={`agg-cover-option-${line}-${id}`}
+              data-price={price}
+              disabled={disabled}
+              onClick={() => !disabled && setMany({ aggregateCover: id })}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left ${
+                chosen ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-white hover:bg-gray-50'
+              } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              <span>{o.name}</span>
+              <span className="text-xs text-gray-600">{`${formatCurrency(price)}/yr`}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // ============================================================================

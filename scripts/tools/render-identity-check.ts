@@ -1550,7 +1550,60 @@ const BASELINE = process.env.RENDER_BASELINE
 //   riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's key —
 //   nothing else on them.
 // The harness holds None, so no other figure changes.
-// v105: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
+// v105: THE YEAR WALKTHROUGH IS THE WHOLE TAB, RENAMED. The control ran
+// first: multiplayer e698c79, built in its own worktree, reproduced v104 236 of
+// 236 here. The harness's tab 'Calculation Audit' is now 'Year Walkthrough', so
+// the key set maps across one for one. 186 of 236 move, for two causes and no
+// other: every screen with the tab bar reads "Year Walkthrough" where it read
+// "Calculation Audit" (160 — Annual Statement, Decision History, Decisions,
+// Financial Statements and Results 26 each, Introduction, Rate Indication and
+// Result Spreadsheet 10 each: every one's text, RENDER_TEXT_DIR both sides, is
+// the control's exactly once the label is swapped back), and the 26
+// walkthrough screens, which are the reworked page (every stage, its working,
+// the download). The 50 unmoved are the screens without the bar. Scenario 7's
+// fixed seed is in no screen's text. No key added or removed beyond the rename.
+// v106: RISK CONTROL (wip/risk-control), on multiplayer f5149f8. The control,
+// built in its own worktree, did NOT reproduce v105 whole in this container:
+// 29 of 236 moved on f5149f8 itself (Financial Statements 14, Result
+// Spreadsheet 8, Results 7) — the container split earlier landings recorded,
+// not code. So this change was measured against the CONTROL'S OWN CAPTURE here,
+// and v106 is v105 with only the screens this change moved replaced: 57 of 236,
+// each word-diffed against the control (RENDER_TEXT_DIR both sides):
+//   Year Walkthrough 26   the risk control rows and working (the decision as a
+//                         share of the rate, the divisor 1 - admin, the rate
+//                         before reinsurance and risk control, the charge, the
+//                         draw z, the cut, the risk control stage, "Depends on
+//                         your decisions" where it read "Same for everyone"),
+//                         the codes, and the version v36 -> v37
+//   Decisions 16          the slider live: "0% of the rate" where it read "~0%
+//                         of pure premium", its end "5% of the rate"
+//   Result Spreadsheet 10 the new "Risk Control Cost" and "Risk Control: Losses +
+//                         LAE Saved" rows, $0 at the harness's 0%
+//   Decision History 5    the pool view's retired "Risk Control %" column gone
+// The other 179 keep v105's fingerprints. ⚠ Eight of the 57 (Result
+// Spreadsheet, every configuration, y0 and y2) are also among the 29 the
+// container moved, so their v106 fingerprints are this container's rendering;
+// in a container that reproduces v105 they may read as moved. The harness plays
+// at 0%, so no figure on any screen changed. No key added or removed.
+// v107: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba. The
+// control, built in its own worktree and served on 4174, moved 8 of 236 against
+// v106 here (Result Spreadsheet, every configuration, y0 and y2 — the container
+// split v106 recorded, not code). So this change was measured against the
+// CONTROL'S OWN CAPTURE, and v107 is v106 with only the screens this change
+// moved replaced: 52 of 236, each word-diffed against the control
+// (RENDER_TEXT_DIR both sides), every difference an insertion or the save key:
+//   Decisions 16          the new "Aggregate cover" choice under the per-claim
+//                         cover: None and 110/50, 125/50, 150/50 with each price
+//                         (2027: WC $667,967 / $292,675 / $94,629, GL $675,955 /
+//                         $263,022 / $74,451, Property $879,680 / $434,590 /
+//                         $188,692)
+//   Rate Indication 10    the "Aggregate cover" rows under Reinsurance, each
+//                         option's price per $100
+//   Year Walkthrough 26   the version riskpool_gamestate_v37 -> _v38 only
+// The other 184 keep v106's fingerprints. The harness holds None, so no figure
+// on any screen changed. No key added or removed.
+// PLACEHOLDER-REATTRIBUTE
+// v108: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
 // e698c79. The control ran first: e698c79, built in its own worktree,
 // reproduced v104 236 of 236 here. Against it, word-diffed (RENDER_TEXT_DIR
 // both sides), 59 move:
@@ -1581,7 +1634,7 @@ const BASELINE = process.env.RENDER_BASELINE
 // the pool's with it) on the Calculation Audit (6) and the Result Spreadsheet
 // (3), with the GL loss-cost rate and loss-check lines that read them. No NV
 // fires in these games; their shocks are on, so every-game moves nothing.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v105.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v108.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1622,7 +1675,7 @@ const LINE_LABEL: Record<string, string> = {
 // came off too: its memorandum is one of the Introduction tab's documents.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
   'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-  'Calculation Audit'];
+  'Year Walkthrough'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
 // OF THIS FILE LISTED IT. That was a real mistake and it is recorded because it
 // is instructive: the list was App.tsx's LINE_VIEW_PAGES as of 750ce12, which

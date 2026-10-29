@@ -52,6 +52,9 @@ const BUTTONS = [
   // one statement per sheet in the workbook's order, each page headed with the
   // year the statement stands at and numbered.
   { name: 'Download Annual Statement (PDF)', min: 5_000, tab: 'Annual Statement', pdf: true },
+  // The Year Walkthrough's own workbook: every year and view, the version, no seed
+  // in single player (year-walkthrough.cjs reads it in every mode).
+  { name: 'Download Year Walkthrough (Excel)', min: 5_000, tab: 'Year Walkthrough', walk: true },
   // ⚠ 'Download Members CSV' CAME OFF. The button is hidden with the other
   // member-level views (SHOW_MEMBER_VIEWS in ResultSpreadsheetPage); buildMemberCsv
   // still runs, so restoring the flag restores the download and this row.
@@ -205,7 +208,7 @@ async function screenBordersMatchTemplate(page) {
 
   let onTab = null;
   let workbookSheets = null, statementYear = null;
-  for (const { name, min, tab, sheets, pdf } of BUTTONS) {
+  for (const { name, min, tab, sheets, pdf, walk } of BUTTONS) {
     if (tab !== onTab) {
       await page.getByRole('button', { name: tab, exact: true }).first().click();
       await page.waitForTimeout(1200);
@@ -243,6 +246,13 @@ async function screenBordersMatchTemplate(page) {
       // This game writes one line, so the Pool view's file is the pool's statement alone (statementsForView).
       ok(names.join(',') === 'Pool', `${name}: opens as a workbook — on a one-line team's Pool view, the pool's sheet alone (${names.join(', ')})`);
       workbookSheets = names;
+    }
+    if (walk && size > 0) {
+      const wb = XLSX.read(fs.readFileSync(dlPath), { type: 'buffer' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+      ok(/^Year_Walkthrough_\d{4}\.xlsx$/.test(dl.suggestedFilename()) && wb.SheetNames.join(',') === 'Year Walkthrough',
+        `${name}: named Year_Walkthrough_<year>, one Year Walkthrough sheet`, `${dl.suggestedFilename()} · ${wb.SheetNames.join(', ')}`);
+      ok(rows.some(r => r[0] === 'Version') && !rows.some(r => r[0] === 'Seed'), `${name}: carries the version and, in single player, no seed`);
     }
     if (pdf) ok(scripts.some(u => /jspdf/i.test(u)), `${name}: its PDF library (jsPDF) was fetched for the file`);
     if (pdf && size > 0) {

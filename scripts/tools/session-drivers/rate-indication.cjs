@@ -54,8 +54,14 @@
 //                     year's growth. The hosted room schedules no shock, so its
 //                     page shows none.
 //
+//   Aggregate cover    (wip/aggregate-cover) under Reinsurance: the options the
+//                     Decisions page offers (all four with shocks on, None alone
+//                     off), and each one's price per $100 is exactly what buying
+//                     it adds to the panel's rate, at Expected and at 80%.
+//
 // to one part in a billion. The years are played on different choices: year 1
-// at Expected under the line's second cover, year 2 at 80% under None.
+// at Expected under the line's second cover (solo: and the 110/50 aggregate
+// cover), year 2 at 80% under None.
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/rate-indication.cjs
@@ -112,6 +118,12 @@ function screen(page, mode) {
       for (const el of await page.$$(`[data-testid^="ri-${l}-reins-"]`)) {
         reins[(await el.getAttribute('data-testid')).replace(`ri-${l}-reins-`, '')] = Number(await el.getAttribute('data-value'));
       }
+      // The aggregate cover on attritional losses (wip/aggregate-cover), beside the per-claim covers.
+      const agg = {};
+      for (const el of await page.$$(`[data-testid^="ri-${l}-agg-"]`)) {
+        const id = (await el.getAttribute('data-testid')).replace(`ri-${l}-agg-`, '');
+        if (id !== 'covers') agg[id] = Number(await el.getAttribute('data-value'));
+      }
       const label = async id => (await page.locator(`[data-testid="ri-${l}-${id}"]`).locator('xpath=../span[1]').innerText()).trim();
       out[l] = {
         losses: await value(`[data-testid="ri-${l}-losses"]`),
@@ -134,7 +146,7 @@ function screen(page, mode) {
         current: await value(`[data-testid="ri-${l}-current"]`),
         window: Number(await page.getAttribute(`[data-testid="ri-${l}-losses"]`, 'data-window')),
         lossesLabel: await page.locator(`[data-testid="ri-${l}-losses"]`).locator('xpath=..').innerText(),
-        reins, levels: {},
+        reins, agg, levels: {},
       };
       for (const lv of LEVELS) out[l].levels[lv] = await value(`[data-testid="ri-${l}-level-${lv}"]`);
       // Event Likelihoods: present or not, its heading and note, each row's label, text and size.
@@ -171,6 +183,8 @@ function screen(page, mode) {
   }
   const offeredOn = l => page.$$eval(`[data-testid^="reins-option-${l}-"]`,
     (els, prefix) => els.map(el => el.getAttribute('data-testid').replace(prefix, '')), `reins-option-${l}-`);
+  const aggOfferedOn = l => page.$$eval(`[data-testid^="agg-cover-option-${l}-"]`,
+    (els, prefix) => els.map(el => el.getAttribute('data-testid').replace(prefix, '')), `agg-cover-option-${l}-`);
 
   // SECTION 1 of one indication: its labels follow the priced year, and its
   // figures chain to pricing's projected pure premium.
@@ -277,11 +291,33 @@ function screen(page, mode) {
       }
       await page.click(`[data-testid="reins-option-${l}-${offered[0]}"]`);
       await setLevel('expected');
+      // THE AGGREGATE COVER (wip/aggregate-cover): the same options on both
+      // pages, and each one's price per $100 is what it adds to the panel's
+      // rate, beside the first per-claim cover, at Expected and at 80%.
+      const aggOffered = await aggOfferedOn(l);
+      ok(JSON.stringify(Object.keys(ind[l].agg)) === JSON.stringify(aggOffered)
+        && JSON.stringify(aggOffered) === JSON.stringify(shocksOn ? ['none', 'agg-110-50', 'agg-125-50', 'agg-150-50'] : ['none']),
+        `${mode}, ${name}, ${l}: the aggregate covers listed are the ones the Decisions page offers`, aggOffered.join(', '));
+      for (const id of aggOffered) {
+        await page.click(`[data-testid="agg-cover-option-${l}-${id}"]`);
+        await page.waitForTimeout(300);
+        for (const lv of ['expected', 80]) {
+          await setLevel(lv);
+          const panel = await value('[data-testid="new-rate-final"]');
+          const indicated = lv === 'expected' ? ind[l].expected : ind[l].levels[lv];
+          ok(near(panel, indicated + ind[l].reins[offered[0]] + ind[l].agg[id]),
+            `${mode}, ${name}, ${l}, aggregate ${id}, ${lv === 'expected' ? 'Expected' : `${lv}%`}: indicated + the cover's price + the aggregate cover's = the panel's rate`,
+            `${indicated.toFixed(4)} + ${ind[l].reins[offered[0]].toFixed(4)} + ${ind[l].agg[id].toFixed(4)} vs ${panel.toFixed(6)}`);
+        }
+      }
+      if (aggOffered.length > 0) await page.click(`[data-testid="agg-cover-option-${l}-none"]`);
+      await setLevel('expected');
     }
   }
 
   // SET A YEAR'S CHOICES and record the rate the panel charges for them.
-  async function choose(level, coverIndex) {
+  // `aggregate`: the aggregate cover to buy (wip/aggregate-cover), None where not offered.
+  async function choose(level, coverIndex, aggregate = 'none') {
     await tab('Decisions');
     const charged = {};
     for (const [l, label] of LINES) {
@@ -290,8 +326,11 @@ function screen(page, mode) {
       const cover = offered[Math.min(coverIndex, offered.length - 1)];
       await page.click(`[data-testid="reins-option-${l}-${cover}"]`);
       await page.waitForTimeout(300);
+      const agg = (await aggOfferedOn(l)).includes(aggregate) ? aggregate : 'none';
+      await page.click(`[data-testid="agg-cover-option-${l}-${agg}"]`);
+      await page.waitForTimeout(300);
       await setLevel(level);
-      charged[l] = { level, cover, rate: await value('[data-testid="new-rate-final"]') };
+      charged[l] = { level, cover, agg, rate: await value('[data-testid="new-rate-final"]') };
     }
     return charged;
   }
@@ -310,9 +349,9 @@ function screen(page, mode) {
       for (const [l] of LINES) {
         const c = played[i][l];
         const ind = c.level === 'expected' ? rows[i][l].expected : rows[i][l].levels[c.level];
-        const price = rows[i][l].reins[c.cover];
+        const price = rows[i][l].reins[c.cover] + (rows[i][l].agg[c.agg] ?? 0);
         ok(near(ind + price, c.rate),
-          `${mode}, ${name}, year ${i + 1}, ${l} (${c.level === 'expected' ? 'Expected' : `${c.level}%`}, ${c.cover}): indicated + the cover bought = the rate charged`,
+          `${mode}, ${name}, year ${i + 1}, ${l} (${c.level === 'expected' ? 'Expected' : `${c.level}%`}, ${c.cover}${c.agg !== 'none' ? `, aggregate ${c.agg}` : ''}): indicated + the covers bought = the rate charged`,
           `${ind.toFixed(4)} + ${price.toFixed(4)} vs ${c.rate.toFixed(6)}`);
         ok(near(ind, rows[i + 1][l].current),
           `${mode}, ${name}, year ${i + 1}, ${l}: that indicated rate is year ${i + 2}'s Current rate`, `${ind.toFixed(6)} vs ${rows[i + 1][l].current.toFixed(6)}`);
@@ -346,8 +385,9 @@ async function solo(browser) {
 
   await s.comingYear('before year 1', 2027);
   const played = [];
+  // Year 1 buys the 110/50 aggregate cover beside its layer (wip/aggregate-cover).
   for (const [y, level, cover] of [[1, 'expected', 1], [2, 80, 0]]) {
-    played.push(await s.choose(level, cover));
+    played.push(await s.choose(level, cover, y === 1 ? 'agg-110-50' : 'none'));
     await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
     await page.waitForTimeout(2500);
     const decline = page.getByRole('button', { name: /Decline/i }).first();

@@ -173,11 +173,16 @@ function decisionsOf(r: ResultSet, lines: CoverageLine[]): TeamYearDecisions | u
       confidenceLevel: d.fundingConfidenceLevel,
       atExpected: d.fundingAtExpected,
       reinsuranceOption: d.reinsuranceOption,
+      // The aggregate cover on attritional losses, only when bought: a row
+      // without it is the row it always was.
+      ...(d.aggregateCover !== undefined && d.aggregateCover !== 'none' ? { aggregateCover: d.aggregateCover } : {}),
       // Absent reads as 0 on the engine side; each is written as 0 here so the
       // host renders 0% rather than an empty cell.
       nonRenewal: d.nonRenewal ?? 0,
       newMembers: d.newMembers ?? 0,
-      riskControlPct: d.riskControlPct,
+      // The line's Risk Control slider (wip/risk-control) — not the retired
+      // pool-wide spend, which is pinned at 0. Absent reads as 0%.
+      riskControlPct: d.riskControlIncentivePct ?? 0,
       dividendPct: d.dividendPct,
       assessmentPct: d.assessmentPct,
       allocation: {

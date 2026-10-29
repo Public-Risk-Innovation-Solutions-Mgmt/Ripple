@@ -264,16 +264,27 @@ const FAST: string[] = [
                                      //         own scale; nothing cedes. ⚠ IT HOLDS MEMBER_LEVEL OFF
                                      //         AT RUNTIME and restores it — safe only because every
                                      //         gate runs in its own process.
-  'year-walkthrough-check',          // ~13s   the Calculation Audit's Year Walkthrough: identical games
-                                     //         give identical codes; one decision moves only its steps;
-                                     //         every figure is the engine's; the seed only where shown
-                                     //         — each with a control.
+  'risk-control-check',              // ~32s   wip/risk-control: the charge in the rate (admin not on it)
+                                     //         and booked as the cost; the cut shared by every world and
+                                     //         player, never on shocks or older years, neutral on average
+                                     //         (sizing, 48,000 draws, 144 line-years); 0% untouched —
+                                     //         each with a control.
+  'year-walkthrough-check',          // ~21s   the Year Walkthrough: every stage tied to the engine,
+                                     //         identical games give identical codes, a changed
+                                     //         decision moves only the stages after it, the seed
+                                     //         only where shown — each with a control.
   'adverse-development-check',       //  ~8s   wip/adverse-development: the λ draws, compounding on
                                      //         outstanding only, paid untouched, no pre-game
                                      //         development — each with a control.
   'event-likelihoods-check',         //  ~5s   wip/reinsurance-layers: the Rate Indication's Event
                                      //        Likelihoods recomputed exactly from the catalogue, at the
                                      //        claims' growth; none with shocks off
+  'aggregate-cover-check',           // ~37s   wip/aggregate-cover: the aggregate cover on attritional
+                                     //        losses — options, each price recomputed by integration
+                                     //        (2027 table to the dollar, both surge bases), and in 4,500
+                                     //        world-line-years the terms, attritional losses and recovery;
+                                     //        against None: no large claim, no development, the statement's
+                                     //        ceded block — each with a control.
   't-cover-layers-check',            //  ~8s   wip/reinsurance-layers: the eight T covers' options,
                                      //        recovery on every claim size, each year's price by the
                                      //        workbook's method at the T claims' own growth factor

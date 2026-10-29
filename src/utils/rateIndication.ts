@@ -38,7 +38,8 @@
 // ⚠ NOTHING HERE IS SHOWN AS METHOD. The page prints labels and figures only
 // (docs/PENDING_MULTIPLAYER.md: players never see how the engine works).
 // ============================================================================
-import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_STOP_OPTIONS, RATE_INDICATION_FUNDING_LEVELS, largeClaimsInEveryGame } from '../data/pricingParameters';
+import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_COVER_DEFAULT, AGGREGATE_STOP_OPTIONS, RATE_INDICATION_FUNDING_LEVELS, largeClaimsInEveryGame } from '../data/pricingParameters';
+import { aggregateCoverOption, aggregateCoverOptionIds } from './aggregateCover';
 import { gameHistory } from './gameHistory';
 import { computeFundingConsequence } from './fundingConsequence';
 import { effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
@@ -92,6 +93,12 @@ export interface RateIndication {
   positions: { position: FundingPosition; ratePer100: number; change: number | null }[];
   reinsurance: { id: string; name: string; pricePer100: number }[];
   /**
+   * THE AGGREGATE COVER ON ATTRITIONAL LOSSES, beside the per-claim covers: each
+   * option's price per $100 (aggregateCover.ts), None first. None alone while
+   * the game's shocks are off.
+   */
+  aggregateCovers: { id: string; name: string; pricePer100: number }[];
+  /**
    * EVENT LIKELIHOODS (utils/eventLikelihoods): the size of a single large (T)
    * claim at 1 in 10 to 1 in 200 years for the year priced, at the growth
    * factor its cover prices use; in every game with LARGE_CLAIMS_EVERY_GAME,
@@ -136,7 +143,7 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
   if (!lr?.rateBasis || lr.ratedExposure === undefined || lr.newPurePremiumPer100 === undefined) return null;
   const { rateBasis, ratedExposure, newPurePremiumPer100, decisions: d } = lr;
   const shocks = gameShocksOn(gs.setup, gs.instance);
-  const price = (p: FundingPosition, option: string): Priced => quoteNewRateStack({
+  const price = (p: FundingPosition, option: string, cover = AGGREGATE_COVER_DEFAULT): Priced => quoteNewRateStack({
     line,
     yearNumber,
     members: { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) } as Book,
@@ -148,6 +155,7 @@ function pastPricer(gs: GameState, line: CoverageLine, yearNumber: number) {
     aggregateStopLevel: AGGREGATE_NOT_OFFERED,
     reinsuranceOption: option,
     shocks,
+    aggregateCover: cover,
   });
   const chosen: FundingPosition = d.fundingAtExpected ? 'expected' : d.fundingConfidenceLevel;
   const members: Book = { exposure: ratedExposure, ...(rateBasis.risk !== undefined ? { risk: rateBasis.risk } : {}) };
@@ -174,7 +182,8 @@ export function buildRateIndication(
   const shocks = gameShocksOn(gs.setup, gs.instance);
   const coming = yearNumber === gs.currentYearNumber && !gs.isComplete;
 
-  let price: (p: FundingPosition, option: string) => Priced | null;
+  // Each cover priced alone: a layer with no aggregate cover, an aggregate cover with no layer.
+  let price: (p: FundingPosition, option: string, cover?: string) => Priced | null;
   let projected: number;
   let windowYears: number;
   let reinsuranceAt: FundingPosition;
@@ -184,9 +193,9 @@ export function buildRateIndication(
   if (coming) {
     const d = decisions.byLine[line];
     const prior = gs.poolState.lines[line].ratePer100;
-    price = (p, option) => computeFundingConsequence(
+    price = (p, option, cover = AGGREGATE_COVER_DEFAULT) => computeFundingConsequence(
       p === 'expected' ? d.fundingConfidenceLevel : p, prior, line, p === 'expected',
-      fundingConsequenceInput(gs, line, decisions, option).book,
+      fundingConsequenceInput(gs, line, decisions, option, cover).book,
     ).newStack ?? null;
     const { purePremium } = fundingConsequenceInput(gs, line, decisions, 'none');
     if (!purePremium) return null;
@@ -215,11 +224,16 @@ export function buildRateIndication(
   const currentRow = gameHistory(gs).find(x => x.yearNumber === yearNumber - 1)?.byLine[line];
   const currentExposure = currentRow ? (currentRow.billedExposure ?? currentRow.activeExposure) : 0;
 
-  // THE EXPENSES, as shares of the rate at Expected: admin's share of premium —
-  // the parameter itself, the same every year — and risk control.
-  const admin = ADMIN_SHARE_OF_PREMIUM[line];
-  const riskControl = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
+  // THE EXPENSES, as shares of the rate at Expected (before reinsurance). The
+  // rate is (pure premium / (1 - admin share)) x (1 + risk control) — risk
+  // control rides on top and admin is not taken on it (RISK_CONTROL_CHARGE) — so
+  // admin is admin share / (1 + slider) of the rate, risk control slider / (1 +
+  // slider), and the permissible loss ratio (1 - admin share) / (1 + slider). At
+  // 0% they are the admin share, 0 and 1 - the admin share, as before.
+  const slider = effectiveRiskControlIncentivePct(coming ? decisions.byLine[line]
     : gs.lockedResults.find(x => x.yearNumber === yearNumber)!.byLine[line]!.decisions);
+  const admin = ADMIN_SHARE_OF_PREMIUM[line] / (1 + slider);
+  const riskControl = slider / (1 + slider);
   const totalAdmin = admin + riskControl;
 
   const currentPer100 = currentRate(gs, line, yearNumber);
@@ -234,6 +248,11 @@ export function buildRateIndication(
     id,
     name: AGGREGATE_STOP_OPTIONS.find(o => o.id === id)?.name ?? id,
     pricePer100: price(reinsuranceAt, id)?.reinsRatePer100 ?? 0,
+  }));
+  const aggregateCovers = aggregateCoverOptionIds(shocks).map(id => ({
+    id,
+    name: aggregateCoverOption(id).name,
+    pricePer100: price(reinsuranceAt, 'none', id)?.reinsRatePer100 ?? 0,
   }));
 
   return {
@@ -257,6 +276,7 @@ export function buildRateIndication(
     currentPer100,
     positions,
     reinsurance,
+    aggregateCovers,
     // In every game with LARGE_CLAIMS_EVERY_GAME; otherwise shocks on only.
     eventLikelihoods: shocks || largeClaimsInEveryGame() ? eventLikelihoods(line, pricedGrowthFactor(line as TowerLine, coverBook, yearNumber)) : null,
   };

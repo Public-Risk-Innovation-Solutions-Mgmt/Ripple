@@ -58,7 +58,7 @@ function yearsIn(text) {
 }
 const newestOf = ys => (ys.length ? Math.max(...ys) : null);
 
-const RESULT_TABS = ['Annual Statement', 'Financial Statements', 'Results', 'Result Spreadsheet', 'Calculation Audit'];
+const RESULT_TABS = ['Annual Statement', 'Financial Statements', 'Results', 'Result Spreadsheet', 'Year Walkthrough'];
 const table = [];
 
 async function lockAndDecline(p) {
@@ -141,7 +141,10 @@ async function solo(browser) {
       const options = await main.locator('select option').allInnerTexts();
       const newest = newestOf([...yearsIn(text), ...options.flatMap(yearsIn)]);
       row[t] = newest;
-      ok(newest === known, `${name}, ${t}: the newest year shown is ${known} — the year just completed is there, nothing later`, `newest ${newest ?? 'none'}`);
+      // ⚠ THE YEAR WALKTHROUGH WALKS PLAYED YEARS ONLY: before the first lock it
+      // shows none, and from then on the newest is the year just completed.
+      const want = t === 'Year Walkthrough' && knownNumber < 1 ? null : known;
+      ok(newest === want, `${name}, ${t}: the newest year shown is ${want ?? 'none (no played year yet)'} — the year just completed is there, nothing later`, `newest ${newest ?? 'none'}`);
       if (t === 'Annual Statement') {
         const cols = await page.locator('[data-testid="statement-operating"] tr[data-row-kind="header"] th').allInnerTexts();
         const yearCols = cols.map(c => c.trim()).filter(c => /^\d{4}$/.test(c)).map(Number);

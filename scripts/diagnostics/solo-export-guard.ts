@@ -1011,7 +1011,36 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // row: riskpool_gamestate_v35 -> riskpool_gamestate_v36, this landing's save
 // key. The 24 statements match. The guard's games hold None,
 // so no cover, price or recovery reaches them. No file added or removed.
-// v108: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
+// v108: THE YEAR WALKTHROUGH REWORKED (every stage the engine goes through,
+// each with how decisions reach it and its working), on multiplayer e698c79.
+// The Results workbook's Year Walkthrough sheet moves, so the 24 Results keys
+// move; with the walkthrough sheet left out, all 48 hash identically on
+// e698c79 and on this change (both run here), so no other sheet and no figure
+// moved, and the 24 `stmt|...` keys do not move.
+// v109: RISK CONTROL (wip/risk-control), on multiplayer f5149f8, which
+// reproduced v108 48 of 48 here first. The 24 Results keys move and nothing
+// else; each was text-diffed against the control (GUARD_TEXT_DIR both sides),
+// row by row, and every moved row is one of: the Results sheet's three new rows
+// — Decisions "Risk Control %" (line sheets), Expenses and Income "Risk Control
+// Cost" and "Risk Control: Losses + LAE Saved" (every sheet), all
+// 0 in the guard's games, which play at 0%; the Version row, riskpool_gamestate
+// _v36 -> _v37, this landing's save key; and the Year Walkthrough sheet's risk
+// control rows (the decision as a share of the rate, pricing's divisor now 1 -
+// admin with the same 0.8, "Rate before reinsurance and risk control" the same
+// figure, the charge per $100 0, premium's risk control charged 0, the draw z,
+// the losses' cut 0 and normal losses after it the same, the risk control
+// stage), their working text and the codes. No existing figure moved. The 24
+// `stmt|...` keys do not move.
+// v110: THE AGGREGATE COVER (wip/aggregate-cover), on multiplayer 20f85ba,
+// which reproduced v109 48 of 48 here first. The 24 Results keys move and
+// nothing else; each was text-diffed against the control (GUARD_TEXT_DIR both
+// sides), row by row, and the ONLY moved row is the Version row,
+// riskpool_gamestate_v37 -> _v38, this landing's save key — 48 lines, the shown
+// and raw renderings of each of the 24. The guard's games hold None, which adds
+// no row and moves no figure (value-identity-check holds on all 150 instances).
+// The 24 `stmt|...` keys do not move.
+// PLACEHOLDER-REATTRIBUTE
+// v111: LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency), on multiplayer
 // e698c79, which reproduces v107 here 48 of 48. With LARGE_CLAIMS_BY_FREQUENCY
 // switched off at run time, all 24 Results files move by the Version row alone
 // (riskpool_gamestate_v36 -> v37, this landing's save key) and the 24
@@ -1036,7 +1065,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // its net row and the Pure Premium row beside them (NV's claim at its catalogue
 // odds); no Nuclear Verdict fires in these games, and no statement moves.
 // LARGE CLAIMS IN EVERY GAME moves nothing here: these games' shocks are on.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v108.json');
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v111.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

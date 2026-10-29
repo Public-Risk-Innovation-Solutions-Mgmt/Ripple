@@ -316,8 +316,20 @@ try {
   // guaranteed here and only the stamp can answer.
   {
     const shortLived = new DynamoSessionTransport({ dynamo: { ...dynamo, retentionSec: 1 } });
-    const { code, hostToken } = await mkRoom(shortLived);
-    await new Promise(r => setTimeout(r, 2100));
+    // ⚠ THE CLOCK HELD STILL WHILE THE ROOM IS MADE. The stamp is the creating
+    // second plus 1 (nowSec), and createRoom reads its own header back before it
+    // returns — so a room made late in a wall-clock second had only what was
+    // left of that second, and a slow create crossed into the next and found its
+    // own room expired (ROOM_NOT_FOUND out of mkRoom: handler run 40771249445).
+    // Held, the create sees one second throughout and returns; the wait below is
+    // then on the real clock, past the stamp, with the header still there.
+    const realNow = Date.now;
+    const at = realNow();
+    Date.now = () => at;
+    let made: Awaited<ReturnType<typeof mkRoom>>;
+    try { made = await mkRoom(shortLived); } finally { Date.now = realNow; }
+    const { code, hostToken } = made;
+    await new Promise(r => setTimeout(r, Math.max(0, (Math.floor(at / 1000) + 1) * 1000 - Date.now()) + 1100));
     const gone = await settle(shortLived.read({ code, token: hostToken }));
     check(!gone.ok && gone.code === 'ROOM_NOT_FOUND', `G: an expired room is ROOM_NOT_FOUND though its header is still there (${shown(gone, () => 'resolved')})`);
   }
