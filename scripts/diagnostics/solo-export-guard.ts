@@ -1062,7 +1062,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // MAMC6EA4; PR and WC in ZZTEST99; both arms). No Nuclear Verdict fires in
 // these games, and every one has its shocks on, so LARGE_CLAIMS_EVERY_GAME
 // moves nothing here. No file is added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v111.json');
+// v112: RISK CONTROL IN THE DIVISOR (wip/risk-control-divisor), on multiplayer
+// 2ec5d58, which reproduced v111 48 of 48 here first. The 24 Results keys move
+// and nothing else; text-diffed row by row against the control (GUARD_TEXT_DIR
+// both sides). Outside the Year Walkthrough sheet's Pricing stage and its year
+// codes, the only moved row is the Version row, riskpool_gamestate_v39 -> _v40
+// (shown and raw, 48). Inside the Pricing stage: four rows relabelled with their
+// values unchanged, 2,880 compared — "Admin share of the rate" -> "Admin",
+// "Divisor (1 − admin)" -> "Divisor (1 − admin − risk control)", "Rate before
+// reinsurance and risk control per $100" -> "Rate before reinsurance per $100",
+// "Risk control charge per $100 (that rate × the slider)" -> "(that rate × risk
+// control)"; rows added — Risk control 0, Total expense ratio 0.2, Permissible
+// loss ratio 0.8, and "Admin charge per $100 (that rate × admin)", 0.2 × the
+// rate before reinsurance on every row; the working text and the codes. The
+// Admin stage's own "Admin share of the rate" row does not move. No Results
+// figure moved. The 24 `stmt|...` keys do not move.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v112.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

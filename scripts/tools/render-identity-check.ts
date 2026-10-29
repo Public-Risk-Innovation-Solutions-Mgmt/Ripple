@@ -1626,7 +1626,28 @@ const BASELINE = process.env.RENDER_BASELINE
 //   rows, and the Property capital status "Adequate" -> "Strong" in four years.
 // No large claim and no Nuclear Verdict lands in these render games, and their
 // shocks are on, so no event, loss or surplus figure moves. 177 match.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v108.json');
+// v109: RISK CONTROL IN THE DIVISOR AND THE EXPENSE RATIO BLOCK
+// (wip/risk-control-divisor), on multiplayer 2ec5d58. The control, built in its
+// own worktree here, moved 29 of 236 against v108 — the container split
+// (Financial Statements 14, Result Spreadsheet 8, Results 7), none of them a
+// screen this change moves. Against the control's own capture 42 move, each
+// word-diffed (RENDER_TEXT_DIR both sides):
+//   Decisions 16          the panel's expense block inserted — "Admin 20.0%
+//                         20.0% Risk control 0.0% 0.0% Total expense ratio 20.0%
+//                         20.0%" — and the permissible loss ratio to one
+//                         decimal, "80.0%" where it read "80%"
+//   Year Walkthrough 26   the pricing stage's expense block (Admin, Risk
+//                         control, Total expense ratio, Permissible loss ratio,
+//                         one decimal), the divisor "1 − admin − risk control"
+//                         (0.80 at 0%, where the feed read "× 1.0000"), the rate
+//                         before reinsurance (same figure, relabelled), admin's
+//                         charge per $100 (0.2 × that rate: $0.0569, $0.7349,
+//                         $1.1042), the working, the stage and year codes, and
+//                         the version riskpool_gamestate_v39 -> _v40
+// The Rate Indication does not move (its block already read 20.0% / 0.0% /
+// 20.0% / 80.0% at 0%). v109 is v108 with those 42 replaced; the other 194
+// keep v108's fingerprints. The harness plays at 0%: no figure moved.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v109.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
