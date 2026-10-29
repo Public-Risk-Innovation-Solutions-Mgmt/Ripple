@@ -95,34 +95,23 @@ async function nudge(page, label, presses) {
 const room = (page, code) => page.evaluate(c =>
   JSON.parse(localStorage.getItem('ripple.session.v1.room.' + c)), code);
 
-// The player's own record of one year's events, as text: the Result
-// Spreadsheet's "Events This Year" cell in that year's column. Parameterised
-// because the year this driver cares about is whatever the room says was drawn.
+// The player's own record of one year's events, as text: the "Events so far"
+// panel on the Decisions page (EventNews' EventsPanel), its items for that
+// year. Parameterised because the year this driver cares about is whatever the
+// room says was drawn.
 //
-// ⚠ REPOINTED FROM THE RESULTS PAGE, WHICH THE MULTIPLAYER VERSION HIDES
-// (GameShell's MULTIPLAYER_HIDDEN_TABS). The spreadsheet stays visible in both
-// versions, and its events row is the same yearEvents read the Results page
-// named the event from, so the check means what it meant: the drawn event is
-// on the player's own screen, in its own year and no other. The table is the
-// pool's, so no line view can hide a Property event behind a WC tab.
+// ⚠ REPOINTED FROM THE RESULT SPREADSHEET, WHICH THE TAB CLEANUP HIDES
+// (src/game/tabs.tsx HIDDEN_TABS) — as it was once repointed there from the
+// Results page. The panel reads the same results (yearEvents, by the year each
+// event began), so the check means what it meant: the drawn event is on the
+// player's own screen, in its own year and no other. It is the pool's, so no
+// line view can hide a Property event behind a WC tab. The room starts in 2027
+// (the host's default), so year n is calendar year 2026 + n.
 async function resultsYearText(page, year) {
-  await page.getByRole('button', { name: 'Result Spreadsheet', exact: true }).click();
+  await page.getByRole('button', { name: 'Decisions', exact: true }).click();
   await page.waitForTimeout(600);
-  return page.evaluate(y => {
-    for (const table of document.querySelectorAll('main table')) {
-      // A year header is "Year n" with the calendar year in a span under it, so
-      // its own text is the header's less the span's.
-      const heads = [...table.querySelectorAll('thead th')].map(th =>
-        th.textContent.slice(0, th.textContent.length - (th.querySelector('span')?.textContent.length ?? 0)).trim());
-      const col = heads.indexOf(`Year ${y}`);
-      if (col < 0) continue;
-      for (const tr of table.querySelectorAll('tbody tr')) {
-        const tds = tr.querySelectorAll('td');
-        if (tds[1] && tds[1].textContent.trim() === 'Events This Year') return tds[col]?.textContent ?? '';
-      }
-    }
-    return '';
-  }, year);
+  const items = await page.locator('[data-testid="events-panel-item"]').allInnerTexts();
+  return items.filter(t => t.trim().startsWith(String(2026 + year))).join(' | ');
 }
 
 (async () => {
@@ -289,7 +278,7 @@ async function resultsYearText(page, year) {
   // ⚠ THIS IS THE HALF THE OLD DRIVER DID NOT HAVE, AND IT IS WHAT MAKES THE
   // LOOSENING SAFE. Reading the room for "a schedule exists" would pass on a
   // game where the schedule was carried and never fired. Naming the drawn event
-  // on its own year's Results BEFORE the reload proves it reached the engine;
+  // in its own year's events BEFORE the reload proves it reached the engine;
   // the same read AFTER proves the rebuild kept it. Neither read knows which
   // event it is looking for until the room tells it.
   const namedBefore = [];

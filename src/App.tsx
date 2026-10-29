@@ -250,7 +250,9 @@ export default function App() {
     setGameState(newGs);
     setCurrentDecisions(nextDecisions);
     persistState(newGs, startingFinancials!, initialMembers, nextDecisions);
-    setActiveTab('results');
+    // The Annual Statement, the year just played: Results is hidden since the
+    // tab cleanup (tabs.tsx), and a hidden tab would fall back to Introduction.
+    setActiveTab('statement');
   }, [startingFinancials, initialMembers]);
 
   const handleAdvanceYear = useCallback(() => {
