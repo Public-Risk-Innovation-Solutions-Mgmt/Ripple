@@ -6,7 +6,10 @@ const crypto = require('crypto');
 const OUT = process.argv[2] || 'before';
 
 // The top bar as src/game/tabs.tsx lists it (Dashboard, Departments and
-// Investments are hidden), plus Membership, which records TAB-ABSENT.
+// Investments are hidden), plus Membership, which records TAB-ABSENT. ⚠ SINCE
+// THE TAB CLEANUP Financial Statements, Results and Result Spreadsheet are
+// hidden too and record TAB-ABSENT the same way; they stay listed so a walk
+// before the cleanup and one after compare tab for tab.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
                'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
                'Year Walkthrough', 'Membership'];

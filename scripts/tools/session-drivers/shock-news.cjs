@@ -16,9 +16,13 @@
 //   3. the Decisions page lists it under "Events so far", and it stays listed
 //      after the banner is dismissed;
 //   4. the lock into 2029 brings the Earthquake's banner; both are listed;
-//   5. the Results page's own event block for 2028 names the same event on
-//      exactly the lines the banner named — the banner told the truth, without
-//      the figures. (Read after the later locks: 2028 stays on the page.)
+//   5. after the later locks, 2028's event is still listed under "Events so
+//      far" on exactly the lines the banner named, and the Results tab is off
+//      the bar. ⚠ RESTATED AT THE TAB CLEANUP: this read the Results page's own
+//      event block, with its figures; Results is hidden since (src/game/tabs.tsx
+//      HIDDEN_TABS). The panel takes its lines from the same news the banner
+//      does, so this now holds that the listing persists, not that a second,
+//      figured page agrees.
 //
 // Hosted (only with ADMIN_TOKEN — hosting needs the sign-in): a room playing WC
 // and GL only, an Earthquake scheduled in year 2, one team. No banner after the
@@ -125,19 +129,19 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   ok(listed.length === 2 && /^2028\s+Nuclear Verdict/.test(listed[0]) && /^2029\s+Earthquake/.test(listed[1]),
     'both are listed, by year', listed.join(' | '));
 
-  // 5. 2028's event block on the Results page names the same lines.
+  // 5. After the later locks 2028's event is still listed, on the banner's lines;
+  //    the Results tab, which once showed its figures, is off the bar.
   await lock(2031);
-  await page.getByRole('button', { name: 'Results', exact: true }).first().click();
-  await page.waitForTimeout(600);
-  const opt = await page.locator('main select option', { hasText: '2028' }).first().getAttribute('value');
-  await page.locator('main select').first().selectOption(opt);
-  await page.waitForTimeout(600);
-  const block = await page.locator('main').innerText();
-  const at = block.indexOf('Nuclear Verdict');
-  const resultLines = at < 0 ? [] : linesIn(block.slice(at, at + 400).split(/\n(?=[A-Z][a-z]+ ?[A-Za-z]* —|\S+ events? this year)/)[0]);
-  ok(at >= 0, 'the Results page shows 2028\'s event with its figures');
-  ok(JSON.stringify(resultLines) === JSON.stringify(bannerLines),
-    'on exactly the lines the banner named', `results ${resultLines.join(', ')} / banner ${bannerLines.join(', ')}`);
+  const barNow = (await page.locator('nav').first().locator('button').allInnerTexts()).map(t => t.trim());
+  ok(!barNow.includes('Results'), 'Test player: the Results tab is off the bar (the tab cleanup)', barNow.join(' | '));
+  await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
+  await page.waitForTimeout(500);
+  const later = (await page.locator('[data-testid="events-panel-item"]').allInnerTexts()).map(t => t.trim());
+  const row2028 = later.find(t => /^2028\s+Nuclear Verdict/.test(t)) ?? '';
+  const panelLines = linesIn((row2028.match(/\(([^)]*)\)\s*$/) ?? [])[1] ?? '');
+  ok(row2028 !== '', 'after the later locks 2028\'s Nuclear Verdict is still listed', later.join(' | '));
+  ok(JSON.stringify(panelLines) === JSON.stringify(bannerLines),
+    'on exactly the lines the banner named', `listed ${panelLines.join(', ')} / banner ${bannerLines.join(', ')}`);
 
   ok(errors.length === 0, 'Test player: no page errors', errors[0] ?? '');
   await browser.close();

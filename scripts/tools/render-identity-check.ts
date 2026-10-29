@@ -1720,18 +1720,30 @@ const BASELINE = process.env.RENDER_BASELINE
 // (v41 -> v42) on all, and on the 13 with a played year the dividend stage's
 // labels and working in dollars, the decisions stage's two rows, and the codes
 // those move. The harness chooses no dividend or assessment: no figure moved.
-// v117: PRICING'S ALAE LOAD IS FIXED PER LINE (wip/pricing-alae-load). The
-// control ran first: multiplayer 861b8c7 reproduced v116, 236 of 236. Against
-// its own text (RENDER_TEXT_DIR), word-diffed: 206 of 236 move. 180 in numbers
-// only — Annual Statement, Decision History, Decisions, Financial Statements and
-// Results (26 each), Introduction (20), Rate Indication and Result Spreadsheet
-// (10 each), the header (10): the rates, premium, admin, ratios and the
-// openings' surplus, all moved by the load. The 26 Year Walkthrough screens move
+// v117: THE TAB CLEANUP — Results, Result Spreadsheet, Financial Statements and
+// Model hidden in single player, Test player and multiplayer (src/game/tabs.tsx
+// HIDDEN_TABS), their pages kept. The control ran first: multiplayer 861b8c7,
+// built in its own worktree, reproduced v116 236 of 236 here. Against its
+// capture, text-diffed (RENDER_TEXT_DIR both sides): 62 keys removed — the three
+// hidden tabs this file walked (Financial Statements 26, Results 26, Result
+// Spreadsheet 10; Model was never on TABS) — and 124 of the remaining 174 move,
+// each in exactly one way: the top bar's tab names, without "Model",
+// "Financial Statements", "Results" and "Result Spreadsheet". With those
+// names taken out of the control's text, all 124 match the new text exactly.
+// No figure moved. 236 -> 174 keys.
+// v118: PRICING'S ALAE LOAD IS FIXED PER LINE (wip/pricing-alae-load). The
+// control ran first: multiplayer 3bd6d2b reproduced v117, 174 of 174. Against
+// its own text (RENDER_TEXT_DIR), word-diffed: 144 of 174 move. 118 in numbers
+// only — Annual Statement, Decision History and Decisions (26 each),
+// Introduction (20), Rate Indication (10), the header (10): the rates, premium,
+// admin, ratios and the openings' surplus, all moved by the load. (Measured
+// first against 861b8c7's v116, before the tab cleanup merged in: 206 of 236,
+// the hidden tabs' 62 screens included, the same kinds of move.) The 26 Year Walkthrough screens move
 // in wording too, and only where this change put it: "ALAE ratio (window
 // average)" becomes "ALAE load (x.x%)" (16, the y2 screens), the version reads
 // riskpool_gamestate_v43 (26), and the stage and year codes — hashes of the
 // figures — follow the figures. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v117.json');
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v118.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
@@ -1770,9 +1782,13 @@ const LINE_LABEL: Record<string, string> = {
 // multiplayer alike (src/game/tabs.tsx), their pages intact — and Rate
 // Indication joined, in the top bar's own order. Investments joined and then
 // came off too: its memorandum is one of the Introduction tab's documents.
+//
+// ⚠ FINANCIAL STATEMENTS, RESULTS AND RESULT SPREADSHEET CAME OFF THE SAME WAY
+// at the tab cleanup — hidden in single player, Test player and multiplayer
+// (src/game/tabs.tsx HIDDEN_TABS), their pages intact — and the baseline lost
+// their keys with them (v117). The Model tab was never on this list.
 const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-  'Decision History', 'Financial Statements', 'Results', 'Result Spreadsheet',
-  'Year Walkthrough'];
+  'Decision History', 'Year Walkthrough'];
 // ⚠ WHICH TABS CARRY THE LINE BAR IS DETECTED, NOT LISTED, AND THE FIRST VERSION
 // OF THIS FILE LISTED IT. That was a real mistake and it is recorded because it
 // is instructive: the list was App.tsx's LINE_VIEW_PAGES as of 750ce12, which

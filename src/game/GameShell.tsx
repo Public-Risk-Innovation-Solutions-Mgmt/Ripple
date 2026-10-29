@@ -243,7 +243,7 @@ export default function GameShell({
           <RateIndicationPage gameState={gameState} decisions={currentDecisions} />
         )}
 
-        {/* Solo only: hidden in multiplayer (MULTIPLAYER_HIDDEN_TABS), so never rendered there. */}
+        {/* Hidden everywhere since the tab cleanup (HIDDEN_TABS), so never rendered. */}
         {shownTab === 'model' && !hidden('model') && gameState && known && (
           <ModelPage gameState={gameState} knownState={known} decisions={currentDecisions} />
         )}
@@ -320,7 +320,7 @@ export default function GameShell({
           <ResultsPage lockedResults={[...knownPreGameView, ...knownViewResults]} lineView={lineView} roomMarketShare={roomMarketShare} />
         )}
 
-        {shownTab === SPREADSHEET_TAB && known && (
+        {shownTab === SPREADSHEET_TAB && !hidden(SPREADSHEET_TAB) && known && (
           <ResultSpreadsheetPage
             lockedResults={known.lockedResults}
             preGameResults={knownPreGame}

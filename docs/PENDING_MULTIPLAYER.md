@@ -28,8 +28,8 @@ Re-pick, then restore the bars and re-record.
 **Landed with:** FAST 93/93, SLOW 4/4, typecheck clean, lint identical to
 861b8c7; `alae-ratio-check` 3 restated (the setting every year on every line,
 controls: the old window rule, WC at 12%, and the old rule planted in the
-engine); VALUE_IDENTITY_v91, SOLO_EXPORT_GUARD_v116, RENDER_IDENTITY_v117
-attributed against 861b8c7; all 26 session drivers with the admin-token hook;
+engine); VALUE_IDENTITY_v91, SOLO_EXPORT_GUARD_v116, RENDER_IDENTITY_v118
+attributed against 861b8c7 (render against 3bd6d2b, merged in); all 26 session drivers with the admin-token hook;
 the contract harness on every pass. Figures: scripts/probes/alae-load-probe.mts.
 
 ## Decisions carry into the next year in single player — wip/carry-decisions

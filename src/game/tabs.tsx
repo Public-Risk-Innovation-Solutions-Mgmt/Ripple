@@ -62,24 +62,33 @@ export const TAB_ORDER: readonly TabId[] = [
  * starts from (and returns to on New Game); it is off the bar, not removed.
  * Dashboard and Departments are hidden while they are reworked. Investments is
  * hidden because its memorandum moved into the Introduction tab.
+ *
+ * ⚠ RESULTS, RESULT SPREADSHEET, FINANCIAL STATEMENTS AND MODEL ARE HIDDEN
+ * EVERYWHERE — single player, Test player and a hosted session — since the tab
+ * cleanup: the Annual Statement and the Year Walkthrough carry what players
+ * need, each with its own download. Ruled acceptable to lose with them: the
+ * Results (.xlsx) and Claims (.xlsx) downloads (Result Spreadsheet only), the
+ * Results page's Reserve View, Financial Statements' Funding Target & Adequacy
+ * in full, and the Model tab's step-by-step rate. The pages, their builders
+ * and their gates are kept; delete a line here to bring one back.
  */
 export const HIDDEN_TABS: readonly TabId[] = [
   'setup',
   'investments',
   'dashboard',
   'departments',
-];
-
-/** Hidden in a hosted session (players and viewers) as well. Result Spreadsheet stays, for testing. */
-export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = [
   'results',
+  'spreadsheet',
   'financials',
-  // ⚠ 'audit' — THE YEAR WALKTHROUGH — IS SHOWN IN A HOSTED SESSION TOO.
-  // ⚠ THE MODEL TAB IS SOLO ONLY, NEVER MULTIPLAYER: it shows every input to
-  // the rate and every expectation against the simulation, for checking the
-  // indication by hand. To hide it in solo as well, add 'model' to HIDDEN_TABS.
   'model',
 ];
+
+/**
+ * Hidden in a hosted session (players and viewers) on top of HIDDEN_TABS. None
+ * since the tab cleanup: every tab a hosted session hid is now hidden in solo
+ * too. ⚠ 'audit' — THE YEAR WALKTHROUGH — IS SHOWN IN A HOSTED SESSION.
+ */
+export const MULTIPLAYER_HIDDEN_TABS: readonly TabId[] = [];
 
 /** Whether a tab is hidden on this screen. */
 export function isHiddenTab(t: TabId, multiplayer: boolean): boolean {
