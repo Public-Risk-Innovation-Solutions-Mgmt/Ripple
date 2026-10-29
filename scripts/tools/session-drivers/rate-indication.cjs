@@ -51,8 +51,9 @@
 //                     hosted room below schedules no shock (shocks off) and
 //                     must show them too, and offer all eight covers and None
 //                     (before: none there, None alone): "Event Likelihoods", its note, a table
-//                     with a row for 1 in 10, 20, 50, 100 and 200 years, and its
-//                     chart. Solo before year 1 (growth 1) each size is the one
+//                     with a row for 1 in 10, 20, 50, 100 and 200 years, and NO
+//                     chart (removed, wip/display-removals: the page has no
+//                     chart left; the table stays). Solo before year 1 (growth 1) each size is the one
 //                     recomputed here from the large-claim frequencies written
 //                     out (Low 7.5%, Mid 5.25%, High 2.25% on the line's
 //                     ranges) — WC $2.3M / $4.4M / $9.8M / $24.9M / $32.4M at
@@ -173,8 +174,8 @@ function screen(page, mode) {
           return { n, label: (await el.locator('xpath=../td[1]').innerText()).trim(), text: (await el.innerText()).trim(), size: v === null ? null : Number(v) };
         })),
         table: await page.locator(`[data-testid="ri-${l}-likelihood-table"]`).count(),
-        // The chart: one point per row with a size.
-        chartPoints: await page.locator(`[data-testid="ri-${l}-likelihood-chart"] circle`).count(),
+        // The chart is removed (wip/display-removals): none may render.
+        charts: await page.locator(`[data-testid="ri-${l}-likelihood-chart"]`).count() + await page.locator(`[data-testid="rate-indication-${l}"] svg[role="img"]`).count(),
       };
     }
     out.calendar = Number((await page.$eval('[data-testid="ri-year"]', el => el.selectedOptions[0].textContent)).match(/\d{4}/)[0]);
@@ -265,8 +266,8 @@ function screen(page, mode) {
         `${mode}, ${name}, ${l}: "Event Likelihoods" beside the cover prices, its note and 1 in 10 to 1 in 200 years`, JSON.stringify(t && [t.heading, t.note]));
       if (!t) continue;
       const want = RETURN_YEARS.map(n => exactSize(l, n));
-      ok(t.table === 1 && t.rows.every((r, i) => want[i] !== null && r.size !== null) && t.chartPoints === RETURN_YEARS.length,
-        `${mode}, ${name}, ${l}: a table with a size at every return period, and a chart with a point for each`, `${t.rows.map(r => r.text).join(' · ')}; ${t.chartPoints} points`);
+      ok(t.table === 1 && t.rows.every((r, i) => want[i] !== null && r.size !== null) && t.charts === 0,
+        `${mode}, ${name}, ${l}: a table with a size at every return period, and no chart`, `${t.rows.map(r => r.text).join(' · ')}; ${t.charts} charts`);
       const ratios = t.rows.filter((r, i) => r.size !== null && want[i] !== null).map(r => r.size / want[RETURN_YEARS.indexOf(r.n)]);
       ok(ratios.length > 0 && ratios.every(x => Math.abs(x - ratios[0]) < 1e-6 * ratios[0])
         && (atGrowthOne ? Math.abs(ratios[0] - 1) < 1e-6 : ratios[0] > 1),
