@@ -1602,27 +1602,30 @@ const BASELINE = process.env.RENDER_BASELINE
 //   Year Walkthrough 26   the version riskpool_gamestate_v37 -> _v38 only
 // The other 184 keep v106's fingerprints. The harness holds None, so no figure
 // on any screen changed. No key added or removed.
-// v108: RISK CONTROL IN THE DIVISOR AND THE EXPENSE RATIO BLOCK
-// (wip/risk-control-divisor), on multiplayer ba409c1. The control, built in its
-// own worktree here, moved 21 of 236 against v107 — the container split v106
-// recorded (Financial Statements 14, Results 7), none of them a screen this
-// change moves. Against the control's own capture 42 move, each word-diffed
-// (RENDER_TEXT_DIR both sides):
-//   Decisions 16          the panel's expense block inserted — "Admin 20.0%
-//                         20.0% Risk control 0.0% 0.0% Total expense ratio 20.0%
-//                         20.0%" — and the permissible loss ratio to one
-//                         decimal, "80.0%" where it read "80%"
-//   Year Walkthrough 26   the pricing stage's expense block (Admin, Risk
-//                         control, Total expense ratio, Permissible loss ratio,
-//                         one decimal), the divisor "1 − admin − risk control"
-//                         (0.80 at 0%, where the feed read "× 1.0000"), the rate
-//                         before reinsurance (same figure, relabelled), admin's
-//                         charge per $100 (the engine's, newly shown), the
-//                         working, the stage and year codes, and the version
-//                         riskpool_gamestate_v38 -> _v39
-// The Rate Indication does not move (its block already read 20.0% / 0.0% /
-// 20.0% / 80.0% at 0%). v108 is v107 with those 42 replaced; the other 194
-// keep v107's fingerprints. The harness plays at 0%: no figure moved.
+// v108: LARGE CLAIMS BY FREQUENCY, IN EVERY GAME, NUCLEAR VERDICT KEEPING ITS
+// OWN (wip/large-claims-frequency), on multiplayer ba409c1. ⚠ THE CONTROL DOES
+// NOT REPRODUCE v107 HERE: built in its own worktree, ba409c1 moves 8 of 236
+// against its committed v107, all Result Spreadsheets, so head is compared
+// against the control's own capture in this container. Against it,
+// word-diffed (RENDER_TEXT_DIR both sides), 59 move:
+//   every Rate Indication (10): Event Likelihoods is now a table ("Return
+//   period", "Claim size") with a small chart under it, its sizes at the new
+//   frequencies (GL 2027 "—, $1.4M, $5.5M, $21.0M, …" -> $2.3M, $4.9M, $10.7M,
+//   $25.3M, …; Property $4.0M, $8.3M, $15.1M, $27.6M, $33.8M), rising with
+//   the year. No rate, pure premium, expense, cover or aggregate-cover price
+//   on the page moves;
+//   every Year Walkthrough (26): the save version (riskpool_gamestate_v38 ->
+//   v39), and at 2028 the year codes where the expected losses and capital
+//   below moved the state;
+//   Financial Statements (8) and Results (8), the Property and Pool views: the
+//   Required Reserve Margin ($13,085,188 -> $9,627,713, the large-claim
+//   capital at the new frequencies), Excess Available Surplus and Excess
+//   Capital Ratio (Property 51.3% -> 105.6%);
+//   Result Spreadsheet (7): the expected losses (GL 2028 $23,179,724 ->
+//   $24,091,274, with Nuclear Verdict's claim at its odds), the Property margin
+//   rows, and the Property capital status "Adequate" -> "Strong" in four years.
+// No large claim and no Nuclear Verdict lands in these render games, and their
+// shocks are on, so no event, loss or surplus figure moves. 177 match.
   ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v108.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';

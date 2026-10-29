@@ -58,7 +58,7 @@ import type {
   CoverageLine, GameInstance, GameState, LineDecisionSet, LineView, ReserveDevelopmentRow, ResultSet,
 } from '../types/simulation';
 import {
-  ADMIN_SHARE_OF_PREMIUM, ADVERSE_DEVELOPMENT, MEMBER_LUCK_CV, MEMBER_RISK_CV, NEW_BUSINESS_PENALTY,
+  ADMIN_SHARE_OF_PREMIUM, ADVERSE_DEVELOPMENT, eventKeepsLargeClaim, MEMBER_LUCK_CV, MEMBER_RISK_CV, NEW_BUSINESS_PENALTY,
   NON_RENEWAL_LOSS_RELIEF, RISK_CONTROL_CUT, ROUTINE_LARGE_LOSSES, SHOCK_FREE_PRICING, UNDERWRITING_MEMBERS,
 } from '../data/pricingParameters';
 import { CAPITAL_ADEQUACY_THRESHOLDS, LINE_PAYOUT_PATTERN } from '../data/defaultAssumptions';
@@ -604,7 +604,9 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     const surge = mean(s.shockYears.map(sy => sy.byLine[l].byFiring.filter(b => b.firing.event.id === e.id).reduce((t, b) => t + b.uplift, 0)));
     const sizes = s.shockYears.flatMap(sy => sy.byLine[l].arrivals.filter(t => t.firing.event.id === e.id).map(t => t.size));
     drawRows.push(
-      { label: `${e.name}: level`, value: lv ? `A ${lv.a} / T ${lv.t} / R ${lv.r}` : 'pool-wide', kind: 'text' },
+      // With LARGE_CLAIMS_BY_FREQUENCY on an event sets no large claim — its A and R
+      // only — all but the events that keep their own (eventKeepsLargeClaim: Nuclear Verdict).
+      { label: `${e.name}: level`, value: lv ? (eventKeepsLargeClaim(e.name) ? `A ${lv.a} / T ${lv.t} / R ${lv.r}` : `A ${lv.a} / R ${lv.r}`) : 'pool-wide', kind: 'text' },
       { label: `${e.name}: region`, value: firing.region ?? 'pool-wide', kind: 'text' },
       { label: `${e.name}: surge % (average across the worlds)`, value: surge, kind: 'pct' },
       { label: `${e.name}: large-claim size drawn (average)`, value: sizes.length ? mean(sizes) : 0, kind: 'usd' },

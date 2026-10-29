@@ -30,8 +30,8 @@
 // ============================================================================
 
 import {
-  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SAMPLES, AGGREGATE_STOP_SD_LOAD, R_MODEL, SHOCK_A_YEARS,
-  SHOCK_T_CLAIM_RANGE, type AggregateStopOption,
+  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SAMPLES, AGGREGATE_STOP_SD_LOAD, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, eventKeepsLargeClaim,
+  R_MODEL, SHOCK_A_YEARS, SHOCK_T_CLAIM_RANGE, type AggregateStopOption,
 } from '../data/pricingParameters';
 import { DECAY, SHOCK_EVENTS, eventLines, poolShare, type ShockLevel } from './shockLosses';
 import { ordinaryFactorParams, ordinaryLossCostPer100, typicalBookOrdinaryCv } from './ordinaryLoss';
@@ -86,7 +86,7 @@ const SAMPLE_SEED = 20_261_021;
 const sampleCache = new Map<string, LineSamples>();
 
 function samplesFor(line: CoverageLine): LineSamples {
-  const key = `${line}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}|${typicalBookOrdinaryCv(line)}`;
+  const key = `${line}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}|${typicalBookOrdinaryCv(line)}|${LARGE_CLAIMS_BY_FREQUENCY.enabled}|${Object.values(LARGE_CLAIM_FREQUENCY).join(',')}`;
   const hit = sampleCache.get(key);
   if (hit) return hit;
   const n = AGGREGATE_STOP_SAMPLES;
@@ -123,9 +123,16 @@ function samplesFor(line: CoverageLine): LineSamples {
         if (age < 1) u1 += d;
         if (age < 2) u2 += d;
         u3 += d;
-        // Its large losses land in the year it fires.
-        if (age === 0 && ev.t) sizes.push(ev.t[0] + rng.next() * (ev.t[1] - ev.t[0]));
+        // Its large losses land in the year it fires — unless they come by frequency.
+        if (age === 0 && ev.t && eventKeepsLargeClaim(ev.e.name)) sizes.push(ev.t[0] + rng.next() * (ev.t[1] - ev.t[0]));
       }
+    }
+    // LARGE_CLAIMS_BY_FREQUENCY: at most one large claim a year, its level by frequency.
+    if (LARGE_CLAIMS_BY_FREQUENCY.enabled) {
+      const u = rng.next(), v = rng.next();
+      let edge = 0;
+      const lv = (['Low', 'Mid', 'High'] as const).find(l => u < (edge += LARGE_CLAIM_FREQUENCY[l]));
+      if (lv) { const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][lv]; sizes.push(lo + v * (hi - lo)); }
     }
     uplift[0][i] = u1; uplift[1][i] = u2; uplift[2][i] = u3;
     start[i + 1] = sizes.length;

@@ -5,7 +5,7 @@
 //
 //   1. OPTIONS: every line offers None and the eight layers — 9, 19, 29 and
 //      39 xs 1; 8, 18, 28 and 38 xs 2 ($M), per occurrence — None the default;
-//      with the game's shocks off, None alone.
+//      with the game's shocks off, the same (restated below).
 //   2. RECOVERY: each option cedes exactly min(max(claim - attachment, 0),
 //      limit) on a claim, at every size from below the attachment to above
 //      the tower; the layers are fixed in dollars.
@@ -22,6 +22,17 @@
 //      factor, so claims and prices grow together; the recovery on every T
 //      claim is the layer on it.
 //
+// RESTATED FOR LARGE_CLAIMS_EVERY_GAME: large claims are now drawn in every
+// game, shocks on or off, so all eight covers and None are offered and priced
+// the same in every game. 1 used to want None alone with the game's shocks
+// off; it now wants None and the eight layers with the shocks off too, None
+// still the default either way, and the same prices: a hosted game with NO
+// schedule (gameShocksOn false, asserted), each line buying a different cover
+// each year, is charged the method at the year's growth, its large claims the
+// table x the same growth, recovered the layer on each — 4's check, on the
+// shocks-off game. New control: LARGE_CLAIMS_EVERY_GAME.enabled = false at
+// runtime must fail 1.
+//
 // ⚠ THE BRIEF IS WRITTEN OUT HERE — options, ranges, frequencies, multipliers
 // and the 2027 table — not read from pricingParameters, so a changed
 // parameter fails rather than moving the expectation with it. Each section
@@ -29,11 +40,11 @@
 // section to FAIL, and restores it.
 // ============================================================================
 
-import { REINSURANCE_OPTIONS, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, type ReinsuranceOption } from '../../src/data/pricingParameters';
+import { LARGE_CLAIMS_EVERY_GAME, REINSURANCE_OPTIONS, SHOCK_T_CLAIM_RANGE, T_COVER_FREQUENCY, type ReinsuranceOption } from '../../src/data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../../src/data/reinsuranceTower';
 import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
 import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
-import { resolveShockYear } from '../../src/utils/shockLosses';
+import { gameShocksOn, resolveShockYear } from '../../src/utils/shockLosses';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
@@ -98,10 +109,16 @@ function sectionOptions(): string[] {
   for (const l of LINES) {
     const want = ['none', ...BRIEF_COVERS.map(c => c[0])].join('|');
     if (reinsuranceOptionIds(l, true).join('|') !== want) out.push(`${l} offers ${reinsuranceOptionIds(l, true).join(', ')}`);
-    if (reinsuranceOptionIds(l, false).join('|') !== 'none') out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
+    // LARGE_CLAIMS_EVERY_GAME: the same nine with the shocks off, None the default.
+    if (reinsuranceOptionIds(l, false).join('|') !== want) out.push(`${l} with shocks off offers ${reinsuranceOptionIds(l, false).join(', ')}`);
     if (defaultReinsuranceOption(l, true) !== 'none') out.push(`${l}'s default is ${defaultReinsuranceOption(l, true)}`);
+    if (defaultReinsuranceOption(l, false) !== 'none') out.push(`${l}'s default with shocks off is ${defaultReinsuranceOption(l, false)}`);
     if (optionPrice(l, 'none', 1.7) !== 0) out.push(`${l} None costs ${optionPrice(l, 'none', 1.7)}`);
   }
+  // The same prices with the shocks off: a hosted game with no schedule, charged the method.
+  offGame ??= playGame([], OFF_YEARS);
+  if (gameShocksOn(offGame.began[0].setup, offGame.began[0].instance)) out.push('the no-schedule hosted game has its shocks on — not a shocks-off game');
+  out.push(...sectionInGame(0, offGame, OFF_YEARS).map(p => `shocks off: ${p}`));
   return out;
 }
 
@@ -149,16 +166,18 @@ function briefFactor(gs: GameState, l: CoverageLine, y: number): number {
 const SCHEDULE: ScheduledShock[] = [];
 for (let y = 2; y <= YEARS; y++) for (const id of ['#2', '#7', '#9']) SCHEDULE.push({ shockId: id, yearNumber: y });
 interface GameRun { began: GameState[]; perYear: LineResultSet[][][] }
-let game: GameRun | null = null;
-function playGame(): GameRun {
+let globalGame: GameRun | null = null;
+let offGame: GameRun | null = null;
+const OFF_YEARS = 5;
+function playGame(schedule: ScheduledShock[] = SCHEDULE, years = YEARS): GameRun {
   const id = '9';
-  const setup = { poolName: 'L', gameLength: YEARS, startingYear: 2026, instanceId: id, activeLines: LINES, shockTiming: 'host' } as GameSetupSettings;
-  const instance = generateGameInstance(id, seedFromInstanceId(id), SCHEDULE);
+  const setup = { poolName: 'L', gameLength: years, startingYear: 2026, instanceId: id, activeLines: LINES, shockTiming: 'host' } as GameSetupSettings;
+  const instance = generateGameInstance(id, seedFromInstanceId(id), schedule);
   const { poolState, priorHistory } = runPriorHistory(instance, setup);
   let gs: GameState = openWorlds({ setup, instance, currentYearNumber: 1, isStarted: true, isComplete: false,
     poolState, lockedResults: [], currentDecisions: defaultDecisionSet(1), priorHistory });
   const began: GameState[] = [], perYear: LineResultSet[][][] = [];
-  for (let y = 1; y <= YEARS; y++) {
+  for (let y = 1; y <= years; y++) {
     began.push(gs);
     // Each line buys a different option each year, so every option is charged on every line.
     const d = defaultDecisionSet(y);
@@ -170,11 +189,11 @@ function playGame(): GameRun {
   return { began, perYear };
 }
 /** `lag` reads the factor that many years late — the control's broken basis. */
-function sectionInGame(lag = 0): string[] {
+function sectionInGame(lag = 0, run?: GameRun, years: number = YEARS): string[] {
   const out: string[] = [];
-  game ??= playGame();
+  const game = run ?? (globalGame ??= playGame());
   let tSeen = 0, coversSeen = 0;
-  for (let y = 1; y <= YEARS; y++) {
+  for (let y = 1; y <= years; y++) {
     const gs = game.began[y - 1];
     const gy = Math.max(1, y - lag);
     for (const l of LINES) {
@@ -199,18 +218,21 @@ function sectionInGame(lag = 0): string[] {
     }
   }
   if (tSeen === 0) out.push('no T claim arrived — nothing measured');
-  const grown = LINES.some(l => briefFactor(game!.began[YEARS - 1], l, YEARS) > 1.2);
-  if (!grown) out.push('no line grew past 1.2 — the growth is not tested');
+  const grown = LINES.some(l => briefFactor(game.began[years - 1], l, years) > (run ? 1 : 1.2));
+  if (!grown) out.push(`no line grew past ${run ? 1 : 1.2} — the growth is not tested`);
   if (coversSeen === 0) out.push('no cover bought');
   return out;
 }
 
 // ---- run -------------------------------------------------------------------------
 console.log('t-cover-layers-check\n');
-check(sectionOptions(), '1. every line offers None and the eight layers, None the default; with shocks off None alone');
+check(sectionOptions(), `1. every line offers None and the eight layers, None the default — with shocks off too, and a no-schedule hosted game (${OFF_YEARS} years) charged the same prices`);
 control('a layer dropped from the options', () => {
   const opts = REINSURANCE_OPTIONS.GL as ReinsuranceOption[]; const o = [...opts];
   opts.splice(opts.findIndex(x => x.id === '$29M xs $1M'), 1); return () => { opts.splice(0, opts.length, ...o); };
+}, sectionOptions);
+control('LARGE_CLAIMS_EVERY_GAME switched off (None alone with shocks off)', () => {
+  LARGE_CLAIMS_EVERY_GAME.enabled = false; return () => { LARGE_CLAIMS_EVERY_GAME.enabled = true; };
 }, sectionOptions);
 check(sectionRecovery(), '2. each option cedes exactly min(max(claim − attachment, 0), limit), every line, claims $0.5M to $120M');
 control('the $20M–$30M layer moved to attach at $25M', () => {

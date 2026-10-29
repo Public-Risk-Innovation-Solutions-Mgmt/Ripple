@@ -1450,6 +1450,82 @@ export function regionByShare(u: number): Region {
  * are the R model's (R_MODEL.tShock) with each High raised to $40M, the top of
  * the widest cover.
  */
+/**
+ * LARGE (T) CLAIMS ARRIVE BY FREQUENCY, NOT WITH CATALOGUE EVENTS
+ * (wip/large-claims-frequency). ON: each played year, each line draws at most
+ * one large claim — Low with LARGE_CLAIM_FREQUENCY.Low, Mid with .Mid, High
+ * with .High (15% a year in all), none otherwise — its size uniform across the
+ * line's range for that level (SHOCK_T_CLAIM_RANGE) x the year's growth factor
+ * (shockCost.shockCostFactor, as before). The draws are the game seed's, on
+ * their own stream per line and year, so every world shares them, as the T
+ * claims did. The catalogue events keep their surge (A) and development (R)
+ * effects but no longer set large claims. Only while the game's shocks are on;
+ * never in the pre-game; never in the shock-free pricing shadow — so large
+ * claims stay OUT OF THE RATE ENTIRELY: no load, nothing in the experience.
+ * OFF: the catalogue events set T claims, as the wip/shocks build did.
+ *
+ * WHY: the brief's. A large claim is something a pool should expect every few
+ * years, not only when a rare event fires — at the catalogue's odds WC saw one
+ * once in 144 years. Kept out of the rate on purpose: a pool without cover pays
+ * them from surplus, which is what teaches the value of reinsurance. Measured
+ * on twenty five-year single player games at Expected (the Phase 1 report):
+ * the five-year combined ratio 1.047 -> 1.074 with no cover, 1.057 with 9 xs 1.
+ */
+export const LARGE_CLAIMS_BY_FREQUENCY = { enabled: true };
+/**
+ * Each level's chance a year of a line's one large claim — the T-shock
+ * assumptions' frequencies, the same values the cover prices use
+ * (T_COVER_FREQUENCY), held apart so the prices stay exactly as they are
+ * whatever is done to these.
+ */
+export const LARGE_CLAIM_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', number>> = { Low: 0.075, Mid: 0.0525, High: 0.0225 };
+
+/**
+ * LARGE CLAIMS AND THEIR COVERS IN EVERY GAME — shocks on or off. ON (with
+ * LARGE_CLAIMS_BY_FREQUENCY): each line draws its large claims at
+ * LARGE_CLAIM_FREQUENCY in single player, Test player and hosted games alike,
+ * whether or not the game's shocks are on (shockLosses.gameShocksOn) or any
+ * event is scheduled; all eight covers and None are offered and priced the
+ * same in every game; the Event Likelihoods show in every game; and the
+ * expected losses and Property's large-claim capital carry them throughout.
+ * "Shocks off" now means only that no catalogue event fires — no surge and no
+ * development event.
+ *
+ * WHY: a large claim is a fact of the line, not a scenario's event, and the
+ * covers exist to teach its cost. With large claims drawn by frequency (above)
+ * nothing about them depends on the catalogue any more, so a game without
+ * events should still face them and still be offered the cover.
+ * OFF restores large claims and the covers (all but None) to shocks-on games
+ * only (REINSURANCE_OFFERED_SHOCKS_OFF).
+ */
+export const LARGE_CLAIMS_EVERY_GAME = { enabled: true };
+
+/**
+ * THE ONE EVENT THAT KEEPS ITS OWN LARGE CLAIM: NUCLEAR VERDICT. With
+ * LARGE_CLAIMS_BY_FREQUENCY on, no catalogue event sets a large claim — except
+ * the events named here. When Nuclear Verdict fires, General Liability gets one
+ * large claim at its level from the event map (High), sized as before (the
+ * line's range for the level x the year's growth factor), ON TOP of the
+ * regular large claims drawn at LARGE_CLAIM_FREQUENCY. It keeps its
+ * development effect, its wording and its news. Every other event sets none.
+ *
+ * WHY: a nuclear verdict IS a single very large award — without its claim the
+ * event did nothing a player could see in its year. The others' large claims
+ * are what the yearly frequencies now stand in for.
+ *
+ * ⚠ GL'S COVER PRICES DO NOT INCLUDE THESE EXTRA CLAIMS: the covers are priced
+ * on T_COVER_FREQUENCY alone (tCoverPrice), so in a year Nuclear Verdict fires
+ * a cover recovers on its claim beyond what its price allowed for. The Event
+ * Likelihoods (the frequencies' table) do not include it either. The expected
+ * losses do, at the event's catalogue odds, while the game's shocks are on.
+ */
+export const EVENTS_KEEPING_LARGE_CLAIMS: readonly string[] = ['Nuclear Verdict'];
+/** Does this catalogue event still set its own large claim (EVENTS_KEEPING_LARGE_CLAIMS)? */
+export const eventKeepsLargeClaim = (eventName: string): boolean =>
+  !LARGE_CLAIMS_BY_FREQUENCY.enabled || EVENTS_KEEPING_LARGE_CLAIMS.includes(eventName);
+/** Are large claims and their covers in every game, shocks on or off? Both switches on. */
+export const largeClaimsInEveryGame = (): boolean => LARGE_CLAIMS_BY_FREQUENCY.enabled && LARGE_CLAIMS_EVERY_GAME.enabled;
+
 export const SHOCK_T_CLAIM_RANGE: PerLine<Readonly<Record<'Low' | 'Mid' | 'High', readonly [number, number]>>> = {
   GL: { Low: [1e6, 3e6], Mid: [3e6, 7e6], High: [7e6, 40e6] },
   WC: { Low: [1e6, 3e6], Mid: [3e6, 6e6], High: [6e6, 40e6] },
@@ -1934,10 +2010,12 @@ export const T_COVER_30M_MULTIPLIER = 1.25;
 export const T_COVER_40M_MULTIPLIER = 1.2;
 
 /**
- * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn): only None is
- * offered, and held. WHY: with no shocks there is no T claim, so every option
- * would cost its price and never pay. Whenever the game's shocks are on, all
- * five are offered.
+ * WHILE A GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn) AND
+ * LARGE_CLAIMS_EVERY_GAME IS OFF: only None is offered, and held. WHY: with no
+ * shocks there was no T claim, so every option would cost its price and never
+ * pay. With LARGE_CLAIMS_EVERY_GAME on (as shipped) large claims come in every
+ * game, so every game is offered all eight covers and None, and this list is
+ * not read.
  */
 export const REINSURANCE_OFFERED_SHOCKS_OFF: readonly string[] = ['none'];
 
@@ -3138,6 +3216,19 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         basis: 'CHOSEN',
         note: 'The R model\'s 20%. Flat since simple underwriting: there is no rejection rate to buy it down.',
       }],
+      ['Large claims (T)', {
+        value: LARGE_CLAIMS_BY_FREQUENCY.enabled
+          ? `by frequency: Low ${LARGE_CLAIM_FREQUENCY.Low * 100}% · Mid ${LARGE_CLAIM_FREQUENCY.Mid * 100}% · High ${LARGE_CLAIM_FREQUENCY.High * 100}% a year`
+          : 'with the catalogue\'s events',
+        unit: 'at most one per line a year',
+        what: 'Each played year each line draws at most one large claim — its level by these chances, its size uniform '
+          + 'across the line\'s range for the level x the year\'s growth factor. The catalogue events keep their surge and '
+          + 'development but no longer set large claims — all but Nuclear Verdict (EVENTS_KEEPING_LARGE_CLAIMS). In every game, shocks on or off (LARGE_CLAIMS_EVERY_GAME); never in the pre-game.',
+        basis: 'CHOSEN',
+        note: 'The T-shock assumptions\' frequencies, the same values the cover prices use (held apart, so the prices stay '
+          + 'as they are). Kept out of the rate entirely — a pool without cover pays them from surplus, which teaches the '
+          + 'value of reinsurance.',
+      }],
       ['Reinsurance options (T covers)', {
         value: REINSURANCE_OPTIONS.GL.filter(o => o.limit > 0).map(o => o.id).join(' · '),
         unit: 'per occurrence, on T claims only, every line',
@@ -3196,10 +3287,28 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
           + 'the switch.',
       }],
       ['Covers while shocks are off', {
-        value: `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`, unit: 'rule',
-        what: 'While a game\'s shocks are off (a hosted room with none scheduled) only None is offered; with them on, '
-          + 'all five options are.',
-        basis: 'CHOSEN', note: 'With no shocks there is no T claim, so a cover would cost its price and never pay.',
+        value: largeClaimsInEveryGame()
+          ? 'all eight and None, as with shocks on' : `offered: ${REINSURANCE_OFFERED_SHOCKS_OFF.join(' · ')}`,
+        unit: 'rule',
+        what: 'Large claims come in every game (LARGE_CLAIMS_EVERY_GAME), so a game with its shocks off (a hosted room '
+          + 'with none scheduled) is offered and priced every cover exactly as one with them on. Off, only None.',
+        basis: 'CHOSEN', note: 'Shocks off means only that no catalogue event fires; large claims still come, so the covers still pay.',
+      }],
+      ['Events keeping their large claim', {
+        value: EVENTS_KEEPING_LARGE_CLAIMS.join(' · ') || 'none', unit: 'list',
+        what: 'When Nuclear Verdict fires, General Liability gets one large claim at its map level (High), sized as before x the '
+          + 'year\'s growth factor, on top of the regular large claims. It keeps its development, wording and news. Every '
+          + 'other event sets no large claim.',
+        basis: 'CHOSEN',
+        note: 'The one exception. GL\'s cover prices do not include its extra claims (they are priced on the frequencies '
+          + 'alone), nor do the Event Likelihoods; the expected losses do, while shocks are on.',
+      }],
+      ['Large claims in every game', {
+        value: LARGE_CLAIMS_EVERY_GAME.enabled ? 'on' : 'off', unit: 'switch',
+        what: 'Large claims, the covers and the Event Likelihoods in every game — single player, Test player and hosted — '
+          + 'shocks on or off. Shocks off means only that no catalogue event fires (no surge, no development event).',
+        basis: 'CHOSEN',
+        note: 'A large claim is a fact of the line, not a scenario\'s event; a game without events should still face it and be offered the cover.',
       }],
       ['Default reinsurance', {
         value: `WC ${REINSURANCE_DEFAULT_OPTION.WC} · GL ${REINSURANCE_DEFAULT_OPTION.GL} · Property ${REINSURANCE_DEFAULT_OPTION.Property}`,

@@ -45,14 +45,21 @@
 //                     top bar shows the CURRENT year (2026 before year 1), the
 //                     lock button "Lock Program Year <priced>", and the
 //                     Decisions page "Decisions for Program Year <priced>"
-//   Event Likelihoods  (wip/reinsurance-layers) beside the cover prices, shocks
-//                     on only: "Event Likelihoods", its note, and a row for 1 in
-//                     10, 20, 50, 100 and 200 years. Solo before year 1 (growth
-//                     1) each size is the one recomputed here from the catalogue
-//                     written out, "—" where the line's T events are rarer;
-//                     after two years every size is the same multiple (> 1) of
-//                     its 2027 size — the year's growth. The hosted room
-//                     schedules no shock, so its page shows none.
+//   Event Likelihoods  (wip/reinsurance-layers; restated for
+//                     wip/large-claims-frequency) beside the cover prices,
+//                     in EVERY game — restated for LARGE_CLAIMS_EVERY_GAME: the
+//                     hosted room below schedules no shock (shocks off) and
+//                     must show them too, and offer all eight covers and None
+//                     (before: none there, None alone): "Event Likelihoods", its note, a table
+//                     with a row for 1 in 10, 20, 50, 100 and 200 years, and its
+//                     chart. Solo before year 1 (growth 1) each size is the one
+//                     recomputed here from the large-claim frequencies written
+//                     out (Low 7.5%, Mid 5.25%, High 2.25% on the line's
+//                     ranges) — WC $2.3M / $4.4M / $9.8M / $24.9M / $32.4M at
+//                     2027 — and every row has a size; after two years every
+//                     size is the same multiple (> 1) of its 2027 size — the
+//                     year's growth. The hosted room schedules no shock, so its
+//                     page shows none.
 //
 //   Aggregate cover    (wip/aggregate-cover) under Reinsurance: the options the
 //                     Decisions page offers (all four with shocks on, None alone
@@ -84,11 +91,11 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? `  — ${detail}` : ''}`);
 };
 
-// THE CATALOGUE, WRITTEN OUT: each line's T events, [scaled yearly chance, range $M].
+// THE LARGE-CLAIM FREQUENCIES, WRITTEN OUT: each line's levels, [yearly chance, range $M].
 const T_EVENTS = {
-  WC: [[1 / 144, 6, 40]],
-  GL: [[5 / 288, 7, 40], [1 / 32, 1, 3], [1 / 144, 3, 7]],
-  Property: [[1 / 720, 12, 40], [1 / 24, 2, 5], [7 / 288, 12, 40]],
+  WC: [[0.075, 1, 3], [0.0525, 3, 6], [0.0225, 6, 40]],
+  GL: [[0.075, 1, 3], [0.0525, 3, 7], [0.0225, 7, 40]],
+  Property: [[0.075, 2, 5], [0.0525, 5, 12], [0.0225, 12, 40]],
 };
 const RETURN_YEARS = [10, 20, 50, 100, 200];
 /** The size at 1 in n at growth 1, exactly, on the piecewise-linear exceedance curve; null where rarer. */
@@ -163,8 +170,11 @@ function screen(page, mode) {
         rows: await Promise.all(RETURN_YEARS.map(async n => {
           const el = page.locator(`[data-testid="ri-${l}-likelihood-${n}"]`);
           const v = await el.getAttribute('data-value');
-          return { n, label: (await el.locator('xpath=../span[1]').innerText()).trim(), text: (await el.innerText()).trim(), size: v === null ? null : Number(v) };
+          return { n, label: (await el.locator('xpath=../td[1]').innerText()).trim(), text: (await el.innerText()).trim(), size: v === null ? null : Number(v) };
         })),
+        table: await page.locator(`[data-testid="ri-${l}-likelihood-table"]`).count(),
+        // The chart: one point per row with a size.
+        chartPoints: await page.locator(`[data-testid="ri-${l}-likelihood-chart"] circle`).count(),
       };
     }
     out.calendar = Number((await page.$eval('[data-testid="ri-year"]', el => el.selectedOptions[0].textContent)).match(/\d{4}/)[0]);
@@ -244,23 +254,23 @@ function screen(page, mode) {
   }
 
   // THE COMING YEAR: every level, every cover, against the panel.
-  // The Event Likelihoods: shown with shocks on only; at growth 1 each size the
-  // catalogue's; at a later year every size the same multiple of it.
+  // The Event Likelihoods: in every game, shocks on or off (LARGE_CLAIMS_EVERY_GAME);
+  // at growth 1 each size the frequencies'; at a later year every size the same multiple of it.
   function likelihoods(ind, name, shocksOn, atGrowthOne) {
     for (const [l] of LINES) {
       const t = ind[l].likelihoods;
-      if (!shocksOn) { ok(t === null, `${mode}, ${name}, ${l}: no Event Likelihoods with shocks off`); continue; }
+      if (!shocksOn) ok(t !== null, `${mode}, ${name}, ${l}: the Event Likelihoods show with the game's shocks off too`);
       ok(t !== null && t.heading === 'Event Likelihoods' && t.note === 'The chance in any year of a single large claim at least this size.'
         && t.rows.every((r, i) => r.label === `1 in ${RETURN_YEARS[i]} years`),
         `${mode}, ${name}, ${l}: "Event Likelihoods" beside the cover prices, its note and 1 in 10 to 1 in 200 years`, JSON.stringify(t && [t.heading, t.note]));
       if (!t) continue;
       const want = RETURN_YEARS.map(n => exactSize(l, n));
-      ok(t.rows.every((r, i) => (want[i] === null) === (r.size === null) && (r.size !== null || r.text === '—')),
-        `${mode}, ${name}, ${l}: a size where the line's T events reach 1 in N, "—" where they are rarer`, t.rows.map(r => r.text).join(' · '));
+      ok(t.table === 1 && t.rows.every((r, i) => want[i] !== null && r.size !== null) && t.chartPoints === RETURN_YEARS.length,
+        `${mode}, ${name}, ${l}: a table with a size at every return period, and a chart with a point for each`, `${t.rows.map(r => r.text).join(' · ')}; ${t.chartPoints} points`);
       const ratios = t.rows.filter((r, i) => r.size !== null && want[i] !== null).map(r => r.size / want[RETURN_YEARS.indexOf(r.n)]);
       ok(ratios.length > 0 && ratios.every(x => Math.abs(x - ratios[0]) < 1e-6 * ratios[0])
         && (atGrowthOne ? Math.abs(ratios[0] - 1) < 1e-6 : ratios[0] > 1),
-        `${mode}, ${name}, ${l}: every size is the catalogue's ${atGrowthOne ? 'at growth 1 (2027)' : 'x one growth factor above 1'}`,
+        `${mode}, ${name}, ${l}: every size is the frequencies' ${atGrowthOne ? 'at growth 1 (2027)' : 'x one growth factor above 1'}`,
         ratios.map(x => x.toFixed(6)).join(', '));
     }
   }
@@ -279,6 +289,9 @@ function screen(page, mode) {
     for (const [l, label] of LINES) {
       await lineView(label);
       const offered = await offeredOn(l);
+      // Every game is offered None and the eight covers, shocks on or off (LARGE_CLAIMS_EVERY_GAME).
+      ok(offered.length === 9 && offered.includes('none'),
+        `${mode}, ${name}, ${l}: None and the eight covers offered${shocksOn ? '' : ' with the game\'s shocks off'}`, offered.join(', '));
       ok(JSON.stringify(Object.keys(ind[l].reins).sort()) === JSON.stringify([...offered].sort()),
         `${mode}, ${name}, ${l}: the page lists exactly the covers the Decisions page offers`, offered.join(', '));
       ok(ind[l].window === 5,

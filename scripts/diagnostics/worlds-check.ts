@@ -42,6 +42,13 @@
 //      was "drawn per world"); what a world books to it still differs, by the
 //      world's own ordinary year under the A (solo-shock-schedule-check has the
 //      rest).
+//      RESTATED FOR wip/large-claims-frequency: a catalogue event brings no T
+//      claim any more (the host's Winterstorm in year 2 lands none), and large
+//      claims come by frequency on the game seed — so the check is now: no
+//      claim in any world carries a catalogue event's id; every world's large
+//      claims (shockId 'T') are the same, line by line and year by year; they
+//      land in exactly the line-years largeClaimArrivals draws for the game;
+//      and the game does carry some (not vacuous).
 //
 // ⚠ AND IT FAILS WHEN BROKEN — every check is a function over data, and THE
 // CONTROLS at the foot feed each one a deliberately broken input and require it
@@ -59,7 +66,7 @@ import {
 } from '../../src/utils/worlds';
 import { marketSeedOf } from '../../src/utils/bookUnits';
 import { SHOCK_FREE_PRICING, WORLD_COUNT } from '../../src/data/pricingParameters';
-import { firingsStartingIn } from '../../src/utils/shockLosses';
+import { firingsStartingIn, LARGE_CLAIM_ID, largeClaimArrivals } from '../../src/utils/shockLosses';
 import { exposureFactor } from '../../src/data/exposureTrend';
 import { computeFundingConsequence } from '../../src/utils/fundingConsequence';
 import { bookPurePremium } from '../../src/utils/newPurePremium';
@@ -218,8 +225,27 @@ function billedFrom(q: Quote, cover: number, moved: number, row: Pick<LineResult
   return out;
 }
 
-/** 6. One T claim, the same in every world (each world's claims as JSON). */
-const oneTClaim = (perWorld: string[]) => perWorld.length > 0 && perWorld[0] !== '[]' && new Set(perWorld).size === 1;
+/**
+ * 6. Large claims by frequency (wip/large-claims-frequency). `perWorld[w]` is
+ * world w's claims as [accident year, line, shockId, gross ultimate]; `drawn`
+ * the line-years largeClaimArrivals gives the game. Problems if any claim
+ * carries a catalogue event's id (an event's T), if the worlds' large claims
+ * differ, if they land anywhere but the drawn line-years, or if there are none.
+ */
+type ClaimRow = [number, CoverageLine, string, number];
+function largeClaimsShared(perWorld: ClaimRow[][], drawn: string[]): string[] {
+  const out: string[] = [];
+  perWorld.forEach((rows, w) => {
+    const ev = rows.find(r => r[2] !== LARGE_CLAIM_ID);
+    if (ev) out.push(`world ${w + 1}: an event's T claim — ${ev[2]} on ${ev[1]} in year ${ev[0]}, $${ev[3]}`);
+  });
+  const large = perWorld.map(rows => JSON.stringify(rows.filter(r => r[2] === LARGE_CLAIM_ID)));
+  if (new Set(large).size !== 1) out.push(`large claims in ${new Set(large).size} distinct forms over ${large.length} worlds`);
+  const landed = [...new Set((perWorld[0] ?? []).filter(r => r[2] === LARGE_CLAIM_ID).map(r => `${r[0]}|${r[1]}`))].sort();
+  if (landed.join(',') !== [...drawn].sort().join(',')) out.push(`large claims land in ${landed.join(',') || 'none'}; the game's draw ${drawn.join(',') || 'none'}`);
+  if (landed.length === 0) out.push('no large claim in the game — nothing measured');
+  return out;
+}
 
 /** 6. Every world's draws for each scheduled event are one: the game's (shockSeedOf). */
 function drawsShared(insts: GameInstance[], sched: ReadonlyArray<{ shockId: string; yearNumber: number }>): string[] {
@@ -454,7 +480,7 @@ check(JSON.stringify(B.gs.lockedResults) === JSON.stringify(gs.lockedResults)
   && JSON.stringify(B.gs.worlds) === JSON.stringify(gs.worlds), 'every world and the average, byte for byte');
 
 let hostDraws: { insts: GameInstance[]; sched: ReadonlyArray<{ shockId: string; yearNumber: number }> } = { insts: [], sched: [] };
-let hostT: string[] = [];
+let hostT: { perWorld: ClaimRow[][]; drawn: string[] } = { perWorld: [], drawn: [] };
 console.log('\n--- 6. shocks ---');
 {
   const fired = gs.lockedResults.flatMap(r => r.shockEvents ?? []).map(e => e.worlds?.fired ?? 0);
@@ -469,12 +495,17 @@ console.log('\n--- 6. shocks ---');
   const hostInsts = H.gs.worlds!.map((_, i) => worldInstance(H.gs.instance, i));
   hostDraws = { insts: hostInsts, sched: H.gs.instance.scheduledShocks ?? [] };
   const shared = drawsShared(hostInsts, hostDraws.sched);
-  const tClaims = H.gs.worlds!.map(w => JSON.stringify((w.lockedResults[1].byLine.Property.claims ?? [])
-    .filter(c => c.tier === 'shock' && c.accidentYear === 2).map(c => c.grossUltimate)));
-  hostT = tClaims;
-  check(shared.length === 0 && oneTClaim(tClaims),
-    'with its severity the game\'s: the same draws, and the same T claim, in every world',
-    shared[0] ?? `T claim ${tClaims[0]} in ${new Set(tClaims).size} distinct form(s) over ${tClaims.length} worlds`);
+  // Every claim tied to a shock source, in every world, line and year (accident year = the year played).
+  const perWorld: ClaimRow[][] = H.gs.worlds!.map(w => w.lockedResults.flatMap((r, yi) => LINES.flatMap(l =>
+    (r.byLine[l]?.claims ?? []).filter(c => c.shockId !== undefined && c.accidentYear === yi + 1)
+      .map(c => [yi + 1, l, c.shockId!, c.grossUltimate] as ClaimRow))));
+  const drawn: string[] = [];
+  for (let y = 1; y <= YEARS; y++) for (const a of largeClaimArrivals(H.gs.instance, y)) drawn.push(`${y}|${a.line}`);
+  hostT = { perWorld, drawn };
+  const lc = largeClaimsShared(perWorld, drawn);
+  check(shared.length === 0 && lc.length === 0,
+    'with its severity the game\'s: the same draws in every world; the event brings no T; the same large claims (by frequency) in every world, where the game drew them',
+    shared[0] ?? lc[0] ?? `${perWorld[0].length} large claim(s) (${drawn.join(', ')}) alike in ${perWorld.length} worlds`);
   const sev = H.gs.worlds!.map(w => (w.lockedResults[1].shockEvents ?? []).find(e => e.shockId === '#2')?.attributableGrossLoss ?? 0);
   check(new Set(sev).size > 1, 'and what each world books to it still differs, by its own ordinary year', `${new Set(sev).size} distinct of ${sev.length}`);
 }
@@ -559,7 +590,17 @@ console.log('\n--- CONTROLS: every check fails when broken ---');
   // Severity drawn per world (the retired design): every world's instance keyed on its own seed.
   check(drawsShared(hostDraws.insts.map(i => ({ ...i, marketSeed: undefined })), hostDraws.sched).length > 0,
     'control: severity drawn per world (shocks keyed on the world\'s seed) is caught');
-  check(oneTClaim(hostT) && !oneTClaim([...hostT.slice(0, -1), JSON.stringify([1e6])]), 'control: a T claim that differs in one world is caught');
+  {
+    const pw = hostT.perWorld, n = pw.length;
+    const ok = largeClaimsShared(pw, hostT.drawn).length === 0;
+    const differs = pw.map((rows, i) => (i === n - 1 ? rows.map((r, k) => (k === 0 ? [r[0], r[1], r[2], r[3] + 1] as ClaimRow : r)) : rows));
+    check(ok && largeClaimsShared(differs, hostT.drawn).length > 0, 'control: a large claim that differs in one world is caught');
+    const eventT = pw.map((rows, i) => (i === 0 ? [...rows, [2, 'Property', '#2', 1e6] as ClaimRow] : rows));
+    check(ok && largeClaimsShared(eventT, hostT.drawn).length > 0, 'control: an event\'s T claim (the Winterstorm\'s, in one world) is caught');
+    const elsewhere = pw.map(rows => rows.map(r => [r[0] === 1 ? 2 : 1, r[1], r[2], r[3]] as ClaimRow));
+    check(ok && largeClaimsShared(elsewhere, hostT.drawn).length > 0, 'control: large claims landing in line-years the game did not draw are caught');
+    check(largeClaimsShared(pw.map(() => []), hostT.drawn).length > 0, 'control: a game with no large claims landed is caught');
+  }
   // Two teams that do not match.
   const C = play('WCHK3', 5_150_516);
   check(JSON.stringify(C.gs.lockedResults) !== JSON.stringify(gs.lockedResults),

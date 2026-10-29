@@ -11,7 +11,7 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
-## Risk control in the divisor (save key v39) — wip/risk-control-divisor
+## Risk control in the divisor (save key v40) — wip/risk-control-divisor
 
 Risk control is an expense in the divisor, beside admin:
 
@@ -698,7 +698,7 @@ before it (VALUE_IDENTITY v63, SOLO_EXPORT_GUARD v66, RENDER_IDENTITY v43).
 ### Risk control — pending design
 
 ⚠ **Superseded:** risk control is live and charged in the divisor — see "Risk
-control in the divisor (save key v39)" at the top. The text below is kept as
+control in the divisor (save key v40)" at the top. The text below is kept as
 the record of the earlier plan.
 
 **Hidden like satisfaction**, behind `RISK_CONTROL` (off): no charge and no

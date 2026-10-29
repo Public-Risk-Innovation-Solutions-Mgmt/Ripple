@@ -5,7 +5,12 @@
 //   node scripts/tools/session-drivers/shock-news.cjs
 //
 // Test player (the host's setup in solo, no sign-in), scenario 16, three lines,
-// Nuclear Verdict (#7) scheduled in year 2 and an Earthquake (#1) in year 3:
+// Nuclear Verdict (#7) scheduled in year 2 and an Earthquake (#1) in year 3.
+// (RESTATED FOR wip/large-claims-frequency: Nuclear Verdict is the one event
+// that keeps its own large claim (EVENTS_KEEPING_LARGE_CLAIMS), so it is news
+// as before, on General Liability. Large claims also come in every game by
+// frequency: scenario 16 draws one on GL in year 3, so the lock into 2029
+// brings the Earthquake AND a "Large claim" item.)
 //
 //   1. after the first lock (into 2027, a quiet year) there is no banner;
 //   2. on the lock into 2028 the banner appears AT ONCE — with 2028's results,
@@ -95,6 +100,7 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   const bannerLines = linesIn((verdict ?? '').split('Your lines affected:')[1] ?? '');
   ok(bannerLines.length > 0, 'and the team\'s lines it touches', bannerLines.join(', '));
   ok(/jury|award|verdict/i.test(verdict ?? ''), 'with one plain line saying what it is', verdict);
+  ok(JSON.stringify(bannerLines) === JSON.stringify(['General Liability']), 'on General Liability, where its own large claim lands', bannerLines.join(', '));
   const text = (await banner().innerText()).trim();
   ok(!/\$/.test(text) && !/\b\d[\d,.]*\b/.test(text.replace(/\b2028\b/g, '')), 'no dollars and no other figure — the year alone', text.replace(/\s+/g, ' '));
   ok(!/\b(severe|high|moderate|low|mid|level|band|size)\b/i.test(text), 'no level, band or size', '');
@@ -114,16 +120,21 @@ const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
   ok(await banner().count() === 0, 'the banner can be dismissed');
   ok(await page.locator('[data-testid="events-panel-item"]').count() === 1, 'and the event stays listed');
 
-  // 4. The lock into 2029: the Earthquake's banner; both listed.
+  // 4. The lock into 2029: the Earthquake's banner, and GL's large claim; all listed.
   await lock(2030);
   const its3 = await items();
-  ok(await banner().count() === 1 && (await banner().getAttribute('data-year')) === '2029' && its3.length === 1 && its3[0].startsWith('Earthquake'),
-    'on the lock into 2029 the Earthquake\'s banner — and only it', its3.join(' | '));
+  ok(await banner().count() === 1 && (await banner().getAttribute('data-year')) === '2029' && its3.length === 2
+    && its3.some(t => t.startsWith('Earthquake')) && its3.some(t => t.startsWith('Large claim')),
+    'on the lock into 2029 the Earthquake\'s banner, with the year\'s large claim — and only those', its3.join(' | '));
+  const large = its3.find(t => t.startsWith('Large claim')) ?? '';
+  ok(/large claim is made/i.test(large) && JSON.stringify(linesIn(large.split('Your lines affected:')[1] ?? '')) === JSON.stringify(['General Liability']),
+    'the large claim as news: its own plain line (not a catastrophe\'s), on General Liability alone', large);
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
   await page.waitForTimeout(500);
   listed = (await page.locator('[data-testid="events-panel-item"]').allInnerTexts()).map(t => t.trim());
-  ok(listed.length === 2 && /^2028\s+Nuclear Verdict/.test(listed[0]) && /^2029\s+Earthquake/.test(listed[1]),
-    'both are listed, by year', listed.join(' | '));
+  ok(listed.length === 3 && /^2028\s+Nuclear Verdict/.test(listed[0]) && listed.slice(1).every(t => /^2029\s+/.test(t))
+    && listed.some(t => /^2029\s+Earthquake/.test(t)) && listed.some(t => /^2029\s+Large claim/.test(t)),
+    'all three are listed, by year', listed.join(' | '));
 
   // 5. 2028's event block on the Results page names the same lines.
   await lock(2031);

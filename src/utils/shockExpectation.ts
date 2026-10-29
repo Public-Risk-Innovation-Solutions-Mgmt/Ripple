@@ -28,7 +28,8 @@
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
   POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, ROUTINE_FOLD_NET_OF_UPLIFT, ROUTINE_LARGE_LOSSES, SHOCK_A_YEARS,
-  SHOCK_T_CLAIM_RANGE, UP_FRONT_TREND, AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS,
+  SHOCK_T_CLAIM_RANGE, UP_FRONT_TREND, AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY,
+  largeClaimsInEveryGame, EVENTS_KEEPING_LARGE_CLAIMS,
 } from '../data/pricingParameters';
 import { routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { shockTrendFactor } from './shockCost';
@@ -165,6 +166,23 @@ export function conditionalEventMoments(
   };
 }
 
+/**
+ * LARGE CLAIMS BY FREQUENCY (LARGE_CLAIMS_BY_FREQUENCY): given that a line's
+ * one large claim this year is at `level`, E and E[^2] of h over it — one
+ * claim, uniform on the level's range x the trend (as conditionalEventMoments).
+ * The annual figure is this x LARGE_CLAIM_FREQUENCY[level], over the levels;
+ * the levels exclude one another (at most one a year).
+ */
+export function levelClaimMoments(
+  line: CoverageLine, level: 'Low' | 'Mid' | 'High', yearNumber: number, h: PerLoss, kinks: (deductible: number) => number[],
+): { c1: number; c2: number } {
+  const g = shockTrendFactor(line, yearNumber);
+  const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][level].map(v => v * g);
+  const k = kinks(0);
+  return { c1: overUniformPw(lo, hi, k, x => h(x, 0)), c2: overUniformPw(lo, hi, k, x => h(x, 0) ** 2) };
+}
+const CLAIM_LEVELS = ['Low', 'Mid', 'High'] as const;
+
 /** h for a layer's cession, and its kinks — what the seam prices each layer with. */
 export function layerCession(line: CoverageLine, layer: { attachment: number; limit: number }): {
   h: PerLoss; kinks: (d: number) => number[];
@@ -197,7 +215,17 @@ function largeLossMoments(
 ): LargeMoments {
   const byEvent = new Map<string, number>();
   let mean = 0, variance = 0, occurrences = 0, routine = 0;
-  if ((yearNumber >= 1 || shocksInEveryYear) && exposure > 0) {
+  if ((yearNumber >= 1 || shocksInEveryYear) && exposure > 0 && LARGE_CLAIMS_BY_FREQUENCY.enabled) {
+    // At most one large claim a year: a mixture over the levels, not independent arrivals.
+    let m1 = 0, m2 = 0;
+    for (const lv of CLAIM_LEVELS) {
+      const p = LARGE_CLAIM_FREQUENCY[lv], c = levelClaimMoments(line, lv, yearNumber, h, kinks);
+      m1 += p * c.c1; m2 += p * c.c2; occurrences += p;
+    }
+    mean += m1;
+    variance += m2 - m1 * m1;
+    byEvent.set('Large claim', m1);
+  } else if ((yearNumber >= 1 || shocksInEveryYear) && exposure > 0) {
     for (const e of SHOCK_EVENTS) {
       const c = conditionalEventMoments(line, e.name, exposure, yearNumber, h, kinks);
       if (c === null) continue;
@@ -260,7 +288,7 @@ export function routineFoldPer100(line: CoverageLine, yearNumber: number): numbe
   // already carries the $1M – $5M layer, and what lies above $5M arrives only
   // with the shocks. Property, still on its derived cost, keeps the fold.
   if (ROUTINE_LARGE_LOSSES.enabled || POOL_LOSS_COST_LAYERS[line]) return 0;
-  const key = `${line}|${yearNumber}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}|${UP_FRONT_TREND.enabled}|${ROUTINE_FOLD_NET_OF_UPLIFT.enabled}`;
+  const key = `${line}|${yearNumber}|${SHOCK_EVENTS.reduce((a, e) => a + e.probability, 0)}|${UP_FRONT_TREND.enabled}|${ROUTINE_FOLD_NET_OF_UPLIFT.enabled}|${LARGE_CLAIMS_BY_FREQUENCY.enabled}|${Object.values(LARGE_CLAIM_FREQUENCY).join(',')}`;
   const hit = foldMemo.get(key);
   if (hit !== undefined) return hit;
   const basis = routineLargeBasis(line);
@@ -322,16 +350,35 @@ export function expectedLossBreakdown(
   const large = largeLossMoments(line, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line), true, routineOn,
     false, bookRisk);
   if (!shocks) {
-    return { ordinary, uplift: 0, shockLarge: 0, routineLarge: large.routine, total: ordinary + large.routine, byEvent: new Map() };
+    // ⚠ LARGE CLAIMS COME IN EVERY GAME (LARGE_CLAIMS_EVERY_GAME): with the
+    // shocks off there is no uplift, but the line's large claims are drawn as
+    // in any game, so their expectation stays.
+    const shockLarge = largeClaimsInEveryGame() ? large.mean - large.routine : 0;
+    return { ordinary, uplift: 0, shockLarge, routineLarge: large.routine, total: ordinary + large.routine + shockLarge,
+      byEvent: shockLarge > 0 ? new Map(large.byEvent) : new Map() };
   }
   const u = upliftMoments(line, yearNumber);
   const byEvent = new Map<string, number>();
   for (const [k, v] of u.byEvent) byEvent.set(k, v * ordinary);
   for (const [k, v] of large.byEvent) byEvent.set(k, (byEvent.get(k) ?? 0) + v);
   const uplift = u.mean * ordinary;
+  // ⚠ THE EVENTS THAT KEEP THEIR OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS:
+  // Nuclear Verdict on GL), on top of the frequencies' claims, at the
+  // catalogue's odds — while the shocks are on, in a played year. Here in the
+  // expectation only: the covers are priced on the frequencies alone.
+  let kept = 0;
+  if (LARGE_CLAIMS_BY_FREQUENCY.enabled && yearNumber >= 1 && exposure > 0) {
+    for (const e of SHOCK_EVENTS) {
+      if (!EVENTS_KEEPING_LARGE_CLAIMS.includes(e.name)) continue;
+      const c = conditionalEventMoments(line, e.name, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line));
+      if (c === null) continue;
+      kept += e.probability * c.c1;
+      byEvent.set(e.name, (byEvent.get(e.name) ?? 0) + e.probability * c.c1);
+    }
+  }
   return {
-    ordinary, uplift, shockLarge: large.mean - large.routine, routineLarge: large.routine,
-    total: ordinary + uplift + large.mean, byEvent,
+    ordinary, uplift, shockLarge: large.mean - large.routine + kept, routineLarge: large.routine,
+    total: ordinary + uplift + large.mean + kept, byEvent,
   };
 }
 
@@ -406,7 +453,9 @@ export function expectedLargeLossCount(line: CoverageLine, exposure: number, yea
  *
  * ⚠ AND ZERO WHEN THE GAME'S SHOCKS ARE OFF (shockLosses.gameShocksOn), like
  * the expectation: a game in which no catastrophe can fire holds no capital
- * for one. With a schedule, or on a harness's catalogue, it returns.
+ * for one. With a schedule, or on a harness's catalogue, it returns. UNLESS
+ * large claims come in every game (LARGE_CLAIMS_EVERY_GAME): then the capital
+ * for one large claim is held shocks on or off.
  */
 export function newEngineCatCapital(
   line: CoverageLine, exposure: number, yearNumber: number, placed: readonly boolean[] | null,
@@ -416,12 +465,24 @@ export function newEngineCatCapital(
   /** The game's shock switch (shockLosses.gameShocksOn); absent is on. */
   shocks = true,
 ): number {
-  if (line !== 'Property' || !(exposure > 0) || !shocks) return 0;
+  // Large claims in every game (LARGE_CLAIMS_EVERY_GAME): the capital for one stays with the shocks off.
+  if (line !== 'Property' || !(exposure > 0) || !(shocks || largeClaimsInEveryGame())) return 0;
   if (AGGREGATE_STOP.enabled && stopOptionId !== undefined) return stopCatRetained(line, exposure, yearNumber, stopOptionId);
   const layers = REINSURANCE_TOWER.Property.filter((l, i) => placed?.[i] === true && l.purchasable);
   const h: PerLoss = (x, d) => poolShare(line, x) - layers.reduce((s, l) => s + cedeAboveLocal(poolShare(line, x), l, d), 0);
   const kinks = (d: number) => layers.flatMap(l => [Math.max(l.attachment, d), l.attachment + l.limit]);
   let weight = 0, retained = 0;
+  // ⚠ WITH LARGE_CLAIMS_BY_FREQUENCY ON, Property's large claims come by
+  // frequency, not with its regional catastrophes: the capital is what the pool
+  // retains from the one large claim that happens, weighted by each level's chance.
+  if (LARGE_CLAIMS_BY_FREQUENCY.enabled) {
+    for (const lv of CLAIM_LEVELS) {
+      const p = LARGE_CLAIM_FREQUENCY[lv];
+      weight += p;
+      retained += p * levelClaimMoments(line, lv, yearNumber, h, kinks).c1;
+    }
+    return weight > 0 ? retained / weight : 0;
+  }
   for (const e of SHOCK_EVENTS) {
     if (!e.regional) continue;
     const c = conditionalEventMoments(line, e.name, exposure, yearNumber, h, kinks);
@@ -450,6 +511,15 @@ function stopCatRetained(line: CoverageLine, exposure: number, yearNumber: numbe
   const h = (x: number) => x - Math.min(Math.max(e + x - attachment, 0), limit);
   const kinks = limit > 0 ? [attachment - e, attachment - e + limit].filter(k => k > 0) : [];
   let weight = 0, retained = 0;
+  if (LARGE_CLAIMS_BY_FREQUENCY.enabled) {
+    const g = shockTrendFactor(line, yearNumber);
+    for (const lv of CLAIM_LEVELS) {
+      const [lo, hi] = SHOCK_T_CLAIM_RANGE[line][lv].map(v => v * g);
+      weight += LARGE_CLAIM_FREQUENCY[lv];
+      retained += LARGE_CLAIM_FREQUENCY[lv] * overUniformPw(lo, hi, kinks, h);
+    }
+    return weight > 0 ? retained / weight : 0;
+  }
   for (const ev of SHOCK_EVENTS) {
     if (!ev.regional) continue;
     const row = eventLines(ev.name).find(r => r.line === line && r.t !== 'None');

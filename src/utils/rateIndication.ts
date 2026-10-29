@@ -38,7 +38,7 @@
 // ⚠ NOTHING HERE IS SHOWN AS METHOD. The page prints labels and figures only
 // (docs/PENDING_MULTIPLAYER.md: players never see how the engine works).
 // ============================================================================
-import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_COVER_DEFAULT, AGGREGATE_STOP_OPTIONS, RATE_INDICATION_FUNDING_LEVELS } from '../data/pricingParameters';
+import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_COVER_DEFAULT, AGGREGATE_STOP_OPTIONS, RATE_INDICATION_FUNDING_LEVELS, largeClaimsInEveryGame } from '../data/pricingParameters';
 import { aggregateCoverOption, aggregateCoverOptionIds } from './aggregateCover';
 import { gameHistory } from './gameHistory';
 import { computeFundingConsequence } from './fundingConsequence';
@@ -101,7 +101,8 @@ export interface RateIndication {
   /**
    * EVENT LIKELIHOODS (utils/eventLikelihoods): the size of a single large (T)
    * claim at 1 in 10 to 1 in 200 years for the year priced, at the growth
-   * factor its cover prices use; null when the game's shocks are off.
+   * factor its cover prices use; in every game with LARGE_CLAIMS_EVERY_GAME,
+   * otherwise null when the game's shocks are off.
    */
   eventLikelihoods: { years: number; size: number | null }[] | null;
 }
@@ -275,6 +276,7 @@ export function buildRateIndication(
     positions,
     reinsurance,
     aggregateCovers,
-    eventLikelihoods: shocks ? eventLikelihoods(line, pricedGrowthFactor(line as TowerLine, coverBook, yearNumber)) : null,
+    // In every game with LARGE_CLAIMS_EVERY_GAME; otherwise shocks on only.
+    eventLikelihoods: shocks || largeClaimsInEveryGame() ? eventLikelihoods(line, pricedGrowthFactor(line as TowerLine, coverBook, yearNumber)) : null,
   };
 }

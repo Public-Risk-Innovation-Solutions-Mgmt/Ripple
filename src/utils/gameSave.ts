@@ -153,7 +153,7 @@ import { newLossEngineRuns } from '../data/pricingParameters';
  * comment asking the next reader to keep them in step by hand. That is the
  * keyed-lookup defect in its plainest form.
  */
-export const SAVE_KEY = 'riskpool_gamestate_v39';
+export const SAVE_KEY = 'riskpool_gamestate_v40';
 
 /**
  * ⚠ v11 SINCE LOSS ENGINE COMMIT 4a — A REAL SCHEMA CHANGE. A team's decision is
@@ -282,11 +282,16 @@ export const SAVE_KEY = 'riskpool_gamestate_v39';
 // (LineDecisionSet.aggregateCover), priced in the rate and recovering at
 // booking. A v37 save has no such choice; its replay would be the same game,
 // but a v37 build reading a v38 save would drop the cover silently.
-// ⚠ v39 SINCE RISK CONTROL MOVED INTO THE DIVISOR (wip/risk-control-divisor).
+// ⚠ v39 SINCE LARGE CLAIMS BY FREQUENCY (wip/large-claims-frequency). Each
+// line's large claims are drawn at Low 7.5%, Mid 5.25%, High 2.25% a year in
+// every game, shocks on or off, not with the catalogue's events (Nuclear
+// Verdict alone keeps its own), and the pricing shadow starts with the first
+// of them. A v38 replay would draw, cede and price differently.
+// ⚠ v40 SINCE RISK CONTROL MOVED INTO THE DIVISOR (wip/risk-control-divisor).
 // The rate is pure premium x CLF / (1 - admin - slider) + reinsurance, where
-// v38 multiplied it by (1 + slider): at any slider above 0% a v38 replay would
+// v39 multiplied it by (1 + slider): at any slider above 0% a v39 replay would
 // charge, book admin and size the cut differently.
-export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38'];
+export const RETIRED_SAVE_KEYS: readonly string[] = ['riskpool_gamestate_v10', 'riskpool_gamestate_v11', 'riskpool_gamestate_v12', 'riskpool_gamestate_v13', 'riskpool_gamestate_v14', 'riskpool_gamestate_v15', 'riskpool_gamestate_v16', 'riskpool_gamestate_v17', 'riskpool_gamestate_v18', 'riskpool_gamestate_v19', 'riskpool_gamestate_v20', 'riskpool_gamestate_v21', 'riskpool_gamestate_v22', 'riskpool_gamestate_v23', 'riskpool_gamestate_v24', 'riskpool_gamestate_v25', 'riskpool_gamestate_v26', 'riskpool_gamestate_v27', 'riskpool_gamestate_v28', 'riskpool_gamestate_v29', 'riskpool_gamestate_v30', 'riskpool_gamestate_v31', 'riskpool_gamestate_v32', 'riskpool_gamestate_v33', 'riskpool_gamestate_v34', 'riskpool_gamestate_v35', 'riskpool_gamestate_v36', 'riskpool_gamestate_v37', 'riskpool_gamestate_v38', 'riskpool_gamestate_v39'];
 
 /**
  * Fields dropped on the way out.

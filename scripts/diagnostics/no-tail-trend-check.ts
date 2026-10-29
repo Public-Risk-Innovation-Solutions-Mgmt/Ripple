@@ -28,6 +28,15 @@
 //      every valuation, in the ratio of the factor — the ratio does not grow as
 //      a year ages.
 //
+// RESTATED FOR wip/large-claims-frequency: large claims now arrive by
+// frequency (LARGE_CLAIMS_BY_FREQUENCY, ~15% a line-year) in every solo game
+// with shocks on, so section 6's WC games carry some. A large claim is sized
+// by shockCostFactor (trend x book growth since year 1), never by the dormant
+// up-front factor — as the T claims never were — so the accident years in
+// which a WC large claim arrived (read from largeClaimArrivals on the game's
+// own instance) are SET ASIDE, the rest must hold the ratio exactly as before,
+// and at least one year must have been set aside (the games do exercise it).
+//
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: the tail kept, reported closed
 // on its own end, pricing with a tail factor, GL at 5%, the lag counted from k
 // rather than k - 1, the factor run along the paid pattern, and a year that
@@ -46,6 +55,7 @@ import { openSoloInstance } from '../../src/utils/soloGame';
 import { runPriorHistory } from '../../src/utils/priorHistoryEngine';
 import { defaultDecisionSet } from '../../src/utils/decisionDefaults';
 import { processYear } from '../../src/utils/simulationEngine';
+import { largeClaimArrivals } from '../../src/utils/shockLosses';
 import type { CoverageLine, GameSetupSettings, GameState, PoolState } from '../../src/types/simulation';
 
 const LINES: CoverageLine[] = ['WC', 'GL', 'Property'];
@@ -87,7 +97,7 @@ function gradePatterns(paid: Patterns, reported: Patterns, tag: string) {
 
 // ---------------------------------------------------------------- games
 // The pool state at the end of each played year.
-interface Played { states: PoolState[] }
+interface Played { states: PoolState[]; largeClaimYears: Set<number> }
 function play(id: string, years: number, lines: CoverageLine[]): Played {
   const { setup, instance } = openSoloInstance({ poolName: 'T', gameLength: years, startingYear: 2026, instanceId: id, activeLines: lines } as GameSetupSettings);
   const { poolState, priorHistory, earlyPreGameHistory } = runPriorHistory(instance, setup);
@@ -98,7 +108,10 @@ function play(id: string, years: number, lines: CoverageLine[]): Played {
     states.push(p.updatedPoolState);
     gs = { ...gs, currentYearNumber: y + 1, poolState: p.updatedPoolState, lockedResults: [...gs.lockedResults, p.result] };
   }
-  return { states };
+  // The accident years in which a WC large claim arrived (game seed; every world alike).
+  const largeClaimYears = new Set<number>();
+  for (let y = 1; y <= years; y++) for (const a of largeClaimArrivals(instance, y)) if (a.line === 'WC') largeClaimYears.add(y);
+  return { states, largeClaimYears };
 }
 
 // ---------------------------------------------------------------- 3
@@ -172,18 +185,20 @@ type Series = (st: PoolState) => { ay: number; paid: number[] }[];
 const grossSeries: Series = st => (st.lines.WC?.reserveDevelopment ?? [])
   .map(x => ({ ay: x.yearNumber, paid: x.grossPaidByValuation ?? [] }));
 function gradeNoTrendDevelopment(series: Series, tag: string) {
-  let worst = 0, cells = 0;
+  let worst = 0, cells = 0, setAside = 0;
   withF.forEach((g, gi) => g.states.forEach((st, si) => {
     const a = series(st), b = grossSeries(withoutF[gi].states[si]);
     a.forEach((row, i) => row.paid.forEach((v, k) => {
       const w = b[i]?.paid[k];
       if (!(w > 0)) return;
+      // A WC large claim's year: the claim is not scaled by the up-front factor (see header).
+      if (g.largeClaimYears.has(row.ay)) { setAside++; return; }
       cells++;
       worst = Math.max(worst, rel(v / w, F_WC));
     }));
   }));
-  check(cells > 0 && worst < 1e-9, `${tag}6. the dormant up-front factor, switched on: older years do not develop for trend`,
-    `${cells} accident-year valuations in ${ids.length} WC games; worst relative ${worst.toExponential(2)}`);
+  check(cells > 0 && setAside > 0 && worst < 1e-9, `${tag}6. the dormant up-front factor, switched on: older years do not develop for trend`,
+    `${cells} accident-year valuations in ${ids.length} WC games (${setAside} in large-claim years set aside: ${withF.map(g => [...g.largeClaimYears].join('+') || '-').join(', ')}); worst relative ${worst.toExponential(2)}`);
 }
 
 console.log('NO TAIL, AND TREND PER LINE BOOKED UP FRONT');
@@ -218,6 +233,13 @@ controlFails('payment lag counted from k', () => gradeTrend(SHIPPED_TREND, 1, ''
 controlFails('the factor run along the paid pattern', () => gradeTrend(SHIPPED_TREND, 0, '', l => PAID_DEVELOPMENT_PATTERN[l]), '5.');
 controlFails('a year that develops for trend', () => gradeNoTrendDevelopment(r => grossSeries(r)
   .map(x => ({ ...x, paid: x.paid.map((v, k) => v * Math.pow(1.04, k)) })), ''), '6.');
+// The set-aside is no wider than it must be: kept in, the large-claim years break the ratio.
+{
+  const saved = withF.map(g => new Set(g.largeClaimYears));
+  withF.forEach(g => g.largeClaimYears.clear());
+  controlFails('the large-claim years kept in (a claim not scaled by the factor)', () => gradeNoTrendDevelopment(grossSeries, ''), '6.');
+  withF.forEach((g, i) => saved[i].forEach(y => g.largeClaimYears.add(y)));
+}
 
 console.log('');
 if (failures.length) {
