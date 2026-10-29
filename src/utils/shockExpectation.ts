@@ -29,7 +29,7 @@ import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import {
   POOL_LIMIT_PER_OCCURRENCE, POOL_LOSS_COST_LAYERS, R_MODEL, ROUTINE_FOLD_NET_OF_UPLIFT, ROUTINE_LARGE_LOSSES, SHOCK_A_YEARS,
   SHOCK_T_CLAIM_RANGE, UP_FRONT_TREND, AGGREGATE_STOP, AGGREGATE_STOP_OPTIONS, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY,
-  largeClaimsInEveryGame,
+  largeClaimsInEveryGame, EVENTS_KEEPING_LARGE_CLAIMS,
 } from '../data/pricingParameters';
 import { routineExpectation, routineLargeBasis, routineLargeCount } from './largeLosses';
 import { shockTrendFactor } from './shockCost';
@@ -362,9 +362,23 @@ export function expectedLossBreakdown(
   for (const [k, v] of u.byEvent) byEvent.set(k, v * ordinary);
   for (const [k, v] of large.byEvent) byEvent.set(k, (byEvent.get(k) ?? 0) + v);
   const uplift = u.mean * ordinary;
+  // ⚠ THE EVENTS THAT KEEP THEIR OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS:
+  // Nuclear Verdict on GL), on top of the frequencies' claims, at the
+  // catalogue's odds — while the shocks are on, in a played year. Here in the
+  // expectation only: the covers are priced on the frequencies alone.
+  let kept = 0;
+  if (LARGE_CLAIMS_BY_FREQUENCY.enabled && yearNumber >= 1 && exposure > 0) {
+    for (const e of SHOCK_EVENTS) {
+      if (!EVENTS_KEEPING_LARGE_CLAIMS.includes(e.name)) continue;
+      const c = conditionalEventMoments(line, e.name, exposure, yearNumber, x => poolShare(line, x), () => poolKinks(line));
+      if (c === null) continue;
+      kept += e.probability * c.c1;
+      byEvent.set(e.name, (byEvent.get(e.name) ?? 0) + e.probability * c.c1);
+    }
+  }
   return {
-    ordinary, uplift, shockLarge: large.mean - large.routine, routineLarge: large.routine,
-    total: ordinary + uplift + large.mean, byEvent,
+    ordinary, uplift, shockLarge: large.mean - large.routine + kept, routineLarge: large.routine,
+    total: ordinary + uplift + large.mean + kept, byEvent,
   };
 }
 

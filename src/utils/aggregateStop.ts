@@ -30,7 +30,7 @@
 // ============================================================================
 
 import {
-  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SAMPLES, AGGREGATE_STOP_SD_LOAD, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY,
+  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SAMPLES, AGGREGATE_STOP_SD_LOAD, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, eventKeepsLargeClaim,
   R_MODEL, SHOCK_A_YEARS, SHOCK_T_CLAIM_RANGE, type AggregateStopOption,
 } from '../data/pricingParameters';
 import { DECAY, SHOCK_EVENTS, eventLines, poolShare, type ShockLevel } from './shockLosses';
@@ -124,7 +124,7 @@ function samplesFor(line: CoverageLine): LineSamples {
         if (age < 2) u2 += d;
         u3 += d;
         // Its large losses land in the year it fires — unless they come by frequency.
-        if (age === 0 && ev.t && !LARGE_CLAIMS_BY_FREQUENCY.enabled) sizes.push(ev.t[0] + rng.next() * (ev.t[1] - ev.t[0]));
+        if (age === 0 && ev.t && eventKeepsLargeClaim(ev.e.name)) sizes.push(ev.t[0] + rng.next() * (ev.t[1] - ev.t[0]));
       }
     }
     // LARGE_CLAIMS_BY_FREQUENCY: at most one large claim a year, its level by frequency.

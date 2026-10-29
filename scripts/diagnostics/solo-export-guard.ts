@@ -1030,6 +1030,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // rate (the shock-free pricing shadow). The 8 statements that match are for the
 // line-games where no large claim lands in either build (GL in 6KA6WGLJ and
 // MAMC6EA4; PR and WC in ZZTEST99; both arms). No file is added or removed.
+// NUCLEAR VERDICT KEEPS ITS OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS),
+// captured into this same v108 before landing. Against the capture without it,
+// the 12 GL-solo and tri Results files move, each by the GL Expected Losses,
+// its net row and the Pure Premium row beside them (NV's claim at its catalogue
+// odds); no Nuclear Verdict fires in these games, and no statement moves.
+// LARGE CLAIMS IN EVERY GAME moves nothing here: these games' shocks are on.
 const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v108.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');

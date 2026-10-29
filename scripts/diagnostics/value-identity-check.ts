@@ -1495,6 +1495,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // path the rate is struck from the shadow, which draws no large claims.
 // large-claim-frequency-check proves that, with a control that fails when the
 // shadow is bypassed.
+// NUCLEAR VERDICT KEEPS ITS OWN LARGE CLAIM (EVENTS_KEEPING_LARGE_CLAIMS),
+// captured into this same v91 before landing. Against the capture without it,
+// 300 values move, all on GL: expectedLoss and clfAdjustedExpectedLoss (GL and
+// pool rows) and lossPurePremiumPer100, in every GL-solo and tri instance-year,
+// carrying NV's claim at its catalogue odds (first instance's GL Y1 $21.79M ->
+// $22.20M). No Nuclear Verdict fires in these games, so no loss or rate moves.
+// LARGE CLAIMS IN EVERY GAME (LARGE_CLAIMS_EVERY_GAME) moves nothing here:
+// every game in this harness has its shocks on.
 const BASELINE = path.join(__dirname, '../../baselines/VALUE_IDENTITY_v91.json');
 
 function seedOf(id: string) {

@@ -31,7 +31,7 @@ import type {
   CoverageLine, GameInstance, GameState, LineResultSet, LineView, ResultSet,
 } from '../types/simulation';
 import {
-  ADMIN_SHARE_OF_PREMIUM, ADVERSE_DEVELOPMENT, LARGE_CLAIMS_BY_FREQUENCY, MEMBER_LUCK_CV, MEMBER_RISK_CV, UNDERWRITING_MEMBERS,
+  ADMIN_SHARE_OF_PREMIUM, ADVERSE_DEVELOPMENT, eventKeepsLargeClaim, MEMBER_LUCK_CV, MEMBER_RISK_CV, UNDERWRITING_MEMBERS,
 } from '../data/pricingParameters';
 import { REINSURANCE_TOWER, type TowerLine } from '../data/reinsuranceTower';
 import { SAVE_KEY } from './gameSave';
@@ -273,8 +273,9 @@ function lineDraws(s: YearSource, l: CoverageLine): WalkBlock[] {
   for (const e of a.shockEvents ?? []) {
     const catalogueName = SHOCK_EVENTS.find(x => x.id === e.shockId)?.name ?? e.name;
     const lv = eventLines(catalogueName).find(r => r.line === l);
-    // With LARGE_CLAIMS_BY_FREQUENCY on an event sets no large claim: its A and R only.
-    shockRows.push({ label: `${e.name} — level`, value: lv ? (LARGE_CLAIMS_BY_FREQUENCY.enabled ? `A ${lv.a} / R ${lv.r}` : `A ${lv.a} / T ${lv.t} / R ${lv.r}`) : (e.band ?? '—'), kind: 'text' });
+    // With LARGE_CLAIMS_BY_FREQUENCY on an event sets no large claim: its A and R only —
+    // all but the events that keep their own (eventKeepsLargeClaim: Nuclear Verdict).
+    shockRows.push({ label: `${e.name} — level`, value: lv ? (!eventKeepsLargeClaim(catalogueName) ? `A ${lv.a} / R ${lv.r}` : `A ${lv.a} / T ${lv.t} / R ${lv.r}`) : (e.band ?? '—'), kind: 'text' });
     shockRows.push({ label: `${e.name} — region`, value: e.region ?? 'pool-wide', kind: 'text' });
     const surge = wl ? mean(wl.map(r => (r.newLossEngine?.events ?? []).filter(x => x.id === e.shockId).reduce((t, x) => t + x.uplift, 0))) : null;
     shockRows.push({ label: `${e.name} — surge %`, value: surge, kind: 'pct' });

@@ -49,7 +49,7 @@
 import {
   GAME_REGIONS, INVESTMENT_LOSS_BY_ASSET, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, POOL_LIMIT_PER_OCCURRENCE, R_MODEL,
   REGION_EXPOSURE_SHARE, ROUTINE_LARGE_LOSSES, regionByShare, SHOCK_A_YEARS, SHOCK_CATALOGUE_SCALE, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
-  largeClaimsInEveryGame,
+  largeClaimsInEveryGame, eventKeepsLargeClaim,
 } from '../data/pricingParameters';
 import { deriveSubRng, type SeededRandom } from './random';
 import { getMemberExposure } from './lineHelpers';
@@ -290,8 +290,10 @@ export function resolveShockYear(
         if (row.a !== 'None' && age < SHOCK_A_YEARS) add(row.line, aShare(row.line, row.a, d.a), 0);
         if (row.r !== 'None') add(row.line, 0, within(R_MODEL.rShock[row.r], d.r) * decay);
         // ⚠ NOT WITH LARGE_CLAIMS_BY_FREQUENCY ON: large claims arrive by
-        // frequency below, and an event keeps only its A and R.
-        if (row.t !== 'None' && age === 0 && !LARGE_CLAIMS_BY_FREQUENCY.enabled) {
+        // frequency below, and an event keeps only its A and R — all but the
+        // events that keep their own (EVENTS_KEEPING_LARGE_CLAIMS: Nuclear
+        // Verdict), whose claim comes on top of the line's regular ones.
+        if (row.t !== 'None' && age === 0 && eventKeepsLargeClaim(e.name)) {
           byLine[row.line].arrivals.push({ firing, line: row.line, level: row.t, size: tClaimSize(row.line, row.t, d.t) });
         }
       }

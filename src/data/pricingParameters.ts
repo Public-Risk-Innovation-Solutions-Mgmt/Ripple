@@ -1415,6 +1415,30 @@ export const LARGE_CLAIM_FREQUENCY: Readonly<Record<'Low' | 'Mid' | 'High', numb
  * only (REINSURANCE_OFFERED_SHOCKS_OFF).
  */
 export const LARGE_CLAIMS_EVERY_GAME = { enabled: true };
+
+/**
+ * THE ONE EVENT THAT KEEPS ITS OWN LARGE CLAIM: NUCLEAR VERDICT. With
+ * LARGE_CLAIMS_BY_FREQUENCY on, no catalogue event sets a large claim — except
+ * the events named here. When Nuclear Verdict fires, General Liability gets one
+ * large claim at its level from the event map (High), sized as before (the
+ * line's range for the level x the year's growth factor), ON TOP of the
+ * regular large claims drawn at LARGE_CLAIM_FREQUENCY. It keeps its
+ * development effect, its wording and its news. Every other event sets none.
+ *
+ * WHY: a nuclear verdict IS a single very large award — without its claim the
+ * event did nothing a player could see in its year. The others' large claims
+ * are what the yearly frequencies now stand in for.
+ *
+ * ⚠ GL'S COVER PRICES DO NOT INCLUDE THESE EXTRA CLAIMS: the covers are priced
+ * on T_COVER_FREQUENCY alone (tCoverPrice), so in a year Nuclear Verdict fires
+ * a cover recovers on its claim beyond what its price allowed for. The Event
+ * Likelihoods (the frequencies' table) do not include it either. The expected
+ * losses do, at the event's catalogue odds, while the game's shocks are on.
+ */
+export const EVENTS_KEEPING_LARGE_CLAIMS: readonly string[] = ['Nuclear Verdict'];
+/** Does this catalogue event still set its own large claim (EVENTS_KEEPING_LARGE_CLAIMS)? */
+export const eventKeepsLargeClaim = (eventName: string): boolean =>
+  !LARGE_CLAIMS_BY_FREQUENCY.enabled || EVENTS_KEEPING_LARGE_CLAIMS.includes(eventName);
 /** Are large claims and their covers in every game, shocks on or off? Both switches on. */
 export const largeClaimsInEveryGame = (): boolean => LARGE_CLAIMS_BY_FREQUENCY.enabled && LARGE_CLAIMS_EVERY_GAME.enabled;
 
@@ -3031,7 +3055,7 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         unit: 'at most one per line a year',
         what: 'Each played year each line draws at most one large claim — its level by these chances, its size uniform '
           + 'across the line\'s range for the level x the year\'s growth factor. The catalogue events keep their surge and '
-          + 'development but no longer set large claims. In every game, shocks on or off (LARGE_CLAIMS_EVERY_GAME); never in the pre-game.',
+          + 'development but no longer set large claims — all but Nuclear Verdict (EVENTS_KEEPING_LARGE_CLAIMS). In every game, shocks on or off (LARGE_CLAIMS_EVERY_GAME); never in the pre-game.',
         basis: 'CHOSEN',
         note: 'The T-shock assumptions\' frequencies, the same values the cover prices use (held apart, so the prices stay '
           + 'as they are). Kept out of the rate entirely — a pool without cover pays them from surplus, which teaches the '
@@ -3086,6 +3110,15 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Large claims come in every game (LARGE_CLAIMS_EVERY_GAME), so a game with its shocks off (a hosted room '
           + 'with none scheduled) is offered and priced every cover exactly as one with them on. Off, only None.',
         basis: 'CHOSEN', note: 'Shocks off means only that no catalogue event fires; large claims still come, so the covers still pay.',
+      }],
+      ['Events keeping their large claim', {
+        value: EVENTS_KEEPING_LARGE_CLAIMS.join(' · ') || 'none', unit: 'list',
+        what: 'When Nuclear Verdict fires, General Liability gets one large claim at its map level (High), sized as before x the '
+          + 'year\'s growth factor, on top of the regular large claims. It keeps its development, wording and news. Every '
+          + 'other event sets no large claim.',
+        basis: 'CHOSEN',
+        note: 'The one exception. GL\'s cover prices do not include its extra claims (they are priced on the frequencies '
+          + 'alone), nor do the Event Likelihoods; the expected losses do, while shocks are on.',
       }],
       ['Large claims in every game', {
         value: LARGE_CLAIMS_EVERY_GAME.enabled ? 'on' : 'off', unit: 'switch',
