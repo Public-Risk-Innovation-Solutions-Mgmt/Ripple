@@ -28,12 +28,24 @@
 // (1 + trend)^(y - 1), WC 4%, GL 8%, Property 5%. New control: the events' T
 // switched back on (LARGE_CLAIMS_BY_FREQUENCY off) is caught by 2.
 //
+// RESTATED FOR EVENTS_KEEPING_LARGE_CLAIMS (Nuclear Verdict keeps its own
+// large claim): when NV fires, GL gets one High claim ($7-40M) on top of the
+// frequency draw, and expectedLossBreakdown (shocks on) carries its expectation
+// in shockLarge: p(NV) x the High range's midpoint x the GL trend (GL has no
+// pool limit, so the pool's share of the claim is all of it). So section 2's
+// expected large claims are now the brief's frequencies x midpoints x trend
+// PLUS, on GL only, p(NV) x $23.5M x 1.08^(y - 1) — p(NV) written out as the R
+// model's 2.5% x the catalogue scale; and the catalogue now moves GL's by NV's
+// probability ONLY (at the R model's probabilities GL carries 2.5% x the same),
+// WC's and Property's not at all. New controls: EVENTS_KEEPING_LARGE_CLAIMS
+// emptied at runtime, and Pandemic added to it, are each caught by 2.
+//
 // ⚠ AND EACH FAILS WHEN BROKEN — THE CONTROLS: one event left unscaled,
 // pricing on the R model's probabilities, the old one-per-three-years count,
 // and an event slipped into year 1.
 // ============================================================================
 
-import { LARGE_CLAIMS_BY_FREQUENCY, R_MODEL, SHOCK_CATALOGUE_SCALE, SHOCKS_PER_YEAR } from '../../src/data/pricingParameters';
+import { EVENTS_KEEPING_LARGE_CLAIMS, LARGE_CLAIMS_BY_FREQUENCY, R_MODEL, SHOCK_CATALOGUE_SCALE, SHOCKS_PER_YEAR } from '../../src/data/pricingParameters';
 import { SHOCK_EVENTS } from '../../src/utils/shockLosses';
 import { expectedLossBreakdown, upliftMoments } from '../../src/utils/shockExpectation';
 import { drawShockSchedule, shockDrawRange, HOST_SHOCK_STREAM, SOLO_SHOCK_STREAM } from '../../src/utils/shockSchedule';
@@ -88,17 +100,24 @@ const BRIEF_RANGE: Record<CoverageLine, Record<Lv, [number, number]>> = {
 const BRIEF_TREND: Record<CoverageLine, number> = { WC: 0.04, GL: 0.08, Property: 0.05 };
 const briefLarge = (l: CoverageLine, y: number) => Math.pow(1 + BRIEF_TREND[l], y - 1)
   * (Object.keys(BRIEF_FREQ) as Lv[]).reduce((a, lv) => a + BRIEF_FREQ[lv] * (BRIEF_RANGE[l][lv][0] + BRIEF_RANGE[l][lv][1]) / 2, 0);
+// Nuclear Verdict's own GL claim (EVENTS_KEEPING_LARGE_CLAIMS), written out:
+// GL High $7-40M, its midpoint x the GL trend, at the event's probability.
+const NV_RAW_P = 0.025;
+const nvLarge = (l: CoverageLine, y: number, p: number) => (l === 'GL' ? p * ((7e6 + 40e6) / 2) * Math.pow(1 + BRIEF_TREND.GL, y - 1) : 0);
 function gradePricing(c: Costs, uplift: Map<string, number[]>, tag: string) {
   let worstUplift = 0, worstMoved = 0, worstBrief = 0;
   for (const [k, v] of uplift) worstUplift = Math.max(worstUplift, rel(v[0], SHOCK_CATALOGUE_SCALE * c.raw.get(k)![0]));
   for (const [k, v] of c.shipped) {
     const [l, y] = k.split('|');
-    worstMoved = Math.max(worstMoved, rel(v[1], c.raw.get(k)![1]));
-    worstBrief = Math.max(worstBrief, rel(v[1], briefLarge(l as CoverageLine, Number(y))));
+    const line = l as CoverageLine, yr = Number(y);
+    // At the R model's probabilities: the brief plus NV at its raw 2.5% (GL only) — the catalogue moves NV's share alone.
+    worstMoved = Math.max(worstMoved, rel(c.raw.get(k)![1], briefLarge(line, yr) + nvLarge(line, yr, NV_RAW_P)),
+      line === 'GL' ? 0 : rel(v[1], c.raw.get(k)![1]));
+    worstBrief = Math.max(worstBrief, rel(v[1], briefLarge(line, yr) + nvLarge(line, yr, NV_RAW_P * SHOCK_CATALOGUE_SCALE)));
   }
   const y1 = LINES.map(l => `${l} uplift ${(uplift.get(`${l}|1`)![0] * 100).toFixed(2)}%, large $${(c.shipped.get(`${l}|1`)![1] / 1e6).toFixed(3)}M`).join('; ');
   check(worstUplift < 1e-12 && worstMoved < 1e-12 && worstBrief < 1e-12,
-    `${tag}2. pricing reads the scaled rate: each line's expected uplift is ${SHOCK_CATALOGUE_SCALE.toFixed(4)} x the R model's; its expected large claims do not move with the catalogue and are the brief's frequencies x midpoints x trend`,
+    `${tag}2. pricing reads the scaled rate: each line's expected uplift is ${SHOCK_CATALOGUE_SCALE.toFixed(4)} x the R model's; its expected large claims are the brief's frequencies x midpoints x trend plus, on GL, p(NV) x its claim's — the catalogue moving GL's by NV's probability only`,
     `year 1: ${y1}; worst relative — uplift ${worstUplift.toExponential(2)}, large moved by the catalogue ${worstMoved.toExponential(2)}, large off the brief ${worstBrief.toExponential(2)}`);
 }
 
@@ -149,6 +168,13 @@ controlFails('the events\' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off)', 
   LARGE_CLAIMS_BY_FREQUENCY.enabled = false;
   try { const c = costs(); gradePricing(c, c.shipped, ''); } finally { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; }
 }, '2.');
+const keptList = EVENTS_KEEPING_LARGE_CLAIMS as string[];
+const withKept = (list: string[], run: () => void) => {
+  const was = [...keptList]; keptList.splice(0, keptList.length, ...list);
+  try { run(); } finally { keptList.splice(0, keptList.length, ...was); }
+};
+controlFails('EVENTS_KEEPING_LARGE_CLAIMS emptied (NV\'s claim dropped)', () => withKept([], () => { const c = costs(); gradePricing(c, c.shipped, ''); }), '2.');
+controlFails('Pandemic added to EVENTS_KEEPING_LARGE_CLAIMS', () => withKept(['Nuclear Verdict', 'Pandemic'], () => { const c = costs(); gradePricing(c, c.shipped, ''); }), '2.');
 controlFails('a written-out range moved (WC High from $6M)', () => {
   const saved = BRIEF_RANGE.WC.High[0];
   BRIEF_RANGE.WC.High[0] = 7e6;

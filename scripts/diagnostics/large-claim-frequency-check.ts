@@ -70,14 +70,30 @@
 // Section 2's "none with shocks off" is unchanged: there resolveShockYear is
 // called with largeClaims=false explicitly (the caller says).
 //
+// RESTATED FOR EVENTS_KEEPING_LARGE_CLAIMS: Nuclear Verdict is the one
+// catalogue event that keeps its own large claim — when it fires, GL gets ONE
+// claim at its map level (High, $7-40M, written out), sized $7M + u x $33M on
+// the firing's own GL draw (u = draws.GL.t) x the year's growth factor,
+// carrying the firing (event '#7', not 'T'), ON TOP of the frequency draw.
+//   2. the arrivals are now exactly the frequency draw PLUS one GL High claim
+//      per NV onset, of that size; no other event brings one. With
+//      largeClaims=false (the frequency draw off) NV's claim alone remains.
+//   3. in LCF21 (NV fires in year 2) GL carries NV's claim beside its large
+//      claims, the same in every world, sized as above x the growth factor;
+//      the recovery is the layer on every one of them. No other shock claim.
+//   5. shocks on, GL's shockLarge adds p(NV) x $23.5M x 1.08^(y - 1) (p(NV) =
+//      the R model's 2.5% x SHOCK_CATALOGUE_SCALE); shocks off it is the brief.
+// New controls: EVENTS_KEEPING_LARGE_CLAIMS emptied at runtime (2, 3 replayed,
+// 5) and Pandemic added to it (2, 5) must each fail.
+//
 // ⚠ EACH SECTION HAS CONTROLS that break the thing it guards at runtime,
 // require the section to FAIL, and restore it.
 // ============================================================================
 
 import {
-  LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, LARGE_CLAIMS_EVERY_GAME, SHOCK_FREE_PRICING,
+  EVENTS_KEEPING_LARGE_CLAIMS, LARGE_CLAIM_FREQUENCY, LARGE_CLAIMS_BY_FREQUENCY, LARGE_CLAIMS_EVERY_GAME, SHOCK_CATALOGUE_SCALE, SHOCK_FREE_PRICING,
 } from '../../src/data/pricingParameters';
-import { LARGE_CLAIM_ID, gameShocksOn, largeClaimArrivals, resolveShockYear } from '../../src/utils/shockLosses';
+import { LARGE_CLAIM_ID, firingsStartingIn, gameShocksOn, largeClaimArrivals, resolveShockYear } from '../../src/utils/shockLosses';
 import { expectedLossBreakdown } from '../../src/utils/shockExpectation';
 import { deriveSubRng } from '../../src/utils/random';
 import { openSoloInstance } from '../../src/utils/soloGame';
@@ -125,6 +141,14 @@ function briefLevel(u: number): Lv | null {
   return null;
 }
 const bare = (seed: number, extra: Partial<GameInstance> = {}) => ({ seed, ...extra }) as GameInstance;
+// NUCLEAR VERDICT'S OWN CLAIM (EVENTS_KEEPING_LARGE_CLAIMS), written out: GL,
+// High, $7-40M on the firing's GL draw; at the R model's 2.5% x the scale.
+const NV_NAME = 'Nuclear Verdict', NV_RANGE: [number, number] = [7 * M, 40 * M];
+/** NV's GL claims (unscaled) starting in year y: one per onset, $7M + u x $33M. */
+const nvClaims = (inst: GameInstance, y: number): number[] => firingsStartingIn(inst, 'host', y)
+  .filter(f => f.event.name === NV_NAME).map(f => NV_RANGE[0] + f.draws.GL.t * (NV_RANGE[1] - NV_RANGE[0]));
+const kept = EVENTS_KEEPING_LARGE_CLAIMS as string[];
+const withKept = (list: string[]) => { const was = [...kept]; kept.splice(0, kept.length, ...list); return () => { kept.splice(0, kept.length, ...was); }; };
 
 // ---- 1. THE DRAW, DIRECT -----------------------------------------------------------
 const SEEDS = 20_000, DRAW_YEARS = 10, EXACT_SEEDS = 2_000;
@@ -197,24 +221,33 @@ const T_EVENTS: ScheduledShock[] = [
 ];
 function sectionEvents(): string[] {
   const out: string[] = [];
-  let inForce = 0, large = 0;
+  let inForce = 0, large = 0, nvSeen = 0;
   for (let s = 1; s <= 2_000; s++) {
     const inst = bare(s, { scheduledShocks: T_EVENTS });
     for (let y = 1; y <= 5; y++) {
       const sy = resolveShockYear(inst, 'host', y);
       inForce += sy.inForce.filter(f => f.age === 0).length;
-      const arr = LINES.flatMap(l => sy.byLine[l].arrivals);
-      const ev = arr.find(a => a.firing.event.id !== LARGE_CLAIM_ID);
+      const all = LINES.flatMap(l => sy.byLine[l].arrivals);
+      // EVENTS_KEEPING_LARGE_CLAIMS: Nuclear Verdict's own GL High claim, and no other event's.
+      const ev = all.find(a => a.firing.event.id !== LARGE_CLAIM_ID && a.firing.event.name !== NV_NAME);
       if (ev) { out.push(`seed ${s} year ${y}: ${ev.firing.event.name} brought a T claim on ${ev.line} (${ev.level})`); continue; }
+      const nvWant = JSON.stringify(nvClaims(inst, y).map(x => ['GL', 'High', '#7', x]).sort());
+      const nvGot = (arr: typeof all) => JSON.stringify(arr.filter(a => a.firing.event.id !== LARGE_CLAIM_ID).map(a => [a.line, a.level, a.firing.event.id, a.size]).sort());
+      if (nvGot(all) !== nvWant) out.push(`seed ${s} year ${y}: NV's arrivals ${nvGot(all)}, its onsets want ${nvWant}`);
+      nvSeen += nvClaims(inst, y).length;
+      const arr = all.filter(a => a.firing.event.id === LARGE_CLAIM_ID);
       const want = JSON.stringify(largeClaimArrivals(inst, y).map(a => [a.line, a.level, a.size]).sort());
       if (JSON.stringify(arr.map(a => [a.line, a.level, a.size]).sort()) !== want) out.push(`seed ${s} year ${y}: arrivals are not the large-claim draw`);
       large += arr.length;
+      // largeClaims=false (the frequency draw off): NV's own claim alone.
       const off = resolveShockYear(inst, 'host', y, false);
-      if (LINES.some(l => off.byLine[l].arrivals.length > 0)) out.push(`seed ${s} year ${y}: an arrival with large claims off (shocks off)`);
+      const offAll = LINES.flatMap(l => off.byLine[l].arrivals);
+      if (offAll.some(a => a.firing.event.id === LARGE_CLAIM_ID) || nvGot(offAll) !== nvWant) out.push(`seed ${s} year ${y}: with large claims off, arrivals other than NV's own`);
     }
   }
   if (inForce !== 2_000 * T_EVENTS.length) out.push(`${inForce} event onsets, ${2_000 * T_EVENTS.length} scheduled — the events did not fire`);
   if (large === 0) out.push('no large claim drawn — nothing measured');
+  if (nvSeen === 0) out.push('no Nuclear Verdict onset — its claim not measured');
   return out;
 }
 
@@ -250,7 +283,7 @@ const briefFactor: Factor = (gs, l, y) => {
 };
 
 // ---- 3. IN A PLAYED GAME ---------------------------------------------------------------
-type Cell = { sizes: number[]; other: number; recovery: number };
+type Cell = { sizes: number[]; nv: number[]; other: number; recovery: number };
 /** Per year, per world, per line: the large claims' sizes, any other shock claim, the recovery. */
 function cellsOf(run: Run): Cell[][][] {
   return run.perWorld.map((worlds, yi) => worlds.map(rows => LINES.map(l => {
@@ -258,7 +291,9 @@ function cellsOf(run: Run): Cell[][][] {
     const shock = (r.claims ?? []).filter(c => c.tier === 'shock' && c.accidentYear === yi + 1);
     return {
       sizes: shock.filter(c => c.shockId === LARGE_CLAIM_ID).map(c => c.grossUltimate).sort((a, b) => a - b),
-      other: shock.filter(c => c.shockId !== LARGE_CLAIM_ID).length + (r.claims ?? []).filter(c => c.shockId === LARGE_CLAIM_ID && c.tier !== 'shock').length,
+      // Nuclear Verdict's own claim (EVENTS_KEEPING_LARGE_CLAIMS), event '#7'.
+      nv: shock.filter(c => c.shockId === '#7').map(c => c.grossUltimate).sort((a, b) => a - b),
+      other: shock.filter(c => c.shockId !== LARGE_CLAIM_ID && c.shockId !== '#7').length + (r.claims ?? []).filter(c => c.shockId === LARGE_CLAIM_ID && c.tier !== 'shock').length,
       recovery: r.reinsuranceRecovery,
     };
   })));
@@ -288,30 +323,38 @@ function sectionGame(factor: Factor = briefFactor, covers = COVERS, cellsIn?: Ce
     covered = { run, cells: cellsOf(run) };
   }
   const cells = cellsIn ?? covered.cells;
-  let seen = 0, grown = 0;
+  let seen = 0, grown = 0, nvSeen = 0;
   const seenLines = new Set<CoverageLine>();
   for (let y = 1; y <= GAME_YEARS; y++) {
     const drawn = largeClaimArrivals(covered.run.began[y - 1].instance, y);
+    const nvDrawn = nvClaims(covered.run.began[y - 1].instance, y);
     LINES.forEach((l, li) => {
       const g = factor(covered!.run.began[y - 1], l, y);
       if (Math.abs(g - Math.pow(1 + BRIEF_TREND[l], y - 1)) > 1e-6) grown++;
       const want = drawn.filter(a => a.line === l).map(a => a.size * g).sort((a, b) => a - b);
       const [, att, lim] = covers[l];
+      // NV's own claim on GL, x the same growth factor (EVENTS_KEEPING_LARGE_CLAIMS).
+      const nvWant = l === 'GL' ? nvDrawn.map(x => x * g).sort((a, b) => a - b) : [];
+      nvSeen += nvWant.length;
       const forms = new Set<string>();
       cells[y - 1].forEach((row, w) => {
         const c = row[li];
-        forms.add(JSON.stringify(c.sizes));
+        forms.add(JSON.stringify([c.sizes, c.nv]));
+        if (c.nv.length !== nvWant.length || c.nv.some((x, i) => !near(x, nvWant[i]))) {
+          out.push(`year ${y} ${l} world ${w + 1}: NV claims ${c.nv.map(x => (x / M).toFixed(4))}, its onsets x growth ${nvWant.map(x => (x / M).toFixed(4))}`);
+        }
         if (c.other) out.push(`year ${y} ${l} world ${w + 1}: ${c.other} shock claim(s) that are not large claims`);
         if (c.sizes.length !== want.length || c.sizes.some((x, i) => !near(x, want[i]))) {
           out.push(`year ${y} ${l} world ${w + 1}: large claims ${c.sizes.map(x => (x / M).toFixed(4))}, the table x growth ${g.toFixed(4)} ${want.map(x => (x / M).toFixed(4))}`);
         }
-        const ceded = c.sizes.reduce((s, x) => s + Math.min(Math.max(x - att * M, 0), lim * M), 0);
+        const ceded = [...c.sizes, ...c.nv].reduce((s, x) => s + Math.min(Math.max(x - att * M, 0), lim * M), 0);
         if (!near(c.recovery, ceded)) out.push(`year ${y} ${l} world ${w + 1}: recovered ${c.recovery.toFixed(0)}, the layer on its large claims ${ceded.toFixed(0)}`);
       });
       if (forms.size !== 1) out.push(`year ${y} ${l}: large claims in ${forms.size} forms over the worlds`);
       if (want.length) { seen += want.length; seenLines.add(l); }
     });
   }
+  if (!cellsIn && nvSeen === 0) out.push('Nuclear Verdict did not fire in the game — its claim not measured');
   if (seenLines.size !== LINES.length) out.push(`large claims on ${[...seenLines].join(', ') || 'no line'} only — not every line measured`);
   if (grown === 0) out.push('no line-year grew off the trend alone — the book growth is not tested');
   // ⚠ RESTATED FOR LARGE_CLAIMS_EVERY_GAME: a hosted game with no schedule
@@ -333,7 +376,7 @@ function sectionGame(factor: Factor = briefFactor, covers = COVERS, cellsIn?: Ce
       off[y - 1].forEach((row, w) => {
         const c = row[li];
         forms.add(JSON.stringify(c.sizes));
-        if (c.other) out.push(`shocks off year ${y} ${l} world ${w + 1}: ${c.other} shock claim(s) that are not large claims`);
+        if (c.other || c.nv.length) out.push(`shocks off year ${y} ${l} world ${w + 1}: ${c.other + c.nv.length} shock claim(s) that are not large claims`);
         if (c.sizes.length !== want.length || c.sizes.some((x, i) => !near(x, want[i]))) {
           out.push(`shocks off year ${y} ${l} world ${w + 1}: large claims ${c.sizes.map(x => (x / M).toFixed(4))}, the table x growth ${g.toFixed(4)} ${want.map(x => (x / M).toFixed(4))}`);
         }
@@ -393,11 +436,13 @@ function sectionExpected(): string[] {
   const out: string[] = [];
   for (const l of LINES) {
     for (let y = 1; y <= 15; y++) {
+      // Shocks on: the brief plus, on GL, NV's own claim (EVENTS_KEEPING_LARGE_CLAIMS).
+      const nv = l === 'GL' ? 0.025 * SHOCK_CATALOGUE_SCALE * (NV_RANGE[0] + NV_RANGE[1]) / 2 * Math.pow(1 + BRIEF_TREND.GL, y - 1) : 0;
       const got = expectedLossBreakdown(l, 1000, y).shockLarge;
-      if (!near(got, briefExpected(l, y), 1e-12)) out.push(`${l} year ${y}: shockLarge $${(got / M).toFixed(6)}M, the brief's $${(briefExpected(l, y) / M).toFixed(6)}M`);
-      // LARGE_CLAIMS_EVERY_GAME: with shocks off, the same shockLarge as with them on.
+      if (!near(got, briefExpected(l, y) + nv, 1e-12)) out.push(`${l} year ${y}: shockLarge $${(got / M).toFixed(6)}M, the brief's $${(briefExpected(l, y) / M).toFixed(6)}M + NV $${(nv / M).toFixed(6)}M`);
+      // LARGE_CLAIMS_EVERY_GAME: with shocks off, the brief (no NV: no catalogue event fires).
       const off = expectedLossBreakdown(l, 1000, y, undefined, 1, false).shockLarge;
-      if (!near(off, got, 1e-12) || !(off > 0)) out.push(`${l} year ${y}: shockLarge ${off} with shocks off, ${got} with them on`);
+      if (!near(off, briefExpected(l, y), 1e-12) || !(off > 0)) out.push(`${l} year ${y}: shockLarge ${off} with shocks off, the brief's ${briefExpected(l, y)}`);
     }
     for (const y of [0, -3]) if (expectedLossBreakdown(l, 1000, y).shockLarge !== 0) out.push(`${l} year ${y}: shockLarge before year 1`);
   }
@@ -430,11 +475,13 @@ control('Mid\'s frequency moved to 6%', () => {
 control('a written-out range moved (GL Mid from $3-7M to $3-8M)', () => {
   const r = BRIEF_RANGE.GL.Mid; const o = r[1]; r[1] = 8 * M; return () => { r[1] = o; };
 }, sectionDraw);
-check(sectionEvents(), '2. events bring no T: with every T-bearing event scheduled, the arrivals are the large-claim draw alone; none with shocks off');
+check(sectionEvents(), '2. events bring no T but NV: with every T-bearing event scheduled, the arrivals are the large-claim draw plus one GL High claim per Nuclear Verdict onset; with the draw off, NV\'s alone');
+control('EVENTS_KEEPING_LARGE_CLAIMS emptied (NV\'s claim dropped)', () => withKept([]), sectionEvents);
+control('Pandemic added to EVENTS_KEEPING_LARGE_CLAIMS', () => withKept([NV_NAME, 'Pandemic']), sectionEvents);
 control('an event\'s T switched back on (LARGE_CLAIMS_BY_FREQUENCY off)', () => {
   LARGE_CLAIMS_BY_FREQUENCY.enabled = false; return () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; };
 }, sectionEvents);
-check(sectionGame(), `3. in a played solo game (${GAME_ID}, ${GAME_YEARS} years, every world): large claims = the table draw x the growth factor, alike in every world, recovered min(max(x − att, 0), limit); with shocks off (hosted, no schedule) exactly the draw too, alike in every world, out of the rate`);
+check(sectionGame(), `3. in a played solo game (${GAME_ID}, ${GAME_YEARS} years, every world): large claims = the table draw x the growth factor, alike in every world, plus NV's own GL claim where it fired, recovered min(max(x − att, 0), limit); with shocks off (hosted, no schedule) exactly the draw too, alike in every world, out of the rate`);
 control('the claims expected at the trend alone (no book growth)', () => () => {},
   () => sectionGame((_gs, l, y) => Math.pow(1 + BRIEF_TREND[l], y - 1)));
 control('the claims expected a year late in the growth', () => () => {},
@@ -448,6 +495,13 @@ control('one world\'s large claim differs', () => () => {}, () => {
 });
 control('GL\'s recovery expected at $1M rather than $2M', () => () => {},
   () => sectionGame(briefFactor, { ...COVERS, GL: ['$18M xs $2M', 1, 18] }));
+control('EVENTS_KEEPING_LARGE_CLAIMS emptied (the game replayed)', () => withKept([]), () => {
+  const run = playSolo(GAME_YEARS, d => { for (const l of LINES) { d.byLine[l].reinsuranceOption = COVERS[l][0]; d.byLine[l].newMembers = 0.05; } });
+  const c = cellsOf(run);
+  // Graded against the shipped list (restored): the replay's GL lacks NV's claim.
+  const restore = withKept([NV_NAME]);
+  try { return sectionGame(briefFactor, COVERS, c); } finally { restore(); }
+});
 control('a shocks-off game with another game\'s claims (the solo game\'s in its place)', () => () => {},
   () => sectionGame(briefFactor, COVERS, undefined, covered!.cells.slice(0, 3)));
 control('a shocks-off game that draws none (the retired rule)', () => () => {},
@@ -464,7 +518,7 @@ control('the shadow bypassed (SHOCK_FREE_PRICING off, both runs)', () => () => {
   const o = SHOCK_FREE_PRICING.enabled; SHOCK_FREE_PRICING.enabled = false;
   try { return sectionRate({ built: playSolo(GAME_YEARS), none: zeroed(() => playSolo(GAME_YEARS)) }); } finally { SHOCK_FREE_PRICING.enabled = o; }
 });
-check(sectionExpected(), '5. expected losses: shockLarge = Σ freq x the range\'s midpoint x (1 + trend)^(y − 1), years 1-15; 0 before year 1; the same with shocks off',
+check(sectionExpected(), '5. expected losses: shockLarge = Σ freq x the range\'s midpoint x (1 + trend)^(y − 1), years 1-15; plus NV\'s on GL with shocks on; 0 before year 1; the brief with shocks off',
   LINES.map(l => `${l} year 1 $${(briefExpected(l, 1) / M).toFixed(4)}M`).join(', '));
 control('High\'s frequency moved to 3%', () => {
   const f = LARGE_CLAIM_FREQUENCY as Record<Lv, number>; const o = f.High; f.High = 0.03; return () => { f.High = o; };
@@ -472,6 +526,8 @@ control('High\'s frequency moved to 3%', () => {
 control('a written-out range moved (Property High from $12M to $14M)', () => {
   const r = BRIEF_RANGE.Property.High; const o = r[0]; r[0] = 14 * M; return () => { r[0] = o; };
 }, sectionExpected);
+control('EVENTS_KEEPING_LARGE_CLAIMS emptied (no NV in shocks-on GL)', () => withKept([]), sectionExpected);
+control('Pandemic added to EVENTS_KEEPING_LARGE_CLAIMS (the expectation)', () => withKept([NV_NAME, 'Pandemic']), sectionExpected);
 control('LARGE_CLAIMS_EVERY_GAME switched off (no shockLarge with shocks off)', () => {
   LARGE_CLAIMS_EVERY_GAME.enabled = false; return () => { LARGE_CLAIMS_EVERY_GAME.enabled = true; };
 }, sectionExpected);

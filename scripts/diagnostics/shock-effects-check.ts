@@ -39,6 +39,18 @@
 // layers with the shocks off as well (the same list; prices by the method, as
 // optionPrice takes no shock switch). New control: LARGE_CLAIMS_EVERY_GAME
 // .enabled = false at runtime (None alone with shocks off) must fail 4a.
+//
+// RESTATED FOR EVENTS_KEEPING_LARGE_CLAIMS: Nuclear Verdict is the one
+// catalogue event that keeps its own large claim, on top of the frequency draw.
+//   2. with NV (year 2) and Pandemic (year 3) scheduled, the frequency
+//      arrivals ('T') are still exactly the game's draw, at most one a
+//      line-year; NV's firing brings EXACTLY ONE claim, on GL, at High, sized
+//      on the brief's GL High range by its firing's GL draw ($7M + u x $33M)
+//      and uniform there over the 400 seeds; Pandemic brings none.
+//   3. through the engine, an event's own arrivals are empty on every line —
+//      except NV's, which is exactly one on GL.
+// New controls: EVENTS_KEEPING_LARGE_CLAIMS emptied at runtime, and Pandemic
+// added to it, must each fail 2 and 3.
 // ============================================================================
 
 import {
@@ -50,7 +62,7 @@ import {
   SHOCK_EVENTS, eventLines, firingsStartingIn, resolveShockYear, tClaimSize, aShare, applyMarketShock,
   LARGE_CLAIM_ID, largeClaimArrivals,
 } from '../../src/utils/shockLosses';
-import { LARGE_CLAIMS_BY_FREQUENCY, LARGE_CLAIMS_EVERY_GAME } from '../../src/data/pricingParameters';
+import { EVENTS_KEEPING_LARGE_CLAIMS, LARGE_CLAIMS_BY_FREQUENCY, LARGE_CLAIMS_EVERY_GAME } from '../../src/data/pricingParameters';
 import { cedeOccurrences } from '../../src/utils/reinsuranceTower';
 import { optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
 import { blendInvestmentReturn } from '../../src/utils/investmentEngine';
@@ -130,6 +142,10 @@ const BRIEF_PRICE: Record<CoverageLine, number[]> = Object.fromEntries((['GL', '
 const TOP = BRIEF_COVERS.findIndex(c => c[0] === '$38M xs $2M');
 const BRIEF_INVEST = { cash: 0, bonds: -0.05, equities: -0.20 };
 
+// EVENTS_KEEPING_LARGE_CLAIMS: the one event that keeps its own large claim (GL, High).
+const NV = 'Nuclear Verdict';
+const keptList = EVENTS_KEEPING_LARGE_CLAIMS as string[];
+const withKept = (list: string[]) => { const was = [...keptList]; keptList.splice(0, keptList.length, ...list); return () => { keptList.splice(0, keptList.length, ...was); }; };
 const near = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) <= tol * Math.max(1, Math.abs(b));
 const instanceWith = (id: string, schedule: ScheduledShock[]) => generateGameInstance(id, seedFromInstanceId(id), schedule);
 
@@ -179,8 +195,23 @@ function sectionTDraws(): string[] {
     for (const y of [2, 3]) {
       const sy = resolveShockYear(inst, 'host', y);
       const drawn = largeClaimArrivals(inst, y);
+      // NV's firing (year 2): exactly one GL High claim, $7M + u x $33M on its GL draw.
+      const nvFiring = firingsStartingIn(inst, 'host', y).find(f => f.event.name === NV);
       for (const l of LINES) {
-        const arr = sy.byLine[l].arrivals;
+        const own = sy.byLine[l].arrivals.filter(a => a.firing.event.id !== LARGE_CLAIM_ID);
+        const nvOwn = own.filter(a => a.firing.event.name === NV);
+        for (const a of own) if (a.firing.event.name !== NV) out.push(`t${k} year ${y} ${l}: ${a.firing.event.name} brought a T claim`);
+        const nvWant = l === 'GL' && nvFiring ? 1 : 0;
+        if (nvOwn.length !== nvWant) out.push(`t${k} year ${y} ${l}: ${nvOwn.length} Nuclear Verdict claim(s), want ${nvWant}`);
+        for (const a of nvOwn) {
+          const [lo, hi] = BRIEF_T.GL.High;
+          if (a.level !== 'High' || !nvFiring || !near(a.size, lo + nvFiring.draws.GL.t * (hi - lo))) {
+            out.push(`t${k} year ${y} ${l}: NV's claim ${a.level} $${(a.size / M).toFixed(3)}M, not GL High on its draw`);
+          }
+          const e = (sums['NV GL/High'] ??= { n: 0, s: 0, lo, hi });
+          e.n++; e.s += a.size;
+        }
+        const arr = sy.byLine[l].arrivals.filter(a => a.firing.event.id === LARGE_CLAIM_ID);
         if (arr.length > 1) out.push(`t${k} year ${y} ${l}: ${arr.length} large claims, at most one`);
         const want = drawn.filter(a => a.line === l).map(a => `${a.level}:${a.size}`).join(',');
         if (arr.map(a => `${a.level}:${a.size}`).join(',') !== want) out.push(`t${k} year ${y} ${l}: arrivals are not the game's large-claim draw`);
@@ -196,6 +227,7 @@ function sectionTDraws(): string[] {
     }
   }
   for (const lv of ['Low', 'Mid', 'High']) if (!LINES.some(l => (sums[`${l}/${lv}`]?.n ?? 0) > 0)) out.push(`no ${lv} large claim in 2,400 line-years`);
+  if ((sums['NV GL/High']?.n ?? 0) !== 400) out.push(`${sums['NV GL/High']?.n ?? 0} Nuclear Verdict claims over 400 firings`);
   for (const [k, e] of Object.entries(sums)) {
     const mean = e.s / e.n, mid = (e.lo + e.hi) / 2, se = (e.hi - e.lo) / Math.sqrt(12 * e.n);
     if (Math.abs(mean - mid) > 4 * se) out.push(`${k}: mean ${(mean / M).toFixed(2)}M, uniform mean ${(mid / M).toFixed(2)}M`);
@@ -230,7 +262,11 @@ function sectionMatrix(): string[] {
       const hasT = sy.byLine[l].arrivals.some(a => a.firing.event.id === e.id);
       const hasR = sy.byLine[l].rRate > 0;
       if (hasA !== (!!b && b[0] !== '-')) out.push(`${e.name} ${l}: engine A ${hasA}`);
-      if (hasT) out.push(`${e.name} ${l}: the event brought a T claim (the map's T is ${b?.[1] ?? '-'})`);
+      // EVENTS_KEEPING_LARGE_CLAIMS: NV's own, exactly one on GL; every other event none.
+      const ownT = sy.byLine[l].arrivals.filter(a => a.firing.event.id === e.id).length;
+      const wantT = e.name === NV && l === 'GL' ? 1 : 0;
+      if (ownT !== wantT) out.push(`${e.name} ${l}: the event brought ${ownT} T claim(s), want ${wantT} (the map's T is ${b?.[1] ?? '-'})`);
+      void hasT;
       if (hasR !== (!!b && b[2] !== '-')) out.push(`${e.name} ${l}: engine R ${hasR}`);
     }
   }
@@ -544,10 +580,14 @@ function keyedByEvent(): ReturnType<typeof firingRecords> {
 console.log(`shock-effects-check (${WORLD_COUNT} worlds)\n`);
 check(sectionA(), '1. A: uniform within the brief\'s range, the firing year only, the whole line');
 control('A range changed', () => { const o = R_MODEL.aShock.GL.Mid; (R_MODEL.aShock.GL as Record<string, unknown>).Mid = [0.15, 0.40]; return () => { (R_MODEL.aShock.GL as Record<string, unknown>).Mid = o; }; }, sectionA);
-check(sectionTDraws(), '2. T: events bring none; large claims by frequency, at most one a line-year, uniform within the brief\'s range, unscaled');
+check(sectionTDraws(), '2. T: events bring none but NV (one GL High claim on its draw, uniform); large claims by frequency, at most one a line-year, uniform within the brief\'s range, unscaled');
+control('EVENTS_KEEPING_LARGE_CLAIMS emptied (NV\'s claim dropped)', () => withKept([]), sectionTDraws);
+control('Pandemic added to EVENTS_KEEPING_LARGE_CLAIMS', () => withKept([NV, 'Pandemic']), sectionTDraws);
 control('the events\' T switched back on (LARGE_CLAIMS_BY_FREQUENCY off)', () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = false; return () => { LARGE_CLAIMS_BY_FREQUENCY.enabled = true; }; }, sectionTDraws);
 control('T High top at $15M', () => { const o = SHOCK_T_CLAIM_RANGE.GL.High; (SHOCK_T_CLAIM_RANGE.GL as Record<string, unknown>).High = [7e6, 15e6]; return () => { (SHOCK_T_CLAIM_RANGE.GL as Record<string, unknown>).High = o; }; }, sectionTDraws);
-check(sectionMatrix(), '3. the event matrix, in the map and through the engine');
+check(sectionMatrix(), '3. the event matrix, in the map and through the engine (an event\'s own T: none but NV\'s one on GL)');
+control('EVENTS_KEEPING_LARGE_CLAIMS emptied, through the engine', () => withKept([]), sectionMatrix);
+control('Pandemic added to EVENTS_KEEPING_LARGE_CLAIMS, through the engine', () => withKept([NV, 'Pandemic']), sectionMatrix);
 control('a map row changed', () => {
   const map = R_MODEL.shockMap as unknown as string[][]; const i = map.findIndex(r => r[0] === 'Wildfire'); const o = map[i];
   map[i] = ['Wildfire', 'Property', 'Low', 'Low', 'None']; return () => { map[i] = o; };

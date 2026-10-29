@@ -91,6 +91,14 @@
 // game still charged for a catastrophe") are now the new rule, so they are
 // turned round: None alone with the shocks off, capital zeroed with the shocks
 // off, a solo SOLO_SHOCKS-off game whose charge dropped — each must fail.
+//
+// ⚠ RESTATED FOR EVENTS_KEEPING_LARGE_CLAIMS (Nuclear Verdict keeps its own
+// GL High claim, on top of the frequency draw, in the shocks-ON expectation
+// only): 2.'s shocks-off shockLarge now equals shocks-on's LESS NV's share on
+// GL — p(NV) (the R model's 2.5% x SHOCK_CATALOGUE_SCALE) x the GL High
+// range's midpoint ($23.5M) x 1.08^(y - 1), written out — and equals it
+// exactly on WC and Property. New controls: EVENTS_KEEPING_LARGE_CLAIMS emptied
+// at runtime, and Pandemic added to it, each fail 2.
 // ============================================================================
 import { ordinaryLossFromMembers } from '../../src/utils/ordinaryLoss';
 import { marketSeedOf } from '../../src/utils/bookUnits';
@@ -105,7 +113,7 @@ import { drawShockSchedule } from '../../src/utils/shockSchedule';
 import { generateGameInstance } from '../../src/utils/instanceGenerator';
 import { seedFromInstanceId } from '../../src/seedHash';
 import {
-  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, LARGE_CLAIMS_EVERY_GAME, REINSURANCE_OPTIONS, SHOCK_COST_TREND, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
+  AGGREGATE_STOP_OPTIONS, AGGREGATE_STOP_SD_LOAD, EVENTS_KEEPING_LARGE_CLAIMS, LARGE_CLAIMS_EVERY_GAME, SHOCK_CATALOGUE_SCALE, REINSURANCE_OPTIONS, SHOCK_COST_TREND, SHOCK_T_CLAIM_RANGE, SOLO_SHOCKS,
 } from '../../src/data/pricingParameters';
 import { shockCostFactor } from '../../src/utils/shockCost';
 import { defaultReinsuranceOption, optionPrice, placementFor, reinsuranceOptionIds } from '../../src/utils/reinsuranceOptions';
@@ -174,17 +182,21 @@ function gradeSwitch(f: typeof gameShocksOn, tag: string) {
 gradeSwitch(gameShocksOn, '');
 
 // ---------------------------------------------------------------- 2
+// Nuclear Verdict's own GL claim (EVENTS_KEEPING_LARGE_CLAIMS), written out: shocks on only.
+const nvShare = (line: 'WC' | 'GL' | 'Property', y: number) =>
+  (line === 'GL' ? 0.025 * SHOCK_CATALOGUE_SCALE * ((7e6 + 40e6) / 2) * Math.pow(1.08, y - 1) : 0);
 function gradeExpectation(br: typeof expectedLossBreakdown, tag: string) {
   let ok = true; let worst = '';
   for (const line of ['WC', 'GL', 'Property'] as const) for (const y of [1, 3, 6]) {
     const off = br(line, 900, y, undefined, 0.95, false), on = br(line, 900, y, undefined, 0.95, true);
-    // LARGE_CLAIMS_EVERY_GAME: no uplift off, but the large claims' expectation stays.
-    const good = off.uplift === 0 && off.shockLarge > 0 && near(off.shockLarge, on.shockLarge)
+    // LARGE_CLAIMS_EVERY_GAME: no uplift off, but the large claims' expectation
+    // stays — all but NV's own GL claim, which is shocks-on only.
+    const good = off.uplift === 0 && off.shockLarge > 0 && near(off.shockLarge + nvShare(line, y), on.shockLarge)
       && near(off.total, off.ordinary + off.routineLarge + off.shockLarge)
       && near(off.ordinary, on.ordinary) && on.total > off.total;
     if (!good) { ok = false; worst = `${line} y${y}: off ${off.total.toFixed(0)} on ${on.total.toFixed(0)}`; }
   }
-  check(ok, `${tag}2. shocks off, the expectation is ordinary + routine large + shockLarge (shocks-on's), no uplift; on, it carries the uplift above it`, worst);
+  check(ok, `${tag}2. shocks off, the expectation is ordinary + routine large + shockLarge (shocks-on's, less NV's GL claim), no uplift; on, it carries the uplift above it`, worst);
 }
 gradeExpectation(expectedLossBreakdown, '');
 
@@ -398,6 +410,15 @@ controlFails('LARGE_CLAIMS_EVERY_GAME switched off (the expectation)', () => {
   LARGE_CLAIMS_EVERY_GAME.enabled = false;
   try { gradeExpectation(expectedLossBreakdown, ''); } finally { LARGE_CLAIMS_EVERY_GAME.enabled = true; }
 }, '2.');
+{
+  const kept = EVENTS_KEEPING_LARGE_CLAIMS as string[];
+  const withKept = (list: string[], run: () => void) => {
+    const was = [...kept]; kept.splice(0, kept.length, ...list);
+    try { run(); } finally { kept.splice(0, kept.length, ...was); }
+  };
+  controlFails('EVENTS_KEEPING_LARGE_CLAIMS emptied (NV\'s claim dropped)', () => withKept([], () => gradeExpectation(expectedLossBreakdown, '')), '2.');
+  controlFails('Pandemic added to EVENTS_KEEPING_LARGE_CLAIMS', () => withKept(['Nuclear Verdict', 'Pandemic'], () => gradeExpectation(expectedLossBreakdown, '')), '2.');
+}
 controlFails('LARGE_CLAIMS_EVERY_GAME switched off (the SOLO_SHOCKS-off game replayed)', () => {
   LARGE_CLAIMS_EVERY_GAME.enabled = false;
   let g: ReturnType<typeof play>;
