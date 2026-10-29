@@ -11,6 +11,27 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## Pricing's ALAE load fixed per line (save key v43) — wip/pricing-alae-load
+
+Pricing loads ALAE at `PRICING_ALAE_LOAD` (WC 11%, GL 15%, Property 3.5%, each
+range's middle) every year, played and pre-game, not the window's mean drawn
+ratio; the ALAE booked is still drawn. Shown as "ALAE load (11.0%)" on the Rate
+Indication, Model tab and Year Walkthrough.
+
+**Owed — the seeds are to be re-picked on this build.** The openings moved with
+the pre-game's rates and were accepted as they fall (ruling, option 2):
+`SCENARIO_OPENING_BARS` holds scenarios-check 5 at what this build produces
+(worst miss 18.5%, 4 of 20 within 5%, against 12% and 18 when the seeds were
+picked) and is marked temporary; `SCENARIO_OPENINGS_v2` records the openings.
+Re-pick, then restore the bars and re-record.
+
+**Landed with:** FAST 93/93, SLOW 4/4, typecheck clean, lint identical to
+861b8c7; `alae-ratio-check` 3 restated (the setting every year on every line,
+controls: the old window rule, WC at 12%, and the old rule planted in the
+engine); VALUE_IDENTITY_v91, SOLO_EXPORT_GUARD_v116, RENDER_IDENTITY_v117
+attributed against 861b8c7; all 26 session drivers with the admin-token hook;
+the contract harness on every pass. Figures: scripts/probes/alae-load-probe.mts.
+
 ## Decisions carry into the next year in single player — wip/carry-decisions
 
 Single player and Test player now start each year from the decisions the year
