@@ -1089,7 +1089,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // back to what the catalogue's events give, as before v108. No rate or
 // premium row moves. These games' shocks are on and they hold None, so
 // COVERS_IN_EVERY_GAME moves nothing. No file is added or removed.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v113.json');
+// v114: THE RETIRED STOP'S ROW OFF THE YEAR WALKTHROUGH (wip/aggregate-cover),
+// on multiplayer 9ff6e4d, which reproduced v113 48 of 48 here first. The 24
+// Results keys move and nothing else; each was text-diffed against the control
+// (GUARD_TEXT_DIR both sides) and every moved line is on the Year Walkthrough
+// sheet: its "Aggregate cover recovery" rows gone — one per line and per line
+// on the pool, every year, the dormant stop's, always $0 — and the two codes
+// that fingerprint them, the reinsurance stage's and the year code. No figure
+// moved. The 24 `stmt|...` keys do not move.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v114.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

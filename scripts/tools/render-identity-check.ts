@@ -1700,7 +1700,15 @@ const BASELINE = process.env.RENDER_BASELINE
 // expected" (and 125, 150), each premium as $N where it read $N/yr, and the
 // footnote, on the Decisions page; the heading and the same labels on the Rate
 // Indication. Every premium is the control's figure. No key added or removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v114.json');
+// v115: THE RETIRED STOP'S ROW OFF THE YEAR WALKTHROUGH (wip/aggregate-cover),
+// on multiplayer 9ff6e4d, which reproduced v114 236 of 236 here first. 13 of
+// 236 move — the Year Walkthrough at y2 on every configuration and view (y0
+// has no played year) — and each word-diffed against the control
+// (RENDER_TEXT_DIR both sides) moves in exactly two ways: the "Aggregate cover
+// recovery $0" rows deleted (the dormant stop's, per line and per line on the
+// pool), and the two codes that fingerprint them — the reinsurance stage's and
+// the year code. No figure moved. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v115.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and
