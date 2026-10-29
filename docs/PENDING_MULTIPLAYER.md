@@ -11,6 +11,42 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## Risk control in the divisor (save key v39) — wip/risk-control-divisor
+
+Risk control is an expense in the divisor, beside admin:
+
+    rate = pure premium × CLF ÷ (1 − admin share − risk control %) + reinsurance
+
+so the charge collected is exactly the risk-control % of the rate before
+reinsurance, and admin is its 20% of that same rate. This replaces the
+multiplier `× (1 + risk control %)` that landed first. The average cut m is
+re-sized so expected losses + LAE saved still equal the charge. At 0% the
+divisor is 1 − admin, and every figure is byte-identical to before.
+
+The Rate Indication, the Decisions panel, the Model tab and the Year
+Walkthrough each show the expense ratio, risk control taken from the line's
+current choice:
+
+    Admin                      20.0%
+    Risk control                2.0%
+    Total expense ratio        22.0%
+    Permissible loss ratio     78.0%
+
+Measured (20 scenarios, 5 years, shocks off, the slider on every line every
+year): the year-1 rate rises 0.80 ÷ 0.78 = +2.56% at 2% (the multiplier gave
++2.00%) and 0.80 ÷ 0.75 = +6.67% at 5%; losses + LAE saved over the five years
+are 0.99–1.04 of the charge on each line, in both modes. Admin collected is
+2.6% higher at 2% than under the multiplier, because admin is now taken on the
+risk-control share as well.
+
+⚠ **A single player's decisions do not carry into the next year.** `commitYear`
+(App.tsx) resets every decision to its default each year, so a single player's
+slider returns to 0% in the coming year; a hosted team's last submitted set
+carries (`session/client/decisions.ts`). Unchanged here; the rate-indication
+driver states both.
+
+---
+
 ## The aggregate cover on attritional losses (save key v38) — wip/aggregate-cover
 
 Each line can buy, beside its per-claim layer, an aggregate cover on the year's
@@ -660,6 +696,10 @@ before it (VALUE_IDENTITY v63, SOLO_EXPORT_GUARD v66, RENDER_IDENTITY v43).
   (`SHOCK_EVENT_LABELS`).
 
 ### Risk control — pending design
+
+⚠ **Superseded:** risk control is live and charged in the divisor — see "Risk
+control in the divisor (save key v39)" at the top. The text below is kept as
+the record of the earlier plan.
 
 **Hidden like satisfaction**, behind `RISK_CONTROL` (off): no charge and no
 effect until risk control is redesigned **at pool level** — its effect on the
