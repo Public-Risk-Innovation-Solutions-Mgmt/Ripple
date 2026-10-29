@@ -29,7 +29,9 @@
 //   section 2         no investment income line; admin 20% on every line and
 //                     every year, risk control the year's choice (restated at
 //                     wip/risk-control-divisor: year 2 is played at 2% on every
-//                     line, and the coming year carries that 2% forward), the
+//                     line; a hosted team's coming year carries that 2%
+//                     forward, a single player's resets to 0% — App.tsx's
+//                     commitYear resets every choice each year), the
 //                     total expense ratio admin + risk control and the
 //                     permissible loss ratio 1 - that (80% at 0%, 78% at 2%),
 //                     with no profit & contingency, fixed or per-exposure admin
@@ -372,8 +374,11 @@ async function solo(browser) {
     if (await confirmLoan.count() > 0) { await confirmLoan.click(); await page.waitForTimeout(800); }
     await page.waitForSelector(`text=Lock Program Year ${2027 + y}`, { timeout: 120000 });
   }
-  // Year 2's 2% carries forward to the coming year — the carry-forward of last year's choice.
-  await s.comingYear('after two played years', 2029, true, 0.02);
+  // ⚠ SINGLE PLAYER DOES NOT CARRY THE YEAR'S CHOICES FORWARD: App.tsx's
+  // commitYear resets every decision to its default for the next year (only
+  // the old risk-control programs carry), so the coming year reads 0% here.
+  // A hosted team's choices DO carry (session/client/decisions.ts), below.
+  await s.comingYear('after two played years', 2029, true, 0);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'solo: no page errors', errors[0] ?? '');
 }
@@ -412,6 +417,7 @@ async function hosted(browser) {
     await page.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });
     await page.waitForTimeout(1000);
   }
+  // Hosted: year 2's 2% carries forward to the coming year — the last submitted set.
   await s.comingYear('after two played years', 2029, false, 0.02);
   await s.playedYears('after two played years', played);
   ok(errors.length === 0, 'hosted: no page errors', errors[0] ?? '');
