@@ -476,10 +476,10 @@ export const SOLO_ADVERSE_DEVELOPMENT = { enabled: false };
  *                 accident year's cohort carries its ratio, and its ALAE is
  *                 incurred, paid and reserved at it as the year develops
  *                 (lossExpense.ts).
- *   THE PRICING   the rate's ALAE load is the mean of the drawn ratios of the
- *                 accident years in its pricing window, as the ledger records
- *                 them; before any history, the middle of the line's range
- *                 (ALAE_OF_LOSS_COST below).
+ *   THE PRICING   the rate's ALAE load is the EXPECTED ratio, a fixed setting
+ *                 per line (PRICING_ALAE_LOAD below: the middle of the range),
+ *                 every year — played and pre-game alike. It used to be the
+ *                 mean of the pricing window's drawn ratios (wip/pricing-alae-load).
  *
  * ULAE stays at 5% of claims (ULAE_OF_LOSS_COST).
  *
@@ -501,6 +501,24 @@ export const ALAE_RATIO_RANGE: PerLine<{ min: number; max: number }> = {
  * that replaced 8.3%, which misread the pool's pricing example.)
  */
 export const ALAE_OF_LOSS_COST: PerLine<number> = {
+  WC: (ALAE_RATIO_RANGE.WC.min + ALAE_RATIO_RANGE.WC.max) / 2,
+  GL: (ALAE_RATIO_RANGE.GL.min + ALAE_RATIO_RANGE.GL.max) / 2,
+  Property: (ALAE_RATIO_RANGE.Property.min + ALAE_RATIO_RANGE.Property.max) / 2,
+};
+
+/**
+ * PRICING'S ALAE LOAD — A FIXED EXPECTED RATIO PER LINE, every year: WC 11%,
+ * GL 15%, Property 3.5% (each range's middle, ALAE_RATIO_RANGE), in the played
+ * years and the pre-game's alike. The rate's ALAE is the loss cost x this.
+ *
+ * ⚠ WHY: pricing charges the EXPECTED ALAE, not past draws. The actual ALAE
+ * booked each year is still drawn within the range (alaeRatio.ts) and booked at
+ * its draw; pricing on the window's average of those draws (as it did until
+ * wip/pricing-alae-load) made the rate chase five years of noise in a ratio
+ * whose expectation is known. Per line so it can be set on its own; its default
+ * is the range's middle, so a change to the range does not move it silently.
+ */
+export const PRICING_ALAE_LOAD: PerLine<number> = {
   WC: (ALAE_RATIO_RANGE.WC.min + ALAE_RATIO_RANGE.WC.max) / 2,
   GL: (ALAE_RATIO_RANGE.GL.min + ALAE_RATIO_RANGE.GL.max) / 2,
   Property: (ALAE_RATIO_RANGE.Property.min + ALAE_RATIO_RANGE.Property.max) / 2,
@@ -2819,14 +2837,22 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         what: 'Allocated loss adjustment expense varies year to year. Each line draws its ALAE ratio once per accident year, '
           + 'uniformly in its range, from the game\'s seed on its own labelled stream: every world uses the same draw and a '
           + 'replay is identical; the pre-game draws it too. The year\'s ALAE is booked at its ratio — incurred, paid on the '
-          + 'loss pattern and reserved as its claims develop. The rate\'s ALAE load is the mean of the drawn ratios over its '
-          + 'pricing window\'s accident years.', basis: 'CHOSEN',
+          + 'loss pattern and reserved as its claims develop. The rate\'s ALAE load is not the draws: it is the fixed '
+          + 'Pricing ALAE load below.', basis: 'CHOSEN',
         note: 'Was 5% of claims on every line, booked and priced alike (which replaced 8.3%, a misreading of the pool\'s '
           + 'pricing example). The supplied pure premiums exclude ALAE, so it is added on every line.',
       }],
       ['ALAE before any history', {
         value: perLine(ALAE_OF_LOSS_COST, 3), unit: 'share of loss cost',
-        what: 'The middle of each line\'s range: the ALAE load of a rate struck with no usable accident year.', basis: 'CHOSEN',
+        what: 'The middle of each line\'s range: the ratio booked on a cohort from before the draw existed.', basis: 'CHOSEN',
+      }],
+      ['Pricing ALAE load', {
+        value: perLine(PRICING_ALAE_LOAD, 3), unit: 'share of loss cost',
+        what: 'The ALAE the rate charges: a fixed expected ratio per line, every year, played and pre-game alike — '
+          + 'the loss cost x this.', basis: 'CHOSEN',
+        note: 'Pricing uses the expected ALAE, not past draws; the actual ALAE booked each year is still drawn within '
+          + 'the range. Defaults to each range\'s middle (WC 11%, GL 15%, Property 3.5%). Was the mean of the pricing '
+          + 'window\'s drawn ratios until wip/pricing-alae-load.',
       }],
       ['ULAE', {
         value: perLine(ULAE_OF_LOSS_COST, 3), unit: 'share of loss cost',

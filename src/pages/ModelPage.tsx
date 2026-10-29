@@ -97,7 +97,7 @@ function SectionA({ m }: { m: ModelRate }) {
           <Step label={`Indicated pure premium at ${m.calendarYear - 1} rate level`} op={`÷ ${f4(m.annualTrend)} (one year's trend)`} value={m.currentLevelPurePremiumPer100} testId="model-a-current-level" />
 
           <Heading n={3} title="LAE loads (inside the projected pure premium)" />
-          <Step label="ALAE ratio priced" op={m.window.length > 0 ? `mean of the window's ${m.window.length} drawn ratios` : 'the middle of the line\'s range (no history)'}
+          <Step label={`ALAE load (${(m.alaeShare * 100).toFixed(1)}%)`} op="the line's expected ALAE, every year (not the draws)"
             value={m.alaeShare} testId="model-a-alae-ratio" />
           <Step label="ALAE" op={`loss cost × ${pct4(m.alaeShare)}`} value={m.alaePer100} />
           <Step label="ULAE" op={`loss cost × ${pct4(m.ulaeShare)}`} value={m.ulaePer100} />

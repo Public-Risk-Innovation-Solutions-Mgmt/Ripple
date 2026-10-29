@@ -476,7 +476,7 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
     rows.push(
       { label: 'Average trended loss cost per $100', value: avg, kind: 'per100' },
       { label: 'Catastrophe load per $100', value: pp.catastropheLoadPer100, kind: 'per100' },
-      { label: 'ALAE ratio (window average)', value: pp.alaeRatio, kind: 'pct' },
+      { label: `ALAE load (${pct(pp.alaeRatio, 1)})`, value: pp.alaeRatio, kind: 'pct' },
       { label: 'ALAE load per $100', value: pp.alaePer100, kind: 'per100' },
       { label: 'ULAE load per $100', value: pp.ulaePer100, kind: 'per100' },
       { label: 'Pure premium per $100', value: pp.purePremiumPer100, kind: 'per100' },
