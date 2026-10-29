@@ -587,7 +587,7 @@ function NewRatePanel({ n, prior }: {
   const d4 = (v: number) => `$${v.toFixed(4)}`;
   const chg = (now: number, before: number | undefined, what: string) => {
     if (before === undefined || !(before > 0)) {
-      return <span className="text-gray-400" title={`no ${what} was recorded for last year`}>—</span>;
+      return <span className="text-gray-600" title={`no ${what} was recorded for last year`}>—</span>;
     }
     const pct = ((now / before) - 1) * 100;
     return (
@@ -651,7 +651,7 @@ function NewRatePanel({ n, prior }: {
           ))}
           <tr className="border-t border-gray-200/70">
             <td className="py-1 text-gray-600">+ Reinsurance</td>
-            <td className="py-1 text-right text-gray-400">—</td>
+            <td className="py-1 text-right text-gray-600">—</td>
             <td data-testid="new-rate-yours-reins" className="py-1 text-right tabular-nums">{c2(yours.reins)}</td>
           </tr>
           <tr className="border-t border-gray-300 font-medium">

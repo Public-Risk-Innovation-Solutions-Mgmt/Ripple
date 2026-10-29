@@ -91,7 +91,7 @@ export default function ResultSpreadsheetPage({ lockedResults, preGameResults, p
   if (shown.length === 0) {
     return (
       <div className="max-w-screen-2xl mx-auto px-4 py-6">
-        <div className="text-center py-20 text-gray-400">
+        <div className="text-center py-20 text-gray-600">
           <Table size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No spreadsheet data yet</p>
           <p className="text-sm mt-1">Complete a year to populate the result spreadsheet.</p>

@@ -174,7 +174,7 @@ function CategoryTile({ c, standing, onToggle, disabled }: {
       <span className="text-xs font-semibold text-gray-700 mt-0.5">
         {formatCurrency(cost)}/yr
       </span>
-      <span className={`text-[10px] mt-1 ${on ? 'text-blue-700 font-semibold' : 'text-gray-400'}`}>
+      <span className={`text-[10px] mt-1 ${on ? 'text-blue-700 font-semibold' : 'text-gray-600'}`}>
         {standing ? standingLabel(standing) : 'Not active'}
       </span>
     </>
@@ -272,12 +272,12 @@ export default function RiskControlCategoryBoxes({
           though it were a bill. */}
       <div className="flex items-baseline justify-between border-t border-gray-200 pt-2">
         <span className="text-[11px] text-gray-500">Committed this year</span>
-        <span className={`text-sm font-bold ${committedCost > 0 ? 'text-gray-900' : 'text-gray-400'}`}>
+        <span className={`text-sm font-bold ${committedCost > 0 ? 'text-gray-900' : 'text-gray-600'}`}>
           {formatCurrency(committedCost)}/yr
         </span>
       </div>
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] text-gray-400">
+        <span className="text-[11px] text-gray-600">
           All {shown.length} available programs, if selected
         </span>
         <span className="text-xs font-semibold text-gray-500">

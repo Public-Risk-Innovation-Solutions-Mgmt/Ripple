@@ -71,7 +71,7 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
       </div>
 
       {rows.length === 0 ? (
-        <div className="text-center py-20 text-gray-400">
+        <div className="text-center py-20 text-gray-600">
           <ScrollText size={48} className="mx-auto mb-4 opacity-30" />
           <p className="font-medium text-lg">No decision history yet</p>
           <p className="text-sm mt-1">Lock a year to start building the history for this view.</p>
@@ -122,7 +122,7 @@ export default function DecisionHistoryPage({ lockedResults, lineView }: Decisio
                           <td className="px-4 py-3">
                             {(r.outstandingLoanBalance > 0 || r.loanOriginatedThisYear > 0)
                               ? pctDisplay(r.decisions.loanRepaymentAggressiveness, 0)
-                              : <span className="text-gray-400">—</span>}
+                              : <span className="text-gray-600">—</span>}
                           </td>
                         )}
                       </>

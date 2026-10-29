@@ -43,13 +43,13 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-[960px] items-baseline justify-between gap-x-3 gap-y-1 px-6 pt-5">
+        <div className="mx-auto flex max-w-screen-2xl items-baseline justify-between gap-x-3 gap-y-1 px-6 pt-5">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="text-lg font-semibold text-slate-800">
               {eventName || 'Host a session'}
             </h1>
             {code && (
-              <span className="text-sm text-slate-400">
+              <span className="text-sm text-slate-600">
                 room <span className="font-mono font-medium text-slate-600">{code}</span>
               </span>
             )}
@@ -73,7 +73,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
               type="button"
               data-testid="host-main-page-link"
               onClick={() => navigate('/')}
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-600"
             >
               <Home size={14} /> Main page
             </button>
@@ -81,13 +81,13 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
               type="button"
               data-testid="host-admin-link"
               onClick={() => navigate('/admin')}
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-600"
             >
               <Shield size={14} /> Admin
             </button>
           </div>
         </div>
-        <nav className="mx-auto flex max-w-[960px] gap-1 px-6 pt-3">
+        <nav className="mx-auto flex max-w-screen-2xl gap-1 px-6 pt-3">
           {HOST_TABS.map(t => {
             const disabled = !!t.needsRoom && !hasRoom;
             const active = t.id === activeTab;
@@ -106,7 +106,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
                       : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <span className={active ? 'text-blue-600' : 'text-slate-400'}>{t.icon}</span>
+                <span className={active ? 'text-blue-600' : 'text-slate-600'}>{t.icon}</span>
                 {t.label}
               </button>
             );
@@ -114,7 +114,7 @@ export default function HostShell({ activeTab, onSelectTab, hasRoom, code, event
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-[960px] px-6 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-screen-2xl px-6 py-6">{children}</main>
     </div>
   );
 }

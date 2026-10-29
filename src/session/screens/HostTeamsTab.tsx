@@ -118,7 +118,7 @@ export default function HostTeamsTab({ room }: Props) {
 
   if (teams.length === 0) {
     return (
-      <p data-testid="teams-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-400">
+      <p data-testid="teams-empty" className="rounded-xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-600">
         No teams have joined yet.
       </p>
     );
@@ -143,14 +143,14 @@ export default function HostTeamsTab({ room }: Props) {
           <p className="text-sm font-medium text-slate-700">
             {effectiveView === 'pool' ? 'Pool' : LINE_FULL_NAME[effectiveView]}
           </p>
-          <p data-testid="teams-year" className="text-xs text-slate-400">
+          <p data-testid="teams-year" className="text-xs text-slate-600">
             {reportingYear < 0 ? 'No results known yet' : `Results for ${room.startingYear + reportingYear - 1}`}
           </p>
         </div>
 
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+            <tr className="text-left text-xs uppercase tracking-wide text-slate-600">
               <th className="px-5 py-2 font-medium">Team</th>
               <th className="px-5 py-2 font-medium">Ripple Score</th>
               <th className="px-5 py-2 font-medium">Premium to surplus</th>
@@ -175,7 +175,7 @@ export default function HostTeamsTab({ room }: Props) {
                   {state.kind === 'absent' && (
                     // ⚠ ONE CELL, IN WORDS. Nothing here can be read as a
                     // number, which is the requirement.
-                    <td colSpan={6} data-testid={`absent-${t.name}`} className="px-5 py-2.5 text-xs italic text-slate-400">
+                    <td colSpan={6} data-testid={`absent-${t.name}`} className="px-5 py-2.5 text-xs italic text-slate-600">
                       does not write {effectiveView === 'pool' ? '' : effectiveView}
                     </td>
                   )}
@@ -188,26 +188,26 @@ export default function HostTeamsTab({ room }: Props) {
 
                   {state.kind === 'reported' && (
                     <>
-                      <td data-testid={`ripple-${t.name}`} className="px-5 py-2.5 font-mono text-slate-300">—</td>
+                      <td data-testid={`ripple-${t.name}`} className="px-5 py-2.5 font-mono text-slate-600">—</td>
                       <td data-testid={`pts-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
-                        {state.figures.premiumToSurplus !== undefined ? state.figures.premiumToSurplus.toFixed(2) : <span className="text-slate-300">—</span>}
+                        {state.figures.premiumToSurplus !== undefined ? state.figures.premiumToSurplus.toFixed(2) : <span className="text-slate-600">—</span>}
                       </td>
                       <td data-testid={`rate-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
                         {effectiveView !== 'pool'
-                          ? (rateText(state.figures) ?? <span className="text-slate-300">—</span>)
+                          ? (rateText(state.figures) ?? <span className="text-slate-600">—</span>)
                           // THE POOL: each line's rate, since the lines' units differ.
-                          : t.lines.length === 0 ? <span className="text-slate-300">—</span>
+                          : t.lines.length === 0 ? <span className="text-slate-600">—</span>
                           : t.lines.map(l => (
                             <span key={l} className="block whitespace-nowrap text-xs">
-                              {l} {rateText(state.pool?.[l]) ?? <span className="text-slate-300">—</span>}
+                              {l} {rateText(state.pool?.[l]) ?? <span className="text-slate-600">—</span>}
                             </span>
                           ))}
                       </td>
                       <td data-testid={`admin-${t.name}`} className="px-5 py-2.5 font-mono text-slate-700">
-                        {state.figures.adminExpenseRatio !== undefined ? formatPct(state.figures.adminExpenseRatio) : <span className="text-slate-300">—</span>}
+                        {state.figures.adminExpenseRatio !== undefined ? formatPct(state.figures.adminExpenseRatio) : <span className="text-slate-600">—</span>}
                       </td>
                       <td data-testid={`cr-${t.name}`}
-                        className={`px-5 py-2.5 font-mono ${state.figures.yearCombinedRatio !== undefined ? colorForCombinedRatio(state.figures.yearCombinedRatio) : 'text-slate-300'}`}>
+                        className={`px-5 py-2.5 font-mono ${state.figures.yearCombinedRatio !== undefined ? colorForCombinedRatio(state.figures.yearCombinedRatio) : 'text-slate-600'}`}>
                         {state.figures.yearCombinedRatio !== undefined ? formatPct(state.figures.yearCombinedRatio) : '—'}
                       </td>
                       <td data-testid={`surplus-${t.name}`} className={`px-5 py-2.5 font-mono ${colorForSurplus(state.figures.endingSurplus)}`}>
@@ -227,12 +227,12 @@ export default function HostTeamsTab({ room }: Props) {
                       const share = room.marketShares?.byTeam[t.name];
                       const v = share === undefined ? undefined
                         : effectiveView === 'pool' ? share.pool : share.byLine[effectiveView];
-                      if (v === undefined) return <span className="text-slate-300">—</span>;
+                      if (v === undefined) return <span className="text-slate-600">—</span>;
                       // The heading names the results' year; a share worked out for an
                       // earlier one (a locked team not yet posted) says which.
                       const sy = room.marketShares!.year;
                       return sy === reportingYear ? formatPct(v)
-                        : <>{formatPct(v)} <span className="text-[10px] text-slate-400">({room.startingYear + sy - 1})</span></>;
+                        : <>{formatPct(v)} <span className="text-[10px] text-slate-600">({room.startingYear + sy - 1})</span></>;
                     })()}
                   </td>
                 </tr>
@@ -241,7 +241,7 @@ export default function HostTeamsTab({ room }: Props) {
           </tbody>
         </table>
 
-        <p className="border-t border-slate-100 px-5 py-2.5 text-[11px] text-slate-400">
+        <p className="border-t border-slate-100 px-5 py-2.5 text-[11px] text-slate-600">
           {effectiveView === 'pool'
             ? 'Pooled figures. Teams writing different lines are not directly comparable here — pick a line above.'
             : `Every figure is ${effectiveView}, so the column compares like with like.`}

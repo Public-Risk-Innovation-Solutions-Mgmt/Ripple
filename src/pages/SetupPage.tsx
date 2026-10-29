@@ -138,7 +138,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                   onChange={e => setGameLength(parseInt(e.target.value))}
                   className="w-full accent-blue-600 h-2"
                 />
-                <div className="flex justify-between text-sm text-gray-400 mt-1.5">
+                <div className="flex justify-between text-sm text-gray-600 mt-1.5">
                   <span>{GAME_LENGTH_YEARS.min} years</span>
                   <span>{GAME_LENGTH_YEARS.max} years</span>
                 </div>
@@ -156,7 +156,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>
-                <p className="text-sm text-gray-400 mt-1.5">Controls calendar labels only</p>
+                <p className="text-sm text-gray-600 mt-1.5">Controls calendar labels only</p>
               </div>
             </div>
 
@@ -181,7 +181,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                   Random
                 </button>
               </div>
-              <p className="text-sm text-gray-400 mt-1.5">Same scenario + same decisions = same results. Share the number to compare strategies.</p>
+              <p className="text-sm text-gray-600 mt-1.5">Same scenario + same decisions = same results. Share the number to compare strategies.</p>
             </div>
 
             {/* Coverage lines */}
@@ -216,7 +216,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
                   );
                 })}
               </div>
-              <p className={`text-sm mt-1.5 ${activeLines.length === 0 ? 'text-red-500' : 'text-gray-400'}`}>
+              <p className={`text-sm mt-1.5 ${activeLines.length === 0 ? 'text-red-500' : 'text-gray-600'}`}>
                 {activeLines.length === 0
                   ? 'Select at least one coverage line.'
                   : 'Lines are chosen once at setup and locked for the game.'}
@@ -264,7 +264,7 @@ export default function SetupPage({ onStart }: SetupPageProps) {
           </div>
         </div>
 
-        <p className="text-center text-sm text-gray-400 mt-5">
+        <p className="text-center text-sm text-gray-600 mt-5">
           All member names and entities are fictional. No real public entity names are used.
         </p>
       </div>

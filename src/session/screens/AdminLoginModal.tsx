@@ -43,7 +43,7 @@ export default function AdminLoginModal({ onClose, onSuccess }: Props) {
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-900">Admin login</h2>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button type="button" onClick={onClose} className="text-slate-600 hover:text-slate-600">
             <X size={18} />
           </button>
         </div>
