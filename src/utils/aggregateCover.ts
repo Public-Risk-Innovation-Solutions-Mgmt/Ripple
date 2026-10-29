@@ -41,6 +41,32 @@ export function aggregateCoverOption(optionId: string): AggregateCoverOption {
   return o;
 }
 
+// --- the wording ----------------------------------------------------------------
+// What players read wherever the cover is offered or shown — the Decisions page,
+// the Rate Indication, the Year Walkthrough, the Model tab and the host's table.
+// Every percentage is built from the option's attachment and limit, so a changed
+// layer relabels itself.
+export const AGGREGATE_COVER_TITLE = 'Aggregate Stop-Loss Coverage';
+export const AGGREGATE_COVER_NOTE =
+  'Protects against annual attritional losses exceeding a selected percentage of expected losses, up to the coverage limit.';
+export const AGGREGATE_COVER_FOOTNOTE =
+  'Coverage pays 100% of eligible losses between the attachment point and the exhaustion point.';
+
+const pctOf = (x: number) => `${Number((x * 100).toFixed(2))}%`;
+
+/**
+ * An option's label: its name — "110% / 50%", or "None" — and what it covers —
+ * "Covers losses from 110% to 160% of expected" (attachment to attachment +
+ * limit), or "No Coverage" — and the two as one line, "<name> — <covers>".
+ */
+export function aggregateCoverLabel(optionId: string): { name: string; covers: string; label: string } {
+  const o = aggregateCoverOption(optionId);
+  const covers = o.limit > 0
+    ? `Covers losses from ${pctOf(o.attachment)} to ${pctOf(o.attachment + o.limit)} of expected`
+    : 'No Coverage';
+  return { name: o.name, covers, label: `${o.name} — ${covers}` };
+}
+
 export const isAggregateCoverOption = (id: unknown): id is string =>
   typeof id === 'string' && AGGREGATE_COVER_OPTIONS.some(o => o.id === id);
 

@@ -5,6 +5,7 @@
 import { useMemo, useState } from 'react';
 import type { CoverageLine, DecisionSet, GameState } from '../types/simulation';
 import { buildRateIndication, rateIndicationYears, type RateIndication } from '../utils/rateIndication';
+import { AGGREGATE_COVER_TITLE } from '../utils/aggregateCover';
 import { lineDisplayName } from '../utils/lineDisplay';
 import { formatCurrency, formatMillions } from '../utils/formatters';
 
@@ -211,7 +212,7 @@ function LineCard({ ri }: { ri: RateIndication }) {
             <Row key={r.id} label={r.name} testId={`ri-${l}-reins-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
           ))}
           {/* THE AGGREGATE COVER ON ATTRITIONAL LOSSES, beside the per-claim covers (utils/aggregateCover). */}
-          <h4 className="text-sm font-semibold text-gray-800 pt-4 pb-2 mb-2 border-b border-gray-300" data-testid={`ri-${l}-agg-covers`}>Aggregate cover</h4>
+          <h4 className="text-sm font-semibold text-gray-800 pt-4 pb-2 mb-2 border-b border-gray-300" data-testid={`ri-${l}-agg-covers`}>{AGGREGATE_COVER_TITLE}</h4>
           {ri.aggregateCovers.map(r => (
             <Row key={r.id} label={r.name} testId={`ri-${l}-agg-${r.id}`} value={r.pricePer100}>{rate(r.pricePer100)}</Row>
           ))}

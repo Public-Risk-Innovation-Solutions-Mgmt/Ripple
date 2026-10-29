@@ -145,7 +145,7 @@ function reinsuranceLabel(d: TeamLineDecisions): string {
   const cover = d.aggregateCover && d.aggregateCover !== 'none'
     ? AGGREGATE_COVER_OPTIONS.find(o => o.id === d.aggregateCover)?.name ?? d.aggregateCover
     : null;
-  return cover ? `${layer} + aggregate ${cover}` : layer;
+  return cover ? `${layer} + aggregate stop-loss ${cover}` : layer;
 }
 
 const SPAN_NOTE: Record<Exclude<CellState['kind'], 'reported'>, string> = {

@@ -2028,6 +2028,7 @@ export const REINSURANCE_OFFERED_SHOCKS_OFF: readonly string[] = ['none'];
  */
 export interface AggregateCoverOption {
   id: string;
+  /** "110% / 50%" — BUILT FROM attachment AND limit (aggregateCoverChoice), so it follows the layer; "None" for none. */
   name: string;
   /** Attaches at this share of the year's expected attritional losses. */
   attachment: number;
@@ -2036,11 +2037,16 @@ export interface AggregateCoverOption {
   /** The price is the expected recovery x this. */
   load: number;
 }
+/** An option, its name built from its layer: "110% / 50%" (attachment / limit, shares of expected), "None" with no limit. */
+const aggregateCoverChoice = (id: string, attachment: number, limit: number, load: number): AggregateCoverOption => ({
+  id, attachment, limit, load,
+  name: limit > 0 ? `${Number((attachment * 100).toFixed(2))}% / ${Number((limit * 100).toFixed(2))}%` : 'None',
+});
 export const AGGREGATE_COVER_OPTIONS: readonly AggregateCoverOption[] = [
-  { id: 'none', name: 'None', attachment: 0, limit: 0, load: 0 },
-  { id: 'agg-110-50', name: '110/50', attachment: 1.10, limit: 0.50, load: 1.2 },
-  { id: 'agg-125-50', name: '125/50', attachment: 1.25, limit: 0.50, load: 1.0 },
-  { id: 'agg-150-50', name: '150/50', attachment: 1.50, limit: 0.50, load: 1.0 },
+  aggregateCoverChoice('none', 0, 0, 0),
+  aggregateCoverChoice('agg-110-50', 1.10, 0.50, 1.2),
+  aggregateCoverChoice('agg-125-50', 1.25, 0.50, 1.0),
+  aggregateCoverChoice('agg-150-50', 1.50, 0.50, 1.0),
 ];
 /** Held by every team until it chooses; an absent choice reads as this. */
 export const AGGREGATE_COVER_DEFAULT = 'none';
@@ -3215,9 +3221,9 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
         note: 'The pricing workbook\'s method, on the game\'s own claims, so prices follow the claims a player sees. '
           + 'In 2027 the factor is 1: WC 9 xs 1 $461K, GL $488K, Property $784K.',
       }],
-      ['Aggregate cover on attritional losses', {
+      ['Aggregate Stop-Loss Coverage (attritional losses)', {
         value: AGGREGATE_COVER_OPTIONS.filter(o => o.limit > 0)
-          .map(o => `${o.name} (${Math.round(o.attachment * 100)}% / ${Math.round(o.limit * 100)}%, load ${o.load})`).join(' · '),
+          .map(o => `${o.name} (load ${o.load})`).join(' · '),
         unit: 'attaches / limit, shares of the year\'s expected attritional losses; price = expected recovery x load',
         what: 'What a team can buy on each line beside the per-claim cover: None, or a cover on the year\'s attritional '
           + 'losses — normal losses plus the shocks\' surges (A), never a large (T) claim, Economic Inflation\'s uplift '

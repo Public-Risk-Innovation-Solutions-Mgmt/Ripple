@@ -39,7 +39,7 @@
 // (docs/PENDING_MULTIPLAYER.md: players never see how the engine works).
 // ============================================================================
 import { ADMIN_SHARE_OF_PREMIUM, AGGREGATE_COVER_DEFAULT, AGGREGATE_STOP_OPTIONS, RATE_INDICATION_FUNDING_LEVELS, coversInEveryGame } from '../data/pricingParameters';
-import { aggregateCoverOption, aggregateCoverOptionIds } from './aggregateCover';
+import { aggregateCoverLabel, aggregateCoverOptionIds } from './aggregateCover';
 import { gameHistory } from './gameHistory';
 import { computeFundingConsequence } from './fundingConsequence';
 import { effectiveRiskControlIncentivePct, quoteNewRateStack } from './linePricing';
@@ -284,7 +284,7 @@ export function buildRateIndication(
   }));
   const aggregateCovers = aggregateCoverOptionIds(shocks).map(id => ({
     id,
-    name: aggregateCoverOption(id).name,
+    name: aggregateCoverLabel(id).label,
     pricePer100: price(reinsuranceAt, 'none', id)?.reinsRatePer100 ?? 0,
   }));
 

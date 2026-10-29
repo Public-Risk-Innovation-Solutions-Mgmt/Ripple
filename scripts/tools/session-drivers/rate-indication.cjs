@@ -133,11 +133,14 @@ function screen(page, mode) {
         reins[(await el.getAttribute('data-testid')).replace(`ri-${l}-reins-`, '')] = Number(await el.getAttribute('data-value'));
       }
       // The aggregate cover on attritional losses (wip/aggregate-cover), beside the per-claim covers.
-      const agg = {};
+      const agg = {}, aggLabels = {};
       for (const el of await page.$$(`[data-testid^="ri-${l}-agg-"]`)) {
         const id = (await el.getAttribute('data-testid')).replace(`ri-${l}-agg-`, '');
-        if (id !== 'covers') agg[id] = Number(await el.getAttribute('data-value'));
+        if (id === 'covers') continue;
+        agg[id] = Number(await el.getAttribute('data-value'));
+        aggLabels[id] = (await page.locator(`[data-testid="ri-${l}-agg-${id}"]`).locator('xpath=../span[1]').innerText()).trim();
       }
+      const aggHeading = (await page.textContent(`[data-testid="ri-${l}-agg-covers"]`)).trim();
       const label = async id => (await page.locator(`[data-testid="ri-${l}-${id}"]`).locator('xpath=../span[1]').innerText()).trim();
       out[l] = {
         losses: await value(`[data-testid="ri-${l}-losses"]`),
@@ -170,7 +173,7 @@ function screen(page, mode) {
         current: await value(`[data-testid="ri-${l}-current"]`),
         window: Number(await page.getAttribute(`[data-testid="ri-${l}-losses"]`, 'data-window')),
         lossesLabel: await page.locator(`[data-testid="ri-${l}-losses"]`).locator('xpath=..').innerText(),
-        reins, agg, levels: {},
+        reins, agg, aggLabels, aggHeading, levels: {},
       };
       for (const lv of LEVELS) out[l].levels[lv] = await value(`[data-testid="ri-${l}-level-${lv}"]`);
       // Event Likelihoods: present or not, its heading and note, each row's label, text and size.
@@ -334,6 +337,30 @@ function screen(page, mode) {
       // pages, and each one's price per $100 is what it adds to the panel's
       // rate, beside the first per-claim cover, at Expected and at 80%.
       const aggOffered = await aggOfferedOn(l);
+      // THE WORDING (written out): the title, note, columns, each option's label and annual premium,
+      // and the footnote on the Decisions page; the heading and the same labels on the Rate Indication.
+      const words = await page.evaluate(line => {
+        const t = id => document.querySelector(`[data-testid="${id}"]`)?.textContent.trim();
+        const box = document.querySelector(`[data-testid="agg-cover-${line}"]`);
+        const heads = box ? [...box.querySelectorAll('div.flex > span')].slice(0, 2).map(e => e.textContent.trim()) : [];
+        const rows = [...document.querySelectorAll(`[data-testid^="agg-cover-option-${line}-"]`)].map(b => ({
+          label: b.querySelector('span').textContent.trim(), premium: b.querySelectorAll('span')[1].textContent.trim(),
+          price: Number(b.getAttribute('data-price')) }));
+        return { title: t(`agg-cover-title-${line}`), note: t(`agg-cover-note-${line}`), footnote: t(`agg-cover-footnote-${line}`), heads, rows };
+      }, l);
+      const LABELS = ['None — No Coverage', '110% / 50% — Covers losses from 110% to 160% of expected',
+        '125% / 50% — Covers losses from 125% to 175% of expected', '150% / 50% — Covers losses from 150% to 200% of expected'];
+      const dollars = x => `$${Math.round(x).toLocaleString('en-US')}`;
+      ok(words.title === 'Aggregate Stop-Loss Coverage'
+        && words.note === 'Protects against annual attritional losses exceeding a selected percentage of expected losses, up to the coverage limit.'
+        && JSON.stringify(words.heads) === JSON.stringify(['Label', 'Annual Premium'])
+        && JSON.stringify(words.rows.map(r => r.label)) === JSON.stringify(LABELS)
+        && words.rows.every(r => r.premium === dollars(r.price)) && words.rows[0].premium === '$0'
+        && words.footnote === 'Coverage pays 100% of eligible losses between the attachment point and the exhaustion point.',
+        `${mode}, ${name}, ${l}: Decisions — "Aggregate Stop-Loss Coverage", its note, Label | Annual Premium, the four labels with their premiums, the footnote`,
+        words.rows.map(r => `${r.label} ${r.premium}`).join(' · '));
+      ok(ind[l].aggHeading === 'Aggregate Stop-Loss Coverage' && JSON.stringify(Object.values(ind[l].aggLabels)) === JSON.stringify(LABELS),
+        `${mode}, ${name}, ${l}: Rate Indication — "Aggregate Stop-Loss Coverage" and the same four labels`, Object.values(ind[l].aggLabels).join(' · '));
       ok(JSON.stringify(Object.keys(ind[l].agg)) === JSON.stringify(aggOffered)
         // All four in every game, shocks on or off — the per-claim covers' rule (COVERS_IN_EVERY_GAME).
         && JSON.stringify(aggOffered) === JSON.stringify(['none', 'agg-110-50', 'agg-125-50', 'agg-150-50']),
