@@ -269,6 +269,10 @@ const FAST: string[] = [
                                      //         player, never on shocks or older years, neutral on average
                                      //         (sizing, 48,000 draws, 144 line-years); 0% untouched —
                                      //         each with a control.
+  'dividend-dollars-check',          // ~12s   the dividend and assessment in dollars: $X moves surplus
+                                     //         by exactly $X; a dividend limited to the surplus; a
+                                     //         pool at or below zero can assess, not pay; the 31
+                                     //         $1M notches — each with a control.
   'year-walkthrough-check',          // ~21s   the Year Walkthrough: every stage tied to the engine,
                                      //         identical games give identical codes, a changed
                                      //         decision moves only the stages after it, the seed

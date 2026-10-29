@@ -25,8 +25,8 @@ export function defaultLineDecisionSet(line: CoverageLine, shocks = true): LineD
     // 0% rejection, the book stands still unless the team moves it.
     nonRenewal: NON_RENEWAL_SLIDER.default,
     newMembers: NEW_MEMBERS_SLIDER.default,
-    dividendPct: SLIDER_RANGES.dividendPct.default,
-    assessmentPct: SLIDER_RANGES.assessmentPct.default,
+    dividendAmount: SLIDER_RANGES.dividendAmount.default,
+    assessmentAmount: SLIDER_RANGES.assessmentAmount.default,
     riskControlPct: SLIDER_RANGES.riskControlPct.default,
     // Spend nothing on incentives. The field is STORED AND UNREAD — see
     // LineDecisionSet.riskControlIncentivePct — so this is what the slider

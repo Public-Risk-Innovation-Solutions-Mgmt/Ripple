@@ -444,8 +444,8 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
       { label: 'New members', value: newMembersShare(d.newMembers), kind: 'pct' },
       { label: 'Reinsurance cover', value: d.reinsuranceOption, kind: 'text' },
       { label: 'Asset mix (cash/bonds/equities)', value: mixText(d), kind: 'text' },
-      { label: 'Dividend', value: d.dividendPct, kind: 'pct' },
-      { label: 'Assessment', value: d.assessmentPct, kind: 'pct' },
+      { label: 'Dividend', value: d.dividendAmount, kind: 'usd' },
+      { label: 'Assessment', value: d.assessmentAmount, kind: 'usd' },
       { label: 'Risk control (share of the rate)', value: effectiveRiskControlIncentivePct(d), kind: 'pct' },
       { label: 'Loan repayment (share of net income)', value: d.loanRepaymentAggressiveness, kind: 'pct' },
       { label: 'Loan authorized this year', value: authorized ? 'Yes' : 'No', kind: 'text' },
@@ -910,23 +910,25 @@ function lineStages(s: YearSource, l: CoverageLine): LineStage[] {
   });
 
   // ---- dividends and assessments ----
+  // In dollars (dividendAssessment.ts): the assessment charged in full whatever
+  // the surplus; the dividend limited to the opening surplus in each world.
   const basis = s.row.worldSummary?.audit[l]?.dividendBasis ?? Math.max(0, a.beginingSurplus);
-  const aBasis = s.row.worldSummary?.audit[l]?.assessmentBasis ?? Math.max(0, a.beginingSurplus);
+  const limited = a.dividends < d.dividendAmount - 0.005;
   out.push({
     key: 'dividends',
     rows: [
-      { label: 'Basis (opening surplus, not below zero)', value: basis, kind: 'usd' },
-      { label: 'Dividend %', value: d.dividendPct, kind: 'pct' },
-      { label: 'Dividends', value: a.dividends, kind: 'usd' },
-      { label: 'Assessment %', value: d.assessmentPct, kind: 'pct' },
-      { label: 'Assessments', value: a.assessments, kind: 'usd' },
+      { label: 'Surplus available (opening surplus, not below zero)', value: basis, kind: 'usd' },
+      { label: 'Dividend chosen', value: d.dividendAmount, kind: 'usd' },
+      { label: 'Dividends paid', value: a.dividends, kind: 'usd' },
+      { label: 'Assessment chosen', value: d.assessmentAmount, kind: 'usd' },
+      { label: 'Assessments charged', value: a.assessments, kind: 'usd' },
     ],
     feed: feed({
-      decisions: [{ name: 'Dividend', value: pct(d.dividendPct) }, { name: 'Assessment', value: pct(d.assessmentPct) }],
-      through: ["earlier years' surplus (the basis)"],
+      decisions: [{ name: 'Dividend', value: usd(d.dividendAmount) }, { name: 'Assessment', value: usd(d.assessmentAmount) }],
+      through: ["earlier years' surplus (what a dividend is limited to)"],
       working: [
-        `Dividends = ${pct(d.dividendPct)} × ${usd(basis)} = ${usd(a.dividends)} (none where last year ended below zero)`,
-        `Assessments = ${pct(d.assessmentPct)} × ${usd(aBasis)} = ${usd(a.assessments)}`,
+        `Dividends paid = ${usd(d.dividendAmount)} limited to the surplus available ${usd(basis)} = ${usd(a.dividends)}${limited ? ' (limited in some or all worlds)' : ''}; none where last year ended below zero`,
+        `Assessments charged = ${usd(d.assessmentAmount)}, in full whatever the surplus = ${usd(a.assessments)}`,
       ],
     }),
   });

@@ -353,8 +353,12 @@ export const DEVELOPMENT_TAIL = { closed: true } as const;
  */
 export const BASELINE_CV: PerLine<number> = { WC: 0.06, GL: 0.10, Property: 0.08 };
 
-/** The combined dividend / assessment control: negative is an assessment. */
-export const DIVIDEND_ASSESSMENT_RANGE = { min: -0.15, max: 0.15, step: 0.01, default: 0 };
+/**
+ * The combined dividend / assessment control, IN DOLLARS: negative is an
+ * assessment, positive a dividend, $1M a notch. Its 31 notches are the ones it
+ * had as a share of surplus (-15% to +15% in 1% steps); each is now $1M.
+ */
+export const DIVIDEND_ASSESSMENT_RANGE = { min: -15_000_000, max: 15_000_000, step: 1_000_000, default: 0 };
 
 /** Pool-wide risk control intensity, as a share of each line's own premium. */
 export const RISK_CONTROL_PCT_RANGE = { min: 0, max: 0.08, step: 0.01, default: 0 };
@@ -2650,8 +2654,8 @@ export const PRICING_PARAMETER_SECTIONS: ReadonlyArray<ParameterSection> = [
     entries: [
       ['Dividend / assessment range', {
         value: `${DIVIDEND_ASSESSMENT_RANGE.min} to ${DIVIDEND_ASSESSMENT_RANGE.max}, step ${DIVIDEND_ASSESSMENT_RANGE.step}`,
-        unit: 'share of opening surplus',
-        what: 'Negative is an assessment, positive a dividend.', basis: 'CHOSEN',
+        unit: 'dollars',
+        what: 'Negative is an assessment, charged in full; positive a dividend, limited to the opening surplus.', basis: 'CHOSEN',
       }],
       ['Pool-wide risk control range (retired)', {
         value: `${RISK_CONTROL_PCT_RANGE.min} to ${RISK_CONTROL_PCT_RANGE.max}, step ${RISK_CONTROL_PCT_RANGE.step}`,

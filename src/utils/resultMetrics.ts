@@ -85,20 +85,21 @@ export const RESULT_METRICS: SpreadsheetMetric[] = [
       csvValue: r => r.selectedFundingCLF,
     },
     {
-      key: 'dividendPct',
+      key: 'dividendAmount',
       lineOnly: true,
       category: 'Decisions',
-      label: 'Dividend %',
-      value: r => formatPct(r.decisions.dividendPct, 1),
-      csvValue: r => r.decisions.dividendPct,
+      // The amount CHOSEN; what was paid (limited to the surplus) is 'Dividends'.
+      label: 'Dividend chosen',
+      value: r => formatCurrency(r.decisions.dividendAmount),
+      csvValue: r => r.decisions.dividendAmount,
     },
     {
-      key: 'assessmentPct',
+      key: 'assessmentAmount',
       lineOnly: true,
       category: 'Decisions',
-      label: 'Assessment %',
-      value: r => formatPct(r.decisions.assessmentPct, 1),
-      csvValue: r => r.decisions.assessmentPct,
+      label: 'Assessment chosen',
+      value: r => formatCurrency(r.decisions.assessmentAmount),
+      csvValue: r => r.decisions.assessmentAmount,
     },
     // THE RISK CONTROL SLIDER (wip/risk-control): per line, so line tabs only.
     // It replaces the retired pool-wide 'riskControlPct' row, which only showed

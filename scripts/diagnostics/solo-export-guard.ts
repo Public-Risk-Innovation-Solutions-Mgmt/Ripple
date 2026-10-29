@@ -1097,7 +1097,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // on the pool, every year, the dormant stop's, always $0 — and the two codes
 // that fingerprint them, the reinsurance stage's and the year code. No figure
 // moved. The 24 `stmt|...` keys do not move.
-const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v114.json');
+// v115: THE DIVIDEND AND THE ASSESSMENT IN DOLLARS (wip/dividends-in-dollars),
+// against multiplayer 15dc74b, which reproduces v114 here. The 24 Results keys
+// move and the 24 statements do not. Text-diffed (GUARD_TEXT_DIR both sides):
+// in the Results sheets the only rows that move are the two decision rows,
+// renamed "Dividend %" -> "Dividend chosen" and "Assessment %" -> "Assessment
+// chosen" and stated in dollars ($0 where 0.0%) — no row keeping its label
+// moved a value; in the Year Walkthrough sheet, the dividend stage's labels and
+// working, the decisions stage's two rows, the codes those move, and the
+// Version row (save key v41 -> v42). The guard's games choose no dividend or
+// assessment, so no figure moved.
+const BASELINE = path.join(__dirname, '../../baselines/SOLO_EXPORT_GUARD_v115.json');
 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 

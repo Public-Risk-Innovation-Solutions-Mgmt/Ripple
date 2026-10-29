@@ -89,8 +89,8 @@ function chosenSet(shocks: boolean): DecisionSet {
       fundingAtExpected: false,
       nonRenewal: 0.01 * (i + 1),
       newMembers: 0.01 * (i + 2),
-      dividendPct: 0.02 + 0.005 * i,
-      assessmentPct: 0.01 + 0.005 * i,
+      dividendAmount: (2 + i) * 1_000_000,
+      assessmentAmount: (1 + i) * 1_000_000,
       riskControlPct: 0.01 * (i + 1),
       riskControlIncentivePct: 0.01 * (i + 1),
       reinsuranceOption: cover,
@@ -209,7 +209,7 @@ control('a second write of the defaults after a year locks is refused', extra ==
 // Ranges stay in force: every carried slider value is one the page offers.
 const r = SLIDER_RANGES;
 const y1 = chosenSet(true);
-ok(LINES.every(l => y1.byLine[l].dividendPct <= r.dividendPct.max && y1.byLine[l].assessmentPct <= r.assessmentPct.max
+ok(LINES.every(l => y1.byLine[l].dividendAmount <= r.dividendAmount.max && y1.byLine[l].assessmentAmount <= r.assessmentAmount.max
   && (y1.byLine[l].riskControlIncentivePct ?? 0) <= r.riskControlIncentivePct.max && y1.byLine[l].riskControlPct <= r.riskControlPct.max),
   'year 1\'s choices are inside the Decisions page\'s slider ranges');
 
