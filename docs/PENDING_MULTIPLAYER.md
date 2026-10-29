@@ -11,6 +11,27 @@ a number typed into the text, here or in the code that renders it.
 
 ---
 
+## Decisions carry into the next year in single player — wip/carry-decisions
+
+Single player and Test player now start each year from the decisions the year
+before was played on, as a hosted team always has: funding, the underwriting
+sliders, the reinsurance cover, the aggregate cover, the asset mix, risk
+control, dividends and assessments, and loan repayment. Only the first year
+opens on the defaults. `commitYear` (App.tsx) carries
+`settled.played.decisions` through `carryDecisions` (a copy, re-stamped with
+the next year's number); risk-control programs still come off the pool row's
+echo. A new game and a save without an editing buffer are the only other
+places the defaults are written. No save key change: a save replays the sets
+it played and restores its editing buffer as written.
+
+Nothing a game plays moves when its decisions are set every year: value
+identity, the export guard (48 of 48) and the render harness (236 of 236, which
+plays two years on the defaults) are unchanged against multiplayer 1a02966.
+What moves is what a player sees when a year opens — their own choices, not the
+defaults. `carry-decisions-check` (FAST) and the rate-indication driver hold it.
+
+---
+
 ## Risk control in the divisor (save key v40) — wip/risk-control-divisor
 
 Risk control is an expense in the divisor, beside admin:
