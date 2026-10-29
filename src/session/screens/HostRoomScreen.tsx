@@ -96,7 +96,7 @@ export default function HostRoomScreen({ code }: Props) {
 
   if (loading && !room) {
     return (
-      <div className="flex items-center justify-center py-16 text-slate-400">
+      <div className="flex items-center justify-center py-16 text-slate-600">
         <Loader2 className="animate-spin" size={18} />
         <span className="ml-2 text-sm">Loading room {code}…</span>
       </div>
@@ -151,7 +151,7 @@ export default function HostRoomScreen({ code }: Props) {
                 {complete ? '—' : room?.currentYear}
               </p>
               {room && !complete && (
-                <p className="text-xs text-slate-400">of {room.yearCount}</p>
+                <p className="text-xs text-slate-600">of {room.yearCount}</p>
               )}
             </div>
           </div>
@@ -172,7 +172,7 @@ export default function HostRoomScreen({ code }: Props) {
         {isHost && room && (
           <div data-testid="hide-from-lobby" className="mt-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 text-slate-400">{room.hidden ? <EyeOff size={16} /> : <Eye size={16} />}</div>
+              <div className="mt-0.5 text-slate-600">{room.hidden ? <EyeOff size={16} /> : <Eye size={16} />}</div>
               <div>
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-slate-800">Hide from lobby</p>
@@ -245,7 +245,7 @@ export default function HostRoomScreen({ code }: Props) {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Host resume code</p>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-600">
                   Write this down. It is the only way back into this room from another browser.
                 </p>
               </div>
@@ -264,7 +264,7 @@ export default function HostRoomScreen({ code }: Props) {
                 <button
                   type="button"
                   onClick={() => { void navigator.clipboard?.writeText(hostToken); }}
-                  className="text-slate-400 hover:text-slate-600"
+                  className="text-slate-600 hover:text-slate-600"
                   aria-label="Copy resume code"
                 >
                   <Copy size={14} />
@@ -291,7 +291,7 @@ export default function HostRoomScreen({ code }: Props) {
                 the pre-registered roster this design removed. The expectation
                 lives here, beside the real rows, where it is plainly the host's
                 estimate rather than a fact about the room. */}
-            <p className="text-xs text-slate-400" data-testid="joined-count">
+            <p className="text-xs text-slate-600" data-testid="joined-count">
               {expectedTeams === null
                 ? `${teams.length} joined`
                 : teams.length >= expectedTeams
@@ -301,7 +301,7 @@ export default function HostRoomScreen({ code }: Props) {
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+              <tr className="text-left text-xs uppercase tracking-wide text-slate-600">
                 <th className="px-5 py-2 font-medium">Team</th>
                 <th className="px-5 py-2 font-medium">Lines</th>
                 <th className="px-5 py-2 font-medium">Joined</th>
@@ -312,7 +312,7 @@ export default function HostRoomScreen({ code }: Props) {
             <tbody data-testid="team-table">
               {teams.length === 0 && (
                 <tr>
-                  <td colSpan={4} data-testid="no-teams-yet" className="px-5 py-6 text-center text-sm text-slate-400">
+                  <td colSpan={4} data-testid="no-teams-yet" className="px-5 py-6 text-center text-sm text-slate-600">
                     Waiting for teams to join at /join/{code}. Each names itself and picks its own lines.
                     {expectedTeams !== null && ` Expecting ${expectedTeams}.`}
                   </td>
@@ -333,19 +333,19 @@ export default function HostRoomScreen({ code }: Props) {
                   <td className="px-5 py-2.5">
                     {t.joined
                       ? <span data-testid={`joined-${t.name}`} className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={14} /> in</span>
-                      : <span className="flex items-center gap-1.5 text-slate-300"><Circle size={14} /> waiting</span>}
+                      : <span className="flex items-center gap-1.5 text-slate-600"><Circle size={14} /> waiting</span>}
                   </td>
                   <td className="px-5 py-2.5">
                     {t.locked
                       ? <span data-testid={`locked-${t.name}`} className="flex items-center gap-1.5 text-emerald-600"><CheckCircle2 size={14} /> locked</span>
-                      : <span className="flex items-center gap-1.5 text-slate-300"><Circle size={14} /> open</span>}
+                      : <span className="flex items-center gap-1.5 text-slate-600"><Circle size={14} /> open</span>}
                   </td>
                   <td className="px-5 py-2.5">
                     {t.resultYear !== null
                       ? <span data-testid={`reported-${t.name}`} className="flex items-center gap-1.5 text-slate-600">
                           <CheckCircle2 size={14} className="text-emerald-600" /> year {t.resultYear}
                         </span>
-                      : <span className="flex items-center gap-1.5 text-slate-300"><Circle size={14} /> —</span>}
+                      : <span className="flex items-center gap-1.5 text-slate-600"><Circle size={14} /> —</span>}
                   </td>
                 </tr>
               ))}

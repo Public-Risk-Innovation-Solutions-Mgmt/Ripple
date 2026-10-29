@@ -346,7 +346,7 @@ export default function MembershipPage({ lockedResults, startingFinancials, init
             back. The underlying field is untouched — see above. */}
         <Metric label="Avg. Member Satisfaction" value={`${memberMeanSatisfaction.toFixed(2)} / 10`} />
         {!exposureBasis && (
-          <p data-testid="exposure-mixed" className="col-span-2 self-center text-xs text-gray-400">
+          <p data-testid="exposure-mixed" className="col-span-2 self-center text-xs text-gray-600">
             Exposure is payroll on WC and GL and insured value on Property; this pool writes both, so there is
             no one figure. Pick a line above.
           </p>
@@ -360,7 +360,7 @@ export default function MembershipPage({ lockedResults, startingFinancials, init
             <h3 className="font-bold text-gray-900">Active Member Roster</h3>
             <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">{activeMembers.length}</span>
           </div>
-          <p className="text-xs text-gray-400">Click column headers to sort</p>
+          <p className="text-xs text-gray-600">Click column headers to sort</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -412,7 +412,7 @@ export default function MembershipPage({ lockedResults, startingFinancials, init
           </p>
         )}
       </div>
-      <p className="text-xs text-gray-400 text-center">All member names are fictional. No real public entity names are used.</p>
+      <p className="text-xs text-gray-600 text-center">All member names are fictional. No real public entity names are used.</p>
     </div>
   );
 }
@@ -425,13 +425,13 @@ function MemberRow({ member, displayYear, expLine, satisfaction, ratio, lossCost
   // order of magnitude wider (WC p10 0.24, p90 1.86, max 5.48 against the mod's
   // 0.93 to 1.35), so reusing 0.95/1.05 here would paint most of the book red.
   // Banded on the measured quartiles instead.
-  const ratioColor = ratio === null ? 'text-gray-400'
+  const ratioColor = ratio === null ? 'text-gray-600'
     : ratio <= 0.6 ? 'text-emerald-600' : ratio >= 1.4 ? 'text-red-600' : 'text-gray-700';
   // ⚠ THE COST'S BANDS ARE ITS OWN AGAIN, AND THEY ARE ABSOLUTE DOLLARS RATHER
   // THAN A RATIO, so neither of the two sets above transfers. Banded on the
   // measured quartiles of the shipped column, 6 games x 10 years on WC: p25
   // $0.31, p50 $0.49, p75 $0.70, max $5.77.
-  const costColor = lossCost === null ? 'text-gray-400'
+  const costColor = lossCost === null ? 'text-gray-600'
     : lossCost <= 0.31 ? 'text-emerald-600' : lossCost >= 0.70 ? 'text-red-600' : 'text-gray-700';
   // ⚠ BANDED ON WHERE MEMBERS START, NOT ON THE 1-10 SCALE'S MIDDLE. The old
   // 7 / 5 thresholds were set when the opening draw spanned 6.0-8.5 and the
@@ -468,7 +468,7 @@ function MemberRow({ member, displayYear, expLine, satisfaction, ratio, lossCost
           years would read as no change at all and the rebuilt field would look
           exactly as frozen as the one it replaces. See memberSatisfaction.ts. */}
       <td className={`px-4 py-3 font-semibold ${satColor}`}>{satisfaction.toFixed(2)}</td>
-      <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${member.status === 'active' ? 'bg-emerald-100 text-emerald-700' : member.status === 'withdrawn' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>{member.status}</span></td>
+      <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${member.status === 'active' ? 'bg-emerald-100 text-emerald-700' : member.status === 'withdrawn' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>{member.status}</span></td>
     </tr>
   );
 }
@@ -481,7 +481,7 @@ function SizeBadge({ size }: { size: string }) {
 function SummaryChip({ icon, label, value, valueColor = 'text-gray-900' }: { icon?: React.ReactNode; label: string; value: string; valueColor?: string }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col items-center shadow-sm text-center">
-      {icon && <span className="text-gray-400 mb-1">{icon}</span>}
+      {icon && <span className="text-gray-600 mb-1">{icon}</span>}
       <span className="text-xs text-gray-500 font-medium">{label}</span>
       <span className={`text-lg font-bold ${valueColor}`}>{value}</span>
     </div>

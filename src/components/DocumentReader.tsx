@@ -51,7 +51,7 @@ export default function DocumentReader({ documents, selectedId, onSelect, listHe
                         : 'hover:bg-gray-50'
                   }`}
                 >
-                  <span className={`mt-0.5 flex-shrink-0 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`}>
+                  <span className={`mt-0.5 flex-shrink-0 ${isSelected ? 'text-blue-600' : 'text-gray-600'}`}>
                     {isBuilt ? <FileText size={16} /> : <Lock size={16} />}
                   </span>
                   <span>
@@ -78,7 +78,7 @@ export default function DocumentReader({ documents, selectedId, onSelect, listHe
               dangerouslySetInnerHTML={{ __html: renderMarkdown(selected.content) }}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center h-full py-16 text-center text-gray-400">
+            <div className="flex flex-col items-center justify-center h-full py-16 text-center text-gray-600">
               <Lock size={28} className="mb-3" />
               <p className="text-sm font-medium text-gray-500">{selected?.title}</p>
               <p className="text-sm mt-1 max-w-sm">{selected?.notBuiltNote ?? 'Not built yet.'}</p>

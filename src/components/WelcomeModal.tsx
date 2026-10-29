@@ -58,7 +58,7 @@ export default function WelcomeModal({ onClose }: WelcomeModalProps) {
           <button
             onClick={onClose}
             aria-label="Close"
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-gray-600 hover:text-gray-600 transition-colors"
           >
             <X size={20} />
           </button>

@@ -54,7 +54,7 @@ function historicalPricingBasisLR(y: HistoricalYear): number | undefined {
 function pricingBasisCell(y: HistoricalYear) {
   const lr = historicalPricingBasisLR(y);
   if (lr === undefined) {
-    return <span className="text-gray-400" title="This saved year predates the pricing-basis loss ratio and its numerator cannot be rebuilt from the fields the save carries.">—</span>;
+    return <span className="text-gray-600" title="This saved year predates the pricing-basis loss ratio and its numerator cannot be rebuilt from the fields the save carries.">—</span>;
   }
   return <span className={colorForRatio(lr)}>{formatPct(lr)}</span>;
 }
@@ -121,7 +121,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
         <StatCard
           label="Loss Ratio (prem + admin)"
           value={displayLossRatio !== undefined ? formatPct(displayLossRatio) : '—'}
-          valueColor={displayLossRatio !== undefined ? colorForRatio(displayLossRatio) : 'text-gray-400'}
+          valueColor={displayLossRatio !== undefined ? colorForRatio(displayLossRatio) : 'text-gray-600'}
           icon={<Activity size={16} />}
           sub={displayLossRatioRetained !== undefined
             ? `Net loss ÷ premium + admin · ${formatPct(displayLossRatioRetained)} of retained premium`
@@ -130,14 +130,14 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
         <StatCard
           label="Underwriting Income"
           value={displayUnderwritingIncome !== undefined ? formatCurrency(displayUnderwritingIncome, true) : '—'}
-          valueColor={displayUnderwritingIncome !== undefined ? (displayUnderwritingIncome >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-gray-400'}
+          valueColor={displayUnderwritingIncome !== undefined ? (displayUnderwritingIncome >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-gray-600'}
           icon={<Activity size={16} />}
           sub="Excl. investment income"
         />
         <StatCard
           label="Investment Income"
           value={displayInvestmentIncome !== undefined ? formatCurrency(displayInvestmentIncome, true) : '—'}
-          valueColor={displayInvestmentIncome !== undefined ? (displayInvestmentIncome >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-gray-400'}
+          valueColor={displayInvestmentIncome !== undefined ? (displayInvestmentIncome >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-gray-600'}
           icon={<DollarSign size={16} />}
         />
         <StatCard
@@ -193,7 +193,7 @@ export default function DashboardPage({ lockedResults, historicalYears, starting
           <BarChart2 size={18} className="text-blue-600" />
           <h3 className="font-bold text-gray-900">Annual Summary</h3>
           {priorHistoricalYears.length > 0 && (
-            <span className="text-xs text-gray-400 font-normal">— years before 0 are pre-game history (see Pool History tab)</span>
+            <span className="text-xs text-gray-600 font-normal">— years before 0 are pre-game history (see Pool History tab)</span>
           )}
         </div>
 

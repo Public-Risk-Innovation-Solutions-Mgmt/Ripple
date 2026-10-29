@@ -20,7 +20,9 @@ const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
     const cells = [...r.children].map(c => c.textContent.trim());
     return [cells[0], cells.slice(1)];
   })));
-const COLUMNS = ['Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio', 'Net surplus', 'Market share'];
+// The combined ratio is headed with the year the table shows — read here after the second advance, 2028
+// (wip/newest-year-combined-ratio: the year's own, as on the team's statement and top bar).
+const COLUMNS = ['Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share'];
 const PCT = /^\d+\.\d%$/;
 // The combined ratio's own scale (colorForCombinedRatio): emerald, amber or red —
 // never the loss-ratio scale's sky.
@@ -166,10 +168,11 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
       const name = (await host.textContent('[data-testid="name-Harbour Mutual"]')).trim();
       ok(name === 'Harbour Mutual', `Pool view: the team column is the name alone ("${name}")`);
       const cr = (await host.textContent('[data-testid="cr-Harbour Mutual"]')).trim();
-      ok(/^\d+\.\d%$/.test(cr), `Pool view: the combined ratio since the game began ("${cr}")`);
-      // AND IT IS THE TEAM'S OWN: its top bar stands at the same latest known year.
-      const teamCr = (await wcTeam.locator('header').innerText()).match(/Combined Ratio\s+(\S+)/)?.[1];
-      ok(teamCr === cr, `Pool view: the host's combined ratio is the team's own top-bar figure (${cr} vs ${teamCr})`);
+      ok(/^\d+\.\d%$/.test(cr), `Pool view: the year's combined ratio ("${cr}")`);
+      // AND IT IS THE TEAM'S OWN: its top bar stands at the same latest known year, labelled with it.
+      const teamChip = (await wcTeam.locator('header').innerText()).match(/Combined ratio (\d{4})\s+(\S+)/);
+      ok(teamChip?.[1] === '2028' && teamChip?.[2] === cr,
+        `Pool view: the host's combined ratio is the team's own top-bar figure, the same year (${cr} vs "Combined ratio ${teamChip?.[1]} ${teamChip?.[2]}")`);
       const pts = (await host.textContent('[data-testid="pts-Harbour Mutual"]')).trim();
       ok(/^\d+\.\d{2}$/.test(pts), `Pool view: premium to surplus ("${pts}")`);
       const rates = await host.$$eval('[data-testid="rate-Harbour Mutual"] span.block', els => els.map(e => e.textContent.trim()));

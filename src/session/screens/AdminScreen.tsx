@@ -153,7 +153,7 @@ export default function AdminScreen() {
         {/* Admin list */}
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-base font-semibold text-slate-900">Admin accounts</h2>
-          {accounts === null && <p className="mt-3 text-sm text-slate-400">Loading…</p>}
+          {accounts === null && <p className="mt-3 text-sm text-slate-600">Loading…</p>}
           {accounts !== null && (
             <div className="mt-4 space-y-3">
               {accounts.map(a => {
@@ -163,7 +163,7 @@ export default function AdminScreen() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2.5">
                         <p className="text-sm font-semibold text-slate-900">
-                          {a.username}{isSelf && <span className="ml-1.5 text-xs font-normal text-slate-400">(you)</span>}
+                          {a.username}{isSelf && <span className="ml-1.5 text-xs font-normal text-slate-600">(you)</span>}
                         </p>
                         <span
                           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${

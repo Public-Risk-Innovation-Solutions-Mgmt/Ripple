@@ -92,10 +92,10 @@ function RoleChoice({ code, role, status, currentYear }: {
           : 'border-slate-200 bg-white'}`}
       >
         <div className="flex items-center gap-2">
-          <span className={lateForTeams ? 'text-slate-400' : 'text-blue-600'}>
+          <span className={lateForTeams ? 'text-slate-600' : 'text-blue-600'}>
             {lateForTeams ? <Lock size={14} /> : <Users size={14} />}
           </span>
-          <p className={`text-sm font-semibold ${lateForTeams ? 'text-slate-400' : 'text-slate-900'}`}>Team Leader</p>
+          <p className={`text-sm font-semibold ${lateForTeams ? 'text-slate-600' : 'text-slate-900'}`}>Team Leader</p>
           {lateForTeams && (
             <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">UNAVAILABLE</span>
           )}
@@ -243,7 +243,7 @@ export default function PlayScreen({ code, role }: Props) {
 
   if (loading && !room) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-slate-400">
+      <div className="flex min-h-screen items-center justify-center text-slate-600">
         <Loader2 className="animate-spin" size={18} />
         <span className="ml-2 text-sm">Finding room {code}…</span>
       </div>
@@ -319,7 +319,7 @@ export default function PlayScreen({ code, role }: Props) {
             // joined there is nothing to watch, and saying so beats an empty box.
             <div data-testid="viewer-picker" className="mt-4 space-y-2">
               {room.teams.length === 0 && (
-                <p data-testid="no-teams" className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-400">
+                <p data-testid="no-teams" className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-600">
                   No teams have joined yet.
                 </p>
               )}
@@ -334,7 +334,7 @@ export default function PlayScreen({ code, role }: Props) {
                 >
                   <span>
                     <span className="font-medium">{t.name}</span>
-                    <span className="ml-2 text-xs text-slate-400">{t.lines.join(' + ')}</span>
+                    <span className="ml-2 text-xs text-slate-600">{t.lines.join(' + ')}</span>
                   </span>
                   <span className="text-xs">{claiming === t.name ? 'Opening…' : 'watch'}</span>
                 </button>
@@ -360,7 +360,7 @@ export default function PlayScreen({ code, role }: Props) {
                   name, which is the part that was actually useful. */}
               <div>
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Coverage lines</span>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-slate-600">
                   Set by the host for this game. Your pool's history and claims are built from these.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2" data-testid="room-lines">
@@ -387,7 +387,7 @@ export default function PlayScreen({ code, role }: Props) {
               </button>
 
               {room.teams.length > 0 && (
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-600">
                   Already in: {room.teams.map(t => `${t.name} (${t.lines.join('+')})`).join(', ')}
                 </p>
               )}
@@ -406,7 +406,7 @@ export default function PlayScreen({ code, role }: Props) {
         <p className="mt-3 text-sm font-medium" data-testid="game-building">
           Building {you.teamName}'s opening position…
         </p>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-slate-600">
           Three pre-game years are simulated in this browser, from the room's seed.
         </p>
         {game.error && (
@@ -469,19 +469,19 @@ export default function PlayScreen({ code, role }: Props) {
                 them and offers nothing to change. */}
             <span className="text-slate-500" data-testid="my-lines">
               {(you.lines ?? []).join(' + ')}
-              <span className="ml-1 text-slate-400">(fixed)</span>
+              <span className="ml-1 text-slate-600">(fixed)</span>
             </span>
-            <span className="text-slate-400">room <span className="font-mono">{code}</span></span>
+            <span className="text-slate-600">room <span className="font-mono">{code}</span></span>
             {/* ⚠ PLAYER ONLY, SAME AS THE GUARD loadActive's role check already uses.
                 A viewer never holds a PIN of its own — see JoinResponse.pin — so
                 there is nothing here to show one. */}
             {!isViewer && active.role === role && active.pin && (
-              <span className="flex items-center gap-1 text-slate-400" data-testid="team-pin">
+              <span className="flex items-center gap-1 text-slate-600" data-testid="team-pin">
                 viewer PIN <span className="font-mono text-slate-700">{active.pin}</span>
                 <button
                   type="button"
                   onClick={() => { void navigator.clipboard?.writeText(active.pin ?? ''); }}
-                  className="text-slate-400 hover:text-slate-600"
+                  className="text-slate-600 hover:text-slate-600"
                   aria-label="Copy viewer PIN"
                 >
                   <Copy size={12} />
@@ -514,19 +514,19 @@ export default function PlayScreen({ code, role }: Props) {
             )}
 
             {isViewer && (
-              <span className="text-slate-400" data-testid="viewer-basis">
+              <span className="text-slate-600" data-testid="viewer-basis">
                 decisions as last locked
               </span>
             )}
 
             {!complete && outstanding.length > 0 && (
-              <span className="text-slate-400">
+              <span className="text-slate-600">
                 still deciding: <span data-testid="outstanding">{outstanding.join(', ')}</span>
               </span>
             )}
 
             {game.processedYear !== null && (
-              <span className="text-slate-400" data-testid="posted-year">
+              <span className="text-slate-600" data-testid="posted-year">
                 year {game.processedYear} result {isViewer ? 'computed' : 'posted'}
               </span>
             )}

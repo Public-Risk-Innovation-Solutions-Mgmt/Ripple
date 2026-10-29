@@ -23,7 +23,7 @@
 // ============================================================================
 
 import type { CoverageLine, GameState, LineResultSet, ResultSet } from '../../types/simulation';
-import { buildAnnualStatement, netUltimatesByProgramYear, topCombinedRatio } from '../../utils/resultsStatement';
+import { buildAnnualStatement, netUltimatesByProgramYear, newestCombinedRatio, topCombinedRatio } from '../../utils/resultsStatement';
 import { gameHistory } from '../../utils/gameHistory';
 import type {
   DevelopedUltimates, TeamYearDecisions, TeamYearFigures, TeamYearSummary,
@@ -91,11 +91,13 @@ function poolFiguresOf(r: ResultSet, lineFigures: TeamYearFigures[]): TeamYearFi
  * are real rows of the ledger; they are just not plottable.
  */
 /**
- * THE HOST'S TEAMS-TABLE FIGURES (TeamYearFigures' optional five), off the
+ * THE HOST'S TEAMS-TABLE FIGURES (TeamYearFigures' optional six), off the
  * team's own Annual Statement as it stood at year `r` — so a tab catching up
- * several years posts each one as it was, not as it is now. The combined ratio
- * is the statement's cumulative one, the team's top-bar figure; premium to
- * surplus is its balance sheet's row for the year; the admin expense ratio is
+ * several years posts each one as it was, not as it is now. The year's combined
+ * ratio (yearCombinedRatio) is the statement's newest column, the team's
+ * top-bar figure and the host's; combinedRatio stays the cumulative, shown
+ * nowhere now; premium to surplus is its balance sheet's row for the year; the
+ * admin expense ratio is
  * the operating section's "% of Premium" under the two admin rows, for the
  * year. A line also carries its rate
  * and the change on the year before.
@@ -109,8 +111,11 @@ function statementFiguresOf(gs: GameState, r: ResultSet, scope: 'pool' | Coverag
   const adminRow = op[op.findIndex(x => x.label === 'Additional Admin Expense (risk control)') + 1];
   const admin = adminRow?.label === '% of Premium' ? adminRow.cells[adminRow.cells.length - 2] : undefined;
   const combined = topCombinedRatio(st);
+  // The year's own: the statement's newest column, the team's top-bar figure.
+  const yearCombined = newestCombinedRatio(st);
   const out: Partial<TeamYearFigures> = {
     ...(combined !== undefined && Number.isFinite(combined) ? { combinedRatio: combined } : {}),
+    ...(yearCombined ? { yearCombinedRatio: yearCombined.value } : {}),
     ...(pts?.kind === 'value' ? { premiumToSurplus: pts.v } : {}),
     ...(admin?.kind === 'value' && Number.isFinite(admin.v) ? { adminExpenseRatio: admin.v } : {}),
   };
