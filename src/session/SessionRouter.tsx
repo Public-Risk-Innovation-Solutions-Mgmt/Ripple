@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import App from '../App';
 import { onRouteChange, parseRoute, type Route } from './client/navigation';
 import AdminScreen from './screens/AdminScreen';
+import ClaimScreen from './screens/ClaimScreen';
 import HostScreen from './screens/HostScreen';
 import LobbyScreen from './screens/LobbyScreen';
 import PlayScreen from './screens/PlayScreen';
@@ -47,5 +48,9 @@ export default function SessionRouter() {
       return <App />;
     case 'admin':
       return <AdminScreen />;
+    // ⚠ THE HOST'S HALF OF A HAND-OFF LANDS HERE — a one-time link the host
+    // shows (HostTeamsTab), not a path anyone types. See ClaimScreen.
+    case 'claim':
+      return <ClaimScreen code={route.code} handoffToken={route.handoffToken} />;
   }
 }

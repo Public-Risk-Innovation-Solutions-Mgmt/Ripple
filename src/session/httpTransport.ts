@@ -161,6 +161,7 @@
 
 import type {
   AdvanceRequest, AdvanceResponse,
+  CreateHandoffRequest, CreateHandoffResponse,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   ListEventsRequest, ListEventsResponse,
@@ -249,6 +250,10 @@ export class HttpSessionTransport implements SessionTransport {
 
   reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
     return this.call('reclaimTeam', req);
+  }
+
+  createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse> {
+    return this.call('createHandoff', req);
   }
 
   submit(req: SubmitRequest): Promise<SubmitResponse> {

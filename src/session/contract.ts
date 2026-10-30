@@ -1103,16 +1103,38 @@ export interface JoinResponse {
 
 /**
  * ⚠ A DIFFERENT SECRET FROM `token` ABOVE, NOT A VARIANT OF IT. `token` is
- * what the CURRENT device already holds and presents to prove it;
- * `recoveryCode` is what a NEW device presents instead, because it holds no
- * token at all. Presenting the right one ROTATES the team's bearer token onto
- * this device — the old device's token stops working the instant this
- * commits (server/rooms.ts's reclaimTeam).
+ * what the CURRENT device already holds and presents to prove it; a
+ * `recoveryCode` or `handoffToken` is what a NEW device presents instead,
+ * because it holds no token at all. Presenting a valid one ROTATES the
+ * team's bearer token onto this device — the old device's token stops
+ * working the instant this commits (server/rooms.ts's reclaimTeam).
+ *
+ * ⚠ EXACTLY ONE OF recoveryCode / handoffToken, NEVER BOTH, NEVER NEITHER —
+ * INVALID_REQUEST otherwise. They are two different proofs of the same
+ * claim ("let this device drive the team"), not two fields a caller mixes.
+ *
+ * ⚠ teamName IS REQUIRED WITH recoveryCode, OPTIONAL WITH handoffToken. A
+ * recovery code has no other way to find the team it belongs to. A hand-off
+ * token does: the HANDOFF# item it resolves to already names the team (see
+ * server/keys.ts's handoffSk) — which is what makes a bare
+ * `/claim/<code>/<handoffToken>` link work, since that link carries no team
+ * name at all. If teamName IS given alongside a handoffToken anyway, it must
+ * match the team the token names, or BAD_RECOVERY_CODE — a defensive cross-
+ * check, not the normal path.
  */
 export interface ReclaimTeamRequest {
   code: string;
-  teamName: string;
-  recoveryCode: string;
+  teamName?: string;
+  recoveryCode?: string;
+  /**
+   * ⚠ A LINK, NOT SOMETHING TYPED — see CreateHandoffResponse. 32 random
+   * characters is too many to read off a screen and retype by hand; a
+   * handoffToken only ever arrives in a URL (QR code or copied link), which
+   * is exactly why `/claim/<code>/<handoffToken>` exists as its own route
+   * rather than asking a device to type it into the same form a recovery
+   * code uses.
+   */
+  handoffToken?: string;
   /**
    * ⚠ THE NEW DEVICE'S FRESHLY MINTED BEARER TOKEN, same mint as
    * JoinRequest.token (newSessionToken()) and the same reason: the client
@@ -1127,10 +1149,38 @@ export interface ReclaimTeamRequest {
  * ⚠ SHAPED EXACTLY LIKE JoinResponse, DELIBERATELY. A successful reclaim IS a
  * rejoin — the same device-to-team binding, just re-established by a
  * different device presenting a different secret. `rejoined` is always true
- * (there is no "created" branch for a reclaim) and `recoveryCode` is always
- * absent: a reclaim never reissues or re-returns the code.
+ * (there is no "created" branch for a reclaim).
+ *
+ * ⚠ recoveryCode IS PRESENT ONLY WHEN THE CLAIM WAS BY handoffToken, NEVER
+ * WHEN IT WAS BY recoveryCode. A team that reclaims with its own recovery
+ * code still holds that code (nothing reissues it); a team that reclaims via
+ * a hand-off link evidently lost its old code along with its old device —
+ * see server/rooms.ts's reclaimTeam — so a fresh one is minted and shown the
+ * same one-time way JoinResponse.recoveryCode already is.
  */
 export type ReclaimTeamResponse = JoinResponse;
+
+/**
+ * ⚠ HOST TOKEN, NOT A TEAM'S — this is the host handing a team a way back in,
+ * not the team asking for one. `NOT_HOST` otherwise, same authority check
+ * setEventHidden already makes.
+ */
+export interface CreateHandoffRequest {
+  code: string;
+  token: string;
+  teamName: string;
+}
+
+/**
+ * ⚠ THE PLAIN TOKEN, ONCE — same treatment as JoinResponse.recoveryCode and
+ * every other secret this layer hands back. `expiresAtSec` is returned so
+ * the client can show a real countdown rather than guessing the 10-minute
+ * window server/keys.ts's handoffSk fixes.
+ */
+export interface CreateHandoffResponse {
+  handoffToken: string;
+  expiresAtSec: number;
+}
 
 // Decisions for a year, a result for a year, or both.
 //
@@ -1223,6 +1273,10 @@ export interface SessionTransport {
   // rejoin reached by a different secret — see ReclaimTeamRequest/Response —
   // not a new kind of authority over a team.
   reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse>;
+  // ⚠ THE HOST'S HALF OF A HAND-OFF — mints the secret reclaimTeam's
+  // handoffToken path then resolves. Next to reclaimTeam for the same reason
+  // that is next to join: one feature, two ends of it.
+  createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse>;
   submit(req: SubmitRequest): Promise<SubmitResponse>;
   advance(req: AdvanceRequest): Promise<AdvanceResponse>;
   read(req: ReadRequest): Promise<ReadResponse>;

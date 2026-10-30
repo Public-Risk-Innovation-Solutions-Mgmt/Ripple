@@ -221,6 +221,12 @@
 // and its one deliberate exception to "every item carries the room's own
 // expiresAtSec."
 //
+// ⚠ AND A FIFTH, ALSO IN THE ROOM'S PARTITION — THE HOST HAND-OFF TOKEN. Same
+// reasoning as the attempt counter: createHandoff already has the room and
+// the team in hand (the host supplies the code, names the team), so this
+// needs no global resolution either. See handoffSk below for the key and its
+// own fixed-window expiresAtSec.
+//
 // WHY THIS SHAPE, point by point:
 //
 //   * THE ROSTER IS IN THE HEADER because every `read` fetches the header
@@ -337,9 +343,16 @@
 //                                                                extended by each failure
 //   reclaimTeam, right  Transact: Update ROOM                   roster.#tid.tokenHash = :old
 //                       (roster.#tid.tokenHash = :new, ADD      (the hash just read); TOKEN#
-//                       rev), Put TOKEN#<newHash>, Delete       <newHash> not exists
-//                       TOKEN#<oldHash> — then (outside the
+//                       rev, + recoveryHash too if this was a   <newHash> not exists; HANDOFF#
+//                       handoff), Put TOKEN#<newHash>, Delete   <hash> exists (handoff path only)
+//                       TOKEN#<oldHash>, Delete HANDOFF#<hash>
+//                       (handoff path only) — then (outside the
 //                       transaction) Delete ATTEMPT#<teamId>
+//                       (recovery-code path only)
+//   createHandoff       Put HANDOFF#<hash>                      attribute_not_exists(pk) — a
+//                                                                collision at 32 random
+//                                                                characters is not worth a
+//                                                                retry loop over
 //   submit, decisions   Transact: Update ROOM (lockedYear,      currentYear = :y
 //                       ADD rev), Put D#
 //   submit, result      Transact: Update ROOM (posted.<y>,      currentYear >= :y AND
@@ -738,4 +751,26 @@ export const PIN_SK = 'PIN';
  */
 export function attemptSk(teamId: string): string {
   return checkSortKey(`ATTEMPT#${checkTeamId(teamId)}`);
+}
+
+/**
+ * ⚠ SAME-PARTITION, LIKE attemptSk — NOT A GLOBAL INDEX LIKE pinPk. createHandoff
+ * already has the room and the team in hand when it writes this (the host
+ * supplies the room's own code, and the team is resolved by name in the same
+ * call), so there is no "resolve before a code is known" problem the PIN
+ * index exists to solve.
+ *
+ * ⚠ ITS expiresAtSec IS NOT THE ROOM'S, same exception attemptSk already is —
+ * 10 minutes fixed from creation (server/rooms.ts's createHandoff), not the
+ * room's own, potentially days-long, expiry. A reader checks the stamp
+ * itself rather than trusting TTL to have swept an expired one away yet.
+ *
+ * ⚠ CONSUMED BY A CONDITIONAL DELETE, INSIDE THE SAME TRANSACTION THAT
+ * ROTATES THE TOKEN (server/rooms.ts's reclaimTeam) — that is what makes the
+ * link single-use. A second reclaim attempt against an already-consumed
+ * handoff loses that condition and the whole rotation fails with it.
+ */
+export function handoffSk(hash: string): string {
+  if (hash.length === 0) throw new RangeError('A handoff-token hash must be non-empty.');
+  return checkSortKey(`HANDOFF#${hash}`);
 }

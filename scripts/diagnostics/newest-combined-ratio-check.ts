@@ -89,7 +89,9 @@ function readTeams(summaries: Record<string, TeamYearSummary>, y: number): { hea
     currentYear: y + 1, yearCount: 10, startingYear: START,
     teams: [{ name: 'Harbour Mutual', lines: LINES, resultsByYear: summaries }],
   } as unknown as RoomView;
-  const html = renderToStaticMarkup(createElement(HostTeamsTab, { room }));
+  // code/hostToken only matter for the "move to new device" action button
+  // this diagnostic never clicks — harmless stand-ins.
+  const html = renderToStaticMarkup(createElement(HostTeamsTab, { room, code: 'TEST', hostToken: 'stub-host-token' }));
   const head = html.match(/data-testid="teams-cr-head"[^>]*>([^<]*)</)?.[1]?.trim() ?? '(none)';
   const cell = html.match(/data-testid="cr-Harbour Mutual"[^>]*>([^<]*)</)?.[1]?.trim() ?? '(none)';
   return { head, cell };

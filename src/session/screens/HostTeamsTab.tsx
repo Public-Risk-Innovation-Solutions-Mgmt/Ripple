@@ -38,14 +38,15 @@
 // a slow team should be reading it rather than a blank.
 // ============================================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { latestKnownRoomYear } from '../../utils/knownYears';
-import { Layers, HardHat, Scale, Building2 } from 'lucide-react';
+import { Layers, HardHat, Scale, Building2, Smartphone, Loader2 } from 'lucide-react';
 import TabNav from '../../components/TabNav';
 import { LINE_FULL_NAME } from '../../utils/lineDisplay';
 import { colorForCombinedRatio, colorForSurplus, formatCurrency, formatPct } from '../../utils/formatters';
 import type { CoverageLine, LineView } from '../../types/simulation';
-import type { RoomView, TeamYearFigures, TeamYearSummary, TeamView } from '../index';
+import { sessionTransport, isSessionError, type RoomView, type TeamYearFigures, type TeamYearSummary, type TeamView } from '../index';
 
 const LINE_ORDER: CoverageLine[] = ['WC', 'GL', 'Property'];
 
@@ -99,12 +100,115 @@ function rateText(f: TeamYearFigures | undefined): string | undefined {
   return `$${f.ratePer100.toFixed(2)}${change}`;
 }
 
-interface Props {
-  room: RoomView;
+/**
+ * ⚠ ONE-TIME, LIKE THE RECOVERY CODE IT MAY REISSUE. Opened from a row's
+ * action button; mints a fresh handoff link on open (never reused across
+ * opens — closing and reopening gets a new one, same "ask again" shape as
+ * every other one-time secret in this app) and shows it as both a link and a
+ * QR code, so a player can get it onto a phone without typing anything.
+ *
+ * ⚠ THE QR CODE IS RENDERED ENTIRELY IN THE BROWSER. `qrcode`'s `toDataURL`
+ * never leaves the page — no remote QR-image service ever sees this link,
+ * because the link itself is a live bearer secret, not a URL safe to hand to
+ * a third party just to get a picture back.
+ */
+function HandoffModal({ code, hostToken, teamName, onClose }: {
+  code: string;
+  hostToken: string;
+  teamName: string;
+  onClose: () => void;
+}) {
+  const [link, setLink] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  const [expiresAtSec, setExpiresAtSec] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await sessionTransport().createHandoff({ code, token: hostToken, teamName });
+        if (cancelled) return;
+        const url = `${window.location.origin}/claim/${code}/${res.handoffToken}`;
+        const dataUrl = await QRCode.toDataURL(url, { margin: 1, width: 220 });
+        if (cancelled) return;
+        setLink(url);
+        setQr(dataUrl);
+        setExpiresAtSec(res.expiresAtSec);
+      } catch (e) {
+        if (!cancelled) setError(isSessionError(e) ? e.message : 'Could not create a hand-off link.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [code, hostToken, teamName]);
+
+  // A plain tick for the countdown — nothing here re-fetches on expiry, since
+  // the link simply stops working server-side; this just tells the host so.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const secondsLeft = expiresAtSec !== null ? Math.max(0, expiresAtSec - Math.floor(now / 1000)) : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <div className="flex items-center gap-2">
+          <span className="text-blue-600"><Smartphone size={18} /></span>
+          <h2 className="text-lg font-bold text-slate-900">Move {teamName} to a new device</h2>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">
+          Scan this on the new device, or send it the link. It works once, for the next 10 minutes.
+        </p>
+
+        {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+
+        {!error && !qr && (
+          <div className="mt-6 flex items-center justify-center gap-2 py-8 text-slate-500">
+            <Loader2 className="animate-spin" size={18} />
+            <span className="text-sm">Creating link…</span>
+          </div>
+        )}
+
+        {qr && link && (
+          <>
+            <div className="mt-4 flex justify-center">
+              <img src={qr} alt={`QR code to claim ${teamName}`} width={220} height={220} />
+            </div>
+            <p data-testid="handoff-link" className="mt-3 break-all rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center font-mono text-xs text-slate-700">
+              {link}
+            </p>
+            {secondsLeft !== null && (
+              <p className="mt-1.5 text-center text-xs text-slate-500">
+                {secondsLeft > 0 ? `Expires in ${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}` : 'Expired — close and try again for a new link.'}
+              </p>
+            )}
+          </>
+        )}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
 }
 
-export default function HostTeamsTab({ room }: Props) {
+interface Props {
+  room: RoomView;
+  code: string;
+  hostToken: string | undefined;
+}
+
+export default function HostTeamsTab({ room, code, hostToken }: Props) {
   const [view, setView] = useState<LineView>('pool');
+  const [handoffTeam, setHandoffTeam] = useState<string | null>(null);
 
   // Only the lines SOMEBODY writes are worth offering: a room where nobody took
   // Property has no Property column to compare.
@@ -162,6 +266,7 @@ export default function HostTeamsTab({ room }: Props) {
               </th>
               <th className="px-5 py-2 font-medium" title="Surplus at the year's end">Net surplus</th>
               <th className="px-5 py-2 font-medium" title="Share of the room: exposure on a line, premium on the pool">Market share</th>
+              <th className="px-5 py-2 text-right font-medium">Hand Off</th>
             </tr>
           </thead>
           <tbody data-testid="teams-table">
@@ -238,6 +343,26 @@ export default function HostTeamsTab({ room }: Props) {
                         : <>{formatPct(v)} <span className="text-[10px] text-slate-600">({room.startingYear + sy - 1})</span></>;
                     })()}
                   </td>
+                  {/* ⚠ "MOVE TO NEW DEVICE" — THE HOST'S HALF OF A HAND-OFF. A
+                      QR code and a one-time link for this team, from
+                      HandoffModal; see ClaimScreen.tsx for the device side.
+                      Disabled without a hostToken (admin not yet confirmed
+                      for this room), which should not happen once the tab
+                      itself is reachable, but the button has nothing to call
+                      without one. */}
+                  <td className="px-5 py-2.5 text-right">
+                    <button
+                      type="button"
+                      data-testid={`handoff-${t.name}`}
+                      onClick={() => setHandoffTeam(t.name)}
+                      disabled={!hostToken}
+                      title="Move to new device"
+                      aria-label={`Move ${t.name} to a new device`}
+                      className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Smartphone size={14} />
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -251,6 +376,15 @@ export default function HostTeamsTab({ room }: Props) {
           {' '}Ripple Score is coming: a single score for each team, still being designed.
         </p>
       </div>
+
+      {handoffTeam && hostToken && (
+        <HandoffModal
+          code={code}
+          hostToken={hostToken}
+          teamName={handoffTeam}
+          onClose={() => setHandoffTeam(null)}
+        />
+      )}
     </div>
   );
 }

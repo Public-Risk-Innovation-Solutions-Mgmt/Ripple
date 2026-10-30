@@ -23,7 +23,8 @@ export type Route =
   | { kind: 'host-room'; code: string }
   | { kind: 'join'; code: string }
   | { kind: 'view'; code: string }
-  | { kind: 'admin' };
+  | { kind: 'admin' }
+  | { kind: 'claim'; code: string; handoffToken: string };
 
 const NAV_EVENT = 'ripple:navigate';
 
@@ -51,6 +52,14 @@ export function parseRoute(pathname: string): Route {
   if (parts[0] === 'join' && parts.length >= 2) return { kind: 'join', code: parts[1].toUpperCase() };
   if (parts[0] === 'view' && parts.length >= 2) return { kind: 'view', code: parts[1].toUpperCase() };
   if (parts[0] === 'admin' && parts.length === 1) return { kind: 'admin' };
+  // ⚠ THE TOKEN IS NOT UPPERCASED, UNLIKE THE CODE. A room code is read aloud
+  // and typed by hand, so it is case-insensitive by design (CODE_ALPHABET has
+  // no lower-case members); a hand-off token is an opaque 32-character secret
+  // that only ever arrives via a link or a QR scan, never typed, and folding
+  // its case could turn a valid token into an invalid one.
+  if (parts[0] === 'claim' && parts.length >= 3) {
+    return { kind: 'claim', code: parts[1].toUpperCase(), handoffToken: parts[2] };
+  }
 
   // Anything else is the existing single-player game, untouched.
   return { kind: 'solo' };

@@ -1398,6 +1398,64 @@ async function main(): Promise<void> {
       'TOO_MANY_ATTEMPTS', 'the CORRECT code is ALSO refused once tripped — the limiter blocks the team, not the guess');
   }
 
+  // ---- HOST HAND-OFF -------------------------------------------------------
+  //
+  // ⚠ PHASE 2 OF DEVICE SWITCHING. A host mints a one-time link for a team;
+  // reclaiming with it rotates the token exactly like a recovery-code reclaim
+  // does, AND reissues a fresh recovery code (the team evidently lost its old
+  // device, and its old code with it) — the one place a reclaim ever hands
+  // one back.
+  {
+    const t = transport();
+    const { code, hostToken } = await freshRoom(t);
+    const driver = await t.join({ code, teamName: TEAMS[0], role: 'player' });
+
+    await rejects(
+      t.createHandoff({ code, token: driver.teamToken, teamName: TEAMS[0] }),
+      'NOT_HOST', 'a team token cannot create a hand-off for itself');
+    await rejects(
+      t.createHandoff({ code, token: hostToken, teamName: 'Nobody FC' }),
+      'TEAM_NOT_FOUND', 'a hand-off cannot be made for a team that does not exist');
+    await rejects(
+      t.reclaimTeam({ code, recoveryCode: '0000', handoffToken: 'also-given', token: newSessionToken() } as never),
+      'INVALID_REQUEST', 'recoveryCode and handoffToken together are refused — exactly one secret');
+    await rejects(
+      t.reclaimTeam({ code, teamName: TEAMS[0], token: newSessionToken() } as never),
+      'INVALID_REQUEST', 'neither secret given is refused the same way');
+
+    const handoff = await t.createHandoff({ code, token: hostToken, teamName: TEAMS[0] });
+    ok(typeof handoff.handoffToken === 'string' && handoff.handoffToken.length >= 32,
+      'the host gets back a long, single-use hand-off token');
+    ok(handoff.expiresAtSec > Date.now() / 1000, 'and an expiry in the future');
+
+    await rejects(
+      t.reclaimTeam({ code, teamName: 'Nobody FC', handoffToken: handoff.handoffToken, token: newSessionToken() } as never),
+      'BAD_RECOVERY_CODE', 'a handoffToken combined with a MISMATCHING teamName is refused');
+
+    const newDeviceToken = newSessionToken();
+    const claimed = await t.reclaimTeam({ code, handoffToken: handoff.handoffToken, token: newDeviceToken } as never);
+    eq(claimed.rejoined, true, 'claiming a hand-off comes back as a rejoin');
+    eq(claimed.teamName, TEAMS[0], 'and resolves to the team the link was minted for — no teamName needed');
+    ok(typeof claimed.recoveryCode === 'string' && /^\d{4}$/.test(claimed.recoveryCode),
+      'and REISSUES a fresh recovery code — the team evidently lost its old device');
+    ok(claimed.recoveryCode !== driver.recoveryCode, 'a genuinely new code, not the old one echoed back');
+
+    await rejects(t.read({ code, token: driver.teamToken }), 'BAD_TOKEN',
+      "the original device's token stops working immediately");
+    const asNewDevice = await t.read({ code, token: newDeviceToken });
+    eq(asNewDevice.you.teamName, TEAMS[0], "the claiming device's token now authenticates as the team");
+
+    await rejects(
+      t.reclaimTeam({ code, handoffToken: handoff.handoffToken, token: newSessionToken() } as never),
+      'BAD_RECOVERY_CODE', 'the same hand-off link cannot be used a second time');
+
+    // Retried with the SAME new token — idempotent, not a failure.
+    const retried = await t.reclaimTeam({ code, handoffToken: handoff.handoffToken, token: newDeviceToken } as never);
+    eq(retried.rejoined, true, 'retrying a hand-off claim with the same new token is idempotent');
+    eq(retried.teamToken, newDeviceToken, 'and hands back the same token, not a failure');
+    ok(retried.recoveryCode === undefined, 'and does NOT reissue a second fresh code on the idempotent retry');
+  }
+
   // ---- TEAM NUMBERS ------------------------------------------------------
   //
   // The first team to join is Team 1, the next Team 2, and so on — stored with

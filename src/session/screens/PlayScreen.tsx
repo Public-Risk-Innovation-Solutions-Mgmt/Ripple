@@ -150,7 +150,10 @@ function RoleChoice({ code, role, status, currentYear }: {
 // stored. A reload loses it, same as the server never handing it back a
 // second time; the only way back into this team from a new device after that
 // is a reclaim with this code, which is the whole point of saving it now.
-function RecoveryCodeModal({ code, onClose }: { code: string; onClose: () => void }) {
+// ⚠ EXPORTED — ClaimScreen.tsx reuses this exact component for the recovery
+// code a hand-off claim reissues (contract.ts's ReclaimTeamResponse). It
+// takes nothing PlayScreen-specific, so sharing it beats a second copy.
+export function RecoveryCodeModal({ code, onClose }: { code: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">

@@ -75,8 +75,11 @@ export default function HostScreen({ code }: Props) {
     >
       {activeTab === 'setup' && (code ? <HostRoomScreen code={code} /> : <HostCreateScreen />)}
       {activeTab === 'teams' && (
-        room
-          ? <HostTeamsTab room={room} />
+        room && code
+          // ⚠ code AND hostToken, FOR "MOVE TO NEW DEVICE" — HostTeamsTab needs
+          // its own host-authenticated call (createHandoff), not just a view of
+          // the room this screen already polls.
+          ? <HostTeamsTab room={room} code={code} hostToken={hostToken} />
           : <p className="text-sm text-slate-600">Loading room…</p>
       )}
       {activeTab === 'charts' && (

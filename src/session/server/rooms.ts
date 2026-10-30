@@ -123,6 +123,7 @@ import { unmarshall } from '@aws-sdk/util-dynamodb';
 import type {
   AdvanceRequest, AdvanceResponse,
   CallerRole,
+  CreateHandoffRequest, CreateHandoffResponse,
   CreateRoomRequest, CreateRoomResponse,
   JoinRequest, JoinResponse,
   JsonValue,
@@ -144,8 +145,8 @@ import { mayStoreShares, roomSharesFor, shownShares } from '../marketShares';
 import type { CoverageLine } from '../../types/simulation';
 import {
   CREATE_SK, LOBBY_PK, LOBBY_SK, PIN_SK, RESULT_PREFIX, ROOM_HEADER_SK,
-  attemptSk, createPk, decisionPrefix, decisionSk, lobbyEventPath, nameSk, pinPk, resultPrefix, resultSk, roomPk,
-  tokenSk, viewerSk,
+  attemptSk, createPk, decisionPrefix, decisionSk, handoffSk, lobbyEventPath, nameSk, pinPk,
+  resultPrefix, resultSk, roomPk, tokenSk, viewerSk,
 } from './keys';
 import {
   dynamoFromEnv, hashesMatch, hashToken, newRecoveryCode, newRoomCode, newTeamId, newViewerPin,
@@ -172,6 +173,9 @@ const MAX_ATTEMPTS = 5;
  *  the first failure, not a sliding one. */
 const ATTEMPT_WINDOW_SEC = 15 * 60;
 const MAX_RECLAIM_ATTEMPTS = 5;
+
+/** A hand-off link's whole life, start to end — keys.ts's handoffSk. */
+const HANDOFF_WINDOW_SEC = 10 * 60;
 
 // A fixed, never-matching stand-in for a team with no recoveryHash (one made
 // before this feature existed) — sha256 is 64 hex chars. Reclaiming such a
@@ -915,58 +919,122 @@ export class DynamoSessionTransport implements SessionTransport {
   reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
     return this.call(async () => {
       const code = requireString(req.code, 'code');
-      const rawName = requireString(req.teamName, 'teamName');
-      const recoveryCode = requireString(req.recoveryCode, 'recoveryCode');
       const token = requireString(req.token, 'token');
       if (!SESSION_TOKEN_PATTERN.test(token)) {
         throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs a valid new device token.');
       }
+      // ⚠ EXACTLY ONE SECRET. See contract.ts's ReclaimTeamRequest.
+      const hasRecoveryCode = req.recoveryCode !== undefined;
+      const hasHandoffToken = req.handoffToken !== undefined;
+      if (hasRecoveryCode === hasHandoffToken) {
+        throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs exactly one of recoveryCode or handoffToken.');
+      }
 
       const header = await this.getHeader(code);
-      const name = rawName.trim();
-      // Exact, case-sensitive match — the same lookup join() uses for a
-      // name-based join. A looser rule here only for reclaim would let two
-      // names distinct under join collide under reclaim.
-      const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
-      if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
-      const [teamId, team] = found;
       const pk = roomPk(code);
+      const newHash = hashToken(token);
 
-      // ⚠ THE REJOIN-BY-ALREADY-ROTATED-TOKEN CHECK, FIRST — before the
-      // limiter, before the hash compare. If this device's token is ALREADY
-      // this team's current token, either this exact call already committed
-      // and the response was lost (the client retried with the SAME minted
-      // token), or it's a legitimate re-presentation. Treating this as success
-      // with no limiter touch is what makes a retried reclaim idempotent, and
-      // is why the new device's token is client-minted — the same role
-      // JoinRequest.token already plays for join().
-      if (team.tokenHash === hashToken(token)) {
+      // ⚠ IDEMPOTENCY, CHECKED FIRST, BY TOKEN ALONE — covers BOTH secrets. If
+      // any team already holds this exact token, this call (or an identical
+      // retry of it) already succeeded: either the response was lost and the
+      // client resent the same minted token, or this is a legitimate
+      // re-presentation. For a handoff reclaim specifically this is the ONLY
+      // way to recognise a retry: the HANDOFF# item a successful attempt
+      // consumed is gone by the second call, so there is nothing left to
+      // resolve the team BY that path a second time — but it can always be
+      // found by the token it already holds.
+      const alreadyRotated = Object.entries(header.roster ?? {}).find(([, t]) => t.tokenHash === newHash);
+      if (alreadyRotated) {
+        const [teamId, team] = alreadyRotated;
         const view = await this.viewFor(header, 'player', teamId);
         return { teamToken: token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: view.room };
       }
 
-      const attempt = await this.db.doc.send(new GetCommand({
-        TableName: this.db.table,
-        Key: { pk, sk: attemptSk(teamId) },
-        ConsistentRead: true,
-      }));
-      const attemptItem = attempt.Item as { count?: number; expiresAtSec?: number } | undefined;
-      const blocked = !!attemptItem
-        && (attemptItem.count ?? 0) >= MAX_RECLAIM_ATTEMPTS
-        && (attemptItem.expiresAtSec ?? 0) > nowSec(Date.now());
-      if (blocked) {
-        throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
-      }
+      let teamId: string;
+      let team: RosterEntry;
+      // Set only on the handoff path — see contract.ts's ReclaimTeamResponse.
+      let reissuedRecoveryCode: string | undefined;
+      // Set only on the handoff path, so the rotation transaction knows to
+      // consume it too.
+      let handoffHash: string | undefined;
 
-      const presented = hashToken(normalizeRecoveryCode(recoveryCode));
-      if (!hashesMatch(presented, team.recoveryHash ?? PLACEHOLDER_RECOVERY_HASH)) {
-        await this.recordAttemptFailure(code, teamId);
-        throw new SessionError('BAD_RECOVERY_CODE', 'That recovery code is not correct for this team.');
+      if (hasHandoffToken) {
+        const handoffToken = requireString(req.handoffToken, 'handoffToken');
+        handoffHash = hashToken(handoffToken);
+        const res = await this.db.doc.send(new GetCommand({
+          TableName: this.db.table,
+          Key: { pk, sk: handoffSk(handoffHash) },
+          ConsistentRead: true,
+        }));
+        const item = res.Item as { teamId?: string; expiresAtSec?: number } | undefined;
+        // ⚠ CHECKED IN CODE, NOT LEFT TO TTL — same reasoning the PIN index
+        // already documents: TTL deletion can lag behind the stamp, so a
+        // reader that trusted "the item is gone" would honour an expired
+        // link for a while after it should have stopped working.
+        if (!item?.teamId || (item.expiresAtSec ?? 0) <= nowSec(Date.now())) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link is invalid or has expired.');
+        }
+        const entry = header.roster?.[item.teamId];
+        if (!entry) throw new SessionError('TEAM_NOT_FOUND', 'That team no longer exists in this room.');
+        // ⚠ A DEFENSIVE CROSS-CHECK, NOT THE NORMAL PATH — see contract.ts.
+        // The real `/claim/<code>/<handoffToken>` link carries no teamName at
+        // all; this only matters for a caller that supplied one anyway.
+        if (req.teamName !== undefined && req.teamName.trim() !== entry.name) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link does not match the team named.');
+        }
+        teamId = item.teamId;
+        team = entry;
+        reissuedRecoveryCode = newRecoveryCode();
+        // ⚠ NO ATTEMPT-LIMITER TOUCH, NO HASH COMPARE, ON THIS PATH.
+        // Resolving the real HANDOFF# item already IS the authentication — 32
+        // random characters, found or not. Routing a wrong/stale handoff
+        // token through the 4-digit-code rate limiter would spend that
+        // budget on something it was never meant to guard (a double-opened
+        // link, say) and could lock out an unrelated, legitimate
+        // recovery-code attempt for the very same team.
+      } else {
+        const name = requireString(req.teamName, 'teamName').trim();
+        // Exact, case-sensitive match — the same lookup join() uses for a
+        // name-based join. A looser rule here only for reclaim would let two
+        // names distinct under join collide under reclaim.
+        const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+        if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+        [teamId, team] = found;
+
+        const attempt = await this.db.doc.send(new GetCommand({
+          TableName: this.db.table,
+          Key: { pk, sk: attemptSk(teamId) },
+          ConsistentRead: true,
+        }));
+        const attemptItem = attempt.Item as { count?: number; expiresAtSec?: number } | undefined;
+        const blocked = !!attemptItem
+          && (attemptItem.count ?? 0) >= MAX_RECLAIM_ATTEMPTS
+          && (attemptItem.expiresAtSec ?? 0) > nowSec(Date.now());
+        if (blocked) {
+          throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
+        }
+
+        const recoveryCode = requireString(req.recoveryCode, 'recoveryCode');
+        const presented = hashToken(normalizeRecoveryCode(recoveryCode));
+        if (!hashesMatch(presented, team.recoveryHash ?? PLACEHOLDER_RECOVERY_HASH)) {
+          await this.recordAttemptFailure(code, teamId);
+          throw new SessionError('BAD_RECOVERY_CODE', 'That recovery code is not correct for this team.');
+        }
       }
 
       await this.assertTokenFree(header, token);
-      const newHash = hashToken(token);
       const oldHash = team.tokenHash;
+      const freshRecoveryHash = reissuedRecoveryCode
+        ? hashToken(normalizeRecoveryCode(reissuedRecoveryCode))
+        : undefined;
+
+      // ⚠ recoveryHash RIDES THE SAME SET AS tokenHash, ONLY WHEN REISSUING —
+      // one write, same atomicity, rather than a second update nobody asked
+      // for. The recoveryCode path never touches it: that team still holds
+      // its existing code.
+      const setClauses = ['roster.#tid.tokenHash = :new', 'updatedAt = :now'];
+      if (freshRecoveryHash) setClauses.push('roster.#tid.recoveryHash = :recoveryHash');
+
       const tx = await this.transact([
         // 0 — the rotation itself, conditioned on the hash just read: this is
         // the lock that makes two simultaneous reclaims resolve to exactly
@@ -974,10 +1042,13 @@ export class DynamoSessionTransport implements SessionTransport {
         { Update: {
           TableName: this.db.table,
           Key: { pk, sk: ROOM_HEADER_SK },
-          UpdateExpression: 'SET roster.#tid.tokenHash = :new, updatedAt = :now ADD rev :one',
+          UpdateExpression: `SET ${setClauses.join(', ')} ADD rev :one`,
           ConditionExpression: 'roster.#tid.tokenHash = :old',
           ExpressionAttributeNames: { '#tid': teamId },
-          ExpressionAttributeValues: { ':new': newHash, ':old': oldHash, ':now': Date.now(), ':one': 1 },
+          ExpressionAttributeValues: {
+            ':new': newHash, ':old': oldHash, ':now': Date.now(), ':one': 1,
+            ...(freshRecoveryHash ? { ':recoveryHash': freshRecoveryHash } : {}),
+          },
         } },
         // 1 — the new token's claim, same TOKEN CLAIM reasoning as join()'s.
         { Put: {
@@ -987,20 +1058,34 @@ export class DynamoSessionTransport implements SessionTransport {
         } },
         // 2 — the old token stops working the instant this commits.
         { Delete: { TableName: this.db.table, Key: { pk, sk: tokenSk(oldHash) } } },
+        // 3 — HANDOFF PATH ONLY: consuming the link is what makes it
+        // single-use. A second reclaim attempt against it loses this
+        // condition and the whole rotation fails with it.
+        ...(handoffHash
+          ? [{ Delete: {
+              TableName: this.db.table,
+              Key: { pk, sk: handoffSk(handoffHash) },
+              ConditionExpression: 'attribute_exists(sk)',
+            } }]
+          : []),
       ]);
       if (!tx.ok) {
         // Index 0 failing means another reclaim already rotated this team's
         // token between our read and our write — a genuine race between two
         // different devices, not a self-race to absorb silently (unlike
-        // join()'s MAX_ATTEMPTS loop — see the note below). The right code
+        // join()'s MAX_ATTEMPTS loop — see the note below). The right secret
         // was presented, so this is not a limiter hit; the loser can simply
-        // retry with the same code, which the client's existing wrong-code UI
-        // already supports.
+        // retry, which the client's existing wrong-code UI already supports.
         if (tx.failed.includes(0)) {
           throw new SessionError(
             'BAD_RECOVERY_CODE',
-            'This team was just reclaimed from another device. Try again with your recovery code.',
+            'This team was just reclaimed from another device. Try again.',
           );
+        }
+        // Index 3 only exists on the handoff path: the link was consumed by
+        // someone else between our read and our write — a double-open.
+        if (handoffHash && tx.failed.includes(3)) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link was already used.');
         }
         // Index 1 alone: the brand-new device token collided with something
         // else in the room — assertTokenFree's transactional backstop.
@@ -1012,9 +1097,55 @@ export class DynamoSessionTransport implements SessionTransport {
       // "re-read and it turns out fine" case, since exactly one device can
       // hold the token afterward by construction. Silently retrying would
       // mask a real event that should surface instead.
-      await this.db.doc.send(new DeleteCommand({ TableName: this.db.table, Key: { pk, sk: attemptSk(teamId) } }));
+      //
+      // ⚠ ONLY ON THE recoveryCode PATH — the handoff path never created or
+      // touched this team's attempt counter, so there is nothing to clear.
+      if (!handoffHash) {
+        await this.db.doc.send(new DeleteCommand({ TableName: this.db.table, Key: { pk, sk: attemptSk(teamId) } }));
+      }
       const view = await this.freshView(code, 'player', teamId);
-      return { teamToken: token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: view.room };
+      return {
+        teamToken: token, teamName: team.name, lines: [...team.lines], pin: team.pin,
+        ...(reissuedRecoveryCode ? { recoveryCode: reissuedRecoveryCode } : {}),
+        role: 'player' as const, rejoined: true, room: view.room,
+      };
+    });
+  }
+
+  // ---- createHandoff ------------------------------------------------------
+
+  createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse> {
+    return this.call(async () => {
+      const code = requireString(req.code, 'code');
+      const token = requireString(req.token, 'token');
+      const rawName = requireString(req.teamName, 'teamName');
+
+      const header = await this.getHeader(code);
+      // ⚠ READ-THEN-COMPARE, NOT A WRITE CONDITION — unlike setEventHidden's
+      // single conditioned Update. This write's target is a BRAND NEW
+      // HANDOFF# item, which has no hostTokenHash field of its own to
+      // condition against; the authority check has to happen before the
+      // write, the same shape assertTokenFree already is elsewhere in this
+      // file.
+      if (hashToken(token) !== header.hostTokenHash) {
+        throw new SessionError('NOT_HOST', 'Only the host may hand off a team.');
+      }
+      const name = rawName.trim();
+      const found = Object.entries(header.roster ?? {}).find(([, t]) => t.name === name);
+      if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+      const [teamId] = found;
+
+      const handoffToken = newSessionToken();
+      const expiresAtSec = nowSec(Date.now()) + HANDOFF_WINDOW_SEC;
+      await this.db.doc.send(new PutCommand({
+        TableName: this.db.table,
+        Item: { pk: roomPk(code), sk: handoffSk(hashToken(handoffToken)), teamId, expiresAtSec },
+        // Same-partition item (keys.ts's handoffSk): attribute_not_exists(sk),
+        // not (pk) — every item in this room shares pk, so only sk names this
+        // one. A collision at 32 random characters is not worth a retry loop.
+        ConditionExpression: 'attribute_not_exists(sk)',
+      }));
+      return { handoffToken, expiresAtSec };
     });
   }
 

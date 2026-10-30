@@ -43,6 +43,7 @@
 import type {
   AdvanceRequest, AdvanceResponse,
   CallerRole, CallerView,
+  CreateHandoffRequest, CreateHandoffResponse,
   EventStatus,
   ListEventsResponse, LobbyEvent,
   SetEventHiddenRequest, SetEventHiddenResponse,
@@ -245,6 +246,40 @@ function recordAttemptFailure(key: string): void {
 function isReclaimBlocked(key: string): boolean {
   const a = loadAttempt(key);
   return !!a && a.count >= MAX_RECLAIM_ATTEMPTS && Date.now() - a.windowStartMs <= ATTEMPT_WINDOW_MS;
+}
+
+// ⚠ THE HOST HAND-OFF INDEX — keys.ts's handoffSk, worked out here by hand.
+// Same-partition there (ROOM#<code> / HANDOFF#<hash>); here it is simply its
+// own flat key, since this file has no concept of a partition to nest it in.
+// PLAIN, NOT HASHED — same reasoning recoveryHash already documents: no
+// network boundary separates the comparison from an attacker here, so a
+// stored hash would buy nothing a plain value does not already have.
+const HANDOFF_PREFIX = 'ripple.session.v1.handoff.';
+const HANDOFF_WINDOW_MS = 10 * 60 * 1000;
+
+interface HandoffRecord {
+  teamName: string;
+  expiresAtMs: number;
+}
+
+function handoffKeyFor(code: string, handoffToken: string): string {
+  return `${HANDOFF_PREFIX}${code}.${handoffToken}`;
+}
+
+/** The team a hand-off token names, or null if it never existed or has expired. */
+function resolveHandoff(code: string, handoffToken: string): string | null {
+  const raw = storage().getItem(handoffKeyFor(code, handoffToken));
+  if (raw === null) return null;
+  try {
+    const record = JSON.parse(raw) as HandoffRecord;
+    // ⚠ CHECKED HERE, NOT LEFT TO EXPIRE ON ITS OWN — localStorage has no TTL
+    // at all, so an item this file does not delete itself would sit there
+    // forever; the stamp is what makes it actually stop working on time.
+    if (record.expiresAtMs <= Date.now()) return null;
+    return record.teamName;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------- records
@@ -945,44 +980,109 @@ export class LocalSessionTransport implements SessionTransport {
   reclaimTeam(req: ReclaimTeamRequest): Promise<ReclaimTeamResponse> {
     return this.call(() => {
       if (typeof req.code !== 'string') throw new SessionError('INVALID_REQUEST', 'code must be a string.');
-      if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
-      if (typeof req.recoveryCode !== 'string') throw new SessionError('INVALID_REQUEST', 'recoveryCode must be a string.');
       if (!SESSION_TOKEN_PATTERN.test(req.token)) {
         throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs a valid new device token.');
       }
+      // ⚠ EXACTLY ONE SECRET. See contract.ts's ReclaimTeamRequest.
+      const hasRecoveryCode = req.recoveryCode !== undefined;
+      const hasHandoffToken = req.handoffToken !== undefined;
+      if (hasRecoveryCode === hasHandoffToken) {
+        throw new SessionError('INVALID_REQUEST', 'reclaimTeam needs exactly one of recoveryCode or handoffToken.');
+      }
 
       const room = loadRoom(req.code);
-      const name = req.teamName.trim();
-      const team = room.teams.find(t => t.name === name);
-      if (!team) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
 
-      // ⚠ THE SAME SHORT-CIRCUIT AS server/rooms.ts's reclaimTeam, FIRST —
-      // before the limiter, before the hash compare. If this device's token
-      // is ALREADY this team's current token, treat it as success: either
-      // this exact call already committed and the response was lost, or it's
-      // a legitimate re-presentation. See that file's comment for why this is
-      // what makes a retried reclaim idempotent.
-      if (team.token === req.token) {
-        return { teamToken: req.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: roomView(room, 'player', team.name) };
+      // ⚠ IDEMPOTENCY, CHECKED FIRST, BY TOKEN ALONE — covers BOTH secrets,
+      // same reasoning as server/rooms.ts's reclaimTeam. A handoff reclaim
+      // that is retried can no longer re-resolve the team through its
+      // (now-consumed) handoff record, but it can always be found by the
+      // token it already holds.
+      const already = room.teams.find(t => t.token === req.token);
+      if (already) {
+        return { teamToken: req.token, teamName: already.name, lines: [...already.lines], pin: already.pin, role: 'player' as const, rejoined: true, room: roomView(room, 'player', already.name) };
       }
 
-      const key = attemptKeyFor(room.code, name);
-      if (isReclaimBlocked(key)) {
-        throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
-      }
+      let team: TeamRecord;
+      let reissuedRecoveryCode: string | undefined;
+      let handoffKey: string | undefined;
 
-      const presented = normalizeRecoveryCode(req.recoveryCode);
-      if (team.recoveryHash === undefined || team.recoveryHash !== presented) {
-        recordAttemptFailure(key);
-        throw new SessionError('BAD_RECOVERY_CODE', 'That recovery code is not correct for this team.');
+      if (hasHandoffToken) {
+        if (typeof req.handoffToken !== 'string') throw new SessionError('INVALID_REQUEST', 'handoffToken must be a string.');
+        const teamName = resolveHandoff(room.code, req.handoffToken);
+        if (teamName === null) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link is invalid or has expired.');
+        }
+        const entry = room.teams.find(t => t.name === teamName);
+        if (!entry) throw new SessionError('TEAM_NOT_FOUND', 'That team no longer exists in this room.');
+        // ⚠ A DEFENSIVE CROSS-CHECK, NOT THE NORMAL PATH — see contract.ts.
+        if (typeof req.teamName === 'string' && req.teamName.trim() !== entry.name) {
+          throw new SessionError('BAD_RECOVERY_CODE', 'That hand-off link does not match the team named.');
+        }
+        team = entry;
+        reissuedRecoveryCode = newRecoveryCode();
+        handoffKey = handoffKeyFor(room.code, req.handoffToken);
+        // No attempt-limiter touch, no hash compare — resolving the real
+        // handoff record already IS the authentication. See
+        // server/rooms.ts's reclaimTeam for the full reasoning.
+      } else {
+        if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
+        if (typeof req.recoveryCode !== 'string') throw new SessionError('INVALID_REQUEST', 'recoveryCode must be a string.');
+        const name = req.teamName.trim();
+        const found = room.teams.find(t => t.name === name);
+        if (!found) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+        team = found;
+
+        const key = attemptKeyFor(room.code, name);
+        if (isReclaimBlocked(key)) {
+          throw new SessionError('TOO_MANY_ATTEMPTS', 'Too many wrong recovery codes. Try again later.');
+        }
+
+        const presented = normalizeRecoveryCode(req.recoveryCode);
+        if (team.recoveryHash === undefined || team.recoveryHash !== presented) {
+          recordAttemptFailure(key);
+          throw new SessionError('BAD_RECOVERY_CODE', 'That recovery code is not correct for this team.');
+        }
       }
 
       assertTokenFree(room, req.token);
       team.token = req.token;
+      // ⚠ ONLY ON THE HANDOFF PATH — the recoveryCode path never touches the
+      // team's existing code.
+      if (reissuedRecoveryCode) team.recoveryHash = normalizeRecoveryCode(reissuedRecoveryCode);
       saveRoom(room);
-      storage().removeItem(key);
-      return { teamToken: req.token, teamName: team.name, lines: [...team.lines], pin: team.pin, role: 'player' as const, rejoined: true, room: roomView(room, 'player', team.name) };
+      if (handoffKey) storage().removeItem(handoffKey);
+      else storage().removeItem(attemptKeyFor(room.code, team.name));
+      return {
+        teamToken: req.token, teamName: team.name, lines: [...team.lines], pin: team.pin,
+        ...(reissuedRecoveryCode ? { recoveryCode: reissuedRecoveryCode } : {}),
+        role: 'player' as const, rejoined: true, room: roomView(room, 'player', team.name),
+      };
     }, true); // exclusive — it mutates the room, same as join/submit/advance
+  }
+
+  createHandoff(req: CreateHandoffRequest): Promise<CreateHandoffResponse> {
+    return this.call(() => {
+      const room = loadRoom(req.code);
+      // Authority first, as everywhere else here: a non-host must not learn
+      // anything about the room from the shape of the refusal. Same check
+      // setEventHidden already makes.
+      const { role } = callerOf(room, req.token);
+      if (role !== 'host') {
+        throw new SessionError('NOT_HOST', 'Only the host may hand off a team.');
+      }
+      if (typeof req.teamName !== 'string') throw new SessionError('INVALID_REQUEST', 'teamName must be a string.');
+      const name = req.teamName.trim();
+      const team = room.teams.find(t => t.name === name);
+      if (!team) throw new SessionError('TEAM_NOT_FOUND', `${name} is not a team in this room.`);
+
+      const handoffToken = newSessionToken();
+      const expiresAtMs = Date.now() + HANDOFF_WINDOW_MS;
+      storage().setItem(
+        handoffKeyFor(room.code, handoffToken),
+        JSON.stringify({ teamName: team.name, expiresAtMs } satisfies HandoffRecord),
+      );
+      return { handoffToken, expiresAtSec: Math.floor(expiresAtMs / 1000) };
+    }, true); // exclusive — reads then writes the room's secret-adjacent index
   }
 
   submit(req: SubmitRequest): Promise<SubmitResponse> {
