@@ -23,7 +23,7 @@
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/room-market-share.cjs
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const STOP = process.env.ROOM_SHARE_STOP === '1';
 const TIMING = process.env.ROOM_SHARE_TIMING === '1';
@@ -267,7 +267,7 @@ function expectedShares(rec, year) {
     const before = TIMING ? null : await sharesYear();
     const chipsBefore = TIMING ? null : await playerChips(players[TEAMS[0]]);
     for (const t of locking) {
-      await players[t].getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(players[t]);
       await players[t].waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     if (!TIMING) {

@@ -17,7 +17,7 @@
 //    surplus available and "(limited to the surplus available)".
 // ============================================================================
 const zlib = require('node:zlib');
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -86,7 +86,7 @@ const money = s => { const m = /\$([\d.,]+)([MK]?)/.exec(s); if (!m) return NaN;
 
   // 3. Locked at -$3M: the decision and the charge are $3M exactly.
   await setSlider(page, -3e6);
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }

@@ -74,7 +74,7 @@
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/rate-indication.cjs
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const LINES = [['WC', "Workers' Compensation"], ['GL', 'General Liability'], ['Property', 'Property']];
 const LEVELS = [70, 80, 90];
@@ -488,7 +488,7 @@ async function solo(browser) {
   // year 2 buys risk control at 2% on every line (wip/risk-control-divisor).
   for (const [y, level, cover, rc] of [[1, 'expected', 1, 0], [2, 80, 0, 0.02]]) {
     played.push(await s.choose(level, cover, y === 1 ? 'agg-110-50' : 'none', rc));
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(page);
     await page.waitForTimeout(2500);
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
@@ -535,7 +535,7 @@ async function hosted(browser) {
   for (const [y, level, cover, rc] of [[1, 'expected', 1, 0], [2, 80, 0, 0.02]]) {
     // Year 1 buys the 110/50 aggregate cover: the room's shocks are off, and it is offered all the same.
     played.push(await s.choose(level, cover, y === 1 ? 'agg-110-50' : 'none', rc));
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(page);
     await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');
     await page.waitForFunction(n => document.querySelector('[data-testid="posted-year"]')?.textContent.includes(`year ${n} result posted`), y, { timeout: 180000 });

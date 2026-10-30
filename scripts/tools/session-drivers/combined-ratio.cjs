@@ -23,7 +23,7 @@
 //
 //   npm run build && npx vite preview --port 4173 --strictPort &
 //   node scripts/tools/session-drivers/combined-ratio.cjs
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const ROW = 'Combined Ratio';
 const VIEWS = ['Pool', "Workers' Compensation", 'General Liability', 'Property'];
@@ -100,7 +100,7 @@ const ok = (cond, label, detail = '') => {
 
   await compare('before year 1', 0);
   for (const y of [1, 2]) {
-    await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(page);
     await page.waitForTimeout(2500);
     const decline = page.getByRole('button', { name: /Decline/i }).first();
     // A loan offer, if a line ended the year below zero (the Line Surplus Deficit

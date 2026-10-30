@@ -11,7 +11,10 @@
 //    seed; every stage in the engine's order, each with its code and how the
 //    decisions reach it; no screen shows the scenario's fixed seed; "Download
 //    Year Walkthrough (Excel)" gives Year_Walkthrough_<year> with every year
-//    and view, the version, no seed; the Results download keeps its sheet.
+//    and view, the version, no seed. ⚠ The Results download, which carried the
+//    walkthrough as a sheet, went with the Result Spreadsheet tab (the tab
+//    cleanup, src/game/tabs.tsx HIDDEN_TABS): it is asserted absent in every
+//    mode, and the walkthrough's own download carries the checks.
 // 2. Test player, in TWO browser contexts with the same setup and decisions:
 //    each shows the version, the scenario and the fixed seed — the same in
 //    both — and every code is identical between them; its download carries
@@ -32,7 +35,7 @@ const fs = require('node:fs');
 const { execFileSync, spawn } = require('node:child_process');
 const net = require('node:net');
 const XLSX = require('xlsx');
-const { BASE, REPO, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -41,7 +44,7 @@ const ok = (cond, label, detail = '') => {
 };
 const SCENARIO = '16';
 const LINE_NAMES = ["Workers' Compensation", 'General Liability', 'Property'];
-const TABS = ['Introduction', 'Rate Indication', 'Model', 'Annual Statement', 'Decisions', 'Decision History', 'Result Spreadsheet', 'Year Walkthrough'];
+const TABS = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions', 'Decision History', 'Year Walkthrough'];
 // The stages in the engine's order (utils/yearWalkthrough STAGES), as the page's data-stage carries them.
 const ORDER = ['decisions', 'pricing', 'book', 'premium', 'draws', 'losses', 'reinsurance', 'booking', 'development',
   'reserves', 'lae', 'admin', 'riskControl', 'investment', 'dividends', 'loans', 'surplus', 'capital', 'marketShare'];
@@ -75,7 +78,7 @@ async function openSolo(page, mode) {
 }
 async function lock(page) {
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }
@@ -140,19 +143,11 @@ async function seedOnAnyScreen(page) {
   }
   return hits;
 }
-// The Results download: its sheets, and every cell's text.
-async function resultsDownload(page) {
-  await page.getByRole('button', { name: 'Result Spreadsheet', exact: true }).first().click();
-  await page.waitForTimeout(800);
-  const [dl] = await Promise.all([
-    page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
-    page.getByRole('button', { name: /Download Results/ }).first().click(),
-  ]);
-  if (!dl) return null;
-  const wb = XLSX.read(fs.readFileSync(await dl.path()));
-  const cells = wb.SheetNames.flatMap(n => Object.entries(wb.Sheets[n]).filter(([k]) => !k.startsWith('!')).map(([, c]) => String(c.v ?? '')));
-  const rows = wb.Sheets['Year Walkthrough'] ? XLSX.utils.sheet_to_json(wb.Sheets['Year Walkthrough'], { header: 1 }) : [];
-  return { sheets: wb.SheetNames, cells, rows };
+// The Results download went with the Result Spreadsheet tab (the tab cleanup):
+// true when neither the tab nor its button is anywhere a player can reach.
+async function noResultsDownload(page) {
+  const bar = (await page.locator('nav').first().locator('button').allInnerTexts()).map(t => t.trim());
+  return !bar.includes('Result Spreadsheet') && await page.getByRole('button', { name: /Download Results/ }).count() === 0;
 }
 const seedCells = d => d.cells.filter(c => c === truth.seed || /^seed$/i.test(c.trim()));
 
@@ -202,10 +197,7 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
     ok(marks.includes('Same for everyone in this scenario') && marks.includes('Depends on your decisions'), 'Single player: each block is marked same-for-everyone or depends-on-decisions');
     const hits = await seedOnAnyScreen(page);
     ok(hits.length === 0, `Single player: the fixed seed ${truth.seed} is on no screen`, hits.join(', '));
-    const d = await resultsDownload(page);
-    ok(!!d && d.sheets.includes('Year Walkthrough'), 'Single player: the Results download has the Year Walkthrough sheet', d?.sheets.join(', '));
-    ok(!!d && d.rows.some(r => r[0] === 'Version' && r[1] === truth.version), 'Single player: the sheet carries the version');
-    ok(!!d && seedCells(d).length === 0, 'Single player: the download holds no seed', d ? seedCells(d).slice(0, 3).join(', ') : '');
+    ok(await noResultsDownload(page), 'Single player: no Result Spreadsheet tab and no Results download (the tab cleanup)');
     const wd = await walkDownload(page);
     ok(!!wd && /^Year_Walkthrough_2027\.xlsx$/.test(wd.name) && wd.sheets.join(',') === 'Year Walkthrough',
       'Single player: "Download Year Walkthrough (Excel)" gives Year_Walkthrough_2027 with its one sheet', wd ? `${wd.name} · ${wd.sheets.join(', ')}` : 'no file');
@@ -215,8 +207,8 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
     ok(!!wd && seedCells(wd).length === 0, 'Single player: and no seed', wd ? seedCells(wd).slice(0, 3).join(', ') : '');
     // The retired dormant stop's row is gone (wip/aggregate-cover): only the Aggregate Stop-Loss rows remain.
     const oldRow = rows => rows.some(r => r.some(c => c === 'Aggregate cover recovery'));
-    ok(!marks.includes('Aggregate cover recovery') && !!wd && !oldRow(wd.rows) && !!d && !oldRow(d.rows),
-      'Single player: no "Aggregate cover recovery" row on the screen or in either download');
+    ok(!marks.includes('Aggregate cover recovery') && !!wd && !oldRow(wd.rows),
+      'Single player: no "Aggregate cover recovery" row on the screen or in the download');
     await page.context().close();
   }
 
@@ -235,8 +227,7 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
   const [t1, t2] = tp.map(x => x.w);
   ok(JSON.stringify(t1.blocks) === JSON.stringify(t2.blocks) && t1.yearCode === t2.yearCode && t1.decisionsCode === t2.decisionsCode && t1.drawsCode === t2.drawsCode,
     'Test player: two contexts, same setup and decisions — every code identical', `${t1.yearCode} / ${t2.yearCode}`);
-  const td = await resultsDownload(tp[0].page);
-  ok(!!td && td.rows.some(r => r[0] === 'Seed' && String(r[1]) === truth.seed), 'Test player: its Results download carries the seed');
+  ok(await noResultsDownload(tp[0].page), 'Test player: no Result Spreadsheet tab and no Results download (the tab cleanup)');
   const twd = await walkDownload(tp[0].page);
   ok(!!twd && /^Year_Walkthrough_2027\.xlsx$/.test(twd.name) && twd.rows.some(r => r[0] === 'Seed' && String(r[1]) === truth.seed),
     'Test player: "Download Year Walkthrough (Excel)" carries the seed', twd?.name);
@@ -286,7 +277,7 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
       teams.push(page);
     }
     for (const page of teams) {
-      await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(page);
       await page.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     await host.click('[data-testid="host-tab-setup"]').catch(() => {});
@@ -307,8 +298,7 @@ process.on('exit', () => { try { if (stubPid) process.kill(-stubPid, 'SIGKILL');
       ok(!/Temporary debug page/.test(auditText), `Team ${k + 1}: the Year Walkthrough tab is the walkthrough alone`);
       const hits = await seedOnAnyScreen(page);
       ok(hits.length === 0, `Team ${k + 1}: the fixed seed is on no screen`, hits.join(', '));
-      const d = await resultsDownload(page);
-      ok(!!d && d.sheets.includes('Year Walkthrough') && seedCells(d).length === 0, `Team ${k + 1}: the Results download has the walkthrough and no seed`, d ? seedCells(d).slice(0, 3).join(', ') : 'no file');
+      ok(await noResultsDownload(page), `Team ${k + 1}: no Result Spreadsheet tab and no Results download (the tab cleanup)`);
       const wd = await walkDownload(page);
       ok(!!wd && /^Year_Walkthrough_2027\.xlsx$/.test(wd.name) && seedCells(wd).length === 0 && wd.rows.some(r => r[0] === 'Version'),
         `Team ${k + 1}: "Download Year Walkthrough (Excel)" — the version, no seed`, wd ? `${wd.name} ${seedCells(wd).slice(0, 2).join(', ')}` : 'no file');

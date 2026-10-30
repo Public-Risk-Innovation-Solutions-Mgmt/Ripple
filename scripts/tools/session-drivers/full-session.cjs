@@ -2,7 +2,7 @@
 // REAL game UI, not a four-slider panel.
 // One context: localStorage is the server here, so separate contexts would give
 // four private universes in which everything passes and nothing is shared.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley', 'Tri-County'];
 const YEARS = 3;
 const SKIP_YEAR = 2;
@@ -122,16 +122,16 @@ const roomRecord = (page, code) => page.evaluate(c =>
   {
     const p = players[0];
     // ⚠ 'Membership' CAME OFF: the tab is hidden while the game shows the pool
-    // in aggregate. ⚠ AND THE MULTIPLAYER VERSION HIDES Results and Financial
-    // Statements (GameShell's MULTIPLAYER_HIDDEN_TABS); single-player keeps
-    // them, and solo-oracle holds that. The PAGES are intact. The Year
+    // in aggregate. ⚠ RESULTS, RESULT SPREADSHEET, FINANCIAL STATEMENTS AND
+    // MODEL ARE HIDDEN since the tab cleanup, in multiplayer and single player
+    // alike (src/game/tabs.tsx HIDDEN_TABS). The PAGES are intact. The Year
     // Walkthrough is on the bar (year-walkthrough.cjs).
     // ⚠ DASHBOARD AND DEPARTMENTS ARE HIDDEN IN BOTH (src/game/tabs.tsx), and
     // Rate Indication joined the bar, and Investments is hidden too (its memo is
     // in the Introduction tab); navigation.cjs holds the order.
     const tabs = ['Introduction', 'Rate Indication', 'Annual Statement', 'Decisions',
-                  'Decision History', 'Result Spreadsheet', 'Year Walkthrough'];
-    const hiddenTabs = ['Financial Statements', 'Results', 'Dashboard', 'Departments', 'Investments'];
+                  'Decision History', 'Year Walkthrough'];
+    const hiddenTabs = ['Financial Statements', 'Results', 'Result Spreadsheet', 'Model', 'Dashboard', 'Departments', 'Investments'];
     const present = [];
     for (const t of tabs) {
       if (await p.getByRole('button', { name: t, exact: true }).count() > 0) present.push(t);
@@ -214,7 +214,7 @@ const roomRecord = (page, code) => page.evaluate(c =>
            `carry-forward setup: ${TEAMS[i]} moved Funding Confidence on the real page (${moved && moved.before} -> ${moved && moved.after})`);
       }
 
-      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(p);
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     }
     ok(true, `year ${year}: teams locked in${year === SKIP_YEAR ? ` (${TEAMS[SKIPPER]} deliberately did not)` : ''}`);
@@ -287,9 +287,9 @@ const roomRecord = (page, code) => page.evaluate(c =>
   // ---- the results pages render another year's real output ----------------
   {
     const p = players[0];
-    // The three results pages are hidden in multiplayer; the Annual Statement and
-    // the Result Spreadsheet carry the year's output here.
-    for (const tab of ['Annual Statement', 'Result Spreadsheet']) {
+    // The results pages are hidden (the tab cleanup); the Annual Statement and
+    // the Year Walkthrough carry the year's output here.
+    for (const tab of ['Annual Statement', 'Year Walkthrough']) {
       await p.getByRole('button', { name: tab, exact: true }).click();
       await p.waitForTimeout(500);
       const txt = await p.locator('main').innerText();
