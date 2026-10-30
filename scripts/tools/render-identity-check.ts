@@ -1745,7 +1745,19 @@ const BASELINE = process.env.RENDER_BASELINE
 // screens), the version reads riskpool_gamestate_v44 (26), and the stage and
 // year codes — hashes of the figures — follow the figures. No key added or
 // removed.
-  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v120.json');
+// v121: FIFTEEN SCENARIOS' SEEDS RE-PICKED (pr/seed-switch, from aws 0b4f5a5;
+// numbered past every render baseline on multiplayer and pr/clf-stretch).
+// ⚠ THE CONTROL DID NOT REPRODUCE v120: aws 0b4f5a5 itself moves 23 of 174 —
+// every Rate Indication screen (10) and 13 Year Walkthrough screens —
+// identically on two runs, in an environment where aws f5e108a reproduced
+// v117, 174 of 174. Against f5e108a's text those 23 screens differ only in
+// the figures the fixed ALAE load moves (the indication, rates, surplus), so
+// v120 was recorded on a tree other than the one merged; the merge's own text
+// is the control here. Against it (RENDER_TEXT_DIR), word-diffed: 26 of 174
+// move, all Year Walkthrough, and only in "riskpool_gamestate_v44" ->
+// "riskpool_gamestate_v45". Every configuration plays scenario 7, whose seed
+// is kept, so no figure moved. No key added or removed.
+  ?? path.join(__dirname, '../../baselines/RENDER_IDENTITY_v121.json');
 const WRITE = process.argv.includes('--write');
 const BASE_URL = process.env.RENDER_URL ?? 'http://127.0.0.1:4173';
 // The image ships chromium 1194; a newer `playwright` expects its own build and

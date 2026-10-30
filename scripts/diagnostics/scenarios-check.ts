@@ -24,11 +24,12 @@
 //      begins at STARTING_CAPITAL, funds every year at Expected (a margin of
 //      exactly 0), and the opening is the played pre-game's own last year-end
 //      — NOT on its target (nothing fits it), yet near it, by the bars in
-//      SCENARIO_OPENING_BARS. ⚠ TEMPORARILY 18.5% and 4 of 20 (was 12% and 18
-//      of 20): the fixed ALAE load (wip/pricing-alae-load) moved the openings,
-//      which were accepted as they fall; the seeds will be re-picked on this
-//      build and the bars restored. scenario-opening-drift-check holds the
-//      exact openings.
+//      SCENARIO_OPENING_BARS: within 10.5% on every line and 5% on all three
+//      for 16 of the 20 — what the seeds re-picked on the fixed ALAE load
+//      achieve (pr/seed-switch: worst 10.35%, scenario 13's WC). Were 18.5%
+//      and 4 of 20 while the openings stood as the fixed ALAE load left them
+//      (pr/alae-load), and 12% and 18 before it. scenario-opening-drift-check
+//      holds the exact openings.
 //   6. THE PRE-GAME'S EXPERIENCE, SIMULATED AT TRUE COST (FLAT_PRE_GAME off):
 //      every pre-game line-year's year factor is the factor drawn on the
 //      pre-game's own stream (pregame_ordinary_<line>) from the game's seed,
