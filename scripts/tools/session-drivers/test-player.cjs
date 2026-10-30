@@ -42,7 +42,7 @@
 // ============================================================================
 const zlib = require('node:zlib');
 const { execFileSync } = require('node:child_process');
-const { BASE, REPO, launchBrowser, requireServer, statementPdfDiffs } = require('./_shared.cjs');
+const { BASE, REPO, launchBrowser, requireServer, statementPdfDiffs, lockAndConfirm } = require('./_shared.cjs');
 
 let passed = 0, failed = 0;
 const ok = (cond, label, detail = '') => {
@@ -85,7 +85,7 @@ async function lockYear1(page) { return lockYear(page, 2); }
 // Lock the current year; `next` is the year number the game then stands in (calendar 2026 + next).
 async function lockYear(page, next) {
   await page.getByRole('button', { name: 'Decisions', exact: true }).first().click();
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }

@@ -21,7 +21,7 @@
 //   node scripts/tools/session-drivers/introduction.cjs
 const fs = require('node:fs');
 const path = require('node:path');
-const { BASE, REPO, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, REPO, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const DOCS = ['Welcome Memorandum', 'How to Play', 'Investment Memorandum', 'Underwriting Memorandum'];
 const norm = s => s.replace(/\s+/g, ' ').trim();
@@ -139,7 +139,7 @@ async function checkUnderwriting(page, s, mode) {
   await checkMemoHeaders(page, s, 'solo');
   await checkUnderwriting(page, s, 'solo');
 
-  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(page);
   await page.waitForTimeout(2500);
   const decline = page.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) { await decline.click(); await page.waitForTimeout(800); }

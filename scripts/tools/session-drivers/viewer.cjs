@@ -1,6 +1,6 @@
 // THE VIEWER IS THE PLAYER'S SCREEN, READ-ONLY — and its numbers are the
 // driver's numbers because they are the same computation, not a copy.
-const { BASE, launchBrowser, requireServer, statementPdfDiffs } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, statementPdfDiffs, lockAndConfirm } = require('./_shared.cjs');
 const crypto = require('crypto');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley'];
 // Three played years, checked after each; the room runs one more so year 3 is not its last.
@@ -140,7 +140,7 @@ async function tabText(page, tab) {
       await driver.waitForTimeout(300);
     }
 
-    await driver.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(driver);
     await driver.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     await host.click('[data-testid="advance"]');
     await host.waitForFunction(n => document.querySelector('[data-testid="current-year"]')?.textContent.trim() === String(n), y + 1, { timeout: 30000 });

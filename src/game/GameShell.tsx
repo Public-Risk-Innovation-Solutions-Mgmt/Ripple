@@ -23,7 +23,9 @@
 //   onAdvanceYear   solo processes the year immediately; a session locks and
 //                   waits for the host. Same button, same words, different verb
 //                   underneath — which is the whole of the difference the
-//                   session layer exists to make.
+//                   session layer exists to make. ⚠ EITHER WAY IT RUNS ONLY
+//                   FROM THE LOCK CONFIRMATION BOX's "Lock decisions": the
+//                   button opens the box here, so every caller gets it.
 //   loanPrompt      solo blocks on the modal; a session cannot (see JoinScreen).
 //   banner          the save-failure banner, which is solo-only because a
 //                   session player does not write the save at all.
@@ -53,6 +55,8 @@ import FinancialsPage from '../pages/FinancialsPage';
 import ResultsPage from '../pages/ResultsPage';
 import MembershipPage from '../pages/MembershipPage';
 import YearWalkthroughPanel from '../components/YearWalkthroughPanel';
+import LockConfirmModal from '../components/LockConfirmModal';
+import { lockSummary } from '../utils/lockSummary';
 import { walkthroughHeader, walkthroughSheetRows } from '../utils/yearWalkthrough';
 import ResultSpreadsheetPage from '../pages/ResultSpreadsheetPage';
 import ResultsStatementPage from '../pages/ResultsStatementPage';
@@ -146,6 +150,18 @@ export default function GameShell({
 
   const d = useGameDerivations(gameState, lineView, currentDecisions);
 
+  // THE LOCK CONFIRMATION: the header's lock button opens the box; only its
+  // "Lock decisions" calls the caller's onAdvanceYear, once. The box closes
+  // before the call, so a second click cannot lock twice.
+  const [confirmingLock, setConfirmingLock] = React.useState(false);
+  const openLockConfirm = React.useCallback(() => setConfirmingLock(true), []);
+  const cancelLock = React.useCallback(() => setConfirmingLock(false), []);
+  const confirmLock = React.useCallback(() => {
+    setConfirmingLock(false);
+    onAdvanceYear?.();
+  }, [onAdvanceYear]);
+  const lockYear = gameState ? gameState.setup.startingYear + gameState.currentYearNumber - 1 : '';
+
   // ⚠ RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (utils/knownYears): every
   // screen that shows results reads the KNOWN view — cut at the latest known
   // year, the top bar's year — and only Decisions, Decision History, the Rate
@@ -194,7 +210,7 @@ export default function GameShell({
       <Header
         gameState={known}
         onNewGame={onNewGame}
-        onAdvanceYear={onAdvanceYear}
+        onAdvanceYear={onAdvanceYear ? openLockConfirm : undefined}
         canAdvance={canAdvance}
         advanceLabel={advanceLabel}
         lineView={lineView}
@@ -223,6 +239,15 @@ export default function GameShell({
       )}
 
       {statusStrip}
+
+      {confirmingLock && onAdvanceYear && gameState && (
+        <LockConfirmModal
+          year={lockYear}
+          summary={lockSummary(currentDecisions, activeLines)}
+          onConfirm={confirmLock}
+          onCancel={cancelLock}
+        />
+      )}
 
       {/* THE NEWS OF AN EVENT (components/EventNews): the year just played, off
           the whole game — the same year the result screens now show. */}

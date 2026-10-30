@@ -243,4 +243,15 @@ async function statementPdfDiffs(page) {
   return out;
 }
 
-module.exports = { BASE, REPO, launchBrowser, requireServer, asPlayer, asAdmin, statementPdfDiffs };
+// THE LOCK CONFIRMATION (components/LockConfirmModal): the lock button opens a
+// box first, and only its "Lock decisions" locks the year — single player, Test
+// player and hosted. Every driver that locks a year comes through here.
+async function lockAndConfirm(page) {
+  await page.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  const box = page.locator('[data-testid="lock-confirm"]');
+  await box.waitFor({ timeout: 10000 });
+  await box.getByRole('button', { name: 'Lock decisions', exact: true }).click();
+  await box.waitFor({ state: 'detached', timeout: 10000 });
+}
+
+module.exports = { BASE, REPO, launchBrowser, requireServer, asPlayer, asAdmin, statementPdfDiffs, lockAndConfirm };

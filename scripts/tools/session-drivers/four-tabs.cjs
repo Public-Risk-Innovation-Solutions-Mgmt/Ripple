@@ -5,7 +5,7 @@
 // contexts would give four private universes in which every assertion below
 // passes while nothing is actually shared. The bug this arrangement is built to
 // catch is precisely the one that isolation would hide.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const TEAMS = ['Harbour Mutual', 'Cedar Valley', 'Tri-County'];
 
 const fails = [];
@@ -99,7 +99,7 @@ function ok(cond, what) { checks++; if (!cond) { fails.push(what); console.log('
 
   // ---- all three lock in --------------------------------------------------
   for (let i = 0; i < 3; i++) {
-    await players[i].getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(players[i]);
     await players[i].waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
   }
   ok(true, 'all three tabs submitted and show submit-and-wait');

@@ -2020,6 +2020,10 @@ async function run(): Promise<Record<string, string>> {
     await capture(page, cfg, 'y0', out);
     for (let i = 0; i < 2; i++) {
       await page.getByRole('button', { name: /^Lock Program Year \d+$/ }).click();
+      // THE LOCK CONFIRMATION: the button opens a box and only "Lock decisions"
+      // locks. Clicked when present, so a build from before the box still runs.
+      const lockBox = page.locator('[data-testid="lock-confirm"]');
+      if (await lockBox.count() > 0) await lockBox.getByRole('button', { name: 'Lock decisions', exact: true }).click();
       await settle(page);
       // ⚠ TEN WORLDS (loss engine commit 4b): a line short in ANY world raises
       // the loan prompt, so a year can stop at it. Confirmed at the prompt's own

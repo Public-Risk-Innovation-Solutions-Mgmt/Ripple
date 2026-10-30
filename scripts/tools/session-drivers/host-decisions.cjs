@@ -7,7 +7,7 @@
 // the tab across the advance and asserts both sides of it.
 //
 // ⚠ AND IT MUST BE ABLE TO FAIL — see THE CONTROL at the foot.
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const fails = [];
 let checks = 0;
 function ok(c, w) { checks++; if (!c) { fails.push(w); console.log('  FAIL  ' + w); } else console.log('  ok    ' + w); }
@@ -64,7 +64,7 @@ async function join(ctx, code, name) {
 
   // Both teams lock year 1 and the host advances.
   for (const p of [a, b]) {
-    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(p);
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
   }
 

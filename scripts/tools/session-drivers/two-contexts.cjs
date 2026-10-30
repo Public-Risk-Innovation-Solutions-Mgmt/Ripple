@@ -8,7 +8,7 @@
 // the right unit: separate storage, separate identity, separate everything but
 // the wire. Host in one, teams in the other, which is the actual topology.
 // ============================================================================
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 // ⚠ A PORT THE OS HANDS OUT, NOT ONE CHOSEN BY HAND. A fixed port survives a
@@ -133,7 +133,7 @@ const anyKeys = page => page.evaluate(() =>
     // ⚠ BOTH TEAMS LOCK AT ONCE. Two pages, one server, no client-side lock
     // anywhere on this path: the serialisation is the server's.
     await Promise.all(players.map(async p => {
-      await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+      await lockAndConfirm(p);
       await p.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
     }));
     // The host learns by polling, so this waits for the locks to arrive rather
@@ -179,7 +179,7 @@ const anyKeys = page => page.evaluate(() =>
   await host.waitForTimeout(20000);
 
   await Promise.all(players.map(async p => {
-    await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(p);
     await p.waitForSelector('[data-testid="waiting"]', { timeout: 60000 });
   }));
   await host.click('[data-testid="host-tab-setup"]');

@@ -38,7 +38,7 @@
 // At the end it prints the table of what each screen showed at each point.
 //
 // ============================================================================
-const { BASE, launchBrowser, requireServer } = require('./_shared.cjs');
+const { BASE, launchBrowser, requireServer, lockAndConfirm } = require('./_shared.cjs');
 
 const START = 2027, LENGTH = 4;
 let passed = 0, failed = 0;
@@ -60,7 +60,7 @@ const RESULT_TABS = ['Annual Statement', 'Year Walkthrough'];
 const table = [];
 
 async function lockAndDecline(p) {
-  await p.getByRole('button', { name: /Lock Program Year/ }).first().click();
+  await lockAndConfirm(p);
   await p.waitForTimeout(2500);
   const decline = p.getByRole('button', { name: /Decline/i }).first();
   if (await decline.count() > 0) {
@@ -190,7 +190,7 @@ async function hosted(browser) {
     const locks = n - 1;
     const name = locks === 0 ? 'start' : `after ${locks} lock${locks > 1 ? 's' : ''}`;
     await check(name, START + n - 2, START + n - 2);
-    await team.getByRole('button', { name: /Lock Program Year/ }).first().click();
+    await lockAndConfirm(team);
     await team.waitForSelector('[data-testid="waiting"]', { timeout: 30000 });
     await host.click('[data-testid="host-tab-setup"]');
     await host.waitForTimeout(300);
