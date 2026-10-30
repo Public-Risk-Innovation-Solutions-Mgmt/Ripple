@@ -14,15 +14,19 @@ async function join(ctx, code, name, line) {
   return p;
 }
 
-// Read the Teams table as {team: cells}. The first cell is the team's name alone.
+// Read the Teams table as {team: cells}. The first cell is the team's number
+// ("Team 1"), the second its name alone; cells are the rest.
 const readTable = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
   Object.fromEntries(rows.map(r => {
     const cells = [...r.children].map(c => c.textContent.trim());
-    return [cells[0], cells.slice(1)];
+    return [cells[1], cells.slice(2)];
   })));
+// The Teams table's first two cells per row: [number, name], in the table's order.
+const readPairs = page => page.$$eval('[data-testid="teams-table"] tr', rows =>
+  rows.map(r => [...r.children].slice(0, 2).map(c => c.textContent.trim())));
 // The combined ratio is headed with the year the table shows — read here after the second advance, 2028
 // (wip/newest-year-combined-ratio: the year's own, as on the team's statement and top bar).
-const COLUMNS = ['Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share'];
+const COLUMNS = ['Team number', 'Team', 'Ripple Score', 'Premium to surplus', 'Rate', 'Admin expense', 'Combined ratio 2028', 'Net surplus', 'Market share'];
 const PCT = /^\d+\.\d%$/;
 // The combined ratio's own scale (colorForCombinedRatio): emerald, amber or red —
 // never the loss-ratio scale's sky.
@@ -69,6 +73,27 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
   const slow   = await join(ctx, code, 'Tri-County', 'WC');
 
   await host.waitForFunction(() => document.querySelectorAll('[data-testid="teams-table"] tr').length === 3, null, { timeout: 30000 });
+
+  // TEAM NUMBERS: the first team to join is Team 1, the next Team 2 — in the
+  // Teams table's "Team number" column before "Team", in the Game Setup roster
+  // the same, and on each team's own screen beside its name.
+  const JOINED = [['Team 1', 'Harbour Mutual'], ['Team 2', 'Cedar Valley'], ['Team 3', 'Tri-County']];
+  const pairs = await readPairs(host);
+  ok(JSON.stringify(pairs) === JSON.stringify(JOINED),
+    `Teams: numbered in join order, "Team number" before "Team" (${pairs.map(p => p.join(' | ')).join(', ')})`);
+  await host.click('[data-testid="host-tab-setup"]');
+  await host.waitForSelector('[data-testid="team-table"] tr');
+  const setupPairs = await host.$$eval('[data-testid="team-table"] tr', rows =>
+    rows.map(r => [...r.children].slice(0, 2).map(c => c.textContent.trim())));
+  const setupHeads = await host.$$eval('[data-testid="team-table"]', ([t]) => [...t.closest('table').querySelectorAll('thead th')].slice(0, 2).map(h => h.textContent.trim()));
+  ok(JSON.stringify(setupPairs) === JSON.stringify(JOINED) && JSON.stringify(setupHeads) === JSON.stringify(['Team number', 'Team']),
+    `Game Setup: the roster pairs them the same way (${setupPairs.map(p => p.join(' | ')).join(', ')})`);
+  const own = [];
+  for (const p of [wcTeam, glTeam, slow]) own.push((await p.locator('[data-testid="my-team"]').locator('..').innerText()).trim());
+  ok(JSON.stringify(own) === JSON.stringify(JOINED.map(([n, name]) => `${n} | ${name}`)),
+    `each team's own screen shows its number beside its name (${own.join(', ')})`);
+  await host.click('[data-testid="host-tab-teams"]');
+  await host.waitForSelector('[data-testid="teams-table"] tr');
   // ⚠ RESULTS SHOW THROUGH THE YEAR JUST COMPLETED (utils/knownYears): before
   // any advance that is 2026, the opening every team posts when it builds its
   // game — so the table shows it from the start. (It said "No results known
@@ -98,6 +123,15 @@ const RATE = /^\$\d+\.\d{2}( \([+−]\d+\.\d%\))?$/;
   // at once: the two teams that played it show it.
   await host.click('[data-testid="host-tab-teams"]');
   await host.waitForFunction(() => document.querySelectorAll('[data-testid^="surplus-"]').length >= 1, null, { timeout: 30000 });
+  // ⚠ WAIT FOR THE YEAR, NOT FOR ANY FIGURES. The opening's figures are on the
+  // table from the start, so "a surplus is shown" was true before the host's
+  // next poll brought year 1 in; this read the heading in between whenever the
+  // poll had backed off (it did once the team-number checks above held the host
+  // on the Game Setup tab for a moment). The assertion is unchanged; if 2027
+  // never arrives, the wait expires and it fails.
+  const t1 = Date.now();
+  await host.waitForFunction(() => /2027/.test(document.querySelector('[data-testid="teams-year"]')?.textContent || ''), null, { timeout: 30000 }).catch(() => {});
+  console.log(`  (year 1 reached the Teams heading ${Date.now() - t1} ms after the figures)`);
   const y1 = await host.textContent('[data-testid="teams-year"]');
   ok(/^Results for 2027$/.test(y1.trim()), `after one advance the year just played, 2027, is the latest known year: "${y1.trim()}"`);
   ok(await host.$('[data-testid="surplus-Harbour Mutual"]') !== null, 'and the teams that played it show its figures');

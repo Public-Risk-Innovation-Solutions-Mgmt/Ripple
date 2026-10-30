@@ -20,6 +20,10 @@
 // separately), so nothing enforces this ordering for you. Deploy the handler
 // FIRST, then the front end — that order is safe in both directions.
 //
+// TEAM NUMBERS (TeamView.teamNumber) ARE THE SAME: a new front end against an
+// old handler reads no number and shows "Team undefined" on every host screen.
+// Handler first, as above.
+//
 // NOTHING ON `multiplayer` IS DEPLOYED TODAY, so there is no live break to fix;
 // this is recorded for whoever first takes this branch to an environment.
 // See docs/handoff/AWS_HANDLER_HANDOFF.md, which carries the same warning.
@@ -595,6 +599,31 @@ export function eventStatusOf(currentYear: number, yearCount: number): EventStat
  * own token at any status, or a refreshed browser would lose its seat the moment
  * the host advanced. Nor does it govern a viewer, who may always watch.
  */
+/**
+ * THE ROOM'S TEAM NUMBERS, for both transports — one rule, so the localStorage
+ * room and the DynamoDB room number the same teams the same way.
+ *
+ * `inJoinOrder` is the room's teams oldest first, each with the number it was
+ * given (absent on a team that joined before numbers existed); `next` is the
+ * number the room will give its next team (absent on such a room). A team that
+ * has a number keeps it. A team without one is given the next free number in
+ * join order — so an OLDER ROOM is numbered 1, 2, 3… by join order the first
+ * time it is read, and the same way on every read until that is saved. Returns
+ * each team's number and the room's next number.
+ *
+ * ⚠ `next` IS NEVER BELOW ONE PAST THE HIGHEST NUMBER GIVEN, and it is the room's
+ * own counter rather than the team count — so no number is ever given twice,
+ * even if a team were ever taken out of the room.
+ */
+export function teamNumbers(inJoinOrder: Array<{ teamNumber?: number }>, next?: number): { numbers: number[]; next: number } {
+  let n = Math.max(1, next ?? 1, ...inJoinOrder.map(t => (t.teamNumber ?? 0) + 1));
+  const numbers = inJoinOrder.map(t => t.teamNumber ?? n++);
+  return { numbers, next: n };
+}
+
+/** "Team 1 | Bob's Pool" — how every host screen pairs a team's number with its name. */
+export const teamLabel = (t: { teamNumber: number; name: string }): string => `Team ${t.teamNumber} | ${t.name}`;
+
 export function mayCreateTeam(status: EventStatus): boolean {
   return status === 'OPEN';
 }
@@ -665,6 +694,14 @@ export interface SetEventHiddenResponse {
 // trusting the caller to look away.
 export interface TeamView {
   name: string;
+  /**
+   * THE TEAM'S NUMBER IN THE ROOM — the first team to join is 1, the next 2, and
+   * so on (teamNumbers below). Stored with the room, given once at join and
+   * never changed; never reused, because the room keeps the next number rather
+   * than counting its teams. Every host screen shows it beside the name
+   * ("Team 1 | Bob's Pool") and the team's own screens beside its own.
+   */
+  teamNumber: number;
   // ⚠ THE LINES THIS TEAM PLAYS, WHICH ARE NOW THE ROOM'S. It used to be the
   // team's own choice at join, and the note here used to say teams in one room
   // play different books. They do not any more: the host sets the room's lines
