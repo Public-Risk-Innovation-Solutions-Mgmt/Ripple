@@ -218,11 +218,20 @@ export default function PlayScreen({ code, role }: Props) {
   const { room, you, error, loading, refresh } = useRoom(code, token);
   const game = useSessionGame(code, room, you, token);
 
+  // ⚠ SET HERE, NEVER INFERRED FROM error ALONE — error.code is BAD_TOKEN for
+  // this AND for a stray/forged token that never belonged to anyone, and the
+  // two need different words. This only fires when `token` was already set
+  // (see the guard below): a credential THIS DEVICE believed was good, that
+  // the server has since stopped honouring — which, for a token minted by a
+  // join or a reclaim on this very device, means another device reclaimed the
+  // team out from under it. See Mike's device-switching guide, Step 7.4.
+  const [movedAway, setMovedAway] = useState(false);
   useEffect(() => {
     if (error?.code === 'BAD_TOKEN' && token) {
       clearActive(code);
       forgetTeamCredential(code, token);
       setToken(undefined);
+      setMovedAway(true);
     }
   }, [error, token, code]);
 
@@ -248,6 +257,7 @@ export default function PlayScreen({ code, role }: Props) {
   async function enter(teamName: string) {
     setClaiming(teamName);
     setActionError(null);
+    setMovedAway(false);
     try {
       const held = heldCreds.find(c => c.teamName === teamName);
       // ⚠ A TOKEN ON THE FIRST JOIN TOO, NOT ONLY ON A REJOIN. Minted here and
@@ -288,6 +298,7 @@ export default function PlayScreen({ code, role }: Props) {
   async function reclaim() {
     setReclaiming(true);
     setReclaimError(null);
+    setMovedAway(false);
     try {
       const res = await sessionTransport().reclaimTeam({
         code, teamName: reclaimName.trim(), recoveryCode: reclaimCode.trim(), token: newSessionToken(),
@@ -375,6 +386,17 @@ export default function PlayScreen({ code, role }: Props) {
               anyone lands on. The damaging direction is also the one the server
               refuses once the event is under way. */}
           <RoleChoice code={code} role={role} status={eventStatusOf(room.currentYear, room.yearCount)} currentYear={room.currentYear} />
+
+          {/* ⚠ SHOWN INSTEAD OF A GENERIC ERROR, NEVER ALONGSIDE ONE — this and
+              actionError are set by disjoint paths (a background poll losing
+              authority vs. an explicit join/reclaim attempt failing), but
+              enter()/reclaim() clear this the moment a fresh attempt starts,
+              so the two never stack. */}
+          {movedAway && (
+            <div data-testid="team-moved" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              This team was moved to another device. Name it again, or reclaim it if it was yours.
+            </div>
+          )}
 
           {actionError && (
             <div data-testid="claim-error" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

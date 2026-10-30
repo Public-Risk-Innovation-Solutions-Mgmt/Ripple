@@ -139,6 +139,7 @@ function ReclaimTeamModal({ onClose }: { onClose: () => void }) {
           <input
             type="text"
             autoFocus
+            data-testid="reclaim-room-code"
             value={roomCode}
             onChange={e => setRoomCode(e.target.value)}
             placeholder="Room code"
@@ -146,6 +147,7 @@ function ReclaimTeamModal({ onClose }: { onClose: () => void }) {
           />
           <input
             type="text"
+            data-testid="reclaim-team-name"
             value={teamName}
             onChange={e => setTeamName(e.target.value)}
             placeholder="Team name"
@@ -154,6 +156,7 @@ function ReclaimTeamModal({ onClose }: { onClose: () => void }) {
           <input
             type="text"
             inputMode="numeric"
+            data-testid="reclaim-code"
             value={recoveryCode}
             onChange={e => setRecoveryCode(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && canSubmit && !reclaiming) void submit(); }}
@@ -161,7 +164,7 @@ function ReclaimTeamModal({ onClose }: { onClose: () => void }) {
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-mono text-lg tracking-widest text-slate-900"
           />
         </div>
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        {error && <p data-testid="reclaim-error" className="mt-2 text-sm text-red-600">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
@@ -173,6 +176,7 @@ function ReclaimTeamModal({ onClose }: { onClose: () => void }) {
           </button>
           <button
             type="button"
+            data-testid="submit-reclaim"
             disabled={reclaiming || !canSubmit}
             onClick={() => { void submit(); }}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
